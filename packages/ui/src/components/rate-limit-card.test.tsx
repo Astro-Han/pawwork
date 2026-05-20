@@ -4,10 +4,9 @@
  * Two-layer test strategy:
  * 1. Source-analysis: verify DOM slots, CSS class contracts, and no-go rules
  *    (no buttons, no app imports) by reading the source file as text.
- * 2. Pure helper: verify formatResetTime produces correct HH:MM strings and
- *    the system timezone via mocking Intl.DateTimeFormat.
+ * 2. Pure helper: verify formatResetTime produces correct HH:MM strings.
  */
-import { describe, expect, test, beforeEach, afterEach, spyOn } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { formatResetTime } from "./rate-limit-card"
 
@@ -85,61 +84,134 @@ describe("RateLimitCard: callback props", () => {
   })
 })
 
-// ── CSS: warning left-border rule ──────────────────────────────────────────
+// ── Architecture: composes the canonical Card primitive ───────────────────
+//
+// PR #775 originally hand-rolled every visual rule (left border, title weight,
+// description color, body gap) instead of leaning on `<Card variant="warning">`.
+// That bypassed the project token system and led to off-grid spacing, an
+// undefined `--fg-muted` token, and a line-height that matched no type token.
+// These tests pin the architecture so the same drift cannot reappear.
+
+describe("RateLimitCard: composes Card primitive", () => {
+  test("imports Card / CardTitle / CardDescription / CardActions from ./card", () => {
+    expect(src).toMatch(/from\s+['"]\.\/card['"]/)
+    expect(src).toContain("Card")
+    expect(src).toContain("CardTitle")
+    expect(src).toContain("CardDescription")
+    expect(src).toContain("CardActions")
+  })
+
+  test("renders <Card variant=\"warning\"> so the 2px rule and accent come from the primitive", () => {
+    expect(src).toMatch(/<Card\b[^>]*variant=["']warning["']/)
+  })
+
+  test("scoped CSS targets the data-kind hook, not the bare component name", () => {
+    // Mirrors the tool-error-card pattern: `[data-component="card"][data-kind="..."]`.
+    expect(css).toContain('[data-component="card"][data-kind="rate-limit-card"]')
+  })
+
+  test("does not redefine container styles already owned by Card primitive", () => {
+    // The left rule, title color, and description font live in card.css now.
+    // Catching them here would mean RateLimitCard drifted off the system again.
+    expect(css).not.toContain("border-left")
+    expect(css).not.toContain("--fg-strong")
+    expect(css).not.toContain("--font-size-body")
+  })
+})
+
+// ── CSS: action-link specifics still live in this file ────────────────────
 
 describe("RateLimitCard: CSS token contract", () => {
-  test("left border uses var(--warning)", () => {
-    expect(css).toContain("border-left: 2px solid var(--warning)")
-  })
-
-  test("icon color uses var(--warning)", () => {
-    expect(css).toContain("color: var(--warning)")
-  })
-
   test("primary action color uses var(--warning)", () => {
-    // rate-limit-card__action--primary must override to warning color.
     expect(css).toMatch(/\.rate-limit-card__action--primary[\s\S]*?color:\s*var\(--warning\)/)
   })
 
-  test("title color uses var(--fg-strong)", () => {
-    expect(css).toContain("color: var(--fg-strong)")
+  test("secondary action color uses var(--fg-weak), not the undefined --fg-muted", () => {
+    expect(css).toContain("var(--fg-weak)")
+    expect(css).not.toContain("--fg-muted")
   })
 
-  test("description font uses body typography tokens", () => {
-    expect(css).toContain("font-size: var(--font-size-body)")
-    expect(css).toContain("font-weight: var(--font-weight-body)")
+  test("actions row uses an on-grid horizontal gap via --space-* token", () => {
+    expect(css).toMatch(/\[data-slot="card-actions"\][\s\S]*?gap:\s*var\(--space-/)
+  })
+})
+
+// ── Live invalidation at resetAt ───────────────────────────────────────────
+//
+// rate_limit_blocked is a sticky terminal state (see session/status.ts), so
+// the card outlives resetAt unless the user submits a new turn. The component
+// schedules a one-shot tick at resetAt that flips its internal `now` signal,
+// forcing formatResetTime to fall through to the no-time subtitle.
+
+describe("RateLimitCard: invalidates copy at resetAt", () => {
+  test("imports onMount, createSignal, and onCleanup from solid-js", () => {
+    expect(src).toMatch(/from\s+["']solid-js["']/)
+    expect(src).toContain("onMount")
+    expect(src).toContain("createSignal")
+    expect(src).toContain("onCleanup")
   })
 
-  test("actions gap is 20px", () => {
-    expect(css).toMatch(/\.rate-limit-card__actions[\s\S]*?gap:\s*20px/)
+  test("schedules a setTimeout whose delay is derived from resetAt minus Date.now()", () => {
+    expect(src).toContain("setTimeout")
+    // Delay is computed from resetAt; we don't pin the exact arithmetic but do
+    // require both pieces appear in the same function so the relation is local.
+    expect(src).toMatch(/resetAt\s*-\s*Date\.now\(\)/)
+  })
+
+  test("clears the scheduled timer on unmount", () => {
+    expect(src).toContain("clearTimeout")
+    expect(src).toMatch(/onCleanup\(\s*\(\s*\)\s*=>\s*clearTimeout/)
+  })
+
+  test("skips scheduling when resetAt is undefined or already past", () => {
+    // The guard keeps the timer cost at zero for the no-time fallback path and
+    // avoids a setTimeout(_, 0) thrash when the provider sent a past HTTP-date.
+    expect(src).toMatch(/if\s*\(\s*resetAt\s*===\s*undefined\s*\)\s*return/)
+    expect(src).toMatch(/if\s*\(\s*remaining\s*<=\s*0\s*\)\s*return/)
   })
 })
 
 // ── formatResetTime pure helper ────────────────────────────────────────────
 
 describe("formatResetTime", () => {
-  // 2024-01-15 UTC midnight = 1705276800000 ms
-  // Asia/Shanghai is UTC+8 → 08:00
-  // America/New_York is UTC-5 (EST in January) → 19:00 previous day, but
-  // the displayed time for the same epoch varies by TZ.
   const EPOCH_UTC_MIDNIGHT = 1705276800000 // 2024-01-15T00:00:00Z
+  const ONE_HOUR = 60 * 60 * 1000
+  const SIX_HOURS = 6 * ONE_HOUR
+  const ONE_DAY = 24 * ONE_HOUR
+  const TWO_DAYS = 2 * ONE_DAY
+  // ±14h is the widest real local offset, so EPOCH + 6h stays on the same
+  // local calendar day in every IANA timezone.
+  const NOW = EPOCH_UTC_MIDNIGHT
 
   test("returns time string in HH:MM format", () => {
-    const { time } = formatResetTime(EPOCH_UTC_MIDNIGHT)
-    // HH:MM with hour12: false — must match pattern like "08:00" or "19:00"
-    expect(time).toMatch(/^\d{2}:\d{2}$/)
-  })
-
-  test("returns non-empty timezone string from Intl", () => {
-    const { tz } = formatResetTime(EPOCH_UTC_MIDNIGHT)
-    expect(typeof tz).toBe("string")
-    expect(tz.length).toBeGreaterThan(0)
+    expect(formatResetTime(NOW + SIX_HOURS, NOW)?.time).toMatch(/^\d{2}:\d{2}$/)
   })
 
   test("different epochs produce different time strings", () => {
-    const { time: t1 } = formatResetTime(EPOCH_UTC_MIDNIGHT)
-    // 6 hours later
-    const { time: t2 } = formatResetTime(EPOCH_UTC_MIDNIGHT + 6 * 60 * 60 * 1000)
+    const t1 = formatResetTime(NOW + ONE_HOUR, NOW)?.time
+    const t2 = formatResetTime(NOW + SIX_HOURS, NOW)?.time
     expect(t1).not.toEqual(t2)
+  })
+
+  test("kind is 'today' when reset is later the same local calendar day", () => {
+    expect(formatResetTime(NOW + SIX_HOURS, NOW)?.kind).toBe("today")
+  })
+
+  test("kind is 'tomorrow' when reset is exactly one day ahead", () => {
+    expect(formatResetTime(NOW + ONE_DAY, NOW)?.kind).toBe("tomorrow")
+  })
+
+  test("returns undefined when resetAt is already past, even on the same local day", () => {
+    // Past on a previous day: provider sent an HTTP-date that already elapsed
+    // (retry.ts clamps the wait to 0 but writes the parsed date through).
+    expect(formatResetTime(NOW - TWO_DAYS, NOW)).toBeUndefined()
+    // Past within the same local day: the day-bucket check alone misses this,
+    // so the card would otherwise read "Resets around HH:MM today" for a time
+    // that has already gone by.
+    expect(formatResetTime(NOW, NOW + SIX_HOURS)).toBeUndefined()
+  })
+
+  test("returns undefined when resetAt is more than one local day ahead", () => {
+    expect(formatResetTime(NOW + TWO_DAYS, NOW)).toBeUndefined()
   })
 })
