@@ -19,7 +19,6 @@ export function buildPawworkSessionSections(input: {
   sessions: PawworkSessionItem[]
   pinnedIDs: string[]
   sortMode: PawworkSortMode
-  currentSessionID?: string
 }) {
   const pinnedSet = new Set(input.pinnedIDs)
   const pinned = input.pinnedIDs

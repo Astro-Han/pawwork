@@ -16,6 +16,9 @@ export const workspaceKey = (directory: string) => {
   return value.replace(/\/+$/, "")
 }
 
+export const pawworkSessionRowKey = (input: { directory: string; id: string }) =>
+  `${workspaceKey(input.directory)}\0${input.id}`
+
 const isRootVisibleSession = (session: Session, directory: string) =>
   workspaceKey(session.directory) === workspaceKey(directory) && !session.parentID && !session.time?.archived
 
