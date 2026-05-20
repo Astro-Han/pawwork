@@ -10,11 +10,11 @@ export const AttemptID = z.string().brand<"RunAttemptID">()
 export type AttemptID = z.infer<typeof AttemptID>
 
 export const Classification = z.enum([
+  "success",
   "external_stream_disconnect",
   "known_lifecycle_close",
   "unknown_scope_close",
   "request_setup_failure",
-  "watchdog_timeout",
   "tool_failure",
   "unknown_failure",
 ])
@@ -29,6 +29,7 @@ export type RetrySafety = {
   recommendation: "candidate_safe_auto_retry" | "do_not_auto_retry" | "ask_user" | "unknown"
   confidence: Confidence
   reason:
+    | "completed_without_failure"
     | "no_visible_output_or_tool_execution"
     | "visible_output_seen"
     | "tool_execution_started"

@@ -3,6 +3,32 @@ import { MessageID, SessionID } from "../../src/session/schema"
 import { RunObservability } from "../../src/session/run-observability"
 
 describe("RunObservability", () => {
+  test("classifies completed runs without failure as success", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_success"),
+      traceID: MessageID.make("msg_success"),
+      sessionID: SessionID.make("ses_success"),
+      messageID: MessageID.make("msg_success"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+
+    recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+
+    const summary = recorder.finalize({ completedAt: 20, monotonicMs: 200 })
+    expect(summary.classification).toBe("success")
+    expect(String(summary.summary_key)).toBe("success.completed")
+    expect(summary.retry_safety).toEqual({
+      recommendation: "unknown",
+      confidence: "high",
+      reason: "completed_without_failure",
+      safety_scope: "user_visible_and_tool_side_effects",
+    })
+    expect(summary.error).toBeUndefined()
+  })
+
   test("classifies external stream disconnect from run-level aggregate facts", () => {
     const recorder = RunObservability.createRecorder({
       runID: RunObservability.RunID.make("run_external"),

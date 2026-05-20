@@ -216,7 +216,7 @@ export function createRecorder(input: RecorderInput): Recorder {
 }
 
 function classify(failure: Failure | undefined): Classification {
-  if (!failure) return "unknown_failure"
+  if (!failure) return "success"
   if (failure.type === "setup") return "request_setup_failure"
   if (failure.type === "tool") return "tool_failure"
   if (failure.type === "scope_closed")
@@ -235,6 +235,7 @@ function summarySuffix(input: { failure: Failure | undefined; providerProgressSe
   if (input.failure?.type === "scope_closed") return "missing_lifecycle_provenance"
   if (input.failure?.type === "setup") return "request_setup_failed"
   if (input.failure?.type === "tool") return "tool_execution_failed"
+  if (!input.failure) return "completed"
   return "unknown"
 }
 
@@ -249,6 +250,9 @@ function retrySafetyFor(input: {
   unsafeSideEffectStarted: boolean
 }): Summary["retry_safety"] {
   const base = { safety_scope: "user_visible_and_tool_side_effects" as const }
+  if (input.classification === "success") {
+    return { ...base, recommendation: "unknown", confidence: "high", reason: "completed_without_failure" }
+  }
   if (input.visibleOutputSeen) {
     return { ...base, recommendation: "do_not_auto_retry", confidence: "high", reason: "visible_output_seen" }
   }
