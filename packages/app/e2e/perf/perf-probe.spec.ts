@@ -225,8 +225,10 @@ async function readTimelineDomBudget(page: Parameters<typeof snapshotPerfProbe>[
       const virtualizer = document.querySelector(virtualizerSelector)
       const rows = Array.from(document.querySelectorAll(rowSelector))
       const messages = Array.from(document.querySelectorAll(messageSelector))
+      const virtualizedTotalRows = Number((virtualizer as HTMLElement | null)?.dataset.totalRows ?? 0)
       return {
-        totalRows: Number((virtualizer as HTMLElement | null)?.dataset.totalRows ?? 0),
+        hasVirtualizer: virtualizer instanceof HTMLElement,
+        totalRows: virtualizedTotalRows > 0 ? virtualizedTotalRows : messages.length,
         mountedRows: rows.length,
         mountedMessages: messages.length,
         visibleRows: rows.filter((row) => {
@@ -862,8 +864,11 @@ test.describe("PR0.1 perf probe baseline", () => {
         await revealLongScrollWindow(page)
         const budget = await readTimelineDomBudget(page)
         expect(budget.totalRows).toBeGreaterThanOrEqual(longScrollMinimumAvailableRows)
-        expect(budget.mountedMessages).toBeLessThanOrEqual(longScrollMaximumMountedMessages)
-        expect(budget.mountedMessages).toBeLessThan(budget.totalRows)
+        if (perfBranch !== "base") {
+          expect(budget.hasVirtualizer).toBe(true)
+          expect(budget.mountedMessages).toBeLessThanOrEqual(longScrollMaximumMountedMessages)
+          expect(budget.mountedMessages).toBeLessThan(budget.totalRows)
+        }
         await writeComposerDriver(page, session.id, longScrollTodoDriver(run, 0))
         await expandLongScrollTodoDock(page)
 
