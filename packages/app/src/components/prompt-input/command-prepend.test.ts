@@ -208,16 +208,41 @@ describe("prependCommandMark — slash-query state (user typed /<query>)", () =>
     expect(result.length).toBe(3)
   })
 
-  test("leading marked TextPart is NOT slash-query state (E1)", () => {
-    // current already has a marked pill; a second select should prepend (E1).
+  test("leading marked TextPart → replace old marked with new (at-most-one invariant)", () => {
+    // current already has a marked pill; picking a second command means the
+    // user is changing their mind. The result must contain exactly ONE marked
+    // TextPart at index 0 (spec invariant L538-546).
     const markedAlready: Prompt = [{
       type: "text", content: "/foo ", start: 0, end: 5,
       command: { name: "foo", source: "skill", icon: "command" },
     }]
     const result = prependCommandMark(markedAlready, [], cmd("review"))
+
+    expect(result.length).toBe(1)
+    expect((result[0] as any).command?.name).toBe("review")
+
+    // Exactly one marked TextPart in the whole result.
+    const markedCount = result.filter((p) => p.type === "text" && (p as TextPart).command).length
+    expect(markedCount).toBe(1)
+  })
+
+  test("leading marked TextPart + tail parts → replace marked, preserve tail by identity", () => {
+    // Args text after the pill, plus a file attachment, must survive identity.
+    const oldMarked: TextPart = {
+      type: "text", content: "/foo args", start: 0, end: 9,
+      command: { name: "foo", source: "skill", icon: "command" },
+    }
+    const file = filePart("/x.ts")
+    const markedAlready: Prompt = [oldMarked, file]
+    const result = prependCommandMark(markedAlready, [], cmd("review"))
+
     expect(result.length).toBe(2)
     expect((result[0] as any).command?.name).toBe("review")
-    expect(result[1]).toBe(markedAlready[0])
+    // Tail FilePart preserved by reference.
+    expect(result[1]).toBe(file)
+    // Old marked TextPart is gone (no duplicate command).
+    const markedCount = result.filter((p) => p.type === "text" && (p as TextPart).command).length
+    expect(markedCount).toBe(1)
   })
 })
 

@@ -30,6 +30,11 @@ function isSlashQueryState(current: Prompt): boolean {
   return SLASH_QUERY_REGEX.test(first.content)
 }
 
+function hasLeadingMarked(current: Prompt): boolean {
+  const first = current[0]
+  return first?.type === "text" && !!first.command
+}
+
 /**
  * Build the new Prompt after the user selects a custom slash command.
  *
@@ -52,6 +57,14 @@ export function prependCommandMark(
     // marked TextPart. The slash literal the user typed (`/foo`) is consumed
     // by the conversion. Image attachments survive.
     return [marked, ...images]
+  }
+
+  if (hasLeadingMarked(current)) {
+    // Invariant: at most one marked TextPart per Prompt, always at index 0.
+    // Re-opening the popover and picking a second command means the user is
+    // changing their mind — replace the old marked TextPart with the new one
+    // and keep the rest of the prompt (args text, images, files, agents).
+    return [marked, ...current.slice(1)]
   }
 
   // E1 mid-prompt variant: keep all existing parts (including any images
