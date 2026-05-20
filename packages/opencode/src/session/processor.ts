@@ -22,11 +22,11 @@ import { ExternalResult } from "@/tool/external-result"
 import { errorMessage } from "@/util/error"
 import { Log } from "@opencode-ai/core/util/log"
 import { isRecord } from "@/util/record"
+import { InstanceState } from "@/effect/instance-state"
 import { TurnChange } from "./turn-change"
 import { LLMTrace } from "./llm-trace"
 import { RunObservability } from "./run-observability"
 import { currentLifecycleCloseAction } from "./lifecycle-provenance"
-import { Instance } from "@/project/instance"
 
 const log = Log.create({ service: "session.processor" })
 const TOOL_CLEANUP_TIMEOUT_MS = 1_000
@@ -122,6 +122,7 @@ type PendingLoopAction = {
 }
 
 interface ProcessorContext extends Input {
+  directory: string
   toolcalls: Record<string, ToolCall>
   pendingLoopActions: Record<string, PendingLoopAction>
   pendingToolUpdates: Record<string, Array<(part: MessageV2.ToolPart) => MessageV2.ToolPart>>
@@ -177,10 +178,12 @@ export const layer: Layer.Layer<
       // may execute tools internally before emitting start-step events,
       // so capturing inside the event handler can be too late.
       const initialSnapshot = yield* snapshot.track()
+      const instanceContext = yield* InstanceState.context
       const ctx: ProcessorContext = {
         assistantMessage: input.assistantMessage,
         sessionID: input.sessionID,
         model: input.model,
+        directory: instanceContext.directory,
         toolcalls: {},
         pendingLoopActions: {},
         pendingToolUpdates: {},
@@ -1075,7 +1078,7 @@ export const layer: Layer.Layer<
             Effect.onInterrupt(() =>
               Effect.gen(function* () {
                 aborted = true
-                const lifecycleAction = currentLifecycleCloseAction(Instance.directory)
+                const lifecycleAction = currentLifecycleCloseAction(ctx.directory)
                 ctx.runTrace.recordScopeClosed({
                   at: Date.now(),
                   monotonicMs: performance.now(),

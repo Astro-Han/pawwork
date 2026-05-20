@@ -1,7 +1,12 @@
-import { describe, expect } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import { Effect, Exit, Fiber, Layer } from "effect"
 import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
 import { Instance } from "../../src/project/instance"
+import {
+  createLifecycleCloseAction,
+  currentLifecycleCloseAction,
+  withLifecycleCloseAction,
+} from "../../src/session/lifecycle-provenance"
 import { SessionRunState } from "../../src/session/run-state"
 import { SessionID } from "../../src/session/schema"
 import { provideTmpdirInstance } from "../fixture/fixture"
@@ -10,6 +15,33 @@ import { testEffect } from "../lib/effect"
 const it = testEffect(Layer.mergeAll(CrossSpawnSpawner.defaultLayer, SessionRunState.defaultLayer))
 
 describe("SessionRunState", () => {
+  test("keeps overlapping lifecycle actions isolated per directory", async () => {
+    const directory = "/tmp/pawwork-lifecycle-overlap"
+    const first = createLifecycleCloseAction("instance_reload")
+    const second = createLifecycleCloseAction("instance_dispose_all")
+    let resolveFirst!: () => void
+    let resolveSecond!: () => void
+
+    const firstDone = withLifecycleCloseAction([directory], first, async () => {
+      await new Promise<void>((resolve) => {
+        resolveFirst = resolve
+      })
+    })
+    const secondDone = withLifecycleCloseAction([directory], second, async () => {
+      await new Promise<void>((resolve) => {
+        resolveSecond = resolve
+      })
+    })
+
+    expect(currentLifecycleCloseAction(directory)).toBe(second)
+    resolveFirst()
+    await firstDone
+    expect(currentLifecycleCloseAction(directory)).toBe(second)
+    resolveSecond()
+    await secondDone
+    expect(currentLifecycleCloseAction(directory)).toBeUndefined()
+  })
+
   it.live("annotates runner interrupts caused by instance disposal with lifecycle provenance", () => {
     let captured:
       | {
