@@ -144,6 +144,57 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
     ),
   )
 
+  // Homepage owner mirror — single source of truth for portable/pinned draft
+  // recording. Runs as an effect on the prompt store so EVERY path that mutates
+  // the prompt (normal text input, Path A popover select, Path B Space-trigger,
+  // Path C paste, Backspace ladder, history navigation, attachment add/remove)
+  // automatically records into the active owner. Previously handleInput's
+  // tail-only mirror missed Path A/B/C and silently dropped the user's draft
+  // when they navigated away from the homepage and came back.
+  //
+  // Session routes have no owner — guarded by params.id.
+  // IME composition is in-flight raw bytes, not a stable draft — skip and
+  // wait for compositionend to commit before recording.
+  // The portable/pinned record() implementations both dedupe by deep-equal
+  // payload, so this effect firing more often than the old tail-only path
+  // (e.g. on hydration that sets the prompt to the snapshot's own contents)
+  // is a no-op and cannot loop.
+  createEffect(
+    on(
+      () => [prompt.current(), prompt.context.items(), imageAttachments()] as const,
+      ([parts, contextItems, images]) => {
+        if (composing()) return
+        if (params.id) return // session route, no owner mirror
+
+        const resolvedMentionsMap: Record<string, ResolvedMention[]> = {}
+        for (const item of contextItems) {
+          if (item.type === "file" && item.resolvedMentions?.length) {
+            resolvedMentionsMap[item.key] = item.resolvedMentions
+          }
+        }
+
+        const currentPinnedSlot = pinned.current()
+        if (currentPinnedSlot && currentPinnedSlot.directory === sdk.directory) {
+          pinned.recordEdit({
+            directory: sdk.directory,
+            prompt: parts,
+            context: contextItems.slice(),
+            images: [...images],
+            resolvedMentions: resolvedMentionsMap,
+          })
+        } else {
+          portable.record({
+            sourceFilesystemDirectory: sdk.directory,
+            prompt: parts,
+            context: contextItems.slice(),
+            images: [...images],
+            resolvedMentions: resolvedMentionsMap,
+          })
+        }
+      },
+    ),
+  )
+
   // Centralized "is the homepage draft empty" check.
   // The prompt store, the context-item store, AND the imageAttachments accessor
   // are three independent surfaces. A homepage with chips or images is NOT
@@ -261,35 +312,10 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
         prompt.set(DEFAULT_PROMPT, 0)
       }
       imperatives.queueScroll()
-
-      // Homepage route: clearing all input must also clear the active owner
-      // (Bug 3). Without this, navigating away later carries the stale
-      // snapshot — the user thinks they cleared the draft but the portable
-      // owner still has it.
-      if (!params.id) {
-        const pinnedSlot = pinned.current()
-        if (pinnedSlot && pinnedSlot.directory === sdk.directory) {
-          // Don't release the pinned binding. Recording an empty payload keeps
-          // the slot bound for future edits while signaling that the user
-          // cleared the prefill.
-          pinned.recordEdit({
-            directory: sdk.directory,
-            prompt: DEFAULT_PROMPT,
-            context: [],
-            images: [],
-            resolvedMentions: {},
-          })
-        } else {
-          // Portable owner: record({empty}) tears down the snapshot.
-          portable.record({
-            sourceFilesystemDirectory: sdk.directory,
-            prompt: DEFAULT_PROMPT,
-            context: [],
-            images: [],
-            resolvedMentions: {},
-          })
-        }
-      }
+      // Owner clear is handled by the homepage owner mirror effect above —
+      // setting prompt to DEFAULT_PROMPT with no context/images flips
+      // isPayloadEmpty=true, which makes portable.record() tear down the
+      // snapshot (Bug 3 still covered, just centralized).
       return
     }
 
@@ -316,38 +342,7 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
 
     mirror.input = true
     prompt.set([...rawParts, ...images], cursorPosition)
-    if (!params.id) {
-      // Homepage route: mirror edit into pinned or portable owner after prompt.set.
-      // Build resolvedMentions from current context items.
-      const resolvedMentionsMap: Record<string, ResolvedMention[]> = {}
-      for (const item of prompt.context.items()) {
-        if (item.type === "file" && item.resolvedMentions?.length) {
-          resolvedMentionsMap[item.key] = item.resolvedMentions
-        }
-      }
-      const currentPinnedSlot = pinned.current()
-      if (currentPinnedSlot && currentPinnedSlot.directory === sdk.directory) {
-        // Pinned scope is active for this directory: route edits to pinned owner.
-        // This ensures "clearing pinned prefill and typing fresh text remains pinned-scope".
-        pinned.recordEdit({
-          directory: sdk.directory,
-          prompt: prompt.current(),
-          context: prompt.context.items().slice(),
-          images: imageAttachments(),
-          resolvedMentions: resolvedMentionsMap,
-        })
-      } else {
-        // No active pinned slot for this directory: route edits to portable owner.
-        portable.record({
-          sourceFilesystemDirectory: sdk.directory,
-          prompt: prompt.current(),
-          context: prompt.context.items().slice(),
-          images: imageAttachments(),
-          resolvedMentions: resolvedMentionsMap,
-        })
-      }
-    }
-    // Session routes do not mirror into the portable owner.
+    // Owner mirror is handled by the homepage owner mirror effect above.
     imperatives.queueScroll()
   }
 
