@@ -17,6 +17,7 @@ export function formatResetTime(
   resetAt: number,
   now: number = Date.now(),
 ): { time: string; kind: "today" | "tomorrow" } | undefined {
+  if (resetAt <= now) return undefined
   const reset = new Date(resetAt)
   const today = new Date(now)
   const resetMidnight = new Date(reset.getFullYear(), reset.getMonth(), reset.getDate()).getTime()
