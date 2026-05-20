@@ -4,6 +4,7 @@
 // reflects state into the prompt store.
 
 import { createEffect, createSignal, on, type Accessor } from "solid-js"
+import { createOwnerMirrorEffect } from "./owner-mirror"
 import type { SetStoreFunction } from "solid-js/store"
 import {
   type ContentPart,
@@ -36,7 +37,6 @@ import { promptLength } from "./history"
 import type { EditorImperatives } from "./editor-imperatives"
 import type { PopoverControllers } from "./popover-controllers"
 import type { PromptStore } from "./store-types"
-import type { ResolvedMention } from "./mention-metadata"
 
 const NON_EMPTY_TEXT = /[^\s\u200B]/
 
@@ -148,96 +148,18 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
   // recording. Runs as an effect on the prompt store so EVERY path that mutates
   // the prompt (normal text input, Path A popover select, Path B Space-trigger,
   // Path C paste, Backspace ladder, history navigation, attachment add/remove)
-  // automatically records into the active owner. Previously handleInput's
-  // tail-only mirror missed Path A/B/C and silently dropped the user's draft
-  // when they navigated away from the homepage and came back.
-  //
-  // Two layers of protection against firing with an empty payload at the
-  // wrong moment:
-  //
-  // 1. {defer: true} skips the initial mount-time invocation. At mount the
-  //    prompt is DEFAULT_PROMPT, which is an "empty payload" — without defer
-  //    this effect would call portable.record() / pinned.recordEdit() with
-  //    empty before the hydration effect below has a chance to consume the
-  //    snapshot or apply the pinned prefill.
-  //
-  // 2. lastSeenDir / lastSeenSessionID skip the first fire after the route
-  //    scope changes (homepage A → homepage B navigation, or session →
-  //    homepage). prompt.current() is session-keyed by {dir, id} in the
-  //    prompt binding, so when sdk.directory flips, prompt.current() flips
-  //    to the new session's value (typically DEFAULT_PROMPT for a fresh
-  //    homepage). That value change would otherwise wake this effect and
-  //    record an empty payload against the NEW directory, destroying the
-  //    portable snapshot held for the OLD directory before the hydration
-  //    effect can move it. Skipping the first fire after a scope change
-  //    lets hydration run; the next prompt change (carried content or user
-  //    keystroke) records normally.
-  //
-  // The portable/pinned record() implementations dedupe by deep-equal payload,
-  // so firing more often than strictly necessary (e.g. hydration setting the
-  // prompt to the snapshot's own contents) is a no-op and cannot loop.
-  //
-  // Session routes have no owner — guarded by params.id.
-  // IME composition is in-flight raw bytes, not a stable draft — skip while
-  // composing() is true. composing() is in the tracked deps so the false→true
-  // and true→false transitions wake this effect. Most browsers fire an
-  // additional `inputType: "insertCompositionText"` input event after
-  // compositionend that would wake mirror via prompt.set in handleInput, but
-  // not all do; tracking composing directly guarantees a record on commit
-  // regardless of the post-compositionend input event.
-  let lastSeenDir: string | undefined = sdk.directory
-  let lastSeenSessionID: string | undefined = params.id
-  createEffect(
-    on(
-      () =>
-        [
-          prompt.current(),
-          prompt.context.items(),
-          imageAttachments(),
-          sdk.directory,
-          params.id,
-          composing(),
-        ] as const,
-      ([parts, contextItems, images, dir, sessionID, compose]) => {
-        if (compose) return
-
-        // Scope change detection. Track sdk.directory and params.id so the
-        // session swap in prompt.current() doesn't slip through unguarded.
-        const scopeChanged = lastSeenDir !== dir || lastSeenSessionID !== sessionID
-        lastSeenDir = dir
-        lastSeenSessionID = sessionID
-        if (sessionID) return // session route, no owner mirror
-        if (scopeChanged) return // wait for hydration; next prompt change records
-
-        const resolvedMentionsMap: Record<string, ResolvedMention[]> = {}
-        for (const item of contextItems) {
-          if (item.type === "file" && item.resolvedMentions?.length) {
-            resolvedMentionsMap[item.key] = item.resolvedMentions
-          }
-        }
-
-        const currentPinnedSlot = pinned.current()
-        if (currentPinnedSlot && currentPinnedSlot.directory === dir) {
-          pinned.recordEdit({
-            directory: dir,
-            prompt: parts,
-            context: contextItems.slice(),
-            images: [...images],
-            resolvedMentions: resolvedMentionsMap,
-          })
-        } else {
-          portable.record({
-            sourceFilesystemDirectory: dir,
-            prompt: parts,
-            context: contextItems.slice(),
-            images: [...images],
-            resolvedMentions: resolvedMentionsMap,
-          })
-        }
-      },
-      { defer: true },
-    ),
-  )
+  // automatically records into the active owner. See owner-mirror.ts for the
+  // defer / scopeChanged / composing guard semantics.
+  createOwnerMirrorEffect({
+    prompt: () => prompt.current(),
+    contextItems: () => prompt.context.items(),
+    images: imageAttachments,
+    directory: () => sdk.directory,
+    sessionID: () => params.id,
+    composing,
+    portable,
+    pinned,
+  })
 
   // Centralized "is the homepage draft empty" check.
   // The prompt store, the context-item store, AND the imageAttachments accessor
