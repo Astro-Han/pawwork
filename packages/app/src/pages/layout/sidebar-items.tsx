@@ -106,13 +106,14 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
     return childSessionOnPath(sessionStore.session, props.session.id, params.id)
   })
 
-  const statusKind = createMemo(() => {
-    const asking = isAsking()
-    const busy = !asking && !!sessionRunning()
-    const error = !asking && !busy && hasError()
-    const unread = !asking && !busy && !error && notification.session.unseenCount(props.session.id) > 0
-    return sidebarStatusKind({ asking, busy, error, unread })
-  })
+  const statusKind = createMemo(() =>
+    sidebarStatusKind({
+      asking: isAsking(),
+      busy: !!sessionRunning(),
+      error: hasError(),
+      unread: notification.session.unseenCount(props.session.id) > 0,
+    }),
+  )
 
   const statusContent = (): JSX.Element => {
     switch (statusKind()) {
