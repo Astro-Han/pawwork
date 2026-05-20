@@ -167,6 +167,60 @@ describe("prependCommandMark — non-empty prompt (E1 variant)", () => {
   })
 })
 
+// Slash-query replacement cases ------------------------------------------
+
+describe("prependCommandMark — slash-query state (user typed /<query>)", () => {
+  test("current=[Text('/')] → replace, NOT prepend", () => {
+    const current: Prompt = [plainText("/")]
+    const result = prependCommandMark(current, [], cmd("brainstorming"))
+    expect(result.length).toBe(1)
+    expect((result[0] as any).command?.name).toBe("brainstorming")
+    expect((result[0] as any).content).toBe("/brainstorming ")
+  })
+
+  test("current=[Text('/brain')] → replace, NOT prepend", () => {
+    const current: Prompt = [plainText("/brain")]
+    const result = prependCommandMark(current, [], cmd("brainstorming"))
+    expect(result.length).toBe(1)
+    expect((result[0] as any).command?.name).toBe("brainstorming")
+  })
+
+  test("slash-query state + images → [marked, ...images], typed slash consumed", () => {
+    const img = imagePart("a")
+    const current: Prompt = [plainText("/foo")]
+    const result = prependCommandMark(current, [img], cmd("review"))
+    expect(result.length).toBe(2)
+    expect((result[0] as any).command?.name).toBe("review")
+    expect(result[1]).toBe(img)
+  })
+
+  test("text containing slash mid-string is NOT slash-query state (E1)", () => {
+    const current: Prompt = [plainText("hi /foo")]
+    const result = prependCommandMark(current, [], cmd("review"))
+    // E1 branch fires: prepend
+    expect(result.length).toBe(2)
+    expect((result[1] as any).content).toBe("hi /foo")
+  })
+
+  test("multi-part prompt with leading /foo is NOT slash-query state (E1)", () => {
+    const current: Prompt = [plainText("/foo"), plainText("bar")]
+    const result = prependCommandMark(current, [], cmd("review"))
+    expect(result.length).toBe(3)
+  })
+
+  test("leading marked TextPart is NOT slash-query state (E1)", () => {
+    // current already has a marked pill; a second select should prepend (E1).
+    const markedAlready: Prompt = [{
+      type: "text", content: "/foo ", start: 0, end: 5,
+      command: { name: "foo", source: "skill", icon: "command" },
+    }]
+    const result = prependCommandMark(markedAlready, [], cmd("review"))
+    expect(result.length).toBe(2)
+    expect((result[0] as any).command?.name).toBe("review")
+    expect(result[1]).toBe(markedAlready[0])
+  })
+})
+
 // No-mutation invariant ---------------------------------------------------
 
 describe("prependCommandMark — no mutation", () => {
