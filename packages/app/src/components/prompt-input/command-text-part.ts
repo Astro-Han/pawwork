@@ -77,6 +77,21 @@ export function tryParseLeadingCommandFromText(
   return createCommandTextPart(entry, args)
 }
 
+// Build a CommandDescriptor[] registry from sync.data.command entries.
+// sync.data.command provides {name, source?}; source defaults to "command"
+// when absent. icon always defaults to "command" (resolveCommandIconSvg
+// fallback). Built-in slash commands are NOT included — they dispatch
+// immediately, never rendered as pills.
+export function buildSlashRegistry(
+  commands: ReadonlyArray<{ name: string; source?: CommandSource }>,
+): CommandDescriptor[] {
+  return commands.map((c) => ({
+    name: c.name,
+    source: c.source ?? "command",
+    icon: "command",
+  }))
+}
+
 // Synchronous invariant check. Throws when the marked TextPart violates the
 // content prefix contract (`/<name> ` must be the start of content).
 // Used by helper-level Bun tests; production renderer should use reportInvariantBreach.

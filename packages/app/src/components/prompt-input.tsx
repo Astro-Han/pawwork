@@ -271,6 +271,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     setStore,
     prompt,
     sdk,
+    sync,
     imageAttachments,
     editorRef: () => editorRef,
     mirror,
@@ -322,6 +323,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     handleCompositionStart,
     handleCompositionEnd,
     handleInput,
+    handleCopy,
     addPart,
   } = editorInput
 
@@ -532,6 +534,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               // @ts-expect-error
               autocomplete="off"
               onInput={handleInput}
+              onCopy={handleCopy}
               onPaste={(event) => {
                 if (!actionReady()) {
                   event.preventDefault()
