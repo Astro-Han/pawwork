@@ -85,6 +85,7 @@
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     word-break: break-word;
+    padding-left: var(--card-indent);
   }
 
   :where([data-card="actions"], [data-slot="card-actions"]) {
