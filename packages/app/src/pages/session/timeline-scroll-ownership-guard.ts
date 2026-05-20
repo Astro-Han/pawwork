@@ -73,8 +73,13 @@ function nearestSymbol(node: ts.Node) {
   return "<module>"
 }
 
+function normalizeRepoPath(filePath: string) {
+  return filePath.replace(/\\/g, "/")
+}
+
 function isAllowed(filePath: string, symbol: string, allowlist: TimelineScrollOwnershipAllowlistEntry[]) {
-  return allowlist.some((entry) => entry.filePath === filePath && entry.symbol === symbol)
+  const normalizedFilePath = normalizeRepoPath(filePath)
+  return allowlist.some((entry) => normalizeRepoPath(entry.filePath) === normalizedFilePath && entry.symbol === symbol)
 }
 
 function propertyName(node: ts.Expression) {
