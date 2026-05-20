@@ -42,4 +42,49 @@ describe("session auto scroll", () => {
       dispose()
     })
   })
+
+  test("routes timeline bottom-follow writes through the optional command executor", () => {
+    createRoot((dispose) => {
+      const el = document.createElement("div")
+      let top = 500
+      const commands: Array<{ top: number; reason: string; method: string; anchor: string }> = []
+
+      Object.defineProperties(el, {
+        clientHeight: { value: 100, configurable: true },
+        scrollHeight: { value: 1000, configurable: true },
+        scrollTop: {
+          configurable: true,
+          get: () => top,
+          set: (value) => {
+            top = value
+          },
+        },
+      })
+
+      const autoScroll = createAutoScroll({
+        working: () => true,
+        overflowAnchor: "dynamic",
+        executeScrollCommand: (command) => {
+          commands.push({
+            top: command.top,
+            reason: command.reason,
+            method: command.method,
+            anchor: command.element.style.overflowAnchor,
+          })
+          command.element.scrollTop = command.top
+        },
+      })
+
+      autoScroll.scrollRef(el)
+      autoScroll.pause()
+      el.style.overflowAnchor = "auto"
+
+      autoScroll.forceScrollToBottom("force-bottom")
+
+      expect(commands).toEqual([{ top: 1000, reason: "force-bottom", method: "set-scroll-top", anchor: "none" }])
+      expect(top).toBe(1000)
+
+      dispose()
+    })
+  })
 })
