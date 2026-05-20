@@ -10,6 +10,15 @@ describe("model picker visual regression guard", () => {
     expect(source).not.toContain("text-fg-on-brand")
   })
 
+  test.each([
+    "packages/app/src/pages/layout/pawwork-worktree-badge.tsx",
+    "packages/app/src/components/prompt-input/context-items.tsx",
+    "packages/app/src/components/server/server-row.tsx",
+  ])("tooltip content inherits the tooltip text color: %s", async (path) => {
+    const source = await read(path)
+    expect(source).not.toContain("fg-on-brand")
+  })
+
   test("model list active row uses a visible hover surface (picker contract)", async () => {
     const list = await read("packages/ui/src/components/list.css")
     const listSrc = await read("packages/ui/src/components/list.tsx")

@@ -5,11 +5,11 @@ import { Tooltip } from "@opencode-ai/ui/tooltip"
 function WorktreeTooltipRow(props: { label: string; value?: string; emphasis?: boolean }) {
   return (
     <div class="grid min-w-0 grid-cols-[64px_minmax(0,1fr)] items-start gap-3">
-      <span class="text-caption [color:var(--fg-on-brand)]">{props.label}</span>
+      <span class="text-caption">{props.label}</span>
       <span
         classList={{
-          "text-h3 [color:var(--fg-on-brand)]": props.emphasis,
-          "text-body [color:var(--fg-on-brand)]": !props.emphasis,
+          "text-h3": props.emphasis,
+          "text-body": !props.emphasis,
         }}
         class="min-w-0 break-all leading-[1.45]"
       >

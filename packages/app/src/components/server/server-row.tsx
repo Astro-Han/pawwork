@@ -55,7 +55,7 @@ export function ServerRow(props: ServerRowProps) {
     <span class="flex items-center gap-2">
       <span>{serverName(props.conn, true)}</span>
       <Show when={props.status?.version}>
-        <span class="text-fg-on-brand">v{props.status?.version}</span>
+        <span class="opacity-80">v{props.status?.version}</span>
       </Show>
     </span>
   )
