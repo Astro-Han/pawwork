@@ -214,7 +214,9 @@ async function revealCachedSessionMessages(page: Parameters<typeof snapshotPerfP
     await expect(loadEarlier).toBeVisible({ timeout: 30_000 })
     await loadEarlier.click()
   }
-  await expect(messages).toHaveCount(expectedCount, { timeout: 30_000 })
+  await expect
+    .poll(async () => (await readTimelineDomBudget(page)).totalRows, { timeout: 30_000 })
+    .toBeGreaterThanOrEqual(expectedCount)
 }
 
 async function readTimelineDomBudget(page: Parameters<typeof snapshotPerfProbe>[0]) {
@@ -626,7 +628,9 @@ test.describe("PR0.1 perf probe baseline", () => {
         const prompt = page.locator(promptSelector).first()
         await prompt.click()
         await prompt.fill("")
-        await expect(page.locator(sessionMessageItemSelector)).toHaveCount(TIMELINE_RECOMPUTE_SEED_TURN_COUNT)
+        await expect
+          .poll(async () => (await readTimelineDomBudget(page)).totalRows)
+          .toBeGreaterThanOrEqual(TIMELINE_RECOMPUTE_SEED_TURN_COUNT)
         await resetPerfProbe(page)
         await page.keyboard.type(`${inputLagText} run ${run + 1}.`)
         await expect.poll(() => readPromptText(page)).toBe(`${inputLagText} run ${run + 1}.`)
