@@ -3,11 +3,42 @@
 
 import {
   type AgentPart,
+  type CommandSource,
   type FileAttachmentPart,
+  type TextPart,
   type Prompt,
   DEFAULT_PROMPT,
 } from "@/context/prompt"
+import { resolveCommandIconSvg } from "@opencode-ai/ui/command-icon"
 import { createTextFragment } from "./editor-dom"
+import "./command-pill.css"
+
+/** Build the DOM node for a slash-command pill (contenteditable=false). */
+export function createCommandMark(part: TextPart & { command: NonNullable<TextPart["command"]> }): HTMLSpanElement {
+  const cmd = part.command
+  const outer = document.createElement("span")
+  outer.setAttribute("data-cmd-mark", "true")
+  outer.setAttribute("data-name", cmd.name)
+  outer.setAttribute("data-source", cmd.source)
+  outer.setAttribute("data-icon", cmd.icon)
+  outer.setAttribute("contenteditable", "false")
+
+  // Icon child — SVG injected via innerHTML; aria-hidden so screen-readers skip it
+  const iconSpan = document.createElement("span")
+  iconSpan.setAttribute("data-cmd-icon", "true")
+  iconSpan.setAttribute("aria-hidden", "true")
+  iconSpan.className = "command-icon"
+  iconSpan.innerHTML = resolveCommandIconSvg(cmd.icon)
+  outer.appendChild(iconSpan)
+
+  // Label child — name without slash, visible text
+  const labelSpan = document.createElement("span")
+  labelSpan.setAttribute("data-cmd-label", "true")
+  labelSpan.textContent = cmd.name
+  outer.appendChild(labelSpan)
+
+  return outer
+}
 
 export function createPill(part: FileAttachmentPart | AgentPart): HTMLSpanElement {
   const pill = document.createElement("span")
@@ -43,8 +74,22 @@ export function isNormalizedEditor(editor: HTMLElement): boolean {
 
 export function renderPartsToEditor(editor: HTMLElement, parts: Prompt): void {
   editor.replaceChildren()
-  for (const part of parts) {
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i]!
     if (part.type === "text") {
+      // Leading text part with command metadata: render pill + tail separately.
+      // Only index 0 gets the pill treatment; subsequent text parts are plain.
+      if (i === 0 && part.command) {
+        const cmd = part.command
+        const pillPart = part as TextPart & { command: NonNullable<TextPart["command"]> }
+        // The content is "/<name><sep><args>" — strip the "/<name>" prefix so
+        // only the separator + args remain in the text fragment after the pill.
+        const prefixLen = 1 + cmd.name.length // slash + name
+        const tail = part.content.slice(prefixLen)
+        editor.appendChild(createCommandMark(pillPart))
+        if (tail) editor.appendChild(createTextFragment(tail))
+        continue
+      }
       editor.appendChild(createTextFragment(part.content))
       continue
     }
@@ -127,7 +172,69 @@ export function parseEditorToParts(editor: HTMLElement): Prompt {
   }
 
   const children = Array.from(editor.childNodes)
-  children.forEach((child, index) => {
+
+  // Leading-pill branch: if the very first child is a data-cmd-mark element,
+  // reconstruct the marked TextPart (Parser reconstruction rule, spec L538-546).
+  // content = "/" + dataset.name + followingTextRun, where followingTextRun is
+  // the verbatim concat of text/BR nodes immediately after the pill until next
+  // pill/file/agent/end.
+  let startIndex = 0
+  const firstChild = children[0]
+  if (
+    firstChild?.nodeType === Node.ELEMENT_NODE &&
+    (firstChild as HTMLElement).dataset.cmdMark === "true"
+  ) {
+    const pillEl = firstChild as HTMLElement
+    const name = pillEl.dataset.name ?? ""
+    const source = (pillEl.dataset.source ?? "skill") as CommandSource
+    const icon = pillEl.dataset.icon ?? "command"
+
+    // Collect following text run siblings (stop at next pill/file/agent boundary)
+    let followingTextRun = ""
+    let consumedSiblings = 0
+    for (let si = 1; si < children.length; si++) {
+      const sibling = children[si]!
+      if (sibling.nodeType === Node.TEXT_NODE) {
+        followingTextRun += sibling.textContent ?? ""
+        consumedSiblings++
+      } else if (sibling.nodeType === Node.ELEMENT_NODE) {
+        const sibEl = sibling as HTMLElement
+        // Stop at any pill-like boundary
+        if (sibEl.tagName === "BR") {
+          followingTextRun += "\n"
+          consumedSiblings++
+        } else if (sibEl.dataset.type === "file" || sibEl.dataset.type === "agent" || sibEl.dataset.cmdMark === "true") {
+          break
+        } else {
+          // Unknown inline element — recurse and collect text
+          followingTextRun += sibEl.textContent ?? ""
+          consumedSiblings++
+        }
+      } else {
+        break
+      }
+    }
+
+    // Strip zero-width space from collected run
+    followingTextRun = followingTextRun.replace(/​/g, "")
+
+    const content = "/" + name + followingTextRun
+    const cmdPart: TextPart = {
+      type: "text",
+      content,
+      start: position,
+      end: position + content.length,
+      command: { name, source, icon },
+    }
+    parts.push(cmdPart)
+    position += content.length
+
+    // Skip the pill + consumed siblings in the main loop below
+    startIndex = 1 + consumedSiblings
+  }
+
+  children.slice(startIndex).forEach((child, relIndex) => {
+    const index = startIndex + relIndex
     const isBlock =
       child.nodeType === Node.ELEMENT_NODE && ["DIV", "P"].includes((child as HTMLElement).tagName)
     visit(child)
