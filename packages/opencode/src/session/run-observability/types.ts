@@ -59,7 +59,7 @@ export type AttemptSummary = {
   attempt_id: AttemptID
   attempt_index: number
   started_at: number
-  completed_at?: number
+  last_tool_completed_at?: number
   provider_progress_seen: boolean
   visible_output_seen: boolean
   tool_call_seen: boolean

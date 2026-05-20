@@ -1,5 +1,6 @@
 import {
   createRecorder as createRunRecorder,
+  isProviderProgressEvent as isProviderProgressStreamEvent,
   makeRunID as makeRunIdentifier,
   summaryKeyFor as makeSummaryKey,
 } from "./recorder"
@@ -14,6 +15,7 @@ export namespace RunObservability {
   export const createRecorder = createRunRecorder
   export const makeRunID = makeRunIdentifier
   export const summaryKeyFor = makeSummaryKey
+  export const isProviderProgressEvent = isProviderProgressStreamEvent
   export const safeToolName = makeSafeToolName
   export const toolEffect = classifyToolEffect
 

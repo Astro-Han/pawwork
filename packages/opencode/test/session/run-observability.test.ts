@@ -3,6 +3,47 @@ import { MessageID, SessionID } from "../../src/session/schema"
 import { RunObservability } from "../../src/session/run-observability"
 
 describe("RunObservability", () => {
+  test("does not treat stream lifecycle events as provider progress", () => {
+    expect(RunObservability.isProviderProgressEvent({ type: "start" })).toBe(false)
+    expect(RunObservability.isProviderProgressEvent({ type: "finish-step" })).toBe(false)
+    expect(RunObservability.isProviderProgressEvent({ type: "text-delta" })).toBe(true)
+    expect(RunObservability.isProviderProgressEvent({ type: "tool-call" })).toBe(true)
+  })
+
+  test("does not use lifecycle-only stream events for provider-progress transport summaries", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_start_disconnect"),
+      traceID: MessageID.make("msg_start_disconnect"),
+      sessionID: SessionID.make("ses_start_disconnect"),
+      messageID: MessageID.make("msg_start_disconnect"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    if (RunObservability.isProviderProgressEvent({ type: "start" })) {
+      recorder.recordProviderProgress({ attemptID: attempt.attemptID, at: 12, monotonicMs: 120 })
+    }
+    recorder.recordTransportFailure({
+      attemptID: attempt.attemptID,
+      at: 25,
+      monotonicMs: 250,
+      error: {
+        name: "TypeError",
+        message: "terminated",
+        cause: { name: "SocketError", message: "other side closed", code: "UND_ERR_SOCKET" },
+      },
+      evidence: ["iterator_error"],
+    })
+
+    const summary = recorder.finalize({ completedAt: 26, monotonicMs: 260 })
+    expect(summary.provider_progress_seen).toBe(false)
+    expect(summary.attempts[0]?.provider_progress_seen).toBe(false)
+    expect(String(summary.summary_key)).toBe("external_stream_disconnect.transport_failure")
+  })
+
   test("classifies completed runs without failure as success", () => {
     const recorder = RunObservability.createRecorder({
       runID: RunObservability.RunID.make("run_success"),
@@ -27,6 +68,77 @@ describe("RunObservability", () => {
       safety_scope: "user_visible_and_tool_side_effects",
     })
     expect(summary.error).toBeUndefined()
+  })
+
+  test("does not write attempt completed_at for text-only success", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_text_only_completion"),
+      traceID: MessageID.make("msg_text_only_completion"),
+      sessionID: SessionID.make("ses_text_only_completion"),
+      messageID: MessageID.make("msg_text_only_completion"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordVisibleOutput({ attemptID: attempt.attemptID, at: 12, monotonicMs: 120 })
+
+    const summary = recorder.finalize({ completedAt: 20, monotonicMs: 200 })
+    expect(summary.attempts[0]).not.toHaveProperty("completed_at")
+    expect(summary.attempts[0]).not.toHaveProperty("last_tool_completed_at")
+  })
+
+  test("records tool completion with tool-specific attempt field", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_tool_completion"),
+      traceID: MessageID.make("msg_tool_completion"),
+      sessionID: SessionID.make("ses_tool_completion"),
+      messageID: MessageID.make("msg_tool_completion"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordToolExecutionStarted({
+      attemptID: attempt.attemptID,
+      at: 12,
+      monotonicMs: 120,
+      toolName: RunObservability.safeToolName("read"),
+      effect: RunObservability.toolEffect("read"),
+    })
+    recorder.recordToolCompleted({ attemptID: attempt.attemptID, at: 13, monotonicMs: 130 })
+
+    const summary = recorder.finalize({ completedAt: 20, monotonicMs: 200 })
+    expect(summary.attempts[0]).not.toHaveProperty("completed_at")
+    expect(summary.attempts[0]).toMatchObject({ last_tool_completed_at: 13 })
+  })
+
+  test("keeps tool completion timestamps scoped to their attempts", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_multi_attempt_completion"),
+      traceID: MessageID.make("msg_multi_attempt_completion"),
+      sessionID: SessionID.make("ses_multi_attempt_completion"),
+      messageID: MessageID.make("msg_multi_attempt_completion"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+
+    const first = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordToolCompleted({ attemptID: first.attemptID, at: 13, monotonicMs: 130 })
+    const second = recorder.beginAttempt({ attemptIndex: 2, at: 20, monotonicMs: 200 })
+    recorder.recordVisibleOutput({ attemptID: second.attemptID, at: 21, monotonicMs: 210 })
+
+    const summary = recorder.finalize({ completedAt: 30, monotonicMs: 300 })
+    expect(summary.attempts).toHaveLength(2)
+    expect(summary.attempts[0]).toMatchObject({ last_tool_completed_at: 13 })
+    expect(summary.attempts[1]).not.toHaveProperty("completed_at")
+    expect(summary.attempts[1]).not.toHaveProperty("last_tool_completed_at")
   })
 
   test("classifies external stream disconnect from run-level aggregate facts", () => {

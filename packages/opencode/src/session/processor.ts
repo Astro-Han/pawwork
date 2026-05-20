@@ -632,7 +632,7 @@ export const layer: Layer.Layer<
         if (ctx.currentAttemptID) {
           const now = Date.now()
           const monotonicMs = performance.now()
-          if (value.type !== "error") {
+          if (RunObservability.isProviderProgressEvent(value)) {
             ctx.runTrace.recordProviderProgress({ attemptID: ctx.currentAttemptID, at: now, monotonicMs })
           }
           if (value.type === "text-start" || value.type === "text-delta" || value.type === "reasoning-start") {

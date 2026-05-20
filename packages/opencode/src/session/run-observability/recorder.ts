@@ -109,7 +109,7 @@ export function createRecorder(input: RecorderInput): Recorder {
     },
     recordToolCompleted(next) {
       updateAttempt(next.attemptID, (attempt) => {
-        attempt.completed_at = next.at
+        attempt.last_tool_completed_at = next.at
         attempt.lastMonotonicMs = Math.max(attempt.lastMonotonicMs, next.monotonicMs)
       })
       rememberEvent(next.monotonicMs)
@@ -241,6 +241,23 @@ function summarySuffix(input: { failure: Failure | undefined; providerProgressSe
 
 export function summaryKeyFor(classification: Classification, suffix: string): SummaryKey {
   return `${classification}.${suffix}` as SummaryKey
+}
+
+export function isProviderProgressEvent(event: { type: string }) {
+  switch (event.type) {
+    case "text-start":
+    case "text-delta":
+    case "reasoning-start":
+    case "reasoning-delta":
+    case "tool-input-start":
+    case "tool-input-delta":
+    case "tool-call":
+    case "tool-result":
+    case "tool-error":
+      return true
+    default:
+      return false
+  }
 }
 
 function retrySafetyFor(input: {
