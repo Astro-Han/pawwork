@@ -351,6 +351,40 @@ describe("PortableDraftOwner preserves command metadata on marked TextPart", () 
     expect((first as any).content).toBe("/brainstorming hello")
   })
 
+  test("regression guard: empty payload destroys an existing non-empty snapshot", () => {
+    // record() short-circuits empty payloads to setSnapshot(null). If the
+    // editor-input.ts homepage owner mirror effect ever fires at mount with
+    // DEFAULT_PROMPT (empty), this is what would happen to a portable
+    // snapshot from another homepage that hasn't been consumed yet —
+    // silently destroying the user's draft before hydration can move it.
+    // The mirror effect's {defer: true} option is what prevents this.
+    const owner = createPortableDraftOwner()
+    owner.record({
+      sourceFilesystemDirectory: "/repo-A",
+      prompt: [{
+        type: "text",
+        content: "/brainstorming the failing test",
+        start: 0,
+        end: 31,
+        command: { name: "brainstorming", source: "skill", icon: "command" },
+      }],
+      context: [],
+      images: [],
+      resolvedMentions: {},
+    })
+    expect(owner.snapshot()).not.toBeNull()
+
+    // Empty payload — the shape the prompt has at mount.
+    owner.record({
+      sourceFilesystemDirectory: "/repo-A",
+      prompt: [{ type: "text", content: "", start: 0, end: 0 }],
+      context: [],
+      images: [],
+      resolvedMentions: {},
+    })
+    expect(owner.snapshot()).toBeNull()
+  })
+
   test("consumeForHomepage round-trip preserves command field", () => {
     const owner = createPortableDraftOwner()
     owner.record({

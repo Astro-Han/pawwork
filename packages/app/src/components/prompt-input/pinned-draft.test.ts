@@ -232,3 +232,29 @@ describe("PinnedDraftOwner + PortableDraftOwner coexistence", () => {
     expect(portable.snapshot()?.prompt[0]).toMatchObject({ content: "portable still works" })
   })
 })
+
+// ---------------------------------------------------------------------------
+// Mount-time hazard pin
+//
+// recordEdit() has no isEmpty short-circuit: an empty payload overwrites the
+// pinned prefill in place. The editor-input.ts homepage owner mirror effect
+// relies on {defer: true} to skip the mount-time fire so the prompt's default
+// empty state never reaches recordEdit() before the hydration effect runs.
+// Pinning this hazard explicitly so anyone reorganizing the mirror effect
+// stays aware of why defer is load-bearing.
+// ---------------------------------------------------------------------------
+
+describe("PinnedDraftOwner.recordEdit empty-payload hazard", () => {
+  test("empty payload overwrites a non-empty prefill in place", () => {
+    const owner = createPinnedDraftOwner()
+    owner.adopt({ directory: "/repo-x", prompt: "review this PR" })
+    expect(owner.current()?.prompt[0]).toMatchObject({ content: "review this PR" })
+
+    owner.recordEdit({ directory: "/repo-x", ...emptyPayload() })
+
+    // Prefill is gone. If the mirror effect ever fires at mount with the
+    // default empty prompt, this is what would happen to a pending pinned
+    // prefill. defer:true on the effect is what prevents it.
+    expect(owner.current()?.prompt[0]).toMatchObject({ content: "" })
+  })
+})

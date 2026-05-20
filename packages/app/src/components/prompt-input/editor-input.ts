@@ -152,6 +152,19 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
   // tail-only mirror missed Path A/B/C and silently dropped the user's draft
   // when they navigated away from the homepage and came back.
   //
+  // {defer: true} is load-bearing: at mount the prompt is DEFAULT_PROMPT,
+  // which is an "empty payload" for both owner implementations. Without
+  // defer this effect would fire immediately and call portable.record() /
+  // pinned.recordEdit() with an empty payload, which clears the portable
+  // snapshot and overwrites a pending pinned prefill — before the
+  // hydration effect below has a chance to consume them. Deferring means
+  // we wait for the first real prompt change. Hydration runs and replaces
+  // the empty default with the snapshot's content; that change is what
+  // wakes this effect up, at which point we record the hydrated payload
+  // (which dedupes against the owner's own snapshot, so it's a no-op).
+  // A fresh homepage with no owner data simply stays quiet until the
+  // user types.
+  //
   // Session routes have no owner — guarded by params.id.
   // IME composition is in-flight raw bytes, not a stable draft — skip and
   // wait for compositionend to commit before recording.
@@ -192,6 +205,7 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
           })
         }
       },
+      { defer: true },
     ),
   )
 
