@@ -12,6 +12,18 @@ import {
 import { todoSnapshot, type SessionTodoItem, type TodoSnapshot } from "./todo-model"
 import { selectSessionTodoDockSnapshot } from "./todo-source"
 
+export const isTodoSnapshotKnownForRestore = (input: {
+  sessionID?: string
+  testTodosKnown: boolean
+  source: TodoSnapshot["source"]
+  syncTodoKnown: boolean
+  globalTodoKnown: boolean
+}) => {
+  if (!input.sessionID) return true
+  if (input.testTodosKnown) return true
+  return input.syncTodoKnown || input.globalTodoKnown
+}
+
 const dockInput = (snapshot: TodoSnapshot, sessionID?: string, restored?: boolean) => ({
   sessionID: snapshot.sessionID ?? sessionID,
   count: snapshot.items.length,
@@ -107,11 +119,13 @@ export function createSessionTodoModel(input: {
   })
 
   const snapshotKnown = (current: TodoSnapshot, sessionID?: string) => {
-    if (!sessionID) return true
-    if (test.on && test.todos !== undefined) return true
-    if (current.source !== "none") return true
-    if (sync.data.todo[sessionID] !== undefined) return true
-    return globalSync.data.session_todo[sessionID] !== undefined
+    return isTodoSnapshotKnownForRestore({
+      sessionID,
+      testTodosKnown: test.on && test.todos !== undefined,
+      source: current.source,
+      syncTodoKnown: sessionID ? sync.data.todo[sessionID] !== undefined : false,
+      globalTodoKnown: sessionID ? globalSync.data.session_todo[sessionID] !== undefined : false,
+    })
   }
 
   const currentDockInput = (current: TodoSnapshot) => {
