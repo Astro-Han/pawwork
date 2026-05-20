@@ -53,7 +53,7 @@ export function createPill(part: FileAttachmentPart | AgentPart): HTMLSpanElemen
 }
 
 export function isNormalizedEditor(editor: HTMLElement): boolean {
-  return Array.from(editor.childNodes).every((node) => {
+  return Array.from(editor.childNodes).every((node, index) => {
     if (node.nodeType === Node.TEXT_NODE) {
       const text = node.textContent ?? ""
       if (!text.includes("\u200B")) return true
@@ -68,10 +68,12 @@ export function isNormalizedEditor(editor: HTMLElement): boolean {
     const el = node as HTMLElement
     if (el.dataset.type === "file") return true
     if (el.dataset.type === "agent") return true
-    // Command pill at index 0 is a normal expected child; without this the
-    // reconcile pass forces a full DOM rebuild on every keystroke after a pill
-    // exists, which moves the caret and breaks IME / selections.
-    if (el.dataset.cmdMark === "true") return true
+    // Command pill is only valid at index 0 (spec invariant: at most one
+    // marked TextPart, always the leading part). A mid-stream cmd-mark means
+    // some path breached the invariant; returning false here forces the
+    // reconcile pass to rebuild the editor from the canonical Prompt and
+    // self-heal, instead of letting the malformed DOM persist.
+    if (el.dataset.cmdMark === "true") return index === 0
     return el.tagName === "BR"
   })
 }

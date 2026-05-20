@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { createCommandMark, parseEditorToParts, renderPartsToEditor } from "./editor-serialize"
+import { createCommandMark, isNormalizedEditor, parseEditorToParts, renderPartsToEditor } from "./editor-serialize"
 import type { TextPart } from "@/context/prompt"
 
 // Helper: build a leading-command TextPart
@@ -102,6 +102,39 @@ describe("renderPartsToEditor + parseEditorToParts round-trips", () => {
 
     const textPart = result[0] as TextPart
     expect(textPart.command).toEqual({ name: "brainstorming", source: "skill", icon: "command" })
+  })
+})
+
+describe("isNormalizedEditor command-pill position invariant", () => {
+  function buildPill(name: string): HTMLSpanElement {
+    const pill = document.createElement("span")
+    pill.dataset.cmdMark = "true"
+    pill.dataset.name = name
+    pill.dataset.source = "skill"
+    pill.dataset.icon = "command"
+    pill.setAttribute("contenteditable", "false")
+    const label = document.createElement("span")
+    label.dataset.cmdLabel = "true"
+    label.textContent = name
+    pill.appendChild(label)
+    return pill
+  }
+
+  test("cmd-mark at index 0 is treated as normalized", () => {
+    const editor = document.createElement("div")
+    editor.appendChild(buildPill("go"))
+    editor.appendChild(document.createTextNode(" args"))
+    expect(isNormalizedEditor(editor)).toBe(true)
+  })
+
+  test("cmd-mark at non-zero index forces reconcile", () => {
+    // Invariant breach: marked TextPart must always be index 0. A mid-stream
+    // pill should make isNormalizedEditor return false so the reconcile pass
+    // rebuilds the editor from the canonical Prompt and self-heals.
+    const editor = document.createElement("div")
+    editor.appendChild(document.createTextNode("prefix "))
+    editor.appendChild(buildPill("go"))
+    expect(isNormalizedEditor(editor)).toBe(false)
   })
 })
 
