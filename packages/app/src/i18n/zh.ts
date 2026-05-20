@@ -708,6 +708,7 @@ export const dict = {
   "sidebar.pawwork.sort.optionByTime": "按时间",
   "sidebar.pawwork.sort.optionByProject": "按项目",
   "sidebar.pawwork.searchHistory": "搜索历史会话",
+  "sidebar.session.unread": "有未读消息",
 
   "app.name.desktop": "爪印",
 

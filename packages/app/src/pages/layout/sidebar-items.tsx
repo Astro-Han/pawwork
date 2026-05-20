@@ -110,7 +110,8 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
     const asking = isAsking()
     const busy = !asking && !!sessionRunning()
     const error = !asking && !busy && hasError()
-    return sidebarStatusKind({ asking, busy, error })
+    const unread = !asking && !busy && !error && notification.session.unseenCount(props.session.id) > 0
+    return sidebarStatusKind({ asking, busy, error, unread })
   })
 
   const statusContent = (): JSX.Element => {
@@ -127,6 +128,14 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
         )
       case "error":
         return <Icon name="circle-x" class="text-error" />
+      case "unread":
+        return (
+          <span
+            aria-label={language.t("sidebar.session.unread")}
+            role="img"
+            class="block size-2 rounded-full bg-brand-primary"
+          />
+        )
       case "time": {
         const t = props.timeText?.(props.session)
         return t ? <span class="text-caption text-fg-weaker whitespace-nowrap">{t}</span> : null

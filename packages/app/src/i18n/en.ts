@@ -797,6 +797,7 @@ export const dict = {
   "sidebar.pawwork.sort.optionByTime": "By time",
   "sidebar.pawwork.sort.optionByProject": "By project",
   "sidebar.pawwork.searchHistory": "Use Search for older sessions",
+  "sidebar.session.unread": "Has unread messages",
 
   "debugBar.ariaLabel": "Development performance diagnostics",
   "debugBar.na": "n/a",
