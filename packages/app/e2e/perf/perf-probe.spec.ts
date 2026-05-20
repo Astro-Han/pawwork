@@ -7,8 +7,6 @@ import {
   promptSelector,
   sessionMessageItemSelector,
   sessionTurnListSelector,
-  sessionVirtualizerSelector,
-  sessionVirtualRowSelector,
   scrollViewportSelector,
   terminalSelector,
 } from "../selectors"
@@ -57,6 +55,8 @@ const inputLagText = [
 ].join(" ")
 
 const longScrollSeedTurns = 104
+const sessionVirtualizerSelector = '[data-component="session-timeline-virtualizer"]'
+const sessionVirtualRowSelector = '[data-component="session-virtual-row"]'
 const longScrollMinimumAvailableRows = 80
 const longScrollMaximumMountedMessages = 48
 const longScrollCoverageRatio = 0.95
