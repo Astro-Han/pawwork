@@ -224,7 +224,6 @@ export function createSessionTimelineInteraction(input: {
 
       if (recovery.type === "restore_latest") {
         if (current.mode !== "following_latest") return
-        historyWindow.resumeLatestWindow()
         resumeScroll()
         return
       }
@@ -279,7 +278,6 @@ export function createSessionTimelineInteraction(input: {
       type: "submit",
       originMode: scrollController.state().mode,
     })
-    historyWindow.resumeLatestWindow()
     applyTimelineRecovery(result.recovery)
   }
 

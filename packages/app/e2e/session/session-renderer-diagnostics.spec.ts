@@ -248,11 +248,13 @@ async function expandRenderedTimeline(page: Page, target: number) {
   await expect
     .poll(
       async () => {
-        const count = await page.locator(sessionMessageItemSelector).count()
-        if (count >= target) return count
+        const total = Number(
+          (await page.locator(sessionVirtualizerSelector).first().getAttribute("data-total-rows")) ?? 0,
+        )
+        if (total >= target) return total
         await viewport.hover()
         await page.mouse.wheel(0, -2400)
-        return page.locator(sessionMessageItemSelector).count()
+        return Number((await page.locator(sessionVirtualizerSelector).first().getAttribute("data-total-rows")) ?? 0)
       },
       { timeout: 30_000 },
     )
