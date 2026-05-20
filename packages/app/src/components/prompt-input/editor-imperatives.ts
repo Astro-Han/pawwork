@@ -23,7 +23,7 @@ export interface EditorImperatives {
   focusEditorEnd: () => void
   currentCursor: () => number | null
   restoreFocus: () => void
-  renderEditorWithCursor: (parts: Prompt) => void
+  renderEditorWithCursor: (parts: Prompt, cursor?: number) => void
   getCaretState: () => { collapsed: boolean; cursorPosition: number; textLength: number }
   escBlur: () => boolean
 }
@@ -111,11 +111,15 @@ export function createEditorImperatives(deps: EditorImperativesDeps): EditorImpe
     })
   }
 
-  const renderEditorWithCursor = (parts: Prompt) => {
+  const renderEditorWithCursor = (parts: Prompt, cursor?: number) => {
     const editor = editorRef()
-    const cursor = currentCursor()
+    // Caller-supplied cursor wins: Path B/C/Backspace know the target
+    // position before the DOM gets repainted. Falling back to currentCursor()
+    // would read the stale pre-repaint DOM selection (e.g. caret 0 in an
+    // empty editor when Path C just pasted "/cmd args").
+    const target = cursor ?? currentCursor() ?? undefined
     renderPartsToEditor(editor, parts)
-    if (cursor !== null) setCursorPosition(editor, cursor)
+    if (target !== undefined) setCursorPosition(editor, target)
   }
 
   const getCaretState = () => {

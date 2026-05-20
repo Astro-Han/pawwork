@@ -102,14 +102,19 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
       mirror.input = false
       if (isNormalizedEditor(editor)) return
 
-      imperatives.renderEditorWithCursor(input)
+      imperatives.renderEditorWithCursor(input, prompt.cursor())
       return
     }
 
     const dom = parseEditorToParts(editor)
     if (isNormalizedEditor(editor) && isPromptEqual(input, dom)) return
 
-    imperatives.renderEditorWithCursor(input)
+    // Store-originated reconcile (Path B Space-trigger, Path C paste, Backspace
+    // ladder, popover select, history navigation): the prompt store already
+    // holds the target cursor. currentCursor() would read the pre-repaint DOM
+    // selection, which is stale whenever the editor has not yet caught up to
+    // the new prompt (e.g. Path C paste was preventDefault'd so DOM is empty).
+    imperatives.renderEditorWithCursor(input, prompt.cursor())
   }
 
   const handleBlur = () => {
@@ -229,7 +234,12 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
       if (pathB) {
         closePopover()
         resetHistoryNavigation()
-        mirror.input = true
+        // Do NOT set mirror.input=true here. The DOM still holds the raw
+        // "/<name> " text node; only the prompt store gets the marked
+        // TextPart. Letting reconcile run the non-mirror branch is what
+        // forces the editor to repaint into pill DOM. Marking as mirror
+        // would short-circuit on isNormalizedEditor() and leave raw text
+        // visible to the user (#778 main acceptance path).
         prompt.set(pathB.prompt, pathB.cursor)
         return
       }
