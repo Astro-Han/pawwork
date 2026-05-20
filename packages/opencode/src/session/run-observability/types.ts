@@ -12,6 +12,8 @@ export type AttemptID = z.infer<typeof AttemptID>
 export const Classification = z.enum([
   "success",
   "external_stream_disconnect",
+  "local_instance_reload",
+  "local_instance_dispose",
   "known_lifecycle_close",
   "unknown_scope_close",
   "request_setup_failure",
@@ -47,6 +49,8 @@ export type SafeErrorFingerprint = {
   cause_message?: string
   cause_code?: string
 }
+
+export type LifecycleKind = "instance_reload" | "instance_dispose" | "instance_dispose_directory" | "instance_dispose_all"
 
 export type ToolEffectKind = "read_only" | "local_file_write" | "local_process" | "unknown"
 export type ToolEffect = {
@@ -91,6 +95,12 @@ export type Summary = {
   unsafe_side_effect_started: boolean
   unsafe_side_effect_kinds: ToolEffectKind[]
   side_effect_facts_complete: boolean
+  lifecycle?: {
+    action_id: string
+    kind: LifecycleKind
+    source?: string
+    reason?: string
+  }
   missing_provenance?: string[]
   durations_ms: {
     total?: number
@@ -147,6 +157,7 @@ export type Recorder = {
     reason?: string
     propagationPoint?: string
     lifecycleActionID?: string
+    lifecycleKind?: LifecycleKind
   }): void
   finalize(input: { completedAt?: number; monotonicMs: number }): Summary
 }

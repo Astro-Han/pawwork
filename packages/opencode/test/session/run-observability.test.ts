@@ -237,6 +237,39 @@ describe("RunObservability", () => {
     expect(summary.retry_safety.recommendation).toBe("do_not_auto_retry")
   })
 
+  test("classifies known instance reload lifecycle closes with parent provenance", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_instance_reload"),
+      traceID: MessageID.make("msg_instance_reload"),
+      sessionID: SessionID.make("ses_instance_reload"),
+      messageID: MessageID.make("msg_instance_reload"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    recorder.recordScopeClosed({
+      at: 20,
+      monotonicMs: 200,
+      source: "session.run_state.finalizer",
+      reason: "scope_finalizer",
+      propagationPoint: "session.prompt.loop.onInterrupt",
+      lifecycleActionID: "lifecycle:instance_reload:abc123",
+      lifecycleKind: "instance_reload",
+    })
+
+    const summary = recorder.finalize({ completedAt: 21, monotonicMs: 210 })
+    expect(summary.classification).toBe("local_instance_reload")
+    expect(String(summary.summary_key)).toBe("local_instance_reload.lifecycle_close")
+    expect(summary.lifecycle).toEqual({
+      action_id: "lifecycle:instance_reload:abc123",
+      kind: "instance_reload",
+      source: "session.run_state.finalizer",
+      reason: "scope_finalizer",
+    })
+    expect(summary.missing_provenance).toBeUndefined()
+  })
+
   test("records tool execution effect facts conservatively", () => {
     const recorder = RunObservability.createRecorder({
       runID: RunObservability.RunID.make("run_tool_effects"),

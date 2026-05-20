@@ -8,6 +8,11 @@ import { InstanceBootstrap } from "./bootstrap-service"
 import { type InstanceContext } from "./instance-context"
 import { Project } from "./project"
 import { State } from "./state"
+import {
+  createLifecycleCloseAction,
+  type LifecycleCloseAction,
+  withLifecycleCloseAction,
+} from "@/session/lifecycle-provenance"
 
 export interface LoadInput {
   directory: string
@@ -111,19 +116,22 @@ export const layer = Layer.effect(
         }),
       )
 
-    const disposeContext = (ctx: InstanceContext) =>
+    const disposeContext = (ctx: InstanceContext, action?: LifecycleCloseAction) =>
       Effect.gen(function* () {
         yield* Effect.promise(async () => {
-          await State.dispose(ctx.directory)
-          await runDisposers(ctx.directory)
+          const closeAction = action ?? createLifecycleCloseAction("instance_dispose")
+          await withLifecycleCloseAction([ctx.directory], closeAction, async () => {
+            await State.dispose(ctx.directory)
+            await runDisposers(ctx.directory)
+          })
         })
         yield* emitDisposed(ctx)
       })
 
-    const disposeEntry = (directory: string, entry: Entry, ctx: InstanceContext) =>
+    const disposeEntry = (directory: string, entry: Entry, ctx: InstanceContext, action?: LifecycleCloseAction) =>
       Effect.gen(function* () {
         if (entries.get(directory) !== entry) return false
-        yield* disposeContext(ctx)
+        yield* disposeContext(ctx, action)
         if (entries.get(directory) !== entry) return false
         entries.delete(directory)
         return true
@@ -140,7 +148,7 @@ export const layer = Layer.effect(
           yield* Effect.gen(function* () {
             if (previous) {
               const exit = yield* Deferred.await(previous.deferred).pipe(Effect.exit)
-              if (Exit.isSuccess(exit)) yield* disposeContext(exit.value)
+              if (Exit.isSuccess(exit)) yield* disposeContext(exit.value, createLifecycleCloseAction("instance_reload"))
               else yield* removeEntry(directory, previous)
             }
             yield* completeLoad(directory, input, entry)
@@ -184,7 +192,7 @@ export const layer = Layer.effect(
         const exit = yield* Deferred.await(entry.deferred).pipe(Effect.exit)
         if (Exit.isFailure(exit)) return yield* removeEntry(directory, entry).pipe(Effect.asVoid)
         if (exit.value !== ctx) return
-        yield* disposeEntry(directory, entry, ctx).pipe(Effect.asVoid)
+        yield* disposeEntry(directory, entry, ctx, createLifecycleCloseAction("instance_dispose")).pipe(Effect.asVoid)
       })
 
     const disposeDirectory = (inputDirectory: string) =>
@@ -195,10 +203,13 @@ export const layer = Layer.effect(
 
         const exit = yield* Deferred.await(entry.deferred).pipe(Effect.exit)
         if (Exit.isFailure(exit)) return yield* removeEntry(directory, entry).pipe(Effect.asVoid)
-        yield* disposeEntry(directory, entry, exit.value).pipe(Effect.asVoid)
+        yield* disposeEntry(directory, entry, exit.value, createLifecycleCloseAction("instance_dispose_directory")).pipe(
+          Effect.asVoid,
+        )
       })
 
     const disposeAllOnce = Effect.gen(function* () {
+      const action = createLifecycleCloseAction("instance_dispose_all")
       yield* Effect.forEach(
         [...entries.entries()],
         ([directory, entry]) =>
@@ -208,7 +219,7 @@ export const layer = Layer.effect(
               yield* removeEntry(directory, entry)
               return
             }
-            yield* disposeEntry(directory, entry, exit.value)
+            yield* disposeEntry(directory, entry, exit.value, action)
           }),
         { discard: true },
       )

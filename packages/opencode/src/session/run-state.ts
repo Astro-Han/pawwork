@@ -5,6 +5,7 @@ import * as Session from "./session"
 import { MessageV2 } from "./message-v2"
 import { SessionID } from "./schema"
 import { SessionStatus } from "./status"
+import { currentLifecycleCloseAction } from "./lifecycle-provenance"
 
 export interface Interface {
   readonly assertNotBusy: (sessionID: SessionID) => Effect.Effect<void>
@@ -30,17 +31,30 @@ export const layer = Layer.effect(
     const status = yield* SessionStatus.Service
 
     const state = yield* InstanceState.make(
-      Effect.fn("SessionRunState.state")(function* () {
+      Effect.fn("SessionRunState.state")(function* (ctx) {
         const scope = yield* Scope.Scope
         const runners = new Map<SessionID, Runner<MessageV2.WithParts>>()
+        let scopeCloseAction = currentLifecycleCloseAction(ctx.directory)
+        const lifecycleAction = () => currentLifecycleCloseAction(ctx.directory)
+        const interruptFallback = () => {
+          const action = lifecycleAction() ?? scopeCloseAction
+          return {
+            source: "session.run_state.scope",
+            reason: "scope_closed_without_cancel_meta",
+            ...(action ? { lifecycleActionID: action.actionID, lifecycleKind: action.kind } : {}),
+          } satisfies InterruptMeta
+        }
         yield* Effect.addFinalizer(
           Effect.fnUntraced(function* () {
+            const action = lifecycleAction()
+            scopeCloseAction = action ?? scopeCloseAction
             yield* Effect.forEach(
               runners.values(),
               (runner) =>
                 runner.cancelWith({
                   source: "session.run_state.finalizer",
                   reason: "scope_finalizer",
+                  ...(action ? { lifecycleActionID: action.actionID, lifecycleKind: action.kind } : {}),
                 }),
               {
                 concurrency: "unbounded",
@@ -50,7 +64,7 @@ export const layer = Layer.effect(
             runners.clear()
           }),
         )
-        return { runners, scope }
+        return { runners, scope, interruptFallback }
       }),
     )
 
@@ -68,10 +82,7 @@ export const layer = Layer.effect(
         }),
         onBusy: status.set(sessionID, { type: "busy" }),
         onInterrupt,
-        interruptFallback: {
-          source: "session.run_state.scope",
-          reason: "scope_closed_without_cancel_meta",
-        },
+        interruptFallback: data.interruptFallback,
         busy: () => {
           throw new Session.BusyError(sessionID)
         },
