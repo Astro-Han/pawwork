@@ -2110,7 +2110,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                     "",
                     "Default route: write durable user context to MEMORY.md Profile. Do not choose AGENTS.md by guessing content.",
                     "",
-                    "Write one short Profile entry when the user clearly states a stable preference, identity, habit, recurring correction, or workspace-specific convention worth recalling next session. Record only what the user said, not inferred intent. One line per entry, ending with `<!-- id:kebab-slug -->`. If a new fact contradicts an old one, update the old entry instead of appending.",
+                    "Write one short Profile entry when the user clearly states a stable user-level preference, identity, habit, or recurring correction worth recalling next session. Profile is global across workspaces — keep project-specific conventions in the workspace AGENTS.md instead. Record only what the user said, not inferred intent. One line per entry, ending with `<!-- id:kebab-slug -->`. If a new fact contradicts an old one, update the old entry instead of appending.",
                     "",
                     "Do not write temporary tasks, inferred preferences, visible instructions already covered by AGENTS.md, or secrets such as passwords, tokens, private IDs, financial data, or private contact details.",
                     "",
