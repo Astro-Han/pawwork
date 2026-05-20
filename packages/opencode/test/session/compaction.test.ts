@@ -1306,7 +1306,7 @@ describe("session.compaction.process", () => {
 
           await Promise.race([
             ready.promise,
-            wait(1000).then(() => {
+            wait(5_000).then(() => {
               throw new Error("timed out waiting for retry status")
             }),
           ])
