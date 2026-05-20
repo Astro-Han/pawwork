@@ -217,8 +217,9 @@ export const dict: Record<string, string> = {
   "ui.question.singleHint": "Pick 1",
   "ui.question.custom.placeholder": "Type your answer...",
   "ui.rateLimitCard.title": "Today's free quota is used up",
-  "ui.rateLimitCard.subtitleWithTime": "Resets around {{time}} ({{tz}}), based on the UTC daily reset.",
-  "ui.rateLimitCard.subtitleNoTime": "Resets on the next UTC day.",
+  "ui.rateLimitCard.subtitleResetToday": "Resets around {{time}} today.",
+  "ui.rateLimitCard.subtitleResetTomorrow": "Resets around {{time}} tomorrow.",
+  "ui.rateLimitCard.subtitleNoTime": "Try again later.",
   "ui.rateLimitCard.actionSubscribe": "Subscribe to OpenCode Go",
   "ui.rateLimitCard.actionBYO": "Use your own model",
 }

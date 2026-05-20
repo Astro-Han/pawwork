@@ -209,8 +209,9 @@ export const dict = {
   "ui.message.duration.seconds": "{{count}}秒",
   "ui.message.duration.minutesSeconds": "{{minutes}}分 {{seconds}}秒",
   "ui.rateLimitCard.title": "今天的免费额度用完了",
-  "ui.rateLimitCard.subtitleWithTime": "约 {{time}}（{{tz}}）恢复，按 UTC 每日重置推导",
-  "ui.rateLimitCard.subtitleNoTime": "明日重置后恢复",
+  "ui.rateLimitCard.subtitleResetToday": "约今天 {{time}} 恢复",
+  "ui.rateLimitCard.subtitleResetTomorrow": "约明天 {{time}} 恢复",
+  "ui.rateLimitCard.subtitleNoTime": "稍后重试",
   "ui.rateLimitCard.actionSubscribe": "订阅 OpenCode Go",
   "ui.rateLimitCard.actionBYO": "使用自己的模型",
 } satisfies Partial<Record<Keys, string>>
