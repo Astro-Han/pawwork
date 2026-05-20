@@ -1,6 +1,11 @@
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
 import { createEffect, createSignal, on, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
+import {
+  createTimelineScrollCommandSink,
+  type TimelineScrollCommandSink,
+  type TimelineScrollCommandType,
+} from "./timeline-scroll-command-sink"
 
 export type SessionScrollState = {
   overflow: boolean
@@ -89,14 +94,35 @@ export function createSessionScrollDock(input: {
     scrollTop?: number
     distanceFromBottom?: number
   }) => void
-  onContentResize?: (event: {
-    scrollTop?: number
-    distanceFromBottom?: number
-  }) => void
+  onContentResize?: (event: { scrollTop?: number; distanceFromBottom?: number }) => void
+  scrollCommandSink?: TimelineScrollCommandSink
 }) {
+  const fallbackTimelineScrollCommandSink = createTimelineScrollCommandSink()
+  const scrollCommandSink = () => input.scrollCommandSink ?? fallbackTimelineScrollCommandSink
   const autoScroll = createAutoScroll({
     working: () => true,
     overflowAnchor: "dynamic",
+    executeScrollCommand: (command) => {
+      const type: TimelineScrollCommandType =
+        command.reason === "content-resize"
+          ? "content-resize-bottom-follow"
+          : command.reason === "dock-resize"
+            ? "dock-resize-bottom-follow"
+            : "bottom-follow"
+      const source = `use-session-scroll-dock/createAutoScroll:${command.reason}`
+      const next = {
+        element: command.element,
+        top: command.top,
+        type,
+        source,
+        reason: command.reason,
+      }
+      if (command.method === "scroll-to") {
+        scrollCommandSink().scrollTo({ ...next, behavior: command.behavior })
+        return
+      }
+      scrollCommandSink().setScrollTop(next)
+    },
   })
 
   const [scroll, setScroll] = createStore<SessionScrollState>({
@@ -140,7 +166,7 @@ export function createSessionScrollDock(input: {
 
   const followBottom = () => {
     input.clearActiveMessage()
-    autoScroll.forceScrollToBottom()
+    autoScroll.forceScrollToBottom("force-bottom")
     input.clearMessageHash()
   }
 
@@ -210,9 +236,7 @@ export function createSessionScrollDock(input: {
     contentObserver = new ResizeObserver(() => {
       input.onContentResize?.({
         scrollTop: scroller?.scrollTop,
-        distanceFromBottom: scroller
-          ? scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop
-          : undefined,
+        distanceFromBottom: scroller ? scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop : undefined,
       })
       if (scroller) scheduleScrollState(scroller)
       input.fill()
@@ -225,16 +249,14 @@ export function createSessionScrollDock(input: {
     const previousDockHeight = dockHeight
     const dockKind = promptDockKind()
     const scrollTop = scroller?.scrollTop
-    const distanceFromBottom = scroller
-      ? scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop
-      : undefined
+    const distanceFromBottom = scroller ? scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop : undefined
     dockHeight = syncComposerDockHeight({
       el: scroller,
       previousDockHeight,
       nextDockHeight: next,
       userScrolled: autoScroll.userScrolled(),
       setCssHeight: (value) => document.documentElement.style.setProperty("--composer-dock-height", `${value}px`),
-      forceScrollToBottom: autoScroll.forceScrollToBottom,
+      forceScrollToBottom: () => autoScroll.forceScrollToBottom("dock-resize"),
       scheduleScrollState,
       fill: input.fill,
     })

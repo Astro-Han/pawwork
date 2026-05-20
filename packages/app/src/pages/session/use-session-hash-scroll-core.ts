@@ -1,6 +1,7 @@
 import type { UserMessage } from "@opencode-ai/sdk/v2"
 import { createEffect, createMemo, onCleanup, onMount } from "solid-js"
 import { messageIdFromHash } from "./message-id-from-hash"
+import { createTimelineScrollCommandSink, type TimelineScrollCommandSink } from "./timeline-scroll-command-sink"
 
 export type SessionHashScrollInput = {
   sessionKey: () => string
@@ -23,6 +24,7 @@ export type SessionHashScrollInput = {
   consumePendingMessage: (key: string) => string | undefined
   onMessageNavigation?: (messageID: string) => void
   onMessageHashCleared?: () => void
+  scrollCommandSink?: TimelineScrollCommandSink
 }
 
 type SessionHashScrollLocation = { hash: string; pathname: string; search: string }
@@ -33,6 +35,8 @@ export const createSessionHashScroll = (
   location: SessionHashScrollLocation,
   navigate: SessionHashScrollNavigate,
 ) => {
+  const fallbackTimelineScrollCommandSink = createTimelineScrollCommandSink()
+  const scrollCommandSink = () => input.scrollCommandSink ?? fallbackTimelineScrollCommandSink
   const visibleUserMessages = createMemo(() => input.visibleUserMessages())
   const messageById = createMemo(() => new Map(visibleUserMessages().map((m) => [m.id, m])))
   const messageIndex = createMemo(() => new Map(visibleUserMessages().map((m, i) => [m.id, i])))
@@ -80,7 +84,14 @@ export const createSessionHashScroll = (
     const sticky = root.querySelector("[data-session-title]")
     const inset = sticky instanceof HTMLElement ? sticky.offsetHeight : 0
     const top = Math.max(0, a.top - b.top + root.scrollTop - inset)
-    root.scrollTo({ top, behavior })
+    scrollCommandSink().scrollTo({
+      element: root,
+      top,
+      behavior,
+      type: "hash-target",
+      source: "use-session-hash-scroll-core/scrollToElement",
+      reason: "hash-target",
+    })
     return true
   }
 

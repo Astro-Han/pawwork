@@ -18,6 +18,7 @@ import {
   type TimelineScrollIntent,
   type TimelineScrollObservation,
 } from "@/pages/session/session-timeline-scroll-controller"
+import { createTimelineScrollCommandSink } from "@/pages/session/timeline-scroll-command-sink"
 
 export function createSessionTimelineInteraction(input: {
   routeSessionID: () => string | undefined
@@ -48,6 +49,21 @@ export function createSessionTimelineInteraction(input: {
       },
     })
   let scrollController = createScrollController()
+  const scrollCommandSink = createTimelineScrollCommandSink({
+    emitDiagnostic: (event) => {
+      void emitRendererDiagnostic(event).catch(() => {})
+    },
+    fullMetricsEnabled: () => {
+      const value = (globalThis as typeof globalThis & { __PW_TIMELINE_SCROLL_FULL_METRICS__?: boolean })
+        .__PW_TIMELINE_SCROLL_FULL_METRICS__
+      return value === true
+    },
+    getContext: () => ({
+      routeSessionID: input.routeSessionID(),
+      visibleSessionID: input.sessionID(),
+      timelineSessionID: input.sessionID(),
+    }),
+  })
 
   const cancelRecoveryFrame = () => {
     if (recoveryFrame === undefined) return
@@ -85,6 +101,7 @@ export function createSessionTimelineInteraction(input: {
     clearMessageHash: () => clearMessageHash(),
     clearActiveMessage: () => activeMessage?.clearActiveMessage(),
     fill: () => historyBackfill?.fill(),
+    scrollCommandSink,
     onContentResize: () => {
       const viewport = scrollDock.scroller()
       if (!viewport) return
@@ -144,6 +161,7 @@ export function createSessionTimelineInteraction(input: {
     userScrolled: userScrolledForHistory,
     isAtBottom: () => scrollDock.scroll.bottom,
     scroller: scrollDock.scroller,
+    scrollCommandSink,
   })
 
   const resumeLatest = () => {
@@ -205,6 +223,7 @@ export function createSessionTimelineInteraction(input: {
       const restored = restoreTimelineSafePosition({
         viewport,
         position: recovery.anchor,
+        scrollCommandSink,
       })
       if (restored.ok && viewport) scrollDock.scheduleScrollState(viewport)
     })
@@ -283,6 +302,7 @@ export function createSessionTimelineInteraction(input: {
     anchor,
     scheduleScrollState: scrollDock.scheduleScrollState,
     consumePendingMessage: input.consumePendingMessage,
+    scrollCommandSink,
     onMessageNavigation: (messageID) => {
       scrollDock.cancelBottomFollowLock()
       onTimelineScrollIntent({

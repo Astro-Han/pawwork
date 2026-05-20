@@ -8,7 +8,24 @@ export interface AutoScrollOptions {
   onUserInteracted?: () => void
   overflowAnchor?: "none" | "auto" | "dynamic"
   bottomThreshold?: number
+  executeScrollCommand?: (command: AutoScrollCommand) => void
 }
+
+export type AutoScrollCommand = {
+  element: HTMLElement
+  top: number
+  behavior: ScrollBehavior
+  method: "scroll-to" | "set-scroll-top"
+  reason: AutoScrollReason
+}
+
+export type AutoScrollReason =
+  | "content-resize"
+  | "dock-resize"
+  | "force-bottom"
+  | "follow-bottom"
+  | "resume"
+  | "working-start"
 
 export function createAutoScroll(options: AutoScrollOptions) {
   let settling = false
@@ -79,20 +96,34 @@ export function createAutoScroll(options: AutoScrollOptions) {
     return Math.abs(el.scrollTop - a.top) < 2
   }
 
-  const scrollToBottomNow = (behavior: ScrollBehavior) => {
+  const executeScrollCommand = (command: AutoScrollCommand) => {
+    if (options.executeScrollCommand) {
+      options.executeScrollCommand(command)
+      return
+    }
+
+    if (command.method === "scroll-to") {
+      command.element.scrollTo({ top: command.top, behavior: command.behavior })
+      return
+    }
+
+    command.element.scrollTop = command.top
+  }
+
+  const scrollToBottomNow = (behavior: ScrollBehavior, reason: AutoScrollReason) => {
     const el = store.scrollRef
     if (!el) return
     markAuto(el)
     if (behavior === "smooth") {
-      el.scrollTo({ top: el.scrollHeight, behavior })
+      executeScrollCommand({ element: el, top: el.scrollHeight, behavior, method: "scroll-to", reason })
       return
     }
 
     // `scrollTop` assignment bypasses any CSS `scroll-behavior: smooth`.
-    el.scrollTop = el.scrollHeight
+    executeScrollCommand({ element: el, top: el.scrollHeight, behavior, method: "set-scroll-top", reason })
   }
 
-  const scrollToBottom = (force: boolean) => {
+  const scrollToBottom = (force: boolean, reason: AutoScrollReason = force ? "force-bottom" : "follow-bottom") => {
     if (!force && !active()) return
 
     const el = store.scrollRef
@@ -114,7 +145,7 @@ export function createAutoScroll(options: AutoScrollOptions) {
 
     // For auto-following content we prefer immediate updates to avoid
     // visible "catch up" animations while content is still settling.
-    scrollToBottomNow("auto")
+    scrollToBottomNow("auto", reason)
   }
 
   const stop = () => {
@@ -158,7 +189,7 @@ export function createAutoScroll(options: AutoScrollOptions) {
 
     // Ignore scroll events triggered by our own scrollToBottom calls.
     if (!store.userScrolled && isAuto(el)) {
-      scrollToBottom(false)
+      scrollToBottom(false, "content-resize")
       return
     }
 
@@ -186,7 +217,7 @@ export function createAutoScroll(options: AutoScrollOptions) {
       // ResizeObserver fires after layout, before paint.
       // Keep the bottom locked in the same frame to avoid visible
       // "jump up then catch up" artifacts while streaming content.
-      scrollToBottom(false)
+      scrollToBottom(false, "content-resize")
     },
   )
 
@@ -197,7 +228,7 @@ export function createAutoScroll(options: AutoScrollOptions) {
       settleTimer = undefined
 
       if (working) {
-        if (!store.userScrolled) scrollToBottom(true)
+        if (!store.userScrolled) scrollToBottom(true, "working-start")
         return
       }
 
@@ -232,10 +263,10 @@ export function createAutoScroll(options: AutoScrollOptions) {
     pause: stop,
     resume: () => {
       if (store.userScrolled) setStore("userScrolled", false)
-      scrollToBottom(true)
+      scrollToBottom(true, "resume")
     },
-    scrollToBottom: () => scrollToBottom(false),
-    forceScrollToBottom: () => scrollToBottom(true),
+    scrollToBottom: (reason?: AutoScrollReason) => scrollToBottom(false, reason),
+    forceScrollToBottom: (reason?: AutoScrollReason) => scrollToBottom(true, reason),
     userScrolled: () => store.userScrolled,
   }
 }

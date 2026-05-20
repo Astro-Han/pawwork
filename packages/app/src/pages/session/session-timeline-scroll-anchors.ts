@@ -1,4 +1,9 @@
-import type { TimelineSafePosition, TimelineScrollMetrics, TimelineScrollMode } from "./session-timeline-scroll-controller"
+import type {
+  TimelineSafePosition,
+  TimelineScrollMetrics,
+  TimelineScrollMode,
+} from "./session-timeline-scroll-controller"
+import { createTimelineScrollCommandSink, type TimelineScrollCommandSink } from "./timeline-scroll-command-sink"
 
 export type TimelineAnchorRestoreResult =
   | { ok: true; restoredTo: TimelineSafePosition }
@@ -21,6 +26,24 @@ function firstVisibleMessage(viewport: HTMLElement) {
     if (rect.bottom > viewportRect.top && rect.top < viewportRect.bottom) return { el, rect }
   }
   return undefined
+}
+
+const fallbackTimelineScrollCommandSink = createTimelineScrollCommandSink()
+
+function setTimelineScrollTop(input: {
+  viewport: HTMLElement
+  top: number
+  sink: TimelineScrollCommandSink
+  source: string
+  reason: string
+}) {
+  input.sink.setScrollTop({
+    element: input.viewport,
+    top: Math.max(0, input.top),
+    type: "anchor-restore",
+    source: input.source,
+    reason: input.reason,
+  })
 }
 
 export function collectTimelineScrollMetrics(viewport: HTMLElement): TimelineScrollMetrics {
@@ -69,26 +92,56 @@ export function sampleTimelineSafePosition(args: {
   }
 }
 
-function restoreLatest(viewport: HTMLElement, bottomSentinel?: HTMLElement | null) {
+function restoreLatest(
+  viewport: HTMLElement,
+  bottomSentinel: HTMLElement | null | undefined,
+  sink: TimelineScrollCommandSink,
+) {
   if (bottomSentinel) {
     const viewportRect = viewport.getBoundingClientRect()
     const sentinelRect = bottomSentinel.getBoundingClientRect()
-    viewport.scrollTop = Math.max(0, viewport.scrollTop + sentinelRect.bottom - viewportRect.bottom)
+    setTimelineScrollTop({
+      viewport,
+      sink,
+      top: viewport.scrollTop + sentinelRect.bottom - viewportRect.bottom,
+      source: "session-timeline-scroll-anchors/restoreLatest",
+      reason: "bottom-sentinel",
+    })
     return
   }
-  viewport.scrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight)
+  setTimelineScrollTop({
+    viewport,
+    sink,
+    top: viewport.scrollHeight - viewport.clientHeight,
+    source: "session-timeline-scroll-anchors/restoreLatest",
+    reason: "scroll-height-bottom",
+  })
 }
 
-function restoreReading(viewport: HTMLElement, position: Extract<TimelineSafePosition, { kind: "reading" }>) {
+function restoreReading(
+  viewport: HTMLElement,
+  position: Extract<TimelineSafePosition, { kind: "reading" }>,
+  sink: TimelineScrollCommandSink,
+) {
   const anchor = messageElementByID(viewport, position.anchorMessageID)
   if (!anchor) return false
   const viewportRect = viewport.getBoundingClientRect()
   const anchorRect = anchor.getBoundingClientRect()
-  viewport.scrollTop = Math.max(0, viewport.scrollTop + anchorRect.top - viewportRect.top - position.offsetFromViewportTop)
+  setTimelineScrollTop({
+    viewport,
+    sink,
+    top: viewport.scrollTop + anchorRect.top - viewportRect.top - position.offsetFromViewportTop,
+    source: "session-timeline-scroll-anchors/restoreReading",
+    reason: "reading-anchor",
+  })
   return true
 }
 
-function restoreTarget(viewport: HTMLElement, position: Extract<TimelineSafePosition, { kind: "target_message" }>) {
+function restoreTarget(
+  viewport: HTMLElement,
+  position: Extract<TimelineSafePosition, { kind: "target_message" }>,
+  sink: TimelineScrollCommandSink,
+) {
   const target = messageElementByID(viewport, position.messageID)
   if (!target) return false
 
@@ -97,30 +150,57 @@ function restoreTarget(viewport: HTMLElement, position: Extract<TimelineSafePosi
   const offset = position.offsetFromViewportTop
 
   if (typeof offset === "number") {
-    viewport.scrollTop = Math.max(0, viewport.scrollTop + targetRect.top - viewportRect.top - offset)
+    setTimelineScrollTop({
+      viewport,
+      sink,
+      top: viewport.scrollTop + targetRect.top - viewportRect.top - offset,
+      source: "session-timeline-scroll-anchors/restoreTarget",
+      reason: "target-offset",
+    })
     return true
   }
 
   if (position.align === "nearest") {
     if (targetRect.top >= viewportRect.top && targetRect.bottom <= viewportRect.bottom) return true
     if (targetRect.top < viewportRect.top) {
-      viewport.scrollTop = Math.max(0, viewport.scrollTop + targetRect.top - viewportRect.top)
+      setTimelineScrollTop({
+        viewport,
+        sink,
+        top: viewport.scrollTop + targetRect.top - viewportRect.top,
+        source: "session-timeline-scroll-anchors/restoreTarget",
+        reason: "target-nearest-top",
+      })
       return true
     }
-    viewport.scrollTop = Math.max(0, viewport.scrollTop + targetRect.bottom - viewportRect.bottom)
+    setTimelineScrollTop({
+      viewport,
+      sink,
+      top: viewport.scrollTop + targetRect.bottom - viewportRect.bottom,
+      source: "session-timeline-scroll-anchors/restoreTarget",
+      reason: "target-nearest-bottom",
+    })
     return true
   }
 
   if (position.align === "center") {
     const targetHeight = Math.max(0, targetRect.bottom - targetRect.top)
-    viewport.scrollTop = Math.max(
-      0,
-      viewport.scrollTop + targetRect.top - viewportRect.top - (viewport.clientHeight - targetHeight) / 2,
-    )
+    setTimelineScrollTop({
+      viewport,
+      sink,
+      top: viewport.scrollTop + targetRect.top - viewportRect.top - (viewport.clientHeight - targetHeight) / 2,
+      source: "session-timeline-scroll-anchors/restoreTarget",
+      reason: "target-center",
+    })
     return true
   }
 
-  viewport.scrollTop = Math.max(0, viewport.scrollTop + targetRect.top - viewportRect.top)
+  setTimelineScrollTop({
+    viewport,
+    sink,
+    top: viewport.scrollTop + targetRect.top - viewportRect.top,
+    source: "session-timeline-scroll-anchors/restoreTarget",
+    reason: "target-start",
+  })
   return true
 }
 
@@ -128,23 +208,25 @@ export function restoreTimelineSafePosition(args: {
   viewport: HTMLElement | undefined
   position: TimelineSafePosition
   bottomSentinel?: HTMLElement | null
+  scrollCommandSink?: TimelineScrollCommandSink
 }): TimelineAnchorRestoreResult {
   if (!args.viewport) return { ok: false, reason: "viewport_missing" }
+  const sink = args.scrollCommandSink ?? fallbackTimelineScrollCommandSink
 
   if (args.position.kind === "latest") {
-    restoreLatest(args.viewport, args.bottomSentinel)
+    restoreLatest(args.viewport, args.bottomSentinel, sink)
     return { ok: true, restoredTo: args.position }
   }
 
   if (args.position.kind === "reading") {
     if (!args.position.anchorMessageID) return { ok: false, reason: "invalid_anchor" }
-    return restoreReading(args.viewport, args.position)
+    return restoreReading(args.viewport, args.position, sink)
       ? { ok: true, restoredTo: args.position }
       : { ok: false, reason: "anchor_not_mounted" }
   }
 
   if (!args.position.messageID) return { ok: false, reason: "invalid_anchor" }
-  return restoreTarget(args.viewport, args.position)
+  return restoreTarget(args.viewport, args.position, sink)
     ? { ok: true, restoredTo: args.position }
     : { ok: false, reason: "anchor_not_mounted" }
 }
