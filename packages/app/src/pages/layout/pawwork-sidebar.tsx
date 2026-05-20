@@ -13,6 +13,7 @@ import { DialogRenameSession } from "@/components/dialog-rename-session"
 import { DialogRenameProject } from "@/components/dialog-rename-project"
 import { DialogRemoveProject } from "@/components/dialog-remove-project"
 import { buildPawworkSessionSections, type PawworkSortMode } from "./pawwork-session-nav"
+import { buildPawworkSidebarCollections } from "./pawwork-sidebar-identity"
 import { buildSessionMenuActions, type SessionMenuAction } from "./session-menu-actions"
 import { SessionItem } from "./sidebar-items"
 import "./sidebar.css"
@@ -56,10 +57,7 @@ function ProjectGroupHeader(props: {
             onClick={props.onToggle}
             class="min-w-0 h-full flex-1 flex items-center gap-2 px-2.5 text-left focus:outline-none"
           >
-            <Icon
-              name={props.collapsed ? "folder" : "folder-open"}
-              class="shrink-0 text-icon-weak"
-            />
+            <Icon name={props.collapsed ? "folder" : "folder-open"} class="shrink-0 text-icon-weak" />
             <span class="min-w-0 flex-1 truncate">{props.label}</span>
           </button>
           <div class="pointer-events-none relative shrink-0 flex items-center justify-end h-[20px] min-w-[30px] pr-1">
@@ -143,7 +141,6 @@ export const PawworkSidebar = (props: {
   const dialog = useDialog()
   const navList = createMemo(() => props.sessions().map((item) => item.session))
   let scrollEl: HTMLDivElement | undefined
-  const byID = createMemo(() => new Map(props.sessions().map((item) => [item.session.id, item] as const)))
   const sections = createMemo(() =>
     buildPawworkSessionSections({
       sessions: props.sessions().map((item) => ({
@@ -156,173 +153,144 @@ export const PawworkSidebar = (props: {
       })),
       pinnedIDs: props.pinnedIDs(),
       sortMode: props.sortMode(),
-      currentSessionID: props.activeSessionID?.(),
     }),
   )
-  const rows = createMemo(() =>
-    sections()
-      .recent.map((item) => ({ item: byID().get(item.id) }))
-      .filter((entry): entry is { item: PawworkSidebarSession } => !!entry.item),
-  )
-  const pinnedRows = createMemo(() =>
-    sections()
-      .pinned.map((item) => ({ item: byID().get(item.id) }))
-      .filter((entry): entry is { item: PawworkSidebarSession } => !!entry.item),
-  )
-  const groupedRows = createMemo(() =>
-    sections().groups.map((group) => ({
-      key: group.key,
-      label: group.label,
-      items: group.items
-        .map((item) => byID().get(item.id))
-        .filter((item): item is PawworkSidebarSession => !!item),
-    })),
+  const sidebarCollections = createMemo(() =>
+    buildPawworkSidebarCollections({ sessions: props.sessions(), sections: sections() }),
   )
 
   const openRenameDialog = (target: Session) => {
     dialog.show(() => (
-      <DialogRenameSession
-        name={target.title ?? ""}
-        onConfirm={(next) => props.onRenameSession(target, next)}
-      />
+      <DialogRenameSession name={target.title ?? ""} onConfirm={(next) => props.onRenameSession(target, next)} />
     ))
   }
 
   const openRenameProjectDialog = (projectKey: string, currentLabel: string) => {
     dialog.show(() => (
-      <DialogRenameProject
-        name={currentLabel}
-        onConfirm={(next) => props.onRenameProject(projectKey, next)}
-      />
+      <DialogRenameProject name={currentLabel} onConfirm={(next) => props.onRenameProject(projectKey, next)} />
     ))
   }
 
   const openRemoveProjectDialog = (projectKey: string, projectLabel: string) => {
-    dialog.show(() => (
-      <DialogRemoveProject
-        name={projectLabel}
-        onConfirm={() => props.onRemoveProject(projectKey)}
-      />
-    ))
+    dialog.show(() => <DialogRemoveProject name={projectLabel} onConfirm={() => props.onRemoveProject(projectKey)} />)
   }
 
-  const renderSessionItem = (entry: { item: PawworkSidebarSession }) => {
-    const session = entry.item.session
-    const menuLabels = () => ({
-      pin: language.t("sidebar.pawwork.pinSession"),
-      unpin: language.t("sidebar.pawwork.unpinSession"),
-      rename: language.t("common.rename"),
-      export: language.t("session.export.action.export"),
-      delete: language.t("common.delete"),
+  const menuLabels = () => ({
+    pin: language.t("sidebar.pawwork.pinSession"),
+    unpin: language.t("sidebar.pawwork.unpinSession"),
+    rename: language.t("common.rename"),
+    export: language.t("session.export.action.export"),
+    delete: language.t("common.delete"),
+  })
+  const menuActions = (target: Session, onRenameSession: (session: Session) => void) =>
+    buildSessionMenuActions({
+      session: target,
+      pinned: props.pinnedIDs().includes(target.id),
+      exportAvailable: props.exportSessionAvailable(),
+      labels: menuLabels(),
+      onTogglePinnedSession: props.onTogglePinnedSession,
+      onRenameSession,
+      onExportSession: props.onExportSession,
+      onDeleteSession: props.onDeleteSession,
     })
-    const menuActions = (target: Session, onRenameSession: (session: Session) => void) =>
-      buildSessionMenuActions({
-        session: target,
-        pinned: props.pinnedIDs().includes(target.id),
-        exportAvailable: props.exportSessionAvailable(),
-        labels: menuLabels(),
-        onTogglePinnedSession: props.onTogglePinnedSession,
-        onRenameSession,
-        onExportSession: props.onExportSession,
-        onDeleteSession: props.onDeleteSession,
-      })
-    const renderDropdownActions = (actions: SessionMenuAction[]) => (
-      <>
-        <For each={actions}>
-          {(action) => (
-            <>
-              <Show when={action.separatorBefore}>
-                <DropdownMenu.Separator />
-              </Show>
-              <DropdownMenu.Item onSelect={() => void action.run()}>
-                <Icon name={action.icon} class="text-icon-weak" />
-                <DropdownMenu.ItemLabel>{action.label}</DropdownMenu.ItemLabel>
-              </DropdownMenu.Item>
-            </>
-          )}
-        </For>
-      </>
-    )
-    const renderContextActions = (actions: SessionMenuAction[]) => (
-      <>
-        <For each={actions}>
-          {(action) => (
-            <>
-              <Show when={action.separatorBefore}>
-                <ContextMenu.Separator />
-              </Show>
-              <ContextMenu.Item onSelect={() => void action.run()}>
-                <Icon name={action.icon} class="text-icon-weak" />
-                <ContextMenu.ItemLabel>{action.label}</ContextMenu.ItemLabel>
-              </ContextMenu.Item>
-            </>
-          )}
-        </For>
-      </>
-    )
+  const renderDropdownActions = (actions: SessionMenuAction[]) => (
+    <>
+      <For each={actions}>
+        {(action) => (
+          <>
+            <Show when={action.separatorBefore}>
+              <DropdownMenu.Separator />
+            </Show>
+            <DropdownMenu.Item onSelect={() => void action.run()}>
+              <Icon name={action.icon} class="text-icon-weak" />
+              <DropdownMenu.ItemLabel>{action.label}</DropdownMenu.ItemLabel>
+            </DropdownMenu.Item>
+          </>
+        )}
+      </For>
+    </>
+  )
+  const renderContextActions = (actions: SessionMenuAction[]) => (
+    <>
+      <For each={actions}>
+        {(action) => (
+          <>
+            <Show when={action.separatorBefore}>
+              <ContextMenu.Separator />
+            </Show>
+            <ContextMenu.Item onSelect={() => void action.run()}>
+              <Icon name={action.icon} class="text-icon-weak" />
+              <ContextMenu.ItemLabel>{action.label}</ContextMenu.ItemLabel>
+            </ContextMenu.Item>
+          </>
+        )}
+      </For>
+    </>
+  )
 
+  const renderSessionItem = (row: Accessor<PawworkSidebarSession | undefined>) => {
     return (
-      <ContextMenu>
-        <ContextMenu.Trigger as="div" class="flex flex-col gap-1">
-          <SessionItem
-            session={session}
-            list={navList()}
-            navList={navList}
-            slug={entry.item.slug}
-            showChild
-            prefetchSession={props.prefetchSession}
-            hrefForSession={props.hrefForSession}
-            onOpenSession={props.onOpenSession}
-            timeText={() =>
-              entry.item.created > 0
-                ? getRelativeTime(new Date(entry.item.created).toISOString(), language.t)
-                : undefined
-            }
-            titleContent={({ title }) => (
-              <span
-                class="text-body text-fg-base [.active_&]:text-fg-strong [.active_&]:font-emphasis min-w-0 flex-1 truncate"
-                onDblClick={(e: MouseEvent) => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  openRenameDialog(session)
-                }}
-              >
-                {title()}
-              </span>
-            )}
-            actionSlot={(rowSession) => (
-              <DropdownMenu>
-                <DropdownMenu.Trigger
-                  as={IconButton}
-                  icon="dot-grid"
-                  variant="ghost"
-                  class="h-[26px] w-[26px]"
-                  data-action="session-row-menu"
-                  aria-label={language.t("common.moreOptions")}
-                  onClick={(event: MouseEvent) => {
-                    event.preventDefault()
-                    event.stopPropagation()
-                  }}
-                />
-                <DropdownMenu.Portal>
-                  <DropdownMenu.Content>
-                    {renderDropdownActions(
-                      menuActions(rowSession, () => openRenameDialog(rowSession)),
-                    )}
-                  </DropdownMenu.Content>
-                </DropdownMenu.Portal>
-              </DropdownMenu>
-            )}
-          />
-        </ContextMenu.Trigger>
-        <ContextMenu.Portal>
-          <ContextMenu.Content>
-            {renderContextActions(
-              menuActions(session, () => openRenameDialog(session)),
-            )}
-          </ContextMenu.Content>
-        </ContextMenu.Portal>
-      </ContextMenu>
+      <Show when={row()}>
+        {(current) => (
+          <ContextMenu>
+            <ContextMenu.Trigger as="div" class="flex flex-col gap-1">
+              <SessionItem
+                session={current().session}
+                list={navList()}
+                navList={navList}
+                slug={current().slug}
+                showChild
+                prefetchSession={props.prefetchSession}
+                hrefForSession={props.hrefForSession}
+                onOpenSession={props.onOpenSession}
+                timeText={() =>
+                  current().created > 0
+                    ? getRelativeTime(new Date(current().created).toISOString(), language.t)
+                    : undefined
+                }
+                titleContent={({ title }) => (
+                  <span
+                    class="text-body text-fg-base [.active_&]:text-fg-strong [.active_&]:font-emphasis min-w-0 flex-1 truncate"
+                    onDblClick={(e: MouseEvent) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      openRenameDialog(current().session)
+                    }}
+                  >
+                    {title()}
+                  </span>
+                )}
+                actionSlot={(rowSession) => (
+                  <DropdownMenu>
+                    <DropdownMenu.Trigger
+                      as={IconButton}
+                      icon="dot-grid"
+                      variant="ghost"
+                      class="h-[26px] w-[26px]"
+                      data-action="session-row-menu"
+                      aria-label={language.t("common.moreOptions")}
+                      onClick={(event: MouseEvent) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                      }}
+                    />
+                    <DropdownMenu.Portal>
+                      <DropdownMenu.Content>
+                        {renderDropdownActions(menuActions(rowSession, () => openRenameDialog(rowSession)))}
+                      </DropdownMenu.Content>
+                    </DropdownMenu.Portal>
+                  </DropdownMenu>
+                )}
+              />
+            </ContextMenu.Trigger>
+            <ContextMenu.Portal>
+              <ContextMenu.Content>
+                {renderContextActions(menuActions(current().session, () => openRenameDialog(current().session)))}
+              </ContextMenu.Content>
+            </ContextMenu.Portal>
+          </ContextMenu>
+        )}
+      </Show>
     )
   }
 
@@ -422,13 +390,20 @@ export const PawworkSidebar = (props: {
         >
           <Show when={props.sessions().length > 0}>
             <nav class="flex flex-col">
-              <Show when={pinnedRows().length > 0}>
+              <Show when={sidebarCollections().pinnedRowKeys.length > 0}>
                 <section data-component="pawwork-sidebar-pinned" class="flex flex-col gap-0.5">
-                  <div class="mt-4 h-[30px] flex items-center px-2.5 text-body text-fg-weak">{language.t("sidebar.pawwork.pinned")}</div>
-                  <For each={pinnedRows()}>{(entry) => renderSessionItem(entry)}</For>
+                  <div class="mt-4 h-[30px] flex items-center px-2.5 text-body text-fg-weak">
+                    {language.t("sidebar.pawwork.pinned")}
+                  </div>
+                  <For each={sidebarCollections().pinnedRowKeys}>
+                    {(rowKey) => {
+                      const row = createMemo(() => sidebarCollections().rowByKey.get(rowKey))
+                      return renderSessionItem(row)
+                    }}
+                  </For>
                 </section>
               </Show>
-              <Show when={rows().length > 0 || groupedRows().length > 0}>
+              <Show when={sidebarCollections().recentRowKeys.length > 0 || sidebarCollections().groupKeys.length > 0}>
                 <div class="mt-4 h-[30px] flex items-center justify-between px-2.5">
                   <span class="text-body text-fg-weak">{language.t("sidebar.pawwork.all")}</span>
                   <DropdownMenu>
@@ -477,45 +452,60 @@ export const PawworkSidebar = (props: {
               </Show>
               <Show when={props.sortMode() === "time"}>
                 <div class="flex flex-col gap-0.5">
-                  <For each={rows()}>{(entry) => renderSessionItem(entry)}</For>
+                  <For each={sidebarCollections().recentRowKeys}>
+                    {(rowKey) => {
+                      const row = createMemo(() => sidebarCollections().rowByKey.get(rowKey))
+                      return renderSessionItem(row)
+                    }}
+                  </For>
                 </div>
               </Show>
               <Show when={props.sortMode() === "project"}>
-                <For each={groupedRows()}>
-                  {(group, index) => {
-                    const collapsed = createMemo(() => !!props.collapsedProjects()[group.key])
-                    const handleRename = () => openRenameProjectDialog(group.key, group.label)
-                    const handleRemove = () => openRemoveProjectDialog(group.key, group.label)
+                <For each={sidebarCollections().groupKeys}>
+                  {(groupKey, index) => {
+                    const group = createMemo(() => sidebarCollections().groupByKey.get(groupKey))
+                    const collapsed = createMemo(() => !!props.collapsedProjects()[groupKey])
+                    const handleRename = () => openRenameProjectDialog(groupKey, group()?.label ?? groupKey)
+                    const handleRemove = () => openRemoveProjectDialog(groupKey, group()?.label ?? groupKey)
 
                     return (
-                      <section class={`${index() > 0 ? "mt-0.5 " : ""}flex flex-col gap-0.5`}>
-                        <ProjectGroupHeader
-                          projectKey={group.key}
-                          label={group.label}
-                          collapsed={collapsed()}
-                          onToggle={() => props.onToggleProjectCollapsed(group.key)}
-                          onRename={handleRename}
-                          onRemove={handleRemove}
-                        />
-                        {/* grid-template-rows trick: 0fr → 1fr animates height without
-                          * touching layout-thrashing properties. Items stay mounted so
-                          * focus / scroll position survive the toggle; inert on the
-                          * inner wrapper takes them out of the tab order while collapsed. */}
-                        <div
-                          data-component="pawwork-group-content"
-                          data-collapsed={collapsed() ? "true" : undefined}
-                          class="grid transition-[grid-template-rows] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
-                          style={{ "grid-template-rows": collapsed() ? "0fr" : "1fr" }}
-                          aria-hidden={collapsed()}
-                        >
-                          <div
-                            class="min-h-0 overflow-hidden flex flex-col gap-0.5"
-                            inert={collapsed() ? true : undefined}
-                          >
-                            <For each={group.items}>{(item) => renderSessionItem({ item })}</For>
-                          </div>
-                        </div>
-                      </section>
+                      <Show when={group()}>
+                        {(current) => (
+                          <section class={`${index() > 0 ? "mt-0.5 " : ""}flex flex-col gap-0.5`}>
+                            <ProjectGroupHeader
+                              projectKey={groupKey}
+                              label={current().label}
+                              collapsed={collapsed()}
+                              onToggle={() => props.onToggleProjectCollapsed(groupKey)}
+                              onRename={handleRename}
+                              onRemove={handleRemove}
+                            />
+                            {/* grid-template-rows trick: 0fr → 1fr animates height without
+                             * touching layout-thrashing properties. Items stay mounted so
+                             * focus / scroll position survive the toggle; inert on the
+                             * inner wrapper takes them out of the tab order while collapsed. */}
+                            <div
+                              data-component="pawwork-group-content"
+                              data-collapsed={collapsed() ? "true" : undefined}
+                              class="grid transition-[grid-template-rows] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+                              style={{ "grid-template-rows": collapsed() ? "0fr" : "1fr" }}
+                              aria-hidden={collapsed()}
+                            >
+                              <div
+                                class="min-h-0 overflow-hidden flex flex-col gap-0.5"
+                                inert={collapsed() ? true : undefined}
+                              >
+                                <For each={current().rowKeys}>
+                                  {(rowKey) => {
+                                    const row = createMemo(() => sidebarCollections().rowByKey.get(rowKey))
+                                    return renderSessionItem(row)
+                                  }}
+                                </For>
+                              </div>
+                            </div>
+                          </section>
+                        )}
+                      </Show>
                     )
                   }}
                 </For>
@@ -546,15 +536,8 @@ export const PawworkSidebar = (props: {
         </div>
       </Show>
 
-      <div
-        data-component="pawwork-side-foot"
-        class="shrink-0 px-3 pt-4 pb-3"
-      >
-        <TooltipKeybind
-          placement="top"
-          title={props.settingsLabel()}
-          keybind={props.settingsKeybind() ?? ""}
-        >
+      <div data-component="pawwork-side-foot" class="shrink-0 px-3 pt-4 pb-3">
+        <TooltipKeybind placement="top" title={props.settingsLabel()} keybind={props.settingsKeybind() ?? ""}>
           <button
             type="button"
             data-action="pawwork-open-settings"

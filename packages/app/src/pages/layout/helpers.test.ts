@@ -19,6 +19,7 @@ import {
   openProjectRoute,
   openSessionRoute,
   projectSessionRouteTarget,
+  pawworkSessionRowKey,
   sortedRootSessions,
   startupAutoselectDirectory,
   workspaceKey,
@@ -143,6 +144,17 @@ describe("layout workspace helpers", () => {
     expect(workspaceKey("C:\\")).toBe("C:/")
     expect(workspaceKey("C://")).toBe("C:/")
     expect(workspaceKey("C:///")).toBe("C:/")
+  })
+
+  test("builds stable session row keys from normalized workspace paths", () => {
+    expect(pawworkSessionRowKey({ directory: "/tmp/demo///", id: "ses_1" })).toBe("/tmp/demo\0ses_1")
+    expect(pawworkSessionRowKey({ directory: "C:\\tmp\\demo\\\\", id: "ses_1" })).toBe("C:/tmp/demo\0ses_1")
+  })
+
+  test("keeps identical session ids distinct across workspaces", () => {
+    expect(pawworkSessionRowKey({ directory: "/tmp/a", id: "same" })).not.toBe(
+      pawworkSessionRowKey({ directory: "/tmp/b", id: "same" }),
+    )
   })
 
   test("keeps local first while preserving known order", () => {

@@ -40,7 +40,6 @@ describe("buildPawworkSessionSections", () => {
       sessions,
       pinnedIDs: ["beta"],
       sortMode: "time",
-      currentSessionID: "alpha",
     })
 
     expect(result.pinned.map((item) => item.id)).toEqual(["beta"])
@@ -52,7 +51,6 @@ describe("buildPawworkSessionSections", () => {
       sessions,
       pinnedIDs: [],
       sortMode: "project",
-      currentSessionID: "alpha",
     })
 
     expect(result.groups.map((group) => group.label)).toEqual(["pawwork", "research"])

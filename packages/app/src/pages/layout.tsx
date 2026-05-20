@@ -680,7 +680,6 @@ export default function Layout(props: ParentProps) {
       })),
       pinnedIDs: store.pawworkPinnedSessions,
       sortMode: store.pawworkSortMode,
-      currentSessionID: params.id,
     }),
   )
 
