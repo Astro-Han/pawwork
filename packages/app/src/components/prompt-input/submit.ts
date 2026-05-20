@@ -20,6 +20,7 @@ import { Worktree as WorktreeState } from "@/utils/worktree"
 import { rendererAbortDiagnosticSource, type RendererAbortSource } from "@/session/abort-source"
 import { buildRequestParts } from "./build-request-parts"
 import { setCursorPosition } from "./editor-dom"
+import { reportInvariantBreach } from "./invariant"
 import { formatServerError } from "@/utils/server-errors"
 import { canSubmitPrompt } from "@/pages/session/session-action-readiness"
 import { type PromptRouteScope, promptScopeForSession } from "@/pages/session/prompt-route-scope"
@@ -123,6 +124,50 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
     const ok = await input.before?.()
     if (ok === false) return false
     return true
+  }
+
+  // Path D: first prompt part is a marked TextPart (command metadata present).
+  // flatText projects all content parts into a single string for argument slicing.
+  // If the content prefix invariant is violated, report and fall through to legacy.
+  const first = input.draft.prompt[0]
+  if (first?.type === "text" && first.command) {
+    const markedName = first.command.name
+    const prefix = `/${markedName} `
+    const flatText = input.draft.prompt
+      .map((p) => ("content" in p ? p.content : ""))
+      .join("")
+    if (!flatText.startsWith(prefix)) {
+      reportInvariantBreach("sendFollowupDraft: command content prefix mismatch", first)
+      // Fall through to the legacy command check below.
+    } else {
+      setBusy()
+      try {
+        if (!(await wait())) {
+          setIdle()
+          return false
+        }
+        await input.client.session.command({
+          sessionID: input.draft.sessionID,
+          command: markedName,
+          arguments: flatText.slice(prefix.length),
+          agent: input.draft.agent,
+          model: `${input.draft.model.providerID}/${input.draft.model.modelID}`,
+          locale: input.draft.locale,
+          variant: input.draft.variant,
+          parts: images.map((attachment) => ({
+            id: Identifier.ascending("part"),
+            type: "file" as const,
+            mime: attachment.mime,
+            url: attachment.dataUrl,
+            filename: attachment.filename,
+          })),
+        })
+        return true
+      } catch (err) {
+        setIdle()
+        throw err
+      }
+    }
   }
 
   const [head, ...tail] = text.split(" ")
@@ -670,6 +715,52 @@ export function createPromptSubmit(input: PromptSubmitInput) {
           restoreInput(ownership)
         })
       return
+    }
+
+    // Path D: first prompt part is a marked TextPart (command metadata present).
+    // flatText projects all content parts into a single string for argument slicing.
+    // If the content prefix invariant is violated, report and fall through to legacy.
+    const firstPart = currentPrompt[0]
+    if (firstPart?.type === "text" && firstPart.command) {
+      const markedName = firstPart.command.name
+      const markedPrefix = `/${markedName} `
+      const flatText = currentPrompt
+        .map((p) => ("content" in p ? p.content : ""))
+        .join("")
+      if (!flatText.startsWith(markedPrefix)) {
+        reportInvariantBreach("handleSubmit: command content prefix mismatch", firstPart)
+        // Fall through to the legacy slash-command check below.
+      } else {
+        clearInput(ownership)
+        client.session
+          .command({
+            sessionID: session.id,
+            command: markedName,
+            arguments: flatText.slice(markedPrefix.length),
+            agent,
+            model: `${model.providerID}/${model.modelID}`,
+            locale,
+            variant,
+            parts: images.map((attachment) => ({
+              id: Identifier.ascending("part"),
+              type: "file" as const,
+              mime: attachment.mime,
+              url: attachment.dataUrl,
+              filename: attachment.filename,
+            })),
+          })
+          .then(() => {
+            confirmOwnerCleared(ownership)
+          })
+          .catch((err) => {
+            showToast({
+              title: language.t("prompt.toast.commandSendFailed.title"),
+              description: formatServerError(err, language.t, language.t("common.requestFailed")),
+            })
+            restoreInput(ownership)
+          })
+        return
+      }
     }
 
     if (text.startsWith("/")) {
