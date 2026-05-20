@@ -141,26 +141,35 @@ describe("RateLimitCard: CSS token contract", () => {
 describe("formatResetTime", () => {
   const EPOCH_UTC_MIDNIGHT = 1705276800000 // 2024-01-15T00:00:00Z
   const SIX_HOURS = 6 * 60 * 60 * 1000
-  const TWO_DAYS = 2 * 24 * 60 * 60 * 1000
+  const ONE_DAY = 24 * 60 * 60 * 1000
+  const TWO_DAYS = 2 * ONE_DAY
 
   test("returns time string in HH:MM format", () => {
-    // HH:MM with hour12: false — must match pattern like "08:00" or "19:00"
-    expect(formatResetTime(EPOCH_UTC_MIDNIGHT).time).toMatch(/^\d{2}:\d{2}$/)
+    expect(formatResetTime(EPOCH_UTC_MIDNIGHT, EPOCH_UTC_MIDNIGHT)?.time).toMatch(/^\d{2}:\d{2}$/)
   })
 
   test("different epochs produce different time strings", () => {
-    const t1 = formatResetTime(EPOCH_UTC_MIDNIGHT).time
-    const t2 = formatResetTime(EPOCH_UTC_MIDNIGHT + SIX_HOURS).time
+    const t1 = formatResetTime(EPOCH_UTC_MIDNIGHT, EPOCH_UTC_MIDNIGHT)?.time
+    const t2 = formatResetTime(EPOCH_UTC_MIDNIGHT + SIX_HOURS, EPOCH_UTC_MIDNIGHT)?.time
     expect(t1).not.toEqual(t2)
   })
 
-  test("dayOffset is 0 when reset is on the same local calendar day as now", () => {
-    // Same instant for both reset and now → identical local date components.
-    expect(formatResetTime(EPOCH_UTC_MIDNIGHT, EPOCH_UTC_MIDNIGHT).dayOffset).toBe(0)
+  test("kind is 'today' when reset is on the same local calendar day as now", () => {
+    expect(formatResetTime(EPOCH_UTC_MIDNIGHT, EPOCH_UTC_MIDNIGHT)?.kind).toBe("today")
   })
 
-  test("dayOffset is 1 when reset is past the local day boundary", () => {
-    // Two days ahead is comfortably past midnight in any local timezone.
-    expect(formatResetTime(EPOCH_UTC_MIDNIGHT + TWO_DAYS, EPOCH_UTC_MIDNIGHT).dayOffset).toBe(1)
+  test("kind is 'tomorrow' when reset is exactly one day ahead", () => {
+    expect(formatResetTime(EPOCH_UTC_MIDNIGHT + ONE_DAY, EPOCH_UTC_MIDNIGHT)?.kind).toBe("tomorrow")
+  })
+
+  test("returns undefined when resetAt is in the past", () => {
+    // Provider sent an HTTP-date that already elapsed (retry.ts clamps the
+    // wait to 0 but writes the parsed date into resetAt unchanged).
+    expect(formatResetTime(EPOCH_UTC_MIDNIGHT - TWO_DAYS, EPOCH_UTC_MIDNIGHT)).toBeUndefined()
+  })
+
+  test("returns undefined when resetAt is more than one local day ahead", () => {
+    // Avoid saying "tomorrow HH:MM" when the actual reset is +2 days out.
+    expect(formatResetTime(EPOCH_UTC_MIDNIGHT + TWO_DAYS, EPOCH_UTC_MIDNIGHT)).toBeUndefined()
   })
 })
