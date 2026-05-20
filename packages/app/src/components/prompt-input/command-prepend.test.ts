@@ -226,12 +226,12 @@ describe("prependCommandMark — slash-query state (user typed /<query>)", () =>
     expect(markedCount).toBe(1)
   })
 
-  test("leading marked TextPart with args → args are dropped on command switch", () => {
-    // Product decision: a pill is an atomic unit. Switching commands drops
-    // the old args because they carry the old command's semantics, which
-    // may not map to the new command (e.g. /summarize "the diff" → /translate).
-    // Carrying args across the switch would silently feed mismatched
-    // arguments into the new command.
+  test("leading marked TextPart with args → args are preserved across command switch", () => {
+    // Product decision: switching commands keeps the args the user already
+    // typed. $ARGUMENTS is plain string substitution with no schema, so any
+    // text the user kept is still legitimate input. Silently deleting it
+    // would discard work the user invested time in. The user can see the
+    // args in the editor and remove them if they no longer fit.
     const oldMarked: TextPart = {
       type: "text", content: "/old hello world", start: 0, end: 16,
       command: { name: "old", source: "skill", icon: "command" },
@@ -241,10 +241,21 @@ describe("prependCommandMark — slash-query state (user typed /<query>)", () =>
     expect(result.length).toBe(1)
     const newMarked = result[0] as TextPart
     expect(newMarked.command?.name).toBe("new")
-    // Empty args: content is just "/new " (slash + name + trailing space).
-    expect(newMarked.content).toBe("/new ")
-    // "hello world" is gone — not carried across the command switch.
-    expect(newMarked.content).not.toContain("hello")
+    // Args carried over: content is "/new hello world".
+    expect(newMarked.content).toBe("/new hello world")
+  })
+
+  test("leading marked TextPart with empty args → result still has trailing space", () => {
+    // Old marked "/old " (empty args) → new marked "/new " (empty args).
+    // createCommandTextPart always emits trailing space after the name.
+    const oldMarked: TextPart = {
+      type: "text", content: "/old ", start: 0, end: 5,
+      command: { name: "old", source: "skill", icon: "command" },
+    }
+    const result = prependCommandMark([oldMarked], [], cmd("new"))
+
+    expect(result.length).toBe(1)
+    expect((result[0] as TextPart).content).toBe("/new ")
   })
 
   test("leading marked TextPart + tail parts → replace marked, preserve tail by identity", () => {

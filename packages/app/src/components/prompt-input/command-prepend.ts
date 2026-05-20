@@ -35,6 +35,15 @@ function hasLeadingMarked(current: Prompt): boolean {
   return first?.type === "text" && !!first.command
 }
 
+// Extract the args portion from a leading marked TextPart. content always
+// starts with "/<name> " per createCommandTextPart's invariant, so slicing
+// off that prefix yields the user-typed args (possibly empty).
+function leadingArgs(current: Prompt): string {
+  const first = current[0] as TextPart & { command: NonNullable<TextPart["command"]> }
+  const prefix = `/${first.command.name} `
+  return first.content.slice(prefix.length)
+}
+
 /**
  * Build the new Prompt after the user selects a custom slash command.
  *
@@ -62,13 +71,17 @@ export function prependCommandMark(
   if (hasLeadingMarked(current)) {
     // Invariant: at most one marked TextPart per Prompt, always at index 0.
     // Re-opening the popover and picking a second command means the user is
-    // changing their mind — replace the old marked TextPart with the new one
-    // and drop its args. A pill is an atomic unit: the args belong to the
-    // old command's semantics, which may not map to the new command at all
-    // (e.g. /summarize "the diff" → /translate). Carrying args across the
-    // switch would silently feed mismatched arguments into /new. Tail parts
-    // after the marked TextPart (files, agents, images) survive by identity.
-    return [marked, ...current.slice(1)]
+    // changing their mind about the command name — swap the pill but keep
+    // the args the user already typed. $ARGUMENTS is a plain string
+    // substitution with no schema, so any text the user kept is still
+    // legitimate input for the new command; deciding otherwise would mean
+    // the system silently deletes work the user invested time in. If the
+    // args do not fit the new command, the user can see them in the editor
+    // and remove them. Tail parts (files, agents, images) survive by
+    // identity.
+    const carriedArgs = leadingArgs(current)
+    const markedWithArgs = createCommandTextPart(cmd, carriedArgs)
+    return [markedWithArgs, ...current.slice(1)]
   }
 
   // E1 mid-prompt variant: keep all existing parts (including any images
