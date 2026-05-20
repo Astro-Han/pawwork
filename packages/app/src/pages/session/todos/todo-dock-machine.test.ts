@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test"
-import { reduceTodoDockState, todoDockHiddenState, type TodoDockMachineState } from "./todo-dock-machine"
+import {
+  createTodoDockRestoreTracker,
+  reduceTodoDockState,
+  todoDockHiddenState,
+  type TodoDockMachineState,
+} from "./todo-dock-machine"
 
 const active = (sessionID = "s") => ({ sessionID, count: 1, phase: "active" as const, lifecycleSignature: "pending" })
 const terminal = (sessionID = "s", lifecycleSignature = "completed") => ({
@@ -15,6 +20,20 @@ describe("reduceTodoDockState", () => {
     expect(reduceTodoDockState(todoDockHiddenState(), { type: "snapshot", input: active() })).toMatchObject({
       kind: "visible-active",
       dock: true,
+      completing: false,
+    })
+  })
+
+  test("restored active todos show the dock without opening animation", () => {
+    expect(
+      reduceTodoDockState(todoDockHiddenState(), {
+        type: "snapshot",
+        input: { ...active(), restored: true },
+      }),
+    ).toMatchObject({
+      kind: "visible-active",
+      dock: true,
+      opening: false,
       completing: false,
     })
   })
@@ -136,5 +155,36 @@ describe("reduceTodoDockState", () => {
       kind: "hidden-terminal",
       dock: false,
     })
+  })
+})
+
+describe("createTodoDockRestoreTracker", () => {
+  test("marks the first known active snapshot after an unknown session entry as restored", () => {
+    const restored = createTodoDockRestoreTracker()
+
+    expect(restored({ sessionID: "s", known: false, count: 0, phase: "empty" })).toBe(false)
+    expect(restored({ sessionID: "s", known: true, count: 1, phase: "active" })).toBe(true)
+    expect(restored({ sessionID: "s", known: true, count: 1, phase: "active" })).toBe(false)
+  })
+
+  test("does not mark live todos as restored after a known empty snapshot primes the session", () => {
+    const restored = createTodoDockRestoreTracker()
+
+    expect(restored({ sessionID: "s", known: true, count: 0, phase: "empty" })).toBe(false)
+    expect(restored({ sessionID: "s", known: true, count: 1, phase: "active" })).toBe(false)
+  })
+
+  test("does not mark the first live tool-parts todo snapshot as restored", () => {
+    const restored = createTodoDockRestoreTracker()
+    const liveToolPartsSnapshot = {
+      sessionID: "s",
+      known: true,
+      count: 1,
+      phase: "active" as const,
+      source: "primary-parts" as const,
+    }
+
+    expect(restored({ sessionID: "s", known: false, count: 0, phase: "empty" })).toBe(false)
+    expect(restored(liveToolPartsSnapshot)).toBe(false)
   })
 })

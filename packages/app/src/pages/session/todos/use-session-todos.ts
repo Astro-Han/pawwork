@@ -3,16 +3,34 @@ import { createStore } from "solid-js/store"
 import { useGlobalSync } from "@/context/global-sync"
 import { useSync } from "@/context/sync"
 import { composerDriver, composerEnabled, composerEvent } from "@/testing/session-composer"
-import { reduceTodoDockState, TODO_DOCK_COMPLETING_DELAY_MS, todoDockHiddenState } from "./todo-dock-machine"
+import {
+  createTodoDockRestoreTracker,
+  reduceTodoDockState,
+  TODO_DOCK_COMPLETING_DELAY_MS,
+  todoDockHiddenState,
+} from "./todo-dock-machine"
 import { todoSnapshot, type SessionTodoItem, type TodoSnapshot } from "./todo-model"
 import { selectSessionTodoDockSnapshot } from "./todo-source"
 
-const dockInput = (snapshot: TodoSnapshot, sessionID?: string) => ({
+export const isTodoSnapshotKnownForRestore = (input: {
+  sessionID?: string
+  testTodosKnown: boolean
+  source: TodoSnapshot["source"]
+  syncTodoKnown: boolean
+  globalTodoKnown: boolean
+}) => {
+  if (!input.sessionID) return true
+  if (input.testTodosKnown) return true
+  return input.syncTodoKnown || input.globalTodoKnown
+}
+
+const dockInput = (snapshot: TodoSnapshot, sessionID?: string, restored?: boolean) => ({
   sessionID: snapshot.sessionID ?? sessionID,
   count: snapshot.items.length,
   phase: snapshot.phase,
   lifecycleSignature: snapshot.lifecycleSignature,
   dockEligible: snapshot.dockEligible,
+  restored,
   historicalTerminal: snapshot.historicalTerminal,
 })
 
@@ -23,6 +41,7 @@ export function createSessionTodoModel(input: {
   const sync = useSync()
   const globalSync = useGlobalSync()
   const activeSessionID = input.sessionID
+  const restoredSnapshot = createTodoDockRestoreTracker()
 
   const [test, setTest] = createStore({
     on: false,
@@ -99,9 +118,34 @@ export function createSessionTodoModel(input: {
     })
   })
 
+  const snapshotKnown = (current: TodoSnapshot, sessionID?: string) => {
+    return isTodoSnapshotKnownForRestore({
+      sessionID,
+      testTodosKnown: test.on && test.todos !== undefined,
+      source: current.source,
+      syncTodoKnown: sessionID ? sync.data.todo[sessionID] !== undefined : false,
+      globalTodoKnown: sessionID ? globalSync.data.session_todo[sessionID] !== undefined : false,
+    })
+  }
+
+  const currentDockInput = (current: TodoSnapshot) => {
+    const sessionID = current.sessionID ?? activeSessionID()
+    return dockInput(
+      current,
+      activeSessionID(),
+      restoredSnapshot({
+        sessionID,
+        known: snapshotKnown(current, sessionID),
+        source: current.source,
+        count: current.items.length,
+        phase: current.phase,
+      }),
+    )
+  }
+
   let machine = reduceTodoDockState(todoDockHiddenState(), {
     type: "snapshot",
-    input: dockInput(snapshot(), activeSessionID()),
+    input: currentDockInput(snapshot()),
   })
   const [dock, setDock] = createStore({
     dock: machine.dock,
@@ -160,7 +204,7 @@ export function createSessionTodoModel(input: {
     on(
       () => {
         const current = snapshot()
-        return dockInput(current, activeSessionID())
+        return currentDockInput(current)
       },
       (current) => dispatch({ type: "snapshot", input: current }),
     ),

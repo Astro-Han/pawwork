@@ -1,4 +1,4 @@
-import type { TodoPhase } from "./todo-model"
+import type { TodoPhase, TodoSourceKind } from "./todo-model"
 
 export const TODO_DOCK_COMPLETING_DELAY_MS = 3000
 
@@ -43,6 +43,7 @@ export type TodoDockInput = {
   phase: TodoPhase
   lifecycleSignature: string
   dockEligible?: boolean
+  restored?: boolean
   // Semantic flag from the source selector. The reducer primarily uses active
   // session history to decide whether terminal snapshots complete a currently
   // active dock or remain hidden historical state.
@@ -53,6 +54,42 @@ export type TodoDockTransition =
   | { type: "snapshot"; input: TodoDockInput }
   | { type: "hideTimerElapsed"; sessionID?: string; lifecycleSignature: string }
   | { type: "animationFrameElapsed" }
+
+export type TodoDockRestoreTrackerInput = {
+  sessionID?: string
+  known: boolean
+  source?: TodoSourceKind
+  count: number
+  phase: TodoPhase
+}
+
+export function createTodoDockRestoreTracker() {
+  let sessionID: string | undefined
+  let primed = false
+
+  return (input: TodoDockRestoreTrackerInput) => {
+    if (!input.sessionID) {
+      sessionID = undefined
+      primed = false
+      return false
+    }
+
+    if (sessionID !== input.sessionID) {
+      sessionID = input.sessionID
+      primed = false
+    }
+
+    const restored =
+      input.known &&
+      !primed &&
+      input.count > 0 &&
+      input.phase === "active" &&
+      input.source !== "primary-parts" &&
+      input.source !== "fallback-parts"
+    if (input.known) primed = true
+    return restored
+  }
+}
 
 export function todoDockHiddenState(activeSessionIDs: ReadonlySet<string> = new Set()): TodoDockMachineState {
   return { kind: "hidden", dock: false, opening: false, completing: false, activeSessionIDs }
@@ -115,7 +152,7 @@ export function reduceTodoDockState(state: TodoDockMachineState, transition: Tod
       kind: "visible-active",
       sessionID: input.sessionID,
       dock: true,
-      opening: hidden,
+      opening: hidden && input.restored !== true,
       completing: false,
       activeSessionIDs: rememberSession(activeSessionIDs, input.sessionID),
     }
