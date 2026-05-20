@@ -226,6 +226,27 @@ describe("prependCommandMark — slash-query state (user typed /<query>)", () =>
     expect(markedCount).toBe(1)
   })
 
+  test("leading marked TextPart with args → args are dropped on command switch", () => {
+    // Product decision: a pill is an atomic unit. Switching commands drops
+    // the old args because they carry the old command's semantics, which
+    // may not map to the new command (e.g. /summarize "the diff" → /translate).
+    // Carrying args across the switch would silently feed mismatched
+    // arguments into the new command.
+    const oldMarked: TextPart = {
+      type: "text", content: "/old hello world", start: 0, end: 16,
+      command: { name: "old", source: "skill", icon: "command" },
+    }
+    const result = prependCommandMark([oldMarked], [], cmd("new"))
+
+    expect(result.length).toBe(1)
+    const newMarked = result[0] as TextPart
+    expect(newMarked.command?.name).toBe("new")
+    // Empty args: content is just "/new " (slash + name + trailing space).
+    expect(newMarked.content).toBe("/new ")
+    // "hello world" is gone — not carried across the command switch.
+    expect(newMarked.content).not.toContain("hello")
+  })
+
   test("leading marked TextPart + tail parts → replace marked, preserve tail by identity", () => {
     // Args text after the pill, plus a file attachment, must survive identity.
     const oldMarked: TextPart = {

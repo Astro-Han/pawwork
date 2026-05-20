@@ -63,7 +63,11 @@ export function prependCommandMark(
     // Invariant: at most one marked TextPart per Prompt, always at index 0.
     // Re-opening the popover and picking a second command means the user is
     // changing their mind — replace the old marked TextPart with the new one
-    // and keep the rest of the prompt (args text, images, files, agents).
+    // and drop its args. A pill is an atomic unit: the args belong to the
+    // old command's semantics, which may not map to the new command at all
+    // (e.g. /summarize "the diff" → /translate). Carrying args across the
+    // switch would silently feed mismatched arguments into /new. Tail parts
+    // after the marked TextPart (files, agents, images) survive by identity.
     return [marked, ...current.slice(1)]
   }
 
