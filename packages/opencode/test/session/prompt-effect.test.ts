@@ -16,14 +16,12 @@ import { Plugin } from "../../src/plugin"
 import { Provider as ProviderSvc } from "../../src/provider/provider"
 import { Env } from "../../src/env"
 import { ModelID, ProviderID } from "../../src/provider/schema"
-import { Question } from "../../src/question"
 import { Todo } from "../../src/session/todo"
 import { Session } from "../../src/session"
 import { LLM } from "../../src/session/llm"
 import { MessageV2 } from "../../src/session/message-v2"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { SessionCompaction } from "../../src/session/compaction"
-import { SessionBlocker } from "../../src/session/blocker"
 import { SessionSummary } from "../../src/session/summary"
 import { Instruction } from "../../src/session/instruction"
 import { SessionProcessor } from "../../src/session/processor"
@@ -228,14 +226,12 @@ function makeHttp(httpLayer: Layer.Layer<HttpClient.HttpClient> = FetchHttpClien
     Plugin.defaultLayer,
     Config.defaultLayer,
     ProviderSvc.defaultLayer,
-    SessionBlocker.defaultLayer,
     lsp,
     mcp,
     AppFileSystem.defaultLayer,
     TurnChange.defaultLayer,
     status,
   ).pipe(Layer.provideMerge(infra))
-  const question = Question.layer.pipe(Layer.provideMerge(deps))
   const todo = Todo.layer.pipe(Layer.provideMerge(deps))
   const registry = ToolRegistry.layer.pipe(
     Layer.provide(Skill.defaultLayer),
@@ -247,7 +243,6 @@ function makeHttp(httpLayer: Layer.Layer<HttpClient.HttpClient> = FetchHttpClien
     Layer.provide(Format.defaultLayer),
     Layer.provide(SubagentRun.defaultLayer),
     Layer.provideMerge(todo),
-    Layer.provideMerge(question),
     Layer.provideMerge(deps),
   )
   const trunc = Truncate.layer.pipe(Layer.provideMerge(deps))
@@ -1279,75 +1274,19 @@ it.live(
 )
 
 it.live(
-  "soft cancel preserves a pending question and continues after reply",
-  () =>
-    provideTmpdirServer(
-      Effect.fnUntraced(function* ({ llm }) {
-        const prompt = yield* SessionPrompt.Service
-        const questions = yield* Question.Service
-        const sessions = yield* Session.Service
-        const chat = yield* sessions.create({ title: "Question" })
-
-        yield* llm.tool("question", {
-          questions: [
-            {
-              question: "Export as Word or PDF?",
-              header: "Format",
-              options: [
-                { label: "Word", description: "docx" },
-                { label: "PDF", description: "pdf" },
-              ],
-            },
-          ],
-        })
-        yield* user(chat.id, "export")
-
-        const fiber = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
-        const pending = yield* Effect.gen(function* () {
-          for (let attempt = 0; attempt < 100; attempt++) {
-            const list = yield* questions.list()
-            if (list.length > 0) return list[0]!
-            yield* Effect.sleep("10 millis")
-          }
-          throw new Error("timed out waiting for pending question")
-        })
-
-        const cancelled = yield* prompt.cancel(chat.id, { mode: "soft" })
-        expect(cancelled).toBe(false)
-        expect(yield* questions.list()).toHaveLength(1)
-
-        yield* questions.reply({ requestID: pending.id, answers: [["Word"]] })
-        const exit = yield* Fiber.await(fiber)
-        expect(Exit.isSuccess(exit)).toBe(true)
-        expect(yield* questions.list()).toHaveLength(0)
-
-        const messages = yield* MessageV2.filterCompactedEffect(chat.id)
-        const assistant = messages.find((item) => item.info.role === "assistant")
-        const tool = assistant?.parts.find((part): part is MessageV2.ToolPart => part.type === "tool")
-        expect(tool?.state.status).toBe("completed")
-        if (tool?.state.status === "completed") {
-          expect(tool.state.metadata?.answers).toEqual([["Word"]])
-        }
-      }),
-      { git: true, config: providerCfg },
-    ),
-  5_000,
-)
-
-it.live(
-  "soft cancel without a pending question still interrupts the running loop",
+  "cancel interrupts the running loop",
   () =>
     provideTmpdirServer(
       Effect.fnUntraced(function* ({ llm }) {
         const prompt = yield* SessionPrompt.Service
         const sessions = yield* Session.Service
-        const chat = yield* sessions.create({ title: "No question" })
+        const chat = yield* sessions.create({ title: "Cancel" })
         yield* llm.hang
         yield* user(chat.id, "hello")
 
         const fiber = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
         yield* llm.wait(1)
-        const cancelled = yield* prompt.cancel(chat.id, { mode: "soft" })
+        const cancelled = yield* prompt.cancel(chat.id)
         expect(cancelled).toBe(true)
 
         const exit = yield* Fiber.await(fiber)
@@ -1356,8 +1295,7 @@ it.live(
           expect(exit.value.info.error?.name).toBe("MessageAbortedError")
           expect(exit.value.info.diagnostics?.abort).toMatchObject({
             source: "session.prompt.cancel",
-            reason: "soft_cancel",
-            mode: "soft",
+            reason: "cancel",
             propagation_point: "session.prompt.loop.onInterrupt",
             error_name: "MessageAbortedError",
             via_ctx_abort: false,
@@ -1369,7 +1307,7 @@ it.live(
 )
 
 it.live(
-  "soft cancel preserves explicit caller source in abort diagnostics",
+  "cancel preserves explicit caller source in abort diagnostics",
   () =>
     provideTmpdirServer(
       Effect.fnUntraced(function* ({ llm }) {
@@ -1381,7 +1319,7 @@ it.live(
 
         const fiber = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
         yield* llm.wait(1)
-        const cancelled = yield* prompt.cancel(chat.id, { mode: "soft", source: "renderer.emptyEnter" })
+        const cancelled = yield* prompt.cancel(chat.id, { source: "renderer.emptyEnter" })
         expect(cancelled).toBe(true)
 
         const exit = yield* Fiber.await(fiber)
@@ -1389,8 +1327,7 @@ it.live(
         if (Exit.isSuccess(exit) && exit.value.info.role === "assistant") {
           expect(exit.value.info.diagnostics?.abort).toMatchObject({
             source: "renderer.emptyEnter",
-            reason: "soft_cancel",
-            mode: "soft",
+            reason: "cancel",
             propagation_point: "session.prompt.loop.onInterrupt",
           })
         }

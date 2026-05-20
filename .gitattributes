@@ -3,30 +3,3 @@
 # `core.autocrlf` flips line endings on checkout and breaks the snapshot
 # fixture in `packages/opencode/test/server/models-snapshot-fixture.ts`.
 packages/opencode/src/provider/models-snapshot.js text eol=lf
-
-# PawWork UI carve-out (issue #440 slice #01).
-# These paths are permanently forked from upstream opencode and must never
-# be overwritten by an upstream sync.  When both sides modify a file on these
-# paths, git invokes the named driver instead of the default three-way merge.
-#
-# The driver is registered with:
-#   git config merge.pawwork-keep-ours.driver "true"
-# which exits 0 and leaves the worktree file (= HEAD = our version) intact.
-# NOTE: the driver only fires when both sides change a file; a one-sided
-# upstream change will still clean-merge.  Always review the upstream-sync
-# PR diff to confirm no carve-out paths were silently updated.
-# Run `packages/ui/script/verify-merge-driver.sh` on a fresh clone to confirm
-# the driver is active before performing an upstream sync.
-packages/ui/**                                      merge=pawwork-keep-ours
-packages/app/src/app.tsx                            merge=pawwork-keep-ours
-packages/app/src/components/**                      merge=pawwork-keep-ours
-packages/app/src/context/**                         merge=pawwork-keep-ours
-packages/app/src/index.css                          merge=pawwork-keep-ours
-packages/app/src/pages/**                           merge=pawwork-keep-ours
-packages/app/src/styles/**                          merge=pawwork-keep-ours
-packages/app/src/theme/**                           merge=pawwork-keep-ours
-packages/app/src/i18n/**                            merge=pawwork-keep-ours
-packages/app/src/utils/**                           merge=pawwork-keep-ours
-packages/app/index.html                             merge=pawwork-keep-ours
-packages/desktop-electron/src/renderer/index.html  merge=pawwork-keep-ours
-packages/desktop-electron/src/renderer/loading.html merge=pawwork-keep-ours

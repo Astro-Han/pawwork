@@ -325,7 +325,29 @@ export default function Layout(props: ParentProps) {
   const useSDKNotificationToasts = () =>
     onMount(() => {
       const alertedAtBySession = new Map<string, number>()
+      const alertedQuestionCalls = new Set<string>()
       const cooldownMs = 5000
+
+      const isCurrentOrDescendant = (directory: string, sessionID: string) => {
+        const currentSession = params.id
+        if (!currentSession) return false
+        if (workspaceKey(directory) !== workspaceKey(currentDir())) return false
+        if (sessionID === currentSession) return true
+        // Walk up the parent chain so a great-grandchild question is also
+        // recognized as visible in-app whenever an ancestor session page is
+        // open — matches the dock, which walks descendants from currentSession.
+        const [store] = globalSync.child(directory, { bootstrap: false })
+        const byID = new Map(store.session.map((s) => [s.id, s]))
+        let cursor: string | undefined = byID.get(sessionID)?.parentID
+        const seen = new Set<string>([sessionID])
+        while (cursor) {
+          if (cursor === currentSession) return true
+          if (seen.has(cursor)) break
+          seen.add(cursor)
+          cursor = byID.get(cursor)?.parentID
+        }
+        return false
+      }
 
       const unsub = globalSDK.event.listen((e) => {
         if (e.details?.type === "worktree.ready") {
@@ -340,25 +362,61 @@ export default function Layout(props: ParentProps) {
           return
         }
 
-        if (
-          e.details?.type === "question.replied" ||
-          e.details?.type === "question.rejected" ||
-          e.details?.type === "permission.replied"
-        ) {
+        if (e.details?.type === "permission.replied") {
           const props = e.details.properties as { sessionID: string }
           const sessionKey = `${e.name}:${props.sessionID}`
           alertedAtBySession.delete(sessionKey)
           return
         }
 
-        if (e.details?.type !== "permission.asked" && e.details?.type !== "question.asked") return
-        const title =
-          e.details.type === "permission.asked"
-            ? language.t("notification.permission.title")
-            : language.t("notification.question.title")
+        if (e.details?.type === "message.part.updated") {
+          const directory = e.name
+          const { sessionID, part } = e.details.properties
+          if (part.type !== "tool" || part.tool !== "question") return
+          const callKey = `${directory}:${sessionID}:${part.id}`
+          // Drop the dedup entry once the part settles. Without this the
+          // running-question dedup set grows unbounded across the app's
+          // lifetime, since terminal parts are not always followed by a
+          // message.part.removed event. The tool runner never transitions
+          // a question part out of `running` and back; if that ever changes
+          // the dedup will need to gate on a "first-ready" boolean instead.
+          if (part.state.status !== "running") {
+            alertedQuestionCalls.delete(callKey)
+            return
+          }
+          // The tool runner sets metadata.externalResultReady AFTER the
+          // Deferred is registered. Only notify once the route can resolve.
+          if (part.state.metadata?.externalResultReady !== true) return
+
+          if (alertedQuestionCalls.has(callKey)) return
+          alertedQuestionCalls.add(callKey)
+
+          const [store] = globalSync.child(directory, { bootstrap: false })
+          const session = store.session.find((s) => s.id === sessionID)
+          if (isCurrentOrDescendant(directory, sessionID)) return
+
+          if (!settings.notifications.agent()) return
+          const sessionTitle = session?.title ?? language.t("command.session.new")
+          const projectName = getFilename(directory)
+          void platform.notify(
+            language.t("notification.question.title"),
+            language.t("notification.question.description", { sessionTitle, projectName }),
+            `/${base64Encode(directory)}/session/${sessionID}`,
+          )
+          return
+        }
+
+        if (e.details?.type === "message.part.removed") {
+          const { sessionID, partID } = e.details.properties
+          alertedQuestionCalls.delete(`${e.name}:${sessionID}:${partID}`)
+          return
+        }
+
+        if (e.details?.type !== "permission.asked") return
+        const title = language.t("notification.permission.title")
         const directory = e.name
         const props = e.details.properties
-        if (e.details.type === "permission.asked" && permission.autoResponds(e.details.properties, directory)) return
+        if (permission.autoResponds(e.details.properties, directory)) return
 
         const [store] = globalSync.child(directory, { bootstrap: false })
         const session = store.session.find((s) => s.id === props.sessionID)
@@ -366,10 +424,7 @@ export default function Layout(props: ParentProps) {
 
         const sessionTitle = session?.title ?? language.t("command.session.new")
         const projectName = getFilename(directory)
-        const description =
-          e.details.type === "permission.asked"
-            ? language.t("notification.permission.description", { sessionTitle, projectName })
-            : language.t("notification.question.description", { sessionTitle, projectName })
+        const description = language.t("notification.permission.description", { sessionTitle, projectName })
         const href = `/${base64Encode(directory)}/session/${props.sessionID}`
 
         const now = Date.now()
@@ -377,34 +432,12 @@ export default function Layout(props: ParentProps) {
         if (now - lastAlerted < cooldownMs) return
         alertedAtBySession.set(sessionKey, now)
 
-        if (e.details.type === "permission.asked") {
-          if (settings.sounds.permissionsEnabled()) {
-            void playSoundById(settings.sounds.permissions())
-          }
-          if (settings.notifications.permissions()) {
-            // Only notify for background sessions, not the one the user is currently viewing
-            const currentSession = params.id
-            const isCurrentSession =
-              !!currentSession &&
-              workspaceKey(directory) === workspaceKey(currentDir()) &&
-              (props.sessionID === currentSession || session?.parentID === currentSession)
-            if (!isCurrentSession) {
-              void platform.notify(title, description, href)
-            }
-          }
+        if (settings.sounds.permissionsEnabled()) {
+          void playSoundById(settings.sounds.permissions())
         }
-
-        if (e.details.type === "question.asked") {
-          if (settings.notifications.agent()) {
-            // Only notify for background sessions, not the one the user is currently viewing
-            const currentSession = params.id
-            const isCurrentSession =
-              !!currentSession &&
-              workspaceKey(directory) === workspaceKey(currentDir()) &&
-              (props.sessionID === currentSession || session?.parentID === currentSession)
-            if (!isCurrentSession) {
-              void platform.notify(title, description, href)
-            }
+        if (settings.notifications.permissions()) {
+          if (!isCurrentOrDescendant(directory, props.sessionID)) {
+            void platform.notify(title, description, href)
           }
         }
       })

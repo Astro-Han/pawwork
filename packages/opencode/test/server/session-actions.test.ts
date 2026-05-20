@@ -43,7 +43,7 @@ describe("session action routes", () => {
 
         expect(res.status).toBe(200)
         expect(await res.json()).toBe(true)
-        expect(cancel).toHaveBeenCalledWith(session.id, { mode: "hard" })
+        expect(cancel).toHaveBeenCalledWith(session.id, {})
 
         await svc.remove(session.id)
       },
@@ -59,13 +59,13 @@ describe("session action routes", () => {
         const cancel = spyOn(SessionPrompt, "cancel").mockResolvedValue(true)
         const app = Server.Default().app
 
-        const res = await app.request(`/session/${session.id}/abort?mode=soft&source=renderer.stopButton`, {
+        const res = await app.request(`/session/${session.id}/abort?source=renderer.stopButton`, {
           method: "POST",
         })
 
         expect(res.status).toBe(200)
         expect(await res.json()).toBe(true)
-        expect(cancel).toHaveBeenCalledWith(session.id, { mode: "soft", source: "renderer.stopButton" })
+        expect(cancel).toHaveBeenCalledWith(session.id, { source: "renderer.stopButton" })
 
         await svc.remove(session.id)
       },

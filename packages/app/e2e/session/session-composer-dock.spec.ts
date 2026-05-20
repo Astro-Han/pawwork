@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test"
-import type { PermissionRequest, QuestionRequest, Todo } from "@opencode-ai/sdk/v2/client"
+import type { PermissionRequest, Todo } from "@opencode-ai/sdk/v2/client"
 import { test, expect } from "../fixtures"
 import {
   composerEvent,
@@ -146,18 +146,6 @@ function globalEventStream(page: Page) {
   }
 }
 
-async function e2eAskQuestion(
-  project: ProjectQuestionSeed,
-  input: { sessionID: string; questions: QuestionRequest["questions"] },
-) {
-  const response = await fetch(`${project.url}/question/__e2e/ask?directory=${encodeURIComponent(project.directory)}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  })
-  expect(response.status).toBe(204)
-}
-
 async function e2eAskPermission(
   project: ProjectQuestionSeed,
   input: {
@@ -179,30 +167,6 @@ async function e2eAskPermission(
   expect(response.status).toBe(204)
 }
 
-async function e2ePublishQuestionAsked(project: ProjectQuestionSeed, request: QuestionRequest) {
-  const response = await fetch(
-    `${project.url}/question/__e2e/publish-asked?directory=${encodeURIComponent(project.directory)}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ request }),
-    },
-  )
-  expect(response.status).toBe(204)
-}
-
-async function e2ePublishQuestionBlocker(project: ProjectQuestionSeed, request: QuestionRequest) {
-  const response = await fetch(
-    `${project.url}/blocker/__e2e/publish-upserted?directory=${encodeURIComponent(project.directory)}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ request }),
-    },
-  )
-  expect(response.status).toBe(204)
-}
-
 async function e2eUpdateTodos(
   project: ProjectQuestionSeed,
   input: { sessionID: string; todos: Array<Pick<Todo, "content" | "status" | "priority"> & Partial<Pick<Todo, "id">>> },
@@ -216,25 +180,6 @@ async function e2eUpdateTodos(
     },
   )
   expect(response.status, await response.text()).toBe(204)
-}
-
-async function waitForQuestionSeed(project: ProjectQuestionSeed, sessionID: string) {
-  let current: QuestionRequest | undefined
-  await expect
-    .poll(
-      async () => {
-        const questions = await project.sdk.question.list().then((response) => response.data ?? [])
-        current = questions.find(
-          (question) =>
-            question.sessionID === sessionID && question.questions[0]?.header === defaultQuestions[0]?.header,
-        )
-        return !!current
-      },
-      { timeout: 30_000 },
-    )
-    .toBe(true)
-  if (!current) throw new Error("Question seed was not visible after polling")
-  return current
 }
 
 async function waitForPermissionSeed(
@@ -635,63 +580,6 @@ test("blocked question flow unblocks after submit", async ({ page, llm, project 
   )
 })
 
-test("question dock recovers after missed question.asked via SSE replay", async ({ page, project }) => {
-  await project.open()
-  await withDockSession(
-    project.sdk,
-    "e2e composer dock question replay",
-    async (session) => {
-      await withDockSeed(project.sdk, session.id, async () => {
-        await project.gotoSession(session.id)
-
-        const stream = globalEventStream(page)
-
-        await expect.poll(stream.cursor, { timeout: 10_000 }).toMatch(/:/)
-        await stream.stop()
-        await e2eAskQuestion(project, { sessionID: session.id, questions: defaultQuestions })
-        await waitForQuestionSeed(project, session.id)
-
-        await expect(page.locator(questionDockSelector)).toHaveCount(0, { timeout: 750 })
-        await stream.start()
-
-        await expectQuestionBlocked(page)
-        await expect(page.locator(questionDockSelector)).toHaveCount(1)
-      })
-    },
-    { trackSession: project.trackSession },
-  )
-})
-
-test("question dock recovers after invalid replay cursor forces fallback refresh", async ({ page, project }) => {
-  await project.open()
-  await withDockSession(
-    project.sdk,
-    "e2e composer dock question invalid cursor fallback",
-    async (session) => {
-      await withDockSeed(project.sdk, session.id, async () => {
-        await project.gotoSession(session.id)
-        await expect(page.locator(promptSelector)).toBeVisible()
-
-        const stream = globalEventStream(page)
-
-        await expect.poll(stream.cursor, { timeout: 10_000 }).toMatch(/:/)
-        await stream.stop()
-        await e2eAskQuestion(project, { sessionID: session.id, questions: defaultQuestions })
-        await waitForQuestionSeed(project, session.id)
-
-        await expect(page.locator(questionDockSelector)).toHaveCount(0, { timeout: 750 })
-        await stream.setCursorForTest("bad:999")
-        await expect.poll(stream.cursor, { timeout: 5_000 }).toBe("bad:999")
-        await stream.start()
-
-        await expectQuestionBlocked(page)
-        await expect(page.locator(questionDockSelector)).toHaveCount(1)
-      })
-    },
-    { trackSession: project.trackSession },
-  )
-})
-
 test("permission dock recovers after invalid replay cursor forces fallback refresh", async ({ page, project }) => {
   await project.open()
   await withDockSession(
@@ -722,79 +610,6 @@ test("permission dock recovers after invalid replay cursor forces fallback refre
 
         await expectPermissionBlocked(page)
         await expect(page.locator(permissionDockSelector)).toHaveCount(1)
-      })
-    },
-    { trackSession: project.trackSession },
-  )
-})
-
-test("question dock renders from backend blocker when question sync is missing", async ({ page, project }) => {
-  await project.open()
-  await withDockSession(
-    project.sdk,
-    "e2e composer dock blocker question",
-    async (session) => {
-      await withDockSeed(project.sdk, session.id, async () => {
-        await project.gotoSession(session.id)
-
-        const request = {
-          id: "que_e2e_blocker",
-          sessionID: session.id,
-          questions: defaultQuestions,
-        } satisfies QuestionRequest
-
-        await e2ePublishQuestionBlocker(project, request)
-
-        await expectQuestionBlocked(page)
-        await expect(page.locator(questionDockSelector)).toHaveCount(1)
-      })
-    },
-    { trackSession: project.trackSession },
-  )
-})
-
-test("stale question.asked does not reopen after question reply", async ({ page, project }) => {
-  await project.open()
-  await withDockSession(
-    project.sdk,
-    "e2e composer dock stale question",
-    async (session) => {
-      await withDockSeed(project.sdk, session.id, async () => {
-        await project.gotoSession(session.id)
-
-        await e2eAskQuestion(project, { sessionID: session.id, questions: defaultQuestions })
-        const request = await waitForQuestionSeed(project, session.id)
-
-        await expectQuestionBlocked(page)
-        await project.sdk.question.reply({ requestID: request.id, questionReply: { answers: [["Continue"]] } })
-        await expectQuestionOpen(page)
-
-        await e2ePublishQuestionAsked(project, request)
-        await expect(page.locator(questionDockSelector)).toHaveCount(0, { timeout: 1_000 })
-      })
-    },
-    { trackSession: project.trackSession },
-  )
-})
-
-test("stale session.blocker.upserted does not reopen after question reply", async ({ page, project }) => {
-  await project.open()
-  await withDockSession(
-    project.sdk,
-    "e2e composer dock stale blocker question",
-    async (session) => {
-      await withDockSeed(project.sdk, session.id, async () => {
-        await project.gotoSession(session.id)
-
-        await e2eAskQuestion(project, { sessionID: session.id, questions: defaultQuestions })
-        const request = await waitForQuestionSeed(project, session.id)
-
-        await expectQuestionBlocked(page)
-        await project.sdk.question.reply({ requestID: request.id, questionReply: { answers: [["Continue"]] } })
-        await expectQuestionOpen(page)
-
-        await e2ePublishQuestionBlocker(project, request)
-        await expect(page.locator(questionDockSelector)).toHaveCount(0, { timeout: 1_000 })
       })
     },
     { trackSession: project.trackSession },
@@ -1057,6 +872,69 @@ test("child session question request blocks parent dock and unblocks after submi
           })
 
           const dock = page.locator(questionDockSelector)
+          await expectQuestionBlocked(page)
+
+          await dock.locator('[data-slot="question-option"]').first().click()
+          await dock.getByRole("button", { name: /submit/i }).click()
+
+          await expectQuestionOpen(page)
+        })
+      } finally {
+        await cleanupSession({ sdk: project.sdk, sessionID: child.id })
+      }
+    },
+    { trackSession: project.trackSession },
+  )
+})
+
+test("child question dock survives parent-page reload via external-result hydrate", async ({ page, llm, project }) => {
+  // Regression: deleting question.asked / replied / rejected from the SSE
+  // replay buffer (Stage 6) made the new message.part.updated path the only
+  // signal that a question is pending. SSE message.part.updated is not in
+  // the replay list, so a parent-page reload (or any cold open) would lose
+  // the child agent's question dock. The fix is the GET /external-result/
+  // pending hydrate fetched during bootstrap; this test guards that path.
+  const questions = [
+    {
+      header: "Reload check",
+      question: "Pick after reload",
+      options: [
+        { label: "Continue", description: "Continue child" },
+        { label: "Stop", description: "Stop child" },
+      ],
+    },
+  ]
+  await project.open()
+  await withDockSession(
+    project.sdk,
+    "e2e composer dock child question reload",
+    async (session) => {
+      await project.gotoSession(session.id)
+
+      const child = await project.sdk.session
+        .create({
+          title: "e2e composer dock child question reload",
+          parentID: session.id,
+        })
+        .then((r) => r.data)
+      if (!child?.id) throw new Error("Child session create did not return an id")
+      project.trackSession(child.id)
+
+      try {
+        await withDockSeed(project.sdk, child.id, async () => {
+          await llm.toolMatch(inputMatch({ questions }), "question", { questions })
+          await seedSessionQuestion(project.sdk, {
+            sessionID: child.id,
+            questions,
+          })
+
+          const dock = page.locator(questionDockSelector)
+          await expectQuestionBlocked(page)
+
+          // Hard reload: clears the in-memory SolidJS store and starts a
+          // fresh SSE connection (no replay cursor). The dock can only come
+          // back via the bootstrap GET /external-result/pending fetch.
+          await page.goto(page.url())
           await expectQuestionBlocked(page)
 
           await dock.locator('[data-slot="question-option"]').first().click()
@@ -1823,6 +1701,7 @@ test("overflow question dock keeps keyboard focus visible without moving timelin
   page,
   project,
   assistant,
+  llm,
 }) => {
   const title = `e2e question overflow dock ${Date.now()}`
   const overflowQuestions = [
@@ -1859,8 +1738,8 @@ test("overflow question dock keeps keyboard focus visible without moving timelin
         await project.prompt("Write long visible history for the question overflow regression.")
         await scrollTimelineToBottom(page)
 
-        await e2eAskQuestion(project, { sessionID: session.id, questions: overflowQuestions })
-        await waitForQuestionSeed(project, session.id)
+        await llm.toolMatch(inputMatch({ questions: overflowQuestions }), "question", { questions: overflowQuestions })
+        await seedSessionQuestion(project.sdk, { sessionID: session.id, questions: overflowQuestions })
         await expectQuestionBlocked(page)
         await expectQuestionOptionsOverflow(page)
 

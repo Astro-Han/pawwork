@@ -56,7 +56,6 @@ import { EffectLogger } from "@/effect"
 import { InstanceState } from "@/effect"
 import { AgentTool, type AgentPromptOps } from "@/tool/agent"
 import { SessionRunState } from "./run-state"
-import { SessionBlocker } from "./blocker"
 import { EffectBridge } from "@/effect"
 import { attachWith, makeRuntime } from "@/effect/run-service"
 import { Instance } from "@/project/instance"
@@ -260,7 +259,7 @@ function modelCanReadMedia(model: Provider.Model, kind: MediaInputKind) {
 }
 
 export interface Interface {
-  readonly cancel: (sessionID: SessionID, options?: { mode?: "soft" | "hard"; source?: string }) => Effect.Effect<boolean>
+  readonly cancel: (sessionID: SessionID, options?: { source?: string }) => Effect.Effect<boolean>
   readonly prompt: (input: PromptInput) => Effect.Effect<MessageV2.WithParts>
   readonly loop: (input: z.infer<typeof LoopInput>) => Effect.Effect<MessageV2.WithParts>
   readonly shell: (input: ShellInput) => Effect.Effect<MessageV2.WithParts>
@@ -292,7 +291,6 @@ export const layer = Layer.effect(
     const scope = yield* Scope.Scope
     const instruction = yield* Instruction.Service
     const state = yield* SessionRunState.Service
-    const blockers = yield* SessionBlocker.Service
     const revert = yield* SessionRevert.Service
     const summary = yield* SessionSummary.Service
     const sys = yield* SystemPrompt.Service
@@ -324,26 +322,13 @@ export const layer = Layer.effect(
 
     const cancel = Effect.fn("SessionPrompt.cancel")(function* (
       sessionID: SessionID,
-      options?: { mode?: "soft" | "hard"; source?: string },
+      options?: { source?: string },
     ) {
-      const mode = options?.mode ?? "hard"
       const source = options?.source ?? "session.prompt.cancel"
-      yield* elog.info("cancel", { sessionID, mode, source })
-      // Soft cancel must not abort sessions where the user is mid-answer.
-      // OR both signals: legacy `hasAwaitingQuestion` (flag-off path) and
-      // `ExternalResult.hasPending` (flag-on path). Mirrors llm.ts silent-
-      // timeout re-arm — see llm.ts:486.
-      if (
-        mode === "soft" &&
-        ((yield* blockers.hasAwaitingQuestion(sessionID)) || ExternalResult.hasPending(sessionID))
-      ) {
-        yield* elog.info("cancel ignored", { sessionID, mode, source, reason: "awaiting_question" })
-        return false
-      }
+      yield* elog.info("cancel", { sessionID, source })
       yield* state.cancel(sessionID, {
         source,
-        reason: mode === "soft" ? "soft_cancel" : "hard_cancel",
-        mode,
+        reason: "cancel",
         viaCtxAbort: false,
       })
       return true
@@ -797,14 +782,17 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             // Wire the AbortSignal: a turn abort flips the pending Deferred
             // to ExternalResultError({reason: "aborted"}). Session destroy is
             // handled separately by ExternalResult.onSessionDestroyed.
+            //
+            // Use the sync registry transition so a racing /tool/respond that
+            // lands in the same tick sees a tombstone on its registry lookup
+            // and returns 409 instead of fulfilling the Deferred behind us.
+            // Deferred.fail is then scheduled asynchronously; the registry is
+            // already in the post-abort state by the time that microtask runs.
             const abortHandler = () => {
+              const result = ExternalResult.abortPendingSync({ sessionID, messageID, callID })
+              if (!result.ok) return
               run.promise(
-                ExternalResult.failIfPending({
-                  sessionID,
-                  messageID,
-                  callID,
-                  error: new ExternalResult.Error({ reason: "aborted" }),
-                }),
+                Deferred.fail(result.deferred, new ExternalResult.Error({ reason: "aborted" })),
               ).catch(() => {})
             }
             const signal = options.abortSignal
@@ -2166,7 +2154,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     const loop: (input: z.infer<typeof LoopInput>) => Effect.Effect<MessageV2.WithParts> = Effect.fn(
       "SessionPrompt.loop",
     )(function* (input: z.infer<typeof LoopInput>) {
-      const onInterrupt = (meta?: { source?: string; reason?: string; mode?: "soft" | "hard"; viaCtxAbort?: boolean; propagationPoint?: string; recordedAt?: number }) =>
+      const onInterrupt = (meta?: { source?: string; reason?: string; viaCtxAbort?: boolean; propagationPoint?: string; recordedAt?: number }) =>
         Effect.gen(function* () {
           interruptedSessions.add(input.sessionID)
           const assistant = yield* currentTurnTarget(input.sessionID)
@@ -2185,7 +2173,6 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                   ...(assistant.info.diagnostics?.abort ?? {}),
                   source: meta?.source,
                   reason: meta?.reason,
-                  mode: meta?.mode,
                   title_generation_state: titleGenerationStateAtAbort(
                     titleGenerationProgress.get(input.sessionID),
                     recordedAt,
@@ -2396,7 +2383,6 @@ export const defaultLayer: Layer.Layer<Service, never, never> = Layer.suspend(()
     Layer.provide(Session.defaultLayer),
     Layer.provide(SessionRevert.defaultLayer),
     Layer.provide(SessionSummary.defaultLayer),
-    Layer.provide(SessionBlocker.defaultLayer),
     Layer.provide(
       Layer.mergeAll(
         Agent.defaultLayer,
@@ -2484,7 +2470,7 @@ export async function resolvePromptParts(template: string) {
   return runPromise((svc) => svc.resolvePromptParts(z.string().parse(template)))
 }
 
-export async function cancel(sessionID: SessionID, options?: { mode?: "soft" | "hard"; source?: string }) {
+export async function cancel(sessionID: SessionID, options?: { source?: string }) {
   return runPromise((svc) => svc.cancel(SessionID.zod.parse(sessionID), options))
 }
 

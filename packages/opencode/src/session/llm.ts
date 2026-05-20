@@ -23,7 +23,6 @@ import { Installation } from "@/installation"
 import { EffectBridge } from "@/effect"
 import * as Option from "effect/Option"
 import { LLMTrace } from "./llm-trace"
-import { SessionBlocker } from "./blocker"
 import { ExternalResult } from "@/tool/external-result"
 
 const log = Log.create({ service: "llm" })
@@ -74,7 +73,7 @@ export class Service extends Context.Service<Service, Interface>()("@opencode/LL
 const live: Layer.Layer<
   Service,
   never,
-  Auth.Service | Config.Service | Provider.Service | Plugin.Service | Permission.Service | SessionBlocker.Service
+  Auth.Service | Config.Service | Provider.Service | Plugin.Service | Permission.Service
 > = Layer.effect(
   Service,
   Effect.gen(function* () {
@@ -83,7 +82,6 @@ const live: Layer.Layer<
     const provider = yield* Provider.Service
     const plugin = yield* Plugin.Service
     const perm = yield* Permission.Service
-    const blockers = yield* SessionBlocker.Service
 
     const run = Effect.fn("LLM.run")(function* (input: StreamRequest) {
       const l = log
@@ -510,28 +508,16 @@ const live: Layer.Layer<
                 const arm = () => {
                   const current = ++sequence
                   timeout = setTimeout(() => {
-                    // Silent-timeout re-arm guard. We OR two sources:
-                    // (1) the legacy `blockers.hasAwaitingQuestion` (used by
-                    //     the flag-off question path, deleted in PR B), and
-                    // (2) `ExternalResult.hasPending` (used by the new
-                    //     flag-on path; PR B switches fully). Either path
-                    //     re-arms instead of aborting so user-answering-a-
-                    //     question sessions are never silently killed.
-                    Effect.runPromise(
-                      Effect.provide(blockers.hasAwaitingQuestion(SessionID.make(input.sessionID)), ctx),
-                    )
-                      .then((legacyBlocked) => {
-                        if (disposed || current !== sequence) return
-                        const blocked = legacyBlocked || ExternalResult.hasPending(input.sessionID)
-                        if (blocked) {
-                          arm()
-                          return
-                        }
-                        timeoutStream()
-                      })
-                      .catch(() => {
-                        if (!disposed && current === sequence) timeoutStream()
-                      })
+                    if (disposed || current !== sequence) return
+                    // Silent-timeout re-arm guard: while a tool is suspended
+                    // on `ctx.externalResult` (e.g. a pending question), the
+                    // stream looks idle. Re-arm instead of aborting so the
+                    // user can answer without the watchdog killing the turn.
+                    if (ExternalResult.hasPending(input.sessionID)) {
+                      arm()
+                      return
+                    }
+                    timeoutStream()
                   }, currentTimeoutMs())
                 }
                 return {
@@ -680,7 +666,6 @@ export const defaultLayer: Layer.Layer<Service, never, never> = Layer.suspend(()
     Layer.provide(Config.defaultLayer),
     Layer.provide(Provider.defaultLayer),
     Layer.provide(Plugin.defaultLayer),
-    Layer.provide(SessionBlocker.defaultLayer),
   ),
 )
 

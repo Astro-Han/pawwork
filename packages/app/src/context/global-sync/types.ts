@@ -9,7 +9,6 @@ import type {
   Path,
   PermissionRequest,
   ProviderListResponse,
-  QuestionRequest,
   Session,
   SessionStatus,
   SnapshotFileDiff,
@@ -31,17 +30,6 @@ export type ProjectMeta = {
 }
 
 export type SessionStatusState = "loading" | "ready" | "error"
-
-export type SessionBlockerEntry = {
-  kind: "question"
-  status: "awaiting_user"
-  sessionID: string
-  requestID: string
-  request: QuestionRequest
-  tool?: QuestionRequest["tool"]
-  armedAt: number
-  updatedAt: number
-}
 
 export type State = {
   status: "loading" | "partial" | "complete"
@@ -70,12 +58,6 @@ export type State = {
   }
   permission: {
     [sessionID: string]: PermissionRequest[]
-  }
-  question: {
-    [sessionID: string]: QuestionRequest[]
-  }
-  blocker: {
-    [sessionID: string]: SessionBlockerEntry[]
   }
   mcp_ready: boolean
   mcp: {

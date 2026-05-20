@@ -2,7 +2,12 @@ import { describe, expect, mock, test } from "bun:test"
 import type { Config, Path, Project, ProviderListResponse, VcsInfo } from "@opencode-ai/sdk/v2/client"
 import { QueryClient } from "@tanstack/solid-query"
 import { createStore } from "solid-js/store"
-import { activeSessionStatuses, bootstrapDirectory, mergeSessionStatusSnapshot } from "./bootstrap"
+import {
+  activeSessionStatuses,
+  bootstrapDirectory,
+  hydratePendingExternalResults,
+  mergeSessionStatusSnapshot,
+} from "./bootstrap"
 import { loadSessionsQuery } from "../global-sync"
 import type { State, VcsCache } from "./types"
 
@@ -27,8 +32,6 @@ function createState(): State {
     session_diff: {},
     todo: {},
     permission: {},
-    question: {},
-    blocker: {},
     mcp_ready: false,
     mcp: {},
     lsp_ready: false,
@@ -145,8 +148,7 @@ describe("bootstrapDirectory", () => {
       vcs: { get: async () => ({ data: undefined }) },
       command: { list: async () => ({ data: [] }) },
       permission: { list: async () => ({ data: [] }) },
-      question: { list: async () => ({ data: [] }) },
-      blocker: { list: async () => ({ data: [] }) },
+      externalResult: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
       provider: {
         list: async () => {
@@ -230,8 +232,7 @@ describe("bootstrapDirectory", () => {
       vcs: { get: async () => ({ data: undefined }) },
       command: { list: async () => ({ data: [] }) },
       permission: { list: async () => ({ data: [] }) },
-      question: { list: async () => ({ data: [] }) },
-      blocker: { list: async () => ({ data: [] }) },
+      externalResult: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
       provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
     } as any
@@ -276,28 +277,6 @@ describe("bootstrapDirectory", () => {
         patterns: ["/tmp/old.txt"],
         metadata: {},
         always: ["/tmp/old.txt"],
-      } as any,
-    ])
-    setStore("question", "ses_missing", [
-      {
-        id: "que_old",
-        sessionID: "ses_missing",
-        questions: [{ question: "Old?", header: "Old", options: [{ label: "Old", description: "old" }] }],
-      } as any,
-    ])
-    setStore("blocker", "ses_missing", [
-      {
-        kind: "question",
-        status: "awaiting_user",
-        sessionID: "ses_missing",
-        requestID: "que_old",
-        request: {
-          id: "que_old",
-          sessionID: "ses_missing",
-          questions: [{ question: "Old?", header: "Old", options: [{ label: "Old", description: "old" }] }],
-        },
-        armedAt: 1,
-        updatedAt: 1,
       } as any,
     ])
 
@@ -345,58 +324,7 @@ describe("bootstrapDirectory", () => {
           ],
         }),
       },
-      question: {
-        list: async () => ({
-          data: [
-            {
-              id: "que_missing",
-              sessionID: "ses_missing",
-              questions: [
-                { question: "Missing?", header: "Missing", options: [{ label: "No", description: "missing" }] },
-              ],
-            },
-            {
-              id: "que_valid",
-              sessionID: "ses_valid",
-              questions: [{ question: "Valid?", header: "Valid", options: [{ label: "Yes", description: "valid" }] }],
-            },
-          ],
-        }),
-      },
-      blocker: {
-        list: async () => ({
-          data: [
-            {
-              kind: "question",
-              status: "awaiting_user",
-              sessionID: "ses_missing",
-              requestID: "que_missing",
-              request: {
-                id: "que_missing",
-                sessionID: "ses_missing",
-                questions: [
-                  { question: "Missing?", header: "Missing", options: [{ label: "No", description: "missing" }] },
-                ],
-              },
-              armedAt: 1,
-              updatedAt: 1,
-            },
-            {
-              kind: "question",
-              status: "awaiting_user",
-              sessionID: "ses_valid",
-              requestID: "que_valid",
-              request: {
-                id: "que_valid",
-                sessionID: "ses_valid",
-                questions: [{ question: "Valid?", header: "Valid", options: [{ label: "Yes", description: "valid" }] }],
-              },
-              armedAt: 2,
-              updatedAt: 2,
-            },
-          ],
-        }),
-      },
+      externalResult: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
       provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
     } as any
@@ -420,15 +348,9 @@ describe("bootstrapDirectory", () => {
 
     await waitFor(() => store.session.some((session) => session.id === "ses_valid"))
     await waitFor(() => store.permission.ses_valid?.length === 1)
-    await waitFor(() => store.question.ses_valid?.length === 1)
-    await waitFor(() => store.blocker.ses_valid?.length === 1)
 
     expect(store.permission.ses_missing ?? []).toEqual([])
-    expect(store.question.ses_missing ?? []).toEqual([])
-    expect(store.blocker.ses_missing ?? []).toEqual([])
     expect(store.permission.ses_valid?.map((entry) => entry.id)).toEqual(["perm_valid"])
-    expect(store.question.ses_valid?.map((entry) => entry.id)).toEqual(["que_valid"])
-    expect(store.blocker.ses_valid?.map((entry) => entry.requestID)).toEqual(["que_valid"])
   })
 
   test("keeps active status events that arrive before the status snapshot resolves", async () => {
@@ -453,8 +375,7 @@ describe("bootstrapDirectory", () => {
       vcs: { get: async () => ({ data: undefined }) },
       command: { list: async () => ({ data: [] }) },
       permission: { list: async () => ({ data: [] }) },
-      question: { list: async () => ({ data: [] }) },
-      blocker: { list: async () => ({ data: [] }) },
+      externalResult: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
       provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
     } as any
@@ -509,8 +430,7 @@ describe("bootstrapDirectory", () => {
       vcs: { get: async () => ({ data: undefined }) },
       command: { list: async () => ({ data: [] }) },
       permission: { list: async () => permission.promise },
-      question: { list: async () => ({ data: [] }) },
-      blocker: { list: async () => ({ data: [] }) },
+      externalResult: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
       provider: { list: async () => ({ data: providers }) },
     } as any
@@ -563,8 +483,7 @@ describe("bootstrapDirectory", () => {
         },
       },
       permission: { list: async () => ({ data: [] }) },
-      question: { list: async () => ({ data: [] }) },
-      blocker: { list: async () => ({ data: [] }) },
+      externalResult: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
       provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
     } as any
@@ -622,8 +541,7 @@ describe("bootstrapDirectory", () => {
         },
       },
       permission: { list: async () => ({ data: [] }) },
-      question: { list: async () => ({ data: [] }) },
-      blocker: { list: async () => ({ data: [] }) },
+      externalResult: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
       provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
     } as any
@@ -690,8 +608,7 @@ describe("bootstrapDirectory", () => {
       vcs: { get: async () => ({ data: undefined }) },
       command: { list: async () => ({ data: [] }) },
       permission: { list: async () => ({ data: [] }) },
-      question: { list: async () => ({ data: [] }) },
-      blocker: { list: async () => ({ data: [] }) },
+      externalResult: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
       provider: {
         list: async () => {
@@ -729,5 +646,106 @@ describe("bootstrapDirectory", () => {
 
     expect(store.provider).toEqual(newProviders)
     expect(store.provider_ready).toBe(true)
+  })
+})
+
+describe("hydratePendingExternalResults", () => {
+  const directory = "/tmp/project"
+  const parentSession = {
+    id: "ses_parent",
+    title: "Parent",
+    directory,
+    version: "test",
+    time: { created: 1, updated: 1 },
+  } as any
+  const childSession = {
+    id: "ses_child",
+    parentID: "ses_parent",
+    title: "Child agent",
+    directory,
+    version: "test",
+    time: { created: 2, updated: 2 },
+  } as any
+  const childMessage = {
+    id: "msg_child",
+    sessionID: "ses_child",
+    role: "assistant",
+    time: { created: 3 },
+  } as any
+  const childPart = {
+    id: "part_child",
+    type: "tool",
+    tool: "question",
+    callID: "call_child",
+    messageID: "msg_child",
+    sessionID: "ses_child",
+    state: {
+      status: "running",
+      input: { questions: [{ header: "h", question: "q?", options: [] }] },
+      title: "",
+      metadata: { externalResultReady: true },
+      time: { start: 0 },
+    },
+  } as any
+
+  test("writes session, message, and part entries for a child agent's pending question", () => {
+    const [store, setStore] = createStore(createState())
+    hydratePendingExternalResults({
+      store,
+      setStore,
+      entries: [{ session: childSession, message: childMessage, part: childPart }],
+    })
+    expect(store.session.map((s) => s.id)).toEqual(["ses_child"])
+    expect(store.message.ses_child?.map((m) => m.id)).toEqual(["msg_child"])
+    expect(store.part.msg_child?.map((p) => p.id)).toEqual(["part_child"])
+  })
+
+  test("merges into existing session list and existing message list without duplicating", () => {
+    const [store, setStore] = createStore(createState())
+    setStore("session", [parentSession])
+    setStore("message", "ses_child", [{ id: "msg_existing" } as any])
+    hydratePendingExternalResults({
+      store,
+      setStore,
+      entries: [{ session: childSession, message: childMessage, part: childPart }],
+    })
+    expect(store.session.map((s) => s.id)).toEqual(["ses_child", "ses_parent"])
+    expect(store.message.ses_child?.map((m) => m.id).sort()).toEqual(["msg_child", "msg_existing"])
+    expect(store.part.msg_child?.map((p) => p.id)).toEqual(["part_child"])
+  })
+
+  test("replaces an existing part with the same id (reconcile path)", () => {
+    const [store, setStore] = createStore(createState())
+    const stalePart = {
+      ...childPart,
+      state: { ...childPart.state, metadata: { externalResultReady: false } },
+    }
+    setStore("session", [childSession])
+    setStore("message", "ses_child", [childMessage])
+    setStore("part", "msg_child", [stalePart])
+    hydratePendingExternalResults({
+      store,
+      setStore,
+      entries: [{ session: childSession, message: childMessage, part: childPart }],
+    })
+    expect(store.part.msg_child?.length).toBe(1)
+    const updated = store.part.msg_child?.[0] as any
+    expect(updated?.state?.metadata?.externalResultReady).toBe(true)
+  })
+
+  test("skips entries that are missing identifiers", () => {
+    const [store, setStore] = createStore(createState())
+    hydratePendingExternalResults({
+      store,
+      setStore,
+      entries: [
+        { session: { id: "" } as any, message: childMessage, part: childPart },
+        { session: childSession, message: { ...childMessage, id: "" } as any, part: childPart },
+        { session: childSession, message: childMessage, part: { ...childPart, id: "" } as any },
+      ],
+    })
+    expect(store.session.length).toBe(0)
+    expect(store.message).toEqual({})
+    expect(store.part).toEqual({})
   })
 })

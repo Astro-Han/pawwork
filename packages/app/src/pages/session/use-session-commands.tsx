@@ -238,7 +238,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
 
     if (isWorkInFlightStatus(status())) {
       await sdk.client.session
-        .abort({ sessionID, mode: "hard", source: rendererAbortDiagnosticSource({ sessionID, source: "undo" }) })
+        .abort({ sessionID, source: rendererAbortDiagnosticSource({ sessionID, source: "undo" }) })
         .then((result) => {
           void emitRendererDiagnostic(
             sessionAbortDiagnosticEvent({
@@ -246,7 +246,6 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
               visibleSessionID: sessionID,
               timelineSessionID: sessionID,
               source: "undo",
-              mode: "hard",
               result: result.data === false ? "ignored_awaiting_question" : "aborted",
             }),
           ).catch(() => undefined)

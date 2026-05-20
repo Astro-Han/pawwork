@@ -13,9 +13,8 @@ import { PawWorkHome } from "@opencode-ai/core/pawwork-home"
 import { Runtime } from "@opencode-ai/core/runtime"
 import { LSP } from "../../lsp"
 import { Command } from "../../command"
-import { QuestionRoutes } from "./question"
+import { ExternalResultRoutes } from "./external-result"
 import { PermissionRoutes } from "./permission"
-import { BlockerRoutes } from "./blocker"
 import { ProjectRoutes } from "./project"
 import { SessionRoutes } from "./session"
 import { PtyRoutes } from "./pty"
@@ -38,8 +37,7 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
     .route("/experimental", ExperimentalRoutes())
     .route("/session", SessionRoutes())
     .route("/permission", PermissionRoutes())
-    .route("/question", QuestionRoutes())
-    .route("/blocker", BlockerRoutes())
+    .route("/external-result", ExternalResultRoutes())
     .route("/provider", ProviderRoutes())
     .route("/memory", MemoryRoutes())
     .route("/", FileRoutes())

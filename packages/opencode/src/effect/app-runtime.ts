@@ -19,8 +19,6 @@ import { ProviderAuth } from "@/provider/auth"
 import { Agent } from "@/agent/agent"
 import { Skill } from "@/skill"
 import { Discovery } from "@/skill/discovery"
-import { Question } from "@/question"
-import { SessionBlocker } from "@/session/blocker"
 import { Permission } from "@/permission"
 import { Todo } from "@/session/todo"
 import { Session } from "@/session"
@@ -73,8 +71,6 @@ export const AppLayer = Layer.mergeAll(
   Agent.defaultLayer,
   Skill.defaultLayer,
   Discovery.defaultLayer,
-  SessionBlocker.defaultLayer,
-  Question.defaultLayer,
   Permission.defaultLayer,
   Todo.defaultLayer,
   Session.defaultLayer,

@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import type { PermissionRequest, QuestionRequest, Session } from "@opencode-ai/sdk/v2/client"
-import type { SessionBlockerEntry } from "@/context/global-sync/types"
-import { sessionPermissionRequest, sessionQuestionBlockerRequest, sessionQuestionRequest } from "./request-tree"
+import type { PermissionRequest, Session } from "@opencode-ai/sdk/v2/client"
+import { sessionPermissionRequest } from "./request-tree"
 
 const session = (input: { id: string; parentID?: string }) =>
   ({
@@ -15,114 +14,36 @@ const permission = (id: string, sessionID: string) =>
     sessionID,
   }) as PermissionRequest
 
-const question = (id: string, sessionID: string) =>
-  ({
-    id,
-    sessionID,
-    questions: [],
-  }) as QuestionRequest
-
-const questionBlocker = (id: string, sessionID: string) =>
-  ({
-    kind: "question",
-    status: "awaiting_user",
-    sessionID,
-    requestID: id,
-    request: question(id, sessionID),
-    armedAt: 1,
-    updatedAt: 1,
-  }) as SessionBlockerEntry
-
 describe("sessionPermissionRequest", () => {
-  test("prefers the current session permission", () => {
-    const sessions = [session({ id: "root" }), session({ id: "child", parentID: "root" })]
-    const permissions = {
-      root: [permission("perm-root", "root")],
-      child: [permission("perm-child", "child")],
-    }
-
-    expect(sessionPermissionRequest(sessions, permissions, "root")?.id).toBe("perm-root")
+  test("returns undefined without a session id", () => {
+    expect(sessionPermissionRequest([], {}, undefined)).toBeUndefined()
   })
 
-  test("returns a nested child permission", () => {
-    const sessions = [
-      session({ id: "root" }),
-      session({ id: "child", parentID: "root" }),
-      session({ id: "grand", parentID: "child" }),
-      session({ id: "other" }),
-    ]
-    const permissions = {
-      grand: [permission("perm-grand", "grand")],
-      other: [permission("perm-other", "other")],
-    }
-
-    expect(sessionPermissionRequest(sessions, permissions, "root")?.id).toBe("perm-grand")
+  test("returns the permission registered against the active session", () => {
+    const result = sessionPermissionRequest(
+      [session({ id: "s1" })],
+      { s1: [permission("p1", "s1")] },
+      "s1",
+    )
+    expect(result?.id).toBe("p1")
   })
 
-  test("returns undefined without a matching tree permission", () => {
-    const sessions = [session({ id: "root" }), session({ id: "child", parentID: "root" })]
-    const permissions = {
-      other: [permission("perm-other", "other")],
-    }
-
-    expect(sessionPermissionRequest(sessions, permissions, "root")).toBeUndefined()
+  test("walks the session tree to find descendant permissions", () => {
+    const result = sessionPermissionRequest(
+      [session({ id: "parent" }), session({ id: "child", parentID: "parent" })],
+      { child: [permission("p1", "child")] },
+      "parent",
+    )
+    expect(result?.id).toBe("p1")
   })
 
-  test("skips filtered permissions in the current tree", () => {
-    const sessions = [session({ id: "root" }), session({ id: "child", parentID: "root" })]
-    const permissions = {
-      root: [permission("perm-root", "root")],
-      child: [permission("perm-child", "child")],
-    }
-
-    expect(sessionPermissionRequest(sessions, permissions, "root", (item) => item.id !== "perm-root"))?.toMatchObject({
-      id: "perm-child",
-    })
-  })
-
-  test("returns undefined when all tree permissions are filtered out", () => {
-    const sessions = [session({ id: "root" }), session({ id: "child", parentID: "root" })]
-    const permissions = {
-      root: [permission("perm-root", "root")],
-      child: [permission("perm-child", "child")],
-    }
-
-    expect(sessionPermissionRequest(sessions, permissions, "root", () => false)).toBeUndefined()
-  })
-})
-
-describe("sessionQuestionRequest", () => {
-  test("prefers the current session question", () => {
-    const sessions = [session({ id: "root" }), session({ id: "child", parentID: "root" })]
-    const questions = {
-      root: [question("q-root", "root")],
-      child: [question("q-child", "child")],
-    }
-
-    expect(sessionQuestionRequest(sessions, questions, "root")?.id).toBe("q-root")
-  })
-
-  test("returns a nested child question", () => {
-    const sessions = [
-      session({ id: "root" }),
-      session({ id: "child", parentID: "root" }),
-      session({ id: "grand", parentID: "child" }),
-    ]
-    const questions = {
-      grand: [question("q-grand", "grand")],
-    }
-
-    expect(sessionQuestionRequest(sessions, questions, "root")?.id).toBe("q-grand")
-  })
-})
-
-describe("sessionQuestionBlockerRequest", () => {
-  test("returns the question request embedded in the current tree blocker", () => {
-    const sessions = [session({ id: "root" }), session({ id: "child", parentID: "root" })]
-    const blockers = {
-      child: [questionBlocker("q-child", "child")],
-    }
-
-    expect(sessionQuestionBlockerRequest(sessions, blockers, "root")?.id).toBe("q-child")
+  test("respects the include filter", () => {
+    const result = sessionPermissionRequest(
+      [session({ id: "s1" })],
+      { s1: [permission("p1", "s1"), permission("p2", "s1")] },
+      "s1",
+      (item) => item.id === "p2",
+    )
+    expect(result?.id).toBe("p2")
   })
 })
