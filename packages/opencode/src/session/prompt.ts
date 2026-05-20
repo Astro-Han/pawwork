@@ -782,14 +782,17 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             // Wire the AbortSignal: a turn abort flips the pending Deferred
             // to ExternalResultError({reason: "aborted"}). Session destroy is
             // handled separately by ExternalResult.onSessionDestroyed.
+            //
+            // Use the sync registry transition so a racing /tool/respond that
+            // lands in the same tick sees a tombstone on its registry lookup
+            // and returns 409 instead of fulfilling the Deferred behind us.
+            // Deferred.fail is then scheduled asynchronously; the registry is
+            // already in the post-abort state by the time that microtask runs.
             const abortHandler = () => {
+              const result = ExternalResult.abortPendingSync({ sessionID, messageID, callID })
+              if (!result.ok) return
               run.promise(
-                ExternalResult.failIfPending({
-                  sessionID,
-                  messageID,
-                  callID,
-                  error: new ExternalResult.Error({ reason: "aborted" }),
-                }),
+                Deferred.fail(result.deferred, new ExternalResult.Error({ reason: "aborted" })),
               ).catch(() => {})
             }
             const signal = options.abortSignal
