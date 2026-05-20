@@ -1034,7 +1034,7 @@ export namespace Export {
   function sanitizeRunObservability(summary: RunObservability.Summary): RunObservability.Summary {
     return {
       ...summary,
-      error: summary.error ? safeErrorFingerprint(summary.error) : undefined,
+      error: summary.error,
     }
   }
 

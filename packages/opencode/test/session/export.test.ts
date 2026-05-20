@@ -1657,6 +1657,99 @@ describe("redactPart", () => {
     ).toEqual({ "x-request-id": "req_123" })
   })
 
+  test("sanitizeSnapshot preserves safe run observability error fingerprints", () => {
+    const summary: RunObservability.Summary = {
+      schema_version: 1,
+      run_id: RunObservability.RunID.make("run_sanitize"),
+      trace_id: MessageID.make("msg_sanitize"),
+      session_id: SessionID.make("ses_sanitize"),
+      message_id: MessageID.make("msg_sanitize"),
+      provider: "test",
+      model: "test-model",
+      created_at: 1,
+      completed_at: 2,
+      classification: "external_stream_disconnect",
+      summary_key: RunObservability.summaryKeyFor("external_stream_disconnect", "provider_progress_socket_closed"),
+      retry_safety: {
+        recommendation: "candidate_safe_auto_retry",
+        confidence: "medium",
+        reason: "no_visible_output_or_tool_execution",
+        safety_scope: "user_visible_and_tool_side_effects",
+      },
+      attempts: [],
+      provider_progress_seen: true,
+      visible_output_seen: false,
+      tool_call_seen: false,
+      tool_execution_started: false,
+      read_only_tool_started: false,
+      unsafe_side_effect_started: false,
+      unsafe_side_effect_kinds: [],
+      side_effect_facts_complete: true,
+      durations_ms: { total: 1 },
+      error: { name: "TypeError", message: "terminated", cause_code: "UND_ERR_SOCKET" },
+    }
+    const fakeSnapshot: Export.Snapshot = {
+      schema_version: 1,
+      format: "pawwork-session-export",
+      exported_at: 1,
+      root_session_id: SessionID.make("ses_sanitize"),
+      runtime_context: {
+        app_version: "test",
+        runtime_namespace: "pawwork",
+        platform: process.platform,
+        os_version: "test",
+        locale: "en-US",
+        timezone: "UTC",
+        instruction_sources: [],
+        model_refs: {},
+        stats: { session_count: 1, message_count: 1, part_count: 0, omitted_attachment_count: 0 },
+      },
+      diagnostics: { run_observability_schema_version: 1, run_observability: [summary] },
+      session: {
+        info: {
+          id: SessionID.make("ses_sanitize"),
+          version: "0.0.0",
+          time: { created: 1, updated: 1 },
+          title: "x",
+          directory: "/tmp/project",
+        } as SessionNs.Info,
+        had_cloud_share: false,
+        diffs: [],
+        messages: [
+          {
+            info: {
+              id: MessageID.make("msg_sanitize"),
+              role: "assistant",
+              sessionID: SessionID.make("ses_sanitize"),
+              parentID: MessageID.make("msg_parent_sanitize"),
+              mode: "build",
+              agent: "build",
+              path: { cwd: "/tmp/project", root: "/tmp/project" },
+              cost: 0,
+              tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+              modelID: "test-model",
+              providerID: "test",
+              time: { created: 1 },
+              diagnostics: { run_observability: summary },
+            } as MessageV2.Assistant,
+            parts: [],
+          },
+        ],
+        children: [],
+      },
+    }
+
+    const sanitized = Export.sanitizeSnapshot(fakeSnapshot)
+    expect(sanitized.diagnostics.run_observability?.[0]?.error?.cause_code).toBe("UND_ERR_SOCKET")
+    expect(
+      sanitized.session.messages[0].info.role === "assistant"
+        ? sanitized.session.messages[0].info.diagnostics?.run_observability?.error?.cause_code
+        : undefined,
+    ).toBe("UND_ERR_SOCKET")
+    expect(JSON.stringify(sanitized)).not.toContain("/Users/")
+    expect(JSON.stringify(sanitized)).not.toContain("sk-")
+  })
+
   test("redacts data: url inside completed tool attachments", () => {
     const ctx = { count: { omitted: 0 } }
     const part: MessageV2.ToolPart = {
