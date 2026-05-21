@@ -300,6 +300,42 @@ describe("RunObservability", () => {
     ])
   })
 
+  test("bounded incident evidence keeps newest terminal and cleanup anchors when anchors exceed cap", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_many_terminal_anchors"),
+      traceID: MessageID.make("msg_many_terminal_anchors"),
+      sessionID: SessionID.make("ses_many_terminal_anchors"),
+      messageID: MessageID.make("msg_many_terminal_anchors"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    for (let i = 0; i < 30; i++) {
+      recorder.recordToolFailed({
+        attemptID: attempt.attemptID,
+        at: 12 + i,
+        monotonicMs: 120 + i,
+        error: new Error(`tool failed ${i}`),
+      })
+    }
+    recorder.recordPendingToolPartInterrupted({ attemptID: attempt.attemptID, at: 50, monotonicMs: 500 })
+    recorder.recordScopeClosed({
+      at: 51,
+      monotonicMs: 510,
+      lifecycleActionID: "lifecycle:instance_reload:many-terminal-anchors",
+      lifecycleKind: "instance_reload",
+    })
+
+    const evidence = recorder.finalize({ completedAt: 52, monotonicMs: 520 }).incident?.evidence ?? []
+    expect(evidence.length).toBeLessThanOrEqual(24)
+    expect(evidence.some((event) => event.event_type === "evidence_omitted" && event.omitted_events)).toBe(true)
+    expect(evidence.map((event) => event.event_type)).toContain("pending_tool_part_interrupted")
+    expect(evidence.map((event) => event.event_type)).toContain("lifecycle_close_seen")
+    expect(evidence.at(-1)?.event_type).toBe("lifecycle_close_seen")
+  })
+
   test("orders terminal cause by initiating evidence time", () => {
     const providerFirst = RunObservability.createRecorder({
       runID: RunObservability.RunID.make("run_provider_first"),
@@ -481,7 +517,7 @@ describe("RunObservability", () => {
       subcategory: "during_text_generation",
     })
     expect(summary.incident?.phase).toMatchObject({
-      stream_phase: "before_first_provider_progress",
+      stream_phase: "text_generation",
       tool_phase: "none",
       terminal_attempt_id: second.attemptID,
     })

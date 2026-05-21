@@ -24,10 +24,9 @@ function boundEvidence(incident: RunIncident): IncidentEvidenceSummary[] | undef
     }
   }
 
-  const selectedEvents = evidence
-    .filter((event) => selected.has(event.order))
-    .sort((left, right) => left.order - right.order)
-    .slice(0, MAX_EXPORTED_EVIDENCE - 1)
+  const selectedEvents = capSelectedEvents(
+    evidence.filter((event) => selected.has(event.order)).sort((left, right) => left.order - right.order),
+  )
   const selectedOrders = new Set(selectedEvents.map((event) => event.order))
   const omitted = evidence.filter((event) => !selectedOrders.has(event.order))
   if (!omitted.length) return selectedEvents
@@ -45,6 +44,20 @@ function boundEvidence(incident: RunIncident): IncidentEvidenceSummary[] | undef
   }
 
   return [...selectedEvents, marker].sort((left, right) => left.order - right.order)
+}
+
+function capSelectedEvents(events: IncidentEvidenceSummary[]) {
+  const maxEventsBeforeMarker = MAX_EXPORTED_EVIDENCE - 1
+  if (events.length <= maxEventsBeforeMarker) return events
+
+  const anchorEvents = events.filter((event) => event.terminal_candidate || isCleanupEvidence(event.event_type))
+  const nonAnchorEvents = events.filter((event) => !event.terminal_candidate && !isCleanupEvidence(event.event_type))
+  const keptAnchors = anchorEvents.slice(-maxEventsBeforeMarker)
+  const remaining = Math.max(0, maxEventsBeforeMarker - keptAnchors.length)
+  const keptNonAnchors = remaining ? nonAnchorEvents.slice(-remaining) : []
+  const kept = new Map<number, IncidentEvidenceSummary>()
+  for (const event of [...keptNonAnchors, ...keptAnchors]) kept.set(event.order, event)
+  return [...kept.values()].sort((left, right) => left.order - right.order)
 }
 
 function isCleanupEvidence(eventType: string) {
