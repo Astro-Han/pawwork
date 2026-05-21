@@ -672,6 +672,67 @@ describe("RunObservability", () => {
     })
   })
 
+  test("missing materialized tool effect requires confirmation", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_missing_materialized_effect"),
+      traceID: MessageID.make("msg_missing_materialized_effect"),
+      sessionID: SessionID.make("ses_missing_materialized_effect"),
+      messageID: MessageID.make("msg_missing_materialized_effect"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordToolCallMaterialized({ attemptID: attempt.attemptID, at: 12, monotonicMs: 120 })
+    recorder.recordTransportFailure({
+      attemptID: attempt.attemptID,
+      at: 13,
+      monotonicMs: 130,
+      error: { name: "TypeError", message: "terminated", cause: { code: "UND_ERR_SOCKET" } },
+    })
+
+    const summary = recorder.finalize({ completedAt: 14, monotonicMs: 140 })
+    expect(summary.incident?.recovery).toMatchObject({
+      recommendation: "ask_user_before_retry",
+      reason: "side_effect_facts_incomplete",
+    })
+    expect(summary.incident?.facts).toMatchObject({
+      materialized_tool_effect_kind: "unknown",
+      materialized_tool_requires_confirmation: true,
+      side_effect_facts_complete: false,
+    })
+  })
+
+  test("reasoning-only transport failure uses reasoning generation phase", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_reasoning_only_disconnect"),
+      traceID: MessageID.make("msg_reasoning_only_disconnect"),
+      sessionID: SessionID.make("ses_reasoning_only_disconnect"),
+      messageID: MessageID.make("msg_reasoning_only_disconnect"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordProviderProgress({ attemptID: attempt.attemptID, at: 12, monotonicMs: 120 })
+    recorder.recordVisibleOutput({ attemptID: attempt.attemptID, at: 13, monotonicMs: 130, kind: "reasoning" })
+    recorder.recordTransportFailure({
+      attemptID: attempt.attemptID,
+      at: 14,
+      monotonicMs: 140,
+      error: { name: "TypeError", message: "terminated", cause: { code: "UND_ERR_SOCKET" } },
+    })
+
+    const summary = recorder.finalize({ completedAt: 15, monotonicMs: 150 })
+    expect(summary.incident?.facts).toMatchObject({
+      reasoning_output_started: true,
+      text_output_started: false,
+    })
+    expect(summary.incident?.phase.stream_phase).toBe("reasoning_generation")
+  })
+
   test("materialized tool recovery keeps unsafe boundary even when a later safe tool materializes", () => {
     const recorder = RunObservability.createRecorder({
       runID: RunObservability.RunID.make("run_unsafe_then_safe_materialized_tool"),

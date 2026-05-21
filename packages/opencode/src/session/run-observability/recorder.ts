@@ -182,10 +182,9 @@ export function createRecorder(input: RecorderInput): Recorder {
     recordToolCallMaterialized(next) {
       toolCallSeen = true
       toolCallMaterialized = true
-      if (next.effect) {
-        materializedToolBoundaries.push({ attempt_id: next.attemptID, tool: next.toolName, effect: next.effect })
-        if (next.providerExecuted || !next.effect.complete) sideEffectFactsComplete = false
-      }
+      const effect = next.effect ?? { kind: "unknown", unsafe: true, complete: false as const }
+      materializedToolBoundaries.push({ attempt_id: next.attemptID, tool: next.toolName, effect })
+      if (next.providerExecuted || !effect.complete) sideEffectFactsComplete = false
       updateAttempt(next.attemptID, (attempt) => {
         attempt.tool_call_seen = true
         attempt.tool_call_materialized = true
@@ -199,9 +198,9 @@ export function createRecorder(input: RecorderInput): Recorder {
         terminal_candidate: false,
         confidence: "high",
         tool_name: next.toolName,
-        tool_effect_kind: next.effect?.kind,
-        tool_effect_unsafe: next.effect?.unsafe,
-        tool_effect_complete: next.effect?.complete,
+        tool_effect_kind: effect.kind,
+        tool_effect_unsafe: effect.unsafe,
+        tool_effect_complete: effect.complete,
       })
       rememberEvent(next.monotonicMs)
     },

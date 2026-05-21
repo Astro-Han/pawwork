@@ -143,11 +143,13 @@ function phaseFor(input: {
       ? "after_tool_input_end"
       : input.facts.tool_input_started
         ? "tool_input_generation"
-        : input.facts.visible_output_seen
-          ? "text_generation"
-          : input.facts.provider_progress_seen
-            ? "before_first_provider_progress"
-            : "unknown"
+        : input.facts.reasoning_output_started && !input.facts.text_output_started
+          ? "reasoning_generation"
+          : input.facts.visible_output_seen
+            ? "text_generation"
+            : input.facts.provider_progress_seen
+              ? "before_first_provider_progress"
+              : "unknown"
   const runPhase = input.facts.tool_execution_started
     ? "tool_execution"
     : input.facts.tool_input_started || input.facts.tool_call_materialized
