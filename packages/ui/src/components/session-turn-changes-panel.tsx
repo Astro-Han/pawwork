@@ -1,4 +1,4 @@
-import { createMemo, createSignal, For, onCleanup, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import { getDirectory } from "@opencode-ai/core/util/path"
 import { useFileComponent } from "../context/file"
@@ -7,6 +7,10 @@ import { Icon } from "./icon"
 import { IconButton } from "./icon-button"
 import { Tooltip } from "./tooltip"
 import { normalize } from "./session-diff"
+import {
+  clampTurnChangeDiffReservedHeight,
+  estimateTurnChangeDiffReservedHeight,
+} from "./session-turn-change-diff-height"
 import {
   hasTurnChangeActionHandler,
   turnChangeAction,
@@ -62,7 +66,8 @@ export function SessionTurnChangesPanel(props: {
   const turnActionLabel = createMemo(() => {
     const action = turnChangeAction(props.turnChange)
     if (!action) return ""
-    const base = action === "undo" ? i18n.t("ui.sessionTurn.turnChanges.undo") : i18n.t("ui.sessionTurn.turnChanges.reapply")
+    const base =
+      action === "undo" ? i18n.t("ui.sessionTurn.turnChanges.undo") : i18n.t("ui.sessionTurn.turnChanges.reapply")
     return confirmAction() === action
       ? action === "undo"
         ? i18n.t("ui.sessionTurn.turnChanges.undoConfirm")
@@ -116,6 +121,8 @@ export function SessionTurnChangesPanel(props: {
         <For each={turnFiles()}>
           {(file) => {
             const expanded = createMemo(() => expandedPaths().includes(file.path))
+            const [measuredDiffHeight, setMeasuredDiffHeight] = createSignal<number>()
+            let diffRef: HTMLDivElement | undefined
             const toggle = () => {
               if (!file.expandable) return
               const current = expandedPaths()
@@ -134,9 +141,32 @@ export function SessionTurnChangesPanel(props: {
                   })
                 : undefined,
             )
+            createEffect(() => {
+              view()
+              setMeasuredDiffHeight(undefined)
+            })
+            const reservedDiffHeight = () => {
+              const diff = view()
+              if (!diff) return 0
+              return (
+                measuredDiffHeight() ?? estimateTurnChangeDiffReservedHeight({ ...diff.fileDiff, patch: diff.patch })
+              )
+            }
+            const handleDiffRendered = () => {
+              const measure = () => {
+                if (!diffRef?.isConnected) return
+                const content = diffRef.querySelector<HTMLElement>('[data-component="file"]')
+                const height = clampTurnChangeDiffReservedHeight(content?.scrollHeight ?? diffRef.scrollHeight)
+                setMeasuredDiffHeight(height)
+              }
+
+              if (typeof requestAnimationFrame === "function") requestAnimationFrame(measure)
+              else measure()
+            }
             return (
               <div data-slot="session-turn-change-item" data-expanded={expanded() || undefined}>
                 <div
+                  data-component="session-turn-change-row"
                   data-slot="session-turn-change-row"
                   data-expandable={file.expandable || undefined}
                   onClick={toggle}
@@ -191,8 +221,19 @@ export function SessionTurnChangesPanel(props: {
                 </div>
                 <Show when={expanded() && view()}>
                   {(diff) => (
-                    <div data-slot="session-turn-change-diff" data-scrollable>
-                      <Dynamic component={fileComponent} mode="diff" fileDiff={diff().fileDiff} />
+                    <div
+                      ref={(el) => (diffRef = el)}
+                      data-component="session-turn-change-diff"
+                      data-slot="session-turn-change-diff"
+                      data-scrollable
+                      style={{ "--turn-change-diff-reserved-height": `${reservedDiffHeight()}px` }}
+                    >
+                      <Dynamic
+                        component={fileComponent}
+                        mode="diff"
+                        fileDiff={diff().fileDiff}
+                        onRendered={handleDiffRendered}
+                      />
                     </div>
                   )}
                 </Show>
