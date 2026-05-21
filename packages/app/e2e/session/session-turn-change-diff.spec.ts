@@ -39,7 +39,7 @@ async function openTurnChangeCard(input: {
   await input.llm.text("seeded turn-change diff")
   await input.project.prompt(`seed turn-change diff ${Date.now()}`)
 
-  const card = input.page.locator('[data-slot="session-turn-changes"]').last()
+  const card = input.page.locator('[data-component="session-turn-changes"]').last()
   await expect(card).toBeVisible({ timeout: 30_000 })
   return card
 }
@@ -63,7 +63,7 @@ test("turn-change file rows reserve diff height before rendering", async ({ page
   await installClsProbe(page)
   const card = await openTurnChangeCard({ page, llm, project })
   const row = card
-    .locator('[data-slot="session-turn-change-row"]')
+    .locator('[data-component="session-turn-change-row"]')
     .filter({ hasText: TURN_CHANGE_MODIFIED_DIFF_FILE_PATH })
     .first()
   await expect(row).toBeVisible()
@@ -72,14 +72,14 @@ test("turn-change file rows reserve diff height before rendering", async ({ page
 
   for (const _ of [0, 1, 2]) {
     await row.click()
-    const diff = card.locator('[data-slot="session-turn-change-diff"]').first()
+    const diff = card.locator('[data-component="session-turn-change-diff"]').first()
     await expect(diff).toBeVisible()
     await expect
       .poll(async () => await diff.evaluate((el) => Number.parseFloat(getComputedStyle(el).minHeight)), {
         timeout: 10_000,
       })
       .toBeGreaterThanOrEqual(384)
-    await expect(diff.locator("[data-line]").first()).toBeVisible({ timeout: 30_000 })
+    await expect(diff.locator('[data-component="file"]').first()).toBeVisible({ timeout: 30_000 })
     await row.click()
     await expect(diff).toHaveCount(0)
   }
@@ -93,15 +93,16 @@ test("small replacement diffs settle close to rendered content height", async ({
   await installClsProbe(page)
   const card = await openTurnChangeCard({ page, llm, project })
   const row = card
-    .locator('[data-slot="session-turn-change-row"]')
+    .locator('[data-component="session-turn-change-row"]')
     .filter({ hasText: TURN_CHANGE_SMALL_MODIFIED_DIFF_FILE_PATH })
     .first()
   await expect(row).toBeVisible()
 
   await resetClsProbe(page)
   await row.click()
-  const diff = card.locator('[data-slot="session-turn-change-diff"]').first()
+  const diff = card.locator('[data-component="session-turn-change-diff"]').first()
   await expect(diff).toBeVisible()
+  await expect(diff.locator('[data-component="file"]').first()).toBeVisible({ timeout: 30_000 })
   const lines = diff.locator("[data-line]")
   await expect(lines.first()).toBeVisible({ timeout: 30_000 })
 

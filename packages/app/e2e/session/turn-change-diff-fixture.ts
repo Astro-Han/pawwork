@@ -68,7 +68,7 @@ const turnChangeSmallModifiedDiffPatch = [
 ].join("\n")
 
 export async function routeTurnChangeDiff(page: Page, input: { sessionID: string }) {
-  await page.route(/\/session\/[^/]+\/turn\/[^/]+\/changes$/, async (route) => {
+  await page.route(/\/session\/[^/]+\/turn\/[^/]+\/changes(?:\?.*)?$/, async (route) => {
     const url = new URL(route.request().url())
     const parts = url.pathname.split("/")
     const turnID = parts.at(-2) ?? "turn"

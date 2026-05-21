@@ -166,6 +166,7 @@ export function SessionTurnChangesPanel(props: {
             return (
               <div data-slot="session-turn-change-item" data-expanded={expanded() || undefined}>
                 <div
+                  data-component="session-turn-change-row"
                   data-slot="session-turn-change-row"
                   data-expandable={file.expandable || undefined}
                   onClick={toggle}
@@ -222,6 +223,7 @@ export function SessionTurnChangesPanel(props: {
                   {(diff) => (
                     <div
                       ref={(el) => (diffRef = el)}
+                      data-component="session-turn-change-diff"
                       data-slot="session-turn-change-diff"
                       data-scrollable
                       style={{ "--turn-change-diff-reserved-height": `${reservedDiffHeight()}px` }}
