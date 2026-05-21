@@ -24,6 +24,42 @@ type NormalizedToolRespondError =
   | { type: "invalid_payload"; detail?: string }
   | { type: "unknown"; detail?: string }
 
+type QuestionResponsePhase = "idle" | "submitting" | "closing"
+
+const invalidPayloadErrorCodes = new Set(["answer_count_mismatch"])
+
+export function createQuestionResponseGuard(initialRequestID: string) {
+  let requestID = initialRequestID
+  let phase: QuestionResponsePhase = "idle"
+
+  const sync = (nextRequestID: string) => {
+    if (nextRequestID === requestID) return
+    requestID = nextRequestID
+    phase = "idle"
+  }
+
+  return {
+    canInteract(nextRequestID: string) {
+      sync(nextRequestID)
+      return phase === "idle"
+    },
+    begin(nextRequestID: string) {
+      sync(nextRequestID)
+      if (phase !== "idle") return false
+      phase = "submitting"
+      return true
+    },
+    confirm(nextRequestID: string) {
+      sync(nextRequestID)
+      if (phase === "submitting") phase = "closing"
+    },
+    fail(nextRequestID: string) {
+      sync(nextRequestID)
+      phase = "idle"
+    },
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
 }
@@ -73,12 +109,14 @@ function requestIDFromToolRespondError(err: unknown): string | undefined {
 export function normalizeToolRespondError(err: unknown): NormalizedToolRespondError {
   const status = statusFromToolRespondError(err)
   const code = errorCodeFromToolRespondError(err)
+  const details = detailsFromToolRespondError(err)
 
   if (code === "already_resolved") return { type: "already_resolved", requestID: requestIDFromToolRespondError(err) }
+  if (code === "no_pending_tool_call") return { type: "stale_session" }
   if (status === 404) return { type: "stale_session" }
   if (status === 409) return { type: "already_resolved", requestID: requestIDFromToolRespondError(err) }
-  if (status === 400 || status === 422) {
-    const detail = [code, detailsFromToolRespondError(err)].filter(Boolean).join(" ")
+  if (status === 400 || status === 422 || invalidPayloadErrorCodes.has(code ?? "") || details !== undefined) {
+    const detail = [code, details].filter(Boolean).join(" ")
     return { type: "invalid_payload", detail: detail || undefined }
   }
   if (err instanceof Error) return { type: "unknown", detail: err.message }
@@ -208,6 +246,7 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
   let optsRef: HTMLButtonElement[] = []
   let replied = false
   let locallySubmitted: QuestionRequestFingerprint | undefined
+  const responseGuard = createQuestionResponseGuard(props.request.id)
   let focusFrame: number | undefined
 
   const question = createMemo(() => questions()[store.tab])
@@ -299,10 +338,13 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
   })
 
   const complete = () => {
+    responseGuard.confirm(props.request.id)
     replied = true
     cache.delete(props.request.id)
     props.onSubmit()
   }
+
+  const canInteract = () => responseGuard.canInteract(props.request.id)
 
   const fail = (err: unknown): "completed" | "failed" => {
     const normalized = normalizeToolRespondError(err)
@@ -315,6 +357,7 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
         title: language.t("common.requestFailed"),
         description: language.t("session.question.error.alreadyAnswered"),
       })
+      responseGuard.fail(props.request.id)
       locallySubmitted = undefined
       return "failed"
     }
@@ -323,6 +366,7 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
         title: language.t("common.requestFailed"),
         description: language.t("session.question.error.staleSession"),
       })
+      responseGuard.fail(props.request.id)
       locallySubmitted = undefined
       return "failed"
     }
@@ -331,6 +375,7 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
         title: language.t("common.requestFailed"),
         description: normalized.detail || language.t("session.question.error.invalidPayload"),
       })
+      responseGuard.fail(props.request.id)
       locallySubmitted = undefined
       return "failed"
     }
@@ -338,6 +383,7 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
       title: language.t("common.requestFailed"),
       description: normalized.detail || language.t("session.question.error.invalidPayload"),
     })
+    responseGuard.fail(props.request.id)
     locallySubmitted = undefined
     return "failed"
   }
@@ -382,12 +428,12 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
   const sending = createMemo(() => replyMutation.isPending || rejectMutation.isPending)
 
   const reply = async (answers: QuestionAnswer[]) => {
-    if (sending()) return
+    if (sending() || !responseGuard.begin(props.request.id)) return
     await replyMutation.mutateAsync(answers)
   }
 
   const reject = async () => {
-    if (sending()) return
+    if (sending() || !responseGuard.begin(props.request.id)) return
     await rejectMutation.mutateAsync()
   }
 
@@ -428,7 +474,7 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
   }
 
   const customToggle = () => {
-    if (sending()) return
+    if (!canInteract()) return
     setStore("focus", options().length)
 
     if (!multi()) {
@@ -458,7 +504,7 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
   }
 
   const customOpen = () => {
-    if (sending()) return
+    if (!canInteract()) return
     setStore("focus", options().length)
     if (!on()) setStore("customOn", store.tab, true)
     setStore("editing", true)
@@ -466,7 +512,7 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
   }
 
   const move = (step: number) => {
-    if (store.editing || sending()) return
+    if (store.editing || !canInteract()) return
     focus(store.focus + step)
   }
 
@@ -517,7 +563,7 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
   }
 
   const selectOption = (optIndex: number) => {
-    if (sending()) return
+    if (!canInteract()) return
 
     if (optIndex === options().length) {
       if (!customAllowed()) return
@@ -560,7 +606,7 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
   }
 
   const next = () => {
-    if (sending()) return
+    if (!canInteract()) return
     if (store.editing) commitCustom()
 
     if (store.tab >= total() - 1) {
@@ -575,7 +621,7 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
   }
 
   const back = () => {
-    if (sending()) return
+    if (!canInteract()) return
     if (store.tab <= 0) return
     const tab = store.tab - 1
     setStore("tab", tab)
@@ -584,7 +630,7 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
   }
 
   const skipCurrent = () => {
-    if (sending()) return
+    if (!canInteract()) return
     setStore("answers", store.tab, [])
     setStore("custom", store.tab, "")
     setStore("customOn", store.tab, false)
@@ -601,7 +647,7 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
   }
 
   const jump = (tab: number) => {
-    if (sending()) return
+    if (!canInteract()) return
     setStore("tab", tab)
     setStore("editing", false)
     focus(pickFocus(tab))
@@ -628,7 +674,7 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
                   data-slot="question-progress-segment"
                   data-active={i() === store.tab}
                   data-answered={settled(i())}
-                  disabled={sending()}
+                  disabled={!canInteract()}
                   onClick={() => jump(i())}
                   aria-label={`${language.t("ui.tool.questions")} ${i() + 1}`}
                 />
@@ -639,18 +685,18 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
       }
       footer={
         <>
-          <Button variant="ghost" disabled={sending()} onClick={skipCurrent}>
+          <Button variant="ghost" disabled={!canInteract()} onClick={skipCurrent}>
             {language.t("session.question.skipCurrent")}
           </Button>
           <div data-slot="question-footer-actions">
             <Show when={store.tab > 0}>
-              <Button variant="secondary" disabled={sending()} onClick={back}>
+              <Button variant="secondary" disabled={!canInteract()} onClick={back}>
                 {language.t("ui.common.back")}
               </Button>
             </Show>
             <Button
               variant={last() ? "primary" : "secondary"}
-              disabled={sending()}
+              disabled={!canInteract()}
               onClick={next}
               aria-keyshortcuts="Meta+Enter Control+Enter"
             >
@@ -669,7 +715,7 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
               picked={picked(opt.label)}
               label={opt.label}
               description={opt.description}
-              disabled={sending()}
+              disabled={!canInteract()}
               ref={(el) => (optsRef[i()] = el)}
               onFocus={() => setStore("focus", i())}
               onClick={() => selectOption(i())}
@@ -689,7 +735,7 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
                 data-picked={on()}
                 role={multi() ? "checkbox" : "radio"}
                 aria-checked={on()}
-                disabled={sending()}
+                disabled={!canInteract()}
                 onFocus={() => setStore("focus", options().length)}
                 onClick={customOpen}
               >
@@ -708,7 +754,7 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
               role={multi() ? "checkbox" : "radio"}
               aria-checked={on()}
               onMouseDown={(e) => {
-                if (sending()) {
+                if (!canInteract()) {
                   e.preventDefault()
                   return
                 }
@@ -730,7 +776,7 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
                   placeholder={customPlaceholder()}
                   value={input()}
                   rows={1}
-                  disabled={sending()}
+                  disabled={!canInteract()}
                   onKeyDown={(e) => {
                     if (e.key === "Escape") {
                       e.preventDefault()

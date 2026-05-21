@@ -1,6 +1,10 @@
-import { readFileSync } from "node:fs"
 import { describe, expect, test } from "bun:test"
-import { isSameQuestionRequest, normalizeToolRespondError, resolveSkipAction } from "./session-question-dock"
+import {
+  createQuestionResponseGuard,
+  isSameQuestionRequest,
+  normalizeToolRespondError,
+  resolveSkipAction,
+} from "./session-question-dock"
 
 describe("resolveSkipAction", () => {
   test("navigates to next unsettled question when one exists after current", () => {
@@ -56,6 +60,23 @@ describe("normalizeToolRespondError", () => {
     expect(JSON.stringify(result)).not.toContain("[object Object]")
   })
 
+  test("maps plain no_pending_tool_call body errors to stale session", () => {
+    expect(normalizeToolRespondError({ error: "no_pending_tool_call" })).toEqual({ type: "stale_session" })
+  })
+
+  test("keeps plain answer_count_mismatch body details readable without a status", () => {
+    const result = normalizeToolRespondError({
+      error: "answer_count_mismatch",
+      details: { expected: 2, received: 1 },
+    })
+
+    expect(result).toEqual({
+      type: "invalid_payload",
+      detail: 'answer_count_mismatch {"expected":2,"received":1}',
+    })
+    expect(JSON.stringify(result)).not.toContain("[object Object]")
+  })
+
   test("supports common error shapes without stringifying unknown objects", () => {
     expect(normalizeToolRespondError(new Error("network failed"))).toEqual({
       type: "unknown",
@@ -87,11 +108,29 @@ describe("question response local completion guard", () => {
 })
 
 describe("question response duplicate submission guard", () => {
-  test("keeps mouse and keyboard submit paths behind the pending send guard", () => {
-    const source = readFileSync(new URL("./session-question-dock.tsx", import.meta.url), "utf8")
+  test("blocks repeated response attempts while pending and while waiting for sync close", () => {
+    const guard = createQuestionResponseGuard("req_1")
 
-    expect(source).toContain("const reply = async (answers: QuestionAnswer[]) => {\n    if (sending()) return")
-    expect(source).toContain('if (mod && event.key === "Enter")')
-    expect(source).toContain("if (sending()) return\n    if (store.editing) commitCustom()")
+    expect(guard.begin("req_1")).toBe(true)
+    expect(guard.begin("req_1")).toBe(false)
+
+    guard.confirm("req_1")
+
+    expect(guard.canInteract("req_1")).toBe(false)
+    expect(guard.begin("req_1")).toBe(false)
+  })
+
+  test("restores interaction after failed submit or a new request", () => {
+    const guard = createQuestionResponseGuard("req_1")
+
+    expect(guard.begin("req_1")).toBe(true)
+    guard.fail("req_1")
+    expect(guard.begin("req_1")).toBe(true)
+
+    guard.confirm("req_1")
+
+    expect(guard.canInteract("req_1")).toBe(false)
+    expect(guard.canInteract("req_2")).toBe(true)
+    expect(guard.begin("req_2")).toBe(true)
   })
 })
