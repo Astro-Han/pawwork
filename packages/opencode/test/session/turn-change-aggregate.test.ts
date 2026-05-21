@@ -9,6 +9,7 @@ import { MessageID, SessionID } from "../../src/session/schema"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { SessionTable } from "../../src/session/session.sql"
 import { Database, eq } from "../../src/storage/db"
+import { Bus } from "../../src/bus"
 import { tmpdir } from "../fixture/fixture"
 import { resetDatabase } from "../fixture/db"
 
@@ -235,6 +236,63 @@ describe("TurnChange aggregate union", () => {
         const result = TurnChange.aggregateTurnUnion({ sessionID: session.id, userMessageID })
 
         expect(result).toMatchObject({ kind: "empty" })
+      },
+    })
+  })
+
+  test("recordUncaptured publishes turn change invalidation", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "union-invalidate-uncaptured" })
+        const userMessageID = await makeUser(session.id, "union-invalidate-uncaptured")
+        const assistantID = await makeAssistant(session.id, userMessageID, "union-invalidate-uncaptured")
+        const events: string[] = []
+        const unsubscribe = Bus.subscribe(SessionNs.Event.TurnChangeInvalidated, (event) => {
+          events.push(event.properties.sessionID)
+        })
+        try {
+          TurnChange.recordUncaptured({ sessionID: session.id, messageID: assistantID })
+          await new Promise((resolve) => setTimeout(resolve, 20))
+
+          expect(events).toEqual([session.id])
+        } finally {
+          unsubscribe()
+        }
+      },
+    })
+  })
+
+  test("finalize publishes turn change invalidation for captured display", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "union-invalidate-captured" })
+        const userMessageID = await makeUser(session.id, "union-invalidate-captured")
+        const assistantID = await makeAssistant(session.id, userMessageID, "union-invalidate-captured")
+        const events: string[] = []
+        const unsubscribe = Bus.subscribe(SessionNs.Event.TurnChangeInvalidated, (event) => {
+          events.push(event.properties.sessionID)
+        })
+        try {
+          TurnChange.recordWrite({
+            sessionID: session.id,
+            messageID: assistantID,
+            path: path.join(fixture.path, "captured.txt"),
+            before: { exists: false },
+            after: { exists: true, content: "captured\n" },
+          })
+          TurnChange.finalize({ sessionID: session.id, messageID: assistantID })
+          await new Promise((resolve) => setTimeout(resolve, 20))
+
+          expect(events).toEqual([session.id])
+        } finally {
+          unsubscribe()
+        }
       },
     })
   })

@@ -6,6 +6,8 @@ import z from "zod"
 import { eq, and, ne, sql, Database } from "@/storage/db"
 import { count } from "drizzle-orm"
 import { MessageID, SessionID } from "./schema"
+import { Bus } from "@/bus"
+import { Event as SessionEvent } from "./session"
 import {
   MessageTable,
   SessionTable,
@@ -1303,9 +1305,10 @@ export namespace TurnChange {
 
   export class Service extends Context.Service<Service, Interface>()("@pawwork/TurnChange") {}
 
-  export const layer: Layer.Layer<Service, never, never> = Layer.effect(
+  export const layer: Layer.Layer<Service, never, Bus.Service> = Layer.effect(
     Service,
     Effect.gen(function* () {
+      const bus = yield* Bus.Service
       const state: ServiceState = { locks: new Map() }
       return Service.of({
         recordWrite: Effect.fn("TurnChange.recordWrite")(function* (input) {
@@ -1313,9 +1316,12 @@ export namespace TurnChange {
         }),
         recordUncaptured: Effect.fn("TurnChange.recordUncaptured")(function* (input) {
           recordUncapturedInternal(input)
+          yield* bus.publish(SessionEvent.TurnChangeInvalidated, { sessionID: input.sessionID })
         }),
         finalize: Effect.fn("TurnChange.finalize")(function* (input) {
-          return finalizeInternal(input)
+          const display = finalizeInternal(input)
+          if (display) yield* bus.publish(SessionEvent.TurnChangeInvalidated, { sessionID: input.sessionID })
+          return display
         }),
         get: Effect.fn("TurnChange.get")(function* (input) {
           return getInternal(input)
@@ -1330,13 +1336,23 @@ export namespace TurnChange {
           return aggregateSessionFromTurnsInternal(input)
         }),
         undo: Effect.fn("TurnChange.undo")(function* (input) {
-          return yield* Effect.promise(() => locked(state, input.sessionID, () => mutate({ ...input, mode: "undo" })))
+          const result = yield* Effect.promise(() =>
+            locked(state, input.sessionID, () => mutate({ ...input, mode: "undo" })),
+          )
+          if (result.status === "applied")
+            yield* bus.publish(SessionEvent.TurnChangeInvalidated, { sessionID: input.sessionID })
+          return result
         }),
         redo: Effect.fn("TurnChange.redo")(function* (input) {
-          return yield* Effect.promise(() => locked(state, input.sessionID, () => mutate({ ...input, mode: "redo" })))
+          const result = yield* Effect.promise(() =>
+            locked(state, input.sessionID, () => mutate({ ...input, mode: "redo" })),
+          )
+          if (result.status === "applied")
+            yield* bus.publish(SessionEvent.TurnChangeInvalidated, { sessionID: input.sessionID })
+          return result
         }),
         aggregateTurnUndo: Effect.fn("TurnChange.aggregateTurnUndo")(function* (input) {
-          return yield* Effect.promise(() =>
+          const result = yield* Effect.promise(() =>
             locked(state, input.sessionID, () =>
               mutateTurn({
                 sessionID: input.sessionID,
@@ -1346,9 +1362,12 @@ export namespace TurnChange {
               }),
             ),
           )
+          if (result.status === "applied")
+            yield* bus.publish(SessionEvent.TurnChangeInvalidated, { sessionID: input.sessionID })
+          return result
         }),
         aggregateTurnRedo: Effect.fn("TurnChange.aggregateTurnRedo")(function* (input) {
-          return yield* Effect.promise(() =>
+          const result = yield* Effect.promise(() =>
             locked(state, input.sessionID, () =>
               mutateTurn({
                 sessionID: input.sessionID,
@@ -1358,12 +1377,15 @@ export namespace TurnChange {
               }),
             ),
           )
+          if (result.status === "applied")
+            yield* bus.publish(SessionEvent.TurnChangeInvalidated, { sessionID: input.sessionID })
+          return result
         }),
       })
     }),
   )
 
-  export const defaultLayer = layer
+  export const defaultLayer = layer.pipe(Layer.provide(Bus.layer))
   const runtime = makeRuntime(Service, defaultLayer)
 
   export function recordWrite(input: RecordWriteInput) {
