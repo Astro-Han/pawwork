@@ -167,7 +167,9 @@ export function createSessionReviewState(input: {
   const hasReview = createMemo(() => reviewCount() > 0)
   const reviewReady = createMemo(() => {
     const value = changes()
-    return isVcsReviewMode(value) ? vcs.ready[value] && sameExecutionScope(vcs.scope[value], input.executionScope()) : true
+    return isVcsReviewMode(value)
+      ? vcs.ready[value] && sameExecutionScope(vcs.scope[value], input.executionScope())
+      : true
   })
 
   const [artifactHistory, { refetch: refetchArtifactHistory }] = createResource(
@@ -182,8 +184,7 @@ export function createSessionReviewState(input: {
       sessionID,
       artifacts: await input.sdk
         .createClient({ directory: scope.directory, throwOnError: true })
-        .session
-        .artifacts({ sessionID })
+        .session.artifacts({ sessionID })
         .then((res) => res.data ?? [])
         .catch(() => []),
     }),
@@ -253,7 +254,7 @@ export function createSessionReviewState(input: {
   createEffect(() => {
     const id = input.sessionID()
     if (!id) return
-    if (input.sync.data.session_diff[id] === undefined) return
+    if (input.sync.data.turn_change_aggregate[id] === undefined) return
     queueArtifactHistoryRefetch()
   })
 

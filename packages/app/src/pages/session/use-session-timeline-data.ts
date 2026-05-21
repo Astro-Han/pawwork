@@ -2,6 +2,7 @@ import { createEffect, createMemo, on } from "solid-js"
 import type { useLocal } from "@/context/local"
 import type { useSync } from "@/context/sync"
 import { createSessionViewController } from "@/pages/session/session-view-controller"
+import type { SessionDiffResponse, SnapshotFileDiff } from "@opencode-ai/sdk/v2/client"
 import {
   emptyMessages,
   emptyUserMessages,
@@ -9,7 +10,6 @@ import {
   readUserMessages,
 } from "@/pages/session/session-messages"
 import { syncSessionModel } from "@/pages/session/session-model-helpers"
-import { diffs as list } from "@/utils/diffs"
 import { same } from "@/utils/same"
 import { makeSessionScope, sameSessionScope, sessionScopeKey, type SessionScope } from "./session-scope"
 import {
@@ -37,6 +37,28 @@ type LastGoodMessages =
       messages: ReturnType<typeof readSessionMessages>
     }
   | undefined
+
+export function aggregateFiles(aggregate: SessionDiffResponse | undefined): SnapshotFileDiff[] {
+  if (!aggregate) return []
+  if (aggregate.kind === "empty" || aggregate.kind === "uncaptured") return []
+  return aggregate.files
+    .filter((file) => file.restoreState === "applied")
+    .map((file) => ({
+      file: file.openPath ?? file.path,
+      patch: file.patch ?? "",
+      additions: file.additions ?? 0,
+      deletions: file.deletions ?? 0,
+      status: file.status,
+    }))
+}
+
+export function aggregateFileCount(
+  aggregate: SessionDiffResponse | undefined,
+  revertSummary?: { files: number } | undefined,
+) {
+  if (revertSummary) return revertSummary.files
+  return aggregateFiles(aggregate).length
+}
 
 export function readTimelineMessages(input: {
   scope: SessionScope | undefined
@@ -71,11 +93,7 @@ export function timelineDataIdentity(input: { scope: SessionScope | undefined; c
   return `${sessionScopeKey(input.scope)}\n${input.created}`
 }
 
-export function timelineModelSyncKey(input: {
-  directory: string
-  messageID: string | undefined
-  localReady: boolean
-}) {
+export function timelineModelSyncKey(input: { directory: string; messageID: string | undefined; localReady: boolean }) {
   return `${input.directory}\n${input.messageID ?? ""}\n${input.localReady ? "ready" : "loading"}`
 }
 
@@ -107,11 +125,14 @@ export function createSessionTimelineData(input: {
     const id = input.routeSessionID()
     return id ? input.sync.session.get(id) : undefined
   })
-  const routeDiffs = createMemo(() => {
+  const routeAggregate = createMemo(() => {
     const id = input.routeSessionID()
-    return id ? list(input.sync.data.session_diff[id]) : []
+    return id ? input.sync.data.turn_change_aggregate[id] : undefined
   })
-  const routeSessionCount = createMemo(() => Math.max(routeInfo()?.summary?.files ?? 0, routeDiffs().length))
+  const routeDiffs = createMemo(() => aggregateFiles(routeAggregate()))
+  const routeSessionCount = createMemo(() =>
+    aggregateFileCount(routeAggregate(), routeInfo()?.revert ? routeInfo()?.summary : undefined),
+  )
   const routeHasSessionReview = createMemo(() => routeSessionCount() > 0)
   // Route readiness is raw cache state. The timeline controller decides when to preserve the mounted view.
   const routeMessagesReady = createMemo(() => {
@@ -214,7 +235,7 @@ export function createSessionTimelineData(input: {
   const diffs = createMemo(() => {
     const id = sessionID()
     if (!id) return []
-    return list(input.sync.data.session_diff[id])
+    return aggregateFiles(input.sync.data.turn_change_aggregate[id])
   })
   const userMessages = createMemo(() => readUserMessages(messages()), emptyUserMessages, {
     equals: same,

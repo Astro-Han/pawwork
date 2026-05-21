@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test"
-import type { Message } from "@opencode-ai/sdk/v2/client"
+import type { Message, SessionDiffResponse } from "@opencode-ai/sdk/v2/client"
 import {
+  aggregateFileCount,
+  aggregateFiles,
   currentDirectoryProviderUsable,
   currentSessionActionReady,
   currentSessionCacheReady,
@@ -24,6 +26,57 @@ const userMessage = (id: string, sessionID = "ses_target"): Message =>
 
 const sessionScope = (sessionID = "ses_target", serverKey = "sidecar") => ({ serverKey, sessionID })
 const messages120 = Array.from({ length: 120 }, (_, index) => userMessage(`msg_${index}`))
+
+const capturedAggregate = (files: SessionDiffResponse & { kind: "captured" }) => files
+
+describe("session change aggregate readers", () => {
+  test("ignores stale session summary when aggregate is empty", () => {
+    const aggregate: SessionDiffResponse = { kind: "empty", sessionID: "ses_1" }
+
+    expect(aggregateFileCount(aggregate)).toBe(0)
+  })
+
+  test("uses active revert summary while revert exists", () => {
+    const aggregate = capturedAggregate({
+      kind: "captured",
+      sessionID: "ses_1",
+      files: [appliedAggregateFile("a.ts"), appliedAggregateFile("b.ts")],
+    })
+
+    expect(aggregateFileCount(aggregate, { files: 1 })).toBe(1)
+  })
+
+  test("uses aggregate files after revert clears", () => {
+    const aggregate = capturedAggregate({
+      kind: "captured",
+      sessionID: "ses_1",
+      files: [appliedAggregateFile("a.ts"), mutedAggregateFile("b.ts")],
+    })
+
+    expect(aggregateFiles(aggregate)).toEqual([
+      { file: "a.ts", patch: "", additions: 0, deletions: 0, status: "modified" },
+    ])
+    expect(aggregateFileCount(aggregate)).toBe(1)
+  })
+})
+
+function appliedAggregateFile(path: string) {
+  return {
+    path,
+    status: "modified" as const,
+    expandable: true,
+    restoreState: "applied" as const,
+  }
+}
+
+function mutedAggregateFile(path: string) {
+  return {
+    path,
+    status: "modified" as const,
+    expandable: true,
+    restoreState: "undone" as const,
+  }
+}
 
 describe("readTimelineMessages", () => {
   test("keeps last-good messages for the same session when the current store briefly loses its cache", () => {

@@ -98,7 +98,7 @@ export function createSessionReviewPanel(input: {
     if (!id) return
 
     if (!input.wantsReview()) return
-    if (input.sync.data.session_diff[id] !== undefined) return
+    if (input.sync.data.turn_change_aggregate[id] !== undefined) return
     if (input.sync.status === "loading") return
 
     void input.sync.session.diff(id)
@@ -116,7 +116,7 @@ export function createSessionReviewPanel(input: {
 
         const id = input.routeSessionID()
         if (!id) return
-        if (!untrack(() => input.sync.data.session_diff[id] !== undefined)) return
+        if (!untrack(() => input.sync.data.turn_change_aggregate[id] !== undefined)) return
 
         diffFrame = requestAnimationFrame(() => {
           diffFrame = undefined
