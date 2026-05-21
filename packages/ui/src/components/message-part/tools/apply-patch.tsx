@@ -5,6 +5,7 @@ import { useFileComponent } from "../../../context/file"
 import { useI18n } from "../../../context/i18n"
 import { Accordion } from "../../accordion"
 import { BasicTool } from "../../basic-tool"
+import { createBoundedStateMap } from "../../persisted-state-map"
 import { DiffChanges } from "../../diff-changes"
 import { FileIcon } from "../../file-icon"
 import { Icon } from "../../icon"
@@ -15,7 +16,7 @@ import { getDirectory } from "../markdown-render"
 import { ToolRegistry } from "../registry"
 import { ToolFileAccordion } from "./_file-accordion"
 
-const applyPatchExpandedState = new Map<string, string[]>()
+const applyPatchExpandedState = createBoundedStateMap<string[]>()
 
 ToolRegistry.register({
   name: "apply_patch",
@@ -42,7 +43,6 @@ ToolRegistry.register({
       if (props.stateKey && applyPatchExpandedState.has(props.stateKey)) return
       const next = list.filter((f) => f.type !== "delete").map((f) => f.filePath)
       setExpanded(next)
-      if (props.stateKey) applyPatchExpandedState.set(props.stateKey, next)
     })
 
     const subtitle = createMemo(() => {

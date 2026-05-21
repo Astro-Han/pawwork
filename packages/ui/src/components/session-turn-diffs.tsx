@@ -8,20 +8,12 @@ import { useI18n } from "../context/i18n"
 import { Accordion } from "./accordion"
 import { DiffChanges } from "./diff-changes"
 import { Icon } from "./icon"
+import { createBoundedStateMap } from "./persisted-state-map"
 import { normalize } from "./session-diff"
 import { StickyAccordionHeader } from "./sticky-accordion-header"
 
 const MAX_FILES = 10
-const MAX_PERSISTED_TURN_DIFF_STATES = 500
-const turnDiffState = new Map<string, { showAll: boolean; expanded: string[] }>()
-
-function setTurnDiffState(key: string, value: { showAll: boolean; expanded: string[] }) {
-  if (!turnDiffState.has(key) && turnDiffState.size >= MAX_PERSISTED_TURN_DIFF_STATES) {
-    const oldest = turnDiffState.keys().next().value
-    if (oldest) turnDiffState.delete(oldest)
-  }
-  turnDiffState.set(key, value)
-}
+const turnDiffState = createBoundedStateMap<{ showAll: boolean; expanded: string[] }>()
 
 export function SessionTurnDiffs(props: {
   diffs: SnapshotFileDiff[]
@@ -44,11 +36,11 @@ export function SessionTurnDiffs(props: {
     props.onShowAllToggle?.()
     const next = !showAll()
     setState("showAll", next)
-    if (props.stateKey) setTurnDiffState(props.stateKey, { showAll: next, expanded: expanded() })
+    if (props.stateKey) turnDiffState.set(props.stateKey, { showAll: next, expanded: expanded() })
   }
   const setExpandedPersistent = (value: string[]) => {
     setState("expanded", value)
-    if (props.stateKey) setTurnDiffState(props.stateKey, { showAll: showAll(), expanded: value })
+    if (props.stateKey) turnDiffState.set(props.stateKey, { showAll: showAll(), expanded: value })
   }
 
   return (

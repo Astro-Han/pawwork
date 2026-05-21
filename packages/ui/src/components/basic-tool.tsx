@@ -4,6 +4,7 @@ import { useI18n } from "../context/i18n"
 import { createStore } from "solid-js/store"
 import { Collapsible } from "./collapsible"
 import type { IconProps } from "./icon"
+import { createBoundedStateMap } from "./persisted-state-map"
 import { TextShimmer } from "./text-shimmer"
 
 export type TriggerTitle = {
@@ -40,7 +41,7 @@ export interface BasicToolProps {
   stateKey?: string
 }
 
-const basicToolOpenState = new Map<string, boolean>()
+const basicToolOpenState = createBoundedStateMap<boolean>()
 
 const SPRING = { type: "spring" as const, visualDuration: 0.35, bounce: 0 }
 

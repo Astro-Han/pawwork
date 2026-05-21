@@ -2,12 +2,13 @@ import { createEffect, createMemo, createSignal, For, Index, on, Show } from "so
 import type { ToolPart } from "@opencode-ai/sdk/v2"
 import { useI18n } from "../../context/i18n"
 import { Collapsible } from "../collapsible"
+import { createBoundedStateMap } from "../persisted-state-map"
 import { TextShimmer } from "../text-shimmer"
 import { AnimatedCountList } from "../tool-count-summary"
 import { ToolStatusTitle } from "../tool-status-title"
 import { contextToolSummary, contextToolTrigger } from "./context-tool-helpers"
 
-const contextToolGroupOpenState = new Map<string, boolean>()
+const contextToolGroupOpenState = createBoundedStateMap<boolean>()
 
 export function ContextToolGroup(props: { parts: ToolPart[]; busy?: boolean }) {
   const i18n = useI18n()

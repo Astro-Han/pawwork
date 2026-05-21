@@ -4,6 +4,7 @@ import { Card, CardDescription } from "./card"
 import { Collapsible } from "./collapsible"
 import { Icon } from "./icon"
 import { IconButton } from "./icon-button"
+import { createBoundedStateMap } from "./persisted-state-map"
 import { Tooltip } from "./tooltip"
 import { useI18n } from "../context/i18n"
 
@@ -16,16 +17,7 @@ export interface ToolErrorCardProps extends Omit<ComponentProps<typeof Card>, "c
   stateKey?: string
 }
 
-const toolErrorOpenState = new Map<string, boolean>()
-const MAX_PERSISTED_TOOL_ERROR_STATES = 500
-
-function setToolErrorOpenState(key: string, value: boolean) {
-  if (!toolErrorOpenState.has(key) && toolErrorOpenState.size >= MAX_PERSISTED_TOOL_ERROR_STATES) {
-    const oldest = toolErrorOpenState.keys().next().value
-    if (oldest) toolErrorOpenState.delete(oldest)
-  }
-  toolErrorOpenState.set(key, value)
-}
+const toolErrorOpenState = createBoundedStateMap<boolean>()
 
 export function ToolErrorCard(props: ToolErrorCardProps) {
   const i18n = useI18n()
@@ -99,7 +91,7 @@ export function ToolErrorCard(props: ToolErrorCardProps) {
         open={open()}
         onOpenChange={(value) => {
           setState("open", value)
-          if (split.stateKey) setToolErrorOpenState(split.stateKey, value)
+          if (split.stateKey) toolErrorOpenState.set(split.stateKey, value)
         }}
       >
         <Collapsible.Trigger>
