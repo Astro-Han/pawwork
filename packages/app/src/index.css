@@ -57,6 +57,11 @@
     --shell-surface-base: #1a1917;
     --shell-surface-raised: #1a1917;
     --shell-surface-strong: #1a1917;
+    /* shell-border-{base,weak} are color-mix inputs for shell-frame-border /
+     * shell-titlebar-border (OS window chrome), not body dividers. Body
+     * dividers route through --border-* (6% white alpha). Light mirrors the
+     * same two-input shape; collapsing to one would erase the titlebar /
+     * frame depth that distinguishes native window edge from interior. */
     --shell-border-base: #282725;
     --shell-border-weak: #1f1d1c;
     --shell-highlight-overlay: radial-gradient(circle at top, rgb(255 255 255 / 0.04), transparent 52%);
