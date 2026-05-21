@@ -87,11 +87,17 @@ export function createTodoDockRestoreTracker(now: () => number = () => Date.now(
     }
 
     const active = input.count > 0 && input.phase === "active"
-    const historicalToolParts =
+    const timestampedHistoricalToolParts =
       isToolPartsSource(input.source) &&
       active &&
-      (input.sourceUpdatedAt === undefined || input.sourceUpdatedAt <= sessionEnteredAt)
-    const restored = !primed && active && (historicalToolParts || (input.known && !isToolPartsSource(input.source)))
+      input.sourceUpdatedAt !== undefined &&
+      input.sourceUpdatedAt <= sessionEnteredAt
+    const untimestampedInitialToolParts =
+      !primed && isToolPartsSource(input.source) && active && input.sourceUpdatedAt === undefined
+    const restored =
+      timestampedHistoricalToolParts ||
+      untimestampedInitialToolParts ||
+      (!primed && active && input.known && !isToolPartsSource(input.source))
     if (input.known) primed = true
     return restored
   }

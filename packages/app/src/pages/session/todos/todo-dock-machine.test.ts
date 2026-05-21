@@ -221,6 +221,54 @@ describe("createTodoDockRestoreTracker", () => {
     ).toBe(false)
   })
 
+  test("marks timestamped historical tool-parts todos as restored after a known empty snapshot primes the session", () => {
+    const restored = createTodoDockRestoreTracker(() => 200)
+
+    expect(restored({ sessionID: "s", known: true, count: 0, phase: "empty" })).toBe(false)
+    expect(
+      restored({
+        sessionID: "s",
+        known: false,
+        count: 1,
+        phase: "active",
+        source: "primary-parts",
+        sourceUpdatedAt: 100,
+      }),
+    ).toBe(true)
+  })
+
+  test("shows timestamped historical tool-parts without opening after a known empty snapshot primes the session", () => {
+    const restored = createTodoDockRestoreTracker(() => 200)
+    let state = reduceTodoDockState(todoDockHiddenState(), {
+      type: "snapshot",
+      input: { sessionID: "s", count: 0, phase: "empty", lifecycleSignature: "[]" },
+    })
+
+    expect(restored({ sessionID: "s", known: true, count: 0, phase: "empty" })).toBe(false)
+
+    const restoredInput = restored({
+      sessionID: "s",
+      known: false,
+      count: 1,
+      phase: "active",
+      source: "primary-parts",
+      sourceUpdatedAt: 100,
+    })
+    state = reduceTodoDockState(state, {
+      type: "snapshot",
+      input: {
+        sessionID: "s",
+        count: 1,
+        phase: "active",
+        lifecycleSignature: "[pending]",
+        restored: restoredInput,
+      },
+    })
+
+    expect(restoredInput).toBe(true)
+    expect(state).toMatchObject({ dock: true, opening: false })
+  })
+
   test("does not mark live tool-parts todos as restored after a known empty snapshot primes the session", () => {
     const restored = createTodoDockRestoreTracker()
     const liveToolPartsSnapshot = {
