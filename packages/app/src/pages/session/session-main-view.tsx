@@ -1,4 +1,4 @@
-import { Match, Show, Switch, type ComponentProps, type JSX } from "solid-js"
+import { Match, onCleanup, onMount, Show, Switch, type ComponentProps, type JSX } from "solid-js"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { NewSessionView, SessionHeader } from "@/components/session"
 import type { useLanguage } from "@/context/language"
@@ -10,6 +10,7 @@ import { shouldShowSessionOpeningState } from "@/pages/session/session-main-view
 import type { createSessionHistoryWindow } from "@/pages/session/use-session-history-window"
 import type { createSessionReviewState } from "@/pages/session/use-session-review-state"
 import type { createSessionScrollDock } from "@/pages/session/use-session-scroll-dock"
+import { timelineDriverEnabled, timelineEvent, type TimelineDriverEvent } from "@/testing/timeline"
 
 type TimelineProps = ComponentProps<typeof MessageTimeline>
 
@@ -61,6 +62,17 @@ export function SessionMainView(props: {
   files: ReturnType<typeof createSessionReviewState>["artifactFiles"]
   size: ReturnType<typeof createSizing>
 }) {
+  onMount(() => {
+    const handleTimelineDriver = (event: Event) => {
+      if (!timelineDriverEnabled()) return
+      const detail = (event as TimelineDriverEvent).detail
+      if (detail?.sessionID && detail.sessionID !== props.timelineSessionID) return
+      if (detail?.action === "reveal-cached") props.historyWindow.expandForHash(0)
+    }
+    window.addEventListener(timelineEvent, handleTimelineDriver)
+    onCleanup(() => window.removeEventListener(timelineEvent, handleTimelineDriver))
+  })
+
   const showSessionOpeningState = () =>
     shouldShowSessionOpeningState({
       activeSessionID: props.activeSessionID,
