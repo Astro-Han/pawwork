@@ -8,6 +8,10 @@ import { IconButton } from "./icon-button"
 import { Tooltip } from "./tooltip"
 import { normalize } from "./session-diff"
 import {
+  clampTurnChangeDiffReservedHeight,
+  estimateTurnChangeDiffReservedHeight,
+} from "./session-turn-change-diff-height"
+import {
   hasTurnChangeActionHandler,
   turnChangeAction,
   type TurnChangeActions,
@@ -62,7 +66,8 @@ export function SessionTurnChangesPanel(props: {
   const turnActionLabel = createMemo(() => {
     const action = turnChangeAction(props.turnChange)
     if (!action) return ""
-    const base = action === "undo" ? i18n.t("ui.sessionTurn.turnChanges.undo") : i18n.t("ui.sessionTurn.turnChanges.reapply")
+    const base =
+      action === "undo" ? i18n.t("ui.sessionTurn.turnChanges.undo") : i18n.t("ui.sessionTurn.turnChanges.reapply")
     return confirmAction() === action
       ? action === "undo"
         ? i18n.t("ui.sessionTurn.turnChanges.undoConfirm")
@@ -116,6 +121,8 @@ export function SessionTurnChangesPanel(props: {
         <For each={turnFiles()}>
           {(file) => {
             const expanded = createMemo(() => expandedPaths().includes(file.path))
+            const [measuredDiffHeight, setMeasuredDiffHeight] = createSignal<number>()
+            let diffRef: HTMLDivElement | undefined
             const toggle = () => {
               if (!file.expandable) return
               const current = expandedPaths()
@@ -134,6 +141,21 @@ export function SessionTurnChangesPanel(props: {
                   })
                 : undefined,
             )
+            const reservedDiffHeight = createMemo(() => {
+              const diff = view()
+              if (!diff) return 0
+              return Math.max(measuredDiffHeight() ?? 0, estimateTurnChangeDiffReservedHeight(diff.fileDiff))
+            })
+            const handleDiffRendered = () => {
+              const measure = () => {
+                if (!diffRef?.isConnected) return
+                const height = clampTurnChangeDiffReservedHeight(diffRef.scrollHeight)
+                setMeasuredDiffHeight((current) => (current === undefined ? height : Math.max(current, height)))
+              }
+
+              if (typeof requestAnimationFrame === "function") requestAnimationFrame(measure)
+              else measure()
+            }
             return (
               <div data-slot="session-turn-change-item" data-expanded={expanded() || undefined}>
                 <div
@@ -191,8 +213,18 @@ export function SessionTurnChangesPanel(props: {
                 </div>
                 <Show when={expanded() && view()}>
                   {(diff) => (
-                    <div data-slot="session-turn-change-diff" data-scrollable>
-                      <Dynamic component={fileComponent} mode="diff" fileDiff={diff().fileDiff} />
+                    <div
+                      ref={(el) => (diffRef = el)}
+                      data-slot="session-turn-change-diff"
+                      data-scrollable
+                      style={{ "--turn-change-diff-reserved-height": `${reservedDiffHeight()}px` }}
+                    >
+                      <Dynamic
+                        component={fileComponent}
+                        mode="diff"
+                        fileDiff={diff().fileDiff}
+                        onRendered={handleDiffRendered}
+                      />
                     </div>
                   )}
                 </Show>

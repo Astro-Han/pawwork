@@ -252,9 +252,14 @@
   }
 
   [data-slot="session-turn-change-diff"] {
+    min-height: var(--turn-change-diff-reserved-height, 0px);
     max-height: 420px;
     overflow: auto;
     background: var(--surface-sunken);
+
+    [data-component="file"] {
+      content-visibility: visible;
+    }
   }
 
   [data-slot="session-turn-changes-skipped-notice"] {
