@@ -141,6 +141,13 @@ export function createSessionTimelineData(input: {
     return input.sync.data.message[id] !== undefined
   })
 
+  createEffect(() => {
+    const id = input.routeSessionID()
+    if (!id) return
+    if (input.sync.data.turn_change_aggregate[id] !== undefined) return
+    void input.sync.session.diff(id)
+  })
+
   const sessionView = createSessionViewController({
     routeSessionID: input.routeSessionID,
     routeScope,

@@ -1,4 +1,4 @@
-import type { SnapshotFileDiff, VcsFileDiff } from "@opencode-ai/sdk/v2"
+import type { SessionDiffResponse, SnapshotFileDiff, VcsFileDiff } from "@opencode-ai/sdk/v2"
 import { createEffect, createMemo, createResource, createSignal, on, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
 import type { useSDK } from "@/context/sdk"
@@ -14,9 +14,24 @@ import {
   type VcsReviewMode,
 } from "@/pages/session/review-change-mode"
 import { diffs as list } from "@/utils/diffs"
+import { same } from "@/utils/same"
 import { sameExecutionScope, shouldApplyExecutionResult, vcsTaskKey, type ExecutionScope } from "./execution-scope"
 
 type SessionReviewDiff = SnapshotFileDiff | VcsFileDiff
+
+function aggregateFiles(aggregate: SessionDiffResponse | undefined): SnapshotFileDiff[] {
+  if (!aggregate) return []
+  if (aggregate.kind === "empty" || aggregate.kind === "uncaptured") return []
+  return aggregate.files
+    .filter((file) => file.restoreState === "applied")
+    .map((file) => ({
+      file: file.openPath ?? file.path,
+      patch: file.patch ?? "",
+      additions: file.additions ?? 0,
+      deletions: file.deletions ?? 0,
+      status: file.status,
+    }))
+}
 
 export function deriveReviewArtifactFiles(input: {
   currentScope: ExecutionScope
@@ -56,6 +71,7 @@ export function createSessionReviewState(input: {
   artifactDiffs?: () => SessionReviewDiff[]
 }) {
   const [changes, setChanges] = createSignal<ReviewChangeMode>("turn")
+  const [sessionAggregateDiffs, setSessionAggregateDiffs] = createSignal<SnapshotFileDiff[]>([], { equals: same })
   const [vcs, setVcs] = createStore<{
     diff: Record<VcsReviewMode, SessionReviewDiff[]>
     ready: Record<VcsReviewMode, boolean>
@@ -158,7 +174,7 @@ export function createSessionReviewState(input: {
   const reviewDiffs = createMemo(() =>
     list(
       reviewDiffsForMode(changes(), {
-        turn: input.turnDiffs(),
+        turn: sessionAggregateDiffs().length > 0 ? sessionAggregateDiffs() : input.turnDiffs(),
         vcs: vcs.diff,
       }),
     ),
@@ -255,7 +271,24 @@ export function createSessionReviewState(input: {
     const id = input.sessionID()
     if (!id) return
     if (input.sync.data.turn_change_aggregate[id] === undefined) return
+    setSessionAggregateDiffs(aggregateFiles(input.sync.data.turn_change_aggregate[id]))
     queueArtifactHistoryRefetch()
+  })
+
+  createEffect(() => {
+    const id = input.sessionID()
+    if (!id) return
+    if (!input.wantsReview()) return
+    const scope = input.executionScope()
+    void input.sdk
+      .createClient({ directory: scope.directory, throwOnError: true })
+      .session.diff({ sessionID: id })
+      .then((res) => {
+        if (input.sessionID() !== id) return
+        if (!shouldApplyExecutionResult({ requested: scope, current: input.executionScope() })) return
+        setSessionAggregateDiffs(aggregateFiles(res.data))
+      })
+      .catch(() => {})
   })
 
   return {

@@ -178,9 +178,7 @@ export default function Page() {
   const turnDiffs = timelineDiffs
   const mobileChanges = createMemo(() => !isDesktop() && mobileTab() === "changes")
   const wantsReview = createMemo(() =>
-    isDesktop()
-      ? desktopSidePanelOpen() && view().sidePanel.tab() === "review" && activeTab() === "review"
-      : mobileChanges(),
+    isDesktop() ? desktopSidePanelOpen() && view().sidePanel.tab() === "review" : mobileChanges(),
   )
   const executionScopeTracker = createExecutionScopeTracker()
   const currentExecutionScope = (): ExecutionScope =>
