@@ -2,11 +2,41 @@ import { readFileSync } from "node:fs"
 import { describe, expect, test } from "bun:test"
 import {
   buildPawworkSidebarSessionRows,
+  resolvePawworkProjectRenameTarget,
   resolvePawworkSessionProjectKey,
   resolvePawworkSessionProjectLabel,
 } from "./pawwork-session-source"
 
 describe("buildPawworkSidebarSessionRows", () => {
+  test("renames sandbox session groups as local workspace labels", () => {
+    const project = { id: "proj_repo", name: "Repo", worktree: "/repo", sandboxes: ["/repo-feature"] }
+
+    const target = resolvePawworkProjectRenameTarget("/repo-feature", {
+      projects: [project],
+      sessions: [
+        {
+          id: "session-sandbox",
+          directory: "/repo-feature",
+          project: { id: "proj_repo", name: "Repo", worktree: "/repo" },
+          time: { created: 100, updated: 100 },
+        },
+      ],
+    })
+
+    expect(target).toEqual({ type: "workspace", directory: "/repo-feature" })
+  })
+
+  test("renames root project groups as projects", () => {
+    const project = { id: "proj_repo", name: "Repo", worktree: "/repo", sandboxes: ["/repo-feature"] }
+
+    const target = resolvePawworkProjectRenameTarget("/repo", {
+      projects: [project],
+      sessions: [],
+    })
+
+    expect(target).toEqual({ type: "project", project })
+  })
+
   test("groups git subfolder sessions by the opened directory instead of the repo root", () => {
     const session = {
       id: "session-subfolder",

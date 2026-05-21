@@ -7,6 +7,7 @@ type ProjectLike = {
   id?: string
   name?: string
   worktree: string
+  sandboxes?: string[]
 }
 
 type SessionProjectLike = {
@@ -105,6 +106,22 @@ export function resolvePawworkSessionProjectLabel<T extends { directory: string;
   }
 
   return getFilename(session.directory)
+}
+
+export function resolvePawworkProjectRenameTarget<TProject extends ProjectLike, TSession extends { directory: string }>(
+  projectKey: string,
+  input: {
+    projects: TProject[]
+    sessions: TSession[]
+  },
+): { type: "project"; project: TProject } | { type: "workspace"; directory: string } | undefined {
+  const project = input.projects.find((item) => workspaceKey(item.worktree) === projectKey)
+  if (project) return { type: "project", project }
+
+  const session = input.sessions.find((item) => workspaceKey(item.directory) === projectKey)
+  if (session) return { type: "workspace", directory: session.directory }
+
+  return undefined
 }
 
 const isActivityEligibleUserMessage = (parts: PartTimeLike[] | undefined) => {

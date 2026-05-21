@@ -89,6 +89,7 @@ import { createInlineEditorController } from "./layout/inline-editor"
 import {
   buildPawworkSidebarSessionRows,
   pawworkSessionDirectories,
+  resolvePawworkProjectRenameTarget,
   resolvePawworkSessionProjectKey,
   resolvePawworkSessionProjectLabel,
   sortPawworkSidebarSessions,
@@ -1226,24 +1227,18 @@ export default function Layout(props: ParentProps) {
   }
 
   async function handleRenameProject(projectKey: string, next: string) {
-    const projects = layout.projects.list()
-    const project =
-      projects.find((p) => workspaceKey(p.worktree) === projectKey) ||
-      projects.find((p) => p.sandboxes?.some((s) => workspaceKey(s) === projectKey))
-    if (project) {
-      await renameProject(project, next)
+    const target = resolvePawworkProjectRenameTarget(projectKey, {
+      projects: layout.projects.list(),
+      sessions: pawworkSessionWindow().sessions,
+    })
+    if (!target) return
+
+    if (target.type === "project") {
+      await renameProject(target.project, next)
       return
     }
 
-    const session = pawworkSessionWindow().sessions.find((s) => workspaceKey(s.directory) === projectKey)
-    if (!session) return
-
-    const sessionKey = workspaceKey(session.directory)
-    const localProject =
-      projects.find((p) => workspaceKey(p.worktree) === sessionKey) ||
-      projects.find((p) => p.sandboxes?.some((s) => workspaceKey(s) === sessionKey))
-    if (localProject) await renameProject(localProject, next)
-    else setWorkspaceName(session.directory, next)
+    setWorkspaceName(target.directory, next)
   }
 
   function expandPawworkProjectGroup(label: string | undefined) {
