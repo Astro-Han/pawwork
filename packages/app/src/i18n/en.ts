@@ -258,7 +258,7 @@ export const dict = {
   "variant.max": "Max",
 
   "prompt.placeholder.shell": "Enter shell command...",
-  "prompt.placeholder.home": "Type your task, or @ to mention files",
+  "prompt.placeholder.home": "Type your task, @ to mention files, / for commands",
   "prompt.placeholder.summarizeComments": "Summarize comments…",
   "prompt.placeholder.summarizeComment": "Summarize comment…",
   "prompt.mode.shell": "Shell",

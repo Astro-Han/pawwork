@@ -276,7 +276,7 @@ export const dict = {
   "variant.max": "最高",
 
   "prompt.placeholder.shell": "输入 shell 命令...",
-  "prompt.placeholder.home": "输入你的任务，或 @ 引用文件",
+  "prompt.placeholder.home": "输入你的任务，@ 引用文件，/ 唤起命令",
   "prompt.placeholder.summarizeComments": "总结评论…",
   "prompt.placeholder.summarizeComment": "总结该评论…",
   "prompt.mode.shell": "Shell",
