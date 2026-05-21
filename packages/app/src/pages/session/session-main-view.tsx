@@ -10,7 +10,7 @@ import { shouldShowSessionOpeningState } from "@/pages/session/session-main-view
 import type { createSessionHistoryWindow } from "@/pages/session/use-session-history-window"
 import type { createSessionReviewState } from "@/pages/session/use-session-review-state"
 import type { createSessionScrollDock } from "@/pages/session/use-session-scroll-dock"
-import { timelineDriverEnabled, timelineEvent, type TimelineDriverEvent } from "@/testing/timeline"
+import { bindTimelineDriver } from "@/testing/timeline"
 
 type TimelineProps = ComponentProps<typeof MessageTimeline>
 
@@ -63,17 +63,12 @@ export function SessionMainView(props: {
   size: ReturnType<typeof createSizing>
 }) {
   onMount(() => {
-    const timelineDriverTestRuntime = import.meta.env.DEV || import.meta.env.TEST
-    if (!timelineDriverTestRuntime) return
-
-    const handleTimelineDriver = (event: Event) => {
-      if (!timelineDriverEnabled({ testRuntime: timelineDriverTestRuntime })) return
-      const detail = (event as TimelineDriverEvent).detail
-      if (detail?.sessionID && detail.sessionID !== props.timelineSessionID) return
-      if (detail?.action === "reveal-cached") props.historyWindow.expandForHash(0)
-    }
-    window.addEventListener(timelineEvent, handleTimelineDriver)
-    onCleanup(() => window.removeEventListener(timelineEvent, handleTimelineDriver))
+    const cleanupTimelineDriver = bindTimelineDriver({
+      testRuntime: import.meta.env.DEV || import.meta.env.TEST,
+      timelineSessionID: () => props.timelineSessionID,
+      revealCached: () => props.historyWindow.expandForHash(0),
+    })
+    onCleanup(cleanupTimelineDriver)
   })
 
   const showSessionOpeningState = () =>

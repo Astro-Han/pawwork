@@ -130,6 +130,20 @@ async function moveMouseOverTimeline(page: Page) {
   await page.mouse.move(box.x + box.width / 2, box.y + Math.min(140, box.height * 0.25))
 }
 
+async function markTimelineWheelIntent(page: Page, deltaY: number) {
+  const found = await page.evaluate(
+    ({ deltaY, scrollViewportSelector, turnListSelector }) => {
+      const list = document.querySelector(turnListSelector)
+      const viewport = list?.closest(scrollViewportSelector)
+      if (!(viewport instanceof HTMLElement)) return false
+      viewport.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY }))
+      return true
+    },
+    { deltaY, scrollViewportSelector, turnListSelector: sessionTurnListSelector },
+  )
+  expect(found).toBe(true)
+}
+
 async function positionTimelineForMeasuredWindow(page: Page) {
   // A tiny real wheel gesture marks the timeline as user-scrolled. Without
   // that, the active question turn can briefly re-lock to bottom and the
@@ -181,6 +195,37 @@ async function revealRuntimeClsRows(page: Page) {
 
   await expect
     .poll(async () => (await readTimelineDomBudget(page)).totalRows, { timeout: 1_000 })
+    .toBeGreaterThanOrEqual(RUNTIME_CLS_MINIMUM_ROWS)
+  return await readTimelineDomBudget(page)
+}
+
+async function revealRuntimeClsRowsNaturally(page: Page) {
+  await test.step("wait for first runtime CLS message", async () => {
+    await expect(page.locator(sessionMessageItemSelector).first()).toBeVisible({ timeout: 30_000 })
+  })
+
+  await moveMouseOverTimeline(page)
+  for (let attempt = 0; attempt < 24; attempt += 1) {
+    const budget = await readTimelineDomBudget(page)
+    if (budget.totalRows >= RUNTIME_CLS_MINIMUM_ROWS) return budget
+
+    await test.step(`naturally reveal runtime CLS rows attempt ${attempt + 1}`, async () => {
+      await page.mouse.wheel(0, -1200)
+      await markTimelineWheelIntent(page, -1200)
+      await settleFrames(page, 2)
+      await scrollTimelineToRatio(page, 0)
+      await settleFrames(page, 4)
+
+      const loadEarlier = page.getByRole("button", { name: /Load earlier messages|加载更早的消息/i }).first()
+      if (await loadEarlier.isVisible().catch(() => false)) {
+        await loadEarlier.click({ timeout: 1_000 }).catch(() => undefined)
+        await settleFrames(page, 4)
+      }
+    })
+  }
+
+  await expect
+    .poll(async () => (await readTimelineDomBudget(page)).totalRows, { timeout: 10_000 })
     .toBeGreaterThanOrEqual(RUNTIME_CLS_MINIMUM_ROWS)
   return await readTimelineDomBudget(page)
 }
@@ -404,6 +449,20 @@ test.describe("runtime CLS probe lifecycle", () => {
 
 test.describe("runtime CLS source gate", () => {
   test.setTimeout(180_000)
+
+  test("natural history reveal smoke reaches a virtualized runtime CLS window", async ({ page, project }) => {
+    await project.open()
+    await withSession(project.sdk, `runtime cls natural reveal ${Date.now()}`, async (session) => {
+      await seedRuntimeClsSession(project, session.id)
+      await page.goto(sessionPath(project.directory, session.id))
+
+      const budget = await revealRuntimeClsRowsNaturally(page)
+
+      expect(budget.totalRows).toBeGreaterThanOrEqual(RUNTIME_CLS_MINIMUM_ROWS)
+      expect(budget.hasVirtualizer).toBe(true)
+      expect(budget.mountedMessages).toBeLessThanOrEqual(RUNTIME_CLS_MAXIMUM_MOUNTED_MESSAGES)
+    })
+  })
 
   test("composer growth does not move visible timeline primary sources", async ({ page, project }) => {
     await installRuntimeClsProbe(page)
