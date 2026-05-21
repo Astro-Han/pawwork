@@ -90,22 +90,28 @@
   --sidebar:        #f9f9f9; /* neutral pale grey, decoupled from bg-cream per ui_kits mock */
   --surface-base-active: rgba(0, 0, 0, 0.051);
 
-  /* ────────── Light ink · STANDARDS L11 (4 tiers) ────────── */
+  /* ────────── Light ink · 2-tier collapse (strong + weak); base/weaker pairs merge.
+   * Mirrors dark's 2-tier collapse. Token names survive for callsite stability:
+   *   --fg-base   → --fg-strong (#1a1613)
+   *   --fg-weaker → --fg-weak   (#8c817a) */
   --fg-strong:   #1a1613;
-  --fg-base:     #4a4138;
+  --fg-base:     #1a1613;
   --fg-weak:     #8c817a;
-  --fg-weaker:   #b6ada7;
+  --fg-weaker:   #8c817a;
   --fg-on-brand: #ffffff;
 
-  /* ────────── Light border · STANDARDS L12 (3 tiers) ────────── */
-  --border-base:    rgba(0, 0, 0, 0.162);
-  --border-weak:    #ece6df;
-  --border-weaker:  #f3ede6;
+  /* ────────── Light border · 1-tier collapse to a single hairline alpha; mirrors
+   * dark's collapse. The previous mix of opaque (#ece6df / #f3ede6) and high-alpha
+   * (rgba 0.162) tiers read inconsistently; one alpha tier reads calmly across
+   * any surface. Token names survive as aliases. */
+  --border-base:    rgba(0, 0, 0, 0.08);
+  --border-weak:    rgba(0, 0, 0, 0.08);
+  --border-weaker:  rgba(0, 0, 0, 0.08);
 
-  /* ────────── Icon · derived from ink ────────── */
+  /* ────────── Icon · derived from collapsed ink ────────── */
   --icon-base:     #8c817a;
   --icon-strong:   #1a1613;
-  --icon-weak:     #b6ada7;
+  --icon-weak:     #8c817a;
   --icon-disabled: #c7c7c7;
 
   /* ────────── Semantic · STANDARDS L13 (3 tiers, info NOT allocated) ────────── */
@@ -143,16 +149,6 @@
   --hover-overlay:      rgba(0, 0, 0, 0.04);
   /* Warm cream surface (cream-bottom iconbtn): 6% for perceptual parity */
   --hover-overlay-warm: rgba(0, 0, 0, 0.06);
-
-  /* List/menu/row hover · cross-product token for selectable surfaces.
-   * Direction is "row stands out from container":
-   *   light → surface depressed one tier toward neutral cream (#f4f0ec)
-   *   dark  → surface raised one tier toward warm coffee (#262523)
-   * Pairs with selected `--surface-interactive-base` (warm orange-cream) for
-   * a two-tone hierarchy: hover is neutral cream, selected is warm cream;
-   * the hue difference makes the two states visually independent without
-   * extra weight or icon decoration. */
-  --surface-list-hover: #f4f0ec;
 
   /* Row hover/active overlays · alpha-on-container, hue-following.
    * Per ui_kits/desktop mock sidebar recipe (`pw-flat-session.active`):
@@ -326,10 +322,6 @@
   --hover-overlay:      rgba(255, 255, 255, 0.05);
   --hover-overlay-warm: rgba(255, 255, 255, 0.07);
 
-  /* Dark list-hover collapses to `--surface-raised` so the hover layer matches
-   * the dialog/composer/bubble anchor; one tier above canvas. */
-  --surface-list-hover: #262523;
-
   /* Row overlays · dark mirror (white alpha to lift warm-coffee surfaces). */
   --row-hover-overlay:  rgba(255, 255, 255, 0.04);
   --row-active-overlay: rgba(255, 255, 255, 0.06);
@@ -466,8 +458,6 @@
 
     --hover-overlay:      rgba(255, 255, 255, 0.05);
     --hover-overlay-warm: rgba(255, 255, 255, 0.07);
-
-    --surface-list-hover: #262523;
 
     --row-hover-overlay:  rgba(255, 255, 255, 0.04);
     --row-active-overlay: rgba(255, 255, 255, 0.06);
