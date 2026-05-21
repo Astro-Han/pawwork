@@ -120,6 +120,37 @@ function errorTool(parts: MessageV2.Part[]) {
   return part?.state.status === "error" ? (part as ErrorToolPart) : undefined
 }
 
+function flattenRequestText(input: Record<string, unknown>) {
+  const messages = (input as { messages?: unknown[] }).messages ?? []
+  return messages
+    .flatMap((message) => {
+      const content = (message as { content?: unknown }).content
+      if (typeof content === "string") return [content]
+      if (Array.isArray(content)) {
+        return content.flatMap((part) => {
+          if (typeof part === "string") return [part]
+          if (part && typeof part === "object" && "text" in part) return [String((part as { text: unknown }).text)]
+          return []
+        })
+      }
+      return []
+    })
+    .join("\n")
+}
+
+function requestTextContaining(inputs: Record<string, unknown>[], needle: string) {
+  const match = inputs.find((input) => flattenRequestText(input).includes(needle))
+  if (!match) throw new Error(`Missing provider request containing: ${needle}`)
+  return flattenRequestText(match)
+}
+
+function envValue(text: string, label: string) {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  const match = text.match(new RegExp(`^  ${escaped}: (.+)$`, "m"))
+  if (!match) throw new Error(`Missing env field: ${label}`)
+  return match[1]
+}
+
 describe("title generation diagnostics helpers", () => {
   test("maps abort-time title generation states", () => {
     expect(titleGenerationStateAtAbort(undefined, 10)).toBe("not_started")
@@ -468,6 +499,146 @@ it.live("loop calls LLM and returns assistant message", () =>
       expect(parts.some((p) => p.type === "text" && p.text === "world")).toBe(true)
       expect(yield* llm.hits).toHaveLength(1)
     }),
+    { git: true, config: providerCfg },
+  ),
+)
+
+
+it.live("provider env matches assistant path for an active worktree", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const session = yield* sessions.create({
+          title: "Execution context snapshot",
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        })
+        const activeDirectory = path.join(dir, ".worktrees", "pawwork", "ctx-snapshot")
+        yield* Effect.promise(() => fs.mkdir(activeDirectory, { recursive: true }))
+        yield* sessions.updateExecutionContext({
+          sessionID: session.id,
+          activeWorktree: {
+            directory: activeDirectory,
+            name: "ctx-snapshot",
+            branch: "pawwork/ctx-snapshot",
+            source: "created",
+          },
+        })
+
+        yield* prompt.prompt({
+          sessionID: session.id,
+          agent: "build",
+          noReply: true,
+          parts: [{ type: "text", text: "check execution context snapshot" }],
+        })
+        yield* llm.text("done")
+
+        const result = yield* prompt.loop({ sessionID: session.id })
+        if (result.info.role !== "assistant") throw new Error("Expected assistant message")
+
+        const requestText = requestTextContaining(yield* llm.inputs, "check execution context snapshot")
+        expect(envValue(requestText, "Working directory")).toBe(result.info.path.cwd)
+        expect(envValue(requestText, "Workspace root folder")).toBe(result.info.path.root)
+        expect(result.info.path.cwd).toBe(activeDirectory)
+        expect(result.info.path.root).toBe(dir)
+      }),
+    { git: true, config: providerCfg },
+  ),
+)
+
+it.live("post-compaction auto-continue keeps env in the active worktree", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const prompt = yield* SessionPrompt.Service
+        const compact = yield* SessionCompaction.Service
+        const sessions = yield* Session.Service
+        const session = yield* sessions.create({
+          title: "Compaction execution context",
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        })
+        const activeDirectory = path.join(dir, ".worktrees", "pawwork", "ctx-compact")
+        yield* Effect.promise(() => fs.mkdir(activeDirectory, { recursive: true }))
+        yield* sessions.updateExecutionContext({
+          sessionID: session.id,
+          activeWorktree: {
+            directory: activeDirectory,
+            name: "ctx-compact",
+            branch: "pawwork/ctx-compact",
+            source: "created",
+          },
+        })
+
+        const priorUser = yield* user(session.id, "work before compaction")
+        const priorAssistant = yield* sessions.updateMessage({
+          id: MessageID.ascending(),
+          role: "assistant",
+          parentID: priorUser.id,
+          sessionID: session.id,
+          mode: "build",
+          agent: "build",
+          cost: 0,
+          path: { cwd: activeDirectory, root: dir },
+          tokens: { input: 1, output: 1, reasoning: 0, cache: { read: 0, write: 0 } },
+          modelID: ref.modelID,
+          providerID: ref.providerID,
+          time: { created: Date.now() },
+          finish: "stop",
+        })
+        yield* sessions.updatePart({
+          id: PartID.ascending(),
+          messageID: priorAssistant.id,
+          sessionID: session.id,
+          type: "text",
+          text: "finished work before compaction",
+        })
+
+        const compactionParent = yield* sessions.updateMessage({
+          id: MessageID.ascending(),
+          role: "user",
+          sessionID: session.id,
+          agent: "build",
+          model: ref,
+          time: { created: Date.now() },
+        })
+        yield* sessions.updatePart({
+          id: PartID.ascending(),
+          messageID: compactionParent.id,
+          sessionID: session.id,
+          type: "compaction",
+          auto: true,
+        })
+
+        yield* llm.text("## Goal\n- Continue from compacted worktree context")
+        const compacted = yield* compact.process({
+          parentID: compactionParent.id,
+          messages: yield* MessageV2.filterCompactedEffect(session.id),
+          sessionID: session.id,
+          auto: true,
+        })
+        expect(compacted).toBe("continue")
+
+        const messagesAfterCompaction = yield* sessions.messages({ sessionID: session.id })
+        const summaryMessage = messagesAfterCompaction.find(
+          (message) => message.info.role === "assistant" && message.info.summary === true,
+        )
+        if (!summaryMessage || summaryMessage.info.role !== "assistant") {
+          throw new Error("Missing compaction summary assistant message")
+        }
+        expect(summaryMessage.info.path.cwd).toBe(activeDirectory)
+        expect(summaryMessage.info.path.root).toBe(dir)
+
+        yield* llm.text("continued after compaction")
+        const result = yield* prompt.loop({ sessionID: session.id })
+        if (result.info.role !== "assistant") throw new Error("Expected assistant message")
+
+        const requestText = requestTextContaining(yield* llm.inputs, "Continue if you have next steps")
+        expect(envValue(requestText, "Working directory")).toBe(activeDirectory)
+        expect(envValue(requestText, "Workspace root folder")).toBe(dir)
+        expect(result.info.path.cwd).toBe(activeDirectory)
+        expect(result.info.path.root).toBe(dir)
+      }),
     { git: true, config: providerCfg },
   ),
 )

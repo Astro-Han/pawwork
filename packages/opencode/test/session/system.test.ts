@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { readdir, readFile } from "fs/promises"
+import { mkdir, readdir, readFile } from "fs/promises"
 import path from "path"
 import { Effect } from "effect"
 import { Agent } from "../../src/agent/agent"
@@ -99,16 +99,58 @@ describe("session.system", () => {
 
         const envWithLocale = await Effect.gen(function* () {
           const svc = yield* SystemPrompt.Service
-          return svc.environment(model, "zh-Hans").join("\n")
+          return svc.environment({ model, locale: "zh-Hans" }).join("\n")
         }).pipe(Effect.provide(SystemPrompt.defaultLayer), Effect.runPromise)
 
         const envWithoutLocale = await Effect.gen(function* () {
           const svc = yield* SystemPrompt.Service
-          return svc.environment(model).join("\n")
+          return svc.environment({ model }).join("\n")
         }).pipe(Effect.provide(SystemPrompt.defaultLayer), Effect.runPromise)
 
         expect(envWithLocale).toContain("User locale: zh-Hans")
         expect(envWithoutLocale).not.toContain("User locale:")
+      },
+    })
+  })
+
+  test("environment uses explicit session execution context over ambient instance", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const activeDirectory = path.join(tmp.path, ".worktrees", "pawwork", "ctx-env")
+    await mkdir(activeDirectory, { recursive: true })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const model = {
+          providerID: "openai",
+          api: { id: "gpt-5.2" },
+        } as any
+
+        const env = await Effect.gen(function* () {
+          const svc = yield* SystemPrompt.Service
+          return svc
+            .environment({
+              model,
+              locale: "zh-Hans",
+              executionContext: {
+                ownerDirectory: tmp.path,
+                activeDirectory,
+                activeWorktree: {
+                  directory: activeDirectory,
+                  name: "ctx-env",
+                  branch: "pawwork/ctx-env",
+                  source: "created",
+                },
+              },
+            })
+            .join("\n")
+        }).pipe(Effect.provide(SystemPrompt.defaultLayer), Effect.runPromise)
+
+        expect(env).toContain(`Working directory: ${activeDirectory}`)
+        expect(env).toContain(`Workspace root folder: ${tmp.path}`)
+        expect(env).toContain("User locale: zh-Hans")
+        expect(env).not.toContain(`Working directory: ${tmp.path}\n`)
+        expect(env).not.toContain("Active worktree:")
       },
     })
   })

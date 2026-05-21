@@ -3,6 +3,7 @@ import { Context, Effect, Layer } from "effect"
 import { Instance } from "../project/instance"
 
 import PROMPT_PAWWORK from "./prompt/pawwork.txt"
+import type { SessionExecutionContext } from "./execution-context"
 import type { Provider } from "@/provider"
 import type { Agent } from "@/agent/agent"
 import { Permission } from "@/permission"
@@ -12,12 +13,53 @@ export function provider(_model: Provider.Model) {
   return [PROMPT_PAWWORK]
 }
 
+export type SessionEnvironmentContext = Pick<
+  SessionExecutionContext,
+  "ownerDirectory" | "activeDirectory" | "activeWorktree"
+>
+
+export type EnvironmentInput = {
+  model: Provider.Model
+  locale?: string
+  executionContext?: SessionEnvironmentContext
+}
+
 export interface Interface {
-  readonly environment: (model: Provider.Model, locale?: string) => string[]
+  readonly environment: (input: EnvironmentInput) => string[]
   readonly skills: (agent: Agent.Info) => Effect.Effect<string | undefined>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/SystemPrompt") {}
+
+export function renderSessionEnvironment(input: {
+  model: Provider.Model
+  locale?: string
+  project: { vcs?: string }
+  executionContext: SessionEnvironmentContext
+}) {
+  const env = [
+    `You are powered by the model named ${input.model.api.id}. The exact model ID is ${input.model.providerID}/${input.model.api.id}`,
+    `Here is some useful information about the environment you are running in:`,
+    `<env>`,
+    `  Working directory: ${input.executionContext.activeDirectory}`,
+    `  Workspace root folder: ${input.executionContext.ownerDirectory}`,
+    `  Is directory a git repo: ${input.project.vcs === "git" ? "yes" : "no"}`,
+    `  Platform: ${process.platform}`,
+    `  Today's date: ${new Date().toDateString()}`,
+  ]
+
+  if (input.locale) env.push(`  User locale: ${input.locale}`)
+
+  env.push(`</env>`)
+  return [env.join("\n")]
+}
+
+function ambientExecutionContext(): SessionEnvironmentContext {
+  return {
+    ownerDirectory: Instance.worktree,
+    activeDirectory: Instance.directory,
+  }
+}
 
 export const layer = Layer.effect(
   Service,
@@ -25,23 +67,14 @@ export const layer = Layer.effect(
     const skill = yield* Skill.Service
 
     return Service.of({
-      environment(model, locale) {
+      environment(input) {
         const project = Instance.project
-        const env = [
-          `You are powered by the model named ${model.api.id}. The exact model ID is ${model.providerID}/${model.api.id}`,
-          `Here is some useful information about the environment you are running in:`,
-          `<env>`,
-          `  Working directory: ${Instance.directory}`,
-          `  Workspace root folder: ${Instance.worktree}`,
-          `  Is directory a git repo: ${project.vcs === "git" ? "yes" : "no"}`,
-          `  Platform: ${process.platform}`,
-          `  Today's date: ${new Date().toDateString()}`,
-        ]
-
-        if (locale) env.push(`  User locale: ${locale}`)
-
-        env.push(`</env>`)
-        return [env.join("\n")]
+        return renderSessionEnvironment({
+          model: input.model,
+          locale: input.locale,
+          project,
+          executionContext: input.executionContext ?? ambientExecutionContext(),
+        })
       },
 
       skills: Effect.fn("SystemPrompt.skills")(function* (agent: Agent.Info) {
