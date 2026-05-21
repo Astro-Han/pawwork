@@ -24,11 +24,14 @@ async function openReviewPanel(page: Page) {
   await expect(reviewTab).toHaveAttribute("aria-selected", "true")
 }
 
-test("review diff-style toggle switches between unified and split @smoke", async ({
-  page,
-  llm,
-  project,
-}) => {
+function aggregateFiles(
+  aggregate: Awaited<ReturnType<Parameters<typeof withSession>[0]["session"]["diff"]>>["data"] | undefined,
+) {
+  if (!aggregate || aggregate.kind === "empty" || aggregate.kind === "uncaptured") return []
+  return aggregate.files.filter((file) => file.restoreState === "applied")
+}
+
+test("review diff-style toggle switches between unified and split @smoke", async ({ page, llm, project }) => {
   await project.open()
 
   await withSession(project.sdk, "e2e inputs review filter toggle", async (session) => {
@@ -64,8 +67,8 @@ test("review diff-style toggle switches between unified and split @smoke", async
       await expect
         .poll(
           async () => {
-            const diff = await project.sdk.session.diff({ sessionID: session.id }).then((res) => res.data ?? [])
-            return diff.length
+            const aggregate = await project.sdk.session.diff({ sessionID: session.id }).then((res) => res.data)
+            return aggregateFiles(aggregate).length
           },
           { timeout: 60_000 },
         )
