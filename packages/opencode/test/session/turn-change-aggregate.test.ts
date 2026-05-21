@@ -5,7 +5,7 @@ import { Instance } from "../../src/project/instance"
 import { Session as SessionNs } from "../../src/session"
 import { MessageV2 } from "../../src/session/message-v2"
 import { TurnChange } from "../../src/session/turn-change"
-import { MessageID, SessionID } from "../../src/session/schema"
+import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { SessionTable } from "../../src/session/session.sql"
 import { Database, eq } from "../../src/storage/db"
@@ -352,6 +352,80 @@ describe("TurnChange aggregate union", () => {
     })
   })
 
+  test("aggregateTurnUnion marks files from mixed-state assistants independently", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "union-mixed-file-state" })
+        const userMessageID = await makeUser(session.id, "union-mixed-file-state")
+        const undoneAssistant = await makeAssistant(session.id, userMessageID, "union-mixed-file-state-undone")
+        const appliedAssistant = await makeAssistant(session.id, userMessageID, "union-mixed-file-state-applied")
+        const undoneFile = path.join(fixture.path, "undone-file.txt")
+        const appliedFile = path.join(fixture.path, "applied-file.txt")
+        await fs.writeFile(undoneFile, "after undone\n", "utf-8")
+
+        TurnChange.recordWrite({
+          sessionID: session.id,
+          messageID: undoneAssistant,
+          path: undoneFile,
+          before: { exists: false },
+          after: { exists: true, content: "after undone\n" },
+        })
+        TurnChange.finalize({ sessionID: session.id, messageID: undoneAssistant })
+        TurnChange.recordWrite({
+          sessionID: session.id,
+          messageID: appliedAssistant,
+          path: appliedFile,
+          before: { exists: false },
+          after: { exists: true, content: "after applied\n" },
+        })
+        TurnChange.finalize({ sessionID: session.id, messageID: appliedAssistant })
+        await TurnChange.undo({ sessionID: session.id, messageID: undoneAssistant })
+
+        const result = TurnChange.aggregateTurnUnion({ sessionID: session.id, userMessageID })
+
+        expect(result).toMatchObject({ kind: "captured" })
+        if (result.kind !== "captured") return
+        expect(result.files).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ path: "undone-file.txt", restoreState: "undone" }),
+            expect.objectContaining({ path: "applied-file.txt", restoreState: "applied" }),
+          ]),
+        )
+      },
+    })
+  })
+
+  test("aggregateTurnUnion carries omitted file metadata from truncated turns", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "union-truncated" })
+        const userMessageID = await makeUser(session.id, "union-truncated")
+        const assistantID = await makeAssistant(session.id, userMessageID, "union-truncated")
+
+        for (let index = 0; index < 201; index++) {
+          TurnChange.recordWrite({
+            sessionID: session.id,
+            messageID: assistantID,
+            path: path.join(fixture.path, `truncated-${index}.txt`),
+            before: { exists: false },
+            after: { exists: true, content: `${index}\n` },
+          })
+        }
+        TurnChange.finalize({ sessionID: session.id, messageID: assistantID })
+
+        const result = TurnChange.aggregateTurnUnion({ sessionID: session.id, userMessageID })
+
+        expect(result).toMatchObject({ kind: "captured", truncated: true, omittedCount: 1 })
+      },
+    })
+  })
+
   test("aggregateTurnUnion returns uncaptured when only uncaptured bash activity exists", async () => {
     await resetDatabase()
     await using fixture = await tmpdir()
@@ -448,6 +522,39 @@ describe("TurnChange aggregate union", () => {
     })
   })
 
+  test("aggregateSessionFromTurns keeps the cutoff user message for part-level revert", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "union-session-part-revert" })
+        const firstUser = await makeUser(session.id, "union-session-part-revert-first")
+        const firstAssistant = await makeAssistant(session.id, firstUser, "union-session-part-revert-first")
+
+        TurnChange.recordWrite({
+          sessionID: session.id,
+          messageID: firstAssistant,
+          path: path.join(fixture.path, "part-kept.txt"),
+          before: { exists: false },
+          after: { exists: true, content: "part kept\n" },
+        })
+        TurnChange.finalize({ sessionID: session.id, messageID: firstAssistant })
+        Database.use((db) =>
+          db
+            .update(SessionTable)
+            .set({ revert: { messageID: firstUser, partID: PartID.make("prt_part_revert") } })
+            .where(eq(SessionTable.id, session.id))
+            .run(),
+        )
+
+        const result = TurnChange.aggregateSessionFromTurns({ sessionID: session.id })
+
+        expect(result).toMatchObject({ kind: "captured", files: [{ path: "part-kept.txt" }] })
+      },
+    })
+  })
+
   test("aggregateSessionFromTurns collapses repeated paths across turns into one net diff", async () => {
     await resetDatabase()
     await using fixture = await tmpdir()
@@ -487,6 +594,58 @@ describe("TurnChange aggregate union", () => {
         expect(result.files[0].patch).toContain("-one")
         expect(result.files[0].patch).toContain("+three")
         expect(result.files[0].patch).not.toContain("+two")
+      },
+    })
+  })
+
+  test("aggregateSessionFromTurns keeps earlier applied same-path diff after later turn undo", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "union-session-same-path-later-undone" })
+        const firstUser = await makeUser(session.id, "union-session-same-path-later-undone-first")
+        const firstAssistant = await makeAssistant(session.id, firstUser, "union-session-same-path-later-undone-first")
+        const secondUser = await makeUser(session.id, "union-session-same-path-later-undone-second")
+        const secondAssistant = await makeAssistant(
+          session.id,
+          secondUser,
+          "union-session-same-path-later-undone-second",
+        )
+        const target = path.join(fixture.path, "same-undone.txt")
+        await fs.writeFile(target, "A\n", "utf-8")
+
+        await fs.writeFile(target, "B\n", "utf-8")
+        TurnChange.recordWrite({
+          sessionID: session.id,
+          messageID: firstAssistant,
+          path: target,
+          before: { exists: true, content: "A\n" },
+          after: { exists: true, content: "B\n" },
+        })
+        TurnChange.finalize({ sessionID: session.id, messageID: firstAssistant })
+        await fs.writeFile(target, "C\n", "utf-8")
+        TurnChange.recordWrite({
+          sessionID: session.id,
+          messageID: secondAssistant,
+          path: target,
+          before: { exists: true, content: "B\n" },
+          after: { exists: true, content: "C\n" },
+        })
+        TurnChange.finalize({ sessionID: session.id, messageID: secondAssistant })
+        await TurnChange.undo({ sessionID: session.id, messageID: secondAssistant })
+
+        const result = TurnChange.aggregateSessionFromTurns({ sessionID: session.id })
+
+        expect(await fs.readFile(target, "utf-8")).toBe("B\n")
+        expect(result).toMatchObject({ kind: "captured" })
+        if (result.kind !== "captured") return
+        expect(result.files).toHaveLength(1)
+        expect(result.files[0]).toMatchObject({ path: "same-undone.txt", restoreState: "applied" })
+        expect(result.files[0].patch).toContain("-A")
+        expect(result.files[0].patch).toContain("+B")
+        expect(result.files[0].patch).not.toContain("+C")
       },
     })
   })

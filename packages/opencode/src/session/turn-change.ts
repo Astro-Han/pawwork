@@ -903,18 +903,33 @@ export namespace TurnChange {
 
   function capturedAggregate(input: { sessionID: SessionID; userMessageID: MessageID; assistants: MessageID[] }) {
     const display = aggregateTurnInternal(input)
-    if (!display) return []
-    const restoreState = restoreStateForAssistants(input.sessionID, input.assistants)
-    return display.files.map((file) => ({ ...file, restoreState }))
+    if (!display) return { files: [] as AggregateFile[] }
+    const restoreStateByPath = new Map<string, RestoreState>()
+    for (const messageID of input.assistants) {
+      const restoreState = displayRow(input.sessionID, messageID)?.state ?? "redo_invalidated"
+      for (const row of rows(input.sessionID, messageID)) {
+        restoreStateByPath.set(row.data.path, restoreState)
+      }
+    }
+    const fallback = restoreStateForAssistants(input.sessionID, input.assistants)
+    return {
+      files: display.files.map((file) => ({
+        ...file,
+        restoreState: (file.openPath && restoreStateByPath.get(file.openPath)) || fallback,
+      })),
+      ...(display.truncated ? { truncated: true, omittedCount: display.omittedCount } : {}),
+    }
   }
 
   function aggregateTurnUnionInternal(input: { sessionID: SessionID; userMessageID: MessageID }): TurnChangeAggregate {
     const assistants = listAssistantsForUser(input.sessionID, input.userMessageID)
-    const files = capturedAggregate({ ...input, assistants })
+    const captured = capturedAggregate({ ...input, assistants })
+    const files = captured.files
     const count = uncapturedCount(input.sessionID, assistants)
     const base = { sessionID: input.sessionID, turnID: input.userMessageID, messageID: input.userMessageID }
-    if (files.length && count > 0) return { ...base, kind: "mixed", files, count }
-    if (files.length) return { ...base, kind: "captured", files }
+    const truncated = captured.truncated ? { truncated: true, omittedCount: captured.omittedCount } : {}
+    if (files.length && count > 0) return { ...base, kind: "mixed", files, count, ...truncated }
+    if (files.length) return { ...base, kind: "captured", files, ...truncated }
     if (count > 0) return { ...base, kind: "uncaptured", count }
     return { ...base, kind: "empty" }
   }
@@ -923,7 +938,8 @@ export namespace TurnChange {
     const session = Database.use((db) =>
       db.select().from(SessionTable).where(eq(SessionTable.id, input.sessionID)).get(),
     )
-    const cutoff = session?.revert?.messageID
+    const revert = session?.revert
+    const cutoff = revert?.messageID
     const messages = Database.use((db) =>
       db
         .select()
@@ -937,7 +953,8 @@ export namespace TurnChange {
     const assistantOrder = new Map<MessageID, number>()
     for (const row of messages) {
       const data = row.data as { role?: string; parentID?: MessageID } | undefined
-      if (data?.role === "user" && (!cutoff || row.id < cutoff)) activeUsers.add(row.id)
+      const beforeCutoff = !cutoff || (revert?.partID ? row.id <= cutoff : row.id < cutoff)
+      if (data?.role === "user" && beforeCutoff) activeUsers.add(row.id)
     }
     for (const row of messages) {
       const data = row.data as { role?: string; parentID?: MessageID } | undefined
@@ -955,23 +972,24 @@ export namespace TurnChange {
     for (const row of displayRows) {
       if (!activeAssistantSet.has(row.message_id)) continue
       displayByMessage.set(row.message_id, { data: row.data, state: row.state })
-      if (row.data.truncated) truncatedCount += row.data.omittedCount ?? 0
+      if (row.state === "applied" && row.data.truncated) truncatedCount += row.data.omittedCount ?? 0
     }
     const restoreRows = (
       Database.use((db) =>
         db.select().from(TurnChangeRestoreTable).where(eq(TurnChangeRestoreTable.session_id, input.sessionID)).all(),
       ) as RestoreTableRow[]
     )
-      .filter((row): row is RestoreRow => activeAssistantSet.has(row.message_id) && !isOverflow(row.data))
+      .filter(
+        (row): row is RestoreRow =>
+          activeAssistantSet.has(row.message_id) &&
+          !isOverflow(row.data) &&
+          displayByMessage.get(row.message_id)?.state === "applied",
+      )
       .sort((a, b) => {
         const orderA = assistantOrder.get(a.message_id) ?? 0
         const orderB = assistantOrder.get(b.message_id) ?? 0
         return orderA === orderB ? a.position - b.position : orderA - orderB
       })
-    const restoreStateByPath = new Map<string, RestoreState>()
-    for (const row of restoreRows) {
-      restoreStateByPath.set(row.data.path, displayByMessage.get(row.message_id)?.state ?? "redo_invalidated")
-    }
     const files = disambiguateAggregatedRestoreFiles(collapseRestoreFiles(restoreRows))
       .map((file) => {
         const display = toDisplay(file)
@@ -979,7 +997,7 @@ export namespace TurnChange {
         return {
           ...display,
           openPath: file.path,
-          restoreState: restoreStateByPath.get(file.path) ?? "redo_invalidated",
+          restoreState: "applied" as const,
         }
       })
       .filter(Boolean) as AggregateFile[]
