@@ -124,11 +124,8 @@ export function resolvePawworkProjectRenameTarget<TProject extends ProjectLike, 
   return undefined
 }
 
-export function pawworkSessionRouteUnhideKeys(directory: string, root: string) {
-  const keys = [workspaceKey(directory)]
-  const rootKey = workspaceKey(root)
-  if (!keys.includes(rootKey)) keys.push(rootKey)
-  return keys
+export function pawworkSessionRouteUnhideKeys(directory: string) {
+  return [workspaceKey(directory)]
 }
 
 const isActivityEligibleUserMessage = (parts: PartTimeLike[] | undefined) => {

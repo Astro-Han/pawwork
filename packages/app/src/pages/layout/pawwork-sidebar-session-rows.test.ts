@@ -9,14 +9,14 @@ import {
 } from "./pawwork-session-source"
 
 describe("buildPawworkSidebarSessionRows", () => {
-  test("unhides the opened directory group when syncing a subfolder session route", () => {
+  test("keeps the parent root group hidden when syncing a subfolder session route", () => {
     const hidden: Record<string, boolean> = { "/repo/packages/app": true, "/repo": true }
 
-    for (const key of pawworkSessionRouteUnhideKeys("/repo/packages/app", "/repo")) {
+    for (const key of pawworkSessionRouteUnhideKeys("/repo/packages/app")) {
       delete hidden[key]
     }
 
-    expect(hidden).toEqual({})
+    expect(hidden).toEqual({ "/repo": true })
   })
 
   test("renames sandbox session groups as local workspace labels", () => {

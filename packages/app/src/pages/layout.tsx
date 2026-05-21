@@ -1654,7 +1654,7 @@ export default function Layout(props: ParentProps) {
   }
 
   function syncSessionRoute(directory: string, id: string, root = activeProjectRoot(directory)) {
-    for (const key of pawworkSessionRouteUnhideKeys(directory, root)) {
+    for (const key of pawworkSessionRouteUnhideKeys(directory)) {
       if (!store.pawworkProjectHidden[key]) continue
       unhideProject(key)
     }
