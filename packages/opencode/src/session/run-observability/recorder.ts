@@ -76,6 +76,23 @@ export function createRecorder(input: RecorderInput): Recorder {
       event_id: `incident:${input.messageID}:evidence:${order}`,
     })
   }
+  const evidenceAtOrBefore = (event: RunIncident.EvidenceEvent, monotonicMs: number) =>
+    event.monotonic_ms === undefined || event.monotonic_ms <= monotonicMs
+  const transportFactsAt = (attemptID: AttemptID | undefined, monotonicMs: number) => {
+    const scopedEvidence = evidence.filter(
+      (event) => (!attemptID || event.attempt_id === attemptID) && evidenceAtOrBefore(event, monotonicMs),
+    )
+    const has = (eventType: RunIncident.EvidenceEvent["event_type"]) =>
+      scopedEvidence.some((event) => event.event_type === eventType)
+    return {
+      providerProgressSeen: has("provider_progress_seen") || (!attemptID && providerProgressSeen),
+      toolInputStarted: has("tool_input_started"),
+      toolInputCompleted: has("tool_input_completed"),
+      toolCallMaterialized: has("tool_call_materialized"),
+      toolExecutionStarted: has("tool_execution_started"),
+      toolExecutionCompleted: has("tool_execution_completed"),
+    }
+  }
 
   return {
     beginAttempt(next) {
@@ -350,6 +367,7 @@ export function createRecorder(input: RecorderInput): Recorder {
     },
     recordTransportFailure(next) {
       const error = safeErrorFingerprint(next.error)
+      const factsAtFailure = transportFactsAt(next.attemptID, next.monotonicMs)
       failure ??= {
         type: "transport",
         at: next.at,
@@ -368,12 +386,12 @@ export function createRecorder(input: RecorderInput): Recorder {
         error,
         cause: RunIncident.transportCause({
           error,
-          providerProgressSeen: getAttempt(next.attemptID)?.provider_progress_seen ?? providerProgressSeen,
-          toolInputStarted: getAttempt(next.attemptID)?.tool_input_started ?? toolInputStarted,
-          toolInputCompleted: getAttempt(next.attemptID)?.tool_input_completed ?? toolInputCompleted,
-          toolCallMaterialized: getAttempt(next.attemptID)?.tool_call_materialized ?? toolCallMaterialized,
-          toolExecutionStarted: getAttempt(next.attemptID)?.tool_execution_started ?? toolExecutionStarted,
-          toolExecutionCompleted: getAttempt(next.attemptID)?.tool_execution_completed ?? toolExecutionCompleted,
+          providerProgressSeen: factsAtFailure.providerProgressSeen,
+          toolInputStarted: factsAtFailure.toolInputStarted,
+          toolInputCompleted: factsAtFailure.toolInputCompleted,
+          toolCallMaterialized: factsAtFailure.toolCallMaterialized,
+          toolExecutionStarted: factsAtFailure.toolExecutionStarted,
+          toolExecutionCompleted: factsAtFailure.toolExecutionCompleted,
         }),
       })
       rememberEvent(next.monotonicMs)
