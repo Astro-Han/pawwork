@@ -1,6 +1,6 @@
 export const POLICY = {
   priorities: ["P0", "P1", "P2", "P3"],
-  types: ["bug", "enhancement", "task", "documentation"],
+  types: ["bug", "enhancement", "task", "documentation", "tech-debt"],
   routing: ["app", "ui", "platform", "harness", "ci"],
   issueForbiddenLabels: ["dependencies", "github_actions", "javascript"],
 }
@@ -38,10 +38,6 @@ export function validateLabelPolicy({ itemType, labels = [] }) {
   const routing = intersection(labelSet, POLICY.routing)
   if (routing.length < 1) {
     errors.push(error(`${itemType} must have at least one primary routing label: ${labelList(POLICY.routing)}`, routing))
-  }
-
-  if (labelSet.has("tech-debt") && !labelSet.has("task")) {
-    errors.push(error("tech-debt is only allowed with the task type label", ["tech-debt"]))
   }
 
   const forbiddenIssueLabels =

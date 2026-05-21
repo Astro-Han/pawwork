@@ -10,7 +10,7 @@ function messages(result) {
 test("accepts a valid issue label set", () => {
   const result = validateLabelPolicy({
     itemType: "issue",
-    labels: ["task", "P2", "app", "tech-debt"],
+    labels: ["tech-debt", "P2", "app"],
   })
 
   assert.deepEqual(result.errors, [])
@@ -50,7 +50,7 @@ test("treats missing labels input as an empty label set", () => {
 
   assert.deepEqual(messages(result), [
     "issue must have exactly one priority label: P0, P1, P2, or P3",
-    "issue must have exactly one type label: bug, enhancement, task, or documentation",
+    "issue must have exactly one type label: bug, enhancement, task, documentation, or tech-debt",
     "issue must have at least one primary routing label: app, ui, platform, harness, or ci",
   ])
 })
@@ -71,7 +71,7 @@ test("rejects missing type labels", () => {
   })
 
   assert.deepEqual(messages(result), [
-    "pull_request must have exactly one type label: bug, enhancement, task, or documentation",
+    "pull_request must have exactly one type label: bug, enhancement, task, documentation, or tech-debt",
   ])
 })
 
@@ -81,7 +81,9 @@ test("rejects multiple type labels", () => {
     labels: ["bug", "task", "P2", "app"],
   })
 
-  assert.deepEqual(messages(result), ["issue must have exactly one type label: bug, enhancement, task, or documentation"])
+  assert.deepEqual(messages(result), [
+    "issue must have exactly one type label: bug, enhancement, task, documentation, or tech-debt",
+  ])
 })
 
 test("rejects missing primary routing labels", () => {
@@ -90,16 +92,18 @@ test("rejects missing primary routing labels", () => {
     labels: ["task", "P2"],
   })
 
-  assert.deepEqual(messages(result), ["issue must have at least one primary routing label: app, ui, platform, harness, or ci"])
+  assert.deepEqual(messages(result), [
+    "issue must have at least one primary routing label: app, ui, platform, harness, or ci",
+  ])
 })
 
-test("rejects tech-debt outside task issues", () => {
+test("accepts tech-debt as a primary type label", () => {
   const result = validateLabelPolicy({
     itemType: "issue",
-    labels: ["bug", "P2", "app", "tech-debt"],
+    labels: ["tech-debt", "P2", "app"],
   })
 
-  assert.deepEqual(messages(result), ["tech-debt is only allowed with the task type label"])
+  assert.deepEqual(result.errors, [])
 })
 
 test("rejects dependency automation labels on issues", () => {
@@ -121,7 +125,7 @@ test("reports all independent label policy failures", () => {
 
   assert.deepEqual(messages(result), [
     "issue must have exactly one priority label: P0, P1, P2, or P3",
-    "issue must have exactly one type label: bug, enhancement, task, or documentation",
+    "issue must have exactly one type label: bug, enhancement, task, documentation, or tech-debt",
     "issue must have at least one primary routing label: app, ui, platform, harness, or ci",
     "issue must not use PR automation labels: dependencies, github_actions, or javascript",
   ])

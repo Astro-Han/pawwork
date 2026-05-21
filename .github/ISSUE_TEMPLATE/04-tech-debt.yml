@@ -1,27 +1,29 @@
-name: Task
-description: Track narrow execution, audit, spike, migration, or follow-up work
-title: "[Task] "
+name: Tech debt
+description: Track internal cleanup, maintainability, architecture, test, or quality debt
+title: "[Tech Debt] "
 labels:
-  - task
+  - tech-debt
 body:
   - type: markdown
     attributes:
       value: |
-        Use this for narrow execution-only, audit, spike, migration, upstream follow-up, or tracking work.
+        Use this for internal cleanup, maintainability, architecture, test, or quality debt that is not primarily a user-facing bug or feature request.
 
-        Do not use Task when another type is clearer:
-        - Behavior is broken, incorrect, flaky, misleading, or regressed → Bug report
-        - A user-facing workflow or capability should improve → Feature request
-        - Documentation, templates, policies, or written process should change → Documentation
-        - Internal cleanup, maintainability, architecture, test, or quality debt → Tech debt
-
-        Keep the issue concrete enough that an agent can understand the target, scope, and verification path.
+        If existing behavior is broken or misleading, use Bug report instead. If the main goal is a new user-visible workflow or capability, use Feature request instead.
   - type: textarea
-    id: goal
+    id: debt
     attributes:
-      label: Goal
-      description: What should be true when this task is done?
-      placeholder: The session page controller is split so scroll behavior is easier to verify without changing user-visible behavior.
+      label: What debt should be reduced?
+      description: Describe the current maintainability, architecture, test, or quality problem.
+      placeholder: The session timeline has multiple scroll owners, making regressions hard to reason about and test.
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Why does it matter?
+      description: Explain the cost of leaving this debt in place.
+      placeholder: New timeline changes repeatedly cause scroll regressions, and reviewers cannot easily identify the owning state machine.
     validations:
       required: true
   - type: textarea
@@ -31,12 +33,12 @@ body:
       description: What is in scope and what should stay out of scope?
       placeholder: |
         In scope:
-        - Split the controller logic used by the session page.
-        - Preserve current UI behavior.
+        - Consolidate scroll ownership into one helper.
+        - Preserve current user-visible behavior.
 
         Out of scope:
-        - Redesigning the right panel.
-        - Changing message rendering.
+        - Redesigning the message UI.
+        - Changing right-panel behavior.
     validations:
       required: true
   - type: textarea
@@ -58,9 +60,9 @@ body:
       label: Verification
       description: How should the result be checked?
       placeholder: |
-        - Run the targeted unit test for ...
-        - Manually verify the session page still scrolls correctly.
-        - Confirm no unrelated UI copy changed.
+        - Run the focused tests for ...
+        - Confirm current user-visible behavior is preserved.
+        - Confirm no unrelated cleanup was included.
     validations:
       required: true
   - type: dropdown
