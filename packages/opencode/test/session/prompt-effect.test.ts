@@ -496,11 +496,25 @@ it.live("loop compacts a finished assistant turn before exiting when it overflow
           .flatMap((message) => message.parts)
           .find((part): part is MessageV2.CompactionPart => part.type === "compaction")
         const summary = messages.find((message) => message.info.role === "assistant" && message.info.summary === true)
+        const syntheticContinue = messages.find(
+          (message) =>
+            message.info.role === "user" &&
+            message.parts.some(
+              (part) => part.type === "text" && part.synthetic && part.text.includes("Continue if you have next steps"),
+            ),
+        )
 
         expect(yield* llm.calls).toBeGreaterThanOrEqual(1)
         expect(compactionPart).toBeDefined()
+        expect(compactionPart?.overflow).not.toBe(true)
         expect(summary?.info.role).toBe("assistant")
         expect(result.info.role).toBe("assistant")
+        expect(syntheticContinue).toBeUndefined()
+
+        const callsAfterCompaction = yield* llm.calls
+        const secondResult = yield* prompt.loop({ sessionID: chat.id })
+        expect(secondResult.info.role).toBe("assistant")
+        expect(yield* llm.calls).toBe(callsAfterCompaction)
       }),
     { git: true, config: providerCfg },
   ),

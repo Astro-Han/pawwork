@@ -1965,7 +1965,6 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                   agent: lastUser.agent,
                   model: lastUser.model,
                   auto: true,
-                  overflow: true,
                 })
                 continue
               }
