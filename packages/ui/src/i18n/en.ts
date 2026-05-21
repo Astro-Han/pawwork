@@ -103,6 +103,7 @@ export const dict: Record<string, string> = {
   "ui.messagePart.compaction.pending": "Compacting conversation",
   "ui.messagePart.compaction.aborted": "Compaction cancelled",
   "ui.messagePart.compaction.failed": "Compaction failed: {{reason}}",
+  "ui.messagePart.compaction.failedUnknown": "Compaction failed",
   "ui.messagePart.compaction.failedContextOverflow":
     "Compaction failed: conversation too large, please start a new session",
   "ui.messagePart.context.read.one": "Read {{count}} file",

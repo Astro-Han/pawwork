@@ -127,6 +127,26 @@ describe("compactionDividerLabelKey", () => {
     })
     expect(result).toEqual({ key: "ui.messagePart.compaction.failed", params: { reason: "new" } })
   })
+
+  test("failed + MessageOutputLengthError (empty data) → failedUnknown (no trailing colon)", () => {
+    // OutputLengthError = NamedError.create("MessageOutputLengthError", z.object({}))
+    // so error.data is {} and reason resolves to "". The default template
+    // would render "Compaction failed:" with a dangling colon — use the
+    // no-colon variant instead.
+    const result = compactionDividerLabelKey({
+      state: "failed",
+      error: { name: "MessageOutputLengthError", data: {} },
+    })
+    expect(result).toEqual({ key: "ui.messagePart.compaction.failedUnknown" })
+  })
+
+  test("failed + whitespace-only reason → failedUnknown", () => {
+    const result = compactionDividerLabelKey({
+      state: "failed",
+      error: { name: "APIError", data: { message: "   " } },
+    })
+    expect(result).toEqual({ key: "ui.messagePart.compaction.failedUnknown" })
+  })
 })
 
 describe("compactionElapsedSeconds", () => {

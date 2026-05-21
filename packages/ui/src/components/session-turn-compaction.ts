@@ -7,6 +7,7 @@ export type CompactionDividerLabel =
   | { key: "ui.messagePart.compaction" }
   | { key: "ui.messagePart.compaction.aborted" }
   | { key: "ui.messagePart.compaction.failed"; params: { reason: string } }
+  | { key: "ui.messagePart.compaction.failedUnknown" }
   | { key: "ui.messagePart.compaction.failedContextOverflow" }
 
 // Order matters: processor.cleanup() writes `time.completed` on abort/error
@@ -44,6 +45,10 @@ export function compactionDividerLabelKey(input: {
         return { key: "ui.messagePart.compaction.failedContextOverflow" }
       }
       const reason = (input.error?.data?.message ?? input.error?.message ?? "").trim()
+      // Some NamedError variants (e.g. MessageOutputLengthError) carry empty
+      // `data`, so reason is "". The default template "Compaction failed: {{reason}}"
+      // would render with a trailing colon — drop to a no-colon variant.
+      if (!reason) return { key: "ui.messagePart.compaction.failedUnknown" }
       return { key: "ui.messagePart.compaction.failed", params: { reason } }
     }
   }

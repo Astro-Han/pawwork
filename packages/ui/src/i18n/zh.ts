@@ -100,6 +100,7 @@ export const dict = {
   "ui.messagePart.compaction.pending": "正在压缩对话",
   "ui.messagePart.compaction.aborted": "压缩已取消",
   "ui.messagePart.compaction.failed": "压缩失败：{{reason}}",
+  "ui.messagePart.compaction.failedUnknown": "压缩失败",
   "ui.messagePart.compaction.failedContextOverflow": "压缩失败：对话过大，请新开会话",
   "ui.messagePart.context.read.one": "读取 {{count}} 个文件",
   "ui.messagePart.context.read.other": "读取 {{count}} 个文件",
