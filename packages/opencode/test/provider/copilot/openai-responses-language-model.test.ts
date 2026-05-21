@@ -175,6 +175,10 @@ function toolCalls(parts: LanguageModelV3StreamPart[]) {
   return parts.filter((part) => part.type === "tool-call")
 }
 
+function errors(parts: LanguageModelV3StreamPart[]) {
+  return parts.filter((part) => part.type === "error")
+}
+
 describe("OpenAIResponsesLanguageModel function call materialization", () => {
   test("materializes no-arg client tool when arguments.done arrives without output_item.done", async () => {
     const parts = await streamParts([
@@ -242,5 +246,32 @@ describe("OpenAIResponsesLanguageModel function call materialization", () => {
 
     expect(toolCalls(parts)).toHaveLength(1)
     expect(toolCalls(parts)[0]).toMatchObject({ toolCallId: "call_1", input: "{}" })
+  })
+
+  test("blocks materialization when arguments.done name does not match added function name", async () => {
+    const parts = await streamParts([
+      responseCreated(),
+      functionCallAdded({ name: "enter-worktree" }),
+      functionCallArgumentsDone({ name: "bash", args: "{}" }),
+      responseCompleted(),
+    ])
+
+    expect(toolCalls(parts)).toHaveLength(0)
+    expect(errors(parts)).toHaveLength(1)
+    expect(String((errors(parts)[0] as { error: unknown }).error)).toContain("function call name mismatch")
+  })
+
+  test("ignores late argument delta after materialization without changing input", async () => {
+    const parts = await streamParts([
+      responseCreated(),
+      functionCallAdded(),
+      functionCallArgumentsDone({ seq: 3, args: '{"path":"stable"}' }),
+      functionCallArgumentsDelta({ seq: 4, delta: '{"path":"late"}' }),
+      responseCompleted(5),
+    ])
+
+    expect(errors(parts)).toHaveLength(0)
+    expect(toolCalls(parts)).toHaveLength(1)
+    expect(toolCalls(parts)[0]).toMatchObject({ input: '{"path":"stable"}' })
   })
 })
