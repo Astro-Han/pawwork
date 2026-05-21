@@ -251,6 +251,16 @@ async function assertNoPrimaryRuntimeClsFailures(result: RuntimeClsResult) {
 }
 
 test.describe("runtime CLS probe lifecycle", () => {
+  test("installs into the current document after it has already loaded", async ({ page }) => {
+    await page.goto("about:blank")
+    await installRuntimeClsProbe(page, { mockObserver: "ready" })
+
+    await startRuntimeClsProbe(page, "same-document-install")
+    const result = await stopRuntimeClsProbe(page)
+
+    expect(result.action).toBe("same-document-install")
+  })
+
   test("fails instead of silently passing when layout-shift observer cannot start", async ({ page }) => {
     await installRuntimeClsProbe(page, { mockObserver: "observe-error" })
     await page.goto("about:blank")

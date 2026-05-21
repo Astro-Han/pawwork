@@ -305,352 +305,355 @@ export function formatRuntimeClsFailure(input: {
   ].join("\n")
 }
 
-export async function installRuntimeClsProbe(page: Page, options?: RuntimeClsProbeInstallOptions) {
-  await page.addInitScript((options?: RuntimeClsProbeInstallOptions) => {
-    type RuntimeClsRect = {
-      x: number
-      y: number
-      width: number
-      height: number
-      top: number
-      right: number
-      bottom: number
-      left: number
+function runtimeClsProbeInitScript(options?: RuntimeClsProbeInstallOptions) {
+  type RuntimeClsRect = {
+    x: number
+    y: number
+    width: number
+    height: number
+    top: number
+    right: number
+    bottom: number
+    left: number
+  }
+
+  type RuntimeClsSourceKind =
+    | "primary-message-wrapper"
+    | "primary-turn"
+    | "primary-turn-descendant"
+    | "residual-assistant-message"
+    | "dock-or-scroll-recovery"
+    | "other"
+
+  type RuntimeClsSourceClassification = {
+    kind: RuntimeClsSourceKind
+    source: { label: string; rect?: RuntimeClsRect; path: string[] }
+    primaryAncestor?: {
+      label: string
+      beforeRect?: RuntimeClsRect
+      afterRect?: RuntimeClsRect
+      visibleBefore: boolean
+      visibleAfter: boolean
     }
+  }
 
-    type RuntimeClsSourceKind =
-      | "primary-message-wrapper"
-      | "primary-turn"
-      | "primary-turn-descendant"
-      | "residual-assistant-message"
-      | "dock-or-scroll-recovery"
-      | "other"
+  type RuntimeClsEntry = {
+    at: number
+    value: number
+    hadRecentInput: boolean
+    sources: RuntimeClsSourceClassification[]
+  }
 
-    type RuntimeClsSourceClassification = {
-      kind: RuntimeClsSourceKind
-      source: { label: string; rect?: RuntimeClsRect; path: string[] }
-      primaryAncestor?: {
-        label: string
-        beforeRect?: RuntimeClsRect
-        afterRect?: RuntimeClsRect
-        visibleBefore: boolean
-        visibleAfter: boolean
+  type RuntimeClsScrollMetrics = {
+    scrollTop: number
+    scrollHeight: number
+    clientHeight: number
+    maxScrollTop: number
+  }
+
+  type RuntimeClsSnapshot = {
+    targetMessageID?: string
+    targetBeforeRect?: RuntimeClsRect
+    targetAfterRect?: RuntimeClsRect
+    renderMode?: string
+    totalRows?: number
+    mountedRows?: number
+    scrollBefore?: RuntimeClsScrollMetrics
+    scrollAfter?: RuntimeClsScrollMetrics
+  }
+
+  type RuntimeClsWindow = Window & {
+    __pawwork_runtime_cls_probe?: {
+      start: (action: string, options?: { targetMessageID?: string }) => void
+      stop: () => {
+        action: string
+        startedAt: number
+        endedAt: number
+        entries: RuntimeClsEntry[]
+        snapshot: RuntimeClsSnapshot
       }
     }
-
-    type RuntimeClsEntry = {
-      at: number
-      value: number
-      hadRecentInput: boolean
-      sources: RuntimeClsSourceClassification[]
-    }
-
-    type RuntimeClsScrollMetrics = {
-      scrollTop: number
-      scrollHeight: number
-      clientHeight: number
-      maxScrollTop: number
-    }
-
-    type RuntimeClsSnapshot = {
-      targetMessageID?: string
-      targetBeforeRect?: RuntimeClsRect
-      targetAfterRect?: RuntimeClsRect
-      renderMode?: string
-      totalRows?: number
-      mountedRows?: number
-      scrollBefore?: RuntimeClsScrollMetrics
-      scrollAfter?: RuntimeClsScrollMetrics
-    }
-
-    type RuntimeClsWindow = Window & {
-      __pawwork_runtime_cls_probe?: {
-        start: (action: string, options?: { targetMessageID?: string }) => void
-        stop: () => {
-          action: string
-          startedAt: number
-          endedAt: number
-          entries: RuntimeClsEntry[]
-          snapshot: RuntimeClsSnapshot
-        }
-      }
-      __emitRuntimeClsEntry?: (
-        entry: PerformanceEntry & {
-          value?: number
-          hadRecentInput?: boolean
-          sources?: Array<{ node?: Node | null }>
-        },
-      ) => void
-    }
-
-    const win = window as RuntimeClsWindow
-    if (win.__pawwork_runtime_cls_probe) return
-
-    if (options?.mockObserver) {
-      type MockEntry = PerformanceEntry & {
+    __emitRuntimeClsEntry?: (
+      entry: PerformanceEntry & {
         value?: number
         hadRecentInput?: boolean
         sources?: Array<{ node?: Node | null }>
+      },
+    ) => void
+  }
+
+  const win = window as RuntimeClsWindow
+  if (win.__pawwork_runtime_cls_probe) return
+
+  if (options?.mockObserver) {
+    type MockEntry = PerformanceEntry & {
+      value?: number
+      hadRecentInput?: boolean
+      sources?: Array<{ node?: Node | null }>
+    }
+
+    const callbacks: Array<(entries: MockEntry[]) => void> = []
+    class MockPerformanceObserver {
+      private readonly callback: PerformanceObserverCallback
+
+      constructor(callback: PerformanceObserverCallback) {
+        this.callback = callback
+        callbacks.push((entries) => {
+          this.callback({ getEntries: () => entries } as PerformanceObserverEntryList, this as PerformanceObserver)
+        })
       }
 
-      const callbacks: Array<(entries: MockEntry[]) => void> = []
-      class MockPerformanceObserver {
-        private readonly callback: PerformanceObserverCallback
+      observe() {
+        if (options.mockObserver === "observe-error") throw new Error("mock layout-shift unsupported")
+      }
 
-        constructor(callback: PerformanceObserverCallback) {
-          this.callback = callback
-          callbacks.push((entries) => {
-            this.callback({ getEntries: () => entries } as PerformanceObserverEntryList, this as PerformanceObserver)
+      disconnect() {}
+      takeRecords() {
+        return []
+      }
+
+      static supportedEntryTypes = ["layout-shift"]
+    }
+
+    ;(window as typeof window & { PerformanceObserver: typeof PerformanceObserver }).PerformanceObserver =
+      MockPerformanceObserver as typeof PerformanceObserver
+    win.__emitRuntimeClsEntry = (entry) => {
+      for (const callback of callbacks) callback([entry])
+    }
+  }
+
+  const primarySelector = '[data-message-id], [data-component="session-turn"]'
+  const assistantResidualSelector =
+    '[data-component="assistant-message"], [data-slot="session-turn-assistant-content"], [data-component="markdown"], [data-component="message-part"]'
+  const dockOrScrollSelector =
+    '[data-component="dock-prompt"], [data-component="session-prompt-dock"], [data-slot="question-options"], [data-slot="question-option"], [data-component="scroll-jump"], [data-action="scroll-to-bottom"]'
+
+  const maxEntries = 256
+  let action = "unknown"
+  let startedAt = 0
+  let active = false
+  let entries: RuntimeClsEntry[] = []
+  let primaryBeforeRects = new WeakMap<Element, RuntimeClsRect>()
+  let snapshotBefore: RuntimeClsSnapshot = {}
+  let observerReady = false
+  let observerError: string | undefined
+
+  const rectFromDomRect = (input: DOMRect): RuntimeClsRect => ({
+    x: input.x,
+    y: input.y,
+    width: input.width,
+    height: input.height,
+    top: input.top,
+    right: input.right,
+    bottom: input.bottom,
+    left: input.left,
+  })
+
+  const isVisibleRect = (rect: RuntimeClsRect | undefined) => {
+    if (!rect) return false
+    return rect.bottom > 0 && rect.top < window.innerHeight && rect.right > 0 && rect.left < window.innerWidth
+  }
+
+  const stableElementLabel = (element: Element) => {
+    const messageID = element.getAttribute("data-message-id")
+    if (messageID) return `[data-message-id="${messageID}"]`
+    const dataMessage = element.getAttribute("data-message")
+    if (dataMessage) return `[data-message="${dataMessage}"]`
+    const component = element.getAttribute("data-component")
+    if (component) return `[data-component="${component}"]`
+    const slot = element.getAttribute("data-slot")
+    if (slot) return `[data-slot="${slot}"]`
+    if (element.id) return `#${element.id}`
+    const tag = element.tagName.toLowerCase()
+    const classes = Array.from(element.classList).slice(0, 3)
+    return classes.length > 0 ? `${tag}.${classes.join(".")}` : tag
+  }
+
+  const elementPath = (element: Element) => {
+    const path: string[] = []
+    let current: Element | null = element
+    while (current && path.length < 8) {
+      path.push(stableElementLabel(current))
+      current = current.parentElement
+    }
+    return path
+  }
+
+  const sourceSnapshot = (source: Element) => ({
+    label: stableElementLabel(source),
+    rect: rectFromDomRect(source.getBoundingClientRect()),
+    path: elementPath(source),
+  })
+
+  const findPrimaryBeforeRect = (primary: Element) => {
+    const direct = primaryBeforeRects.get(primary)
+    if (direct) return direct
+    const message = primary.closest("[data-message-id]")
+    if (message) {
+      const messageRect = primaryBeforeRects.get(message)
+      if (messageRect) return messageRect
+    }
+    const turn = primary.closest('[data-component="session-turn"]')
+    if (turn) return primaryBeforeRects.get(turn)
+  }
+
+  const classifyElement = (element: Element | null): RuntimeClsSourceClassification => {
+    if (!element) return { kind: "other", source: { label: "<missing-source>", path: [] } }
+    const primary = element.closest(primarySelector)
+    const primaryAncestor = primary
+      ? {
+          label: stableElementLabel(primary),
+          beforeRect: findPrimaryBeforeRect(primary),
+          afterRect: rectFromDomRect(primary.getBoundingClientRect()),
+          visibleBefore: false,
+          visibleAfter: false,
+        }
+      : undefined
+    if (primaryAncestor) {
+      primaryAncestor.visibleBefore = isVisibleRect(primaryAncestor.beforeRect)
+      primaryAncestor.visibleAfter = isVisibleRect(primaryAncestor.afterRect)
+    }
+    const source = sourceSnapshot(element)
+
+    if (element.matches("[data-message-id]")) return { kind: "primary-message-wrapper", source, primaryAncestor }
+    if (element.matches('[data-component="session-turn"]')) return { kind: "primary-turn", source, primaryAncestor }
+    if (element.closest(dockOrScrollSelector)) return { kind: "dock-or-scroll-recovery", source, primaryAncestor }
+    if (primary && primaryAncestor?.visibleBefore && primaryAncestor.visibleAfter) {
+      return { kind: "primary-turn-descendant", source, primaryAncestor }
+    }
+    if (element.closest(assistantResidualSelector))
+      return { kind: "residual-assistant-message", source, primaryAncestor }
+    return { kind: "other", source, primaryAncestor }
+  }
+
+  const readScrollMetrics = (): RuntimeClsScrollMetrics | undefined => {
+    const list = document.querySelector('[data-slot="session-turn-list"]')
+    const viewport = list?.closest('[data-component="scroll-viewport"]')
+    if (!(viewport instanceof HTMLElement)) return undefined
+    const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight)
+    return {
+      scrollTop: viewport.scrollTop,
+      scrollHeight: viewport.scrollHeight,
+      clientHeight: viewport.clientHeight,
+      maxScrollTop,
+    }
+  }
+
+  const messageByID = (id: string | undefined) => {
+    if (!id) return undefined
+    return Array.from(document.querySelectorAll("[data-message-id]")).find(
+      (node) => node.getAttribute("data-message-id") === id,
+    )
+  }
+
+  const readSnapshot = (targetMessageID?: string): RuntimeClsSnapshot => {
+    const list = document.querySelector('[data-slot="session-turn-list"]') as HTMLElement | null
+    const virtualRows = document.querySelectorAll('[data-component="session-virtual-row"]').length
+    const messages = document.querySelectorAll("[data-message-id]").length
+    const target = messageByID(targetMessageID)
+    return {
+      targetMessageID,
+      targetAfterRect: target instanceof Element ? rectFromDomRect(target.getBoundingClientRect()) : undefined,
+      renderMode: list?.dataset.renderMode,
+      totalRows: list?.dataset.totalRows ? Number(list.dataset.totalRows) : undefined,
+      mountedRows: virtualRows > 0 ? virtualRows : messages,
+      scrollAfter: readScrollMetrics(),
+    }
+  }
+
+  const capturePrimaryBeforeRects = () => {
+    primaryBeforeRects = new WeakMap<Element, RuntimeClsRect>()
+    for (const element of document.querySelectorAll(primarySelector)) {
+      primaryBeforeRects.set(element, rectFromDomRect(element.getBoundingClientRect()))
+    }
+  }
+
+  if (typeof PerformanceObserver === "undefined") {
+    observerError = "PerformanceObserver is unavailable; runtime CLS gate cannot observe layout-shift entries."
+  } else if (
+    Array.isArray(PerformanceObserver.supportedEntryTypes) &&
+    !PerformanceObserver.supportedEntryTypes.includes("layout-shift")
+  ) {
+    observerError = "PerformanceObserver does not support layout-shift entries; runtime CLS gate cannot run."
+  } else {
+    try {
+      const observer = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries() as Array<
+          PerformanceEntry & {
+            value?: number
+            hadRecentInput?: boolean
+            sources?: Array<{ node?: Node | null }>
+          }
+        >) {
+          if (!active || startedAt <= 0 || entry.startTime < startedAt) continue
+          if (typeof entry.value !== "number") continue
+          const sources = (entry.sources ?? []).map((source) =>
+            classifyElement(source.node instanceof Element ? source.node : null),
+          )
+          entries.push({
+            at: entry.startTime,
+            value: entry.value,
+            hadRecentInput: entry.hadRecentInput === true,
+            sources,
           })
         }
+        if (entries.length > maxEntries) entries = entries.slice(entries.length - maxEntries)
+      })
+      observer.observe({ type: "layout-shift", buffered: true })
+      observerReady = true
+    } catch (error) {
+      observerError = error instanceof Error ? error.message : String(error)
+    }
+  }
 
-        observe() {
-          if (options.mockObserver === "observe-error") throw new Error("mock layout-shift unsupported")
-        }
-
-        disconnect() {}
-        takeRecords() {
-          return []
-        }
-
-        static supportedEntryTypes = ["layout-shift"]
+  win.__pawwork_runtime_cls_probe = {
+    start(nextAction, options) {
+      if (!observerReady) {
+        throw new Error(observerError ?? "Runtime CLS layout-shift observer did not start.")
       }
-
-      ;(window as typeof window & { PerformanceObserver: typeof PerformanceObserver }).PerformanceObserver =
-        MockPerformanceObserver as typeof PerformanceObserver
-      win.__emitRuntimeClsEntry = (entry) => {
-        for (const callback of callbacks) callback([entry])
+      action = nextAction
+      entries = []
+      startedAt = performance.now()
+      active = true
+      capturePrimaryBeforeRects()
+      const before = readSnapshot(options?.targetMessageID)
+      snapshotBefore = {
+        targetMessageID: options?.targetMessageID,
+        targetBeforeRect: before.targetAfterRect,
+        renderMode: before.renderMode,
+        totalRows: before.totalRows,
+        mountedRows: before.mountedRows,
+        scrollBefore: before.scrollAfter,
       }
-    }
-
-    const primarySelector = '[data-message-id], [data-component="session-turn"]'
-    const assistantResidualSelector =
-      '[data-component="assistant-message"], [data-slot="session-turn-assistant-content"], [data-component="markdown"], [data-component="message-part"]'
-    const dockOrScrollSelector =
-      '[data-component="dock-prompt"], [data-component="session-prompt-dock"], [data-slot="question-options"], [data-slot="question-option"], [data-component="scroll-jump"], [data-action="scroll-to-bottom"]'
-
-    const maxEntries = 256
-    let action = "unknown"
-    let startedAt = 0
-    let active = false
-    let entries: RuntimeClsEntry[] = []
-    let primaryBeforeRects = new WeakMap<Element, RuntimeClsRect>()
-    let snapshotBefore: RuntimeClsSnapshot = {}
-    let observerReady = false
-    let observerError: string | undefined
-
-    const rectFromDomRect = (input: DOMRect): RuntimeClsRect => ({
-      x: input.x,
-      y: input.y,
-      width: input.width,
-      height: input.height,
-      top: input.top,
-      right: input.right,
-      bottom: input.bottom,
-      left: input.left,
-    })
-
-    const isVisibleRect = (rect: RuntimeClsRect | undefined) => {
-      if (!rect) return false
-      return rect.bottom > 0 && rect.top < window.innerHeight && rect.right > 0 && rect.left < window.innerWidth
-    }
-
-    const stableElementLabel = (element: Element) => {
-      const messageID = element.getAttribute("data-message-id")
-      if (messageID) return `[data-message-id="${messageID}"]`
-      const dataMessage = element.getAttribute("data-message")
-      if (dataMessage) return `[data-message="${dataMessage}"]`
-      const component = element.getAttribute("data-component")
-      if (component) return `[data-component="${component}"]`
-      const slot = element.getAttribute("data-slot")
-      if (slot) return `[data-slot="${slot}"]`
-      if (element.id) return `#${element.id}`
-      const tag = element.tagName.toLowerCase()
-      const classes = Array.from(element.classList).slice(0, 3)
-      return classes.length > 0 ? `${tag}.${classes.join(".")}` : tag
-    }
-
-    const elementPath = (element: Element) => {
-      const path: string[] = []
-      let current: Element | null = element
-      while (current && path.length < 8) {
-        path.push(stableElementLabel(current))
-        current = current.parentElement
+    },
+    stop() {
+      const after = readSnapshot(snapshotBefore.targetMessageID)
+      const result = {
+        action,
+        startedAt,
+        endedAt: performance.now(),
+        entries: entries.slice(),
+        snapshot: {
+          ...snapshotBefore,
+          targetAfterRect: after.targetAfterRect,
+          renderMode: after.renderMode ?? snapshotBefore.renderMode,
+          totalRows: after.totalRows ?? snapshotBefore.totalRows,
+          mountedRows: after.mountedRows ?? snapshotBefore.mountedRows,
+          scrollAfter: after.scrollAfter,
+        },
       }
-      return path
-    }
-
-    const sourceSnapshot = (source: Element) => ({
-      label: stableElementLabel(source),
-      rect: rectFromDomRect(source.getBoundingClientRect()),
-      path: elementPath(source),
-    })
-
-    const findPrimaryBeforeRect = (primary: Element) => {
-      const direct = primaryBeforeRects.get(primary)
-      if (direct) return direct
-      const message = primary.closest("[data-message-id]")
-      if (message) {
-        const messageRect = primaryBeforeRects.get(message)
-        if (messageRect) return messageRect
-      }
-      const turn = primary.closest('[data-component="session-turn"]')
-      if (turn) return primaryBeforeRects.get(turn)
-    }
-
-    const classifyElement = (element: Element | null): RuntimeClsSourceClassification => {
-      if (!element) return { kind: "other", source: { label: "<missing-source>", path: [] } }
-      const primary = element.closest(primarySelector)
-      const primaryAncestor = primary
-        ? {
-            label: stableElementLabel(primary),
-            beforeRect: findPrimaryBeforeRect(primary),
-            afterRect: rectFromDomRect(primary.getBoundingClientRect()),
-            visibleBefore: false,
-            visibleAfter: false,
-          }
-        : undefined
-      if (primaryAncestor) {
-        primaryAncestor.visibleBefore = isVisibleRect(primaryAncestor.beforeRect)
-        primaryAncestor.visibleAfter = isVisibleRect(primaryAncestor.afterRect)
-      }
-      const source = sourceSnapshot(element)
-
-      if (element.matches("[data-message-id]")) return { kind: "primary-message-wrapper", source, primaryAncestor }
-      if (element.matches('[data-component="session-turn"]')) return { kind: "primary-turn", source, primaryAncestor }
-      if (element.closest(dockOrScrollSelector)) return { kind: "dock-or-scroll-recovery", source, primaryAncestor }
-      if (primary && primaryAncestor?.visibleBefore && primaryAncestor.visibleAfter) {
-        return { kind: "primary-turn-descendant", source, primaryAncestor }
-      }
-      if (element.closest(assistantResidualSelector))
-        return { kind: "residual-assistant-message", source, primaryAncestor }
-      return { kind: "other", source, primaryAncestor }
-    }
-
-    const readScrollMetrics = (): RuntimeClsScrollMetrics | undefined => {
-      const list = document.querySelector('[data-slot="session-turn-list"]')
-      const viewport = list?.closest('[data-component="scroll-viewport"]')
-      if (!(viewport instanceof HTMLElement)) return undefined
-      const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight)
-      return {
-        scrollTop: viewport.scrollTop,
-        scrollHeight: viewport.scrollHeight,
-        clientHeight: viewport.clientHeight,
-        maxScrollTop,
-      }
-    }
-
-    const messageByID = (id: string | undefined) => {
-      if (!id) return undefined
-      return Array.from(document.querySelectorAll("[data-message-id]")).find(
-        (node) => node.getAttribute("data-message-id") === id,
-      )
-    }
-
-    const readSnapshot = (targetMessageID?: string): RuntimeClsSnapshot => {
-      const list = document.querySelector('[data-slot="session-turn-list"]') as HTMLElement | null
-      const virtualRows = document.querySelectorAll('[data-component="session-virtual-row"]').length
-      const messages = document.querySelectorAll("[data-message-id]").length
-      const target = messageByID(targetMessageID)
-      return {
-        targetMessageID,
-        targetAfterRect: target instanceof Element ? rectFromDomRect(target.getBoundingClientRect()) : undefined,
-        renderMode: list?.dataset.renderMode,
-        totalRows: list?.dataset.totalRows ? Number(list.dataset.totalRows) : undefined,
-        mountedRows: virtualRows > 0 ? virtualRows : messages,
-        scrollAfter: readScrollMetrics(),
-      }
-    }
-
-    const capturePrimaryBeforeRects = () => {
+      active = false
+      startedAt = 0
+      entries = []
       primaryBeforeRects = new WeakMap<Element, RuntimeClsRect>()
-      for (const element of document.querySelectorAll(primarySelector)) {
-        primaryBeforeRects.set(element, rectFromDomRect(element.getBoundingClientRect()))
-      }
-    }
+      return result
+    },
+  }
+}
 
-    if (typeof PerformanceObserver === "undefined") {
-      observerError = "PerformanceObserver is unavailable; runtime CLS gate cannot observe layout-shift entries."
-    } else if (
-      Array.isArray(PerformanceObserver.supportedEntryTypes) &&
-      !PerformanceObserver.supportedEntryTypes.includes("layout-shift")
-    ) {
-      observerError = "PerformanceObserver does not support layout-shift entries; runtime CLS gate cannot run."
-    } else {
-      try {
-        const observer = new PerformanceObserver((list) => {
-          for (const entry of list.getEntries() as Array<
-            PerformanceEntry & {
-              value?: number
-              hadRecentInput?: boolean
-              sources?: Array<{ node?: Node | null }>
-            }
-          >) {
-            if (!active || startedAt <= 0 || entry.startTime < startedAt) continue
-            if (typeof entry.value !== "number") continue
-            const sources = (entry.sources ?? []).map((source) =>
-              classifyElement(source.node instanceof Element ? source.node : null),
-            )
-            entries.push({
-              at: entry.startTime,
-              value: entry.value,
-              hadRecentInput: entry.hadRecentInput === true,
-              sources,
-            })
-          }
-          if (entries.length > maxEntries) entries = entries.slice(entries.length - maxEntries)
-        })
-        observer.observe({ type: "layout-shift", buffered: true })
-        observerReady = true
-      } catch (error) {
-        observerError = error instanceof Error ? error.message : String(error)
-      }
-    }
-
-    win.__pawwork_runtime_cls_probe = {
-      start(nextAction, options) {
-        if (!observerReady) {
-          throw new Error(observerError ?? "Runtime CLS layout-shift observer did not start.")
-        }
-        action = nextAction
-        entries = []
-        startedAt = performance.now()
-        active = true
-        capturePrimaryBeforeRects()
-        const before = readSnapshot(options?.targetMessageID)
-        snapshotBefore = {
-          targetMessageID: options?.targetMessageID,
-          targetBeforeRect: before.targetAfterRect,
-          renderMode: before.renderMode,
-          totalRows: before.totalRows,
-          mountedRows: before.mountedRows,
-          scrollBefore: before.scrollAfter,
-        }
-      },
-      stop() {
-        const after = readSnapshot(snapshotBefore.targetMessageID)
-        const result = {
-          action,
-          startedAt,
-          endedAt: performance.now(),
-          entries: entries.slice(),
-          snapshot: {
-            ...snapshotBefore,
-            targetAfterRect: after.targetAfterRect,
-            renderMode: after.renderMode ?? snapshotBefore.renderMode,
-            totalRows: after.totalRows ?? snapshotBefore.totalRows,
-            mountedRows: after.mountedRows ?? snapshotBefore.mountedRows,
-            scrollAfter: after.scrollAfter,
-          },
-        }
-        active = false
-        startedAt = 0
-        entries = []
-        primaryBeforeRects = new WeakMap<Element, RuntimeClsRect>()
-        return result
-      },
-    }
-  }, options)
+export async function installRuntimeClsProbe(page: Page, options?: RuntimeClsProbeInstallOptions) {
+  await page.addInitScript(runtimeClsProbeInitScript, options)
+  await page.evaluate(runtimeClsProbeInitScript, options)
 }
 
 export async function startRuntimeClsProbe(page: Page, action: string, options?: RuntimeClsStartOptions) {
