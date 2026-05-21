@@ -921,12 +921,19 @@ export namespace TurnChange {
       })
       .filter(Boolean) as AggregateFile[]
     const appliedPaths = new Set(appliedRows.map((row) => row.data.path))
-    const mutedFiles = mutedRows
-      .filter(({ row }) => !appliedPaths.has(row.data.path))
-      .map(({ row, restoreState }) => {
-        const displayFile = toDisplay(row.data)
+    const latestMutedByPath = new Map<string, { file: RestoreFile; restoreState: RestoreState }>()
+    for (const { row, restoreState } of mutedRows) {
+      if (appliedPaths.has(row.data.path)) continue
+      latestMutedByPath.set(row.data.path, { file: row.data, restoreState })
+    }
+    const mutedFiles = disambiguateAggregatedRestoreFiles(
+      Array.from(latestMutedByPath.values()).map((item) => item.file),
+    )
+      .map((file) => {
+        const displayFile = toDisplay(file)
         if (!displayFile) return
-        return { ...displayFile, openPath: row.data.path, restoreState }
+        const restoreState = latestMutedByPath.get(file.path)?.restoreState ?? "redo_invalidated"
+        return { ...displayFile, openPath: file.path, restoreState }
       })
       .filter(Boolean) as AggregateFile[]
     return {

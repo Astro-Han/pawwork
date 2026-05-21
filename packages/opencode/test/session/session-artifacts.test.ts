@@ -96,6 +96,7 @@ describe("session artifacts", () => {
         const user = await makeUser(uncaptured.id, "uncaptured")
         const assistant = await makeAssistant(uncaptured.id, user, "uncaptured")
         TurnChange.recordUncaptured({ sessionID: uncaptured.id, messageID: assistant })
+        TurnChange.finalize({ sessionID: uncaptured.id, messageID: assistant })
         expect(await SessionSummary.artifacts({ sessionID: uncaptured.id })).toEqual([])
       },
     })

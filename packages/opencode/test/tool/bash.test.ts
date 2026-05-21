@@ -538,9 +538,12 @@ describe("tool.bash expected_outputs", () => {
         const bash = await initBash()
         const turn = await createTurn()
         const target = path.join(tmp.path, "undeclared.txt")
-        const command = PS.has(sh())
+        const shell = sh()
+        const command = PS.has(shell)
           ? `Set-Content -Path ${quote(target.replaceAll("\\", "/"))} -Value hello`
-          : `printf 'hello\\n' > ${quote(target.replaceAll("\\", "/"))}`
+          : shell === "cmd"
+            ? `echo hello> ${quote(target.replaceAll("\\", "/"))}`
+            : `printf 'hello\\n' > ${quote(target.replaceAll("\\", "/"))}`
         const result = await Effect.runPromise(
           bash.execute(
             {

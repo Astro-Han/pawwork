@@ -288,7 +288,11 @@ export function createSessionReviewState(input: {
         if (!shouldApplyExecutionResult({ requested: scope, current: input.executionScope() })) return
         setSessionAggregateDiffs(aggregateFiles(res.data))
       })
-      .catch(() => {})
+      .catch((error: unknown) => {
+        if (input.sessionID() !== id) return
+        if (!shouldApplyExecutionResult({ requested: scope, current: input.executionScope() })) return
+        console.debug("[session-review] failed to fetch aggregate diff", { sessionID: id, scope, error })
+      })
   })
 
   return {
