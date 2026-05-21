@@ -375,6 +375,73 @@ describe("session scroll dock", () => {
     })
   })
 
+  test("keeps dock resize bottom-follow recovery inside the active layout transaction", () => {
+    withResizeObserver((triggerResize) => {
+      createRoot((dispose) => {
+        const promptDock = makeMeasuredDiv(120)
+        const events: unknown[] = []
+        let activeTransaction: { transactionID: string; transactionKind: "dock-resize" | "content-resize" } | undefined
+        const scroller = makeScroller({ clientHeight: 400, scrollHeight: 1000, scrollTop: 600 })
+        const scrollCommandSink = createTimelineScrollCommandSink({
+          activeTransaction: () => activeTransaction,
+          emitDiagnostic: (event) => {
+            events.push(event)
+          },
+        })
+
+        try {
+          const scrollDock = createSessionScrollDock({
+            clearMessageHash: () => undefined,
+            clearActiveMessage: () => undefined,
+            fill: () => undefined,
+            scrollCommandSink,
+            runLayoutTransaction: (event) => {
+              activeTransaction = { transactionID: "tx-dock-locked", transactionKind: event.kind }
+              try {
+                event.mutate()
+                event.restoreLatest("tx-dock-locked")
+              } finally {
+                activeTransaction = undefined
+              }
+            },
+          })
+
+          scrollDock.setScrollRef(scroller.el)
+          scrollDock.setPromptDockRef(promptDock.el)
+          scrollDock.resumeScroll()
+          scroller.el.scrollTop = 0
+          promptDock.setHeight(220)
+          triggerResize(promptDock.el)
+
+          expect(scrollCommandSink.records().length).toBeGreaterThan(0)
+          expect(scrollCommandSink.records()).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                type: "dock-resize-bottom-follow",
+                transactionID: "tx-dock-locked",
+                transactionKind: "dock-resize",
+              }),
+            ]),
+          )
+          expect(scrollCommandSink.records()).toEqual(
+            scrollCommandSink.records().map((record) =>
+              expect.objectContaining({
+                transactionID: "tx-dock-locked",
+                transactionKind: "dock-resize",
+              }),
+            ),
+          )
+          expect(events).not.toContainEqual(
+            expect.objectContaining({ name: "session.timeline.layout_transaction_violation" }),
+          )
+        } finally {
+          dispose()
+          document.documentElement.style.removeProperty("--composer-dock-height")
+        }
+      })
+    })
+  })
+
   test("runs content resize through the layout transaction callback", () => {
     withResizeObserver((triggerResize) => {
       createRoot((dispose) => {
@@ -406,6 +473,71 @@ describe("session scroll dock", () => {
           "fill",
           "transaction:restore-anchor",
         ])
+        dispose()
+      })
+    })
+  })
+
+  test("keeps content resize bottom-follow recovery inside the active layout transaction", () => {
+    withResizeObserver((triggerResize) => {
+      createRoot((dispose) => {
+        const content = makeMeasuredDiv(600)
+        const events: unknown[] = []
+        let activeTransaction: { transactionID: string; transactionKind: "dock-resize" | "content-resize" } | undefined
+        const scroller = makeScroller({ clientHeight: 400, scrollHeight: 1200, scrollTop: 800 })
+        const scrollCommandSink = createTimelineScrollCommandSink({
+          activeTransaction: () => activeTransaction,
+          emitDiagnostic: (event) => {
+            events.push(event)
+          },
+        })
+
+        const scrollDock = createSessionScrollDock({
+          clearMessageHash: () => undefined,
+          clearActiveMessage: () => undefined,
+          fill: () => undefined,
+          scrollCommandSink,
+          onContentResize: () => undefined,
+          runLayoutTransaction: (event) => {
+            activeTransaction = { transactionID: "tx-content-locked", transactionKind: event.kind }
+            try {
+              event.mutate()
+              event.restoreLatest("tx-content-locked")
+            } finally {
+              activeTransaction = undefined
+            }
+          },
+        })
+
+        scrollDock.setScrollRef(scroller.el)
+        scrollDock.setContentRef(content.el)
+        scrollDock.resumeScroll()
+        scroller.el.scrollTop = 0
+        content.setHeight(720)
+        triggerResize(content.el)
+
+        expect(scrollCommandSink.records().length).toBeGreaterThan(0)
+        expect(scrollCommandSink.records()).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              type: "content-resize-bottom-follow",
+              transactionID: "tx-content-locked",
+              transactionKind: "content-resize",
+            }),
+          ]),
+        )
+        expect(scrollCommandSink.records()).toEqual(
+          scrollCommandSink.records().map((record) =>
+            expect.objectContaining({
+              transactionID: "tx-content-locked",
+              transactionKind: "content-resize",
+            }),
+          ),
+        )
+        expect(events).not.toContainEqual(
+          expect.objectContaining({ name: "session.timeline.layout_transaction_violation" }),
+        )
+
         dispose()
       })
     })

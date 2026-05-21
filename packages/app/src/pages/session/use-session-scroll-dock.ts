@@ -193,8 +193,8 @@ export function createSessionScrollDock(input: {
     setScroll(next)
   }
 
-  const scheduleScrollState = (el: HTMLDivElement) => {
-    if (bottomFollowLocked()) {
+  const scheduleScrollState = (el: HTMLDivElement, options?: { recoverBottomLock?: boolean }) => {
+    if (options?.recoverBottomLock !== false && bottomFollowLocked()) {
       const next = calculateSessionScrollState({
         clientHeight: el.clientHeight,
         scrollHeight: el.scrollHeight,
@@ -215,6 +215,10 @@ export function createSessionScrollDock(input: {
       scrollStateTarget = undefined
       if (target) updateScrollState(target)
     })
+  }
+
+  const scheduleTransactionScrollState = (el: HTMLDivElement) => {
+    scheduleScrollState(el, { recoverBottomLock: false })
   }
 
   // A non-matching owner means the active lock belongs to an older session path.
@@ -264,12 +268,12 @@ export function createSessionScrollDock(input: {
     if (el && scroller) scheduleScrollState(scroller)
     if (!el) return
     contentObserver = new ResizeObserver(() => {
-      const runContentMutation = () => {
+      const runContentMutation = (scheduleState: (el: HTMLDivElement) => void) => {
         input.onContentResize?.({
           scrollTop: scroller?.scrollTop,
           distanceFromBottom: scroller ? scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop : undefined,
         })
-        if (scroller) scheduleScrollState(scroller)
+        if (scroller) scheduleState(scroller)
         input.fill()
       }
 
@@ -279,7 +283,7 @@ export function createSessionScrollDock(input: {
           source: "use-session-scroll-dock/contentObserver",
           reason: "content-resize",
           stickToBottom: bottomFollowLockedFor(),
-          mutate: runContentMutation,
+          mutate: () => runContentMutation(scheduleTransactionScrollState),
           restoreLatest: (transactionID) =>
             restoreLatestThroughSink({
               transaction: { transactionID, transactionKind: "content-resize" },
@@ -291,7 +295,7 @@ export function createSessionScrollDock(input: {
         return
       }
 
-      runContentMutation()
+      runContentMutation(scheduleScrollState)
       restoreBottomIfLocked()
     })
     contentObserver.observe(el)
@@ -310,15 +314,18 @@ export function createSessionScrollDock(input: {
           nextDockHeight: next,
         })
       : false
-    const runDockMutation = (forceScrollToBottom: () => void) => {
+    const runDockMutation = (options: {
+      forceScrollToBottom: () => void
+      scheduleState: (el: HTMLDivElement) => void
+    }) => {
       dockHeight = syncComposerDockHeight({
         el: scroller,
         previousDockHeight,
         nextDockHeight: next,
         userScrolled: autoScroll.userScrolled(),
         setCssHeight: (value) => document.documentElement.style.setProperty("--composer-dock-height", `${value}px`),
-        forceScrollToBottom,
-        scheduleScrollState,
+        forceScrollToBottom: options.forceScrollToBottom,
+        scheduleScrollState: options.scheduleState,
         fill: input.fill,
       })
     }
@@ -329,7 +336,7 @@ export function createSessionScrollDock(input: {
         source: "use-session-scroll-dock/updateDockHeight",
         reason: dockKind,
         stickToBottom,
-        mutate: () => runDockMutation(() => {}),
+        mutate: () => runDockMutation({ forceScrollToBottom: () => {}, scheduleState: scheduleTransactionScrollState }),
         restoreLatest: (transactionID) =>
           restoreLatestThroughSink({
             transaction: { transactionID, transactionKind: "dock-resize" },
@@ -339,7 +346,10 @@ export function createSessionScrollDock(input: {
           }),
       })
     } else {
-      runDockMutation(() => autoScroll.forceScrollToBottom("dock-resize"))
+      runDockMutation({
+        forceScrollToBottom: () => autoScroll.forceScrollToBottom("dock-resize"),
+        scheduleState: scheduleScrollState,
+      })
     }
     if (dockHeight !== previousDockHeight) {
       try {

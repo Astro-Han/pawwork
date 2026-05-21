@@ -18,6 +18,7 @@ import {
   createTimelineLayoutTransactionCoordinator,
   type TimelineLayoutTransactionKind,
 } from "@/pages/session/timeline-layout-transaction"
+import { shouldApplyTimelineRecoveryForObservation } from "@/pages/session/timeline-layout-recovery-policy"
 import {
   createSessionTimelineScrollController,
   type TimelineRecovery,
@@ -373,7 +374,14 @@ export function createSessionTimelineInteraction(input: {
       }
     }
     const result = scrollController.observe(next)
-    applyTimelineRecovery(result.recovery)
+    if (
+      shouldApplyTimelineRecoveryForObservation({
+        layoutTransactionActive: layoutTransactionState.active,
+        observationType: observation.type,
+      })
+    ) {
+      applyTimelineRecovery(result.recovery)
+    }
     return result
   }
 
