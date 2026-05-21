@@ -10,6 +10,7 @@ import {
   sessionTurnListSelector,
 } from "../selectors"
 import { sessionPath } from "../utils"
+import { timelineEvent, type TimelineWindow } from "../../src/testing/timeline"
 import { readTimelineDomBudget } from "./timeline-dom-budget"
 import {
   collectRuntimeClsFailures,
@@ -153,6 +154,15 @@ async function revealRuntimeClsRows(page: Page) {
     await expect(page.locator(sessionMessageItemSelector).first()).toBeVisible({ timeout: 30_000 })
   })
 
+  await page.evaluate((eventName) => {
+    window.dispatchEvent(
+      new CustomEvent(eventName, {
+        detail: { action: "reveal-cached" },
+      }),
+    )
+  }, timelineEvent)
+  await settleFrames(page, 4)
+
   for (let attempt = 0; attempt < 24; attempt += 1) {
     const budget = await readTimelineDomBudget(page)
     if (budget.totalRows >= RUNTIME_CLS_MINIMUM_ROWS) return budget
@@ -202,7 +212,17 @@ async function centerVisibleMessageID(page: Page) {
   return target!
 }
 
+async function installTimelineRuntimeClsDriver(page: Page) {
+  const apply = () => {
+    const win = window as TimelineWindow
+    win.__opencode_e2e = { ...win.__opencode_e2e, timeline: { enabled: true } }
+  }
+  await page.addInitScript(apply)
+  await page.evaluate(apply)
+}
+
 async function prepareRuntimeClsWindow(page: Page, project: RuntimeClsProject, sessionID: string) {
+  await installTimelineRuntimeClsDriver(page)
   await test.step("navigate to runtime CLS session", async () => {
     await page.goto(sessionPath(project.directory, sessionID))
   })
