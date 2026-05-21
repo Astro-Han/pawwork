@@ -1197,7 +1197,7 @@ describe("session.compaction.process", () => {
     })
   })
 
-  test("stops with a context overflow error when auto compaction cannot advance the retained tail", async () => {
+  test("allows auto compaction to clear the retained tail boundary", async () => {
     await using tmp = await tmpdir()
     const model = createModel({ context: 30_000, input: 30_000, output: 4_000 })
     await Instance.provide({
@@ -1228,6 +1228,95 @@ describe("session.compaction.process", () => {
         })
         const third = await user(session.id, "third request")
         await assistant(session.id, third.id, tmp.path)
+        const compact = await user(session.id, "compact and clear tail")
+        await svc.updatePart({
+          id: PartID.ascending(),
+          messageID: compact.id,
+          sessionID: session.id,
+          type: "compaction",
+          auto: true,
+        })
+
+        const fakeLLM = llm()
+        fakeLLM.push(reply("new summary"))
+        const live = liveRuntime(
+          fakeLLM.layer,
+          ProviderTest.fake({ model }),
+          cfg({ tail_turns: 0, preserve_recent_tokens: 6_000 }),
+        )
+        try {
+          const beforeCompaction = await svc.messages({ sessionID: session.id })
+          const result = await live.runPromise(
+            SessionCompaction.Service.use((compaction) =>
+              compaction.process({
+                parentID: compact.id,
+                messages: beforeCompaction,
+                sessionID: session.id,
+                auto: true,
+              }),
+            ),
+          )
+
+          const messages = await svc.messages({ sessionID: session.id })
+          const currentPart = messages
+            .find((message) => message.info.id === compact.id)
+            ?.parts.find((part): part is MessageV2.CompactionPart => part.type === "compaction")
+          const summary = messages.findLast(
+            (message) => message.info.role === "assistant" && message.info.parentID === compact.id,
+          )
+
+          expect(result).toBe("continue")
+          expect(currentPart?.tail_start_id).toBeUndefined()
+          expect(summary?.info.role).toBe("assistant")
+          if (summary?.info.role === "assistant") {
+            expect(summary.info.finish).not.toBe("error")
+            expect(summary.info.error).toBeUndefined()
+          }
+        } finally {
+          await live.dispose()
+        }
+      },
+    })
+  })
+
+  test("stops with a context overflow error when auto compaction cannot advance the retained tail", async () => {
+    await using tmp = await tmpdir()
+    const model = createModel({ context: 30_000, input: 30_000, output: 4_000 })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create()
+        const first = await user(session.id, "first request")
+        await assistant(session.id, first.id, tmp.path)
+        const second = await user(session.id, "second request")
+        const secondReply = await assistant(session.id, second.id, tmp.path)
+        await svc.updatePart({
+          id: PartID.ascending(),
+          messageID: secondReply.id,
+          sessionID: session.id,
+          type: "text",
+          text: "x".repeat(40_000),
+        })
+        const previousCompaction = await user(session.id, "compact once")
+        await svc.updatePart({
+          id: PartID.ascending(),
+          messageID: previousCompaction.id,
+          sessionID: session.id,
+          type: "compaction",
+          auto: true,
+          tail_start_id: second.id,
+        })
+        const previousSummary = await assistant(session.id, previousCompaction.id, tmp.path)
+        await svc.updateMessage({ ...previousSummary, summary: true })
+        await svc.updatePart({
+          id: PartID.ascending(),
+          messageID: previousSummary.id,
+          sessionID: session.id,
+          type: "text",
+          text: "## Goal\n- Previous completed summary",
+        })
+        const third = await user(session.id, "third request")
+        await assistant(session.id, third.id, tmp.path)
         const compact = await user(session.id, "compact again")
         await svc.updatePart({
           id: PartID.ascending(),
@@ -1235,6 +1324,7 @@ describe("session.compaction.process", () => {
           sessionID: session.id,
           type: "compaction",
           auto: true,
+          tail_start_id: third.id,
         })
 
         const fakeLLM = llm()
