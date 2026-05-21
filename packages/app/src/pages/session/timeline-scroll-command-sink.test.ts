@@ -120,7 +120,9 @@ describe("TimelineScrollCommandSink", () => {
     const scroller = makeScroller({ clientHeight: 100, scrollHeight: 900, scrollTop: 12 })
     const sink = createTimelineScrollCommandSink({
       activeTransaction: () => ({ transactionID: "tx-2", transactionKind: "content-resize" }),
-      emitDiagnostic: (event) => events.push(event),
+      emitDiagnostic: (event) => {
+        events.push(event)
+      },
     })
 
     sink.setScrollTop({ element: scroller.el, top: 220, type: "bottom-follow", source: "legacy-bottom-follow" })
