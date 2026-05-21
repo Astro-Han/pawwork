@@ -825,8 +825,12 @@ export namespace TurnChange {
     })
   }
 
-  function aggregateTurnInternal(input: { sessionID: SessionID; userMessageID: MessageID }): Display | undefined {
-    const assistants = listAssistantsForUser(input.sessionID, input.userMessageID)
+  function aggregateTurnInternal(input: {
+    sessionID: SessionID
+    userMessageID: MessageID
+    assistants?: MessageID[]
+  }): Display | undefined {
+    const assistants = input.assistants ?? listAssistantsForUser(input.sessionID, input.userMessageID)
     if (!assistants.length) return
 
     const allRestore: RestoreRow[] = []
@@ -928,18 +932,71 @@ export namespace TurnChange {
         .orderBy(MessageTable.time_created, MessageTable.id)
         .all(),
     )
-    const files: AggregateFile[] = []
-    let count = 0
+    const activeUsers = new Set<MessageID>()
+    const activeAssistants: MessageID[] = []
+    const assistantOrder = new Map<MessageID, number>()
     for (const row of messages) {
-      const data = row.data as { role?: string } | undefined
-      if (data?.role !== "user") continue
-      if (cutoff && row.id >= cutoff) continue
-      const aggregate = aggregateTurnUnionInternal({ sessionID: input.sessionID, userMessageID: row.id })
-      if (aggregate.kind === "captured" || aggregate.kind === "mixed") files.push(...aggregate.files)
-      if (aggregate.kind === "uncaptured" || aggregate.kind === "mixed") count += aggregate.count
+      const data = row.data as { role?: string; parentID?: MessageID } | undefined
+      if (data?.role === "user" && (!cutoff || row.id < cutoff)) activeUsers.add(row.id)
     }
-    if (files.length && count > 0) return { kind: "mixed", sessionID: input.sessionID, files, count }
-    if (files.length) return { kind: "captured", sessionID: input.sessionID, files }
+    for (const row of messages) {
+      const data = row.data as { role?: string; parentID?: MessageID } | undefined
+      if (data?.role !== "assistant") continue
+      if (!data.parentID || !activeUsers.has(data.parentID)) continue
+      assistantOrder.set(row.id, activeAssistants.length)
+      activeAssistants.push(row.id)
+    }
+    const activeAssistantSet = new Set(activeAssistants)
+    const displayRows = Database.use((db) =>
+      db.select().from(TurnChangeDisplayTable).where(eq(TurnChangeDisplayTable.session_id, input.sessionID)).all(),
+    ) as Array<{ message_id: MessageID; data: Display; state: RestoreState }>
+    const displayByMessage = new Map<MessageID, { data: Display; state: RestoreState }>()
+    let truncatedCount = 0
+    for (const row of displayRows) {
+      if (!activeAssistantSet.has(row.message_id)) continue
+      displayByMessage.set(row.message_id, { data: row.data, state: row.state })
+      if (row.data.truncated) truncatedCount += row.data.omittedCount ?? 0
+    }
+    const restoreRows = (
+      Database.use((db) =>
+        db.select().from(TurnChangeRestoreTable).where(eq(TurnChangeRestoreTable.session_id, input.sessionID)).all(),
+      ) as RestoreTableRow[]
+    )
+      .filter((row): row is RestoreRow => activeAssistantSet.has(row.message_id) && !isOverflow(row.data))
+      .sort((a, b) => {
+        const orderA = assistantOrder.get(a.message_id) ?? 0
+        const orderB = assistantOrder.get(b.message_id) ?? 0
+        return orderA === orderB ? a.position - b.position : orderA - orderB
+      })
+    const restoreStateByPath = new Map<string, RestoreState>()
+    for (const row of restoreRows) {
+      restoreStateByPath.set(row.data.path, displayByMessage.get(row.message_id)?.state ?? "redo_invalidated")
+    }
+    const files = disambiguateAggregatedRestoreFiles(collapseRestoreFiles(restoreRows))
+      .map((file) => {
+        const display = toDisplay(file)
+        if (!display) return
+        return {
+          ...display,
+          openPath: file.path,
+          restoreState: restoreStateByPath.get(file.path) ?? "redo_invalidated",
+        }
+      })
+      .filter(Boolean) as AggregateFile[]
+    let count = 0
+    const uncapturedRows = Database.use((db) =>
+      db
+        .select()
+        .from(TurnChangeUncapturedTable)
+        .where(eq(TurnChangeUncapturedTable.session_id, input.sessionID))
+        .all(),
+    ) as Array<{ message_id: MessageID; count: number }>
+    for (const row of uncapturedRows) {
+      if (activeAssistantSet.has(row.message_id)) count += row.count
+    }
+    const truncated = truncatedCount > 0 ? { truncated: true, omittedCount: truncatedCount } : {}
+    if (files.length && count > 0) return { kind: "mixed", sessionID: input.sessionID, files, count, ...truncated }
+    if (files.length) return { kind: "captured", sessionID: input.sessionID, files, ...truncated }
     if (count > 0) return { kind: "uncaptured", sessionID: input.sessionID, count }
     return { kind: "empty", sessionID: input.sessionID }
   }

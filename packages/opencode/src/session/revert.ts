@@ -46,7 +46,14 @@ export const layer = Layer.effect(
       let currentFile: string | undefined
       for (const line of diff.split("\n")) {
         if (line.startsWith("diff --git ")) {
-          currentFile = line.split(" b/")[1]?.trim()
+          const marker = line.lastIndexOf(" b/")
+          currentFile =
+            marker === -1
+              ? undefined
+              : line
+                  .slice(marker + 3)
+                  .replace(/"$/, "")
+                  .trim()
           if (currentFile) files.add(currentFile)
           continue
         }

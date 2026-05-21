@@ -447,6 +447,49 @@ describe("TurnChange aggregate union", () => {
       },
     })
   })
+
+  test("aggregateSessionFromTurns collapses repeated paths across turns into one net diff", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "union-session-same-path" })
+        const firstUser = await makeUser(session.id, "union-session-same-path-first")
+        const firstAssistant = await makeAssistant(session.id, firstUser, "union-session-same-path-first")
+        const secondUser = await makeUser(session.id, "union-session-same-path-second")
+        const secondAssistant = await makeAssistant(session.id, secondUser, "union-session-same-path-second")
+        const target = path.join(fixture.path, "same.txt")
+
+        TurnChange.recordWrite({
+          sessionID: session.id,
+          messageID: firstAssistant,
+          path: target,
+          before: { exists: true, content: "one\n" },
+          after: { exists: true, content: "two\n" },
+        })
+        TurnChange.finalize({ sessionID: session.id, messageID: firstAssistant })
+        TurnChange.recordWrite({
+          sessionID: session.id,
+          messageID: secondAssistant,
+          path: target,
+          before: { exists: true, content: "two\n" },
+          after: { exists: true, content: "three\n" },
+        })
+        TurnChange.finalize({ sessionID: session.id, messageID: secondAssistant })
+
+        const result = TurnChange.aggregateSessionFromTurns({ sessionID: session.id })
+
+        expect(result).toMatchObject({ kind: "captured" })
+        if (result.kind !== "captured") return
+        expect(result.files).toHaveLength(1)
+        expect(result.files[0].path).toBe("same.txt")
+        expect(result.files[0].patch).toContain("-one")
+        expect(result.files[0].patch).toContain("+three")
+        expect(result.files[0].patch).not.toContain("+two")
+      },
+    })
+  })
 })
 
 describe("TurnChange.aggregateTurnUndo / aggregateTurnRedo", () => {
