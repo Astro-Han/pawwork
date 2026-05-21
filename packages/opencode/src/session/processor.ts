@@ -652,7 +652,12 @@ export const layer: Layer.Layer<
             })
           }
           if (value.type === "tool-input-start") {
-            ctx.runTrace.recordToolInputStarted({ attemptID: ctx.currentAttemptID, at: now, monotonicMs })
+            ctx.runTrace.recordToolInputStarted({
+              attemptID: ctx.currentAttemptID,
+              at: now,
+              monotonicMs,
+              providerExecuted: (value as { providerExecuted?: boolean }).providerExecuted,
+            })
           }
           if (value.type === "tool-input-end") {
             ctx.runTrace.recordToolInputCompleted({ attemptID: ctx.currentAttemptID, at: now, monotonicMs })

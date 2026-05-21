@@ -25,6 +25,7 @@ export type IncidentEvidenceSource =
 export type IncidentEvidenceEvent = {
   event_id: string
   order: number
+  omitted_events?: number
   monotonic_ms?: number
   source: IncidentEvidenceSource
   attempt_id?: AttemptID

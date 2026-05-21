@@ -1,7 +1,12 @@
 import type { IncidentFacts, RecoveryDecision, TerminalCause } from "./types"
 
-export function recoveryFor(input: { cause: TerminalCause; facts: IncidentFacts }): RecoveryDecision {
+export function recoveryFor(input: {
+  cause: TerminalCause
+  facts: IncidentFacts
+  terminalFacts?: IncidentFacts
+}): RecoveryDecision {
   const base = { safety_scope: "visible_output_and_tool_side_effects" as const }
+  const terminalFacts = input.terminalFacts ?? input.facts
   if (input.cause.category === "user_cancel") {
     return { ...base, recommendation: "do_not_retry", confidence: "high", reason: "user_cancel" }
   }
@@ -32,7 +37,7 @@ export function recoveryFor(input: { cause: TerminalCause; facts: IncidentFacts 
   if (input.facts.tool_execution_started) {
     return { ...base, recommendation: "ask_user_before_retry", confidence: "medium", reason: "tool_execution_started" }
   }
-  if (input.facts.tool_call_materialized) {
+  if (terminalFacts.tool_call_materialized) {
     return {
       ...base,
       recommendation: "offer_continue",
@@ -40,7 +45,7 @@ export function recoveryFor(input: { cause: TerminalCause; facts: IncidentFacts 
       reason: "tool_call_materialized_without_execution",
     }
   }
-  if (input.facts.tool_input_started && !input.facts.tool_input_completed) {
+  if (terminalFacts.tool_input_started && !terminalFacts.tool_input_completed) {
     return {
       ...base,
       recommendation: "offer_continue",
@@ -51,7 +56,7 @@ export function recoveryFor(input: { cause: TerminalCause; facts: IncidentFacts 
   if (input.facts.visible_output_seen) {
     return {
       ...base,
-      recommendation: "offer_continue",
+      recommendation: "ask_user_before_retry",
       confidence: "high",
       reason: "visible_output_without_tool_execution",
     }

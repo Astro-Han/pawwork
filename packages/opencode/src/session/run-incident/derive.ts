@@ -32,7 +32,8 @@ export function deriveIncident(input: DeriveIncidentInput): RunIncident | undefi
     .sort(compareTerminalEvents)[0]
   if (!terminal?.cause) return undefined
   const facts = factsFromEvidence(input)
-  const recovery = recoveryFor({ cause: terminal.cause, facts })
+  const terminalFacts = terminal.attempt_id ? factsFromEvidence(input, terminal.attempt_id) : facts
+  const recovery = recoveryFor({ cause: terminal.cause, facts, terminalFacts })
   const summary = userSummary({ cause: terminal.cause, recovery })
   const missingProvenance = input.missingProvenance ?? []
   return sanitizeIncident({
@@ -46,7 +47,7 @@ export function deriveIncident(input: DeriveIncidentInput): RunIncident | undefi
     created_at: input.createdAt,
     completed_at: input.completedAt,
     terminal_cause: terminal.cause,
-    phase: phaseFor({ facts, terminalAttemptID: terminal.attempt_id }),
+    phase: phaseFor({ facts: terminalFacts, terminalAttemptID: terminal.attempt_id }),
     facts,
     provenance: {
       ...(input.lifecycle
@@ -78,9 +79,10 @@ function compareTerminalEvents(left: IncidentEvidenceEvent, right: IncidentEvide
   return left.order - right.order
 }
 
-function factsFromEvidence(input: DeriveIncidentInput): IncidentFacts {
-  const has = (eventType: string) => input.evidence.some((event) => event.event_type === eventType)
-  const count = (eventType: string) => input.evidence.filter((event) => event.event_type === eventType).length
+function factsFromEvidence(input: DeriveIncidentInput, attemptID?: IncidentEvidenceEvent["attempt_id"]): IncidentFacts {
+  const scopedEvidence = attemptID ? input.evidence.filter((event) => event.attempt_id === attemptID) : input.evidence
+  const has = (eventType: string) => scopedEvidence.some((event) => event.event_type === eventType)
+  const count = (eventType: string) => scopedEvidence.filter((event) => event.event_type === eventType).length
   return {
     provider_progress_seen: has("provider_progress_seen"),
     visible_output_seen: has("visible_output_seen"),
@@ -93,7 +95,7 @@ function factsFromEvidence(input: DeriveIncidentInput): IncidentFacts {
     tool_execution_completed: has("tool_execution_completed"),
     read_only_tool_started: has("read_only_tool_started"),
     unsafe_side_effect_started: has("unsafe_side_effect_started"),
-    unsafe_side_effect_kinds: input.unsafeSideEffectKinds,
+    unsafe_side_effect_kinds: attemptID && !has("unsafe_side_effect_started") ? [] : input.unsafeSideEffectKinds,
     side_effect_facts_complete: input.sideEffectFactsComplete,
     lifecycle_close_seen: has("lifecycle_close_seen"),
     user_cancel_seen: has("user_cancel_seen"),
@@ -117,13 +119,15 @@ function phaseFor(input: {
           : "none"
   const streamPhase = input.facts.tool_call_materialized
     ? "after_tool_call"
-    : input.facts.tool_input_started
-      ? "tool_input_generation"
-      : input.facts.visible_output_seen
-        ? "text_generation"
-        : input.facts.provider_progress_seen
-          ? "before_first_provider_progress"
-          : "unknown"
+    : input.facts.tool_input_completed
+      ? "after_tool_input_end"
+      : input.facts.tool_input_started
+        ? "tool_input_generation"
+        : input.facts.visible_output_seen
+          ? "text_generation"
+          : input.facts.provider_progress_seen
+            ? "before_first_provider_progress"
+            : "unknown"
   const runPhase = input.facts.tool_execution_started
     ? "tool_execution"
     : input.facts.tool_input_started || input.facts.tool_call_materialized
@@ -153,11 +157,13 @@ export function transportCause(input: {
     subcategory:
       input.toolInputStarted && !input.toolInputCompleted && !input.toolCallMaterialized
         ? "during_tool_input_generation"
-        : input.toolCallMaterialized
-          ? "after_tool_call_before_execution"
-          : input.providerProgressSeen
-            ? "during_text_generation"
-            : "before_first_provider_progress",
+        : input.toolInputCompleted && !input.toolCallMaterialized
+          ? "unknown_stream_phase"
+          : input.toolCallMaterialized
+            ? "after_tool_call_before_execution"
+            : input.providerProgressSeen
+              ? "during_text_generation"
+              : "before_first_provider_progress",
     boundary,
     error,
     confidence: boundary === "sdk_transport" ? "high" : "medium",

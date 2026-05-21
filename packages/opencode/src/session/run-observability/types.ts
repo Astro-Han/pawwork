@@ -149,9 +149,13 @@ export type Recorder = {
     monotonicMs: number
     kind?: "text" | "reasoning"
   }): void
-  recordToolInputStarted(input: { attemptID: AttemptID; at: number; monotonicMs: number }): void
+  recordToolInputStarted(input: {
+    attemptID: AttemptID
+    at: number
+    monotonicMs: number
+    providerExecuted?: boolean
+  }): void
   recordToolInputCompleted(input: { attemptID: AttemptID; at: number; monotonicMs: number }): void
-  recordToolCall(input: { attemptID: AttemptID; at: number; monotonicMs: number }): void
   recordToolCallMaterialized(input: { attemptID: AttemptID; at: number; monotonicMs: number }): void
   recordToolExecutionStarted(input: {
     attemptID: AttemptID

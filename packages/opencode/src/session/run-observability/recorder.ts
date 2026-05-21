@@ -137,6 +137,7 @@ export function createRecorder(input: RecorderInput): Recorder {
     },
     recordToolInputStarted(next) {
       toolInputStarted = true
+      if (next.providerExecuted) sideEffectFactsComplete = false
       updateAttempt(next.attemptID, (attempt) => {
         attempt.tool_input_started = true
         attempt.lastMonotonicMs = Math.max(attempt.lastMonotonicMs, next.monotonicMs)
@@ -149,6 +150,16 @@ export function createRecorder(input: RecorderInput): Recorder {
         terminal_candidate: false,
         confidence: "high",
       })
+      if (next.providerExecuted) {
+        appendEvidence({
+          monotonic_ms: next.monotonicMs,
+          source: "provider_stream",
+          attempt_id: next.attemptID,
+          event_type: "provider_executed_tool_boundary",
+          terminal_candidate: false,
+          confidence: "medium",
+        })
+      }
       rememberEvent(next.monotonicMs)
     },
     recordToolInputCompleted(next) {
@@ -162,22 +173,6 @@ export function createRecorder(input: RecorderInput): Recorder {
         source: "provider_stream",
         attempt_id: next.attemptID,
         event_type: "tool_input_completed",
-        terminal_candidate: false,
-        confidence: "high",
-      })
-      rememberEvent(next.monotonicMs)
-    },
-    recordToolCall(next) {
-      toolInputStarted = true
-      updateAttempt(next.attemptID, (attempt) => {
-        attempt.tool_input_started = true
-        attempt.lastMonotonicMs = Math.max(attempt.lastMonotonicMs, next.monotonicMs)
-      })
-      appendEvidence({
-        monotonic_ms: next.monotonicMs,
-        source: "provider_stream",
-        attempt_id: next.attemptID,
-        event_type: "tool_input_started",
         terminal_candidate: false,
         confidence: "high",
       })
@@ -265,7 +260,7 @@ export function createRecorder(input: RecorderInput): Recorder {
       rememberEvent(next.monotonicMs)
     },
     recordToolFailed(next) {
-      failure = {
+      failure ??= {
         type: "tool",
         at: next.at,
         monotonicMs: next.monotonicMs,
@@ -286,7 +281,7 @@ export function createRecorder(input: RecorderInput): Recorder {
       rememberEvent(next.monotonicMs)
     },
     recordToolInterrupted(next) {
-      failure = { type: "tool", at: next.at, monotonicMs: next.monotonicMs, attemptID: next.attemptID }
+      failure ??= { type: "tool", at: next.at, monotonicMs: next.monotonicMs, attemptID: next.attemptID }
       appendEvidence({
         monotonic_ms: next.monotonicMs,
         source: "tool_runner",
@@ -313,7 +308,7 @@ export function createRecorder(input: RecorderInput): Recorder {
     },
     recordTransportFailure(next) {
       const error = safeErrorFingerprint(next.error)
-      failure = {
+      failure ??= {
         type: "transport",
         at: next.at,
         monotonicMs: next.monotonicMs,
@@ -331,16 +326,16 @@ export function createRecorder(input: RecorderInput): Recorder {
         error,
         cause: RunIncident.transportCause({
           error,
-          providerProgressSeen,
-          toolInputStarted,
-          toolInputCompleted,
-          toolCallMaterialized,
+          providerProgressSeen: getAttempt(next.attemptID)?.provider_progress_seen ?? providerProgressSeen,
+          toolInputStarted: getAttempt(next.attemptID)?.tool_input_started ?? toolInputStarted,
+          toolInputCompleted: getAttempt(next.attemptID)?.tool_input_completed ?? toolInputCompleted,
+          toolCallMaterialized: getAttempt(next.attemptID)?.tool_call_materialized ?? toolCallMaterialized,
         }),
       })
       rememberEvent(next.monotonicMs)
     },
     recordSetupFailure(next) {
-      failure = { type: "setup", at: next.at, monotonicMs: next.monotonicMs, error: next.error }
+      failure ??= { type: "setup", at: next.at, monotonicMs: next.monotonicMs, error: next.error }
       const error = safeErrorFingerprint(next.error)
       appendEvidence({
         monotonic_ms: next.monotonicMs,
@@ -354,7 +349,7 @@ export function createRecorder(input: RecorderInput): Recorder {
       rememberEvent(next.monotonicMs)
     },
     recordScopeClosed(next) {
-      failure = {
+      failure ??= {
         type: "scope_closed",
         at: next.at,
         monotonicMs: next.monotonicMs,
