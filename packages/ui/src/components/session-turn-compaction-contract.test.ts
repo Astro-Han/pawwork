@@ -32,8 +32,10 @@ test("every prior derivation now reads visibleAssistantMessages — leaks would 
   expect(visibleCalls?.length ?? 0).toBeGreaterThanOrEqual(7)
 })
 
-test("divider state machine reads from session-turn-compaction helpers", () => {
-  expect(turn).toContain("compactionDividerState({ summaryAssistant: compactionSummary() })")
+test("divider state machine reads from session-turn-compaction helpers and passes hasLaterTurn", () => {
+  // hasLaterTurn disambiguates "no summary yet" between the live race window
+  // and legacy orphans (pre-PR pre-summary failures left no placeholder).
+  expect(turn).toContain("compactionDividerState({ summaryAssistant: compactionSummary(), hasLaterTurn })")
   expect(turn).toContain("compactionDividerLabelKey({ state, error: summary?.error })")
 })
 

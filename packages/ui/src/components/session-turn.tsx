@@ -303,7 +303,10 @@ export function SessionTurn(
   )
   const compactionDivider = createMemo<CompactionDividerState | undefined>(() => {
     if (!compaction()) return undefined
-    return compactionDividerState({ summaryAssistant: compactionSummary() })
+    const messages = allMessages() ?? emptyMessages
+    const myIdx = messageIndex()
+    const hasLaterTurn = myIdx >= 0 && myIdx < messages.length - 1
+    return compactionDividerState({ summaryAssistant: compactionSummary(), hasLaterTurn })
   })
   const compactionLabel = createMemo(() => {
     const state = compactionDivider()
