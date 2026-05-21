@@ -102,6 +102,7 @@ export function createSessionScrollDock(input: {
     dockKind: "composer" | "question" | "permission" | "todo" | "followup" | "revert" | "prompt"
     composerHeight: number
     previousComposerHeight: number
+    layoutTransactionHandled?: boolean
     scrollTop?: number
     distanceFromBottom?: number
   }) => void
@@ -306,6 +307,7 @@ export function createSessionScrollDock(input: {
     const dockKind = promptDockKind()
     const scrollTop = scroller?.scrollTop
     const distanceFromBottom = scroller ? scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop : undefined
+    let layoutTransactionHandled = false
     const stickToBottom = scroller
       ? shouldStickToBottomAfterDockResize({
           el: scroller,
@@ -331,6 +333,7 @@ export function createSessionScrollDock(input: {
     }
 
     if (input.runLayoutTransaction && scroller && next !== previousDockHeight) {
+      layoutTransactionHandled = true
       input.runLayoutTransaction({
         kind: "dock-resize",
         source: "use-session-scroll-dock/updateDockHeight",
@@ -357,6 +360,7 @@ export function createSessionScrollDock(input: {
           dockKind,
           composerHeight: dockHeight,
           previousComposerHeight: previousDockHeight,
+          layoutTransactionHandled: layoutTransactionHandled || undefined,
           scrollTop,
           distanceFromBottom,
         })

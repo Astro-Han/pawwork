@@ -211,6 +211,7 @@ export function createSessionTimelineInteraction(input: {
           previousDockHeight: event.previousComposerHeight,
           nextDockHeight: event.composerHeight,
           metrics: collectTimelineScrollMetrics(viewport),
+          layoutTransactionHandled: event.layoutTransactionHandled,
         })
       }
       void emitRendererDiagnostic({
@@ -377,6 +378,8 @@ export function createSessionTimelineInteraction(input: {
     if (
       shouldApplyTimelineRecoveryForObservation({
         layoutTransactionActive: layoutTransactionState.active,
+        layoutTransactionHandled:
+          "layoutTransactionHandled" in observation ? observation.layoutTransactionHandled : undefined,
         observationType: observation.type,
       })
     ) {

@@ -17,6 +17,16 @@ describe("session timeline interaction layout recovery", () => {
     ).toBe(false)
   })
 
+  test("skips dock resize recovery after an immediate transaction restore has already settled", () => {
+    expect(
+      shouldApplyTimelineRecoveryForObservation({
+        layoutTransactionActive: false,
+        layoutTransactionHandled: true,
+        observationType: "dock_resize",
+      }),
+    ).toBe(false)
+  })
+
   test("keeps non-transaction and non-resize recovery paths active", () => {
     expect(
       shouldApplyTimelineRecoveryForObservation({
