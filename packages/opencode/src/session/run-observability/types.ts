@@ -77,6 +77,7 @@ export type AttemptSummary = {
   tool_input_completed: boolean
   tool_call_materialized: boolean
   tool_execution_started: boolean
+  tool_execution_completed: boolean
   unsafe_side_effect_started: boolean
 }
 

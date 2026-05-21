@@ -46,6 +46,7 @@ export function deriveIncident(input: DeriveIncidentInput): RunIncident | undefi
   if (!terminal?.cause) return undefined
   const facts = factsFromEvidence(input)
   const terminalFacts = terminal.attempt_id ? factsFromEvidence(input, terminal.attempt_id) : facts
+  const terminalPhaseFacts = factsFromEvidence(input, terminal.attempt_id, terminal)
   const recovery = recoveryFor({ cause: terminal.cause, facts, terminalFacts })
   const summary = userSummary({ cause: terminal.cause, recovery })
   const missingProvenance = [...(input.missingProvenance ?? []), ...diagnosticGaps(input, terminal, facts)]
@@ -60,7 +61,7 @@ export function deriveIncident(input: DeriveIncidentInput): RunIncident | undefi
     created_at: input.createdAt,
     completed_at: input.completedAt,
     terminal_cause: terminal.cause,
-    phase: phaseFor({ facts: terminalFacts, terminalAttemptID: terminal.attempt_id }),
+    phase: phaseFor({ facts: terminalPhaseFacts, terminalAttemptID: terminal.attempt_id }),
     facts,
     provenance: {
       ...(input.lifecycle
@@ -101,6 +102,8 @@ function diagnosticGaps(
   if (input.lifecycle?.origin?.source === "server_handler" && !input.lifecycle.request)
     gaps.push("lifecycle.request_context_missing")
   if (facts.tool_execution_started && !facts.tool_call_materialized) gaps.push("tool.materialization_missing")
+  if (facts.tool_execution_completed && !facts.tool_execution_started) gaps.push("tool_execution.start_missing")
+  if (facts.tool_execution_completed && !facts.tool_call_materialized) gaps.push("tool.materialization_missing")
   if (facts.tool_input_completed && !facts.tool_input_started) gaps.push("tool_input.start_missing")
   return Array.from(new Set(gaps))
 }
@@ -112,8 +115,16 @@ function compareTerminalEvents(left: IncidentEvidenceEvent, right: IncidentEvide
   return left.order - right.order
 }
 
-function factsFromEvidence(input: DeriveIncidentInput, attemptID?: IncidentEvidenceEvent["attempt_id"]): IncidentFacts {
-  const scopedEvidence = attemptID ? input.evidence.filter((event) => event.attempt_id === attemptID) : input.evidence
+function factsFromEvidence(
+  input: DeriveIncidentInput,
+  attemptID?: IncidentEvidenceEvent["attempt_id"],
+  terminal?: IncidentEvidenceEvent,
+): IncidentFacts {
+  const scopedEvidence = input.evidence.filter((event) => {
+    if (attemptID && event.attempt_id !== attemptID) return false
+    if (!terminal) return true
+    return evidenceAtOrBefore(event, terminal)
+  })
   const materializedToolBoundary = summarizeMaterializedToolBoundaries(input.materializedToolBoundaries, attemptID)
   const has = (eventType: string) => scopedEvidence.some((event) => event.event_type === eventType)
   const count = (eventType: string) => scopedEvidence.filter((event) => event.event_type === eventType).length
@@ -142,6 +153,15 @@ function factsFromEvidence(input: DeriveIncidentInput, attemptID?: IncidentEvide
   }
 }
 
+function evidenceAtOrBefore(event: IncidentEvidenceEvent, terminal: IncidentEvidenceEvent) {
+  if (event.monotonic_ms !== undefined && terminal.monotonic_ms !== undefined) {
+    if (event.monotonic_ms < terminal.monotonic_ms) return true
+    if (event.monotonic_ms > terminal.monotonic_ms) return false
+    return event.order <= terminal.order
+  }
+  return event.order <= terminal.order
+}
+
 function summarizeMaterializedToolBoundaries(
   boundaries: MaterializedToolBoundary[] | undefined,
   attemptID?: IncidentEvidenceEvent["attempt_id"],
@@ -159,15 +179,18 @@ function phaseFor(input: {
   facts: IncidentFacts
   terminalAttemptID?: IncidentEvidenceEvent["attempt_id"]
 }): RunIncident["phase"] {
-  const toolPhase = input.facts.tool_execution_started
-    ? "tool_execution_started"
-    : input.facts.tool_call_materialized
-      ? "tool_call_materialized"
-      : input.facts.tool_input_completed
-        ? "tool_input_completed"
-        : input.facts.tool_input_started
-          ? "tool_input_started"
-          : "none"
+  const validToolExecutionCompleted = input.facts.tool_execution_completed && input.facts.tool_execution_started
+  const toolPhase = validToolExecutionCompleted
+    ? "tool_execution_completed"
+    : input.facts.tool_execution_started
+      ? "tool_execution_started"
+      : input.facts.tool_call_materialized
+        ? "tool_call_materialized"
+        : input.facts.tool_input_completed
+          ? "tool_input_completed"
+          : input.facts.tool_input_started
+            ? "tool_input_started"
+            : "none"
   const streamPhase = input.facts.tool_call_materialized
     ? "after_tool_call"
     : input.facts.tool_input_completed
@@ -179,13 +202,15 @@ function phaseFor(input: {
           : input.facts.visible_output_seen || input.facts.provider_progress_seen
             ? "text_generation"
             : "before_first_provider_progress"
-  const runPhase = input.facts.tool_execution_started
-    ? "tool_execution"
-    : input.facts.tool_input_started || input.facts.tool_call_materialized
-      ? "tool_generation"
-      : input.facts.provider_progress_seen || input.facts.visible_output_seen
-        ? "streaming"
-        : "unknown"
+  const runPhase = validToolExecutionCompleted
+    ? "post_tool"
+    : input.facts.tool_execution_started
+      ? "tool_execution"
+      : input.facts.tool_input_started || input.facts.tool_call_materialized
+        ? "tool_generation"
+        : input.facts.provider_progress_seen || input.facts.visible_output_seen
+          ? "streaming"
+          : "unknown"
   return {
     run_phase: runPhase,
     stream_phase: streamPhase,
@@ -200,6 +225,8 @@ export function transportCause(input: {
   toolInputStarted: boolean
   toolInputCompleted: boolean
   toolCallMaterialized: boolean
+  toolExecutionStarted: boolean
+  toolExecutionCompleted: boolean
 }): Extract<TerminalCause, { category: "provider_transport_disconnect" }> {
   const error = input.error
   const boundary = error?.cause_code === "UND_ERR_SOCKET" ? "sdk_transport" : "unknown"
@@ -210,11 +237,17 @@ export function transportCause(input: {
         ? "during_tool_input_generation"
         : input.toolInputCompleted && !input.toolCallMaterialized
           ? "unknown_stream_phase"
-          : input.toolCallMaterialized
-            ? "after_tool_call_before_execution"
-            : input.providerProgressSeen
-              ? "during_text_generation"
-              : "before_first_provider_progress",
+          : input.toolExecutionCompleted && (!input.toolExecutionStarted || !input.toolCallMaterialized)
+            ? "unknown_stream_phase"
+            : input.toolExecutionCompleted && input.toolExecutionStarted && input.toolCallMaterialized
+              ? "after_tool_result"
+              : input.toolExecutionStarted
+                ? "unknown_stream_phase"
+                : input.toolCallMaterialized
+                  ? "after_tool_call_before_execution"
+                  : input.providerProgressSeen
+                    ? "during_text_generation"
+                    : "before_first_provider_progress",
     boundary,
     error,
     confidence: boundary === "sdk_transport" ? "high" : "medium",
