@@ -973,16 +973,22 @@ export namespace TurnChange {
     const activeAssistants: MessageID[] = []
     const assistantOrder = new Map<MessageID, number>()
     const cutoffIndex = cutoff ? messages.findIndex((row) => row.id === cutoff) : -1
+    const cutoffRow = cutoffIndex >= 0 ? messages[cutoffIndex] : undefined
+    const cutoffData = cutoffRow?.data as { role?: string; parentID?: MessageID } | undefined
     const beforeCutoff = (index: number) =>
       !cutoff || cutoffIndex < 0 || (revert?.partID ? index <= cutoffIndex : index < cutoffIndex)
     for (const [index, row] of messages.entries()) {
       const data = row.data as { role?: string; parentID?: MessageID } | undefined
-      if (data?.role === "user" && beforeCutoff(index)) activeUsers.add(row.id)
+      const parentOfPartCutoffAssistant =
+        revert?.partID && cutoffData?.role === "assistant" && row.id === cutoffData.parentID
+      if (data?.role === "user" && (beforeCutoff(index) || parentOfPartCutoffAssistant)) activeUsers.add(row.id)
     }
     for (const [index, row] of messages.entries()) {
       const data = row.data as { role?: string; parentID?: MessageID } | undefined
       if (data?.role !== "assistant") continue
-      if (!beforeCutoff(index)) continue
+      const withinPartCutoffUserTurn = revert?.partID && cutoffData?.role === "user" && data.parentID === cutoff
+      const isPartCutoffAssistant = revert?.partID && row.id === cutoff
+      if (!beforeCutoff(index) && !withinPartCutoffUserTurn && !isPartCutoffAssistant) continue
       if (!data.parentID || !activeUsers.has(data.parentID)) continue
       assistantOrder.set(row.id, activeAssistants.length)
       activeAssistants.push(row.id)
