@@ -45,8 +45,6 @@ export function createSessionTimelineInteraction(input: {
   let historyBackfill: ReturnType<typeof createSessionHistoryBackfill> | undefined
   let historyWindow!: ReturnType<typeof createSessionHistoryWindow>
   let recoveryFrame: number | undefined
-  let activeTransactionRestoreLatest: ((transactionID: string) => boolean) | undefined
-  let activeTransactionStickToBottom = false
   const [layoutTransactionState, setLayoutTransactionState] = createStore({
     active: false,
     transactionID: undefined as string | undefined,
@@ -90,7 +88,7 @@ export function createSessionTimelineInteraction(input: {
   const layoutTransactionCoordinator = createTimelineLayoutTransactionCoordinator({
     scheduleFrame: (callback) => requestAnimationFrame(callback),
     cancelFrame: (handle) => cancelAnimationFrame(handle),
-    readMode: () => (activeTransactionStickToBottom ? "following_latest" : scrollController.state().mode),
+    readMode: () => scrollController.state().mode,
     sampleAnchor: () => {
       const viewport = scrollDock.scroller()
       const controllerState = scrollController.state()
@@ -121,17 +119,18 @@ export function createSessionTimelineInteraction(input: {
       if (restored.ok && viewport) scrollDock.scheduleScrollState(viewport)
       return restored.ok
     },
-    restoreLatest: (transactionID) => activeTransactionRestoreLatest?.(transactionID) ?? false,
+    restoreLatest: () => false,
     setStableBandActive: (active) => {
       if (!active) setLayoutTransactionState({ active: false, transactionID: undefined, kind: undefined })
     },
+    setTransactionState: (state) => {
+      if (state.active) {
+        setLayoutTransactionState({ active: true, transactionID: state.transactionID, kind: state.kind })
+        return
+      }
+      setLayoutTransactionState({ active: false, transactionID: undefined, kind: undefined })
+    },
     emitDiagnostic: (event) => {
-      if (event.phase === "start") {
-        setLayoutTransactionState({ active: true, transactionID: event.transactionID, kind: event.kind })
-      }
-      if (event.phase === "settled" || event.phase === "violation") {
-        setLayoutTransactionState({ active: false, transactionID: undefined, kind: undefined })
-      }
       void emitRendererDiagnostic({
         name: "session.timeline.layout_transaction",
         route_session_id: input.routeSessionID(),
@@ -226,19 +225,14 @@ export function createSessionTimelineInteraction(input: {
       })
     },
     runLayoutTransaction: (event) => {
-      activeTransactionRestoreLatest = event.restoreLatest
-      activeTransactionStickToBottom = event.stickToBottom
-      try {
-        layoutTransactionCoordinator.run({
-          kind: event.kind,
-          source: event.source,
-          reason: event.reason,
-          mutate: event.mutate,
-        })
-      } finally {
-        activeTransactionRestoreLatest = undefined
-        activeTransactionStickToBottom = false
-      }
+      layoutTransactionCoordinator.run({
+        kind: event.kind,
+        source: event.source,
+        reason: event.reason,
+        mode: event.stickToBottom ? "following_latest" : undefined,
+        mutate: event.mutate,
+        restoreLatest: event.restoreLatest,
+      })
     },
   })
   const autoScroll = scrollDock.autoScroll
