@@ -27,6 +27,7 @@ import { safeToolFailureMetadata } from "./tool-failure"
 import { LLMTrace } from "./llm-trace"
 import { safeErrorFingerprint, safeProviderCorrelation } from "./llm-trace/stream-diagnostics"
 import { RunObservability } from "./run-observability"
+import { RunIncident } from "./run-incident"
 
 export function getRuntimeNamespace(): "pawwork" | "opencode" {
   return Runtime.isPawWork() ? "pawwork" : "opencode"
@@ -158,6 +159,8 @@ export namespace Export {
       llm_traces?: LLMTrace.Summary[]
       run_observability_schema_version?: typeof RunObservability.SCHEMA_VERSION
       run_observability?: RunObservability.Summary[]
+      run_incident_schema_version?: typeof RunIncident.SCHEMA_VERSION
+      run_incidents?: RunIncident.Summary[]
       aborts?: Array<{
         session_id: SessionID
         message_id: MessageID
@@ -210,6 +213,8 @@ export namespace Export {
     llm_traces?: LLMTrace.Summary[]
     run_observability_schema_version?: typeof RunObservability.SCHEMA_VERSION
     run_observability?: RunObservability.Summary[]
+    run_incident_schema_version?: typeof RunIncident.SCHEMA_VERSION
+    run_incidents?: RunIncident.Summary[]
     aborts?: Array<{
       session_id: SessionID
       message_id: MessageID
@@ -295,6 +300,7 @@ export namespace Export {
     walk(node)
     const llm_traces = collectLLMTraces(node)
     const run_observability = collectRunObservability(node)
+    const run_incidents = collectRunIncidents(node)
     const aborts = collectAbortDiagnostics(node)
     const title_generations = collectTitleGenerations(node)
     return {
@@ -303,6 +309,7 @@ export namespace Export {
       ...(run_observability.length
         ? { run_observability_schema_version: RunObservability.SCHEMA_VERSION, run_observability }
         : {}),
+      ...(run_incidents.length ? { run_incident_schema_version: RunIncident.SCHEMA_VERSION, run_incidents } : {}),
       ...(aborts.length ? { aborts } : {}),
       ...(title_generations.length ? { title_generations } : {}),
     }
@@ -337,6 +344,23 @@ export namespace Export {
     }
     walk(node)
     return traces.sort((a, b) => {
+      if (a.session_id !== b.session_id) return a.session_id.localeCompare(b.session_id)
+      return a.message_id.localeCompare(b.message_id)
+    })
+  }
+
+  function collectRunIncidents(node: Tree) {
+    const incidents: RunIncident.Summary[] = []
+    const walk = (t: Tree) => {
+      for (const message of t.messages ?? []) {
+        if (message.info.role !== "assistant") continue
+        const incident = message.info.diagnostics?.run_observability?.incident
+        if (incident) incidents.push(incident)
+      }
+      for (const child of t.children ?? []) walk(child)
+    }
+    walk(node)
+    return incidents.sort((a, b) => {
       if (a.session_id !== b.session_id) return a.session_id.localeCompare(b.session_id)
       return a.message_id.localeCompare(b.message_id)
     })
@@ -1028,12 +1052,21 @@ export namespace Export {
       })),
       llm_traces: diagnostics.llm_traces?.map(sanitizeLLMTrace),
       run_observability: diagnostics.run_observability?.map(sanitizeRunObservability),
+      run_incident_schema_version:
+        diagnostics.run_incident_schema_version ??
+        (diagnostics.run_incidents?.length || diagnostics.run_observability?.some((summary) => summary.incident)
+          ? RunIncident.SCHEMA_VERSION
+          : undefined),
+      run_incidents: (
+        diagnostics.run_incidents ?? diagnostics.run_observability?.flatMap((summary) => summary.incident ?? [])
+      )?.map(RunIncident.sanitize),
     }
   }
 
   function sanitizeRunObservability(summary: RunObservability.Summary): RunObservability.Summary {
     return {
       ...summary,
+      incident: summary.incident ? RunIncident.sanitize(summary.incident) : undefined,
       error: summary.error,
     }
   }

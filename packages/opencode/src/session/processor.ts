@@ -640,11 +640,25 @@ export const layer: Layer.Layer<
           if (RunObservability.isProviderProgressEvent(value)) {
             ctx.runTrace.recordProviderProgress({ attemptID: ctx.currentAttemptID, at: now, monotonicMs })
           }
-          if (value.type === "text-start" || value.type === "text-delta" || value.type === "reasoning-start") {
-            ctx.runTrace.recordVisibleOutput({ attemptID: ctx.currentAttemptID, at: now, monotonicMs })
+          if (value.type === "text-start" || value.type === "text-delta") {
+            ctx.runTrace.recordVisibleOutput({ attemptID: ctx.currentAttemptID, at: now, monotonicMs, kind: "text" })
           }
-          if (value.type === "tool-input-start" || value.type === "tool-call") {
-            ctx.runTrace.recordToolCall({ attemptID: ctx.currentAttemptID, at: now, monotonicMs })
+          if (value.type === "reasoning-start") {
+            ctx.runTrace.recordVisibleOutput({
+              attemptID: ctx.currentAttemptID,
+              at: now,
+              monotonicMs,
+              kind: "reasoning",
+            })
+          }
+          if (value.type === "tool-input-start") {
+            ctx.runTrace.recordToolInputStarted({ attemptID: ctx.currentAttemptID, at: now, monotonicMs })
+          }
+          if (value.type === "tool-input-end") {
+            ctx.runTrace.recordToolInputCompleted({ attemptID: ctx.currentAttemptID, at: now, monotonicMs })
+          }
+          if (value.type === "tool-call") {
+            ctx.runTrace.recordToolCallMaterialized({ attemptID: ctx.currentAttemptID, at: now, monotonicMs })
           }
         }
         switch (value.type) {
@@ -963,11 +977,19 @@ export const layer: Layer.Layer<
             },
           })
           if (ctx.currentAttemptID) {
-            ctx.runTrace.recordToolInterrupted({
-              attemptID: ctx.currentAttemptID,
-              at: end,
-              monotonicMs: performance.now(),
-            })
+            if (part.state.status === "running") {
+              ctx.runTrace.recordToolInterrupted({
+                attemptID: ctx.currentAttemptID,
+                at: end,
+                monotonicMs: performance.now(),
+              })
+            } else {
+              ctx.runTrace.recordPendingToolPartInterrupted({
+                attemptID: ctx.currentAttemptID,
+                at: end,
+                monotonicMs: performance.now(),
+              })
+            }
           }
         }
         ctx.toolcalls = {}

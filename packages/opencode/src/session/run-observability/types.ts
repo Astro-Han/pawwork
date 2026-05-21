@@ -1,5 +1,6 @@
 import { MessageID, SessionID } from "../schema"
 import z from "zod"
+import type { RunIncident } from "../run-incident"
 
 export const SCHEMA_VERSION = 1
 
@@ -50,7 +51,11 @@ export type SafeErrorFingerprint = {
   cause_code?: string
 }
 
-export type LifecycleKind = "instance_reload" | "instance_dispose" | "instance_dispose_directory" | "instance_dispose_all"
+export type LifecycleKind =
+  | "instance_reload"
+  | "instance_dispose"
+  | "instance_dispose_directory"
+  | "instance_dispose_all"
 
 export type ToolEffectKind = "read_only" | "local_file_write" | "local_process" | "unknown"
 export type ToolEffect = {
@@ -67,6 +72,9 @@ export type AttemptSummary = {
   provider_progress_seen: boolean
   visible_output_seen: boolean
   tool_call_seen: boolean
+  tool_input_started: boolean
+  tool_input_completed: boolean
+  tool_call_materialized: boolean
   tool_execution_started: boolean
   unsafe_side_effect_started: boolean
 }
@@ -90,11 +98,16 @@ export type Summary = {
   provider_progress_seen: boolean
   visible_output_seen: boolean
   tool_call_seen: boolean
+  tool_input_started: boolean
+  tool_input_completed: boolean
+  tool_call_materialized: boolean
   tool_execution_started: boolean
   read_only_tool_started: boolean
   unsafe_side_effect_started: boolean
   unsafe_side_effect_kinds: ToolEffectKind[]
   side_effect_facts_complete: boolean
+  pending_tool_parts_interrupted?: number
+  incident?: RunIncident.Summary
   lifecycle?: {
     action_id: string
     kind: LifecycleKind
@@ -130,8 +143,16 @@ export type BeginAttemptInput = {
 export type Recorder = {
   beginAttempt(input: BeginAttemptInput): { attemptID: AttemptID }
   recordProviderProgress(input: { attemptID: AttemptID; at: number; monotonicMs: number }): void
-  recordVisibleOutput(input: { attemptID: AttemptID; at: number; monotonicMs: number }): void
+  recordVisibleOutput(input: {
+    attemptID: AttemptID
+    at: number
+    monotonicMs: number
+    kind?: "text" | "reasoning"
+  }): void
+  recordToolInputStarted(input: { attemptID: AttemptID; at: number; monotonicMs: number }): void
+  recordToolInputCompleted(input: { attemptID: AttemptID; at: number; monotonicMs: number }): void
   recordToolCall(input: { attemptID: AttemptID; at: number; monotonicMs: number }): void
+  recordToolCallMaterialized(input: { attemptID: AttemptID; at: number; monotonicMs: number }): void
   recordToolExecutionStarted(input: {
     attemptID: AttemptID
     at: number
@@ -142,6 +163,7 @@ export type Recorder = {
   recordToolCompleted(input: { attemptID: AttemptID; at: number; monotonicMs: number }): void
   recordToolFailed(input: { attemptID: AttemptID; at: number; monotonicMs: number; error?: unknown }): void
   recordToolInterrupted(input: { attemptID: AttemptID; at: number; monotonicMs: number }): void
+  recordPendingToolPartInterrupted(input: { attemptID: AttemptID; at: number; monotonicMs: number }): void
   recordTransportFailure(input: {
     attemptID?: AttemptID
     at: number

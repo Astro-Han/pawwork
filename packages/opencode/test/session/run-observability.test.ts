@@ -181,6 +181,136 @@ describe("RunObservability", () => {
     expect(summary.durations_ms.last_event_to_failure).toBe(130)
   })
 
+  test("derives provider transport incident during partial tool input instead of tool failure", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_partial_tool_input_disconnect"),
+      traceID: MessageID.make("msg_partial_tool_input_disconnect"),
+      sessionID: SessionID.make("ses_partial_tool_input_disconnect"),
+      messageID: MessageID.make("msg_partial_tool_input_disconnect"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordProviderProgress({ attemptID: attempt.attemptID, at: 12, monotonicMs: 120 })
+    recorder.recordVisibleOutput({ attemptID: attempt.attemptID, at: 13, monotonicMs: 130 })
+    recorder.recordToolInputStarted({ attemptID: attempt.attemptID, at: 14, monotonicMs: 140 })
+    recorder.recordTransportFailure({
+      attemptID: attempt.attemptID,
+      at: 15,
+      monotonicMs: 150,
+      error: {
+        name: "TypeError",
+        message: "terminated",
+        cause: { name: "SocketError", message: "other side closed", code: "UND_ERR_SOCKET" },
+      },
+      evidence: ["iterator_error"],
+    })
+    recorder.recordPendingToolPartInterrupted({ attemptID: attempt.attemptID, at: 16, monotonicMs: 160 })
+    recorder.recordScopeClosed({
+      at: 17,
+      monotonicMs: 170,
+      source: "session.run_state.finalizer",
+      reason: "scope_finalizer",
+      lifecycleActionID: "lifecycle:instance_reload:late",
+      lifecycleKind: "instance_reload",
+    })
+
+    const summary = recorder.finalize({ completedAt: 18, monotonicMs: 180 })
+    expect(summary.classification).not.toBe("tool_failure")
+    expect(summary.tool_input_started).toBe(true)
+    expect(summary.tool_input_completed).toBe(false)
+    expect(summary.tool_call_materialized).toBe(false)
+    expect(summary.tool_execution_started).toBe(false)
+    expect(summary.pending_tool_parts_interrupted).toBe(1)
+    expect(summary.incident?.terminal_cause).toMatchObject({
+      category: "provider_transport_disconnect",
+      subcategory: "during_tool_input_generation",
+      boundary: "sdk_transport",
+      confidence: "high",
+    })
+    expect(summary.incident?.phase).toMatchObject({
+      run_phase: "tool_generation",
+      stream_phase: "tool_input_generation",
+      tool_phase: "tool_input_started",
+      terminal_attempt_id: attempt.attemptID,
+    })
+    expect(summary.incident?.recovery).toMatchObject({
+      recommendation: "offer_continue",
+      reason: "partial_tool_input_without_execution",
+    })
+    expect(summary.incident?.evidence?.map((event) => event.event_type)).toEqual([
+      "attempt_started",
+      "provider_progress_seen",
+      "text_output_started",
+      "visible_output_seen",
+      "tool_input_started",
+      "provider_transport_failure",
+      "pending_tool_part_interrupted",
+      "lifecycle_close_seen",
+    ])
+  })
+
+  test("orders terminal cause by initiating evidence time", () => {
+    const providerFirst = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_provider_first"),
+      traceID: MessageID.make("msg_provider_first"),
+      sessionID: SessionID.make("ses_provider_first"),
+      messageID: MessageID.make("msg_provider_first"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const providerAttempt = providerFirst.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    providerFirst.recordProviderProgress({ attemptID: providerAttempt.attemptID, at: 12, monotonicMs: 120 })
+    providerFirst.recordTransportFailure({
+      attemptID: providerAttempt.attemptID,
+      at: 13,
+      monotonicMs: 130,
+      error: { name: "TypeError", message: "terminated", cause: { code: "UND_ERR_SOCKET" } },
+    })
+    providerFirst.recordScopeClosed({
+      at: 14,
+      monotonicMs: 140,
+      lifecycleActionID: "lifecycle:instance_reload:after_provider",
+      lifecycleKind: "instance_reload",
+    })
+    expect(providerFirst.finalize({ completedAt: 15, monotonicMs: 150 }).incident?.terminal_cause.category).toBe(
+      "provider_transport_disconnect",
+    )
+
+    const lifecycleFirst = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_lifecycle_first"),
+      traceID: MessageID.make("msg_lifecycle_first"),
+      sessionID: SessionID.make("ses_lifecycle_first"),
+      messageID: MessageID.make("msg_lifecycle_first"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const lifecycleAttempt = lifecycleFirst.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    lifecycleFirst.recordScopeClosed({
+      at: 12,
+      monotonicMs: 120,
+      lifecycleActionID: "lifecycle:instance_reload:before_provider_abort",
+      lifecycleKind: "instance_reload",
+    })
+    lifecycleFirst.recordTransportFailure({
+      attemptID: lifecycleAttempt.attemptID,
+      at: 13,
+      monotonicMs: 130,
+      error: { name: "AbortError", message: "aborted" },
+    })
+    expect(lifecycleFirst.finalize({ completedAt: 14, monotonicMs: 140 }).incident?.terminal_cause).toMatchObject({
+      category: "local_lifecycle_close",
+      subcategory: "instance_reload",
+    })
+  })
+
   test("retry safety is denied when any earlier attempt emitted visible output", () => {
     const recorder = RunObservability.createRecorder({
       runID: RunObservability.RunID.make("run_retry_aggregate"),

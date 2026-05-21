@@ -720,6 +720,9 @@ describe("Export.session", () => {
           provider_progress_seen: true,
           visible_output_seen: false,
           tool_call_seen: false,
+          tool_input_started: false,
+          tool_input_completed: false,
+          tool_call_materialized: false,
           tool_execution_started: false,
           read_only_tool_started: false,
           unsafe_side_effect_started: false,
@@ -1680,6 +1683,9 @@ describe("redactPart", () => {
       provider_progress_seen: true,
       visible_output_seen: false,
       tool_call_seen: false,
+      tool_input_started: false,
+      tool_input_completed: false,
+      tool_call_materialized: false,
       tool_execution_started: false,
       read_only_tool_started: false,
       unsafe_side_effect_started: false,
@@ -1748,6 +1754,160 @@ describe("redactPart", () => {
     ).toBe("UND_ERR_SOCKET")
     expect(JSON.stringify(sanitized)).not.toContain("/Users/")
     expect(JSON.stringify(sanitized)).not.toContain("sk-")
+  })
+
+  test("exports sanitized run incidents as authoritative diagnostics", () => {
+    const incident = {
+      schema_version: 1,
+      incident_id: "incident:msg_sanitize",
+      run_id: RunObservability.RunID.make("run_sanitize_incident"),
+      trace_id: MessageID.make("msg_sanitize_incident"),
+      session_id: SessionID.make("ses_sanitize_incident"),
+      message_id: MessageID.make("msg_sanitize_incident"),
+      created_at: 1,
+      completed_at: 2,
+      terminal_cause: {
+        category: "provider_transport_disconnect",
+        subcategory: "during_tool_input_generation",
+        boundary: "sdk_transport",
+        confidence: "high",
+        error: { name: "TypeError", message: "terminated", cause_code: "UND_ERR_SOCKET" },
+      },
+      phase: {
+        run_phase: "tool_generation",
+        stream_phase: "tool_input_generation",
+        tool_phase: "tool_input_started",
+      },
+      facts: {
+        provider_progress_seen: true,
+        visible_output_seen: true,
+        text_output_started: true,
+        reasoning_output_started: false,
+        tool_input_started: true,
+        tool_input_completed: false,
+        tool_call_materialized: false,
+        tool_execution_started: false,
+        tool_execution_completed: false,
+        read_only_tool_started: false,
+        unsafe_side_effect_started: false,
+        unsafe_side_effect_kinds: [],
+        side_effect_facts_complete: true,
+        lifecycle_close_seen: true,
+        user_cancel_seen: false,
+        watchdog_fired: false,
+        pending_tool_parts_interrupted: 1,
+      },
+      provenance: { completeness: "partial" },
+      recovery: {
+        recommendation: "offer_continue",
+        confidence: "high",
+        reason: "partial_tool_input_without_execution",
+        safety_scope: "visible_output_and_tool_side_effects",
+      },
+      evidence: [
+        {
+          event_id: "incident:msg_sanitize:evidence:1",
+          order: 1,
+          monotonic_ms: 100,
+          source: "provider_stream",
+          event_type: "provider_transport_failure",
+          terminal_candidate: true,
+          confidence: "high",
+          error: { message: "terminated", cause_code: "UND_ERR_SOCKET" },
+        },
+        {
+          event_id: "incident:msg_sanitize:evidence:2",
+          order: 2,
+          monotonic_ms: 110,
+          source: "processor",
+          event_type: "pending_tool_part_interrupted",
+          terminal_candidate: false,
+          confidence: "medium",
+          redactions: ["raw_tool_input", "/Users/secret/project", "sk-private"],
+        },
+      ],
+      user_summary: {
+        title_key: "run_incident.provider_transport_disconnect",
+        body_key: "run_incident.provider_transport_disconnect.during_tool_input_generation",
+        severity: "warning",
+      },
+      plain_summary: "The provider stream disconnected while PawWork was preparing a tool call. The tool did not run.",
+      diagnostics_complete: true,
+    }
+    const summary = {
+      schema_version: 1,
+      run_id: RunObservability.RunID.make("run_sanitize_incident"),
+      trace_id: MessageID.make("msg_sanitize_incident"),
+      session_id: SessionID.make("ses_sanitize_incident"),
+      message_id: MessageID.make("msg_sanitize_incident"),
+      provider: "test",
+      model: "test-model",
+      created_at: 1,
+      classification: "tool_failure",
+      summary_key: RunObservability.summaryKeyFor("tool_failure", "tool_execution_failed"),
+      retry_safety: {
+        recommendation: "unknown",
+        confidence: "low",
+        reason: "unknown",
+        safety_scope: "user_visible_and_tool_side_effects",
+      },
+      attempts: [],
+      provider_progress_seen: true,
+      visible_output_seen: true,
+      tool_call_seen: false,
+      tool_input_started: true,
+      tool_input_completed: false,
+      tool_call_materialized: false,
+      tool_execution_started: false,
+      read_only_tool_started: false,
+      unsafe_side_effect_started: false,
+      unsafe_side_effect_kinds: [],
+      side_effect_facts_complete: true,
+      durations_ms: {},
+      incident,
+    } as RunObservability.Summary
+    const sanitized = Export.sanitizeSnapshot({
+      schema_version: 1,
+      format: "pawwork-session-export",
+      exported_at: 1,
+      root_session_id: SessionID.make("ses_sanitize_incident"),
+      runtime_context: {
+        app_version: "test",
+        runtime_namespace: "pawwork",
+        platform: process.platform,
+        os_version: "test",
+        locale: "en-US",
+        timezone: "UTC",
+        instruction_sources: [],
+        model_refs: {},
+        stats: { session_count: 1, message_count: 1, part_count: 0, omitted_attachment_count: 0 },
+      },
+      diagnostics: { run_observability_schema_version: 1, run_observability: [summary] },
+      session: {
+        info: {
+          id: SessionID.make("ses_sanitize_incident"),
+          version: "0.0.0",
+          time: { created: 1, updated: 1 },
+          title: "x",
+          directory: "/tmp/project",
+        } as SessionNs.Info,
+        had_cloud_share: false,
+        diffs: [],
+        messages: [],
+        children: [],
+      },
+    })
+
+    expect(sanitized.diagnostics.run_incident_schema_version).toBe(1)
+    expect(sanitized.diagnostics.run_incidents?.[0]?.terminal_cause.category).toBe("provider_transport_disconnect")
+    expect(sanitized.diagnostics.run_incidents?.[0]?.evidence?.map((event) => event.event_type)).toEqual([
+      "provider_transport_failure",
+      "pending_tool_part_interrupted",
+    ])
+    const serialized = JSON.stringify(sanitized.diagnostics.run_incidents)
+    expect(serialized).toContain("raw_tool_input")
+    expect(serialized).not.toContain("/Users/secret")
+    expect(serialized).not.toContain("sk-private")
   })
 
   test("redacts data: url inside completed tool attachments", () => {
