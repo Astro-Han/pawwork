@@ -155,7 +155,7 @@ function factsFromEvidence(
 
 function evidenceAtOrBefore(event: IncidentEvidenceEvent, terminal: IncidentEvidenceEvent) {
   if (event.monotonic_ms !== undefined && terminal.monotonic_ms !== undefined) {
-    return event.monotonic_ms <= terminal.monotonic_ms
+    return event.monotonic_ms < terminal.monotonic_ms || event.order <= terminal.order
   }
   return event.order <= terminal.order
 }

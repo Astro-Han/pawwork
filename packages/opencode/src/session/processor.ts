@@ -1070,12 +1070,15 @@ export const layer: Layer.Layer<
         yield* turnChange.finalize({ sessionID: ctx.sessionID, messageID: ctx.assistantMessage.id })
       })
 
-      const halt = Effect.fn("SessionProcessor.halt")(function* (e: unknown) {
+      const halt = Effect.fn("SessionProcessor.halt")(function* (
+        e: unknown,
+        attemptID: RunObservability.AttemptID | undefined = ctx.currentAttemptID,
+      ) {
         slog.error("process", { error: errorMessage(e), stack: e instanceof Error ? e.stack : undefined })
         ctx.streamError = true
-        if (ctx.currentAttemptID) {
+        if (attemptID) {
           ctx.runTrace.recordTransportFailure({
-            attemptID: ctx.currentAttemptID,
+            attemptID,
             at: Date.now(),
             monotonicMs: performance.now(),
             error: e,
@@ -1117,6 +1120,7 @@ export const layer: Layer.Layer<
         slog.info("process")
         ctx.needsCompaction = false
         ctx.shouldBreak = (yield* config.get()).experimental?.continue_loop_on_deny !== true
+        let processAttemptID: RunObservability.AttemptID | undefined
 
         return yield* Effect.gen(function* () {
           yield* Effect.gen(function* () {
@@ -1129,6 +1133,7 @@ export const layer: Layer.Layer<
               monotonicMs: performance.now(),
             })
             ctx.currentAttemptID = attempt.attemptID
+            processAttemptID = attempt.attemptID
             let stream: Stream.Stream<LLM.Event, unknown>
             try {
               stream = llm.stream({
@@ -1169,7 +1174,7 @@ export const layer: Layer.Layer<
                   provenanceRecordedAt: Date.now(),
                 })
                 if (!ctx.assistantMessage.error) {
-                  yield* halt(new DOMException("Aborted", "AbortError"))
+                  yield* halt(new DOMException("Aborted", "AbortError"), processAttemptID)
                 }
               }),
             ),
@@ -1192,7 +1197,7 @@ export const layer: Layer.Layer<
                 },
               }),
             ),
-            Effect.catch(halt),
+            Effect.catch((error) => halt(error, processAttemptID)),
             Effect.ensuring(cleanup()),
           )
 

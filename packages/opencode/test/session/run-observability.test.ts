@@ -1009,6 +1009,54 @@ describe("RunObservability", () => {
     })
   })
 
+  test("transport failure phase ignores later same-timestamp tool completion evidence", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_transport_same_timestamp_late_completion"),
+      traceID: MessageID.make("msg_transport_same_timestamp_late_completion"),
+      sessionID: SessionID.make("ses_transport_same_timestamp_late_completion"),
+      messageID: MessageID.make("msg_transport_same_timestamp_late_completion"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordToolInputStarted({ attemptID: attempt.attemptID, at: 12, monotonicMs: 120 })
+    recorder.recordToolInputCompleted({ attemptID: attempt.attemptID, at: 13, monotonicMs: 130 })
+    recorder.recordToolCallMaterialized({
+      attemptID: attempt.attemptID,
+      at: 14,
+      monotonicMs: 140,
+      toolName: RunObservability.safeToolName("grep"),
+      effect: RunObservability.toolEffect("grep"),
+    })
+    recorder.recordToolExecutionStarted({
+      attemptID: attempt.attemptID,
+      at: 15,
+      monotonicMs: 150,
+      toolName: RunObservability.safeToolName("grep"),
+      effect: RunObservability.toolEffect("grep"),
+    })
+    recorder.recordTransportFailure({
+      attemptID: attempt.attemptID,
+      at: 16,
+      monotonicMs: 160,
+      error: { name: "TypeError", message: "terminated", cause: { code: "UND_ERR_SOCKET" } },
+    })
+    recorder.recordToolCompleted({ attemptID: attempt.attemptID, at: 17, monotonicMs: 160 })
+
+    const summary = recorder.finalize({ completedAt: 18, monotonicMs: 180 })
+    expect(summary.incident?.phase).toMatchObject({
+      run_phase: "tool_execution",
+      stream_phase: "after_tool_call",
+      tool_phase: "tool_execution_started",
+    })
+    expect(summary.incident?.phase).not.toMatchObject({
+      run_phase: "post_tool",
+      tool_phase: "tool_execution_completed",
+    })
+  })
+
   test("tool completion without start or materialization does not overclaim after-tool-result phase", () => {
     const recorder = RunObservability.createRecorder({
       runID: RunObservability.RunID.make("run_completion_without_execution_boundary"),
