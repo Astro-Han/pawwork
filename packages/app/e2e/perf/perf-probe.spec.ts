@@ -233,6 +233,20 @@ async function scrollTimelineTo(page: Parameters<typeof snapshotPerfProbe>[0], t
   expect(found).toBe(true)
 }
 
+async function markTimelineWheelIntent(page: Parameters<typeof snapshotPerfProbe>[0], deltaY: number) {
+  const found = await page.evaluate(
+    ({ deltaY, scrollViewportSelector, turnListSelector }) => {
+      const list = document.querySelector(turnListSelector)
+      const viewport = list?.closest(scrollViewportSelector)
+      if (!(viewport instanceof HTMLElement)) return false
+      viewport.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY }))
+      return true
+    },
+    { deltaY, scrollViewportSelector, turnListSelector: sessionTurnListSelector },
+  )
+  expect(found).toBe(true)
+}
+
 async function hoverTimelineScrollLane(page: Parameters<typeof snapshotPerfProbe>[0]) {
   const box = await page.locator(scrollViewportSelector).first().boundingBox()
   expect(box).toBeTruthy()
@@ -282,6 +296,7 @@ async function revealLongScrollWindow(page: Parameters<typeof snapshotPerfProbe>
     const budget = await readTimelineDomBudget(page)
     if (budget.totalRows >= longScrollMinimumAvailableRows) return
     await page.mouse.wheel(0, -2400)
+    await markTimelineWheelIntent(page, -2400)
     await settleFrames(page, 2)
     await scrollTimelineTo(page, 0)
     await settleFrames(page, 2)
