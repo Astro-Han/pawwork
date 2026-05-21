@@ -7,6 +7,8 @@ import { MessageV2 } from "../../src/session/message-v2"
 import { TurnChange } from "../../src/session/turn-change"
 import { MessageID, SessionID } from "../../src/session/schema"
 import { ModelID, ProviderID } from "../../src/provider/schema"
+import { SessionTable } from "../../src/session/session.sql"
+import { Database, eq } from "../../src/storage/db"
 import { tmpdir } from "../fixture/fixture"
 import { resetDatabase } from "../fixture/db"
 
@@ -220,6 +222,175 @@ describe("TurnChange.aggregateTurn", () => {
   })
 })
 
+describe("TurnChange aggregate union", () => {
+  test("aggregateTurnUnion returns empty for a user turn with no captured or uncaptured rows", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "union-empty" })
+        const userMessageID = await makeUser(session.id, "union-empty")
+
+        const result = TurnChange.aggregateTurnUnion({ sessionID: session.id, userMessageID })
+
+        expect(result).toMatchObject({ kind: "empty" })
+      },
+    })
+  })
+
+  test("aggregateTurnUnion returns captured with restoreState for applied rows", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "union-captured" })
+        const userMessageID = await makeUser(session.id, "union-captured")
+        const assistantID = await makeAssistant(session.id, userMessageID, "union-captured")
+
+        TurnChange.recordWrite({
+          sessionID: session.id,
+          messageID: assistantID,
+          path: path.join(fixture.path, "captured.txt"),
+          before: { exists: false },
+          after: { exists: true, content: "captured\n" },
+        })
+        TurnChange.finalize({ sessionID: session.id, messageID: assistantID })
+
+        const result = TurnChange.aggregateTurnUnion({ sessionID: session.id, userMessageID })
+
+        expect(result).toMatchObject({ kind: "captured", files: [{ path: "captured.txt", restoreState: "applied" }] })
+      },
+    })
+  })
+
+  test("aggregateTurnUnion returns captured with muted restoreState for fully undone rows", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "union-undone" })
+        const userMessageID = await makeUser(session.id, "union-undone")
+        const assistantID = await makeAssistant(session.id, userMessageID, "union-undone")
+        const target = path.join(fixture.path, "undone.txt")
+        await fs.writeFile(target, "after\n", "utf-8")
+
+        TurnChange.recordWrite({
+          sessionID: session.id,
+          messageID: assistantID,
+          path: target,
+          before: { exists: false },
+          after: { exists: true, content: "after\n" },
+        })
+        TurnChange.finalize({ sessionID: session.id, messageID: assistantID })
+        await TurnChange.undo({ sessionID: session.id, messageID: assistantID })
+
+        const result = TurnChange.aggregateTurnUnion({ sessionID: session.id, userMessageID })
+
+        expect(result).toMatchObject({ kind: "captured", files: [{ path: "undone.txt", restoreState: "undone" }] })
+      },
+    })
+  })
+
+  test("aggregateTurnUnion returns uncaptured when only uncaptured bash activity exists", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "union-uncaptured" })
+        const userMessageID = await makeUser(session.id, "union-uncaptured")
+        const assistantID = await makeAssistant(session.id, userMessageID, "union-uncaptured")
+
+        TurnChange.recordUncaptured({ sessionID: session.id, messageID: assistantID })
+
+        const result = TurnChange.aggregateTurnUnion({ sessionID: session.id, userMessageID })
+
+        expect(result).toMatchObject({ kind: "uncaptured", count: 1 })
+      },
+    })
+  })
+
+  test("aggregateTurnUnion returns mixed when captured and uncaptured rows both exist", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "union-mixed" })
+        const userMessageID = await makeUser(session.id, "union-mixed")
+        const assistantID = await makeAssistant(session.id, userMessageID, "union-mixed")
+
+        TurnChange.recordWrite({
+          sessionID: session.id,
+          messageID: assistantID,
+          path: path.join(fixture.path, "mixed.txt"),
+          before: { exists: false },
+          after: { exists: true, content: "mixed\n" },
+        })
+        TurnChange.finalize({ sessionID: session.id, messageID: assistantID })
+        TurnChange.recordUncaptured({ sessionID: session.id, messageID: assistantID })
+
+        const result = TurnChange.aggregateTurnUnion({ sessionID: session.id, userMessageID })
+
+        expect(result).toMatchObject({
+          kind: "mixed",
+          count: 1,
+          files: [{ path: "mixed.txt", restoreState: "applied" }],
+        })
+      },
+    })
+  })
+
+  test("aggregateSessionFromTurns ignores reverted messages at the message cutoff", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "union-session" })
+        const firstUser = await makeUser(session.id, "union-session-first")
+        const firstAssistant = await makeAssistant(session.id, firstUser, "union-session-first")
+        const secondUser = await makeUser(session.id, "union-session-second")
+        const secondAssistant = await makeAssistant(session.id, secondUser, "union-session-second")
+
+        TurnChange.recordWrite({
+          sessionID: session.id,
+          messageID: firstAssistant,
+          path: path.join(fixture.path, "kept.txt"),
+          before: { exists: false },
+          after: { exists: true, content: "kept\n" },
+        })
+        TurnChange.finalize({ sessionID: session.id, messageID: firstAssistant })
+        TurnChange.recordWrite({
+          sessionID: session.id,
+          messageID: secondAssistant,
+          path: path.join(fixture.path, "reverted.txt"),
+          before: { exists: false },
+          after: { exists: true, content: "reverted\n" },
+        })
+        TurnChange.finalize({ sessionID: session.id, messageID: secondAssistant })
+        Database.use((db) =>
+          db
+            .update(SessionTable)
+            .set({ revert: { messageID: secondUser } })
+            .where(eq(SessionTable.id, session.id))
+            .run(),
+        )
+
+        const result = TurnChange.aggregateSessionFromTurns({ sessionID: session.id })
+
+        expect(result).toMatchObject({ kind: "captured", files: [{ path: "kept.txt" }] })
+        expect(
+          result.kind === "captured" || result.kind === "mixed" ? result.files.map((file) => file.path) : [],
+        ).not.toContain("reverted.txt")
+      },
+    })
+  })
+})
+
 describe("TurnChange.aggregateTurnUndo / aggregateTurnRedo", () => {
   test("undoes all assistant changes in a turn and restores files", async () => {
     await resetDatabase()
@@ -258,8 +429,18 @@ describe("TurnChange.aggregateTurnUndo / aggregateTurnRedo", () => {
         if (result.status !== "applied") return
         expect(result.display.undoAvailable).toBe(false)
         expect(result.display.redoAvailable).toBe(true)
-        expect(await fs.access(fileA).then(() => true).catch(() => false)).toBe(false)
-        expect(await fs.access(fileB).then(() => true).catch(() => false)).toBe(false)
+        expect(
+          await fs
+            .access(fileA)
+            .then(() => true)
+            .catch(() => false),
+        ).toBe(false)
+        expect(
+          await fs
+            .access(fileB)
+            .then(() => true)
+            .catch(() => false),
+        ).toBe(false)
         expect(result.skipped ?? []).toEqual([])
       },
     })
@@ -376,7 +557,12 @@ describe("TurnChange.aggregateTurnUndo / aggregateTurnRedo", () => {
         expect(result.status).toBe("applied")
         if (result.status !== "applied") return
         expect(result.skipped ?? []).toEqual([])
-        expect(await fs.access(target).then(() => true).catch(() => false)).toBe(false)
+        expect(
+          await fs
+            .access(target)
+            .then(() => true)
+            .catch(() => false),
+        ).toBe(false)
 
         const redo = await TurnChange.aggregateTurnRedo({ sessionID: session.id, userMessageID })
         expect(redo.status).toBe("applied")
@@ -535,7 +721,7 @@ describe("TurnChange.aggregateTurnUndo / aggregateTurnRedo", () => {
           messageID: a1,
           path: externalA,
           before: { exists: false },
-          after: { exists: true, content: "{\"a\":1}\n" },
+          after: { exists: true, content: '{"a":1}\n' },
         })
         TurnChange.finalize({ sessionID: session.id, messageID: a1 })
         TurnChange.recordWrite({
@@ -543,7 +729,7 @@ describe("TurnChange.aggregateTurnUndo / aggregateTurnRedo", () => {
           messageID: a2,
           path: externalB,
           before: { exists: false },
-          after: { exists: true, content: "{\"b\":1}\n" },
+          after: { exists: true, content: '{"b":1}\n' },
         })
         TurnChange.finalize({ sessionID: session.id, messageID: a2 })
 
@@ -653,7 +839,12 @@ describe("TurnChange.aggregateTurnUndo / aggregateTurnRedo", () => {
         if (result.status !== "applied") return
         expect(result.skipped?.length ?? 0).toBeGreaterThan(0)
         // a1's file undone (deleted)
-        expect(await fs.access(ok).then(() => true).catch(() => false)).toBe(false)
+        expect(
+          await fs
+            .access(ok)
+            .then(() => true)
+            .catch(() => false),
+        ).toBe(false)
         // conflict file left as-is
         expect(await fs.readFile(conflict, "utf-8")).toBe("tampered\n")
       },
