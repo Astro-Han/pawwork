@@ -44,8 +44,12 @@ test("prompt-placeholder", async ({ page, project }) => {
   const enSqueezedShot = await snapComposer(page, "en-768+rightpanel")
 
   // Client-side locale is sourced from localStorage. Set it, reload, re-snap all widths.
+  // Also clear persisted layout state so the right panel returns to its default closed
+  // state for the zh baseline/narrow shots — opening it for the en squeezed shot writes
+  // `rightPanel.opened: true` into `pawwork.global.dat:layout`, which survives reload.
   await page.evaluate(() => {
     localStorage.setItem("pawwork.global.dat:language", JSON.stringify({ locale: "zh" }))
+    localStorage.removeItem("pawwork.global.dat:layout")
   })
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.reload()
