@@ -156,10 +156,11 @@ describe("useSessionHashScroll", () => {
     }) as typeof requestAnimationFrame
     globalThis.cancelAnimationFrame = (() => undefined) as typeof cancelAnimationFrame
 
+    let dispose: (() => void) | undefined
     try {
       document.body.append(root)
 
-      const dispose = createRoot((dispose) => {
+      dispose = createRoot((dispose) => {
         const hashScroll = createSessionHashScroll(
           {
             sessionKey: () => "ses_1:/repo",
@@ -201,9 +202,8 @@ describe("useSessionHashScroll", () => {
 
       expect(revealCalls).toEqual(["msg_2", "msg_2", "msg_2", "msg_2"])
       expect(frameCallbacks).toHaveLength(0)
-
-      dispose()
     } finally {
+      dispose?.()
       root.remove()
       globalThis.requestAnimationFrame = originalRequestAnimationFrame
       globalThis.cancelAnimationFrame = originalCancelAnimationFrame
