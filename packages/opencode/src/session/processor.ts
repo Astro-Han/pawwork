@@ -106,7 +106,6 @@ type ToolCall = {
   sessionID: MessageV2.ToolPart["sessionID"]
   done: Deferred.Deferred<void>
   attemptID?: RunObservability.AttemptID
-  inputStarted?: boolean
   materialized?: boolean
   executionStarted?: boolean
 }
@@ -750,7 +749,6 @@ export const layer: Layer.Layer<
               messageID: part.messageID,
               sessionID: part.sessionID,
               attemptID: ctx.currentAttemptID,
-              inputStarted: true,
             }
             yield* applyPendingToolUpdates(value.id)
             return
