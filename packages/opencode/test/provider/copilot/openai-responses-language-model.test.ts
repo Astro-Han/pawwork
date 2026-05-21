@@ -121,9 +121,53 @@ function functionCallArgumentsDone(
   }
 }
 
+function functionCallArgumentsDelta(input: {
+  seq?: number
+  outputIndex?: number
+  itemId?: string
+  delta: string
+}): SseChunk {
+  return {
+    type: "response.function_call_arguments.delta",
+    sequence_number: input.seq ?? 3,
+    output_index: input.outputIndex ?? 0,
+    item_id: input.itemId ?? "fc_1",
+    delta: input.delta,
+  }
+}
+
+function functionCallDone(
+  input: {
+    seq?: number
+    outputIndex?: number
+    itemId?: string
+    callId?: string
+    name?: string
+    args?: string
+  } = {},
+): SseChunk {
+  return {
+    type: "response.output_item.done",
+    sequence_number: input.seq ?? 4,
+    output_index: input.outputIndex ?? 0,
+    item: {
+      type: "function_call",
+      id: input.itemId ?? "fc_1",
+      call_id: input.callId ?? "call_1",
+      name: input.name ?? "enter-worktree",
+      arguments: input.args ?? "{}",
+      status: "completed",
+    },
+  }
+}
+
 function toolLifecycleParts(parts: LanguageModelV3StreamPart[]) {
   return parts.filter(
-    (part) => part.type === "tool-input-start" || part.type === "tool-input-end" || part.type === "tool-call",
+    (part) =>
+      part.type === "tool-input-start" ||
+      part.type === "tool-input-delta" ||
+      part.type === "tool-input-end" ||
+      part.type === "tool-call",
   )
 }
 
@@ -152,5 +196,51 @@ describe("OpenAIResponsesLanguageModel function call materialization", () => {
       },
     ])
     expect(toolCalls(parts)).toHaveLength(1)
+  })
+
+  test("uses final arguments.done input after argument deltas", async () => {
+    const parts = await streamParts([
+      responseCreated(),
+      functionCallAdded(),
+      functionCallArgumentsDelta({ seq: 3, delta: '{"path":' }),
+      functionCallArgumentsDelta({ seq: 4, delta: '"draft"}' }),
+      functionCallArgumentsDone({ seq: 5, args: '{"path":"final"}' }),
+      responseCompleted(6),
+    ])
+
+    expect(toolCalls(parts)).toMatchObject([
+      { type: "tool-call", toolCallId: "call_1", toolName: "enter-worktree", input: '{"path":"final"}' },
+    ])
+  })
+
+  test("keeps output_item.done fallback when arguments.done is absent", async () => {
+    const parts = await streamParts([
+      responseCreated(),
+      functionCallAdded(),
+      functionCallArgumentsDelta({ seq: 3, delta: "{}" }),
+      functionCallDone({ seq: 4, args: "{}" }),
+      responseCompleted(5),
+    ])
+
+    expect(toolLifecycleParts(parts)).toMatchObject([
+      { type: "tool-input-start", id: "call_1", toolName: "enter-worktree" },
+      { type: "tool-input-delta", id: "call_1", delta: "{}" },
+      { type: "tool-input-end", id: "call_1" },
+      { type: "tool-call", toolCallId: "call_1", toolName: "enter-worktree", input: "{}" },
+    ])
+    expect(toolCalls(parts)).toHaveLength(1)
+  })
+
+  test("does not duplicate tool-call when arguments.done is followed by output_item.done", async () => {
+    const parts = await streamParts([
+      responseCreated(),
+      functionCallAdded(),
+      functionCallArgumentsDone({ seq: 3, args: "{}" }),
+      functionCallDone({ seq: 4, args: "{}" }),
+      responseCompleted(5),
+    ])
+
+    expect(toolCalls(parts)).toHaveLength(1)
+    expect(toolCalls(parts)[0]).toMatchObject({ toolCallId: "call_1", input: "{}" })
   })
 })
