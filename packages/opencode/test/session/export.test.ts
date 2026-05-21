@@ -1902,6 +1902,16 @@ describe("redactPart", () => {
 
     expect(sanitized.diagnostics.run_incident_schema_version).toBe(1)
     expect(sanitized.diagnostics.run_incidents?.[0]?.terminal_cause.category).toBe("provider_transport_disconnect")
+    expect(sanitized.diagnostics.incident_chains?.[0]).toMatchObject({
+      incident_id: "incident:msg_sanitize",
+      run_id: RunObservability.RunID.make("run_sanitize_incident"),
+      session_id: SessionID.make("ses_sanitize_incident"),
+      message_id: MessageID.make("msg_sanitize_incident"),
+      terminal_cause_category: "provider_transport_disconnect",
+      run_phase: "tool_generation",
+      recovery_recommendation: "offer_continue",
+      diagnostics_complete: true,
+    })
     expect(sanitized.diagnostics.run_incidents?.[0]?.evidence?.map((event) => event.event_type)).toEqual([
       "provider_transport_failure",
       "pending_tool_part_interrupted",
@@ -1912,6 +1922,153 @@ describe("redactPart", () => {
     expect(serialized).toContain("raw_tool_input")
     expect(serialized).not.toContain("/Users/secret")
     expect(serialized).not.toContain("sk-private")
+  })
+
+  test("sanitizes precomputed incident chains in snapshots", () => {
+    const sanitized = Export.sanitizeSnapshot({
+      schema_version: 1,
+      format: "pawwork-session-export",
+      exported_at: 1,
+      root_session_id: SessionID.make("ses_chain_sanitize"),
+      runtime_context: {
+        app_version: "test",
+        runtime_namespace: "pawwork",
+        platform: process.platform,
+        os_version: "test",
+        locale: "en-US",
+        timezone: "UTC",
+        instruction_sources: [],
+        model_refs: {},
+        stats: { session_count: 1, message_count: 0, part_count: 0, omitted_attachment_count: 0 },
+      },
+      diagnostics: {
+        incident_chains: [
+          {
+            incident_id: "incident:chain_sanitize",
+            run_id: RunObservability.RunID.make("run_chain_sanitize"),
+            session_id: SessionID.make("ses_chain_sanitize"),
+            message_id: MessageID.make("msg_chain_sanitize"),
+            terminal_cause_category: "local_lifecycle_close",
+            run_phase: "unknown",
+            recovery_recommendation: "do_not_retry",
+            nearest_origin: {
+              source: "server_handler",
+              operation: "/Users/alice/project/private-route",
+              reason: "sk-secret",
+            },
+            nearest_request: {
+              method: "POST",
+              path: "/Users/alice/project",
+              source: "renderer",
+              directory_key: "dir:safe",
+              workspace_id: "workspace/secret",
+              client_action: {
+                id: "client-action sk-secret",
+                kind: "/Users/alice/project sk-secret",
+              },
+            },
+            diagnostics_complete: false,
+            plain_summary: "secret path /Users/alice/project and token sk-secret",
+          },
+        ],
+      },
+      session: {
+        info: {
+          id: SessionID.make("ses_chain_sanitize"),
+          version: "0.0.0",
+          time: { created: 1, updated: 1 },
+          title: "x",
+          directory: "/tmp/project",
+        } as SessionNs.Info,
+        had_cloud_share: false,
+        diffs: [],
+        messages: [],
+        children: [],
+      },
+    })
+
+    const serialized = JSON.stringify(sanitized.diagnostics.incident_chains)
+    expect(serialized).toContain("[redacted:incident-chain-summary:incident:chain_sanitize]")
+    expect(serialized).toContain("incident-chain-origin-operation")
+    expect(serialized).toContain("unknown")
+    expect(serialized).not.toContain("/Users/alice")
+    expect(serialized).not.toContain("sk-secret")
+  })
+
+  test("sanitizes generated lifecycle incident provenance and chains", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_generated_chain_sanitize"),
+      traceID: MessageID.make("msg_generated_chain_sanitize"),
+      sessionID: SessionID.make("ses_generated_chain_sanitize"),
+      messageID: MessageID.make("msg_generated_chain_sanitize"),
+      providerID: "test",
+      modelID: "test-model",
+      createdAt: 1,
+      monotonicStartMs: 100,
+    })
+    recorder.recordScopeClosed({
+      at: 2,
+      monotonicMs: 120,
+      lifecycleActionID: "lifecycle:instance_reload:unsafe_request",
+      lifecycleKind: "instance_reload",
+      lifecycleAffectedDirectoryKeys: ["dir:safe"],
+      lifecycleOrigin: {
+        source: "server_handler",
+        operation: "instance.reload",
+        reason: "/Users/alice/project sk-secret",
+      },
+      lifecycleRequest: {
+        method: "POST",
+        path: "/project/git/init",
+        source: "renderer",
+        directory_key: "dir:safe",
+        client_action: {
+          id: "client-action-unsafe",
+          kind: "/Users/alice/project sk-secret",
+        },
+      },
+    })
+    const summary = recorder.finalize({ completedAt: 3, monotonicMs: 130 })
+
+    const sanitized = Export.sanitizeSnapshot({
+      schema_version: 1,
+      format: "pawwork-session-export",
+      exported_at: 1,
+      root_session_id: SessionID.make("ses_generated_chain_sanitize"),
+      runtime_context: {
+        app_version: "test",
+        runtime_namespace: "pawwork",
+        platform: process.platform,
+        os_version: "test",
+        locale: "en-US",
+        timezone: "UTC",
+        instruction_sources: [],
+        model_refs: {},
+        stats: { session_count: 1, message_count: 0, part_count: 0, omitted_attachment_count: 0 },
+      },
+      diagnostics: { run_observability_schema_version: 1, run_observability: [summary] },
+      session: {
+        info: {
+          id: SessionID.make("ses_generated_chain_sanitize"),
+          version: "0.0.0",
+          time: { created: 1, updated: 1 },
+          title: "x",
+          directory: "/tmp/project",
+        } as SessionNs.Info,
+        had_cloud_share: false,
+        diffs: [],
+        messages: [],
+        children: [],
+      },
+    })
+
+    const serialized = JSON.stringify({
+      run_incidents: sanitized.diagnostics.run_incidents,
+      incident_chains: sanitized.diagnostics.incident_chains,
+    })
+    expect(serialized).toContain("unknown")
+    expect(serialized).not.toContain("/Users/alice")
+    expect(serialized).not.toContain("sk-secret")
   })
 
   test("redacts data: url inside completed tool attachments", () => {

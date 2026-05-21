@@ -17,6 +17,20 @@ export function authFromToken(token: string | null) {
   }
 }
 
+export function clientActionHeaders(input: {
+  kind: string
+  routeSessionID?: string
+  visibleSessionID?: string
+}): Record<string, string> {
+  const actionID = `client:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 10)}`
+  return {
+    "x-pawwork-client-action-id": actionID,
+    "x-pawwork-client-action-kind": input.kind,
+    ...(input.routeSessionID ? { "x-pawwork-route-session-id": input.routeSessionID } : {}),
+    ...(input.visibleSessionID ? { "x-pawwork-visible-session-id": input.visibleSessionID } : {}),
+  }
+}
+
 export function createSdkForServer({
   server,
   ...config

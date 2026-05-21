@@ -8,6 +8,7 @@ import { createMemo, type Component, For, Show } from "solid-js"
 import { useLanguage } from "@/context/language"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
+import { clientActionHeaders } from "@/utils/server"
 import { DialogConnectProvider } from "./dialog-connect-provider"
 import { DialogSelectProvider } from "./dialog-select-provider"
 import { DialogCustomProvider } from "./dialog-custom-provider"
@@ -105,15 +106,19 @@ export const SettingsProviders: Component = () => {
   }
 
   const disconnect = async (providerID: string, name: string) => {
+    const actionClient = globalSDK.createClient({
+      headers: clientActionHeaders({ kind: "settings.provider.disconnect" }),
+      throwOnError: true,
+    })
     if (isConfigCustom(providerID)) {
-      await globalSDK.client.auth.remove({ providerID }).catch(() => undefined)
+      await actionClient.auth.remove({ providerID }).catch(() => undefined)
       await disableProvider(providerID, name)
       return
     }
-    await globalSDK.client.auth
+    await actionClient.auth
       .remove({ providerID })
       .then(async () => {
-        await globalSDK.client.global.dispose()
+        await actionClient.global.dispose()
         showToast({
           variant: "success",
           icon: "circle-check",

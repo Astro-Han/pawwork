@@ -8,7 +8,9 @@ import { InstanceBootstrap } from "../../src/project/bootstrap-service"
 import { Instance } from "../../src/project/instance"
 import { InstanceStore } from "../../src/project/instance-store"
 import { Project } from "../../src/project/project"
-import { Database } from "../../src/storage/db"
+import { ProjectTable } from "../../src/project/project.sql"
+import { Database, eq } from "../../src/storage/db"
+import { currentLifecycleCloseAction } from "../../src/session/lifecycle-provenance"
 import { disposeAllInstances, tmpdir, tmpdirScoped } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 
@@ -92,6 +94,49 @@ describe("InstanceStore", () => {
       expect(second).not.toBe(first)
       expect(cached).toBe(second)
       expect(disposed).toEqual([dir])
+    }),
+  )
+
+  it.live("records worktree mismatch when load reloads an active instance", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      const store = yield* InstanceStore.Service
+      const reasons: string[] = []
+      const off = registerDisposer(async (directory) => {
+        const action = currentLifecycleCloseAction(directory)
+        if (action?.origin?.reason) reasons.push(action.origin.reason)
+      })
+      yield* Effect.addFinalizer(() => Effect.sync(off))
+
+      const first = yield* store.load({ directory: dir })
+      yield* store.load({
+        directory: dir,
+        worktree: `${first.worktree}-changed`,
+        project: first.project,
+      })
+
+      expect(reasons).toContain("worktree_mismatch")
+    }),
+  )
+
+  it.live("records project row missing when load reloads a stale active instance", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      const store = yield* InstanceStore.Service
+      const reasons: string[] = []
+      const off = registerDisposer(async (directory) => {
+        const action = currentLifecycleCloseAction(directory)
+        if (action?.origin?.reason) reasons.push(action.origin.reason)
+      })
+      yield* Effect.addFinalizer(() => Effect.sync(off))
+
+      const first = yield* store.load({ directory: dir })
+      yield* Effect.sync(() =>
+        Database.use((database) => database.delete(ProjectTable).where(eq(ProjectTable.id, first.project.id)).run()),
+      )
+      yield* store.load({ directory: dir })
+
+      expect(reasons).toContain("project_row_missing")
     }),
   )
 

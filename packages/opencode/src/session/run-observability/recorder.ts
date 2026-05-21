@@ -14,6 +14,7 @@ import {
 } from "./types"
 import { safeErrorFingerprint } from "./sanitize"
 import { RunIncident } from "../run-incident"
+import { cloneRequest, type LifecycleRequest } from "../lifecycle-provenance"
 
 type AttemptMutable = AttemptSummary & { lastMonotonicMs: number }
 
@@ -28,8 +29,15 @@ type Failure =
       reason?: string
       lifecycleActionID?: string
       lifecycleKind?: LifecycleKind
+      lifecycleInitiatedAt?: number
+      lifecycleInitiatedMonotonicMs?: number
+      lifecycleAffectedDirectoryKeys?: string[]
+      lifecycleOrigin?: { source: string; operation?: string; reason?: string }
+      lifecycleRequest?: LifecycleRequest
     }
   | { type: "tool"; at: number; monotonicMs: number; error?: unknown; attemptID?: AttemptID }
+
+type ScopeClosedFailure = Extract<Failure, { type: "scope_closed" }>
 
 export function createRecorder(input: RecorderInput): Recorder {
   const attempts: AttemptMutable[] = []
@@ -48,6 +56,7 @@ export function createRecorder(input: RecorderInput): Recorder {
   const materializedToolBoundaries: RunIncident.MaterializedToolBoundary[] = []
   let lastEventMonotonicMs = input.monotonicStartMs
   let failure: Failure | undefined
+  let lifecycleFailure: ScopeClosedFailure | undefined
   let pendingToolPartsInterrupted = 0
   const evidence: RunIncident.EvidenceEvent[] = []
 
@@ -380,7 +389,8 @@ export function createRecorder(input: RecorderInput): Recorder {
       rememberEvent(next.monotonicMs)
     },
     recordScopeClosed(next) {
-      failure ??= {
+      const lifecycleCauseMonotonicMs = next.lifecycleInitiatedMonotonicMs ?? next.monotonicMs
+      const nextFailure: ScopeClosedFailure = {
         type: "scope_closed",
         at: next.at,
         monotonicMs: next.monotonicMs,
@@ -388,9 +398,18 @@ export function createRecorder(input: RecorderInput): Recorder {
         reason: next.reason,
         lifecycleActionID: next.lifecycleActionID,
         lifecycleKind: next.lifecycleKind,
+        lifecycleInitiatedAt: next.lifecycleInitiatedAt,
+        lifecycleInitiatedMonotonicMs: next.lifecycleInitiatedMonotonicMs,
+        lifecycleAffectedDirectoryKeys: next.lifecycleAffectedDirectoryKeys
+          ? [...next.lifecycleAffectedDirectoryKeys]
+          : undefined,
+        lifecycleOrigin: next.lifecycleOrigin ? { ...next.lifecycleOrigin } : undefined,
+        lifecycleRequest: next.lifecycleRequest ? cloneRequest(next.lifecycleRequest) : undefined,
       }
+      failure ??= nextFailure
+      lifecycleFailure = earlierLifecycleFailure(lifecycleFailure, nextFailure)
       appendEvidence({
-        monotonic_ms: next.monotonicMs,
+        monotonic_ms: lifecycleCauseMonotonicMs,
         source: "lifecycle",
         event_type: "lifecycle_close_seen",
         terminal_candidate: true,
@@ -401,9 +420,20 @@ export function createRecorder(input: RecorderInput): Recorder {
           confidence: next.lifecycleActionID ? "high" : "medium",
         },
       })
+      if (lifecycleCauseMonotonicMs !== next.monotonicMs) {
+        appendEvidence({
+          monotonic_ms: next.monotonicMs,
+          source: "lifecycle",
+          event_type: "lifecycle_close_propagated",
+          terminal_candidate: false,
+          confidence: next.lifecycleActionID ? "high" : "medium",
+        })
+      }
       rememberEvent(next.monotonicMs)
     },
     finalize(final) {
+      const lifecycle = lifecycleSummary(lifecycleFailure)
+      const incidentLifecycle = lifecycleSummary(lifecycleFailure)
       const incident = RunIncident.derive({
         runID: input.runID,
         traceID: input.traceID,
@@ -416,8 +446,8 @@ export function createRecorder(input: RecorderInput): Recorder {
         unsafeSideEffectKinds: unsafeKinds,
         sideEffectFactsComplete,
         materializedToolBoundaries,
-        lifecycle: lifecycleSummary(failure),
-        missingProvenance: classify(failure) === "unknown_scope_close" ? ["lifecycle.close_requested"] : undefined,
+        lifecycle: incidentLifecycle,
+        missingProvenance: lifecycleFailure && !lifecycle ? ["lifecycle.close_requested"] : undefined,
       })
       const classification = incident ? classificationForIncident(incident.terminal_cause) : classify(failure)
       const missingProvenance = classification === "unknown_scope_close" ? ["lifecycle.close_requested"] : undefined
@@ -466,7 +496,7 @@ export function createRecorder(input: RecorderInput): Recorder {
         side_effect_facts_complete: sideEffectFactsComplete,
         pending_tool_parts_interrupted: pendingToolPartsInterrupted || undefined,
         incident,
-        lifecycle: lifecycleSummary(failure),
+        lifecycle,
         missing_provenance: missingProvenance,
         durations_ms: {
           total: duration(input.monotonicStartMs, final.monotonicMs),
@@ -574,7 +604,23 @@ function lifecycleSummary(failure: Failure | undefined): Summary["lifecycle"] {
     kind: failure.lifecycleKind,
     source: failure.source,
     reason: failure.reason,
+    initiated_at: failure.lifecycleInitiatedAt,
+    initiated_monotonic_ms: failure.lifecycleInitiatedMonotonicMs,
+    affected_directory_keys: [...(failure.lifecycleAffectedDirectoryKeys ?? [])],
+    origin: failure.lifecycleOrigin ? { ...failure.lifecycleOrigin } : undefined,
+    request: failure.lifecycleRequest ? cloneRequest(failure.lifecycleRequest) : undefined,
   }
+}
+
+function earlierLifecycleFailure(
+  current: ScopeClosedFailure | undefined,
+  next: ScopeClosedFailure,
+): ScopeClosedFailure {
+  if (!current) return next
+  const currentTime = current.lifecycleInitiatedMonotonicMs ?? current.monotonicMs
+  const nextTime = next.lifecycleInitiatedMonotonicMs ?? next.monotonicMs
+  if (nextTime < currentTime) return next
+  return current
 }
 
 export function isProviderProgressEvent(event: { type: string }) {

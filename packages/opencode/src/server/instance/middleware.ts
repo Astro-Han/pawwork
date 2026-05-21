@@ -13,6 +13,7 @@ import { SessionID } from "@/session/schema"
 import { WorkspaceContext } from "@/control-plane/workspace-context"
 import { Global } from "@/global"
 import { Runtime } from "@opencode-ai/core/runtime"
+import { requestContextFromHono, withRequestContext } from "@/server/request-context"
 
 type Rule = { method?: string; path: string; exact?: boolean; action: "local" | "forward" }
 
@@ -84,12 +85,15 @@ export function WorkspaceRouterMiddleware(upgrade: UpgradeWebSocket): Middleware
         }
       }
 
-      return Instance.provide({
-        directory,
-        async fn() {
-          return next()
-        },
-      })
+      const snapshot = requestContextFromHono(c, { directory })
+      return withRequestContext(snapshot, () =>
+        Instance.provide({
+          directory,
+          async fn() {
+            return next()
+          },
+        }),
+      )
     }
 
     const workspace = await Workspace.record(WorkspaceID.make(workspaceID))
@@ -122,15 +126,18 @@ export function WorkspaceRouterMiddleware(upgrade: UpgradeWebSocket): Middleware
     const target = await adaptor.target(workspace)
 
     if (target.type === "local") {
+      const snapshot = requestContextFromHono(c, { directory: target.directory, workspaceID })
       return WorkspaceContext.provide({
         workspaceID: WorkspaceID.make(workspaceID),
         fn: () =>
-          Instance.provide({
-            directory: target.directory,
-            async fn() {
-              return next()
-            },
-          }),
+          withRequestContext(snapshot, () =>
+            Instance.provide({
+              directory: target.directory,
+              async fn() {
+                return next()
+              },
+            }),
+          ),
       })
     }
 

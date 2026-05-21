@@ -15,6 +15,7 @@ import { lazy } from "../../util/lazy"
 import { Config } from "../../config/config"
 import { errors } from "../error"
 import { EventReplayStore, type GlobalEventEnvelope, type ReplayRecord } from "../event-replay"
+import { requestContextFromHono, withRequestContext } from "@/server/request-context"
 
 const log = Log.create({ service: "server" })
 
@@ -234,6 +235,7 @@ export async function streamGlobalEvents(
 
 export const GlobalRoutes = lazy(() =>
   new Hono()
+    .use((c, next) => withRequestContext(requestContextFromHono(c, {}), () => next()))
     .get(
       "/health",
       describeRoute({

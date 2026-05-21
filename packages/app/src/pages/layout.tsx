@@ -32,6 +32,7 @@ import type { DragEvent } from "@thisbeyond/solid-dnd"
 import { useProviders } from "@/hooks/use-providers"
 import { showToast, Toast, toaster } from "@opencode-ai/ui/toast"
 import { useGlobalSDK } from "@/context/global-sdk"
+import { clientActionHeaders } from "@/utils/server"
 import { LayoutPageContext } from "@/context/layout-page"
 import { ShellSurfaceContext } from "@/context/shell-surface"
 import { clearWorkspaceTerminals, isTerminalGoneError } from "@/context/terminal"
@@ -1970,7 +1971,11 @@ export default function Layout(props: ParentProps) {
       sessions.map((s) => s.id),
       platform,
     )
-    await globalSDK.client.instance.dispose({ directory }).catch(() => undefined)
+    const actionClient = globalSDK.createClient({
+      headers: clientActionHeaders({ kind: "workspace.reset" }),
+      throwOnError: true,
+    })
+    await actionClient.instance.dispose({ directory }).catch(() => undefined)
 
     const result = await globalSDK.client.worktree
       .reset({ directory: root, worktreeResetInput: { directory } })
