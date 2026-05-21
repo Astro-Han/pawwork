@@ -213,7 +213,8 @@ async function revealCachedSessionMessages(page: Parameters<typeof snapshotPerfP
     await scrollTimelineTo(page, 0)
     await settleFrames(page, 2)
     const loadEarlier = page.getByRole("button", { name: /Load earlier messages|加载更早的消息/i }).first()
-    if (await loadEarlier.isVisible()) await loadEarlier.click()
+    if (await loadEarlier.isVisible().catch(() => false))
+      await loadEarlier.click({ timeout: 1_000 }).catch(() => undefined)
     try {
       await expect
         .poll(async () => (await readTimelineDomBudget(page)).totalRows, { timeout: 1_500 })
