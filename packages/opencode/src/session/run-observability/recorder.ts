@@ -91,6 +91,7 @@ export function createRecorder(input: RecorderInput): Recorder {
         tool_input_completed: false,
         tool_call_materialized: false,
         tool_execution_started: false,
+        tool_execution_completed: false,
         unsafe_side_effect_started: false,
         lastMonotonicMs: next.monotonicMs,
       })
@@ -264,6 +265,7 @@ export function createRecorder(input: RecorderInput): Recorder {
       toolExecutionCompleted = true
       updateAttempt(next.attemptID, (attempt) => {
         attempt.last_tool_completed_at = next.at
+        attempt.tool_execution_completed = true
         attempt.lastMonotonicMs = Math.max(attempt.lastMonotonicMs, next.monotonicMs)
       })
       appendEvidence({
@@ -371,6 +373,7 @@ export function createRecorder(input: RecorderInput): Recorder {
           toolInputCompleted: getAttempt(next.attemptID)?.tool_input_completed ?? toolInputCompleted,
           toolCallMaterialized: getAttempt(next.attemptID)?.tool_call_materialized ?? toolCallMaterialized,
           toolExecutionStarted: getAttempt(next.attemptID)?.tool_execution_started ?? toolExecutionStarted,
+          toolExecutionCompleted: getAttempt(next.attemptID)?.tool_execution_completed ?? toolExecutionCompleted,
         }),
       })
       rememberEvent(next.monotonicMs)

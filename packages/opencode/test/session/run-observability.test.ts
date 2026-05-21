@@ -900,6 +900,55 @@ describe("RunObservability", () => {
     })
   })
 
+  test("transport failure after tool execution completes is classified after tool result", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_transport_after_tool_execution_completed"),
+      traceID: MessageID.make("msg_transport_after_tool_execution_completed"),
+      sessionID: SessionID.make("ses_transport_after_tool_execution_completed"),
+      messageID: MessageID.make("msg_transport_after_tool_execution_completed"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordToolInputStarted({ attemptID: attempt.attemptID, at: 12, monotonicMs: 120 })
+    recorder.recordToolInputCompleted({ attemptID: attempt.attemptID, at: 13, monotonicMs: 130 })
+    recorder.recordToolCallMaterialized({
+      attemptID: attempt.attemptID,
+      at: 14,
+      monotonicMs: 140,
+      toolName: RunObservability.safeToolName("grep"),
+      effect: RunObservability.toolEffect("grep"),
+    })
+    recorder.recordToolExecutionStarted({
+      attemptID: attempt.attemptID,
+      at: 15,
+      monotonicMs: 150,
+      toolName: RunObservability.safeToolName("grep"),
+      effect: RunObservability.toolEffect("grep"),
+    })
+    recorder.recordToolCompleted({ attemptID: attempt.attemptID, at: 16, monotonicMs: 160 })
+    recorder.recordTransportFailure({
+      attemptID: attempt.attemptID,
+      at: 17,
+      monotonicMs: 170,
+      error: { name: "TypeError", message: "terminated", cause: { code: "UND_ERR_SOCKET" } },
+    })
+
+    const summary = recorder.finalize({ completedAt: 18, monotonicMs: 180 })
+    expect(summary.incident?.facts.tool_execution_completed).toBe(true)
+    expect(summary.incident?.terminal_cause).toMatchObject({
+      category: "provider_transport_disconnect",
+      subcategory: "after_tool_result",
+    })
+    expect(summary.incident?.phase).toMatchObject({
+      run_phase: "post_tool",
+      stream_phase: "after_tool_call",
+      tool_phase: "tool_execution_completed",
+    })
+  })
+
   test("safe materialized tool call without execution can offer continue", () => {
     const recorder = RunObservability.createRecorder({
       runID: RunObservability.RunID.make("run_safe_materialized_tool"),

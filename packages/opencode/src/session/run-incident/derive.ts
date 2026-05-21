@@ -159,15 +159,17 @@ function phaseFor(input: {
   facts: IncidentFacts
   terminalAttemptID?: IncidentEvidenceEvent["attempt_id"]
 }): RunIncident["phase"] {
-  const toolPhase = input.facts.tool_execution_started
-    ? "tool_execution_started"
-    : input.facts.tool_call_materialized
-      ? "tool_call_materialized"
-      : input.facts.tool_input_completed
-        ? "tool_input_completed"
-        : input.facts.tool_input_started
-          ? "tool_input_started"
-          : "none"
+  const toolPhase = input.facts.tool_execution_completed
+    ? "tool_execution_completed"
+    : input.facts.tool_execution_started
+      ? "tool_execution_started"
+      : input.facts.tool_call_materialized
+        ? "tool_call_materialized"
+        : input.facts.tool_input_completed
+          ? "tool_input_completed"
+          : input.facts.tool_input_started
+            ? "tool_input_started"
+            : "none"
   const streamPhase = input.facts.tool_call_materialized
     ? "after_tool_call"
     : input.facts.tool_input_completed
@@ -179,13 +181,15 @@ function phaseFor(input: {
           : input.facts.visible_output_seen || input.facts.provider_progress_seen
             ? "text_generation"
             : "before_first_provider_progress"
-  const runPhase = input.facts.tool_execution_started
-    ? "tool_execution"
-    : input.facts.tool_input_started || input.facts.tool_call_materialized
-      ? "tool_generation"
-      : input.facts.provider_progress_seen || input.facts.visible_output_seen
-        ? "streaming"
-        : "unknown"
+  const runPhase = input.facts.tool_execution_completed
+    ? "post_tool"
+    : input.facts.tool_execution_started
+      ? "tool_execution"
+      : input.facts.tool_input_started || input.facts.tool_call_materialized
+        ? "tool_generation"
+        : input.facts.provider_progress_seen || input.facts.visible_output_seen
+          ? "streaming"
+          : "unknown"
   return {
     run_phase: runPhase,
     stream_phase: streamPhase,
@@ -201,6 +205,7 @@ export function transportCause(input: {
   toolInputCompleted: boolean
   toolCallMaterialized: boolean
   toolExecutionStarted: boolean
+  toolExecutionCompleted: boolean
 }): Extract<TerminalCause, { category: "provider_transport_disconnect" }> {
   const error = input.error
   const boundary = error?.cause_code === "UND_ERR_SOCKET" ? "sdk_transport" : "unknown"
@@ -211,13 +216,15 @@ export function transportCause(input: {
         ? "during_tool_input_generation"
         : input.toolInputCompleted && !input.toolCallMaterialized
           ? "unknown_stream_phase"
-          : input.toolExecutionStarted
-            ? "unknown_stream_phase"
-            : input.toolCallMaterialized
-              ? "after_tool_call_before_execution"
-              : input.providerProgressSeen
-                ? "during_text_generation"
-                : "before_first_provider_progress",
+          : input.toolExecutionCompleted
+            ? "after_tool_result"
+            : input.toolExecutionStarted
+              ? "unknown_stream_phase"
+              : input.toolCallMaterialized
+                ? "after_tool_call_before_execution"
+                : input.providerProgressSeen
+                  ? "during_text_generation"
+                  : "before_first_provider_progress",
     boundary,
     error,
     confidence: boundary === "sdk_transport" ? "high" : "medium",
