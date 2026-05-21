@@ -13,6 +13,7 @@ import {
   type ToolEffectKind,
 } from "./types"
 import { safeErrorFingerprint } from "./sanitize"
+import { RunIncident } from "../run-incident"
 
 type AttemptMutable = AttemptSummary & { lastMonotonicMs: number }
 
@@ -36,12 +37,19 @@ export function createRecorder(input: RecorderInput): Recorder {
   let providerProgressSeen = false
   let visibleOutputSeen = false
   let toolCallSeen = false
+  let toolInputStarted = false
+  let toolInputCompleted = false
+  let toolCallMaterialized = false
   let toolExecutionStarted = false
+  let toolExecutionCompleted = false
   let readOnlyToolStarted = false
   let unsafeSideEffectStarted = false
   let sideEffectFactsComplete = true
+  const materializedToolBoundaries: RunIncident.MaterializedToolBoundary[] = []
   let lastEventMonotonicMs = input.monotonicStartMs
   let failure: Failure | undefined
+  let pendingToolPartsInterrupted = 0
+  const evidence: RunIncident.EvidenceEvent[] = []
 
   const rememberEvent = (monotonicMs: number) => {
     lastEventMonotonicMs = Math.max(lastEventMonotonicMs, monotonicMs)
@@ -50,6 +58,14 @@ export function createRecorder(input: RecorderInput): Recorder {
   const updateAttempt = (attemptID: AttemptID | undefined, fn: (attempt: AttemptMutable) => void) => {
     const attempt = getAttempt(attemptID)
     if (attempt) fn(attempt)
+  }
+  const appendEvidence = (next: Omit<RunIncident.EvidenceEvent, "event_id" | "order">) => {
+    const order = evidence.length + 1
+    evidence.push({
+      ...next,
+      order,
+      event_id: `incident:${input.messageID}:evidence:${order}`,
+    })
   }
 
   return {
@@ -62,9 +78,20 @@ export function createRecorder(input: RecorderInput): Recorder {
         provider_progress_seen: false,
         visible_output_seen: false,
         tool_call_seen: false,
+        tool_input_started: false,
+        tool_input_completed: false,
+        tool_call_materialized: false,
         tool_execution_started: false,
         unsafe_side_effect_started: false,
         lastMonotonicMs: next.monotonicMs,
+      })
+      appendEvidence({
+        monotonic_ms: next.monotonicMs,
+        source: "processor",
+        attempt_id: attemptID,
+        event_type: "attempt_started",
+        terminal_candidate: false,
+        confidence: "high",
       })
       rememberEvent(next.monotonicMs)
       return { attemptID }
@@ -75,6 +102,14 @@ export function createRecorder(input: RecorderInput): Recorder {
         attempt.provider_progress_seen = true
         attempt.lastMonotonicMs = Math.max(attempt.lastMonotonicMs, next.monotonicMs)
       })
+      appendEvidence({
+        monotonic_ms: next.monotonicMs,
+        source: "provider_stream",
+        attempt_id: next.attemptID,
+        event_type: "provider_progress_seen",
+        terminal_candidate: false,
+        confidence: "high",
+      })
       rememberEvent(next.monotonicMs)
     },
     recordVisibleOutput(next) {
@@ -83,13 +118,89 @@ export function createRecorder(input: RecorderInput): Recorder {
         attempt.visible_output_seen = true
         attempt.lastMonotonicMs = Math.max(attempt.lastMonotonicMs, next.monotonicMs)
       })
+      appendEvidence({
+        monotonic_ms: next.monotonicMs,
+        source: "provider_stream",
+        attempt_id: next.attemptID,
+        event_type: next.kind === "reasoning" ? "reasoning_output_started" : "text_output_started",
+        terminal_candidate: false,
+        confidence: "high",
+      })
+      appendEvidence({
+        monotonic_ms: next.monotonicMs,
+        source: "provider_stream",
+        attempt_id: next.attemptID,
+        event_type: "visible_output_seen",
+        terminal_candidate: false,
+        confidence: "high",
+      })
       rememberEvent(next.monotonicMs)
     },
-    recordToolCall(next) {
+    recordToolInputStarted(next) {
+      toolInputStarted = true
+      if (next.providerExecuted) sideEffectFactsComplete = false
+      updateAttempt(next.attemptID, (attempt) => {
+        attempt.tool_input_started = true
+        attempt.lastMonotonicMs = Math.max(attempt.lastMonotonicMs, next.monotonicMs)
+      })
+      appendEvidence({
+        monotonic_ms: next.monotonicMs,
+        source: "provider_stream",
+        attempt_id: next.attemptID,
+        event_type: "tool_input_started",
+        terminal_candidate: false,
+        confidence: "high",
+      })
+      if (next.providerExecuted) {
+        appendEvidence({
+          monotonic_ms: next.monotonicMs,
+          source: "provider_stream",
+          attempt_id: next.attemptID,
+          event_type: "provider_executed_tool_boundary",
+          terminal_candidate: false,
+          confidence: "medium",
+        })
+      }
+      rememberEvent(next.monotonicMs)
+    },
+    recordToolInputCompleted(next) {
+      toolInputCompleted = true
+      updateAttempt(next.attemptID, (attempt) => {
+        attempt.tool_input_completed = true
+        attempt.lastMonotonicMs = Math.max(attempt.lastMonotonicMs, next.monotonicMs)
+      })
+      appendEvidence({
+        monotonic_ms: next.monotonicMs,
+        source: "provider_stream",
+        attempt_id: next.attemptID,
+        event_type: "tool_input_completed",
+        terminal_candidate: false,
+        confidence: "high",
+      })
+      rememberEvent(next.monotonicMs)
+    },
+    recordToolCallMaterialized(next) {
       toolCallSeen = true
+      toolCallMaterialized = true
+      const effect = next.effect ?? { kind: "unknown", unsafe: true, complete: false as const }
+      materializedToolBoundaries.push({ attempt_id: next.attemptID, tool: next.toolName, effect })
+      if (next.providerExecuted || !effect.complete) sideEffectFactsComplete = false
       updateAttempt(next.attemptID, (attempt) => {
         attempt.tool_call_seen = true
+        attempt.tool_call_materialized = true
         attempt.lastMonotonicMs = Math.max(attempt.lastMonotonicMs, next.monotonicMs)
+      })
+      appendEvidence({
+        monotonic_ms: next.monotonicMs,
+        source: "provider_stream",
+        attempt_id: next.attemptID,
+        event_type: "tool_call_materialized",
+        terminal_candidate: false,
+        confidence: "high",
+        tool_name: next.toolName,
+        tool_effect_kind: effect.kind,
+        tool_effect_unsafe: effect.unsafe,
+        tool_effect_complete: effect.complete,
       })
       rememberEvent(next.monotonicMs)
     },
@@ -107,34 +218,105 @@ export function createRecorder(input: RecorderInput): Recorder {
         attempt.unsafe_side_effect_started ||= next.effect.unsafe
         attempt.lastMonotonicMs = Math.max(attempt.lastMonotonicMs, next.monotonicMs)
       })
+      appendEvidence({
+        monotonic_ms: next.monotonicMs,
+        source: "tool_runner",
+        attempt_id: next.attemptID,
+        event_type: "tool_execution_started",
+        terminal_candidate: false,
+        confidence: "high",
+        tool_name: next.toolName,
+      })
+      if (next.effect.kind === "read_only") {
+        appendEvidence({
+          monotonic_ms: next.monotonicMs,
+          source: "tool_runner",
+          attempt_id: next.attemptID,
+          event_type: "read_only_tool_started",
+          terminal_candidate: false,
+          confidence: "high",
+          tool_name: next.toolName,
+        })
+      }
+      if (next.effect.unsafe) {
+        appendEvidence({
+          monotonic_ms: next.monotonicMs,
+          source: "tool_runner",
+          attempt_id: next.attemptID,
+          event_type: "unsafe_side_effect_started",
+          terminal_candidate: false,
+          confidence: next.effect.complete ? "high" : "medium",
+          tool_name: next.toolName,
+        })
+      }
       rememberEvent(next.monotonicMs)
     },
     recordToolCompleted(next) {
+      toolExecutionCompleted = true
       updateAttempt(next.attemptID, (attempt) => {
         attempt.last_tool_completed_at = next.at
         attempt.lastMonotonicMs = Math.max(attempt.lastMonotonicMs, next.monotonicMs)
       })
+      appendEvidence({
+        monotonic_ms: next.monotonicMs,
+        source: "tool_runner",
+        attempt_id: next.attemptID,
+        event_type: "tool_execution_completed",
+        terminal_candidate: false,
+        confidence: "high",
+      })
       rememberEvent(next.monotonicMs)
     },
     recordToolFailed(next) {
-      if (failure?.type === "setup" || failure?.type === "scope_closed") return
-      failure = {
+      failure ??= {
         type: "tool",
         at: next.at,
         monotonicMs: next.monotonicMs,
         error: next.error,
         attemptID: next.attemptID,
       }
+      const error = safeErrorFingerprint(next.error)
+      appendEvidence({
+        monotonic_ms: next.monotonicMs,
+        source: "tool_runner",
+        attempt_id: next.attemptID,
+        event_type: "tool_execution_failure",
+        terminal_candidate: true,
+        confidence: "high",
+        error,
+        cause: { category: "tool_execution_failure", error, confidence: "high" },
+      })
       rememberEvent(next.monotonicMs)
     },
     recordToolInterrupted(next) {
-      if (failure?.type === "setup" || failure?.type === "scope_closed") return
-      failure = { type: "tool", at: next.at, monotonicMs: next.monotonicMs, attemptID: next.attemptID }
+      failure ??= { type: "tool", at: next.at, monotonicMs: next.monotonicMs, attemptID: next.attemptID }
+      appendEvidence({
+        monotonic_ms: next.monotonicMs,
+        source: "tool_runner",
+        attempt_id: next.attemptID,
+        event_type: "tool_execution_interrupted",
+        terminal_candidate: true,
+        confidence: "medium",
+        cause: { category: "tool_execution_interrupted", confidence: "medium" },
+      })
+      rememberEvent(next.monotonicMs)
+    },
+    recordPendingToolPartInterrupted(next) {
+      pendingToolPartsInterrupted++
+      appendEvidence({
+        monotonic_ms: next.monotonicMs,
+        source: "processor",
+        attempt_id: next.attemptID,
+        event_type: "pending_tool_part_interrupted",
+        terminal_candidate: false,
+        confidence: "medium",
+        redactions: ["raw_tool_input"],
+      })
       rememberEvent(next.monotonicMs)
     },
     recordTransportFailure(next) {
-      if (failure?.type === "scope_closed" || failure?.type === "setup" || failure?.type === "tool") return
-      failure = {
+      const error = safeErrorFingerprint(next.error)
+      failure ??= {
         type: "transport",
         at: next.at,
         monotonicMs: next.monotonicMs,
@@ -142,15 +324,40 @@ export function createRecorder(input: RecorderInput): Recorder {
         evidence: next.evidence ?? [],
         attemptID: next.attemptID,
       }
+      appendEvidence({
+        monotonic_ms: next.monotonicMs,
+        source: "provider_stream",
+        attempt_id: next.attemptID,
+        event_type: "provider_transport_failure",
+        terminal_candidate: true,
+        confidence: error.cause_code === "UND_ERR_SOCKET" ? "high" : "medium",
+        error,
+        cause: RunIncident.transportCause({
+          error,
+          providerProgressSeen: getAttempt(next.attemptID)?.provider_progress_seen ?? providerProgressSeen,
+          toolInputStarted: getAttempt(next.attemptID)?.tool_input_started ?? toolInputStarted,
+          toolInputCompleted: getAttempt(next.attemptID)?.tool_input_completed ?? toolInputCompleted,
+          toolCallMaterialized: getAttempt(next.attemptID)?.tool_call_materialized ?? toolCallMaterialized,
+        }),
+      })
       rememberEvent(next.monotonicMs)
     },
     recordSetupFailure(next) {
-      if (failure?.type === "scope_closed") return
-      failure = { type: "setup", at: next.at, monotonicMs: next.monotonicMs, error: next.error }
+      failure ??= { type: "setup", at: next.at, monotonicMs: next.monotonicMs, error: next.error }
+      const error = safeErrorFingerprint(next.error)
+      appendEvidence({
+        monotonic_ms: next.monotonicMs,
+        source: "processor",
+        event_type: "request_setup_failure",
+        terminal_candidate: true,
+        confidence: "high",
+        error,
+        cause: { category: "request_setup_failure", error, confidence: "high" },
+      })
       rememberEvent(next.monotonicMs)
     },
     recordScopeClosed(next) {
-      failure = {
+      failure ??= {
         type: "scope_closed",
         at: next.at,
         monotonicMs: next.monotonicMs,
@@ -159,12 +366,44 @@ export function createRecorder(input: RecorderInput): Recorder {
         lifecycleActionID: next.lifecycleActionID,
         lifecycleKind: next.lifecycleKind,
       }
+      appendEvidence({
+        monotonic_ms: next.monotonicMs,
+        source: "lifecycle",
+        event_type: "lifecycle_close_seen",
+        terminal_candidate: true,
+        confidence: next.lifecycleActionID ? "high" : "medium",
+        cause: {
+          category: "local_lifecycle_close",
+          subcategory: next.lifecycleKind ?? "unknown_lifecycle_close",
+          confidence: next.lifecycleActionID ? "high" : "medium",
+        },
+      })
       rememberEvent(next.monotonicMs)
     },
     finalize(final) {
-      const classification = classify(failure)
+      const incident = RunIncident.derive({
+        runID: input.runID,
+        traceID: input.traceID,
+        sessionID: input.sessionID,
+        messageID: input.messageID,
+        parentMessageID: input.parentMessageID,
+        createdAt: input.createdAt,
+        completedAt: final.completedAt,
+        evidence,
+        unsafeSideEffectKinds: unsafeKinds,
+        sideEffectFactsComplete,
+        materializedToolBoundaries,
+        lifecycle: lifecycleSummary(failure),
+        missingProvenance: classify(failure) === "unknown_scope_close" ? ["lifecycle.close_requested"] : undefined,
+      })
+      const classification = incident ? classificationForIncident(incident.terminal_cause) : classify(failure)
       const missingProvenance = classification === "unknown_scope_close" ? ["lifecycle.close_requested"] : undefined
-      const summaryKey = summaryKeyFor(classification, summarySuffix({ failure, providerProgressSeen }))
+      const summaryKey = summaryKeyFor(
+        classification,
+        incident
+          ? summarySuffixForIncident(incident.terminal_cause, { providerProgressSeen })
+          : summarySuffix({ failure, providerProgressSeen }),
+      )
       const retrySafety = retrySafetyFor({
         classification,
         visibleOutputSeen,
@@ -194,11 +433,16 @@ export function createRecorder(input: RecorderInput): Recorder {
         provider_progress_seen: providerProgressSeen,
         visible_output_seen: visibleOutputSeen,
         tool_call_seen: toolCallSeen,
+        tool_input_started: toolInputStarted,
+        tool_input_completed: toolInputCompleted,
+        tool_call_materialized: toolCallMaterialized,
         tool_execution_started: toolExecutionStarted,
         read_only_tool_started: readOnlyToolStarted,
         unsafe_side_effect_started: unsafeSideEffectStarted,
         unsafe_side_effect_kinds: unsafeKinds,
         side_effect_facts_complete: sideEffectFactsComplete,
+        pending_tool_parts_interrupted: pendingToolPartsInterrupted || undefined,
+        incident,
         lifecycle: lifecycleSummary(failure),
         missing_provenance: missingProvenance,
         durations_ms: {
@@ -235,6 +479,48 @@ function classify(failure: Failure | undefined): Classification {
   }
   if (failure.type === "transport") return "external_stream_disconnect"
   return "unknown_failure"
+}
+
+function classificationForIncident(cause: RunIncident.TerminalCause): Classification {
+  switch (cause.category) {
+    case "provider_transport_disconnect":
+      return "external_stream_disconnect"
+    case "local_lifecycle_close":
+      if (cause.subcategory === "unknown_lifecycle_close") return "unknown_scope_close"
+      if (cause.subcategory === "instance_reload") return "local_instance_reload"
+      if (
+        cause.subcategory === "instance_dispose" ||
+        cause.subcategory === "instance_dispose_directory" ||
+        cause.subcategory === "instance_dispose_all"
+      )
+        return "local_instance_dispose"
+      return "known_lifecycle_close"
+    case "request_setup_failure":
+      return "request_setup_failure"
+    case "tool_execution_failure":
+    case "tool_execution_interrupted":
+      return "tool_failure"
+    default:
+      return "unknown_failure"
+  }
+}
+
+function summarySuffixForIncident(cause: RunIncident.TerminalCause, input: { providerProgressSeen: boolean }) {
+  if (cause.category === "provider_transport_disconnect") {
+    if (!input.providerProgressSeen) return "transport_failure"
+    if (cause.subcategory === "during_tool_input_generation") return "provider_progress_tool_input_disconnect"
+    if (cause.boundary === "sdk_transport" && cause.error?.cause_code === "UND_ERR_SOCKET")
+      return "provider_progress_socket_closed"
+    return "transport_failure"
+  }
+  if (cause.category === "local_lifecycle_close") {
+    if (cause.subcategory === "unknown_lifecycle_close") return "missing_lifecycle_provenance"
+    return "lifecycle_close"
+  }
+  if (cause.category === "request_setup_failure") return "request_setup_failed"
+  if (cause.category === "tool_execution_failure" || cause.category === "tool_execution_interrupted")
+    return "tool_execution_failed"
+  return "unknown"
 }
 
 function summarySuffix(input: { failure: Failure | undefined; providerProgressSeen: boolean }) {
