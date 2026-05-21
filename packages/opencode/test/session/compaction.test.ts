@@ -1197,6 +1197,74 @@ describe("session.compaction.process", () => {
     })
   })
 
+  test("stops with a context overflow error when auto compaction cannot advance the retained tail", async () => {
+    await using tmp = await tmpdir()
+    const model = createModel({ context: 30_000, input: 30_000, output: 4_000 })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create()
+        const first = await user(session.id, "first request")
+        await assistant(session.id, first.id, tmp.path)
+        const second = await user(session.id, "second request")
+        await assistant(session.id, second.id, tmp.path)
+        const previousCompaction = await user(session.id, "compact once")
+        await svc.updatePart({
+          id: PartID.ascending(),
+          messageID: previousCompaction.id,
+          sessionID: session.id,
+          type: "compaction",
+          auto: true,
+          tail_start_id: second.id,
+        })
+        await assistant(session.id, previousCompaction.id, tmp.path)
+        const compact = await user(session.id, "compact again")
+        await svc.updatePart({
+          id: PartID.ascending(),
+          messageID: compact.id,
+          sessionID: session.id,
+          type: "compaction",
+          auto: true,
+          tail_start_id: second.id,
+        })
+
+        const fakeLLM = llm()
+        fakeLLM.push(reply("new summary"))
+        const live = liveRuntime(
+          fakeLLM.layer,
+          ProviderTest.fake({ model }),
+          cfg({ tail_turns: 1, preserve_recent_tokens: 6_000 }),
+        )
+        try {
+          const beforeCompaction = await svc.messages({ sessionID: session.id })
+          const result = await live.runPromise(
+            SessionCompaction.Service.use((compaction) =>
+              compaction.process({
+                parentID: compact.id,
+                messages: beforeCompaction,
+                sessionID: session.id,
+                auto: true,
+              }),
+            ),
+          )
+
+          const summary = (await svc.messages({ sessionID: session.id })).findLast(
+            (message) => message.info.role === "assistant" && message.info.summary === true,
+          )
+
+          expect(result).toBe("stop")
+          expect(summary?.info.role).toBe("assistant")
+          if (summary?.info.role === "assistant") {
+            expect(summary.info.finish).toBe("error")
+            expect(summary.info.error?.name).toBe("ContextOverflowError")
+          }
+        } finally {
+          await live.dispose()
+        }
+      },
+    })
+  })
+
   test("replays the prior user turn on overflow when earlier context exists", async () => {
     await using tmp = await tmpdir()
     await Instance.provide({

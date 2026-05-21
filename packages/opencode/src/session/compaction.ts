@@ -430,6 +430,10 @@ export const layer: Layer.Layer<
         cfg,
         model,
       })
+      const stalledTailBoundary =
+        input.auto &&
+        compactionPart?.tail_start_id !== undefined &&
+        compactionPart.tail_start_id === selected.tail_start_id
       // Allow plugins to inject context or replace compaction prompt.
       const compacting = yield* plugin.trigger(
         "experimental.session.compacting",
@@ -472,6 +476,14 @@ export const layer: Layer.Layer<
         },
       }
       yield* session.updateMessage(msg)
+      if (stalledTailBoundary) {
+        msg.error = new MessageV2.ContextOverflowError({
+          message: `Auto compaction could not make progress: retained tail boundary did not advance (${selected.tail_start_id})`,
+        }).toObject()
+        msg.finish = "error"
+        yield* session.updateMessage(msg)
+        return "stop"
+      }
       const processor = yield* processors.create({
         assistantMessage: msg,
         sessionID: input.sessionID,
