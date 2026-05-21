@@ -1387,6 +1387,10 @@ describe("session.compaction.process", () => {
           if (summary?.info.role === "assistant") {
             expect(summary.info.error?.name).toBe("MessageAbortedError")
             expect(summary.info.finish).toBe("error")
+            // Terminal state must carry `time.completed` so the UI's pending
+            // memo (which scans `allMessages()` for assistants without a
+            // completion stamp) does not keep treating the turn as in-flight.
+            expect(typeof summary.info.time.completed).toBe("number")
           }
         } finally {
           abort.abort()

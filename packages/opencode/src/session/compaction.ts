@@ -523,6 +523,11 @@ export const layer: Layer.Layer<
                 message: "Compaction aborted",
               }).toObject()
               msg.finish = "error"
+              // Terminal state — must have `time.completed` so the UI's
+              // `pending` memo (driven by `allMessages()`, which includes
+              // the summary assistant) does not keep treating this turn
+              // as in-flight.
+              msg.time.completed = Date.now()
               yield* session.updateMessage(msg)
             }),
           ),
@@ -538,6 +543,8 @@ export const layer: Layer.Layer<
           aborted: false,
         })
         msg.finish = "error"
+        // Terminal state — same reasoning as the onInterrupt branch above.
+        msg.time.completed = Date.now()
         yield* session.updateMessage(msg)
         return "stop"
       }
