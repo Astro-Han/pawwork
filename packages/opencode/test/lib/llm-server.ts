@@ -258,12 +258,13 @@ function responseToolArgs(id: string, text: string, seq: number) {
   }
 }
 
-function responseToolArgsDone(id: string, args: string, seq: number) {
+function responseToolArgsDone(id: string, name: string, args: string, seq: number) {
   return {
     type: "response.function_call_arguments.done",
     sequence_number: seq,
     output_index: 0,
     item_id: id,
+    name,
     arguments: args,
   }
 }
@@ -418,7 +419,7 @@ function responses(item: Sse, model: string) {
   }
   if (call && !item.hang && !item.error) {
     seq += 1
-    tail.push(responseToolArgsDone(call.item, call.args, seq))
+    tail.push(responseToolArgsDone(call.item, call.name, call.args, seq))
     seq += 1
     tail.push(responseToolDone(call, seq))
   }
@@ -436,11 +437,16 @@ function send(item: Sse) {
   for (const stage of segments) {
     const chunkStream = bytes(stage.chunks)
     const wait = stage.wait
-    const segment = wait ? Stream.fromEffect(Effect.promise(() => wait)).pipe(Stream.flatMap(() => chunkStream)) : chunkStream
+    const segment = wait
+      ? Stream.fromEffect(Effect.promise(() => wait)).pipe(Stream.flatMap(() => chunkStream))
+      : chunkStream
     body = Stream.concat(body, segment)
   }
   const wait = item.wait
-  body = Stream.concat(body, wait ? Stream.fromEffect(Effect.promise(() => wait)).pipe(Stream.flatMap(() => tail)) : tail)
+  body = Stream.concat(
+    body,
+    wait ? Stream.fromEffect(Effect.promise(() => wait)).pipe(Stream.flatMap(() => tail)) : tail,
+  )
 
   let end: Stream.Stream<Uint8Array, unknown> = empty
   if (item.error) end = Stream.concat(empty, Stream.fail(item.error))
