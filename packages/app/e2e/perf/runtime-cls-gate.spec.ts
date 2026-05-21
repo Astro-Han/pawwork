@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures"
-import { cleanupSession, seedSessionQuestion, withSession } from "../actions"
+import { seedSessionQuestion, withSession } from "../actions"
 import { inputMatch } from "../prompt/mock"
 import {
   promptSelector,
@@ -21,12 +21,12 @@ import {
   type RuntimeClsResult,
 } from "./runtime-cls-probe"
 
-const runtimeClsSeedTurns = 60
-const runtimeClsMinimumRows = 52
-const runtimeClsMaximumMountedMessages = 48
-const composerGrowthText = Array.from({ length: 8 }, (_, index) => `composer growth line ${index + 1}`).join("\n")
+const RUNTIME_CLS_SEED_TURNS = 60
+const RUNTIME_CLS_MINIMUM_ROWS = 52
+const RUNTIME_CLS_MAXIMUM_MOUNTED_MESSAGES = 48
+const COMPOSER_GROWTH_TEXT = Array.from({ length: 8 }, (_, index) => `composer growth line ${index + 1}`).join("\n")
 
-const question = [
+const QUESTION = [
   {
     header: "Runtime CLS check",
     question: "Pick one option to close the dock",
@@ -76,7 +76,7 @@ async function settleFrames(page: Page, count = 4) {
 }
 
 async function seedRuntimeClsSession(project: RuntimeClsProject, sessionID: string) {
-  for (let turn = 0; turn < runtimeClsSeedTurns; turn += 1) {
+  for (let turn = 0; turn < RUNTIME_CLS_SEED_TURNS; turn += 1) {
     await project.sdk.session.promptAsync({
       sessionID,
       noReply: true,
@@ -155,7 +155,7 @@ async function revealRuntimeClsRows(page: Page) {
 
   for (let attempt = 0; attempt < 24; attempt += 1) {
     const budget = await readTimelineDomBudget(page)
-    if (budget.totalRows >= runtimeClsMinimumRows) return budget
+    if (budget.totalRows >= RUNTIME_CLS_MINIMUM_ROWS) return budget
 
     await test.step(`load earlier runtime CLS rows attempt ${attempt + 1}`, async () => {
       await scrollTimelineToRatio(page, 0)
@@ -171,7 +171,7 @@ async function revealRuntimeClsRows(page: Page) {
 
   await expect
     .poll(async () => (await readTimelineDomBudget(page)).totalRows, { timeout: 1_000 })
-    .toBeGreaterThanOrEqual(runtimeClsMinimumRows)
+    .toBeGreaterThanOrEqual(RUNTIME_CLS_MINIMUM_ROWS)
   return await readTimelineDomBudget(page)
 }
 
@@ -209,9 +209,9 @@ async function prepareRuntimeClsWindow(page: Page, project: RuntimeClsProject, s
   const budget = await test.step("reveal enough timeline rows for virtualized runtime CLS coverage", async () => {
     return await revealRuntimeClsRows(page)
   })
-  expect(budget.totalRows).toBeGreaterThanOrEqual(runtimeClsMinimumRows)
+  expect(budget.totalRows).toBeGreaterThanOrEqual(RUNTIME_CLS_MINIMUM_ROWS)
   expect(budget.hasVirtualizer).toBe(true)
-  expect(budget.mountedMessages).toBeLessThanOrEqual(runtimeClsMaximumMountedMessages)
+  expect(budget.mountedMessages).toBeLessThanOrEqual(RUNTIME_CLS_MAXIMUM_MOUNTED_MESSAGES)
 
   await test.step("position viewport away from top and bottom", async () => {
     await positionTimelineForMeasuredWindow(page)
@@ -380,7 +380,7 @@ test.describe("runtime CLS source gate", () => {
       await settleFrames(page, 4)
 
       await startRuntimeClsProbe(page, "composer-growth", { targetMessageID })
-      await prompt.fill(composerGrowthText)
+      await prompt.fill(COMPOSER_GROWTH_TEXT)
       await expect.poll(async () => readPromptHeight(page)).toBeGreaterThan(beforeHeight + 16)
       await settleFrames(page, 6)
       const result = await stopRuntimeClsProbe(page)
@@ -398,7 +398,7 @@ test.describe("runtime CLS source gate", () => {
       const prompt = page.locator(promptSelector).first()
       await expect(prompt).toBeVisible()
       await prompt.click()
-      await prompt.fill(composerGrowthText)
+      await prompt.fill(COMPOSER_GROWTH_TEXT)
       const grownHeight = await expect
         .poll(async () => readPromptHeight(page))
         .toBeGreaterThan(64)
@@ -429,33 +429,29 @@ test.describe("runtime CLS source gate", () => {
       if (!child?.id) throw new Error("Child session create did not return an id")
       project.trackSession(child.id)
       const dock = page.locator(questionDockSelector)
-      try {
-        await test.step("seed child question dock outside the measured window", async () => {
-          await llm.toolMatch(inputMatch({ questions: question }), "question", { questions: question })
-          await seedSessionQuestion(project.sdk, { sessionID: child.id, questions: question })
-        })
-        const targetMessageID =
-          await test.step("reveal a long visible parent timeline window with the dock open", async () => {
-            const target = await prepareRuntimeClsWindow(page, project, session.id)
-            await expect(dock).toBeVisible({ timeout: 30_000 })
-            await settleFrames(page, 6)
-            return target
-          })
-
-        const result = await test.step("close the child question dock under the runtime CLS probe", async () => {
-          await startRuntimeClsProbe(page, "question-dock-close", { targetMessageID })
-          await dock.getByRole("radio", { name: /Continue/i }).click()
-          await dock.getByRole("button", { name: /submit/i }).click()
-          await expect(dock).toHaveCount(0)
-          await expect(page.locator(promptSelector).first()).toBeVisible()
+      await test.step("seed child question dock outside the measured window", async () => {
+        await llm.toolMatch(inputMatch({ questions: QUESTION }), "question", { questions: QUESTION })
+        await seedSessionQuestion(project.sdk, { sessionID: child.id, questions: QUESTION })
+      })
+      const targetMessageID =
+        await test.step("reveal a long visible parent timeline window with the dock open", async () => {
+          const target = await prepareRuntimeClsWindow(page, project, session.id)
+          await expect(dock).toBeVisible({ timeout: 30_000 })
           await settleFrames(page, 6)
-          return await stopRuntimeClsProbe(page)
+          return target
         })
 
-        await assertNoPrimaryRuntimeClsFailures(result)
-      } finally {
-        await cleanupSession({ sdk: project.sdk, sessionID: child.id })
-      }
+      const result = await test.step("close the child question dock under the runtime CLS probe", async () => {
+        await startRuntimeClsProbe(page, "question-dock-close", { targetMessageID })
+        await dock.getByRole("radio", { name: /Continue/i }).click()
+        await dock.getByRole("button", { name: /submit/i }).click()
+        await expect(dock).toHaveCount(0)
+        await expect(page.locator(promptSelector).first()).toBeVisible()
+        await settleFrames(page, 6)
+        return await stopRuntimeClsProbe(page)
+      })
+
+      await assertNoPrimaryRuntimeClsFailures(result)
     })
   })
 })
