@@ -101,6 +101,8 @@ function diagnosticGaps(
   if (input.lifecycle?.origin?.source === "server_handler" && !input.lifecycle.request)
     gaps.push("lifecycle.request_context_missing")
   if (facts.tool_execution_started && !facts.tool_call_materialized) gaps.push("tool.materialization_missing")
+  if (facts.tool_execution_completed && !facts.tool_execution_started) gaps.push("tool_execution.start_missing")
+  if (facts.tool_execution_completed && !facts.tool_call_materialized) gaps.push("tool.materialization_missing")
   if (facts.tool_input_completed && !facts.tool_input_started) gaps.push("tool_input.start_missing")
   return Array.from(new Set(gaps))
 }
@@ -159,7 +161,8 @@ function phaseFor(input: {
   facts: IncidentFacts
   terminalAttemptID?: IncidentEvidenceEvent["attempt_id"]
 }): RunIncident["phase"] {
-  const toolPhase = input.facts.tool_execution_completed
+  const validToolExecutionCompleted = input.facts.tool_execution_completed && input.facts.tool_execution_started
+  const toolPhase = validToolExecutionCompleted
     ? "tool_execution_completed"
     : input.facts.tool_execution_started
       ? "tool_execution_started"
@@ -181,7 +184,7 @@ function phaseFor(input: {
           : input.facts.visible_output_seen || input.facts.provider_progress_seen
             ? "text_generation"
             : "before_first_provider_progress"
-  const runPhase = input.facts.tool_execution_completed
+  const runPhase = validToolExecutionCompleted
     ? "post_tool"
     : input.facts.tool_execution_started
       ? "tool_execution"
@@ -216,15 +219,17 @@ export function transportCause(input: {
         ? "during_tool_input_generation"
         : input.toolInputCompleted && !input.toolCallMaterialized
           ? "unknown_stream_phase"
-          : input.toolExecutionCompleted
-            ? "after_tool_result"
-            : input.toolExecutionStarted
-              ? "unknown_stream_phase"
-              : input.toolCallMaterialized
-                ? "after_tool_call_before_execution"
-                : input.providerProgressSeen
-                  ? "during_text_generation"
-                  : "before_first_provider_progress",
+          : input.toolExecutionCompleted && (!input.toolExecutionStarted || !input.toolCallMaterialized)
+            ? "unknown_stream_phase"
+            : input.toolExecutionCompleted && input.toolExecutionStarted && input.toolCallMaterialized
+              ? "after_tool_result"
+              : input.toolExecutionStarted
+                ? "unknown_stream_phase"
+                : input.toolCallMaterialized
+                  ? "after_tool_call_before_execution"
+                  : input.providerProgressSeen
+                    ? "during_text_generation"
+                    : "before_first_provider_progress",
     boundary,
     error,
     confidence: boundary === "sdk_transport" ? "high" : "medium",

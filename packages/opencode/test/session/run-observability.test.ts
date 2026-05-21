@@ -949,6 +949,43 @@ describe("RunObservability", () => {
     })
   })
 
+  test("tool completion without start or materialization does not overclaim after-tool-result phase", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_completion_without_execution_boundary"),
+      traceID: MessageID.make("msg_completion_without_execution_boundary"),
+      sessionID: SessionID.make("ses_completion_without_execution_boundary"),
+      messageID: MessageID.make("msg_completion_without_execution_boundary"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordToolCompleted({ attemptID: attempt.attemptID, at: 12, monotonicMs: 120 })
+    recorder.recordTransportFailure({
+      attemptID: attempt.attemptID,
+      at: 13,
+      monotonicMs: 130,
+      error: { name: "TypeError", message: "terminated", cause: { code: "UND_ERR_SOCKET" } },
+    })
+
+    const summary = recorder.finalize({ completedAt: 14, monotonicMs: 140 })
+    expect(summary.incident?.diagnostics_complete).toBe(false)
+    expect(summary.incident?.missing_provenance).toContain("tool_execution.start_missing")
+    expect(summary.incident?.missing_provenance).toContain("tool.materialization_missing")
+    expect(summary.incident?.terminal_cause).toMatchObject({
+      category: "provider_transport_disconnect",
+      subcategory: "unknown_stream_phase",
+    })
+    expect(summary.incident?.terminal_cause).not.toMatchObject({
+      subcategory: "after_tool_result",
+    })
+    expect(summary.incident?.phase).not.toMatchObject({
+      run_phase: "post_tool",
+      tool_phase: "tool_execution_completed",
+    })
+  })
+
   test("safe materialized tool call without execution can offer continue", () => {
     const recorder = RunObservability.createRecorder({
       runID: RunObservability.RunID.make("run_safe_materialized_tool"),
