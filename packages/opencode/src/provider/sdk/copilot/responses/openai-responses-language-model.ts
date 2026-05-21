@@ -29,6 +29,7 @@ import { mapOpenAIResponseFinishReason } from "./map-openai-responses-finish-rea
 import type { OpenAIResponsesIncludeOptions, OpenAIResponsesIncludeValue } from "./openai-responses-api-types"
 import { prepareResponsesTools } from "./openai-responses-prepare-tools"
 import type { OpenAIResponsesModelId } from "./openai-responses-settings"
+import { ResponsesToolCallAssembler } from "./openai-responses-tool-call-assembler"
 import { localShellInputSchema } from "./tool/local-shell"
 
 const webSearchCallItem = z.object({
@@ -832,6 +833,23 @@ export class OpenAIResponsesLanguageModel implements LanguageModelV3 {
 
     // flag that checks if there have been client-side tool calls (not executed by openai)
     let hasFunctionCall = false
+    const functionToolCalls = new ResponsesToolCallAssembler()
+
+    const enqueueFunctionToolCallParts = (
+      controller: TransformStreamDefaultController<LanguageModelV3StreamPart>,
+      parts: LanguageModelV3StreamPart[],
+    ) => {
+      let emittedError = false
+      for (const part of parts) {
+        if (part.type === "tool-call") hasFunctionCall = true
+        if (part.type === "error") {
+          emittedError = true
+          finishReason = { unified: "error", raw: undefined }
+        }
+        controller.enqueue(part)
+      }
+      return emittedError
+    }
 
     // Track reasoning by output_index instead of item_id
     // GitHub Copilot rotates encrypted item IDs on every event
@@ -867,6 +885,10 @@ export class OpenAIResponsesLanguageModel implements LanguageModelV3 {
 
             // handle failed chunk parsing / validation:
             if (!chunk.success) {
+              enqueueFunctionToolCallParts(
+                controller,
+                functionToolCalls.failUnmaterialized("chunk parse or validation error"),
+              )
               finishReason = {
                 unified: "error",
                 raw: undefined,
@@ -879,16 +901,16 @@ export class OpenAIResponsesLanguageModel implements LanguageModelV3 {
 
             if (isResponseOutputItemAddedChunk(value)) {
               if (value.item.type === "function_call") {
-                ongoingToolCalls[value.output_index] = {
-                  toolName: value.item.name,
-                  toolCallId: value.item.call_id,
-                }
-
-                controller.enqueue({
-                  type: "tool-input-start",
-                  id: value.item.call_id,
-                  toolName: value.item.name,
-                })
+                enqueueFunctionToolCallParts(
+                  controller,
+                  functionToolCalls.onFunctionCallAdded({
+                    outputIndex: value.output_index,
+                    itemId: value.item.id,
+                    callId: value.item.call_id,
+                    toolName: value.item.name,
+                    arguments: value.item.arguments,
+                  }),
+                )
               } else if (value.item.type === "web_search_call") {
                 ongoingToolCalls[value.output_index] = {
                   toolName: webSearchToolName ?? "web_search",
@@ -980,25 +1002,16 @@ export class OpenAIResponsesLanguageModel implements LanguageModelV3 {
               }
             } else if (isResponseOutputItemDoneChunk(value)) {
               if (value.item.type === "function_call") {
-                ongoingToolCalls[value.output_index] = undefined
-                hasFunctionCall = true
-
-                controller.enqueue({
-                  type: "tool-input-end",
-                  id: value.item.call_id,
-                })
-
-                controller.enqueue({
-                  type: "tool-call",
-                  toolCallId: value.item.call_id,
-                  toolName: value.item.name,
-                  input: value.item.arguments,
-                  providerMetadata: {
-                    openai: {
-                      itemId: value.item.id,
-                    },
-                  },
-                })
+                enqueueFunctionToolCallParts(
+                  controller,
+                  functionToolCalls.onFunctionCallDone({
+                    outputIndex: value.output_index,
+                    itemId: value.item.id,
+                    callId: value.item.call_id,
+                    toolName: value.item.name,
+                    arguments: value.item.arguments,
+                  }),
+                )
               } else if (value.item.type === "web_search_call") {
                 ongoingToolCalls[value.output_index] = undefined
 
@@ -1136,15 +1149,24 @@ export class OpenAIResponsesLanguageModel implements LanguageModelV3 {
                 }
               }
             } else if (isResponseFunctionCallArgumentsDeltaChunk(value)) {
-              const toolCall = ongoingToolCalls[value.output_index]
-
-              if (toolCall != null) {
-                controller.enqueue({
-                  type: "tool-input-delta",
-                  id: toolCall.toolCallId,
+              enqueueFunctionToolCallParts(
+                controller,
+                functionToolCalls.onFunctionCallArgumentsDelta({
+                  outputIndex: value.output_index,
+                  itemId: value.item_id,
                   delta: value.delta,
-                })
-              }
+                }),
+              )
+            } else if (isResponseFunctionCallArgumentsDoneChunk(value)) {
+              enqueueFunctionToolCallParts(
+                controller,
+                functionToolCalls.onFunctionCallArgumentsDone({
+                  outputIndex: value.output_index,
+                  itemId: value.item_id,
+                  toolName: value.name,
+                  arguments: value.arguments,
+                }),
+              )
             } else if (isResponseImageGenerationCallPartialImageChunk(value)) {
               controller.enqueue({
                 type: "tool-result",
@@ -1258,13 +1280,25 @@ export class OpenAIResponsesLanguageModel implements LanguageModelV3 {
                   },
                 })
               }
+            } else if (isResponseFailedChunk(value)) {
+              enqueueFunctionToolCallParts(controller, functionToolCalls.failUnmaterialized("response.failed"))
+              finishReason = { unified: "error", raw: "response.failed" }
+              controller.enqueue({ type: "error", error: value.response.error ?? value })
             } else if (isResponseFinishedChunk(value)) {
-              finishReason = {
-                unified: mapOpenAIResponseFinishReason({
-                  finishReason: value.response.incomplete_details?.reason,
-                  hasFunctionCall,
-                }),
-                raw: value.response.incomplete_details?.reason ?? undefined,
+              const hadAssemblerError = enqueueFunctionToolCallParts(
+                controller,
+                functionToolCalls.failUnmaterialized(value.type),
+              )
+              if (hadAssemblerError) {
+                finishReason = { unified: "error", raw: value.type }
+              } else if (finishReason.unified !== "error") {
+                finishReason = {
+                  unified: mapOpenAIResponseFinishReason({
+                    finishReason: value.response.incomplete_details?.reason,
+                    hasFunctionCall,
+                  }),
+                  raw: value.response.incomplete_details?.reason ?? undefined,
+                }
               }
               usage.inputTokens = value.response.usage.input_tokens
               usage.outputTokens = value.response.usage.output_tokens
@@ -1294,11 +1328,15 @@ export class OpenAIResponsesLanguageModel implements LanguageModelV3 {
                 })
               }
             } else if (isErrorChunk(value)) {
+              enqueueFunctionToolCallParts(controller, functionToolCalls.failUnmaterialized("provider error chunk"))
+              finishReason = { unified: "error", raw: value.code }
               controller.enqueue({ type: "error", error: value })
             }
           },
 
           flush(controller) {
+            enqueueFunctionToolCallParts(controller, functionToolCalls.failUnmaterialized("stream flush"))
+
             // Close any dangling text part
             if (currentTextId) {
               controller.enqueue({ type: "text-end", id: currentTextId })
@@ -1383,6 +1421,22 @@ const responseFinishedChunkSchema = z.object({
     usage: usageSchema,
     service_tier: z.string().nullish(),
   }),
+})
+
+const responseFailedChunkSchema = z.object({
+  type: z.literal("response.failed"),
+  response: z
+    .object({
+      error: z
+        .object({
+          code: z.string().nullish(),
+          message: z.string().nullish(),
+        })
+        .nullish(),
+      usage: usageSchema.nullish(),
+      service_tier: z.string().nullish(),
+    })
+    .loose(),
 })
 
 const responseCreatedChunkSchema = z.object({
@@ -1498,6 +1552,14 @@ const responseFunctionCallArgumentsDeltaSchema = z.object({
   delta: z.string(),
 })
 
+const responseFunctionCallArgumentsDoneSchema = z.object({
+  type: z.literal("response.function_call_arguments.done"),
+  item_id: z.string(),
+  output_index: z.number(),
+  name: z.string(),
+  arguments: z.string(),
+})
+
 const responseImageGenerationCallPartialImageSchema = z.object({
   type: z.literal("response.image_generation_call.partial_image"),
   item_id: z.string(),
@@ -1555,10 +1617,12 @@ const responseReasoningSummaryTextDeltaSchema = z.object({
 const openaiResponsesChunkSchema = z.union([
   textDeltaChunkSchema,
   responseFinishedChunkSchema,
+  responseFailedChunkSchema,
   responseCreatedChunkSchema,
   responseOutputItemAddedSchema,
   responseOutputItemDoneSchema,
   responseFunctionCallArgumentsDeltaSchema,
+  responseFunctionCallArgumentsDoneSchema,
   responseImageGenerationCallPartialImageSchema,
   responseCodeInterpreterCallCodeDeltaSchema,
   responseCodeInterpreterCallCodeDoneSchema,
@@ -1597,6 +1661,12 @@ function isResponseFinishedChunk(
   return chunk.type === "response.completed" || chunk.type === "response.incomplete"
 }
 
+function isResponseFailedChunk(
+  chunk: z.infer<typeof openaiResponsesChunkSchema>,
+): chunk is z.infer<typeof responseFailedChunkSchema> {
+  return chunk.type === "response.failed"
+}
+
 function isResponseCreatedChunk(
   chunk: z.infer<typeof openaiResponsesChunkSchema>,
 ): chunk is z.infer<typeof responseCreatedChunkSchema> {
@@ -1608,6 +1678,13 @@ function isResponseFunctionCallArgumentsDeltaChunk(
 ): chunk is z.infer<typeof responseFunctionCallArgumentsDeltaSchema> {
   return chunk.type === "response.function_call_arguments.delta"
 }
+
+function isResponseFunctionCallArgumentsDoneChunk(
+  chunk: z.infer<typeof openaiResponsesChunkSchema>,
+): chunk is z.infer<typeof responseFunctionCallArgumentsDoneSchema> {
+  return chunk.type === "response.function_call_arguments.done"
+}
+
 function isResponseImageGenerationCallPartialImageChunk(
   chunk: z.infer<typeof openaiResponsesChunkSchema>,
 ): chunk is z.infer<typeof responseImageGenerationCallPartialImageSchema> {
