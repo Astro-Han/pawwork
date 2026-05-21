@@ -28,8 +28,8 @@ test("dark-mode e2e helper uses the real theme boot path", async ({ page, projec
 
   expect(colors).toEqual({
     attr: "dark",
-    bgBase: "#1a1714",
-    cardBackground: "rgb(58, 52, 49)",
+    bgBase: "#1a1917",
+    cardBackground: "rgb(38, 37, 35)",
   })
 })
 
