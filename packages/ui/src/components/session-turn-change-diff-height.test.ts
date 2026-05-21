@@ -14,8 +14,12 @@ const diff = (deletions: number, additions: number) => ({
 })
 
 describe("turn-change diff height reservation", () => {
-  test("estimates height from the larger side of the diff plus a small render buffer", () => {
-    expect(estimateTurnChangeDiffReservedHeight(diff(3, 8))).toBe(240)
+  test("estimates additions-only height plus a small render buffer", () => {
+    expect(estimateTurnChangeDiffReservedHeight(diff(0, 8))).toBe(240)
+  })
+
+  test("reserves both sides of a unified replacement hunk", () => {
+    expect(estimateTurnChangeDiffReservedHeight(diff(6, 8))).toBe(384)
   })
 
   test("caps reserved height at the existing inline diff max height", () => {

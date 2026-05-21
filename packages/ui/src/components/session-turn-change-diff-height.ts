@@ -14,7 +14,7 @@ export function clampTurnChangeDiffReservedHeight(height: number) {
 }
 
 export function estimateTurnChangeDiffReservedHeight(diff: DiffHeightSource) {
-  const changedLines = Math.max(diff.deletionLines.length, diff.additionLines.length, 1)
+  const changedLines = Math.max(diff.deletionLines.length + diff.additionLines.length, 1)
   return clampTurnChangeDiffReservedHeight(
     (changedLines + TURN_CHANGE_DIFF_RENDER_BUFFER_ROWS) * TURN_CHANGE_DIFF_LINE_HEIGHT,
   )

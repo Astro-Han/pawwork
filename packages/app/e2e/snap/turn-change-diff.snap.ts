@@ -1,5 +1,5 @@
 import { test, expect } from "../fixtures"
-import { routeTurnChangeDiff, TURN_CHANGE_DIFF_FILE_PATH } from "../session/turn-change-diff-fixture"
+import { routeTurnChangeDiff, TURN_CHANGE_MODIFIED_DIFF_FILE_PATH } from "../session/turn-change-diff-fixture"
 import { composeGrid, snapOutputPath, type Shot } from "./_compose"
 
 test.use({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 })
@@ -17,7 +17,7 @@ test("turn-change-diff", async ({ page, llm, project }) => {
   await expect(card).toBeVisible({ timeout: 30_000 })
   const row = card
     .locator('[data-slot="session-turn-change-row"]')
-    .filter({ hasText: TURN_CHANGE_DIFF_FILE_PATH })
+    .filter({ hasText: TURN_CHANGE_MODIFIED_DIFF_FILE_PATH })
     .first()
   await expect(row).toBeVisible()
 
@@ -30,7 +30,7 @@ test("turn-change-diff", async ({ page, llm, project }) => {
     .poll(async () => await diff.evaluate((el) => Number.parseFloat(getComputedStyle(el).minHeight)), {
       timeout: 10_000,
     })
-    .toBeGreaterThan(0)
+    .toBeGreaterThanOrEqual(384)
   await expect(diff.locator("[data-line]").first()).toBeVisible({ timeout: 30_000 })
 
   shots.push({ name: "expanded-card", buf: await card.screenshot() })

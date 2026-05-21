@@ -1,5 +1,5 @@
 import { test, expect } from "../fixtures"
-import { routeTurnChangeDiff, TURN_CHANGE_DIFF_FILE_PATH } from "./turn-change-diff-fixture"
+import { routeTurnChangeDiff, TURN_CHANGE_MODIFIED_DIFF_FILE_PATH } from "./turn-change-diff-fixture"
 
 test("turn-change file rows reserve diff height before rendering", async ({ page, llm, project }) => {
   test.setTimeout(180_000)
@@ -31,7 +31,7 @@ test("turn-change file rows reserve diff height before rendering", async ({ page
   await expect(card).toBeVisible({ timeout: 30_000 })
   const row = card
     .locator('[data-slot="session-turn-change-row"]')
-    .filter({ hasText: TURN_CHANGE_DIFF_FILE_PATH })
+    .filter({ hasText: TURN_CHANGE_MODIFIED_DIFF_FILE_PATH })
     .first()
   await expect(row).toBeVisible()
 
@@ -48,7 +48,7 @@ test("turn-change file rows reserve diff height before rendering", async ({ page
       .poll(async () => await diff.evaluate((el) => Number.parseFloat(getComputedStyle(el).minHeight)), {
         timeout: 10_000,
       })
-      .toBeGreaterThan(0)
+      .toBeGreaterThanOrEqual(384)
     await expect(diff.locator("[data-line]").first()).toBeVisible({ timeout: 30_000 })
     await row.click()
     await expect(diff).toHaveCount(0)

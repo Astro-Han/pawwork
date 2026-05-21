@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test"
 
 export const TURN_CHANGE_DIFF_FILE_PATH = "turn-change-cls-fixture.ts"
+export const TURN_CHANGE_MODIFIED_DIFF_FILE_PATH = "turn-change-cls-replacement.ts"
 
 const turnChangeDiffPatch = [
   `diff --git a/${TURN_CHANGE_DIFF_FILE_PATH} b/${TURN_CHANGE_DIFF_FILE_PATH}`,
@@ -23,6 +24,30 @@ const turnChangeDiffPatch = [
   "+]",
 ].join("\n")
 
+const turnChangeModifiedDiffPatch = [
+  `diff --git a/${TURN_CHANGE_MODIFIED_DIFF_FILE_PATH} b/${TURN_CHANGE_MODIFIED_DIFF_FILE_PATH}`,
+  "index 2222222..3333333 100644",
+  `--- a/${TURN_CHANGE_MODIFIED_DIFF_FILE_PATH}`,
+  `+++ b/${TURN_CHANGE_MODIFIED_DIFF_FILE_PATH}`,
+  "@@ -1,8 +1,10 @@",
+  " export const rows = [",
+  '-  "alpha",',
+  '-  "beta",',
+  '-  "gamma",',
+  '-  "delta",',
+  '-  "epsilon",',
+  '-  "zeta",',
+  '+  "alpha replacement",',
+  '+  "beta replacement",',
+  '+  "gamma replacement",',
+  '+  "delta replacement",',
+  '+  "epsilon replacement",',
+  '+  "zeta replacement",',
+  '+  "eta replacement",',
+  '+  "theta replacement",',
+  " ]",
+].join("\n")
+
 export async function routeTurnChangeDiff(page: Page, input: { sessionID: string }) {
   await page.route(/\/session\/[^/]+\/turn\/[^/]+\/changes$/, async (route) => {
     const url = new URL(route.request().url())
@@ -43,6 +68,14 @@ export async function routeTurnChangeDiff(page: Page, input: { sessionID: string
             additions: 12,
             deletions: 0,
             patch: turnChangeDiffPatch,
+            expandable: true,
+          },
+          {
+            path: TURN_CHANGE_MODIFIED_DIFF_FILE_PATH,
+            status: "modified",
+            additions: 8,
+            deletions: 6,
+            patch: turnChangeModifiedDiffPatch,
             expandable: true,
           },
         ],
