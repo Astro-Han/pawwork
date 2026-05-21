@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test"
+import { dict as en } from "@/i18n/en"
+import { dict as zh } from "@/i18n/zh"
 import { promptPlaceholder } from "./placeholder"
 
 describe("promptPlaceholder", () => {
@@ -15,5 +17,19 @@ describe("promptPlaceholder", () => {
 
   test("returns static home placeholder for normal mode with no comments", () => {
     expect(promptPlaceholder({ mode: "normal", commentCount: 0, t })).toBe("prompt.placeholder.home")
+  })
+})
+
+describe("prompt.placeholder.home copy", () => {
+  test("hints at both @ for files and / for commands in English", () => {
+    const copy = en["prompt.placeholder.home"]
+    expect(copy).toContain("@")
+    expect(copy).toContain("/")
+  })
+
+  test("hints at both @ for files and / for commands in Chinese", () => {
+    const copy = zh["prompt.placeholder.home"]
+    expect(copy).toContain("@")
+    expect(copy).toContain("/")
   })
 })

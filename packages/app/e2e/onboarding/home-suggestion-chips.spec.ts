@@ -85,9 +85,9 @@ test("@smoke composer placeholder is the static home string", async ({ page, pro
   const label = await editor.getAttribute("aria-label")
   // i18n source: packages/app/src/i18n/{zh,en}.ts → prompt.placeholder.home
   if (locale === "zh") {
-    expect(label).toBe("输入你的任务，或 @ 引用文件")
+    expect(label).toBe("输入你的任务，@ 引用文件，/ 唤起命令")
   } else {
-    expect(label).toBe("Type your task, or @ to mention files")
+    expect(label).toBe("Type your task, @ to mention files, / for commands")
   }
 })
 
