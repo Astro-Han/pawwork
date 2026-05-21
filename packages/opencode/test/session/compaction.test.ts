@@ -1219,6 +1219,15 @@ describe("session.compaction.process", () => {
         })
         const previousSummary = await assistant(session.id, previousCompaction.id, tmp.path)
         await svc.updateMessage({ ...previousSummary, summary: true })
+        await svc.updatePart({
+          id: PartID.ascending(),
+          messageID: previousSummary.id,
+          sessionID: session.id,
+          type: "text",
+          text: "## Goal\n- Previous completed summary",
+        })
+        const third = await user(session.id, "third request")
+        await assistant(session.id, third.id, tmp.path)
         const compact = await user(session.id, "compact again")
         await svc.updatePart({
           id: PartID.ascending(),
@@ -1233,7 +1242,7 @@ describe("session.compaction.process", () => {
         const live = liveRuntime(
           fakeLLM.layer,
           ProviderTest.fake({ model }),
-          cfg({ tail_turns: 1, preserve_recent_tokens: 6_000 }),
+          cfg({ tail_turns: 2, preserve_recent_tokens: 6_000 }),
         )
         try {
           const beforeCompaction = await svc.messages({ sessionID: session.id })

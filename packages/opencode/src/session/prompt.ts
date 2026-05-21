@@ -1914,17 +1914,19 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           yield* status.set(sessionID, { type: "busy" })
           yield* slog.info("loop", { step })
 
-          const rawMsgs = yield* sessions.messages({ sessionID })
           let msgs = yield* MessageV2.filterCompactedEffect(sessionID)
 
           let lastUser: MessageV2.User | undefined
           let lastAssistant: MessageV2.Assistant | undefined
+          let lastAssistantMsg: MessageV2.WithParts | undefined
           let lastFinished: MessageV2.Assistant | undefined
           let tasks: (MessageV2.CompactionPart | MessageV2.SubtaskPart)[] = []
-          for (let i = rawMsgs.length - 1; i >= 0; i--) {
-            const msg = rawMsgs[i]
+          for (const msg of MessageV2.stream(sessionID)) {
             if (!lastUser && msg.info.role === "user") lastUser = msg.info
-            if (!lastAssistant && msg.info.role === "assistant") lastAssistant = msg.info
+            if (!lastAssistant && msg.info.role === "assistant") {
+              lastAssistant = msg.info
+              lastAssistantMsg = msg
+            }
             if (!lastFinished && msg.info.role === "assistant" && msg.info.finish) lastFinished = msg.info
             if (lastUser && lastFinished) break
             const task = msg.parts.filter((part) => part.type === "compaction" || part.type === "subtask")
@@ -1932,10 +1934,6 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           }
 
           if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
-
-          const lastAssistantMsg = rawMsgs.findLast(
-            (msg) => msg.info.role === "assistant" && msg.info.id === lastAssistant?.id,
-          )
           // Some providers return "stop" even when the assistant message contains tool calls.
           // Keep the loop running so tool results can be sent back to the model.
           // Skip provider-executed tool parts — those were fully handled within the

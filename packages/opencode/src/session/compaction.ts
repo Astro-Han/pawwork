@@ -432,7 +432,9 @@ export const layer: Layer.Layer<
       })
       const previousTailStartId = compactionPart?.tail_start_id ?? latestPrior?.tailStartId
       const stalledTailBoundary =
-        input.auto && previousTailStartId !== undefined && previousTailStartId === selected.tail_start_id
+        input.auto &&
+        previousTailStartId !== undefined &&
+        (selected.tail_start_id === undefined || selected.tail_start_id <= previousTailStartId)
       // Allow plugins to inject context or replace compaction prompt.
       const compacting = yield* plugin.trigger(
         "experimental.session.compacting",
