@@ -23,7 +23,7 @@ export type DeriveIncidentInput = {
   evidence: IncidentEvidenceEvent[]
   unsafeSideEffectKinds: ToolEffectKind[]
   sideEffectFactsComplete: boolean
-  materializedToolBoundary?: MaterializedToolBoundary
+  materializedToolBoundaries?: MaterializedToolBoundary[]
   lifecycle?: { action_id: string; kind: LifecycleKind; source?: string; reason?: string }
   missingProvenance?: string[]
 }
@@ -83,8 +83,7 @@ function compareTerminalEvents(left: IncidentEvidenceEvent, right: IncidentEvide
 
 function factsFromEvidence(input: DeriveIncidentInput, attemptID?: IncidentEvidenceEvent["attempt_id"]): IncidentFacts {
   const scopedEvidence = attemptID ? input.evidence.filter((event) => event.attempt_id === attemptID) : input.evidence
-  const materializedToolBoundary =
-    attemptID && input.materializedToolBoundary?.attempt_id !== attemptID ? undefined : input.materializedToolBoundary
+  const materializedToolBoundary = summarizeMaterializedToolBoundaries(input.materializedToolBoundaries, attemptID)
   const has = (eventType: string) => scopedEvidence.some((event) => event.event_type === eventType)
   const count = (eventType: string) => scopedEvidence.filter((event) => event.event_type === eventType).length
   return {
@@ -110,6 +109,19 @@ function factsFromEvidence(input: DeriveIncidentInput, attemptID?: IncidentEvide
     watchdog_fired: has("watchdog_fired"),
     pending_tool_parts_interrupted: count("pending_tool_part_interrupted") || undefined,
   }
+}
+
+function summarizeMaterializedToolBoundaries(
+  boundaries: MaterializedToolBoundary[] | undefined,
+  attemptID?: IncidentEvidenceEvent["attempt_id"],
+): MaterializedToolBoundary | undefined {
+  const scoped = boundaries?.filter((boundary) => !attemptID || boundary.attempt_id === attemptID) ?? []
+  if (!scoped.length) return undefined
+  return (
+    scoped.find((boundary) => !boundary.effect.complete) ??
+    scoped.find((boundary) => boundary.effect.unsafe) ??
+    scoped[scoped.length - 1]
+  )
 }
 
 function phaseFor(input: {
