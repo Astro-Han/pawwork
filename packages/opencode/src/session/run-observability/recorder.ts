@@ -45,6 +45,7 @@ export function createRecorder(input: RecorderInput): Recorder {
   let readOnlyToolStarted = false
   let unsafeSideEffectStarted = false
   let sideEffectFactsComplete = true
+  let materializedToolBoundary: RunIncident.MaterializedToolBoundary | undefined
   let lastEventMonotonicMs = input.monotonicStartMs
   let failure: Failure | undefined
   let pendingToolPartsInterrupted = 0
@@ -181,6 +182,10 @@ export function createRecorder(input: RecorderInput): Recorder {
     recordToolCallMaterialized(next) {
       toolCallSeen = true
       toolCallMaterialized = true
+      if (next.effect) {
+        materializedToolBoundary = { attempt_id: next.attemptID, tool: next.toolName, effect: next.effect }
+        if (next.providerExecuted || !next.effect.complete) sideEffectFactsComplete = false
+      }
       updateAttempt(next.attemptID, (attempt) => {
         attempt.tool_call_seen = true
         attempt.tool_call_materialized = true
@@ -193,6 +198,10 @@ export function createRecorder(input: RecorderInput): Recorder {
         event_type: "tool_call_materialized",
         terminal_candidate: false,
         confidence: "high",
+        tool_name: next.toolName,
+        tool_effect_kind: next.effect?.kind,
+        tool_effect_unsafe: next.effect?.unsafe,
+        tool_effect_complete: next.effect?.complete,
       })
       rememberEvent(next.monotonicMs)
     },
@@ -384,6 +393,7 @@ export function createRecorder(input: RecorderInput): Recorder {
         evidence,
         unsafeSideEffectKinds: unsafeKinds,
         sideEffectFactsComplete,
+        materializedToolBoundary,
         lifecycle: lifecycleSummary(failure),
         missingProvenance: classify(failure) === "unknown_scope_close" ? ["lifecycle.close_requested"] : undefined,
       })

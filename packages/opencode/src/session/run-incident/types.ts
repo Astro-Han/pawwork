@@ -5,6 +5,7 @@ import type {
   RunID,
   SafeErrorFingerprint,
   SafeToolName,
+  ToolEffect,
   ToolEffectKind,
 } from "../run-observability/types"
 
@@ -36,6 +37,9 @@ export type IncidentEvidenceEvent = {
   redactions?: string[]
   cause?: TerminalCause
   tool_name?: SafeToolName
+  tool_effect_kind?: ToolEffectKind
+  tool_effect_unsafe?: boolean
+  tool_effect_complete?: boolean
 }
 
 export type IncidentEvidenceSummary = Omit<IncidentEvidenceEvent, "cause">
@@ -119,6 +123,8 @@ export type IncidentFacts = {
   read_only_tool_started: boolean
   unsafe_side_effect_started: boolean
   unsafe_side_effect_kinds: ToolEffectKind[]
+  materialized_tool_effect_kind?: ToolEffectKind
+  materialized_tool_requires_confirmation?: boolean
   side_effect_facts_complete: boolean
   lifecycle_close_seen: boolean
   user_cancel_seen: boolean
@@ -141,6 +147,12 @@ export type IncidentProvenance = {
     recorded_at?: number
   }
   completeness: "complete" | "partial" | "unknown"
+}
+
+export type MaterializedToolBoundary = {
+  attempt_id?: AttemptID
+  tool?: SafeToolName
+  effect: ToolEffect
 }
 
 export type RecoveryDecision = {

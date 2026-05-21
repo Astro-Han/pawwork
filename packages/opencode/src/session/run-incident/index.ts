@@ -22,4 +22,5 @@ export namespace RunIncident {
   export type Phase = Types.IncidentPhase
   export type Facts = Types.IncidentFacts
   export type Recovery = Types.RecoveryDecision
+  export type MaterializedToolBoundary = Types.MaterializedToolBoundary
 }

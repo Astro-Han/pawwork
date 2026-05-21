@@ -663,7 +663,13 @@ export const layer: Layer.Layer<
             ctx.runTrace.recordToolInputCompleted({ attemptID: ctx.currentAttemptID, at: now, monotonicMs })
           }
           if (value.type === "tool-call") {
-            ctx.runTrace.recordToolCallMaterialized({ attemptID: ctx.currentAttemptID, at: now, monotonicMs })
+            ctx.runTrace.recordToolCallMaterialized({
+              attemptID: ctx.currentAttemptID,
+              at: now,
+              monotonicMs,
+              toolName: RunObservability.safeToolName(value.toolName),
+              effect: RunObservability.toolEffect(value.toolName),
+            })
           }
         }
         switch (value.type) {

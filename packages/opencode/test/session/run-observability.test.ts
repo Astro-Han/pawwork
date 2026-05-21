@@ -486,7 +486,7 @@ describe("RunObservability", () => {
       terminal_attempt_id: second.attemptID,
     })
     expect(summary.incident?.recovery).toMatchObject({
-      recommendation: "ask_user_before_retry",
+      recommendation: "offer_continue",
       reason: "visible_output_without_tool_execution",
     })
   })
@@ -550,6 +550,125 @@ describe("RunObservability", () => {
     expect(summary.incident?.phase).toMatchObject({
       stream_phase: "after_tool_input_end",
       tool_phase: "tool_input_completed",
+    })
+  })
+
+  test("safe materialized tool call without execution can offer continue", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_safe_materialized_tool"),
+      traceID: MessageID.make("msg_safe_materialized_tool"),
+      sessionID: SessionID.make("ses_safe_materialized_tool"),
+      messageID: MessageID.make("msg_safe_materialized_tool"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordToolInputStarted({ attemptID: attempt.attemptID, at: 12, monotonicMs: 120 })
+    recorder.recordToolInputCompleted({ attemptID: attempt.attemptID, at: 13, monotonicMs: 130 })
+    recorder.recordToolCallMaterialized({
+      attemptID: attempt.attemptID,
+      at: 14,
+      monotonicMs: 140,
+      toolName: RunObservability.safeToolName("read"),
+      effect: RunObservability.toolEffect("read"),
+    })
+    recorder.recordTransportFailure({
+      attemptID: attempt.attemptID,
+      at: 15,
+      monotonicMs: 150,
+      error: { name: "TypeError", message: "terminated", cause: { code: "UND_ERR_SOCKET" } },
+    })
+
+    const summary = recorder.finalize({ completedAt: 16, monotonicMs: 160 })
+    expect(summary.incident?.recovery).toMatchObject({
+      recommendation: "offer_continue",
+      reason: "tool_call_materialized_without_execution",
+    })
+    expect(summary.incident?.facts).toMatchObject({
+      materialized_tool_effect_kind: "read_only",
+      materialized_tool_requires_confirmation: false,
+    })
+    expect(summary.incident?.evidence?.find((event) => event.event_type === "tool_call_materialized")).toMatchObject({
+      tool_name: RunObservability.safeToolName("read"),
+      tool_effect_kind: "read_only",
+      tool_effect_unsafe: false,
+      tool_effect_complete: true,
+    })
+  })
+
+  test("unsafe materialized tool call without execution requires confirmation", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_unsafe_materialized_tool"),
+      traceID: MessageID.make("msg_unsafe_materialized_tool"),
+      sessionID: SessionID.make("ses_unsafe_materialized_tool"),
+      messageID: MessageID.make("msg_unsafe_materialized_tool"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordToolCallMaterialized({
+      attemptID: attempt.attemptID,
+      at: 12,
+      monotonicMs: 120,
+      toolName: RunObservability.safeToolName("bash"),
+      effect: RunObservability.toolEffect("bash"),
+    })
+    recorder.recordTransportFailure({
+      attemptID: attempt.attemptID,
+      at: 13,
+      monotonicMs: 130,
+      error: { name: "TypeError", message: "terminated", cause: { code: "UND_ERR_SOCKET" } },
+    })
+
+    const summary = recorder.finalize({ completedAt: 14, monotonicMs: 140 })
+    expect(summary.incident?.recovery).toMatchObject({
+      recommendation: "ask_user_before_retry",
+      reason: "tool_call_materialized_without_execution",
+    })
+    expect(summary.incident?.facts).toMatchObject({
+      materialized_tool_effect_kind: "local_process",
+      materialized_tool_requires_confirmation: true,
+    })
+  })
+
+  test("unknown materialized tool call without execution requires confirmation", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_unknown_materialized_tool"),
+      traceID: MessageID.make("msg_unknown_materialized_tool"),
+      sessionID: SessionID.make("ses_unknown_materialized_tool"),
+      messageID: MessageID.make("msg_unknown_materialized_tool"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordToolCallMaterialized({
+      attemptID: attempt.attemptID,
+      at: 12,
+      monotonicMs: 120,
+      toolName: RunObservability.safeToolName("mcp_write"),
+      effect: RunObservability.toolEffect("mcp_write"),
+    })
+    recorder.recordTransportFailure({
+      attemptID: attempt.attemptID,
+      at: 13,
+      monotonicMs: 130,
+      error: { name: "TypeError", message: "terminated", cause: { code: "UND_ERR_SOCKET" } },
+    })
+
+    const summary = recorder.finalize({ completedAt: 14, monotonicMs: 140 })
+    expect(summary.incident?.recovery).toMatchObject({
+      recommendation: "ask_user_before_retry",
+      reason: "side_effect_facts_incomplete",
+    })
+    expect(summary.incident?.facts).toMatchObject({
+      materialized_tool_effect_kind: "unknown",
+      materialized_tool_requires_confirmation: true,
     })
   })
 

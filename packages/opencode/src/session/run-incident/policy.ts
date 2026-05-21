@@ -38,6 +38,22 @@ export function recoveryFor(input: {
     return { ...base, recommendation: "ask_user_before_retry", confidence: "medium", reason: "tool_execution_started" }
   }
   if (terminalFacts.tool_call_materialized) {
+    if (!terminalFacts.side_effect_facts_complete || terminalFacts.materialized_tool_effect_kind === "unknown") {
+      return {
+        ...base,
+        recommendation: "ask_user_before_retry",
+        confidence: "high",
+        reason: "side_effect_facts_incomplete",
+      }
+    }
+    if (terminalFacts.materialized_tool_requires_confirmation) {
+      return {
+        ...base,
+        recommendation: "ask_user_before_retry",
+        confidence: "high",
+        reason: "tool_call_materialized_without_execution",
+      }
+    }
     return {
       ...base,
       recommendation: "offer_continue",
@@ -56,7 +72,7 @@ export function recoveryFor(input: {
   if (input.facts.visible_output_seen) {
     return {
       ...base,
-      recommendation: "ask_user_before_retry",
+      recommendation: "offer_continue",
       confidence: "high",
       reason: "visible_output_without_tool_execution",
     }

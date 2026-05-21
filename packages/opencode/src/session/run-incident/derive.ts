@@ -6,6 +6,7 @@ import {
   RUN_INCIDENT_SCHEMA_VERSION,
   type IncidentEvidenceEvent,
   type IncidentFacts,
+  type MaterializedToolBoundary,
   type RunIncident,
   type TerminalCause,
 } from "./types"
@@ -22,6 +23,7 @@ export type DeriveIncidentInput = {
   evidence: IncidentEvidenceEvent[]
   unsafeSideEffectKinds: ToolEffectKind[]
   sideEffectFactsComplete: boolean
+  materializedToolBoundary?: MaterializedToolBoundary
   lifecycle?: { action_id: string; kind: LifecycleKind; source?: string; reason?: string }
   missingProvenance?: string[]
 }
@@ -81,6 +83,8 @@ function compareTerminalEvents(left: IncidentEvidenceEvent, right: IncidentEvide
 
 function factsFromEvidence(input: DeriveIncidentInput, attemptID?: IncidentEvidenceEvent["attempt_id"]): IncidentFacts {
   const scopedEvidence = attemptID ? input.evidence.filter((event) => event.attempt_id === attemptID) : input.evidence
+  const materializedToolBoundary =
+    attemptID && input.materializedToolBoundary?.attempt_id !== attemptID ? undefined : input.materializedToolBoundary
   const has = (eventType: string) => scopedEvidence.some((event) => event.event_type === eventType)
   const count = (eventType: string) => scopedEvidence.filter((event) => event.event_type === eventType).length
   return {
@@ -96,6 +100,10 @@ function factsFromEvidence(input: DeriveIncidentInput, attemptID?: IncidentEvide
     read_only_tool_started: has("read_only_tool_started"),
     unsafe_side_effect_started: has("unsafe_side_effect_started"),
     unsafe_side_effect_kinds: attemptID && !has("unsafe_side_effect_started") ? [] : input.unsafeSideEffectKinds,
+    materialized_tool_effect_kind: materializedToolBoundary?.effect.kind,
+    materialized_tool_requires_confirmation: materializedToolBoundary
+      ? materializedToolBoundary.effect.unsafe || !materializedToolBoundary.effect.complete
+      : undefined,
     side_effect_facts_complete: input.sideEffectFactsComplete,
     lifecycle_close_seen: has("lifecycle_close_seen"),
     user_cancel_seen: has("user_cancel_seen"),

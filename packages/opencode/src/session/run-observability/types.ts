@@ -156,7 +156,14 @@ export type Recorder = {
     providerExecuted?: boolean
   }): void
   recordToolInputCompleted(input: { attemptID: AttemptID; at: number; monotonicMs: number }): void
-  recordToolCallMaterialized(input: { attemptID: AttemptID; at: number; monotonicMs: number }): void
+  recordToolCallMaterialized(input: {
+    attemptID: AttemptID
+    at: number
+    monotonicMs: number
+    toolName?: SafeToolName
+    effect?: ToolEffect
+    providerExecuted?: boolean
+  }): void
   recordToolExecutionStarted(input: {
     attemptID: AttemptID
     at: number
