@@ -298,6 +298,119 @@ describe("session scroll dock", () => {
     })
   })
 
+  test("runs dock height changes through the layout transaction callback while reading history", () => {
+    withResizeObserver((triggerResize) => {
+      createRoot((dispose) => {
+        const previousDockHeight = document.documentElement.style.getPropertyValue("--composer-dock-height")
+        const promptDock = makeMeasuredDiv(120)
+        const scroller = makeScroller({ clientHeight: 400, scrollHeight: 1000, scrollTop: 200 })
+        const events: string[] = []
+
+        try {
+          const scrollDock = createSessionScrollDock({
+            clearMessageHash: () => undefined,
+            clearActiveMessage: () => undefined,
+            fill: () => events.push("fill"),
+            runLayoutTransaction: (event) => {
+              events.push(`transaction:start:${event.kind}`)
+              event.mutate()
+              events.push("transaction:restore-anchor")
+            },
+          })
+
+          scrollDock.setScrollRef(scroller.el)
+          scrollDock.setPromptDockRef(promptDock.el)
+          events.length = 0
+          promptDock.setHeight(180)
+          triggerResize(promptDock.el)
+
+          expect(events).toEqual(["transaction:start:dock-resize", "fill", "transaction:restore-anchor"])
+          expect(document.documentElement.style.getPropertyValue("--composer-dock-height")).toBe("180px")
+        } finally {
+          dispose()
+          if (previousDockHeight)
+            document.documentElement.style.setProperty("--composer-dock-height", previousDockHeight)
+          else document.documentElement.style.removeProperty("--composer-dock-height")
+        }
+      })
+    })
+  })
+
+  test("lets the transaction issue the final bottom-follow command when pinned to latest", () => {
+    withResizeObserver((triggerResize) => {
+      createRoot((dispose) => {
+        const promptDock = makeMeasuredDiv(120)
+        const scroller = makeScroller({ clientHeight: 400, scrollHeight: 1000, scrollTop: 600 })
+        const scrollCommandSink = createTimelineScrollCommandSink({ now: () => 600 })
+
+        try {
+          const scrollDock = createSessionScrollDock({
+            clearMessageHash: () => undefined,
+            clearActiveMessage: () => undefined,
+            fill: () => undefined,
+            scrollCommandSink,
+            runLayoutTransaction: (event) => {
+              event.mutate()
+              event.restoreLatest("tx-dock-latest")
+            },
+          })
+
+          scrollDock.setScrollRef(scroller.el)
+          scrollDock.setPromptDockRef(promptDock.el)
+          promptDock.setHeight(220)
+          triggerResize(promptDock.el)
+
+          expect(scrollCommandSink.records()).toContainEqual(
+            expect.objectContaining({
+              type: "dock-resize-bottom-follow",
+              transactionID: "tx-dock-latest",
+              transactionKind: "dock-resize",
+            }),
+          )
+        } finally {
+          dispose()
+          document.documentElement.style.removeProperty("--composer-dock-height")
+        }
+      })
+    })
+  })
+
+  test("runs content resize through the layout transaction callback", () => {
+    withResizeObserver((triggerResize) => {
+      createRoot((dispose) => {
+        const content = makeMeasuredDiv(600)
+        const scroller = makeScroller({ clientHeight: 400, scrollHeight: 1200, scrollTop: 240 })
+        const events: string[] = []
+
+        const scrollDock = createSessionScrollDock({
+          clearMessageHash: () => undefined,
+          clearActiveMessage: () => undefined,
+          fill: () => events.push("fill"),
+          onContentResize: () => events.push("content-observed"),
+          runLayoutTransaction: (event) => {
+            events.push(`transaction:start:${event.kind}`)
+            event.mutate()
+            events.push("transaction:restore-anchor")
+          },
+        })
+
+        scrollDock.setScrollRef(scroller.el)
+        scrollDock.setContentRef(content.el)
+        events.length = 0
+        content.setHeight(720)
+        triggerResize(content.el)
+
+        expect(events).toEqual([
+          "transaction:start:content-resize",
+          "content-observed",
+          "fill",
+          "transaction:restore-anchor",
+        ])
+        dispose()
+      })
+    })
+  })
+
   test("records a dock-resize bottom-follow command when resize needs a scroll write", () => {
     withResizeObserver((triggerResize) => {
       createRoot((dispose) => {

@@ -1,5 +1,6 @@
 import type { UserMessage } from "@opencode-ai/sdk/v2"
 import { createEffect, createMemo, on, onCleanup } from "solid-js"
+import { createStore } from "solid-js/store"
 import { emitRendererDiagnostic } from "@/context/renderer-diagnostics"
 import {
   collectTimelineScrollMetrics,
@@ -13,6 +14,10 @@ import { createSessionHistoryWindow } from "@/pages/session/use-session-history-
 import { createSessionScrollDock } from "@/pages/session/use-session-scroll-dock"
 import { createTimelineVirtualRows } from "@/pages/session/timeline-virtual-rows"
 import { createTimelineVirtualizerBridge } from "@/pages/session/timeline-virtualizer-bridge"
+import {
+  createTimelineLayoutTransactionCoordinator,
+  type TimelineLayoutTransactionKind,
+} from "@/pages/session/timeline-layout-transaction"
 import {
   createSessionTimelineScrollController,
   type TimelineRecovery,
@@ -38,7 +43,15 @@ export function createSessionTimelineInteraction(input: {
   let clearMessageHash = () => {}
   let activeMessage!: ReturnType<typeof createSessionActiveMessage>
   let historyBackfill: ReturnType<typeof createSessionHistoryBackfill> | undefined
+  let historyWindow!: ReturnType<typeof createSessionHistoryWindow>
   let recoveryFrame: number | undefined
+  let activeTransactionRestoreLatest: ((transactionID: string) => boolean) | undefined
+  let activeTransactionStickToBottom = false
+  const [layoutTransactionState, setLayoutTransactionState] = createStore({
+    active: false,
+    transactionID: undefined as string | undefined,
+    kind: undefined as TimelineLayoutTransactionKind | undefined,
+  })
   const createScrollController = () =>
     createSessionTimelineScrollController({
       sessionOwner: input.sessionKey(),
@@ -52,6 +65,13 @@ export function createSessionTimelineInteraction(input: {
     })
   let scrollController = createScrollController()
   const scrollCommandSink = createTimelineScrollCommandSink({
+    activeTransaction: () =>
+      layoutTransactionState.active && layoutTransactionState.transactionID && layoutTransactionState.kind
+        ? {
+            transactionID: layoutTransactionState.transactionID,
+            transactionKind: layoutTransactionState.kind,
+          }
+        : undefined,
     emitDiagnostic: (event) => {
       void emitRendererDiagnostic(event).catch(() => {})
     },
@@ -65,6 +85,74 @@ export function createSessionTimelineInteraction(input: {
       visibleSessionID: input.sessionID(),
       timelineSessionID: input.sessionID(),
     }),
+  })
+
+  const layoutTransactionCoordinator = createTimelineLayoutTransactionCoordinator({
+    scheduleFrame: (callback) => requestAnimationFrame(callback),
+    cancelFrame: (handle) => cancelAnimationFrame(handle),
+    readMode: () => (activeTransactionStickToBottom ? "following_latest" : scrollController.state().mode),
+    sampleAnchor: () => {
+      const viewport = scrollDock.scroller()
+      const controllerState = scrollController.state()
+      const targetMessageID =
+        controllerState.lastSafePosition.kind === "target_message"
+          ? controllerState.lastSafePosition.messageID
+          : undefined
+      if (!viewport) return controllerState.lastSafePosition
+      return sampleTimelineSafePosition({
+        viewport,
+        mode: controllerState.mode,
+        renderedStart: historyWindow.turnStart(),
+        renderedCount: historyWindow.renderedUserMessages().length,
+        newestMessageID: input.visibleUserMessages().at(-1)?.id,
+        targetMessageID,
+      })
+    },
+    restoreAnchor: (position, transactionID) => {
+      const viewport = scrollDock.scroller()
+      const restored = restoreTimelineSafePosition({
+        viewport,
+        position,
+        scrollCommandSink: scrollCommandSink.withTransaction({
+          transactionID,
+          transactionKind: layoutTransactionState.kind ?? "content-resize",
+        }),
+      })
+      if (restored.ok && viewport) scrollDock.scheduleScrollState(viewport)
+      return restored.ok
+    },
+    restoreLatest: (transactionID) => activeTransactionRestoreLatest?.(transactionID) ?? false,
+    setStableBandActive: (active) => {
+      if (!active) setLayoutTransactionState({ active: false, transactionID: undefined, kind: undefined })
+    },
+    emitDiagnostic: (event) => {
+      if (event.phase === "start") {
+        setLayoutTransactionState({ active: true, transactionID: event.transactionID, kind: event.kind })
+      }
+      if (event.phase === "settled" || event.phase === "violation") {
+        setLayoutTransactionState({ active: false, transactionID: undefined, kind: undefined })
+      }
+      void emitRendererDiagnostic({
+        name: "session.timeline.layout_transaction",
+        route_session_id: input.routeSessionID(),
+        visible_session_id: input.sessionID(),
+        timeline_session_id: input.sessionID(),
+        monotonic_ms: event.monotonicMs,
+        data: {
+          transaction_id: event.transactionID,
+          transaction_kind: event.kind,
+          transaction_phase: event.phase,
+          transaction_status: event.violation ? "violation" : undefined,
+          mode: event.mode,
+          source: event.source,
+          reason: event.reason,
+          anchor_kind: event.anchorKind,
+          anchor_message_id: event.anchorMessageID,
+          fallback_frames: event.fallbackFrames,
+          violation: event.violation,
+        },
+      }).catch(() => {})
+    },
   })
 
   const cancelRecoveryFrame = () => {
@@ -137,6 +225,21 @@ export function createSessionTimelineInteraction(input: {
         },
       })
     },
+    runLayoutTransaction: (event) => {
+      activeTransactionRestoreLatest = event.restoreLatest
+      activeTransactionStickToBottom = event.stickToBottom
+      try {
+        layoutTransactionCoordinator.run({
+          kind: event.kind,
+          source: event.source,
+          reason: event.reason,
+          mutate: event.mutate,
+        })
+      } finally {
+        activeTransactionRestoreLatest = undefined
+        activeTransactionStickToBottom = false
+      }
+    },
   })
   const autoScroll = scrollDock.autoScroll
   const lockOwner = () => input.sessionKey()
@@ -152,7 +255,7 @@ export function createSessionTimelineInteraction(input: {
     pauseAutoScroll: autoScroll.pause,
   })
 
-  const historyWindow = createSessionHistoryWindow({
+  historyWindow = createSessionHistoryWindow({
     sessionID: input.sessionID,
     messagesReady: input.messagesReady,
     loaded: input.loadedMessages,
@@ -343,6 +446,9 @@ export function createSessionTimelineInteraction(input: {
     submitLatest,
     scheduleScrollState: scrollDock.scheduleScrollState,
     scrollDock,
+    layoutTransactionActive: () => layoutTransactionState.active,
+    layoutTransactionID: () => layoutTransactionState.transactionID,
+    layoutTransactionKind: () => layoutTransactionState.kind,
     setScrollRef: scrollDock.setScrollRef,
     markScrollGesture,
     navigateMessageByOffset,
