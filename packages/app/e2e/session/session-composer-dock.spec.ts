@@ -738,6 +738,74 @@ test("blocked question flow supports escape dismiss", async ({ page, llm, projec
   )
 })
 
+test("blocked question dock disables controls while response is pending", async ({ page, llm, project }) => {
+  await project.open()
+  await withDockSession(
+    project.sdk,
+    "e2e composer dock question pending disabled",
+    async (session) => {
+      await withDockSeed(project.sdk, session.id, async () => {
+        await project.gotoSession(session.id)
+
+        let responseCalls = 0
+        let releaseResponse: (() => void) | undefined
+        const responseReleased = new Promise<void>((resolve) => {
+          releaseResponse = resolve
+        })
+        const respondRoute = async (route: any) => {
+          responseCalls += 1
+          await responseReleased
+          await route
+            .fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(true) })
+            .catch(() => undefined)
+        }
+
+        try {
+          const questions = defaultQuestions
+          await llm.toolMatch(inputMatch({ questions }), "question", { questions })
+          await seedSessionQuestion(project.sdk, {
+            sessionID: session.id,
+            questions,
+          })
+
+          const dock = page.locator(questionDockSelector)
+          await expectQuestionBlocked(page)
+
+          await page.route("**/session/*/tool/respond", respondRoute)
+
+          const customOption = dock.locator('[data-slot="question-option"][data-custom="true"]')
+          await customOption.click()
+
+          const customInput = dock.locator('[data-slot="question-custom-input"]')
+          const firstOption = dock.locator('[data-slot="question-option"]').first()
+          const submit = dock.getByRole("button", { name: /submit/i })
+          await expect(customInput).toBeVisible()
+
+          await dock.evaluate((el) => {
+            el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }))
+          })
+          await expect.poll(() => responseCalls, { timeout: 10_000 }).toBe(1)
+
+          await expect(customInput).toBeDisabled()
+          await expect(firstOption).toBeDisabled()
+          await expect(submit).toBeDisabled()
+
+          await dock.evaluate((el) => {
+            el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }))
+          })
+          await submit.evaluate((button: HTMLButtonElement) => button.click())
+          await firstOption.evaluate((button: HTMLButtonElement) => button.click())
+          await expect.poll(() => responseCalls, { timeout: 1_000 }).toBe(1)
+        } finally {
+          releaseResponse?.()
+          await page.unroute("**/session/*/tool/respond", respondRoute)
+        }
+      })
+    },
+    { trackSession: project.trackSession },
+  )
+})
+
 test("blocked permission flow supports allow once", async ({ page, project }) => {
   await project.open()
   await withDockSession(
