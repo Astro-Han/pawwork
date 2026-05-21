@@ -25,7 +25,11 @@ export function compactionDividerState(input: {
 
 export function compactionDividerLabelKey(input: {
   state: CompactionDividerState
-  error?: { name?: string; message?: string } | null
+  // NamedError.toObject() shape: { name, data: { message, ... } }. The
+  // top-level `message` was an early helper-only shape that never matches
+  // real assistant errors — kept as a fallback so unit tests with synthetic
+  // shapes don't have to wrap everything in `data`.
+  error?: { name?: string; message?: string; data?: { message?: string } & Record<string, unknown> } | null
 }): CompactionDividerLabel {
   switch (input.state) {
     case "pending":
@@ -39,7 +43,7 @@ export function compactionDividerLabelKey(input: {
       if (name === "ContextOverflowError") {
         return { key: "ui.messagePart.compaction.failedContextOverflow" }
       }
-      const reason = (input.error?.message ?? "").trim()
+      const reason = (input.error?.data?.message ?? input.error?.message ?? "").trim()
       return { key: "ui.messagePart.compaction.failed", params: { reason } }
     }
   }

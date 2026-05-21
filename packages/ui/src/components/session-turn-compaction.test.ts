@@ -98,13 +98,34 @@ describe("compactionDividerLabelKey", () => {
     ).toEqual({ key: "ui.messagePart.compaction.failedContextOverflow" })
   })
 
-  test("failed + generic error → reason placeholder (no double 'Compaction failed: Compaction failed')", () => {
+  test("failed + APIError (real NamedError shape) → reason from error.data.message", () => {
+    // NamedError.toObject() returns { name, data: { message, ... } }.
+    // Reading `error.message` (top-level) was always undefined and the
+    // label rendered as just "Compaction failed:" with no reason.
     const result = compactionDividerLabelKey({
       state: "failed",
-      error: { name: "APIError", message: "stream closed" },
+      error: {
+        name: "APIError",
+        data: { message: "stream closed", isRetryable: false, providerID: "anthropic" },
+      },
     })
     expect(result).toEqual({ key: "ui.messagePart.compaction.failed", params: { reason: "stream closed" } })
-    expect(result).not.toMatchObject({ key: "ui.messagePart.compaction.failed", params: { reason: /failed/i } })
+  })
+
+  test("failed + top-level message (synthetic helper shape) → still resolves via fallback", () => {
+    const result = compactionDividerLabelKey({
+      state: "failed",
+      error: { name: "APIError", message: "synthetic" },
+    })
+    expect(result).toEqual({ key: "ui.messagePart.compaction.failed", params: { reason: "synthetic" } })
+  })
+
+  test("failed + data.message wins over top-level message when both present", () => {
+    const result = compactionDividerLabelKey({
+      state: "failed",
+      error: { name: "APIError", message: "old", data: { message: "new" } },
+    })
+    expect(result).toEqual({ key: "ui.messagePart.compaction.failed", params: { reason: "new" } })
   })
 })
 
