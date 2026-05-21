@@ -2,12 +2,23 @@ import { readFileSync } from "node:fs"
 import { describe, expect, test } from "bun:test"
 import {
   buildPawworkSidebarSessionRows,
+  pawworkSessionRouteUnhideKeys,
   resolvePawworkProjectRenameTarget,
   resolvePawworkSessionProjectKey,
   resolvePawworkSessionProjectLabel,
 } from "./pawwork-session-source"
 
 describe("buildPawworkSidebarSessionRows", () => {
+  test("unhides the opened directory group when syncing a subfolder session route", () => {
+    const hidden: Record<string, boolean> = { "/repo/packages/app": true, "/repo": true }
+
+    for (const key of pawworkSessionRouteUnhideKeys("/repo/packages/app", "/repo")) {
+      delete hidden[key]
+    }
+
+    expect(hidden).toEqual({})
+  })
+
   test("renames sandbox session groups as local workspace labels", () => {
     const project = { id: "proj_repo", name: "Repo", worktree: "/repo", sandboxes: ["/repo-worktree"] }
     let renamedProject: typeof project | undefined

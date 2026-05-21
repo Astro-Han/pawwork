@@ -88,6 +88,7 @@ import {
 import { createInlineEditorController } from "./layout/inline-editor"
 import {
   buildPawworkSidebarSessionRows,
+  pawworkSessionRouteUnhideKeys,
   pawworkSessionDirectories,
   resolvePawworkProjectRenameTarget,
   resolvePawworkSessionProjectKey,
@@ -1653,8 +1654,8 @@ export default function Layout(props: ParentProps) {
   }
 
   function syncSessionRoute(directory: string, id: string, root = activeProjectRoot(directory)) {
-    const key = workspaceKey(root)
-    if (store.pawworkProjectHidden[key]) {
+    for (const key of pawworkSessionRouteUnhideKeys(directory, root)) {
+      if (!store.pawworkProjectHidden[key]) continue
       unhideProject(key)
     }
     notification.session.markViewed(id)
