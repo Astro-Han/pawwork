@@ -304,11 +304,12 @@ describe("tool.bash expected_outputs", () => {
 
         expect(result.metadata.exit).toBe(0)
         expect(
-          (result.metadata as { artifacts?: Array<{ path: string; exists: boolean; changed: boolean; binary?: boolean }> })
-            .artifacts,
-        ).toEqual([
-          { path: target, exists: true, changed: true, binary: true },
-        ])
+          (
+            result.metadata as {
+              artifacts?: Array<{ path: string; exists: boolean; changed: boolean; binary?: boolean }>
+            }
+          ).artifacts,
+        ).toEqual([{ path: target, exists: true, changed: true, binary: true }])
 
         const display = TurnChange.finalize(turn)
         expect(display?.files).toEqual([
@@ -349,8 +350,11 @@ describe("tool.bash expected_outputs", () => {
 
         expect(result.metadata.exit).toBe(0)
         expect(
-          (result.metadata as { artifacts?: Array<{ path: string; exists: boolean; changed: boolean; binary?: boolean }> })
-            .artifacts,
+          (
+            result.metadata as {
+              artifacts?: Array<{ path: string; exists: boolean; changed: boolean; binary?: boolean }>
+            }
+          ).artifacts,
         ).toEqual([{ path: target, exists: true, changed: true }])
 
         expect(TurnChange.finalize(turn)?.files).toMatchObject([
@@ -394,9 +398,9 @@ describe("tool.bash expected_outputs", () => {
         )
 
         expect(result.metadata.exit).toBe(0)
-        expect((result.metadata as { artifacts?: Array<{ path: string; exists: boolean; changed: boolean }> }).artifacts).toEqual([
-          { path: target, exists: true, changed: true },
-        ])
+        expect(
+          (result.metadata as { artifacts?: Array<{ path: string; exists: boolean; changed: boolean }> }).artifacts,
+        ).toEqual([{ path: target, exists: true, changed: true }])
 
         expect(TurnChange.finalize(turn)?.files).toMatchObject([
           {
@@ -465,7 +469,11 @@ describe("tool.bash expected_outputs", () => {
         const nested = path.join(tmp.path, "nested")
         const target = path.join(nested, "report.txt")
         const script = path.join(tmp.path, "write-relative.cjs")
-        await fs.promises.writeFile(script, "require('node:fs').writeFileSync(process.argv[2], 'relative\\n')\n", "utf-8")
+        await fs.promises.writeFile(
+          script,
+          "require('node:fs').writeFileSync(process.argv[2], 'relative\\n')\n",
+          "utf-8",
+        )
         const command = `${PS.has(sh()) ? "& " : ""}${bin} ${quote(script.replaceAll("\\", "/"))} report.txt`
         const result = await Effect.runPromise(
           bash.execute(
@@ -484,7 +492,9 @@ describe("tool.bash expected_outputs", () => {
           (result.metadata as { artifacts?: Array<{ path: string; exists: boolean; changed: boolean }> }).artifacts,
         ).toEqual([{ path: target, exists: true, changed: true }])
         expect(
-          TurnChange.finalize(turn)?.files?.some((file) => file.path === "nested/report.txt" && file.status === "added"),
+          TurnChange.finalize(turn)?.files?.some(
+            (file) => file.path === "nested/report.txt" && file.status === "added",
+          ),
         ).toBe(true)
       },
     })
@@ -519,7 +529,7 @@ describe("tool.bash expected_outputs", () => {
     })
   })
 
-  test("preserves legacy behavior when expected_outputs is omitted", async () => {
+  test("records uncaptured marker for write-like command when expected_outputs is omitted", async () => {
     await resetDatabase()
     await using tmp = await tmpdir()
     await Instance.provide({
@@ -528,9 +538,9 @@ describe("tool.bash expected_outputs", () => {
         const bash = await initBash()
         const turn = await createTurn()
         const target = path.join(tmp.path, "undeclared.txt")
-        const script = path.join(tmp.path, "write-plain.cjs")
-        await fs.promises.writeFile(script, "require('node:fs').writeFileSync(process.argv[2], 'hello\\n')\n", "utf-8")
-        const command = `${PS.has(sh()) ? "& " : ""}${bin} ${quote(script.replaceAll("\\", "/"))} ${quote(target.replaceAll("\\", "/"))}`
+        const command = PS.has(sh())
+          ? `Set-Content -Path ${quote(target.replaceAll("\\", "/"))} -Value hello`
+          : `printf 'hello\\n' > ${quote(target.replaceAll("\\", "/"))}`
         const result = await Effect.runPromise(
           bash.execute(
             {
@@ -544,6 +554,40 @@ describe("tool.bash expected_outputs", () => {
         expect(result.metadata.exit).toBe(0)
         expect((result.metadata as { artifacts?: unknown[] }).artifacts).toBeUndefined()
         expect(TurnChange.finalize(turn)).toBeUndefined()
+        expect(
+          TurnChange.aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
+        ).toMatchObject({
+          kind: "uncaptured",
+          count: 1,
+        })
+      },
+    })
+  })
+
+  test("does not record uncaptured marker for read-only command without expected_outputs", async () => {
+    await resetDatabase()
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await initBash()
+        const turn = await createTurn()
+        const result = await Effect.runPromise(
+          bash.execute(
+            {
+              command: "echo hi",
+              description: "Echo read only text",
+            },
+            { ...ctx, ...turn },
+          ),
+        )
+
+        expect(result.metadata.exit).toBe(0)
+        expect(
+          TurnChange.aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
+        ).toMatchObject({
+          kind: "empty",
+        })
       },
     })
   })
@@ -587,7 +631,13 @@ describe("tool.bash expected_outputs", () => {
           expect(
             (
               result.metadata as {
-                artifacts?: Array<{ path: string; exists: boolean; changed: boolean; comparable?: boolean; errorCode?: string }>
+                artifacts?: Array<{
+                  path: string
+                  exists: boolean
+                  changed: boolean
+                  comparable?: boolean
+                  errorCode?: string
+                }>
               }
             ).artifacts,
           ).toEqual([{ path: target, exists: false, changed: false, comparable: false, errorCode: "EACCES" }])
@@ -686,7 +736,9 @@ describe("tool.bash permissions", () => {
         const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
         const file = process.platform === "win32" ? `${process.env.WINDIR!.replaceAll("\\", "/")}/*` : "/etc/*"
         const want =
-          process.platform === "win32" ? glob(path.join(process.env.WINDIR!, "*")) : path.join(await fs.promises.realpath("/etc"), "*")
+          process.platform === "win32"
+            ? glob(path.join(process.env.WINDIR!, "*"))
+            : path.join(await fs.promises.realpath("/etc"), "*")
         await expect(
           Effect.runPromise(
             bash.execute(

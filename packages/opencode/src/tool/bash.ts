@@ -29,6 +29,7 @@ import { assertExternalDirectoryEffect, resolveExternalPathForPermission } from 
 import { InstanceState } from "@/effect/instance-state"
 import * as Bom from "@/util/bom"
 import { TurnChange, type FileState } from "@/session/turn-change"
+import { isLikelyWriteCommand } from "./bash-write-heuristic"
 
 const MAX_METADATA_LENGTH = 30_000
 const DEFAULT_TIMEOUT = Flag.OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS || 2 * 60 * 1000
@@ -265,7 +266,13 @@ function tail(text: string, maxLines: number, maxBytes: number) {
 }
 
 function textHash(content: string, bom?: boolean) {
-  return "sha256:" + crypto.createHash("sha256").update(`${bom ? "bom:1" : "bom:0"}\0${content}`).digest("hex")
+  return (
+    "sha256:" +
+    crypto
+      .createHash("sha256")
+      .update(`${bom ? "bom:1" : "bom:0"}\0${content}`)
+      .digest("hex")
+  )
 }
 
 function binaryHash(buffer: Buffer) {
@@ -489,66 +496,71 @@ export const BashTool = Tool.define(
 
     const readTrackedState = Effect.fn("BashTool.readTrackedState")((file: string) =>
       Effect.promise(async () => {
-          try {
-            const stat = await nodefs.stat(file)
-            if (stat.isDirectory()) {
-              return {
-                state: { exists: true, restorable: false, hash: "directory", binary: true } satisfies FileState,
-                comparable: true,
-                kind: "directory",
-              } satisfies TrackedOutputState
-            }
-            if (stat.size > TRACKED_OUTPUT_LIMIT) {
-              return {
-                state: {
-                  exists: true,
-                  restorable: false,
-                  hash: `large:${stat.size}:${stat.mtimeMs}`,
-                  large: true,
-                } satisfies FileState,
-                comparable: true,
-                kind: "file",
-              } satisfies TrackedOutputState
-            }
-            const buffer = await nodefs.readFile(file)
-            if (buffer.includes(0)) {
-              return {
-                state: {
-                  exists: true,
-                  restorable: false,
-                  hash: binaryHash(buffer),
-                  binary: true,
-                } satisfies FileState,
-                comparable: true,
-                kind: "file",
-              } satisfies TrackedOutputState
-            }
-            const current = Bom.split(buffer.toString("utf-8"))
+        try {
+          const stat = await nodefs.stat(file)
+          if (stat.isDirectory()) {
             return {
-              state: {
-                exists: true,
-                content: current.text,
-                bom: current.bom,
-                hash: textHash(current.text, current.bom),
-              } satisfies FileState,
+              state: { exists: true, restorable: false, hash: "directory", binary: true } satisfies FileState,
               comparable: true,
-              kind: "file",
+              kind: "directory",
             } satisfies TrackedOutputState
-          } catch (err) {
-            const code = (err as NodeJS.ErrnoException).code
-            if (code === "ENOENT") return { state: { exists: false } satisfies FileState, comparable: true, kind: "missing" } satisfies TrackedOutputState
+          }
+          if (stat.size > TRACKED_OUTPUT_LIMIT) {
             return {
               state: {
                 exists: true,
                 restorable: false,
-                hash: `error:${code ?? "unknown"}`,
+                hash: `large:${stat.size}:${stat.mtimeMs}`,
+                large: true,
               } satisfies FileState,
-              comparable: false,
-              kind: "error",
-              ...(code ? { errorCode: code } : {}),
+              comparable: true,
+              kind: "file",
             } satisfies TrackedOutputState
           }
-        }).pipe(Effect.orDie),
+          const buffer = await nodefs.readFile(file)
+          if (buffer.includes(0)) {
+            return {
+              state: {
+                exists: true,
+                restorable: false,
+                hash: binaryHash(buffer),
+                binary: true,
+              } satisfies FileState,
+              comparable: true,
+              kind: "file",
+            } satisfies TrackedOutputState
+          }
+          const current = Bom.split(buffer.toString("utf-8"))
+          return {
+            state: {
+              exists: true,
+              content: current.text,
+              bom: current.bom,
+              hash: textHash(current.text, current.bom),
+            } satisfies FileState,
+            comparable: true,
+            kind: "file",
+          } satisfies TrackedOutputState
+        } catch (err) {
+          const code = (err as NodeJS.ErrnoException).code
+          if (code === "ENOENT")
+            return {
+              state: { exists: false } satisfies FileState,
+              comparable: true,
+              kind: "missing",
+            } satisfies TrackedOutputState
+          return {
+            state: {
+              exists: true,
+              restorable: false,
+              hash: `error:${code ?? "unknown"}`,
+            } satisfies FileState,
+            comparable: false,
+            kind: "error",
+            ...(code ? { errorCode: code } : {}),
+          } satisfies TrackedOutputState
+        }
+      }).pipe(Effect.orDie),
     )
 
     const run = Effect.fn("BashTool.run")(function* (
@@ -750,9 +762,8 @@ export const BashTool = Tool.define(
               const ps = PS.has(name)
               yield* Effect.scoped(
                 Effect.gen(function* () {
-                  const tree = yield* Effect.acquireRelease(
-                    parse(params.command, ps),
-                    (tree: Tree) => Effect.sync(() => tree.delete()),
+                  const tree = yield* Effect.acquireRelease(parse(params.command, ps), (tree: Tree) =>
+                    Effect.sync(() => tree.delete()),
                   )
                   const scan = yield* collect(tree.rootNode, cwd, ps, shell, instance)
                   const permissionCwd = resolveExternalPathForPermission(permissionCwdTarget, directory)
@@ -765,7 +776,8 @@ export const BashTool = Tool.define(
                 Effect.gen(function* () {
                   const resolved = yield* resolveExecutionPath(rawPath, cwd, shell)
                   const normalized = AppFileSystem.normalizePath(resolved)
-                  const filepath = (yield* assertExternalDirectoryEffect(ctx, normalized, { kind: "file" })) ?? normalized
+                  const filepath =
+                    (yield* assertExternalDirectoryEffect(ctx, normalized, { kind: "file" })) ?? normalized
                   return {
                     normalized: AppFileSystem.normalizePath(filepath),
                     path: filepath,
@@ -796,12 +808,25 @@ export const BashTool = Tool.define(
                 ctx,
               )
 
-              if (!trackedOutputs.length) return result
+              if (!trackedOutputs.length) {
+                if (
+                  (params.expected_outputs ?? []).length === 0 &&
+                  ctx.messageID &&
+                  isLikelyWriteCommand(params.command)
+                ) {
+                  yield* turnChange.recordUncaptured({
+                    sessionID: ctx.sessionID,
+                    messageID: ctx.messageID,
+                  })
+                }
+                return result
+              }
 
               const artifacts = yield* Effect.forEach(trackedOutputs, (tracked) =>
                 Effect.gen(function* () {
                   const after = yield* readTrackedState(tracked.path)
-                  const changed = tracked.before.comparable && after.comparable && !sameState(tracked.before.state, after.state)
+                  const changed =
+                    tracked.before.comparable && after.comparable && !sameState(tracked.before.state, after.state)
                   if (changed) {
                     yield* turnChange.recordWrite({
                       sessionID: ctx.sessionID,
