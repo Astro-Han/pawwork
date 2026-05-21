@@ -35,6 +35,42 @@ async function updateTodos(
   expect(response.status, await response.text()).toBe(204)
 }
 
+async function enableComposerStateProbe(page: { addInitScript: (script: () => void) => Promise<void> | void }) {
+  await page.addInitScript(() => {
+    const win = window as Window & {
+      __opencode_e2e?: {
+        composer?: {
+          enabled?: boolean
+          sessions?: Record<string, unknown>
+        }
+      }
+    }
+    win.__opencode_e2e = {
+      ...win.__opencode_e2e,
+      composer: {
+        enabled: true,
+        sessions: {},
+      },
+    }
+  })
+}
+
+async function readComposerState(
+  page: { evaluate: <T>(fn: (sessionID: string) => T, arg: string) => Promise<T> },
+  sessionID: string,
+) {
+  return page.evaluate((id) => {
+    const win = window as Window & {
+      __opencode_e2e?: {
+        composer?: {
+          sessions?: Record<string, { stateProbe?: { count: number; states: string[]; openingSamples?: boolean[] } }>
+        }
+      }
+    }
+    return win.__opencode_e2e?.composer?.sessions?.[id]?.stateProbe ?? null
+  }, sessionID)
+}
+
 test("todo dock restores without entrance animation on session entry", async ({ page, project }) => {
   let session: { id: string; title: string } | undefined
   await project.open({
@@ -68,4 +104,38 @@ test("todo dock restores without entrance animation on session entry", async ({ 
     return Number.parseFloat(el.style.maxHeight || getComputedStyle(el).maxHeight)
   })
   expect(restoredHeight).toBeGreaterThanOrEqual(35)
+})
+
+test("historical tool-parts todo restores without entrance animation on sidebar session switch", async ({
+  page,
+  llm,
+  project,
+}) => {
+  await enableComposerStateProbe(page)
+  await project.open()
+
+  await llm.tool("todowrite", {
+    todos: [{ content: "historical parts task", status: "in_progress", priority: "high" }],
+  })
+  await llm.text("todo started")
+  const sessionID = await project.prompt("Create a todo that should be historical after reload.")
+
+  const other = await project.sdk.session.create({ title: "e2e todo dock switch target" }).then((res) => res.data)
+  if (!other?.id) throw new Error("Session create did not return an id")
+  await seedSessionTurn({ sdk: project.sdk, sessionID: other.id })
+  project.trackSession(other.id)
+
+  await project.gotoSession(other.id)
+  await page.reload()
+  await project.gotoSession(other.id)
+
+  await openSidebar(page)
+  await page.locator(sessionItemSelector(sessionID)).click()
+
+  await expect
+    .poll(async () => readComposerState(page, sessionID), { timeout: 30_000 })
+    .toMatchObject({ count: 1, states: ["in_progress"] })
+
+  const state = await readComposerState(page, sessionID)
+  expect(state?.openingSamples ?? []).not.toContain(true)
 })

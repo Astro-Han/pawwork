@@ -42,6 +42,7 @@ export type TodoDockInput = {
   count: number
   phase: TodoPhase
   lifecycleSignature: string
+  sourceUpdatedAt?: number
   dockEligible?: boolean
   restored?: boolean
   // Semantic flag from the source selector. The reducer primarily uses active
@@ -59,33 +60,44 @@ export type TodoDockRestoreTrackerInput = {
   sessionID?: string
   known: boolean
   source?: TodoSourceKind
+  sourceUpdatedAt?: number
   count: number
   phase: TodoPhase
 }
 
-export function createTodoDockRestoreTracker() {
+const isToolPartsSource = (source?: TodoSourceKind) => source === "primary-parts" || source === "fallback-parts"
+
+export function createTodoDockRestoreTracker(now: () => number = () => Date.now()) {
   let sessionID: string | undefined
+  let sessionEnteredAt = now()
   let primed = false
 
   return (input: TodoDockRestoreTrackerInput) => {
     if (!input.sessionID) {
       sessionID = undefined
+      sessionEnteredAt = now()
       primed = false
       return false
     }
 
     if (sessionID !== input.sessionID) {
       sessionID = input.sessionID
+      sessionEnteredAt = now()
       primed = false
     }
 
+    const active = input.count > 0 && input.phase === "active"
+    const timestampedHistoricalToolParts =
+      isToolPartsSource(input.source) &&
+      active &&
+      input.sourceUpdatedAt !== undefined &&
+      input.sourceUpdatedAt <= sessionEnteredAt
+    const untimestampedInitialToolParts =
+      !primed && isToolPartsSource(input.source) && active && input.sourceUpdatedAt === undefined
     const restored =
-      input.known &&
-      !primed &&
-      input.count > 0 &&
-      input.phase === "active" &&
-      input.source !== "primary-parts" &&
-      input.source !== "fallback-parts"
+      timestampedHistoricalToolParts ||
+      untimestampedInitialToolParts ||
+      (!primed && active && input.known && !isToolPartsSource(input.source))
     if (input.known) primed = true
     return restored
   }

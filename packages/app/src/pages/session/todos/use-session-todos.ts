@@ -29,6 +29,7 @@ const dockInput = (snapshot: TodoSnapshot, sessionID?: string, restored?: boolea
   count: snapshot.items.length,
   phase: snapshot.phase,
   lifecycleSignature: snapshot.lifecycleSignature,
+  sourceUpdatedAt: snapshot.sourceUpdatedAt,
   dockEligible: snapshot.dockEligible,
   restored,
   historicalTerminal: snapshot.historicalTerminal,
@@ -139,6 +140,7 @@ export function createSessionTodoModel(input: {
         source: current.source,
         count: current.items.length,
         phase: current.phase,
+        sourceUpdatedAt: current.sourceUpdatedAt,
       }),
     )
   }
