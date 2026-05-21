@@ -9,21 +9,27 @@ import {
 
 describe("buildPawworkSidebarSessionRows", () => {
   test("renames sandbox session groups as local workspace labels", () => {
-    const project = { id: "proj_repo", name: "Repo", worktree: "/repo", sandboxes: ["/repo-feature"] }
+    const project = { id: "proj_repo", name: "Repo", worktree: "/repo", sandboxes: ["/repo-worktree"] }
+    let renamedProject: typeof project | undefined
+    const workspaceName: Record<string, string> = {}
 
-    const target = resolvePawworkProjectRenameTarget("/repo-feature", {
+    const target = resolvePawworkProjectRenameTarget("/repo-worktree", {
       projects: [project],
       sessions: [
         {
           id: "session-sandbox",
-          directory: "/repo-feature",
+          directory: "/repo-worktree",
           project: { id: "proj_repo", name: "Repo", worktree: "/repo" },
           time: { created: 100, updated: 100 },
         },
       ],
     })
 
-    expect(target).toEqual({ type: "workspace", directory: "/repo-feature" })
+    if (target?.type === "project") renamedProject = target.project
+    if (target?.type === "workspace") workspaceName[target.directory] = "Feature"
+
+    expect(renamedProject).toBeUndefined()
+    expect(workspaceName).toEqual({ "/repo-worktree": "Feature" })
   })
 
   test("renames root project groups as projects", () => {
