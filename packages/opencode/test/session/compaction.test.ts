@@ -1333,7 +1333,11 @@ describe("session.compaction.process", () => {
     })
   })
 
-  test("does not leave a summary assistant when aborted before processor setup", async () => {
+  test("aborting before processor setup leaves a summary assistant tagged with MessageAbortedError", async () => {
+    // The placeholder summary assistant is intentionally created up-front so
+    // the UI divider state machine has a carrier for `error`/`finish="error"`
+    // when pre-summary steps abort or throw. Without it the divider would
+    // stay `pending` forever. See 2026-05-21-compaction-ui-design.md.
     const ready = defer()
 
     await using tmp = await tmpdir({ git: true })
@@ -1378,7 +1382,12 @@ describe("session.compaction.process", () => {
           expect(await run).toBe("stop")
 
           const all = await svc.messages({ sessionID: session.id })
-          expect(all.some((msg) => msg.info.role === "assistant" && msg.info.summary)).toBe(false)
+          const summary = all.find((m) => m.info.role === "assistant" && m.info.summary)
+          expect(summary).toBeDefined()
+          if (summary?.info.role === "assistant") {
+            expect(summary.info.error?.name).toBe("MessageAbortedError")
+            expect(summary.info.finish).toBe("error")
+          }
         } finally {
           abort.abort()
           await rt.dispose()
