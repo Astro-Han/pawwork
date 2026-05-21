@@ -13,7 +13,6 @@ import {
 import { sessionPath, terminalToggleKey } from "../utils"
 import type { createSdk } from "../utils"
 import { composerEvent, type ComposerDriverState, type ComposerWindow } from "../../src/testing/session-composer"
-import { timelineEvent } from "../../src/testing/timeline"
 import { installPerfProbe, resetPerfProbe, snapshotPerfProbe, summarizeScenarioRuns } from "./probe"
 import { applyPerfProfile, readPerfProfile, shouldRunScenario, type PerfScenarioName } from "./profiles"
 import { readTimelineDomBudget, shouldAssertTimelineVirtualization } from "./timeline-dom-budget"
@@ -231,13 +230,26 @@ async function revealCachedSessionMessages(page: Parameters<typeof snapshotPerfP
 }
 
 async function revealCachedSessionMessagesThroughDriver(page: Parameters<typeof snapshotPerfProbe>[0]) {
+  const event = await readTimelineDriverEvent()
   await page.evaluate((event) => {
     window.dispatchEvent(
       new CustomEvent(event, {
         detail: { action: "reveal-cached" },
       }),
     )
-  }, timelineEvent)
+  }, event)
+}
+
+async function readTimelineDriverEvent() {
+  try {
+    const timeline = await import("../../src/testing/timeline")
+    return timeline.timelineEvent
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    // The perf workflow copies this harness into the base checkout, where PR-only testing helpers may not exist yet.
+    if (message.includes("src/testing/timeline")) return "opencode:e2e:timeline"
+    throw error
+  }
 }
 
 async function scrollTimelineTo(page: Parameters<typeof snapshotPerfProbe>[0], top: number) {
