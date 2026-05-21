@@ -902,6 +902,7 @@ test.describe("PR0.1 perf probe baseline", () => {
         await expandLongScrollTodoDock(page)
 
         await hoverTimelineScrollLane(page)
+        await markTimelineWheelIntent(page, -2400)
         await scrollTimelineTo(page, 0)
         await settleFrames(page, 4)
         const atTop = await readTimelineMetrics(page)
