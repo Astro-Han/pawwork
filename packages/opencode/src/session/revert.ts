@@ -3,15 +3,12 @@ import { Effect, Layer, Context } from "effect"
 import { makeRuntime } from "@/effect/run-service"
 import { Bus } from "../bus"
 import { Snapshot } from "../snapshot"
-import { Storage } from "@/storage/storage"
 import { SyncEvent } from "../sync"
 import { Log } from "@opencode-ai/core/util/log"
 import * as Session from "./session"
 import { MessageV2 } from "./message-v2"
 import { SessionID, MessageID, PartID } from "./schema"
 import { SessionRunState } from "./run-state"
-import { SessionSummary } from "./summary"
-import { sanitizeSensitiveDiffs } from "@/tool/sensitive"
 
 const log = Log.create({ service: "session.revert" })
 
@@ -38,10 +35,27 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const sessions = yield* Session.Service
     const snap = yield* Snapshot.Service
-    const storage = yield* Storage.Service
     const bus = yield* Bus.Service
-    const summary = yield* SessionSummary.Service
     const state = yield* SessionRunState.Service
+
+    function revertSummary(diff: string | undefined) {
+      if (!diff) return { additions: 0, deletions: 0, files: 0 }
+      const files = new Set<string>()
+      let additions = 0
+      let deletions = 0
+      let currentFile: string | undefined
+      for (const line of diff.split("\n")) {
+        if (line.startsWith("diff --git ")) {
+          currentFile = line.split(" b/")[1]?.trim()
+          if (currentFile) files.add(currentFile)
+          continue
+        }
+        if (line.startsWith("+++") || line.startsWith("---")) continue
+        if (line.startsWith("+")) additions++
+        if (line.startsWith("-")) deletions++
+      }
+      return { additions, deletions, files: files.size }
+    }
 
     const revert = Effect.fn("SessionRevert.revert")(function* (input: RevertInput) {
       yield* state.assertNotBusy(input.sessionID)
@@ -79,19 +93,12 @@ export const layer = Layer.effect(
       if (session.revert?.snapshot) yield* snap.restore(session.revert.snapshot)
       yield* snap.revert(patches)
       if (rev.snapshot) rev.diff = yield* snap.diff(rev.snapshot as string)
-      const range = all.filter((msg) => msg.info.id >= rev!.messageID)
-      const diffs = sanitizeSensitiveDiffs(yield* summary.computeDiff({ messages: range })) as Snapshot.FileDiff[]
-      yield* storage.write(["session_diff", input.sessionID], diffs).pipe(Effect.ignore)
-      yield* bus.publish(Session.Event.Diff, { sessionID: input.sessionID, diff: diffs })
       yield* sessions.setRevert({
         sessionID: input.sessionID,
         revert: rev,
-        summary: {
-          additions: diffs.reduce((sum, x) => sum + (x.additions ?? 0), 0),
-          deletions: diffs.reduce((sum, x) => sum + (x.deletions ?? 0), 0),
-          files: diffs.length,
-        },
+        summary: revertSummary(rev.diff),
       })
+      yield* bus.publish(Session.Event.TurnChangeInvalidated, { sessionID: input.sessionID })
       return yield* sessions.get(input.sessionID)
     })
 
@@ -102,6 +109,7 @@ export const layer = Layer.effect(
       if (!session.revert) return session
       if (session.revert.snapshot) yield* snap.restore(session.revert!.snapshot!)
       yield* sessions.clearRevert(input.sessionID)
+      yield* bus.publish(Session.Event.TurnChangeInvalidated, { sessionID: input.sessionID })
       return yield* sessions.get(input.sessionID)
     })
 
@@ -146,6 +154,7 @@ export const layer = Layer.effect(
         }
       }
       yield* sessions.clearRevert(sessionID)
+      yield* bus.publish(Session.Event.TurnChangeInvalidated, { sessionID })
     })
 
     return Service.of({ revert, unrevert, cleanup })
@@ -157,9 +166,7 @@ export const defaultLayer: Layer.Layer<Service, never, never> = Layer.suspend(()
     Layer.provide(SessionRunState.defaultLayer),
     Layer.provide(Session.defaultLayer),
     Layer.provide(Snapshot.defaultLayer),
-    Layer.provide(Storage.defaultLayer),
     Layer.provide(Bus.layer),
-    Layer.provide(SessionSummary.defaultLayer),
   ),
 )
 
