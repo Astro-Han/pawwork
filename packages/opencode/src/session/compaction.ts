@@ -14,7 +14,6 @@ import { Config } from "@/config"
 import { Storage } from "@/storage/storage"
 import { ModelID, ProviderID } from "@/provider/schema"
 import { Effect, Layer, Context, Schema } from "effect"
-import { InstanceState } from "@/effect"
 import { isOverflow as overflow, usable } from "./overflow"
 import { makeRuntime } from "@/effect/run-service"
 import { fn } from "@/util/fn"
@@ -110,9 +109,7 @@ function completedCompactions(messages: MessageV2.WithParts[]) {
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i]
     if (msg.info.role !== "user") continue
-    const compactionPart = msg.parts.find(
-      (part): part is MessageV2.CompactionPart => part.type === "compaction",
-    )
+    const compactionPart = msg.parts.find((part): part is MessageV2.CompactionPart => part.type === "compaction")
     if (!compactionPart) continue
     users.set(msg.info.id, { index: i, tailStartId: compactionPart.tail_start_id })
   }
@@ -444,7 +441,8 @@ export const layer: Layer.Layer<
         stripMedia: true,
         toolOutputMaxChars: TOOL_OUTPUT_MAX_CHARS,
       })
-      const ctx = yield* InstanceState.context
+      const currentSession = yield* session.get(input.sessionID)
+      const exec = currentSession.executionContext
       const msg: MessageV2.Assistant = {
         id: MessageID.ascending(),
         role: "assistant",
@@ -455,8 +453,8 @@ export const layer: Layer.Layer<
         variant: userMessage.model.variant,
         summary: true,
         path: {
-          cwd: ctx.directory,
-          root: ctx.worktree,
+          cwd: exec.activeDirectory,
+          root: exec.ownerDirectory,
         },
         cost: 0,
         tokens: {

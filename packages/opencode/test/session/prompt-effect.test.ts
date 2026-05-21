@@ -620,6 +620,16 @@ it.live("post-compaction auto-continue keeps env in the active worktree", () =>
         })
         expect(compacted).toBe("continue")
 
+        const messagesAfterCompaction = yield* sessions.messages({ sessionID: session.id })
+        const summaryMessage = messagesAfterCompaction.find(
+          (message) => message.info.role === "assistant" && message.info.summary === true,
+        )
+        if (!summaryMessage || summaryMessage.info.role !== "assistant") {
+          throw new Error("Missing compaction summary assistant message")
+        }
+        expect(summaryMessage.info.path.cwd).toBe(activeDirectory)
+        expect(summaryMessage.info.path.root).toBe(dir)
+
         yield* llm.text("continued after compaction")
         const result = yield* prompt.loop({ sessionID: session.id })
         expect(result.info.role).toBe("assistant")
