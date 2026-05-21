@@ -384,9 +384,12 @@ export async function installRuntimeClsProbe(page: Page) {
     const maxEntries = 256
     let action = "unknown"
     let startedAt = 0
+    let active = false
     let entries: RuntimeClsEntry[] = []
     let primaryBeforeRects = new WeakMap<Element, RuntimeClsRect>()
     let snapshotBefore: RuntimeClsSnapshot = {}
+    let observerReady = false
+    let observerError: string | undefined
 
     const rectFromDomRect = (input: DOMRect): RuntimeClsRect => ({
       x: input.x,
@@ -518,7 +521,14 @@ export async function installRuntimeClsProbe(page: Page) {
       }
     }
 
-    if (typeof PerformanceObserver !== "undefined") {
+    if (typeof PerformanceObserver === "undefined") {
+      observerError = "PerformanceObserver is unavailable; runtime CLS gate cannot observe layout-shift entries."
+    } else if (
+      Array.isArray(PerformanceObserver.supportedEntryTypes) &&
+      !PerformanceObserver.supportedEntryTypes.includes("layout-shift")
+    ) {
+      observerError = "PerformanceObserver does not support layout-shift entries; runtime CLS gate cannot run."
+    } else {
       try {
         const observer = new PerformanceObserver((list) => {
           for (const entry of list.getEntries() as Array<
@@ -528,7 +538,7 @@ export async function installRuntimeClsProbe(page: Page) {
               sources?: Array<{ node?: Node | null }>
             }
           >) {
-            if (startedAt <= 0 || entry.startTime < startedAt) continue
+            if (!active || startedAt <= 0 || entry.startTime < startedAt) continue
             if (typeof entry.value !== "number") continue
             const sources = (entry.sources ?? []).map((source) =>
               classifyElement(source.node instanceof Element ? source.node : null),
@@ -543,14 +553,21 @@ export async function installRuntimeClsProbe(page: Page) {
           if (entries.length > maxEntries) entries = entries.slice(entries.length - maxEntries)
         })
         observer.observe({ type: "layout-shift", buffered: true })
-      } catch {}
+        observerReady = true
+      } catch (error) {
+        observerError = error instanceof Error ? error.message : String(error)
+      }
     }
 
     win.__pawwork_runtime_cls_probe = {
       start(nextAction, options) {
+        if (!observerReady) {
+          throw new Error(observerError ?? "Runtime CLS layout-shift observer did not start.")
+        }
         action = nextAction
         entries = []
         startedAt = performance.now()
+        active = true
         capturePrimaryBeforeRects()
         const before = readSnapshot(options?.targetMessageID)
         snapshotBefore = {
@@ -564,7 +581,7 @@ export async function installRuntimeClsProbe(page: Page) {
       },
       stop() {
         const after = readSnapshot(snapshotBefore.targetMessageID)
-        return {
+        const result = {
           action,
           startedAt,
           endedAt: performance.now(),
@@ -578,6 +595,11 @@ export async function installRuntimeClsProbe(page: Page) {
             scrollAfter: after.scrollAfter,
           },
         }
+        active = false
+        startedAt = 0
+        entries = []
+        primaryBeforeRects = new WeakMap<Element, RuntimeClsRect>()
+        return result
       },
     }
   })

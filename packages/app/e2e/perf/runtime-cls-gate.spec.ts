@@ -250,6 +250,152 @@ async function assertNoPrimaryRuntimeClsFailures(result: RuntimeClsResult) {
   ).toEqual([])
 }
 
+async function installMockRuntimeClsObserver(page: Page, mode: "ready" | "observe-error") {
+  await page.addInitScript((mode) => {
+    type MockEntry = PerformanceEntry & {
+      value?: number
+      hadRecentInput?: boolean
+      sources?: Array<{ node?: Node | null }>
+    }
+
+    const callbacks: Array<(entries: MockEntry[]) => void> = []
+    class MockPerformanceObserver {
+      private readonly callback: PerformanceObserverCallback
+
+      constructor(callback: PerformanceObserverCallback) {
+        this.callback = callback
+        callbacks.push((entries) => {
+          this.callback({ getEntries: () => entries } as PerformanceObserverEntryList, this as PerformanceObserver)
+        })
+      }
+
+      observe() {
+        if (mode === "observe-error") throw new Error("mock layout-shift unsupported")
+      }
+
+      disconnect() {}
+      takeRecords() {
+        return []
+      }
+
+      static supportedEntryTypes = ["layout-shift"]
+    }
+
+    ;(window as typeof window & { PerformanceObserver: typeof PerformanceObserver }).PerformanceObserver =
+      MockPerformanceObserver as typeof PerformanceObserver
+    ;(window as typeof window & { __emitRuntimeClsEntry?: (entry: MockEntry) => void }).__emitRuntimeClsEntry = (
+      entry,
+    ) => {
+      for (const callback of callbacks) callback([entry])
+    }
+  }, mode)
+}
+
+test.describe("runtime CLS probe lifecycle", () => {
+  test("fails instead of silently passing when layout-shift observer cannot start", async ({ page }) => {
+    await installMockRuntimeClsObserver(page, "observe-error")
+    await installRuntimeClsProbe(page)
+    await page.goto("about:blank")
+
+    let errorMessage = ""
+    try {
+      await startRuntimeClsProbe(page, "observer-failure-check")
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : String(error)
+    }
+    expect(errorMessage).toContain("layout-shift")
+  })
+
+  test("ignores layout-shift entries after stop until the next measured window", async ({ page }) => {
+    await installMockRuntimeClsObserver(page, "ready")
+    await installRuntimeClsProbe(page)
+    await page.goto("about:blank")
+    await page.setContent('<main><div data-message-id="msg-1">visible message</div></main>')
+
+    await startRuntimeClsProbe(page, "first-window", { targetMessageID: "msg-1" })
+    await stopRuntimeClsProbe(page)
+    const repeatedStop = await page.evaluate(() => {
+      const win = window as typeof window & {
+        __emitRuntimeClsEntry?: (
+          entry: PerformanceEntry & { value: number; sources: Array<{ node: Node | null }> },
+        ) => void
+        __pawwork_runtime_cls_probe?: { stop: () => RuntimeClsResult }
+      }
+      const source = document.querySelector('[data-message-id="msg-1"]')
+      win.__emitRuntimeClsEntry?.({
+        name: "layout-shift",
+        entryType: "layout-shift",
+        startTime: performance.now() + 1,
+        duration: 0,
+        toJSON: () => ({}),
+        value: 0.04,
+        sources: [{ node: source }],
+      })
+      return win.__pawwork_runtime_cls_probe?.stop()
+    })
+
+    expect(repeatedStop?.entries).toEqual([])
+  })
+
+  test("classifies sources through the installed browser probe", async ({ page }) => {
+    await installMockRuntimeClsObserver(page, "ready")
+    await installRuntimeClsProbe(page)
+    await page.goto("about:blank")
+    await page.setContent(
+      [
+        '<main><div data-message-id="msg-1">',
+        '  <section data-component="session-turn">',
+        '    <div data-slot="session-turn-assistant-content"><div data-component="markdown">assistant</div></div>',
+        "  </section>",
+        "</div>",
+        '<div data-component="session-prompt-dock"><div data-slot="question-options">option</div></div></main>',
+      ].join(""),
+    )
+
+    await startRuntimeClsProbe(page, "browser-classifier-primary", { targetMessageID: "msg-1" })
+    const primaryResult = await page.evaluate(() => {
+      const win = window as typeof window & {
+        __emitRuntimeClsEntry?: (
+          entry: PerformanceEntry & { value: number; sources: Array<{ node: Node | null }> },
+        ) => void
+        __pawwork_runtime_cls_probe?: { stop: () => RuntimeClsResult }
+      }
+      win.__emitRuntimeClsEntry?.({
+        name: "layout-shift",
+        entryType: "layout-shift",
+        startTime: performance.now() + 1,
+        duration: 0,
+        toJSON: () => ({}),
+        value: 0.04,
+        sources: [{ node: document.querySelector('[data-component="markdown"]') }],
+      })
+      return win.__pawwork_runtime_cls_probe?.stop()
+    })
+    expect(primaryResult?.entries[0]?.sources[0]?.kind).toBe("primary-turn-descendant")
+
+    await startRuntimeClsProbe(page, "browser-classifier-dock", { targetMessageID: "msg-1" })
+    const dockResult = await page.evaluate(() => {
+      const win = window as typeof window & {
+        __emitRuntimeClsEntry?: (
+          entry: PerformanceEntry & { value: number; sources: Array<{ node: Node | null }> },
+        ) => void
+        __pawwork_runtime_cls_probe?: { stop: () => RuntimeClsResult }
+      }
+      win.__emitRuntimeClsEntry?.({
+        name: "layout-shift",
+        entryType: "layout-shift",
+        startTime: performance.now() + 1,
+        duration: 0,
+        toJSON: () => ({}),
+        value: 0.01,
+        sources: [{ node: document.querySelector('[data-slot="question-options"]') }],
+      })
+      return win.__pawwork_runtime_cls_probe?.stop()
+    })
+    expect(dockResult?.entries[0]?.sources[0]?.kind).toBe("dock-or-scroll-recovery")
+  })
+})
+
 test.describe("runtime CLS source gate", () => {
   test.setTimeout(180_000)
 
