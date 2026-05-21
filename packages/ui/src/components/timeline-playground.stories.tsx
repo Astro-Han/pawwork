@@ -1217,7 +1217,7 @@ function Playground() {
   const data = createMemo(() => ({
     session: [session()],
     session_status: {},
-    session_diff: {},
+    turn_change_aggregate: {},
     message: { [session().id]: state.messages },
     part: state.parts,
     provider: {

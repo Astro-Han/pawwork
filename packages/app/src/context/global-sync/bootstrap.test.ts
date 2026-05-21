@@ -29,7 +29,7 @@ function createState(): State {
     session_status: {},
     session_status_state: "loading",
     session_status_ready: false,
-    session_diff: {},
+    turn_change_aggregate: {},
     todo: {},
     permission: {},
     mcp_ready: false,

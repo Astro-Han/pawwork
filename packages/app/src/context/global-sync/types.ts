@@ -10,8 +10,8 @@ import type {
   PermissionRequest,
   ProviderListResponse,
   Session,
+  SessionDiffResponse,
   SessionStatus,
-  SnapshotFileDiff,
   Todo,
   VcsInfo,
 } from "@opencode-ai/sdk/v2/client"
@@ -50,8 +50,8 @@ export type State = {
   }
   session_status_state: SessionStatusState
   session_status_ready: boolean
-  session_diff: {
-    [sessionID: string]: SnapshotFileDiff[]
+  turn_change_aggregate: {
+    [sessionID: string]: SessionDiffResponse | undefined
   }
   todo: {
     [sessionID: string]: Todo[]

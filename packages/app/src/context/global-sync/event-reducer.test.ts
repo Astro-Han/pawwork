@@ -1,9 +1,22 @@
 import { describe, expect, test } from "bun:test"
-import type { Message, Part, PermissionRequest, Project, Session, Todo } from "@opencode-ai/sdk/v2/client"
+import type {
+  Message,
+  Part,
+  PermissionRequest,
+  Project,
+  Session,
+  SessionDiffResponse,
+  Todo,
+} from "@opencode-ai/sdk/v2/client"
 import { createStore } from "solid-js/store"
 import type { State } from "./types"
 import { createBlockerTerminalCache } from "./blocker-terminal-cache"
-import { applyDetachedDirectoryEvent, applyDirectoryEvent, applyGlobalEvent, cleanupDroppedSessionCaches } from "./event-reducer"
+import {
+  applyDetachedDirectoryEvent,
+  applyDirectoryEvent,
+  applyGlobalEvent,
+  cleanupDroppedSessionCaches,
+} from "./event-reducer"
 
 const rootSession = (input: { id: string; parentID?: string; archived?: number; created?: number; updated?: number }) =>
   ({
@@ -45,6 +58,7 @@ const permissionRequest = (id: string, sessionID: string, title = id) =>
     always: [],
   }) as PermissionRequest
 
+const emptyAggregate = (sessionID: string): SessionDiffResponse => ({ kind: "empty", sessionID })
 
 const baseState = (input: Partial<State> = {}) =>
   ({
@@ -63,7 +77,7 @@ const baseState = (input: Partial<State> = {}) =>
     session_status: {},
     session_status_state: "ready",
     session_status_ready: true,
-    session_diff: {},
+    turn_change_aggregate: {},
     todo: {},
     permission: {},
     mcp: {},
@@ -275,7 +289,7 @@ describe("applyDirectoryEvent", () => {
         sessionTotal: 2,
         message: { ses_1: [message] },
         part: { [message.id]: [textPart("prt_1", "ses_1", message.id)] },
-        session_diff: { ses_1: [] },
+        turn_change_aggregate: { ses_1: emptyAggregate("ses_1") },
         todo: { ses_1: [] },
         permission: { ses_1: [] },
         session_status: { ses_1: { type: "busy" } },
@@ -295,7 +309,7 @@ describe("applyDirectoryEvent", () => {
     expect(store.sessionTotal).toBe(1)
     expect(store.message.ses_1).toBeUndefined()
     expect(store.part[message.id]).toBeUndefined()
-    expect(store.session_diff.ses_1).toBeUndefined()
+    expect(store.turn_change_aggregate.ses_1).toBeUndefined()
     expect(store.todo.ses_1).toBeUndefined()
     expect(store.permission.ses_1).toBeUndefined()
     expect(store.session_status.ses_1).toBeUndefined()
@@ -319,7 +333,7 @@ describe("applyDirectoryEvent", () => {
           sessionTotal: 2,
           message: { [item.info.id]: [message] },
           part: { [message.id]: [textPart("prt_1", item.info.id, message.id)] },
-          session_diff: { [item.info.id]: [] },
+          turn_change_aggregate: { [item.info.id]: emptyAggregate(item.info.id) },
           todo: { [item.info.id]: [] },
           permission: { [item.info.id]: [] },
           session_status: { [item.info.id]: { type: "busy" } },
@@ -339,7 +353,7 @@ describe("applyDirectoryEvent", () => {
       expect(store.sessionTotal).toBe(item.expectedTotal)
       expect(store.message[item.info.id]).toBeUndefined()
       expect(store.part[message.id]).toBeUndefined()
-      expect(store.session_diff[item.info.id]).toBeUndefined()
+      expect(store.turn_change_aggregate[item.info.id]).toBeUndefined()
       expect(store.todo[item.info.id]).toBeUndefined()
       expect(store.permission[item.info.id]).toBeUndefined()
       expect(store.session_status[item.info.id]).toBeUndefined()
@@ -357,7 +371,7 @@ describe("applyDirectoryEvent", () => {
         session: [existing],
         message: { [existing.id]: [message] },
         part: { [message.id]: [textPart("prt_1", existing.id, message.id)] },
-        session_diff: { [existing.id]: [] },
+        turn_change_aggregate: { [existing.id]: emptyAggregate(existing.id) },
         todo: { [existing.id]: [] },
         permission: { [existing.id]: [] },
         session_status: { [existing.id]: { type: "busy" } },
@@ -380,7 +394,7 @@ describe("applyDirectoryEvent", () => {
     expect(store.session.map((x) => x.id)).toEqual([created.id, existing.id])
     expect(store.message[existing.id]).toEqual([message])
     expect(store.part[message.id]).toEqual([textPart("prt_1", existing.id, message.id)])
-    expect(store.session_diff[existing.id]).toEqual([])
+    expect(store.turn_change_aggregate[existing.id]).toEqual(emptyAggregate(existing.id))
     expect(store.todo[existing.id]).toEqual([])
     expect(store.permission[existing.id]).toEqual([])
     expect(store.session_status[existing.id]).toEqual({ type: "busy" })
@@ -398,6 +412,25 @@ describe("applyDirectoryEvent", () => {
     cleanupDroppedSessionCaches(store, setStore, store.session)
 
     expect(store.part.msg_1).toBeUndefined()
+  })
+
+  test("clears cached aggregate when turn changes are invalidated", () => {
+    const [store, setStore] = createStore(
+      baseState({
+        turn_change_aggregate: { ses_1: emptyAggregate("ses_1") },
+      }),
+    )
+
+    applyDirectoryEvent({
+      event: { type: "session.turn_change_invalidated", properties: { sessionID: "ses_1" } },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+    })
+
+    expect(store.turn_change_aggregate.ses_1).toBeUndefined()
   })
 
   test("upserts and removes messages while clearing orphaned parts", () => {
