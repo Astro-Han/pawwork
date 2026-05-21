@@ -1478,6 +1478,53 @@ it.live(
 )
 
 it.live(
+  "cancel during compaction prelude interrupts the run",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* ({ llm }) {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({ title: "Compaction prelude cancel" })
+        yield* seed(chat.id, { finish: "stop" })
+        yield* llm.hang
+
+        // The prelude runs inside the Runner's fiber, so cancel below would
+        // be silently dropped by SessionRunState.cancel (no-runner path) if
+        // it ran outside ensureRunning's protection. Reaching llm.wait(1)
+        // proves the prelude wrote the marker, runLoop entered, and the
+        // runner is in Running state — exactly the window the pre-refactor
+        // route exposed when status was set busy before the runner existed.
+        const fiber = yield* prompt
+          .loop({
+            sessionID: chat.id,
+            prelude: {
+              type: "compaction",
+              agent: "build",
+              model: ref,
+              auto: false,
+            },
+          })
+          .pipe(Effect.forkChild)
+        yield* llm.wait(1)
+        const cancelled = yield* prompt.cancel(chat.id)
+        expect(cancelled).toBe(true)
+
+        const exit = yield* Fiber.await(fiber)
+        expect(Exit.isSuccess(exit)).toBe(true)
+
+        const msgs = yield* sessions.messages({ sessionID: chat.id })
+        expect(msgs.some((m) => m.parts.some((p) => p.type === "compaction"))).toBe(true)
+        const summary = msgs.find((m) => m.info.role === "assistant" && m.info.summary === true)
+        expect(summary).toBeDefined()
+        if (summary?.info.role === "assistant") {
+          expect(summary.info.error?.name).toBe("MessageAbortedError")
+        }
+      }),
+      { git: true, config: providerCfg },
+    ),
+)
+
+it.live(
   "cancel preserves explicit caller source in abort diagnostics",
   () =>
     provideTmpdirServer(

@@ -7,7 +7,6 @@ import { Session } from "../../session"
 import { MessageV2 } from "../../session/message-v2"
 import { SessionPrompt } from "../../session/prompt"
 import { SessionRunState } from "@/session/run-state"
-import { SessionCompaction } from "../../session/compaction"
 import { SessionRevert } from "../../session/revert"
 import { SessionShare } from "@/share/session"
 import { Export } from "@/session/export"
@@ -1023,24 +1022,27 @@ export const SessionRoutes = lazy(() =>
             break
           }
         }
-        // Flip status to busy BEFORE writing the compaction marker so the
-        // client receives `session.status: busy` no later than the compaction
-        // part event. Otherwise the UI sees the marker first while status is
-        // still idle and the divider briefly renders the legacy-orphan
-        // "failed" state for one frame before busy lands. Auto-compaction
-        // already runs inside runLoop where busy is set at the top of the
-        // loop (prompt.ts:1914), so only this manual route had the race.
-        await AppRuntime.runPromise(SessionStatus.Service.use((svc) => svc.set(sessionID, { type: "busy" })))
-        await SessionCompaction.create({
+        // Marker creation runs inside the loop's runner-protected work effect
+        // (see SessionPrompt.loop). That gives us three guarantees the
+        // pre-refactor route lacked: (1) status flips to busy *before* the
+        // compaction part event reaches clients so the divider doesn't flash
+        // the legacy-orphan "failed" frame; (2) a cancel arriving while the
+        // marker is being written hits a Running runner and interrupts the
+        // fiber instead of being silently dropped by SessionRunState.cancel;
+        // (3) concurrent summarize calls can't double-write markers because
+        // ensureRunning short-circuits to the existing run.
+        await SessionPrompt.loop({
           sessionID,
-          agent: currentAgent,
-          model: {
-            providerID: body.providerID,
-            modelID: body.modelID,
+          prelude: {
+            type: "compaction",
+            agent: currentAgent,
+            model: {
+              providerID: body.providerID,
+              modelID: body.modelID,
+            },
+            auto: body.auto,
           },
-          auto: body.auto,
         })
-        await SessionPrompt.loop({ sessionID })
         // Compaction is fire-and-forget at the loop level: a pre-summary
         // failure writes `error` onto the placeholder summary assistant and
         // returns "stop" without throwing, so summarize would otherwise

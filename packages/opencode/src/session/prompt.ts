@@ -2244,7 +2244,26 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           }
           return assistant
         })
-      return yield* state.ensureRunning(input.sessionID, onInterrupt, runLoop(input.sessionID))
+      const work = Effect.gen(function* () {
+        // Two reasons busy goes first. (1) The compaction part event must
+        // not race ahead of `session.status: busy` — the divider's
+        // "no summary + not working" branch would otherwise flash the
+        // legacy-orphan failed state for one render frame. (2) The work
+        // effect runs inside the Runner's fiber, so a cancel arriving here
+        // hits a Running runner and Fiber.interrupt fires — SessionRunState
+        // .cancel's no-runner path can't silently drop the abort.
+        yield* status.set(input.sessionID, { type: "busy" })
+        if (input.prelude?.type === "compaction") {
+          yield* compaction.create({
+            sessionID: input.sessionID,
+            agent: input.prelude.agent,
+            model: input.prelude.model,
+            auto: input.prelude.auto,
+          })
+        }
+        return yield* runLoop(input.sessionID)
+      })
+      return yield* state.ensureRunning(input.sessionID, onInterrupt, work)
     })
 
     const shell: (input: ShellInput) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.shell")(
@@ -2531,6 +2550,16 @@ export async function cancel(sessionID: SessionID, options?: { source?: string }
 
 export const LoopInput = z.object({
   sessionID: SessionID.zod,
+  // Optional setup that must run inside the Runner's fiber — keeps the
+  // cancel-during-setup signal alive (see loop() above).
+  prelude: z
+    .object({
+      type: z.literal("compaction"),
+      agent: z.string(),
+      model: z.object({ providerID: ProviderID.zod, modelID: ModelID.zod }),
+      auto: z.boolean(),
+    })
+    .optional(),
 })
 
 export async function loop(input: z.infer<typeof LoopInput>) {
