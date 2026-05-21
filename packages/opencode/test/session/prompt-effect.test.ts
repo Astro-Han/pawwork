@@ -476,6 +476,36 @@ it.live("loop exits immediately when last assistant has stop finish", () =>
   ),
 )
 
+it.live("loop compacts a finished assistant turn before exiting when it overflows", () =>
+  provideTmpdirServer(
+    ({ llm }) =>
+      Effect.gen(function* () {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({ title: "Overflowed finished turn" })
+        const seeded = yield* seed(chat.id, { finish: "stop" })
+        yield* sessions.updateMessage({
+          ...seeded.assistant,
+          tokens: { input: 95_000, output: 1, reasoning: 0, cache: { read: 0, write: 0 } },
+        })
+        yield* llm.text("## Goal\n- Compacted finished overflow turn")
+
+        const result = yield* prompt.loop({ sessionID: chat.id })
+        const messages = yield* sessions.messages({ sessionID: chat.id })
+        const compactionPart = messages
+          .flatMap((message) => message.parts)
+          .find((part): part is MessageV2.CompactionPart => part.type === "compaction")
+        const summary = messages.find((message) => message.info.role === "assistant" && message.info.summary === true)
+
+        expect(yield* llm.calls).toBeGreaterThanOrEqual(1)
+        expect(compactionPart).toBeDefined()
+        expect(summary?.info.role).toBe("assistant")
+        expect(result.info.role).toBe("assistant")
+      }),
+    { git: true, config: providerCfg },
+  ),
+)
+
 it.live("loop calls LLM and returns assistant message", () =>
   provideTmpdirServer(
     Effect.fnUntraced(function* ({ llm }) {

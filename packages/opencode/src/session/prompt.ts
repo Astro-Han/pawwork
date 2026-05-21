@@ -1948,6 +1948,28 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             !hasToolCalls &&
             lastUser.id < lastAssistant.id
           ) {
+            const tokens = lastFinished?.tokens
+            const hasTokenUsage =
+              tokens !== undefined &&
+              ((tokens.total ?? 0) > 0 ||
+                tokens.input > 0 ||
+                tokens.output > 0 ||
+                tokens.reasoning > 0 ||
+                tokens.cache.read > 0 ||
+                tokens.cache.write > 0)
+            if (lastFinished && lastFinished.summary !== true && hasTokenUsage) {
+              const model = yield* getModel(lastUser.model.providerID, lastUser.model.modelID, sessionID)
+              if (yield* compaction.isOverflow({ tokens: lastFinished.tokens, model })) {
+                yield* compaction.create({
+                  sessionID,
+                  agent: lastUser.agent,
+                  model: lastUser.model,
+                  auto: true,
+                  overflow: true,
+                })
+                continue
+              }
+            }
             yield* slog.info("exiting loop")
             break
           }
