@@ -2,67 +2,74 @@ import { describe, expect, test } from "bun:test"
 import { Instance } from "../../src/project/instance"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { Session } from "../../src/session"
-import { AppRuntime } from "../../src/effect/app-runtime"
-import { Storage } from "../../src/storage/storage"
 import { MessageV2 } from "../../src/session/message-v2"
-import { MessageID } from "../../src/session/schema"
+import { MessageID, SessionID } from "../../src/session/schema"
 import { SessionSummary } from "../../src/session/summary"
+import { TurnChange } from "../../src/session/turn-change"
 import { tmpdir } from "../fixture/fixture"
-import { Effect } from "effect"
+import { resetDatabase } from "../fixture/db"
+
+async function makeUser(sessionID: SessionID, suffix: string) {
+  const id = MessageID.make(`msg_artifact_user_${suffix}`)
+  await Session.updateMessage({
+    id,
+    sessionID,
+    role: "user",
+    time: { created: Date.now() },
+    agent: "test",
+    model: { providerID: ProviderID.make("test"), modelID: ModelID.make("test") },
+    tools: {},
+  } as unknown as MessageV2.Info)
+  return id
+}
+
+async function makeAssistant(sessionID: SessionID, parentID: MessageID, suffix: string) {
+  const id = MessageID.make(`msg_artifact_assistant_${suffix}`)
+  await Session.updateMessage({
+    id,
+    sessionID,
+    role: "assistant",
+    parentID,
+    time: { created: Date.now(), completed: Date.now() },
+    modelID: ModelID.make("test"),
+    providerID: ProviderID.make("test"),
+    mode: "",
+    agent: "build",
+    path: { cwd: "/", root: "/" },
+    cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+  } as unknown as MessageV2.Info)
+  return id
+}
 
 describe("session artifacts", () => {
-  test("keeps files that were added in earlier turns even if later turns delete them", async () => {
+  test("returns artifacts from captured and mixed aggregates while ignoring deleted and uncaptured-only changes", async () => {
+    await resetDatabase()
     await using tmp = await tmpdir({ git: true })
 
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
         const session = await Session.create({ title: "Artifacts" })
+        const user = await makeUser(session.id, "captured")
+        const assistant = await makeAssistant(session.id, user, "captured")
 
-        const firstMessage: MessageV2.User = {
-          id: MessageID.ascending(),
+        TurnChange.recordWrite({
           sessionID: session.id,
-          role: "user",
-          time: { created: Date.now() },
-          agent: "test",
-          model: { providerID: ProviderID.make("test"), modelID: ModelID.make("test") },
-          tools: {},
-          summary: {
-            diffs: [
-              {
-                file: "artifact-report.md",
-                patch: "",
-                additions: 2,
-                deletions: 0,
-                status: "added",
-              },
-            ],
-          },
-        }
-
-        const secondMessage: MessageV2.User = {
-          id: MessageID.ascending(),
+          messageID: assistant,
+          path: `${tmp.path}/artifact-report.md`,
+          before: { exists: false },
+          after: { exists: true, content: "report\n" },
+        })
+        TurnChange.recordWrite({
           sessionID: session.id,
-          role: "user",
-          time: { created: Date.now() + 1 },
-          agent: "test",
-          model: { providerID: ProviderID.make("test"), modelID: ModelID.make("test") },
-          tools: {},
-          summary: {
-            diffs: [
-              {
-                file: "artifact-report.md",
-                patch: "",
-                additions: 0,
-                deletions: 2,
-                status: "deleted",
-              },
-            ],
-          },
-        }
-
-        await Session.updateMessage(firstMessage)
-        await Session.updateMessage(secondMessage)
+          messageID: assistant,
+          path: `${tmp.path}/deleted.md`,
+          before: { exists: true, content: "delete\n" },
+          after: { exists: false },
+        })
+        TurnChange.recordUncaptured({ sessionID: session.id, messageID: assistant })
+        TurnChange.finalize({ sessionID: session.id, messageID: assistant })
 
         const artifacts = await SessionSummary.artifacts({ sessionID: session.id })
         expect(artifacts).toEqual([
@@ -75,46 +82,21 @@ describe("session artifacts", () => {
     })
   })
 
-  test("redacts sensitive stored session diffs before returning or rewriting them", async () => {
+  test("returns no artifacts for empty and uncaptured-only aggregates", async () => {
+    await resetDatabase()
     await using tmp = await tmpdir({ git: true })
 
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const session = await Session.create({ title: "Sensitive diff" })
-        const rawDiff = [
-          {
-            file: ".env",
-            patch: "@@\n-TOKEN=old-secret\n+TOKEN=new-secret\n",
-            additions: 1,
-            deletions: 1,
-            status: "modified" as const,
-          },
-        ]
+        const empty = await Session.create({ title: "Empty artifacts" })
+        expect(await SessionSummary.artifacts({ sessionID: empty.id })).toEqual([])
 
-        await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const storage = yield* Storage.Service
-            yield* storage.write(["session_diff", session.id], rawDiff)
-          }),
-        )
-
-        const diff = await SessionSummary.diff({ sessionID: session.id })
-        const serialized = JSON.stringify(diff)
-
-        expect(serialized).not.toContain("old-secret")
-        expect(serialized).not.toContain("new-secret")
-        expect(diff as unknown).toEqual([
-          { file: ".env", patch: "", additions: 0, deletions: 0, status: "modified", sensitive: true },
-        ])
-
-        const stored = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const storage = yield* Storage.Service
-            return yield* storage.read<typeof diff>(["session_diff", session.id])
-          }),
-        )
-        expect(stored).toEqual(diff)
+        const uncaptured = await Session.create({ title: "Uncaptured artifacts" })
+        const user = await makeUser(uncaptured.id, "uncaptured")
+        const assistant = await makeAssistant(uncaptured.id, user, "uncaptured")
+        TurnChange.recordUncaptured({ sessionID: uncaptured.id, messageID: assistant })
+        expect(await SessionSummary.artifacts({ sessionID: uncaptured.id })).toEqual([])
       },
     })
   })

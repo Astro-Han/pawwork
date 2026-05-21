@@ -241,14 +241,15 @@ it.live("tool execution produces non-empty session diff (snapshot race)", () =>
         .find((p): p is MessageV2.ToolPart => p.type === "tool" && p.tool === "write")
       expect(tool?.state.status).toBe("completed")
 
-      // Poll for diff — summarize() is fire-and-forget
-      let diff: Array<{ file: string }> = []
+      // Poll for aggregate changes — summarize() is now a compatibility no-op.
+      let changed = 0
       for (let i = 0; i < 50; i++) {
-        diff = yield* summary.diff({ sessionID: session.id })
-        if (diff.length > 0) break
+        const diff = yield* summary.diff({ sessionID: session.id })
+        changed = diff.kind === "captured" || diff.kind === "mixed" ? diff.files.length : 0
+        if (changed > 0) break
         yield* Effect.sleep("100 millis")
       }
-      expect(diff.length).toBeGreaterThan(0)
+      expect(changed).toBeGreaterThan(0)
     }),
     { git: true, config: providerCfg },
   ),

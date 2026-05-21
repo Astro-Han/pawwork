@@ -19,7 +19,6 @@ import { Todo } from "../../session/todo"
 import { Effect } from "effect"
 import { AppRuntime } from "../../effect/app-runtime"
 import { Agent } from "../../agent/agent"
-import { Snapshot } from "@/snapshot"
 import { Command } from "../../command"
 import { Log } from "@opencode-ai/core/util/log"
 import { Permission } from "@/permission"
@@ -73,7 +72,8 @@ export const SessionRoutes = lazy(() =>
       "/",
       describeRoute({
         summary: "List sessions",
-        description: "Get a list of all OpenCode sessions. Defaults to most recently updated; use sort=created for creation-time order.",
+        description:
+          "Get a list of all OpenCode sessions. Defaults to most recently updated; use sort=created for creation-time order.",
         operationId: "session.list",
         responses: {
           200: {
@@ -97,7 +97,10 @@ export const SessionRoutes = lazy(() =>
             .meta({ description: "Filter sessions updated on or after this timestamp (milliseconds since epoch)" }),
           search: z.string().optional().meta({ description: "Filter sessions by title (case-insensitive)" }),
           limit: z.coerce.number().optional().meta({ description: "Maximum number of sessions to return" }),
-          sort: z.enum(["updated", "created"]).optional().meta({ description: "Sort sessions by last update or creation time" }),
+          sort: z
+            .enum(["updated", "created"])
+            .optional()
+            .meta({ description: "Sort sessions by last update or creation time" }),
         }),
       ),
       async (c) => {
@@ -640,7 +643,7 @@ export const SessionRoutes = lazy(() =>
             description: "Successfully retrieved diff",
             content: {
               "application/json": {
-                schema: resolver(Snapshot.FileDiff.array()),
+                schema: resolver(TurnChange.AggregateSchema),
               },
             },
           },
@@ -679,7 +682,7 @@ export const SessionRoutes = lazy(() =>
             description: "Turn changes",
             content: {
               "application/json": {
-                schema: resolver(TurnChange.DisplaySchema.nullable()),
+                schema: resolver(TurnChange.AggregateSchema),
               },
             },
           },
@@ -812,10 +815,10 @@ export const SessionRoutes = lazy(() =>
         const result = await AppRuntime.runPromise(
           Effect.gen(function* () {
             const turnChange = yield* TurnChange.Service
-            return yield* turnChange.aggregateTurn(params)
+            return yield* turnChange.aggregateTurnUnion(params)
           }),
         )
-        return c.json(result ?? null)
+        return c.json(result)
       },
     )
     .post(
