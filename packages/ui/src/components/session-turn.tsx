@@ -301,12 +301,15 @@ export function SessionTurn(
   const interrupted = createMemo(() =>
     visibleAssistantMessages().some((m) => m.error?.name === "MessageAbortedError"),
   )
+  const status = createMemo(() => {
+    if (props.status !== undefined) return props.status
+    if (typeof props.active === "boolean" && !props.active) return idle
+    return data.store.session_status[props.sessionID] ?? idle
+  })
+  const working = createMemo(() => isWorkInFlightStatus(status()) && active())
   const compactionDivider = createMemo<CompactionDividerState | undefined>(() => {
     if (!compaction()) return undefined
-    const messages = allMessages() ?? emptyMessages
-    const myIdx = messageIndex()
-    const hasLaterTurn = myIdx >= 0 && myIdx < messages.length - 1
-    return compactionDividerState({ summaryAssistant: compactionSummary(), hasLaterTurn })
+    return compactionDividerState({ summaryAssistant: compactionSummary(), isWorking: working() })
   })
   const compactionLabel = createMemo(() => {
     const state = compactionDivider()
@@ -351,12 +354,6 @@ export function SessionTurn(
     return unwrap(String(msg))
   })
 
-  const status = createMemo(() => {
-    if (props.status !== undefined) return props.status
-    if (typeof props.active === "boolean" && !props.active) return idle
-    return data.store.session_status[props.sessionID] ?? idle
-  })
-  const working = createMemo(() => isWorkInFlightStatus(status()) && active())
   const visibleTurnChange = createMemo(() => {
     const current = turnChange()
     if (!hasVisibleTurnChanges(current) || working() || turnInProgress()) return

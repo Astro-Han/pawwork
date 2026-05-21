@@ -15,21 +15,23 @@ export type CompactionDividerLabel =
 // aborted/failed as `done`. Match in this exact order.
 export function compactionDividerState(input: {
   summaryAssistant: AssistantMessage | undefined
-  // True when at least one message exists after this compaction's user
-  // message in the session. Used to disambiguate "no summary yet" between
-  // the active race window (latest turn, placeholder about to land) and
-  // legacy orphans (pre-PR pre-summary failures never wrote a placeholder,
-  // and the session has since moved on).
-  hasLaterTurn?: boolean
+  // True when the session runtime is currently doing work for this turn
+  // (busy/retry + this is the active turn). Used to disambiguate "no
+  // summary yet" between the live race window (placeholder about to land)
+  // and legacy orphans (pre-PR pre-summary failures never wrote a
+  // placeholder; the session is now idle on this turn).
+  // Position-based heuristics (e.g. "is this the latest turn") miss the
+  // case where the orphan IS the latest turn and the session is idle.
+  isWorking?: boolean
 }): CompactionDividerState {
   const summary = input.summaryAssistant
   if (!summary) {
     // Legacy data: pre-PR pre-summary failures (agents.get / provider.getModel
     // / select / plugin / toModelMessages / processors.create) returned
     // before the placeholder summary assistant was written. Those orphans
-    // would otherwise shimmer as "pending" forever. If the session already
-    // moved on past this compaction, mark it failed instead.
-    if (input.hasLaterTurn) return "failed"
+    // would otherwise shimmer as "pending" forever. If the session isn't
+    // actively working on this turn, mark it failed instead.
+    if (!input.isWorking) return "failed"
     return "pending"
   }
   if (summary.error?.name === "MessageAbortedError") return "aborted"

@@ -39,17 +39,20 @@ function summary(overrides: Partial<AssistantMessage> = {}): AssistantMessage {
 }
 
 describe("compactionDividerState", () => {
-  test("no summary assistant + latest turn → pending (race window)", () => {
-    expect(compactionDividerState({ summaryAssistant: undefined })).toBe("pending")
-    expect(compactionDividerState({ summaryAssistant: undefined, hasLaterTurn: false })).toBe("pending")
+  test("no summary assistant + session is working on this turn → pending (race window)", () => {
+    // Placeholder is about to land — the divider should shimmer until either
+    // the summary streams in or terminal state is written.
+    expect(compactionDividerState({ summaryAssistant: undefined, isWorking: true })).toBe("pending")
   })
 
-  test("no summary assistant + later turn exists → failed (legacy orphan)", () => {
+  test("no summary assistant + session is idle on this turn → failed (legacy orphan)", () => {
     // Pre-PR pre-summary failures (agents.get / provider.getModel / select /
     // plugin / toModelMessages / processors.create) never wrote a summary
-    // assistant. Once the session moved on with another turn, the divider
-    // would otherwise shimmer forever.
-    expect(compactionDividerState({ summaryAssistant: undefined, hasLaterTurn: true })).toBe("failed")
+    // assistant. Once the session stops working on this turn — regardless of
+    // whether the orphan is the latest turn or not — the divider must not
+    // shimmer forever.
+    expect(compactionDividerState({ summaryAssistant: undefined, isWorking: false })).toBe("failed")
+    expect(compactionDividerState({ summaryAssistant: undefined })).toBe("failed")
   })
 
   test("abort error → aborted (even when time.completed is set)", () => {
