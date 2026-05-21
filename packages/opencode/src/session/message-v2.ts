@@ -427,7 +427,7 @@ export const User = Base.extend({
     .object({
       title: z.string().optional(),
       body: z.string().optional(),
-      diffs: Snapshot.FileDiff.array(),
+      diffs: Snapshot.FileDiff.array().optional(),
     })
     .optional(),
   agent: z.string(),
