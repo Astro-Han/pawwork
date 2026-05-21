@@ -1525,6 +1525,63 @@ it.live(
 )
 
 it.live(
+  "cancel after compaction marker but before placeholder yields aborted carrier",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* ({ llm }) {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({ title: "Compaction prelude race cancel" })
+        yield* seed(chat.id, { finish: "stop" })
+        yield* llm.hang
+
+        const fiber = yield* prompt
+          .loop({
+            sessionID: chat.id,
+            prelude: { type: "compaction", agent: "build", model: ref, auto: false },
+          })
+          .pipe(Effect.forkChild)
+
+        // Poll until the compaction marker is observable, then cancel
+        // immediately. This targets the window between `compaction.create`
+        // returning and `processCompaction` writing its placeholder
+        // assistant. The contract this test locks is end-state: regardless
+        // of which path resolves the abort (the new onInterrupt fallback
+        // that writes a terminal carrier from scratch, or the existing
+        // `processCompaction` `Effect.onInterrupt` finalizer when the
+        // placeholder already exists), the divider must derive `aborted`,
+        // not `failed`. Pre-fix this window left an orphan: compaction part
+        // written, no summary assistant, status idle → frontend `failed`.
+        const deadline = Date.now() + 5000
+        while (Date.now() < deadline) {
+          const snapshot = yield* sessions.messages({ sessionID: chat.id })
+          if (snapshot.some((m) => m.parts.some((p) => p.type === "compaction"))) break
+          yield* Effect.sleep("1 millis")
+        }
+
+        const cancelled = yield* prompt.cancel(chat.id)
+        expect(cancelled).toBe(true)
+
+        const exit = yield* Fiber.await(fiber)
+        expect(Exit.isSuccess(exit)).toBe(true)
+
+        const msgs = yield* sessions.messages({ sessionID: chat.id })
+        const marker = msgs.find((m) => m.parts.some((p) => p.type === "compaction"))
+        expect(marker).toBeDefined()
+        const summary = msgs.find((m) => m.info.role === "assistant" && m.info.summary === true)
+        expect(summary).toBeDefined()
+        if (summary?.info.role === "assistant" && marker) {
+          expect(summary.info.error?.name).toBe("MessageAbortedError")
+          expect(summary.info.finish).toBe("error")
+          expect(typeof summary.info.time.completed).toBe("number")
+          expect(summary.info.parentID).toBe(marker.info.id)
+        }
+      }),
+      { git: true, config: providerCfg },
+    ),
+)
+
+it.live(
   "loop rejects compaction prelude when a run is already in flight",
   () =>
     provideTmpdirServer(

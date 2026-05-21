@@ -2242,6 +2242,71 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             })
             return yield* lastAssistant(input.sessionID)
           }
+          // Race window: a compaction marker (prelude or auto-overflow path)
+          // was written, but `processCompaction` had not yet created its
+          // placeholder summary assistant when the cancel arrived. Without
+          // a terminal carrier the divider would render `failed`
+          // (no summary + idle) instead of `aborted`. Mirror the placeholder
+          // shape from `SessionCompaction.process` and mark it
+          // terminal+aborted up front. Gated on "latest user has a compaction
+          // part" rather than `input.prelude` so the runLoop-internal auto
+          // compaction paths get the same treatment.
+          if (
+            assistant.info.role === "user" &&
+            assistant.parts.some((part) => part.type === "compaction")
+          ) {
+            const sess = yield* sessions.get(input.sessionID)
+            const exec = sess.executionContext
+            const recordedAt = meta?.recordedAt ?? Date.now()
+            const abortError = new MessageV2.AbortedError({ message: "Compaction aborted" })
+            const placeholder: MessageV2.Assistant = {
+              id: MessageID.ascending(),
+              role: "assistant",
+              parentID: assistant.info.id,
+              sessionID: input.sessionID,
+              mode: "compaction",
+              agent: "compaction",
+              variant: assistant.info.model.variant,
+              summary: true,
+              path: {
+                cwd: exec.activeDirectory,
+                root: exec.ownerDirectory,
+              },
+              cost: 0,
+              tokens: {
+                input: 0,
+                output: 0,
+                reasoning: 0,
+                cache: { read: 0, write: 0 },
+              },
+              modelID: assistant.info.model.modelID,
+              providerID: assistant.info.model.providerID,
+              time: {
+                created: recordedAt,
+                completed: recordedAt,
+              },
+              error: abortError.toObject(),
+              finish: "error",
+              diagnostics: {
+                abort: {
+                  source: meta?.source,
+                  reason: meta?.reason,
+                  title_generation_state: titleGenerationStateAtAbort(
+                    titleGenerationProgress.get(input.sessionID),
+                    recordedAt,
+                  ),
+                  propagation_point:
+                    meta?.propagationPoint ?? "session.prompt.loop.onInterrupt.compaction_prelude",
+                  error_name: abortError.name,
+                  error_message: "Compaction aborted",
+                  via_ctx_abort: meta?.viaCtxAbort,
+                  recorded_at: recordedAt,
+                },
+              },
+            }
+            yield* sessions.updateMessage(placeholder)
+            return { info: placeholder, parts: [] }
+          }
           return assistant
         })
       const work = Effect.gen(function* () {
