@@ -547,6 +547,93 @@ it.live("provider env matches assistant path for an active worktree", () =>
   ),
 )
 
+
+it.live("post-compaction auto-continue keeps env in the active worktree", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const prompt = yield* SessionPrompt.Service
+        const compact = yield* SessionCompaction.Service
+        const sessions = yield* Session.Service
+        const session = yield* sessions.create({
+          title: "Compaction execution context",
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        })
+        const activeDirectory = path.join(dir, ".worktrees", "pawwork", "ctx-compact")
+        yield* Effect.promise(() => fs.mkdir(activeDirectory, { recursive: true }))
+        yield* sessions.updateExecutionContext({
+          sessionID: session.id,
+          activeWorktree: {
+            directory: activeDirectory,
+            name: "ctx-compact",
+            branch: "pawwork/ctx-compact",
+            source: "created",
+          },
+        })
+
+        const priorUser = yield* user(session.id, "work before compaction")
+        const priorAssistant = yield* sessions.updateMessage({
+          id: MessageID.ascending(),
+          role: "assistant",
+          parentID: priorUser.id,
+          sessionID: session.id,
+          mode: "build",
+          agent: "build",
+          cost: 0,
+          path: { cwd: activeDirectory, root: dir },
+          tokens: { input: 1, output: 1, reasoning: 0, cache: { read: 0, write: 0 } },
+          modelID: ref.modelID,
+          providerID: ref.providerID,
+          time: { created: Date.now() },
+          finish: "stop",
+        })
+        yield* sessions.updatePart({
+          id: PartID.ascending(),
+          messageID: priorAssistant.id,
+          sessionID: session.id,
+          type: "text",
+          text: "finished work before compaction",
+        })
+
+        const compactionParent = yield* sessions.updateMessage({
+          id: MessageID.ascending(),
+          role: "user",
+          sessionID: session.id,
+          agent: "build",
+          model: ref,
+          time: { created: Date.now() },
+        })
+        yield* sessions.updatePart({
+          id: PartID.ascending(),
+          messageID: compactionParent.id,
+          sessionID: session.id,
+          type: "compaction",
+          auto: true,
+        })
+
+        yield* llm.text("## Goal\n- Continue from compacted worktree context")
+        const compacted = yield* compact.process({
+          parentID: compactionParent.id,
+          messages: yield* MessageV2.filterCompactedEffect(session.id),
+          sessionID: session.id,
+          auto: true,
+        })
+        expect(compacted).toBe("continue")
+
+        yield* llm.text("continued after compaction")
+        const result = yield* prompt.loop({ sessionID: session.id })
+        expect(result.info.role).toBe("assistant")
+
+        const requestText = requestTextContaining(yield* llm.inputs, "Continue if you have next steps")
+        expect(envValue(requestText, "Working directory")).toBe(activeDirectory)
+        expect(envValue(requestText, "Workspace root folder")).toBe(dir)
+        expect(result.info.path.cwd).toBe(activeDirectory)
+        expect(result.info.path.root).toBe(dir)
+      }),
+    { git: true, config: providerCfg },
+  ),
+)
+
 it.live("static loop returns assistant text through local provider", () =>
   provideTmpdirServer(
     Effect.fnUntraced(function* ({ llm }) {
