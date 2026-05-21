@@ -1023,6 +1023,14 @@ export const SessionRoutes = lazy(() =>
             break
           }
         }
+        // Flip status to busy BEFORE writing the compaction marker so the
+        // client receives `session.status: busy` no later than the compaction
+        // part event. Otherwise the UI sees the marker first while status is
+        // still idle and the divider briefly renders the legacy-orphan
+        // "failed" state for one frame before busy lands. Auto-compaction
+        // already runs inside runLoop where busy is set at the top of the
+        // loop (prompt.ts:1914), so only this manual route had the race.
+        await AppRuntime.runPromise(SessionStatus.Service.use((svc) => svc.set(sessionID, { type: "busy" })))
         await SessionCompaction.create({
           sessionID,
           agent: currentAgent,
