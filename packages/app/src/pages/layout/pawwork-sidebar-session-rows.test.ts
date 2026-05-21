@@ -1,8 +1,96 @@
 import { readFileSync } from "node:fs"
 import { describe, expect, test } from "bun:test"
-import { buildPawworkSidebarSessionRows } from "./pawwork-session-source"
+import {
+  buildPawworkSidebarSessionRows,
+  pawworkSessionRouteUnhideKeys,
+  resolvePawworkProjectRenameTarget,
+  resolvePawworkSessionProjectKey,
+  resolvePawworkSessionProjectLabel,
+} from "./pawwork-session-source"
 
 describe("buildPawworkSidebarSessionRows", () => {
+  test("keeps the parent root group hidden when syncing a subfolder session route", () => {
+    const hidden: Record<string, boolean> = { "/repo/packages/app": true, "/repo": true }
+
+    for (const key of pawworkSessionRouteUnhideKeys("/repo/packages/app")) {
+      delete hidden[key]
+    }
+
+    expect(hidden).toEqual({ "/repo": true })
+  })
+
+  test("renames sandbox session groups as local workspace labels", () => {
+    const project = { id: "proj_repo", name: "Repo", worktree: "/repo", sandboxes: ["/repo-worktree"] }
+    let renamedProject: typeof project | undefined
+    const workspaceName: Record<string, string> = {}
+
+    const target = resolvePawworkProjectRenameTarget("/repo-worktree", {
+      projects: [project],
+      sessions: [
+        {
+          id: "session-sandbox",
+          directory: "/repo-worktree",
+          project: { id: "proj_repo", name: "Repo", worktree: "/repo" },
+          time: { created: 100, updated: 100 },
+        },
+      ],
+    })
+
+    if (target?.type === "project") renamedProject = target.project
+    if (target?.type === "workspace") workspaceName[target.directory] = "Feature"
+
+    expect(renamedProject).toBeUndefined()
+    expect(workspaceName).toEqual({ "/repo-worktree": "Feature" })
+  })
+
+  test("renames root project groups as projects", () => {
+    const project = { id: "proj_repo", name: "Repo", worktree: "/repo", sandboxes: ["/repo-feature"] }
+
+    const target = resolvePawworkProjectRenameTarget("/repo", {
+      projects: [project],
+      sessions: [],
+    })
+
+    expect(target).toEqual({ type: "project", project })
+  })
+
+  test("groups git subfolder sessions by the opened directory instead of the repo root", () => {
+    const session = {
+      id: "session-subfolder",
+      directory: "/repo/packages/app",
+      project: { id: "proj_repo", name: "Repo", worktree: "/repo" },
+      time: { created: 100, updated: 100 },
+    }
+    const projects = [{ id: "proj_repo", name: "Repo", worktree: "/repo" }]
+
+    const result = buildPawworkSidebarSessionRows([session], {
+      slugForDirectory: (directory) => `slug:${directory}`,
+      projectKeyForSession: (item) => resolvePawworkSessionProjectKey(item),
+      projectLabelForSession: (item) => resolvePawworkSessionProjectLabel(item, { projects }),
+    })
+
+    expect(result[0].projectKey).toBe("/repo/packages/app")
+    expect(result[0].projectLabel).toBe("app")
+  })
+
+  test("keeps project names for sessions opened at the project root", () => {
+    const session = {
+      id: "session-root",
+      directory: "/repo",
+      project: { id: "proj_repo", name: "Repo", worktree: "/repo" },
+      time: { created: 100, updated: 100 },
+    }
+
+    const result = buildPawworkSidebarSessionRows([session], {
+      slugForDirectory: (directory) => `slug:${directory}`,
+      projectKeyForSession: (item) => resolvePawworkSessionProjectKey(item),
+      projectLabelForSession: (item) => resolvePawworkSessionProjectLabel(item, { projects: [] }),
+    })
+
+    expect(result[0].projectKey).toBe("/repo")
+    expect(result[0].projectLabel).toBe("Repo")
+  })
+
   test("uses API activity time before loaded message cache for sidebar rows", () => {
     const result = buildPawworkSidebarSessionRows(
       [
