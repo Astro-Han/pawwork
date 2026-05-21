@@ -54,6 +54,9 @@ describe("turn-change diff height reservation", () => {
   test("wires the panel to reserve height and refresh the cached measurement after render", () => {
     expect(panelSource).toContain("estimateTurnChangeDiffReservedHeight")
     expect(panelSource).toContain("--turn-change-diff-reserved-height")
+    expect(panelSource).toContain("createEffect(() =>")
+    expect(panelSource).toContain("setMeasuredDiffHeight(undefined)")
+    expect(panelSource).toContain("const reservedDiffHeight = () =>")
     expect(panelSource).toContain("onRendered={handleDiffRendered}")
   })
 

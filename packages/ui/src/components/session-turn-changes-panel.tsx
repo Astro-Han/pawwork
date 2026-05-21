@@ -1,4 +1,4 @@
-import { createMemo, createSignal, For, onCleanup, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import { getDirectory } from "@opencode-ai/core/util/path"
 import { useFileComponent } from "../context/file"
@@ -141,13 +141,17 @@ export function SessionTurnChangesPanel(props: {
                   })
                 : undefined,
             )
-            const reservedDiffHeight = createMemo(() => {
+            createEffect(() => {
+              view()
+              setMeasuredDiffHeight(undefined)
+            })
+            const reservedDiffHeight = () => {
               const diff = view()
               if (!diff) return 0
               return (
                 measuredDiffHeight() ?? estimateTurnChangeDiffReservedHeight({ ...diff.fileDiff, patch: diff.patch })
               )
-            })
+            }
             const handleDiffRendered = () => {
               const measure = () => {
                 if (!diffRef?.isConnected) return
