@@ -10,10 +10,10 @@ body:
         Use this for narrow execution-only, audit, spike, migration, upstream follow-up, or tracking work.
 
         Do not use Task when another type is clearer:
-        - Behavior is broken, incorrect, flaky, misleading, or regressed → Bug report
-        - A user-facing workflow or capability should improve → Feature request
-        - Documentation, templates, policies, or written process should change → Documentation
-        - Internal cleanup, maintainability, architecture, test, or quality debt → Tech debt
+        - Behavior is broken, incorrect, flaky, misleading, or regressed → `bug`
+        - A user-facing workflow or capability should improve → `enhancement`
+        - Documentation, templates, policies, or written process should change → `documentation`
+        - Internal cleanup, maintainability, architecture, test, or quality debt → add `tech-debt` as supplemental context
 
         Keep the issue concrete enough that an agent can understand the target, scope, and verification path.
   - type: textarea
