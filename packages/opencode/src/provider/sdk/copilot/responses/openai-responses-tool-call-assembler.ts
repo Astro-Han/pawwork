@@ -99,7 +99,7 @@ export class ResponsesToolCallAssembler {
       return []
     }
 
-    return this.materialize(state.value, input.arguments, { removeAfterMaterialize: true })
+    return this.materialize(state.value, input.arguments)
   }
 
   failUnmaterialized(reason: string): LanguageModelV3StreamPart[] {

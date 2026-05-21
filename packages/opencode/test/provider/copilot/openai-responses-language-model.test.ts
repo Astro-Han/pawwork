@@ -285,6 +285,20 @@ describe("OpenAIResponsesLanguageModel function call materialization", () => {
     expect(toolCalls(parts)).toHaveLength(1)
   })
 
+  test("ignores late argument delta after output_item.done fallback materializes", async () => {
+    const parts = await streamParts([
+      responseCreated(),
+      functionCallAdded(),
+      functionCallDone({ seq: 3, args: '{"path":"fallback"}' }),
+      functionCallArgumentsDelta({ seq: 4, delta: '{"path":"late"}' }),
+      responseCompleted(5),
+    ])
+
+    expect(errors(parts)).toHaveLength(0)
+    expect(toolCalls(parts)).toHaveLength(1)
+    expect(toolCalls(parts)[0]).toMatchObject({ input: '{"path":"fallback"}' })
+  })
+
   test("does not duplicate tool-call when arguments.done is followed by output_item.done", async () => {
     const parts = await streamParts([
       responseCreated(),
