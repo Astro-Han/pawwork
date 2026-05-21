@@ -2263,7 +2263,19 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         }
         return yield* runLoop(input.sessionID)
       })
-      return yield* state.ensureRunning(input.sessionID, onInterrupt, work)
+      // rejectIfBusy is the prelude path's safety net: a prelude's side
+      // effects (writing the compaction marker) only run when ensureRunning
+      // actually executes `work`, and that only happens from the Idle branch
+      // of the runner's atomic ref-modify. Without this flag a `loop` call
+      // that arrives while another run is in flight would silently
+      // `awaitRun(existing)` and resolve to the previous run's result — the
+      // requested compaction would never happen, but the route would return
+      // `true`. UI callers handle the resulting `Session.BusyError` (mapped
+      // to HTTP 400 by middleware) by queuing the compact action through the
+      // followup machinery and auto-retrying after the session idles.
+      return yield* state.ensureRunning(input.sessionID, onInterrupt, work, {
+        rejectIfBusy: input.prelude !== undefined,
+      })
     })
 
     const shell: (input: ShellInput) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.shell")(

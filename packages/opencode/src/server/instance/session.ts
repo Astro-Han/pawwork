@@ -1029,8 +1029,11 @@ export const SessionRoutes = lazy(() =>
         // the legacy-orphan "failed" frame; (2) a cancel arriving while the
         // marker is being written hits a Running runner and interrupts the
         // fiber instead of being silently dropped by SessionRunState.cancel;
-        // (3) concurrent summarize calls can't double-write markers because
-        // ensureRunning short-circuits to the existing run.
+        // (3) the prelude path uses rejectIfBusy, so summarize calls that
+        // arrive while another run is in flight throw Session.BusyError
+        // (mapped to 400) instead of resolving `true` without writing the
+        // marker. Clients should queue the action and retry once the session
+        // goes idle.
         await SessionPrompt.loop({
           sessionID,
           prelude: {

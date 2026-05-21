@@ -1525,6 +1525,49 @@ it.live(
 )
 
 it.live(
+  "loop rejects compaction prelude when a run is already in flight",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* ({ llm }) {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({ title: "Compaction prelude busy" })
+        yield* llm.hang
+        yield* user(chat.id, "hi")
+
+        // Hold a normal prompt run in Running so ensureRunning sees a non-Idle
+        // state when the prelude call arrives. Pre-fix, the second call would
+        // awaitRun(existing) and silently resolve `true` without writing the
+        // marker — this asserts rejectIfBusy fires instead.
+        const fiber = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
+        yield* llm.wait(1)
+
+        const before = yield* sessions.messages({ sessionID: chat.id })
+        const compactionBefore = before.filter((m) => m.parts.some((p) => p.type === "compaction")).length
+
+        const exit = yield* prompt
+          .loop({
+            sessionID: chat.id,
+            prelude: { type: "compaction", agent: "build", model: ref, auto: false },
+          })
+          .pipe(Effect.exit)
+        expect(Exit.isFailure(exit)).toBe(true)
+        if (Exit.isFailure(exit)) {
+          expect(Cause.squash(exit.cause)).toBeInstanceOf(Session.BusyError)
+        }
+
+        const after = yield* sessions.messages({ sessionID: chat.id })
+        const compactionAfter = after.filter((m) => m.parts.some((p) => p.type === "compaction")).length
+        expect(compactionAfter).toBe(compactionBefore)
+
+        yield* prompt.cancel(chat.id)
+        yield* Fiber.await(fiber)
+      }),
+      { git: true, config: providerCfg },
+    ),
+)
+
+it.live(
   "cancel preserves explicit caller source in abort diagnostics",
   () =>
     provideTmpdirServer(
