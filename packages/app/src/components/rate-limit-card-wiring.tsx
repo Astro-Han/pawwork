@@ -3,7 +3,7 @@ import { RateLimitCard } from "@opencode-ai/ui/rate-limit-card"
 import { useShellSurface } from "../context/shell-surface"
 import { trackEvent } from "../utils/events"
 
-const SUBSCRIBE_URL = "https://opencode.ai/go"
+const SUBSCRIBE_URL = "https://opencode.ai/go?ref=V1WTSZKC69"
 
 // openLink is exposed by the desktop-electron preload (packages/desktop-electron/src/preload/types.ts:97).
 // The renderer-side window.api type in app.tsx declares only the subset of API the app actually uses;
