@@ -10,15 +10,14 @@ const base = {
   sessionID: "ses",
   turnID: "msg",
   messageID: "msg",
-  undoAvailable: false,
-  redoAvailable: false,
-} satisfies Omit<TurnChangeDisplay, "files">
+} satisfies Omit<TurnChangeDisplay, "files" | "kind">
 
 describe("session turn changes", () => {
   test("shows truncated display even when no file rows are visible", () => {
     expect(
       hasVisibleTurnChanges({
         ...base,
+        kind: "captured",
         truncated: true,
         omittedCount: 1,
         files: [],
@@ -30,6 +29,7 @@ describe("session turn changes", () => {
     expect(
       hasVisibleTurnChanges({
         ...base,
+        kind: "captured",
         files: [],
       }),
     ).toBe(false)
@@ -38,13 +38,13 @@ describe("session turn changes", () => {
   test("requires the matching handler before showing an undo or redo action", () => {
     const undoDisplay: TurnChangeDisplay = {
       ...base,
-      undoAvailable: true,
-      files: [{ path: "file.txt", status: "modified", expandable: false }],
+      kind: "captured",
+      files: [{ path: "file.txt", status: "modified", expandable: false, restoreState: "applied" }],
     }
     const redoDisplay: TurnChangeDisplay = {
       ...base,
-      redoAvailable: true,
-      files: [{ path: "file.txt", status: "modified", expandable: false }],
+      kind: "captured",
+      files: [{ path: "file.txt", status: "modified", expandable: false, restoreState: "undone" }],
     }
 
     expect(turnChangeAction(undoDisplay)).toBe("undo")

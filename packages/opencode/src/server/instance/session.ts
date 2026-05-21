@@ -796,7 +796,7 @@ export const SessionRoutes = lazy(() =>
             description: "Aggregated turn changes",
             content: {
               "application/json": {
-                schema: resolver(TurnChange.DisplaySchema.nullable()),
+                schema: resolver(TurnChange.AggregateSchema),
               },
             },
           },

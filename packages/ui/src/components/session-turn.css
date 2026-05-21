@@ -148,6 +148,18 @@
     font-weight: var(--font-weight-body);
   }
 
+  [data-slot="session-turn-changes-uncaptured"],
+  [data-slot="session-turn-change-restore-state"] {
+    color: var(--fg-weaker);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-body);
+  }
+
+  [data-slot="session-turn-change-item"][data-restore-state="undone"],
+  [data-slot="session-turn-change-item"][data-restore-state="redo_invalidated"] {
+    opacity: 0.68;
+  }
+
   [data-slot="session-turn-changes-action"] {
     display: inline-flex;
     align-items: center;

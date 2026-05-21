@@ -61,9 +61,12 @@ export const dict = {
   "ui.sessionTurn.turnChanges.showInFolder": "在文件夹中显示",
   "ui.sessionTurn.turnChanges.unrestorable": "不可撤回",
   "ui.sessionTurn.turnChanges.undone": "已撤销",
+  "ui.sessionTurn.turnChanges.superseded": "已被后续改动取代",
+  "ui.sessionTurn.turnChanges.uncaptured": "部分 shell 改动未逐个捕获",
   "ui.sessionTurn.turnChanges.reapply": "重新应用",
   "ui.sessionTurn.turnChanges.confirmTitle": "此轮之后有文件被改动",
-  "ui.sessionTurn.turnChanges.confirmDescription": "爪印会跳过下列文件，只对其余文件应用操作。被跳过的文件保留当前内容。",
+  "ui.sessionTurn.turnChanges.confirmDescription":
+    "爪印会跳过下列文件，只对其余文件应用操作。被跳过的文件保留当前内容。",
   "ui.sessionTurn.turnChanges.confirmApply": "跳过并应用",
   "ui.sessionTurn.turnChanges.confirmCancel": "取消",
   "ui.sessionTurn.turnChanges.skippedNotice": "{{count}} 个文件因外部改动被跳过",
@@ -129,19 +132,24 @@ export const dict = {
   "ui.tool.webfetch": "读取网页",
   "ui.tool.websearch": "网络搜索",
   "ui.tool.websearch.failure.quota.title": "搜索额度已用完",
-  "ui.tool.websearch.failure.quota.anonymous": "内置网络搜索额度已用完。你可以在设置里添加 Exa API Key，或配置 EXA_API_KEY 后再试。",
-  "ui.tool.websearch.failure.quota.saved": "保存的 Exa API Key 搜索额度已用完。请在设置里更新这个 key，或换一个 key 后再试。",
+  "ui.tool.websearch.failure.quota.anonymous":
+    "内置网络搜索额度已用完。你可以在设置里添加 Exa API Key，或配置 EXA_API_KEY 后再试。",
+  "ui.tool.websearch.failure.quota.saved":
+    "保存的 Exa API Key 搜索额度已用完。请在设置里更新这个 key，或换一个 key 后再试。",
   "ui.tool.websearch.failure.quota.env": "EXA_API_KEY 的搜索额度已用完。请更新环境变量，或换一个 key 后再试。",
-  "ui.tool.websearch.failure.quota.unknown": "网络搜索额度已用完。请在设置里添加或更新 Exa API Key，或配置 EXA_API_KEY 后再试。",
+  "ui.tool.websearch.failure.quota.unknown":
+    "网络搜索额度已用完。请在设置里添加或更新 Exa API Key，或配置 EXA_API_KEY 后再试。",
   "ui.tool.websearch.failure.invalidKey.title": "Exa API Key 需要处理",
   "ui.tool.websearch.failure.invalidKey.saved": "保存的 Exa API Key 无效。请在设置里更新或删除后再试。",
   "ui.tool.websearch.failure.invalidKey.env": "EXA_API_KEY 环境变量无效。请更新后再试。",
-  "ui.tool.websearch.failure.invalidKey.anonymous": "Exa 拒绝了内置网络搜索请求。你可以在设置里添加 Exa API Key，或稍后再试。",
+  "ui.tool.websearch.failure.invalidKey.anonymous":
+    "Exa 拒绝了内置网络搜索请求。你可以在设置里添加 Exa API Key，或稍后再试。",
   "ui.tool.websearch.failure.invalidKey.unknown": "Exa 拒绝了网络搜索请求。请检查设置里的 Exa API Key，或稍后再试。",
   "ui.tool.websearch.failure.network.title": "无法连接网络搜索",
   "ui.tool.websearch.failure.network": "PawWork 暂时无法连接 Exa 网络搜索服务。请检查网络后再试。",
   "ui.tool.websearch.failure.unknown.title": "网络搜索失败",
-  "ui.tool.websearch.failure.unknown": "PawWork 联系 Exa 时失败了。请稍后再试；如果一直失败，可以在设置里更新 Exa API Key。",
+  "ui.tool.websearch.failure.unknown":
+    "PawWork 联系 Exa 时失败了。请稍后再试；如果一直失败，可以在设置里更新 Exa API Key。",
   "ui.tool.worktree.enter": "进入工作树",
   "ui.tool.worktree.enter.fromProject": "{{project}} → {{target}}",
   "ui.tool.worktree.exit": "退出工作树",

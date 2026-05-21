@@ -16,29 +16,38 @@ import {
 
 type Translate = (key: string, params?: Record<string, unknown>) => string
 
-export type TurnChangeDisplay = {
+type TurnChangeFile = {
+  path: string
+  openPath?: string
+  status: "added" | "modified" | "deleted"
+  additions?: number
+  deletions?: number
+  patch?: string
+  sensitive?: boolean
+  binary?: boolean
+  large?: boolean
+  restoreAvailable?: boolean
+  expandable: boolean
+  restoreState: "applied" | "undone" | "redo_invalidated"
+}
+
+type TurnChangeBase = {
   sessionID: string
-  turnID: string
-  messageID: string
-  undoAvailable: boolean
-  redoAvailable: boolean
+  turnID?: string
+  messageID?: string
   truncated?: boolean
   omittedCount?: number
   skippedCount?: number
-  files: Array<{
-    path: string
-    openPath?: string
-    status: "added" | "modified" | "deleted"
-    additions?: number
-    deletions?: number
-    patch?: string
-    sensitive?: boolean
-    binary?: boolean
-    large?: boolean
-    restoreAvailable?: boolean
-    expandable: boolean
-  }>
 }
+
+export type TurnChangeDisplay =
+  | (TurnChangeBase & { kind: "empty" })
+  | (TurnChangeBase & { kind: "uncaptured"; count: number })
+  | (TurnChangeBase & {
+      kind: "captured" | "mixed"
+      count?: number
+      files: TurnChangeFile[]
+    })
 
 export function buildTurnFetchInput(sessionID: string | undefined, messages: MessageType[]): TurnFetchInput | null {
   if (!sessionID) return null
@@ -148,14 +157,17 @@ export function createSessionTurnChanges(input: {
       return body ?? undefined
     }
     if (body?.status === "applied") {
-      const rawDisplay: TurnChangeDisplay | null = body.display ?? null
+      const rawDisplay: TurnChangeDisplay | null =
+        (await fetchTurnChange(userMessageID, undefined, { force: true })) ?? null
       let display: TurnChangeDisplay | null = rawDisplay
       if (rawDisplay && Array.isArray(body.skipped) && body.skipped.length) {
         const skippedCount = body.skipped.reduce(
           (sum: number, item: any) => sum + (Array.isArray(item?.files) ? item.files.length : 0),
           0,
         )
-        if (skippedCount > 0) display = { ...rawDisplay, skippedCount }
+        if (skippedCount > 0 && (rawDisplay.kind === "captured" || rawDisplay.kind === "mixed")) {
+          display = { ...rawDisplay, skippedCount }
+        }
       }
       setTurnChanges(userMessageID, display)
       return display ?? undefined
@@ -186,10 +198,7 @@ export function createSessionTurnChanges(input: {
                   <div class="flex flex-col rounded-md border border-border-base bg-surface-base max-h-44 overflow-auto">
                     <For each={conflictPaths.slice(0, 6)}>
                       {(item) => (
-                        <div
-                          class="px-3 py-1.5 text-body text-fg-strong font-mono truncate"
-                          title={item}
-                        >
+                        <div class="px-3 py-1.5 text-body text-fg-strong font-mono truncate" title={item}>
                           {item}
                         </div>
                       )}
