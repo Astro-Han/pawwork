@@ -148,6 +148,11 @@ jobs:
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-head.json
         run: bun --cwd head/packages/app test:e2e:local:perf
 
+      - name: Run runtime CLS gate (head)
+        env:
+          CI: "true"
+        run: bun --cwd head/packages/app test:e2e:local:runtime-cls
+
       - name: Run low-end perf probe baseline (base)
         if: steps.low_end_scope.outputs.run_low_end == 'true'
         env:
