@@ -577,7 +577,7 @@ it.live("provider env matches assistant path for an active worktree", () =>
   ),
 )
 
-it.live("post-compaction auto-continue keeps env in the active worktree", () =>
+it.live("post-compaction user continuation keeps env in the active worktree", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>
       Effect.gen(function* () {
@@ -659,11 +659,17 @@ it.live("post-compaction auto-continue keeps env in the active worktree", () =>
         expect(summaryMessage.info.path.cwd).toBe(activeDirectory)
         expect(summaryMessage.info.path.root).toBe(dir)
 
+        yield* prompt.prompt({
+          sessionID: session.id,
+          agent: "build",
+          noReply: true,
+          parts: [{ type: "text", text: "continue after compaction" }],
+        })
         yield* llm.text("continued after compaction")
         const result = yield* prompt.loop({ sessionID: session.id })
         if (result.info.role !== "assistant") throw new Error("Expected assistant message")
 
-        const requestText = requestTextContaining(yield* llm.inputs, "Continue if you have next steps")
+        const requestText = requestTextContaining(yield* llm.inputs, "continue after compaction")
         expect(envValue(requestText, "Working directory")).toBe(activeDirectory)
         expect(envValue(requestText, "Workspace root folder")).toBe(dir)
         expect(result.info.path.cwd).toBe(activeDirectory)

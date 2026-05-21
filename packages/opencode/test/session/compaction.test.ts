@@ -1069,7 +1069,7 @@ describe("session.compaction.process", () => {
     })
   })
 
-  test("adds synthetic continue prompt when auto is enabled", async () => {
+  test("waits for real user input after natural auto compaction", async () => {
     await using tmp = await tmpdir()
     await Instance.provide({
       directory: tmp.path,
@@ -1094,15 +1094,17 @@ describe("session.compaction.process", () => {
           const last = all.at(-1)
 
           expect(result).toBe("continue")
-          expect(last?.info.role).toBe("user")
-          expect(last?.parts[0]).toMatchObject({
-            type: "text",
-            synthetic: true,
-            metadata: { compaction_continue: true },
-          })
-          if (last?.parts[0]?.type === "text") {
-            expect(last.parts[0].text).toContain("Continue if you have next steps")
-          }
+          expect(last?.info.role).toBe("assistant")
+          expect(
+            all.some(
+              (msg) =>
+                msg.info.role === "user" &&
+                msg.parts.some(
+                  (part) =>
+                    part.type === "text" && part.synthetic && part.text.includes("Continue if you have next steps"),
+                ),
+            ),
+          ).toBe(false)
         } finally {
           await rt.dispose()
         }
@@ -1146,6 +1148,48 @@ describe("session.compaction.process", () => {
                 ),
             ),
           ).toBe(false)
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("keeps overflow auto compaction continuation guidance", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create({})
+        const msg = await user(session.id, "hello")
+        const rt = runtime("continue", Plugin.defaultLayer, wide())
+        try {
+          const msgs = await svc.messages({ sessionID: session.id })
+          const result = await rt.runPromise(
+            SessionCompaction.Service.use((svc) =>
+              svc.process({
+                parentID: msg.id,
+                messages: msgs,
+                sessionID: session.id,
+                auto: true,
+                overflow: true,
+              }),
+            ),
+          )
+
+          const all = await svc.messages({ sessionID: session.id })
+          const last = all.at(-1)
+
+          expect(result).toBe("continue")
+          expect(last?.info.role).toBe("user")
+          expect(last?.parts[0]).toMatchObject({
+            type: "text",
+            synthetic: true,
+            metadata: { compaction_continue: true },
+          })
+          if (last?.parts[0]?.type === "text") {
+            expect(last.parts[0].text).toContain("previous request exceeded the provider's size limit")
+          }
         } finally {
           await rt.dispose()
         }

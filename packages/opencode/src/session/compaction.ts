@@ -517,7 +517,7 @@ export const layer: Layer.Layer<
         })
       }
 
-      if (result === "continue" && input.auto) {
+      if (result === "continue" && input.auto && input.overflow) {
         if (replay) {
           const original = replay.info
           const replayMsg = yield* session.updateMessage({
