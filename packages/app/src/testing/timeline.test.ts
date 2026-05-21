@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test"
-import { bindTimelineDriver, timelineEvent, timelineDriverEnabled, type TimelineWindow } from "./timeline"
+import {
+  bindTimelineDriver,
+  timelineDriverDefaultTestRuntime,
+  timelineEvent,
+  timelineDriverEnabled,
+  type TimelineWindow,
+} from "./timeline"
 
 describe("timeline e2e driver", () => {
   test("stays disabled outside explicit test runtime even when the window flag is set", () => {
@@ -13,6 +19,12 @@ describe("timeline e2e driver", () => {
 
     expect(timelineDriverEnabled({ testRuntime: true, windowRef: win })).toBe(true)
     expect(timelineDriverEnabled({ testRuntime: true, windowRef: {} as TimelineWindow })).toBe(false)
+  })
+
+  test("uses DEV or TEST as the default runtime guard", () => {
+    expect(timelineDriverDefaultTestRuntime({ DEV: false, TEST: false })).toBe(false)
+    expect(timelineDriverDefaultTestRuntime({ DEV: true, TEST: false })).toBe(true)
+    expect(timelineDriverDefaultTestRuntime({ DEV: false, TEST: true })).toBe(true)
   })
 
   test("binds the reveal listener inside the centralized test driver", () => {

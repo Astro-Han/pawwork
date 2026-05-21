@@ -1,3 +1,5 @@
+import { onCleanup, onMount } from "solid-js"
+
 export const timelineEvent = "opencode:e2e:timeline"
 
 export type TimelineDriverAction = "reveal-cached"
@@ -16,6 +18,9 @@ export type TimelineWindow = Window & {
 }
 
 type TimelineEventTarget = Pick<Window, "addEventListener" | "removeEventListener">
+
+export const timelineDriverDefaultTestRuntime = (env: { DEV?: boolean; TEST?: boolean } = import.meta.env) =>
+  env.DEV || env.TEST
 
 export const timelineDriverEnabled = (input?: { testRuntime?: boolean; windowRef?: TimelineWindow }) => {
   if (!input?.testRuntime) return false
@@ -43,4 +48,20 @@ export const bindTimelineDriver = (input: {
 
   win.addEventListener(timelineEvent, handleTimelineDriver)
   return () => win.removeEventListener(timelineEvent, handleTimelineDriver)
+}
+
+export function TimelineE2EDriverBoundary(props: {
+  timelineSessionID: () => string | undefined
+  revealCached: () => void
+}) {
+  onMount(() => {
+    const cleanupTimelineDriver = bindTimelineDriver({
+      testRuntime: timelineDriverDefaultTestRuntime(),
+      timelineSessionID: props.timelineSessionID,
+      revealCached: props.revealCached,
+    })
+    onCleanup(cleanupTimelineDriver)
+  })
+
+  return null
 }

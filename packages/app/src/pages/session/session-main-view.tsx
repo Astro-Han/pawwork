@@ -1,4 +1,4 @@
-import { Match, onCleanup, onMount, Show, Switch, type ComponentProps, type JSX } from "solid-js"
+import { Match, Show, Switch, type ComponentProps, type JSX } from "solid-js"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { NewSessionView, SessionHeader } from "@/components/session"
 import type { useLanguage } from "@/context/language"
@@ -10,7 +10,7 @@ import { shouldShowSessionOpeningState } from "@/pages/session/session-main-view
 import type { createSessionHistoryWindow } from "@/pages/session/use-session-history-window"
 import type { createSessionReviewState } from "@/pages/session/use-session-review-state"
 import type { createSessionScrollDock } from "@/pages/session/use-session-scroll-dock"
-import { bindTimelineDriver } from "@/testing/timeline"
+import { TimelineE2EDriverBoundary } from "@/testing/timeline"
 
 type TimelineProps = ComponentProps<typeof MessageTimeline>
 
@@ -62,15 +62,6 @@ export function SessionMainView(props: {
   files: ReturnType<typeof createSessionReviewState>["artifactFiles"]
   size: ReturnType<typeof createSizing>
 }) {
-  onMount(() => {
-    const cleanupTimelineDriver = bindTimelineDriver({
-      testRuntime: import.meta.env.DEV || import.meta.env.TEST,
-      timelineSessionID: () => props.timelineSessionID,
-      revealCached: () => props.historyWindow.expandForHash(0),
-    })
-    onCleanup(cleanupTimelineDriver)
-  })
-
   const showSessionOpeningState = () =>
     shouldShowSessionOpeningState({
       activeSessionID: props.activeSessionID,
@@ -81,6 +72,10 @@ export function SessionMainView(props: {
 
   return (
     <div class="relative size-full overflow-hidden flex flex-col">
+      <TimelineE2EDriverBoundary
+        timelineSessionID={() => props.timelineSessionID}
+        revealCached={() => props.historyWindow.expandForHash(0)}
+      />
       <SessionHeader />
       <div class="flex-1 min-h-0 flex flex-col md:flex-row">
         <Show when={!props.isDesktop && !!props.activeSessionID}>
