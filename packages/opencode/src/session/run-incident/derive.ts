@@ -46,7 +46,7 @@ export function deriveIncident(input: DeriveIncidentInput): RunIncident | undefi
   if (!terminal?.cause) return undefined
   const facts = factsFromEvidence(input)
   const terminalFacts = terminal.attempt_id ? factsFromEvidence(input, terminal.attempt_id) : facts
-  const terminalPhaseFacts = terminal.attempt_id ? factsFromEvidence(input, terminal.attempt_id, terminal) : facts
+  const terminalPhaseFacts = factsFromEvidence(input, terminal.attempt_id, terminal)
   const recovery = recoveryFor({ cause: terminal.cause, facts, terminalFacts })
   const summary = userSummary({ cause: terminal.cause, recovery })
   const missingProvenance = [...(input.missingProvenance ?? []), ...diagnosticGaps(input, terminal, facts)]

@@ -1592,6 +1592,64 @@ describe("RunObservability", () => {
     expect(summary.retry_safety.recommendation).toBe("do_not_auto_retry")
   })
 
+  test("lifecycle close phase ignores later tool completion without terminal attempt id", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_lifecycle_close_late_tool_completion"),
+      traceID: MessageID.make("msg_lifecycle_close_late_tool_completion"),
+      sessionID: SessionID.make("ses_lifecycle_close_late_tool_completion"),
+      messageID: MessageID.make("msg_lifecycle_close_late_tool_completion"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordToolInputStarted({ attemptID: attempt.attemptID, at: 12, monotonicMs: 120 })
+    recorder.recordToolInputCompleted({ attemptID: attempt.attemptID, at: 13, monotonicMs: 130 })
+    recorder.recordToolCallMaterialized({
+      attemptID: attempt.attemptID,
+      at: 14,
+      monotonicMs: 140,
+      toolName: RunObservability.safeToolName("grep"),
+      effect: RunObservability.toolEffect("grep"),
+    })
+    recorder.recordToolExecutionStarted({
+      attemptID: attempt.attemptID,
+      at: 15,
+      monotonicMs: 150,
+      toolName: RunObservability.safeToolName("grep"),
+      effect: RunObservability.toolEffect("grep"),
+    })
+    recorder.recordScopeClosed({
+      at: 16,
+      monotonicMs: 160,
+      source: "session.run_state.finalizer",
+      reason: "scope_finalizer",
+      propagationPoint: "session.prompt.loop.onInterrupt",
+      lifecycleActionID: "lifecycle:instance_reload:late-tool",
+      lifecycleKind: "instance_reload",
+      lifecycleInitiatedAt: 16,
+      lifecycleInitiatedMonotonicMs: 160,
+      lifecycleAffectedDirectoryKeys: ["dir:testreload"],
+    })
+    recorder.recordToolCompleted({ attemptID: attempt.attemptID, at: 17, monotonicMs: 170 })
+
+    const summary = recorder.finalize({ completedAt: 18, monotonicMs: 180 })
+    expect(summary.incident?.terminal_cause).toMatchObject({
+      category: "local_lifecycle_close",
+      subcategory: "instance_reload",
+    })
+    expect(summary.incident?.phase).toMatchObject({
+      run_phase: "tool_execution",
+      stream_phase: "after_tool_call",
+      tool_phase: "tool_execution_started",
+    })
+    expect(summary.incident?.phase).not.toMatchObject({
+      run_phase: "post_tool",
+      tool_phase: "tool_execution_completed",
+    })
+  })
+
   test("classifies known instance reload lifecycle closes with parent provenance", () => {
     const recorder = RunObservability.createRecorder({
       runID: RunObservability.RunID.make("run_instance_reload"),
