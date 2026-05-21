@@ -36,6 +36,9 @@ describe("clientActionHeaders", () => {
       "x-pawwork-route-session-id": "ses_route",
       "x-pawwork-visible-session-id": "ses_visible",
     })
-    expect(JSON.stringify(headers)).not.toContain("/Users/")
+    const serialized = JSON.stringify(headers)
+    expect(serialized).not.toContain("/Users/")
+    expect(serialized).not.toContain("/home/")
+    expect(serialized).not.toMatch(/[A-Z]:[\\/]/i)
   })
 })
