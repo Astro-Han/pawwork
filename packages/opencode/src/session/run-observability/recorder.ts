@@ -370,6 +370,7 @@ export function createRecorder(input: RecorderInput): Recorder {
           toolInputStarted: getAttempt(next.attemptID)?.tool_input_started ?? toolInputStarted,
           toolInputCompleted: getAttempt(next.attemptID)?.tool_input_completed ?? toolInputCompleted,
           toolCallMaterialized: getAttempt(next.attemptID)?.tool_call_materialized ?? toolCallMaterialized,
+          toolExecutionStarted: getAttempt(next.attemptID)?.tool_execution_started ?? toolExecutionStarted,
         }),
       })
       rememberEvent(next.monotonicMs)

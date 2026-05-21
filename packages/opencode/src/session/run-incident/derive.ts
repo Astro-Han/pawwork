@@ -200,6 +200,7 @@ export function transportCause(input: {
   toolInputStarted: boolean
   toolInputCompleted: boolean
   toolCallMaterialized: boolean
+  toolExecutionStarted: boolean
 }): Extract<TerminalCause, { category: "provider_transport_disconnect" }> {
   const error = input.error
   const boundary = error?.cause_code === "UND_ERR_SOCKET" ? "sdk_transport" : "unknown"
@@ -210,11 +211,13 @@ export function transportCause(input: {
         ? "during_tool_input_generation"
         : input.toolInputCompleted && !input.toolCallMaterialized
           ? "unknown_stream_phase"
-          : input.toolCallMaterialized
-            ? "after_tool_call_before_execution"
-            : input.providerProgressSeen
-              ? "during_text_generation"
-              : "before_first_provider_progress",
+          : input.toolExecutionStarted
+            ? "unknown_stream_phase"
+            : input.toolCallMaterialized
+              ? "after_tool_call_before_execution"
+              : input.providerProgressSeen
+                ? "during_text_generation"
+                : "before_first_provider_progress",
     boundary,
     error,
     confidence: boundary === "sdk_transport" ? "high" : "medium",
