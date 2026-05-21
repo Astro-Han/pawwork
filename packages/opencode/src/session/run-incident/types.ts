@@ -40,6 +40,8 @@ export type IncidentEvidenceEvent = {
   tool_effect_kind?: ToolEffectKind
   tool_effect_unsafe?: boolean
   tool_effect_complete?: boolean
+  interruption_phase?: "tool_input_generation" | "tool_call_materialized_without_execution" | "tool_execution"
+  tool_execution_started?: boolean
 }
 
 export type IncidentEvidenceSummary = Omit<IncidentEvidenceEvent, "cause">

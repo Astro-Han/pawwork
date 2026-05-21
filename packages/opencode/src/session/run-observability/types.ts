@@ -174,7 +174,13 @@ export type Recorder = {
   recordToolCompleted(input: { attemptID: AttemptID; at: number; monotonicMs: number }): void
   recordToolFailed(input: { attemptID: AttemptID; at: number; monotonicMs: number; error?: unknown }): void
   recordToolInterrupted(input: { attemptID: AttemptID; at: number; monotonicMs: number }): void
-  recordPendingToolPartInterrupted(input: { attemptID: AttemptID; at: number; monotonicMs: number }): void
+  recordPendingToolPartInterrupted(input: {
+    attemptID: AttemptID
+    at: number
+    monotonicMs: number
+    interruptionPhase?: RunIncident.EvidenceEvent["interruption_phase"]
+    toolExecutionStarted?: boolean
+  }): void
   recordTransportFailure(input: {
     attemptID?: AttemptID
     at: number

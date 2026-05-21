@@ -105,7 +105,13 @@ type ToolCall = {
   messageID: MessageV2.ToolPart["messageID"]
   sessionID: MessageV2.ToolPart["sessionID"]
   done: Deferred.Deferred<void>
+  attemptID?: RunObservability.AttemptID
+  inputStarted?: boolean
+  materialized?: boolean
+  executionStarted?: boolean
 }
+
+type ToolInterruptionPhase = "tool_input_generation" | "tool_call_materialized_without_execution" | "tool_execution"
 
 type PendingLoopAction = {
   loopAction: "block" | "stop"
@@ -254,7 +260,11 @@ export const layer: Layer.Layer<
         tool: string
         toolCallID: string
       }) {
-        void input.toolCallID
+        const call = ctx.toolcalls[input.toolCallID]
+        if (call) {
+          call.executionStarted = true
+          call.attemptID = ctx.currentAttemptID ?? call.attemptID
+        }
         if (!ctx.currentAttemptID) return
         ctx.runTrace.recordToolExecutionStarted({
           attemptID: ctx.currentAttemptID,
@@ -733,6 +743,8 @@ export const layer: Layer.Layer<
               partID: part.id,
               messageID: part.messageID,
               sessionID: part.sessionID,
+              attemptID: ctx.currentAttemptID,
+              inputStarted: true,
             }
             yield* applyPendingToolUpdates(value.id)
             return
@@ -746,6 +758,11 @@ export const layer: Layer.Layer<
           case "tool-call": {
             if (ctx.assistantMessage.summary) {
               throw new Error(`Tool call not allowed while generating summary: ${value.toolName}`)
+            }
+            const tracked = ctx.toolcalls[value.toolCallId]
+            if (tracked) {
+              tracked.materialized = true
+              tracked.attemptID = ctx.currentAttemptID ?? tracked.attemptID
             }
             let running = yield* updateToolCall(value.toolCallId, (match) => ({
               ...match,
@@ -969,6 +986,11 @@ export const layer: Layer.Layer<
           const part = match.part
           const end = Date.now()
           const metadata = "metadata" in part.state && isRecord(part.state.metadata) ? part.state.metadata : {}
+          const interruptionPhase: ToolInterruptionPhase = match.call.executionStarted
+            ? "tool_execution"
+            : match.call.materialized || part.state.status === "running"
+              ? "tool_call_materialized_without_execution"
+              : "tool_input_generation"
           // Question tool deserves a clearer post-cancel message: the LLM
           // reads this string as the tool result, and "Tool execution aborted"
           // is ambiguous between "user dismissed your question" and "the run
@@ -976,29 +998,43 @@ export const layer: Layer.Layer<
           // (cancelled before answered), don't claim whether the user saw it
           // — they may have. See issue #419.
           const errorText =
-            part.tool === "question" ? "Question cancelled before the user answered it." : "Tool execution aborted"
+            part.tool === "question"
+              ? "Question cancelled before the user answered it."
+              : interruptionPhase === "tool_execution"
+                ? "Tool execution aborted"
+                : interruptionPhase === "tool_call_materialized_without_execution"
+                  ? "Tool call was prepared, but the tool did not run before the interruption."
+                  : "Tool call generation interrupted before the tool ran."
           yield* session.updatePart({
             ...part,
             state: {
               ...part.state,
               status: "error",
               error: errorText,
-              metadata: { ...metadata, interrupted: true },
+              metadata: {
+                ...metadata,
+                interrupted: true,
+                interruption_phase: interruptionPhase,
+                tool_execution_started: match.call.executionStarted === true,
+              },
               time: { start: "time" in part.state ? part.state.time.start : end, end },
             },
           })
-          if (ctx.currentAttemptID) {
-            if (part.state.status === "running") {
+          const attemptID = match.call.attemptID ?? ctx.currentAttemptID
+          if (attemptID) {
+            if (match.call.executionStarted) {
               ctx.runTrace.recordToolInterrupted({
-                attemptID: ctx.currentAttemptID,
+                attemptID,
                 at: end,
                 monotonicMs: performance.now(),
               })
             } else {
               ctx.runTrace.recordPendingToolPartInterrupted({
-                attemptID: ctx.currentAttemptID,
+                attemptID,
                 at: end,
                 monotonicMs: performance.now(),
+                interruptionPhase,
+                toolExecutionStarted: false,
               })
             }
           }

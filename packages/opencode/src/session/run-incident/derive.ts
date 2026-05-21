@@ -37,7 +37,7 @@ export function deriveIncident(input: DeriveIncidentInput): RunIncident | undefi
   const terminalFacts = terminal.attempt_id ? factsFromEvidence(input, terminal.attempt_id) : facts
   const recovery = recoveryFor({ cause: terminal.cause, facts, terminalFacts })
   const summary = userSummary({ cause: terminal.cause, recovery })
-  const missingProvenance = input.missingProvenance ?? []
+  const missingProvenance = [...(input.missingProvenance ?? []), ...diagnosticGaps(input, terminal, facts)]
   return sanitizeIncident({
     schema_version: RUN_INCIDENT_SCHEMA_VERSION,
     incident_id: `incident:${input.messageID}`,
@@ -72,6 +72,19 @@ export function deriveIncident(input: DeriveIncidentInput): RunIncident | undefi
     missing_provenance: missingProvenance.length ? missingProvenance : undefined,
     diagnostics_complete: missingProvenance.length === 0,
   })
+}
+
+function diagnosticGaps(
+  input: DeriveIncidentInput & { evidence: IncidentEvidenceEvent[] },
+  terminal: IncidentEvidenceEvent,
+  facts: IncidentFacts,
+) {
+  const gaps: string[] = []
+  if (!input.sideEffectFactsComplete) gaps.push("side_effect.boundary_unknown")
+  if (terminal.monotonic_ms === undefined) gaps.push("evidence.ordering_missing")
+  if (facts.tool_execution_started && !facts.tool_call_materialized) gaps.push("tool.materialization_missing")
+  if (facts.tool_input_completed && !facts.tool_input_started) gaps.push("tool_input.start_missing")
+  return Array.from(new Set(gaps))
 }
 
 function compareTerminalEvents(left: IncidentEvidenceEvent, right: IncidentEvidenceEvent) {

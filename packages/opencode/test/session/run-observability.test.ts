@@ -253,6 +253,135 @@ describe("RunObservability", () => {
     ])
   })
 
+  test("does not promote pending tool cleanup to tool execution interruption without execution evidence", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_pending_tool_cleanup_guard"),
+      traceID: MessageID.make("msg_pending_tool_cleanup_guard"),
+      sessionID: SessionID.make("ses_pending_tool_cleanup_guard"),
+      messageID: MessageID.make("msg_pending_tool_cleanup_guard"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordToolInputStarted({ attemptID: attempt.attemptID, at: 12, monotonicMs: 120 })
+    recorder.recordToolInterrupted({ attemptID: attempt.attemptID, at: 13, monotonicMs: 130 })
+
+    const summary = recorder.finalize({ completedAt: 14, monotonicMs: 140 })
+    expect(summary.classification).not.toBe("tool_failure")
+    expect(summary.tool_execution_started).toBe(false)
+    expect(summary.pending_tool_parts_interrupted).toBe(1)
+    expect(summary.incident).toBeUndefined()
+  })
+
+  test("keeps tool execution interruption when execution evidence exists", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_tool_execution_cleanup_guard"),
+      traceID: MessageID.make("msg_tool_execution_cleanup_guard"),
+      sessionID: SessionID.make("ses_tool_execution_cleanup_guard"),
+      messageID: MessageID.make("msg_tool_execution_cleanup_guard"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordToolInputStarted({ attemptID: attempt.attemptID, at: 12, monotonicMs: 120 })
+    recorder.recordToolInputCompleted({ attemptID: attempt.attemptID, at: 13, monotonicMs: 130 })
+    recorder.recordToolCallMaterialized({
+      attemptID: attempt.attemptID,
+      at: 14,
+      monotonicMs: 140,
+      toolName: RunObservability.safeToolName("bash"),
+      effect: RunObservability.toolEffect("bash"),
+    })
+    recorder.recordToolExecutionStarted({
+      attemptID: attempt.attemptID,
+      at: 15,
+      monotonicMs: 150,
+      toolName: RunObservability.safeToolName("bash"),
+      effect: RunObservability.toolEffect("bash"),
+    })
+    recorder.recordToolInterrupted({ attemptID: attempt.attemptID, at: 16, monotonicMs: 160 })
+
+    const summary = recorder.finalize({ completedAt: 17, monotonicMs: 170 })
+    expect(summary.classification).toBe("tool_failure")
+    expect(summary.tool_execution_started).toBe(true)
+    expect(summary.incident?.terminal_cause.category).toBe("tool_execution_interrupted")
+  })
+
+  test("marks diagnostics incomplete for unknown side-effect and impossible tool evidence combinations", () => {
+    const unknownBoundary = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_unknown_boundary"),
+      traceID: MessageID.make("msg_unknown_boundary"),
+      sessionID: SessionID.make("ses_unknown_boundary"),
+      messageID: MessageID.make("msg_unknown_boundary"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const unknownAttempt = unknownBoundary.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    unknownBoundary.recordToolCallMaterialized({ attemptID: unknownAttempt.attemptID, at: 12, monotonicMs: 120 })
+    unknownBoundary.recordTransportFailure({
+      attemptID: unknownAttempt.attemptID,
+      at: 13,
+      monotonicMs: 130,
+      error: new Error("boom"),
+    })
+    const unknownSummary = unknownBoundary.finalize({ completedAt: 14, monotonicMs: 140 })
+    expect(unknownSummary.incident?.diagnostics_complete).toBe(false)
+    expect(unknownSummary.incident?.missing_provenance).toContain("side_effect.boundary_unknown")
+
+    const executionWithoutCall = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_execution_without_call"),
+      traceID: MessageID.make("msg_execution_without_call"),
+      sessionID: SessionID.make("ses_execution_without_call"),
+      messageID: MessageID.make("msg_execution_without_call"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const executionAttempt = executionWithoutCall.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    executionWithoutCall.recordToolExecutionStarted({
+      attemptID: executionAttempt.attemptID,
+      at: 12,
+      monotonicMs: 120,
+      toolName: RunObservability.safeToolName("bash"),
+      effect: RunObservability.toolEffect("bash"),
+    })
+    executionWithoutCall.recordToolInterrupted({ attemptID: executionAttempt.attemptID, at: 13, monotonicMs: 130 })
+    const executionSummary = executionWithoutCall.finalize({ completedAt: 14, monotonicMs: 140 })
+    expect(executionSummary.incident?.diagnostics_complete).toBe(false)
+    expect(executionSummary.incident?.missing_provenance).toContain("tool.materialization_missing")
+
+    const inputWithoutStart = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_input_without_start"),
+      traceID: MessageID.make("msg_input_without_start"),
+      sessionID: SessionID.make("ses_input_without_start"),
+      messageID: MessageID.make("msg_input_without_start"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const inputAttempt = inputWithoutStart.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    inputWithoutStart.recordToolInputCompleted({ attemptID: inputAttempt.attemptID, at: 12, monotonicMs: 120 })
+    inputWithoutStart.recordTransportFailure({
+      attemptID: inputAttempt.attemptID,
+      at: 13,
+      monotonicMs: 130,
+      error: new Error("boom"),
+    })
+    const inputSummary = inputWithoutStart.finalize({ completedAt: 14, monotonicMs: 140 })
+    expect(inputSummary.incident?.diagnostics_complete).toBe(false)
+    expect(inputSummary.incident?.missing_provenance).toContain("tool_input.start_missing")
+  })
+
   test("bounded incident evidence keeps terminal and cleanup basis after long output", () => {
     const recorder = RunObservability.createRecorder({
       runID: RunObservability.RunID.make("run_long_output_disconnect"),

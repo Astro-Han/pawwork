@@ -1824,6 +1824,8 @@ describe("redactPart", () => {
           terminal_candidate: false,
           confidence: "medium",
           redactions: ["raw_tool_input", "/Users/secret/project", "sk-private"],
+          interruption_phase: "tool_input_generation",
+          tool_execution_started: false,
         },
       ],
       user_summary: {
@@ -1905,6 +1907,8 @@ describe("redactPart", () => {
       "pending_tool_part_interrupted",
     ])
     const serialized = JSON.stringify(sanitized.diagnostics.run_incidents)
+    expect(serialized).toContain("tool_input_generation")
+    expect(serialized).toContain("tool_execution_started")
     expect(serialized).toContain("raw_tool_input")
     expect(serialized).not.toContain("/Users/secret")
     expect(serialized).not.toContain("sk-private")

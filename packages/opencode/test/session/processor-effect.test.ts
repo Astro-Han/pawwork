@@ -770,11 +770,24 @@ it.live("session.processor effect tests mark pending tools as aborted on cleanup
           expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true)
         }
         expect(yield* llm.calls).toBe(1)
+        const stored = (yield* session.messages({ sessionID: chat.id })).find(
+          (message) => message.info.role === "assistant" && message.info.id === msg.id,
+        )
+
         expect(call?.state.status).toBe("error")
         if (call?.state.status === "error") {
-          expect(call.state.error).toBe("Tool execution aborted")
+          expect(call.state.error).toBe("Tool call generation interrupted before the tool ran.")
           expect(call.state.metadata?.interrupted).toBe(true)
+          expect(call.state.metadata?.interruption_phase).toBe("tool_input_generation")
+          expect(call.state.metadata?.tool_execution_started).toBe(false)
           expect(call.state.time.end).toBeDefined()
+        }
+        expect(stored?.info.role).toBe("assistant")
+        if (stored?.info.role === "assistant") {
+          const observability = stored.info.diagnostics?.run_observability
+          expect(observability?.tool_execution_started).toBe(false)
+          expect(observability?.pending_tool_parts_interrupted).toBe(1)
+          expect(observability?.incident?.terminal_cause.category).not.toBe("tool_execution_interrupted")
         }
       }),
     { git: true, config: (url) => providerCfg(url) },
@@ -852,6 +865,8 @@ it.live("session.processor effect tests rewrite aborted question tool error to f
         if (call?.state.status === "error") {
           expect(call.state.error).toBe("Question cancelled before the user answered it.")
           expect(call.state.metadata?.interrupted).toBe(true)
+          expect(call.state.metadata?.interruption_phase).toBe("tool_input_generation")
+          expect(call.state.metadata?.tool_execution_started).toBe(false)
         }
       }),
     { git: true, config: (url) => providerCfg(url) },
