@@ -972,14 +972,17 @@ export namespace TurnChange {
     const activeUsers = new Set<MessageID>()
     const activeAssistants: MessageID[] = []
     const assistantOrder = new Map<MessageID, number>()
-    for (const row of messages) {
+    const cutoffIndex = cutoff ? messages.findIndex((row) => row.id === cutoff) : -1
+    const beforeCutoff = (index: number) =>
+      !cutoff || cutoffIndex < 0 || (revert?.partID ? index <= cutoffIndex : index < cutoffIndex)
+    for (const [index, row] of messages.entries()) {
       const data = row.data as { role?: string; parentID?: MessageID } | undefined
-      const beforeCutoff = !cutoff || (revert?.partID ? row.id <= cutoff : row.id < cutoff)
-      if (data?.role === "user" && beforeCutoff) activeUsers.add(row.id)
+      if (data?.role === "user" && beforeCutoff(index)) activeUsers.add(row.id)
     }
-    for (const row of messages) {
+    for (const [index, row] of messages.entries()) {
       const data = row.data as { role?: string; parentID?: MessageID } | undefined
       if (data?.role !== "assistant") continue
+      if (!beforeCutoff(index)) continue
       if (!data.parentID || !activeUsers.has(data.parentID)) continue
       assistantOrder.set(row.id, activeAssistants.length)
       activeAssistants.push(row.id)

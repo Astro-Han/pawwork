@@ -19,6 +19,23 @@ import { sameExecutionScope, shouldApplyExecutionResult, vcsTaskKey, type Execut
 import { aggregateFiles } from "./session-aggregate-files"
 
 type SessionReviewDiff = SnapshotFileDiff | VcsFileDiff
+type SessionAggregateDiffState = { sessionID: string; scope: ExecutionScope; diffs: SnapshotFileDiff[] } | undefined
+
+export function reviewTurnDiffsForSession(input: {
+  currentScope: ExecutionScope
+  sessionID: string | undefined
+  aggregate: SessionAggregateDiffState
+  turnDiffs: SessionReviewDiff[]
+}) {
+  if (
+    input.aggregate &&
+    input.aggregate.sessionID === input.sessionID &&
+    sameExecutionScope(input.aggregate.scope, input.currentScope)
+  ) {
+    return input.aggregate.diffs.length > 0 ? input.aggregate.diffs : input.turnDiffs
+  }
+  return input.turnDiffs
+}
 
 export function deriveReviewArtifactFiles(input: {
   currentScope: ExecutionScope
@@ -58,7 +75,7 @@ export function createSessionReviewState(input: {
   artifactDiffs?: () => SessionReviewDiff[]
 }) {
   const [changes, setChanges] = createSignal<ReviewChangeMode>("turn")
-  const [sessionAggregateDiffs, setSessionAggregateDiffs] = createSignal<SnapshotFileDiff[]>([], { equals: same })
+  const [sessionAggregateDiffs, setSessionAggregateDiffs] = createSignal<SessionAggregateDiffState>()
   const [vcs, setVcs] = createStore<{
     diff: Record<VcsReviewMode, SessionReviewDiff[]>
     ready: Record<VcsReviewMode, boolean>
@@ -161,7 +178,12 @@ export function createSessionReviewState(input: {
   const reviewDiffs = createMemo(() =>
     list(
       reviewDiffsForMode(changes(), {
-        turn: sessionAggregateDiffs().length > 0 ? sessionAggregateDiffs() : input.turnDiffs(),
+        turn: reviewTurnDiffsForSession({
+          currentScope: input.executionScope(),
+          sessionID: input.sessionID(),
+          aggregate: sessionAggregateDiffs(),
+          turnDiffs: input.turnDiffs(),
+        }),
         vcs: vcs.diff,
       }),
     ),
@@ -228,6 +250,7 @@ export function createSessionReviewState(input: {
       input.sessionKey,
       () => {
         setChanges(nextReviewModeForSessionChange())
+        setSessionAggregateDiffs(undefined)
       },
       { defer: true },
     ),
@@ -257,8 +280,9 @@ export function createSessionReviewState(input: {
   createEffect(() => {
     const id = input.sessionID()
     if (!id) return
+    const scope = input.executionScope()
     if (input.sync.data.turn_change_aggregate[id] === undefined) return
-    setSessionAggregateDiffs(aggregateFiles(input.sync.data.turn_change_aggregate[id]))
+    setSessionAggregateDiffs({ sessionID: id, scope, diffs: aggregateFiles(input.sync.data.turn_change_aggregate[id]) })
     queueArtifactHistoryRefetch()
   })
 
@@ -273,12 +297,13 @@ export function createSessionReviewState(input: {
       .then((res) => {
         if (input.sessionID() !== id) return
         if (!shouldApplyExecutionResult({ requested: scope, current: input.executionScope() })) return
-        setSessionAggregateDiffs(aggregateFiles(res.data))
+        setSessionAggregateDiffs({ sessionID: id, scope, diffs: aggregateFiles(res.data) })
       })
       .catch((error: unknown) => {
         if (input.sessionID() !== id) return
         if (!shouldApplyExecutionResult({ requested: scope, current: input.executionScope() })) return
         console.debug("[session-review] failed to fetch aggregate diff", { sessionID: id, scope, error })
+        setSessionAggregateDiffs(undefined)
       })
   })
 

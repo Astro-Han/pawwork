@@ -606,6 +606,51 @@ describe("TurnChange aggregate union", () => {
     })
   })
 
+  test("aggregateSessionFromTurns excludes later assistants in a part-level revert window", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "union-session-part-revert-assistant-cutoff" })
+        const userMessageID = await makeUser(session.id, "union-session-part-revert-assistant-cutoff")
+        const firstAssistant = await makeAssistant(session.id, userMessageID, "part-cutoff-a1")
+        const secondAssistant = await makeAssistant(session.id, userMessageID, "part-cutoff-a2")
+
+        TurnChange.recordWrite({
+          sessionID: session.id,
+          messageID: firstAssistant,
+          path: path.join(fixture.path, "part-a1.txt"),
+          before: { exists: false },
+          after: { exists: true, content: "a1\n" },
+        })
+        TurnChange.finalize({ sessionID: session.id, messageID: firstAssistant })
+        TurnChange.recordWrite({
+          sessionID: session.id,
+          messageID: secondAssistant,
+          path: path.join(fixture.path, "part-a2.txt"),
+          before: { exists: false },
+          after: { exists: true, content: "a2\n" },
+        })
+        TurnChange.finalize({ sessionID: session.id, messageID: secondAssistant })
+        Database.use((db) =>
+          db
+            .update(SessionTable)
+            .set({ revert: { messageID: firstAssistant, partID: PartID.make("prt_part_revert_assistant") } })
+            .where(eq(SessionTable.id, session.id))
+            .run(),
+        )
+
+        const result = TurnChange.aggregateSessionFromTurns({ sessionID: session.id })
+
+        expect(result).toMatchObject({ kind: "captured", files: [{ path: "part-a1.txt" }] })
+        expect(
+          result.kind === "captured" || result.kind === "mixed" ? result.files.map((file) => file.path) : [],
+        ).not.toContain("part-a2.txt")
+      },
+    })
+  })
+
   test("aggregateSessionFromTurns collapses repeated paths across turns into one net diff", async () => {
     await resetDatabase()
     await using fixture = await tmpdir()
