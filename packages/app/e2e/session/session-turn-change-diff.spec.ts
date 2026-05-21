@@ -1,9 +1,12 @@
+import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures"
-import { routeTurnChangeDiff, TURN_CHANGE_MODIFIED_DIFF_FILE_PATH } from "./turn-change-diff-fixture"
+import {
+  routeTurnChangeDiff,
+  TURN_CHANGE_MODIFIED_DIFF_FILE_PATH,
+  TURN_CHANGE_SMALL_MODIFIED_DIFF_FILE_PATH,
+} from "./turn-change-diff-fixture"
 
-test("turn-change file rows reserve diff height before rendering", async ({ page, llm, project }) => {
-  test.setTimeout(180_000)
-
+async function installClsProbe(page: Page) {
   await page.addInitScript(() => {
     const state = { total: 0 }
     Object.defineProperty(window, "__turnChangeCls", { value: state })
@@ -20,25 +23,52 @@ test("turn-change file rows reserve diff height before rendering", async ({ page
       observer.observe({ type: "layout-shift", buffered: true })
     } catch {}
   })
+}
 
-  await project.open()
-  await routeTurnChangeDiff(page, { sessionID: "e2e-session" })
+async function openTurnChangeCard(input: {
+  page: Page
+  llm: { text: (value: string) => Promise<void> }
+  project: {
+    open: () => Promise<void>
+    prompt: (value: string) => Promise<void>
+  }
+}) {
+  await input.project.open()
+  await routeTurnChangeDiff(input.page, { sessionID: "e2e-session" })
 
-  await llm.text("seeded turn-change diff")
-  await project.prompt(`seed turn-change diff ${Date.now()}`)
+  await input.llm.text("seeded turn-change diff")
+  await input.project.prompt(`seed turn-change diff ${Date.now()}`)
 
-  const card = page.locator('[data-slot="session-turn-changes"]').last()
+  const card = input.page.locator('[data-slot="session-turn-changes"]').last()
   await expect(card).toBeVisible({ timeout: 30_000 })
+  return card
+}
+
+async function resetClsProbe(page: Page) {
+  await page.evaluate(() => {
+    const state = (window as unknown as { __turnChangeCls?: { total: number } }).__turnChangeCls
+    if (state) state.total = 0
+  })
+}
+
+async function readClsProbe(page: Page) {
+  return await page.evaluate(
+    () => (window as unknown as { __turnChangeCls?: { total: number } }).__turnChangeCls?.total ?? 0,
+  )
+}
+
+test("turn-change file rows reserve diff height before rendering", async ({ page, llm, project }) => {
+  test.setTimeout(180_000)
+
+  await installClsProbe(page)
+  const card = await openTurnChangeCard({ page, llm, project })
   const row = card
     .locator('[data-slot="session-turn-change-row"]')
     .filter({ hasText: TURN_CHANGE_MODIFIED_DIFF_FILE_PATH })
     .first()
   await expect(row).toBeVisible()
 
-  await page.evaluate(() => {
-    const state = (window as unknown as { __turnChangeCls?: { total: number } }).__turnChangeCls
-    if (state) state.total = 0
-  })
+  await resetClsProbe(page)
 
   for (const _ of [0, 1, 2]) {
     await row.click()
@@ -54,8 +84,37 @@ test("turn-change file rows reserve diff height before rendering", async ({ page
     await expect(diff).toHaveCount(0)
   }
 
-  const cls = await page.evaluate(
-    () => (window as unknown as { __turnChangeCls?: { total: number } }).__turnChangeCls?.total ?? 0,
-  )
-  expect(cls).toBeLessThan(0.1)
+  expect(await readClsProbe(page)).toBeLessThan(0.1)
+})
+
+test("small replacement diffs settle close to rendered content height", async ({ page, llm, project }) => {
+  test.setTimeout(180_000)
+
+  await installClsProbe(page)
+  const card = await openTurnChangeCard({ page, llm, project })
+  const row = card
+    .locator('[data-slot="session-turn-change-row"]')
+    .filter({ hasText: TURN_CHANGE_SMALL_MODIFIED_DIFF_FILE_PATH })
+    .first()
+  await expect(row).toBeVisible()
+
+  await resetClsProbe(page)
+  await row.click()
+  const diff = card.locator('[data-slot="session-turn-change-diff"]').first()
+  await expect(diff).toBeVisible()
+  const lines = diff.locator("[data-line]")
+  await expect(lines.first()).toBeVisible({ timeout: 30_000 })
+
+  await expect
+    .poll(async () => {
+      const containerBox = await diff.boundingBox()
+      const firstLineBox = await lines.first().boundingBox()
+      const lastLineBox = await lines.last().boundingBox()
+      if (!containerBox || !firstLineBox || !lastLineBox) return Number.POSITIVE_INFINITY
+      const renderedContentHeight = lastLineBox.y + lastLineBox.height - firstLineBox.y
+      return containerBox.height - renderedContentHeight
+    })
+    .toBeLessThan(96)
+
+  expect(await readClsProbe(page)).toBeLessThan(0.1)
 })

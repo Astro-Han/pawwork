@@ -13,6 +13,22 @@ const diff = (deletions: number, additions: number) => ({
   additionLines: Array.from({ length: additions }, (_, index) => `new ${index}`),
 })
 
+const replacementPatch = [
+  "diff --git a/file.ts b/file.ts",
+  "index 1111111..2222222 100644",
+  "--- a/file.ts",
+  "+++ b/file.ts",
+  "@@ -1,7 +1,7 @@",
+  " context one",
+  " context two",
+  " context three",
+  "-old value",
+  "+new value",
+  " context four",
+  " context five",
+  " context six",
+].join("\n")
+
 describe("turn-change diff height reservation", () => {
   test("estimates additions-only height plus a small render buffer", () => {
     expect(estimateTurnChangeDiffReservedHeight(diff(0, 8))).toBe(240)
@@ -20,6 +36,10 @@ describe("turn-change diff height reservation", () => {
 
   test("reserves both sides of a unified replacement hunk", () => {
     expect(estimateTurnChangeDiffReservedHeight(diff(6, 8))).toBe(384)
+  })
+
+  test("counts unified patch context once when the patch is available", () => {
+    expect(estimateTurnChangeDiffReservedHeight({ ...diff(7, 7), patch: replacementPatch })).toBe(240)
   })
 
   test("caps reserved height at the existing inline diff max height", () => {

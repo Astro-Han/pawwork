@@ -144,13 +144,16 @@ export function SessionTurnChangesPanel(props: {
             const reservedDiffHeight = createMemo(() => {
               const diff = view()
               if (!diff) return 0
-              return Math.max(measuredDiffHeight() ?? 0, estimateTurnChangeDiffReservedHeight(diff.fileDiff))
+              return (
+                measuredDiffHeight() ?? estimateTurnChangeDiffReservedHeight({ ...diff.fileDiff, patch: diff.patch })
+              )
             })
             const handleDiffRendered = () => {
               const measure = () => {
                 if (!diffRef?.isConnected) return
-                const height = clampTurnChangeDiffReservedHeight(diffRef.scrollHeight)
-                setMeasuredDiffHeight((current) => (current === undefined ? height : Math.max(current, height)))
+                const content = diffRef.querySelector<HTMLElement>('[data-component="file"]')
+                const height = clampTurnChangeDiffReservedHeight(content?.scrollHeight ?? diffRef.scrollHeight)
+                setMeasuredDiffHeight(height)
               }
 
               if (typeof requestAnimationFrame === "function") requestAnimationFrame(measure)
