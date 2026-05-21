@@ -29,6 +29,7 @@ import {
   type TimelineVirtualRow,
 } from "@/pages/session/timeline-virtual-rows"
 import { TimelineRowRenderer } from "@/pages/session/timeline-row-renderer"
+import { timelineMessageRowStyle } from "@/pages/session/timeline-row-layout"
 import type { TimelineVirtualizerBridge } from "@/pages/session/timeline-virtualizer-bridge"
 import { chooseTimelineRowRenderMode } from "@/pages/session/timeline-virtualization-strategy"
 import {
@@ -312,6 +313,7 @@ export function MessageTimeline(props: {
           "min-w-0 w-full max-w-full": true,
           "md:max-w-[800px] 2xl:max-w-[1000px]": props.centered,
         }}
+        style={timelineMessageRowStyle({ mode: rowRenderMode(), active: active() })}
       >
         <SessionMessageComments comments={comments()} />
         <SessionTurn
