@@ -280,7 +280,27 @@ test.describe("runtime CLS probe lifecycle", () => {
     await page.setContent('<main><div data-message-id="msg-1">visible message</div></main>')
 
     await startRuntimeClsProbe(page, "first-window", { targetMessageID: "msg-1" })
-    await stopRuntimeClsProbe(page)
+    const firstStop = await page.evaluate(() => {
+      const win = window as typeof window & {
+        __emitRuntimeClsEntry?: (
+          entry: PerformanceEntry & { value: number; sources: Array<{ node: Node | null }> },
+        ) => void
+        __pawwork_runtime_cls_probe?: { stop: () => RuntimeClsResult }
+      }
+      const source = document.querySelector('[data-message-id="msg-1"]')
+      win.__emitRuntimeClsEntry?.({
+        name: "layout-shift",
+        entryType: "layout-shift",
+        startTime: performance.now() + 1,
+        duration: 0,
+        toJSON: () => ({}),
+        value: 0.04,
+        sources: [{ node: source }],
+      })
+      return win.__pawwork_runtime_cls_probe?.stop()
+    })
+    expect(firstStop?.entries).toHaveLength(1)
+
     const repeatedStop = await page.evaluate(() => {
       const win = window as typeof window & {
         __emitRuntimeClsEntry?: (

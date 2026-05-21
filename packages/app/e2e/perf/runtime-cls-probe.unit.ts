@@ -76,6 +76,27 @@ describe("runtime CLS source classifier", () => {
     expect(result.primaryAncestor?.label).toBe('[data-component="session-turn"]')
   })
 
+  test("does not classify off-screen direct primary sources as primary failures", () => {
+    const before = rect({ y: -280, top: -280, bottom: -160 })
+    const after = rect({ y: -260, top: -260, bottom: -140 })
+    const { message, turn } = buildTurnFixture({ before, after })
+
+    const messageResult = classifyRuntimeClsSource(message, {
+      viewportHeight: 720,
+      primaryBeforeRects: new Map([[message, before]]),
+    })
+    const turnResult = classifyRuntimeClsSource(turn, {
+      viewportHeight: 720,
+      primaryBeforeRects: new Map([[turn, before]]),
+    })
+
+    expect(messageResult.kind).toBe("other")
+    expect(turnResult.kind).toBe("other")
+    expect(collectRuntimeClsFailures([{ at: 1, value: 0.04, hadRecentInput: true, sources: [messageResult] }])).toEqual(
+      [],
+    )
+  })
+
   test("promotes assistant descendants inside visible primary ancestors to primary-turn-descendant", () => {
     const { markdown, turn, before } = buildTurnFixture()
 

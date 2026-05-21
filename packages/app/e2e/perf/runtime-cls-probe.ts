@@ -230,12 +230,13 @@ export function classifyRuntimeClsSource(
     primaryBeforeRects: input.primaryBeforeRects,
   })
   const sourceSnapshot = sourceNodeSnapshot(source)
+  const primaryVisible = ancestor?.visibleBefore === true && ancestor.visibleAfter === true
 
-  if (source.matches("[data-message-id]")) {
+  if (source.matches("[data-message-id]") && primaryVisible) {
     return { kind: "primary-message-wrapper", source: sourceSnapshot, primaryAncestor: ancestor }
   }
 
-  if (source.matches('[data-component="session-turn"]')) {
+  if (source.matches('[data-component="session-turn"]') && primaryVisible) {
     return { kind: "primary-turn", source: sourceSnapshot, primaryAncestor: ancestor }
   }
 
@@ -243,7 +244,7 @@ export function classifyRuntimeClsSource(
     return { kind: "dock-or-scroll-recovery", source: sourceSnapshot, primaryAncestor: ancestor }
   }
 
-  if (primary && ancestor?.visibleBefore && ancestor.visibleAfter) {
+  if (primary && primaryVisible) {
     return { kind: "primary-turn-descendant", source: sourceSnapshot, primaryAncestor: ancestor }
   }
 
@@ -514,11 +515,16 @@ function runtimeClsProbeInitScript(options?: RuntimeClsProbeInstallOptions) {
       primaryAncestor.visibleAfter = isVisibleRect(primaryAncestor.afterRect)
     }
     const source = sourceSnapshot(element)
+    const primaryVisible = primaryAncestor?.visibleBefore === true && primaryAncestor.visibleAfter === true
 
-    if (element.matches("[data-message-id]")) return { kind: "primary-message-wrapper", source, primaryAncestor }
-    if (element.matches('[data-component="session-turn"]')) return { kind: "primary-turn", source, primaryAncestor }
+    if (element.matches("[data-message-id]") && primaryVisible) {
+      return { kind: "primary-message-wrapper", source, primaryAncestor }
+    }
+    if (element.matches('[data-component="session-turn"]') && primaryVisible) {
+      return { kind: "primary-turn", source, primaryAncestor }
+    }
     if (element.closest(dockOrScrollSelector)) return { kind: "dock-or-scroll-recovery", source, primaryAncestor }
-    if (primary && primaryAncestor?.visibleBefore && primaryAncestor.visibleAfter) {
+    if (primary && primaryVisible) {
       return { kind: "primary-turn-descendant", source, primaryAncestor }
     }
     if (element.closest(assistantResidualSelector))
