@@ -372,9 +372,7 @@ export default function Page() {
     ),
   )
 
-  const renderComposerRegion = (ctx?: {
-    onModeChange: (mode: "normal" | "shell") => void
-  }) => (
+  const renderComposerRegion = (ctx?: { onModeChange: (mode: "normal" | "shell") => void }) => (
     <SessionPageComposerRegion
       state={composer}
       ready={!deferRender() && sessionActionReady()}
@@ -427,9 +425,7 @@ export default function Page() {
     />
   )
 
-  const renderHomeComposerRegion = (ctx?: {
-    onModeChange: (mode: "normal" | "shell") => void
-  }) => (
+  const renderHomeComposerRegion = (ctx?: { onModeChange: (mode: "normal" | "shell") => void }) => (
     <HomeComposerRegion
       inputRef={(el) => {
         inputRef = el
@@ -491,6 +487,7 @@ export default function Page() {
       historyMore={timelineHistoryMore()}
       historyLoading={timelineHistoryLoading()}
       anchor={timelineInteraction.anchor}
+      virtualizerBridge={timelineInteraction.virtualizerBridge}
       onRetryOpenSession={retryOpenRouteSession}
       onOpenNewSession={openNewRouteSession}
       composerSession={renderComposerRegion()}

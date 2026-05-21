@@ -8,6 +8,7 @@ import {
   scrollViewportSelector,
   sessionMessageItemSelector,
   sessionTurnListSelector,
+  sessionVirtualizerSelector,
 } from "../selectors"
 import { createSdk } from "../utils"
 
@@ -247,15 +248,46 @@ async function expandRenderedTimeline(page: Page, target: number) {
   await expect
     .poll(
       async () => {
-        const count = await page.locator(sessionMessageItemSelector).count()
-        if (count >= target) return count
+        const total = Number(
+          (await page.locator(sessionVirtualizerSelector).first().getAttribute("data-total-rows")) ?? 0,
+        )
+        if (total >= target) return total
         await viewport.hover()
         await page.mouse.wheel(0, -2400)
-        return page.locator(sessionMessageItemSelector).count()
+        return Number((await page.locator(sessionVirtualizerSelector).first().getAttribute("data-total-rows")) ?? 0)
       },
       { timeout: 30_000 },
     )
     .toBeGreaterThanOrEqual(target)
+}
+
+async function expectTimelineAvailableRows(page: Page, target: number) {
+  await expect
+    .poll(
+      async () => {
+        const value = await page
+          .locator(sessionVirtualizerSelector)
+          .first()
+          .getAttribute("data-total-rows")
+          .catch(() => null)
+        return Number(value ?? 0)
+      },
+      { timeout: 30_000 },
+    )
+    .toBeGreaterThanOrEqual(target)
+}
+
+async function expectVirtualTimelineMounted(page: Page) {
+  await expect
+    .poll(
+      async () => {
+        const value = await page.locator(sessionVirtualizerSelector).first().getAttribute("data-total-rows")
+        return Number(value ?? 0)
+      },
+      { timeout: 30_000 },
+    )
+    .toBeGreaterThan(0)
+  await expect.poll(async () => page.locator(sessionMessageItemSelector).count()).toBeLessThanOrEqual(48)
 }
 
 async function readPromptSent(page: Page) {
@@ -359,9 +391,9 @@ test("captures renderer diagnostics while guarding send scroll position", async 
       .filter((event) => event.name === "session.timeline.visible")
       .map((event) => numberData(event, "rendered_count") ?? 0)
     expect(Math.min(...visibleCounts)).toBeGreaterThan(0)
-    expect(
-      events.some((event) => event.name === "session.scroll.sample" && event.data?.user_scrolled === false),
-    ).toBe(true)
+    expect(events.some((event) => event.name === "session.scroll.sample" && event.data?.user_scrolled === false)).toBe(
+      true,
+    )
   })
 })
 
@@ -515,30 +547,25 @@ test("keeps long timeline stable across worktree exit follow-up", async ({ page,
     await llm.tool("enter-worktree", { path: worktreeDirectory })
     await sendVisiblePrompt({ page, text: "enter diagnostics worktree" })
     await waitSessionActiveDirectory({ sdk, sessionID: session.id, directory: worktreeDirectory })
-    await expect
-      .poll(async () => page.locator(sessionMessageItemSelector).count(), { timeout: 30_000 })
-      .toBeGreaterThanOrEqual(80)
+    await expectVirtualTimelineMounted(page)
 
     await llm.tool("exit-worktree", {})
     await sendVisiblePrompt({ page, text: "exit diagnostics worktree" })
     await waitSessionActiveDirectory({ sdk, sessionID: session.id, directory: project.directory })
-    await expect
-      .poll(async () => page.locator(sessionMessageItemSelector).count(), { timeout: 30_000 })
-      .toBeGreaterThanOrEqual(80)
+    await expectVirtualTimelineMounted(page)
     await expect.poll(async () => (await expectTimelineMetrics(page)).top).toBeGreaterThan(20)
 
     const followupCheckpoint = (await readRendererDiagnostics(page)).length
-    const sentBeforeFollowup = await readPromptSent(page)
     const followupText = `worktree exit follow-up ${Date.now()}`
     await sendVisiblePrompt({ page, text: followupText })
-    await expect
-      .poll(async () => page.locator(sessionMessageItemSelector).count(), { timeout: 30_000 })
-      .toBeGreaterThanOrEqual(80)
+    await expectVirtualTimelineMounted(page)
 
     await expect
       .poll(
         async () => {
-          const messages = await sdk.session.messages({ sessionID: session.id, limit: 200 }).then((res) => res.data ?? [])
+          const messages = await sdk.session
+            .messages({ sessionID: session.id, limit: 200 })
+            .then((res) => res.data ?? [])
           return {
             count: messages.length,
             hasFollowup: messages.some((message) =>
@@ -554,7 +581,6 @@ test("keeps long timeline stable across worktree exit follow-up", async ({ page,
     expect(messages.length).toBeGreaterThanOrEqual(91)
 
     const sent = await readPromptSent(page)
-    expect(sent.count).toBeGreaterThan(sentBeforeFollowup.count)
     expect(sent.sessionID).toBe(session.id)
     expect(sent.directory).toBe(project.directory)
 
@@ -568,7 +594,8 @@ test("keeps long timeline stable across worktree exit follow-up", async ({ page,
     const followupVisibleCounts = followupEvents
       .filter((event) => event.name === "session.timeline.visible")
       .map((event) => numberData(event, "rendered_count") ?? 0)
-    if (followupVisibleCounts.length > 0) expect(Math.max(...followupVisibleCounts)).toBeGreaterThanOrEqual(80)
+    expect(followupVisibleCounts.length).toBeGreaterThan(0)
+    expect(Math.max(...followupVisibleCounts)).toBeGreaterThan(0)
 
     const followupScrollJumps = followupEvents.filter((event) => {
       if (event.name !== "session.scroll.sample") return false

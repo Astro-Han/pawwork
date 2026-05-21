@@ -1,5 +1,5 @@
 import type { UserMessage } from "@opencode-ai/sdk/v2"
-import { createEffect, on, onCleanup } from "solid-js"
+import { createEffect, createMemo, on, onCleanup } from "solid-js"
 import { emitRendererDiagnostic } from "@/context/renderer-diagnostics"
 import {
   collectTimelineScrollMetrics,
@@ -11,6 +11,8 @@ import { useSessionHashScroll } from "@/pages/session/use-session-hash-scroll"
 import { createSessionHistoryBackfill } from "@/pages/session/use-session-history-backfill"
 import { createSessionHistoryWindow } from "@/pages/session/use-session-history-window"
 import { createSessionScrollDock } from "@/pages/session/use-session-scroll-dock"
+import { createTimelineVirtualRows } from "@/pages/session/timeline-virtual-rows"
+import { createTimelineVirtualizerBridge } from "@/pages/session/timeline-virtualizer-bridge"
 import {
   createSessionTimelineScrollController,
   type TimelineRecovery,
@@ -163,6 +165,14 @@ export function createSessionTimelineInteraction(input: {
     scroller: scrollDock.scroller,
     scrollCommandSink,
   })
+  const virtualRows = createMemo(() =>
+    createTimelineVirtualRows({
+      messages: historyWindow.renderedUserMessages(),
+      historyMore: input.historyMore(),
+      turnStart: historyWindow.turnStart(),
+    }),
+  )
+  const virtualizerBridge = createTimelineVirtualizerBridge({ rows: virtualRows })
 
   const resumeLatest = () => {
     const result = scrollController.intent({ type: "jump_latest", source: "button" })
@@ -214,7 +224,6 @@ export function createSessionTimelineInteraction(input: {
 
       if (recovery.type === "restore_latest") {
         if (current.mode !== "following_latest") return
-        historyWindow.resumeLatestWindow()
         resumeScroll()
         return
       }
@@ -269,7 +278,6 @@ export function createSessionTimelineInteraction(input: {
       type: "submit",
       originMode: scrollController.state().mode,
     })
-    historyWindow.resumeLatestWindow()
     applyTimelineRecovery(result.recovery)
   }
 
@@ -303,6 +311,15 @@ export function createSessionTimelineInteraction(input: {
     scheduleScrollState: scrollDock.scheduleScrollState,
     consumePendingMessage: input.consumePendingMessage,
     scrollCommandSink,
+    virtualizerReveal: ({ messageID, behavior }) =>
+      virtualizerBridge.scrollMessageNearTop({
+        messageID,
+        behavior,
+        viewport: scrollDock.scroller(),
+        sink: scrollCommandSink,
+        source: "use-session-timeline-interaction/virtualizerReveal",
+        reason: "hash-target-not-mounted",
+      }),
     onMessageNavigation: (messageID) => {
       scrollDock.cancelBottomFollowLock()
       onTimelineScrollIntent({
@@ -321,6 +338,7 @@ export function createSessionTimelineInteraction(input: {
     autoScroll,
     anchor,
     historyWindow,
+    virtualizerBridge,
     resumeScroll: resumeLatest,
     submitLatest,
     scheduleScrollState: scrollDock.scheduleScrollState,

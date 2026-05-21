@@ -134,3 +134,23 @@ test("closed tools start without mounted details", () => {
   expect(basicToolInitialReady({ defer: true })).toBe(false)
   expect(basicToolInitialReady({})).toBe(false)
 })
+
+test("row-local open state evicts the oldest stateKey while preserving recent keys", async () => {
+  const { mountBasicTool } = await loadFixture()
+  const prefix = `basic-tool-cap-${Date.now()}`
+
+  for (let index = 0; index <= 500; index++) {
+    const tool = mountBasicTool({ defaultOpen: false, stateKey: `${prefix}-${index}` })
+    tool.trigger()?.click()
+    await Promise.resolve()
+    tool.dispose()
+  }
+
+  const oldest = mountBasicTool({ defaultOpen: false, stateKey: `${prefix}-0` })
+  expect(oldest.details()).toBeNull()
+  oldest.dispose()
+
+  const recent = mountBasicTool({ defaultOpen: false, stateKey: `${prefix}-500` })
+  expect(recent.details()?.textContent).toBe("details")
+  recent.dispose()
+})

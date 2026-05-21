@@ -1,4 +1,4 @@
-import { For, createEffect, createMemo, on, onCleanup, onMount, Show, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show, type JSX } from "solid-js"
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
@@ -22,6 +22,16 @@ import {
   shouldMarkTimelineBoundaryGesture,
 } from "@/pages/session/session-timeline-scroll-intents"
 import { createTimelineStaging } from "@/pages/session/session-timeline-staging"
+import {
+  createTimelineVirtualRows,
+  classifyTimelineRowMutation,
+  type TimelineRowMutation,
+  type TimelineVirtualRow,
+} from "@/pages/session/timeline-virtual-rows"
+import { TimelineRowRenderer } from "@/pages/session/timeline-row-renderer"
+import { timelineMessageRowStyle } from "@/pages/session/timeline-row-layout"
+import type { TimelineVirtualizerBridge } from "@/pages/session/timeline-virtualizer-bridge"
+import { chooseTimelineRowRenderMode } from "@/pages/session/timeline-virtualization-strategy"
 import {
   areMessageCommentsEqual,
   extractMessageComments,
@@ -83,10 +93,12 @@ export function MessageTimeline(props: {
   onLoadEarlier: () => void
   renderedUserMessages: UserMessage[]
   anchor: (id: string) => string
+  virtualizerBridge: TimelineVirtualizerBridge
 }) {
   let touchGesture: number | undefined
   let scrollSampleFrame: number | undefined
   let viewportRef: HTMLDivElement | undefined
+  const [virtualizerViewport, setVirtualizerViewport] = createSignal<HTMLDivElement>()
   let mounted = true
   let pendingScrollSample:
     | {
@@ -253,6 +265,89 @@ export function MessageTimeline(props: {
     messages: () => props.renderedUserMessages,
     config: stageCfg,
   })
+  const rows = createMemo(() =>
+    createTimelineVirtualRows({
+      messages: props.renderedUserMessages,
+      historyMore: props.historyMore,
+      turnStart: props.turnStart,
+    }),
+  )
+  const rowMutation = createMemo<{ rows: TimelineVirtualRow[]; mutation: TimelineRowMutation }>((previous) => {
+    const next = rows()
+    return { rows: next, mutation: classifyTimelineRowMutation({ previous: previous?.rows ?? [], next }) }
+  })
+  const rowRenderMode = createMemo(() => chooseTimelineRowRenderMode({ rowCount: rowMutation().rows.length }))
+
+  const renderTimelineRow = (row: TimelineVirtualRow): JSX.Element => {
+    if (row.type === "load-earlier") {
+      return (
+        <div data-component="session-virtual-row" data-row-type="load-earlier" class="w-full flex justify-center">
+          <Button
+            variant="ghost"
+            size="large"
+            class="text-h3 opacity-50"
+            disabled={props.historyLoading}
+            onClick={props.onLoadEarlier}
+          >
+            {props.historyLoading
+              ? language.t("session.messages.loadingEarlier")
+              : language.t("session.messages.loadEarlier")}
+          </Button>
+        </div>
+      )
+    }
+
+    const messageID = row.messageID
+    const active = createMemo(() => activeMessageID() === messageID)
+    const comments = createMemo(() => extractMessageComments(sync.data.part[messageID] ?? []), [], {
+      equals: areMessageCommentsEqual,
+    })
+
+    return (
+      <div
+        data-component="session-virtual-row"
+        id={props.anchor(messageID)}
+        data-row-type="message"
+        data-message-id={messageID}
+        classList={{
+          "min-w-0 w-full max-w-full": true,
+          "md:max-w-[800px] 2xl:max-w-[1000px]": props.centered,
+        }}
+        style={timelineMessageRowStyle({ mode: rowRenderMode(), active: active() })}
+      >
+        <SessionMessageComments comments={comments()} />
+        <SessionTurn
+          sessionID={sessionID() ?? ""}
+          messageID={messageID}
+          message={row.message}
+          assistantMessages={turnMessagesByUserID().get(messageID) ?? emptyAssistantMessages}
+          messages={sessionMessages()}
+          actions={props.actions}
+          active={active()}
+          status={active() ? sessionStatus() : undefined}
+          rateLimitCardSlot={(classification) => <RateLimitCardWiring classification={classification} />}
+          showReasoningSummaries={settings.general.showReasoningSummaries()}
+          shellToolDefaultOpen={settings.general.shellToolPartsExpanded()}
+          editToolDefaultOpen={settings.general.editToolPartsExpanded()}
+          turnChanges={turnChangeController.turnChanges}
+          turnChangeActions={{
+            ...turnChangeController.actions,
+            openFile: (path) => {
+              void platform.openPath?.(path)
+            },
+            showInFolder: (path) => {
+              void platform.showItemInFolder?.(path)
+            },
+          }}
+          classes={{
+            root: "min-w-0 w-full relative",
+            content: "flex flex-col justify-between !overflow-visible",
+            container: "w-full px-4 md:px-5",
+          }}
+        />
+      </div>
+    )
+  }
 
   return (
     <Show
@@ -264,8 +359,7 @@ export function MessageTimeline(props: {
           class="absolute left-1/2 -translate-x-1/2 bottom-[calc(var(--composer-dock-height,0px)+2.5rem)] z-[60] pointer-events-none transition-opacity duration-200 ease-out"
           classList={{
             "opacity-100": props.scroll.overflow && props.scroll.jump && !staging.isStaging(),
-            "opacity-0 pointer-events-none":
-              !props.scroll.overflow || !props.scroll.jump || staging.isStaging(),
+            "opacity-0 pointer-events-none": !props.scroll.overflow || !props.scroll.jump || staging.isStaging(),
           }}
         >
           {/* 偏离: W1 preview L267 锁 cursor:pointer，用户 2026-05-15 决定改回默认。preview/DESIGN 同步留 follow-up。 */}
@@ -282,6 +376,7 @@ export function MessageTimeline(props: {
         <ScrollView
           viewportRef={(el) => {
             viewportRef = el
+            setVirtualizerViewport(el)
             props.setScrollRef(el)
           }}
           onScrollIntent={(intent) => {
@@ -387,9 +482,11 @@ export function MessageTimeline(props: {
           >
             <div
               role="log"
-              data-component="session-timeline-column"
+              data-component="session-timeline-virtualizer"
               data-slot="session-turn-list"
-              class="flex flex-col items-start justify-start pb-4 transition-[margin]"
+              data-render-mode={rowRenderMode()}
+              data-total-rows={rowMutation().rows.length}
+              class="transition-[margin]"
               classList={{
                 "w-full": true,
                 "md:max-w-[800px] md:mx-auto 2xl:max-w-[1000px]": props.centered,
@@ -397,75 +494,14 @@ export function MessageTimeline(props: {
                 "mt-0": !props.centered,
               }}
             >
-              <Show when={props.turnStart > 0 || props.historyMore}>
-                <div class="w-full flex justify-center">
-                  <Button
-                    variant="ghost"
-                    size="large"
-                    class="text-h3 opacity-50"
-                    disabled={props.historyLoading}
-                    onClick={props.onLoadEarlier}
-                  >
-                    {props.historyLoading
-                      ? language.t("session.messages.loadingEarlier")
-                      : language.t("session.messages.loadEarlier")}
-                  </Button>
-                </div>
-              </Show>
-              <For each={rendered()}>
-                {(messageID, index) => {
-                  const userMessage = createMemo(() => props.renderedUserMessages[index()])
-                  const active = createMemo(() => activeMessageID() === messageID)
-                  const comments = createMemo(() => extractMessageComments(sync.data.part[messageID] ?? []), [], {
-                    equals: areMessageCommentsEqual,
-                  })
-                  return (
-                    <div
-                      id={props.anchor(messageID)}
-                      data-message-id={messageID}
-                      classList={{
-                        "min-w-0 w-full max-w-full": true,
-                        "md:max-w-[800px] 2xl:max-w-[1000px]": props.centered,
-                      }}
-                      style={{
-                        "content-visibility": active() ? undefined : "auto",
-                        "contain-intrinsic-size": active() ? undefined : "auto 500px",
-                      }}
-                    >
-                      <SessionMessageComments comments={comments()} />
-                      <SessionTurn
-                        sessionID={sessionID() ?? ""}
-                        messageID={messageID}
-                        message={userMessage()}
-                        assistantMessages={turnMessagesByUserID().get(messageID) ?? emptyAssistantMessages}
-                        messages={sessionMessages()}
-                        actions={props.actions}
-                        active={active()}
-                        status={active() ? sessionStatus() : undefined}
-                        rateLimitCardSlot={(classification) => <RateLimitCardWiring classification={classification} />}
-                        showReasoningSummaries={settings.general.showReasoningSummaries()}
-                        shellToolDefaultOpen={settings.general.shellToolPartsExpanded()}
-                        editToolDefaultOpen={settings.general.editToolPartsExpanded()}
-                        turnChanges={turnChangeController.turnChanges}
-                        turnChangeActions={{
-                          ...turnChangeController.actions,
-                          openFile: (path) => {
-                            void platform.openPath?.(path)
-                          },
-                          showInFolder: (path) => {
-                            void platform.showItemInFolder?.(path)
-                          },
-                        }}
-                        classes={{
-                          root: "min-w-0 w-full relative",
-                          content: "flex flex-col justify-between !overflow-visible",
-                          container: "w-full px-4 md:px-5",
-                        }}
-                      />
-                    </div>
-                  )
-                }}
-              </For>
+              <TimelineRowRenderer
+                mode={rowRenderMode()}
+                rows={rowMutation().rows}
+                viewport={virtualizerViewport()}
+                virtualizerBridge={props.virtualizerBridge}
+                shift={rowMutation().mutation === "prepend"}
+                renderRow={renderTimelineRow}
+              />
             </div>
           </div>
         </ScrollView>

@@ -23,6 +23,7 @@ export interface MessagePartProps {
   defaultOpen?: boolean
   showAssistantCopyPartID?: string | null
   turnDurationMs?: number
+  stateKey?: string
 }
 
 export type PartComponent = Component<MessagePartProps>
@@ -43,6 +44,7 @@ export interface ToolProps {
   defaultOpen?: boolean
   forceOpen?: boolean
   locked?: boolean
+  stateKey?: string
 }
 
 export type ToolComponent = Component<ToolProps>

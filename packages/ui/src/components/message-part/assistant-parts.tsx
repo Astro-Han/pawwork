@@ -101,6 +101,7 @@ export function AssistantParts(props: {
                           props.shellToolDefaultOpen,
                           props.editToolDefaultOpen,
                         )}
+                        stateKey={`tool:${stableItem()!.id}`}
                       />
                     </Show>
                   </Show>

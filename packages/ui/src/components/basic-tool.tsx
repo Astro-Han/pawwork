@@ -4,6 +4,7 @@ import { useI18n } from "../context/i18n"
 import { createStore } from "solid-js/store"
 import { Collapsible } from "./collapsible"
 import type { IconProps } from "./icon"
+import { createBoundedStateMap } from "./persisted-state-map"
 import { TextShimmer } from "./text-shimmer"
 
 export type TriggerTitle = {
@@ -37,7 +38,10 @@ export interface BasicToolProps {
   onTriggerClick?: JSX.EventHandlerUnion<HTMLElement, MouseEvent>
   triggerHref?: string
   clickable?: boolean
+  stateKey?: string
 }
+
+const basicToolOpenState = createBoundedStateMap<boolean>()
 
 const SPRING = { type: "spring" as const, visualDuration: 0.35, bounce: 0 }
 
@@ -46,10 +50,17 @@ export function basicToolInitialReady(props: { defaultOpen?: boolean; defer?: bo
   return props.defaultOpen ?? false
 }
 
+function basicToolInitialOpen(props: { stateKey?: string; defaultOpen?: boolean }) {
+  return props.stateKey
+    ? (basicToolOpenState.get(props.stateKey) ?? props.defaultOpen ?? false)
+    : (props.defaultOpen ?? false)
+}
+
 export function BasicTool(props: BasicToolProps) {
+  const initialOpen = basicToolInitialOpen(props)
   const [state, setState] = createStore({
-    open: props.defaultOpen ?? false,
-    ready: basicToolInitialReady(props),
+    open: initialOpen,
+    ready: basicToolInitialReady({ defaultOpen: initialOpen, defer: props.defer }),
   })
   const open = () => state.open
   const ready = () => state.ready
@@ -73,8 +84,22 @@ export function BasicTool(props: BasicToolProps) {
 
   onCleanup(cancel)
 
+  createEffect(
+    on(
+      () => props.stateKey,
+      () => {
+        const nextOpen = basicToolInitialOpen(props)
+        setState("open", nextOpen)
+        setState("ready", basicToolInitialReady({ defaultOpen: nextOpen, defer: props.defer }))
+      },
+      { defer: true },
+    ),
+  )
+
   createEffect(() => {
-    if (props.forceOpen) setState("open", true)
+    if (!props.forceOpen) return
+    setState("open", true)
+    if (props.stateKey) basicToolOpenState.set(props.stateKey, true)
   })
 
   createEffect(() => {
@@ -97,7 +122,7 @@ export function BasicTool(props: BasicToolProps) {
   // Animated height for collapsible open/close
   let contentRef: HTMLDivElement | undefined
   let heightAnim: AnimationPlaybackControls | undefined
-  const initialOpen = open()
+  const animatedInitialOpen = open()
 
   createEffect(
     on(
@@ -134,6 +159,7 @@ export function BasicTool(props: BasicToolProps) {
     if (pending()) return
     if (props.locked && !value) return
     setState("open", value)
+    if (props.stateKey) basicToolOpenState.set(props.stateKey, value)
   }
 
   const triggerInfo = () => {
@@ -237,8 +263,8 @@ export function BasicTool(props: BasicToolProps) {
           data-slot="collapsible-content"
           data-animated
           style={{
-            height: initialOpen ? "auto" : "0px",
-            overflow: initialOpen ? "visible" : "hidden",
+            height: animatedInitialOpen ? "auto" : "0px",
+            overflow: animatedInitialOpen ? "visible" : "hidden",
             "pointer-events": closingAnimatedDetails() ? "none" : undefined,
           }}
           aria-hidden={closingAnimatedDetails() ? "true" : undefined}

@@ -170,6 +170,9 @@ export function scanTimelineScrollOwnershipText(input: ScanTextInput) {
       ) {
         sinkIdentifiers.add(node.name.text)
       }
+      if (node.type?.getText(source) === "TimelineScrollCommandSink") {
+        sinkIdentifiers.add(node.name.text)
+      }
       const prop = propertyName(node.initializer)
       if (prop && forbiddenPropertyCalls.has(prop)) forbiddenIdentifiers.add(node.name.text)
       if (ts.isIdentifier(node.initializer) && forbiddenIdentifiers.has(node.initializer.text)) {

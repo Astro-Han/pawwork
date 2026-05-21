@@ -141,4 +141,72 @@ describe("useSessionHashScroll", () => {
     dispose()
     root.remove()
   })
+
+  test("hash navigation bounds virtualizer reveal retries when the target never mounts", () => {
+    const originalRequestAnimationFrame = globalThis.requestAnimationFrame
+    const originalCancelAnimationFrame = globalThis.cancelAnimationFrame
+    const frameCallbacks: FrameRequestCallback[] = []
+    let nextFrameId = 1
+    const revealCalls: string[] = []
+    const root = document.createElement("div")
+
+    globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      frameCallbacks.push(callback)
+      return nextFrameId++
+    }) as typeof requestAnimationFrame
+    globalThis.cancelAnimationFrame = (() => undefined) as typeof cancelAnimationFrame
+
+    let dispose: (() => void) | undefined
+    try {
+      document.body.append(root)
+
+      dispose = createRoot((dispose) => {
+        const hashScroll = createSessionHashScroll(
+          {
+            sessionKey: () => "ses_1:/repo",
+            sessionID: () => "ses_1",
+            messagesReady: () => true,
+            visibleUserMessages: () => [{ id: "msg_2" }] as any,
+            historyMore: () => false,
+            historyLoading: () => false,
+            loadMore: async () => undefined,
+            turnStart: () => 0,
+            currentMessageId: () => undefined,
+            pendingMessage: () => undefined,
+            setPendingMessage: () => undefined,
+            setActiveMessage: () => undefined,
+            markHashTarget: () => undefined,
+            autoScroll: { pause: () => undefined, forceScrollToBottom: () => undefined },
+            scroller: () => root,
+            anchor: (id) => `message-${id}`,
+            scheduleScrollState: () => undefined,
+            consumePendingMessage: () => undefined,
+            virtualizerReveal: ({ messageID }) => {
+              revealCalls.push(messageID)
+              return true
+            },
+          },
+          { hash: "#message-msg_2", pathname: "/session/ses_1", search: "" },
+          () => undefined,
+        )
+
+        hashScroll.applyHash("auto")
+        return dispose
+      })
+
+      for (let index = 0; index < 10; index += 1) {
+        const callback = frameCallbacks.shift()
+        if (!callback) break
+        callback(index)
+      }
+
+      expect(revealCalls).toEqual(["msg_2", "msg_2", "msg_2", "msg_2"])
+      expect(frameCallbacks).toHaveLength(0)
+    } finally {
+      dispose?.()
+      root.remove()
+      globalThis.requestAnimationFrame = originalRequestAnimationFrame
+      globalThis.cancelAnimationFrame = originalCancelAnimationFrame
+    }
+  })
 })

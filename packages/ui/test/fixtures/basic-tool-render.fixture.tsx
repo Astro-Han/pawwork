@@ -6,7 +6,7 @@ function Details(props: { onRender: () => void }) {
   return <span data-testid="basic-tool-details">details</span>
 }
 
-export function mountBasicTool(props: { defaultOpen?: boolean; defer?: boolean }) {
+export function mountBasicTool(props: { defaultOpen?: boolean; defer?: boolean; stateKey?: string }) {
   let detailsRenderCount = 0
   const host = document.createElement("div")
   document.body.append(host)
@@ -18,6 +18,7 @@ export function mountBasicTool(props: { defaultOpen?: boolean; defer?: boolean }
         trigger={{ title: "Test tool" }}
         defaultOpen={props.defaultOpen}
         defer={props.defer}
+        stateKey={props.stateKey}
       >
         <Details onRender={() => detailsRenderCount++} />
       </BasicTool>

@@ -24,6 +24,7 @@ export type SessionHashScrollInput = {
   consumePendingMessage: (key: string) => string | undefined
   onMessageNavigation?: (messageID: string) => void
   onMessageHashCleared?: () => void
+  virtualizerReveal?: (input: { messageID: string; behavior: ScrollBehavior }) => boolean
   scrollCommandSink?: TimelineScrollCommandSink
 }
 
@@ -99,6 +100,12 @@ export const createSessionHashScroll = (
     const el = document.getElementById(input.anchor(id))
     if (el) return scrollToElement(el, behavior)
     if (left <= 0) return false
+    if (input.virtualizerReveal?.({ messageID: id, behavior })) {
+      queue(() => {
+        seek(id, behavior, left - 1)
+      })
+      return false
+    }
     queue(() => {
       seek(id, behavior, left - 1)
     })
