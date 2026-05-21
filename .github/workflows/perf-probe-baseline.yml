@@ -253,7 +253,6 @@ jobs:
           bun head/packages/app/script/compare-perf.ts
           --base "${PERF_ARTIFACT_DIR}/perf-base-confirm-combined.json"
           --head "${PERF_ARTIFACT_DIR}/perf-head-confirm-combined.json"
-          --failures-from "${PERF_ARTIFACT_DIR}/perf-compare.json"
           --output "${PERF_ARTIFACT_DIR}/perf-compare-confirm.json"
           --comment-output "${PERF_ARTIFACT_DIR}/perf-comment.md"
 

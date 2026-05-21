@@ -33,6 +33,18 @@ async function readFailureScenarioKeys(filePath: string) {
     .map((scenario) => `${scenario.profile}:${scenario.scenario}`)
 }
 
+async function inferFailureScenarioSource(input: { outputPath?: string; failuresFromPath?: string }) {
+  if (input.failuresFromPath) return input.failuresFromPath
+  if (!input.outputPath || path.basename(input.outputPath) !== "perf-compare-confirm.json") return undefined
+  const candidate = path.join(path.dirname(input.outputPath), "perf-compare.json")
+  try {
+    await fs.access(candidate)
+    return candidate
+  } catch {
+    return undefined
+  }
+}
+
 async function main() {
   const basePath = readArg("--base")
   const headPath = readArg("--head")
@@ -46,10 +58,11 @@ async function main() {
     )
   }
 
+  const failuresSourcePath = await inferFailureScenarioSource({ outputPath, failuresFromPath })
   const [base, head, scenarioKeys] = await Promise.all([
     readPerfFile(basePath),
     readPerfFile(headPath),
-    failuresFromPath ? readFailureScenarioKeys(failuresFromPath) : undefined,
+    failuresSourcePath ? readFailureScenarioKeys(failuresSourcePath) : undefined,
   ])
   const comparison = comparePerfBaselines({ base, head, scenarioKeys })
 
