@@ -46,6 +46,9 @@ export function SessionMainView(props: {
   historyLoading: boolean
   anchor: TimelineProps["anchor"]
   virtualizerBridge: TimelineProps["virtualizerBridge"]
+  layoutTransactionActive: TimelineProps["layoutTransactionActive"]
+  layoutTransactionID: TimelineProps["layoutTransactionID"]
+  layoutTransactionKind: TimelineProps["layoutTransactionKind"]
   onRetryOpenSession: () => void
   onOpenNewSession: () => void
   composerSession: JSX.Element
@@ -159,6 +162,9 @@ export function SessionMainView(props: {
                   renderedUserMessages={props.historyWindow.renderedUserMessages()}
                   anchor={props.anchor}
                   virtualizerBridge={props.virtualizerBridge}
+                  layoutTransactionActive={props.layoutTransactionActive}
+                  layoutTransactionID={props.layoutTransactionID}
+                  layoutTransactionKind={props.layoutTransactionKind}
                 />
               </Match>
               <Match when={!props.activeSessionID}>
