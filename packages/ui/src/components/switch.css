@@ -122,10 +122,10 @@
 /* Excludes [data-disabled] so the disabled rule above (var(--icon-disabled))
  * still wins; otherwise source order would let the dark thumb override it. */
 [data-color-scheme="dark"] [data-component="switch"]:not([data-disabled]) [data-slot="switch-thumb"] {
-  background-color: #f3ede4;
+  background-color: #ebe7e0;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-color-scheme="light"]) [data-component="switch"]:not([data-disabled]) [data-slot="switch-thumb"] {
-    background-color: #f3ede4;
+    background-color: #ebe7e0;
   }
 }

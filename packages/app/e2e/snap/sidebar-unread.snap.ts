@@ -1,12 +1,23 @@
+import type { Page } from "@playwright/test"
 import { test } from "../fixtures"
 import { openSidebar, withSession } from "../actions"
 import { pawworkSidebarSelector } from "../selectors"
+import { applyDarkModeForTests } from "../utils"
 import { composeGrid, snapOutputPath, type Shot } from "./_compose"
 
 test.use({ viewport: { width: 1440, height: 900 } })
 
+async function waitForUnreadDot(page: Page, sessionId: string) {
+  const sidebar = page.locator(pawworkSidebarSelector)
+  await sidebar
+    .locator(`[data-session-id="${sessionId}"] [role="img"][aria-label]`)
+    .first()
+    .waitFor({ state: "visible", timeout: 30_000 })
+  return sidebar
+}
+
 test("sidebar-unread", async ({ page, sdk, directory, gotoSession }) => {
-  test.setTimeout(120_000)
+  test.setTimeout(180_000)
 
   await withSession(sdk, "snap sidebar unread a", async (a) => {
     await withSession(sdk, "snap sidebar unread b", async (b) => {
@@ -43,21 +54,18 @@ test("sidebar-unread", async ({ page, sdk, directory, gotoSession }) => {
       // Reload so NotificationProvider hydrates from the seeded localStorage.
       await page.reload()
       await openSidebar(page)
+      let sidebar = await waitForUnreadDot(page, a.id)
+      const lightShot: Shot = { name: "light-unread", buf: await sidebar.screenshot() }
 
-      const sidebar = page.locator(pawworkSidebarSelector)
-      // Wait for the unread dot on session A's row. The Show-when-no-level
-      // status slot renders one of the five status indicators; we anchor on
-      // the dot's aria-label/role so this stays robust against unrelated
-      // layout tweaks.
-      await sidebar
-        .locator(`[data-session-id="${a.id}"] [role="img"][aria-label]`)
-        .first()
-        .waitFor({ state: "visible", timeout: 30_000 })
-
-      const shots: Shot[] = [{ name: "unread", buf: await sidebar.screenshot() }]
+      // applyDarkModeForTests reloads the page; localStorage notification key
+      // survives, so the unread dot rehydrates the same way.
+      await applyDarkModeForTests(page)
+      await openSidebar(page)
+      sidebar = await waitForUnreadDot(page, a.id)
+      const darkShot: Shot = { name: "dark-unread", buf: await sidebar.screenshot() }
 
       const out = snapOutputPath("sidebar-unread")
-      await composeGrid(shots, out)
+      await composeGrid([lightShot, darkShot], out)
       process.stdout.write(`\n[snap] sidebar-unread grid -> ${out}\n\n`)
     })
   })

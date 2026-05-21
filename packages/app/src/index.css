@@ -52,13 +52,18 @@
   }
 
   :root[data-color-scheme="dark"] [data-component="desktop-shell"][data-shell="desktop"] {
-    --shell-background-base: #221f1c;
-    --shell-background-weak: #1a1714;
-    --shell-surface-base: #1a1714;
-    --shell-surface-raised: #1a1714;
-    --shell-surface-strong: #221f1c;
-    --shell-border-base: #2F2B28;
-    --shell-border-weak: #25211D;
+    --shell-background-base: #1a1917;
+    --shell-background-weak: #1a1917;
+    --shell-surface-base: #1a1917;
+    --shell-surface-raised: #1a1917;
+    --shell-surface-strong: #1a1917;
+    /* shell-border-{base,weak} are color-mix inputs for shell-frame-border /
+     * shell-titlebar-border (OS window chrome), not body dividers. Body
+     * dividers route through --border-* (6% white alpha). Light mirrors the
+     * same two-input shape; collapsing to one would erase the titlebar /
+     * frame depth that distinguishes native window edge from interior. */
+    --shell-border-base: #282725;
+    --shell-border-weak: #1f1d1c;
     --shell-highlight-overlay: radial-gradient(circle at top, rgb(255 255 255 / 0.04), transparent 52%);
     --shell-frame-border: color-mix(in srgb, var(--shell-border-base) 78%, #5a5e68 22%);
     --shell-frame-shadow:
