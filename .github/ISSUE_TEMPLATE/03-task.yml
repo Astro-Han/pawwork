@@ -1,5 +1,5 @@
 name: Task
-description: Track maintainer or agent execution work
+description: Track narrow execution, audit, spike, migration, or follow-up work
 title: "[Task] "
 labels:
   - task
@@ -7,7 +7,13 @@ body:
   - type: markdown
     attributes:
       value: |
-        Use this for maintainer or agent execution work that is not a user-facing bug report or feature request.
+        Use this for narrow execution-only, audit, spike, migration, upstream follow-up, or tracking work.
+
+        Do not use Task when another type is clearer:
+        - Behavior is broken, incorrect, flaky, misleading, or regressed → `bug`
+        - A user-facing workflow or capability should improve → `enhancement`
+        - Documentation, templates, policies, or written process should change → `documentation`
+        - Internal cleanup, maintainability, architecture, test, or quality debt → add `tech-debt` as supplemental context
 
         Keep the issue concrete enough that an agent can understand the target, scope, and verification path.
   - type: textarea

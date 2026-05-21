@@ -37,15 +37,12 @@ export function validateLabelPolicy({ itemType, labels = [] }) {
 
   const routing = intersection(labelSet, POLICY.routing)
   if (routing.length < 1) {
-    errors.push(error(`${itemType} must have at least one primary routing label: ${labelList(POLICY.routing)}`, routing))
+    errors.push(
+      error(`${itemType} must have at least one primary routing label: ${labelList(POLICY.routing)}`, routing),
+    )
   }
 
-  if (labelSet.has("tech-debt") && !labelSet.has("task")) {
-    errors.push(error("tech-debt is only allowed with the task type label", ["tech-debt"]))
-  }
-
-  const forbiddenIssueLabels =
-    itemType === "issue" ? intersection(labelSet, POLICY.issueForbiddenLabels) : []
+  const forbiddenIssueLabels = itemType === "issue" ? intersection(labelSet, POLICY.issueForbiddenLabels) : []
   if (forbiddenIssueLabels.length > 0) {
     errors.push(
       error(`issue must not use PR automation labels: ${labelList(POLICY.issueForbiddenLabels)}`, forbiddenIssueLabels),

@@ -48,6 +48,7 @@ Required for visible UI changes.
 ## Checklist
 
 > **How to use this checklist:**
+>
 > - Tick a box by replacing `[ ]` with `[x]`. Do not edit, add, or remove items.
 > - The bot-applied label items can only be honestly ticked AFTER the PR is opened and the labeler / priority-triage bots have run — return to the PR description and tick them then.
 > - Most items are required. The few that are conditional are explicitly marked **(conditional)**; for those, leave unticked if they truly do not apply and explain why in Risk Notes. All other items must be ticked before requesting human review.
