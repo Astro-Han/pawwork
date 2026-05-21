@@ -83,6 +83,10 @@ type RuntimeClsWindow = Window & {
   }
 }
 
+type RuntimeClsProbeInstallOptions = {
+  mockObserver?: "ready" | "observe-error"
+}
+
 type PrimaryBeforeRectStore = Pick<Map<Element, RuntimeClsRect>, "get">
 
 const primarySelector = '[data-message-id], [data-component="session-turn"]'
@@ -301,8 +305,8 @@ export function formatRuntimeClsFailure(input: {
   ].join("\n")
 }
 
-export async function installRuntimeClsProbe(page: Page) {
-  await page.addInitScript(() => {
+export async function installRuntimeClsProbe(page: Page, options?: RuntimeClsProbeInstallOptions) {
+  await page.addInitScript((options?: RuntimeClsProbeInstallOptions) => {
     type RuntimeClsRect = {
       x: number
       y: number
@@ -370,10 +374,54 @@ export async function installRuntimeClsProbe(page: Page) {
           snapshot: RuntimeClsSnapshot
         }
       }
+      __emitRuntimeClsEntry?: (
+        entry: PerformanceEntry & {
+          value?: number
+          hadRecentInput?: boolean
+          sources?: Array<{ node?: Node | null }>
+        },
+      ) => void
     }
 
     const win = window as RuntimeClsWindow
     if (win.__pawwork_runtime_cls_probe) return
+
+    if (options?.mockObserver) {
+      type MockEntry = PerformanceEntry & {
+        value?: number
+        hadRecentInput?: boolean
+        sources?: Array<{ node?: Node | null }>
+      }
+
+      const callbacks: Array<(entries: MockEntry[]) => void> = []
+      class MockPerformanceObserver {
+        private readonly callback: PerformanceObserverCallback
+
+        constructor(callback: PerformanceObserverCallback) {
+          this.callback = callback
+          callbacks.push((entries) => {
+            this.callback({ getEntries: () => entries } as PerformanceObserverEntryList, this as PerformanceObserver)
+          })
+        }
+
+        observe() {
+          if (options.mockObserver === "observe-error") throw new Error("mock layout-shift unsupported")
+        }
+
+        disconnect() {}
+        takeRecords() {
+          return []
+        }
+
+        static supportedEntryTypes = ["layout-shift"]
+      }
+
+      ;(window as typeof window & { PerformanceObserver: typeof PerformanceObserver }).PerformanceObserver =
+        MockPerformanceObserver as typeof PerformanceObserver
+      win.__emitRuntimeClsEntry = (entry) => {
+        for (const callback of callbacks) callback([entry])
+      }
+    }
 
     const primarySelector = '[data-message-id], [data-component="session-turn"]'
     const assistantResidualSelector =
@@ -602,7 +650,7 @@ export async function installRuntimeClsProbe(page: Page) {
         return result
       },
     }
-  })
+  }, options)
 }
 
 export async function startRuntimeClsProbe(page: Page, action: string, options?: RuntimeClsStartOptions) {

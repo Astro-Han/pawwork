@@ -250,51 +250,9 @@ async function assertNoPrimaryRuntimeClsFailures(result: RuntimeClsResult) {
   ).toEqual([])
 }
 
-async function installMockRuntimeClsObserver(page: Page, mode: "ready" | "observe-error") {
-  await page.addInitScript((mode) => {
-    type MockEntry = PerformanceEntry & {
-      value?: number
-      hadRecentInput?: boolean
-      sources?: Array<{ node?: Node | null }>
-    }
-
-    const callbacks: Array<(entries: MockEntry[]) => void> = []
-    class MockPerformanceObserver {
-      private readonly callback: PerformanceObserverCallback
-
-      constructor(callback: PerformanceObserverCallback) {
-        this.callback = callback
-        callbacks.push((entries) => {
-          this.callback({ getEntries: () => entries } as PerformanceObserverEntryList, this as PerformanceObserver)
-        })
-      }
-
-      observe() {
-        if (mode === "observe-error") throw new Error("mock layout-shift unsupported")
-      }
-
-      disconnect() {}
-      takeRecords() {
-        return []
-      }
-
-      static supportedEntryTypes = ["layout-shift"]
-    }
-
-    ;(window as typeof window & { PerformanceObserver: typeof PerformanceObserver }).PerformanceObserver =
-      MockPerformanceObserver as typeof PerformanceObserver
-    ;(window as typeof window & { __emitRuntimeClsEntry?: (entry: MockEntry) => void }).__emitRuntimeClsEntry = (
-      entry,
-    ) => {
-      for (const callback of callbacks) callback([entry])
-    }
-  }, mode)
-}
-
 test.describe("runtime CLS probe lifecycle", () => {
   test("fails instead of silently passing when layout-shift observer cannot start", async ({ page }) => {
-    await installMockRuntimeClsObserver(page, "observe-error")
-    await installRuntimeClsProbe(page)
+    await installRuntimeClsProbe(page, { mockObserver: "observe-error" })
     await page.goto("about:blank")
 
     let errorMessage = ""
@@ -307,8 +265,7 @@ test.describe("runtime CLS probe lifecycle", () => {
   })
 
   test("ignores layout-shift entries after stop until the next measured window", async ({ page }) => {
-    await installMockRuntimeClsObserver(page, "ready")
-    await installRuntimeClsProbe(page)
+    await installRuntimeClsProbe(page, { mockObserver: "ready" })
     await page.goto("about:blank")
     await page.setContent('<main><div data-message-id="msg-1">visible message</div></main>')
 
@@ -338,8 +295,7 @@ test.describe("runtime CLS probe lifecycle", () => {
   })
 
   test("classifies sources through the installed browser probe", async ({ page }) => {
-    await installMockRuntimeClsObserver(page, "ready")
-    await installRuntimeClsProbe(page)
+    await installRuntimeClsProbe(page, { mockObserver: "ready" })
     await page.goto("about:blank")
     await page.setContent(
       [
