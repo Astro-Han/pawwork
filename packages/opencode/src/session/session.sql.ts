@@ -170,8 +170,32 @@ export const TurnChangeRestoreTable = sqliteTable(
     ...Timestamps,
   },
   (table) => [
-    uniqueIndex("turn_change_restore_session_id_message_id_file_path_idx").on(table.session_id, table.message_id, table.file_path),
+    uniqueIndex("turn_change_restore_session_id_message_id_file_path_idx").on(
+      table.session_id,
+      table.message_id,
+      table.file_path,
+    ),
     index("turn_change_restore_session_id_message_id_idx").on(table.session_id, table.message_id),
+  ],
+)
+
+export const TurnChangeUncapturedTable = sqliteTable(
+  "turn_change_uncaptured",
+  {
+    session_id: text()
+      .$type<SessionID>()
+      .notNull()
+      .references(() => SessionTable.id, { onDelete: "cascade" }),
+    message_id: text()
+      .$type<MessageID>()
+      .notNull()
+      .references(() => MessageTable.id, { onDelete: "cascade" }),
+    count: integer().notNull(),
+    ...Timestamps,
+  },
+  (table) => [
+    uniqueIndex("turn_change_uncaptured_session_id_message_id_idx").on(table.session_id, table.message_id),
+    index("turn_change_uncaptured_session_id_idx").on(table.session_id),
   ],
 )
 
