@@ -902,6 +902,18 @@ export namespace Export {
 
   const partFn = part
 
+  function sessionSummary(summary: Session.Info["summary"]): Session.Info["summary"] {
+    if (!summary) return summary
+    const { diffs: _diffs, ...rest } = summary
+    return rest
+  }
+
+  function messageSummary(summary: MessageV2.User["summary"]): MessageV2.User["summary"] {
+    if (!summary) return summary
+    const { diffs: _diffs, ...rest } = summary
+    return rest
+  }
+
   export function sanitize(data: { info: Session.Info; messages: MessageV2.WithParts[] }) {
     return {
       info: {
@@ -914,12 +926,7 @@ export namespace Export {
               ...data.info.share,
               url: redact("session-share", data.info.id, data.info.share.url),
             },
-        summary: !data.info.summary
-          ? data.info.summary
-          : {
-              ...data.info.summary,
-              diffs: diff("session-diff", data.info.summary.diffs),
-            },
+        summary: sessionSummary(data.info.summary),
         revert: !data.info.revert
           ? data.info.revert
           : {
@@ -940,20 +947,21 @@ export namespace Export {
             ? {
                 ...msg.info,
                 system: msg.info.system === undefined ? undefined : redact("system", msg.info.id, msg.info.system),
-                summary: !msg.info.summary
-                  ? msg.info.summary
-                  : {
-                      ...msg.info.summary,
-                      title:
-                        msg.info.summary.title === undefined
-                          ? undefined
-                          : redact("summary-title", msg.info.id, msg.info.summary.title),
-                      body:
-                        msg.info.summary.body === undefined
-                          ? undefined
-                          : redact("summary-body", msg.info.id, msg.info.summary.body),
-                      diffs: diff("message-diff", msg.info.summary.diffs),
-                    },
+                summary: messageSummary(
+                  !msg.info.summary
+                    ? msg.info.summary
+                    : {
+                        ...msg.info.summary,
+                        title:
+                          msg.info.summary.title === undefined
+                            ? undefined
+                            : redact("summary-title", msg.info.id, msg.info.summary.title),
+                        body:
+                          msg.info.summary.body === undefined
+                            ? undefined
+                            : redact("summary-body", msg.info.id, msg.info.summary.body),
+                      },
+                ),
               }
             : {
                 ...msg.info,
@@ -984,8 +992,8 @@ export namespace Export {
   export function sanitizeTree(node: Tree): Tree {
     const out = sanitize({ info: node.info as Session.Info, messages: node.messages })
     // Sanitize replaces sensitive strings with redaction markers but preserves structural shape;
-    // the inferred type narrows summary.diffs in ways the strict MessageV2 schema rejects, so cast
-    // at this boundary instead of weakening every helper signature in the pipeline.
+    // the inferred recursive shape is narrower than the strict MessageV2 schema, so cast at this
+    // boundary instead of weakening every helper signature in the pipeline.
     // Tree.diffs carries raw file paths + source patches; redact via the existing diff() helper.
     const sanitizedDiffs = (diff("tree-diff", node.diffs) ?? []) as Tree["diffs"]
     return {

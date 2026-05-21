@@ -48,13 +48,24 @@ function remove(file: string) {
 
 function clear(file: string, content: string) {
   const lines = content.replace(/\n$/, "").split("\n")
-  return ["*** Begin Patch", `*** Update File: ${file}`, "@@", ...lines.map((line) => `-${line}`), "*** End Patch"].join(
-    "\n",
-  )
+  return [
+    "*** Begin Patch",
+    `*** Update File: ${file}`,
+    "@@",
+    ...lines.map((line) => `-${line}`),
+    "*** End Patch",
+  ].join("\n")
 }
 
 function escapeRegex(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+function aggregateFiles(
+  aggregate: Awaited<ReturnType<Parameters<typeof withSession>[0]["session"]["diff"]>>["data"] | undefined,
+) {
+  if (!aggregate || aggregate.kind === "empty" || aggregate.kind === "uncaptured") return []
+  return aggregate.files.filter((file) => file.restoreState === "applied")
 }
 
 async function patchWithMock(
@@ -86,7 +97,7 @@ async function patchWithMock(
   await expect
     .poll(
       async () => {
-        const diff = await sdk.session.diff({ sessionID }).then((res) => res.data ?? [])
+        const diff = await sdk.session.diff({ sessionID }).then((res) => aggregateFiles(res.data))
         return diff.length
       },
       { timeout: 120_000 },
@@ -250,7 +261,7 @@ test("review applies inline comment clicks inside the review surface", async ({ 
     await expect
       .poll(
         async () => {
-          const diff = await project.sdk.session.diff({ sessionID: session.id }).then((res) => res.data ?? [])
+          const diff = await project.sdk.session.diff({ sessionID: session.id }).then((res) => aggregateFiles(res.data))
           return diff.length
         },
         { timeout: 60_000 },
@@ -282,7 +293,7 @@ test("review file comments submit on click without clipping actions", async ({ p
     await expect
       .poll(
         async () => {
-          const diff = await project.sdk.session.diff({ sessionID: session.id }).then((res) => res.data ?? [])
+          const diff = await project.sdk.session.diff({ sessionID: session.id }).then((res) => aggregateFiles(res.data))
           return diff.length
         },
         { timeout: 60_000 },
@@ -322,7 +333,7 @@ test("review keeps added files actionable in the review list", async ({ page, ll
     await expect
       .poll(
         async () => {
-          const diff = await project.sdk.session.diff({ sessionID: session.id }).then((res) => res.data ?? [])
+          const diff = await project.sdk.session.diff({ sessionID: session.id }).then((res) => aggregateFiles(res.data))
           return diff.length
         },
         { timeout: 60_000 },
@@ -351,7 +362,7 @@ test("review hides open-file actions for deleted files", async ({ page, llm, pro
     await expect
       .poll(
         async () => {
-          const diff = await project.sdk.session.diff({ sessionID: session.id }).then((res) => res.data ?? [])
+          const diff = await project.sdk.session.diff({ sessionID: session.id }).then((res) => aggregateFiles(res.data))
           return diff.length
         },
         { timeout: 60_000 },
@@ -382,7 +393,7 @@ test("review keeps open-file actions for modified files emptied to blank", async
     await expect
       .poll(
         async () => {
-          const diff = await project.sdk.session.diff({ sessionID: session.id }).then((res) => res.data ?? [])
+          const diff = await project.sdk.session.diff({ sessionID: session.id }).then((res) => aggregateFiles(res.data))
           return diff.length
         },
         { timeout: 60_000 },
@@ -426,7 +437,7 @@ test.fixme("review keeps scroll position after a live diff update", async ({ pag
     await expect
       .poll(
         async () => {
-          const diff = await project.sdk.session.diff({ sessionID: session.id }).then((res) => res.data ?? [])
+          const diff = await project.sdk.session.diff({ sessionID: session.id }).then((res) => aggregateFiles(res.data))
           return diff.length
         },
         { timeout: 60_000 },
@@ -462,8 +473,8 @@ test.fixme("review keeps scroll position after a live diff update", async ({ pag
     await expect
       .poll(
         async () => {
-          const diff = await project.sdk.session.diff({ sessionID: session.id }).then((res) => res.data ?? [])
-          const item = diff.find((item) => item.file === hit.file)
+          const diff = await project.sdk.session.diff({ sessionID: session.id }).then((res) => aggregateFiles(res.data))
+          const item = diff.find((item) => item.path === hit.file)
           return typeof item?.after === "string" ? item.after : ""
         },
         { timeout: 60_000 },
