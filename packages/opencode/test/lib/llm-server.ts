@@ -44,6 +44,7 @@ type Sse = {
   hang?: boolean
   error?: unknown
   reset?: boolean
+  passthrough?: boolean
 }
 
 type HttpError = {
@@ -611,6 +612,7 @@ export function raw(input: {
   hang?: boolean
   error?: unknown
   reset?: boolean
+  passthrough?: boolean
 }): Item {
   return {
     type: "sse",
@@ -621,6 +623,7 @@ export function raw(input: {
     hang: input.hang,
     error: input.error,
     reset: input.reset,
+    passthrough: input.passthrough,
   }
 }
 
@@ -746,7 +749,7 @@ export class TestLLMServer extends Context.Service<TestLLMServer, TestLLMServer.
         hits = [...hits, current]
         yield* notify()
         if (next.type !== "sse") return fail(next)
-        if (mode === "responses") return send(responses(next, modelFrom(body)))
+        if (mode === "responses") return send(next.passthrough ? next : responses(next, modelFrom(body)))
         if (next.reset) {
           yield* reset(next)
           return HttpServerResponse.empty()

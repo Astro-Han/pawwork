@@ -34,9 +34,6 @@ type ResponsesToolCallState = {
   itemId: string
   callId: string
   toolName: string
-  argumentDeltas: string[]
-  addedArguments: string
-  doneArguments?: string
   materialized: boolean
 }
 
@@ -55,8 +52,6 @@ export class ResponsesToolCallAssembler {
       itemId: input.itemId,
       callId: input.callId,
       toolName: input.toolName,
-      argumentDeltas: [],
-      addedArguments: input.arguments,
       materialized: false,
     }
     this.statesByItemId.set(input.itemId, state)
@@ -70,7 +65,6 @@ export class ResponsesToolCallAssembler {
     if (!state.ok) return [this.error(state.message)]
     if (state.value.materialized) return []
 
-    state.value.argumentDeltas.push(input.delta)
     return [{ type: "tool-input-delta", id: state.value.callId, delta: input.delta }]
   }
 
@@ -84,7 +78,6 @@ export class ResponsesToolCallAssembler {
     }
     if (state.value.materialized) return []
 
-    state.value.doneArguments = input.arguments
     return this.materialize(state.value, input.arguments)
   }
 

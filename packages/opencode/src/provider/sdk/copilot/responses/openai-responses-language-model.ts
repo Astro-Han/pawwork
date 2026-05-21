@@ -1289,15 +1289,17 @@ export class OpenAIResponsesLanguageModel implements LanguageModelV3 {
                 controller,
                 functionToolCalls.failUnmaterialized(value.type),
               )
-              finishReason = hadAssemblerError
-                ? { unified: "error", raw: value.type }
-                : {
-                    unified: mapOpenAIResponseFinishReason({
-                      finishReason: value.response.incomplete_details?.reason,
-                      hasFunctionCall,
-                    }),
-                    raw: value.response.incomplete_details?.reason ?? undefined,
-                  }
+              if (hadAssemblerError) {
+                finishReason = { unified: "error", raw: value.type }
+              } else if (finishReason.unified !== "error") {
+                finishReason = {
+                  unified: mapOpenAIResponseFinishReason({
+                    finishReason: value.response.incomplete_details?.reason,
+                    hasFunctionCall,
+                  }),
+                  raw: value.response.incomplete_details?.reason ?? undefined,
+                }
+              }
               usage.inputTokens = value.response.usage.input_tokens
               usage.outputTokens = value.response.usage.output_tokens
               usage.totalTokens = value.response.usage.input_tokens + value.response.usage.output_tokens
