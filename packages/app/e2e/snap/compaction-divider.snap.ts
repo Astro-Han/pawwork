@@ -30,6 +30,12 @@ async function seedTurn(
 async function captureDivider(page: Page, name: string): Promise<Shot> {
   const divider = page.locator('[data-slot="session-turn-compaction"]').last()
   await divider.waitFor({ state: "visible", timeout: 30_000 })
+  // Hide the Solid toast region so the page's "Response ready" notifications
+  // do not leak into the divider screenshot. The toasts are position:fixed and
+  // would otherwise overlap the divider's bounding box.
+  await page.addStyleTag({
+    content: '[data-sonner-toaster], [role="region"][aria-label*="Notifications"] { display: none !important; }',
+  })
   return { name, buf: await divider.screenshot() }
 }
 
