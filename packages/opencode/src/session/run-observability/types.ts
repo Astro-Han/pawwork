@@ -1,6 +1,7 @@
 import { MessageID, SessionID } from "../schema"
 import z from "zod"
 import type { RunIncident } from "../run-incident"
+import type { LifecycleRequest } from "../lifecycle-provenance"
 
 export const SCHEMA_VERSION = 1
 
@@ -113,6 +114,11 @@ export type Summary = {
     kind: LifecycleKind
     source?: string
     reason?: string
+    initiated_at?: number
+    initiated_monotonic_ms?: number
+    affected_directory_keys: string[]
+    origin?: { source: string; operation?: string; reason?: string }
+    request?: LifecycleRequest
   }
   missing_provenance?: string[]
   durations_ms: {
@@ -197,6 +203,11 @@ export type Recorder = {
     propagationPoint?: string
     lifecycleActionID?: string
     lifecycleKind?: LifecycleKind
+    lifecycleInitiatedAt?: number
+    lifecycleInitiatedMonotonicMs?: number
+    lifecycleAffectedDirectoryKeys?: string[]
+    lifecycleOrigin?: { source: string; operation?: string; reason?: string }
+    lifecycleRequest?: LifecycleRequest
   }): void
   finalize(input: { completedAt?: number; monotonicMs: number }): Summary
 }

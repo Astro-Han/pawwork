@@ -1,12 +1,82 @@
 import type { IncidentEvidenceSummary, RunIncident } from "./types"
 
 const MAX_EXPORTED_EVIDENCE = 24
+type LifecycleProvenance = NonNullable<RunIncident["provenance"]["lifecycle"]>
 
 export function sanitizeIncident(incident: RunIncident): RunIncident {
   return {
     ...incident,
+    provenance: sanitizeProvenance(incident.provenance),
     evidence: boundEvidence(incident),
   }
+}
+
+function sanitizeProvenance(provenance: RunIncident["provenance"]): RunIncident["provenance"] {
+  return {
+    ...provenance,
+    lifecycle: provenance.lifecycle
+      ? {
+          ...provenance.lifecycle,
+          origin: provenance.lifecycle.origin ? sanitizeOrigin(provenance.lifecycle.origin) : undefined,
+          request: provenance.lifecycle.request ? sanitizeRequest(provenance.lifecycle.request) : undefined,
+        }
+      : undefined,
+  }
+}
+
+function sanitizeOrigin(origin: NonNullable<LifecycleProvenance["origin"]>) {
+  return {
+    source: safeToken(origin?.source, "unknown"),
+    operation: origin?.operation === undefined ? undefined : safeToken(origin.operation, "unknown"),
+    reason: origin?.reason === undefined ? undefined : safeToken(origin.reason, "unknown"),
+  }
+}
+
+function sanitizeRequest(request: NonNullable<LifecycleProvenance["request"]>) {
+  return {
+    method: safeMethod(request.method),
+    path: safeRoutePath(request.path),
+    source: safeToken(request.source, "unknown") as typeof request.source,
+    directory_key: request.directory_key === undefined ? undefined : safeToken(request.directory_key, "unknown"),
+    workspace_id: request.workspace_id === undefined ? undefined : safeToken(request.workspace_id, "unknown"),
+    client_action: request.client_action
+      ? {
+          id: safeToken(request.client_action.id, "unknown"),
+          kind: request.client_action.kind === undefined ? undefined : safeToken(request.client_action.kind, "unknown"),
+          route_session_id:
+            request.client_action.route_session_id === undefined
+              ? undefined
+              : safeToken(request.client_action.route_session_id, "unknown"),
+          visible_session_id:
+            request.client_action.visible_session_id === undefined
+              ? undefined
+              : safeToken(request.client_action.visible_session_id, "unknown"),
+        }
+      : undefined,
+  }
+}
+
+function safeMethod(value: string) {
+  const upper = value.toUpperCase()
+  return /^(GET|POST|PATCH|PUT|DELETE|OPTIONS|HEAD)$/.test(upper) ? upper : "UNKNOWN"
+}
+
+function safeRoutePath(value: string) {
+  const trimmed = value.trim().slice(0, 120)
+  if (!trimmed.startsWith("/")) return "unknown"
+  if (/\/Users\/|\/home\/|[/\\].*(token|secret|bearer|sk-|cookie|password)/i.test(trimmed)) return "unknown"
+  if (!/^\/[a-zA-Z0-9_./:-]*$/.test(trimmed)) return "unknown"
+  return trimmed
+}
+
+function safeToken(value: string | undefined, fallback: string) {
+  if (!value) return fallback
+  const trimmed = value.trim().slice(0, 100)
+  if (!trimmed) return fallback
+  if (/[/\\]|https?:\/\//i.test(trimmed)) return fallback
+  if (/token|secret|bearer|sk-|cookie|password/i.test(trimmed)) return fallback
+  if (!/^[a-zA-Z0-9_.:-]+$/.test(trimmed)) return fallback
+  return trimmed
 }
 
 function boundEvidence(incident: RunIncident): IncidentEvidenceSummary[] | undefined {

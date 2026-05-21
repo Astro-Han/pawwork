@@ -26,7 +26,7 @@ import { InstanceState } from "@/effect/instance-state"
 import { TurnChange } from "./turn-change"
 import { LLMTrace } from "./llm-trace"
 import { RunObservability } from "./run-observability"
-import { currentLifecycleCloseAction } from "./lifecycle-provenance"
+import { currentLifecycleCloseAction, lifecycleCloseActionMeta } from "./lifecycle-provenance"
 
 const log = Log.create({ service: "session.processor" })
 const TOOL_CLEANUP_TIMEOUT_MS = 1_000
@@ -1154,8 +1154,7 @@ export const layer: Layer.Layer<
                   source: "session.processor.onInterrupt",
                   reason: "aborted",
                   propagationPoint: "session.processor.process.onInterrupt",
-                  lifecycleActionID: lifecycleAction?.actionID,
-                  lifecycleKind: lifecycleAction?.kind,
+                  ...(lifecycleAction ? lifecycleCloseActionMeta(lifecycleAction) : {}),
                 })
                 ctx.trace.recordAbortState({
                   provenanceSource: "session.processor.onInterrupt",

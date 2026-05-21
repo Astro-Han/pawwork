@@ -49,6 +49,7 @@ import { Npm } from "@opencode-ai/core/npm"
 import { Filesystem } from "@/util/filesystem"
 import { Flock } from "@/util/flock"
 import { Installation } from "@/installation"
+import { withLifecycleOrigin } from "@/session/lifecycle-provenance"
 import { Runtime } from "@opencode-ai/core/runtime"
 
 const log = Log.create({ service: "config" })
@@ -1144,12 +1145,18 @@ const rawLayer = Layer.effect(
       // Only tear down running instances if config actually changed on disk.
       // No-op writes from UI mounts (see upstream PR #25114) would otherwise
       // abort any in-flight assistant turn.
-      if (changed) yield* Effect.promise(() => Instance.dispose())
+      if (changed)
+        yield* Effect.promise(() =>
+          withLifecycleOrigin(
+            { source: "config", operation: "config.update", reason: "config.update" },
+            () => Instance.dispose(),
+          ),
+        )
     })
 
-    const invalidate = Effect.fn("Config.invalidate")(function* (wait?: boolean) {
+    const invalidate = Effect.fn("Config.invalidate")(function* (wait?: boolean, operation = "config.invalidate") {
       yield* invalidateGlobal
-      const task = Instance.disposeAll()
+      const task = withLifecycleOrigin({ source: "config", operation, reason: operation }, () => Instance.disposeAll())
         .catch(() => undefined)
         .finally(() =>
           GlobalBus.emit("event", {
@@ -1223,7 +1230,7 @@ const rawLayer = Layer.effect(
       // Only invalidate (which calls Instance.disposeAll) if config actually
       // changed on disk. No-op writes from UI mounts would otherwise abort
       // any in-flight assistant turn across all instances.
-      if (changed) yield* invalidate()
+      if (changed) yield* invalidate(undefined, "config.updateGlobal")
       return next
     })
 

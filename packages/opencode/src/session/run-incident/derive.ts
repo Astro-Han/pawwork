@@ -1,4 +1,5 @@
 import type { MessageID, SessionID } from "../schema"
+import type { LifecycleRequest } from "../lifecycle-provenance"
 import type { LifecycleKind, RunID, SafeErrorFingerprint, ToolEffectKind } from "../run-observability/types"
 import { recoveryFor } from "./policy"
 import { plainSummary, userSummary } from "./presentation"
@@ -24,7 +25,17 @@ export type DeriveIncidentInput = {
   unsafeSideEffectKinds: ToolEffectKind[]
   sideEffectFactsComplete: boolean
   materializedToolBoundaries?: MaterializedToolBoundary[]
-  lifecycle?: { action_id: string; kind: LifecycleKind; source?: string; reason?: string }
+  lifecycle?: {
+    action_id: string
+    kind: LifecycleKind
+    source?: string
+    reason?: string
+    initiated_at?: number
+    initiated_monotonic_ms?: number
+    affected_directory_keys: string[]
+    origin?: { source: string; operation?: string; reason?: string }
+    request?: LifecycleRequest
+  }
   missingProvenance?: string[]
 }
 
@@ -58,7 +69,11 @@ export function deriveIncident(input: DeriveIncidentInput): RunIncident | undefi
               action_id: input.lifecycle.action_id,
               kind: input.lifecycle.kind,
               reason: input.lifecycle.reason,
-              affected_directory_keys: [],
+              initiated_at: input.lifecycle.initiated_at,
+              initiated_monotonic_ms: input.lifecycle.initiated_monotonic_ms,
+              affected_directory_keys: input.lifecycle.affected_directory_keys,
+              origin: input.lifecycle.origin,
+              request: input.lifecycle.request,
               completeness: "partial" as const,
             },
           }
@@ -82,6 +97,8 @@ function diagnosticGaps(
   const gaps: string[] = []
   if (!input.sideEffectFactsComplete) gaps.push("side_effect.boundary_unknown")
   if (terminal.monotonic_ms === undefined) gaps.push("evidence.ordering_missing")
+  if (input.lifecycle?.origin?.source === "server_handler" && !input.lifecycle.request)
+    gaps.push("lifecycle.request_context_missing")
   if (facts.tool_execution_started && !facts.tool_call_materialized) gaps.push("tool.materialization_missing")
   if (facts.tool_input_completed && !facts.tool_input_started) gaps.push("tool_input.start_missing")
   return Array.from(new Set(gaps))

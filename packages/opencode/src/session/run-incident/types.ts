@@ -8,6 +8,7 @@ import type {
   ToolEffect,
   ToolEffectKind,
 } from "../run-observability/types"
+import type { LifecycleRequest } from "../lifecycle-provenance"
 
 export const RUN_INCIDENT_SCHEMA_VERSION = 1
 
@@ -139,7 +140,11 @@ export type IncidentProvenance = {
     action_id: string
     kind: LifecycleKind
     reason?: string
+    initiated_at?: number
+    initiated_monotonic_ms?: number
     affected_directory_keys: string[]
+    origin?: { source: string; operation?: string; reason?: string }
+    request?: LifecycleRequest
     completeness: "complete" | "partial" | "unknown"
   }
   interrupt?: {
@@ -208,4 +213,22 @@ export type RunIncident = {
   plain_summary: string
   missing_provenance?: string[]
   diagnostics_complete: boolean
+}
+
+export type ExportIncidentChain = {
+  incident_id: string
+  run_id: RunID
+  session_id: SessionID
+  message_id: MessageID
+  terminal_cause_category: TerminalCause["category"]
+  terminal_cause_subcategory?: string
+  run_phase: IncidentPhase["run_phase"]
+  stream_phase?: IncidentPhase["stream_phase"]
+  tool_phase?: IncidentPhase["tool_phase"]
+  recovery_recommendation: RecoveryDecision["recommendation"]
+  nearest_origin?: { source: string; operation?: string; reason?: string }
+  nearest_request?: LifecycleRequest
+  missing_provenance?: string[]
+  diagnostics_complete: boolean
+  plain_summary: string
 }

@@ -1,19 +1,92 @@
+import { createHash } from "node:crypto"
+import { AsyncLocalStorage } from "node:async_hooks"
 import type { LifecycleKind } from "./run-observability/types"
+
+export type LifecycleOrigin = {
+  source: "server_handler" | "config" | "cli" | "runtime" | "unknown"
+  operation?: string
+  reason?: string
+}
+
+export type LifecycleClientAction = {
+  id: string
+  kind?: string
+  route_session_id?: string
+  visible_session_id?: string
+}
+
+export type LifecycleRequest = {
+  method: string
+  path: string
+  source: "renderer" | "local_api" | "remote_forwarded" | "unknown"
+  directory_key?: string
+  workspace_id?: string
+  client_action?: LifecycleClientAction
+}
 
 export type LifecycleCloseAction = {
   actionID: string
   kind: LifecycleKind
+  initiatedAt: number
+  initiatedMonotonicMs: number
+  affectedDirectoryKeys: readonly string[]
+  origin?: Readonly<LifecycleOrigin>
+  request?: Readonly<LifecycleRequest>
+}
+
+export type CreateLifecycleCloseActionOptions = {
+  affectedDirectories?: string[]
+  origin?: LifecycleOrigin
+  request?: LifecycleRequest
 }
 
 let nextActionID = 0
 const activeByDirectory = new Map<string, LifecycleCloseAction[]>()
+const originContext = new AsyncLocalStorage<LifecycleOrigin>()
 
-export function createLifecycleCloseAction(kind: LifecycleKind): LifecycleCloseAction {
+export function directoryKey(directory: string): string {
+  const digest = createHash("sha256").update(directory).digest("hex").slice(0, 16)
+  return `dir:${digest}`
+}
+
+export function createLifecycleCloseAction(
+  kind: LifecycleKind,
+  options: CreateLifecycleCloseActionOptions = {},
+): LifecycleCloseAction {
   nextActionID += 1
   return {
     actionID: `lifecycle:${kind}:${Date.now().toString(36)}:${nextActionID.toString(36)}`,
     kind,
+    initiatedAt: Date.now(),
+    initiatedMonotonicMs: performance.now(),
+    affectedDirectoryKeys: Object.freeze([...new Set(options.affectedDirectories?.map(directoryKey) ?? [])]),
+    origin: options.origin ? Object.freeze({ ...options.origin }) : undefined,
+    request: options.request ? freezeRequest(options.request) : undefined,
   }
+}
+
+export function lifecycleCloseActionMeta(action: LifecycleCloseAction) {
+  return {
+    lifecycleActionID: action.actionID,
+    lifecycleKind: action.kind,
+    lifecycleInitiatedAt: action.initiatedAt,
+    lifecycleInitiatedMonotonicMs: action.initiatedMonotonicMs,
+    lifecycleAffectedDirectoryKeys: [...action.affectedDirectoryKeys],
+    lifecycleOrigin: action.origin ? { ...action.origin } : undefined,
+    lifecycleRequest: action.request ? cloneRequest(action.request) : undefined,
+  }
+}
+
+export function cloneRequest(request: Readonly<LifecycleRequest>): LifecycleRequest {
+  return {
+    ...request,
+    client_action: request.client_action ? { ...request.client_action } : undefined,
+  }
+}
+
+function freezeRequest(request: LifecycleRequest): Readonly<LifecycleRequest> {
+  const client_action = request.client_action ? Object.freeze({ ...request.client_action }) : undefined
+  return Object.freeze({ ...request, client_action })
 }
 
 export async function withLifecycleCloseAction<T>(
@@ -42,4 +115,13 @@ export async function withLifecycleCloseAction<T>(
 
 export function currentLifecycleCloseAction(directory: string): LifecycleCloseAction | undefined {
   return activeByDirectory.get(directory)?.at(-1)
+}
+
+export function currentLifecycleOrigin(): LifecycleOrigin | undefined {
+  const origin = originContext.getStore()
+  return origin ? { ...origin } : undefined
+}
+
+export async function withLifecycleOrigin<T>(origin: LifecycleOrigin, fn: () => Promise<T>): Promise<T> {
+  return originContext.run({ ...origin }, fn)
 }

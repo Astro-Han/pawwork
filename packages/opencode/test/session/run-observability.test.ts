@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { MessageID, SessionID } from "../../src/session/schema"
+import { RunIncident } from "../../src/session/run-incident"
 import { RunObservability } from "../../src/session/run-observability"
 
 describe("RunObservability", () => {
@@ -520,6 +521,133 @@ describe("RunObservability", () => {
     expect(lifecycleFirst.finalize({ completedAt: 14, monotonicMs: 140 }).incident?.terminal_cause).toMatchObject({
       category: "local_lifecycle_close",
       subcategory: "instance_reload",
+    })
+  })
+
+  test("orders lifecycle terminal causes by initiation time instead of finalizer time", () => {
+    const lifecycleBeforeProvider = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_lifecycle_initiated_first"),
+      traceID: MessageID.make("msg_lifecycle_initiated_first"),
+      sessionID: SessionID.make("ses_lifecycle_initiated_first"),
+      messageID: MessageID.make("msg_lifecycle_initiated_first"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const lifecycleBeforeAttempt = lifecycleBeforeProvider.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    lifecycleBeforeProvider.recordTransportFailure({
+      attemptID: lifecycleBeforeAttempt.attemptID,
+      at: 13,
+      monotonicMs: 130,
+      error: { name: "TypeError", message: "terminated", cause: { code: "UND_ERR_SOCKET" } },
+    })
+    lifecycleBeforeProvider.recordScopeClosed({
+      at: 14,
+      monotonicMs: 140,
+      lifecycleActionID: "lifecycle:instance_reload:initiated_before_provider",
+      lifecycleKind: "instance_reload",
+      lifecycleInitiatedMonotonicMs: 120,
+    })
+    expect(
+      lifecycleBeforeProvider.finalize({ completedAt: 15, monotonicMs: 150 }).incident?.terminal_cause,
+    ).toMatchObject({
+      category: "local_lifecycle_close",
+      subcategory: "instance_reload",
+    })
+
+    const providerBeforeLifecycle = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_provider_initiated_first"),
+      traceID: MessageID.make("msg_provider_initiated_first"),
+      sessionID: SessionID.make("ses_provider_initiated_first"),
+      messageID: MessageID.make("msg_provider_initiated_first"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const providerBeforeAttempt = providerBeforeLifecycle.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    providerBeforeLifecycle.recordTransportFailure({
+      attemptID: providerBeforeAttempt.attemptID,
+      at: 12,
+      monotonicMs: 120,
+      error: { name: "TypeError", message: "terminated", cause: { code: "UND_ERR_SOCKET" } },
+    })
+    providerBeforeLifecycle.recordScopeClosed({
+      at: 14,
+      monotonicMs: 140,
+      lifecycleActionID: "lifecycle:instance_reload:initiated_after_provider",
+      lifecycleKind: "instance_reload",
+      lifecycleInitiatedMonotonicMs: 130,
+    })
+    expect(
+      providerBeforeLifecycle.finalize({ completedAt: 15, monotonicMs: 150 }).incident?.terminal_cause.category,
+    ).toBe("provider_transport_disconnect")
+  })
+
+  test("keeps lifecycle provenance when provider failure records before earlier lifecycle close propagates", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_lifecycle_provenance_after_provider"),
+      traceID: MessageID.make("msg_lifecycle_provenance_after_provider"),
+      sessionID: SessionID.make("ses_lifecycle_provenance_after_provider"),
+      messageID: MessageID.make("msg_lifecycle_provenance_after_provider"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordTransportFailure({
+      attemptID: attempt.attemptID,
+      at: 13,
+      monotonicMs: 130,
+      error: { name: "TypeError", message: "terminated", cause: { code: "UND_ERR_SOCKET" } },
+    })
+    recorder.recordScopeClosed({
+      at: 14,
+      monotonicMs: 140,
+      lifecycleActionID: "lifecycle:instance_reload:initiated_before_provider_with_request",
+      lifecycleKind: "instance_reload",
+      lifecycleInitiatedAt: 12,
+      lifecycleInitiatedMonotonicMs: 120,
+      lifecycleAffectedDirectoryKeys: ["dir:provenance"],
+      lifecycleOrigin: { source: "server_handler", operation: "instance.reload", reason: "project.git.init" },
+      lifecycleRequest: {
+        method: "POST",
+        path: "/project/git/init",
+        source: "renderer",
+        directory_key: "dir:provenance",
+        workspace_id: "workspace-provenance",
+        client_action: { id: "client-provenance", kind: "project.git.init" },
+      },
+    })
+
+    const incident = recorder.finalize({ completedAt: 15, monotonicMs: 150 }).incident
+    expect(incident?.terminal_cause).toMatchObject({
+      category: "local_lifecycle_close",
+      subcategory: "instance_reload",
+    })
+    expect(incident?.provenance.lifecycle).toMatchObject({
+      action_id: "lifecycle:instance_reload:initiated_before_provider_with_request",
+      kind: "instance_reload",
+      origin: { source: "server_handler", operation: "instance.reload", reason: "project.git.init" },
+      request: {
+        method: "POST",
+        path: "/project/git/init",
+        source: "renderer",
+        client_action: { id: "client-provenance", kind: "project.git.init" },
+      },
+    })
+    expect(RunIncident.toExportChain(incident!).nearest_origin).toMatchObject({
+      source: "server_handler",
+      operation: "instance.reload",
+      reason: "project.git.init",
+    })
+    expect(RunIncident.toExportChain(incident!).nearest_request).toMatchObject({
+      method: "POST",
+      path: "/project/git/init",
+      source: "renderer",
+      client_action: { id: "client-provenance", kind: "project.git.init" },
     })
   })
 
@@ -1183,6 +1311,10 @@ describe("RunObservability", () => {
       propagationPoint: "session.prompt.loop.onInterrupt",
       lifecycleActionID: "lifecycle:instance_reload:abc123",
       lifecycleKind: "instance_reload",
+      lifecycleInitiatedAt: 18,
+      lifecycleInitiatedMonotonicMs: 180,
+      lifecycleAffectedDirectoryKeys: ["dir:testreload"],
+      lifecycleOrigin: { source: "server_handler", operation: "instance.reload", reason: "route" },
     })
 
     const summary = recorder.finalize({ completedAt: 21, monotonicMs: 210 })
@@ -1193,8 +1325,101 @@ describe("RunObservability", () => {
       kind: "instance_reload",
       source: "session.run_state.finalizer",
       reason: "scope_finalizer",
+      initiated_at: 18,
+      initiated_monotonic_ms: 180,
+      affected_directory_keys: ["dir:testreload"],
+      origin: { source: "server_handler", operation: "instance.reload", reason: "route" },
+    })
+    expect(summary.incident?.provenance.lifecycle).toMatchObject({
+      action_id: "lifecycle:instance_reload:abc123",
+      kind: "instance_reload",
+      initiated_at: 18,
+      initiated_monotonic_ms: 180,
+      affected_directory_keys: ["dir:testreload"],
+      origin: { source: "server_handler", operation: "instance.reload", reason: "route" },
+      completeness: "partial",
     })
     expect(summary.missing_provenance).toBeUndefined()
+  })
+
+  test("exports structured lifecycle request initiator provenance", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_lifecycle_request"),
+      traceID: MessageID.make("msg_lifecycle_request"),
+      sessionID: SessionID.make("ses_lifecycle_request"),
+      messageID: MessageID.make("msg_lifecycle_request"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 1,
+      monotonicStartMs: 100,
+    })
+
+    recorder.recordScopeClosed({
+      at: 2,
+      monotonicMs: 120,
+      lifecycleActionID: "lifecycle:instance_reload:request",
+      lifecycleKind: "instance_reload",
+      lifecycleAffectedDirectoryKeys: ["dir:request"],
+      lifecycleOrigin: { source: "server_handler", operation: "instance.reload", reason: "project.git.init" },
+      lifecycleRequest: {
+        method: "POST",
+        path: "/project/git/init",
+        source: "renderer",
+        directory_key: "dir:request",
+        workspace_id: "workspace-request",
+        client_action: { id: "client-action-request", kind: "project.git.init" },
+      },
+    })
+
+    const incident = recorder.finalize({ completedAt: 3, monotonicMs: 130 }).incident
+    expect(incident?.provenance.lifecycle?.request).toMatchObject({
+      method: "POST",
+      path: "/project/git/init",
+      source: "renderer",
+      directory_key: "dir:request",
+      workspace_id: "workspace-request",
+      client_action: { id: "client-action-request", kind: "project.git.init" },
+    })
+    expect(RunIncident.toExportChain(incident!).nearest_request).toMatchObject({
+      method: "POST",
+      path: "/project/git/init",
+      source: "renderer",
+      client_action: { id: "client-action-request", kind: "project.git.init" },
+    })
+  })
+
+  test("clones lifecycle provenance before storing recorder summaries", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_lifecycle_clone"),
+      traceID: MessageID.make("msg_lifecycle_clone"),
+      sessionID: SessionID.make("ses_lifecycle_clone"),
+      messageID: MessageID.make("msg_lifecycle_clone"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const keys = ["dir:original"]
+    const origin = { source: "runtime", operation: "instance.dispose", reason: "original" }
+    recorder.recordScopeClosed({
+      at: 20,
+      monotonicMs: 200,
+      lifecycleActionID: "lifecycle:instance_dispose:clone",
+      lifecycleKind: "instance_dispose",
+      lifecycleAffectedDirectoryKeys: keys,
+      lifecycleOrigin: origin,
+    })
+
+    keys.push("dir:mutated")
+    origin.reason = "mutated"
+
+    const summary = recorder.finalize({ completedAt: 21, monotonicMs: 210 })
+    expect(summary.lifecycle?.affected_directory_keys).toEqual(["dir:original"])
+    expect(summary.lifecycle?.origin?.reason).toBe("original")
+    summary.lifecycle?.affected_directory_keys.push("dir:summary-mutated")
+    if (summary.lifecycle?.origin) summary.lifecycle.origin.reason = "summary-mutated"
+    expect(summary.incident?.provenance.lifecycle?.affected_directory_keys).toEqual(["dir:original"])
+    expect(summary.incident?.provenance.lifecycle?.origin?.reason).toBe("original")
   })
 
   test("records tool execution effect facts conservatively", () => {
