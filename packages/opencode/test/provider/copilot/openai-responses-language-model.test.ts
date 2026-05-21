@@ -312,6 +312,22 @@ describe("OpenAIResponsesLanguageModel function call materialization", () => {
     expect(toolCalls(parts)[0]).toMatchObject({ toolCallId: "call_1", input: "{}" })
   })
 
+  test("ignores late argument delta after arguments.done and output_item.done duplicate", async () => {
+    const parts = await streamParts([
+      responseCreated(),
+      functionCallAdded(),
+      functionCallArgumentsDone({ seq: 3, args: '{"path":"done"}' }),
+      functionCallDone({ seq: 4, args: '{"path":"done"}' }),
+      functionCallArgumentsDelta({ seq: 5, delta: '{"path":"late"}' }),
+      responseCompleted(6),
+    ])
+
+    expect(errors(parts)).toHaveLength(0)
+    expect(toolCalls(parts)).toHaveLength(1)
+    expect(toolCalls(parts)[0]).toMatchObject({ input: '{"path":"done"}' })
+    expect(finish(parts)).toMatchObject({ finishReason: { unified: "tool-calls" } })
+  })
+
   test("blocks materialization when arguments.done name does not match added function name", async () => {
     const parts = await streamParts([
       responseCreated(),

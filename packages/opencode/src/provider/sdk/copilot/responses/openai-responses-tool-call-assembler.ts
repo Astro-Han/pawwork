@@ -95,7 +95,6 @@ export class ResponsesToolCallAssembler {
       return [this.error(message)]
     }
     if (state.value.materialized) {
-      this.remove(state.value)
       return []
     }
 
