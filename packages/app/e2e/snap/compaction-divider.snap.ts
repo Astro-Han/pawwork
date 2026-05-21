@@ -93,6 +93,10 @@ test("compaction-divider", async ({ page, project, assistant }) => {
   await seedTurn(projectSdk, directory, failedSessionID, "Seed for failed")
   await project.gotoSession(failedSessionID)
   await assistant.error(400, { error: { type: "BadRequest", message: "Compaction model rejected the request" } })
+  // Summarize must now surface the failure: the route reads the placeholder's
+  // `error` field after the loop returns and rethrows as UnknownError, so
+  // SDK callers cannot silently see `true` for a visibly failed compaction.
+  let summarizeFailureSurfaced = false
   try {
     await projectSdk.session.summarize({
       sessionID: failedSessionID,
@@ -100,8 +104,9 @@ test("compaction-divider", async ({ page, project, assistant }) => {
       modelID: "big-pickle",
     })
   } catch {
-    // expected — summarize surfaces the same error to the API client too
+    summarizeFailureSurfaced = true
   }
+  if (!summarizeFailureSurfaced) throw new Error("summarize should reject when compaction fails pre-summary")
   await waitForState(page, "failed", 45_000)
   shots.push(await captureDivider(page, "failed"))
 

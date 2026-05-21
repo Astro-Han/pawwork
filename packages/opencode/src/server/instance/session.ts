@@ -1033,6 +1033,23 @@ export const SessionRoutes = lazy(() =>
           auto: body.auto,
         })
         await SessionPrompt.loop({ sessionID })
+        // Compaction is fire-and-forget at the loop level: a pre-summary
+        // failure writes `error` onto the placeholder summary assistant and
+        // returns "stop" without throwing, so summarize would otherwise
+        // resolve `true` for a session that visibly failed. Surface the
+        // error so SDK callers can branch on it. User-initiated aborts are
+        // not failures from the route's perspective.
+        const finalMsgs = await Session.messages({ sessionID })
+        for (let i = finalMsgs.length - 1; i >= 0; i--) {
+          const info = finalMsgs[i].info
+          if (info.role !== "assistant" || info.mode !== "compaction") continue
+          if (info.error && info.error.name !== "MessageAbortedError") {
+            const reason =
+              (info.error.data as { message?: string } | undefined)?.message ?? `Compaction failed (${info.error.name})`
+            throw new NamedError.Unknown({ message: reason })
+          }
+          break
+        }
         return c.json(true)
       },
     )
