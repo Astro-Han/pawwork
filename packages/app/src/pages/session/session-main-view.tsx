@@ -63,8 +63,11 @@ export function SessionMainView(props: {
   size: ReturnType<typeof createSizing>
 }) {
   onMount(() => {
+    const timelineDriverTestRuntime = import.meta.env.DEV || import.meta.env.TEST
+    if (!timelineDriverTestRuntime) return
+
     const handleTimelineDriver = (event: Event) => {
-      if (!timelineDriverEnabled()) return
+      if (!timelineDriverEnabled({ testRuntime: timelineDriverTestRuntime })) return
       const detail = (event as TimelineDriverEvent).detail
       if (detail?.sessionID && detail.sessionID !== props.timelineSessionID) return
       if (detail?.action === "reveal-cached") props.historyWindow.expandForHash(0)

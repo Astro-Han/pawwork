@@ -15,7 +15,8 @@ export type TimelineWindow = Window & {
   }
 }
 
-export const timelineDriverEnabled = () => {
-  if (typeof window === "undefined") return false
-  return (window as TimelineWindow).__opencode_e2e?.timeline?.enabled === true
+export const timelineDriverEnabled = (input?: { testRuntime?: boolean; windowRef?: TimelineWindow }) => {
+  if (!input?.testRuntime) return false
+  const win = input.windowRef ?? (typeof window === "undefined" ? undefined : (window as TimelineWindow))
+  return win?.__opencode_e2e?.timeline?.enabled === true
 }
