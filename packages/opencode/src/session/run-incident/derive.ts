@@ -64,7 +64,7 @@ export function deriveIncident(input: DeriveIncidentInput): RunIncident | undefi
       completeness: missingProvenance.length ? "partial" : input.lifecycle ? "partial" : "unknown",
     },
     recovery,
-    evidence: input.evidence.map(({ cause, tool_name, ...event }) => event),
+    evidence: input.evidence.map(({ cause, ...event }) => event),
     user_summary: summary,
     plain_summary: plainSummary({ cause: terminal.cause, facts }),
     missing_provenance: missingProvenance.length ? missingProvenance : undefined,

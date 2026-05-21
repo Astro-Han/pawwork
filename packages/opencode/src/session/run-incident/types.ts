@@ -38,7 +38,7 @@ export type IncidentEvidenceEvent = {
   tool_name?: SafeToolName
 }
 
-export type IncidentEvidenceSummary = Omit<IncidentEvidenceEvent, "cause" | "tool_name">
+export type IncidentEvidenceSummary = Omit<IncidentEvidenceEvent, "cause">
 
 export type TerminalCause =
   | {

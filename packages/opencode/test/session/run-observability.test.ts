@@ -107,8 +107,8 @@ describe("RunObservability", () => {
       attemptID: attempt.attemptID,
       at: 12,
       monotonicMs: 120,
-      toolName: RunObservability.safeToolName("read"),
-      effect: RunObservability.toolEffect("read"),
+      toolName: RunObservability.safeToolName("bash /Users/alice/.ssh/id_rsa?token=secret"),
+      effect: RunObservability.toolEffect("bash"),
     })
     recorder.recordToolCompleted({ attemptID: attempt.attemptID, at: 13, monotonicMs: 130 })
 
@@ -641,6 +641,33 @@ describe("RunObservability", () => {
     expect(summary.side_effect_facts_complete).toBe(true)
     expect(JSON.stringify(summary)).not.toContain("/Users/alice")
     expect(JSON.stringify(summary)).not.toContain("secret")
+  })
+
+  test("keeps sanitized tool names in incident evidence", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_tool_name_evidence"),
+      traceID: MessageID.make("msg_tool_name_evidence"),
+      sessionID: SessionID.make("ses_tool_name_evidence"),
+      messageID: MessageID.make("msg_tool_name_evidence"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordToolExecutionStarted({
+      attemptID: attempt.attemptID,
+      at: 12,
+      monotonicMs: 120,
+      toolName: RunObservability.safeToolName("read"),
+      effect: RunObservability.toolEffect("read"),
+    })
+    recorder.recordToolFailed({ attemptID: attempt.attemptID, at: 13, monotonicMs: 130, error: new Error("failed") })
+
+    const evidence = recorder.finalize({ completedAt: 14, monotonicMs: 140 }).incident?.evidence ?? []
+    expect(String(evidence.find((event) => event.event_type === "tool_execution_started")?.tool_name)).toBe("read")
+    expect(JSON.stringify(evidence)).not.toContain("/Users/alice")
+    expect(JSON.stringify(evidence)).not.toContain("secret")
   })
 
   test("redacts arbitrary error messages to low-cardinality values", () => {
