@@ -1976,6 +1976,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               sessionID,
               auto: task.auto,
               overflow: task.overflow,
+              executionContext: session.executionContext,
             })
             if (result === "stop") break
             continue

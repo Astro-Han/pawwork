@@ -200,6 +200,7 @@ export interface Interface {
     sessionID: SessionID
     auto: boolean
     overflow?: boolean
+    executionContext?: Session.Info["executionContext"]
   }) => Effect.Effect<"continue" | "stop">
   readonly create: (input: {
     sessionID: SessionID
@@ -360,6 +361,7 @@ export const layer: Layer.Layer<
       sessionID: SessionID
       auto: boolean
       overflow?: boolean
+      executionContext?: Session.Info["executionContext"]
     }) {
       const parent = input.messages.findLast((m) => m.info.id === input.parentID)
       if (!parent || parent.info.role !== "user") {
@@ -441,8 +443,8 @@ export const layer: Layer.Layer<
         stripMedia: true,
         toolOutputMaxChars: TOOL_OUTPUT_MAX_CHARS,
       })
-      const currentSession = yield* session.get(input.sessionID)
-      const exec = currentSession.executionContext
+      let exec = input.executionContext
+      if (!exec) exec = (yield* session.get(input.sessionID)).executionContext
       const msg: MessageV2.Assistant = {
         id: MessageID.ascending(),
         role: "assistant",
