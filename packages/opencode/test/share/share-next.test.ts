@@ -11,9 +11,11 @@ import { Bus } from "../../src/bus"
 import { Config } from "../../src/config/config"
 import { Provider } from "../../src/provider/provider"
 import { Session } from "../../src/session"
-import { MessageID, type SessionID } from "../../src/session/schema"
+import { MessageID, PartID, type SessionID } from "../../src/session/schema"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { MessageV2 } from "../../src/session/message-v2"
+import { TurnChange } from "../../src/session/turn-change"
+import { SessionTable } from "../../src/session/session.sql"
 import { ShareNext } from "../../src/share/share-next"
 import { ShareRuntime } from "../../src/share/runtime"
 import { Storage } from "../../src/storage/storage"
@@ -25,11 +27,13 @@ import { testEffect } from "../lib/effect"
 
 const env = Layer.mergeAll(
   Session.defaultLayer,
+  TurnChange.defaultLayer,
   AccountRepo.layer,
   NodeFileSystem.layer,
   CrossSpawnSpawner.defaultLayer,
 )
 const it = testEffect(env)
+const enabledGate = Layer.succeed(ShareRuntime.CloudShareGate, { isEnabled: () => true })
 
 const json = (req: Parameters<typeof HttpClientResponse.fromWeb>[0], body: unknown, status = 200) =>
   HttpClientResponse.fromWeb(
@@ -51,7 +55,8 @@ function live(client: HttpClient.HttpClient) {
     Layer.provide(http),
     Layer.provide(Provider.defaultLayer),
     Layer.provide(Session.defaultLayer),
-    Layer.provide(ShareRuntime.cloudShareGateDefaultLayer),
+    Layer.provide(TurnChange.defaultLayer),
+    Layer.provide(enabledGate),
   )
 }
 
@@ -61,6 +66,7 @@ function wired(client: HttpClient.HttpClient) {
     Bus.layer,
     ShareNext.layer,
     Session.defaultLayer,
+    TurnChange.defaultLayer,
     AccountRepo.layer,
     NodeFileSystem.layer,
     CrossSpawnSpawner.defaultLayer,
@@ -70,12 +76,44 @@ function wired(client: HttpClient.HttpClient) {
     Layer.provide(Config.defaultLayer),
     Layer.provide(http),
     Layer.provide(Provider.defaultLayer),
-    Layer.provide(ShareRuntime.cloudShareGateDefaultLayer),
+    Layer.provide(enabledGate),
   )
 }
 
 const share = (id: SessionID) =>
   Database.use((db) => db.select().from(SessionShareTable).where(eq(SessionShareTable.session_id, id)).get())
+
+async function makeUser(sessionID: SessionID, suffix: string) {
+  const id = MessageID.make(`msg_user_${suffix}`)
+  await Session.updateMessage({
+    id,
+    sessionID,
+    role: "user",
+    time: { created: Date.now() },
+    agent: "build",
+    model: { providerID: ProviderID.make("test"), modelID: ModelID.make("test") },
+  } as unknown as MessageV2.Info)
+  return id
+}
+
+async function makeAssistant(sessionID: SessionID, parentID: MessageID, suffix: string) {
+  const id = MessageID.make(`msg_assistant_${suffix}`)
+  await Session.updateMessage({
+    id,
+    sessionID,
+    role: "assistant",
+    parentID,
+    time: { created: Date.now(), completed: Date.now() },
+    modelID: ModelID.make("test"),
+    providerID: ProviderID.make("test"),
+    mode: "",
+    agent: "build",
+    path: { cwd: "/", root: "/" },
+    cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+  } as unknown as MessageV2.Info)
+  return id
+}
 
 const seed = (url: string, org?: string) =>
   AccountRepo.use((repo) =>
@@ -253,11 +291,17 @@ describe("ShareNext", () => {
           Effect.provide(
             ShareNext.layer.pipe(
               Layer.provide(Bus.layer),
-              Layer.provide(Account.layer.pipe(Layer.provide(AccountRepo.layer), Layer.provide(Layer.succeed(HttpClient.HttpClient, client)))),
+              Layer.provide(
+                Account.layer.pipe(
+                  Layer.provide(AccountRepo.layer),
+                  Layer.provide(Layer.succeed(HttpClient.HttpClient, client)),
+                ),
+              ),
               Layer.provide(Config.defaultLayer),
               Layer.provide(Layer.succeed(HttpClient.HttpClient, client)),
               Layer.provide(Provider.defaultLayer),
               Layer.provide(Session.defaultLayer),
+              Layer.provide(TurnChange.defaultLayer),
               Layer.provide(disabledGate),
             ),
           ),
@@ -302,63 +346,98 @@ describe("ShareNext", () => {
             ),
           )
 
-          yield* bus.publish(Session.Event.Diff, {
-            sessionID: info.id,
-            diff: [
-              {
-                file: "a.ts",
-                patch:
-                  "Index: a.ts\n===================================================================\n--- a.ts\t\n+++ a.ts\t\n@@ -1,1 +1,1 @@\n-one\n\\ No newline at end of file\n+two\n\\ No newline at end of file\n",
-                additions: 1,
-                deletions: 1,
-                status: "modified",
-              },
-            ],
-          })
-          yield* bus.publish(Session.Event.Diff, {
-            sessionID: info.id,
-            diff: [
-              {
-                file: "b.ts",
-                patch:
-                  "Index: b.ts\n===================================================================\n--- b.ts\t\n+++ b.ts\t\n@@ -1,1 +1,1 @@\n-old\n\\ No newline at end of file\n+new\n\\ No newline at end of file\n",
-                additions: 2,
-                deletions: 0,
-                status: "modified",
-              },
-            ],
-          })
+          yield* bus.publish(Session.Event.TurnChangeInvalidated, { sessionID: info.id })
+          yield* bus.publish(Session.Event.TurnChangeInvalidated, { sessionID: info.id })
           yield* Effect.sleep(1_250)
 
           expect(seen).toHaveLength(1)
           expect(seen[0].url).toBe("https://legacy-share.example.com/api/share/shr_abc/sync")
 
-          const body = JSON.parse(seen[0].body) as {
-            secret: string
-            data: Array<{
-              type: string
-              data: Array<{
-                file: string
-                patch: string
-                additions: number
-                deletions: number
-                status?: string
-              }>
-            }>
-          }
+          const body = JSON.parse(seen[0].body) as { secret: string; data: unknown[] }
           expect(body.secret).toBe("sec_123")
           expect(body.data).toHaveLength(1)
-          expect(body.data[0].type).toBe("session_diff")
-          expect(body.data[0].data).toEqual([
-            {
-              file: "b.ts",
-              patch:
-                "Index: b.ts\n===================================================================\n--- b.ts\t\n+++ b.ts\t\n@@ -1,1 +1,1 @@\n-old\n\\ No newline at end of file\n+new\n\\ No newline at end of file\n",
-              additions: 2,
-              deletions: 0,
-              status: "modified",
-            },
-          ])
+          expect(body.data[0]).toEqual({ type: "session_aggregate", data: { kind: "empty", sessionID: info.id } })
+        }).pipe(Effect.provide(wired(client)))
+      },
+      { config: { enterprise: { url: "https://legacy-share.example.com" } } },
+    ),
+  )
+
+  it.live("ShareNext session aggregate excludes assistants after a part-level revert cutoff", () =>
+    provideTmpdirInstance(
+      () => {
+        const seen: Array<{ url: string; body: string }> = []
+        const client = HttpClient.make((req) => {
+          if (req.url.endsWith("/sync") && req.body._tag === "Uint8Array") {
+            seen.push({ url: req.url, body: new TextDecoder().decode(req.body.body) })
+          }
+          return Effect.succeed(json(req, { ok: true }))
+        })
+
+        return Effect.gen(function* () {
+          const bus = yield* Bus.Service
+          const share = yield* ShareNext.Service
+          const session = yield* Session.Service
+
+          const info = yield* session.create({ title: "part cutoff share" })
+          const userMessageID = yield* Effect.promise(() => makeUser(info.id, "share-part-cutoff"))
+          const firstAssistant = yield* Effect.promise(() =>
+            makeAssistant(info.id, userMessageID, "share-part-cutoff-a1"),
+          )
+          const secondAssistant = yield* Effect.promise(() =>
+            makeAssistant(info.id, userMessageID, "share-part-cutoff-a2"),
+          )
+
+          yield* Effect.sync(() => {
+            TurnChange.recordWrite({
+              sessionID: info.id,
+              messageID: firstAssistant,
+              path: "/repo/part-a1.txt",
+              before: { exists: false },
+              after: { exists: true, content: "a1\n" },
+            })
+            TurnChange.finalize({ sessionID: info.id, messageID: firstAssistant })
+            TurnChange.recordWrite({
+              sessionID: info.id,
+              messageID: secondAssistant,
+              path: "/repo/part-a2.txt",
+              before: { exists: false },
+              after: { exists: true, content: "a2\n" },
+            })
+            TurnChange.finalize({ sessionID: info.id, messageID: secondAssistant })
+            Database.use((db) =>
+              db
+                .update(SessionTable)
+                .set({ revert: { messageID: firstAssistant, partID: PartID.make("prt_share_part_cutoff") } })
+                .where(eq(SessionTable.id, info.id))
+                .run(),
+            )
+          })
+          yield* share.init()
+          yield* Effect.sleep(50)
+          yield* Effect.sync(() =>
+            Database.use((db) =>
+              db
+                .insert(SessionShareTable)
+                .values({
+                  session_id: info.id,
+                  id: "shr_abc",
+                  url: "https://legacy-share.example.com/share/abc",
+                  secret: "sec_123",
+                })
+                .run(),
+            ),
+          )
+
+          yield* bus.publish(Session.Event.TurnChangeInvalidated, { sessionID: info.id })
+          yield* Effect.sleep(1_250)
+
+          expect(seen).toHaveLength(1)
+          const body = JSON.parse(seen[0].body) as { data: Array<{ type: string; data: unknown }> }
+          const aggregate = body.data.find((item) => item.type === "session_aggregate")?.data as {
+            files?: Array<{ path: string }>
+          }
+          expect(aggregate.files?.map((file) => file.path)).toEqual(["part-a1.txt"])
         }).pipe(Effect.provide(wired(client)))
       },
       { config: { enterprise: { url: "https://legacy-share.example.com" } } },
@@ -398,35 +477,17 @@ describe("ShareNext", () => {
             ),
           )
 
-          yield* bus.publish(Session.Event.Diff, {
-            sessionID: info.id,
-            diff: [
-              {
-                file: ".env",
-                patch: "@@\n-TOKEN=old-secret\n+TOKEN=new-secret\n",
-                additions: 1,
-                deletions: 1,
-                status: "modified",
-              },
-            ],
-          })
+          yield* bus.publish(Session.Event.TurnChangeInvalidated, { sessionID: info.id })
           yield* Effect.sleep(1_250)
 
           expect(seen).toHaveLength(1)
-          const body = JSON.parse(seen[0].body) as {
-            data: Array<{ type: string; data: Array<Record<string, unknown>> }>
-          }
+          const body = JSON.parse(seen[0].body) as { data: unknown[] }
           const serialized = JSON.stringify(body)
 
           expect(serialized).not.toContain("old-secret")
           expect(serialized).not.toContain("new-secret")
           expect(serialized).not.toContain("@@")
-          expect(body.data).toEqual([
-            {
-              type: "session_diff",
-              data: [{ file: ".env", patch: "", additions: 0, deletions: 0, status: "modified", sensitive: true }],
-            },
-          ])
+          expect(body.data).toEqual([{ type: "session_aggregate", data: { kind: "empty", sessionID: info.id } }])
         }).pipe(Effect.provide(wired(client)))
       },
       { config: { enterprise: { url: "https://legacy-share.example.com" } } },
@@ -503,9 +564,7 @@ describe("ShareNext", () => {
           expect(message).toMatchObject({
             type: "message",
             data: {
-              summary: {
-                diffs: [{ file: ".env", patch: "", additions: 0, deletions: 0, status: "modified", sensitive: true }],
-              },
+              summary: {},
             },
           })
         }).pipe(Effect.provide(wired(client)))

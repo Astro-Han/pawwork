@@ -38,9 +38,9 @@ export function createCommentRouting(deps: CommentRoutingDeps): CommentRouting {
     const sessionID = deps.activeSessionID()
     if (!sessionID) return false
 
-    const diffs = sync.data.session_diff[sessionID]
-    if (!diffs) return false
-    return diffs.some((diff) => diff.file === path)
+    const aggregate = sync.data.turn_change_aggregate[sessionID]
+    if (!aggregate || aggregate.kind === "empty" || aggregate.kind === "uncaptured") return false
+    return aggregate.files.some((file) => file.restoreState === "applied" && (file.openPath ?? file.path) === path)
   }
 
   const openComment = (item: { path: string; commentID?: string; commentOrigin?: "review" | "file" }) => {

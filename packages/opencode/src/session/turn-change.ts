@@ -3,10 +3,18 @@ import fs from "fs/promises"
 import path from "path"
 import { createTwoFilesPatch, diffLines } from "diff"
 import z from "zod"
-import { eq, and, ne, Database } from "@/storage/db"
+import { eq, and, ne, sql, Database } from "@/storage/db"
 import { count } from "drizzle-orm"
 import { MessageID, SessionID } from "./schema"
-import { MessageTable, TurnChangeDisplayTable, TurnChangeRestoreTable } from "./session.sql"
+import { Bus } from "@/bus"
+import { Event as SessionEvent } from "./session"
+import {
+  MessageTable,
+  SessionTable,
+  TurnChangeDisplayTable,
+  TurnChangeRestoreTable,
+  TurnChangeUncapturedTable,
+} from "./session.sql"
 import { Instance } from "@/project/instance"
 import { isSensitiveTargetPath } from "@/tool/sensitive"
 import { trimDiff } from "@/tool/edit"
@@ -17,9 +25,26 @@ import { Context, Effect, Layer } from "effect"
 import { makeRuntime } from "@/effect/run-service"
 
 export type FileState =
-  | { exists: false; content?: undefined; hash?: string; restorable?: boolean; bom?: boolean; large?: boolean; binary?: boolean }
-  | { exists: true; content?: string; hash?: string; restorable?: boolean; bom?: boolean; large?: boolean; binary?: boolean }
+  | {
+      exists: false
+      content?: undefined
+      hash?: string
+      restorable?: boolean
+      bom?: boolean
+      large?: boolean
+      binary?: boolean
+    }
+  | {
+      exists: true
+      content?: string
+      hash?: string
+      restorable?: boolean
+      bom?: boolean
+      large?: boolean
+      binary?: boolean
+    }
 type Status = "added" | "modified" | "deleted"
+type RestoreState = "applied" | "undone" | "redo_invalidated"
 
 export type DisplayFile = {
   path: string
@@ -34,6 +59,33 @@ export type DisplayFile = {
   restoreAvailable?: boolean
   expandable: boolean
 }
+
+export type AggregateFile = DisplayFile & {
+  restoreState: RestoreState
+}
+
+export type TurnChangeAggregate =
+  | { kind: "empty"; sessionID: SessionID; turnID?: MessageID; messageID?: MessageID }
+  | {
+      kind: "captured"
+      sessionID: SessionID
+      turnID?: MessageID
+      messageID?: MessageID
+      files: AggregateFile[]
+      truncated?: boolean
+      omittedCount?: number
+    }
+  | { kind: "uncaptured"; sessionID: SessionID; turnID?: MessageID; messageID?: MessageID; count: number }
+  | {
+      kind: "mixed"
+      sessionID: SessionID
+      turnID?: MessageID
+      messageID?: MessageID
+      files: AggregateFile[]
+      count: number
+      truncated?: boolean
+      omittedCount?: number
+    }
 
 export type Display = {
   sessionID: SessionID
@@ -54,6 +106,12 @@ export type RecordWriteInput = {
   after: FileState
 }
 
+export type RecordUncapturedInput = {
+  sessionID: SessionID
+  messageID: MessageID
+  count?: number
+}
+
 export type SkippedMessage = {
   messageID: MessageID
   reason: "conflict" | "permission_denied"
@@ -64,7 +122,13 @@ export type MutationResult =
   | { status: "applied"; display: Display; skipped?: SkippedMessage[]; mutatedPaths?: string[] }
   | {
       status: "blocked"
-      reason: "conflict" | "restore_missing" | "permission_denied" | "unsupported_size" | "write_failed" | "rollback_failed"
+      reason:
+        | "conflict"
+        | "restore_missing"
+        | "permission_denied"
+        | "unsupported_size"
+        | "write_failed"
+        | "rollback_failed"
       files: Array<{ path: string; reason: string; omittedCount?: number }>
       skipped?: SkippedMessage[]
     }
@@ -134,9 +198,11 @@ function displayPath(file: string) {
   if (file.startsWith(directory + path.sep) || file === directory)
     return path.relative(directory, file).replaceAll("\\", "/")
   const worktree = Instance.worktree
-  if (file.startsWith(worktree + path.sep) || file === worktree) return path.relative(worktree, file).replaceAll("\\", "/")
+  if (file.startsWith(worktree + path.sep) || file === worktree)
+    return path.relative(worktree, file).replaceAll("\\", "/")
   const home = Global.Path.home
-  if (home && (file === home || file.startsWith(home + path.sep))) return `~/${path.relative(home, file).replaceAll("\\", "/")}`
+  if (home && (file === home || file.startsWith(home + path.sep)))
+    return `~/${path.relative(home, file).replaceAll("\\", "/")}`
   return path.basename(file)
 }
 
@@ -155,7 +221,9 @@ function nextDisplayPath(sessionID: SessionID, messageID: MessageID, file: strin
   if (!isOpaqueExternalPath(file)) return base
   const existing = rows(sessionID, messageID)
   const sameBase = existing.filter(
-    (row) => row.data.path !== file && (row.data.displayPath === base || row.data.displayPath.startsWith(`${base} · external #`)),
+    (row) =>
+      row.data.path !== file &&
+      (row.data.displayPath === base || row.data.displayPath.startsWith(`${base} · external #`)),
   )
   return sameBase.length === 0 ? base : `${base} · external #${sameBase.length + 1}`
 }
@@ -165,7 +233,13 @@ function byteSize(text: string) {
 }
 
 function stateHash(content: string, bom?: boolean) {
-  return "sha256:" + crypto.createHash("sha256").update(`${bom ? "bom:1" : "bom:0"}\0${content}`).digest("hex")
+  return (
+    "sha256:" +
+    crypto
+      .createHash("sha256")
+      .update(`${bom ? "bom:1" : "bom:0"}\0${content}`)
+      .digest("hex")
+  )
 }
 
 function isPermissionCode(code: string | undefined) {
@@ -211,7 +285,11 @@ function toDisplay(file: RestoreFile): DisplayFile | undefined {
   const beforeText = file.before.exists ? (file.before.content ?? "") : ""
   const afterText = file.after.exists ? (file.after.content ?? "") : ""
   const binary = !!file.before.binary || !!file.after.binary || isBinary(beforeText ?? "") || isBinary(afterText ?? "")
-  const large = !!file.before.large || !!file.after.large || byteSize(beforeText ?? "") > DISPLAY_LIMIT || byteSize(afterText ?? "") > DISPLAY_LIMIT
+  const large =
+    !!file.before.large ||
+    !!file.after.large ||
+    byteSize(beforeText ?? "") > DISPLAY_LIMIT ||
+    byteSize(afterText ?? "") > DISPLAY_LIMIT
   if (binary || large) {
     return {
       path: file.displayPath,
@@ -228,7 +306,11 @@ function toDisplay(file: RestoreFile): DisplayFile | undefined {
     path: file.displayPath,
     status: currentStatus,
     ...counts,
-    patch: trimDiff(createTwoFilesPatch(file.displayPath, file.displayPath, beforeText, afterText, undefined, undefined, { context: 3 })),
+    patch: trimDiff(
+      createTwoFilesPatch(file.displayPath, file.displayPath, beforeText, afterText, undefined, undefined, {
+        context: 3,
+      }),
+    ),
     expandable: true,
   }
 }
@@ -347,6 +429,10 @@ export namespace TurnChange {
     expandable: z.boolean(),
   })
 
+  export const AggregateFileSchema = DisplayFileSchema.extend({
+    restoreState: z.enum(["applied", "undone", "redo_invalidated"]),
+  })
+
   export const DisplaySchema = z.object({
     sessionID: SessionID.zod,
     turnID: MessageID.zod,
@@ -357,6 +443,41 @@ export namespace TurnChange {
     omittedCount: z.number().optional(),
     files: z.array(DisplayFileSchema),
   })
+
+  export const AggregateSchema = z.discriminatedUnion("kind", [
+    z.object({
+      kind: z.literal("empty"),
+      sessionID: SessionID.zod,
+      turnID: MessageID.zod.optional(),
+      messageID: MessageID.zod.optional(),
+    }),
+    z.object({
+      kind: z.literal("captured"),
+      sessionID: SessionID.zod,
+      turnID: MessageID.zod.optional(),
+      messageID: MessageID.zod.optional(),
+      files: z.array(AggregateFileSchema),
+      truncated: z.boolean().optional(),
+      omittedCount: z.number().optional(),
+    }),
+    z.object({
+      kind: z.literal("uncaptured"),
+      sessionID: SessionID.zod,
+      turnID: MessageID.zod.optional(),
+      messageID: MessageID.zod.optional(),
+      count: z.number(),
+    }),
+    z.object({
+      kind: z.literal("mixed"),
+      sessionID: SessionID.zod,
+      turnID: MessageID.zod.optional(),
+      messageID: MessageID.zod.optional(),
+      files: z.array(AggregateFileSchema),
+      count: z.number(),
+      truncated: z.boolean().optional(),
+      omittedCount: z.number().optional(),
+    }),
+  ])
 
   export const SkippedMessageSchema = z.object({
     messageID: MessageID.zod,
@@ -429,7 +550,9 @@ export namespace TurnChange {
   }
 
   function getRestore(input: { sessionID: SessionID; messageID: MessageID; path: string }) {
-    return Database.use((db) => db.select().from(TurnChangeRestoreTable).where(restoreWhere(input)).get()) as RestoreRow | undefined
+    return Database.use((db) => db.select().from(TurnChangeRestoreTable).where(restoreWhere(input)).get()) as
+      | RestoreRow
+      | undefined
   }
 
   type ServiceState = {
@@ -455,7 +578,11 @@ export namespace TurnChange {
           time_updated: time,
         })
         .onConflictDoUpdate({
-          target: [TurnChangeRestoreTable.session_id, TurnChangeRestoreTable.message_id, TurnChangeRestoreTable.file_path],
+          target: [
+            TurnChangeRestoreTable.session_id,
+            TurnChangeRestoreTable.message_id,
+            TurnChangeRestoreTable.file_path,
+          ],
           set: {
             data: { overflow: true, omittedCount } satisfies RestoreOverflow,
             time_updated: time,
@@ -485,11 +612,7 @@ export namespace TurnChange {
       }
       if (existing) {
         Database.use((db) =>
-          db
-            .update(TurnChangeRestoreTable)
-            .set({ data, time_updated: time })
-            .where(restoreWhere(input))
-            .run(),
+          db.update(TurnChangeRestoreTable).set({ data, time_updated: time }).where(restoreWhere(input)).run(),
         )
         return
       }
@@ -556,6 +679,32 @@ export namespace TurnChange {
     }
   }
 
+  function recordUncapturedInternal(input: RecordUncapturedInput) {
+    if (!input.messageID) return
+    const increment = input.count ?? 1
+    if (increment <= 0) return
+    const time = now()
+    Database.use((db) =>
+      db
+        .insert(TurnChangeUncapturedTable)
+        .values({
+          session_id: input.sessionID,
+          message_id: input.messageID,
+          count: increment,
+          time_created: time,
+          time_updated: time,
+        })
+        .onConflictDoUpdate({
+          target: [TurnChangeUncapturedTable.session_id, TurnChangeUncapturedTable.message_id],
+          set: {
+            count: sql`${TurnChangeUncapturedTable.count} + ${increment}`,
+            time_updated: time,
+          },
+        })
+        .run(),
+    )
+  }
+
   function finalizeInternal(input: { sessionID: SessionID; messageID: MessageID }) {
     try {
       const files = rows(input.sessionID, input.messageID)
@@ -575,8 +724,7 @@ export namespace TurnChange {
         files: displayFiles,
       }
       Database.transaction((db) => {
-        db
-          .update(TurnChangeDisplayTable)
+        db.update(TurnChangeDisplayTable)
           .set({ state: "redo_invalidated", time_updated: time })
           .where(
             and(
@@ -586,8 +734,7 @@ export namespace TurnChange {
             ),
           )
           .run()
-        db
-          .insert(TurnChangeDisplayTable)
+        db.insert(TurnChangeDisplayTable)
           .values({
             session_id: input.sessionID,
             message_id: input.messageID,
@@ -601,8 +748,7 @@ export namespace TurnChange {
             set: { data: display, state: "applied", time_updated: time },
           })
           .run()
-        db
-          .update(TurnChangeRestoreTable)
+        db.update(TurnChangeRestoreTable)
           .set({ finalized: true, time_updated: time })
           .where(
             and(
@@ -682,8 +828,9 @@ export namespace TurnChange {
   function aggregateTurnInternal(input: {
     sessionID: SessionID
     userMessageID: MessageID
+    assistants?: MessageID[]
   }): Display | undefined {
-    const assistants = listAssistantsForUser(input.sessionID, input.userMessageID)
+    const assistants = input.assistants ?? listAssistantsForUser(input.sessionID, input.userMessageID)
     if (!assistants.length) return
 
     const allRestore: RestoreRow[] = []
@@ -723,7 +870,190 @@ export namespace TurnChange {
     return withOpenPaths(display, allRestore)
   }
 
-  async function mutate(input: { sessionID: SessionID; messageID: MessageID; mode: "undo" | "redo" }): Promise<MutationResult> {
+  function restoreStateForAssistants(sessionID: SessionID, assistants: MessageID[]): RestoreState {
+    let fallback: RestoreState = "redo_invalidated"
+    for (const messageID of assistants) {
+      const display = displayRow(sessionID, messageID)
+      if (!display) continue
+      if (display.state === "applied") return "applied"
+      fallback = display.state
+    }
+    return fallback
+  }
+
+  function uncapturedCount(sessionID: SessionID, messageIDs: MessageID[]) {
+    let total = 0
+    for (const messageID of messageIDs) {
+      const row = Database.use((db) =>
+        db
+          .select({ value: TurnChangeUncapturedTable.count })
+          .from(TurnChangeUncapturedTable)
+          .where(
+            and(
+              eq(TurnChangeUncapturedTable.session_id, sessionID),
+              eq(TurnChangeUncapturedTable.message_id, messageID),
+            ),
+          )
+          .get(),
+      )
+      total += row?.value ?? 0
+    }
+    return total
+  }
+
+  function capturedAggregate(input: { sessionID: SessionID; userMessageID: MessageID; assistants: MessageID[] }) {
+    const display = aggregateTurnInternal(input)
+    if (!display) return { files: [] as AggregateFile[] }
+    const appliedRows: RestoreRow[] = []
+    const mutedRows: Array<{ row: RestoreRow; restoreState: RestoreState }> = []
+    for (const messageID of input.assistants) {
+      const restoreState = displayRow(input.sessionID, messageID)?.state ?? "redo_invalidated"
+      for (const row of rows(input.sessionID, messageID)) {
+        if (restoreState === "applied") appliedRows.push(row)
+        else mutedRows.push({ row, restoreState })
+      }
+    }
+    const appliedFiles = disambiguateAggregatedRestoreFiles(collapseRestoreFiles(appliedRows))
+      .map((file) => {
+        const displayFile = toDisplay(file)
+        if (!displayFile) return
+        return { ...displayFile, openPath: file.path, restoreState: "applied" as const }
+      })
+      .filter(Boolean) as AggregateFile[]
+    const appliedPaths = new Set(appliedRows.map((row) => row.data.path))
+    const latestMutedByPath = new Map<string, { file: RestoreFile; restoreState: RestoreState }>()
+    for (const { row, restoreState } of mutedRows) {
+      if (appliedPaths.has(row.data.path)) continue
+      latestMutedByPath.set(row.data.path, { file: row.data, restoreState })
+    }
+    const mutedFiles = disambiguateAggregatedRestoreFiles(
+      Array.from(latestMutedByPath.values()).map((item) => item.file),
+    )
+      .map((file) => {
+        const displayFile = toDisplay(file)
+        if (!displayFile) return
+        const restoreState = latestMutedByPath.get(file.path)?.restoreState ?? "redo_invalidated"
+        return { ...displayFile, openPath: file.path, restoreState }
+      })
+      .filter(Boolean) as AggregateFile[]
+    return {
+      files: [...appliedFiles, ...mutedFiles],
+      ...(display.truncated ? { truncated: true, omittedCount: display.omittedCount } : {}),
+    }
+  }
+
+  function aggregateTurnUnionInternal(input: { sessionID: SessionID; userMessageID: MessageID }): TurnChangeAggregate {
+    const assistants = listAssistantsForUser(input.sessionID, input.userMessageID)
+    const captured = capturedAggregate({ ...input, assistants })
+    const files = captured.files
+    const count = uncapturedCount(input.sessionID, assistants)
+    const base = { sessionID: input.sessionID, turnID: input.userMessageID, messageID: input.userMessageID }
+    const truncated = captured.truncated ? { truncated: true, omittedCount: captured.omittedCount } : {}
+    if (files.length && count > 0) return { ...base, kind: "mixed", files, count, ...truncated }
+    if (files.length) return { ...base, kind: "captured", files, ...truncated }
+    if (count > 0) return { ...base, kind: "uncaptured", count }
+    return { ...base, kind: "empty" }
+  }
+
+  function aggregateSessionFromTurnsInternal(input: { sessionID: SessionID }): TurnChangeAggregate {
+    const session = Database.use((db) =>
+      db.select().from(SessionTable).where(eq(SessionTable.id, input.sessionID)).get(),
+    )
+    const revert = session?.revert
+    const cutoff = revert?.messageID
+    const messages = Database.use((db) =>
+      db
+        .select()
+        .from(MessageTable)
+        .where(eq(MessageTable.session_id, input.sessionID))
+        .orderBy(MessageTable.time_created, MessageTable.id)
+        .all(),
+    )
+    const activeUsers = new Set<MessageID>()
+    const activeAssistants: MessageID[] = []
+    const assistantOrder = new Map<MessageID, number>()
+    const cutoffIndex = cutoff ? messages.findIndex((row) => row.id === cutoff) : -1
+    const cutoffRow = cutoffIndex >= 0 ? messages[cutoffIndex] : undefined
+    const cutoffData = cutoffRow?.data as { role?: string; parentID?: MessageID } | undefined
+    const beforeCutoff = (index: number) =>
+      !cutoff || cutoffIndex < 0 || (revert?.partID ? index <= cutoffIndex : index < cutoffIndex)
+    for (const [index, row] of messages.entries()) {
+      const data = row.data as { role?: string; parentID?: MessageID } | undefined
+      const parentOfPartCutoffAssistant =
+        revert?.partID && cutoffData?.role === "assistant" && row.id === cutoffData.parentID
+      if (data?.role === "user" && (beforeCutoff(index) || parentOfPartCutoffAssistant)) activeUsers.add(row.id)
+    }
+    for (const [index, row] of messages.entries()) {
+      const data = row.data as { role?: string; parentID?: MessageID } | undefined
+      if (data?.role !== "assistant") continue
+      const withinPartCutoffUserTurn = revert?.partID && cutoffData?.role === "user" && data.parentID === cutoff
+      const isPartCutoffAssistant = revert?.partID && row.id === cutoff
+      if (!beforeCutoff(index) && !withinPartCutoffUserTurn && !isPartCutoffAssistant) continue
+      if (!data.parentID || !activeUsers.has(data.parentID)) continue
+      assistantOrder.set(row.id, activeAssistants.length)
+      activeAssistants.push(row.id)
+    }
+    const activeAssistantSet = new Set(activeAssistants)
+    const displayRows = Database.use((db) =>
+      db.select().from(TurnChangeDisplayTable).where(eq(TurnChangeDisplayTable.session_id, input.sessionID)).all(),
+    ) as Array<{ message_id: MessageID; data: Display; state: RestoreState }>
+    const displayByMessage = new Map<MessageID, { data: Display; state: RestoreState }>()
+    let truncatedCount = 0
+    for (const row of displayRows) {
+      if (!activeAssistantSet.has(row.message_id)) continue
+      displayByMessage.set(row.message_id, { data: row.data, state: row.state })
+      if (row.state === "applied" && row.data.truncated) truncatedCount += row.data.omittedCount ?? 0
+    }
+    const restoreRows = (
+      Database.use((db) =>
+        db.select().from(TurnChangeRestoreTable).where(eq(TurnChangeRestoreTable.session_id, input.sessionID)).all(),
+      ) as RestoreTableRow[]
+    )
+      .filter(
+        (row): row is RestoreRow =>
+          activeAssistantSet.has(row.message_id) &&
+          !isOverflow(row.data) &&
+          displayByMessage.get(row.message_id)?.state === "applied",
+      )
+      .sort((a, b) => {
+        const orderA = assistantOrder.get(a.message_id) ?? 0
+        const orderB = assistantOrder.get(b.message_id) ?? 0
+        return orderA === orderB ? a.position - b.position : orderA - orderB
+      })
+    const files = disambiguateAggregatedRestoreFiles(collapseRestoreFiles(restoreRows))
+      .map((file) => {
+        const display = toDisplay(file)
+        if (!display) return
+        return {
+          ...display,
+          openPath: file.path,
+          restoreState: "applied" as const,
+        }
+      })
+      .filter(Boolean) as AggregateFile[]
+    let count = 0
+    const uncapturedRows = Database.use((db) =>
+      db
+        .select()
+        .from(TurnChangeUncapturedTable)
+        .where(eq(TurnChangeUncapturedTable.session_id, input.sessionID))
+        .all(),
+    ) as Array<{ message_id: MessageID; count: number }>
+    for (const row of uncapturedRows) {
+      if (activeAssistantSet.has(row.message_id)) count += row.count
+    }
+    const truncated = truncatedCount > 0 ? { truncated: true, omittedCount: truncatedCount } : {}
+    if (files.length && count > 0) return { kind: "mixed", sessionID: input.sessionID, files, count, ...truncated }
+    if (files.length) return { kind: "captured", sessionID: input.sessionID, files, ...truncated }
+    if (count > 0) return { kind: "uncaptured", sessionID: input.sessionID, count }
+    return { kind: "empty", sessionID: input.sessionID }
+  }
+
+  async function mutate(input: {
+    sessionID: SessionID
+    messageID: MessageID
+    mode: "undo" | "redo"
+  }): Promise<MutationResult> {
     const display = displayRow(input.sessionID, input.messageID)
     if (!display) return { status: "blocked", reason: "restore_missing", files: [] }
     const sourceState = input.mode === "undo" ? "applied" : "undone"
@@ -748,7 +1078,8 @@ export namespace TurnChange {
         continue
       }
       const current = await currentState(row.data.path)
-      if (isPermissionCode(stateErrorCode(current))) blocked.push({ path: row.data.displayPath, reason: "permission_denied" })
+      if (isPermissionCode(stateErrorCode(current)))
+        blocked.push({ path: row.data.displayPath, reason: "permission_denied" })
       else if (!canRestore(current)) blocked.push({ path: row.data.displayPath, reason: "unavailable" })
       else if (!same(current, expected)) blocked.push({ path: row.data.displayPath, reason: "changed" })
     }
@@ -785,7 +1116,11 @@ export namespace TurnChange {
         }
       if (err instanceof RestoreConflictError)
         return { status: "blocked", reason: "conflict", files: [{ path: err.displayPath, reason: "changed" }] }
-      return { status: "blocked", reason: "write_failed", files: rollback.map((item) => ({ path: displayPath(item.file), reason: "rollback" })) }
+      return {
+        status: "blocked",
+        reason: "write_failed",
+        files: rollback.map((item) => ({ path: displayPath(item.file), reason: "rollback" })),
+      }
     }
 
     const nextState = input.mode === "undo" ? "undone" : "applied"
@@ -797,7 +1132,12 @@ export namespace TurnChange {
         db
           .update(TurnChangeDisplayTable)
           .set({ state: nextState, data: persistedDisplay, time_updated: time })
-          .where(and(eq(TurnChangeDisplayTable.session_id, input.sessionID), eq(TurnChangeDisplayTable.message_id, input.messageID)))
+          .where(
+            and(
+              eq(TurnChangeDisplayTable.session_id, input.sessionID),
+              eq(TurnChangeDisplayTable.message_id, input.messageID),
+            ),
+          )
           .run(),
       )
     } catch (err) {
@@ -825,7 +1165,10 @@ export namespace TurnChange {
   }): Promise<{
     actionable: MessageID[]
     skipped: SkippedMessage[]
-    fatal?: { reason: "restore_missing" | "unsupported_size"; files: Array<{ path: string; reason: string; omittedCount?: number }> }
+    fatal?: {
+      reason: "restore_missing" | "unsupported_size"
+      files: Array<{ path: string; reason: string; omittedCount?: number }>
+    }
   }> {
     const assistants = listAssistantsForUser(input.sessionID, input.userMessageID)
     const ordered = input.mode === "undo" ? [...assistants].reverse() : assistants
@@ -874,7 +1217,8 @@ export namespace TurnChange {
           current = await currentState(row.data.path)
           virtualState.set(row.data.path, current)
         }
-        if (isPermissionCode(stateErrorCode(current))) blocked.push({ path: row.data.displayPath, reason: "permission_denied" })
+        if (isPermissionCode(stateErrorCode(current)))
+          blocked.push({ path: row.data.displayPath, reason: "permission_denied" })
         else if (!canRestore(current)) blocked.push({ path: row.data.displayPath, reason: "unavailable" })
         else if (!same(current, expected)) blocked.push({ path: row.data.displayPath, reason: "changed" })
       }
@@ -908,10 +1252,17 @@ export namespace TurnChange {
       mode: input.mode,
     })
     if (preflight.fatal) {
-      return { status: "blocked", reason: preflight.fatal.reason, files: preflight.fatal.files, skipped: preflight.skipped }
+      return {
+        status: "blocked",
+        reason: preflight.fatal.reason,
+        files: preflight.fatal.files,
+        skipped: preflight.skipped,
+      }
     }
     if (!input.force && preflight.skipped.length) {
-      const reason = preflight.skipped.some((item) => item.reason === "permission_denied") ? "permission_denied" : "conflict"
+      const reason = preflight.skipped.some((item) => item.reason === "permission_denied")
+        ? "permission_denied"
+        : "conflict"
       const files = preflight.skipped.flatMap((item) => item.files)
       return { status: "blocked", reason, files, skipped: preflight.skipped }
     }
@@ -956,7 +1307,8 @@ export namespace TurnChange {
           }
           return { status: "blocked", reason: result.reason, files: result.files, skipped: preflight.skipped }
         }
-        const reason: SkippedMessage["reason"] = result.reason === "permission_denied" ? "permission_denied" : "conflict"
+        const reason: SkippedMessage["reason"] =
+          result.reason === "permission_denied" ? "permission_denied" : "conflict"
         aggregatedSkipped.push({
           messageID,
           reason,
@@ -974,31 +1326,35 @@ export namespace TurnChange {
     }
 
     if (!mutatedPaths.length) {
-      const reason = aggregatedSkipped.some((item) => item.reason === "permission_denied") ? "permission_denied" : "conflict"
+      const reason = aggregatedSkipped.some((item) => item.reason === "permission_denied")
+        ? "permission_denied"
+        : "conflict"
       const files = aggregatedSkipped.flatMap((item) => item.files)
       return { status: "blocked", reason, files, ...(aggregatedSkipped.length ? { skipped: aggregatedSkipped } : {}) }
     }
 
     const aggregated = aggregateTurnInternal({ sessionID: input.sessionID, userMessageID: input.userMessageID })
-    const display: Display = aggregated ?? (() => {
-      const assistants = listAssistantsForUser(input.sessionID, input.userMessageID)
-      let hasApplied = false
-      let hasUndone = false
-      for (const messageID of assistants) {
-        const row = displayRow(input.sessionID, messageID)
-        if (!row) continue
-        if (row.state === "applied") hasApplied = true
-        if (row.state === "undone") hasUndone = true
-      }
-      return {
-        sessionID: input.sessionID,
-        turnID: input.userMessageID,
-        messageID: input.userMessageID,
-        undoAvailable: hasApplied,
-        redoAvailable: hasUndone,
-        files: [],
-      }
-    })()
+    const display: Display =
+      aggregated ??
+      (() => {
+        const assistants = listAssistantsForUser(input.sessionID, input.userMessageID)
+        let hasApplied = false
+        let hasUndone = false
+        for (const messageID of assistants) {
+          const row = displayRow(input.sessionID, messageID)
+          if (!row) continue
+          if (row.state === "applied") hasApplied = true
+          if (row.state === "undone") hasUndone = true
+        }
+        return {
+          sessionID: input.sessionID,
+          turnID: input.userMessageID,
+          messageID: input.userMessageID,
+          undoAvailable: hasApplied,
+          redoAvailable: hasUndone,
+          files: [],
+        }
+      })()
     return {
       status: "applied",
       display,
@@ -1026,12 +1382,18 @@ export namespace TurnChange {
 
   export interface Interface {
     readonly recordWrite: (input: RecordWriteInput) => Effect.Effect<void>
+    readonly recordUncaptured: (input: RecordUncapturedInput) => Effect.Effect<void>
     readonly finalize: (input: { sessionID: SessionID; messageID: MessageID }) => Effect.Effect<Display | undefined>
     readonly get: (input: { sessionID: SessionID; messageID: MessageID }) => Effect.Effect<Display | undefined>
     readonly aggregateTurn: (input: {
       sessionID: SessionID
       userMessageID: MessageID
     }) => Effect.Effect<Display | undefined>
+    readonly aggregateTurnUnion: (input: {
+      sessionID: SessionID
+      userMessageID: MessageID
+    }) => Effect.Effect<TurnChangeAggregate>
+    readonly aggregateSessionFromTurns: (input: { sessionID: SessionID }) => Effect.Effect<TurnChangeAggregate>
     readonly undo: (input: { sessionID: SessionID; messageID: MessageID }) => Effect.Effect<MutationResult>
     readonly redo: (input: { sessionID: SessionID; messageID: MessageID }) => Effect.Effect<MutationResult>
     readonly aggregateTurnUndo: (input: {
@@ -1048,16 +1410,23 @@ export namespace TurnChange {
 
   export class Service extends Context.Service<Service, Interface>()("@pawwork/TurnChange") {}
 
-  export const layer: Layer.Layer<Service, never, never> = Layer.effect(
+  export const layer: Layer.Layer<Service, never, Bus.Service> = Layer.effect(
     Service,
     Effect.gen(function* () {
+      const bus = yield* Bus.Service
       const state: ServiceState = { locks: new Map() }
       return Service.of({
         recordWrite: Effect.fn("TurnChange.recordWrite")(function* (input) {
           recordWriteInternal(input)
         }),
+        recordUncaptured: Effect.fn("TurnChange.recordUncaptured")(function* (input) {
+          recordUncapturedInternal(input)
+          yield* bus.publish(SessionEvent.TurnChangeInvalidated, { sessionID: input.sessionID })
+        }),
         finalize: Effect.fn("TurnChange.finalize")(function* (input) {
-          return finalizeInternal(input)
+          const display = finalizeInternal(input)
+          if (display) yield* bus.publish(SessionEvent.TurnChangeInvalidated, { sessionID: input.sessionID })
+          return display
         }),
         get: Effect.fn("TurnChange.get")(function* (input) {
           return getInternal(input)
@@ -1065,35 +1434,71 @@ export namespace TurnChange {
         aggregateTurn: Effect.fn("TurnChange.aggregateTurn")(function* (input) {
           return aggregateTurnInternal(input)
         }),
+        aggregateTurnUnion: Effect.fn("TurnChange.aggregateTurnUnion")(function* (input) {
+          return aggregateTurnUnionInternal(input)
+        }),
+        aggregateSessionFromTurns: Effect.fn("TurnChange.aggregateSessionFromTurns")(function* (input) {
+          return aggregateSessionFromTurnsInternal(input)
+        }),
         undo: Effect.fn("TurnChange.undo")(function* (input) {
-          return yield* Effect.promise(() => locked(state, input.sessionID, () => mutate({ ...input, mode: "undo" })))
+          const result = yield* Effect.promise(() =>
+            locked(state, input.sessionID, () => mutate({ ...input, mode: "undo" })),
+          )
+          if (result.status === "applied")
+            yield* bus.publish(SessionEvent.TurnChangeInvalidated, { sessionID: input.sessionID })
+          return result
         }),
         redo: Effect.fn("TurnChange.redo")(function* (input) {
-          return yield* Effect.promise(() => locked(state, input.sessionID, () => mutate({ ...input, mode: "redo" })))
+          const result = yield* Effect.promise(() =>
+            locked(state, input.sessionID, () => mutate({ ...input, mode: "redo" })),
+          )
+          if (result.status === "applied")
+            yield* bus.publish(SessionEvent.TurnChangeInvalidated, { sessionID: input.sessionID })
+          return result
         }),
         aggregateTurnUndo: Effect.fn("TurnChange.aggregateTurnUndo")(function* (input) {
-          return yield* Effect.promise(() =>
+          const result = yield* Effect.promise(() =>
             locked(state, input.sessionID, () =>
-              mutateTurn({ sessionID: input.sessionID, userMessageID: input.userMessageID, mode: "undo", force: !!input.force }),
+              mutateTurn({
+                sessionID: input.sessionID,
+                userMessageID: input.userMessageID,
+                mode: "undo",
+                force: !!input.force,
+              }),
             ),
           )
+          if (result.status === "applied")
+            yield* bus.publish(SessionEvent.TurnChangeInvalidated, { sessionID: input.sessionID })
+          return result
         }),
         aggregateTurnRedo: Effect.fn("TurnChange.aggregateTurnRedo")(function* (input) {
-          return yield* Effect.promise(() =>
+          const result = yield* Effect.promise(() =>
             locked(state, input.sessionID, () =>
-              mutateTurn({ sessionID: input.sessionID, userMessageID: input.userMessageID, mode: "redo", force: !!input.force }),
+              mutateTurn({
+                sessionID: input.sessionID,
+                userMessageID: input.userMessageID,
+                mode: "redo",
+                force: !!input.force,
+              }),
             ),
           )
+          if (result.status === "applied")
+            yield* bus.publish(SessionEvent.TurnChangeInvalidated, { sessionID: input.sessionID })
+          return result
         }),
       })
     }),
   )
 
-  export const defaultLayer = layer
+  export const defaultLayer = layer.pipe(Layer.provide(Bus.layer))
   const runtime = makeRuntime(Service, defaultLayer)
 
   export function recordWrite(input: RecordWriteInput) {
     return runtime.runSync((svc) => svc.recordWrite(input))
+  }
+
+  export function recordUncaptured(input: RecordUncapturedInput) {
+    return runtime.runSync((svc) => svc.recordUncaptured(input))
   }
 
   export function finalize(input: { sessionID: SessionID; messageID: MessageID }) {
@@ -1106,6 +1511,14 @@ export namespace TurnChange {
 
   export function aggregateTurn(input: { sessionID: SessionID; userMessageID: MessageID }) {
     return runtime.runSync((svc) => svc.aggregateTurn(input))
+  }
+
+  export function aggregateTurnUnion(input: { sessionID: SessionID; userMessageID: MessageID }) {
+    return runtime.runSync((svc) => svc.aggregateTurnUnion(input))
+  }
+
+  export function aggregateSessionFromTurns(input: { sessionID: SessionID }) {
+    return runtime.runSync((svc) => svc.aggregateSessionFromTurns(input))
   }
 
   export function undo(input: { sessionID: SessionID; messageID: MessageID }) {

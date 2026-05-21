@@ -58,9 +58,12 @@ export const dict: Record<string, string> = {
   "ui.sessionTurn.turnChanges.showInFolder": "Show in folder",
   "ui.sessionTurn.turnChanges.unrestorable": "Not restorable",
   "ui.sessionTurn.turnChanges.undone": "Undone",
+  "ui.sessionTurn.turnChanges.superseded": "Superseded",
+  "ui.sessionTurn.turnChanges.uncaptured": "Some shell changes were not individually captured",
   "ui.sessionTurn.turnChanges.reapply": "Reapply",
   "ui.sessionTurn.turnChanges.confirmTitle": "Some files have been changed since this turn",
-  "ui.sessionTurn.turnChanges.confirmDescription": "PawWork will skip the file(s) below and apply the rest. The skipped files keep their current contents.",
+  "ui.sessionTurn.turnChanges.confirmDescription":
+    "PawWork will skip the file(s) below and apply the rest. The skipped files keep their current contents.",
   "ui.sessionTurn.turnChanges.confirmApply": "Skip and apply",
   "ui.sessionTurn.turnChanges.confirmCancel": "Cancel",
   "ui.sessionTurn.turnChanges.skippedNotice": "{{count}} file(s) skipped due to changes outside this turn",
@@ -93,7 +96,8 @@ export const dict: Record<string, string> = {
   "ui.messagePart.option.typeOwnAnswer": "Type your own answer",
   "ui.messagePart.review.title": "Review your answers",
   "ui.messagePart.questions.dismissed": "Questions dismissed",
-  "ui.messagePart.questions.interrupted": "This question was cancelled before it was answered. Ask again below if you want to continue.",
+  "ui.messagePart.questions.interrupted":
+    "This question was cancelled before it was answered. Ask again below if you want to continue.",
   "ui.messagePart.questions.pendingMarker": "↓ Pending question — answer below",
   "ui.messagePart.compaction": "Session compacted",
   "ui.messagePart.context.read.one": "Read {{count}} file",

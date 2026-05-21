@@ -399,6 +399,12 @@ export const Event = {
       diff: Snapshot.FileDiff.array(),
     }),
   ),
+  TurnChangeInvalidated: BusEvent.define(
+    "session.turn_change_invalidated",
+    z.object({
+      sessionID: SessionID.zod,
+    }),
+  ),
   Error: BusEvent.define(
     "session.error",
     z.object({

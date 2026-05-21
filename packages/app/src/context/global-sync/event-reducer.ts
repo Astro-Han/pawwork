@@ -7,21 +7,16 @@ import type {
   Project,
   Session,
   SessionStatus,
-  SnapshotFileDiff,
   Todo,
 } from "@opencode-ai/sdk/v2/client"
 import type { State, VcsCache } from "./types"
 import { trimSessions } from "./session-trim"
 import { dropSessionCaches } from "./session-cache"
-import { diffs as list, message as clean } from "@/utils/diffs"
+import { message as clean } from "@/utils/diffs"
 import type { createBlockerTerminalCache } from "./blocker-terminal-cache"
 
 const SKIP_PARTS = new Set(["patch", "step-start", "step-finish"])
-type SetSessionTodo = (
-  sessionID: string,
-  todos: Todo[] | undefined,
-  options?: { clearActiveParts?: boolean },
-) => void
+type SetSessionTodo = (sessionID: string, todos: Todo[] | undefined, options?: { clearActiveParts?: boolean }) => void
 
 export function applyGlobalEvent(input: {
   event: { type: string; properties?: unknown }
@@ -48,11 +43,7 @@ export function applyGlobalEvent(input: {
   })
 }
 
-function cleanupSessionCaches(
-  setStore: SetStoreFunction<State>,
-  sessionID: string,
-  setSessionTodo?: SetSessionTodo,
-) {
+function cleanupSessionCaches(setStore: SetStoreFunction<State>, sessionID: string, setSessionTodo?: SetSessionTodo) {
   if (!sessionID) return
   setSessionTodo?.(sessionID, undefined)
   setStore(
@@ -71,7 +62,7 @@ export function cleanupDroppedSessionCaches(
   const keep = new Set(next.map((item) => item.id))
   const stale = [
     ...Object.keys(store.message),
-    ...Object.keys(store.session_diff),
+    ...Object.keys(store.turn_change_aggregate),
     ...Object.keys(store.todo),
     ...Object.keys(store.permission),
     ...Object.keys(store.session_status),
@@ -195,9 +186,9 @@ export function applyDirectoryEvent(input: {
       input.setStore("sessionTotal", (value) => Math.max(0, value - 1))
       break
     }
-    case "session.diff": {
-      const props = event.properties as { sessionID: string; diff: SnapshotFileDiff[] }
-      input.setStore("session_diff", props.sessionID, reconcile(list(props.diff), { key: "file" }))
+    case "session.turn_change_invalidated": {
+      const props = event.properties as { sessionID: string }
+      input.setStore("turn_change_aggregate", props.sessionID, undefined)
       break
     }
     case "todo.updated": {

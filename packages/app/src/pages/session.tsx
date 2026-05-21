@@ -43,7 +43,6 @@ import { createSessionPageDiagnostics } from "@/pages/session/use-session-page-d
 import { useSessionRoutePromptBootstrap } from "@/pages/session/use-session-route-prompt-bootstrap"
 import { useSessionVcsRefresh } from "@/pages/session/use-session-vcs-refresh"
 import { rendererAbortDiagnosticSource } from "@/session/abort-source"
-import { diffs as list } from "@/utils/diffs"
 import { decode64 } from "@/utils/base64"
 
 export default function Page() {
@@ -176,12 +175,10 @@ export default function Page() {
   const [mobileTab, setMobileTab] = createSignal<"session" | "changes">("session")
   const deferRender = createSessionDeferredRender(timelineSessionKey)
 
-  const turnDiffs = createMemo(() => list(lastUserMessage()?.summary?.diffs))
+  const turnDiffs = timelineDiffs
   const mobileChanges = createMemo(() => !isDesktop() && mobileTab() === "changes")
   const wantsReview = createMemo(() =>
-    isDesktop()
-      ? desktopSidePanelOpen() && view().sidePanel.tab() === "review" && activeTab() === "review"
-      : mobileChanges(),
+    isDesktop() ? desktopSidePanelOpen() && view().sidePanel.tab() === "review" : mobileChanges(),
   )
   const executionScopeTracker = createExecutionScopeTracker()
   const currentExecutionScope = (): ExecutionScope =>
@@ -198,7 +195,7 @@ export default function Page() {
     sdk,
     wantsReview,
     turnDiffs,
-    artifactDiffs: () => (timelineDiffs().length > 0 ? timelineDiffs() : turnDiffs()),
+    artifactDiffs: timelineDiffs,
   })
 
   const newSessionWorktree = createSessionNewWorktree({

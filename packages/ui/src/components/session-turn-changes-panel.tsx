@@ -31,10 +31,13 @@ export function SessionTurnChangesPanel(props: {
   const i18n = useI18n()
   const fileComponent = useFileComponent()
 
-  const turnFiles = createMemo(() => props.turnChange.files ?? emptyTurnFiles)
-  const turnEdited = createMemo(() => turnFiles().length)
-  const turnAdditions = createMemo(() => turnFiles().reduce((sum, file) => sum + (file.additions ?? 0), 0))
-  const turnDeletions = createMemo(() => turnFiles().reduce((sum, file) => sum + (file.deletions ?? 0), 0))
+  const turnFiles = createMemo(() =>
+    props.turnChange.kind === "captured" || props.turnChange.kind === "mixed" ? props.turnChange.files : emptyTurnFiles,
+  )
+  const appliedFiles = createMemo(() => turnFiles().filter((file) => file.restoreState === "applied"))
+  const turnEdited = createMemo(() => appliedFiles().length)
+  const turnAdditions = createMemo(() => appliedFiles().reduce((sum, file) => sum + (file.additions ?? 0), 0))
+  const turnDeletions = createMemo(() => appliedFiles().reduce((sum, file) => sum + (file.deletions ?? 0), 0))
   const [confirmAction, setConfirmAction] = createSignal<"undo" | "redo" | undefined>()
   let confirmTimer: ReturnType<typeof setTimeout> | undefined
   const expandedPaths = () => props.expanded ?? emptyExpanded
@@ -54,9 +57,9 @@ export function SessionTurnChangesPanel(props: {
   onCleanup(resetConfirm)
 
   const mutateTurnChange = async () => {
-    const id = props.turnChange.messageID
+    const id = props.turnChange.messageID ?? props.turnChange.turnID
     const action = turnChangeAction(props.turnChange)
-    if (!action || !hasTurnChangeActionHandler(props.turnChange, props.actions)) return
+    if (!id || !action || !hasTurnChangeActionHandler(props.turnChange, props.actions)) return
     if (!primeConfirm(action)) return
     resetConfirm()
     if (action === "undo") await props.actions?.undo?.(id)
@@ -75,7 +78,9 @@ export function SessionTurnChangesPanel(props: {
       : base
   })
 
-  const isUndoneTurn = createMemo(() => props.turnChange.redoAvailable && !props.turnChange.undoAvailable)
+  const isUndoneTurn = createMemo(
+    () => turnFiles().length > 0 && turnFiles().every((file) => file.restoreState === "undone"),
+  )
   const turnStatusLabel = (status: TurnChangeFile["status"]) => {
     if (status === "added") return i18n.t("ui.sessionTurn.turnChanges.status.added")
     if (status === "deleted") return i18n.t("ui.sessionTurn.turnChanges.status.deleted")
@@ -100,6 +105,9 @@ export function SessionTurnChangesPanel(props: {
             <span data-slot="session-turn-changes-omitted">
               {i18n.t("ui.sessionTurn.turnChanges.omitted", { count: props.turnChange.omittedCount ?? 0 })}
             </span>
+          </Show>
+          <Show when={props.turnChange.kind === "uncaptured" || props.turnChange.kind === "mixed"}>
+            <span data-slot="session-turn-changes-uncaptured">{i18n.t("ui.sessionTurn.turnChanges.uncaptured")}</span>
           </Show>
           <Show when={isUndoneTurn()}>
             <span data-slot="session-turn-changes-undone">{i18n.t("ui.sessionTurn.turnChanges.undone")}</span>
@@ -164,7 +172,11 @@ export function SessionTurnChangesPanel(props: {
               else measure()
             }
             return (
-              <div data-slot="session-turn-change-item" data-expanded={expanded() || undefined}>
+              <div
+                data-slot="session-turn-change-item"
+                data-expanded={expanded() || undefined}
+                data-restore-state={file.restoreState}
+              >
                 <div
                   data-component="session-turn-change-row"
                   data-slot="session-turn-change-row"
@@ -178,12 +190,23 @@ export function SessionTurnChangesPanel(props: {
                   </span>
                   <span data-slot="session-turn-change-path">{file.path}</span>
                   <span data-slot="session-turn-change-meta">
-                    <Show
-                      when={file.additions !== undefined || file.deletions !== undefined}
-                      fallback={<span data-slot="session-turn-change-status">{turnStatusLabel(file.status)}</span>}
-                    >
-                      <span data-slot="session-turn-changes-additions">+{file.additions ?? 0}</span>
-                      <span data-slot="session-turn-changes-deletions">-{file.deletions ?? 0}</span>
+                    <Show when={file.restoreState !== "applied"}>
+                      <span data-slot="session-turn-change-restore-state">
+                        {i18n.t(
+                          file.restoreState === "undone"
+                            ? "ui.sessionTurn.turnChanges.undone"
+                            : "ui.sessionTurn.turnChanges.superseded",
+                        )}
+                      </span>
+                    </Show>
+                    <Show when={file.restoreState === "applied"}>
+                      <Show
+                        when={file.additions !== undefined || file.deletions !== undefined}
+                        fallback={<span data-slot="session-turn-change-status">{turnStatusLabel(file.status)}</span>}
+                      >
+                        <span data-slot="session-turn-changes-additions">+{file.additions ?? 0}</span>
+                        <span data-slot="session-turn-changes-deletions">-{file.deletions ?? 0}</span>
+                      </Show>
                     </Show>
                     <Show when={file.large && file.restoreAvailable === false}>
                       <span data-slot="session-turn-change-unrestorable">

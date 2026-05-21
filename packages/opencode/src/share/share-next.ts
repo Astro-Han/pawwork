@@ -9,12 +9,13 @@ import { ModelID, ProviderID } from "@/provider/schema"
 import { Session } from "@/session"
 import { MessageV2 } from "@/session/message-v2"
 import type { SessionID } from "@/session/schema"
+import { TurnChange } from "@/session/turn-change"
 import { Database, eq } from "@/storage/db"
 import { Config } from "@/config/config"
 import { Log } from "@opencode-ai/core/util/log"
 import { SessionShareTable } from "./share.sql"
 import { ShareRuntime } from "./runtime"
-import { sanitizeSensitiveDiffs, sanitizeSensitiveToolPart } from "@/tool/sensitive"
+import { sanitizeSensitiveToolPart } from "@/tool/sensitive"
 
 export namespace ShareNext {
   const log = Log.create({ service: "share-next" })
@@ -59,8 +60,8 @@ export namespace ShareNext {
         data: SDK.Part
       }
     | {
-        type: "session_diff"
-        data: SDK.SnapshotFileDiff[]
+        type: "session_aggregate"
+        data: SDK.SessionDiffResponse
       }
     | {
         type: "model"
@@ -100,8 +101,8 @@ export namespace ShareNext {
         return `message/${item.data.id}`
       case "part":
         return `part/${item.data.messageID}/${item.data.id}`
-      case "session_diff":
-        return "session_diff"
+      case "session_aggregate":
+        return "session_aggregate"
       case "model":
         return "model"
     }
@@ -114,7 +115,7 @@ export namespace ShareNext {
       ...info,
       summary: {
         ...summary,
-        diffs: sanitizeSensitiveDiffs(summary.diffs),
+        diffs: undefined,
       },
     }
   }
@@ -129,6 +130,7 @@ export namespace ShareNext {
       const httpOk = HttpClient.filterStatusOk(http)
       const provider = yield* Provider.Service
       const session = yield* Session.Service
+      const turnChange = yield* TurnChange.Service
       const gate = yield* ShareRuntime.CloudShareGate
 
       function sync(sessionID: SessionID, data: Data[]): Effect.Effect<void> {
@@ -210,10 +212,13 @@ export namespace ShareNext {
               { type: "part", data: sanitizeSensitiveToolPart(evt.properties.part) as SDK.Part },
             ]),
           )
-          yield* watch(Session.Event.Diff, (evt) =>
-            sync(evt.properties.sessionID, [
-              { type: "session_diff", data: sanitizeSensitiveDiffs(evt.properties.diff) as SDK.SnapshotFileDiff[] },
-            ]),
+          yield* watch(Session.Event.TurnChangeInvalidated, (evt) =>
+            Effect.gen(function* () {
+              const aggregate = yield* turnChange.aggregateSessionFromTurns({ sessionID: evt.properties.sessionID })
+              yield* sync(evt.properties.sessionID, [
+                { type: "session_aggregate", data: aggregate as SDK.SessionDiffResponse },
+              ])
+            }),
           )
           yield* watch(Session.Event.Deleted, (evt) => remove(evt.properties.sessionID))
 
@@ -273,7 +278,7 @@ export namespace ShareNext {
       const full = Effect.fn("ShareNext.full")(function* (sessionID: SessionID) {
         log.info("full sync", { sessionID })
         const info = yield* session.get(sessionID)
-        const diffs = yield* session.diff(sessionID)
+        const aggregate = yield* turnChange.aggregateSessionFromTurns({ sessionID })
         const messages = yield* Effect.sync(() => Array.from(MessageV2.stream(sessionID)))
         const models = yield* Effect.forEach(
           Array.from(
@@ -294,7 +299,7 @@ export namespace ShareNext {
           ...messages.flatMap((item) =>
             item.parts.map((part) => ({ type: "part" as const, data: sanitizeSensitiveToolPart(part) as SDK.Part })),
           ),
-          { type: "session_diff", data: sanitizeSensitiveDiffs(diffs) as SDK.SnapshotFileDiff[] },
+          { type: "session_aggregate", data: aggregate as SDK.SessionDiffResponse },
           { type: "model", data: models },
         ])
       })
@@ -373,6 +378,7 @@ export namespace ShareNext {
     Layer.provide(FetchHttpClient.layer),
     Layer.provide(Provider.defaultLayer),
     Layer.provide(Session.defaultLayer),
+    Layer.provide(TurnChange.defaultLayer),
     Layer.provide(ShareRuntime.cloudShareGateDefaultLayer),
   )
 }

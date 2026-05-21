@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { vcsTaskKey } from "./execution-scope"
-import { deriveReviewArtifactFiles } from "./use-session-review-state"
+import { deriveReviewArtifactFiles, reviewTurnDiffsForSession } from "./use-session-review-state"
 
 const scope = (directory = "/repo", epoch = 1) => ({ serverKey: "sidecar", directory, epoch })
 
@@ -91,5 +91,31 @@ describe("session review state", () => {
   test("keys pending VCS diff tasks by execution scope and mode", () => {
     expect(vcsTaskKey(scope("/repo", 1), "unstaged")).not.toBe(vcsTaskKey(scope("/repo", 3), "unstaged"))
     expect(vcsTaskKey(scope("/repo", 3), "unstaged")).not.toBe(vcsTaskKey(scope("/repo", 3), "staged"))
+  })
+
+  test("does not reuse aggregate diffs across sessions or execution scopes", () => {
+    const aggregate = {
+      sessionID: "ses_1",
+      scope: scope("/repo", 1),
+      diffs: [{ file: "old-session.ts", patch: "", additions: 1, deletions: 0, status: "added" as const }],
+    }
+    const fallback = [{ file: "current-session.ts", patch: "", additions: 1, deletions: 0, status: "added" as const }]
+
+    expect(
+      reviewTurnDiffsForSession({
+        currentScope: scope("/repo", 1),
+        sessionID: "ses_2",
+        aggregate,
+        turnDiffs: fallback,
+      }),
+    ).toEqual(fallback)
+    expect(
+      reviewTurnDiffsForSession({
+        currentScope: scope("/repo", 2),
+        sessionID: "ses_1",
+        aggregate,
+        turnDiffs: fallback,
+      }),
+    ).toEqual(fallback)
   })
 })

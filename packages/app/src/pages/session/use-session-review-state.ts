@@ -14,9 +14,28 @@ import {
   type VcsReviewMode,
 } from "@/pages/session/review-change-mode"
 import { diffs as list } from "@/utils/diffs"
+import { same } from "@/utils/same"
 import { sameExecutionScope, shouldApplyExecutionResult, vcsTaskKey, type ExecutionScope } from "./execution-scope"
+import { aggregateFiles } from "./session-aggregate-files"
 
 type SessionReviewDiff = SnapshotFileDiff | VcsFileDiff
+type SessionAggregateDiffState = { sessionID: string; scope: ExecutionScope; diffs: SnapshotFileDiff[] } | undefined
+
+export function reviewTurnDiffsForSession(input: {
+  currentScope: ExecutionScope
+  sessionID: string | undefined
+  aggregate: SessionAggregateDiffState
+  turnDiffs: SessionReviewDiff[]
+}) {
+  if (
+    input.aggregate &&
+    input.aggregate.sessionID === input.sessionID &&
+    sameExecutionScope(input.aggregate.scope, input.currentScope)
+  ) {
+    return input.aggregate.diffs.length > 0 ? input.aggregate.diffs : input.turnDiffs
+  }
+  return input.turnDiffs
+}
 
 export function deriveReviewArtifactFiles(input: {
   currentScope: ExecutionScope
@@ -56,6 +75,7 @@ export function createSessionReviewState(input: {
   artifactDiffs?: () => SessionReviewDiff[]
 }) {
   const [changes, setChanges] = createSignal<ReviewChangeMode>("turn")
+  const [sessionAggregateDiffs, setSessionAggregateDiffs] = createSignal<SessionAggregateDiffState>()
   const [vcs, setVcs] = createStore<{
     diff: Record<VcsReviewMode, SessionReviewDiff[]>
     ready: Record<VcsReviewMode, boolean>
@@ -158,7 +178,12 @@ export function createSessionReviewState(input: {
   const reviewDiffs = createMemo(() =>
     list(
       reviewDiffsForMode(changes(), {
-        turn: input.turnDiffs(),
+        turn: reviewTurnDiffsForSession({
+          currentScope: input.executionScope(),
+          sessionID: input.sessionID(),
+          aggregate: sessionAggregateDiffs(),
+          turnDiffs: input.turnDiffs(),
+        }),
         vcs: vcs.diff,
       }),
     ),
@@ -167,7 +192,9 @@ export function createSessionReviewState(input: {
   const hasReview = createMemo(() => reviewCount() > 0)
   const reviewReady = createMemo(() => {
     const value = changes()
-    return isVcsReviewMode(value) ? vcs.ready[value] && sameExecutionScope(vcs.scope[value], input.executionScope()) : true
+    return isVcsReviewMode(value)
+      ? vcs.ready[value] && sameExecutionScope(vcs.scope[value], input.executionScope())
+      : true
   })
 
   const [artifactHistory, { refetch: refetchArtifactHistory }] = createResource(
@@ -182,8 +209,7 @@ export function createSessionReviewState(input: {
       sessionID,
       artifacts: await input.sdk
         .createClient({ directory: scope.directory, throwOnError: true })
-        .session
-        .artifacts({ sessionID })
+        .session.artifacts({ sessionID })
         .then((res) => res.data ?? [])
         .catch(() => []),
     }),
@@ -224,6 +250,7 @@ export function createSessionReviewState(input: {
       input.sessionKey,
       () => {
         setChanges(nextReviewModeForSessionChange())
+        setSessionAggregateDiffs(undefined)
       },
       { defer: true },
     ),
@@ -253,8 +280,31 @@ export function createSessionReviewState(input: {
   createEffect(() => {
     const id = input.sessionID()
     if (!id) return
-    if (input.sync.data.session_diff[id] === undefined) return
+    const scope = input.executionScope()
+    if (input.sync.data.turn_change_aggregate[id] === undefined) return
+    setSessionAggregateDiffs({ sessionID: id, scope, diffs: aggregateFiles(input.sync.data.turn_change_aggregate[id]) })
     queueArtifactHistoryRefetch()
+  })
+
+  createEffect(() => {
+    const id = input.sessionID()
+    if (!id) return
+    if (!input.wantsReview()) return
+    const scope = input.executionScope()
+    void input.sdk
+      .createClient({ directory: scope.directory, throwOnError: true })
+      .session.diff({ sessionID: id })
+      .then((res) => {
+        if (input.sessionID() !== id) return
+        if (!shouldApplyExecutionResult({ requested: scope, current: input.executionScope() })) return
+        setSessionAggregateDiffs({ sessionID: id, scope, diffs: aggregateFiles(res.data) })
+      })
+      .catch((error: unknown) => {
+        if (input.sessionID() !== id) return
+        if (!shouldApplyExecutionResult({ requested: scope, current: input.executionScope() })) return
+        console.debug("[session-review] failed to fetch aggregate diff", { sessionID: id, scope, error })
+        setSessionAggregateDiffs(undefined)
+      })
   })
 
   return {

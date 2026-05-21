@@ -62,10 +62,12 @@ type OptimisticItem = {
   parts: Part[]
 }
 
-export function createCurrentSyncChild<Child>(input: { directory: () => string | undefined; child: (directory: string) => Child }) {
+export function createCurrentSyncChild<Child>(input: {
+  directory: () => string | undefined
+  child: (directory: string) => Child
+}) {
   const initialDirectory = input.directory()
-  let lastDirectory =
-    typeof initialDirectory === "string" && initialDirectory.length > 0 ? initialDirectory : undefined
+  let lastDirectory = typeof initialDirectory === "string" && initialDirectory.length > 0 ? initialDirectory : undefined
 
   return () => {
     const directory = input.directory()
@@ -562,13 +564,13 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           const client = sdk.client
           const [store, setStore] = globalSync.child(directory)
           touch(directory, setStore, sessionID)
-          if (store.session_diff[sessionID] !== undefined && !opts?.force) return
+          if (store.turn_change_aggregate[sessionID] !== undefined && !opts?.force) return
 
           const key = keyFor(directory, sessionID)
           return runInflight(inflightDiff, key, () =>
             retry(() => client.session.diff({ sessionID })).then((diff) => {
               if (!tracked(directory, sessionID)) return
-              setStore("session_diff", sessionID, reconcile(list(diff.data), { key: "file" }))
+              setStore("turn_change_aggregate", sessionID, reconcile(diff.data))
             }),
           )
         },
