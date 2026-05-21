@@ -1,7 +1,9 @@
 import { NodeFileSystem } from "@effect/platform-node"
+import { tool } from "ai"
 import { expect } from "bun:test"
 import { Cause, Effect, Exit, Fiber, Layer } from "effect"
 import path from "path"
+import z from "zod"
 import type { Agent } from "../../src/agent/agent"
 import { Agent as AgentSvc } from "../../src/agent/agent"
 import { Bus } from "../../src/bus"
@@ -770,11 +772,155 @@ it.live("session.processor effect tests mark pending tools as aborted on cleanup
           expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true)
         }
         expect(yield* llm.calls).toBe(1)
+        const stored = (yield* session.messages({ sessionID: chat.id })).find(
+          (message) => message.info.role === "assistant" && message.info.id === msg.id,
+        )
+
         expect(call?.state.status).toBe("error")
         if (call?.state.status === "error") {
-          expect(call.state.error).toBe("Tool execution aborted")
+          expect(call.state.error).toBe("Tool call generation interrupted before the tool ran.")
           expect(call.state.metadata?.interrupted).toBe(true)
+          expect(call.state.metadata?.interruption_phase).toBe("tool_input_generation")
+          expect(call.state.metadata?.tool_execution_started).toBe(false)
           expect(call.state.time.end).toBeDefined()
+        }
+        expect(stored?.info.role).toBe("assistant")
+        if (stored?.info.role === "assistant") {
+          const observability = stored.info.diagnostics?.run_observability
+          expect(observability?.tool_execution_started).toBe(false)
+          expect(observability?.pending_tool_parts_interrupted).toBe(1)
+          expect(observability?.incident?.terminal_cause.category).not.toBe("tool_execution_interrupted")
+        }
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
+it.live("session.processor effect tests mark materialized tools as prepared but not run on cleanup", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+
+        yield* llm.push(
+          raw({
+            head: [
+              {
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                choices: [{ delta: { role: "assistant" } }],
+              },
+              {
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                choices: [
+                  {
+                    delta: {
+                      tool_calls: [
+                        {
+                          index: 0,
+                          id: "call_materialized_without_execution",
+                          type: "function",
+                          function: { name: "bash", arguments: "" },
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+              {
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                choices: [
+                  {
+                    delta: {
+                      tool_calls: [
+                        {
+                          index: 0,
+                          function: { arguments: JSON.stringify({ cmd: "pwd" }) },
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+              {
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                choices: [{ delta: {}, finish_reason: "tool_calls" }],
+              },
+            ],
+            hang: true,
+          }),
+        )
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "materialized tool abort")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const run = yield* handle
+          .process({
+            user: {
+              id: parent.id,
+              sessionID: chat.id,
+              role: "user",
+              time: parent.time,
+              agent: parent.agent,
+              model: { providerID: ref.providerID, modelID: ref.modelID },
+              tools: { bash: true },
+            } satisfies MessageV2.User,
+            sessionID: chat.id,
+            model: mdl,
+            agent: agent(),
+            system: [],
+            messages: [{ role: "user", content: "materialized tool abort" }],
+            tools: {
+              bash: tool({
+                description: "Run a shell command",
+                inputSchema: z.object({ cmd: z.string() }),
+              }),
+            },
+          })
+          .pipe(Effect.forkChild)
+
+        yield* llm.wait(1)
+        yield* Effect.promise(async () => {
+          const end = Date.now() + 500
+          while (Date.now() < end) {
+            const parts = await MessageV2.parts(msg.id)
+            if (parts.some((part) => part.type === "tool" && part.state.status === "running")) return
+            await Bun.sleep(10)
+          }
+        })
+        yield* Fiber.interrupt(run)
+
+        const exit = yield* Fiber.await(run)
+        const parts = MessageV2.parts(msg.id)
+        const call = parts.find((part): part is MessageV2.ToolPart => part.type === "tool")
+        const stored = (yield* session.messages({ sessionID: chat.id })).find(
+          (message) => message.info.role === "assistant" && message.info.id === msg.id,
+        )
+
+        expect(Exit.isFailure(exit)).toBe(true)
+        expect(call?.state.status).toBe("error")
+        if (call?.state.status === "error") {
+          expect(call.state.error).toBe("Tool call was prepared, but the tool did not run before the interruption.")
+          expect(call.state.metadata?.interrupted).toBe(true)
+          expect(call.state.metadata?.interruption_phase).toBe("tool_call_materialized_without_execution")
+          expect(call.state.metadata?.tool_execution_started).toBe(false)
+        }
+        expect(stored?.info.role).toBe("assistant")
+        if (stored?.info.role === "assistant") {
+          const observability = stored.info.diagnostics?.run_observability
+          expect(observability?.tool_execution_started).toBe(false)
+          expect(observability?.pending_tool_parts_interrupted).toBe(1)
+          expect(observability?.incident?.terminal_cause.category).not.toBe("tool_execution_interrupted")
         }
       }),
     { git: true, config: (url) => providerCfg(url) },
@@ -852,6 +998,8 @@ it.live("session.processor effect tests rewrite aborted question tool error to f
         if (call?.state.status === "error") {
           expect(call.state.error).toBe("Question cancelled before the user answered it.")
           expect(call.state.metadata?.interrupted).toBe(true)
+          expect(call.state.metadata?.interruption_phase).toBe("tool_input_generation")
+          expect(call.state.metadata?.tool_execution_started).toBe(false)
         }
       }),
     { git: true, config: (url) => providerCfg(url) },

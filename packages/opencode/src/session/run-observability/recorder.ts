@@ -289,6 +289,25 @@ export function createRecorder(input: RecorderInput): Recorder {
       rememberEvent(next.monotonicMs)
     },
     recordToolInterrupted(next) {
+      const attempt = getAttempt(next.attemptID)
+      if (!attempt?.tool_execution_started) {
+        pendingToolPartsInterrupted++
+        appendEvidence({
+          monotonic_ms: next.monotonicMs,
+          source: "processor",
+          attempt_id: next.attemptID,
+          event_type: "pending_tool_part_interrupted",
+          terminal_candidate: false,
+          confidence: "medium",
+          redactions: ["raw_tool_input"],
+          interruption_phase: attempt?.tool_call_materialized
+            ? "tool_call_materialized_without_execution"
+            : "tool_input_generation",
+          tool_execution_started: false,
+        })
+        rememberEvent(next.monotonicMs)
+        return
+      }
       failure ??= { type: "tool", at: next.at, monotonicMs: next.monotonicMs, attemptID: next.attemptID }
       appendEvidence({
         monotonic_ms: next.monotonicMs,
@@ -297,6 +316,8 @@ export function createRecorder(input: RecorderInput): Recorder {
         event_type: "tool_execution_interrupted",
         terminal_candidate: true,
         confidence: "medium",
+        interruption_phase: "tool_execution",
+        tool_execution_started: true,
         cause: { category: "tool_execution_interrupted", confidence: "medium" },
       })
       rememberEvent(next.monotonicMs)
@@ -311,6 +332,8 @@ export function createRecorder(input: RecorderInput): Recorder {
         terminal_candidate: false,
         confidence: "medium",
         redactions: ["raw_tool_input"],
+        interruption_phase: next.interruptionPhase,
+        tool_execution_started: next.toolExecutionStarted,
       })
       rememberEvent(next.monotonicMs)
     },
