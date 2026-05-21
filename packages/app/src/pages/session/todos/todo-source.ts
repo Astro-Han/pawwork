@@ -73,6 +73,7 @@ const sourceTodoSnapshot = (
       sessionID: input.sessionID,
       source: source.parts,
       items: sourceParts,
+      sourceUpdatedAt: latestTodoWriteTime(input.parts),
       dockEligible: phase === "active",
       historicalTerminal: phase === "terminal",
     })

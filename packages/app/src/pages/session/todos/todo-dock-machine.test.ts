@@ -174,7 +174,54 @@ describe("createTodoDockRestoreTracker", () => {
     expect(restored({ sessionID: "s", known: true, count: 1, phase: "active" })).toBe(false)
   })
 
-  test("does not mark the first live tool-parts todo snapshot as restored", () => {
+  test("marks historical tool-parts todos as restored on session entry", () => {
+    const restored = createTodoDockRestoreTracker(() => 200)
+
+    expect(restored({ sessionID: "s", known: false, count: 0, phase: "empty" })).toBe(false)
+    expect(
+      restored({
+        sessionID: "s",
+        known: false,
+        count: 1,
+        phase: "active",
+        source: "primary-parts",
+        sourceUpdatedAt: 100,
+      }),
+    ).toBe(true)
+  })
+
+  test("marks first tool-parts todos without timestamps as restored on session entry", () => {
+    const restored = createTodoDockRestoreTracker(() => 200)
+
+    expect(restored({ sessionID: "s", known: false, count: 0, phase: "empty" })).toBe(false)
+    expect(
+      restored({
+        sessionID: "s",
+        known: false,
+        count: 1,
+        phase: "active",
+        source: "primary-parts",
+      }),
+    ).toBe(true)
+  })
+
+  test("does not mark newly observed tool-parts todos as restored after session entry", () => {
+    const restored = createTodoDockRestoreTracker(() => 200)
+
+    expect(restored({ sessionID: "s", known: false, count: 0, phase: "empty" })).toBe(false)
+    expect(
+      restored({
+        sessionID: "s",
+        known: true,
+        count: 1,
+        phase: "active",
+        source: "primary-parts",
+        sourceUpdatedAt: 250,
+      }),
+    ).toBe(false)
+  })
+
+  test("does not mark live tool-parts todos as restored after a known empty snapshot primes the session", () => {
     const restored = createTodoDockRestoreTracker()
     const liveToolPartsSnapshot = {
       sessionID: "s",
@@ -184,7 +231,7 @@ describe("createTodoDockRestoreTracker", () => {
       source: "primary-parts" as const,
     }
 
-    expect(restored({ sessionID: "s", known: false, count: 0, phase: "empty" })).toBe(false)
+    expect(restored({ sessionID: "s", known: true, count: 0, phase: "empty" })).toBe(false)
     expect(restored(liveToolPartsSnapshot)).toBe(false)
   })
 })

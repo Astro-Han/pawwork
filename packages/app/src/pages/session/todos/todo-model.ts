@@ -11,6 +11,7 @@ export type TodoSnapshot = {
   source: TodoSourceKind
   items: SessionTodoItem[]
   phase: TodoPhase
+  sourceUpdatedAt?: number
   lifecycleSignature: string
   displaySignature: string
   dockEligible: boolean
@@ -40,6 +41,7 @@ export function todoSnapshot(input: {
   sessionID?: string
   source: TodoSourceKind
   items: SessionTodoItem[]
+  sourceUpdatedAt?: number
   dockEligible?: boolean
   historicalTerminal?: boolean
 }): TodoSnapshot {
@@ -49,6 +51,7 @@ export function todoSnapshot(input: {
     source: input.source,
     items: input.items,
     phase,
+    sourceUpdatedAt: input.sourceUpdatedAt,
     lifecycleSignature: todoLifecycleSignature(input.items),
     displaySignature: todoDisplaySignature(input.items),
     dockEligible: input.dockEligible ?? phase === "active",
