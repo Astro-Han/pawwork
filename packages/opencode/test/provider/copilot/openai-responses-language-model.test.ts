@@ -77,6 +77,52 @@ function responseCompleted(seq = 4): SseChunk {
   }
 }
 
+function responseFailed(seq = 3): SseChunk {
+  return {
+    type: "response.failed",
+    sequence_number: seq,
+    response: {
+      id: "resp_test",
+      created_at: 1779358950,
+      model: "gpt-5.2",
+      error: { code: "server_error", message: "response failed" },
+      incomplete_details: null,
+      usage: {
+        input_tokens: 1,
+        input_tokens_details: { cached_tokens: null },
+        output_tokens: 0,
+        output_tokens_details: { reasoning_tokens: null },
+      },
+      service_tier: null,
+    },
+  }
+}
+
+async function streamPartsWithoutDone(chunks: SseChunk[]) {
+  const fetch = mock(async () => {
+    const lines = chunks.map((chunk) => `data: ${JSON.stringify(chunk)}`)
+    const payload = `${lines.join("\n\n")}\n\n`
+    const encoder = new TextEncoder()
+    return new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode(payload))
+          controller.close()
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    )
+  })
+  const model = new OpenAIResponsesLanguageModel("gpt-5.2", {
+    provider: "test.responses",
+    url: () => "https://example.test/v1/responses",
+    headers: () => ({ Authorization: "Bearer test" }),
+    fetch: fetch as never,
+  })
+  const { stream } = await model.doStream({ prompt: TEST_PROMPT, includeRawChunks: false })
+  return collectStream(stream)
+}
+
 function functionCallAdded(
   input: {
     seq?: number
@@ -273,5 +319,25 @@ describe("OpenAIResponsesLanguageModel function call materialization", () => {
     expect(errors(parts)).toHaveLength(0)
     expect(toolCalls(parts)).toHaveLength(1)
     expect(toolCalls(parts)[0]).toMatchObject({ input: '{"path":"stable"}' })
+  })
+
+  test("emits an explicit error when response.failed arrives after function_call added", async () => {
+    const parts = await streamParts([responseCreated(), functionCallAdded(), responseFailed()])
+
+    expect(toolCalls(parts)).toHaveLength(0)
+    expect(errors(parts).length).toBeGreaterThanOrEqual(1)
+    expect(
+      errors(parts).some((part) => String((part as { error: unknown }).error).includes("input did not complete")),
+    ).toBe(true)
+  })
+
+  test("emits an explicit error on flush when function_call input never completes", async () => {
+    const parts = await streamPartsWithoutDone([responseCreated(), functionCallAdded()])
+
+    expect(toolCalls(parts)).toHaveLength(0)
+    expect(errors(parts).length).toBeGreaterThanOrEqual(1)
+    expect(
+      errors(parts).some((part) => String((part as { error: unknown }).error).includes("input did not complete")),
+    ).toBe(true)
   })
 })

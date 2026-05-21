@@ -885,6 +885,10 @@ export class OpenAIResponsesLanguageModel implements LanguageModelV3 {
 
             // handle failed chunk parsing / validation:
             if (!chunk.success) {
+              enqueueFunctionToolCallParts(
+                controller,
+                functionToolCalls.failUnmaterialized("chunk parse or validation error"),
+              )
               finishReason = {
                 unified: "error",
                 raw: undefined,
@@ -1276,14 +1280,24 @@ export class OpenAIResponsesLanguageModel implements LanguageModelV3 {
                   },
                 })
               }
+            } else if (isResponseFailedChunk(value)) {
+              enqueueFunctionToolCallParts(controller, functionToolCalls.failUnmaterialized("response.failed"))
+              finishReason = { unified: "error", raw: "response.failed" }
+              controller.enqueue({ type: "error", error: value.response.error ?? value })
             } else if (isResponseFinishedChunk(value)) {
-              finishReason = {
-                unified: mapOpenAIResponseFinishReason({
-                  finishReason: value.response.incomplete_details?.reason,
-                  hasFunctionCall,
-                }),
-                raw: value.response.incomplete_details?.reason ?? undefined,
-              }
+              const hadAssemblerError = enqueueFunctionToolCallParts(
+                controller,
+                functionToolCalls.failUnmaterialized(value.type),
+              )
+              finishReason = hadAssemblerError
+                ? { unified: "error", raw: value.type }
+                : {
+                    unified: mapOpenAIResponseFinishReason({
+                      finishReason: value.response.incomplete_details?.reason,
+                      hasFunctionCall,
+                    }),
+                    raw: value.response.incomplete_details?.reason ?? undefined,
+                  }
               usage.inputTokens = value.response.usage.input_tokens
               usage.outputTokens = value.response.usage.output_tokens
               usage.totalTokens = value.response.usage.input_tokens + value.response.usage.output_tokens
@@ -1312,11 +1326,15 @@ export class OpenAIResponsesLanguageModel implements LanguageModelV3 {
                 })
               }
             } else if (isErrorChunk(value)) {
+              enqueueFunctionToolCallParts(controller, functionToolCalls.failUnmaterialized("provider error chunk"))
+              finishReason = { unified: "error", raw: value.code }
               controller.enqueue({ type: "error", error: value })
             }
           },
 
           flush(controller) {
+            enqueueFunctionToolCallParts(controller, functionToolCalls.failUnmaterialized("stream flush"))
+
             // Close any dangling text part
             if (currentTextId) {
               controller.enqueue({ type: "text-end", id: currentTextId })
@@ -1401,6 +1419,22 @@ const responseFinishedChunkSchema = z.object({
     usage: usageSchema,
     service_tier: z.string().nullish(),
   }),
+})
+
+const responseFailedChunkSchema = z.object({
+  type: z.literal("response.failed"),
+  response: z
+    .object({
+      error: z
+        .object({
+          code: z.string().nullish(),
+          message: z.string().nullish(),
+        })
+        .nullish(),
+      usage: usageSchema.nullish(),
+      service_tier: z.string().nullish(),
+    })
+    .loose(),
 })
 
 const responseCreatedChunkSchema = z.object({
@@ -1581,6 +1615,7 @@ const responseReasoningSummaryTextDeltaSchema = z.object({
 const openaiResponsesChunkSchema = z.union([
   textDeltaChunkSchema,
   responseFinishedChunkSchema,
+  responseFailedChunkSchema,
   responseCreatedChunkSchema,
   responseOutputItemAddedSchema,
   responseOutputItemDoneSchema,
@@ -1622,6 +1657,12 @@ function isResponseFinishedChunk(
   chunk: z.infer<typeof openaiResponsesChunkSchema>,
 ): chunk is z.infer<typeof responseFinishedChunkSchema> {
   return chunk.type === "response.completed" || chunk.type === "response.incomplete"
+}
+
+function isResponseFailedChunk(
+  chunk: z.infer<typeof openaiResponsesChunkSchema>,
+): chunk is z.infer<typeof responseFailedChunkSchema> {
+  return chunk.type === "response.failed"
 }
 
 function isResponseCreatedChunk(
