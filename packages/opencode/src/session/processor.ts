@@ -282,10 +282,10 @@ export const layer: Layer.Layer<
 
       const recordToolExecutionCompleted = Effect.fn("SessionProcessor.recordToolExecutionCompleted")(
         function* (input: { toolCallID: string }) {
-          void input.toolCallID
-          if (!ctx.currentAttemptID) return
+          const attemptID = ctx.toolcalls[input.toolCallID]?.attemptID ?? ctx.currentAttemptID
+          if (!attemptID) return
           ctx.runTrace.recordToolCompleted({
-            attemptID: ctx.currentAttemptID,
+            attemptID,
             at: Date.now(),
             monotonicMs: performance.now(),
           })
@@ -296,10 +296,10 @@ export const layer: Layer.Layer<
         toolCallID: string
         error?: unknown
       }) {
-        void input.toolCallID
-        if (!ctx.currentAttemptID) return
+        const attemptID = ctx.toolcalls[input.toolCallID]?.attemptID ?? ctx.currentAttemptID
+        if (!attemptID) return
         ctx.runTrace.recordToolFailed({
-          attemptID: ctx.currentAttemptID,
+          attemptID,
           at: Date.now(),
           monotonicMs: performance.now(),
           error: input.error,

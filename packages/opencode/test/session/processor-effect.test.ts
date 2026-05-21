@@ -1,6 +1,6 @@
 import { NodeFileSystem } from "@effect/platform-node"
 import { tool } from "ai"
-import { expect } from "bun:test"
+import { expect, test } from "bun:test"
 import { Cause, Effect, Exit, Fiber, Layer } from "effect"
 import path from "path"
 import z from "zod"
@@ -267,6 +267,14 @@ const env = Layer.mergeAll(
 )
 
 const it = testEffect(env)
+
+test("session.processor records completed and failed tools against the bound tool-call attempt first", async () => {
+  const source = await Bun.file("src/session/processor.ts").text()
+
+  expect(source).toContain("const attemptID = ctx.toolcalls[input.toolCallID]?.attemptID ?? ctx.currentAttemptID")
+  expect(source).toContain("recordToolCompleted({\n            attemptID,")
+  expect(source).toContain("recordToolFailed({\n          attemptID,")
+})
 
 const boot = Effect.fn("test.boot")(function* () {
   const processors = yield* SessionProcessor.Service
