@@ -3,6 +3,10 @@ import { isLikelyWriteCommand } from "../../src/tool/bash-write-heuristic"
 
 const positive = [
   "echo x > foo",
+  "cmd &> out",
+  "cmd &>> out",
+  "cat <> file",
+  "echo x >| file",
   "false && echo x > foo",
   "ls ; sed -i 's/x/y/' foo",
   "mv a b",
@@ -68,6 +72,7 @@ const negative = [
   "grep rm file",
   "echo cp file",
   "printf 'git add file'",
+  'echo "Set-Content"',
   "pwd",
   "git status",
   "git log",
@@ -80,6 +85,13 @@ const negative = [
   "Get-ChildItem",
   "Test-Path a.txt",
   "Get-Item a.txt",
+  "bun test",
+  "npm test",
+  "pnpm test",
+  "pip show foo",
+  "uv run pytest",
+  "vite --version",
+  "tsc --noEmit",
 ]
 
 describe("isLikelyWriteCommand", () => {

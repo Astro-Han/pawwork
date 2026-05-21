@@ -1,6 +1,5 @@
 const writeCommands = new Set([
   "apply_patch",
-  "bun",
   "chmod",
   "chown",
   "cp",
@@ -10,17 +9,11 @@ const writeCommands = new Set([
   "make",
   "mkdir",
   "mv",
-  "npm",
   "patch",
-  "pip",
-  "pnpm",
   "rm",
   "tee",
   "touch",
   "truncate",
-  "tsc",
-  "uv",
-  "vite",
   "yarn",
 ])
 
@@ -63,10 +56,14 @@ function commandHead(words: string[]) {
 }
 
 export function isLikelyWriteCommand(command: string) {
-  if (powershellWriteCommands.test(command)) return true
+  for (const words of commandSegments(command)) {
+    const { head } = commandHead(words)
+    if (["powershell", "pwsh"].includes(head ?? "") && powershellWriteCommands.test(command)) return true
+  }
 
   const stripped = withoutQuotedText(command)
-  if (/(^|\s)(?!\d*>\s*&\d)\d*>>?\s*[^&\s]/.test(stripped)) return true
+  if (powershellWriteCommands.test(stripped)) return true
+  if (/(^|\s)(?:&>>?|\d*>\||\d*<>|(?<!<)\d*>>?)\s*[^&\s]/.test(stripped)) return true
 
   for (const words of commandSegments(stripped)) {
     const { head, next, rest } = commandHead(words)
@@ -77,6 +74,15 @@ export function isLikelyWriteCommand(command: string) {
     if (head === "awk" && rest.join(" ").includes("-i inplace")) return true
     if (head === "cargo" && next === "build") return true
     if (head === "go" && ["build", "get"].includes(next ?? "")) return true
+    if (["bun", "npm", "pnpm", "yarn"].includes(head) && [undefined, "add", "build", "install"].includes(next))
+      return true
+    if (["bun", "npm", "pnpm", "yarn"].includes(head) && next === "run" && ["build", "compile"].includes(rest[1] ?? ""))
+      return true
+    if (head === "pip" && ["install", "uninstall"].includes(next ?? "")) return true
+    if (head === "uv" && ["add", "remove", "sync", "pip"].includes(next ?? "")) return true
+    if (head === "vite" && next === "build") return true
+    if (head === "tsc" && rest.some((item) => item === "-p" || item === "--project" || item.startsWith("-p")))
+      return true
     if (
       head === "git" &&
       [

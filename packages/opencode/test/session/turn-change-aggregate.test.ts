@@ -426,6 +426,57 @@ describe("TurnChange aggregate union", () => {
     })
   })
 
+  test("aggregateTurnUnion keeps earlier applied same-path diff after later assistant undo", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "union-turn-same-path-later-undone" })
+        const userMessageID = await makeUser(session.id, "union-turn-same-path-later-undone")
+        const firstAssistant = await makeAssistant(session.id, userMessageID, "union-turn-same-path-later-undone-first")
+        const secondAssistant = await makeAssistant(
+          session.id,
+          userMessageID,
+          "union-turn-same-path-later-undone-second",
+        )
+        const target = path.join(fixture.path, "same-turn-undone.txt")
+        await fs.writeFile(target, "A\n", "utf-8")
+
+        await fs.writeFile(target, "B\n", "utf-8")
+        TurnChange.recordWrite({
+          sessionID: session.id,
+          messageID: firstAssistant,
+          path: target,
+          before: { exists: true, content: "A\n" },
+          after: { exists: true, content: "B\n" },
+        })
+        TurnChange.finalize({ sessionID: session.id, messageID: firstAssistant })
+        await fs.writeFile(target, "C\n", "utf-8")
+        TurnChange.recordWrite({
+          sessionID: session.id,
+          messageID: secondAssistant,
+          path: target,
+          before: { exists: true, content: "B\n" },
+          after: { exists: true, content: "C\n" },
+        })
+        TurnChange.finalize({ sessionID: session.id, messageID: secondAssistant })
+        await TurnChange.undo({ sessionID: session.id, messageID: secondAssistant })
+
+        const result = TurnChange.aggregateTurnUnion({ sessionID: session.id, userMessageID })
+
+        expect(await fs.readFile(target, "utf-8")).toBe("B\n")
+        expect(result).toMatchObject({ kind: "captured" })
+        if (result.kind !== "captured") return
+        expect(result.files).toHaveLength(1)
+        expect(result.files[0]).toMatchObject({ path: "same-turn-undone.txt", restoreState: "applied" })
+        expect(result.files[0].patch).toContain("-A")
+        expect(result.files[0].patch).toContain("+B")
+        expect(result.files[0].patch).not.toContain("+C")
+      },
+    })
+  })
+
   test("aggregateTurnUnion returns uncaptured when only uncaptured bash activity exists", async () => {
     await resetDatabase()
     await using fixture = await tmpdir()

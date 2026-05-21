@@ -904,19 +904,33 @@ export namespace TurnChange {
   function capturedAggregate(input: { sessionID: SessionID; userMessageID: MessageID; assistants: MessageID[] }) {
     const display = aggregateTurnInternal(input)
     if (!display) return { files: [] as AggregateFile[] }
-    const restoreStateByPath = new Map<string, RestoreState>()
+    const appliedRows: RestoreRow[] = []
+    const mutedRows: Array<{ row: RestoreRow; restoreState: RestoreState }> = []
     for (const messageID of input.assistants) {
       const restoreState = displayRow(input.sessionID, messageID)?.state ?? "redo_invalidated"
       for (const row of rows(input.sessionID, messageID)) {
-        restoreStateByPath.set(row.data.path, restoreState)
+        if (restoreState === "applied") appliedRows.push(row)
+        else mutedRows.push({ row, restoreState })
       }
     }
-    const fallback = restoreStateForAssistants(input.sessionID, input.assistants)
+    const appliedFiles = disambiguateAggregatedRestoreFiles(collapseRestoreFiles(appliedRows))
+      .map((file) => {
+        const displayFile = toDisplay(file)
+        if (!displayFile) return
+        return { ...displayFile, openPath: file.path, restoreState: "applied" as const }
+      })
+      .filter(Boolean) as AggregateFile[]
+    const appliedPaths = new Set(appliedRows.map((row) => row.data.path))
+    const mutedFiles = mutedRows
+      .filter(({ row }) => !appliedPaths.has(row.data.path))
+      .map(({ row, restoreState }) => {
+        const displayFile = toDisplay(row.data)
+        if (!displayFile) return
+        return { ...displayFile, openPath: row.data.path, restoreState }
+      })
+      .filter(Boolean) as AggregateFile[]
     return {
-      files: display.files.map((file) => ({
-        ...file,
-        restoreState: (file.openPath && restoreStateByPath.get(file.openPath)) || fallback,
-      })),
+      files: [...appliedFiles, ...mutedFiles],
       ...(display.truncated ? { truncated: true, omittedCount: display.omittedCount } : {}),
     }
   }
