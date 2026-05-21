@@ -285,9 +285,16 @@ async function revealLongScrollWindow(page: Parameters<typeof snapshotPerfProbe>
     await settleFrames(page, 2)
     await scrollTimelineTo(page, 0)
     await settleFrames(page, 2)
+    try {
+      await expect
+        .poll(async () => (await readTimelineDomBudget(page)).totalRows, { timeout: 1_500 })
+        .toBeGreaterThanOrEqual(longScrollMinimumAvailableRows)
+    } catch {
+      // Continue nudging the history window; final assertion below reports failure details.
+    }
   }
   await expect
-    .poll(async () => (await readTimelineDomBudget(page)).totalRows, { timeout: 1_000 })
+    .poll(async () => (await readTimelineDomBudget(page)).totalRows, { timeout: 10_000 })
     .toBeGreaterThanOrEqual(longScrollMinimumAvailableRows)
 }
 

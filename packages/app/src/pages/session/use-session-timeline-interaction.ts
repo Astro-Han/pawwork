@@ -164,6 +164,7 @@ export function createSessionTimelineInteraction(input: {
     on(
       () => [input.sessionKey(), input.sessionID()] as const,
       () => {
+        layoutTransactionCoordinator.cancel()
         cancelRecoveryFrame()
         const previous = scrollController.state()
         scrollController.detach({
@@ -177,6 +178,7 @@ export function createSessionTimelineInteraction(input: {
   )
 
   onCleanup(() => {
+    layoutTransactionCoordinator.cancel()
     cancelRecoveryFrame()
     const owner = scrollController.state()
     scrollController.detach({
@@ -290,6 +292,7 @@ export function createSessionTimelineInteraction(input: {
   })
 
   const markScrollGesture = (target?: EventTarget | null) => {
+    layoutTransactionCoordinator.cancel()
     scrollDock.cancelBottomFollowLock()
     activeMessage.markScrollGesture(target)
   }
@@ -306,6 +309,7 @@ export function createSessionTimelineInteraction(input: {
   }
 
   const navigateMessageByOffset = (offset: number) => {
+    layoutTransactionCoordinator.cancel()
     scrollDock.cancelBottomFollowLock()
     activeMessage.navigateMessageByOffset(offset)
   }
@@ -336,7 +340,10 @@ export function createSessionTimelineInteraction(input: {
   }
 
   const onTimelineScrollIntent = (intent: TimelineScrollIntent): TimelineScrollControllerResult => {
-    if (shouldCancelBottomFollowLockForIntent(intent)) scrollDock.cancelBottomFollowLock()
+    if (shouldCancelBottomFollowLockForIntent(intent)) {
+      layoutTransactionCoordinator.cancel()
+      scrollDock.cancelBottomFollowLock()
+    }
     const result = scrollController.intent(intent)
     applyTimelineRecovery(result.recovery)
     return result

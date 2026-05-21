@@ -311,4 +311,41 @@ describe("timeline layout transaction coordinator", () => {
       { active: false },
     ])
   })
+
+  test("cancels pending fallback before stale frames can restore or violate", () => {
+    const frame = deferredFrameScheduler()
+    let restoreCalls = 0
+    let stableBand = false
+    const diagnostics: TimelineLayoutTransactionDiagnostic[] = []
+    const coordinator = createTimelineLayoutTransactionCoordinator({
+      now: () => 600 + diagnostics.length,
+      scheduleFrame: frame.scheduler,
+      cancelFrame: () => {},
+      readMode: () => "reading_history",
+      sampleAnchor: () => readingAnchor,
+      restoreAnchor: () => {
+        restoreCalls += 1
+        return false
+      },
+      restoreLatest: () => false,
+      setStableBandActive: (active) => {
+        stableBand = active
+      },
+      emitDiagnostic: (event) => diagnostics.push(event),
+    })
+
+    coordinator.run({
+      kind: "content-resize",
+      source: "use-session-scroll-dock/contentObserver",
+      reason: "streaming-content-resize",
+      mutate: () => {},
+    })
+
+    coordinator.cancel()
+    frame.flushNextFrame()
+
+    expect(restoreCalls).toBe(1)
+    expect(stableBand).toBe(false)
+    expect(diagnostics.map((event) => event.phase)).toEqual(["start", "fallback"])
+  })
 })

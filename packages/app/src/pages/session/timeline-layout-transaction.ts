@@ -75,6 +75,7 @@ export function createTimelineLayoutTransactionCoordinator(input: {
 }) {
   let sequence = 0
   let activeGeneration = 0
+  let transactionPending = false
   let pendingFrameHandles = new Set<number>()
   const now = input.now ?? (() => performance.now())
 
@@ -87,8 +88,17 @@ export function createTimelineLayoutTransactionCoordinator(input: {
     pendingFrameHandles = new Set()
   }
 
-  const run = (runInput: TimelineLayoutTransactionRunInput): TimelineLayoutTransactionResult => {
+  const cancel = () => {
+    if (!transactionPending && pendingFrameHandles.size <= 0) return
+    activeGeneration += 1
+    transactionPending = false
     clearPendingFrames()
+    input.setStableBandActive(false)
+    input.setTransactionState?.({ active: false })
+  }
+
+  const run = (runInput: TimelineLayoutTransactionRunInput): TimelineLayoutTransactionResult => {
+    cancel()
     sequence += 1
     activeGeneration += 1
     const generation = activeGeneration
@@ -124,6 +134,7 @@ export function createTimelineLayoutTransactionCoordinator(input: {
     ) => {
       if (generation !== activeGeneration || settled) return false
       settled = true
+      transactionPending = false
       input.setStableBandActive(false)
       input.setTransactionState?.({ active: false })
       if (violation) {
@@ -160,6 +171,7 @@ export function createTimelineLayoutTransactionCoordinator(input: {
     }
 
     input.setStableBandActive(true)
+    transactionPending = true
     input.setTransactionState?.({ active: true, transactionID, kind: runInput.kind })
     emit({ ...base, phase: "start", fallbackFrames: 0 })
 
@@ -175,11 +187,12 @@ export function createTimelineLayoutTransactionCoordinator(input: {
       return result
     } catch (error) {
       if (generation === activeGeneration) clearPendingFrames()
+      transactionPending = false
       input.setStableBandActive(false)
       input.setTransactionState?.({ active: false })
       throw error
     }
   }
 
-  return { run }
+  return { run, cancel }
 }
