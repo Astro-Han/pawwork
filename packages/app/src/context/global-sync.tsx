@@ -13,6 +13,7 @@ import { createContext, getOwner, onCleanup, onMount, type ParentProps, untrack,
 import { createStore, produce, reconcile } from "solid-js/store"
 import { useLanguage } from "@/context/language"
 import { Persist, persisted } from "@/utils/persist"
+import { clientActionHeaders } from "@/utils/server"
 import type { InitError } from "../pages/error"
 import { useGlobalSDK } from "./global-sdk"
 import { bootstrapDirectory, bootstrapGlobal, clearProviderRev } from "./global-sync/bootstrap"
@@ -493,7 +494,11 @@ function createGlobalSync() {
 
   const updateConfig = async (config: Config) => {
     setGlobalStore("reload", "pending")
-    return globalSDK.client.global.config
+    const actionClient = globalSDK.createClient({
+      headers: clientActionHeaders({ kind: "global.config.update" }),
+      throwOnError: true,
+    })
+    return actionClient.global.config
       .update({ config })
       .then(bootstrap)
       .then(() => {

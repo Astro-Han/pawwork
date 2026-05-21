@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test"
 import { Effect, Exit, Fiber, Layer } from "effect"
 import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
+import { Hono } from "hono"
 import { Instance } from "../../src/project/instance"
+import { GlobalRoutes } from "../../src/server/instance/global"
 import {
   createLifecycleCloseAction,
   currentLifecycleCloseAction,
@@ -124,6 +126,57 @@ describe("SessionRunState", () => {
           expect(second).toMatchObject({ lifecycleKind: "instance_dispose_all" })
           expect(first?.lifecycleActionID).toBe(second?.lifecycleActionID)
           expect(first?.lifecycleActionID).toStartWith("lifecycle:instance_dispose_all:")
+        }),
+      { git: true },
+    )
+  })
+
+  it.live("annotates global dispose interrupts with request origin", () => {
+    let captured:
+      | {
+          lifecycleKind?: string
+          lifecycleOrigin?: { source: string; operation?: string; reason?: string }
+        }
+      | undefined
+
+    return provideTmpdirInstance(
+      () =>
+        Effect.gen(function* () {
+          const run = yield* SessionRunState.Service
+          const fiber = yield* run
+            .ensureRunning(
+              SessionID.make("ses_global_dispose_origin"),
+              (meta) =>
+                Effect.sync(() => {
+                  captured = meta
+                  return {} as never
+                }),
+              Effect.never,
+            )
+            .pipe(Effect.forkChild)
+
+          yield* Effect.sleep("10 millis")
+          yield* Effect.promise(async () => {
+            const app = new Hono().route("/global", GlobalRoutes())
+            const response = await app.request("/global/dispose", {
+              method: "POST",
+              headers: {
+                "x-pawwork-client-action-id": "client-global-dispose",
+                "x-pawwork-client-action-kind": "global.dispose.button",
+              },
+            })
+            expect(response.status).toBe(200)
+          })
+
+          expect(Exit.isSuccess(yield* Fiber.await(fiber))).toBe(true)
+          expect(captured).toMatchObject({
+            lifecycleKind: "instance_dispose_all",
+            lifecycleOrigin: {
+              source: "server_handler",
+              operation: "instance.disposeAll",
+              reason: "global.dispose.button",
+            },
+          })
         }),
       { git: true },
     )

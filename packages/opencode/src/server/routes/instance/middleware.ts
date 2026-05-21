@@ -6,6 +6,7 @@ import { WorkspaceContext } from "@/control-plane/workspace-context"
 import type { WorkspaceID } from "@/control-plane/schema"
 import { Filesystem } from "@/util/filesystem"
 import { Instance } from "@/project/instance"
+import { requestContextFromHono, withRequestContext } from "@/server/request-context"
 
 export function InstanceMiddleware(workspaceID?: WorkspaceID): MiddlewareHandler {
   return async (c, next) => {
@@ -29,11 +30,15 @@ export function InstanceMiddleware(workspaceID?: WorkspaceID): MiddlewareHandler
       }
     }
 
+    const snapshot = requestContextFromHono(c, { directory, workspaceID })
+
     const runInstance = () =>
-      Instance.provide({
-        directory,
-        fn: () => next(),
-      })
+      withRequestContext(snapshot, () =>
+        Instance.provide({
+          directory,
+          fn: () => next(),
+        }),
+      )
 
     if (!workspaceID) return runInstance()
 

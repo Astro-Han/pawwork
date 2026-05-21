@@ -22,24 +22,24 @@ describe("dialog-connect-provider source boundary", () => {
   })
 
   test("preserves provider auth copy and action wiring after extraction", () => {
-    for (const key of [
-      "provider.connect.apiKey.required",
-      "provider.connect.oauth.code.required",
-    ]) {
+    for (const key of ["provider.connect.apiKey.required", "provider.connect.oauth.code.required"]) {
       expect(authViewsSource).toContain(key)
     }
 
-    for (const key of [
-      "provider.connect.oauth.auto.confirmationCode",
-      "provider.connect.status.waiting",
-    ]) {
+    for (const key of ["provider.connect.oauth.auto.confirmationCode", "provider.connect.status.waiting"]) {
       expect(autoViewSource).toContain(key)
     }
 
     expect(promptViewSource).toContain("prompt.when")
     expect(dialogSource).toContain("globalSDK.client.provider.oauth")
     expect(dialogSource).toContain(".authorize(")
-    expect(dialogSource).toContain("globalSDK.client.global.dispose")
+    expect(dialogSource).toContain("actionClient.global.dispose")
+  })
+
+  test("tags provider connect lifecycle dispose calls with client action headers", () => {
+    expect(dialogSource).toContain("clientActionHeaders")
+    expect(dialogSource).toContain('kind: "settings.provider.connect"')
+    expect(dialogSource).toContain("actionClient.global.dispose")
   })
 
   test("formats nested provider auth errors without losing fallback behavior", () => {
