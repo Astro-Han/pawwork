@@ -68,6 +68,7 @@ export function deriveIncident(input: DeriveIncidentInput): RunIncident | undefi
             lifecycle: {
               action_id: input.lifecycle.action_id,
               kind: input.lifecycle.kind,
+              source: input.lifecycle.source,
               reason: input.lifecycle.reason,
               initiated_at: input.lifecycle.initiated_at,
               initiated_monotonic_ms: input.lifecycle.initiated_monotonic_ms,

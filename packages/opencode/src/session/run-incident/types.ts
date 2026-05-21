@@ -139,6 +139,7 @@ export type IncidentProvenance = {
   lifecycle?: {
     action_id: string
     kind: LifecycleKind
+    source?: string
     reason?: string
     initiated_at?: number
     initiated_monotonic_ms?: number

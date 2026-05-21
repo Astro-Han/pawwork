@@ -1333,6 +1333,7 @@ describe("RunObservability", () => {
     expect(summary.incident?.provenance.lifecycle).toMatchObject({
       action_id: "lifecycle:instance_reload:abc123",
       kind: "instance_reload",
+      source: "session.run_state.finalizer",
       initiated_at: 18,
       initiated_monotonic_ms: 180,
       affected_directory_keys: ["dir:testreload"],
