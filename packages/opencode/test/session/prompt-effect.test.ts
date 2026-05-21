@@ -383,6 +383,16 @@ function providerCfg(url: string) {
   }
 }
 
+function retainedTailCfg(url: string) {
+  return {
+    ...providerCfg(url),
+    compaction: {
+      tail_turns: 1,
+      preserve_recent_tokens: 8_000,
+    },
+  }
+}
+
 const user = Effect.fn("test.user")(function* (sessionID: SessionID, text: string) {
   const session = yield* Session.Service
   const msg = yield* session.updateMessage({
@@ -476,6 +486,138 @@ it.live("loop exits immediately when last assistant has stop finish", () =>
   ),
 )
 
+it.live("loop compacts a finished assistant turn before exiting when it overflows", () =>
+  provideTmpdirServer(
+    ({ llm }) =>
+      Effect.gen(function* () {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({ title: "Overflowed finished turn" })
+        const seeded = yield* seed(chat.id, { finish: "stop" })
+        yield* sessions.updateMessage({
+          ...seeded.assistant,
+          tokens: { input: 95_000, output: 1, reasoning: 0, cache: { read: 0, write: 0 } },
+        })
+        yield* llm.text("## Goal\n- Compacted finished overflow turn")
+
+        const result = yield* prompt.loop({ sessionID: chat.id })
+        const messages = yield* sessions.messages({ sessionID: chat.id })
+        const compactionPart = messages
+          .flatMap((message) => message.parts)
+          .find((part): part is MessageV2.CompactionPart => part.type === "compaction")
+        const summary = messages.find((message) => message.info.role === "assistant" && message.info.summary === true)
+        const syntheticContinue = messages.find(
+          (message) =>
+            message.info.role === "user" &&
+            message.parts.some(
+              (part) => part.type === "text" && part.synthetic && part.text.includes("Continue if you have next steps"),
+            ),
+        )
+
+        expect(yield* llm.calls).toBeGreaterThanOrEqual(1)
+        expect(compactionPart).toBeDefined()
+        expect(compactionPart?.overflow).not.toBe(true)
+        expect(summary?.info.role).toBe("assistant")
+        expect(result.info.role).toBe("assistant")
+        expect(syntheticContinue).toBeUndefined()
+
+        const callsAfterCompaction = yield* llm.calls
+        const secondResult = yield* prompt.loop({ sessionID: chat.id })
+        expect(secondResult.info.role).toBe("assistant")
+        expect(yield* llm.calls).toBe(callsAfterCompaction)
+      }),
+    { git: true, config: providerCfg },
+  ),
+)
+
+it.live("finished compaction with retained tail does not compact that tail again", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({ title: "Retained finished tail" })
+        const first = yield* user(chat.id, "first request")
+        const firstAssistant = yield* sessions.updateMessage({
+          id: MessageID.ascending(),
+          role: "assistant",
+          parentID: first.id,
+          sessionID: chat.id,
+          mode: "build",
+          agent: "build",
+          cost: 0,
+          path: { cwd: dir, root: dir },
+          tokens: { input: 1, output: 1, reasoning: 0, cache: { read: 0, write: 0 } },
+          modelID: ref.modelID,
+          providerID: ref.providerID,
+          time: { created: Date.now() },
+          finish: "stop",
+        })
+        yield* sessions.updatePart({
+          id: PartID.ascending(),
+          messageID: firstAssistant.id,
+          sessionID: chat.id,
+          type: "text",
+          text: "first answer",
+        })
+        const second = yield* user(chat.id, "second request")
+        const secondAssistant = yield* sessions.updateMessage({
+          id: MessageID.ascending(),
+          role: "assistant",
+          parentID: second.id,
+          sessionID: chat.id,
+          mode: "build",
+          agent: "build",
+          cost: 0,
+          path: { cwd: dir, root: dir },
+          tokens: { input: 95_000, output: 1, reasoning: 0, cache: { read: 0, write: 0 } },
+          modelID: ref.modelID,
+          providerID: ref.providerID,
+          time: { created: Date.now() },
+          finish: "stop",
+        })
+        yield* sessions.updatePart({
+          id: PartID.ascending(),
+          messageID: secondAssistant.id,
+          sessionID: chat.id,
+          type: "text",
+          text: "second answer",
+        })
+        yield* llm.text("## Goal\n- Compacted first turn")
+        yield* llm.text("## Goal\n- Unexpected second compaction")
+
+        const result = yield* prompt.loop({ sessionID: chat.id })
+        const callsAfterFirstLoop = yield* llm.calls
+        const secondResult = yield* prompt.loop({ sessionID: chat.id })
+        const messages = yield* sessions.messages({ sessionID: chat.id })
+        const filtered = yield* MessageV2.filterCompactedEffect(chat.id)
+        const compactionParts = messages.flatMap((message) => message.parts).filter((part) => part.type === "compaction")
+        const syntheticContinue = messages.find(
+          (message) =>
+            message.info.role === "user" &&
+            message.parts.some(
+              (part) => part.type === "text" && part.synthetic && part.text.includes("Continue if you have next steps"),
+            ),
+        )
+
+        expect(result.info.role).toBe("assistant")
+        expect(secondResult.info.role).toBe("assistant")
+        expect(callsAfterFirstLoop).toBe(1)
+        expect(yield* llm.calls).toBe(1)
+        expect(compactionParts).toHaveLength(1)
+        expect(compactionParts[0]).toMatchObject({ tail_start_id: second.id })
+        expect(syntheticContinue).toBeUndefined()
+        expect(filtered.map((message) => message.info.id)).toEqual([
+          compactionParts[0]!.messageID,
+          result.info.id,
+          second.id,
+          secondAssistant.id,
+        ])
+      }),
+    { git: true, config: retainedTailCfg },
+  ),
+)
+
 it.live("loop calls LLM and returns assistant message", () =>
   provideTmpdirServer(
     Effect.fnUntraced(function* ({ llm }) {
@@ -547,7 +689,7 @@ it.live("provider env matches assistant path for an active worktree", () =>
   ),
 )
 
-it.live("post-compaction auto-continue keeps env in the active worktree", () =>
+it.live("post-compaction user continuation keeps env in the active worktree", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>
       Effect.gen(function* () {
@@ -629,11 +771,17 @@ it.live("post-compaction auto-continue keeps env in the active worktree", () =>
         expect(summaryMessage.info.path.cwd).toBe(activeDirectory)
         expect(summaryMessage.info.path.root).toBe(dir)
 
+        yield* prompt.prompt({
+          sessionID: session.id,
+          agent: "build",
+          noReply: true,
+          parts: [{ type: "text", text: "continue after compaction" }],
+        })
         yield* llm.text("continued after compaction")
         const result = yield* prompt.loop({ sessionID: session.id })
         if (result.info.role !== "assistant") throw new Error("Expected assistant message")
 
-        const requestText = requestTextContaining(yield* llm.inputs, "Continue if you have next steps")
+        const requestText = requestTextContaining(yield* llm.inputs, "continue after compaction")
         expect(envValue(requestText, "Working directory")).toBe(activeDirectory)
         expect(envValue(requestText, "Workspace root folder")).toBe(dir)
         expect(result.info.path.cwd).toBe(activeDirectory)
