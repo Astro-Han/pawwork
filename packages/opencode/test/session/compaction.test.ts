@@ -1217,7 +1217,8 @@ describe("session.compaction.process", () => {
           auto: true,
           tail_start_id: second.id,
         })
-        await assistant(session.id, previousCompaction.id, tmp.path)
+        const previousSummary = await assistant(session.id, previousCompaction.id, tmp.path)
+        await svc.updateMessage({ ...previousSummary, summary: true })
         const compact = await user(session.id, "compact again")
         await svc.updatePart({
           id: PartID.ascending(),
@@ -1225,7 +1226,6 @@ describe("session.compaction.process", () => {
           sessionID: session.id,
           type: "compaction",
           auto: true,
-          tail_start_id: second.id,
         })
 
         const fakeLLM = llm()
