@@ -32,7 +32,7 @@ function sanitizeOrigin(origin: NonNullable<LifecycleProvenance["origin"]>) {
   }
 }
 
-function sanitizeRequest(request: NonNullable<LifecycleProvenance["request"]>) {
+export function sanitizeLifecycleRequest(request: NonNullable<LifecycleProvenance["request"]>) {
   return {
     method: safeMethod(request.method),
     path: safeRoutePath(request.path),
@@ -55,6 +55,8 @@ function sanitizeRequest(request: NonNullable<LifecycleProvenance["request"]>) {
       : undefined,
   }
 }
+
+const sanitizeRequest = sanitizeLifecycleRequest
 
 function safeMethod(value: string) {
   const upper = value.toUpperCase()
