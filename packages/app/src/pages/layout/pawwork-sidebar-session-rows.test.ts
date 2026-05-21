@@ -1,8 +1,49 @@
 import { readFileSync } from "node:fs"
 import { describe, expect, test } from "bun:test"
-import { buildPawworkSidebarSessionRows } from "./pawwork-session-source"
+import {
+  buildPawworkSidebarSessionRows,
+  resolvePawworkSessionProjectKey,
+  resolvePawworkSessionProjectLabel,
+} from "./pawwork-session-source"
 
 describe("buildPawworkSidebarSessionRows", () => {
+  test("groups git subfolder sessions by the opened directory instead of the repo root", () => {
+    const session = {
+      id: "session-subfolder",
+      directory: "/repo/packages/app",
+      project: { id: "proj_repo", name: "Repo", worktree: "/repo" },
+      time: { created: 100, updated: 100 },
+    }
+    const projects = [{ id: "proj_repo", name: "Repo", worktree: "/repo" }]
+
+    const result = buildPawworkSidebarSessionRows([session], {
+      slugForDirectory: (directory) => `slug:${directory}`,
+      projectKeyForSession: (item) => resolvePawworkSessionProjectKey(item),
+      projectLabelForSession: (item) => resolvePawworkSessionProjectLabel(item, { projects }),
+    })
+
+    expect(result[0].projectKey).toBe("/repo/packages/app")
+    expect(result[0].projectLabel).toBe("app")
+  })
+
+  test("keeps project names for sessions opened at the project root", () => {
+    const session = {
+      id: "session-root",
+      directory: "/repo",
+      project: { id: "proj_repo", name: "Repo", worktree: "/repo" },
+      time: { created: 100, updated: 100 },
+    }
+
+    const result = buildPawworkSidebarSessionRows([session], {
+      slugForDirectory: (directory) => `slug:${directory}`,
+      projectKeyForSession: (item) => resolvePawworkSessionProjectKey(item),
+      projectLabelForSession: (item) => resolvePawworkSessionProjectLabel(item, { projects: [] }),
+    })
+
+    expect(result[0].projectKey).toBe("/repo")
+    expect(result[0].projectLabel).toBe("Repo")
+  })
+
   test("uses API activity time before loaded message cache for sidebar rows", () => {
     const result = buildPawworkSidebarSessionRows(
       [

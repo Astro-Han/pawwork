@@ -4,8 +4,15 @@ import { Worktree as WorktreeState } from "@/utils/worktree"
 import { effectiveWorkspaceOrder, workspaceKey } from "./helpers"
 
 type ProjectLike = {
+  id?: string
   name?: string
   worktree: string
+}
+
+type SessionProjectLike = {
+  id?: string
+  name?: string
+  worktree?: string
 }
 
 type SessionLike = {
@@ -38,6 +45,7 @@ type PartTimeLike = {
 type SidebarRowSessionLike = SessionTimeLike & {
   id: string
   directory: string
+  project?: SessionProjectLike | null
 }
 
 const isFiniteNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value)
@@ -72,6 +80,31 @@ export function sortPawworkSidebarSessions<T extends SessionLike>(sessions: T[])
     if (project !== 0) return project
     return a.id.localeCompare(b.id)
   })
+}
+
+export function resolvePawworkSessionProjectKey(session: { directory: string }) {
+  return workspaceKey(session.directory)
+}
+
+export function resolvePawworkSessionProjectLabel<T extends { directory: string; project?: SessionProjectLike | null }>(
+  session: T,
+  input: {
+    projects: ProjectLike[]
+    workspaceName?: (directory: string, projectId?: string, branch?: string) => string | undefined
+  },
+) {
+  const directName = input.workspaceName?.(session.directory)
+  if (directName) return directName
+
+  const sessionKey = workspaceKey(session.directory)
+  const localProject = input.projects.find((project) => workspaceKey(project.worktree) === sessionKey)
+  if (localProject) return localProject.name || getFilename(localProject.worktree)
+
+  if (session.project?.worktree && workspaceKey(session.project.worktree) === sessionKey) {
+    return session.project.name || getFilename(session.project.worktree)
+  }
+
+  return getFilename(session.directory)
 }
 
 const isActivityEligibleUserMessage = (parts: PartTimeLike[] | undefined) => {

@@ -89,6 +89,8 @@ import { createInlineEditorController } from "./layout/inline-editor"
 import {
   buildPawworkSidebarSessionRows,
   pawworkSessionDirectories,
+  resolvePawworkSessionProjectKey,
+  resolvePawworkSessionProjectLabel,
   sortPawworkSidebarSessions,
 } from "./layout/pawwork-session-source"
 import {
@@ -622,21 +624,14 @@ export default function Layout(props: ParentProps) {
   }
 
   const projectKeyForSession = (session: Session | GlobalSession) => {
-    const project = "project" in session ? session.project : undefined
-    if (project?.worktree) return workspaceKey(project.worktree)
-    return workspaceKey(session.directory)
+    return resolvePawworkSessionProjectKey(session)
   }
 
   const projectLabelForSession = (session: Session | GlobalSession) => {
-    const project = "project" in session ? session.project : undefined
-    if (project?.worktree) {
-      const localProject = layout.projects.list().find((item) => workspaceKey(item.worktree) === workspaceKey(project.worktree))
-      if (localProject) return displayName(localProject)
-    }
-    const localProject = layout.projects.list().find((item) => workspaceKey(item.worktree) === workspaceKey(session.directory))
-    if (localProject) return displayName(localProject)
-    if (project?.name) return project.name
-    return getFilename(session.directory)
+    return resolvePawworkSessionProjectLabel(session, {
+      projects: layout.projects.list(),
+      workspaceName,
+    })
   }
 
   const pawworkSessionWindow = createMemo(() =>
@@ -1248,6 +1243,7 @@ export default function Layout(props: ParentProps) {
       projects.find((p) => workspaceKey(p.worktree) === sessionKey) ||
       projects.find((p) => p.sandboxes?.some((s) => workspaceKey(s) === sessionKey))
     if (localProject) await renameProject(localProject, next)
+    else setWorkspaceName(session.directory, next)
   }
 
   function expandPawworkProjectGroup(label: string | undefined) {
@@ -1694,7 +1690,7 @@ export default function Layout(props: ParentProps) {
 
   function openPawworkHome(directory?: string) {
     if (directory) {
-      const key = workspaceKey(projectRoot(directory))
+      const key = workspaceKey(directory)
       if (store.pawworkProjectHidden[key]) {
         unhideProject(key)
       }
