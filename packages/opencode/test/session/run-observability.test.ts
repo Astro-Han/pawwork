@@ -805,6 +805,113 @@ describe("RunObservability", () => {
     })
   })
 
+  test("earlier attempt unsafe materialized tool prevents later auto retry", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_cross_attempt_unsafe_materialized_tool"),
+      traceID: MessageID.make("msg_cross_attempt_unsafe_materialized_tool"),
+      sessionID: SessionID.make("ses_cross_attempt_unsafe_materialized_tool"),
+      messageID: MessageID.make("msg_cross_attempt_unsafe_materialized_tool"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const first = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordToolCallMaterialized({
+      attemptID: first.attemptID,
+      at: 12,
+      monotonicMs: 120,
+      toolName: RunObservability.safeToolName("bash"),
+      effect: RunObservability.toolEffect("bash"),
+    })
+    const second = recorder.beginAttempt({ attemptIndex: 2, at: 20, monotonicMs: 200 })
+    recorder.recordTransportFailure({
+      attemptID: second.attemptID,
+      at: 21,
+      monotonicMs: 210,
+      error: { name: "TypeError", message: "terminated", cause: { code: "UND_ERR_SOCKET" } },
+    })
+
+    const summary = recorder.finalize({ completedAt: 22, monotonicMs: 220 })
+    expect(summary.incident?.terminal_cause).toMatchObject({
+      category: "provider_transport_disconnect",
+      subcategory: "before_first_provider_progress",
+    })
+    expect(summary.incident?.recovery).toMatchObject({
+      recommendation: "ask_user_before_retry",
+      reason: "tool_call_materialized_without_execution",
+    })
+  })
+
+  test("earlier attempt safe materialized tool prevents later auto retry", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_cross_attempt_safe_materialized_tool"),
+      traceID: MessageID.make("msg_cross_attempt_safe_materialized_tool"),
+      sessionID: SessionID.make("ses_cross_attempt_safe_materialized_tool"),
+      messageID: MessageID.make("msg_cross_attempt_safe_materialized_tool"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const first = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordToolCallMaterialized({
+      attemptID: first.attemptID,
+      at: 12,
+      monotonicMs: 120,
+      toolName: RunObservability.safeToolName("read"),
+      effect: RunObservability.toolEffect("read"),
+    })
+    const second = recorder.beginAttempt({ attemptIndex: 2, at: 20, monotonicMs: 200 })
+    recorder.recordTransportFailure({
+      attemptID: second.attemptID,
+      at: 21,
+      monotonicMs: 210,
+      error: { name: "TypeError", message: "terminated", cause: { code: "UND_ERR_SOCKET" } },
+    })
+
+    const summary = recorder.finalize({ completedAt: 22, monotonicMs: 220 })
+    expect(summary.incident?.recovery).toMatchObject({
+      recommendation: "offer_continue",
+      reason: "tool_call_materialized_without_execution",
+    })
+  })
+
+  test("earlier attempt unknown materialized tool prevents later auto retry", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_cross_attempt_unknown_materialized_tool"),
+      traceID: MessageID.make("msg_cross_attempt_unknown_materialized_tool"),
+      sessionID: SessionID.make("ses_cross_attempt_unknown_materialized_tool"),
+      messageID: MessageID.make("msg_cross_attempt_unknown_materialized_tool"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const first = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordToolCallMaterialized({
+      attemptID: first.attemptID,
+      at: 12,
+      monotonicMs: 120,
+      toolName: RunObservability.safeToolName("mcp_write"),
+      effect: RunObservability.toolEffect("mcp_write"),
+    })
+    const second = recorder.beginAttempt({ attemptIndex: 2, at: 20, monotonicMs: 200 })
+    recorder.recordProviderProgress({ attemptID: second.attemptID, at: 21, monotonicMs: 210 })
+    recorder.recordTransportFailure({
+      attemptID: second.attemptID,
+      at: 22,
+      monotonicMs: 220,
+      error: { name: "TypeError", message: "terminated", cause: { code: "UND_ERR_SOCKET" } },
+    })
+
+    const summary = recorder.finalize({ completedAt: 23, monotonicMs: 230 })
+    expect(summary.incident?.recovery).toMatchObject({
+      recommendation: "ask_user_before_retry",
+      reason: "side_effect_facts_incomplete",
+    })
+  })
+
   test("classifies local scope close with missing lifecycle provenance separately from user cancel", () => {
     const recorder = RunObservability.createRecorder({
       runID: RunObservability.RunID.make("run_scope_close"),

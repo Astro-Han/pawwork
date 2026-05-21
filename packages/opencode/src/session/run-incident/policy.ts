@@ -37,8 +37,8 @@ export function recoveryFor(input: {
   if (input.facts.tool_execution_started) {
     return { ...base, recommendation: "ask_user_before_retry", confidence: "medium", reason: "tool_execution_started" }
   }
-  if (terminalFacts.tool_call_materialized) {
-    if (!terminalFacts.side_effect_facts_complete || terminalFacts.materialized_tool_effect_kind === "unknown") {
+  if (input.facts.tool_call_materialized) {
+    if (!input.facts.side_effect_facts_complete || input.facts.materialized_tool_effect_kind === "unknown") {
       return {
         ...base,
         recommendation: "ask_user_before_retry",
@@ -46,7 +46,7 @@ export function recoveryFor(input: {
         reason: "side_effect_facts_incomplete",
       }
     }
-    if (terminalFacts.materialized_tool_requires_confirmation) {
+    if (input.facts.materialized_tool_requires_confirmation) {
       return {
         ...base,
         recommendation: "ask_user_before_retry",
