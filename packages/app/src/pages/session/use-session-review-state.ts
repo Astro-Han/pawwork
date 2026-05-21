@@ -1,4 +1,4 @@
-import type { SessionDiffResponse, SnapshotFileDiff, VcsFileDiff } from "@opencode-ai/sdk/v2"
+import type { SnapshotFileDiff, VcsFileDiff } from "@opencode-ai/sdk/v2"
 import { createEffect, createMemo, createResource, createSignal, on, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
 import type { useSDK } from "@/context/sdk"
@@ -16,22 +16,9 @@ import {
 import { diffs as list } from "@/utils/diffs"
 import { same } from "@/utils/same"
 import { sameExecutionScope, shouldApplyExecutionResult, vcsTaskKey, type ExecutionScope } from "./execution-scope"
+import { aggregateFiles } from "./session-aggregate-files"
 
 type SessionReviewDiff = SnapshotFileDiff | VcsFileDiff
-
-function aggregateFiles(aggregate: SessionDiffResponse | undefined): SnapshotFileDiff[] {
-  if (!aggregate) return []
-  if (aggregate.kind === "empty" || aggregate.kind === "uncaptured") return []
-  return aggregate.files
-    .filter((file) => file.restoreState === "applied")
-    .map((file) => ({
-      file: file.openPath ?? file.path,
-      patch: file.patch ?? "",
-      additions: file.additions ?? 0,
-      deletions: file.deletions ?? 0,
-      status: file.status,
-    }))
-}
 
 export function deriveReviewArtifactFiles(input: {
   currentScope: ExecutionScope

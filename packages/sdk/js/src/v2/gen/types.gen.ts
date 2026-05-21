@@ -3981,65 +3981,28 @@ export type SessionTurnChangeResponses = {
   /**
    * Turn changes
    */
-  200:
-    | {
-        kind: "empty"
-        sessionID: string
-        turnID?: string
-        messageID?: string
-      }
-    | {
-        kind: "captured"
-        sessionID: string
-        turnID?: string
-        messageID?: string
-        files: Array<{
-          path: string
-          openPath?: string
-          status: "added" | "modified" | "deleted"
-          additions?: number
-          deletions?: number
-          patch?: string
-          sensitive?: boolean
-          binary?: boolean
-          large?: boolean
-          restoreAvailable?: boolean
-          expandable: boolean
-          restoreState: "applied" | "undone" | "redo_invalidated"
-        }>
-        truncated?: boolean
-        omittedCount?: number
-      }
-    | {
-        kind: "uncaptured"
-        sessionID: string
-        turnID?: string
-        messageID?: string
-        count: number
-      }
-    | {
-        kind: "mixed"
-        sessionID: string
-        turnID?: string
-        messageID?: string
-        files: Array<{
-          path: string
-          openPath?: string
-          status: "added" | "modified" | "deleted"
-          additions?: number
-          deletions?: number
-          patch?: string
-          sensitive?: boolean
-          binary?: boolean
-          large?: boolean
-          restoreAvailable?: boolean
-          expandable: boolean
-          restoreState: "applied" | "undone" | "redo_invalidated"
-        }>
-        count: number
-        truncated?: boolean
-        omittedCount?: number
-      }
+  200: {
+    sessionID: string
+    turnID: string
+    messageID: string
+    undoAvailable: boolean
+    redoAvailable: boolean
+    truncated?: boolean
+    omittedCount?: number
+    files: Array<{
+      path: string
+      openPath?: string
+      status: "added" | "modified" | "deleted"
+      additions?: number
+      deletions?: number
+      patch?: string
+      sensitive?: boolean
+      binary?: boolean
+      large?: boolean
+      restoreAvailable?: boolean
+      expandable: boolean
+    }>
+  } | null
 }
 
 export type SessionTurnChangeResponse = SessionTurnChangeResponses[keyof SessionTurnChangeResponses]
@@ -4259,28 +4222,65 @@ export type SessionTurnChangesAggregateResponses = {
   /**
    * Aggregated turn changes
    */
-  200: {
-    sessionID: string
-    turnID: string
-    messageID: string
-    undoAvailable: boolean
-    redoAvailable: boolean
-    truncated?: boolean
-    omittedCount?: number
-    files: Array<{
-      path: string
-      openPath?: string
-      status: "added" | "modified" | "deleted"
-      additions?: number
-      deletions?: number
-      patch?: string
-      sensitive?: boolean
-      binary?: boolean
-      large?: boolean
-      restoreAvailable?: boolean
-      expandable: boolean
-    }>
-  } | null
+  200:
+    | {
+        kind: "empty"
+        sessionID: string
+        turnID?: string
+        messageID?: string
+      }
+    | {
+        kind: "captured"
+        sessionID: string
+        turnID?: string
+        messageID?: string
+        files: Array<{
+          path: string
+          openPath?: string
+          status: "added" | "modified" | "deleted"
+          additions?: number
+          deletions?: number
+          patch?: string
+          sensitive?: boolean
+          binary?: boolean
+          large?: boolean
+          restoreAvailable?: boolean
+          expandable: boolean
+          restoreState: "applied" | "undone" | "redo_invalidated"
+        }>
+        truncated?: boolean
+        omittedCount?: number
+      }
+    | {
+        kind: "uncaptured"
+        sessionID: string
+        turnID?: string
+        messageID?: string
+        count: number
+      }
+    | {
+        kind: "mixed"
+        sessionID: string
+        turnID?: string
+        messageID?: string
+        files: Array<{
+          path: string
+          openPath?: string
+          status: "added" | "modified" | "deleted"
+          additions?: number
+          deletions?: number
+          patch?: string
+          sensitive?: boolean
+          binary?: boolean
+          large?: boolean
+          restoreAvailable?: boolean
+          expandable: boolean
+          restoreState: "applied" | "undone" | "redo_invalidated"
+        }>
+        count: number
+        truncated?: boolean
+        omittedCount?: number
+      }
 }
 
 export type SessionTurnChangesAggregateResponse =

@@ -11,6 +11,7 @@ const writeCommands = new Set([
   "mv",
   "patch",
   "rm",
+  "rmdir",
   "tee",
   "touch",
   "truncate",
@@ -72,17 +73,19 @@ export function isLikelyWriteCommand(command: string) {
     if (head === "sed" && rest.slice(0, 3).some((item) => item === "-i" || item.startsWith("-i"))) return true
     if (head === "perl" && rest.slice(0, 3).some((item) => item.includes("i"))) return true
     if (head === "awk" && rest.join(" ").includes("-i inplace")) return true
-    if (head === "cargo" && next === "build") return true
-    if (head === "go" && ["build", "get"].includes(next ?? "")) return true
-    if (["bun", "npm", "pnpm", "yarn"].includes(head) && [undefined, "add", "build", "install"].includes(next))
+    if (head === "cargo" && ["add", "build", "install", "run"].includes(next ?? "")) return true
+    if (head === "go" && ["build", "get", "install"].includes(next ?? "")) return true
+    if (["bun", "npm", "pnpm", "yarn"].includes(head) && [undefined, "add", "build", "i", "install"].includes(next))
       return true
     if (["bun", "npm", "pnpm", "yarn"].includes(head) && next === "run" && ["build", "compile"].includes(rest[1] ?? ""))
       return true
+    if (head === "cmake" && next === "--build") return true
+    if (["python", "python3"].includes(head) && next === "setup.py") return true
     if (head === "pip" && ["install", "uninstall"].includes(next ?? "")) return true
-    if (head === "uv" && ["add", "remove", "sync", "pip"].includes(next ?? "")) return true
+    if (head === "uv" && ["add", "remove", "sync"].includes(next ?? "")) return true
+    if (head === "uv" && next === "pip" && ["install", "uninstall"].includes(rest[1] ?? "")) return true
     if (head === "vite" && next === "build") return true
-    if (head === "tsc" && rest.some((item) => item === "-p" || item === "--project" || item.startsWith("-p")))
-      return true
+    if (head === "tsc" && !rest.some((item) => item === "--noemit")) return true
     if (
       head === "git" &&
       [
@@ -92,10 +95,16 @@ export function isLikelyWriteCommand(command: string) {
         "cherry-pick",
         "clean",
         "commit",
+        "clone",
+        "fetch",
         "merge",
+        "mv",
+        "pull",
         "rebase",
         "reset",
         "restore",
+        "revert",
+        "rm",
         "stash",
         "switch",
       ].includes(next ?? "")

@@ -2,7 +2,7 @@ import { createEffect, createMemo, on } from "solid-js"
 import type { useLocal } from "@/context/local"
 import type { useSync } from "@/context/sync"
 import { createSessionViewController } from "@/pages/session/session-view-controller"
-import type { SessionDiffResponse, SnapshotFileDiff } from "@opencode-ai/sdk/v2/client"
+import type { SessionDiffResponse } from "@opencode-ai/sdk/v2/client"
 import {
   emptyMessages,
   emptyUserMessages,
@@ -12,6 +12,7 @@ import {
 import { syncSessionModel } from "@/pages/session/session-model-helpers"
 import { same } from "@/utils/same"
 import { makeSessionScope, sameSessionScope, sessionScopeKey, type SessionScope } from "./session-scope"
+import { aggregateFiles } from "./session-aggregate-files"
 import {
   currentDirectoryProviderUsable,
   currentSessionActionReady,
@@ -20,6 +21,8 @@ import {
   currentWorkspaceSubmitReady,
   sessionStatusKnown,
 } from "./session-action-readiness"
+
+export { aggregateFiles } from "./session-aggregate-files"
 
 export {
   currentDirectoryProviderUsable,
@@ -37,20 +40,6 @@ type LastGoodMessages =
       messages: ReturnType<typeof readSessionMessages>
     }
   | undefined
-
-export function aggregateFiles(aggregate: SessionDiffResponse | undefined): SnapshotFileDiff[] {
-  if (!aggregate) return []
-  if (aggregate.kind === "empty" || aggregate.kind === "uncaptured") return []
-  return aggregate.files
-    .filter((file) => file.restoreState === "applied")
-    .map((file) => ({
-      file: file.openPath ?? file.path,
-      patch: file.patch ?? "",
-      additions: file.additions ?? 0,
-      deletions: file.deletions ?? 0,
-      status: file.status,
-    }))
-}
 
 export function aggregateFileCount(
   aggregate: SessionDiffResponse | undefined,

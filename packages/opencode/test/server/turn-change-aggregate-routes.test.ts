@@ -52,6 +52,45 @@ async function makeAssistant(sessionID: SessionID, parentID: MessageID, suffix: 
 }
 
 describe("turn-change aggregate HTTP routes (#428)", () => {
+  test("GET legacy assistant turn-change route returns display or null", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "legacy-turn-change-route" })
+        const userMessageID = await makeUser(session.id, "legacy-route")
+        const assistantID = await makeAssistant(session.id, userMessageID, "legacy-route")
+        const emptyAssistantID = await makeAssistant(session.id, userMessageID, "legacy-route-empty")
+
+        const file = path.join(fixture.path, "legacy.txt")
+        await fs.writeFile(file, "legacy\n", "utf-8")
+
+        TurnChange.recordWrite({
+          sessionID: session.id,
+          messageID: assistantID,
+          path: file,
+          before: { exists: false },
+          after: { exists: true, content: "legacy\n" },
+        })
+        TurnChange.finalize({ sessionID: session.id, messageID: assistantID })
+
+        const app = Server.Default().app
+
+        const getRes = await app.request(`/session/${session.id}/turn-change/${assistantID}`)
+        expect(getRes.status).toBe(200)
+        const body = await getRes.json()
+        expect(body.kind).toBeUndefined()
+        expect(body.files.map((f: { path: string }) => f.path)).toEqual(["legacy.txt"])
+        expect(body.undoAvailable).toBe(true)
+
+        const emptyRes = await app.request(`/session/${session.id}/turn-change/${emptyAssistantID}`)
+        expect(emptyRes.status).toBe(200)
+        expect(await emptyRes.json()).toBeNull()
+      },
+    })
+  })
+
   test("GET aggregates two assistant edits, undo applies and redo restores", async () => {
     await resetDatabase()
     await using fixture = await tmpdir({ git: true })
