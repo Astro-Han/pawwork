@@ -91,9 +91,9 @@ describe("turn-change aggregate HTTP routes (#428)", () => {
         expect(getRes.status).toBe(200)
         const display = await getRes.json()
         expect(display).toBeTruthy()
+        expect(display.kind).toBe("captured")
         expect(display.files.map((f: { path: string }) => f.path)).toEqual(["alpha.txt", "beta.txt"])
-        expect(display.undoAvailable).toBe(true)
-        expect(display.redoAvailable).toBe(false)
+        expect(display.files.map((f: { restoreState: string }) => f.restoreState)).toEqual(["applied", "applied"])
 
         const undoRes = await app.request(`/session/${session.id}/turn/${userMessageID}/changes/undo`, {
           method: "POST",
@@ -105,8 +105,18 @@ describe("turn-change aggregate HTTP routes (#428)", () => {
         expect(undoBody.status).toBe("applied")
         expect(undoBody.display.undoAvailable).toBe(false)
         expect(undoBody.display.redoAvailable).toBe(true)
-        expect(await fs.access(fileA).then(() => true).catch(() => false)).toBe(false)
-        expect(await fs.access(fileB).then(() => true).catch(() => false)).toBe(false)
+        expect(
+          await fs
+            .access(fileA)
+            .then(() => true)
+            .catch(() => false),
+        ).toBe(false)
+        expect(
+          await fs
+            .access(fileB)
+            .then(() => true)
+            .catch(() => false),
+        ).toBe(false)
 
         const redoRes = await app.request(`/session/${session.id}/turn/${userMessageID}/changes/redo`, {
           method: "POST",
@@ -181,7 +191,12 @@ describe("turn-change aggregate HTTP routes (#428)", () => {
         expect(forceBody.status).toBe("applied")
         expect(Array.isArray(forceBody.skipped)).toBe(true)
         expect(forceBody.skipped.length).toBeGreaterThan(0)
-        expect(await fs.access(ok).then(() => true).catch(() => false)).toBe(false)
+        expect(
+          await fs
+            .access(ok)
+            .then(() => true)
+            .catch(() => false),
+        ).toBe(false)
         expect(await fs.readFile(conflict, "utf-8")).toBe("tampered\n")
       },
     })
