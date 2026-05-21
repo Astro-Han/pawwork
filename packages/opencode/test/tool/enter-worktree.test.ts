@@ -71,6 +71,29 @@ it.live("enter-worktree publishes slug constraints in its input schema", () =>
   }),
 )
 
+it.live("enter-worktree rejects invalid names at the tool schema boundary", () =>
+  provideTmpdirInstance(
+    () =>
+      Effect.gen(function* () {
+        const sessions = yield* Session.Service
+        const session = yield* sessions.create({ title: "invalid-name" })
+        const tool = yield* EnterWorktreeTool
+        const def = yield* tool.init()
+
+        for (const name of ["claude/i704-pr-ab", ""] as const) {
+          const result = yield* def.execute({ name }, toolContext(session.id)).pipe(Effect.exit)
+          expect(Exit.isFailure(result)).toBe(true)
+          if (Exit.isFailure(result)) {
+            const message = Cause.pretty(result.cause)
+            expect(message).toContain("The enter-worktree tool was called with invalid arguments")
+            expect(message).toContain("name")
+          }
+        }
+      }),
+    { git: true },
+  ),
+)
+
 function addAssistantToolPart(input: {
   sessions: Session.Service["Service"]
   sessionID: Session.Info["id"]
