@@ -13,6 +13,7 @@ import {
 import { sessionPath, terminalToggleKey } from "../utils"
 import type { createSdk } from "../utils"
 import { composerEvent, type ComposerDriverState, type ComposerWindow } from "../../src/testing/session-composer"
+import { timelineEvent } from "../../src/testing/timeline"
 import { installPerfProbe, resetPerfProbe, snapshotPerfProbe, summarizeScenarioRuns } from "./probe"
 import { applyPerfProfile, readPerfProfile, shouldRunScenario, type PerfScenarioName } from "./profiles"
 import { readTimelineDomBudget, shouldAssertTimelineVirtualization } from "./timeline-dom-budget"
@@ -230,13 +231,13 @@ async function revealCachedSessionMessages(page: Parameters<typeof snapshotPerfP
 }
 
 async function revealCachedSessionMessagesThroughDriver(page: Parameters<typeof snapshotPerfProbe>[0]) {
-  await page.evaluate(() => {
+  await page.evaluate((event) => {
     window.dispatchEvent(
-      new CustomEvent("opencode:e2e:timeline", {
+      new CustomEvent(event, {
         detail: { action: "reveal-cached" },
       }),
     )
-  })
+  }, timelineEvent)
 }
 
 async function scrollTimelineTo(page: Parameters<typeof snapshotPerfProbe>[0], top: number) {
