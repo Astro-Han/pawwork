@@ -29,33 +29,34 @@ type QuestionResponsePhase = "idle" | "submitting" | "closing"
 const invalidPayloadErrorCodes = new Set(["answer_count_mismatch"])
 
 export function createQuestionResponseGuard(initialRequestID: string) {
-  let requestID = initialRequestID
-  let phase: QuestionResponsePhase = "idle"
+  const [state, setState] = createStore<{ requestID: string; phase: QuestionResponsePhase }>({
+    requestID: initialRequestID,
+    phase: "idle",
+  })
 
   const sync = (nextRequestID: string) => {
-    if (nextRequestID === requestID) return
-    requestID = nextRequestID
-    phase = "idle"
+    if (nextRequestID === state.requestID) return
+    setState({ requestID: nextRequestID, phase: "idle" })
   }
 
   return {
     canInteract(nextRequestID: string) {
       sync(nextRequestID)
-      return phase === "idle"
+      return state.phase === "idle"
     },
     begin(nextRequestID: string) {
       sync(nextRequestID)
-      if (phase !== "idle") return false
-      phase = "submitting"
+      if (state.phase !== "idle") return false
+      setState("phase", "submitting")
       return true
     },
     confirm(nextRequestID: string) {
       sync(nextRequestID)
-      if (phase === "submitting") phase = "closing"
+      if (state.phase === "submitting") setState("phase", "closing")
     },
     fail(nextRequestID: string) {
       sync(nextRequestID)
-      phase = "idle"
+      setState("phase", "idle")
     },
   }
 }

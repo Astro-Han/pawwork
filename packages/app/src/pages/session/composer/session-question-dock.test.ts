@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { runBrowserCheck } from "@/testing/browser-subprocess"
 import {
   createQuestionResponseGuard,
   isSameQuestionRequest,
@@ -132,5 +133,33 @@ describe("question response duplicate submission guard", () => {
     expect(guard.canInteract("req_1")).toBe(false)
     expect(guard.canInteract("req_2")).toBe(true)
     expect(guard.begin("req_2")).toBe(true)
+  })
+
+  test("updates reactive disabled state immediately after begin and confirm", () => {
+    runBrowserCheck(String.raw`
+      import { createMemo, createRoot } from "solid-js"
+      import { createQuestionResponseGuard } from "./src/pages/session/composer/session-question-dock.tsx"
+
+      const assert = (condition, message) => {
+        if (!condition) throw new Error(message)
+      }
+
+      createRoot((dispose) => {
+        const guard = createQuestionResponseGuard("req_1")
+        const disabled = createMemo(() => !guard.canInteract("req_1"))
+
+        assert(disabled() === false, "initial request should be interactive")
+        assert(guard.begin("req_1") === true, "first begin should submit")
+        assert(disabled() === true, "begin should immediately disable reactive UI")
+
+        guard.fail("req_1")
+        assert(disabled() === false, "failure should immediately restore interaction")
+        assert(guard.begin("req_1") === true, "retry should submit after failure")
+        guard.confirm("req_1")
+        assert(disabled() === true, "confirmed response should stay disabled while waiting for sync close")
+
+        dispose()
+      })
+    `)
   })
 })
