@@ -113,6 +113,12 @@ type ToolCall = {
 
 type ToolInterruptionPhase = "tool_input_generation" | "tool_call_materialized_without_execution" | "tool_execution"
 
+const TOOL_INTERRUPTION_ERRORS: Record<ToolInterruptionPhase, string> = {
+  tool_execution: "Tool execution aborted",
+  tool_call_materialized_without_execution: "Tool call was prepared, but the tool did not run before the interruption.",
+  tool_input_generation: "Tool call generation interrupted before the tool ran.",
+}
+
 type PendingLoopAction = {
   loopAction: "block" | "stop"
   tool: string
@@ -1000,11 +1006,7 @@ export const layer: Layer.Layer<
           const errorText =
             part.tool === "question"
               ? "Question cancelled before the user answered it."
-              : interruptionPhase === "tool_execution"
-                ? "Tool execution aborted"
-                : interruptionPhase === "tool_call_materialized_without_execution"
-                  ? "Tool call was prepared, but the tool did not run before the interruption."
-                  : "Tool call generation interrupted before the tool ran."
+              : TOOL_INTERRUPTION_ERRORS[interruptionPhase]
           yield* session.updatePart({
             ...part,
             state: {
