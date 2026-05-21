@@ -386,10 +386,7 @@ describe("perf metrics", () => {
   })
 
   test("restricts confirmation comparisons to the originally failing scenarios", () => {
-    const base = [
-      scenario({ branch: "base", scenario: "session-scroll-reading", interaction: 32 }),
-      scenario({ branch: "base", scenario: "homepage-cold", frameMax: 116 }),
-    ]
+    const base = [scenario({ branch: "base", scenario: "session-scroll-reading", interaction: 32 })]
     const head = [
       scenario({ branch: "head", scenario: "session-scroll-reading", interaction: 40 }),
       scenario({ branch: "head", scenario: "homepage-cold", frameMax: 183 }),

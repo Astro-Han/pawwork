@@ -451,6 +451,7 @@ export function comparePerfBaselines(input: {
 
   for (const headScenario of input.head) {
     const key = scenarioKey(headScenario)
+    if (requestedScenarioKeys && !requestedScenarioKeys.has(key)) continue
     if (!input.base.some((scenario) => scenarioKey(scenario) === key)) {
       failures.push(`missing_base_scenario:${key}`)
     }
