@@ -46,6 +46,7 @@ export function deriveIncident(input: DeriveIncidentInput): RunIncident | undefi
   if (!terminal?.cause) return undefined
   const facts = factsFromEvidence(input)
   const terminalFacts = terminal.attempt_id ? factsFromEvidence(input, terminal.attempt_id) : facts
+  const terminalPhaseFacts = terminal.attempt_id ? factsFromEvidence(input, terminal.attempt_id, terminal) : facts
   const recovery = recoveryFor({ cause: terminal.cause, facts, terminalFacts })
   const summary = userSummary({ cause: terminal.cause, recovery })
   const missingProvenance = [...(input.missingProvenance ?? []), ...diagnosticGaps(input, terminal, facts)]
@@ -60,7 +61,7 @@ export function deriveIncident(input: DeriveIncidentInput): RunIncident | undefi
     created_at: input.createdAt,
     completed_at: input.completedAt,
     terminal_cause: terminal.cause,
-    phase: phaseFor({ facts: terminalFacts, terminalAttemptID: terminal.attempt_id }),
+    phase: phaseFor({ facts: terminalPhaseFacts, terminalAttemptID: terminal.attempt_id }),
     facts,
     provenance: {
       ...(input.lifecycle
@@ -114,8 +115,16 @@ function compareTerminalEvents(left: IncidentEvidenceEvent, right: IncidentEvide
   return left.order - right.order
 }
 
-function factsFromEvidence(input: DeriveIncidentInput, attemptID?: IncidentEvidenceEvent["attempt_id"]): IncidentFacts {
-  const scopedEvidence = attemptID ? input.evidence.filter((event) => event.attempt_id === attemptID) : input.evidence
+function factsFromEvidence(
+  input: DeriveIncidentInput,
+  attemptID?: IncidentEvidenceEvent["attempt_id"],
+  terminal?: IncidentEvidenceEvent,
+): IncidentFacts {
+  const scopedEvidence = input.evidence.filter((event) => {
+    if (attemptID && event.attempt_id !== attemptID) return false
+    if (!terminal) return true
+    return evidenceAtOrBefore(event, terminal)
+  })
   const materializedToolBoundary = summarizeMaterializedToolBoundaries(input.materializedToolBoundaries, attemptID)
   const has = (eventType: string) => scopedEvidence.some((event) => event.event_type === eventType)
   const count = (eventType: string) => scopedEvidence.filter((event) => event.event_type === eventType).length
@@ -142,6 +151,13 @@ function factsFromEvidence(input: DeriveIncidentInput, attemptID?: IncidentEvide
     watchdog_fired: has("watchdog_fired"),
     pending_tool_parts_interrupted: count("pending_tool_part_interrupted") || undefined,
   }
+}
+
+function evidenceAtOrBefore(event: IncidentEvidenceEvent, terminal: IncidentEvidenceEvent) {
+  if (event.monotonic_ms !== undefined && terminal.monotonic_ms !== undefined) {
+    return event.monotonic_ms <= terminal.monotonic_ms
+  }
+  return event.order <= terminal.order
 }
 
 function summarizeMaterializedToolBoundaries(

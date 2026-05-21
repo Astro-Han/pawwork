@@ -261,18 +261,22 @@ export const layer: Layer.Layer<
         return { call, part }
       })
 
+      const toolCallAttemptID = (toolCallID: string, fallbackAttemptID = ctx.currentAttemptID) =>
+        ctx.toolcalls[toolCallID]?.attemptID ?? fallbackAttemptID
+
       const recordToolExecutionStarted = Effect.fn("SessionProcessor.recordToolExecutionStarted")(function* (input: {
         tool: string
         toolCallID: string
       }) {
         const call = ctx.toolcalls[input.toolCallID]
+        const attemptID = toolCallAttemptID(input.toolCallID)
         if (call) {
           call.executionStarted = true
-          call.attemptID = ctx.currentAttemptID ?? call.attemptID
+          call.attemptID ??= ctx.currentAttemptID
         }
-        if (!ctx.currentAttemptID) return
+        if (!attemptID) return
         ctx.runTrace.recordToolExecutionStarted({
-          attemptID: ctx.currentAttemptID,
+          attemptID,
           at: Date.now(),
           monotonicMs: performance.now(),
           toolName: RunObservability.safeToolName(input.tool),
@@ -282,7 +286,7 @@ export const layer: Layer.Layer<
 
       const recordToolExecutionCompleted = Effect.fn("SessionProcessor.recordToolExecutionCompleted")(
         function* (input: { toolCallID: string }) {
-          const attemptID = ctx.toolcalls[input.toolCallID]?.attemptID ?? ctx.currentAttemptID
+          const attemptID = toolCallAttemptID(input.toolCallID)
           if (!attemptID) return
           ctx.runTrace.recordToolCompleted({
             attemptID,
@@ -296,7 +300,7 @@ export const layer: Layer.Layer<
         toolCallID: string
         error?: unknown
       }) {
-        const attemptID = ctx.toolcalls[input.toolCallID]?.attemptID ?? ctx.currentAttemptID
+        const attemptID = toolCallAttemptID(input.toolCallID)
         if (!attemptID) return
         ctx.runTrace.recordToolFailed({
           attemptID,
@@ -647,45 +651,47 @@ export const layer: Layer.Layer<
         return true
       })
 
-      const handleEvent = Effect.fnUntraced(function* (value: StreamEvent) {
+      const handleEvent = Effect.fnUntraced(function* (value: StreamEvent, attemptID: RunObservability.AttemptID) {
         ctx.trace.observeEvent(value)
-        if (ctx.currentAttemptID) {
-          const now = Date.now()
-          const monotonicMs = performance.now()
-          if (RunObservability.isProviderProgressEvent(value)) {
-            ctx.runTrace.recordProviderProgress({ attemptID: ctx.currentAttemptID, at: now, monotonicMs })
-          }
-          if (value.type === "text-start" || value.type === "text-delta") {
-            ctx.runTrace.recordVisibleOutput({ attemptID: ctx.currentAttemptID, at: now, monotonicMs, kind: "text" })
-          }
-          if (value.type === "reasoning-start") {
-            ctx.runTrace.recordVisibleOutput({
-              attemptID: ctx.currentAttemptID,
-              at: now,
-              monotonicMs,
-              kind: "reasoning",
-            })
-          }
-          if (value.type === "tool-input-start") {
-            ctx.runTrace.recordToolInputStarted({
-              attemptID: ctx.currentAttemptID,
-              at: now,
-              monotonicMs,
-              providerExecuted: (value as { providerExecuted?: boolean }).providerExecuted,
-            })
-          }
-          if (value.type === "tool-input-end") {
-            ctx.runTrace.recordToolInputCompleted({ attemptID: ctx.currentAttemptID, at: now, monotonicMs })
-          }
-          if (value.type === "tool-call") {
-            ctx.runTrace.recordToolCallMaterialized({
-              attemptID: ctx.currentAttemptID,
-              at: now,
-              monotonicMs,
-              toolName: RunObservability.safeToolName(value.toolName),
-              effect: RunObservability.toolEffect(value.toolName),
-            })
-          }
+        const now = Date.now()
+        const monotonicMs = performance.now()
+        if (RunObservability.isProviderProgressEvent(value)) {
+          ctx.runTrace.recordProviderProgress({ attemptID, at: now, monotonicMs })
+        }
+        if (value.type === "text-start" || value.type === "text-delta") {
+          ctx.runTrace.recordVisibleOutput({ attemptID, at: now, monotonicMs, kind: "text" })
+        }
+        if (value.type === "reasoning-start") {
+          ctx.runTrace.recordVisibleOutput({
+            attemptID,
+            at: now,
+            monotonicMs,
+            kind: "reasoning",
+          })
+        }
+        if (value.type === "tool-input-start") {
+          ctx.runTrace.recordToolInputStarted({
+            attemptID,
+            at: now,
+            monotonicMs,
+            providerExecuted: (value as { providerExecuted?: boolean }).providerExecuted,
+          })
+        }
+        if (value.type === "tool-input-end") {
+          ctx.runTrace.recordToolInputCompleted({
+            attemptID: toolCallAttemptID(value.id, attemptID) ?? attemptID,
+            at: now,
+            monotonicMs,
+          })
+        }
+        if (value.type === "tool-call") {
+          ctx.runTrace.recordToolCallMaterialized({
+            attemptID: toolCallAttemptID(value.toolCallId, attemptID) ?? attemptID,
+            at: now,
+            monotonicMs,
+            toolName: RunObservability.safeToolName(value.toolName),
+            effect: RunObservability.toolEffect(value.toolName),
+          })
         }
         switch (value.type) {
           case "start":
@@ -748,7 +754,7 @@ export const layer: Layer.Layer<
               partID: part.id,
               messageID: part.messageID,
               sessionID: part.sessionID,
-              attemptID: ctx.currentAttemptID,
+              attemptID,
             }
             yield* applyPendingToolUpdates(value.id)
             return
@@ -766,7 +772,7 @@ export const layer: Layer.Layer<
             const tracked = ctx.toolcalls[value.toolCallId]
             if (tracked) {
               tracked.materialized = true
-              tracked.attemptID = ctx.currentAttemptID ?? tracked.attemptID
+              tracked.attemptID ??= attemptID
             }
             let running = yield* updateToolCall(value.toolCallId, (match) => ({
               ...match,
@@ -1136,7 +1142,7 @@ export const layer: Layer.Layer<
             }
 
             yield* stream.pipe(
-              Stream.tap((event) => handleEvent(event)),
+              Stream.tap((event) => handleEvent(event, attempt.attemptID)),
               // Stop draining the stream as soon as the loop gate fires a synthetic stop
               // (ctx.blocked) so any trailing model text after the synthetic stop tool-error
               // is dropped — the turn ends with the rendered Chinese summary alone.

@@ -1,6 +1,6 @@
 import { NodeFileSystem } from "@effect/platform-node"
 import { tool } from "ai"
-import { expect, test } from "bun:test"
+import { expect } from "bun:test"
 import { Cause, Effect, Exit, Fiber, Layer } from "effect"
 import path from "path"
 import z from "zod"
@@ -268,14 +268,6 @@ const env = Layer.mergeAll(
 
 const it = testEffect(env)
 
-test("session.processor records completed and failed tools against the bound tool-call attempt first", async () => {
-  const source = await Bun.file("src/session/processor.ts").text()
-
-  expect(source).toContain("const attemptID = ctx.toolcalls[input.toolCallID]?.attemptID ?? ctx.currentAttemptID")
-  expect(source).toContain("recordToolCompleted({\n            attemptID,")
-  expect(source).toContain("recordToolFailed({\n          attemptID,")
-})
-
 const boot = Effect.fn("test.boot")(function* () {
   const processors = yield* SessionProcessor.Service
   const session = yield* Session.Service
@@ -286,6 +278,156 @@ const boot = Effect.fn("test.boot")(function* () {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+it.live("session.processor keeps late tool execution diagnostics on the bound tool-call attempt", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const gate = defer<void>()
+        const { processors, session, provider } = yield* boot()
+        let executions = 0
+
+        yield* llm.push(
+          raw({
+            head: [
+              {
+                id: "chatcmpl-bound-attempt",
+                object: "chat.completion.chunk",
+                choices: [{ delta: { role: "assistant" } }],
+              },
+              {
+                id: "chatcmpl-bound-attempt",
+                object: "chat.completion.chunk",
+                choices: [
+                  {
+                    delta: {
+                      tool_calls: [
+                        {
+                          index: 0,
+                          id: "call_bound_attempt",
+                          type: "function",
+                          function: { name: "noop", arguments: "" },
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+            ],
+            stages: [
+              {
+                wait: gate.promise,
+                chunks: [
+                  {
+                    id: "chatcmpl-bound-attempt",
+                    object: "chat.completion.chunk",
+                    choices: [
+                      {
+                        delta: {
+                          tool_calls: [
+                            {
+                              index: 0,
+                              function: { arguments: "{}" },
+                            },
+                          ],
+                        },
+                      },
+                    ],
+                  },
+                  {
+                    id: "chatcmpl-bound-attempt",
+                    object: "chat.completion.chunk",
+                    choices: [{ delta: {}, finish_reason: "tool_calls" }],
+                  },
+                ],
+              },
+            ],
+          }),
+        )
+        yield* llm.hang
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "late tool attempt binding")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+        const input = {
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+            tools: { noop: true },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "late tool attempt binding" }],
+          tools: {
+            noop: tool({
+              description: "No-op tool",
+              inputSchema: z.object({}),
+              execute: async () => {
+                executions += 1
+                return { output: "ok" }
+              },
+            }),
+          },
+        } satisfies LLM.StreamInput
+
+        const first = yield* handle.process(input).pipe(Effect.forkChild)
+        yield* llm.wait(1)
+        yield* Effect.promise(async () => {
+          const end = Date.now() + 500
+          while (Date.now() < end) {
+            const toolCallStarted = MessageV2.parts(msg.id).some(
+              (part) => part.type === "tool" && part.callID === "call_bound_attempt",
+            )
+            if (toolCallStarted) {
+              return
+            }
+            await Bun.sleep(10)
+          }
+        })
+        const second = yield* handle.process(input).pipe(Effect.forkChild)
+        yield* llm.wait(2)
+        expect(handle.recordToolExecutionStarted).toBeDefined()
+        expect(handle.recordToolExecutionCompleted).toBeDefined()
+        yield* handle.recordToolExecutionStarted!({ tool: "noop", toolCallID: "call_bound_attempt" })
+        yield* handle.recordToolExecutionCompleted!({ toolCallID: "call_bound_attempt" })
+        gate.resolve()
+        yield* Fiber.join(first)
+
+        const stored = (yield* session.messages({ sessionID: chat.id })).find(
+          (message) => message.info.role === "assistant" && message.info.id === msg.id,
+        )
+        expect(executions).toBe(1)
+        expect(stored?.info.role).toBe("assistant")
+        if (stored?.info.role === "assistant") {
+          const attempts = stored.info.diagnostics?.run_observability?.attempts
+          expect(attempts?.[0]).toMatchObject({
+            attempt_index: 1,
+            tool_execution_started: true,
+            tool_execution_completed: true,
+          })
+          expect(attempts?.[1]).toMatchObject({
+            attempt_index: 2,
+            tool_execution_started: false,
+            tool_execution_completed: false,
+          })
+        }
+        yield* Fiber.interrupt(second)
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
 
 it.live("session.processor effect tests capture llm input cleanly", () =>
   provideTmpdirServer(
