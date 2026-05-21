@@ -87,15 +87,6 @@ export const EnterWorktreeTool = Tool.define(
         if (params.name && params.path) {
           return yield* Effect.fail(new Error("name and path are mutually exclusive"))
         }
-        if (params.name && !SLUG_RE.test(params.name)) {
-          return yield* Effect.fail(
-            new Error("name must be kebab-case, [a-z0-9-]+, no leading/trailing or double hyphens"),
-          )
-        }
-        if (params.name && params.name.length > MAX_SLUG_LEN) {
-          return yield* Effect.fail(new Error(`name max ${MAX_SLUG_LEN} chars`))
-        }
-
         yield* guard(ctx.sessionID, ctx.messageID, ctx.callID)
 
         const project = Instance.project
