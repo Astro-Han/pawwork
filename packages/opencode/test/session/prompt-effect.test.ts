@@ -535,7 +535,7 @@ it.live("provider env matches assistant path for an active worktree", () =>
         yield* llm.text("done")
 
         const result = yield* prompt.loop({ sessionID: session.id })
-        expect(result.info.role).toBe("assistant")
+        if (result.info.role !== "assistant") throw new Error("Expected assistant message")
 
         const requestText = requestTextContaining(yield* llm.inputs, "check execution context snapshot")
         expect(envValue(requestText, "Working directory")).toBe(result.info.path.cwd)
@@ -546,7 +546,6 @@ it.live("provider env matches assistant path for an active worktree", () =>
     { git: true, config: providerCfg },
   ),
 )
-
 
 it.live("post-compaction auto-continue keeps env in the active worktree", () =>
   provideTmpdirServer(
@@ -632,7 +631,7 @@ it.live("post-compaction auto-continue keeps env in the active worktree", () =>
 
         yield* llm.text("continued after compaction")
         const result = yield* prompt.loop({ sessionID: session.id })
-        expect(result.info.role).toBe("assistant")
+        if (result.info.role !== "assistant") throw new Error("Expected assistant message")
 
         const requestText = requestTextContaining(yield* llm.inputs, "Continue if you have next steps")
         expect(envValue(requestText, "Working directory")).toBe(activeDirectory)
