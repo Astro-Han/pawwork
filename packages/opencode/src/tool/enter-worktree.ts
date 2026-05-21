@@ -15,12 +15,15 @@ import { canonicalDirectory, sameDirectory } from "../session/execution-context"
 
 export const SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/
 const MAX_SLUG_LEN = 40
+const SLUG_DESCRIPTION =
+  'slug only for a managed worktree, not a branch name or path. Use "issue-704-pr-ab", not "pawwork/issue-704-pr-ab" or "claude/i704-pr-ab". Allowed: lowercase letters, digits, and single hyphens between segments; max 40 chars.'
+
+const WorktreeSlug = Schema.String.check(Schema.isPattern(SLUG_RE)).check(Schema.isMaxLength(MAX_SLUG_LEN)).annotate({
+  description: SLUG_DESCRIPTION,
+})
 
 export const Parameters = Schema.Struct({
-  name: Schema.optional(Schema.String).annotate({
-    description:
-      "Slug for a managed worktree (kebab-case, [a-z0-9-]+, max 40). If omitted, a slug is auto-generated. Mutually exclusive with `path`.",
-  }),
+  name: Schema.optional(WorktreeSlug),
   path: Schema.optional(Schema.String).annotate({
     description: "Absolute path to an existing same-repo worktree to take over. Mutually exclusive with `name`.",
   }),

@@ -10,6 +10,7 @@ import { EnterWorktreeTool } from "../../src/tool/enter-worktree"
 import { ExitWorktreeTool } from "../../src/tool/exit-worktree"
 import type { Context } from "../../src/tool/tool"
 import { Truncate } from "../../src/tool/truncate"
+import * as EffectZod from "../../src/util/effect-zod"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { provideTmpdirInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
@@ -53,6 +54,22 @@ const tokens = {
   reasoning: 0,
   cache: { read: 0, write: 0 },
 }
+
+it.live("enter-worktree publishes slug constraints in its input schema", () =>
+  Effect.gen(function* () {
+    const tool = yield* EnterWorktreeTool
+    const def = yield* tool.init()
+    const schema = EffectZod.toJsonSchema(def.parameters) as {
+      properties?: Record<string, { pattern?: string; maxLength?: number; description?: string }>
+    }
+    const name = schema.properties?.name
+
+    expect(name?.pattern).toBe("^[a-z0-9]+(-[a-z0-9]+)*$")
+    expect(name?.maxLength).toBe(40)
+    expect(name?.description).toContain("slug only")
+    expect(name?.description).toContain("not a branch name")
+  }),
+)
 
 function addAssistantToolPart(input: {
   sessions: Session.Service["Service"]
