@@ -790,12 +790,17 @@ test("blocked question dock disables controls while response is pending", async 
           await expect(firstOption).toBeDisabled()
           await expect(submit).toBeDisabled()
 
+          const duplicateResponse = page
+            .waitForRequest((request) => request.url().includes("/tool/respond"), { timeout: 1_000 })
+            .then(() => true)
+            .catch(() => false)
           await dock.evaluate((el) => {
             el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }))
           })
           await submit.evaluate((button: HTMLButtonElement) => button.click())
           await firstOption.evaluate((button: HTMLButtonElement) => button.click())
-          await expect.poll(() => responseCalls, { timeout: 1_000 }).toBe(1)
+          expect(await duplicateResponse).toBe(false)
+          expect(responseCalls).toBe(1)
         } finally {
           releaseResponse?.()
           await page.unroute("**/session/*/tool/respond", respondRoute)

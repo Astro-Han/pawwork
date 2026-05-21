@@ -1049,6 +1049,7 @@ export const dict = {
   "session.question.error.staleSession": "会话已重启，请重新发送上一条消息",
   "session.question.error.alreadyAnswered": "已在另一处回答这个问题",
   "session.question.error.invalidPayload": "回答不符合问题要求，请重试",
+  "session.question.error.unknown": "未能提交回答，请重试",
   "session.header.open.finder": "访达",
   "session.header.open.fileExplorer": "文件资源管理器",
   "session.header.open.fileManager": "文件管理器",

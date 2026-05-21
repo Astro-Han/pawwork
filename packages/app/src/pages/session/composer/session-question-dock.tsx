@@ -382,7 +382,7 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
     }
     showToast({
       title: language.t("common.requestFailed"),
-      description: normalized.detail || language.t("session.question.error.invalidPayload"),
+      description: normalized.detail || language.t("session.question.error.unknown"),
     })
     responseGuard.fail(props.request.id)
     locallySubmitted = undefined

@@ -645,6 +645,7 @@ export const dict = {
   "session.question.error.staleSession": "Session restarted; resend your last message to try again.",
   "session.question.error.alreadyAnswered": "This question was already answered elsewhere.",
   "session.question.error.invalidPayload": "Your answer did not match the question; please try again.",
+  "session.question.error.unknown": "Could not submit your answer. Please try again.",
   "session.followupDock.summary.one": "{{count}} queued message",
   "session.followupDock.summary.other": "{{count}} queued messages",
   "session.followupDock.sendNow": "Send now",
