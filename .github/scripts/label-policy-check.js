@@ -1,6 +1,6 @@
 export const POLICY = {
   priorities: ["P0", "P1", "P2", "P3"],
-  types: ["bug", "enhancement", "task", "documentation", "tech-debt"],
+  types: ["bug", "enhancement", "task", "documentation"],
   routing: ["app", "ui", "platform", "harness", "ci"],
   issueForbiddenLabels: ["dependencies", "github_actions", "javascript"],
 }
@@ -37,11 +37,12 @@ export function validateLabelPolicy({ itemType, labels = [] }) {
 
   const routing = intersection(labelSet, POLICY.routing)
   if (routing.length < 1) {
-    errors.push(error(`${itemType} must have at least one primary routing label: ${labelList(POLICY.routing)}`, routing))
+    errors.push(
+      error(`${itemType} must have at least one primary routing label: ${labelList(POLICY.routing)}`, routing),
+    )
   }
 
-  const forbiddenIssueLabels =
-    itemType === "issue" ? intersection(labelSet, POLICY.issueForbiddenLabels) : []
+  const forbiddenIssueLabels = itemType === "issue" ? intersection(labelSet, POLICY.issueForbiddenLabels) : []
   if (forbiddenIssueLabels.length > 0) {
     errors.push(
       error(`issue must not use PR automation labels: ${labelList(POLICY.issueForbiddenLabels)}`, forbiddenIssueLabels),

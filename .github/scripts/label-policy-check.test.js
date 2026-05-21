@@ -10,7 +10,7 @@ function messages(result) {
 test("accepts a valid issue label set", () => {
   const result = validateLabelPolicy({
     itemType: "issue",
-    labels: ["tech-debt", "P2", "app"],
+    labels: ["task", "P2", "app", "tech-debt"],
   })
 
   assert.deepEqual(result.errors, [])
@@ -50,7 +50,7 @@ test("treats missing labels input as an empty label set", () => {
 
   assert.deepEqual(messages(result), [
     "issue must have exactly one priority label: P0, P1, P2, or P3",
-    "issue must have exactly one type label: bug, enhancement, task, documentation, or tech-debt",
+    "issue must have exactly one type label: bug, enhancement, task, or documentation",
     "issue must have at least one primary routing label: app, ui, platform, harness, or ci",
   ])
 })
@@ -71,7 +71,7 @@ test("rejects missing type labels", () => {
   })
 
   assert.deepEqual(messages(result), [
-    "pull_request must have exactly one type label: bug, enhancement, task, documentation, or tech-debt",
+    "pull_request must have exactly one type label: bug, enhancement, task, or documentation",
   ])
 })
 
@@ -82,7 +82,7 @@ test("rejects multiple type labels", () => {
   })
 
   assert.deepEqual(messages(result), [
-    "issue must have exactly one type label: bug, enhancement, task, documentation, or tech-debt",
+    "issue must have exactly one type label: bug, enhancement, task, or documentation",
   ])
 })
 
@@ -97,10 +97,10 @@ test("rejects missing primary routing labels", () => {
   ])
 })
 
-test("accepts tech-debt as a primary type label", () => {
+test("accepts tech-debt as a supplemental label with any primary type", () => {
   const result = validateLabelPolicy({
     itemType: "issue",
-    labels: ["tech-debt", "P2", "app"],
+    labels: ["bug", "P2", "app", "tech-debt"],
   })
 
   assert.deepEqual(result.errors, [])
@@ -125,7 +125,7 @@ test("reports all independent label policy failures", () => {
 
   assert.deepEqual(messages(result), [
     "issue must have exactly one priority label: P0, P1, P2, or P3",
-    "issue must have exactly one type label: bug, enhancement, task, documentation, or tech-debt",
+    "issue must have exactly one type label: bug, enhancement, task, or documentation",
     "issue must have at least one primary routing label: app, ui, platform, harness, or ci",
     "issue must not use PR automation labels: dependencies, github_actions, or javascript",
   ])

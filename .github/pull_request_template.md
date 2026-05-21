@@ -48,11 +48,12 @@ Required for visible UI changes.
 ## Checklist
 
 > **How to use this checklist:**
+>
 > - Tick a box by replacing `[ ]` with `[x]`. Do not edit, add, or remove items.
 > - The bot-applied label items can only be honestly ticked AFTER the PR is opened and the labeler / priority-triage bots have run — return to the PR description and tick them then.
 > - Most items are required. The few that are conditional are explicitly marked **(conditional)**; for those, leave unticked if they truly do not apply and explain why in Risk Notes. All other items must be ticked before requesting human review.
 
-- [ ] **Type label** — this PR carries exactly one of `bug`, `enhancement`, `task`, `documentation`, `tech-debt`. Type labels are author-added; the labeler bot does NOT assign them. Add the label in the GitHub UI, then tick this.
+- [ ] **Type label** — this PR carries exactly one of `bug`, `enhancement`, `task`, `documentation`. Type labels are author-added; the labeler bot does NOT assign them. Add the label in the GitHub UI, then tick this.
 - [ ] **Routing labels** — this PR carries at least one of `app`, `ui`, `platform`, `harness`, `ci`. The labeler bot assigns these on PR open based on changed paths. Confirm the bot's choice (or override if wrong), then tick this.
 - [ ] **Priority label** — this PR carries exactly one of `P0`, `P1`, `P2`, `P3`. The priority-triage bot suggests one on PR open. Confirm or override, then tick this.
 - [ ] Human Review Status above is set to `Pending`, `Approved by @<reviewer>`, or `Not required: <reason>` (default is `Pending`; "not required" is restricted to bot-authored low-risk PRs).
