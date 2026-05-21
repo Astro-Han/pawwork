@@ -140,6 +140,7 @@ export function createSessionTodoModel(input: {
         source: current.source,
         count: current.items.length,
         phase: current.phase,
+        sourceUpdatedAt: current.sourceUpdatedAt,
       }),
     )
   }
