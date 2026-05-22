@@ -2221,6 +2221,18 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           // that newer user instead of the marker. Both leave the marker
           // orphaned and the divider would render `failed` even though the
           // cancel was a clean abort.
+          //
+          // Semantic boundary — only handle the *newest* compaction marker,
+          // and only if it lacks a summary child. Do NOT iterate older
+          // markers looking for any orphan. A historical orphan (e.g. left
+          // by a crashed prior session) is rendered `failed` by the divider
+          // because it *actually* failed; rewriting it as `aborted` here
+          // would attribute a past crash to the current cancel and stamp
+          // it with this cancel's `propagation_point`, which is a lie. The
+          // Runner is per-session and serial, so an in-flight cancel cannot
+          // both leave a brand-new orphan AND skip past a completed-newer
+          // one — the newest marker is always the one this cancel can be
+          // honestly attributed to.
           const pendingMarker = yield* sessions.findMessage(input.sessionID, (m) =>
             m.info.role === "user" && m.parts.some((p) => p.type === "compaction"),
           )
