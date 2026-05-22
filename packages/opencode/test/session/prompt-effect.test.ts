@@ -1545,18 +1545,24 @@ it.live(
         // Polling targets the precise race window: marker present, summary
         // placeholder not yet written. Breaking only on that combined state
         // (rather than the marker alone) guarantees the cancel lands inside
-        // the window the new onInterrupt fallback was added to cover. If
-        // the cancel slipped past the placeholder write, the
-        // propagation_point assertion below would catch it — the old
-        // processCompaction finalizer tags differently.
+        // the window the new onInterrupt fallback was added to cover.
+        // observedRaceWindow distinguishes "loop hit the window then broke"
+        // from "deadline expired" — a setup failure (placeholder beat
+        // polling) fails explicitly here instead of producing a confusing
+        // propagation_point mismatch downstream.
         const deadline = Date.now() + 5000
+        let observedRaceWindow = false
         while (Date.now() < deadline) {
           const snapshot = yield* sessions.messages({ sessionID: chat.id })
           const hasMarker = snapshot.some((m) => m.parts.some((p) => p.type === "compaction"))
           const hasPlaceholder = snapshot.some((m) => m.info.role === "assistant" && m.info.summary === true)
-          if (hasMarker && !hasPlaceholder) break
+          if (hasMarker && !hasPlaceholder) {
+            observedRaceWindow = true
+            break
+          }
           yield* Effect.sleep("1 millis")
         }
+        expect(observedRaceWindow).toBe(true)
 
         const cancelled = yield* prompt.cancel(chat.id)
         expect(cancelled).toBe(true)

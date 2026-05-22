@@ -17,7 +17,6 @@ import { SessionSummary } from "@/session/summary"
 import { Todo } from "../../session/todo"
 import { Effect } from "effect"
 import { AppRuntime } from "../../effect/app-runtime"
-import { Agent } from "../../agent/agent"
 import { Command } from "../../command"
 import { Log } from "@opencode-ai/core/util/log"
 import { Permission } from "@/permission"
@@ -1011,17 +1010,8 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
         const body = c.req.valid("json")
-        const msgs = await Session.messages({ sessionID })
-        let currentAgent = await Agent.defaultAgent()
-        for (let i = msgs.length - 1; i >= 0; i--) {
-          const info = msgs[i].info
-          if (info.role === "user") {
-            currentAgent = info.agent || (await Agent.defaultAgent())
-            break
-          }
-        }
         // Marker creation runs inside the loop's runner-protected work effect
-        // (see SessionPrompt.loop). That gives us three guarantees the
+        // (see SessionPrompt.loop). That gives us four guarantees the
         // pre-refactor route lacked: (1) status flips to busy *before* the
         // compaction part event reaches clients so the divider doesn't flash
         // the legacy-orphan "failed" frame; (2) a cancel arriving while the
@@ -1031,12 +1021,14 @@ export const SessionRoutes = lazy(() =>
         // arrive while another run is in flight throw Session.BusyError
         // (mapped to 400) instead of resolving `true` without writing the
         // marker. Clients should queue the action and retry once the session
-        // goes idle.
+        // goes idle; (4) revert.cleanup and agent derivation live inside
+        // the work effect, so a busy-rejected compact leaves session state
+        // untouched and the agent is picked from the post-cleanup message
+        // list (matters when the session has been reverted).
         await SessionPrompt.loop({
           sessionID,
           prelude: {
             type: "compaction",
-            agent: currentAgent,
             model: {
               providerID: body.providerID,
               modelID: body.modelID,

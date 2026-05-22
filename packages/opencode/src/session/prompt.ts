@@ -2326,9 +2326,26 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           // BusyError-rejected compact had already mutated session.revert
           // by the time the rejection fired.
           yield* revert.cleanup(yield* sessions.get(input.sessionID))
+          // Agent derivation must read the post-cleanup message list — a
+          // reverted session has discarded-but-still-physically-present
+          // user messages, and revert.cleanup is what drops them. Picking
+          // the agent from the latest remaining user keeps /summarize
+          // honoring the revert point's last active agent.
+          let agent = input.prelude.agent
+          if (!agent) {
+            const msgs = yield* sessions.messages({ sessionID: input.sessionID })
+            agent = yield* agents.defaultAgent()
+            for (let i = msgs.length - 1; i >= 0; i--) {
+              const info = msgs[i].info
+              if (info.role === "user") {
+                agent = info.agent || agent
+                break
+              }
+            }
+          }
           yield* compaction.create({
             sessionID: input.sessionID,
-            agent: input.prelude.agent,
+            agent,
             model: input.prelude.model,
             auto: input.prelude.auto,
           })
@@ -2639,7 +2656,11 @@ export const LoopInput = z.object({
   prelude: z
     .object({
       type: z.literal("compaction"),
-      agent: z.string(),
+      // Optional: when omitted the loop derives the agent from the last
+      // user message AFTER revert.cleanup has run. Derivation must happen
+      // post-cleanup or a reverted session would pick the agent off a
+      // discarded user message.
+      agent: z.string().optional(),
       model: z.object({ providerID: ProviderID.zod, modelID: ModelID.zod }),
       auto: z.boolean(),
     })
