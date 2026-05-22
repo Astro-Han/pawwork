@@ -298,10 +298,13 @@
   --fg-weaker: #7e7872; /* dark collapse → fg-weak */
 
   /* Dark border · 1-tier collapse to a single hairline alpha; container outlines
-   * keep the `--ring-base` 1px white-18% halo for elevation pickup. */
-  --border-base:   rgba(255, 255, 255, 0.06);
-  --border-weak:   rgba(255, 255, 255, 0.06);
-  --border-weaker: rgba(255, 255, 255, 0.06);
+   * keep the `--ring-base` 1px white-18% halo for elevation pickup.
+   * Alpha unified with light at 0.08 (was 0.06): light/dark drift was
+   * unjustified at this scale and the bumped dark hairline carries the
+   * sidebar↔thread column boundary the spec calls for. */
+  --border-base:   rgba(255, 255, 255, 0.08);
+  --border-weak:   rgba(255, 255, 255, 0.08);
+  --border-weaker: rgba(255, 255, 255, 0.08);
 
   /* Icon mirrors collapsed dark ink */
   --icon-base:   #7e7872;
@@ -442,9 +445,9 @@
     --fg-weak:   #7e7872;
     --fg-weaker: #7e7872;
 
-    --border-base:   rgba(255, 255, 255, 0.06);
-    --border-weak:   rgba(255, 255, 255, 0.06);
-    --border-weaker: rgba(255, 255, 255, 0.06);
+    --border-base:   rgba(255, 255, 255, 0.08);
+    --border-weak:   rgba(255, 255, 255, 0.08);
+    --border-weaker: rgba(255, 255, 255, 0.08);
 
     --icon-base:   #7e7872;
     --icon-strong: #ebe7e0;
