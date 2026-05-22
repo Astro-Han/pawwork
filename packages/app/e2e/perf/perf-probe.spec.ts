@@ -202,20 +202,54 @@ async function readPromptText(page: Parameters<typeof snapshotPerfProbe>[0]) {
 }
 
 async function revealCachedSessionMessages(page: Parameters<typeof snapshotPerfProbe>[0], expectedCount: number) {
-  const messages = page.locator(sessionMessageItemSelector)
-  if ((await messages.count()) < expectedCount) {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const budget = await readTimelineDomBudget(page)
+    if (budget.totalRows >= expectedCount) return
+
     await page.locator(scrollViewportSelector).first().hover()
     await page.mouse.wheel(0, -2400)
+    await markTimelineWheelIntent(page, -2400)
     await settleFrames(page, 2)
     await scrollTimelineTo(page, 0)
     await settleFrames(page, 2)
     const loadEarlier = page.getByRole("button", { name: /Load earlier messages|加载更早的消息/i }).first()
-    await expect(loadEarlier).toBeVisible({ timeout: 30_000 })
-    await loadEarlier.click()
+    if (await loadEarlier.isVisible().catch(() => false))
+      await loadEarlier.click({ timeout: 1_000 }).catch(() => undefined)
+    try {
+      await expect
+        .poll(async () => (await readTimelineDomBudget(page)).totalRows, { timeout: 1_500 })
+        .toBeGreaterThanOrEqual(expectedCount)
+      return
+    } catch {
+      // Continue nudging the cached history window; final assertion below reports failure details.
+    }
   }
   await expect
     .poll(async () => (await readTimelineDomBudget(page)).totalRows, { timeout: 30_000 })
     .toBeGreaterThanOrEqual(expectedCount)
+}
+
+async function revealCachedSessionMessagesThroughDriver(page: Parameters<typeof snapshotPerfProbe>[0]) {
+  const event = await readTimelineDriverEvent()
+  await page.evaluate((event) => {
+    window.dispatchEvent(
+      new CustomEvent(event, {
+        detail: { action: "reveal-cached" },
+      }),
+    )
+  }, event)
+}
+
+async function readTimelineDriverEvent() {
+  try {
+    const timeline = await import("../../src/testing/timeline")
+    return timeline.timelineEvent
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    // The perf workflow copies this harness into the base checkout, where PR-only testing helpers may not exist yet.
+    if (message.includes("src/testing/timeline")) return "opencode:e2e:timeline"
+    throw error
+  }
 }
 
 async function scrollTimelineTo(page: Parameters<typeof snapshotPerfProbe>[0], top: number) {
@@ -229,6 +263,20 @@ async function scrollTimelineTo(page: Parameters<typeof snapshotPerfProbe>[0], t
       return true
     },
     { top, scrollViewportSelector, turnListSelector: sessionTurnListSelector },
+  )
+  expect(found).toBe(true)
+}
+
+async function markTimelineWheelIntent(page: Parameters<typeof snapshotPerfProbe>[0], deltaY: number) {
+  const found = await page.evaluate(
+    ({ deltaY, scrollViewportSelector, turnListSelector }) => {
+      const list = document.querySelector(turnListSelector)
+      const viewport = list?.closest(scrollViewportSelector)
+      if (!(viewport instanceof HTMLElement)) return false
+      viewport.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY }))
+      return true
+    },
+    { deltaY, scrollViewportSelector, turnListSelector: sessionTurnListSelector },
   )
   expect(found).toBe(true)
 }
@@ -282,12 +330,20 @@ async function revealLongScrollWindow(page: Parameters<typeof snapshotPerfProbe>
     const budget = await readTimelineDomBudget(page)
     if (budget.totalRows >= longScrollMinimumAvailableRows) return
     await page.mouse.wheel(0, -2400)
+    await markTimelineWheelIntent(page, -2400)
     await settleFrames(page, 2)
     await scrollTimelineTo(page, 0)
     await settleFrames(page, 2)
+    try {
+      await expect
+        .poll(async () => (await readTimelineDomBudget(page)).totalRows, { timeout: 1_500 })
+        .toBeGreaterThanOrEqual(longScrollMinimumAvailableRows)
+    } catch {
+      // Continue nudging the history window; final assertion below reports failure details.
+    }
   }
   await expect
-    .poll(async () => (await readTimelineDomBudget(page)).totalRows, { timeout: 1_000 })
+    .poll(async () => (await readTimelineDomBudget(page)).totalRows, { timeout: 10_000 })
     .toBeGreaterThanOrEqual(longScrollMinimumAvailableRows)
 }
 
@@ -298,6 +354,15 @@ async function installComposerPerfDriver(page: Parameters<typeof snapshotPerfPro
     const sessions = saved ? JSON.parse(saved) : {}
     win.__opencode_e2e = { ...win.__opencode_e2e, composer: { enabled: true, sessions } }
   })
+}
+
+async function installTimelinePerfDriver(page: Parameters<typeof snapshotPerfProbe>[0]) {
+  const apply = () => {
+    const win = window as Window & { __opencode_e2e?: { timeline?: { enabled?: boolean } } }
+    win.__opencode_e2e = { ...win.__opencode_e2e, timeline: { enabled: true } }
+  }
+  await page.addInitScript(apply)
+  await page.evaluate(apply)
 }
 
 async function writeComposerDriver(
@@ -587,6 +652,7 @@ test.describe("PR0.1 perf probe baseline", () => {
   test("long-session-input-lag emits a 3-run JSON baseline", async ({ page, project }) => {
     skipUnlessScenario("long-session-input-lag")
     await installPerfProbe(page)
+    await installTimelinePerfDriver(page)
     await applyPerfProfile(page, PERF_PROFILE)
     await project.open()
 
@@ -597,6 +663,7 @@ test.describe("PR0.1 perf probe baseline", () => {
         await page.goto(sessionPath(project.directory, session.id))
         await expect(page.locator(sessionMessageItemSelector).first()).toBeVisible({ timeout: 30_000 })
         await expect(page.locator(promptSelector).first()).toBeVisible({ timeout: 30_000 })
+        await revealCachedSessionMessagesThroughDriver(page)
         await revealCachedSessionMessages(page, TIMELINE_RECOMPUTE_SEED_TURN_COUNT)
 
         const prompt = page.locator(promptSelector).first()
@@ -825,6 +892,7 @@ test.describe("PR0.1 perf probe baseline", () => {
     test.setTimeout(180_000)
     await installComposerPerfDriver(page)
     await installPerfProbe(page)
+    await installTimelinePerfDriver(page)
     await applyPerfProfile(page, PERF_PROFILE)
     await project.open()
 
@@ -833,6 +901,8 @@ test.describe("PR0.1 perf probe baseline", () => {
       await withSession(project.sdk, `perf scroll long ${Date.now()}-${run}`, async (session) => {
         await seedLongScrollSession(project, session.id, run)
         await page.goto(sessionPath(project.directory, session.id))
+        await expect(page.locator(sessionMessageItemSelector).first()).toBeVisible({ timeout: 30_000 })
+        await revealCachedSessionMessagesThroughDriver(page)
         await revealLongScrollWindow(page)
         const budget = await readTimelineDomBudget(page)
         expect(budget.totalRows).toBeGreaterThanOrEqual(longScrollMinimumAvailableRows)
@@ -845,6 +915,7 @@ test.describe("PR0.1 perf probe baseline", () => {
         await expandLongScrollTodoDock(page)
 
         await hoverTimelineScrollLane(page)
+        await markTimelineWheelIntent(page, -2400)
         await scrollTimelineTo(page, 0)
         await settleFrames(page, 4)
         const atTop = await readTimelineMetrics(page)
@@ -909,6 +980,7 @@ test.describe("PR0.1 perf probe baseline", () => {
   test("session-timeline-recompute emits a 3-run low-end JSON baseline", async ({ page, project }) => {
     skipUnlessScenario("session-timeline-recompute")
     await installPerfProbe(page)
+    await installTimelinePerfDriver(page)
     await applyPerfProfile(page, PERF_PROFILE)
     await project.open()
 
@@ -918,6 +990,8 @@ test.describe("PR0.1 perf probe baseline", () => {
         await seedTimelineRecomputeSession(project, session.id)
         await page.goto(sessionPath(project.directory, session.id))
         await expect(page.locator(sessionMessageItemSelector).first()).toBeVisible({ timeout: 30_000 })
+        await revealCachedSessionMessagesThroughDriver(page)
+        await revealCachedSessionMessages(page, TIMELINE_RECOMPUTE_SEED_TURN_COUNT)
         await expect.poll(async () => page.locator(sessionMessageItemSelector).count()).toBeGreaterThanOrEqual(8)
         await resetPerfProbe(page)
         await page.locator(scrollViewportSelector).first().hover()

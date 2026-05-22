@@ -4,13 +4,24 @@ import { createStore } from "solid-js/store"
 import {
   createTimelineScrollCommandSink,
   type TimelineScrollCommandSink,
+  type TimelineScrollCommandTransaction,
   type TimelineScrollCommandType,
 } from "./timeline-scroll-command-sink"
+import type { TimelineLayoutTransactionKind } from "./timeline-layout-transaction"
 
 export type SessionScrollState = {
   overflow: boolean
   bottom: boolean
   jump: boolean
+}
+
+type SessionLayoutTransactionInput = {
+  kind: Extract<TimelineLayoutTransactionKind, "dock-resize" | "content-resize">
+  source: string
+  reason: string
+  stickToBottom: boolean
+  mutate: () => void
+  restoreLatest: (transactionID: string) => boolean
 }
 
 const BOTTOM_FOLLOW_LOCK_MS = 3_000
@@ -91,10 +102,12 @@ export function createSessionScrollDock(input: {
     dockKind: "composer" | "question" | "permission" | "todo" | "followup" | "revert" | "prompt"
     composerHeight: number
     previousComposerHeight: number
+    layoutTransactionHandled?: boolean
     scrollTop?: number
     distanceFromBottom?: number
   }) => void
   onContentResize?: (event: { scrollTop?: number; distanceFromBottom?: number }) => void
+  runLayoutTransaction?: (input: SessionLayoutTransactionInput) => void
   scrollCommandSink?: TimelineScrollCommandSink
 }) {
   const fallbackTimelineScrollCommandSink = createTimelineScrollCommandSink()
@@ -181,8 +194,8 @@ export function createSessionScrollDock(input: {
     setScroll(next)
   }
 
-  const scheduleScrollState = (el: HTMLDivElement) => {
-    if (bottomFollowLocked()) {
+  const scheduleScrollState = (el: HTMLDivElement, options?: { recoverBottomLock?: boolean }) => {
+    if (options?.recoverBottomLock !== false && bottomFollowLocked()) {
       const next = calculateSessionScrollState({
         clientHeight: el.clientHeight,
         scrollHeight: el.scrollHeight,
@@ -205,6 +218,10 @@ export function createSessionScrollDock(input: {
     })
   }
 
+  const scheduleTransactionScrollState = (el: HTMLDivElement) => {
+    scheduleScrollState(el, { recoverBottomLock: false })
+  }
+
   // A non-matching owner means the active lock belongs to an older session path.
   // Cancel it before it can call followBottom or schedule another scroll sample.
   const restoreBottomIfLocked = (owner?: string) => {
@@ -213,6 +230,24 @@ export function createSessionScrollDock(input: {
       return false
     }
     followBottom()
+    if (scroller) scheduleScrollState(scroller)
+    return true
+  }
+
+  const restoreLatestThroughSink = (input: {
+    transaction: TimelineScrollCommandTransaction
+    type: Extract<TimelineScrollCommandType, "content-resize-bottom-follow" | "dock-resize-bottom-follow">
+    source: string
+    reason: string
+  }) => {
+    if (!scroller) return false
+    scrollCommandSink().withTransaction(input.transaction).setScrollTop({
+      element: scroller,
+      top: scroller.scrollHeight,
+      type: input.type,
+      source: input.source,
+      reason: input.reason,
+    })
     if (scroller) scheduleScrollState(scroller)
     return true
   }
@@ -234,12 +269,34 @@ export function createSessionScrollDock(input: {
     if (el && scroller) scheduleScrollState(scroller)
     if (!el) return
     contentObserver = new ResizeObserver(() => {
-      input.onContentResize?.({
-        scrollTop: scroller?.scrollTop,
-        distanceFromBottom: scroller ? scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop : undefined,
-      })
-      if (scroller) scheduleScrollState(scroller)
-      input.fill()
+      const runContentMutation = (scheduleState: (el: HTMLDivElement) => void) => {
+        input.onContentResize?.({
+          scrollTop: scroller?.scrollTop,
+          distanceFromBottom: scroller ? scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop : undefined,
+        })
+        if (scroller) scheduleState(scroller)
+        input.fill()
+      }
+
+      if (input.runLayoutTransaction && scroller) {
+        input.runLayoutTransaction({
+          kind: "content-resize",
+          source: "use-session-scroll-dock/contentObserver",
+          reason: "content-resize",
+          stickToBottom: bottomFollowLockedFor(),
+          mutate: () => runContentMutation(scheduleTransactionScrollState),
+          restoreLatest: (transactionID) =>
+            restoreLatestThroughSink({
+              transaction: { transactionID, transactionKind: "content-resize" },
+              type: "content-resize-bottom-follow",
+              source: "use-session-scroll-dock/layoutTransactionRestoreLatest",
+              reason: "content-resize",
+            }),
+        })
+        return
+      }
+
+      runContentMutation(scheduleScrollState)
       restoreBottomIfLocked()
     })
     contentObserver.observe(el)
@@ -250,22 +307,60 @@ export function createSessionScrollDock(input: {
     const dockKind = promptDockKind()
     const scrollTop = scroller?.scrollTop
     const distanceFromBottom = scroller ? scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop : undefined
-    dockHeight = syncComposerDockHeight({
-      el: scroller,
-      previousDockHeight,
-      nextDockHeight: next,
-      userScrolled: autoScroll.userScrolled(),
-      setCssHeight: (value) => document.documentElement.style.setProperty("--composer-dock-height", `${value}px`),
-      forceScrollToBottom: () => autoScroll.forceScrollToBottom("dock-resize"),
-      scheduleScrollState,
-      fill: input.fill,
-    })
+    let layoutTransactionHandled = false
+    const stickToBottom = scroller
+      ? shouldStickToBottomAfterDockResize({
+          el: scroller,
+          userScrolled: autoScroll.userScrolled(),
+          previousDockHeight,
+          nextDockHeight: next,
+        })
+      : false
+    const runDockMutation = (options: {
+      forceScrollToBottom: () => void
+      scheduleState: (el: HTMLDivElement) => void
+    }) => {
+      dockHeight = syncComposerDockHeight({
+        el: scroller,
+        previousDockHeight,
+        nextDockHeight: next,
+        userScrolled: autoScroll.userScrolled(),
+        setCssHeight: (value) => document.documentElement.style.setProperty("--composer-dock-height", `${value}px`),
+        forceScrollToBottom: options.forceScrollToBottom,
+        scheduleScrollState: options.scheduleState,
+        fill: input.fill,
+      })
+    }
+
+    if (input.runLayoutTransaction && scroller && next !== previousDockHeight) {
+      layoutTransactionHandled = true
+      input.runLayoutTransaction({
+        kind: "dock-resize",
+        source: "use-session-scroll-dock/updateDockHeight",
+        reason: dockKind,
+        stickToBottom,
+        mutate: () => runDockMutation({ forceScrollToBottom: () => {}, scheduleState: scheduleTransactionScrollState }),
+        restoreLatest: (transactionID) =>
+          restoreLatestThroughSink({
+            transaction: { transactionID, transactionKind: "dock-resize" },
+            type: "dock-resize-bottom-follow",
+            source: "use-session-scroll-dock/layoutTransactionRestoreLatest",
+            reason: "dock-resize",
+          }),
+      })
+    } else {
+      runDockMutation({
+        forceScrollToBottom: () => autoScroll.forceScrollToBottom("dock-resize"),
+        scheduleState: scheduleScrollState,
+      })
+    }
     if (dockHeight !== previousDockHeight) {
       try {
         input.onDockHeightChange?.({
           dockKind,
           composerHeight: dockHeight,
           previousComposerHeight: previousDockHeight,
+          layoutTransactionHandled: layoutTransactionHandled || undefined,
           scrollTop,
           distanceFromBottom,
         })

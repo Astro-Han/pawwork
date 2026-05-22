@@ -3,6 +3,7 @@ import { Virtualizer } from "virtua/solid"
 import type { TimelineVirtualizerBridge } from "./timeline-virtualizer-bridge"
 import type { TimelineVirtualRow } from "./timeline-virtual-rows"
 import type { TimelineRowRenderMode } from "./timeline-virtualization-strategy"
+import { chooseTimelineVirtualizerOverscan } from "./timeline-layout-stable-band"
 
 export function TimelineRowRenderer(props: {
   mode: TimelineRowRenderMode
@@ -10,6 +11,7 @@ export function TimelineRowRenderer(props: {
   viewport: HTMLDivElement | undefined
   virtualizerBridge: TimelineVirtualizerBridge
   shift: boolean
+  transactionActive: boolean
   renderRow: (row: TimelineVirtualRow) => JSX.Element
 }) {
   createEffect(() => {
@@ -33,6 +35,7 @@ function VirtualizedTimelineRows(props: {
   viewport: HTMLDivElement | undefined
   virtualizerBridge: TimelineVirtualizerBridge
   shift: boolean
+  transactionActive: boolean
   renderRow: (row: TimelineVirtualRow) => JSX.Element
 }) {
   return (
@@ -43,7 +46,7 @@ function VirtualizedTimelineRows(props: {
           data={props.rows}
           scrollRef={viewport()}
           shift={props.shift}
-          overscan={8}
+          overscan={chooseTimelineVirtualizerOverscan({ transactionActive: props.transactionActive })}
         >
           {props.renderRow}
         </Virtualizer>

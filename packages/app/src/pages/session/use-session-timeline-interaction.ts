@@ -1,5 +1,6 @@
 import type { UserMessage } from "@opencode-ai/sdk/v2"
 import { createEffect, createMemo, on, onCleanup } from "solid-js"
+import { createStore } from "solid-js/store"
 import { emitRendererDiagnostic } from "@/context/renderer-diagnostics"
 import {
   collectTimelineScrollMetrics,
@@ -13,6 +14,11 @@ import { createSessionHistoryWindow } from "@/pages/session/use-session-history-
 import { createSessionScrollDock } from "@/pages/session/use-session-scroll-dock"
 import { createTimelineVirtualRows } from "@/pages/session/timeline-virtual-rows"
 import { createTimelineVirtualizerBridge } from "@/pages/session/timeline-virtualizer-bridge"
+import {
+  createTimelineLayoutTransactionCoordinator,
+  type TimelineLayoutTransactionKind,
+} from "@/pages/session/timeline-layout-transaction"
+import { shouldApplyTimelineRecoveryForObservation } from "@/pages/session/timeline-layout-recovery-policy"
 import {
   createSessionTimelineScrollController,
   type TimelineRecovery,
@@ -38,7 +44,13 @@ export function createSessionTimelineInteraction(input: {
   let clearMessageHash = () => {}
   let activeMessage!: ReturnType<typeof createSessionActiveMessage>
   let historyBackfill: ReturnType<typeof createSessionHistoryBackfill> | undefined
+  let historyWindow!: ReturnType<typeof createSessionHistoryWindow>
   let recoveryFrame: number | undefined
+  const [layoutTransactionState, setLayoutTransactionState] = createStore({
+    active: false,
+    transactionID: undefined as string | undefined,
+    kind: undefined as TimelineLayoutTransactionKind | undefined,
+  })
   const createScrollController = () =>
     createSessionTimelineScrollController({
       sessionOwner: input.sessionKey(),
@@ -52,6 +64,13 @@ export function createSessionTimelineInteraction(input: {
     })
   let scrollController = createScrollController()
   const scrollCommandSink = createTimelineScrollCommandSink({
+    activeTransaction: () =>
+      layoutTransactionState.active && layoutTransactionState.transactionID && layoutTransactionState.kind
+        ? {
+            transactionID: layoutTransactionState.transactionID,
+            transactionKind: layoutTransactionState.kind,
+          }
+        : undefined,
     emitDiagnostic: (event) => {
       void emitRendererDiagnostic(event).catch(() => {})
     },
@@ -67,6 +86,75 @@ export function createSessionTimelineInteraction(input: {
     }),
   })
 
+  const layoutTransactionCoordinator = createTimelineLayoutTransactionCoordinator({
+    scheduleFrame: (callback) => requestAnimationFrame(callback),
+    cancelFrame: (handle) => cancelAnimationFrame(handle),
+    readMode: () => scrollController.state().mode,
+    sampleAnchor: () => {
+      const viewport = scrollDock.scroller()
+      const controllerState = scrollController.state()
+      const targetMessageID =
+        controllerState.lastSafePosition.kind === "target_message"
+          ? controllerState.lastSafePosition.messageID
+          : undefined
+      if (!viewport) return controllerState.lastSafePosition
+      return sampleTimelineSafePosition({
+        viewport,
+        mode: controllerState.mode,
+        renderedStart: historyWindow.turnStart(),
+        renderedCount: historyWindow.renderedUserMessages().length,
+        newestMessageID: input.visibleUserMessages().at(-1)?.id,
+        targetMessageID,
+      })
+    },
+    restoreAnchor: (position, transactionID) => {
+      const viewport = scrollDock.scroller()
+      const restored = restoreTimelineSafePosition({
+        viewport,
+        position,
+        scrollCommandSink: scrollCommandSink.withTransaction({
+          transactionID,
+          transactionKind: layoutTransactionState.kind ?? "content-resize",
+        }),
+      })
+      if (restored.ok && viewport) scrollDock.scheduleScrollState(viewport)
+      return restored.ok
+    },
+    restoreLatest: () => false,
+    setStableBandActive: (active) => {
+      if (!active) setLayoutTransactionState({ active: false, transactionID: undefined, kind: undefined })
+    },
+    setTransactionState: (state) => {
+      if (state.active) {
+        setLayoutTransactionState({ active: true, transactionID: state.transactionID, kind: state.kind })
+        return
+      }
+      setLayoutTransactionState({ active: false, transactionID: undefined, kind: undefined })
+    },
+    emitDiagnostic: (event) => {
+      void emitRendererDiagnostic({
+        name: "session.timeline.layout_transaction",
+        route_session_id: input.routeSessionID(),
+        visible_session_id: input.sessionID(),
+        timeline_session_id: input.sessionID(),
+        monotonic_ms: event.monotonicMs,
+        data: {
+          transaction_id: event.transactionID,
+          transaction_kind: event.kind,
+          transaction_phase: event.phase,
+          transaction_status: event.violation ? "violation" : undefined,
+          mode: event.mode,
+          source: event.source,
+          reason: event.reason,
+          anchor_kind: event.anchorKind,
+          anchor_message_id: event.anchorMessageID,
+          fallback_frames: event.fallbackFrames,
+          violation: event.violation,
+        },
+      }).catch(() => {})
+    },
+  })
+
   const cancelRecoveryFrame = () => {
     if (recoveryFrame === undefined) return
     cancelAnimationFrame(recoveryFrame)
@@ -77,6 +165,7 @@ export function createSessionTimelineInteraction(input: {
     on(
       () => [input.sessionKey(), input.sessionID()] as const,
       () => {
+        layoutTransactionCoordinator.cancel()
         cancelRecoveryFrame()
         const previous = scrollController.state()
         scrollController.detach({
@@ -90,6 +179,7 @@ export function createSessionTimelineInteraction(input: {
   )
 
   onCleanup(() => {
+    layoutTransactionCoordinator.cancel()
     cancelRecoveryFrame()
     const owner = scrollController.state()
     scrollController.detach({
@@ -121,6 +211,7 @@ export function createSessionTimelineInteraction(input: {
           previousDockHeight: event.previousComposerHeight,
           nextDockHeight: event.composerHeight,
           metrics: collectTimelineScrollMetrics(viewport),
+          layoutTransactionHandled: event.layoutTransactionHandled,
         })
       }
       void emitRendererDiagnostic({
@@ -135,6 +226,16 @@ export function createSessionTimelineInteraction(input: {
           scroll_top: event.scrollTop,
           distance_from_bottom: event.distanceFromBottom,
         },
+      })
+    },
+    runLayoutTransaction: (event) => {
+      layoutTransactionCoordinator.run({
+        kind: event.kind,
+        source: event.source,
+        reason: event.reason,
+        mode: event.stickToBottom ? "following_latest" : undefined,
+        mutate: event.mutate,
+        restoreLatest: event.restoreLatest,
       })
     },
   })
@@ -152,7 +253,7 @@ export function createSessionTimelineInteraction(input: {
     pauseAutoScroll: autoScroll.pause,
   })
 
-  const historyWindow = createSessionHistoryWindow({
+  historyWindow = createSessionHistoryWindow({
     sessionID: input.sessionID,
     messagesReady: input.messagesReady,
     loaded: input.loadedMessages,
@@ -193,6 +294,7 @@ export function createSessionTimelineInteraction(input: {
   })
 
   const markScrollGesture = (target?: EventTarget | null) => {
+    layoutTransactionCoordinator.cancel()
     scrollDock.cancelBottomFollowLock()
     activeMessage.markScrollGesture(target)
   }
@@ -209,6 +311,7 @@ export function createSessionTimelineInteraction(input: {
   }
 
   const navigateMessageByOffset = (offset: number) => {
+    layoutTransactionCoordinator.cancel()
     scrollDock.cancelBottomFollowLock()
     activeMessage.navigateMessageByOffset(offset)
   }
@@ -239,7 +342,10 @@ export function createSessionTimelineInteraction(input: {
   }
 
   const onTimelineScrollIntent = (intent: TimelineScrollIntent): TimelineScrollControllerResult => {
-    if (shouldCancelBottomFollowLockForIntent(intent)) scrollDock.cancelBottomFollowLock()
+    if (shouldCancelBottomFollowLockForIntent(intent)) {
+      layoutTransactionCoordinator.cancel()
+      scrollDock.cancelBottomFollowLock()
+    }
     const result = scrollController.intent(intent)
     applyTimelineRecovery(result.recovery)
     return result
@@ -269,7 +375,16 @@ export function createSessionTimelineInteraction(input: {
       }
     }
     const result = scrollController.observe(next)
-    applyTimelineRecovery(result.recovery)
+    if (
+      shouldApplyTimelineRecoveryForObservation({
+        layoutTransactionActive: layoutTransactionState.active,
+        layoutTransactionHandled:
+          "layoutTransactionHandled" in observation ? observation.layoutTransactionHandled : undefined,
+        observationType: observation.type,
+      })
+    ) {
+      applyTimelineRecovery(result.recovery)
+    }
     return result
   }
 
@@ -343,6 +458,9 @@ export function createSessionTimelineInteraction(input: {
     submitLatest,
     scheduleScrollState: scrollDock.scheduleScrollState,
     scrollDock,
+    layoutTransactionActive: () => layoutTransactionState.active,
+    layoutTransactionID: () => layoutTransactionState.transactionID,
+    layoutTransactionKind: () => layoutTransactionState.kind,
     setScrollRef: scrollDock.setScrollRef,
     markScrollGesture,
     navigateMessageByOffset,

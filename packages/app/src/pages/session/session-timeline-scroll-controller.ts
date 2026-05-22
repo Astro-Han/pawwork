@@ -118,6 +118,7 @@ export type TimelineScrollObservation =
       previousDockHeight: number
       nextDockHeight: number
       metrics: TimelineScrollMetrics
+      layoutTransactionHandled?: boolean
     }
   | {
       type: "owner_detached"
@@ -283,7 +284,8 @@ export function createTimelineScrollControllerDiagnostic(input: {
 }
 
 function isExplicitTopIntent(intent: TimelineScrollIntent) {
-  if (intent.type === "keyboard_scroll") return intent.key === "ArrowUp" || intent.key === "Home" || intent.key === "PageUp"
+  if (intent.type === "keyboard_scroll")
+    return intent.key === "ArrowUp" || intent.key === "Home" || intent.key === "PageUp"
   if (intent.type === "wheel_scroll" || intent.type === "touch_scroll") {
     return intent.direction === "up" && !intent.nestedScrollable
   }
@@ -302,7 +304,10 @@ function updateSafePosition(state: TimelineScrollControllerState, safePosition: 
   if (safePosition) state.lastSafePosition = safePosition
 }
 
-function updateObservedSafePosition(state: TimelineScrollControllerState, safePosition: TimelineSafePosition | undefined) {
+function updateObservedSafePosition(
+  state: TimelineScrollControllerState,
+  safePosition: TimelineSafePosition | undefined,
+) {
   if (
     state.mode === "targeting_message" &&
     state.lastSafePosition.kind === "target_message" &&

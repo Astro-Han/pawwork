@@ -18,6 +18,15 @@ export type RuntimeClsScrollMetrics = {
   maxScrollTop: number
 }
 
+export type RuntimeClsTransactionSnapshot = {
+  activeBefore?: boolean
+  activeAfter?: boolean
+  idBefore?: string
+  idAfter?: string
+  kindBefore?: string
+  kindAfter?: string
+}
+
 export type RuntimeClsSourceKind =
   | "primary-message-wrapper"
   | "primary-turn"
@@ -62,6 +71,7 @@ export type RuntimeClsSnapshot = {
   mountedRows?: number
   scrollBefore?: RuntimeClsScrollMetrics
   scrollAfter?: RuntimeClsScrollMetrics
+  transaction?: RuntimeClsTransactionSnapshot
 }
 
 export type RuntimeClsResult = {
@@ -277,6 +287,14 @@ export function formatRuntimeClsFailure(input: {
     })),
   }))
   const maxValue = Math.max(0, ...input.entries.map((entry) => entry.value))
+  const transactionSummary = input.snapshot.transaction
+    ? [
+        `transaction=${input.snapshot.transaction.idBefore ?? input.snapshot.transaction.idAfter ?? "<none>"}`,
+        `transactionKind=${input.snapshot.transaction.kindBefore ?? input.snapshot.transaction.kindAfter ?? "<none>"}`,
+        `transactionActiveBefore=${input.snapshot.transaction.activeBefore ?? false}`,
+        `transactionActiveAfter=${input.snapshot.transaction.activeAfter ?? false}`,
+      ].join(" ")
+    : "transaction=<none>"
   const sourceSummary = input.entries
     .flatMap((entry) =>
       entry.sources.map((source) =>
@@ -293,6 +311,7 @@ export function formatRuntimeClsFailure(input: {
   return [
     `Runtime CLS primary source gate failed during ${input.action}.`,
     `Threshold: single entry > ${RUNTIME_CLS_PRIMARY_SHIFT_THRESHOLD}; max primary entry: ${maxValue}.`,
+    transactionSummary,
     sourceSummary,
     JSON.stringify(
       {
@@ -352,6 +371,15 @@ function runtimeClsProbeInitScript(options?: RuntimeClsProbeInstallOptions) {
     maxScrollTop: number
   }
 
+  type RuntimeClsTransactionSnapshot = {
+    activeBefore?: boolean
+    activeAfter?: boolean
+    idBefore?: string
+    idAfter?: string
+    kindBefore?: string
+    kindAfter?: string
+  }
+
   type RuntimeClsSnapshot = {
     targetMessageID?: string
     targetBeforeRect?: RuntimeClsRect
@@ -361,6 +389,7 @@ function runtimeClsProbeInitScript(options?: RuntimeClsProbeInstallOptions) {
     mountedRows?: number
     scrollBefore?: RuntimeClsScrollMetrics
     scrollAfter?: RuntimeClsScrollMetrics
+    transaction?: RuntimeClsTransactionSnapshot
   }
 
   type RuntimeClsWindow = Window & {
@@ -564,6 +593,11 @@ function runtimeClsProbeInitScript(options?: RuntimeClsProbeInstallOptions) {
       totalRows: list?.dataset.totalRows ? Number(list.dataset.totalRows) : undefined,
       mountedRows: virtualRows > 0 ? virtualRows : messages,
       scrollAfter: readScrollMetrics(),
+      transaction: {
+        activeAfter: list?.dataset.layoutTransactionActive === "true",
+        idAfter: list?.dataset.layoutTransactionId || undefined,
+        kindAfter: list?.dataset.layoutTransactionKind || undefined,
+      },
     }
   }
 
@@ -630,6 +664,11 @@ function runtimeClsProbeInitScript(options?: RuntimeClsProbeInstallOptions) {
         totalRows: before.totalRows,
         mountedRows: before.mountedRows,
         scrollBefore: before.scrollAfter,
+        transaction: {
+          activeBefore: before.transaction?.activeAfter,
+          idBefore: before.transaction?.idAfter,
+          kindBefore: before.transaction?.kindAfter,
+        },
       }
     },
     stop() {
@@ -646,6 +685,12 @@ function runtimeClsProbeInitScript(options?: RuntimeClsProbeInstallOptions) {
           totalRows: after.totalRows ?? snapshotBefore.totalRows,
           mountedRows: after.mountedRows ?? snapshotBefore.mountedRows,
           scrollAfter: after.scrollAfter,
+          transaction: {
+            ...snapshotBefore.transaction,
+            activeAfter: after.transaction?.activeAfter,
+            idAfter: after.transaction?.idAfter,
+            kindAfter: after.transaction?.kindAfter,
+          },
         },
       }
       active = false

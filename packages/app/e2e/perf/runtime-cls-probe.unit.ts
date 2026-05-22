@@ -171,6 +171,14 @@ describe("runtime CLS failure diagnostics", () => {
         mountedRows: 24,
         scrollBefore: { scrollTop: 1200, scrollHeight: 8000, clientHeight: 720, maxScrollTop: 7280 },
         scrollAfter: { scrollTop: 1236, scrollHeight: 8036, clientHeight: 720, maxScrollTop: 7316 },
+        transaction: {
+          activeBefore: true,
+          activeAfter: false,
+          idBefore: "timeline-layout-7",
+          kindBefore: "dock-resize",
+          idAfter: undefined,
+          kindAfter: undefined,
+        },
       },
     })
 
@@ -182,5 +190,7 @@ describe("runtime CLS failure diagnostics", () => {
     expect(message).toContain("scrollTop")
     expect(message).toContain("virtualized")
     expect(message).toContain("104")
+    expect(message).toContain("transaction=timeline-layout-7")
+    expect(message).toContain("transactionKind=dock-resize")
   })
 })

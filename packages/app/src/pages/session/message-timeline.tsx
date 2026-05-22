@@ -94,6 +94,9 @@ export function MessageTimeline(props: {
   renderedUserMessages: UserMessage[]
   anchor: (id: string) => string
   virtualizerBridge: TimelineVirtualizerBridge
+  layoutTransactionActive: () => boolean
+  layoutTransactionID: () => string | undefined
+  layoutTransactionKind: () => string | undefined
 }) {
   let touchGesture: number | undefined
   let scrollSampleFrame: number | undefined
@@ -486,6 +489,9 @@ export function MessageTimeline(props: {
               data-slot="session-turn-list"
               data-render-mode={rowRenderMode()}
               data-total-rows={rowMutation().rows.length}
+              data-layout-transaction-active={props.layoutTransactionActive() ? "true" : "false"}
+              data-layout-transaction-id={props.layoutTransactionID()}
+              data-layout-transaction-kind={props.layoutTransactionKind()}
               class="transition-[margin]"
               classList={{
                 "w-full": true,
@@ -500,6 +506,7 @@ export function MessageTimeline(props: {
                 viewport={virtualizerViewport()}
                 virtualizerBridge={props.virtualizerBridge}
                 shift={rowMutation().mutation === "prepend"}
+                transactionActive={props.layoutTransactionActive()}
                 renderRow={renderTimelineRow}
               />
             </div>
