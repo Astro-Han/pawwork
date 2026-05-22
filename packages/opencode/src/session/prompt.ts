@@ -2228,11 +2228,17 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           // by a crashed prior session) is rendered `failed` by the divider
           // because it *actually* failed; rewriting it as `aborted` here
           // would attribute a past crash to the current cancel and stamp
-          // it with this cancel's `propagation_point`, which is a lie. The
-          // Runner is per-session and serial, so an in-flight cancel cannot
-          // both leave a brand-new orphan AND skip past a completed-newer
-          // one — the newest marker is always the one this cancel can be
-          // honestly attributed to.
+          // it with this cancel's `propagation_point`, which is a lie.
+          //
+          // The "newest marker = the marker this cancel can be attributed
+          // to" invariant rests on two upstream guarantees: (a) the Runner
+          // is per-session and serial — only one work effect can be writing
+          // a marker at any moment; (b) the prelude path uses rejectIfBusy
+          // (run-state.ts ~L173), so a second /summarize cannot land
+          // concurrently and produce a competing newer marker. If either
+          // guarantee weakens, this sweep would need run-local attribution
+          // (e.g. capture a high-water-mark message id at work entry and
+          // only match markers above it).
           const pendingMarker = yield* sessions.findMessage(input.sessionID, (m) =>
             m.info.role === "user" && m.parts.some((p) => p.type === "compaction"),
           )

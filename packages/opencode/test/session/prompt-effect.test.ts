@@ -1665,6 +1665,77 @@ it.live(
 )
 
 it.live(
+  "prelude derives compaction agent from the post-cleanup latest user",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* ({ llm }) {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({ title: "Prelude agent derivation" })
+
+        // userOne uses the default "build" agent — this is the agent
+        // /summarize must pick after revert.cleanup drops everything
+        // newer than userOne.
+        const userOne = yield* user(chat.id, "first")
+
+        // userTwo is written directly with a different agent. revert
+        // points back to userOne, so cleanup removes userTwo before
+        // the prelude derives its agent. Pre-cleanup derivation (the
+        // regression this test locks against) would have picked
+        // "ninja" off the still-present userTwo.
+        yield* sessions.updateMessage({
+          id: MessageID.ascending(),
+          role: "user",
+          sessionID: chat.id,
+          agent: "ninja",
+          model: ref,
+          time: { created: Date.now() },
+        })
+
+        yield* sessions.setRevert({
+          sessionID: chat.id,
+          revert: { messageID: userOne.id },
+          summary: { additions: 0, deletions: 0, files: 0 },
+        })
+
+        yield* llm.hang
+
+        const fiber = yield* prompt
+          .loop({
+            sessionID: chat.id,
+            prelude: { type: "compaction", model: ref, auto: false },
+          })
+          .pipe(Effect.forkChild)
+
+        // Poll until the marker is written, then cancel — only the
+        // marker's agent matters for this assertion; the rest of the
+        // run can abort.
+        const deadline = Date.now() + 5000
+        let marker: MessageV2.WithParts | undefined
+        while (Date.now() < deadline) {
+          const snapshot = yield* sessions.messages({ sessionID: chat.id })
+          marker = snapshot.find((m) => m.parts.some((p) => p.type === "compaction"))
+          if (marker) break
+          yield* Effect.sleep("1 millis")
+        }
+        expect(marker).toBeDefined()
+
+        yield* prompt.cancel(chat.id)
+        const exit = yield* Fiber.await(fiber)
+        expect(Exit.isSuccess(exit)).toBe(true)
+
+        // After revert.cleanup, userTwo ("ninja") is gone; userOne
+        // ("build") is the latest remaining user, so the marker must
+        // record "build".
+        if (marker?.info.role === "user") {
+          expect(marker.info.agent).toBe("build")
+        }
+      }),
+      { git: true, config: providerCfg },
+    ),
+)
+
+it.live(
   "loop rejects compaction prelude when a run is already in flight",
   () =>
     provideTmpdirServer(
