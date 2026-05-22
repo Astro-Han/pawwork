@@ -2483,7 +2483,7 @@ export default function Layout(props: ParentProps) {
                 <aside
                   aria-label={language.t("sidebar.nav.projectsAndSessions")}
                   data-component="sidebar-nav-desktop"
-                  class="absolute inset-y-0 left-0 z-10"
+                  class="absolute inset-y-0 left-0 z-10 border-r border-border-weaker"
                   style={{ width: `${side()}px` }}
                   ref={(el) => {
                     setState("nav", el)

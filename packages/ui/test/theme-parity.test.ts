@@ -346,6 +346,28 @@ describe("#642 PR0: --code-surface three-block presence", () => {
   })
 })
 
+describe("border tokens: unified hairline alpha across light and dark", () => {
+  // Light and dark both resolve --border-* to alpha 0.08 (black on light,
+  // white on dark). Drift between the two themes is unjustified at this
+  // scale; locking the value prevents a silent rollback to the old 0.06
+  // dark hairline that left sidebar↔thread with no visible boundary.
+  test("--border-base / --border-weak / --border-weaker land on 0.08 in both themes", () => {
+    const lightDecls = parseDeclarations(extractBlock(THEME_CSS, ":root"))
+    const darkDecls = parseDeclarations(
+      extractBlock(THEME_CSS, ':root[data-color-scheme="dark"]'),
+    )
+    const mediaDecls = parseDeclarations(
+      extractBlock(THEME_CSS, "@media (prefers-color-scheme: dark)"),
+    )
+
+    for (const key of ["border-base", "border-weak", "border-weaker"]) {
+      expect(normalize(lightDecls.get(key) ?? "")).toBe(normalize("rgba(0, 0, 0, 0.08)"))
+      expect(normalize(darkDecls.get(key) ?? "")).toBe(normalize("rgba(255, 255, 255, 0.08)"))
+      expect(normalize(mediaDecls.get(key) ?? "")).toBe(normalize("rgba(255, 255, 255, 0.08)"))
+    }
+  })
+})
+
 const MARKED_TSX = readFileSync(
   join(ROOT, "src/context/marked.tsx"),
   "utf-8",
