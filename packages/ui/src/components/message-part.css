@@ -243,40 +243,6 @@
   [data-slot="text-part-body"] {
     margin-top: 0;
   }
-
-  [data-slot="text-part-copy-wrapper"] {
-    min-height: 30px;
-    margin-top: 4px;
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    gap: 10px;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.15s ease;
-    will-change: opacity;
-
-    [data-component="tooltip-trigger"] {
-      display: inline-flex;
-      width: fit-content;
-    }
-  }
-
-  [data-slot="text-part-meta"] {
-    user-select: none;
-  }
-
-  [data-slot="text-part-copy-wrapper"][data-interrupted] {
-    width: 100%;
-    justify-content: flex-end;
-    gap: 12px;
-  }
-
-  &:hover [data-slot="text-part-copy-wrapper"],
-  &:focus-within [data-slot="text-part-copy-wrapper"] {
-    opacity: 1;
-    pointer-events: auto;
-  }
 }
 
 [data-component="compaction-part"] {

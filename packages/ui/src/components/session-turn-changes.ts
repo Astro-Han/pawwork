@@ -41,9 +41,8 @@ export type TurnChangeActions = {
 }
 
 export function hasVisibleTurnChanges(display: TurnChangeDisplay | null | undefined) {
-  if (!display || display.kind === "empty") return false
-  if (display.kind === "uncaptured") return display.count > 0
-  return display.files.length > 0 || !!display.truncated || (display.kind === "mixed" && (display.count ?? 0) > 0)
+  if (!display || display.kind === "empty" || display.kind === "uncaptured") return false
+  return display.files.length > 0 || !!display.truncated
 }
 
 // After a force-partial undo a turn can have hasApplied (skipped messages still applied)

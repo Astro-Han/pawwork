@@ -124,7 +124,7 @@ async function runCapturedPass(
     await expect(action).toBeVisible()
     await action.click()
     await action.click()
-    await expect(page.locator('[data-slot="session-turn-changes-undone"]').first()).toBeVisible()
+    await expect(page.locator('[data-slot="session-turn-changes-undone-summary"]').first()).toBeVisible()
     shots.push(await captureTurnChanges(page, `${label}-captured-undone`))
   })
 
@@ -132,7 +132,8 @@ async function runCapturedPass(
     project.trackSession(session.id)
     await uncapturedWithMock(llm, project.sdk, session.id, `snap-uncaptured-${label}.txt`)
     await project.gotoSession(session.id)
-    shots.push(await captureTurnChanges(page, `${label}-uncaptured`))
+    // Uncaptured-only turns intentionally render no panel; assert that and skip the shot.
+    await expect(page.locator('[data-component="session-turn-changes"]')).toHaveCount(0, { timeout: 10_000 })
   })
 }
 

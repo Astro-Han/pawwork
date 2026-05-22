@@ -8,7 +8,6 @@ import { Part } from "./message-router"
 export function AssistantMessageDisplay(props: {
   message: AssistantMessage
   parts: PartType[]
-  showAssistantCopyPartID?: string | null
   showReasoningSummaries?: boolean
 }) {
   const emptyTools: ToolPart[] = []
@@ -69,7 +68,6 @@ export function AssistantMessageDisplay(props: {
                     <Part
                       part={stableItem()!}
                       message={props.message}
-                      showAssistantCopyPartID={props.showAssistantCopyPartID}
                       stateKey={`tool:${stableItem()!.id}`}
                     />
                   </Show>

@@ -15,7 +15,6 @@ export function Message(props: MessageProps) {
         <AssistantMessageDisplay
           message={props.message as AssistantMessage}
           parts={props.parts}
-          showAssistantCopyPartID={props.showAssistantCopyPartID}
           showReasoningSummaries={props.showReasoningSummaries}
         />
       </Show>
@@ -33,8 +32,6 @@ export function Part(props: MessagePartProps) {
         message={props.message}
         hideDetails={props.hideDetails}
         defaultOpen={props.defaultOpen}
-        showAssistantCopyPartID={props.showAssistantCopyPartID}
-        turnDurationMs={props.turnDurationMs}
         stateKey={props.stateKey}
       />
     </Show>

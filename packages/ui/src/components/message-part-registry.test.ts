@@ -135,7 +135,7 @@ test("review hardening keeps routing, clipboard, url, and write guards explicit"
 
   expect(source).toContain("return path.slice(prefix.length)")
   expect(source).toContain("path.search(/\\/session(?:\\/|$)/)")
-  expect([...source.matchAll(/try \{\n\s+await navigator\.clipboard\.writeText/g)].length).toBe(2)
+  expect([...source.matchAll(/try \{\n\s+await navigator\.clipboard\.writeText/g)].length).toBe(1)
   expect(source).toContain('if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return ""')
   expect(source).toContain("getDiagnostics(props.metadata?.diagnostics, props.input.filePath)")
   expect(source).toContain("props.input.content != null && path()")

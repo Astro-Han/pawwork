@@ -29,6 +29,7 @@ import {
   formatCompactionElapsed,
   type CompactionDividerState,
 } from "./session-turn-compaction"
+import { AssistantTurnFooter } from "./assistant-turn-footer"
 
 function record(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
@@ -329,7 +330,7 @@ export function SessionTurn(
   const error = createMemo(
     () => visibleAssistantMessages().find((m) => m.error && m.error.name !== "MessageAbortedError")?.error,
   )
-  const showAssistantCopyPartID = createMemo(() => {
+  const assistantFooterTarget = createMemo(() => {
     const messages = visibleAssistantMessages()
 
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -340,7 +341,7 @@ export function SessionTurn(
       for (let j = parts.length - 1; j >= 0; j--) {
         const part = parts[j]
         if (!part || part.type !== "text" || !part.text?.trim()) continue
-        return part.id
+        return { message, text: part.text.trim() }
       }
     }
 
@@ -361,9 +362,9 @@ export function SessionTurn(
   })
   const showReasoningSummaries = createMemo(() => props.showReasoningSummaries ?? true)
 
-  const assistantCopyPartID = createMemo(() => {
-    if (working()) return null
-    return showAssistantCopyPartID() ?? null
+  const visibleFooterTarget = createMemo(() => {
+    if (working()) return
+    return assistantFooterTarget()
   })
   const turnDurationMs = createMemo(() => {
     const start = message()?.time.created
@@ -504,8 +505,6 @@ export function SessionTurn(
                   <div data-slot="session-turn-assistant-content" aria-hidden={working()}>
                     <AssistantParts
                       messages={visibleAssistantMessages()}
-                      showAssistantCopyPartID={assistantCopyPartID()}
-                      turnDurationMs={turnDurationMs()}
                       working={working()}
                       showReasoningSummaries={showReasoningSummaries()}
                       shellToolDefaultOpen={props.shellToolDefaultOpen}
@@ -534,6 +533,15 @@ export function SessionTurn(
                       actions={props.turnChangeActions}
                       expanded={turnExpanded()}
                       onExpandedChange={(value) => setTurnExpanded(value)}
+                    />
+                  )}
+                </Show>
+                <Show when={visibleFooterTarget()}>
+                  {(target) => (
+                    <AssistantTurnFooter
+                      text={target().text}
+                      message={target().message}
+                      turnDurationMs={turnDurationMs()}
                     />
                   )}
                 </Show>
