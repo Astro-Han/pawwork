@@ -42,6 +42,7 @@ function sourceFiles(dir: string): string[] {
 function readMessagePartSources() {
   return [
     readFileSync(join(COMPONENT_DIR, "message-part.tsx"), "utf8"),
+    readFileSync(join(COMPONENT_DIR, "assistant-turn-footer.tsx"), "utf8"),
     ...sourceFiles(MESSAGE_PART_DIR).map((file) => readFileSync(file, "utf8")),
   ].join("\n")
 }

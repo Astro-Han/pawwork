@@ -14,12 +14,12 @@ import {
 import {
   hasTurnChangeActionHandler,
   turnChangeAction,
+  turnChangeFiles,
   type TurnChangeActions,
   type TurnChangeDisplay,
   type TurnChangeFile,
 } from "./session-turn-changes"
 
-const emptyTurnFiles: TurnChangeFile[] = []
 const emptyExpanded: readonly string[] = []
 
 export function SessionTurnChangesPanel(props: {
@@ -31,9 +31,7 @@ export function SessionTurnChangesPanel(props: {
   const i18n = useI18n()
   const fileComponent = useFileComponent()
 
-  const turnFiles = createMemo(() =>
-    props.turnChange.kind === "captured" || props.turnChange.kind === "mixed" ? props.turnChange.files : emptyTurnFiles,
-  )
+  const turnFiles = createMemo(() => turnChangeFiles(props.turnChange))
   const appliedFiles = createMemo(() => turnFiles().filter((file) => file.restoreState === "applied"))
   const turnEdited = createMemo(() => appliedFiles().length)
   const turnAdditions = createMemo(() => appliedFiles().reduce((sum, file) => sum + (file.additions ?? 0), 0))
@@ -91,26 +89,36 @@ export function SessionTurnChangesPanel(props: {
     <div data-slot="session-turn-changes" data-component="session-turn-changes">
       <div data-slot="session-turn-changes-header">
         <div data-slot="session-turn-changes-summary">
-          <span>
-            {i18n.t(
-              turnEdited() === 1
-                ? "ui.sessionTurn.turnChanges.summary.one"
-                : "ui.sessionTurn.turnChanges.summary.other",
-              { count: turnEdited() },
-            )}
-          </span>
-          <span data-slot="session-turn-changes-additions">+{turnAdditions()}</span>
-          <span data-slot="session-turn-changes-deletions">-{turnDeletions()}</span>
+          <Show
+            when={isUndoneTurn()}
+            fallback={
+              <>
+                <span>
+                  {i18n.t(
+                    turnEdited() === 1
+                      ? "ui.sessionTurn.turnChanges.summary.one"
+                      : "ui.sessionTurn.turnChanges.summary.other",
+                    { count: turnEdited() },
+                  )}
+                </span>
+                <span data-slot="session-turn-changes-additions">+{turnAdditions()}</span>
+                <span data-slot="session-turn-changes-deletions">-{turnDeletions()}</span>
+              </>
+            }
+          >
+            <span data-slot="session-turn-changes-undone-summary">
+              {i18n.t(
+                turnFiles().length === 1
+                  ? "ui.sessionTurn.turnChanges.undoneSummary.one"
+                  : "ui.sessionTurn.turnChanges.undoneSummary.other",
+                { count: turnFiles().length },
+              )}
+            </span>
+          </Show>
           <Show when={props.turnChange.truncated && (props.turnChange.omittedCount ?? 0) > 0}>
             <span data-slot="session-turn-changes-omitted">
               {i18n.t("ui.sessionTurn.turnChanges.omitted", { count: props.turnChange.omittedCount ?? 0 })}
             </span>
-          </Show>
-          <Show when={props.turnChange.kind === "uncaptured" || props.turnChange.kind === "mixed"}>
-            <span data-slot="session-turn-changes-uncaptured">{i18n.t("ui.sessionTurn.turnChanges.uncaptured")}</span>
-          </Show>
-          <Show when={isUndoneTurn()}>
-            <span data-slot="session-turn-changes-undone">{i18n.t("ui.sessionTurn.turnChanges.undone")}</span>
           </Show>
         </div>
         <Show when={turnActionLabel() && hasTurnChangeActionHandler(props.turnChange, props.actions)}>

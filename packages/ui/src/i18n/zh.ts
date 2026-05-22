@@ -61,8 +61,9 @@ export const dict = {
   "ui.sessionTurn.turnChanges.showInFolder": "在文件夹中显示",
   "ui.sessionTurn.turnChanges.unrestorable": "不可撤回",
   "ui.sessionTurn.turnChanges.undone": "已撤销",
+  "ui.sessionTurn.turnChanges.undoneSummary.one": "{{count}} 个文件已撤销",
+  "ui.sessionTurn.turnChanges.undoneSummary.other": "{{count}} 个文件已撤销",
   "ui.sessionTurn.turnChanges.superseded": "已被后续改动取代",
-  "ui.sessionTurn.turnChanges.uncaptured": "部分 shell 改动未逐个捕获",
   "ui.sessionTurn.turnChanges.reapply": "重新应用",
   "ui.sessionTurn.turnChanges.confirmTitle": "此轮之后有文件被改动",
   "ui.sessionTurn.turnChanges.confirmDescription":

@@ -64,6 +64,37 @@ async function patchWithMock(
     .toBeGreaterThan(0)
 }
 
+async function mixedWithMock(
+  llm: Parameters<typeof test>[0]["llm"],
+  sdk: Parameters<typeof withSession>[0],
+  sessionID: string,
+  patchText: string,
+  shellFile: string,
+) {
+  const callsBefore = await llm.calls()
+  const command = `touch ${shellFile}`
+  await llm.tool("apply_patch", { patchText })
+  await llm.tool("bash", { command, description: "Writes a mixed snap fixture shell file" })
+  await llm.text("Done.")
+  await sdk.session.prompt({
+    sessionID,
+    agent: "build",
+    system: [
+      "You are seeding deterministic snap UI state.",
+      "Issue exactly two tool calls in order: first apply_patch, then bash.",
+      `Use this JSON for apply_patch: ${JSON.stringify({ patchText })}`,
+      `Use this JSON for bash: ${JSON.stringify({ command, description: "Writes a mixed snap fixture shell file" })}`,
+      "After both tools return, send a short text reply and stop.",
+    ].join("\n"),
+    parts: [{ type: "text", text: "Run apply_patch first, then bash, then reply." }],
+  })
+
+  await expect.poll(() => llm.calls().then((c) => c > callsBefore), { timeout: 30_000 }).toBe(true)
+  await expect
+    .poll(async () => sdk.session.diff({ sessionID }).then((res) => res.data?.kind), { timeout: 120_000 })
+    .toBe("mixed")
+}
+
 async function uncapturedWithMock(
   llm: Parameters<typeof test>[0]["llm"],
   sdk: Parameters<typeof withSession>[0],
@@ -124,7 +155,7 @@ async function runCapturedPass(
     await expect(action).toBeVisible()
     await action.click()
     await action.click()
-    await expect(page.locator('[data-slot="session-turn-changes-undone"]').first()).toBeVisible()
+    await expect(page.locator('[data-slot="session-turn-changes-undone-summary"]').first()).toBeVisible()
     shots.push(await captureTurnChanges(page, `${label}-captured-undone`))
   })
 
@@ -132,7 +163,27 @@ async function runCapturedPass(
     project.trackSession(session.id)
     await uncapturedWithMock(llm, project.sdk, session.id, `snap-uncaptured-${label}.txt`)
     await project.gotoSession(session.id)
-    shots.push(await captureTurnChanges(page, `${label}-uncaptured`))
+    // Uncaptured-only turns intentionally render no panel; assert that and skip the shot.
+    await expect(page.locator('[data-component="session-turn-changes"]')).toHaveCount(0, { timeout: 10_000 })
+  })
+
+  await withSession(project.sdk, `snap turn changes mixed ${label}`, async (session) => {
+    project.trackSession(session.id)
+    await mixedWithMock(
+      llm,
+      project.sdk,
+      session.id,
+      patch(`snap-mixed-${label}.txt`, `mixed-${label}`),
+      `snap-mixed-shell-${label}.txt`,
+    )
+    await project.gotoSession(session.id)
+    // Mixed turns render the captured-files panel only; the uncaptured diagnostic copy
+    // is intentionally suppressed (originally surfaced as "部分 shell 改动未逐个捕获").
+    const panel = page.locator('[data-component="session-turn-changes"]').first()
+    await expect(panel).toBeVisible({ timeout: 30_000 })
+    await expect(panel.locator('[data-slot="session-turn-changes-uncaptured"]')).toHaveCount(0)
+    await expect(panel.locator('[data-slot="session-turn-change-item"]')).toHaveCount(1)
+    shots.push(await captureTurnChanges(page, `${label}-mixed`))
   })
 }
 

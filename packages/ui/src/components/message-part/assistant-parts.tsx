@@ -8,8 +8,6 @@ import { Part } from "./message-router"
 
 export function AssistantParts(props: {
   messages: AssistantMessage[]
-  showAssistantCopyPartID?: string | null
-  turnDurationMs?: number
   working?: boolean
   showReasoningSummaries?: boolean
   shellToolDefaultOpen?: boolean
@@ -94,8 +92,6 @@ export function AssistantParts(props: {
                       <Part
                         part={stableItem()!}
                         message={stableMessage()!}
-                        showAssistantCopyPartID={props.showAssistantCopyPartID}
-                        turnDurationMs={props.turnDurationMs}
                         defaultOpen={partDefaultOpen(
                           stableItem()!,
                           props.shellToolDefaultOpen,

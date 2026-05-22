@@ -58,8 +58,9 @@ export const dict: Record<string, string> = {
   "ui.sessionTurn.turnChanges.showInFolder": "Show in folder",
   "ui.sessionTurn.turnChanges.unrestorable": "Not restorable",
   "ui.sessionTurn.turnChanges.undone": "Undone",
+  "ui.sessionTurn.turnChanges.undoneSummary.one": "{{count}} file undone",
+  "ui.sessionTurn.turnChanges.undoneSummary.other": "{{count}} files undone",
   "ui.sessionTurn.turnChanges.superseded": "Superseded",
-  "ui.sessionTurn.turnChanges.uncaptured": "Some shell changes were not individually captured",
   "ui.sessionTurn.turnChanges.reapply": "Reapply",
   "ui.sessionTurn.turnChanges.confirmTitle": "Some files have been changed since this turn",
   "ui.sessionTurn.turnChanges.confirmDescription":

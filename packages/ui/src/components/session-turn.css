@@ -96,11 +96,45 @@
   [data-slot="session-turn-changes"] {
     width: 100%;
     min-width: 0;
-    margin-top: 4px;
+    margin-top: 12px;
     border: 1px solid var(--border-base);
     border-radius: 8px;
     background: var(--surface-base);
     overflow: hidden;
+  }
+
+  [data-slot="assistant-turn-footer"] {
+    min-height: 30px;
+    margin-top: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 10px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+    will-change: opacity;
+
+    [data-component="tooltip-trigger"] {
+      display: inline-flex;
+      width: fit-content;
+    }
+  }
+
+  [data-slot="assistant-turn-footer-meta"] {
+    user-select: none;
+  }
+
+  [data-slot="assistant-turn-footer"][data-interrupted] {
+    width: 100%;
+    justify-content: flex-end;
+    gap: 12px;
+  }
+
+  [data-slot="session-turn-message-container"]:hover [data-slot="assistant-turn-footer"],
+  [data-slot="session-turn-message-container"]:focus-within [data-slot="assistant-turn-footer"] {
+    opacity: 1;
+    pointer-events: auto;
   }
 
   [data-slot="session-turn-changes-header"] {
@@ -142,13 +176,10 @@
     font-weight: var(--font-weight-body);
   }
 
-  [data-slot="session-turn-changes-undone"] {
+  [data-slot="session-turn-changes-undone-summary"] {
     color: var(--fg-weaker);
-    font-size: var(--font-size-caption);
-    font-weight: var(--font-weight-body);
   }
 
-  [data-slot="session-turn-changes-uncaptured"],
   [data-slot="session-turn-change-restore-state"] {
     color: var(--fg-weaker);
     font-size: var(--font-size-caption);

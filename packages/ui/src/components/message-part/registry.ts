@@ -5,7 +5,6 @@ export interface MessageProps {
   message: MessageType
   parts: PartType[]
   actions?: UserActions
-  showAssistantCopyPartID?: string | null
   showReasoningSummaries?: boolean
 }
 
@@ -21,8 +20,6 @@ export interface MessagePartProps {
   message: MessageType
   hideDetails?: boolean
   defaultOpen?: boolean
-  showAssistantCopyPartID?: string | null
-  turnDurationMs?: number
   stateKey?: string
 }
 
