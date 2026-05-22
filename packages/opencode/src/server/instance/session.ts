@@ -1047,8 +1047,11 @@ export const SessionRoutes = lazy(() =>
           const info = finalMsgs[i].info
           if (info.role !== "assistant" || info.mode !== "compaction") continue
           if (info.error && info.error.name !== "MessageAbortedError") {
+            const raw = (info.error.data as { message?: unknown } | undefined)?.message
             const reason =
-              (info.error.data as { message?: string } | undefined)?.message ?? `Compaction failed (${info.error.name})`
+              typeof raw === "string" && raw.trim().length > 0
+                ? raw.trim()
+                : `Compaction failed (${info.error.name})`
             throw new NamedError.Unknown({ message: reason })
           }
           break

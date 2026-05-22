@@ -1593,6 +1593,78 @@ it.live(
 )
 
 it.live(
+  "cancel after a queued user message still resolves the orphaned compaction marker",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* ({ llm }) {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({ title: "Compaction queued-prompt race cancel" })
+        yield* seed(chat.id, { finish: "stop" })
+        yield* llm.hang
+
+        const fiber = yield* prompt
+          .loop({
+            sessionID: chat.id,
+            prelude: { type: "compaction", agent: "build", model: ref, auto: false },
+          })
+          .pipe(Effect.forkChild)
+
+        const deadline = Date.now() + 5000
+        let observedRaceWindow = false
+        while (Date.now() < deadline) {
+          const snapshot = yield* sessions.messages({ sessionID: chat.id })
+          const hasMarker = snapshot.some((m) => m.parts.some((p) => p.type === "compaction"))
+          const hasPlaceholder = snapshot.some((m) => m.info.role === "assistant" && m.info.summary === true)
+          if (hasMarker && !hasPlaceholder) {
+            observedRaceWindow = true
+            break
+          }
+          yield* Effect.sleep("1 millis")
+        }
+        expect(observedRaceWindow).toBe(true)
+
+        // Inject a queued user message ahead of the cancel — mirrors what
+        // SessionPrompt.prompt does when it lands while compaction is
+        // running: createUserMessage persists the new user before
+        // ensureRunning awaitRuns the existing run. After this,
+        // currentTurnTarget returns the queued user instead of the
+        // marker, so the older "current turn is marker" gate would skip
+        // the carrier write and leave the marker as an orphan rendering
+        // `failed`. The sweep must find the marker regardless.
+        const queuedUser = yield* user(chat.id, "queued prompt")
+
+        const cancelled = yield* prompt.cancel(chat.id)
+        expect(cancelled).toBe(true)
+
+        const exit = yield* Fiber.await(fiber)
+        expect(Exit.isSuccess(exit)).toBe(true)
+
+        const msgs = yield* sessions.messages({ sessionID: chat.id })
+        const marker = msgs.find((m) => m.parts.some((p) => p.type === "compaction"))
+        expect(marker).toBeDefined()
+        expect(queuedUser.id).not.toBe(marker?.info.id)
+        const summary = msgs.find(
+          (m) =>
+            m.info.role === "assistant" &&
+            m.info.summary === true &&
+            m.info.parentID === marker?.info.id,
+        )
+        expect(summary).toBeDefined()
+        if (summary?.info.role === "assistant" && marker) {
+          expect(summary.info.error?.name).toBe("MessageAbortedError")
+          expect(summary.info.finish).toBe("error")
+          expect(typeof summary.info.time.completed).toBe("number")
+          expect(summary.info.diagnostics?.abort?.propagation_point).toBe(
+            "session.prompt.loop.onInterrupt.compaction_prelude",
+          )
+        }
+      }),
+      { git: true, config: providerCfg },
+    ),
+)
+
+it.live(
   "loop rejects compaction prelude when a run is already in flight",
   () =>
     provideTmpdirServer(
