@@ -14,12 +14,12 @@ import {
 import {
   hasTurnChangeActionHandler,
   turnChangeAction,
+  turnChangeFiles,
   type TurnChangeActions,
   type TurnChangeDisplay,
   type TurnChangeFile,
 } from "./session-turn-changes"
 
-const emptyTurnFiles: TurnChangeFile[] = []
 const emptyExpanded: readonly string[] = []
 
 export function SessionTurnChangesPanel(props: {
@@ -31,9 +31,7 @@ export function SessionTurnChangesPanel(props: {
   const i18n = useI18n()
   const fileComponent = useFileComponent()
 
-  const turnFiles = createMemo(() =>
-    props.turnChange.kind === "captured" || props.turnChange.kind === "mixed" ? props.turnChange.files : emptyTurnFiles,
-  )
+  const turnFiles = createMemo(() => turnChangeFiles(props.turnChange))
   const appliedFiles = createMemo(() => turnFiles().filter((file) => file.restoreState === "applied"))
   const turnEdited = createMemo(() => appliedFiles().length)
   const turnAdditions = createMemo(() => appliedFiles().reduce((sum, file) => sum + (file.additions ?? 0), 0))

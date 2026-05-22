@@ -40,9 +40,19 @@ export type TurnChangeActions = {
   showInFolder?: (path: string) => void
 }
 
+const emptyTurnChangeFiles: readonly TurnChangeFile[] = []
+
+// Tag narrowing for the wire union is centralized here so panel / hooks / tests
+// stay tag-agnostic. New file-bearing variants only need to opt in inside this helper.
+export function turnChangeFiles(display: TurnChangeDisplay | null | undefined): readonly TurnChangeFile[] {
+  if (!display) return emptyTurnChangeFiles
+  if (display.kind === "captured" || display.kind === "mixed") return display.files
+  return emptyTurnChangeFiles
+}
+
 export function hasVisibleTurnChanges(display: TurnChangeDisplay | null | undefined) {
-  if (!display || display.kind === "empty" || display.kind === "uncaptured") return false
-  return display.files.length > 0 || !!display.truncated
+  if (!display) return false
+  return turnChangeFiles(display).length > 0 || !!display.truncated
 }
 
 // After a force-partial undo a turn can have hasApplied (skipped messages still applied)
@@ -50,9 +60,9 @@ export function hasVisibleTurnChanges(display: TurnChangeDisplay | null | undefi
 // continues in the original direction (undo) by design; the redo path for a mixed state
 // is intentionally not exposed inline. Mixed-state recovery UX is tracked as follow-up.
 export function turnChangeAction(display: TurnChangeDisplay | null | undefined): "undo" | "redo" | undefined {
-  if (!display || display.kind === "empty" || display.kind === "uncaptured") return
-  if (display.files.some((file) => file.restoreState === "applied")) return "undo"
-  if (display.files.some((file) => file.restoreState === "undone")) return "redo"
+  const files = turnChangeFiles(display)
+  if (files.some((file) => file.restoreState === "applied")) return "undo"
+  if (files.some((file) => file.restoreState === "undone")) return "redo"
 }
 
 export function hasTurnChangeActionHandler(
