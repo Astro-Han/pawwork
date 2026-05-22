@@ -10,6 +10,7 @@ import { shouldShowSessionOpeningState } from "@/pages/session/session-main-view
 import type { createSessionHistoryWindow } from "@/pages/session/use-session-history-window"
 import type { createSessionReviewState } from "@/pages/session/use-session-review-state"
 import type { createSessionScrollDock } from "@/pages/session/use-session-scroll-dock"
+import { TimelineE2EDriverBoundary } from "@/testing/timeline"
 
 type TimelineProps = ComponentProps<typeof MessageTimeline>
 
@@ -46,6 +47,9 @@ export function SessionMainView(props: {
   historyLoading: boolean
   anchor: TimelineProps["anchor"]
   virtualizerBridge: TimelineProps["virtualizerBridge"]
+  layoutTransactionActive: TimelineProps["layoutTransactionActive"]
+  layoutTransactionID: TimelineProps["layoutTransactionID"]
+  layoutTransactionKind: TimelineProps["layoutTransactionKind"]
   onRetryOpenSession: () => void
   onOpenNewSession: () => void
   composerSession: JSX.Element
@@ -68,6 +72,10 @@ export function SessionMainView(props: {
 
   return (
     <div class="relative size-full overflow-hidden flex flex-col">
+      <TimelineE2EDriverBoundary
+        timelineSessionID={() => props.timelineSessionID}
+        revealCached={() => props.historyWindow.expandForHash(0)}
+      />
       <SessionHeader />
       <div class="flex-1 min-h-0 flex flex-col md:flex-row">
         <Show when={!props.isDesktop && !!props.activeSessionID}>
@@ -159,6 +167,9 @@ export function SessionMainView(props: {
                   renderedUserMessages={props.historyWindow.renderedUserMessages()}
                   anchor={props.anchor}
                   virtualizerBridge={props.virtualizerBridge}
+                  layoutTransactionActive={props.layoutTransactionActive}
+                  layoutTransactionID={props.layoutTransactionID}
+                  layoutTransactionKind={props.layoutTransactionKind}
                 />
               </Match>
               <Match when={!props.activeSessionID}>

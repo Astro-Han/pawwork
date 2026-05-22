@@ -1,4 +1,5 @@
 import { Cause, Deferred, Effect, Exit, Fiber, Ref, Schema, Scope, SynchronizedRef } from "effect"
+import type { LifecycleRequest } from "@/session/lifecycle-provenance"
 
 export interface Runner<A, E = never> {
   readonly state: State<A, E>
@@ -41,6 +42,11 @@ export interface InterruptMeta {
   reason?: string
   lifecycleActionID?: string
   lifecycleKind?: string
+  lifecycleInitiatedAt?: number
+  lifecycleInitiatedMonotonicMs?: number
+  lifecycleAffectedDirectoryKeys?: string[]
+  lifecycleOrigin?: { source: string; operation?: string; reason?: string }
+  lifecycleRequest?: LifecycleRequest
   // Reserved for future paths that originate from a tool or model ctx.abort signal instead of
   // an explicit session.cancel call.
   viaCtxAbort?: boolean
@@ -84,8 +90,7 @@ export const make = <A, E = never>(
     source: "runner.interrupt_without_meta",
     reason: "fiber_interrupt_without_meta",
   }
-  const getInterruptFallback = () =>
-    typeof interruptFallback === "function" ? interruptFallback() : interruptFallback
+  const getInterruptFallback = () => (typeof interruptFallback === "function" ? interruptFallback() : interruptFallback)
 
   const complete = (done: Deferred.Deferred<A, E | Cancelled>, exit: Exit.Exit<A, E>) =>
     Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)
@@ -131,8 +136,9 @@ export const make = <A, E = never>(
 
   const awaitRun = (run: Pick<RunHandle<A, E>, "done" | "interruptMeta"> | PendingHandle<A, E>) =>
     Deferred.await(run.done).pipe(
-      Effect.catch((e): Effect.Effect<A, E> =>
-        e instanceof Cancelled ? resolveInterrupt(run.interruptMeta) : Effect.fail(e as E),
+      Effect.catch(
+        (e): Effect.Effect<A, E> =>
+          e instanceof Cancelled ? resolveInterrupt(run.interruptMeta) : Effect.fail(e as E),
       ),
     )
 
@@ -215,9 +221,7 @@ export const make = <A, E = never>(
         const cancelled = yield* Deferred.make<void>()
         const ready =
           options?.ready ??
-          (yield* Deferred.make<void>().pipe(
-            Effect.tap((ready) => Deferred.succeed(ready, undefined)),
-          ))
+          (yield* Deferred.make<void>().pipe(Effect.tap((ready) => Deferred.succeed(ready, undefined))))
         const fiber = yield* work.pipe(Effect.ensuring(finishShell(id)), Effect.forkChild)
         const interruptMeta = yield* Ref.make<InterruptMeta | undefined>(undefined)
         const shell = { id, ready, cancelled, interruptMeta, fiber } satisfies ShellHandle<A, E>

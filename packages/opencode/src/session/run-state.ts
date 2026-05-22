@@ -5,7 +5,7 @@ import * as Session from "./session"
 import { MessageV2 } from "./message-v2"
 import { SessionID } from "./schema"
 import { SessionStatus } from "./status"
-import { currentLifecycleCloseAction } from "./lifecycle-provenance"
+import { currentLifecycleCloseAction, lifecycleCloseActionMeta } from "./lifecycle-provenance"
 
 export interface Interface {
   readonly assertNotBusy: (sessionID: SessionID) => Effect.Effect<void>
@@ -42,7 +42,7 @@ export const layer = Layer.effect(
           return {
             source: "session.run_state.scope",
             reason: "scope_closed_without_cancel_meta",
-            ...(action ? { lifecycleActionID: action.actionID, lifecycleKind: action.kind } : {}),
+            ...(action ? lifecycleCloseActionMeta(action) : {}),
           } satisfies InterruptMeta
         }
         yield* Effect.addFinalizer(
@@ -55,7 +55,7 @@ export const layer = Layer.effect(
                 runner.cancelWith({
                   source: "session.run_state.finalizer",
                   reason: "scope_finalizer",
-                  ...(action ? { lifecycleActionID: action.actionID, lifecycleKind: action.kind } : {}),
+                  ...(action ? lifecycleCloseActionMeta(action) : {}),
                 }),
               {
                 concurrency: "unbounded",

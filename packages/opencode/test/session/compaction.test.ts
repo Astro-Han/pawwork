@@ -1069,7 +1069,7 @@ describe("session.compaction.process", () => {
     })
   })
 
-  test("adds synthetic continue prompt when auto is enabled", async () => {
+  test("waits for real user input after natural auto compaction", async () => {
     await using tmp = await tmpdir()
     await Instance.provide({
       directory: tmp.path,
@@ -1094,15 +1094,17 @@ describe("session.compaction.process", () => {
           const last = all.at(-1)
 
           expect(result).toBe("continue")
-          expect(last?.info.role).toBe("user")
-          expect(last?.parts[0]).toMatchObject({
-            type: "text",
-            synthetic: true,
-            metadata: { compaction_continue: true },
-          })
-          if (last?.parts[0]?.type === "text") {
-            expect(last.parts[0].text).toContain("Continue if you have next steps")
-          }
+          expect(last?.info.role).toBe("assistant")
+          expect(
+            all.some(
+              (msg) =>
+                msg.info.role === "user" &&
+                msg.parts.some(
+                  (part) =>
+                    part.type === "text" && part.synthetic && part.text.includes("Continue if you have next steps"),
+                ),
+            ),
+          ).toBe(false)
         } finally {
           await rt.dispose()
         }
@@ -1148,6 +1150,215 @@ describe("session.compaction.process", () => {
           ).toBe(false)
         } finally {
           await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("keeps overflow auto compaction continuation guidance", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create({})
+        const msg = await user(session.id, "hello")
+        const rt = runtime("continue", Plugin.defaultLayer, wide())
+        try {
+          const msgs = await svc.messages({ sessionID: session.id })
+          const result = await rt.runPromise(
+            SessionCompaction.Service.use((svc) =>
+              svc.process({
+                parentID: msg.id,
+                messages: msgs,
+                sessionID: session.id,
+                auto: true,
+                overflow: true,
+              }),
+            ),
+          )
+
+          const all = await svc.messages({ sessionID: session.id })
+          const last = all.at(-1)
+
+          expect(result).toBe("continue")
+          expect(last?.info.role).toBe("user")
+          expect(last?.parts[0]).toMatchObject({
+            type: "text",
+            synthetic: true,
+            metadata: { compaction_continue: true },
+          })
+          if (last?.parts[0]?.type === "text") {
+            expect(last.parts[0].text).toContain("previous request exceeded the provider's size limit")
+          }
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("allows auto compaction to clear the retained tail boundary", async () => {
+    await using tmp = await tmpdir()
+    const model = createModel({ context: 30_000, input: 30_000, output: 4_000 })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create()
+        const first = await user(session.id, "first request")
+        await assistant(session.id, first.id, tmp.path)
+        const second = await user(session.id, "second request")
+        await assistant(session.id, second.id, tmp.path)
+        const previousCompaction = await user(session.id, "compact once")
+        await svc.updatePart({
+          id: PartID.ascending(),
+          messageID: previousCompaction.id,
+          sessionID: session.id,
+          type: "compaction",
+          auto: true,
+          tail_start_id: second.id,
+        })
+        const previousSummary = await assistant(session.id, previousCompaction.id, tmp.path)
+        await svc.updateMessage({ ...previousSummary, summary: true })
+        await svc.updatePart({
+          id: PartID.ascending(),
+          messageID: previousSummary.id,
+          sessionID: session.id,
+          type: "text",
+          text: "## Goal\n- Previous completed summary",
+        })
+        const third = await user(session.id, "third request")
+        await assistant(session.id, third.id, tmp.path)
+        const compact = await user(session.id, "compact and clear tail")
+        await svc.updatePart({
+          id: PartID.ascending(),
+          messageID: compact.id,
+          sessionID: session.id,
+          type: "compaction",
+          auto: true,
+        })
+
+        const fakeLLM = llm()
+        fakeLLM.push(reply("new summary"))
+        const live = liveRuntime(
+          fakeLLM.layer,
+          ProviderTest.fake({ model }),
+          cfg({ tail_turns: 0, preserve_recent_tokens: 6_000 }),
+        )
+        try {
+          const beforeCompaction = await svc.messages({ sessionID: session.id })
+          const result = await live.runPromise(
+            SessionCompaction.Service.use((compaction) =>
+              compaction.process({
+                parentID: compact.id,
+                messages: beforeCompaction,
+                sessionID: session.id,
+                auto: true,
+              }),
+            ),
+          )
+
+          const messages = await svc.messages({ sessionID: session.id })
+          const currentPart = messages
+            .find((message) => message.info.id === compact.id)
+            ?.parts.find((part): part is MessageV2.CompactionPart => part.type === "compaction")
+          const summary = messages.findLast(
+            (message) => message.info.role === "assistant" && message.info.parentID === compact.id,
+          )
+
+          expect(result).toBe("continue")
+          expect(currentPart?.tail_start_id).toBeUndefined()
+          expect(summary?.info.role).toBe("assistant")
+          if (summary?.info.role === "assistant") {
+            expect(summary.info.finish).not.toBe("error")
+            expect(summary.info.error).toBeUndefined()
+          }
+        } finally {
+          await live.dispose()
+        }
+      },
+    })
+  })
+
+  test("stops with a context overflow error when auto compaction cannot advance the retained tail", async () => {
+    await using tmp = await tmpdir()
+    const model = createModel({ context: 30_000, input: 30_000, output: 4_000 })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create()
+        const first = await user(session.id, "first request")
+        await assistant(session.id, first.id, tmp.path)
+        const second = await user(session.id, "second request")
+        const secondReply = await assistant(session.id, second.id, tmp.path)
+        await svc.updatePart({
+          id: PartID.ascending(),
+          messageID: secondReply.id,
+          sessionID: session.id,
+          type: "text",
+          text: "x".repeat(40_000),
+        })
+        const previousCompaction = await user(session.id, "compact once")
+        await svc.updatePart({
+          id: PartID.ascending(),
+          messageID: previousCompaction.id,
+          sessionID: session.id,
+          type: "compaction",
+          auto: true,
+          tail_start_id: second.id,
+        })
+        const previousSummary = await assistant(session.id, previousCompaction.id, tmp.path)
+        await svc.updateMessage({ ...previousSummary, summary: true })
+        await svc.updatePart({
+          id: PartID.ascending(),
+          messageID: previousSummary.id,
+          sessionID: session.id,
+          type: "text",
+          text: "## Goal\n- Previous completed summary",
+        })
+        const third = await user(session.id, "third request")
+        await assistant(session.id, third.id, tmp.path)
+        const compact = await user(session.id, "compact again")
+        await svc.updatePart({
+          id: PartID.ascending(),
+          messageID: compact.id,
+          sessionID: session.id,
+          type: "compaction",
+          auto: true,
+          tail_start_id: third.id,
+        })
+
+        const fakeLLM = llm()
+        fakeLLM.push(reply("new summary"))
+        const live = liveRuntime(
+          fakeLLM.layer,
+          ProviderTest.fake({ model }),
+          cfg({ tail_turns: 2, preserve_recent_tokens: 6_000 }),
+        )
+        try {
+          const beforeCompaction = await svc.messages({ sessionID: session.id })
+          const result = await live.runPromise(
+            SessionCompaction.Service.use((compaction) =>
+              compaction.process({
+                parentID: compact.id,
+                messages: beforeCompaction,
+                sessionID: session.id,
+                auto: true,
+              }),
+            ),
+          )
+
+          const summary = (await svc.messages({ sessionID: session.id })).findLast(
+            (message) => message.info.role === "assistant" && message.info.summary === true,
+          )
+
+          expect(result).toBe("stop")
+          expect(summary?.info.role).toBe("assistant")
+          if (summary?.info.role === "assistant") {
+            expect(summary.info.finish).toBe("error")
+            expect(summary.info.error?.name).toBe("ContextOverflowError")
+          }
+        } finally {
+          await live.dispose()
         }
       },
     })

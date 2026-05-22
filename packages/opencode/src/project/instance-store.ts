@@ -10,15 +10,24 @@ import { Project } from "./project"
 import { State } from "./state"
 import {
   createLifecycleCloseAction,
+  currentLifecycleOrigin,
   type LifecycleCloseAction,
   withLifecycleCloseAction,
 } from "@/session/lifecycle-provenance"
+import { currentRequestContext } from "@/server/request-context"
 
 export interface LoadInput {
   directory: string
   worktree?: string | undefined
   project?: Project.Info | undefined
 }
+
+type ContextMismatchReason =
+  | "worktree_mismatch"
+  | "project_id_mismatch"
+  | "project_row_missing"
+  | "explicit_context_changed"
+  | "unknown_context_mismatch"
 
 export interface Interface {
   readonly load: (input: LoadInput) => Effect.Effect<InstanceContext, unknown>
@@ -51,9 +60,14 @@ function validateExplicitContext(input: LoadInput) {
   }
 }
 
-function contextMatches(ctx: InstanceContext, input: LoadInput) {
-  if (!hasExplicitContext(input)) return true
-  return ctx.worktree === input.worktree && ctx.project.id === input.project?.id
+function contextMismatchReason(ctx: InstanceContext, input: LoadInput): ContextMismatchReason | undefined {
+  if (!hasExplicitContext(input)) return undefined
+  const worktreeChanged = ctx.worktree !== input.worktree
+  const projectChanged = ctx.project.id !== input.project?.id
+  if (worktreeChanged && projectChanged) return "explicit_context_changed"
+  if (worktreeChanged) return "worktree_mismatch"
+  if (projectChanged) return "project_id_mismatch"
+  return undefined
 }
 
 export const layer = Layer.effect(
@@ -116,10 +130,27 @@ export const layer = Layer.effect(
         }),
       )
 
+    const lifecycleContext = (operation: string, reason: string) => {
+      const request = currentRequestContext()
+      const explicitOrigin = currentLifecycleOrigin()
+      if (explicitOrigin) return { origin: explicitOrigin, ...(request ? { request } : {}) }
+      return request
+        ? {
+            origin: { source: "server_handler" as const, operation, reason: request.client_action?.kind ?? reason },
+            request,
+          }
+        : { origin: { source: "runtime" as const, operation, reason } }
+    }
+
     const disposeContext = (ctx: InstanceContext, action?: LifecycleCloseAction) =>
       Effect.gen(function* () {
         yield* Effect.promise(async () => {
-          const closeAction = action ?? createLifecycleCloseAction("instance_dispose")
+          const closeAction =
+            action ??
+            createLifecycleCloseAction("instance_dispose", {
+              affectedDirectories: [ctx.directory],
+              ...lifecycleContext("instance.dispose", "dispose_context"),
+            })
           await withLifecycleCloseAction([ctx.directory], closeAction, async () => {
             await State.dispose(ctx.directory)
             await runDisposers(ctx.directory)
@@ -137,7 +168,10 @@ export const layer = Layer.effect(
         return true
       })
 
-    const reload = (input: LoadInput): Effect.Effect<InstanceContext, unknown> => {
+    const reload = (
+      input: LoadInput,
+      reason: ContextMismatchReason | "reload" = "reload",
+    ): Effect.Effect<InstanceContext, unknown> => {
       const directory = Filesystem.resolve(input.directory)
       return Effect.uninterruptibleMask((restore) =>
         Effect.gen(function* () {
@@ -148,7 +182,14 @@ export const layer = Layer.effect(
           yield* Effect.gen(function* () {
             if (previous) {
               const exit = yield* Deferred.await(previous.deferred).pipe(Effect.exit)
-              if (Exit.isSuccess(exit)) yield* disposeContext(exit.value, createLifecycleCloseAction("instance_reload"))
+              if (Exit.isSuccess(exit))
+                yield* disposeContext(
+                  exit.value,
+                  createLifecycleCloseAction("instance_reload", {
+                    affectedDirectories: [exit.value.directory],
+                    ...lifecycleContext("instance.reload", reason),
+                  }),
+                )
               else yield* removeEntry(directory, previous)
             }
             yield* completeLoad(directory, input, entry)
@@ -166,11 +207,16 @@ export const layer = Layer.effect(
           const existing = entries.get(directory)
           if (existing) {
             const exit = yield* restore(Deferred.await(existing.deferred)).pipe(Effect.exit)
-            if (Exit.isSuccess(exit) && contextMatches(exit.value, input)) {
-              const row = yield* project.get(exit.value.project.id)
-              if (row) return exit.value
+            if (Exit.isSuccess(exit)) {
+              const mismatchReason = contextMismatchReason(exit.value, input)
+              if (!mismatchReason) {
+                const row = yield* project.get(exit.value.project.id)
+                if (row) return exit.value
+                return yield* reload(input, "project_row_missing")
+              }
+              return yield* reload(input, mismatchReason)
             }
-            return yield* reload(input)
+            return yield* reload(input, "unknown_context_mismatch")
           }
 
           const entry: Entry = { deferred: Deferred.makeUnsafe<InstanceContext, unknown>() }
@@ -192,7 +238,15 @@ export const layer = Layer.effect(
         const exit = yield* Deferred.await(entry.deferred).pipe(Effect.exit)
         if (Exit.isFailure(exit)) return yield* removeEntry(directory, entry).pipe(Effect.asVoid)
         if (exit.value !== ctx) return
-        yield* disposeEntry(directory, entry, ctx, createLifecycleCloseAction("instance_dispose")).pipe(Effect.asVoid)
+        yield* disposeEntry(
+          directory,
+          entry,
+          ctx,
+          createLifecycleCloseAction("instance_dispose", {
+            affectedDirectories: [ctx.directory],
+            ...lifecycleContext("instance.dispose", "dispose"),
+          }),
+        ).pipe(Effect.asVoid)
       })
 
     const disposeDirectory = (inputDirectory: string) =>
@@ -203,13 +257,23 @@ export const layer = Layer.effect(
 
         const exit = yield* Deferred.await(entry.deferred).pipe(Effect.exit)
         if (Exit.isFailure(exit)) return yield* removeEntry(directory, entry).pipe(Effect.asVoid)
-        yield* disposeEntry(directory, entry, exit.value, createLifecycleCloseAction("instance_dispose_directory")).pipe(
-          Effect.asVoid,
-        )
+        yield* disposeEntry(
+          directory,
+          entry,
+          exit.value,
+          createLifecycleCloseAction("instance_dispose_directory", {
+            affectedDirectories: [exit.value.directory],
+            ...lifecycleContext("instance.disposeDirectory", "dispose_directory"),
+          }),
+        ).pipe(Effect.asVoid)
       })
 
     const disposeAllOnce = Effect.gen(function* () {
-      const action = createLifecycleCloseAction("instance_dispose_all")
+      const activeDirectories = [...entries.keys()]
+      const action = createLifecycleCloseAction("instance_dispose_all", {
+        affectedDirectories: activeDirectories,
+        ...lifecycleContext("instance.disposeAll", "dispose_all"),
+      })
       yield* Effect.forEach(
         [...entries.entries()],
         ([directory, entry]) =>
@@ -247,7 +311,8 @@ export const layer = Layer.effect(
       dispose,
       disposeDirectory,
       disposeAll,
-      provide: (input, effect) => load(input).pipe(Effect.flatMap((ctx) => effect.pipe(Effect.provideService(InstanceRef, ctx)))),
+      provide: (input, effect) =>
+        load(input).pipe(Effect.flatMap((ctx) => effect.pipe(Effect.provideService(InstanceRef, ctx)))),
     }
   }),
 )

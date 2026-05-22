@@ -122,6 +122,11 @@
     white-space: pre-wrap;
     word-break: break-word;
     overflow: hidden;
+    /* Light keeps the warm-cream interactive fill (#fdf6f0); dark moves to
+     * raised so the bubble stays neutral on canvas. Without the split, dark
+     * msg-user would inherit the dark `--surface-interactive-base` which is
+     * a brand-orange alpha overlay (intended for popover / picker selected
+     * rows, not for message bubbles). DESIGN.md → Components → User message. */
     background: var(--surface-interactive-base);
     padding: 12px 16px;
     border-radius: 14px;

@@ -45,6 +45,11 @@ const ref = {
   modelID: ModelID.make("test-model"),
 }
 
+const copilotResponsesRef = {
+  providerID: ProviderID.make("github-copilot"),
+  modelID: ModelID.make("gpt-5.2"),
+}
+
 const cfg = {
   provider: {
     test: {
@@ -86,6 +91,90 @@ function providerCfg(url: string) {
           baseURL: url,
         },
       },
+    },
+  }
+}
+
+function copilotResponsesProviderCfg(url: string) {
+  return {
+    provider: {
+      "github-copilot": {
+        name: "GitHub Copilot",
+        id: "github-copilot",
+        env: ["GITHUB_COPILOT_TOKEN"],
+        npm: "@ai-sdk/github-copilot",
+        api: "https://api.githubcopilot.com/v1",
+        models: {
+          "gpt-5.2": {
+            id: "gpt-5.2",
+            name: "GPT 5.2",
+            attachment: false,
+            reasoning: false,
+            temperature: false,
+            tool_call: true,
+            release_date: "2025-01-01",
+            limit: { context: 100000, output: 10000 },
+            cost: { input: 0, output: 0 },
+            options: {},
+          },
+        },
+        options: {
+          apiKey: "test-copilot-key",
+          baseURL: url,
+        },
+      },
+    },
+  }
+}
+
+function responseCreated(model = "gpt-5.2") {
+  return {
+    type: "response.created",
+    sequence_number: 1,
+    response: { id: "resp_test", created_at: 1779358949, model, service_tier: null },
+  }
+}
+
+function responseFunctionCallAdded() {
+  return {
+    type: "response.output_item.added",
+    sequence_number: 2,
+    output_index: 0,
+    item: {
+      type: "function_call",
+      id: "fc_1",
+      call_id: "call_responses_args_done_only",
+      name: "noop",
+      arguments: "",
+      status: "in_progress",
+    },
+  }
+}
+
+function responseFunctionCallArgumentsDone() {
+  return {
+    type: "response.function_call_arguments.done",
+    sequence_number: 3,
+    output_index: 0,
+    item_id: "fc_1",
+    name: "noop",
+    arguments: "{}",
+  }
+}
+
+function responseCompleted() {
+  return {
+    type: "response.completed",
+    sequence_number: 4,
+    response: {
+      incomplete_details: null,
+      usage: {
+        input_tokens: 1,
+        input_tokens_details: { cached_tokens: null },
+        output_tokens: 1,
+        output_tokens_details: { reasoning_tokens: null },
+      },
+      service_tier: null,
     },
   }
 }
@@ -189,6 +278,283 @@ const boot = Effect.fn("test.boot")(function* () {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+it.live("session.processor keeps late tool execution diagnostics on the bound tool-call attempt", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const gate = defer<void>()
+        const { processors, session, provider } = yield* boot()
+        let executions = 0
+
+        yield* llm.push(
+          raw({
+            head: [
+              {
+                id: "chatcmpl-bound-attempt",
+                object: "chat.completion.chunk",
+                choices: [{ delta: { role: "assistant" } }],
+              },
+              {
+                id: "chatcmpl-bound-attempt",
+                object: "chat.completion.chunk",
+                choices: [
+                  {
+                    delta: {
+                      tool_calls: [
+                        {
+                          index: 0,
+                          id: "call_bound_attempt",
+                          type: "function",
+                          function: { name: "noop", arguments: "" },
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+            ],
+            stages: [
+              {
+                wait: gate.promise,
+                chunks: [
+                  {
+                    id: "chatcmpl-bound-attempt",
+                    object: "chat.completion.chunk",
+                    choices: [
+                      {
+                        delta: {
+                          tool_calls: [
+                            {
+                              index: 0,
+                              function: { arguments: "{}" },
+                            },
+                          ],
+                        },
+                      },
+                    ],
+                  },
+                  {
+                    id: "chatcmpl-bound-attempt",
+                    object: "chat.completion.chunk",
+                    choices: [{ delta: {}, finish_reason: "tool_calls" }],
+                  },
+                ],
+              },
+            ],
+          }),
+        )
+        yield* llm.hang
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "late tool attempt binding")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+        const input = {
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+            tools: { noop: true },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "late tool attempt binding" }],
+          tools: {
+            noop: tool({
+              description: "No-op tool",
+              inputSchema: z.object({}),
+              execute: async () => {
+                executions += 1
+                return { output: "ok" }
+              },
+            }),
+          },
+        } satisfies LLM.StreamInput
+
+        const first = yield* handle.process(input).pipe(Effect.forkChild)
+        yield* llm.wait(1)
+        yield* Effect.promise(async () => {
+          const end = Date.now() + 500
+          while (Date.now() < end) {
+            const toolCallStarted = MessageV2.parts(msg.id).some(
+              (part) => part.type === "tool" && part.callID === "call_bound_attempt",
+            )
+            if (toolCallStarted) {
+              return
+            }
+            await Bun.sleep(10)
+          }
+        })
+        const second = yield* handle.process(input).pipe(Effect.forkChild)
+        yield* llm.wait(2)
+        expect(handle.recordToolExecutionStarted).toBeDefined()
+        expect(handle.recordToolExecutionCompleted).toBeDefined()
+        yield* handle.recordToolExecutionStarted!({ tool: "noop", toolCallID: "call_bound_attempt" })
+        yield* handle.recordToolExecutionCompleted!({ toolCallID: "call_bound_attempt" })
+        gate.resolve()
+        yield* Fiber.join(first)
+
+        const stored = (yield* session.messages({ sessionID: chat.id })).find(
+          (message) => message.info.role === "assistant" && message.info.id === msg.id,
+        )
+        expect(executions).toBe(1)
+        expect(stored?.info.role).toBe("assistant")
+        if (stored?.info.role === "assistant") {
+          const attempts = stored.info.diagnostics?.run_observability?.attempts
+          expect(attempts?.[0]).toMatchObject({
+            attempt_index: 1,
+            tool_execution_started: true,
+            tool_execution_completed: true,
+          })
+          expect(attempts?.[1]).toMatchObject({
+            attempt_index: 2,
+            tool_execution_started: false,
+            tool_execution_completed: false,
+          })
+        }
+        yield* Fiber.interrupt(second)
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
+it.live("session.processor records late transport failures against the failing stream attempt", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const gate = defer<void>()
+        const { processors, session, provider } = yield* boot()
+
+        yield* llm.push(
+          raw({
+            head: [
+              {
+                id: "chatcmpl-late-transport",
+                object: "chat.completion.chunk",
+                choices: [{ delta: { role: "assistant" } }],
+              },
+              {
+                id: "chatcmpl-late-transport",
+                object: "chat.completion.chunk",
+                choices: [
+                  {
+                    delta: {
+                      tool_calls: [
+                        {
+                          index: 0,
+                          id: "call_late_transport",
+                          type: "function",
+                          function: { name: "noop", arguments: "" },
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+            ],
+            stages: [
+              {
+                wait: gate.promise,
+                chunks: [
+                  {
+                    error: {
+                      message: "stream terminated",
+                      type: "invalid_request_error",
+                      code: "stream_terminated",
+                    },
+                  },
+                ],
+              },
+            ],
+          }),
+        )
+        yield* llm.hang
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "late transport attempt binding")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+        const input = {
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+            tools: { noop: true },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "late transport attempt binding" }],
+          tools: {
+            noop: tool({
+              description: "No-op tool",
+              inputSchema: z.object({}),
+              execute: async () => ({ output: "ok" }),
+            }),
+          },
+        } satisfies LLM.StreamInput
+
+        const first = yield* handle.process(input).pipe(Effect.forkChild)
+        yield* llm.wait(1)
+        yield* Effect.promise(async () => {
+          const end = Date.now() + 500
+          while (Date.now() < end) {
+            const toolInputStarted = MessageV2.parts(msg.id).some(
+              (part) => part.type === "tool" && part.callID === "call_late_transport",
+            )
+            if (toolInputStarted) return
+            await Bun.sleep(10)
+          }
+        })
+        const second = yield* handle.process(input).pipe(Effect.forkChild)
+        yield* llm.wait(2)
+        gate.resolve()
+        yield* Fiber.join(first)
+
+        const stored = (yield* session.messages({ sessionID: chat.id })).find(
+          (message) => message.info.role === "assistant" && message.info.id === msg.id,
+        )
+        expect(stored?.info.role).toBe("assistant")
+        if (stored?.info.role === "assistant") {
+          const observability = stored.info.diagnostics?.run_observability
+          const firstAttemptID = observability?.attempts[0]?.attempt_id
+          expect(observability?.terminal_attempt_id).toBe(firstAttemptID)
+          expect(observability?.incident?.phase.terminal_attempt_id).toBe(firstAttemptID)
+          expect(observability?.incident?.phase).toMatchObject({
+            run_phase: "tool_generation",
+            stream_phase: "tool_input_generation",
+            tool_phase: "tool_input_started",
+          })
+          expect(observability?.incident?.terminal_cause).toMatchObject({
+            category: "provider_transport_disconnect",
+            subcategory: "during_tool_input_generation",
+          })
+        }
+        yield* Fiber.interrupt(second)
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
 
 it.live("session.processor effect tests capture llm input cleanly", () =>
   provideTmpdirServer(
@@ -924,6 +1290,92 @@ it.live("session.processor effect tests mark materialized tools as prepared but 
         }
       }),
     { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
+it.live("session.processor effect tests execute Responses args-done-only tool calls", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const previousToken = process.env.GITHUB_COPILOT_TOKEN
+        process.env.GITHUB_COPILOT_TOKEN = "test-copilot-token"
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            if (previousToken === undefined) delete process.env.GITHUB_COPILOT_TOKEN
+            else process.env.GITHUB_COPILOT_TOKEN = previousToken
+          }),
+        )
+        const { processors, session, provider } = yield* boot()
+        let executions = 0
+
+        yield* llm.push(
+          raw({
+            head: [
+              responseCreated(),
+              responseFunctionCallAdded(),
+              responseFunctionCallArgumentsDone(),
+              responseCompleted(),
+            ],
+            passthrough: true,
+          }),
+        )
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "responses args done tool")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(copilotResponsesRef.providerID, copilotResponsesRef.modelID)
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: copilotResponsesRef.providerID, modelID: copilotResponsesRef.modelID },
+            tools: { noop: true },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "responses args done tool" }],
+          tools: {
+            noop: tool({
+              description: "No-op tool",
+              inputSchema: z.object({}),
+              execute: async () => {
+                executions += 1
+                return { output: "ok" }
+              },
+            }),
+          },
+        })
+
+        yield* Effect.promise(async () => {
+          const end = Date.now() + 500
+          while (Date.now() < end) {
+            if (executions > 0) return
+            await Bun.sleep(10)
+          }
+        })
+
+        const parts = MessageV2.parts(msg.id)
+        const call = parts.find((part): part is MessageV2.ToolPart => part.type === "tool")
+        const hits = yield* llm.hits
+
+        expect(hits[0]?.url.pathname).toBe("/v1/responses")
+        expect(call).toBeDefined()
+        expect(executions).toBe(1)
+        expect(call?.state.status).not.toBe("pending")
+        expect(call?.state.status).not.toBe("running")
+      }),
+    { git: true, config: (url) => copilotResponsesProviderCfg(url) },
   ),
 )
 

@@ -161,6 +161,7 @@ export namespace Export {
       run_observability?: RunObservability.Summary[]
       run_incident_schema_version?: typeof RunIncident.SCHEMA_VERSION
       run_incidents?: RunIncident.Summary[]
+      incident_chains?: RunIncident.ExportIncidentChain[]
       aborts?: Array<{
         session_id: SessionID
         message_id: MessageID
@@ -215,6 +216,7 @@ export namespace Export {
     run_observability?: RunObservability.Summary[]
     run_incident_schema_version?: typeof RunIncident.SCHEMA_VERSION
     run_incidents?: RunIncident.Summary[]
+    incident_chains?: RunIncident.ExportIncidentChain[]
     aborts?: Array<{
       session_id: SessionID
       message_id: MessageID
@@ -301,6 +303,7 @@ export namespace Export {
     const llm_traces = collectLLMTraces(node)
     const run_observability = collectRunObservability(node)
     const run_incidents = collectRunIncidents(node)
+    const incident_chains = run_incidents.map(RunIncident.toExportChain)
     const aborts = collectAbortDiagnostics(node)
     const title_generations = collectTitleGenerations(node)
     return {
@@ -310,6 +313,7 @@ export namespace Export {
         ? { run_observability_schema_version: RunObservability.SCHEMA_VERSION, run_observability }
         : {}),
       ...(run_incidents.length ? { run_incident_schema_version: RunIncident.SCHEMA_VERSION, run_incidents } : {}),
+      ...(incident_chains.length ? { incident_chains } : {}),
       ...(aborts.length ? { aborts } : {}),
       ...(title_generations.length ? { title_generations } : {}),
     }
@@ -1031,6 +1035,29 @@ export namespace Export {
 
   function sanitizeDiagnostics(diagnostics: Snapshot["diagnostics"]): Snapshot["diagnostics"] {
     const last = diagnostics.loop?.last
+    const sanitizedIncidents = (
+      diagnostics.run_incidents ?? diagnostics.run_observability?.flatMap((summary) => summary.incident ?? [])
+    )?.map(RunIncident.sanitize)
+    const sanitizedChains =
+      sanitizedIncidents?.map(RunIncident.toExportChain) ??
+      diagnostics.incident_chains?.map((chain) => ({
+        ...chain,
+        plain_summary: redact("incident-chain-summary", chain.incident_id, chain.plain_summary),
+        nearest_origin: chain.nearest_origin
+          ? {
+              source: redact("incident-chain-origin-source", chain.incident_id, chain.nearest_origin.source),
+              operation:
+                chain.nearest_origin.operation === undefined
+                  ? undefined
+                  : redact("incident-chain-origin-operation", chain.incident_id, chain.nearest_origin.operation),
+              reason:
+                chain.nearest_origin.reason === undefined
+                  ? undefined
+                  : redact("incident-chain-origin-reason", chain.incident_id, chain.nearest_origin.reason),
+            }
+          : undefined,
+        nearest_request: chain.nearest_request ? RunIncident.sanitizeRequest(chain.nearest_request) : undefined,
+      }))
     return {
       ...diagnostics,
       ...(last
@@ -1065,9 +1092,8 @@ export namespace Export {
         (diagnostics.run_incidents?.length || diagnostics.run_observability?.some((summary) => summary.incident)
           ? RunIncident.SCHEMA_VERSION
           : undefined),
-      run_incidents: (
-        diagnostics.run_incidents ?? diagnostics.run_observability?.flatMap((summary) => summary.incident ?? [])
-      )?.map(RunIncident.sanitize),
+      run_incidents: sanitizedIncidents,
+      incident_chains: sanitizedChains,
     }
   }
 

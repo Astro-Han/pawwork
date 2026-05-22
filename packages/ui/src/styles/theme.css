@@ -90,22 +90,28 @@
   --sidebar:        #f9f9f9; /* neutral pale grey, decoupled from bg-cream per ui_kits mock */
   --surface-base-active: rgba(0, 0, 0, 0.051);
 
-  /* ────────── Light ink · STANDARDS L11 (4 tiers) ────────── */
+  /* ────────── Light ink · 2-tier collapse (strong + weak); base/weaker pairs merge.
+   * Mirrors dark's 2-tier collapse. Token names survive for callsite stability:
+   *   --fg-base   → --fg-strong (#1a1613)
+   *   --fg-weaker → --fg-weak   (#8c817a) */
   --fg-strong:   #1a1613;
-  --fg-base:     #4a4138;
+  --fg-base:     #1a1613;
   --fg-weak:     #8c817a;
-  --fg-weaker:   #b6ada7;
+  --fg-weaker:   #8c817a;
   --fg-on-brand: #ffffff;
 
-  /* ────────── Light border · STANDARDS L12 (3 tiers) ────────── */
-  --border-base:    rgba(0, 0, 0, 0.162);
-  --border-weak:    #ece6df;
-  --border-weaker:  #f3ede6;
+  /* ────────── Light border · 1-tier collapse to a single hairline alpha; mirrors
+   * dark's collapse. The previous mix of opaque (#ece6df / #f3ede6) and high-alpha
+   * (rgba 0.162) tiers read inconsistently; one alpha tier reads calmly across
+   * any surface. Token names survive as aliases. */
+  --border-base:    rgba(0, 0, 0, 0.08);
+  --border-weak:    rgba(0, 0, 0, 0.08);
+  --border-weaker:  rgba(0, 0, 0, 0.08);
 
-  /* ────────── Icon · derived from ink ────────── */
+  /* ────────── Icon · derived from collapsed ink ────────── */
   --icon-base:     #8c817a;
   --icon-strong:   #1a1613;
-  --icon-weak:     #b6ada7;
+  --icon-weak:     #8c817a;
   --icon-disabled: #c7c7c7;
 
   /* ────────── Semantic · STANDARDS L13 (3 tiers, info NOT allocated) ────────── */
@@ -143,16 +149,6 @@
   --hover-overlay:      rgba(0, 0, 0, 0.04);
   /* Warm cream surface (cream-bottom iconbtn): 6% for perceptual parity */
   --hover-overlay-warm: rgba(0, 0, 0, 0.06);
-
-  /* List/menu/row hover · cross-product token for selectable surfaces.
-   * Direction is "row stands out from container":
-   *   light → surface depressed one tier toward neutral cream (#f4f0ec)
-   *   dark  → surface raised one tier toward warm coffee (#2a2622)
-   * Pairs with selected `--surface-interactive-base` (warm orange-cream) for
-   * a two-tone hierarchy: hover is neutral cream, selected is warm cream;
-   * the hue difference makes the two states visually independent without
-   * extra weight or icon decoration. */
-  --surface-list-hover: #f4f0ec;
 
   /* Row hover/active overlays · alpha-on-container, hue-following.
    * Per ui_kits/desktop mock sidebar recipe (`pw-flat-session.active`):
@@ -282,47 +278,49 @@
  * aligned with that runtime path; it is not the runtime source of truth.
  * ────────────────────────────────────────────────────────────────────────── */
 :root[data-color-scheme="dark"] {
-  /* Dark surface · STANDARDS L10 (6-tier warm coffee) */
-  --bg-base:        #1a1714;
-  --bg-cream:       #211d19;
-  --surface-base:   #221f1c;
-  --surface-raised: #3a3431;
-  --surface-sunken: #16130f;
+  /* Dark surface · 2-tier collapse (canvas + raised), R-B=3 warm coffee.
+   * The legacy 6-tier ladder collapses into 2 visible tones:
+   *   canvas  #1a1917  — chrome floor: bg / sidebar / popover / textfield / sunken alias
+   *   raised  #262523  — anchored: dialog / composer / msg-user / list-hover / command palette
+   * Token names survive for light-mode parity and callsite stability. */
+  --bg-base:        #1a1917;
+  --bg-cream:       #1a1917; /* dark collapse → canvas (no separate cream tier) */
+  --surface-base:   #1a1917; /* dark collapse → canvas (popover / textfield share chrome) */
+  --surface-raised: #262523;
+  --surface-sunken: #1a1917; /* dark collapse → canvas (no sunken tier) */
   --code-surface:   rgba(255, 255, 255, 0.06); /* #642: alpha overlay for inline code + code-block */
-  --sidebar:        #15120f;
+  --sidebar:        #1a1917; /* dark collapse → canvas (three columns share one surface) */
 
-  /* Dark ink · STANDARDS L11 (4-tier mirror) */
-  --fg-strong: #f3ede4;
-  --fg-base:   #c5beb4;
-  --fg-weak:   #8a8278;
-  --fg-weaker: #6b645c;
+  /* Dark ink · 2-tier collapse (fg + fg-weak); strong/base and weak/weaker pairs merge */
+  --fg-strong: #ebe7e0;
+  --fg-base:   #ebe7e0; /* dark collapse → fg */
+  --fg-weak:   #7e7872;
+  --fg-weaker: #7e7872; /* dark collapse → fg-weak */
 
-  /* Dark border · STANDARDS L12 (3 tiers); recalibrated for surface-raised context */
-  --border-base:   rgba(255, 255, 255, 0.12);
-  --border-weak:   #36322e;
-  --border-weaker: #2f2b28;
+  /* Dark border · 1-tier collapse to a single hairline alpha; container outlines
+   * keep the `--ring-base` 1px white-18% halo for elevation pickup. */
+  --border-base:   rgba(255, 255, 255, 0.06);
+  --border-weak:   rgba(255, 255, 255, 0.06);
+  --border-weaker: rgba(255, 255, 255, 0.06);
 
-  /* Icon mirrors dark ink */
-  --icon-base:   #8a8278;
-  --icon-strong: #f3ede4;
-  --icon-weak:   #6b645c;
+  /* Icon mirrors collapsed dark ink */
+  --icon-base:   #7e7872;
+  --icon-strong: #ebe7e0;
+  --icon-weak:   #7e7872;
 
   /* Brand hover lifted in dark for legibility on warm coffee surface */
   --brand-primary-hover: #ff7a3a;
 
-  /* Brand-tinted interactive · dark (warm orange muted) */
-  --surface-interactive-base:  #2b1f19;
-  --surface-interactive-hover: #362619;
+  /* Brand-tinted interactive · dark (alpha overlay on canvas, matches inline
+   * `rgba(255,89,16,0.14)` convention in DESIGN.md). */
+  --surface-interactive-base:  rgba(255, 89, 16, 0.14);
+  --surface-interactive-hover: rgba(255, 89, 16, 0.20);
   --surface-base-active: rgba(255, 255, 255, 0.059);
 
   /* Hover overlays · dark mirrors of L141-143 (white alpha so they show on
    * warm-coffee dark surfaces). */
   --hover-overlay:      rgba(255, 255, 255, 0.05);
   --hover-overlay-warm: rgba(255, 255, 255, 0.07);
-
-  /* Dark list-hover: lift one warm-coffee tier above bg-cream (#211d19)
-   * so hovered rows visibly brighten instead of darken. */
-  --surface-list-hover: #2a2622;
 
   /* Row overlays · dark mirror (white alpha to lift warm-coffee surfaces). */
   --row-hover-overlay:  rgba(255, 255, 255, 0.04);
@@ -431,37 +429,35 @@
  * ────────────────────────────────────────────────────────────────────────── */
 @media (prefers-color-scheme: dark) {
   :root:not([data-color-scheme="light"]) {
-    --bg-base:        #1a1714;
-    --bg-cream:       #211d19;
-    --surface-base:   #221f1c;
-    --surface-raised: #3a3431;
-    --surface-sunken: #16130f;
+    --bg-base:        #1a1917;
+    --bg-cream:       #1a1917;
+    --surface-base:   #1a1917;
+    --surface-raised: #262523;
+    --surface-sunken: #1a1917;
     --code-surface:   rgba(255, 255, 255, 0.06); /* #642: alpha overlay for inline code + code-block */
-    --sidebar:        #15120f;
+    --sidebar:        #1a1917;
 
-    --fg-strong: #f3ede4;
-    --fg-base:   #c5beb4;
-    --fg-weak:   #8a8278;
-    --fg-weaker: #6b645c;
+    --fg-strong: #ebe7e0;
+    --fg-base:   #ebe7e0;
+    --fg-weak:   #7e7872;
+    --fg-weaker: #7e7872;
 
-    --border-base:   rgba(255, 255, 255, 0.12);
-    --border-weak:   #36322e;
-    --border-weaker: #2f2b28;
+    --border-base:   rgba(255, 255, 255, 0.06);
+    --border-weak:   rgba(255, 255, 255, 0.06);
+    --border-weaker: rgba(255, 255, 255, 0.06);
 
-    --icon-base:   #8a8278;
-    --icon-strong: #f3ede4;
-    --icon-weak:   #6b645c;
+    --icon-base:   #7e7872;
+    --icon-strong: #ebe7e0;
+    --icon-weak:   #7e7872;
 
     --brand-primary-hover: #ff7a3a;
 
-    --surface-interactive-base:  #2b1f19;
-    --surface-interactive-hover: #362619;
+    --surface-interactive-base:  rgba(255, 89, 16, 0.14);
+    --surface-interactive-hover: rgba(255, 89, 16, 0.20);
     --surface-base-active: rgba(255, 255, 255, 0.059);
 
     --hover-overlay:      rgba(255, 255, 255, 0.05);
     --hover-overlay-warm: rgba(255, 255, 255, 0.07);
-
-    --surface-list-hover: #2a2622;
 
     --row-hover-overlay:  rgba(255, 255, 255, 0.04);
     --row-active-overlay: rgba(255, 255, 255, 0.06);

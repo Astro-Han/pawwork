@@ -476,6 +476,15 @@ export const layer: Layer.Layer<
             cfg,
             model,
           })
+          const previousTailStartId = compactionPart?.tail_start_id ?? latestPrior?.tailStartId
+          const stalledTailBoundary =
+            input.auto &&
+            previousTailStartId !== undefined &&
+            selected.tail_start_id !== undefined &&
+            selected.tail_start_id <= previousTailStartId
+          if (stalledTailBoundary) {
+            return { ok: true as const, stalled: true as const, tail_start_id: selected.tail_start_id }
+          }
           // Allow plugins to inject context or replace compaction prompt.
           const compacting = yield* plugin.trigger(
             "experimental.session.compacting",
@@ -509,7 +518,7 @@ export const layer: Layer.Layer<
             ],
             model,
           })
-          return { ok: true as const, result, processor, replay, selected }
+          return { ok: true as const, stalled: false as const, result, processor, replay, selected }
         }).pipe(
           Effect.catch((error: unknown) => Effect.succeed({ ok: false as const, error })),
           // Interrupts (abort signal) bypass `Effect.catch` since they live on
@@ -549,6 +558,20 @@ export const layer: Layer.Layer<
         return "stop"
       }
 
+      if (outcome.stalled) {
+        // Auto compaction selected the same (or earlier) tail boundary as the
+        // previous round — running the summarizer again would just produce the
+        // same output and never let new turns land. Mark the placeholder as
+        // overflow so the divider surfaces it and stop.
+        msg.error = new MessageV2.ContextOverflowError({
+          message: `Auto compaction could not make progress: retained tail boundary did not advance (${outcome.tail_start_id})`,
+        }).toObject()
+        msg.finish = "error"
+        msg.time.completed = Date.now()
+        yield* session.updateMessage(msg)
+        return "stop"
+      }
+
       const { result, processor, replay, selected } = outcome
 
       if (result === "compact") {
@@ -575,7 +598,7 @@ export const layer: Layer.Layer<
         })
       }
 
-      if (result === "continue" && input.auto) {
+      if (result === "continue" && input.auto && input.overflow) {
         if (replay) {
           const original = replay.info
           const replayMsg = yield* session.updateMessage({

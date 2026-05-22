@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test"
-import { aggregatePerfRuns, comparePerfBaselines, comparePerfScenarioSummaries, PERF_COMMENT_MARKER, renderPerfBaselineComment, summarizePerfRun } from "./perf-metrics"
+import {
+  aggregatePerfRuns,
+  comparePerfBaselines,
+  comparePerfScenarioSummaries,
+  PERF_COMMENT_MARKER,
+  renderPerfBaselineComment,
+  summarizePerfRun,
+} from "./perf-metrics"
 
 function scenario(input: {
   branch?: string
@@ -376,6 +383,22 @@ describe("perf metrics", () => {
 
     expect(result.pass).toBe(false)
     expect(result.failures).toContain("missing_head_scenario:low-end:session-timeline-recompute")
+  })
+
+  test("restricts confirmation comparisons to the originally failing scenarios", () => {
+    const base = [scenario({ branch: "base", scenario: "session-scroll-reading", interaction: 32 })]
+    const head = [
+      scenario({ branch: "head", scenario: "session-scroll-reading", interaction: 40 }),
+      scenario({ branch: "head", scenario: "homepage-cold", frameMax: 183 }),
+    ]
+
+    const result = comparePerfBaselines({ base, head, scenarioKeys: ["default:session-scroll-reading"] })
+
+    expect(result.pass).toBe(true)
+    expect(result.failures).toHaveLength(0)
+    expect(result.scenarios.map((entry) => `${entry.profile}:${entry.scenario}`)).toEqual([
+      "default:session-scroll-reading",
+    ])
   })
 
   test("keeps low-end moderate regressions warning-only", () => {

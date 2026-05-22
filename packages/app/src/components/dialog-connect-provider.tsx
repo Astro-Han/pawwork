@@ -13,6 +13,7 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useProviders } from "@/hooks/use-providers"
+import { clientActionHeaders } from "@/utils/server"
 import {
   ProviderApiAuthView,
   ProviderOAuthCodeView,
@@ -198,7 +199,11 @@ export function DialogConnectProvider(props: { provider: string }) {
   })
 
   async function complete() {
-    await globalSDK.client.global.dispose()
+    const actionClient = globalSDK.createClient({
+      headers: clientActionHeaders({ kind: "settings.provider.connect" }),
+      throwOnError: true,
+    })
+    await actionClient.global.dispose()
     dialog.close()
     showToast({
       variant: "success",

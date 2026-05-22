@@ -306,10 +306,14 @@ export function comparePerfScenarioSummaries(input: {
     if (interactionWorstRegressed) {
       warnings.push("interaction_ms_worst_delta")
     }
-    if (interactionWorstRegressed && input.head.interaction_ms_worst >= lowEndCatastrophicThresholds.interactionMsWorst) {
+    if (
+      interactionWorstRegressed &&
+      input.head.interaction_ms_worst >= lowEndCatastrophicThresholds.interactionMsWorst
+    ) {
       failures.push("interaction_ms_worst")
     }
-    const longTaskRegressed = input.head.long_task_max_ms > input.base.long_task_max_ms + lowEndWarningThresholds.longTaskMaxMs
+    const longTaskRegressed =
+      input.head.long_task_max_ms > input.base.long_task_max_ms + lowEndWarningThresholds.longTaskMaxMs
     if (longTaskRegressed) {
       warnings.push("long_task_max_ms_delta")
     }
@@ -322,7 +326,8 @@ export function comparePerfScenarioSummaries(input: {
     if (input.head.frame_gap_p95_ms > input.base.frame_gap_p95_ms + lowEndWarningThresholds.frameGapP95Ms) {
       warnings.push("frame_gap_p95_ms")
     }
-    const frameGapMaxRegressed = input.head.frame_gap_max_ms > input.base.frame_gap_max_ms + lowEndWarningThresholds.frameGapMaxMs
+    const frameGapMaxRegressed =
+      input.head.frame_gap_max_ms > input.base.frame_gap_max_ms + lowEndWarningThresholds.frameGapMaxMs
     if (frameGapMaxRegressed) {
       warnings.push("frame_gap_max_ms_delta")
     }
@@ -389,7 +394,12 @@ export function comparePerfScenarioSummaries(input: {
     failures.push("cls_delta")
   }
 
-  addAbsoluteWarning(warnings, "interaction_ms_worst", input.head.interaction_ms_worst, perfAbsoluteWarnings.interactionMsWorst)
+  addAbsoluteWarning(
+    warnings,
+    "interaction_ms_worst",
+    input.head.interaction_ms_worst,
+    perfAbsoluteWarnings.interactionMsWorst,
+  )
   addAbsoluteWarning(warnings, "tbt_ms", input.head.tbt_ms, perfAbsoluteWarnings.tbtMs)
   addAbsoluteWarning(warnings, "cls", input.head.cls, perfAbsoluteWarnings.cls)
   addAbsoluteWarning(warnings, "fcp_ms", input.head.fcp_ms, perfAbsoluteWarnings.fcpMs)
@@ -413,14 +423,17 @@ function scenarioKey(input: { profile?: PerfProfile; scenario: string }) {
 export function comparePerfBaselines(input: {
   base: PerfScenarioSummary[]
   head: PerfScenarioSummary[]
+  scenarioKeys?: string[]
 }): PerfBaselineComparison {
   const failures: string[] = []
   const warnings: string[] = []
   const scenarios: PerfScenarioComparison[] = []
   const headByScenario = new Map(input.head.map((scenario) => [scenarioKey(scenario), scenario]))
+  const requestedScenarioKeys = input.scenarioKeys ? new Set(input.scenarioKeys) : undefined
 
   for (const baseScenario of input.base) {
     const key = scenarioKey(baseScenario)
+    if (requestedScenarioKeys && !requestedScenarioKeys.has(key)) continue
     const headScenario = headByScenario.get(key)
     if (!headScenario) {
       failures.push(`missing_head_scenario:${key}`)
@@ -438,6 +451,7 @@ export function comparePerfBaselines(input: {
 
   for (const headScenario of input.head) {
     const key = scenarioKey(headScenario)
+    if (requestedScenarioKeys && !requestedScenarioKeys.has(key)) continue
     if (!input.base.some((scenario) => scenarioKey(scenario) === key)) {
       failures.push(`missing_base_scenario:${key}`)
     }

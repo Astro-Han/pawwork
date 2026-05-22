@@ -485,6 +485,9 @@ export default function Page() {
       historyLoading={timelineHistoryLoading()}
       anchor={timelineInteraction.anchor}
       virtualizerBridge={timelineInteraction.virtualizerBridge}
+      layoutTransactionActive={timelineInteraction.layoutTransactionActive}
+      layoutTransactionID={timelineInteraction.layoutTransactionID}
+      layoutTransactionKind={timelineInteraction.layoutTransactionKind}
       onRetryOpenSession={retryOpenRouteSession}
       onOpenNewSession={openNewRouteSession}
       composerSession={renderComposerRegion()}

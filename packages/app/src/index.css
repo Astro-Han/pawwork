@@ -27,39 +27,40 @@
     }
   }
 
+  /* The desktop shell intentionally paints no background of its own. The
+   * Electron BrowserWindow's native backgroundColor is set from
+   * --background-base (see packages/desktop-electron/src/renderer/index.tsx),
+   * and the inner panels (sidebar, thread, right pane, composer) each paint
+   * their own opaque surface. Adding any background here bleeds through
+   * transparent regions and pulls the canvas off-spec. */
   [data-component="desktop-shell"][data-shell="desktop"] {
     --shell-titlebar-height: 44px;
     --shell-frame-margin: 12px;
     --shell-frame-radius: 12px;
-    --shell-background-base: #FFFFFF;
-    --shell-background-weak: #F9F9F9;
     --shell-surface-base: #F9F9F9;
     --shell-surface-raised: #F9F9F9;
     --shell-surface-strong: #FFFFFF;
     --shell-border-base: #D6D2CA;
     --shell-border-weak: #E3DED6;
-    --shell-highlight-overlay: radial-gradient(circle at top, rgb(255 255 255 / 0.72), transparent 52%);
     --shell-frame-border: color-mix(in srgb, var(--shell-border-base) 78%, #c4b5a8 22%);
     --shell-frame-shadow:
       0 24px 64px -36px rgb(33 26 22 / 0.34),
       0 10px 28px -20px rgb(33 26 22 / 0.2);
     --shell-frame-surface: linear-gradient(180deg, var(--shell-surface-strong) 0%, var(--shell-surface-base) 100%);
     --shell-titlebar-border: color-mix(in srgb, var(--shell-border-weak) 72%, var(--shell-border-base) 28%);
-
-    background:
-      var(--shell-highlight-overlay),
-      linear-gradient(180deg, var(--shell-background-base), var(--shell-background-weak));
   }
 
   :root[data-color-scheme="dark"] [data-component="desktop-shell"][data-shell="desktop"] {
-    --shell-background-base: #221f1c;
-    --shell-background-weak: #1a1714;
-    --shell-surface-base: #1a1714;
-    --shell-surface-raised: #1a1714;
-    --shell-surface-strong: #221f1c;
-    --shell-border-base: #2F2B28;
-    --shell-border-weak: #25211D;
-    --shell-highlight-overlay: radial-gradient(circle at top, rgb(255 255 255 / 0.04), transparent 52%);
+    --shell-surface-base: #1a1917;
+    --shell-surface-raised: #1a1917;
+    --shell-surface-strong: #1a1917;
+    /* shell-border-{base,weak} are color-mix inputs for shell-frame-border /
+     * shell-titlebar-border (OS window chrome), not body dividers. Body
+     * dividers route through --border-* (6% white alpha). Light mirrors the
+     * same two-input shape; collapsing to one would erase the titlebar /
+     * frame depth that distinguishes native window edge from interior. */
+    --shell-border-base: #282725;
+    --shell-border-weak: #1f1d1c;
     --shell-frame-border: color-mix(in srgb, var(--shell-border-base) 78%, #5a5e68 22%);
     --shell-frame-shadow:
       0 24px 64px -36px rgb(0 0 0 / 0.6),

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { MessageID, SessionID } from "../../src/session/schema"
+import { RunIncident } from "../../src/session/run-incident"
 import { RunObservability } from "../../src/session/run-observability"
 
 describe("RunObservability", () => {
@@ -523,6 +524,133 @@ describe("RunObservability", () => {
     })
   })
 
+  test("orders lifecycle terminal causes by initiation time instead of finalizer time", () => {
+    const lifecycleBeforeProvider = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_lifecycle_initiated_first"),
+      traceID: MessageID.make("msg_lifecycle_initiated_first"),
+      sessionID: SessionID.make("ses_lifecycle_initiated_first"),
+      messageID: MessageID.make("msg_lifecycle_initiated_first"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const lifecycleBeforeAttempt = lifecycleBeforeProvider.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    lifecycleBeforeProvider.recordTransportFailure({
+      attemptID: lifecycleBeforeAttempt.attemptID,
+      at: 13,
+      monotonicMs: 130,
+      error: { name: "TypeError", message: "terminated", cause: { code: "UND_ERR_SOCKET" } },
+    })
+    lifecycleBeforeProvider.recordScopeClosed({
+      at: 14,
+      monotonicMs: 140,
+      lifecycleActionID: "lifecycle:instance_reload:initiated_before_provider",
+      lifecycleKind: "instance_reload",
+      lifecycleInitiatedMonotonicMs: 120,
+    })
+    expect(
+      lifecycleBeforeProvider.finalize({ completedAt: 15, monotonicMs: 150 }).incident?.terminal_cause,
+    ).toMatchObject({
+      category: "local_lifecycle_close",
+      subcategory: "instance_reload",
+    })
+
+    const providerBeforeLifecycle = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_provider_initiated_first"),
+      traceID: MessageID.make("msg_provider_initiated_first"),
+      sessionID: SessionID.make("ses_provider_initiated_first"),
+      messageID: MessageID.make("msg_provider_initiated_first"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const providerBeforeAttempt = providerBeforeLifecycle.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    providerBeforeLifecycle.recordTransportFailure({
+      attemptID: providerBeforeAttempt.attemptID,
+      at: 12,
+      monotonicMs: 120,
+      error: { name: "TypeError", message: "terminated", cause: { code: "UND_ERR_SOCKET" } },
+    })
+    providerBeforeLifecycle.recordScopeClosed({
+      at: 14,
+      monotonicMs: 140,
+      lifecycleActionID: "lifecycle:instance_reload:initiated_after_provider",
+      lifecycleKind: "instance_reload",
+      lifecycleInitiatedMonotonicMs: 130,
+    })
+    expect(
+      providerBeforeLifecycle.finalize({ completedAt: 15, monotonicMs: 150 }).incident?.terminal_cause.category,
+    ).toBe("provider_transport_disconnect")
+  })
+
+  test("keeps lifecycle provenance when provider failure records before earlier lifecycle close propagates", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_lifecycle_provenance_after_provider"),
+      traceID: MessageID.make("msg_lifecycle_provenance_after_provider"),
+      sessionID: SessionID.make("ses_lifecycle_provenance_after_provider"),
+      messageID: MessageID.make("msg_lifecycle_provenance_after_provider"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordTransportFailure({
+      attemptID: attempt.attemptID,
+      at: 13,
+      monotonicMs: 130,
+      error: { name: "TypeError", message: "terminated", cause: { code: "UND_ERR_SOCKET" } },
+    })
+    recorder.recordScopeClosed({
+      at: 14,
+      monotonicMs: 140,
+      lifecycleActionID: "lifecycle:instance_reload:initiated_before_provider_with_request",
+      lifecycleKind: "instance_reload",
+      lifecycleInitiatedAt: 12,
+      lifecycleInitiatedMonotonicMs: 120,
+      lifecycleAffectedDirectoryKeys: ["dir:provenance"],
+      lifecycleOrigin: { source: "server_handler", operation: "instance.reload", reason: "project.git.init" },
+      lifecycleRequest: {
+        method: "POST",
+        path: "/project/git/init",
+        source: "renderer",
+        directory_key: "dir:provenance",
+        workspace_id: "workspace-provenance",
+        client_action: { id: "client-provenance", kind: "project.git.init" },
+      },
+    })
+
+    const incident = recorder.finalize({ completedAt: 15, monotonicMs: 150 }).incident
+    expect(incident?.terminal_cause).toMatchObject({
+      category: "local_lifecycle_close",
+      subcategory: "instance_reload",
+    })
+    expect(incident?.provenance.lifecycle).toMatchObject({
+      action_id: "lifecycle:instance_reload:initiated_before_provider_with_request",
+      kind: "instance_reload",
+      origin: { source: "server_handler", operation: "instance.reload", reason: "project.git.init" },
+      request: {
+        method: "POST",
+        path: "/project/git/init",
+        source: "renderer",
+        client_action: { id: "client-provenance", kind: "project.git.init" },
+      },
+    })
+    expect(RunIncident.toExportChain(incident!).nearest_origin).toMatchObject({
+      source: "server_handler",
+      operation: "instance.reload",
+      reason: "project.git.init",
+    })
+    expect(RunIncident.toExportChain(incident!).nearest_request).toMatchObject({
+      method: "POST",
+      path: "/project/git/init",
+      source: "renderer",
+      client_action: { id: "client-provenance", kind: "project.git.init" },
+    })
+  })
+
   test("cleanup events do not overwrite earlier lifecycle provenance", () => {
     const recorder = RunObservability.createRecorder({
       runID: RunObservability.RunID.make("run_lifecycle_then_cleanup"),
@@ -715,6 +843,306 @@ describe("RunObservability", () => {
     expect(summary.incident?.phase).toMatchObject({
       stream_phase: "after_tool_input_end",
       tool_phase: "tool_input_completed",
+    })
+  })
+
+  test("transport failure after tool execution starts is not classified as before execution", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_transport_after_tool_execution_started"),
+      traceID: MessageID.make("msg_transport_after_tool_execution_started"),
+      sessionID: SessionID.make("ses_transport_after_tool_execution_started"),
+      messageID: MessageID.make("msg_transport_after_tool_execution_started"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordToolInputStarted({ attemptID: attempt.attemptID, at: 12, monotonicMs: 120 })
+    recorder.recordToolInputCompleted({ attemptID: attempt.attemptID, at: 13, monotonicMs: 130 })
+    recorder.recordToolCallMaterialized({
+      attemptID: attempt.attemptID,
+      at: 14,
+      monotonicMs: 140,
+      toolName: RunObservability.safeToolName("grep"),
+      effect: RunObservability.toolEffect("grep"),
+    })
+    recorder.recordToolExecutionStarted({
+      attemptID: attempt.attemptID,
+      at: 15,
+      monotonicMs: 150,
+      toolName: RunObservability.safeToolName("grep"),
+      effect: RunObservability.toolEffect("grep"),
+    })
+    recorder.recordTransportFailure({
+      attemptID: attempt.attemptID,
+      at: 16,
+      monotonicMs: 160,
+      error: { name: "TypeError", message: "terminated", cause: { code: "UND_ERR_SOCKET" } },
+    })
+
+    const summary = recorder.finalize({ completedAt: 17, monotonicMs: 170 })
+    expect(summary.incident?.terminal_cause).toMatchObject({
+      category: "provider_transport_disconnect",
+      subcategory: "unknown_stream_phase",
+    })
+    expect(summary.incident?.terminal_cause).not.toMatchObject({
+      subcategory: "after_tool_call_before_execution",
+    })
+    expect(summary.incident?.phase).toMatchObject({
+      run_phase: "tool_execution",
+      stream_phase: "after_tool_call",
+      tool_phase: "tool_execution_started",
+    })
+    expect(summary.incident?.recovery).toMatchObject({
+      recommendation: "ask_user_before_retry",
+      reason: "tool_execution_started",
+    })
+  })
+
+  test("transport failure after tool execution completes is classified after tool result", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_transport_after_tool_execution_completed"),
+      traceID: MessageID.make("msg_transport_after_tool_execution_completed"),
+      sessionID: SessionID.make("ses_transport_after_tool_execution_completed"),
+      messageID: MessageID.make("msg_transport_after_tool_execution_completed"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordToolInputStarted({ attemptID: attempt.attemptID, at: 12, monotonicMs: 120 })
+    recorder.recordToolInputCompleted({ attemptID: attempt.attemptID, at: 13, monotonicMs: 130 })
+    recorder.recordToolCallMaterialized({
+      attemptID: attempt.attemptID,
+      at: 14,
+      monotonicMs: 140,
+      toolName: RunObservability.safeToolName("grep"),
+      effect: RunObservability.toolEffect("grep"),
+    })
+    recorder.recordToolExecutionStarted({
+      attemptID: attempt.attemptID,
+      at: 15,
+      monotonicMs: 150,
+      toolName: RunObservability.safeToolName("grep"),
+      effect: RunObservability.toolEffect("grep"),
+    })
+    recorder.recordToolCompleted({ attemptID: attempt.attemptID, at: 16, monotonicMs: 160 })
+    recorder.recordTransportFailure({
+      attemptID: attempt.attemptID,
+      at: 17,
+      monotonicMs: 170,
+      error: { name: "TypeError", message: "terminated", cause: { code: "UND_ERR_SOCKET" } },
+    })
+
+    const summary = recorder.finalize({ completedAt: 18, monotonicMs: 180 })
+    expect(summary.incident?.facts.tool_execution_completed).toBe(true)
+    expect(summary.incident?.terminal_cause).toMatchObject({
+      category: "provider_transport_disconnect",
+      subcategory: "after_tool_result",
+    })
+    expect(summary.incident?.phase).toMatchObject({
+      run_phase: "post_tool",
+      stream_phase: "after_tool_call",
+      tool_phase: "tool_execution_completed",
+    })
+  })
+
+  test("transport failure phase ignores later tool completion evidence", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_transport_before_late_tool_completion"),
+      traceID: MessageID.make("msg_transport_before_late_tool_completion"),
+      sessionID: SessionID.make("ses_transport_before_late_tool_completion"),
+      messageID: MessageID.make("msg_transport_before_late_tool_completion"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordToolInputStarted({ attemptID: attempt.attemptID, at: 12, monotonicMs: 120 })
+    recorder.recordToolInputCompleted({ attemptID: attempt.attemptID, at: 13, monotonicMs: 130 })
+    recorder.recordToolCallMaterialized({
+      attemptID: attempt.attemptID,
+      at: 14,
+      monotonicMs: 140,
+      toolName: RunObservability.safeToolName("grep"),
+      effect: RunObservability.toolEffect("grep"),
+    })
+    recorder.recordToolExecutionStarted({
+      attemptID: attempt.attemptID,
+      at: 15,
+      monotonicMs: 150,
+      toolName: RunObservability.safeToolName("grep"),
+      effect: RunObservability.toolEffect("grep"),
+    })
+    recorder.recordTransportFailure({
+      attemptID: attempt.attemptID,
+      at: 16,
+      monotonicMs: 160,
+      error: { name: "TypeError", message: "terminated", cause: { code: "UND_ERR_SOCKET" } },
+    })
+    recorder.recordToolCompleted({ attemptID: attempt.attemptID, at: 17, monotonicMs: 170 })
+
+    const summary = recorder.finalize({ completedAt: 18, monotonicMs: 180 })
+    expect(summary.incident?.facts.tool_execution_completed).toBe(true)
+    expect(summary.incident?.terminal_cause).toMatchObject({
+      category: "provider_transport_disconnect",
+      subcategory: "unknown_stream_phase",
+    })
+    expect(summary.incident?.terminal_cause).not.toMatchObject({
+      subcategory: "after_tool_result",
+    })
+    expect(summary.incident?.phase).toMatchObject({
+      run_phase: "tool_execution",
+      stream_phase: "after_tool_call",
+      tool_phase: "tool_execution_started",
+    })
+    expect(summary.incident?.phase).not.toMatchObject({
+      run_phase: "post_tool",
+      tool_phase: "tool_execution_completed",
+    })
+    expect(summary.incident?.recovery).toMatchObject({
+      recommendation: "ask_user_before_retry",
+      reason: "tool_execution_started",
+    })
+  })
+
+  test("transport failure phase ignores later same-timestamp tool completion evidence", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_transport_same_timestamp_late_completion"),
+      traceID: MessageID.make("msg_transport_same_timestamp_late_completion"),
+      sessionID: SessionID.make("ses_transport_same_timestamp_late_completion"),
+      messageID: MessageID.make("msg_transport_same_timestamp_late_completion"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordToolInputStarted({ attemptID: attempt.attemptID, at: 12, monotonicMs: 120 })
+    recorder.recordToolInputCompleted({ attemptID: attempt.attemptID, at: 13, monotonicMs: 130 })
+    recorder.recordToolCallMaterialized({
+      attemptID: attempt.attemptID,
+      at: 14,
+      monotonicMs: 140,
+      toolName: RunObservability.safeToolName("grep"),
+      effect: RunObservability.toolEffect("grep"),
+    })
+    recorder.recordToolExecutionStarted({
+      attemptID: attempt.attemptID,
+      at: 15,
+      monotonicMs: 150,
+      toolName: RunObservability.safeToolName("grep"),
+      effect: RunObservability.toolEffect("grep"),
+    })
+    recorder.recordTransportFailure({
+      attemptID: attempt.attemptID,
+      at: 16,
+      monotonicMs: 160,
+      error: { name: "TypeError", message: "terminated", cause: { code: "UND_ERR_SOCKET" } },
+    })
+    recorder.recordToolCompleted({ attemptID: attempt.attemptID, at: 17, monotonicMs: 160 })
+
+    const summary = recorder.finalize({ completedAt: 18, monotonicMs: 180 })
+    expect(summary.incident?.phase).toMatchObject({
+      run_phase: "tool_execution",
+      stream_phase: "after_tool_call",
+      tool_phase: "tool_execution_started",
+    })
+    expect(summary.incident?.phase).not.toMatchObject({
+      run_phase: "post_tool",
+      tool_phase: "tool_execution_completed",
+    })
+  })
+
+  test("transport failure phase ignores earlier-order tool completion with later monotonic time", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_transport_earlier_order_late_monotonic_completion"),
+      traceID: MessageID.make("msg_transport_earlier_order_late_monotonic_completion"),
+      sessionID: SessionID.make("ses_transport_earlier_order_late_monotonic_completion"),
+      messageID: MessageID.make("msg_transport_earlier_order_late_monotonic_completion"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordToolInputStarted({ attemptID: attempt.attemptID, at: 12, monotonicMs: 120 })
+    recorder.recordToolInputCompleted({ attemptID: attempt.attemptID, at: 13, monotonicMs: 130 })
+    recorder.recordToolCallMaterialized({
+      attemptID: attempt.attemptID,
+      at: 14,
+      monotonicMs: 140,
+      toolName: RunObservability.safeToolName("grep"),
+      effect: RunObservability.toolEffect("grep"),
+    })
+    recorder.recordToolExecutionStarted({
+      attemptID: attempt.attemptID,
+      at: 15,
+      monotonicMs: 150,
+      toolName: RunObservability.safeToolName("grep"),
+      effect: RunObservability.toolEffect("grep"),
+    })
+    recorder.recordToolCompleted({ attemptID: attempt.attemptID, at: 17, monotonicMs: 170 })
+    recorder.recordTransportFailure({
+      attemptID: attempt.attemptID,
+      at: 16,
+      monotonicMs: 160,
+      error: { name: "TypeError", message: "terminated", cause: { code: "UND_ERR_SOCKET" } },
+    })
+
+    const summary = recorder.finalize({ completedAt: 18, monotonicMs: 180 })
+    expect(summary.incident?.terminal_cause).toMatchObject({
+      category: "provider_transport_disconnect",
+      subcategory: "unknown_stream_phase",
+    })
+    expect(summary.incident?.phase).toMatchObject({
+      run_phase: "tool_execution",
+      stream_phase: "after_tool_call",
+      tool_phase: "tool_execution_started",
+    })
+    expect(summary.incident?.phase).not.toMatchObject({
+      run_phase: "post_tool",
+      tool_phase: "tool_execution_completed",
+    })
+  })
+
+  test("tool completion without start or materialization does not overclaim after-tool-result phase", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_completion_without_execution_boundary"),
+      traceID: MessageID.make("msg_completion_without_execution_boundary"),
+      sessionID: SessionID.make("ses_completion_without_execution_boundary"),
+      messageID: MessageID.make("msg_completion_without_execution_boundary"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordToolCompleted({ attemptID: attempt.attemptID, at: 12, monotonicMs: 120 })
+    recorder.recordTransportFailure({
+      attemptID: attempt.attemptID,
+      at: 13,
+      monotonicMs: 130,
+      error: { name: "TypeError", message: "terminated", cause: { code: "UND_ERR_SOCKET" } },
+    })
+
+    const summary = recorder.finalize({ completedAt: 14, monotonicMs: 140 })
+    expect(summary.incident?.diagnostics_complete).toBe(false)
+    expect(summary.incident?.missing_provenance).toContain("tool_execution.start_missing")
+    expect(summary.incident?.missing_provenance).toContain("tool.materialization_missing")
+    expect(summary.incident?.terminal_cause).toMatchObject({
+      category: "provider_transport_disconnect",
+      subcategory: "unknown_stream_phase",
+    })
+    expect(summary.incident?.terminal_cause).not.toMatchObject({
+      subcategory: "after_tool_result",
+    })
+    expect(summary.incident?.phase).not.toMatchObject({
+      run_phase: "post_tool",
+      tool_phase: "tool_execution_completed",
     })
   })
 
@@ -1164,6 +1592,64 @@ describe("RunObservability", () => {
     expect(summary.retry_safety.recommendation).toBe("do_not_auto_retry")
   })
 
+  test("lifecycle close phase ignores later tool completion without terminal attempt id", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_lifecycle_close_late_tool_completion"),
+      traceID: MessageID.make("msg_lifecycle_close_late_tool_completion"),
+      sessionID: SessionID.make("ses_lifecycle_close_late_tool_completion"),
+      messageID: MessageID.make("msg_lifecycle_close_late_tool_completion"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordToolInputStarted({ attemptID: attempt.attemptID, at: 12, monotonicMs: 120 })
+    recorder.recordToolInputCompleted({ attemptID: attempt.attemptID, at: 13, monotonicMs: 130 })
+    recorder.recordToolCallMaterialized({
+      attemptID: attempt.attemptID,
+      at: 14,
+      monotonicMs: 140,
+      toolName: RunObservability.safeToolName("grep"),
+      effect: RunObservability.toolEffect("grep"),
+    })
+    recorder.recordToolExecutionStarted({
+      attemptID: attempt.attemptID,
+      at: 15,
+      monotonicMs: 150,
+      toolName: RunObservability.safeToolName("grep"),
+      effect: RunObservability.toolEffect("grep"),
+    })
+    recorder.recordScopeClosed({
+      at: 16,
+      monotonicMs: 160,
+      source: "session.run_state.finalizer",
+      reason: "scope_finalizer",
+      propagationPoint: "session.prompt.loop.onInterrupt",
+      lifecycleActionID: "lifecycle:instance_reload:late-tool",
+      lifecycleKind: "instance_reload",
+      lifecycleInitiatedAt: 16,
+      lifecycleInitiatedMonotonicMs: 160,
+      lifecycleAffectedDirectoryKeys: ["dir:testreload"],
+    })
+    recorder.recordToolCompleted({ attemptID: attempt.attemptID, at: 17, monotonicMs: 170 })
+
+    const summary = recorder.finalize({ completedAt: 18, monotonicMs: 180 })
+    expect(summary.incident?.terminal_cause).toMatchObject({
+      category: "local_lifecycle_close",
+      subcategory: "instance_reload",
+    })
+    expect(summary.incident?.phase).toMatchObject({
+      run_phase: "tool_execution",
+      stream_phase: "after_tool_call",
+      tool_phase: "tool_execution_started",
+    })
+    expect(summary.incident?.phase).not.toMatchObject({
+      run_phase: "post_tool",
+      tool_phase: "tool_execution_completed",
+    })
+  })
+
   test("classifies known instance reload lifecycle closes with parent provenance", () => {
     const recorder = RunObservability.createRecorder({
       runID: RunObservability.RunID.make("run_instance_reload"),
@@ -1183,6 +1669,10 @@ describe("RunObservability", () => {
       propagationPoint: "session.prompt.loop.onInterrupt",
       lifecycleActionID: "lifecycle:instance_reload:abc123",
       lifecycleKind: "instance_reload",
+      lifecycleInitiatedAt: 18,
+      lifecycleInitiatedMonotonicMs: 180,
+      lifecycleAffectedDirectoryKeys: ["dir:testreload"],
+      lifecycleOrigin: { source: "server_handler", operation: "instance.reload", reason: "route" },
     })
 
     const summary = recorder.finalize({ completedAt: 21, monotonicMs: 210 })
@@ -1193,8 +1683,102 @@ describe("RunObservability", () => {
       kind: "instance_reload",
       source: "session.run_state.finalizer",
       reason: "scope_finalizer",
+      initiated_at: 18,
+      initiated_monotonic_ms: 180,
+      affected_directory_keys: ["dir:testreload"],
+      origin: { source: "server_handler", operation: "instance.reload", reason: "route" },
+    })
+    expect(summary.incident?.provenance.lifecycle).toMatchObject({
+      action_id: "lifecycle:instance_reload:abc123",
+      kind: "instance_reload",
+      source: "session.run_state.finalizer",
+      initiated_at: 18,
+      initiated_monotonic_ms: 180,
+      affected_directory_keys: ["dir:testreload"],
+      origin: { source: "server_handler", operation: "instance.reload", reason: "route" },
+      completeness: "partial",
     })
     expect(summary.missing_provenance).toBeUndefined()
+  })
+
+  test("exports structured lifecycle request initiator provenance", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_lifecycle_request"),
+      traceID: MessageID.make("msg_lifecycle_request"),
+      sessionID: SessionID.make("ses_lifecycle_request"),
+      messageID: MessageID.make("msg_lifecycle_request"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 1,
+      monotonicStartMs: 100,
+    })
+
+    recorder.recordScopeClosed({
+      at: 2,
+      monotonicMs: 120,
+      lifecycleActionID: "lifecycle:instance_reload:request",
+      lifecycleKind: "instance_reload",
+      lifecycleAffectedDirectoryKeys: ["dir:request"],
+      lifecycleOrigin: { source: "server_handler", operation: "instance.reload", reason: "project.git.init" },
+      lifecycleRequest: {
+        method: "POST",
+        path: "/project/git/init",
+        source: "renderer",
+        directory_key: "dir:request",
+        workspace_id: "workspace-request",
+        client_action: { id: "client-action-request", kind: "project.git.init" },
+      },
+    })
+
+    const incident = recorder.finalize({ completedAt: 3, monotonicMs: 130 }).incident
+    expect(incident?.provenance.lifecycle?.request).toMatchObject({
+      method: "POST",
+      path: "/project/git/init",
+      source: "renderer",
+      directory_key: "dir:request",
+      workspace_id: "workspace-request",
+      client_action: { id: "client-action-request", kind: "project.git.init" },
+    })
+    expect(RunIncident.toExportChain(incident!).nearest_request).toMatchObject({
+      method: "POST",
+      path: "/project/git/init",
+      source: "renderer",
+      client_action: { id: "client-action-request", kind: "project.git.init" },
+    })
+  })
+
+  test("clones lifecycle provenance before storing recorder summaries", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_lifecycle_clone"),
+      traceID: MessageID.make("msg_lifecycle_clone"),
+      sessionID: SessionID.make("ses_lifecycle_clone"),
+      messageID: MessageID.make("msg_lifecycle_clone"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const keys = ["dir:original"]
+    const origin = { source: "runtime", operation: "instance.dispose", reason: "original" }
+    recorder.recordScopeClosed({
+      at: 20,
+      monotonicMs: 200,
+      lifecycleActionID: "lifecycle:instance_dispose:clone",
+      lifecycleKind: "instance_dispose",
+      lifecycleAffectedDirectoryKeys: keys,
+      lifecycleOrigin: origin,
+    })
+
+    keys.push("dir:mutated")
+    origin.reason = "mutated"
+
+    const summary = recorder.finalize({ completedAt: 21, monotonicMs: 210 })
+    expect(summary.lifecycle?.affected_directory_keys).toEqual(["dir:original"])
+    expect(summary.lifecycle?.origin?.reason).toBe("original")
+    summary.lifecycle?.affected_directory_keys.push("dir:summary-mutated")
+    if (summary.lifecycle?.origin) summary.lifecycle.origin.reason = "summary-mutated"
+    expect(summary.incident?.provenance.lifecycle?.affected_directory_keys).toEqual(["dir:original"])
+    expect(summary.incident?.provenance.lifecycle?.origin?.reason).toBe("original")
   })
 
   test("records tool execution effect facts conservatively", () => {

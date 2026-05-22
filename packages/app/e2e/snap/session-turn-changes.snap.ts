@@ -2,6 +2,7 @@ import { expect, type Page } from "@playwright/test"
 import { withSession } from "../actions"
 import { test } from "../fixtures"
 import { bodyText } from "../prompt/mock"
+import { applyDarkModeForTests } from "../utils"
 import { composeGrid, snapOutputPath, type Shot } from "./_compose"
 
 test.use({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 })
@@ -106,8 +107,37 @@ async function captureTurnChanges(page: Page, name: string): Promise<Shot> {
   return { name, buf: await panel.screenshot() }
 }
 
+async function runCapturedPass(
+  page: Page,
+  project: Parameters<typeof test>[0]["project"],
+  llm: Parameters<typeof test>[0]["llm"],
+  label: "light" | "dark",
+  shots: Shot[],
+) {
+  await withSession(project.sdk, `snap turn changes captured ${label}`, async (session) => {
+    project.trackSession(session.id)
+    await patchWithMock(llm, project.sdk, session.id, patch(`snap-captured-${label}.txt`, `captured-${label}`))
+    await project.gotoSession(session.id)
+    shots.push(await captureTurnChanges(page, `${label}-captured-applied`))
+
+    const action = page.locator('[data-slot="session-turn-changes-action"]').first()
+    await expect(action).toBeVisible()
+    await action.click()
+    await action.click()
+    await expect(page.locator('[data-slot="session-turn-changes-undone"]').first()).toBeVisible()
+    shots.push(await captureTurnChanges(page, `${label}-captured-undone`))
+  })
+
+  await withSession(project.sdk, `snap turn changes uncaptured ${label}`, async (session) => {
+    project.trackSession(session.id)
+    await uncapturedWithMock(llm, project.sdk, session.id, `snap-uncaptured-${label}.txt`)
+    await project.gotoSession(session.id)
+    shots.push(await captureTurnChanges(page, `${label}-uncaptured`))
+  })
+}
+
 test("session-turn-changes", async ({ page, project, llm }) => {
-  test.setTimeout(240_000)
+  test.setTimeout(360_000)
 
   await page.addInitScript((key) => {
     localStorage.setItem(key, JSON.stringify({ locale: "zh" }))
@@ -116,26 +146,13 @@ test("session-turn-changes", async ({ page, project, llm }) => {
   await project.open()
   const shots: Shot[] = []
 
-  await withSession(project.sdk, "snap turn changes captured", async (session) => {
-    project.trackSession(session.id)
-    await patchWithMock(llm, project.sdk, session.id, patch("snap-captured.txt", "captured"))
-    await project.gotoSession(session.id)
-    shots.push(await captureTurnChanges(page, "captured-applied"))
+  await runCapturedPass(page, project, llm, "light", shots)
 
-    const action = page.locator('[data-slot="session-turn-changes-action"]').first()
-    await expect(action).toBeVisible()
-    await action.click()
-    await action.click()
-    await expect(page.locator('[data-slot="session-turn-changes-undone"]').first()).toBeVisible()
-    shots.push(await captureTurnChanges(page, "captured-undone"))
-  })
-
-  await withSession(project.sdk, "snap turn changes uncaptured", async (session) => {
-    project.trackSession(session.id)
-    await uncapturedWithMock(llm, project.sdk, session.id, "snap-uncaptured.txt")
-    await project.gotoSession(session.id)
-    shots.push(await captureTurnChanges(page, "uncaptured"))
-  })
+  // Flip to dark via the real storage + reload path, then re-do the same
+  // setup with fresh sessions. applyDarkModeForTests is one-way per page,
+  // so the dark pass runs after all light shots are captured.
+  await applyDarkModeForTests(page)
+  await runCapturedPass(page, project, llm, "dark", shots)
 
   const out = snapOutputPath("session-turn-changes")
   await composeGrid(shots, out)
