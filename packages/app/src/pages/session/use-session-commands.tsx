@@ -368,7 +368,11 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       title: language.t("command.session.compact"),
       description: language.t("command.session.compact.description"),
       slash: "compact",
-      disabled: !params.id || visibleUserMessages().length === 0,
+      // Server rejects compact-while-busy with Session.BusyError (mapped to 400).
+      // Hide the slash entry and grey the command-palette row so the route is
+      // only reachable from idle; bypass paths (CLI / scripts) still get the
+      // honest 400 instead of the pre-fix silent success.
+      disabled: !params.id || visibleUserMessages().length === 0 || isWorkInFlightStatus(status()),
       onSelect: compact,
     }),
     sessionCommand({

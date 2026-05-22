@@ -100,6 +100,12 @@ export const dict: Record<string, string> = {
     "This question was cancelled before it was answered. Ask again below if you want to continue.",
   "ui.messagePart.questions.pendingMarker": "↓ Pending question — answer below",
   "ui.messagePart.compaction": "Session compacted",
+  "ui.messagePart.compaction.pending": "Compacting conversation",
+  "ui.messagePart.compaction.aborted": "Compaction cancelled",
+  "ui.messagePart.compaction.failed": "Compaction failed: {{reason}}",
+  "ui.messagePart.compaction.failedUnknown": "Compaction failed",
+  "ui.messagePart.compaction.failedContextOverflow":
+    "Compaction failed: conversation too large, please start a new session",
   "ui.messagePart.context.read.one": "Read {{count}} file",
   "ui.messagePart.context.read.other": "Read {{count}} files",
   "ui.messagePart.context.search.one": "Searched {{count}} time",

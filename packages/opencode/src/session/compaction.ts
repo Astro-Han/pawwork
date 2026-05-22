@@ -370,85 +370,11 @@ export const layer: Layer.Layer<
       const userMessage = parent.info
       const compactionPart = parent.parts.find((part): part is MessageV2.CompactionPart => part.type === "compaction")
 
-      let messages = input.messages
-      let replay:
-        | {
-            info: MessageV2.User
-            parts: MessageV2.Part[]
-          }
-        | undefined
-      if (input.overflow) {
-        const idx = input.messages.findIndex((m) => m.info.id === input.parentID)
-        for (let i = idx - 1; i >= 0; i--) {
-          const msg = input.messages[i]
-          if (msg.info.role === "user" && !msg.parts.some((p) => p.type === "compaction")) {
-            replay = { info: msg.info, parts: msg.parts }
-            messages = input.messages.slice(0, i)
-            break
-          }
-        }
-        const hasContent =
-          replay && messages.some((m) => m.info.role === "user" && !m.parts.some((p) => p.type === "compaction"))
-        if (!hasContent) {
-          replay = undefined
-          messages = input.messages
-        }
-      }
-
-      const agent = yield* agents.get("compaction")
-      const model = agent.model
-        ? yield* provider.getModel(agent.model.providerID, agent.model.modelID)
-        : yield* provider.getModel(userMessage.model.providerID, userMessage.model.modelID)
-      const cfg = yield* config.get()
-      const history = compactionPart && messages.at(-1)?.info.id === input.parentID ? messages.slice(0, -1) : messages
-      const prior = completedCompactions(history)
-      const hidden = new Set(prior.flatMap((item) => [item.userIndex, item.assistantIndex]))
-      // Hide all messages already covered by the latest compaction's summary
-      // (everything before its `tail_start_id`). Otherwise repeated compactions
-      // re-summarise the same history each round, growing the prompt and
-      // eventually defeating compaction's purpose.
-      const latestPrior = prior.at(-1)
-      // A completed compaction can carry a `tailStartId` (some history kept
-      // verbatim past the boundary) OR clear it to mark "the summary covered
-      // everything before this compaction's user turn". Both cases need to
-      // hide the now-summarised history; without the second branch a
-      // fully-summarising compaction would silently re-feed all prior turns
-      // to the next round.
-      if (latestPrior?.summary) {
-        if (latestPrior.tailStartId) {
-          const tailIndex = history.findIndex((m) => m.info.id === latestPrior.tailStartId)
-          if (tailIndex > 0) {
-            for (let i = 0; i < tailIndex; i++) hidden.add(i)
-          }
-        } else {
-          for (let i = 0; i < latestPrior.userIndex; i++) hidden.add(i)
-        }
-      }
-      const previousSummary = latestPrior?.summary
-      const selected = yield* select({
-        messages: history.filter((_, index) => !hidden.has(index)),
-        cfg,
-        model,
-      })
-      const previousTailStartId = compactionPart?.tail_start_id ?? latestPrior?.tailStartId
-      const stalledTailBoundary =
-        input.auto &&
-        previousTailStartId !== undefined &&
-        selected.tail_start_id !== undefined &&
-        selected.tail_start_id <= previousTailStartId
-      // Allow plugins to inject context or replace compaction prompt.
-      const compacting = yield* plugin.trigger(
-        "experimental.session.compacting",
-        { sessionID: input.sessionID },
-        { context: [], prompt: undefined },
-      )
-      const nextPrompt = compacting.prompt ?? buildPrompt({ previousSummary, context: compacting.context })
-      const msgs = structuredClone(selected.head)
-      yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
-      const modelMessages = yield* MessageV2.toModelMessagesEffect(msgs, model, {
-        stripMedia: true,
-        toolOutputMaxChars: TOOL_OUTPUT_MAX_CHARS,
-      })
+      // Resolve exec early so the placeholder assistant message can be created
+      // before any failure-prone step runs. The frontend state machine relies
+      // on this message existing as a carrier for `error`/`finish="error"` when
+      // pre-summary steps (agents/provider/select/plugin/toModelMessages)
+      // throw — otherwise the compaction divider would stay `pending` forever.
       let exec = input.executionContext
       if (!exec) exec = (yield* session.get(input.sessionID)).executionContext
       const msg: MessageV2.Assistant = {
@@ -471,41 +397,182 @@ export const layer: Layer.Layer<
           reasoning: 0,
           cache: { read: 0, write: 0 },
         },
-        modelID: model.id,
-        providerID: model.providerID,
+        // Provisional — overwritten with the compaction agent's resolved model
+        // once `agents.get`/`provider.getModel` succeed inside the wrapped step.
+        modelID: userMessage.model.modelID,
+        providerID: userMessage.model.providerID,
         time: {
           created: Date.now(),
         },
       }
       yield* session.updateMessage(msg)
-      if (stalledTailBoundary) {
-        msg.error = new MessageV2.ContextOverflowError({
-          message: `Auto compaction could not make progress: retained tail boundary did not advance (${selected.tail_start_id})`,
-        }).toObject()
+
+      const outcome = yield* Effect.gen(function* () {
+          let messages = input.messages
+          let replay:
+            | {
+                info: MessageV2.User
+                parts: MessageV2.Part[]
+              }
+            | undefined
+          if (input.overflow) {
+            const idx = input.messages.findIndex((m) => m.info.id === input.parentID)
+            for (let i = idx - 1; i >= 0; i--) {
+              const m = input.messages[i]
+              if (m.info.role === "user" && !m.parts.some((p) => p.type === "compaction")) {
+                replay = { info: m.info, parts: m.parts }
+                messages = input.messages.slice(0, i)
+                break
+              }
+            }
+            const hasContent =
+              replay && messages.some((m) => m.info.role === "user" && !m.parts.some((p) => p.type === "compaction"))
+            if (!hasContent) {
+              replay = undefined
+              messages = input.messages
+            }
+          }
+
+          const agent = yield* agents.get("compaction")
+          const model = agent.model
+            ? yield* provider.getModel(agent.model.providerID, agent.model.modelID)
+            : yield* provider.getModel(userMessage.model.providerID, userMessage.model.modelID)
+          // Now that the real compaction model is known, replace the
+          // provisional model on the placeholder so downstream UI/storage
+          // reflects what actually ran.
+          msg.modelID = model.id
+          msg.providerID = model.providerID
+          yield* session.updateMessage(msg)
+
+          const cfg = yield* config.get()
+          const history =
+            compactionPart && messages.at(-1)?.info.id === input.parentID ? messages.slice(0, -1) : messages
+          const prior = completedCompactions(history)
+          const hidden = new Set(prior.flatMap((item) => [item.userIndex, item.assistantIndex]))
+          // Hide all messages already covered by the latest compaction's summary
+          // (everything before its `tail_start_id`). Otherwise repeated compactions
+          // re-summarise the same history each round, growing the prompt and
+          // eventually defeating compaction's purpose.
+          const latestPrior = prior.at(-1)
+          // A completed compaction can carry a `tailStartId` (some history kept
+          // verbatim past the boundary) OR clear it to mark "the summary covered
+          // everything before this compaction's user turn". Both cases need to
+          // hide the now-summarised history; without the second branch a
+          // fully-summarising compaction would silently re-feed all prior turns
+          // to the next round.
+          if (latestPrior?.summary) {
+            if (latestPrior.tailStartId) {
+              const tailIndex = history.findIndex((m) => m.info.id === latestPrior.tailStartId)
+              if (tailIndex > 0) {
+                for (let i = 0; i < tailIndex; i++) hidden.add(i)
+              }
+            } else {
+              for (let i = 0; i < latestPrior.userIndex; i++) hidden.add(i)
+            }
+          }
+          const previousSummary = latestPrior?.summary
+          const selected = yield* select({
+            messages: history.filter((_, index) => !hidden.has(index)),
+            cfg,
+            model,
+          })
+          const previousTailStartId = compactionPart?.tail_start_id ?? latestPrior?.tailStartId
+          const stalledTailBoundary =
+            input.auto &&
+            previousTailStartId !== undefined &&
+            selected.tail_start_id !== undefined &&
+            selected.tail_start_id <= previousTailStartId
+          if (stalledTailBoundary) {
+            return { ok: true as const, stalled: true as const, tail_start_id: selected.tail_start_id }
+          }
+          // Allow plugins to inject context or replace compaction prompt.
+          const compacting = yield* plugin.trigger(
+            "experimental.session.compacting",
+            { sessionID: input.sessionID },
+            { context: [], prompt: undefined },
+          )
+          const nextPrompt = compacting.prompt ?? buildPrompt({ previousSummary, context: compacting.context })
+          const msgs = structuredClone(selected.head)
+          yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
+          const modelMessages = yield* MessageV2.toModelMessagesEffect(msgs, model, {
+            stripMedia: true,
+            toolOutputMaxChars: TOOL_OUTPUT_MAX_CHARS,
+          })
+          const processor = yield* processors.create({
+            assistantMessage: msg,
+            sessionID: input.sessionID,
+            model,
+          })
+          const result = yield* processor.process({
+            user: userMessage,
+            agent,
+            sessionID: input.sessionID,
+            tools: {},
+            system: [],
+            messages: [
+              ...modelMessages,
+              {
+                role: "user",
+                content: [{ type: "text", text: nextPrompt }],
+              },
+            ],
+            model,
+          })
+          return { ok: true as const, stalled: false as const, result, processor, replay, selected }
+        }).pipe(
+          Effect.catch((error: unknown) => Effect.succeed({ ok: false as const, error })),
+          // Interrupts (abort signal) bypass `Effect.catch` since they live on
+          // the Cause channel, not the error channel. Without this finalizer
+          // the placeholder would persist with no error/finish — the divider
+          // state machine would read it as `pending` forever after an abort.
+          Effect.onInterrupt(() =>
+            Effect.gen(function* () {
+              if (msg.error || msg.finish) return
+              msg.error = new MessageV2.AbortedError({
+                message: "Compaction aborted",
+              }).toObject()
+              msg.finish = "error"
+              // Terminal state — must have `time.completed` so the UI's
+              // `pending` memo (driven by `allMessages()`, which includes
+              // the summary assistant) does not keep treating this turn
+              // as in-flight.
+              msg.time.completed = Date.now()
+              yield* session.updateMessage(msg)
+            }),
+          ),
+        )
+
+      if (!outcome.ok) {
+        // Pre-summary failure (agents/provider/select/plugin/toModelMessages
+        // /processors.create threw before the processor could attach an error
+        // through its own cleanup path). Surface it on the placeholder so the
+        // UI state machine can render `failed`.
+        msg.error = MessageV2.fromError(outcome.error, {
+          providerID: userMessage.model.providerID,
+          aborted: false,
+        })
         msg.finish = "error"
+        // Terminal state — same reasoning as the onInterrupt branch above.
+        msg.time.completed = Date.now()
         yield* session.updateMessage(msg)
         return "stop"
       }
-      const processor = yield* processors.create({
-        assistantMessage: msg,
-        sessionID: input.sessionID,
-        model,
-      })
-      const result = yield* processor.process({
-        user: userMessage,
-        agent,
-        sessionID: input.sessionID,
-        tools: {},
-        system: [],
-        messages: [
-          ...modelMessages,
-          {
-            role: "user",
-            content: [{ type: "text", text: nextPrompt }],
-          },
-        ],
-        model,
-      })
+
+      if (outcome.stalled) {
+        // Auto compaction selected the same (or earlier) tail boundary as the
+        // previous round — running the summarizer again would just produce the
+        // same output and never let new turns land. Mark the placeholder as
+        // overflow so the divider surfaces it and stop.
+        msg.error = new MessageV2.ContextOverflowError({
+          message: `Auto compaction could not make progress: retained tail boundary did not advance (${outcome.tail_start_id})`,
+        }).toObject()
+        msg.finish = "error"
+        msg.time.completed = Date.now()
+        yield* session.updateMessage(msg)
+        return "stop"
+      }
+
+      const { result, processor, replay, selected } = outcome
 
       if (result === "compact") {
         processor.message.error = new MessageV2.ContextOverflowError({
@@ -544,6 +611,11 @@ export const layer: Layer.Layer<
             format: original.format,
             tools: original.tools,
             system: original.system,
+            // Marks this as a re-injected copy of the original overflow message
+            // so the UI can keep the turn row (assistants still hang off it via
+            // parentID) but hide the user body — the visible duplicate of the
+            // original turn is the "showing twice" symptom we're removing.
+            replay: true,
           })
           for (const part of replay.parts) {
             if (part.type === "compaction") continue

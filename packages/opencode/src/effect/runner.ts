@@ -4,7 +4,10 @@ import type { LifecycleRequest } from "@/session/lifecycle-provenance"
 export interface Runner<A, E = never> {
   readonly state: State<A, E>
   readonly busy: boolean
-  readonly ensureRunning: (work: Effect.Effect<A, E>) => Effect.Effect<A, E>
+  readonly ensureRunning: (
+    work: Effect.Effect<A, E>,
+    options?: { rejectIfBusy?: boolean },
+  ) => Effect.Effect<A, E>
   readonly startShell: (work: Effect.Effect<A, E>, options?: { ready?: Deferred.Deferred<void> }) => Effect.Effect<A, E>
   readonly cancel: Effect.Effect<void>
   readonly cancelWith: (meta?: InterruptMeta) => Effect.Effect<void>
@@ -162,10 +165,21 @@ export const make = <A, E = never>(
   const awaitShellReady = (shell: ShellHandle<A, E>) =>
     Deferred.await(shell.ready).pipe(Effect.raceFirst(Fiber.await(shell.fiber).pipe(Effect.asVoid)), Effect.ignore)
 
-  const ensureRunning = (work: Effect.Effect<A, E>) =>
+  const ensureRunning = (work: Effect.Effect<A, E>, options?: { rejectIfBusy?: boolean }) =>
     SynchronizedRef.modifyEffect(
       ref,
       Effect.fnUntraced(function* (st) {
+        // rejectIfBusy lives in the atomic ref-modify so the check can't race
+        // with an Idle→Running transition started by another caller. Throwing
+        // synchronously here (via opts.busy()) lets `loop({ prelude })` refuse
+        // to silently no-op when the runner is already executing other work —
+        // otherwise the prelude effect (e.g. writing a compaction marker)
+        // would be dropped and the route would resolve `true` for a session
+        // that never ran the requested action.
+        if (options?.rejectIfBusy && st._tag !== "Idle") {
+          if (opts?.busy) opts.busy()
+          throw new Error("Runner is busy")
+        }
         switch (st._tag) {
           case "Running":
           case "ShellThenRun":

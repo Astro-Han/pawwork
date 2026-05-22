@@ -10,7 +10,7 @@ import { useData } from "../context"
 import { isWorkInFlightStatus } from "../util/session-status"
 
 import { Binary } from "@opencode-ai/core/util/binary"
-import { createEffect, createMemo, createSignal, ParentProps, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, onCleanup, ParentProps, Show } from "solid-js"
 import { AssistantParts, Message, MessageDivider, PART_MAPPING, type UserActions } from "./message-part"
 import { Card } from "./card"
 import { Icon } from "./icon"
@@ -22,6 +22,13 @@ import { useI18n } from "../context/i18n"
 import { hasVisibleTurnChanges, type TurnChangeActions, type TurnChangeDisplay } from "./session-turn-changes"
 import { SessionTurnChangesPanel } from "./session-turn-changes-panel"
 import { SessionTurnDiffs } from "./session-turn-diffs"
+import {
+  compactionDividerLabelKey,
+  compactionDividerState,
+  compactionElapsedSeconds,
+  formatCompactionElapsed,
+  type CompactionDividerState,
+} from "./session-turn-compaction"
 
 function record(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
@@ -254,7 +261,11 @@ export function SessionTurn(
       .reverse()
   })
 
-  const assistantMessages = createMemo(
+  // `rawAssistantMessages` keeps the compaction summary message visible to the
+  // divider state machine. Every other derivation reads `visibleAssistantMessages`
+  // so the summary never leaks into "Thinking…", error cards, copy targets,
+  // turn-duration math, etc. — the compaction divider is its only carrier.
+  const rawAssistantMessages = createMemo(
     () => {
       if (props.assistantMessages !== undefined) return props.assistantMessages
       const msg = message()
@@ -272,24 +283,54 @@ export function SessionTurn(
     { equals: same },
   )
 
+  const visibleAssistantMessages = createMemo(
+    () => rawAssistantMessages().filter((m) => m.summary !== true),
+    emptyAssistant,
+    { equals: same },
+  )
+
+  const compactionSummary = createMemo(() => rawAssistantMessages().find((m) => m.summary === true))
+
   const turnChange = createMemo(() => props.turnChanges?.[props.messageID])
   const [turnExpanded, setTurnExpanded] = createSignal<string[]>([])
   const turnInProgress = createMemo(() => {
-    const messages = assistantMessages()
+    const messages = visibleAssistantMessages()
     if (!messages.length) return false
     return messages.some((item) => typeof item.time.completed !== "number")
   })
-  const interrupted = createMemo(() => assistantMessages().some((m) => m.error?.name === "MessageAbortedError"))
+  const interrupted = createMemo(() =>
+    visibleAssistantMessages().some((m) => m.error?.name === "MessageAbortedError"),
+  )
+  const status = createMemo(() => {
+    if (props.status !== undefined) return props.status
+    if (typeof props.active === "boolean" && !props.active) return idle
+    return data.store.session_status[props.sessionID] ?? idle
+  })
+  const working = createMemo(() => isWorkInFlightStatus(status()) && active())
+  const compactionDivider = createMemo<CompactionDividerState | undefined>(() => {
+    if (!compaction()) return undefined
+    return compactionDividerState({ summaryAssistant: compactionSummary(), isWorking: working() })
+  })
+  const compactionLabel = createMemo(() => {
+    const state = compactionDivider()
+    if (!state) return undefined
+    const summary = compactionSummary()
+    const label = compactionDividerLabelKey({ state, error: summary?.error })
+    if (label.key === "ui.messagePart.compaction.failed") {
+      return i18n.t(label.key, label.params)
+    }
+    return i18n.t(label.key)
+  })
   const divider = createMemo(() => {
-    if (compaction()) return i18n.t("ui.messagePart.compaction")
+    if (compactionDivider()) return compactionLabel() ?? ""
     if (interrupted()) return i18n.t("ui.message.interrupted")
     return ""
   })
   const error = createMemo(
-    () => assistantMessages().find((m) => m.error && m.error.name !== "MessageAbortedError")?.error,
+    () => visibleAssistantMessages().find((m) => m.error && m.error.name !== "MessageAbortedError")?.error,
   )
   const showAssistantCopyPartID = createMemo(() => {
-    const messages = assistantMessages()
+    const messages = visibleAssistantMessages()
 
     for (let i = messages.length - 1; i >= 0; i--) {
       const message = messages[i]
@@ -313,12 +354,6 @@ export function SessionTurn(
     return unwrap(String(msg))
   })
 
-  const status = createMemo(() => {
-    if (props.status !== undefined) return props.status
-    if (typeof props.active === "boolean" && !props.active) return idle
-    return data.store.session_status[props.sessionID] ?? idle
-  })
-  const working = createMemo(() => isWorkInFlightStatus(status()) && active())
   const visibleTurnChange = createMemo(() => {
     const current = turnChange()
     if (!hasVisibleTurnChanges(current) || working() || turnInProgress()) return
@@ -334,7 +369,7 @@ export function SessionTurn(
     const start = message()?.time.created
     if (typeof start !== "number") return undefined
 
-    const end = assistantMessages().reduce<number | undefined>((max, item) => {
+    const end = visibleAssistantMessages().reduce<number | undefined>((max, item) => {
       const completed = item.time.completed
       if (typeof completed !== "number") return max
       if (max === undefined) return completed
@@ -349,7 +384,7 @@ export function SessionTurn(
     let visible = 0
     let reason: string | undefined
     const show = showReasoningSummaries()
-    for (const message of assistantMessages()) {
+    for (const message of visibleAssistantMessages()) {
       for (const part of list(data.store.part?.[message.id], emptyParts)) {
         if (partState(part, show) === "visible") {
           visible++
@@ -365,10 +400,67 @@ export function SessionTurn(
   const assistantVisible = createMemo(() => assistantDerived().visible)
   const reasoningHeading = createMemo(() => assistantDerived().reason)
   const showThinking = createMemo(() => {
+    // Compaction pending shows its own running indicator through the
+    // divider's shimmer + elapsed timer; don't double up.
+    if (compactionDivider() === "pending") return false
     if (!working() || !!error()) return false
     if (status().type === "retry") return false
     if (showReasoningSummaries()) return assistantVisible() === 0
     return true
+  })
+
+  const [compactionElapsedSec, setCompactionElapsedSec] = createSignal(0)
+  createEffect(() => {
+    const state = compactionDivider()
+    const summary = compactionSummary()
+    const userMsg = message()
+    if (state !== "pending" || !userMsg) {
+      setCompactionElapsedSec(0)
+      return
+    }
+    setCompactionElapsedSec(
+      compactionElapsedSeconds({
+        state,
+        summaryAssistant: summary,
+        compactionUserMessage: userMsg,
+        now: Date.now(),
+      }),
+    )
+    const interval = setInterval(() => {
+      setCompactionElapsedSec(
+        compactionElapsedSeconds({
+          state,
+          summaryAssistant: summary,
+          compactionUserMessage: userMsg,
+          now: Date.now(),
+        }),
+      )
+    }, 1000)
+    onCleanup(() => clearInterval(interval))
+  })
+  const compactionElapsedLabel = createMemo(() => {
+    if (compactionDivider() !== "pending") return undefined
+    return formatCompactionElapsed(compactionElapsedSec())
+  })
+
+  // Compaction placeholders (user message whose only part is the compaction
+  // marker) and re-injected continuation messages (auto-continue synthetic
+  // text or replay-tagged user) keep their turn row so child assistants render
+  // through `parentID`, but their user body is suppressed — the divider alone
+  // represents the compaction event.
+  const hideUserBody = createMemo(() => {
+    const ps = parts()
+    if (ps.length === 1 && ps[0]?.type === "compaction") return true
+    const msg = message()
+    if (!msg) return false
+    if (msg.replay === true) return true
+    if (ps.length === 0) return false
+    return ps.every(
+      (part) =>
+        part.type === "text" &&
+        part.synthetic === true &&
+        (part.metadata as { compaction_continue?: unknown } | undefined)?.compaction_continue === true,
+    )
   })
 
   const autoScroll = createAutoScroll({
@@ -394,18 +486,24 @@ export function SessionTurn(
                 data-slot="session-turn-message-container"
                 class={props.classes?.container}
               >
-                <div data-slot="session-turn-message-content" aria-live="off">
-                  <Message message={message} parts={parts()} actions={props.actions} />
-                </div>
-                <Show when={divider()}>
-                  <div data-slot="session-turn-compaction">
-                    <MessageDivider label={divider()} />
+                <Show when={!hideUserBody()}>
+                  <div data-slot="session-turn-message-content" aria-live="off">
+                    <Message message={message} parts={parts()} actions={props.actions} />
                   </div>
                 </Show>
-                <Show when={assistantMessages().length > 0}>
+                <Show when={divider()}>
+                  <div data-slot="session-turn-compaction">
+                    <MessageDivider
+                      label={divider()}
+                      state={compactionDivider()}
+                      elapsed={compactionElapsedLabel()}
+                    />
+                  </div>
+                </Show>
+                <Show when={visibleAssistantMessages().length > 0}>
                   <div data-slot="session-turn-assistant-content" aria-hidden={working()}>
                     <AssistantParts
-                      messages={assistantMessages()}
+                      messages={visibleAssistantMessages()}
                       showAssistantCopyPartID={assistantCopyPartID()}
                       turnDurationMs={turnDurationMs()}
                       working={working()}

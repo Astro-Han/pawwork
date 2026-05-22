@@ -7,7 +7,6 @@ import { Session } from "../../session"
 import { MessageV2 } from "../../session/message-v2"
 import { SessionPrompt } from "../../session/prompt"
 import { SessionRunState } from "@/session/run-state"
-import { SessionCompaction } from "../../session/compaction"
 import { SessionRevert } from "../../session/revert"
 import { SessionShare } from "@/share/session"
 import { Export } from "@/session/export"
@@ -18,7 +17,6 @@ import { SessionSummary } from "@/session/summary"
 import { Todo } from "../../session/todo"
 import { Effect } from "effect"
 import { AppRuntime } from "../../effect/app-runtime"
-import { Agent } from "../../agent/agent"
 import { Command } from "../../command"
 import { Log } from "@opencode-ai/core/util/log"
 import { Permission } from "@/permission"
@@ -1012,27 +1010,52 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
         const body = c.req.valid("json")
-        const session = await Session.get(sessionID)
-        await SessionRevert.cleanup(session)
-        const msgs = await Session.messages({ sessionID })
-        let currentAgent = await Agent.defaultAgent()
-        for (let i = msgs.length - 1; i >= 0; i--) {
-          const info = msgs[i].info
-          if (info.role === "user") {
-            currentAgent = info.agent || (await Agent.defaultAgent())
-            break
-          }
-        }
-        await SessionCompaction.create({
+        // Marker creation runs inside the loop's runner-protected work effect
+        // (see SessionPrompt.loop). That gives us four guarantees the
+        // pre-refactor route lacked: (1) status flips to busy *before* the
+        // compaction part event reaches clients so the divider doesn't flash
+        // the legacy-orphan "failed" frame; (2) a cancel arriving while the
+        // marker is being written hits a Running runner and interrupts the
+        // fiber instead of being silently dropped by SessionRunState.cancel;
+        // (3) the prelude path uses rejectIfBusy, so summarize calls that
+        // arrive while another run is in flight throw Session.BusyError
+        // (mapped to 400) instead of resolving `true` without writing the
+        // marker. Clients should queue the action and retry once the session
+        // goes idle; (4) revert.cleanup and agent derivation live inside
+        // the work effect, so a busy-rejected compact leaves session state
+        // untouched and the agent is picked from the post-cleanup message
+        // list (matters when the session has been reverted).
+        await SessionPrompt.loop({
           sessionID,
-          agent: currentAgent,
-          model: {
-            providerID: body.providerID,
-            modelID: body.modelID,
+          prelude: {
+            type: "compaction",
+            model: {
+              providerID: body.providerID,
+              modelID: body.modelID,
+            },
+            auto: body.auto,
           },
-          auto: body.auto,
         })
-        await SessionPrompt.loop({ sessionID })
+        // Compaction is fire-and-forget at the loop level: a pre-summary
+        // failure writes `error` onto the placeholder summary assistant and
+        // returns "stop" without throwing, so summarize would otherwise
+        // resolve `true` for a session that visibly failed. Surface the
+        // error so SDK callers can branch on it. User-initiated aborts are
+        // not failures from the route's perspective.
+        const finalMsgs = await Session.messages({ sessionID })
+        for (let i = finalMsgs.length - 1; i >= 0; i--) {
+          const info = finalMsgs[i].info
+          if (info.role !== "assistant" || info.mode !== "compaction") continue
+          if (info.error && info.error.name !== "MessageAbortedError") {
+            const raw = (info.error.data as { message?: unknown } | undefined)?.message
+            const reason =
+              typeof raw === "string" && raw.trim().length > 0
+                ? raw.trim()
+                : `Compaction failed (${info.error.name})`
+            throw new NamedError.Unknown({ message: reason })
+          }
+          break
+        }
         return c.json(true)
       },
     )

@@ -439,6 +439,7 @@ export const User = Base.extend({
   locale: z.string().optional(),
   system: z.string().optional(),
   tools: z.record(z.string(), z.boolean()).optional(),
+  replay: z.boolean().optional(),
 }).meta({
   ref: "UserMessage",
 })

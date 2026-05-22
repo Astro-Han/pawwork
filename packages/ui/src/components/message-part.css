@@ -301,8 +301,33 @@
 
   [data-slot="compaction-part-label"] {
     flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     white-space: nowrap;
     text-align: center;
+    color: var(--fg-weak);
+  }
+
+  [data-slot="compaction-part-icon"] {
+    width: 14px;
+    height: 14px;
+    display: inline-flex;
+    flex: 0 0 auto;
+  }
+
+  [data-slot="compaction-part-elapsed"] {
+    color: var(--fg-weaker);
+    font-variant-numeric: tabular-nums;
+  }
+
+  &[data-state="failed"] {
+    [data-slot="compaction-part-line"] {
+      background: color-mix(in srgb, var(--error) 35%, transparent);
+    }
+    [data-slot="compaction-part-label"] {
+      color: var(--error);
+    }
   }
 }
 

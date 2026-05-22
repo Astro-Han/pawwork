@@ -477,6 +477,7 @@ export type UserMessage = {
   tools?: {
     [key: string]: boolean
   }
+  replay?: boolean
 }
 
 export type AssistantMessage = {

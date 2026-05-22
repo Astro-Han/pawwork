@@ -1626,6 +1626,307 @@ it.live(
 )
 
 it.live(
+  "cancel during compaction prelude interrupts the run",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* ({ llm }) {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({ title: "Compaction prelude cancel" })
+        yield* seed(chat.id, { finish: "stop" })
+        yield* llm.hang
+
+        // The prelude runs inside the Runner's fiber, so cancel below would
+        // be silently dropped by SessionRunState.cancel (no-runner path) if
+        // it ran outside ensureRunning's protection. Reaching llm.wait(1)
+        // proves the prelude wrote the marker, runLoop entered, and the
+        // runner is in Running state — exactly the window the pre-refactor
+        // route exposed when status was set busy before the runner existed.
+        const fiber = yield* prompt
+          .loop({
+            sessionID: chat.id,
+            prelude: {
+              type: "compaction",
+              agent: "build",
+              model: ref,
+              auto: false,
+            },
+          })
+          .pipe(Effect.forkChild)
+        yield* llm.wait(1)
+        const cancelled = yield* prompt.cancel(chat.id)
+        expect(cancelled).toBe(true)
+
+        const exit = yield* Fiber.await(fiber)
+        expect(Exit.isSuccess(exit)).toBe(true)
+
+        const msgs = yield* sessions.messages({ sessionID: chat.id })
+        expect(msgs.some((m) => m.parts.some((p) => p.type === "compaction"))).toBe(true)
+        const summary = msgs.find((m) => m.info.role === "assistant" && m.info.summary === true)
+        expect(summary).toBeDefined()
+        if (summary?.info.role === "assistant") {
+          expect(summary.info.error?.name).toBe("MessageAbortedError")
+        }
+      }),
+      { git: true, config: providerCfg },
+    ),
+)
+
+it.live(
+  "cancel after compaction marker but before placeholder yields aborted carrier",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* ({ llm }) {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({ title: "Compaction prelude race cancel" })
+        yield* seed(chat.id, { finish: "stop" })
+        yield* llm.hang
+
+        const fiber = yield* prompt
+          .loop({
+            sessionID: chat.id,
+            prelude: { type: "compaction", agent: "build", model: ref, auto: false },
+          })
+          .pipe(Effect.forkChild)
+
+        // Polling targets the precise race window: marker present, summary
+        // placeholder not yet written. Breaking only on that combined state
+        // (rather than the marker alone) guarantees the cancel lands inside
+        // the window the new onInterrupt fallback was added to cover.
+        // observedRaceWindow distinguishes "loop hit the window then broke"
+        // from "deadline expired" — a setup failure (placeholder beat
+        // polling) fails explicitly here instead of producing a confusing
+        // propagation_point mismatch downstream.
+        const deadline = Date.now() + 5000
+        let observedRaceWindow = false
+        while (Date.now() < deadline) {
+          const snapshot = yield* sessions.messages({ sessionID: chat.id })
+          const hasMarker = snapshot.some((m) => m.parts.some((p) => p.type === "compaction"))
+          const hasPlaceholder = snapshot.some((m) => m.info.role === "assistant" && m.info.summary === true)
+          if (hasMarker && !hasPlaceholder) {
+            observedRaceWindow = true
+            break
+          }
+          yield* Effect.sleep("1 millis")
+        }
+        expect(observedRaceWindow).toBe(true)
+
+        const cancelled = yield* prompt.cancel(chat.id)
+        expect(cancelled).toBe(true)
+
+        const exit = yield* Fiber.await(fiber)
+        expect(Exit.isSuccess(exit)).toBe(true)
+
+        const msgs = yield* sessions.messages({ sessionID: chat.id })
+        const marker = msgs.find((m) => m.parts.some((p) => p.type === "compaction"))
+        expect(marker).toBeDefined()
+        const summary = msgs.find((m) => m.info.role === "assistant" && m.info.summary === true)
+        expect(summary).toBeDefined()
+        if (summary?.info.role === "assistant" && marker) {
+          expect(summary.info.error?.name).toBe("MessageAbortedError")
+          expect(summary.info.finish).toBe("error")
+          expect(typeof summary.info.time.completed).toBe("number")
+          expect(summary.info.parentID).toBe(marker.info.id)
+          // Locks the new onInterrupt fallback branch — if the test ever
+          // misses the race window and the existing processCompaction
+          // finalizer handles the cancel, propagation_point would differ.
+          expect(summary.info.diagnostics?.abort?.propagation_point).toBe(
+            "session.prompt.loop.onInterrupt.compaction_prelude",
+          )
+        }
+      }),
+      { git: true, config: providerCfg },
+    ),
+)
+
+it.live(
+  "cancel after a queued user message still resolves the orphaned compaction marker",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* ({ llm }) {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({ title: "Compaction queued-prompt race cancel" })
+        yield* seed(chat.id, { finish: "stop" })
+        yield* llm.hang
+
+        const fiber = yield* prompt
+          .loop({
+            sessionID: chat.id,
+            prelude: { type: "compaction", agent: "build", model: ref, auto: false },
+          })
+          .pipe(Effect.forkChild)
+
+        const deadline = Date.now() + 5000
+        let observedRaceWindow = false
+        while (Date.now() < deadline) {
+          const snapshot = yield* sessions.messages({ sessionID: chat.id })
+          const hasMarker = snapshot.some((m) => m.parts.some((p) => p.type === "compaction"))
+          const hasPlaceholder = snapshot.some((m) => m.info.role === "assistant" && m.info.summary === true)
+          if (hasMarker && !hasPlaceholder) {
+            observedRaceWindow = true
+            break
+          }
+          yield* Effect.sleep("1 millis")
+        }
+        expect(observedRaceWindow).toBe(true)
+
+        // Inject a queued user message ahead of the cancel — mirrors what
+        // SessionPrompt.prompt does when it lands while compaction is
+        // running: createUserMessage persists the new user before
+        // ensureRunning awaitRuns the existing run. After this,
+        // currentTurnTarget returns the queued user instead of the
+        // marker, so the older "current turn is marker" gate would skip
+        // the carrier write and leave the marker as an orphan rendering
+        // `failed`. The sweep must find the marker regardless.
+        const queuedUser = yield* user(chat.id, "queued prompt")
+
+        const cancelled = yield* prompt.cancel(chat.id)
+        expect(cancelled).toBe(true)
+
+        const exit = yield* Fiber.await(fiber)
+        expect(Exit.isSuccess(exit)).toBe(true)
+
+        const msgs = yield* sessions.messages({ sessionID: chat.id })
+        const marker = msgs.find((m) => m.parts.some((p) => p.type === "compaction"))
+        expect(marker).toBeDefined()
+        expect(queuedUser.id).not.toBe(marker?.info.id)
+        const summary = msgs.find(
+          (m) =>
+            m.info.role === "assistant" &&
+            m.info.summary === true &&
+            m.info.parentID === marker?.info.id,
+        )
+        expect(summary).toBeDefined()
+        if (summary?.info.role === "assistant" && marker) {
+          expect(summary.info.error?.name).toBe("MessageAbortedError")
+          expect(summary.info.finish).toBe("error")
+          expect(typeof summary.info.time.completed).toBe("number")
+          expect(summary.info.diagnostics?.abort?.propagation_point).toBe(
+            "session.prompt.loop.onInterrupt.compaction_prelude",
+          )
+        }
+      }),
+      { git: true, config: providerCfg },
+    ),
+)
+
+it.live(
+  "prelude derives compaction agent from the post-cleanup latest user",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* ({ llm }) {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({ title: "Prelude agent derivation" })
+
+        // userOne uses the default "build" agent — this is the agent
+        // /summarize must pick after revert.cleanup drops everything
+        // newer than userOne.
+        const userOne = yield* user(chat.id, "first")
+
+        // userTwo is written directly with a different agent. revert
+        // points back to userOne, so cleanup removes userTwo before
+        // the prelude derives its agent. Pre-cleanup derivation (the
+        // regression this test locks against) would have picked
+        // "ninja" off the still-present userTwo.
+        yield* sessions.updateMessage({
+          id: MessageID.ascending(),
+          role: "user",
+          sessionID: chat.id,
+          agent: "ninja",
+          model: ref,
+          time: { created: Date.now() },
+        })
+
+        yield* sessions.setRevert({
+          sessionID: chat.id,
+          revert: { messageID: userOne.id },
+          summary: { additions: 0, deletions: 0, files: 0 },
+        })
+
+        yield* llm.hang
+
+        const fiber = yield* prompt
+          .loop({
+            sessionID: chat.id,
+            prelude: { type: "compaction", model: ref, auto: false },
+          })
+          .pipe(Effect.forkChild)
+
+        // Poll until the marker is written, then cancel — only the
+        // marker's agent matters for this assertion; the rest of the
+        // run can abort.
+        const deadline = Date.now() + 5000
+        let marker: MessageV2.WithParts | undefined
+        while (Date.now() < deadline) {
+          const snapshot = yield* sessions.messages({ sessionID: chat.id })
+          marker = snapshot.find((m) => m.parts.some((p) => p.type === "compaction"))
+          if (marker) break
+          yield* Effect.sleep("1 millis")
+        }
+        expect(marker).toBeDefined()
+
+        yield* prompt.cancel(chat.id)
+        const exit = yield* Fiber.await(fiber)
+        expect(Exit.isSuccess(exit)).toBe(true)
+
+        // After revert.cleanup, userTwo ("ninja") is gone; userOne
+        // ("build") is the latest remaining user, so the marker must
+        // record "build".
+        if (marker?.info.role === "user") {
+          expect(marker.info.agent).toBe("build")
+        }
+      }),
+      { git: true, config: providerCfg },
+    ),
+)
+
+it.live(
+  "loop rejects compaction prelude when a run is already in flight",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* ({ llm }) {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({ title: "Compaction prelude busy" })
+        yield* llm.hang
+        yield* user(chat.id, "hi")
+
+        // Hold a normal prompt run in Running so ensureRunning sees a non-Idle
+        // state when the prelude call arrives. Pre-fix, the second call would
+        // awaitRun(existing) and silently resolve `true` without writing the
+        // marker — this asserts rejectIfBusy fires instead.
+        const fiber = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
+        yield* llm.wait(1)
+
+        const before = yield* sessions.messages({ sessionID: chat.id })
+        const compactionBefore = before.filter((m) => m.parts.some((p) => p.type === "compaction")).length
+
+        const exit = yield* prompt
+          .loop({
+            sessionID: chat.id,
+            prelude: { type: "compaction", agent: "build", model: ref, auto: false },
+          })
+          .pipe(Effect.exit)
+        expect(Exit.isFailure(exit)).toBe(true)
+        if (Exit.isFailure(exit)) {
+          expect(Cause.squash(exit.cause)).toBeInstanceOf(Session.BusyError)
+        }
+
+        const after = yield* sessions.messages({ sessionID: chat.id })
+        const compactionAfter = after.filter((m) => m.parts.some((p) => p.type === "compaction")).length
+        expect(compactionAfter).toBe(compactionBefore)
+
+        yield* prompt.cancel(chat.id)
+        yield* Fiber.await(fiber)
+      }),
+      { git: true, config: providerCfg },
+    ),
+)
+
+it.live(
   "cancel preserves explicit caller source in abort diagnostics",
   () =>
     provideTmpdirServer(

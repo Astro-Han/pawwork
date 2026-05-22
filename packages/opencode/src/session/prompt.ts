@@ -2232,6 +2232,101 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       }) =>
         Effect.gen(function* () {
           interruptedSessions.add(input.sessionID)
+          // Sweep any pending compaction marker first — a user message with
+          // a `compaction` part but no summary assistant child. Covers two
+          // race shapes: (1) marker just written, processCompaction has not
+          // reached its placeholder yet; (2) a normal SessionPrompt.prompt
+          // landed while compaction was running and persisted its user
+          // message before awaitRun, so currentTurnTarget now points at
+          // that newer user instead of the marker. Both leave the marker
+          // orphaned and the divider would render `failed` even though the
+          // cancel was a clean abort.
+          //
+          // Semantic boundary — only handle the *newest* compaction marker,
+          // and only if it lacks a summary child. Do NOT iterate older
+          // markers looking for any orphan. A historical orphan (e.g. left
+          // by a crashed prior session) is rendered `failed` by the divider
+          // because it *actually* failed; rewriting it as `aborted` here
+          // would attribute a past crash to the current cancel and stamp
+          // it with this cancel's `propagation_point`, which is a lie.
+          //
+          // The "newest marker = the marker this cancel can be attributed
+          // to" invariant rests on two upstream guarantees: (a) the Runner
+          // is per-session and serial — only one work effect can be writing
+          // a marker at any moment; (b) the prelude path uses rejectIfBusy
+          // (run-state.ts ~L173), so a second /summarize cannot land
+          // concurrently and produce a competing newer marker. If either
+          // guarantee weakens, this sweep would need run-local attribution
+          // (e.g. capture a high-water-mark message id at work entry and
+          // only match markers above it).
+          const pendingMarker = yield* sessions.findMessage(input.sessionID, (m) =>
+            m.info.role === "user" && m.parts.some((p) => p.type === "compaction"),
+          )
+          if (Option.isSome(pendingMarker)) {
+            const markerInfo = pendingMarker.value.info
+            if (markerInfo.role === "user") {
+              const summaryChild = yield* sessions.findMessage(
+                input.sessionID,
+                (m) =>
+                  m.info.role === "assistant" &&
+                  m.info.parentID === markerInfo.id &&
+                  m.info.summary === true,
+              )
+              if (Option.isNone(summaryChild)) {
+                const sess = yield* sessions.get(input.sessionID)
+                const exec = sess.executionContext
+                const recordedAt = meta?.recordedAt ?? Date.now()
+                const abortError = new MessageV2.AbortedError({ message: "Compaction aborted" })
+                const placeholder: MessageV2.Assistant = {
+                  id: MessageID.ascending(),
+                  role: "assistant",
+                  parentID: markerInfo.id,
+                  sessionID: input.sessionID,
+                  mode: "compaction",
+                  agent: "compaction",
+                  variant: markerInfo.model.variant,
+                  summary: true,
+                  path: {
+                    cwd: exec.activeDirectory,
+                    root: exec.ownerDirectory,
+                  },
+                  cost: 0,
+                  tokens: {
+                    input: 0,
+                    output: 0,
+                    reasoning: 0,
+                    cache: { read: 0, write: 0 },
+                  },
+                  modelID: markerInfo.model.modelID,
+                  providerID: markerInfo.model.providerID,
+                  time: {
+                    created: recordedAt,
+                    completed: recordedAt,
+                  },
+                  error: abortError.toObject(),
+                  finish: "error",
+                  diagnostics: {
+                    abort: {
+                      source: meta?.source,
+                      reason: meta?.reason,
+                      title_generation_state: titleGenerationStateAtAbort(
+                        titleGenerationProgress.get(input.sessionID),
+                        recordedAt,
+                      ),
+                      propagation_point:
+                        meta?.propagationPoint ?? "session.prompt.loop.onInterrupt.compaction_prelude",
+                      error_name: abortError.name,
+                      error_message: "Compaction aborted",
+                      via_ctx_abort: meta?.viaCtxAbort,
+                      recorded_at: recordedAt,
+                    },
+                  },
+                }
+                yield* sessions.updateMessage(placeholder)
+                return { info: placeholder, parts: [] }
+              }
+            }
+          }
           const assistant = yield* currentTurnTarget(input.sessionID)
           if (assistant.info.role === "assistant") {
             const error = assistant.info.error
@@ -2264,7 +2359,62 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           }
           return assistant
         })
-      return yield* state.ensureRunning(input.sessionID, onInterrupt, runLoop(input.sessionID))
+      const work = Effect.gen(function* () {
+        // Two reasons busy goes first. (1) The compaction part event must
+        // not race ahead of `session.status: busy` — the divider's
+        // "no summary + not working" branch would otherwise flash the
+        // legacy-orphan failed state for one render frame. (2) The work
+        // effect runs inside the Runner's fiber, so a cancel arriving here
+        // hits a Running runner and Fiber.interrupt fires — SessionRunState
+        // .cancel's no-runner path can't silently drop the abort.
+        yield* status.set(input.sessionID, { type: "busy" })
+        if (input.prelude?.type === "compaction") {
+          // revert.cleanup is part of the prelude's atomic transaction: a
+          // busy-rejected /summarize must leave revert state untouched, so
+          // the cleanup runs only after the Runner has won the Idle slot.
+          // Previously this lived in the route handler, which meant a
+          // BusyError-rejected compact had already mutated session.revert
+          // by the time the rejection fired.
+          yield* revert.cleanup(yield* sessions.get(input.sessionID))
+          // Agent derivation must read the post-cleanup message list — a
+          // reverted session has discarded-but-still-physically-present
+          // user messages, and revert.cleanup is what drops them. Picking
+          // the agent from the latest remaining user keeps /summarize
+          // honoring the revert point's last active agent.
+          let agent = input.prelude.agent
+          if (!agent) {
+            const msgs = yield* sessions.messages({ sessionID: input.sessionID })
+            agent = yield* agents.defaultAgent()
+            for (let i = msgs.length - 1; i >= 0; i--) {
+              const info = msgs[i].info
+              if (info.role === "user") {
+                agent = info.agent || agent
+                break
+              }
+            }
+          }
+          yield* compaction.create({
+            sessionID: input.sessionID,
+            agent,
+            model: input.prelude.model,
+            auto: input.prelude.auto,
+          })
+        }
+        return yield* runLoop(input.sessionID)
+      })
+      // rejectIfBusy is the prelude path's safety net: a prelude's side
+      // effects (writing the compaction marker) only run when ensureRunning
+      // actually executes `work`, and that only happens from the Idle branch
+      // of the runner's atomic ref-modify. Without this flag a `loop` call
+      // that arrives while another run is in flight would silently
+      // `awaitRun(existing)` and resolve to the previous run's result — the
+      // requested compaction would never happen, but the route would return
+      // `true`. UI callers handle the resulting `Session.BusyError` (mapped
+      // to HTTP 400 by middleware) by queuing the compact action through the
+      // followup machinery and auto-retrying after the session idles.
+      return yield* state.ensureRunning(input.sessionID, onInterrupt, work, {
+        rejectIfBusy: input.prelude !== undefined,
+      })
     })
 
     const shell: (input: ShellInput) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.shell")(
@@ -2551,6 +2701,20 @@ export async function cancel(sessionID: SessionID, options?: { source?: string }
 
 export const LoopInput = z.object({
   sessionID: SessionID.zod,
+  // Optional setup that must run inside the Runner's fiber — keeps the
+  // cancel-during-setup signal alive (see loop() above).
+  prelude: z
+    .object({
+      type: z.literal("compaction"),
+      // Optional: when omitted the loop derives the agent from the last
+      // user message AFTER revert.cleanup has run. Derivation must happen
+      // post-cleanup or a reverted session would pick the agent off a
+      // discarded user message.
+      agent: z.string().optional(),
+      model: z.object({ providerID: ProviderID.zod, modelID: ModelID.zod }),
+      auto: z.boolean(),
+    })
+    .optional(),
 })
 
 export async function loop(input: z.infer<typeof LoopInput>) {
