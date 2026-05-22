@@ -57,9 +57,10 @@ async function readClsProbe(page: Page) {
   )
 }
 
-async function expectDiffLinesVisible(diff: Locator) {
+async function expectDiffLinesVisible(diff: Locator, expectedText: string) {
   const lines = diff.locator("[data-line]")
   await expect(lines.first()).toBeVisible({ timeout: 30_000 })
+  await expect(lines.filter({ hasText: expectedText }).first()).toBeVisible({ timeout: 30_000 })
   return lines
 }
 
@@ -86,7 +87,7 @@ test("turn-change file rows reserve diff height before rendering", async ({ page
       })
       .toBeGreaterThanOrEqual(384)
     await expect(diff.locator('[data-component="file"]').first()).toBeVisible({ timeout: 30_000 })
-    await expectDiffLinesVisible(diff)
+    await expectDiffLinesVisible(diff, "alpha replacement")
     await row.click()
     await expect(diff).toHaveCount(0)
   }
@@ -110,7 +111,7 @@ test("small replacement diffs settle close to rendered content height", async ({
   const diff = card.locator('[data-component="session-turn-change-diff"]').first()
   await expect(diff).toBeVisible()
   await expect(diff.locator('[data-component="file"]').first()).toBeVisible({ timeout: 30_000 })
-  const lines = await expectDiffLinesVisible(diff)
+  const lines = await expectDiffLinesVisible(diff, "delta replacement")
 
   await expect
     .poll(async () => {
