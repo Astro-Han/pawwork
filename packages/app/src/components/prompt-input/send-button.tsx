@@ -22,15 +22,11 @@ export const SendButton: Component<SendButtonProps> = (props) => {
       onClick={props.onClick}
       style={{
         ...(props.style ?? {}),
-        // Send button affordance is theme-locked: orange send / ink stop look
-        // identical in light and dark so the user's muscle memory holds.
-        // Theme-aware tokens would mirror across themes (bug: dark idle becomes
-        // orange + dark-page-color icon; dark stopping becomes bone-white + dark icon).
         background: props.disabled
           ? "var(--icon-weak)"
           : props.stopping
-            ? "#1A1613"
-            : "var(--button-brand-base)",
+            ? "var(--fg-strong)"
+            : "var(--brand-primary)",
       }}
       class="inline-flex h-[30px] w-[30px] items-center justify-center rounded-full transition-colors duration-150 disabled:cursor-not-allowed"
     >
@@ -38,7 +34,7 @@ export const SendButton: Component<SendButtonProps> = (props) => {
         name={props.stopping ? "stop-square" : "arrow-up"}
         class="size-[16px]"
         data-icon={props.stopping ? "stop" : "arrow-up"}
-        style={{ color: props.disabled ? "var(--fg-weak)" : "#FFFFFF" }}
+        style={{ color: "var(--bg-base)" }}
       />
     </button>
   )
