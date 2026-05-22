@@ -8,9 +8,12 @@ import { composeGrid, snapOutputPath, type Shot } from "./_compose"
 test.use({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 })
 
 // Focused crop on the sidebar↔thread column boundary in both themes.
-// app-shell already covers the full shell composition; this target zooms
-// in on the 1px hairline so the regression signal is "did the divider go
-// missing / wrong-alpha" rather than getting lost in a 1440x900 thumbnail.
+// Preview anchor for human-eye verification, not a regression gate: the
+// PNG is written to the snap output dir and the test only asserts the
+// buffer is non-empty. Token-level regressions (alpha drift, missing
+// border-right token) are caught by `theme-parity`. App-shell snap
+// covers the full shell composition; this one zooms in on the 80px
+// window straddling the seam so the artifact is readable at a glance.
 async function captureBoundary(page: Page, label: "light" | "dark"): Promise<Shot> {
   await openSidebar(page)
   const sidebar = page.locator(pawworkSidebarSelector)
@@ -20,14 +23,17 @@ async function captureBoundary(page: Page, label: "light" | "dark"): Promise<Sho
 
   // 80px window straddling the right edge of the sidebar so the divider
   // sits in the middle of the frame against both sidebar fill and main fill.
+  // Anchor y/height to the sidebar box so the titlebar above the sidebar
+  // doesn't leak into the crop.
   const seamX = Math.round(box.x + box.width)
   const cropX = Math.max(0, seamX - 40)
   const cropW = 80
-  const cropH = Math.min(640, page.viewportSize()?.height ?? 900)
+  const cropY = Math.max(0, Math.round(box.y))
+  const cropH = Math.min(640, Math.round(box.height))
 
   return {
     name: label,
-    buf: await page.screenshot({ clip: { x: cropX, y: 0, width: cropW, height: cropH } }),
+    buf: await page.screenshot({ clip: { x: cropX, y: cropY, width: cropW, height: cropH } }),
   }
 }
 
