@@ -78,8 +78,7 @@ export async function routeTurnChangeDiff(page: Page, input: { sessionID: string
         sessionID: input.sessionID,
         turnID,
         messageID: turnID,
-        undoAvailable: true,
-        redoAvailable: false,
+        kind: "captured",
         files: [
           {
             path: TURN_CHANGE_DIFF_FILE_PATH,
@@ -88,6 +87,7 @@ export async function routeTurnChangeDiff(page: Page, input: { sessionID: string
             deletions: 0,
             patch: turnChangeDiffPatch,
             expandable: true,
+            restoreState: "applied",
           },
           {
             path: TURN_CHANGE_MODIFIED_DIFF_FILE_PATH,
@@ -96,6 +96,7 @@ export async function routeTurnChangeDiff(page: Page, input: { sessionID: string
             deletions: 6,
             patch: turnChangeModifiedDiffPatch,
             expandable: true,
+            restoreState: "applied",
           },
           {
             path: TURN_CHANGE_SMALL_MODIFIED_DIFF_FILE_PATH,
@@ -104,6 +105,7 @@ export async function routeTurnChangeDiff(page: Page, input: { sessionID: string
             deletions: 1,
             patch: turnChangeSmallModifiedDiffPatch,
             expandable: true,
+            restoreState: "applied",
           },
         ],
       }),

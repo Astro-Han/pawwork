@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test"
+import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures"
 import {
   routeTurnChangeDiff,
@@ -57,6 +57,12 @@ async function readClsProbe(page: Page) {
   )
 }
 
+async function expectDiffLinesVisible(diff: Locator) {
+  const lines = diff.locator("[data-line]")
+  await expect(lines.first()).toBeVisible({ timeout: 30_000 })
+  return lines
+}
+
 test("turn-change file rows reserve diff height before rendering", async ({ page, llm, project }) => {
   test.setTimeout(180_000)
 
@@ -80,6 +86,7 @@ test("turn-change file rows reserve diff height before rendering", async ({ page
       })
       .toBeGreaterThanOrEqual(384)
     await expect(diff.locator('[data-component="file"]').first()).toBeVisible({ timeout: 30_000 })
+    await expectDiffLinesVisible(diff)
     await row.click()
     await expect(diff).toHaveCount(0)
   }
@@ -103,8 +110,7 @@ test("small replacement diffs settle close to rendered content height", async ({
   const diff = card.locator('[data-component="session-turn-change-diff"]').first()
   await expect(diff).toBeVisible()
   await expect(diff.locator('[data-component="file"]').first()).toBeVisible({ timeout: 30_000 })
-  const lines = diff.locator("[data-line]")
-  await expect(lines.first()).toBeVisible({ timeout: 30_000 })
+  const lines = await expectDiffLinesVisible(diff)
 
   await expect
     .poll(async () => {
