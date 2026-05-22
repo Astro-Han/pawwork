@@ -2319,6 +2319,13 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         // .cancel's no-runner path can't silently drop the abort.
         yield* status.set(input.sessionID, { type: "busy" })
         if (input.prelude?.type === "compaction") {
+          // revert.cleanup is part of the prelude's atomic transaction: a
+          // busy-rejected /summarize must leave revert state untouched, so
+          // the cleanup runs only after the Runner has won the Idle slot.
+          // Previously this lived in the route handler, which meant a
+          // BusyError-rejected compact had already mutated session.revert
+          // by the time the rejection fired.
+          yield* revert.cleanup(yield* sessions.get(input.sessionID))
           yield* compaction.create({
             sessionID: input.sessionID,
             agent: input.prelude.agent,

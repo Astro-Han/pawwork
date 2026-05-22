@@ -1542,20 +1542,19 @@ it.live(
           })
           .pipe(Effect.forkChild)
 
-        // Poll until the compaction marker is observable, then cancel
-        // immediately. This targets the window between `compaction.create`
-        // returning and `processCompaction` writing its placeholder
-        // assistant. The contract this test locks is end-state: regardless
-        // of which path resolves the abort (the new onInterrupt fallback
-        // that writes a terminal carrier from scratch, or the existing
-        // `processCompaction` `Effect.onInterrupt` finalizer when the
-        // placeholder already exists), the divider must derive `aborted`,
-        // not `failed`. Pre-fix this window left an orphan: compaction part
-        // written, no summary assistant, status idle → frontend `failed`.
+        // Polling targets the precise race window: marker present, summary
+        // placeholder not yet written. Breaking only on that combined state
+        // (rather than the marker alone) guarantees the cancel lands inside
+        // the window the new onInterrupt fallback was added to cover. If
+        // the cancel slipped past the placeholder write, the
+        // propagation_point assertion below would catch it — the old
+        // processCompaction finalizer tags differently.
         const deadline = Date.now() + 5000
         while (Date.now() < deadline) {
           const snapshot = yield* sessions.messages({ sessionID: chat.id })
-          if (snapshot.some((m) => m.parts.some((p) => p.type === "compaction"))) break
+          const hasMarker = snapshot.some((m) => m.parts.some((p) => p.type === "compaction"))
+          const hasPlaceholder = snapshot.some((m) => m.info.role === "assistant" && m.info.summary === true)
+          if (hasMarker && !hasPlaceholder) break
           yield* Effect.sleep("1 millis")
         }
 
@@ -1575,6 +1574,12 @@ it.live(
           expect(summary.info.finish).toBe("error")
           expect(typeof summary.info.time.completed).toBe("number")
           expect(summary.info.parentID).toBe(marker.info.id)
+          // Locks the new onInterrupt fallback branch — if the test ever
+          // misses the race window and the existing processCompaction
+          // finalizer handles the cancel, propagation_point would differ.
+          expect(summary.info.diagnostics?.abort?.propagation_point).toBe(
+            "session.prompt.loop.onInterrupt.compaction_prelude",
+          )
         }
       }),
       { git: true, config: providerCfg },
