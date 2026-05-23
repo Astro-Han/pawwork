@@ -229,7 +229,7 @@
   [data-slot="session-turn-change-row"] {
     height: 30px;
     display: grid;
-    grid-template-columns: 16px minmax(0, 1fr) 60px;
+    grid-template-columns: 16px minmax(0, 1fr) minmax(60px, max-content);
     align-items: center;
     gap: var(--space-sm);
     padding: 0 12px;
