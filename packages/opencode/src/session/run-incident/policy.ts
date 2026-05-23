@@ -77,6 +77,12 @@ export function recoveryFor(input: {
       reason: "visible_output_without_tool_execution",
     }
   }
+  if (input.facts.user_cancel_seen) {
+    return { ...base, recommendation: "do_not_retry", confidence: "high", reason: "user_cancel" }
+  }
+  if (input.facts.lifecycle_close_seen) {
+    return { ...base, recommendation: "do_not_retry", confidence: "high", reason: "local_lifecycle_close" }
+  }
   if (input.cause.category === "provider_transport_disconnect" || input.cause.category === "watchdog_timeout") {
     return {
       ...base,

@@ -17,6 +17,7 @@ import { LLM } from "../../src/session/llm"
 import { MessageV2 } from "../../src/session/message-v2"
 import { SessionProcessor } from "../../src/session/processor"
 import { SessionDiagnostics } from "../../src/session/diagnostics"
+import { createLifecycleCloseAction, withLifecycleCloseAction } from "../../src/session/lifecycle-provenance"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { SessionStatus } from "../../src/session/status"
 import { SessionSummary } from "../../src/session/summary"
@@ -1106,6 +1107,83 @@ it.live("connect timeout before provider progress auto retries once and succeeds
   ),
 )
 
+it.live("connect timeout auto retry stops if lifecycle closes during backoff", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const retrySeen = defer<void>()
+        const { processors, session, provider } = yield* boot()
+        const bus = yield* Bus.Service
+
+        yield* llm.hang
+        yield* llm.text("should not run")
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "auto retry lifecycle close")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const off = yield* bus.subscribeCallback(SessionStatus.Event.Status, (evt) => {
+          if (evt.properties.sessionID !== chat.id) return
+          if (evt.properties.status.type === "retry") retrySeen.resolve()
+        })
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const run = yield* handle
+          .process({
+            user: {
+              id: parent.id,
+              sessionID: chat.id,
+              role: "user",
+              time: parent.time,
+              agent: parent.agent,
+              model: { providerID: ref.providerID, modelID: ref.modelID },
+            } satisfies MessageV2.User,
+            sessionID: chat.id,
+            model: mdl,
+            agent: agent(),
+            system: [],
+            messages: [{ role: "user", content: "auto retry lifecycle close" }],
+            tools: {},
+            connectTimeoutMs: 20,
+            streamTimeoutMs: 1_000,
+          })
+          .pipe(Effect.forkChild)
+
+        yield* Effect.promise(() => retrySeen.promise)
+        const action = createLifecycleCloseAction("instance_reload", {
+          affectedDirectories: [path.resolve(dir)],
+          origin: { source: "runtime", operation: "instance.reload", reason: "test_retry_backoff" },
+        })
+        yield* Effect.promise(() =>
+          withLifecycleCloseAction([path.resolve(dir)], action, async () => {
+            await Bun.sleep(1_200)
+          }),
+        )
+        const value = yield* Fiber.join(run)
+        off()
+
+        const stored = (yield* session.messages({ sessionID: chat.id })).find(
+          (message) => message.info.role === "assistant" && message.info.id === msg.id,
+        )
+        expect(value).toBe("stop")
+        expect(yield* llm.calls).toBe(1)
+        expect(stored?.info.role).toBe("assistant")
+        if (stored?.info.role === "assistant") {
+          expect(stored.info.diagnostics?.run_observability?.incident?.facts.lifecycle_close_seen).toBe(true)
+          expect(stored.info.diagnostics?.run_observability?.incident?.recovery).toMatchObject({
+            recommendation: "do_not_retry",
+            reason: "local_lifecycle_close",
+          })
+        }
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
 it.live("retryable stream error after visible output does not replay the assistant message", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>
@@ -1177,6 +1255,8 @@ it.live("retryable stream error after visible output does not replay the assista
         expect(textParts.map((part) => part.text)).not.toContain("replayed")
         expect(stored?.info.role).toBe("assistant")
         if (stored?.info.role === "assistant") {
+          expect(stored.info.error?.data.message).toContain("interrupted after output started")
+          expect(stored.info.error?.data.message).not.toContain("stream terminated")
           expect(stored.info.diagnostics?.run_observability?.incident?.recovery).toMatchObject({
             recommendation: "offer_continue",
             reason: "visible_output_without_tool_execution",

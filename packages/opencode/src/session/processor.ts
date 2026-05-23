@@ -143,6 +143,31 @@ function sideEffectBoundarySnapshot(tools: LLM.StreamInput["tools"]): RunObserva
   }
 }
 
+function recoveryInterruptionMessage(recovery: NonNullable<RunObservability.Summary["incident"]>["recovery"] | undefined) {
+  switch (recovery?.reason) {
+    case "visible_output_without_tool_execution":
+      return "The response was interrupted after output started. PawWork did not automatically retry to avoid duplicate text."
+    case "partial_tool_input_without_execution":
+      return "The connection broke while PawWork was preparing a tool call. The tool did not run."
+    case "tool_call_materialized_without_execution":
+      return "A tool call was prepared before the interruption. Recovery needs confirmation before continuing."
+    case "tool_execution_started":
+      return "The connection was interrupted after tool execution started. PawWork did not automatically retry."
+    case "unsafe_side_effect_started":
+      return "The connection was interrupted after a side effect may have started. PawWork did not automatically retry."
+    case "side_effect_facts_incomplete":
+      return "The connection was interrupted, and PawWork could not prove whether external side effects were possible."
+    case "local_lifecycle_close":
+      return "The run was interrupted by a local lifecycle close."
+    case "user_cancel":
+      return "The run was cancelled by the user."
+    case "no_visible_output_or_tool_execution":
+      return "The provider connection was interrupted before PawWork produced output or ran tools."
+    default:
+      return undefined
+  }
+}
+
 type PendingLoopAction = {
   loopAction: "block" | "stop"
   tool: string
@@ -1098,7 +1123,7 @@ export const layer: Layer.Layer<
       const halt = Effect.fn("SessionProcessor.halt")(function* (
         e: unknown,
         attemptID: RunObservability.AttemptID | undefined = ctx.currentAttemptID,
-        options?: { recordFailure?: boolean },
+        options?: { recordFailure?: boolean; interruptionMessage?: string },
       ) {
         slog.error("process", { error: errorMessage(e), stack: e instanceof Error ? e.stack : undefined })
         ctx.streamError = true
@@ -1129,6 +1154,9 @@ export const layer: Layer.Layer<
         }
 
         const error = parse(e)
+        if (options?.interruptionMessage && "data" in error && error.data && typeof error.data === "object") {
+          error.data = { ...error.data, message: options.interruptionMessage }
+        }
         if (MessageV2.ContextOverflowError.isInstance(error)) {
           ctx.needsCompaction = true
           yield* bus.publish(Session.Event.Error, { sessionID: ctx.sessionID, error })
@@ -1285,7 +1313,10 @@ export const layer: Layer.Layer<
               if (yield* retryStillAllowed("after_backoff")) continue
             }
 
-            yield* halt(result.error, attemptID, { recordFailure: false })
+            yield* halt(result.error, attemptID, {
+              recordFailure: false,
+              interruptionMessage: recoveryInterruptionMessage(decision),
+            })
             break
           }
 
