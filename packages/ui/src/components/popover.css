@@ -131,8 +131,7 @@
   &[data-selected],
   &[data-force-state="selected"] {
     background: var(--surface-interactive-base);
-    font-weight: 500;
-    color: var(--fg-strong);
+    font-weight: var(--font-weight-emphasis);
   }
 
   &[data-disabled],

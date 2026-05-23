@@ -231,14 +231,14 @@
  * `[data-disabled]` block (0,4,0); the :not() guard is what lets the
  * disabled rule still take over. */
 :root[data-color-scheme="dark"]
-  [data-component="input"][data-variant="normal"]
-  [data-slot="input-wrapper"]:not([data-disabled]):not([data-readonly]) {
+  [data-component="input"][data-variant="normal"]:not([data-disabled]):not([data-readonly])
+  [data-slot="input-wrapper"] {
   background: var(--surface-raised);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-color-scheme="light"])
-    [data-component="input"][data-variant="normal"]
-    [data-slot="input-wrapper"]:not([data-disabled]):not([data-readonly]) {
+    [data-component="input"][data-variant="normal"]:not([data-disabled]):not([data-readonly])
+    [data-slot="input-wrapper"] {
     background: var(--surface-raised);
   }
 }
