@@ -28,6 +28,7 @@ const expectedSmokeTests = [
   "packages/app/e2e/settings/settings.spec.ts:@smoke PawWork settings opens as a full-pane surface, not a dialog",
   "packages/app/e2e/settings/settings.spec.ts:@smoke new installs start with the PawWork theme",
   "packages/app/e2e/settings/settings.spec.ts:@smoke settings dialog opens, switches tabs, closes",
+  "packages/app/e2e/sidebar/sidebar-drag-pointer.spec.ts:@smoke real drag (pointer) round-trips Pinned ↔ All without duplicating rows",
   "packages/app/e2e/sidebar/sidebar.spec.ts:@smoke sidebar can be collapsed and expanded",
   "packages/app/e2e/terminal/terminal-init.spec.ts:@smoke terminal mounts and can create a second tab",
 ]
