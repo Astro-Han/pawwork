@@ -4,8 +4,7 @@ import { ContextMenu } from "@opencode-ai/ui/context-menu"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
-import Sortable from "sortablejs"
-import { createEffect, createMemo, createSignal, For, onCleanup, Show, type Accessor, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, For, Show, type Accessor, type JSX } from "solid-js"
 import { useLanguage } from "@/context/language"
 import { getRelativeTime } from "@/utils/time"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
@@ -14,6 +13,7 @@ import { DialogRenameSession } from "@/components/dialog-rename-session"
 import { DialogRenameProject } from "@/components/dialog-rename-project"
 import { DialogRemoveProject } from "@/components/dialog-remove-project"
 import { buildPawworkSessionSections, type PawworkSortMode } from "./pawwork-session-nav"
+import { createSortableAttacher } from "./pawwork-sidebar-drag"
 import { buildPawworkSidebarCollections } from "./pawwork-sidebar-identity"
 import { buildSessionMenuActions, type SessionMenuAction } from "./session-menu-actions"
 import { SessionItem } from "./sidebar-items"
@@ -365,115 +365,19 @@ export const PawworkSidebar = (props: {
     })
   })
 
-  // SortableJS cross-zone drag. Patterns surfaced by spike (see issue #856):
-  // 1. Revert SortableJS's DOM mutation in onEnd — Solid's keyed <For> is the
-  //    single source of truth. Without revert, no-op drags (back to origin)
-  //    orphan the moved node and produce duplicate rows on next render.
-  // 2. Use newDraggableIndex (not newIndex) so a non-draggable sibling cannot
-  //    skew the insertion position.
-  // 3. emptyInsertThreshold: 32 — default 5 is unreachable in practice.
-  // 4. forceFallback + fallbackOnBody — avoid HiDPI blurry native drag image.
-  // 5. isDragging signal drives "按需浮现": empty pinned section appears as a
-  //    drop target only during drag, stays hidden otherwise.
-  //
-  // Project mode: project groups also accept drag, but ONLY for drops from
-  // pinned (a session's project is derived from its directory and can't be
-  // changed; cross-group drags would be visually misleading). The `put`
-  // callback on project-group containers enforces this.
+  // "按需浮现": the empty pinned section appears as a drop target only during
+  // drag (see Show condition below). isDragging is also used by the sortable
+  // attacher's onStart/onEnd.
   const [isDragging, setIsDragging] = createSignal(false)
 
-  type SortableKind = "pinned" | "recent" | "project-group"
-
-  const attachSortable = (kind: SortableKind) => (el: HTMLDivElement | undefined) => {
-    if (!el) return
-    const handler = props.onDragSession
-    if (!handler) return
-    el.dataset.pawworkList = kind
-
-    const group: Sortable.Options["group"] =
-      kind === "project-group"
-        ? {
-            name: "pawwork-sessions",
-            pull: true,
-            // Only accept from the pinned zone. Cross-project drags would be
-            // visually inconsistent — the row would snap back since project
-            // assignment is read-only.
-            put: (_to, from) => (from.el as HTMLElement).dataset.pawworkList === "pinned",
-          }
-        : { name: "pawwork-sessions", pull: true, put: true }
-
-    const instance = Sortable.create(el, {
-      group,
-      animation: 150,
-      forceFallback: true,
-      fallbackOnBody: true,
-      scroll: true,
-      bubbleScroll: true,
-      emptyInsertThreshold: 32,
-      draggable: ".pw-drag-row",
-      ghostClass: "pw-drag-ghost",
-      chosenClass: "pw-drag-chosen",
-      dragClass: "pw-drag-active",
-      // Only the pinned list owns positional state. Recent and project-group
-      // lists are derived (time-sort / project-derived); intra-list drag
-      // there would visibly reorder rows then snap back on next render, which
-      // is misleading. Disable intra-list reorder for those — pulling OUT
-      // into pinned still works.
-      sort: kind === "pinned",
-      onStart: () => setIsDragging(true),
-      onEnd: (evt) => {
-        setIsDragging(false)
-        // The session id lives on the inner SessionItem (single source of
-        // truth for the data attribute). Descend into the dragged wrapper.
-        const sessionID = (evt.item as HTMLElement)
-          .querySelector<HTMLElement>("[data-session-id]")
-          ?.getAttribute("data-session-id") ?? undefined
-        const toKind = (evt.to as HTMLElement).dataset.pawworkList as SortableKind | undefined
-        const newDraggableIndex = evt.newDraggableIndex
-
-        // Revert SortableJS's DOM mutation; Solid's <For> reconciler owns the
-        // DOM. Skip the revert if SortableJS already detached the node (e.g.
-        // a cloned-pull drop or a cancelled drag may leave parentNode null).
-        if (evt.item.parentNode) {
-          evt.item.parentNode.removeChild(evt.item)
-        }
-        const fromContainer = evt.from as HTMLElement
-        const oldIndex = typeof evt.oldIndex === "number" ? evt.oldIndex : fromContainer.children.length
-        const referenceNode = fromContainer.children[oldIndex] ?? null
-        fromContainer.insertBefore(evt.item, referenceNode)
-
-        if (!sessionID || !toKind) return
-
-        // SortableJS should always set newDraggableIndex when the dragged
-        // node carries `draggable=true` and lands in a draggable slot. If it
-        // doesn't, the event is degenerate (cancelled / clone-pull / fallback
-        // edge); bailing is safer than defaulting to 0 and silently inserting
-        // at the top of pinned.
-        if (typeof newDraggableIndex !== "number") return
-
-        // No-op drag: dropped back into the same container at the same slot.
-        const oldDraggableIndex = evt.oldDraggableIndex
-        if (evt.to === evt.from && typeof oldDraggableIndex === "number" && oldDraggableIndex === newDraggableIndex) {
-          return
-        }
-
-        // Map project-group drop to "recent" semantics: both mean "not pinned".
-        // The row settles into its own project group on next render.
-        const targetSection: "pinned" | "recent" = toKind === "pinned" ? "pinned" : "recent"
-        handler({
-          sessionID,
-          targetSection,
-          visiblePinnedIDs: visiblePinnedIDs(),
-          visibleTargetIndex: newDraggableIndex,
-        })
-      },
-    })
-    // onCleanup is scoped to the surrounding <Show> branch owner — when the
-    // pinned section unmounts (e.g. isDragging flips off with no pinned rows),
-    // the branch disposes and the instance is destroyed. No leak across
-    // mount/unmount cycles.
-    onCleanup(() => instance.destroy())
-  }
+  // Drag wiring lives in pawwork-sidebar-drag.ts so the spike's accumulated
+  // patterns (DOM revert, newDraggableIndex semantics, project-group put rule,
+  // no-op bail, etc.) stay together and out of this render-heavy component.
+  const attachSortable = createSortableAttacher({
+    onDragSession: props.onDragSession,
+    setIsDragging,
+    getVisiblePinnedIDs: visiblePinnedIDs,
+  })
 
   return (
     <section
