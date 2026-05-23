@@ -100,6 +100,7 @@ import {
   buildPawworkSessionSections,
   findPawworkSessionNavigationTarget,
   flattenPawworkSessionSections,
+  movePawworkSession,
 } from "./layout/pawwork-session-nav"
 import { createShellNavigation } from "./layout/shell-navigation"
 import {
@@ -1188,6 +1189,41 @@ export default function Layout(props: ParentProps) {
       const next = current.filter((id) => id !== sessionID)
       if (next.length !== current.length) return next
       return [sessionID, ...current]
+    })
+  }
+
+  /** Cross-zone drag: All ⇄ Pinned with positional insert, or intra-Pinned reorder. */
+  function dragPawworkSession(input: {
+    sessionID: string
+    targetSection: "pinned" | "recent"
+    targetIndex: number
+  }) {
+    setStore("pawworkPinnedSessions", (current) =>
+      movePawworkSession({
+        pinnedIDs: current,
+        visibleUnpinnedIDs: [],
+        sourceID: input.sessionID,
+        targetSection: input.targetSection,
+        targetIndex: input.targetIndex,
+      }),
+    )
+  }
+
+  /** Menu-driven move up / down: keyboard-accessible reorder within the pinned zone. */
+  function movePinnedSessionByOne(input: { sessionID: string; direction: "up" | "down" }) {
+    setStore("pawworkPinnedSessions", (current) => {
+      const currentIndex = current.indexOf(input.sessionID)
+      if (currentIndex === -1) return current
+      const offset = input.direction === "up" ? -1 : 1
+      const nextIndex = Math.max(0, Math.min(current.length - 1, currentIndex + offset))
+      if (nextIndex === currentIndex) return current
+      return movePawworkSession({
+        pinnedIDs: current,
+        visibleUnpinnedIDs: [],
+        sourceID: input.sessionID,
+        targetSection: "pinned",
+        targetIndex: nextIndex,
+      })
     })
   }
 
@@ -2412,6 +2448,8 @@ export default function Layout(props: ParentProps) {
       onRenameProject={handleRenameProject}
       onRemoveProject={hideProject}
       onTogglePinnedSession={togglePinnedSession}
+      onDragSession={dragPawworkSession}
+      onMovePinnedSession={movePinnedSessionByOne}
       exportSessionAvailable={exportSessionAvailable}
       onExportSession={exportSession}
       onDeleteSession={confirmDeleteSession}

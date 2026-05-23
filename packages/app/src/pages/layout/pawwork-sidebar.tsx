@@ -4,7 +4,8 @@ import { ContextMenu } from "@opencode-ai/ui/context-menu"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
-import { createEffect, createMemo, For, Show, type Accessor, type JSX } from "solid-js"
+import Sortable from "sortablejs"
+import { createEffect, createMemo, createSignal, For, onCleanup, Show, type Accessor, type JSX } from "solid-js"
 import { useLanguage } from "@/context/language"
 import { getRelativeTime } from "@/utils/time"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
@@ -122,6 +123,10 @@ export const PawworkSidebar = (props: {
   onRenameProject: (projectKey: string, next: string) => Promise<void>
   onRemoveProject: (projectKey: string) => void
   onTogglePinnedSession: (sessionID: string) => void
+  /** Cross-zone drag (All ⇄ Pinned + intra-Pinned reorder). When omitted, drag is disabled. */
+  onDragSession?: (input: { sessionID: string; targetSection: "pinned" | "recent"; targetIndex: number }) => void
+  /** Menu-driven move up / down within the pinned zone (keyboard-accessible path). */
+  onMovePinnedSession?: (input: { sessionID: string; direction: "up" | "down" }) => void
   exportSessionAvailable: Accessor<boolean>
   onExportSession: (session: Session) => Promise<void>
   onDeleteSession: (session: Session) => void
@@ -178,21 +183,30 @@ export const PawworkSidebar = (props: {
   const menuLabels = () => ({
     pin: language.t("sidebar.pawwork.pinSession"),
     unpin: language.t("sidebar.pawwork.unpinSession"),
+    moveUp: language.t("sidebar.pawwork.movePinnedUp"),
+    moveDown: language.t("sidebar.pawwork.movePinnedDown"),
     rename: language.t("common.rename"),
     export: language.t("session.export.action.export"),
     delete: language.t("common.delete"),
   })
-  const menuActions = (target: Session, onRenameSession: (session: Session) => void) =>
-    buildSessionMenuActions({
+  const menuActions = (target: Session, onRenameSession: (session: Session) => void) => {
+    const pinnedList = props.pinnedIDs()
+    const pinnedIndex = pinnedList.indexOf(target.id)
+    const isPinned = pinnedIndex !== -1
+    return buildSessionMenuActions({
       session: target,
-      pinned: props.pinnedIDs().includes(target.id),
+      pinned: isPinned,
+      pinnedIndex: isPinned ? pinnedIndex : undefined,
+      pinnedCount: isPinned ? pinnedList.length : undefined,
       exportAvailable: props.exportSessionAvailable(),
       labels: menuLabels(),
       onTogglePinnedSession: props.onTogglePinnedSession,
+      onMovePinnedSession: props.onMovePinnedSession,
       onRenameSession,
       onExportSession: props.onExportSession,
       onDeleteSession: props.onDeleteSession,
     })
+  }
   const renderDropdownActions = (actions: SessionMenuAction[]) => (
     <>
       <For each={actions}>
@@ -233,7 +247,11 @@ export const PawworkSidebar = (props: {
       <Show when={row()}>
         {(current) => (
           <ContextMenu>
-            <ContextMenu.Trigger as="div" class="flex flex-col gap-1">
+            <ContextMenu.Trigger
+              as="div"
+              class="flex flex-col gap-1 pw-drag-row"
+              data-session-id={current().session.id}
+            >
               <SessionItem
                 session={current().session}
                 list={navList()}
@@ -316,6 +334,81 @@ export const PawworkSidebar = (props: {
     })
   })
 
+  // SortableJS cross-zone drag. Patterns surfaced by spike (see issue #856):
+  // 1. Revert SortableJS's DOM mutation in onEnd — Solid's keyed <For> is the
+  //    single source of truth. Without revert, no-op drags (back to origin)
+  //    orphan the moved node and produce duplicate rows on next render.
+  // 2. Use newDraggableIndex (not newIndex) so a non-draggable sibling cannot
+  //    skew the insertion position.
+  // 3. emptyInsertThreshold: 32 — default 5 is unreachable in practice.
+  // 4. forceFallback + fallbackOnBody — avoid HiDPI blurry native drag image.
+  // 5. isDragging signal drives "按需浮现": empty pinned section appears as a
+  //    drop target only during drag, stays hidden otherwise.
+  //
+  // Project mode: project groups also accept drag, but ONLY for drops from
+  // pinned (a session's project is derived from its directory and can't be
+  // changed; cross-group drags would be visually misleading). The `put`
+  // callback on project-group containers enforces this.
+  const [isDragging, setIsDragging] = createSignal(false)
+
+  type SortableKind = "pinned" | "recent" | "project-group"
+
+  const attachSortable = (kind: SortableKind) => (el: HTMLDivElement | undefined) => {
+    if (!el) return
+    const handler = props.onDragSession
+    if (!handler) return
+    el.dataset.pawworkList = kind
+
+    const group: Sortable.Options["group"] =
+      kind === "project-group"
+        ? {
+            name: "pawwork-sessions",
+            pull: true,
+            // Only accept from the pinned zone. Cross-project drags would be
+            // visually inconsistent — the row would snap back since project
+            // assignment is read-only.
+            put: (_to, from) => (from.el as HTMLElement).dataset.pawworkList === "pinned",
+          }
+        : { name: "pawwork-sessions", pull: true, put: true }
+
+    const instance = Sortable.create(el, {
+      group,
+      animation: 150,
+      forceFallback: true,
+      fallbackOnBody: true,
+      scroll: true,
+      bubbleScroll: true,
+      emptyInsertThreshold: 32,
+      draggable: ".pw-drag-row",
+      ghostClass: "pw-drag-ghost",
+      chosenClass: "pw-drag-chosen",
+      dragClass: "pw-drag-active",
+      onStart: () => setIsDragging(true),
+      onEnd: (evt) => {
+        setIsDragging(false)
+        const sessionID = (evt.item as HTMLElement).dataset.sessionId
+        const toKind = (evt.to as HTMLElement).dataset.pawworkList as SortableKind | undefined
+        const newIndex = typeof evt.newDraggableIndex === "number" ? evt.newDraggableIndex : 0
+
+        // Revert SortableJS's DOM mutation; Solid's <For> reconciler owns the DOM.
+        if (evt.item.parentNode) {
+          evt.item.parentNode.removeChild(evt.item)
+        }
+        const fromContainer = evt.from as HTMLElement
+        const oldIndex = typeof evt.oldIndex === "number" ? evt.oldIndex : fromContainer.children.length
+        const referenceNode = fromContainer.children[oldIndex] ?? null
+        fromContainer.insertBefore(evt.item, referenceNode)
+
+        if (!sessionID || !toKind) return
+        // Map project-group drop to "recent" semantics: both mean "not pinned".
+        // The row settles into its own project group on next render.
+        const targetSection: "pinned" | "recent" = toKind === "pinned" ? "pinned" : "recent"
+        handler({ sessionID, targetSection, targetIndex: newIndex })
+      },
+    })
+    onCleanup(() => instance.destroy())
+  }
+
   return (
     <section
       data-component="pawwork-sidebar"
@@ -390,17 +483,42 @@ export const PawworkSidebar = (props: {
         >
           <Show when={props.sessions().length > 0}>
             <nav class="flex flex-col">
-              <Show when={sidebarCollections().pinnedRowKeys.length > 0}>
+              {/* Pinned section is visible when it has items, or transiently
+                * during any drag (按需浮现 — empty drop target). Sortable attaches
+                * in both time and project mode now: project groups can pull rows
+                * here, and pinned rows can be pulled out into their owning
+                * project group (which still rejects cross-project drops). */}
+              <Show when={sidebarCollections().pinnedRowKeys.length > 0 || isDragging()}>
                 <section data-component="pawwork-sidebar-pinned" class="flex flex-col gap-0.5">
                   <div class="mt-4 h-[30px] flex items-center px-2.5 text-body text-fg-weak">
                     {language.t("sidebar.pawwork.pinned")}
                   </div>
-                  <For each={sidebarCollections().pinnedRowKeys}>
-                    {(rowKey) => {
-                      const row = createMemo(() => sidebarCollections().rowByKey.get(rowKey))
-                      return renderSessionItem(row)
-                    }}
-                  </For>
+                  {/* Placeholder lives OUTSIDE the Sortable container — Sortable
+                    * counts every child for index math, so a non-draggable sibling
+                    * would skew positions. Absolute-position over a min-height
+                    * Sortable container so the empty zone still has hit area. */}
+                  <div class="relative">
+                    <div
+                      ref={attachSortable("pinned")}
+                      data-component="pawwork-pinned-list"
+                      class="flex flex-col gap-0.5 min-h-[30px]"
+                    >
+                      <For each={sidebarCollections().pinnedRowKeys}>
+                        {(rowKey) => {
+                          const row = createMemo(() => sidebarCollections().rowByKey.get(rowKey))
+                          return renderSessionItem(row)
+                        }}
+                      </For>
+                    </div>
+                    <Show when={sidebarCollections().pinnedRowKeys.length === 0}>
+                      <div
+                        data-component="pawwork-pinned-empty"
+                        class="pointer-events-none absolute inset-0 flex items-center px-2.5 text-body text-fg-weak/60 italic"
+                      >
+                        {language.t("sidebar.pawwork.dragToPin")}
+                      </div>
+                    </Show>
+                  </div>
                 </section>
               </Show>
               <Show when={sidebarCollections().recentRowKeys.length > 0 || sidebarCollections().groupKeys.length > 0}>
@@ -451,7 +569,7 @@ export const PawworkSidebar = (props: {
                 </div>
               </Show>
               <Show when={props.sortMode() === "time"}>
-                <div class="flex flex-col gap-0.5">
+                <div ref={attachSortable("recent")} data-component="pawwork-recent-list" class="flex flex-col gap-0.5">
                   <For each={sidebarCollections().recentRowKeys}>
                     {(rowKey) => {
                       const row = createMemo(() => sidebarCollections().rowByKey.get(rowKey))
@@ -492,6 +610,8 @@ export const PawworkSidebar = (props: {
                               aria-hidden={collapsed()}
                             >
                               <div
+                                ref={attachSortable("project-group")}
+                                data-component="pawwork-project-group-list"
                                 class="min-h-0 overflow-hidden flex flex-col gap-0.5"
                                 inert={collapsed() ? true : undefined}
                               >

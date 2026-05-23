@@ -12,3 +12,40 @@
   transition: opacity var(--duration-base) ease-out;
 }
 
+/* ─────────────────────────────────────────────────────────────────────
+ * Sidebar session row drag-and-drop · variant A (DESIGN.md restrained)
+ * Decision source: docs/design/scratch/sidebar-drag-variants-compare.html
+ * No DESIGN.md deviation — reuses --row-hover-overlay and --radius-sm only.
+ * ────────────────────────────────────────────────────────────────────*/
+
+/* Hover cursor on each draggable row. */
+.pw-drag-row {
+  cursor: grab;
+}
+.pw-drag-row:active {
+  cursor: grabbing;
+}
+
+/* Origin row (the one being dragged): semi-transparent + row-hover bg.
+ * Stays in place visually as a "this is what's moving" anchor. */
+.pw-drag-chosen {
+  opacity: 0.35;
+  background-color: var(--row-hover-overlay);
+  border-radius: var(--radius-sm);
+}
+
+/* Drop-target placeholder: row-hover灰底, content hidden — SortableJS clones
+ * the row's HTML into the ghost, so we hide children and keep only the bg. */
+.pw-drag-ghost {
+  background-color: var(--row-hover-overlay);
+  border-radius: var(--radius-sm);
+}
+.pw-drag-ghost * {
+  visibility: hidden;
+}
+
+/* Fallback drag image (forceFallback follows the cursor). Just enforce
+ * grabbing cursor; visual is the cloned row, which is fine as-is. */
+.pw-drag-active {
+  cursor: grabbing !important;
+}
