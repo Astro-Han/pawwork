@@ -278,11 +278,11 @@ export const PawworkSidebar = (props: {
       <Show when={row()}>
         {(current) => (
           <ContextMenu>
-            <ContextMenu.Trigger
-              as="div"
-              class="flex flex-col gap-1 pw-drag-row"
-              data-session-id={current().session.id}
-            >
+            {/* The inner SessionItem already carries `data-session-id`, which
+              * many e2e tests locate by; keep the drag wrapper free of a
+              * second copy to avoid strict-mode duplicate matches. SortableJS
+              * reads the session id in onEnd via a descendant query. */}
+            <ContextMenu.Trigger as="div" class="flex flex-col gap-1 pw-drag-row">
               <SessionItem
                 session={current().session}
                 list={navList()}
@@ -423,7 +423,11 @@ export const PawworkSidebar = (props: {
       onStart: () => setIsDragging(true),
       onEnd: (evt) => {
         setIsDragging(false)
-        const sessionID = (evt.item as HTMLElement).dataset.sessionId
+        // The session id lives on the inner SessionItem (single source of
+        // truth for the data attribute). Descend into the dragged wrapper.
+        const sessionID = (evt.item as HTMLElement)
+          .querySelector<HTMLElement>("[data-session-id]")
+          ?.getAttribute("data-session-id") ?? undefined
         const toKind = (evt.to as HTMLElement).dataset.pawworkList as SortableKind | undefined
         const newDraggableIndex = evt.newDraggableIndex
 
