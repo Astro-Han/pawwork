@@ -28,13 +28,14 @@ function waitForRunnerState<A, E>(runner: RunnerInstance<A, E>, tag: State<A, E>
   )
 }
 
-// Effect Deferred does not expose waiter counts publicly; keep this runtime-shape check
-// local so runner tests can prove a forked caller/work fiber is attached before cancel/release.
+// Effect Deferred does not expose waiter counts publicly. Keep this test-only
+// runtime-shape check private to the shared-run tests that need to prove a
+// second caller is waiting on the existing run before cancel/release.
 function deferredWaiterCount<A, E>(deferred: Deferred.Deferred<A, E>) {
   return (deferred as DeferredRuntimeWaiters).resumes?.length ?? 0
 }
 
-function waitForDeferredWaiters<A, E>(deferred: Deferred.Deferred<A, E>, count: number, label: string) {
+function waitForSharedRunWaiters<A, E>(deferred: Deferred.Deferred<A, E>, count: number, label: string) {
   return waitUntil(
     () => `${label} did not attach ${count} waiter(s); current waiters=${deferredWaiterCount(deferred)}`,
     () => deferredWaiterCount(deferred) >= count,
@@ -51,10 +52,18 @@ function currentRunDone<A, E>(runner: RunnerInstance<A, E>) {
 
 function makeBlockedWork<A>(value: A, label = "running work") {
   return Effect.gen(function* () {
+    const started = yield* Deferred.make<void>()
     const release = yield* Deferred.make<void>()
     return {
-      waitUntilBlocked: waitForDeferredWaiters(release, 1, label),
-      work: Deferred.await(release).pipe(Effect.as(value)),
+      waitUntilStarted: Deferred.await(started).pipe(
+        Effect.timeoutOrElse({
+          duration: "1 second",
+          orElse: () => Effect.die(new Error(`${label} did not start`)),
+        }),
+      ),
+      work: Effect.uninterruptibleMask((restore) =>
+        Deferred.succeed(started, undefined).pipe(Effect.andThen(restore(Deferred.await(release))), Effect.as(value)),
+      ),
     }
   })
 }
@@ -174,7 +183,7 @@ describe("Runner", () => {
       const blocked = yield* makeBlockedWork("never")
       const fiber = yield* runner.ensureRunning(blocked.work).pipe(Effect.forkChild)
       yield* waitForRunnerState(runner, "Running")
-      yield* blocked.waitUntilBlocked
+      yield* blocked.waitUntilStarted
       expect(runner.busy).toBe(true)
       expect(runner.state._tag).toBe("Running")
 
@@ -204,7 +213,7 @@ describe("Runner", () => {
       const blocked = yield* makeBlockedWork("never")
       const fiber = yield* runner.ensureRunning(blocked.work).pipe(Effect.forkChild)
       yield* waitForRunnerState(runner, "Running")
-      yield* blocked.waitUntilBlocked
+      yield* blocked.waitUntilStarted
 
       yield* runner.cancel
 
@@ -224,7 +233,7 @@ describe("Runner", () => {
       const blocked = yield* makeBlockedWork("never")
       const fiber = yield* runner.ensureRunning(blocked.work).pipe(Effect.forkChild)
       yield* waitForRunnerState(runner, "Running")
-      yield* blocked.waitUntilBlocked
+      yield* blocked.waitUntilStarted
 
       yield* runner.cancel
 
@@ -244,7 +253,7 @@ describe("Runner", () => {
       const blocked = yield* makeBlockedWork("never")
       const fiber = yield* runner.ensureRunning(blocked.work).pipe(Effect.forkChild)
       yield* waitForRunnerState(runner, "Running")
-      yield* blocked.waitUntilBlocked
+      yield* blocked.waitUntilStarted
 
       yield* Scope.close(s, Exit.void)
 
@@ -265,10 +274,10 @@ describe("Runner", () => {
 
       const a = yield* runner.ensureRunning(blocked.work).pipe(Effect.forkChild)
       yield* waitForRunnerState(runner, "Running")
-      yield* blocked.waitUntilBlocked
+      yield* blocked.waitUntilStarted
       const done = yield* currentRunDone(runner)
       const b = yield* runner.ensureRunning(Effect.succeed("y")).pipe(Effect.forkChild)
-      yield* waitForDeferredWaiters(done, 2, "running run")
+      yield* waitForSharedRunWaiters(done, 2, "running run")
 
       yield* runner.cancel
 
@@ -295,7 +304,7 @@ describe("Runner", () => {
 
       const fiber = yield* runner.ensureRunning(work).pipe(Effect.forkChild)
       yield* waitForRunnerState(runner, "Running")
-      yield* blocked.waitUntilBlocked
+      yield* blocked.waitUntilStarted
 
       yield* runner.cancelWith({ source: "first", reason: "first" }).pipe(Effect.forkChild)
       yield* waitForRunnerState(runner, "Idle")
@@ -316,7 +325,7 @@ describe("Runner", () => {
       const blocked = yield* makeBlockedWork("x")
       const fiber = yield* runner.ensureRunning(blocked.work).pipe(Effect.forkChild)
       yield* waitForRunnerState(runner, "Running")
-      yield* blocked.waitUntilBlocked
+      yield* blocked.waitUntilStarted
       yield* runner.cancel
       yield* Fiber.await(fiber)
 
@@ -551,7 +560,7 @@ describe("Runner", () => {
       yield* waitForRunnerState(runner, "ShellThenRun")
       const done = yield* currentRunDone(runner)
       const b = yield* runner.ensureRunning(work).pipe(Effect.forkChild)
-      yield* waitForDeferredWaiters(done, 2, "queued shell run")
+      yield* waitForSharedRunWaiters(done, 2, "queued shell run")
 
       yield* Deferred.succeed(gate, undefined)
       yield* Fiber.await(sh)
@@ -611,7 +620,7 @@ describe("Runner", () => {
       const blocked = yield* makeBlockedWork("x")
       const fiber = yield* runner.ensureRunning(blocked.work).pipe(Effect.forkChild)
       yield* waitForRunnerState(runner, "Running")
-      yield* blocked.waitUntilBlocked
+      yield* blocked.waitUntilStarted
       yield* runner.cancel
       yield* Fiber.await(fiber)
       expect(yield* Ref.get(count)).toBeGreaterThanOrEqual(1)
