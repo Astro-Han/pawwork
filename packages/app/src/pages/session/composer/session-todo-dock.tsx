@@ -1,12 +1,12 @@
 import type { Todo } from "@opencode-ai/sdk/v2"
 import { AnimatedNumber } from "@opencode-ai/ui/animated-number"
-import { Icon } from "@opencode-ai/ui/icon"
 import { DockSegment } from "@opencode-ai/ui/dock-card"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { DockWidgetHeader } from "@/pages/session/composer/dock-widget-header"
 import { useSpring } from "@opencode-ai/ui/motion-spring"
 import { TextReveal } from "@opencode-ai/ui/text-reveal"
 import { TextStrikethrough } from "@opencode-ai/ui/text-strikethrough"
+import { TodoStatusMarker } from "@opencode-ai/ui/todo-status-marker"
 import { createResizeObserver } from "@solid-primitives/resize-observer"
 import { Index, Show, createEffect, createMemo, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
@@ -224,39 +224,7 @@ function TodoList(props: { todos: SessionTodoItem[] }) {
                 opacity: todo().status === "pending" ? "0.94" : "1",
               }}
             >
-              <Show
-                when={todo().status === "in_progress"}
-                fallback={
-                  <Icon
-                    name={todo().status === "completed" ? "circle-check" : "circle"}
-                    style={{ color: "var(--icon-base)", "flex-shrink": "0", "margin-top": "1px" }}
-                  />
-                }
-              >
-                <span
-                  style={{
-                    display: "inline-flex",
-                    "align-items": "center",
-                    "justify-content": "center",
-                    width: "16px",
-                    height: "16px",
-                    "flex-shrink": "0",
-                    "margin-top": "1px",
-                  }}
-                >
-                  <span
-                    style={{
-                      display: "inline-block",
-                      width: "13px",
-                      height: "13px",
-                      "border-radius": "9999px",
-                      border: "1.5px solid var(--border-weak)",
-                      "border-top-color": "var(--brand-primary)",
-                      animation: "var(--animate-pw-spin)",
-                    }}
-                  />
-                </span>
-              </Show>
+              <TodoStatusMarker status={todo().status} marginTop="1px" />
               <TextStrikethrough
                 active={todo().status === "completed" || todo().status === "cancelled"}
                 text={todo().content}
