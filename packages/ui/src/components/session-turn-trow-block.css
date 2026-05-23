@@ -19,6 +19,10 @@
   width: 100%;
 }
 
+[data-component="session-turn-trow-block"] + [data-component="text-part"] {
+  margin-top: 0;
+}
+
 [data-component="session-turn-trow-block"] details {
   width: 100%;
 }

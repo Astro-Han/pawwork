@@ -40,6 +40,18 @@ test("session-trow", async ({ page }) => {
   shots.push(await captureBlock("running-current", running))
 
   shots.push(await captureBlock("mixed-collapsed", page.locator('[data-snap="mixed-collapsed"]')))
+
+  const collapsedFollowedByText = page.locator('[data-snap="collapsed-followed-by-text"]')
+  const collapsedTextGap = await collapsedFollowedByText.evaluate((root) => {
+    const trow = root.querySelector<HTMLElement>('[data-component="session-turn-trow-block"]')
+    const text = root.querySelector<HTMLElement>('[data-component="text-part"]')
+    if (!trow || !text) return Number.NaN
+    return text.getBoundingClientRect().top - trow.getBoundingClientRect().bottom
+  })
+  expect(collapsedTextGap).toBeGreaterThanOrEqual(0)
+  expect(collapsedTextGap).toBeLessThanOrEqual(12)
+  shots.push(await captureBlock("collapsed-followed-by-text", collapsedFollowedByText))
+
   shots.push(await captureBlock("mixed-expanded", page.locator('[data-snap="mixed-expanded"]')))
   await expect(page.locator('[data-snap="inner-bash-expanded"] [data-component="bash-output"]')).toBeVisible({
     timeout: 30_000,

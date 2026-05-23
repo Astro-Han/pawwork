@@ -150,6 +150,21 @@ function TrowSnapFixture() {
           renderTool={renderTool("collapsed")}
         />
       </div>
+      <div
+        data-snap="collapsed-followed-by-text"
+        data-slot="session-turn-assistant-content"
+        style={{ display: "flex", "flex-direction": "column", gap: "12px" }}
+      >
+        <TrowBlock
+          parts={completedParts}
+          labels={labels}
+          describeTool={describeTool}
+          renderTool={renderTool("collapsed-text")}
+        />
+        <div data-component="text-part">
+          <div data-slot="text-part-body">工具完成后的下一段回复</div>
+        </div>
+      </div>
       <div data-snap="mixed-expanded">
         <TrowBlock
           parts={completedParts}
