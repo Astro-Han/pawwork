@@ -280,9 +280,18 @@ export const PawworkSidebar = (props: {
           <ContextMenu>
             {/* The inner SessionItem already carries `data-session-id`, which
               * many e2e tests locate by; keep the drag wrapper free of a
-              * second copy to avoid strict-mode duplicate matches. SortableJS
-              * reads the session id in onEnd via a descendant query. */}
-            <ContextMenu.Trigger as="div" class="flex flex-col gap-1 pw-drag-row">
+              * second copy to avoid strict-mode duplicate matches.
+              *
+              * The wrapper does carry `data-pw-drag-session-id` so SortableJS
+              * has a single canonical source of truth for "which session is
+              * being dragged" — independent of how SessionItem renders its
+              * subtree (it can recursively render an active child row, which
+              * would otherwise make a descendant-querySelector lookup fragile). */}
+            <ContextMenu.Trigger
+              as="div"
+              class="flex flex-col gap-1 pw-drag-row"
+              data-pw-drag-session-id={current().session.id}
+            >
               <SessionItem
                 session={current().session}
                 list={navList()}

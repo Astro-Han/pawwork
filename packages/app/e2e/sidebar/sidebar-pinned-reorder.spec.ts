@@ -4,9 +4,9 @@ import { pawworkSidebarSelector } from "../selectors"
 
 // Menu-driven keyboard-accessible reorder within the pinned zone. SortableJS
 // drag itself uses pointer-event fallback (forceFallback: true), which
-// Playwright's high-level dragTo() does not drive. Real drag is verified via
-// dev:desktop manual walk-through (see issue #856 verification). These tests
-// cover the click-driven path that backs keyboard accessibility.
+// Playwright's high-level dragTo() does not drive. The real-pointer path
+// is covered by sidebar-drag-pointer.spec.ts via page.mouse.{down,move,up};
+// the menu actions here back the keyboard-accessible reorder path.
 test("pinned sessions can be reordered via the Move up / Move down menu", async ({
   page,
   sdk,

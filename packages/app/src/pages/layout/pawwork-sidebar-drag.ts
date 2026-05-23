@@ -82,12 +82,13 @@ export function createSortableAttacher(deps: SortableAttacherDeps) {
       onStart: () => deps.setIsDragging(true),
       onEnd: (evt) => {
         deps.setIsDragging(false)
-        // The session id lives on the inner SessionItem (single source of
-        // truth for the data attribute). Descend into the dragged wrapper.
-        const sessionID =
-          (evt.item as HTMLElement)
-            .querySelector<HTMLElement>("[data-session-id]")
-            ?.getAttribute("data-session-id") ?? undefined
+        // The drag wrapper explicitly tags itself with the session it represents
+        // (`data-pw-drag-session-id`). Reading the attribute on the dragged
+        // node itself avoids depending on descendant-render order — important
+        // because SessionItem may render an active child row inside the same
+        // wrapper, and a naive `querySelector('[data-session-id]')` would
+        // return whichever child element happens to be first in the subtree.
+        const sessionID = (evt.item as HTMLElement).dataset.pwDragSessionId
         const toKind = (evt.to as HTMLElement).dataset.pawworkList as SortableKind | undefined
         const newDraggableIndex = evt.newDraggableIndex
 
