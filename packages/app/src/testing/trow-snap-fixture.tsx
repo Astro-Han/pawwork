@@ -1,6 +1,9 @@
-import { render } from "solid-js/web"
+import { Dynamic, render } from "solid-js/web"
 import type { ToolPart, ToolState } from "@opencode-ai/sdk/v2"
 import { BasicTool } from "@opencode-ai/ui/basic-tool"
+import { I18nProvider, type UiI18nKey, type UiI18nParams } from "@opencode-ai/ui/context"
+import { dict as zh } from "@opencode-ai/ui/i18n/zh"
+import { ToolRegistry } from "@opencode-ai/ui/message-part"
 import { TrowBlock } from "@opencode-ai/ui/session-turn-trow-block"
 
 const labels = {
@@ -60,6 +63,69 @@ const toolOutputParts = [
   tool("glob-output", "matched markdown", "", "completed", "/Users/yuhan/PawWork/a.md\n/Users/yuhan/PawWork/b.md", "glob"),
   tool("grep-output", "found one match", "", "completed", "Found 1 matches\n/Users/yuhan/PawWork/a.md:\n  Line 3: test", "grep"),
 ]
+const mixedRealToolParts = [
+  realTool("websearch-real", "websearch", { query: "PawWork desktop app AI agent 2026" }, "https://example.com/"),
+  realTool("webfetch-real", "webfetch", { url: "https://example.com/" }),
+  realTool(
+    "enter-worktree-real",
+    "enter-worktree",
+    { name: "session-trow-revival" },
+    "",
+    {
+      ownerDirectory: "/Users/yuhan/workspace/dev/pawwork",
+      activeDirectory: "/Users/yuhan/workspace/dev/pawwork/.worktrees/session-trow-revival",
+    },
+  ),
+  realTool(
+    "exit-worktree-real",
+    "exit-worktree",
+    {},
+    "",
+    { activeDirectory: "/Users/yuhan/workspace/dev/pawwork", previousBranch: "session-trow-revival" },
+  ),
+  realTool("skill-real", "skill", { name: "learn-code" }),
+]
+
+function resolveTemplate(text: string, params?: UiI18nParams) {
+  if (!params) return text
+  return text.replace(/{{\s*([^}]+?)\s*}}/g, (_, rawKey) => {
+    const value = params[String(rawKey)]
+    return value === undefined ? "" : String(value)
+  })
+}
+
+const zhI18n = {
+  locale: () => "zh",
+  t: (key: UiI18nKey, params?: UiI18nParams) => {
+    const value = (zh as Record<string, string>)[key] ?? String(key)
+    return resolveTemplate(value, params)
+  },
+}
+
+function realTool(
+  id: string,
+  toolName: string,
+  input: Record<string, unknown>,
+  output = "",
+  metadata: Record<string, unknown> = {},
+): ToolPart {
+  return {
+    id,
+    sessionID: "snap-session",
+    messageID: "snap-message",
+    type: "tool",
+    callID: `call-${id}`,
+    tool: toolName,
+    state: {
+      status: "completed",
+      input,
+      output,
+      title: toolName,
+      metadata,
+      time: { start: 0, end: 1 },
+    },
+  }
+}
 
 function describeTool(part: ToolPart) {
   const description = part.state.input?.description
@@ -116,6 +182,30 @@ function renderToolOutput(prefix: string, openTool?: string) {
             <pre>{output}</pre>
           </div>
         </BasicTool>
+      </div>
+    )
+  }
+}
+
+function renderRegisteredTool(prefix: string) {
+  return (part: ToolPart) => {
+    const component = ToolRegistry.render(part.tool)
+    const state = part.state
+    const input = state.input ?? {}
+    const output = state.status === "completed" ? state.output : undefined
+    const metadata = state.status === "completed" ? (state.metadata ?? {}) : {}
+    return (
+      <div data-slot="trow-result-body" data-timeline-anchor={`tool:${part.id}`}>
+        <Dynamic
+          component={component}
+          input={input}
+          tool={part.tool}
+          metadata={metadata}
+          output={output}
+          status={state.status}
+          defaultOpen={part.id === "websearch-real"}
+          stateKey={`${prefix}:${part.id}`}
+        />
       </div>
     )
   }
@@ -192,6 +282,15 @@ function TrowSnapFixture() {
           renderTool={renderToolOutput("tool-output", "glob-output")}
         />
       </div>
+      <div data-snap="registered-tool-rows">
+        <TrowBlock
+          parts={mixedRealToolParts}
+          defaultOpen
+          labels={labels}
+          describeTool={describeTool}
+          renderTool={renderRegisteredTool("registered")}
+        />
+      </div>
       <div data-snap="single-command-direct">
         <TrowBlock
           parts={singleQuietParts}
@@ -223,5 +322,12 @@ function TrowSnapFixture() {
 
 export function mountTrowSnapFixture(root: HTMLElement) {
   root.innerHTML = ""
-  render(() => <TrowSnapFixture />, root)
+  render(
+    () => (
+      <I18nProvider value={zhI18n}>
+        <TrowSnapFixture />
+      </I18nProvider>
+    ),
+    root,
+  )
 }

@@ -71,6 +71,33 @@ test("session-trow", async ({ page }) => {
   expect(toolOutputGap).toBeLessThanOrEqual(8)
   shots.push(await captureBlock("tool-output-spacing", toolOutputSpacing))
 
+  const registeredToolRows = page.locator('[data-snap="registered-tool-rows"]')
+  await expect(registeredToolRows).toContainText("网络搜索", { timeout: 30_000 })
+  await expect(registeredToolRows).toContainText("进入工作树", { timeout: 30_000 })
+  await expect(registeredToolRows).toContainText("learn-code", { timeout: 30_000 })
+  const registeredMetrics = await registeredToolRows.evaluate((root) => {
+    const titleSelectors = ['[data-slot="basic-tool-tool-title"]', '[data-component="task-tool-title"]']
+    const titles = titleSelectors.flatMap((selector) =>
+      Array.from(root.querySelectorAll<HTMLElement>(selector), (el) => ({
+        text: el.textContent?.trim() ?? "",
+        left: el.getBoundingClientRect().left,
+      })),
+    )
+    const output = root.querySelector<HTMLElement>('[data-component="exa-tool-output"]')
+    const triggers = Array.from(root.querySelectorAll<HTMLElement>('[data-slot="collapsible-trigger"]'))
+    const nextTrigger = triggers[1]
+    return {
+      titleLefts: titles.filter((item) => item.text).map((item) => item.left),
+      webSearchOutputGap:
+        output && nextTrigger ? nextTrigger.getBoundingClientRect().top - output.getBoundingClientRect().bottom : Number.NaN,
+    }
+  })
+  expect(registeredMetrics.titleLefts.length).toBeGreaterThanOrEqual(5)
+  expect(Math.max(...registeredMetrics.titleLefts) - Math.min(...registeredMetrics.titleLefts)).toBeLessThanOrEqual(1)
+  expect(registeredMetrics.webSearchOutputGap).toBeGreaterThanOrEqual(0)
+  expect(registeredMetrics.webSearchOutputGap).toBeLessThanOrEqual(8)
+  shots.push(await captureBlock("registered-tool-rows", registeredToolRows))
+
   const singleDirect = page.locator('[data-snap="single-command-direct"]')
   await expect(singleDirect.locator('[data-component="session-turn-trow-block"][data-single]')).toBeVisible({
     timeout: 30_000,

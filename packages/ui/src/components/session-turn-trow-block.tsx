@@ -191,7 +191,7 @@ export function TrowBlock(props: TrowBlockProps) {
   })
   const renderToolItem = (part: ToolPart) => (
     <Show when={props.renderTool} fallback={renderDefaultToolItem(part)}>
-      <div data-slot="trow-item">{props.renderTool?.(part)}</div>
+      <div data-slot="trow-tool">{props.renderTool?.(part)}</div>
     </Show>
   )
 
