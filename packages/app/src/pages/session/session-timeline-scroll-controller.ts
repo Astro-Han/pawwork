@@ -2,7 +2,7 @@ import type { RendererDiagnosticInput } from "@/context/platform"
 
 export type TimelineScrollMode = "following_latest" | "reading_history" | "targeting_message"
 
-export type TimelineDockKind = "composer" | "question" | "permission" | "todo" | "followup" | "revert" | "prompt"
+export type TimelineDockKind = "composer" | "question" | "permission" | "followup" | "revert" | "prompt"
 
 export type TimelineScrollMetrics = {
   scrollTop: number

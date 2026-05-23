@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { Part, ToolState } from "@opencode-ai/sdk/v2"
 import type { Todo } from "@opencode-ai/sdk/v2/client"
-import { selectSessionTodoDataSnapshot, selectSessionTodoDockSnapshot, selectSessionTodos } from "./todo-source"
+import { selectSessionTodoDataSnapshot, selectSessionTodos } from "./todo-source"
 
 const completedState = (
   overrides: Partial<Extract<ToolState, { status: "completed" }>> = {},
@@ -33,6 +33,14 @@ const todo = (content: string, status: Todo["status"] = "pending"): Todo => ({
 }) as Todo
 
 describe("selectSessionTodoDataSnapshot", () => {
+  test("returns only status summary fields", () => {
+    const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("status only", "in_progress")] } }))]
+
+    expect(Object.keys(selectSessionTodoDataSnapshot({ primary: { backend: undefined, parts } })).sort()).toEqual(
+      ["items", "phase", "sessionID", "source", "sourceUpdatedAt"].sort(),
+    )
+  })
+
   test("returns completed-only parts for status summary display", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("done from parts", "completed")] } }))]
 
@@ -40,8 +48,6 @@ describe("selectSessionTodoDataSnapshot", () => {
       source: "primary-parts",
       items: [todo("done from parts", "completed")],
       phase: "terminal",
-      dockEligible: false,
-      historicalTerminal: true,
     })
   })
 
@@ -56,23 +62,17 @@ describe("selectSessionTodoDataSnapshot", () => {
       source: "primary-backend",
       items: [todo("task A", "completed")],
       phase: "terminal",
-      dockEligible: false,
-      historicalTerminal: true,
     })
   })
-})
 
-describe("selectSessionTodoDockSnapshot", () => {
   test("prefers active primary message-derived todos over lagging backend todos", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("from parts", "in_progress")] } }))]
-
     expect(
-      selectSessionTodoDockSnapshot({ primary: { backend: [todo("from backend", "pending")], parts } }),
+      selectSessionTodoDataSnapshot({ primary: { backend: [todo("from backend", "pending")], parts } }),
     ).toMatchObject({
       source: "primary-parts",
       items: [todo("from parts", "in_progress")],
       phase: "active",
-      dockEligible: true,
     })
   })
 
@@ -80,7 +80,7 @@ describe("selectSessionTodoDockSnapshot", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("done from parts", "completed")] } }))]
 
     expect(
-      selectSessionTodoDockSnapshot({ primary: { backend: [todo("from backend", "pending")], parts } }),
+      selectSessionTodoDataSnapshot({ primary: { backend: [todo("from backend", "pending")], parts } }),
     ).toMatchObject({
       source: "primary-parts",
       items: [todo("done from parts", "completed")],
@@ -97,15 +97,13 @@ describe("selectSessionTodoDockSnapshot", () => {
     ]
 
     expect(
-      selectSessionTodoDockSnapshot({
+      selectSessionTodoDataSnapshot({
         primary: { backend: [todo("task A", "completed")], parts },
       }),
     ).toMatchObject({
       source: "primary-backend",
       items: [todo("task A", "completed")],
       phase: "terminal",
-      dockEligible: false,
-      historicalTerminal: true,
     })
   })
 
@@ -113,14 +111,13 @@ describe("selectSessionTodoDockSnapshot", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("new task", "in_progress")] } }))]
 
     expect(
-      selectSessionTodoDockSnapshot({
+      selectSessionTodoDataSnapshot({
         primary: { backend: [todo("old task", "completed")], parts },
       }),
     ).toMatchObject({
       source: "primary-parts",
       items: [todo("new task", "in_progress")],
       phase: "active",
-      dockEligible: true,
     })
   })
 
@@ -128,14 +125,13 @@ describe("selectSessionTodoDockSnapshot", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("cleared task", "in_progress")] } }))]
 
     expect(
-      selectSessionTodoDockSnapshot({
+      selectSessionTodoDataSnapshot({
         primary: { backend: [], backendClearActivePartsAt: 1, parts },
       }),
     ).toMatchObject({
       source: "primary-backend",
       items: [],
       phase: "empty",
-      dockEligible: false,
     })
   })
 
@@ -148,14 +144,13 @@ describe("selectSessionTodoDockSnapshot", () => {
     ]
 
     expect(
-      selectSessionTodoDockSnapshot({
+      selectSessionTodoDataSnapshot({
         primary: { backend: [], backendClearActivePartsAt: 1, parts },
       }),
     ).toMatchObject({
       source: "primary-parts",
       items: [todo("new task", "in_progress")],
       phase: "active",
-      dockEligible: true,
     })
   })
 
@@ -163,26 +158,23 @@ describe("selectSessionTodoDockSnapshot", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("new task", "in_progress")] } }))]
 
     expect(
-      selectSessionTodoDockSnapshot({
+      selectSessionTodoDataSnapshot({
         primary: { backend: [], parts },
       }),
     ).toMatchObject({
       source: "primary-parts",
       items: [todo("new task", "in_progress")],
       phase: "active",
-      dockEligible: true,
     })
   })
 
   test("does not reopen completed-only historical parts over an empty backend", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("done from parts", "completed")] } }))]
 
-    expect(selectSessionTodoDockSnapshot({ primary: { backend: [], parts } })).toMatchObject({
+    expect(selectSessionTodoDataSnapshot({ primary: { backend: [], parts } })).toMatchObject({
       source: "primary-parts",
       items: [todo("done from parts", "completed")],
       phase: "terminal",
-      dockEligible: false,
-      historicalTerminal: true,
     })
   })
 
@@ -192,7 +184,7 @@ describe("selectSessionTodoDockSnapshot", () => {
     ]
 
     expect(
-      selectSessionTodoDockSnapshot({
+      selectSessionTodoDataSnapshot({
         primary: { backend: [], parts: [] },
         fallback: { parts: fallbackParts },
       }),
@@ -201,7 +193,7 @@ describe("selectSessionTodoDockSnapshot", () => {
 
   test("uses fallback backend when no active fallback parts exist", () => {
     expect(
-      selectSessionTodoDockSnapshot({
+      selectSessionTodoDataSnapshot({
         primary: { backend: [], parts: [] },
         fallback: { backend: [todo("fallback backend", "pending")], parts: [] },
       }),
@@ -214,7 +206,7 @@ describe("selectSessionTodoDockSnapshot", () => {
     ]
 
     expect(
-      selectSessionTodoDockSnapshot({
+      selectSessionTodoDataSnapshot({
         primary: { backend: [], parts: [] },
         fallback: { backend: [todo("fallback task", "completed")], parts: fallbackParts },
       }),
@@ -222,8 +214,6 @@ describe("selectSessionTodoDockSnapshot", () => {
       source: "fallback-backend",
       items: [todo("fallback task", "completed")],
       phase: "terminal",
-      dockEligible: false,
-      historicalTerminal: true,
     })
   })
 
@@ -233,7 +223,7 @@ describe("selectSessionTodoDockSnapshot", () => {
     ]
 
     expect(
-      selectSessionTodoDockSnapshot({
+      selectSessionTodoDataSnapshot({
         primary: { backend: [], parts: [] },
         fallback: { backend: [], backendClearActivePartsAt: 1, parts: fallbackParts },
       }),
@@ -241,7 +231,6 @@ describe("selectSessionTodoDockSnapshot", () => {
       source: "fallback-backend",
       items: [],
       phase: "empty",
-      dockEligible: false,
     })
   })
 
@@ -251,7 +240,7 @@ describe("selectSessionTodoDockSnapshot", () => {
     ]
 
     expect(
-      selectSessionTodoDockSnapshot({
+      selectSessionTodoDataSnapshot({
         primary: { backend: [], parts: [] },
         fallback: { backend: [], parts: fallbackParts },
       }),
@@ -259,7 +248,6 @@ describe("selectSessionTodoDockSnapshot", () => {
       source: "fallback-parts",
       items: [todo("fallback active", "in_progress")],
       phase: "active",
-      dockEligible: true,
     })
   })
 
@@ -269,7 +257,7 @@ describe("selectSessionTodoDockSnapshot", () => {
     ]
 
     expect(
-      selectSessionTodoDockSnapshot({
+      selectSessionTodoDataSnapshot({
         primary: { backend: [todo("primary done", "completed")], parts: [] },
         fallback: { backend: [], parts: fallbackParts },
       }),

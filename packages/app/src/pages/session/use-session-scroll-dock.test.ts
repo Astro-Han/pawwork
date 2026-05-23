@@ -242,7 +242,7 @@ describe("session scroll dock", () => {
         const previousDockHeight = document.documentElement.style.getPropertyValue("--composer-dock-height")
         const promptDock = makeMeasuredDiv(120)
         const events: Array<{
-          dockKind: "composer" | "question" | "permission" | "todo" | "followup" | "revert" | "prompt"
+          dockKind: "composer" | "question" | "permission" | "followup" | "revert" | "prompt"
           composerHeight: number
           previousComposerHeight: number
           scrollTop?: number

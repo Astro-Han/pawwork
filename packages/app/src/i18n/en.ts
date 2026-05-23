@@ -635,11 +635,6 @@ export const dict = {
   "session.turnChange.blocked.more": ", +{{count}} more",
 
   "session.context.addToContext": "Add {{selection}} to context",
-  "session.todo.title": "Todos",
-  "session.todo.collapse": "Collapse",
-  "session.todo.expand": "Expand",
-  "session.todo.progress": "Task {{current}} of {{total}}",
-  "session.todo.cancelled": "Cancelled",
   "session.question.progress": "{{current}} of {{total}} questions",
   "session.question.skipCurrent": "Skip question",
   "session.question.error.staleSession": "Session restarted; resend your last message to try again.",

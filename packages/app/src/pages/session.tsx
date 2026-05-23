@@ -162,7 +162,6 @@ export default function Page() {
       : Promise.resolve()
   const composer = createSessionComposerState({
     sessionID: timelineSessionID,
-    fallbackSessionID: () => params.id,
   })
   createEffect(() => {
     const tab = activeFileTab()
