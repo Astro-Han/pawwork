@@ -41,7 +41,9 @@ export function createTimelineFrame(input: {
   historyMore: boolean
   turnStart: number
 }): TimelineFrame {
-  const ids = input.messages.map((message) => message.id)
+  const count = input.messages.length
+  const firstId = input.messages[0]?.id
+  const lastId = input.messages.at(-1)?.id
   const rows = createTimelineVirtualRows({
     messages: input.messages,
     historyMore: input.historyMore,
@@ -50,10 +52,10 @@ export function createTimelineFrame(input: {
 
   return {
     visibleRange: {
-      rendered_count: ids.length,
-      visible_first_message_id: ids[0],
-      visible_last_message_id: ids.at(-1),
-      signature: `${ids.length}:${ids[0] ?? ""}:${ids.at(-1) ?? ""}`,
+      rendered_count: count,
+      visible_first_message_id: firstId,
+      visible_last_message_id: lastId,
+      signature: `${count}:${firstId ?? ""}:${lastId ?? ""}`,
     },
     rows,
     mutation: classifyTimelineRowMutation({ previous: input.previous?.rows ?? [], next: rows }),
