@@ -65,11 +65,7 @@ export function AssistantParts(props: {
                 )
                 const singleTool = createMemo(() => parts().length === 1)
                 const renderTool = (tool: ToolPart) => {
-                  const entry = entryAccessor()
-                  if (entry.type !== "trow") return null
-                  const ref = entry.refs.find((item) => item.partID === tool.id)
-                  if (!ref) return null
-                  const message = msgs().get(ref.messageID)
+                  const message = msgs().get(tool.messageID)
                   if (!message) return null
                   return (
                     <div data-slot="trow-result-body" data-timeline-anchor={`tool:${tool.id}`}>

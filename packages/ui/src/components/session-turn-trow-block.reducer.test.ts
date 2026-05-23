@@ -3,6 +3,7 @@ import type { ToolPart, ToolState } from "@opencode-ai/sdk/v2"
 import {
   activeTrowTool,
   reduceTrowBlock,
+  trowBlockAnchor,
   toolFamilyIcon,
   trowSummaryI18nKey,
 } from "./session-turn-trow-block"
@@ -162,5 +163,13 @@ describe("trowSummaryI18nKey", () => {
       tool("b", "bash", "completed"),
     ])
     expect(trowSummaryI18nKey(summary)).toBe("ui.sessionTurn.trow.summary.completed")
+  })
+})
+
+describe("trowBlockAnchor", () => {
+  test("keeps the same anchor while a single tool grows into a trow group", () => {
+    const first = tool("a", "bash")
+
+    expect(trowBlockAnchor([first])).toBe(trowBlockAnchor([first, tool("b", "grep")]))
   })
 })

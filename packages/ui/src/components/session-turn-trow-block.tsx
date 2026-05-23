@@ -110,6 +110,10 @@ export function trowSummaryI18nKey(summary: TrowBlockSummary): string {
   return "ui.sessionTurn.trow.summary.completed"
 }
 
+export function trowBlockAnchor(parts: readonly ToolPart[]): string {
+  return `trow:${parts[0]?.id ?? "empty"}`
+}
+
 // ============================================================================
 // Component
 // ============================================================================
@@ -124,7 +128,7 @@ export interface TrowBlockLabels {
 }
 
 export interface TrowBlockProps {
-  parts: ToolPart[]
+  parts: readonly ToolPart[]
   /** Default open state — DESIGN.md L468 locks default-collapsed (false). */
   defaultOpen?: boolean
   /** Caller-resolved summary labels. */
@@ -178,17 +182,14 @@ export function TrowBlock(props: TrowBlockProps) {
 
   // Suppress the chev (and the disclosure affordance) when no tool in the
   // group has any per-row body worth expanding. We approximate this by
-  // checking that every part has either `state.output` (completed) or an
+  // checking for either `state.output` (completed) or an
   // `error` (errored) — pending / running tools alone do not earn a chev
   // (matches W1 preview's "无中间输出的工具 summary 不渲染 chev" rule).
-  const hasExpandableBody = createMemo(() => {
-    return props.parts.some((part) => {
-      const state = part.state
-      if (state.status === "completed") return !!state.output
-      if (state.status === "error") return true
-      return false
-    })
-  })
+  const hasExpandableBody = createMemo(() =>
+    props.parts.some(
+      (part) => part.state.status === "error" || (part.state.status === "completed" && !!part.state.output),
+    ),
+  )
   const renderToolItem = (part: ToolPart) => (
     <Show when={props.renderTool} fallback={renderDefaultToolItem(part)}>
       <div data-slot="trow-tool">{props.renderTool?.(part)}</div>
@@ -214,7 +215,7 @@ export function TrowBlock(props: TrowBlockProps) {
           >
             <summary
               data-slot="trow-summary"
-              data-timeline-anchor={`trow-summary:${props.parts[0]?.id ?? "empty"}`}
+              data-timeline-anchor={trowBlockAnchor(props.parts)}
             >
               <span data-slot="trow-summary-icon">
                 <Icon name={leadingIcon()} />
@@ -242,7 +243,7 @@ export function TrowBlock(props: TrowBlockProps) {
       >
         <div
           data-slot="trow-body"
-          data-timeline-anchor={`trow-single:${props.parts[0]?.id ?? "empty"}`}
+          data-timeline-anchor={trowBlockAnchor(props.parts)}
         >
           <For each={props.parts}>{renderToolItem}</For>
         </div>
