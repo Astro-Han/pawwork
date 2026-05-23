@@ -123,10 +123,19 @@ export const PawworkSidebar = (props: {
   onRenameProject: (projectKey: string, next: string) => Promise<void>
   onRemoveProject: (projectKey: string) => void
   onTogglePinnedSession: (sessionID: string) => void
-  /** Cross-zone drag (All ⇄ Pinned + intra-Pinned reorder). When omitted, drag is disabled. */
-  onDragSession?: (input: { sessionID: string; targetSection: "pinned" | "recent"; targetIndex: number }) => void
-  /** Menu-driven move up / down within the pinned zone (keyboard-accessible path). */
-  onMovePinnedSession?: (input: { sessionID: string; direction: "up" | "down" }) => void
+  /**
+   * Cross-zone drag (All ⇄ Pinned + intra-Pinned reorder). Indexes are passed
+   * in visible (rendered) space; the caller reconciles with un-loaded pinned
+   * IDs. When omitted, drag is disabled.
+   */
+  onDragSession?: (input: {
+    sessionID: string
+    targetSection: "pinned" | "recent"
+    visiblePinnedIDs: string[]
+    visibleTargetIndex: number
+  }) => void
+  /** Menu-driven move up / down within the visible pinned zone. */
+  onMovePinnedSession?: (input: { sessionID: string; direction: "up" | "down"; visiblePinnedIDs: string[] }) => void
   exportSessionAvailable: Accessor<boolean>
   onExportSession: (session: Session) => Promise<void>
   onDeleteSession: (session: Session) => void
@@ -163,6 +172,21 @@ export const PawworkSidebar = (props: {
   const sidebarCollections = createMemo(() =>
     buildPawworkSidebarCollections({ sessions: props.sessions(), sections: sections() }),
   )
+  /**
+   * Pinned session IDs in rendered order. This is the single source of truth
+   * for drag insertion targets and menu Move-up / Move-down adjacency — both
+   * stay coupled to what the user actually sees, decoupled from any
+   * un-loaded pinned IDs persisted in the raw array.
+   */
+  const visiblePinnedIDs = createMemo(() => {
+    const { pinnedRowKeys, rowByKey } = sidebarCollections()
+    const ids: string[] = []
+    for (const key of pinnedRowKeys) {
+      const row = rowByKey.get(key)
+      if (row) ids.push(row.session.id)
+    }
+    return ids
+  })
 
   const openRenameDialog = (target: Session) => {
     dialog.show(() => (
@@ -190,18 +214,25 @@ export const PawworkSidebar = (props: {
     delete: language.t("common.delete"),
   })
   const menuActions = (target: Session, onRenameSession: (session: Session) => void) => {
-    const pinnedList = props.pinnedIDs()
-    const pinnedIndex = pinnedList.indexOf(target.id)
-    const isPinned = pinnedIndex !== -1
+    // Use rendered pinned order, not the raw pinnedIDs array. Move up / down
+    // visibility tracks visible adjacency, so the action is hidden on the
+    // visually-top or visually-bottom row regardless of un-loaded pinned IDs.
+    const visibleIDs = visiblePinnedIDs()
+    const visibleIndex = visibleIDs.indexOf(target.id)
+    const isVisiblyPinned = visibleIndex !== -1
+    const isPinned = isVisiblyPinned || props.pinnedIDs().includes(target.id)
+    const onMovePinnedSession = props.onMovePinnedSession
     return buildSessionMenuActions({
       session: target,
       pinned: isPinned,
-      pinnedIndex: isPinned ? pinnedIndex : undefined,
-      pinnedCount: isPinned ? pinnedList.length : undefined,
+      pinnedIndex: isVisiblyPinned ? visibleIndex : undefined,
+      pinnedCount: isVisiblyPinned ? visibleIDs.length : undefined,
       exportAvailable: props.exportSessionAvailable(),
       labels: menuLabels(),
       onTogglePinnedSession: props.onTogglePinnedSession,
-      onMovePinnedSession: props.onMovePinnedSession,
+      onMovePinnedSession: onMovePinnedSession
+        ? (input) => onMovePinnedSession({ ...input, visiblePinnedIDs: visibleIDs })
+        : undefined,
       onRenameSession,
       onExportSession: props.onExportSession,
       onDeleteSession: props.onDeleteSession,
@@ -383,6 +414,12 @@ export const PawworkSidebar = (props: {
       ghostClass: "pw-drag-ghost",
       chosenClass: "pw-drag-chosen",
       dragClass: "pw-drag-active",
+      // Only the pinned list owns positional state. Recent and project-group
+      // lists are derived (time-sort / project-derived); intra-list drag
+      // there would visibly reorder rows then snap back on next render, which
+      // is misleading. Disable intra-list reorder for those — pulling OUT
+      // into pinned still works.
+      sort: kind === "pinned",
       onStart: () => setIsDragging(true),
       onEnd: (evt) => {
         setIsDragging(false)
@@ -390,7 +427,9 @@ export const PawworkSidebar = (props: {
         const toKind = (evt.to as HTMLElement).dataset.pawworkList as SortableKind | undefined
         const newIndex = typeof evt.newDraggableIndex === "number" ? evt.newDraggableIndex : 0
 
-        // Revert SortableJS's DOM mutation; Solid's <For> reconciler owns the DOM.
+        // Revert SortableJS's DOM mutation; Solid's <For> reconciler owns the
+        // DOM. Skip the revert if SortableJS already detached the node (e.g.
+        // a cloned-pull drop or a cancelled drag may leave parentNode null).
         if (evt.item.parentNode) {
           evt.item.parentNode.removeChild(evt.item)
         }
@@ -400,12 +439,26 @@ export const PawworkSidebar = (props: {
         fromContainer.insertBefore(evt.item, referenceNode)
 
         if (!sessionID || !toKind) return
+
+        // No-op drag: dropped back into the same container at the same slot.
+        // Firing the handler would still touch state for nothing — bail.
+        if (evt.to === evt.from && evt.oldDraggableIndex === evt.newDraggableIndex) return
+
         // Map project-group drop to "recent" semantics: both mean "not pinned".
         // The row settles into its own project group on next render.
         const targetSection: "pinned" | "recent" = toKind === "pinned" ? "pinned" : "recent"
-        handler({ sessionID, targetSection, targetIndex: newIndex })
+        handler({
+          sessionID,
+          targetSection,
+          visiblePinnedIDs: visiblePinnedIDs(),
+          visibleTargetIndex: newIndex,
+        })
       },
     })
+    // onCleanup is scoped to the surrounding <Show> branch owner — when the
+    // pinned section unmounts (e.g. isDragging flips off with no pinned rows),
+    // the branch disposes and the instance is destroyed. No leak across
+    // mount/unmount cycles.
     onCleanup(() => instance.destroy())
   }
 

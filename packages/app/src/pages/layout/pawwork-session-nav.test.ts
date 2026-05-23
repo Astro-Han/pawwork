@@ -3,7 +3,8 @@ import {
   buildPawworkSessionSections,
   findPawworkSessionNavigationTarget,
   flattenPawworkSessionSections,
-  movePawworkSession,
+  reorderPawworkPinnedByVisible,
+  unpinPawworkSession,
   type PawworkSessionItem,
 } from "./pawwork-session-nav"
 
@@ -206,28 +207,82 @@ describe("findPawworkSessionNavigationTarget", () => {
   })
 })
 
-describe("movePawworkSession", () => {
-  test("moves a session from recent into pinned at a specific index", () => {
-    const result = movePawworkSession({
+describe("reorderPawworkPinnedByVisible", () => {
+  test("moves a session from recent into pinned at a specific visible index", () => {
+    const result = reorderPawworkPinnedByVisible({
       pinnedIDs: ["beta"],
-      visibleUnpinnedIDs: ["alpha", "gamma"],
+      visiblePinnedIDs: ["beta"],
       sourceID: "gamma",
-      targetSection: "pinned",
-      targetIndex: 0,
+      targetVisibleIndex: 0,
     })
 
     expect(result).toEqual(["gamma", "beta"])
   })
 
   test("removes duplicates when reordering inside pinned", () => {
-    const result = movePawworkSession({
+    const result = reorderPawworkPinnedByVisible({
       pinnedIDs: ["alpha", "beta", "gamma"],
-      visibleUnpinnedIDs: [],
+      visiblePinnedIDs: ["alpha", "beta", "gamma"],
       sourceID: "gamma",
-      targetSection: "pinned",
-      targetIndex: 1,
+      targetVisibleIndex: 1,
     })
 
     expect(result).toEqual(["alpha", "gamma", "beta"])
+  })
+
+  test("preserves un-loaded pinned IDs in their raw positions when reordering visible ones", () => {
+    // hidden_a and hidden_b are pinned but not rendered (e.g. not in the session window).
+    // The user sees [V1, V2, V3] and drags V3 to the top of the visible list.
+    // hidden_a should stay at raw index 0, hidden_b should stay between V1 and V2.
+    const result = reorderPawworkPinnedByVisible({
+      pinnedIDs: ["hidden_a", "V1", "hidden_b", "V2", "V3"],
+      visiblePinnedIDs: ["V1", "V2", "V3"],
+      sourceID: "V3",
+      targetVisibleIndex: 0,
+    })
+
+    expect(result).toEqual(["hidden_a", "V3", "hidden_b", "V1", "V2"])
+  })
+
+  test("cross-zone insert from recent at the bottom of visible appends to raw tail", () => {
+    const result = reorderPawworkPinnedByVisible({
+      pinnedIDs: ["hidden_a", "V1"],
+      visiblePinnedIDs: ["V1"],
+      sourceID: "gamma",
+      targetVisibleIndex: 1,
+    })
+
+    expect(result).toEqual(["hidden_a", "V1", "gamma"])
+  })
+
+  test("clamps an out-of-range visible target index to the visible list bounds", () => {
+    const result = reorderPawworkPinnedByVisible({
+      pinnedIDs: ["V1", "V2"],
+      visiblePinnedIDs: ["V1", "V2"],
+      sourceID: "gamma",
+      targetVisibleIndex: 99,
+    })
+
+    expect(result).toEqual(["V1", "V2", "gamma"])
+  })
+})
+
+describe("unpinPawworkSession", () => {
+  test("removes the source from the pinned array, leaving the rest intact", () => {
+    const result = unpinPawworkSession({
+      pinnedIDs: ["alpha", "beta", "gamma"],
+      sourceID: "beta",
+    })
+
+    expect(result).toEqual(["alpha", "gamma"])
+  })
+
+  test("is a no-op when the source is not in the pinned array", () => {
+    const result = unpinPawworkSession({
+      pinnedIDs: ["alpha", "beta"],
+      sourceID: "missing",
+    })
+
+    expect(result).toEqual(["alpha", "beta"])
   })
 })

@@ -46,27 +46,31 @@ export function buildSessionMenuActions(input: {
     },
   ]
 
-  const canOfferMove =
+  const onMove = input.onMovePinnedSession
+  const pinnedIndex = input.pinnedIndex
+  const pinnedCount = input.pinnedCount
+  if (
     input.pinned &&
-    !!input.onMovePinnedSession &&
-    typeof input.pinnedIndex === "number" &&
-    typeof input.pinnedCount === "number"
-
-  if (canOfferMove && input.pinnedIndex! > 0) {
-    actions.push({
-      id: "move-up",
-      label: input.labels.moveUp,
-      icon: "chevron-up",
-      run: () => input.onMovePinnedSession!({ sessionID: input.session.id, direction: "up" }),
-    })
-  }
-  if (canOfferMove && input.pinnedIndex! < input.pinnedCount! - 1) {
-    actions.push({
-      id: "move-down",
-      label: input.labels.moveDown,
-      icon: "chevron-down",
-      run: () => input.onMovePinnedSession!({ sessionID: input.session.id, direction: "down" }),
-    })
+    onMove &&
+    typeof pinnedIndex === "number" &&
+    typeof pinnedCount === "number"
+  ) {
+    if (pinnedIndex > 0) {
+      actions.push({
+        id: "move-up",
+        label: input.labels.moveUp,
+        icon: "chevron-up",
+        run: () => onMove({ sessionID: input.session.id, direction: "up" }),
+      })
+    }
+    if (pinnedIndex < pinnedCount - 1) {
+      actions.push({
+        id: "move-down",
+        label: input.labels.moveDown,
+        icon: "chevron-down",
+        run: () => onMove({ sessionID: input.session.id, direction: "down" }),
+      })
+    }
   }
 
   actions.push({

@@ -99,16 +99,52 @@ export function findPawworkSessionNavigationTarget(input: {
   return undefined
 }
 
-export function movePawworkSession(input: {
+/**
+ * Reorder pinned IDs by a visible-list operation, preserving any pinned IDs
+ * that are NOT in `visiblePinnedIDs` (sessions persisted as pinned but not
+ * currently loaded into the sidebar window) at their original raw positions.
+ *
+ * Conceptually: visible slots inside `pinnedIDs` get refilled by the new
+ * visible order; hidden slots are anchored. This keeps drag indexes,
+ * menu-driven moves, and rendered row order coupled to the same surface
+ * (the rendered list), without losing data about un-loaded pinned sessions.
+ */
+export function reorderPawworkPinnedByVisible(input: {
   pinnedIDs: string[]
-  visibleUnpinnedIDs: string[]
+  /** Currently rendered pinned session IDs, in rendered order. */
+  visiblePinnedIDs: string[]
   sourceID: string
-  targetSection: "pinned" | "recent"
-  targetIndex: number
-}) {
-  const nextPinned = input.pinnedIDs.filter((id) => id !== input.sourceID)
-  if (input.targetSection === "pinned") {
-    nextPinned.splice(input.targetIndex, 0, input.sourceID)
+  /** Slot in the new visible order (0 = top of pinned section). */
+  targetVisibleIndex: number
+}): string[] {
+  const nextVisible = input.visiblePinnedIDs.filter((id) => id !== input.sourceID)
+  const clampedIndex = Math.max(0, Math.min(nextVisible.length, input.targetVisibleIndex))
+  nextVisible.splice(clampedIndex, 0, input.sourceID)
+
+  const visibleSet = new Set<string>(input.visiblePinnedIDs)
+  visibleSet.add(input.sourceID)
+
+  const result: string[] = []
+  let visibleCursor = 0
+  for (const id of input.pinnedIDs) {
+    if (id === input.sourceID) continue
+    if (visibleSet.has(id)) {
+      result.push(nextVisible[visibleCursor]!)
+      visibleCursor++
+    } else {
+      result.push(id)
+    }
   }
-  return nextPinned
+  // Source was not previously in pinnedIDs (cross-zone drop from recent /
+  // project group): append the remaining visible tail.
+  while (visibleCursor < nextVisible.length) {
+    result.push(nextVisible[visibleCursor]!)
+    visibleCursor++
+  }
+  return result
+}
+
+/** Drop `sourceID` from the pinned array (unpin). Hidden pinned IDs untouched. */
+export function unpinPawworkSession(input: { pinnedIDs: string[]; sourceID: string }): string[] {
+  return input.pinnedIDs.filter((id) => id !== input.sourceID)
 }

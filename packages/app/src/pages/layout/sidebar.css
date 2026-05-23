@@ -35,12 +35,13 @@
 }
 
 /* Drop-target placeholder: row-hover灰底, content hidden — SortableJS clones
- * the row's HTML into the ghost, so we hide children and keep only the bg. */
+ * the row's HTML into the ghost, so we hide the cloned tree (just the
+ * top-level wrapper, not every descendant) and keep only the bg. */
 .pw-drag-ghost {
   background-color: var(--row-hover-overlay);
   border-radius: var(--radius-sm);
 }
-.pw-drag-ghost * {
+.pw-drag-ghost > * {
   visibility: hidden;
 }
 
