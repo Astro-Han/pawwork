@@ -1,6 +1,20 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test"
+import * as fs from "node:fs/promises"
+import * as path from "node:path"
 
 let SessionSidePanel: typeof import("./session-side-panel").SessionSidePanel
+
+const SOURCE_PATH = path.join(__dirname, "session-side-panel.tsx")
+
+// Extract the JSX block bounded by <Tabs.Content value="X" …> … </Tabs.Content>.
+// Used by the gating-contract tests below to assert each tab body sits inside
+// a Show guard tied to the matching sidePanelTab id.
+function findTabContentBlock(source: string, value: string): string {
+  const re = new RegExp(`<Tabs\\.Content value="${value}"[\\s\\S]*?</Tabs\\.Content>`)
+  const match = source.match(re)
+  if (!match) throw new Error(`no <Tabs.Content value="${value}"> block found`)
+  return match[0]
+}
 
 beforeAll(async () => {
   mock.module("@solid-primitives/media", () => ({
@@ -191,5 +205,39 @@ describe("makeRightPanelResizeHandler", () => {
     )
     handler(280) // below MIN; handler doesn't clamp, store.resize clamps internally
     expect(received).toBe(280)
+  })
+})
+
+// Inactive-tab gating contract: each right-panel tab body must be wrapped in a
+// <Show when={sidePanelTab() === "<id>"}> so its content fully unmounts when the
+// user is on another tab. A render test would need to mock SessionSidePanel's
+// entire context surface; this source-grep matches the project pattern used in
+// `no-mode-picker.test.ts` and catches the most likely regressions: tab-id
+// typos, copy-paste mistakes, and any future "let's drop the Show wrap" change.
+describe("right-panel inactive-tab gating contract", () => {
+  test("files tab body is gated by Show when={sidePanelTab() === \"files\"}", async () => {
+    const source = await fs.readFile(SOURCE_PATH, "utf8")
+    const block = findTabContentBlock(source, "files")
+    expect(block).toContain(`<Show when={sidePanelTab() === "files"}>`)
+    expect(block).toContain("<FilesTab")
+    const showIdx = block.indexOf(`<Show when={sidePanelTab() === "files"}>`)
+    const compIdx = block.indexOf("<FilesTab")
+    expect(compIdx).toBeGreaterThan(showIdx) // FilesTab must sit inside the Show
+  })
+
+  test("context tab body is gated by Show when={sidePanelTab() === \"context\"}", async () => {
+    const source = await fs.readFile(SOURCE_PATH, "utf8")
+    const block = findTabContentBlock(source, "context")
+    expect(block).toContain(`<Show when={sidePanelTab() === "context"}>`)
+    expect(block).toContain("<SessionContextTab")
+    const showIdx = block.indexOf(`<Show when={sidePanelTab() === "context"}>`)
+    const compIdx = block.indexOf("<SessionContextTab")
+    expect(compIdx).toBeGreaterThan(showIdx)
+  })
+
+  test("terminal tab body keeps its existing Show when={sidePanelTab() === \"terminal\"} guard", async () => {
+    const source = await fs.readFile(SOURCE_PATH, "utf8")
+    const block = findTabContentBlock(source, "terminal")
+    expect(block).toContain(`<Show when={sidePanelTab() === "terminal"}>`)
   })
 })
