@@ -1,17 +1,11 @@
 import { For, Show, createMemo, type Accessor, type JSX } from "solid-js"
+import { Icon } from "@opencode-ai/ui/icon"
 import type { Part } from "@opencode-ai/sdk/v2"
 import type { Todo } from "@opencode-ai/sdk/v2/client"
 import { useLanguage } from "@/context/language"
 import { extractSources } from "@/pages/session/session-status-extractors"
 import { selectSessionTodos } from "@/pages/session/session-todos"
 import type { SessionTodoItem } from "@/pages/session/todos/todo-model"
-
-const TODO_STATUS_STYLES: Record<string, { dot: string; text: string }> = {
-  completed: { dot: "bg-icon-success-base", text: "" },
-  in_progress: { dot: "bg-icon-info-base", text: "" },
-  pending: { dot: "bg-border-weak", text: "" },
-  cancelled: { dot: "bg-border-weak", text: "line-through text-fg-weaker" },
-}
 
 function Section(props: { title: string; children: JSX.Element }) {
   return (
@@ -26,12 +20,68 @@ function Empty(props: { text: string }) {
   return <div class="text-body text-fg-weaker">{props.text}</div>
 }
 
-function TodoRow(props: { todo: SessionTodoItem }) {
-  const style = () => TODO_STATUS_STYLES[props.todo.status] ?? TODO_STATUS_STYLES.pending
+// Status marker mirrors the canonical todo widget (session-todo-dock.tsx + todowrite.tsx):
+// completed → circle-check icon, pending/cancelled → circle icon,
+// in_progress → 13×13 ring with brand-primary top and pw-spin animation.
+// DESIGN.md L201 forbids dots as state signals; this realigns the right-panel Status tab
+// with how the same todos render in the composer dock and message timeline.
+function TodoMarker(props: { status: SessionTodoItem["status"] }) {
   return (
-    <div data-slot="status-summary-todo" data-state={props.todo.status} class="flex items-start gap-2.5 py-1">
-      <div class={`size-2 rounded-full shrink-0 mt-1.5 ${style().dot}`} aria-hidden />
-      <div class={`text-body text-fg-base min-w-0 ${style().text}`}>{props.todo.content}</div>
+    <Show
+      when={props.status === "in_progress"}
+      fallback={
+        <Icon
+          name={props.status === "completed" ? "circle-check" : "circle"}
+          style={{ color: "var(--icon-base)", "flex-shrink": "0", "margin-top": "1px" }}
+        />
+      }
+    >
+      <span
+        data-slot="status-summary-todo-running"
+        style={{
+          display: "inline-flex",
+          "align-items": "center",
+          "justify-content": "center",
+          width: "16px",
+          height: "16px",
+          "flex-shrink": "0",
+          "margin-top": "1px",
+        }}
+      >
+        <span
+          style={{
+            display: "inline-block",
+            width: "13px",
+            height: "13px",
+            "border-radius": "9999px",
+            border: "1.5px solid var(--border-weak)",
+            "border-top-color": "var(--brand-primary)",
+            animation: "var(--animate-pw-spin)",
+          }}
+        />
+      </span>
+    </Show>
+  )
+}
+
+function TodoRow(props: { todo: SessionTodoItem }) {
+  const isDone = () => props.todo.status === "completed" || props.todo.status === "cancelled"
+  return (
+    <div
+      data-slot="status-summary-todo"
+      data-state={props.todo.status}
+      class="flex items-start gap-2 py-1"
+    >
+      <TodoMarker status={props.todo.status} />
+      <div
+        class="text-body min-w-0"
+        classList={{
+          "line-through text-fg-weak": isDone(),
+          "text-fg-base": !isDone(),
+        }}
+      >
+        {props.todo.content}
+      </div>
     </div>
   )
 }
