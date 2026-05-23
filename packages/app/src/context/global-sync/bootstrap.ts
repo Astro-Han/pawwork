@@ -30,9 +30,6 @@ type GlobalStore = {
   session_todo: {
     [sessionID: string]: TodoSnapshot
   }
-  session_todo_clear: {
-    [sessionID: string]: number
-  }
   provider: ProviderListResponse
   provider_auth: ProviderAuthResponse
   config: Config

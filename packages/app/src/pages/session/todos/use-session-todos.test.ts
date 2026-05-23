@@ -13,7 +13,6 @@ let syncData: {
 }
 let globalSyncData: {
   session_todo: Record<string, TodoSnapshot | undefined>
-  session_todo_clear: Record<string, number | undefined>
 }
 
 const completedState = (
@@ -66,7 +65,6 @@ describe("isTodoSnapshotKnownForRestore", () => {
         sessionID: "s",
         testTodosKnown: false,
         source: "primary-backend",
-        syncTodoKnown: false,
         globalTodoKnown: false,
       }),
     ).toBe(false)
@@ -76,29 +74,17 @@ describe("isTodoSnapshotKnownForRestore", () => {
         sessionID: "s",
         testTodosKnown: false,
         source: "primary-parts",
-        syncTodoKnown: false,
         globalTodoKnown: false,
       }),
     ).toBe(false)
   })
 
-  test("uses explicit sync caches as restored-known sources", () => {
+  test("uses canonical global todo cache as restored-known source", () => {
     expect(
       isTodoSnapshotKnownForRestore({
         sessionID: "s",
         testTodosKnown: false,
         source: "none",
-        syncTodoKnown: true,
-        globalTodoKnown: false,
-      }),
-    ).toBe(true)
-
-    expect(
-      isTodoSnapshotKnownForRestore({
-        sessionID: "s",
-        testTodosKnown: false,
-        source: "none",
-        syncTodoKnown: false,
         globalTodoKnown: true,
       }),
     ).toBe(true)
@@ -106,45 +92,36 @@ describe("isTodoSnapshotKnownForRestore", () => {
 })
 
 describe("createSessionTodoModel dock restore input", () => {
-  test("keeps the first live tool-parts todo opening when backend cache has not primed", () => {
-    const originalNow = Date.now
-    Date.now = () => 200
-
-    try {
-      createRoot((dispose) => {
-        const stores = createStore({
-          message: { s: [{ id: "m1", sessionID: "s" } as Message] },
-          part: {
-            m1: [
-              todoWritePart(
-                completedState({
-                  input: { todos: [todo("live task", "in_progress")] },
-                  time: { start: 250, end: 250 },
-                }),
-              ),
-            ],
-          } as Record<string, Part[] | undefined>,
-          todo: {} as Record<string, Todo[] | undefined>,
-        })
-        syncData = stores[0]
-        globalSyncData = {
-          session_todo: {},
-          session_todo_clear: {},
-        }
-
-        const model = createSessionTodoModel({ sessionID: () => "s" })
-
-        expect(model.snapshot()).toMatchObject({
-          source: "primary-parts",
-          sourceUpdatedAt: 250,
-          phase: "active",
-        })
-        expect(model.opening()).toBe(true)
-
-        dispose()
+  test("treats first tool-parts todos as restored placeholders when backend cache has not primed", () => {
+    createRoot((dispose) => {
+      const stores = createStore({
+        message: { s: [{ id: "m1", sessionID: "s" } as Message] },
+        part: {
+          m1: [
+            todoWritePart(
+              completedState({
+                input: { todos: [todo("live task", "in_progress")] },
+                time: { start: 250, end: 250 },
+              }),
+            ),
+          ],
+        } as Record<string, Part[] | undefined>,
+        todo: {} as Record<string, Todo[] | undefined>,
       })
-    } finally {
-      Date.now = originalNow
-    }
+      syncData = stores[0]
+      globalSyncData = {
+        session_todo: {},
+      }
+
+      const model = createSessionTodoModel({ sessionID: () => "s" })
+
+      expect(model.snapshot()).toMatchObject({
+        source: "primary-parts",
+        phase: "active",
+      })
+      expect(model.opening()).toBe(false)
+
+      dispose()
+    })
   })
 })

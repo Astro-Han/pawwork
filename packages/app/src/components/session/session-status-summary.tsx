@@ -52,14 +52,12 @@ function SourceRow(props: { url: string }) {
 
 export function SessionStatusSummary(props: {
   backend?: Accessor<Todo[] | undefined>
-  backendClearActivePartsAt?: Accessor<number | undefined>
   parts: Accessor<Part[]>
 }) {
   const language = useLanguage()
   const todos = createMemo(() =>
     selectSessionTodos({
       backend: props.backend?.(),
-      backendClearActivePartsAt: props.backendClearActivePartsAt?.(),
       parts: props.parts(),
     }),
   )

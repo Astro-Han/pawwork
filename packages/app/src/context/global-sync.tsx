@@ -54,9 +54,6 @@ type GlobalStore = {
   session_todo: {
     [sessionID: string]: SessionTodoSnapshot
   }
-  session_todo_clear: {
-    [sessionID: string]: number
-  }
   provider: ProviderListResponse
   provider_auth: ProviderAuthResponse
   config: Config
@@ -91,7 +88,6 @@ function createGlobalSync() {
     path: { state: "", config: "", worktree: "", directory: "", home: "" },
     project: projectCache.value,
     session_todo: {},
-    session_todo_clear: {},
     provider: { all: [], connected: [], default: {} },
     provider_auth: {},
     config: {},
@@ -166,12 +162,6 @@ function createGlobalSync() {
     if (!sessionID) return false
     if (!canAcceptSessionTodo(globalStore.session_todo[sessionID], incoming)) return false
     setGlobalStore("session_todo", sessionID, reconcile(incoming))
-    setGlobalStore(
-      "session_todo_clear",
-      produce((draft) => {
-        delete draft[sessionID]
-      }),
-    )
     return true
   }
 
@@ -183,18 +173,11 @@ function createGlobalSync() {
         delete draft[sessionID]
       }),
     )
-    setGlobalStore(
-      "session_todo_clear",
-      produce((draft) => {
-        delete draft[sessionID]
-      }),
-    )
   }
 
   const setSessionTodo = (
     sessionID: string,
     value: Todo[] | SessionTodoSnapshot | undefined,
-    options?: { clearActiveParts?: boolean },
   ) => {
     if (!sessionID) return
     if (!value) {
@@ -202,11 +185,7 @@ function createGlobalSync() {
       return
     }
     const snapshot = Array.isArray(value) ? { revision: 0, todos: value } : value
-    if (!acceptSessionTodo(sessionID, snapshot)) return
-    if (snapshot.todos.length === 0 && options?.clearActiveParts === true) {
-      setGlobalStore("session_todo_clear", sessionID, Date.now())
-      return
-    }
+    acceptSessionTodo(sessionID, snapshot)
   }
 
   const paused = () => untrack(() => globalStore.reload) !== undefined

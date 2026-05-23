@@ -36,7 +36,7 @@ describe("selectSessionTodoDataSnapshot", () => {
   test("returns completed-only parts for status summary display", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("done from parts", "completed")] } }))]
 
-    expect(selectSessionTodoDataSnapshot({ primary: { backend: [], parts } })).toMatchObject({
+    expect(selectSessionTodoDataSnapshot({ primary: { backend: undefined, parts } })).toMatchObject({
       source: "primary-parts",
       items: [todo("done from parts", "completed")],
       phase: "terminal",
@@ -63,28 +63,28 @@ describe("selectSessionTodoDataSnapshot", () => {
 })
 
 describe("selectSessionTodoDockSnapshot", () => {
-  test("prefers active primary message-derived todos over lagging backend todos", () => {
+  test("uses primary backend todos over render-only parts placeholders", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("from parts", "in_progress")] } }))]
 
     expect(
       selectSessionTodoDockSnapshot({ primary: { backend: [todo("from backend", "pending")], parts } }),
     ).toMatchObject({
-      source: "primary-parts",
-      items: [todo("from parts", "in_progress")],
+      source: "primary-backend",
+      items: [todo("from backend", "pending")],
       phase: "active",
       dockEligible: true,
     })
   })
 
-  test("prefers terminal primary parts over lagging backend todos", () => {
+  test("keeps primary backend ahead of terminal parts placeholders", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("done from parts", "completed")] } }))]
 
     expect(
       selectSessionTodoDockSnapshot({ primary: { backend: [todo("from backend", "pending")], parts } }),
     ).toMatchObject({
-      source: "primary-parts",
-      items: [todo("done from parts", "completed")],
-      phase: "terminal",
+      source: "primary-backend",
+      items: [todo("from backend", "pending")],
+      phase: "active",
     })
   })
 
@@ -109,7 +109,7 @@ describe("selectSessionTodoDockSnapshot", () => {
     })
   })
 
-  test("keeps active parts when terminal backend describes a different todo", () => {
+  test("uses terminal backend even when parts describe a different active todo", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("new task", "in_progress")] } }))]
 
     expect(
@@ -117,19 +117,19 @@ describe("selectSessionTodoDockSnapshot", () => {
         primary: { backend: [todo("old task", "completed")], parts },
       }),
     ).toMatchObject({
-      source: "primary-parts",
-      items: [todo("new task", "in_progress")],
-      phase: "active",
-      dockEligible: true,
+      source: "primary-backend",
+      items: [todo("old task", "completed")],
+      phase: "terminal",
+      dockEligible: false,
     })
   })
 
-  test("uses known empty backend over stale active parts", () => {
+  test("uses known empty backend over active parts placeholders", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("cleared task", "in_progress")] } }))]
 
     expect(
       selectSessionTodoDockSnapshot({
-        primary: { backend: [], backendClearActivePartsAt: 1, parts },
+        primary: { backend: [], parts },
       }),
     ).toMatchObject({
       source: "primary-backend",
@@ -139,7 +139,7 @@ describe("selectSessionTodoDockSnapshot", () => {
     })
   })
 
-  test("keeps active parts created after a live empty backend clear", () => {
+  test("does not compare part timestamps against an empty backend snapshot", () => {
     const parts = [
       toolPart(
         "todowrite",
@@ -149,17 +149,17 @@ describe("selectSessionTodoDockSnapshot", () => {
 
     expect(
       selectSessionTodoDockSnapshot({
-        primary: { backend: [], backendClearActivePartsAt: 1, parts },
+        primary: { backend: [], parts },
       }),
     ).toMatchObject({
-      source: "primary-parts",
-      items: [todo("new task", "in_progress")],
-      phase: "active",
-      dockEligible: true,
+      source: "primary-backend",
+      items: [],
+      phase: "empty",
+      dockEligible: false,
     })
   })
 
-  test("keeps active parts over ordinary empty backend cache", () => {
+  test("uses ordinary empty backend cache over active parts placeholders", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("new task", "in_progress")] } }))]
 
     expect(
@@ -167,10 +167,10 @@ describe("selectSessionTodoDockSnapshot", () => {
         primary: { backend: [], parts },
       }),
     ).toMatchObject({
-      source: "primary-parts",
-      items: [todo("new task", "in_progress")],
-      phase: "active",
-      dockEligible: true,
+      source: "primary-backend",
+      items: [],
+      phase: "empty",
+      dockEligible: false,
     })
   })
 
@@ -178,11 +178,10 @@ describe("selectSessionTodoDockSnapshot", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("done from parts", "completed")] } }))]
 
     expect(selectSessionTodoDockSnapshot({ primary: { backend: [], parts } })).toMatchObject({
-      source: "primary-parts",
-      items: [todo("done from parts", "completed")],
-      phase: "terminal",
+      source: "primary-backend",
+      items: [],
+      phase: "empty",
       dockEligible: false,
-      historicalTerminal: true,
     })
   })
 
@@ -227,7 +226,7 @@ describe("selectSessionTodoDockSnapshot", () => {
     })
   })
 
-  test("uses known empty fallback backend over stale fallback active parts", () => {
+  test("uses known empty fallback backend over fallback active parts placeholders", () => {
     const fallbackParts = [
       toolPart("todowrite", completedState({ input: { todos: [todo("fallback cleared", "in_progress")] } })),
     ]
@@ -235,7 +234,7 @@ describe("selectSessionTodoDockSnapshot", () => {
     expect(
       selectSessionTodoDockSnapshot({
         primary: { backend: [], parts: [] },
-        fallback: { backend: [], backendClearActivePartsAt: 1, parts: fallbackParts },
+        fallback: { backend: [], parts: fallbackParts },
       }),
     ).toMatchObject({
       source: "fallback-backend",
@@ -245,7 +244,7 @@ describe("selectSessionTodoDockSnapshot", () => {
     })
   })
 
-  test("keeps fallback active parts over ordinary empty fallback backend cache", () => {
+  test("uses ordinary empty fallback backend over fallback active parts placeholders", () => {
     const fallbackParts = [
       toolPart("todowrite", completedState({ input: { todos: [todo("fallback active", "in_progress")] } })),
     ]
@@ -256,10 +255,10 @@ describe("selectSessionTodoDockSnapshot", () => {
         fallback: { backend: [], parts: fallbackParts },
       }),
     ).toMatchObject({
-      source: "fallback-parts",
-      items: [todo("fallback active", "in_progress")],
-      phase: "active",
-      dockEligible: true,
+      source: "fallback-backend",
+      items: [],
+      phase: "empty",
+      dockEligible: false,
     })
   })
 
@@ -308,13 +307,13 @@ describe("selectSessionTodos", () => {
     ).toEqual([todo("fallback task", "completed")])
   })
 
-  test("returns empty todos when known empty backend clears stale active parts", () => {
+  test("returns empty todos when backend snapshot is empty", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("cleared task", "in_progress")] } }))]
 
-    expect(selectSessionTodos({ backend: [], backendClearActivePartsAt: 1, parts })).toEqual([])
+    expect(selectSessionTodos({ backend: [], parts })).toEqual([])
   })
 
-  test("returns active parts created after a live empty backend clear", () => {
+  test("does not use part timestamps to override an empty backend snapshot", () => {
     const parts = [
       toolPart(
         "todowrite",
@@ -322,14 +321,12 @@ describe("selectSessionTodos", () => {
       ),
     ]
 
-    expect(selectSessionTodos({ backend: [], backendClearActivePartsAt: 1, parts })).toEqual([
-      todo("new task", "in_progress"),
-    ])
+    expect(selectSessionTodos({ backend: [], parts })).toEqual([])
   })
 
-  test("returns active parts when ordinary empty backend cache is older", () => {
+  test("returns empty todos when ordinary backend cache is empty", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("new task", "in_progress")] } }))]
 
-    expect(selectSessionTodos({ backend: [], parts })).toEqual([todo("new task", "in_progress")])
+    expect(selectSessionTodos({ backend: [], parts })).toEqual([])
   })
 })

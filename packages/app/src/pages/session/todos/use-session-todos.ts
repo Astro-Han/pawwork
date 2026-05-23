@@ -16,12 +16,11 @@ export const isTodoSnapshotKnownForRestore = (input: {
   sessionID?: string
   testTodosKnown: boolean
   source: TodoSnapshot["source"]
-  syncTodoKnown: boolean
   globalTodoKnown: boolean
 }) => {
   if (!input.sessionID) return true
   if (input.testTodosKnown) return true
-  return input.syncTodoKnown || input.globalTodoKnown
+  return input.globalTodoKnown
 }
 
 const dockInput = (snapshot: TodoSnapshot, sessionID?: string, restored?: boolean) => ({
@@ -29,7 +28,6 @@ const dockInput = (snapshot: TodoSnapshot, sessionID?: string, restored?: boolea
   count: snapshot.items.length,
   phase: snapshot.phase,
   lifecycleSignature: snapshot.lifecycleSignature,
-  sourceUpdatedAt: snapshot.sourceUpdatedAt,
   dockEligible: snapshot.dockEligible,
   restored,
   historicalTerminal: snapshot.historicalTerminal,
@@ -105,14 +103,12 @@ export function createSessionTodoModel(input: {
       primary: {
         sessionID: id,
         backend: globalSync.data.session_todo[id]?.todos,
-        backendClearActivePartsAt: globalSync.data.session_todo_clear[id],
         parts,
       },
       fallback: fallbackID
         ? {
             sessionID: fallbackID,
             backend: globalSync.data.session_todo[fallbackID]?.todos,
-            backendClearActivePartsAt: globalSync.data.session_todo_clear[fallbackID],
             parts: fallbackParts,
           }
         : undefined,
@@ -124,7 +120,6 @@ export function createSessionTodoModel(input: {
       sessionID,
       testTodosKnown: test.on && test.todos !== undefined,
       source: current.source,
-      syncTodoKnown: sessionID ? sync.data.todo[sessionID] !== undefined : false,
       globalTodoKnown: sessionID ? globalSync.data.session_todo[sessionID] !== undefined : false,
     })
   }
@@ -140,7 +135,6 @@ export function createSessionTodoModel(input: {
         source: current.source,
         count: current.items.length,
         phase: current.phase,
-        sourceUpdatedAt: current.sourceUpdatedAt,
       }),
     )
   }
