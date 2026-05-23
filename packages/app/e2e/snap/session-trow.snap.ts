@@ -96,6 +96,7 @@ test("session-trow", async ({ page }) => {
   const registeredToolRows = page.locator('[data-snap="registered-tool-rows"]')
   await expect(registeredToolRows).toContainText("网络搜索", { timeout: 30_000 })
   await expect(registeredToolRows).toContainText("进入工作树", { timeout: 30_000 })
+  await expect(registeredToolRows).toContainText("使用技能", { timeout: 30_000 })
   await expect(registeredToolRows).toContainText("learn-code", { timeout: 30_000 })
   const registeredMetrics = await registeredToolRows.evaluate((root) => {
     const titleSelectors = ['[data-slot="basic-tool-tool-title"]', '[data-component="task-tool-title"]']

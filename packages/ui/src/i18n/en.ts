@@ -179,7 +179,7 @@ export const dict: Record<string, string> = {
   "ui.tool.questions": "Questions",
   "ui.tool.agent": "{{type}} Agent",
   "ui.tool.agent.default": "Agent",
-  "ui.tool.skill": "Skill",
+  "ui.tool.skill": "Used Skill",
 
   "ui.basicTool.called": "Called `{{tool}}`",
   "ui.toolErrorCard.failed": "Failed",

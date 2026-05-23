@@ -218,7 +218,7 @@ export const dict = {
   "ui.fileSearch.previousMatch": "上一个",
   "ui.fileSearch.nextMatch": "下一个",
   "ui.fileSearch.close": "关闭搜索",
-  "ui.tool.skill": "技能",
+  "ui.tool.skill": "使用技能",
   "ui.basicTool.called": "调用了 `{{tool}}`",
   "ui.toolErrorCard.failed": "失败",
   "ui.toolErrorCard.copyError": "复制错误",
