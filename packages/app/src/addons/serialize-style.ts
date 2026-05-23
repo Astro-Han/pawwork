@@ -21,7 +21,20 @@ const equalFlags = (cell1: IBufferCell, cell2: IBufferCell): boolean => {
   )
 }
 
-const isAttributeDefault = (buffer: IBuffer, cell: IBufferCell): boolean => {
+export type StyleDefaults = {
+  fgColor: number
+  bgColor: number
+}
+
+export const getStyleDefaults = (buffer: IBuffer): StyleDefaults => {
+  const nullCell = buffer.getNullCell()
+  return {
+    fgColor: nullCell.getFgColor(),
+    bgColor: nullCell.getBgColor(),
+  }
+}
+
+const isAttributeDefault = (defaults: StyleDefaults, cell: IBufferCell): boolean => {
   const mode = cell.getFgColorMode()
   const bgMode = cell.getBgColorMode()
 
@@ -40,13 +53,10 @@ const isAttributeDefault = (buffer: IBuffer, cell: IBufferCell): boolean => {
 
   const fgColor = cell.getFgColor()
   const bgColor = cell.getBgColor()
-  const nullCell = buffer.getNullCell()
-  const nullFg = nullCell.getFgColor()
-  const nullBg = nullCell.getBgColor()
 
   return (
-    fgColor === nullFg &&
-    bgColor === nullBg &&
+    fgColor === defaults.fgColor &&
+    bgColor === defaults.bgColor &&
     !cell.isBold() &&
     !cell.isItalic() &&
     !cell.isUnderline() &&
@@ -58,15 +68,15 @@ const isAttributeDefault = (buffer: IBuffer, cell: IBufferCell): boolean => {
   )
 }
 
-export const diffStyle = (buffer: IBuffer, cell: IBufferCell, oldCell: IBufferCell): number[] => {
+export const diffStyle = (defaults: StyleDefaults, cell: IBufferCell, oldCell: IBufferCell): number[] => {
   const sgrSeq: number[] = []
   const fgChanged = !equalFg(cell, oldCell)
   const bgChanged = !equalBg(cell, oldCell)
   const flagsChanged = !equalFlags(cell, oldCell)
 
   if (fgChanged || bgChanged || flagsChanged) {
-    if (isAttributeDefault(buffer, cell)) {
-      if (!isAttributeDefault(buffer, oldCell)) {
+    if (isAttributeDefault(defaults, cell)) {
+      if (!isAttributeDefault(defaults, oldCell)) {
         sgrSeq.push(0)
       }
     } else {

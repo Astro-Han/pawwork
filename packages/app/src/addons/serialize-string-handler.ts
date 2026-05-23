@@ -1,6 +1,6 @@
 import type { ITerminalCore, IBufferRange } from "ghostty-web"
 import type { IBuffer, IBufferCell } from "./serialize-buffer"
-import { diffStyle } from "./serialize-style"
+import { diffStyle, getStyleDefaults, type StyleDefaults } from "./serialize-style"
 
 export function constrain(value: number, low: number, high: number): number {
   return Math.max(low, Math.min(value, high))
@@ -18,12 +18,14 @@ export class StringSerializeHandler {
   private _lastCursorCol: number = 0
   private _lastContentCursorRow: number = 0
   private _lastContentCursorCol: number = 0
+  private _styleDefaults: StyleDefaults
 
   constructor(
     private readonly _buffer: IBuffer,
     private readonly _terminal: ITerminalCore,
   ) {
     this._cursorStyle = this._buffer.getNullCell()
+    this._styleDefaults = getStyleDefaults(this._buffer)
   }
 
   public serialize(range: IBufferRange, excludeFinalCursorPosition?: boolean): string {
@@ -62,6 +64,7 @@ export class StringSerializeHandler {
     this._currentRow = ""
     this._nullCellCount = 0
     this._cursorStyle = this._buffer.getNullCell()
+    this._styleDefaults = getStyleDefaults(this._buffer)
 
     this._lastContentCursorRow = start
     this._lastCursorRow = start
@@ -104,7 +107,7 @@ export class StringSerializeHandler {
     const isGarbage = isInvalidCodepoint || (codepoint >= 0xf000 && cell.getWidth() === 1)
     const isEmptyCell = codepoint === 0 || cell.getChars() === "" || isGarbage
 
-    const sgrSeq = diffStyle(this._buffer, cell, this._cursorStyle)
+    const sgrSeq = diffStyle(this._styleDefaults, cell, this._cursorStyle)
 
     const styleChanged = sgrSeq.length > 0
 
@@ -118,12 +121,7 @@ export class StringSerializeHandler {
       this._lastContentCursorCol = this._lastCursorCol = col
 
       this._currentRow += `\u001b[${sgrSeq.join(";")}m`
-
-      const line = this._buffer.getLine(row)
-      const cellFromLine = line?.getCell(col)
-      if (cellFromLine) {
-        this._cursorStyle = cellFromLine
-      }
+      this._cursorStyle = cell
     }
 
     if (isEmptyCell) {
@@ -150,14 +148,15 @@ export class StringSerializeHandler {
       this._lastCursorRow = this._lastContentCursorRow
     }
 
-    let content = ""
-
+    const segments = new Array<string>(Math.max(0, rowEnd * 2 - 1))
+    let segmentIndex = 0
     for (let i = 0; i < rowEnd; i++) {
-      content += this._allRows[i]
+      segments[segmentIndex++] = this._allRows[i]
       if (i + 1 < rowEnd) {
-        content += this._allRowSeparators[i]
+        segments[segmentIndex++] = this._allRowSeparators[i]
       }
     }
+    let content = segments.join("")
 
     if (excludeFinalCursorPosition) return content
 
@@ -175,7 +174,7 @@ export class StringSerializeHandler {
       return cell
     })()
 
-    const sgrSeq = diffStyle(this._buffer, style, this._cursorStyle)
+    const sgrSeq = diffStyle(this._styleDefaults, style, this._cursorStyle)
     if (sgrSeq.length) content += `\u001b[${sgrSeq.join(";")}m`
 
     return content
