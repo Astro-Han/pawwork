@@ -116,4 +116,57 @@ describe("compare-perf script", () => {
       intersectedFailures: [],
     })
   })
+
+  test("keeps top-level missing scenario failures in the confirmation scope", async () => {
+    const root = await mkdtemp(join(tmpdir(), "compare-perf-script-"))
+    tempRoots.push(root)
+    const basePath = join(root, "base.json")
+    const headPath = join(root, "head.json")
+    const initialPath = join(root, "perf-compare.json")
+    const outputPath = join(root, "perf-compare-confirm.json")
+    const initialComparison: PerfBaselineComparison = {
+      pass: false,
+      failures: ["missing_head_scenario:default:session-scroll-reading"],
+      warnings: [],
+      scenarios: [],
+    }
+
+    await writeJson(basePath, [scenario({ branch: "base" })])
+    await writeJson(headPath, [])
+    await writeJson(initialPath, initialComparison)
+
+    const child = Bun.spawn(
+      [
+        process.execPath,
+        "script/compare-perf.ts",
+        "--base",
+        basePath,
+        "--head",
+        headPath,
+        "--output",
+        outputPath,
+        "--failures-from",
+        initialPath,
+      ],
+      {
+        cwd: process.cwd(),
+        stderr: "pipe",
+        stdout: "pipe",
+      },
+    )
+    const [exitCode, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ])
+
+    expect(stderr).toBe("")
+    expect(exitCode).toBe(1)
+    const summary = JSON.parse(stdout) as Pick<PerfBaselineComparison, "failures" | "pass">
+    expect(summary.pass).toBe(false)
+    expect(summary.failures).toEqual(["missing_head_scenario:default:session-scroll-reading"])
+    const comparison = JSON.parse(await readFile(outputPath, "utf8")) as PerfBaselineComparison
+    expect(comparison.pass).toBe(false)
+    expect(comparison.failures).toEqual(["missing_head_scenario:default:session-scroll-reading"])
+  })
 })

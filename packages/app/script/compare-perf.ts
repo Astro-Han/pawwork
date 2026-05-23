@@ -30,8 +30,19 @@ async function readFailureScope(filePath: string): Promise<{ scenarioKeys: strin
   if (!Array.isArray(payload.scenarios)) {
     throw new Error(`Expected a perf comparison with scenarios in ${filePath}`)
   }
+  if (!Array.isArray(payload.failures)) {
+    throw new Error(`Expected a perf comparison with failures in ${filePath}`)
+  }
   const scenarioKeys = new Set<string>()
   const failureKeys = new Set<PerfFailureKey>()
+
+  for (const failure of payload.failures) {
+    if (failure.startsWith("missing_base_scenario:")) {
+      scenarioKeys.add(failure.slice("missing_base_scenario:".length))
+    } else if (failure.startsWith("missing_head_scenario:")) {
+      scenarioKeys.add(failure.slice("missing_head_scenario:".length))
+    }
+  }
 
   for (const scenario of payload.scenarios) {
     if (scenario.failures.length === 0) continue
