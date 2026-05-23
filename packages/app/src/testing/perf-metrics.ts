@@ -64,17 +64,26 @@ export type PerfScenarioComparison = {
   head: PerfScenarioSummary
 }
 
+export type PerfFailureKey = string
+
+export type PerfBaselineConfirmation = {
+  initialFailureKeys: PerfFailureKey[]
+  rawConfirmedFailures: string[]
+  intersectedFailures: string[]
+}
+
 export type PerfBaselineComparison = {
   pass: boolean
   failures: string[]
   warnings: string[]
   scenarios: PerfScenarioComparison[]
+  confirmation?: PerfBaselineConfirmation
 }
 
 export const PERF_COMMENT_MARKER = "<!-- pawwork-perf-probe-baseline -->"
 
 const perfDeltaThresholds = {
-  interactionMedianMs: 10,
+  interactionMedianMs: 20,
   interactionMedianRatio: 1.05,
   interactionWorstMs: 50,
   longTaskMaxMs: 25,
@@ -420,40 +429,93 @@ function scenarioKey(input: { profile?: PerfProfile; scenario: string }) {
   return `${input.profile ?? "default"}:${input.scenario}`
 }
 
+export function perfFailureKey(input: { profile?: PerfProfile; scenario: string; metric: string }): PerfFailureKey {
+  return `${scenarioKey(input)}:${input.metric}`
+}
+
+function pushUnique(list: string[], value: string) {
+  if (!list.includes(value)) list.push(value)
+}
+
 export function comparePerfBaselines(input: {
   base: PerfScenarioSummary[]
   head: PerfScenarioSummary[]
   scenarioKeys?: string[]
+  failureKeys?: PerfFailureKey[]
 }): PerfBaselineComparison {
   const failures: string[] = []
   const warnings: string[] = []
   const scenarios: PerfScenarioComparison[] = []
+  const baseByScenario = new Map(input.base.map((scenario) => [scenarioKey(scenario), scenario]))
   const headByScenario = new Map(input.head.map((scenario) => [scenarioKey(scenario), scenario]))
-  const requestedScenarioKeys = input.scenarioKeys ? new Set(input.scenarioKeys) : undefined
+  const requestedScenarioKeys = input.scenarioKeys ? [...new Set(input.scenarioKeys)] : undefined
+  const requestedFailureKeys = input.failureKeys ? new Set(input.failureKeys) : undefined
+  const confirmation: PerfBaselineConfirmation | undefined = input.failureKeys
+    ? {
+        initialFailureKeys: [...new Set(input.failureKeys)],
+        rawConfirmedFailures: [],
+        intersectedFailures: [],
+      }
+    : undefined
 
-  for (const baseScenario of input.base) {
-    const key = scenarioKey(baseScenario)
-    if (requestedScenarioKeys && !requestedScenarioKeys.has(key)) continue
+  function addHardFailure(failure: string) {
+    pushUnique(failures, failure)
+    if (!confirmation) return
+    pushUnique(confirmation.rawConfirmedFailures, failure)
+    pushUnique(confirmation.intersectedFailures, failure)
+  }
+
+  const comparisonKeys = requestedScenarioKeys ?? [...new Set(input.base.map((scenario) => scenarioKey(scenario)))]
+
+  for (const key of comparisonKeys) {
+    const baseScenario = baseByScenario.get(key)
     const headScenario = headByScenario.get(key)
+    if (!baseScenario) {
+      addHardFailure(`missing_base_scenario:${key}`)
+    }
     if (!headScenario) {
-      failures.push(`missing_head_scenario:${key}`)
+      addHardFailure(`missing_head_scenario:${key}`)
+    }
+    if (!baseScenario || !headScenario) {
       continue
     }
-    const comparison = comparePerfScenarioSummaries({
+
+    const rawComparison = comparePerfScenarioSummaries({
       scenario: baseScenario.scenario,
       base: baseScenario,
       head: headScenario,
     })
+    const filteredFailures: string[] = []
+    for (const failure of rawComparison.failures) {
+      const fullFailureKey = perfFailureKey({
+        profile: rawComparison.profile,
+        scenario: rawComparison.scenario,
+        metric: failure,
+      })
+      if (confirmation) pushUnique(confirmation.rawConfirmedFailures, fullFailureKey)
+      if (requestedFailureKeys && !requestedFailureKeys.has(fullFailureKey)) continue
+      pushUnique(filteredFailures, failure)
+      pushUnique(failures, fullFailureKey)
+      if (confirmation) pushUnique(confirmation.intersectedFailures, fullFailureKey)
+    }
+
+    const comparison = requestedFailureKeys
+      ? {
+          ...rawComparison,
+          pass: filteredFailures.length === 0,
+          failures: filteredFailures,
+        }
+      : rawComparison
     scenarios.push(comparison)
-    for (const failure of comparison.failures) failures.push(`${key}:${failure}`)
-    for (const warning of comparison.warnings) warnings.push(`${key}:${warning}`)
+    for (const warning of comparison.warnings) pushUnique(warnings, `${key}:${warning}`)
   }
 
-  for (const headScenario of input.head) {
-    const key = scenarioKey(headScenario)
-    if (requestedScenarioKeys && !requestedScenarioKeys.has(key)) continue
-    if (!input.base.some((scenario) => scenarioKey(scenario) === key)) {
-      failures.push(`missing_base_scenario:${key}`)
+  if (!requestedScenarioKeys) {
+    for (const headScenario of input.head) {
+      const key = scenarioKey(headScenario)
+      if (!baseByScenario.has(key)) {
+        addHardFailure(`missing_base_scenario:${key}`)
+      }
     }
   }
 
@@ -462,5 +524,6 @@ export function comparePerfBaselines(input: {
     failures,
     warnings,
     scenarios,
+    confirmation,
   }
 }

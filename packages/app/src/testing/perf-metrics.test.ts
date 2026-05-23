@@ -160,6 +160,39 @@ describe("perf metrics", () => {
     expect(summary.run_details).toHaveLength(3)
   })
 
+  test("does not fail default interaction median on a single-frame delta", () => {
+    const result = comparePerfScenarioSummaries({
+      scenario: "long-session-input-lag",
+      base: scenario({ branch: "base", scenario: "long-session-input-lag", interaction: 48 }),
+      head: scenario({ branch: "head", scenario: "long-session-input-lag", interaction: 64 }),
+    })
+
+    expect(result.pass).toBe(true)
+    expect(result.failures).not.toContain("interaction_ms_median")
+  })
+
+  test("keeps default interaction median at the 20ms floor passing", () => {
+    const result = comparePerfScenarioSummaries({
+      scenario: "long-session-input-lag",
+      base: scenario({ branch: "base", scenario: "long-session-input-lag", interaction: 100 }),
+      head: scenario({ branch: "head", scenario: "long-session-input-lag", interaction: 120 }),
+    })
+
+    expect(result.pass).toBe(true)
+    expect(result.failures).not.toContain("interaction_ms_median")
+  })
+
+  test("fails default interaction median above the 20ms floor", () => {
+    const result = comparePerfScenarioSummaries({
+      scenario: "long-session-input-lag",
+      base: scenario({ branch: "base", scenario: "long-session-input-lag", interaction: 100 }),
+      head: scenario({ branch: "head", scenario: "long-session-input-lag", interaction: 121 }),
+    })
+
+    expect(result.pass).toBe(false)
+    expect(result.failures).toContain("interaction_ms_median")
+  })
+
   test("fails a scenario when median regression breaks both the ms and percentage budgets", () => {
     const result = comparePerfScenarioSummaries({
       scenario: "session-streaming-long",
@@ -187,9 +220,9 @@ describe("perf metrics", () => {
         profile: "default",
         scenario: "session-streaming-long",
         runs: 3,
-        interaction_ms_median: 116,
+        interaction_ms_median: 125,
         interaction_ms_worst: 168,
-        interaction_ms: 116,
+        interaction_ms: 125,
         interaction_delay_ms: 14,
         long_task_count: 1,
         long_task_max_ms: 88,
@@ -372,6 +405,20 @@ describe("perf metrics", () => {
     ])
   })
 
+  test("deduplicates fallback comparison keys from baseline scenarios", () => {
+    const result = comparePerfBaselines({
+      base: [
+        scenario({ branch: "base", profile: "default", scenario: "session-scroll-reading" }),
+        scenario({ branch: "base", profile: "default", scenario: "session-scroll-reading" }),
+      ],
+      head: [scenario({ branch: "head", profile: "default", scenario: "session-scroll-reading" })],
+    })
+
+    expect(result.scenarios.map((entry) => `${entry.profile}:${entry.scenario}`)).toEqual([
+      "default:session-scroll-reading",
+    ])
+  })
+
   test("fails when the matching profile and scenario is missing", () => {
     const base = [
       scenario({ branch: "base", profile: "default", scenario: "session-timeline-recompute" }),
@@ -398,6 +445,73 @@ describe("perf metrics", () => {
     expect(result.failures).toHaveLength(0)
     expect(result.scenarios.map((entry) => `${entry.profile}:${entry.scenario}`)).toEqual([
       "default:session-scroll-reading",
+    ])
+  })
+
+  test("does not confirm a different metric failure from the same scenario", () => {
+    const result = comparePerfBaselines({
+      base: [scenario({ branch: "base", scenario: "session-scroll-reading", interaction: 32, frameMax: 16 })],
+      head: [scenario({ branch: "head", scenario: "session-scroll-reading", interaction: 40, frameMax: 120 })],
+      scenarioKeys: ["default:session-scroll-reading"],
+      failureKeys: ["default:session-scroll-reading:interaction_ms_median"],
+    })
+
+    expect(result.pass).toBe(true)
+    expect(result.failures).toHaveLength(0)
+    expect(result.scenarios[0].failures).toHaveLength(0)
+    expect(result.confirmation).toEqual({
+      initialFailureKeys: ["default:session-scroll-reading:interaction_ms_median"],
+      rawConfirmedFailures: ["default:session-scroll-reading:frame_gap_max_ms_delta"],
+      intersectedFailures: [],
+    })
+  })
+
+  test("confirms the same metric failure from the same scenario", () => {
+    const result = comparePerfBaselines({
+      base: [scenario({ branch: "base", scenario: "session-scroll-reading", interaction: 48 })],
+      head: [scenario({ branch: "head", scenario: "session-scroll-reading", interaction: 76 })],
+      scenarioKeys: ["default:session-scroll-reading"],
+      failureKeys: ["default:session-scroll-reading:interaction_ms_median"],
+    })
+
+    expect(result.pass).toBe(false)
+    expect(result.failures).toEqual(["default:session-scroll-reading:interaction_ms_median"])
+    expect(result.scenarios[0].failures).toEqual(["interaction_ms_median"])
+    expect(result.confirmation).toEqual({
+      initialFailureKeys: ["default:session-scroll-reading:interaction_ms_median"],
+      rawConfirmedFailures: ["default:session-scroll-reading:interaction_ms_median"],
+      intersectedFailures: ["default:session-scroll-reading:interaction_ms_median"],
+    })
+  })
+
+  test("keeps missing requested confirmation scenarios as hard failures", () => {
+    const missingHead = comparePerfBaselines({
+      base: [scenario({ branch: "base", scenario: "session-scroll-reading" })],
+      head: [],
+      scenarioKeys: ["default:session-scroll-reading"],
+      failureKeys: ["default:session-scroll-reading:interaction_ms_median"],
+    })
+    const missingBase = comparePerfBaselines({
+      base: [],
+      head: [scenario({ branch: "head", scenario: "session-scroll-reading" })],
+      scenarioKeys: ["default:session-scroll-reading"],
+      failureKeys: ["default:session-scroll-reading:interaction_ms_median"],
+    })
+    const missingBoth = comparePerfBaselines({
+      base: [],
+      head: [],
+      scenarioKeys: ["default:session-scroll-reading"],
+      failureKeys: ["default:session-scroll-reading:interaction_ms_median"],
+    })
+
+    expect(missingHead.pass).toBe(false)
+    expect(missingHead.failures).toEqual(["missing_head_scenario:default:session-scroll-reading"])
+    expect(missingBase.pass).toBe(false)
+    expect(missingBase.failures).toEqual(["missing_base_scenario:default:session-scroll-reading"])
+    expect(missingBoth.pass).toBe(false)
+    expect(missingBoth.failures).toEqual([
+      "missing_base_scenario:default:session-scroll-reading",
+      "missing_head_scenario:default:session-scroll-reading",
     ])
   })
 
@@ -501,7 +615,7 @@ describe("perf metrics", () => {
           scenario: "session-scroll-reading",
           runs: [
             {
-              interaction_ms: 32,
+              interaction_ms: 40,
               interaction_delay_ms: 1,
               long_task_count: 0,
               long_task_max_ms: 0,
