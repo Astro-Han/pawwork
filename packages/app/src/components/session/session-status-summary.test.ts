@@ -1,12 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import * as fs from "node:fs"
-import * as path from "node:path"
 
 // Slice 3 of Area B (#602) replaces the right-panel Status todo dots with the
 // canonical todo widget marker (Icon + 13×13 pw-spin ring) per DESIGN.md L201.
 // We assert against source text so the contract survives without pulling in a
 // Solid renderer; the same pattern is used by session-side-panel.test.tsx.
-const SOURCE = fs.readFileSync(path.join(__dirname, "session-status-summary.tsx"), "utf8")
+const SOURCE = fs.readFileSync(new URL("session-status-summary.tsx", import.meta.url), "utf8")
 
 describe("session-status-summary · todo marker contract", () => {
   test("does not render todo state as a coloured dot", () => {

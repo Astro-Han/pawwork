@@ -74,7 +74,7 @@ function TodoRow(props: { todo: SessionTodoItem }) {
     >
       <TodoMarker status={props.todo.status} />
       <div
-        class="text-body min-w-0"
+        class="text-body min-w-0 break-words"
         classList={{
           "line-through text-fg-weak": isDone(),
           "text-fg-base": !isDone(),
