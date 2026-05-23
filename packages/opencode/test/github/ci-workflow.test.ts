@@ -163,7 +163,7 @@ function isWindowsOpencodeShard(item: Record<string, unknown>): item is { comman
 describe("ci workflow", () => {
   test("keeps packages/ui as a first-class Turbo CI test target", () => {
     const turbo = JSON.parse(readFileSync(turboJsonPath, "utf8")) as {
-      tasks?: Record<string, { outputs?: string[]; passThroughEnv?: string[] }>
+      tasks?: Record<string, { dependsOn?: string[]; outputs?: string[]; passThroughEnv?: string[] }>
     }
     const uiPackage = JSON.parse(readFileSync(uiPackageJsonPath, "utf8")) as {
       scripts?: Record<string, string>
@@ -172,6 +172,7 @@ describe("ci workflow", () => {
     expect(uiPackage.scripts?.["test:ci"]).toBe(
       "mkdir -p .artifacts/unit && bun test --reporter=junit --reporter-outfile=.artifacts/unit/junit.xml",
     )
+    expect(turbo.tasks?.["@opencode-ai/ui#test:ci"]?.dependsOn).toEqual(["^build"])
     expect(turbo.tasks?.["@opencode-ai/ui#test:ci"]?.outputs).toEqual([".artifacts/unit/junit.xml"])
     expect(turbo.tasks?.["@opencode-ai/ui#test:ci"]?.passThroughEnv).toEqual(["*"])
   })
