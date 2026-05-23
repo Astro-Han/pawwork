@@ -63,7 +63,7 @@ export const MenuMatrix = {
       {/* Light */}
       <div
         style={{
-          background: "var(--surface-base)",
+          background: "var(--surface-raised)",
           "border-radius": "var(--radius-md)",
           "box-shadow": "var(--ring-base), var(--shadow-floating)",
           padding: "4px",
@@ -101,7 +101,7 @@ export const MenuMatrix = {
       <div
         data-color-scheme="dark"
         style={{
-          background: "var(--surface-base)",
+          background: "var(--surface-raised)",
           "border-radius": "var(--radius-md)",
           "box-shadow": "var(--ring-base), var(--shadow-floating)",
           padding: "4px",
@@ -135,7 +135,7 @@ export const WithSearch = {
   render: () => (
     <div
       style={{
-        background: "var(--surface-base)",
+        background: "var(--surface-raised)",
         "border-radius": "var(--radius-md)",
         "box-shadow": "var(--ring-base), var(--shadow-floating)",
         "min-width": "184px",
