@@ -138,6 +138,79 @@ async function captureTurnChanges(page: Page, name: string): Promise<Shot> {
   return { name, buf: await panel.screenshot() }
 }
 
+// Snap-only route mock for the two long-status rows the live snap harness can't
+// seed directly: a `redo_invalidated` file (renders "已被后续改动取代" / "Superseded")
+// and an `applied + large + restoreAvailable: false` file (renders counts plus
+// "不可撤回" / "Not restorable"). Both labels are wider than the trailing column's
+// 60px minimum, exercising the `minmax(60px, max-content)` flex.
+const LONG_STATUS_CHANGES_URL = /\/session\/[^/]+\/turn\/[^/]+\/changes(?:\?.*)?$/
+
+async function routeLongStatusChanges(page: Page) {
+  await page.route(LONG_STATUS_CHANGES_URL, async (route) => {
+    const url = new URL(route.request().url())
+    const parts = url.pathname.split("/")
+    const turnID = parts.at(-2) ?? "turn"
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        sessionID: parts[2] ?? "session",
+        turnID,
+        messageID: turnID,
+        kind: "captured",
+        files: [
+          {
+            path: "snap-long-superseded.ts",
+            status: "modified",
+            additions: 4,
+            deletions: 2,
+            expandable: false,
+            restoreState: "redo_invalidated",
+          },
+          {
+            path: "snap-long-unrestorable.ts",
+            status: "modified",
+            additions: 12,
+            deletions: 4,
+            expandable: false,
+            restoreState: "applied",
+            large: true,
+            restoreAvailable: false,
+          },
+        ],
+      }),
+    })
+  })
+}
+
+async function runLongStatusPass(
+  page: Page,
+  project: Parameters<typeof test>[0]["project"],
+  llm: Parameters<typeof test>[0]["llm"],
+  label: "light" | "dark",
+  shots: Shot[],
+) {
+  await routeLongStatusChanges(page)
+  try {
+    await withSession(project.sdk, `snap turn changes long-status ${label}`, async (session) => {
+      project.trackSession(session.id)
+      await llm.text("seeded long-status snap")
+      await project.sdk.session.prompt({
+        sessionID: session.id,
+        agent: "build",
+        parts: [{ type: "text", text: `seed long-status snap ${label}` }],
+      })
+      await project.gotoSession(session.id)
+      // Park the cursor away from the panel so neither row sits in :hover state —
+      // hover would fade the long-status meta out and let the action icons take
+      // over, defeating the whole point of this shot.
+      await page.mouse.move(0, 0)
+      shots.push(await captureTurnChanges(page, `${label}-long-status`))
+    })
+  } finally {
+    await page.unroute(LONG_STATUS_CHANGES_URL)
+  }
+}
+
 async function runCapturedPass(
   page: Page,
   project: Parameters<typeof test>[0]["project"],
@@ -198,12 +271,14 @@ test("session-turn-changes", async ({ page, project, llm }) => {
   const shots: Shot[] = []
 
   await runCapturedPass(page, project, llm, "light", shots)
+  await runLongStatusPass(page, project, llm, "light", shots)
 
   // Flip to dark via the real storage + reload path, then re-do the same
   // setup with fresh sessions. applyDarkModeForTests is one-way per page,
   // so the dark pass runs after all light shots are captured.
   await applyDarkModeForTests(page)
   await runCapturedPass(page, project, llm, "dark", shots)
+  await runLongStatusPass(page, project, llm, "dark", shots)
 
   const out = snapOutputPath("session-turn-changes")
   await composeGrid(shots, out)
