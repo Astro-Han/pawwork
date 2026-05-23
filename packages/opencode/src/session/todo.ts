@@ -4,8 +4,8 @@ import { SessionID, TodoID as TodoIDSchema } from "./schema"
 import type { TodoID as TodoIDType } from "./schema"
 import { Effect, Layer, Context } from "effect"
 import z from "zod"
-import { Database, eq, asc } from "../storage/db"
-import { TodoTable } from "./session.sql"
+import { Database, eq, asc, sql, NotFoundError } from "../storage/db"
+import { SessionTable, SessionTodoRevisionTable, TodoTable } from "./session.sql"
 
 export const TodoID = TodoIDSchema
 export type TodoID = TodoIDType
@@ -23,19 +23,28 @@ export const Info = Input.extend({
 }).meta({ ref: "Todo" })
 export type Info = z.infer<typeof Info>
 
+export const Snapshot = z
+  .object({
+    revision: z.number().int().nonnegative(),
+    todos: z.array(Info),
+  })
+  .meta({ ref: "TodoSnapshot" })
+export type Snapshot = z.infer<typeof Snapshot>
+
 export const Event = {
   Updated: BusEvent.define(
     "todo.updated",
     z.object({
       sessionID: SessionID.zod,
+      revision: z.number().int().nonnegative(),
       todos: z.array(Info),
     }),
   ),
 }
 
 export interface Interface {
-  readonly update: (input: { sessionID: SessionID; todos: Input[] }) => Effect.Effect<Info[]>
-  readonly get: (sessionID: SessionID) => Effect.Effect<Info[]>
+  readonly update: (input: { sessionID: SessionID; todos: Input[] }) => Effect.Effect<Snapshot>
+  readonly get: (sessionID: SessionID) => Effect.Effect<Snapshot>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/SessionTodo") {}
@@ -87,44 +96,86 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const bus = yield* Bus.Service
 
-    const update = Effect.fn("Todo.update")(function* (input: { sessionID: SessionID; todos: Input[] }) {
-      const previous = yield* get(input.sessionID)
-      const resolved = resolveTodoIDs(previous, input.todos)
-
-      yield* Effect.sync(() =>
-        Database.transaction((db) => {
-          db.delete(TodoTable).where(eq(TodoTable.session_id, input.sessionID)).run()
-          if (resolved.length === 0) return
-          db.insert(TodoTable)
-            .values(
-              resolved.map((todo, position) => ({
-                id: todo.id,
-                session_id: input.sessionID,
-                content: todo.content,
-                status: todo.status,
-                priority: todo.priority,
-                position,
-              })),
-            )
-            .run()
-        }),
-      )
-      yield* bus.publish(Event.Updated, { sessionID: input.sessionID, todos: resolved })
-      return resolved
-    })
-
-    const get = Effect.fn("Todo.get")(function* (sessionID: SessionID) {
-      const rows = yield* Effect.sync(() =>
-        Database.use((db) =>
-          db.select().from(TodoTable).where(eq(TodoTable.session_id, sessionID)).orderBy(asc(TodoTable.position)).all(),
-        ),
-      )
-      return rows.map((row) => ({
+    const readSnapshotFromDb = (db: Database.TxOrDb, sessionID: SessionID, options?: { activeOnly?: boolean }) => {
+      const session = db
+        .select({ id: SessionTable.id, archived: SessionTable.time_archived })
+        .from(SessionTable)
+        .where(eq(SessionTable.id, sessionID))
+        .get()
+      if (!session || (options?.activeOnly && session.archived !== null)) {
+        throw new NotFoundError({ message: `Session not found: ${sessionID}` })
+      }
+      const revision = db
+        .select({ revision: SessionTodoRevisionTable.revision })
+        .from(SessionTodoRevisionTable)
+        .where(eq(SessionTodoRevisionTable.session_id, sessionID))
+        .get()
+      const rows = db
+        .select()
+        .from(TodoTable)
+        .where(eq(TodoTable.session_id, sessionID))
+        .orderBy(asc(TodoTable.position))
+        .all()
+      const todos = rows.map((row) => ({
         id: row.id,
         content: row.content,
         status: row.status,
         priority: row.priority,
       }))
+      if (revision) return { revision: revision.revision, todos }
+      return { revision: todos.length > 0 ? 1 : 0, todos }
+    }
+
+    const readSnapshot = (sessionID: SessionID, options?: { activeOnly?: boolean }) =>
+      Effect.sync(() => Database.transaction((db) => readSnapshotFromDb(db, sessionID, options)))
+
+    const update = Effect.fn("Todo.update")(function* (input: { sessionID: SessionID; todos: Input[] }) {
+      const snapshot = yield* Effect.sync(() =>
+        Database.transaction(
+          (db) => {
+            const previous = readSnapshotFromDb(db, input.sessionID, { activeOnly: true })
+            const resolved = resolveTodoIDs(previous.todos, input.todos)
+
+            db.delete(TodoTable).where(eq(TodoTable.session_id, input.sessionID)).run()
+            if (resolved.length > 0) {
+              db.insert(TodoTable)
+                .values(
+                  resolved.map((todo, position) => ({
+                    id: todo.id,
+                    session_id: input.sessionID,
+                    content: todo.content,
+                    status: todo.status,
+                    priority: todo.priority,
+                    position,
+                  })),
+                )
+                .run()
+            }
+            const row = db
+              .insert(SessionTodoRevisionTable)
+              .values({
+                session_id: input.sessionID,
+                revision: Math.max(previous.revision + 1, 1),
+              })
+              .onConflictDoUpdate({
+                target: SessionTodoRevisionTable.session_id,
+                set: {
+                  revision: sql`${SessionTodoRevisionTable.revision} + 1`,
+                },
+              })
+              .returning({ revision: SessionTodoRevisionTable.revision })
+              .get()
+            return { revision: row.revision, todos: resolved }
+          },
+          { behavior: "immediate" },
+        ),
+      )
+      yield* bus.publish(Event.Updated, { sessionID: input.sessionID, ...snapshot })
+      return snapshot
+    })
+
+    const get = Effect.fn("Todo.get")(function* (sessionID: SessionID) {
+      return yield* readSnapshot(sessionID)
     })
 
     return Service.of({ update, get })

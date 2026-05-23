@@ -7,6 +7,7 @@ import type {
   Session,
   SessionDiffResponse,
   Todo,
+  TodoSnapshot,
 } from "@opencode-ai/sdk/v2/client"
 import { createStore } from "solid-js/store"
 import type { State } from "./types"
@@ -46,6 +47,24 @@ const textPart = (id: string, sessionID: string, messageID: string) =>
     messageID,
     type: "text",
     text: id,
+  }) as Part
+
+const todoToolPart = (id: string, sessionID: string, messageID: string, metadata: unknown) =>
+  ({
+    id,
+    sessionID,
+    messageID,
+    type: "tool",
+    callID: `call_${id}`,
+    tool: "todowrite",
+    state: {
+      status: "completed",
+      input: {},
+      output: "",
+      title: "",
+      metadata,
+      time: { start: 1, end: 1 },
+    },
   }) as Part
 
 const permissionRequest = (id: string, sessionID: string, title = id) =>
@@ -140,69 +159,66 @@ describe("applyGlobalEvent", () => {
 describe("applyDirectoryEvent", () => {
   test("caches detached todo updates before a directory child store exists", () => {
     const todos: Todo[] = [{ id: "todo_1", content: "fresh todo", status: "in_progress", priority: "high" } as Todo]
-    const writes: Array<{
-      sessionID: string
-      todos: Todo[] | undefined
-      options?: { clearActiveParts?: boolean }
-    }> = []
+    const writes: Array<{ sessionID: string; snapshot: TodoSnapshot }> = []
 
     const handled = applyDetachedDirectoryEvent({
-      event: { type: "todo.updated", properties: { sessionID: "ses_fresh", todos } },
-      setSessionTodo(sessionID, value, options) {
-        writes.push({ sessionID, todos: value, options })
+      directory: "/tmp",
+      event: { type: "todo.updated", properties: { sessionID: "ses_fresh", revision: 2, todos } },
+      acceptSessionTodo(sessionID, snapshot) {
+        writes.push({ sessionID, snapshot })
+        return true
       },
+      todoHydrate: { canAcceptLiveTodo: () => true },
     })
 
     expect(handled).toBe(true)
-    expect(writes).toEqual([{ sessionID: "ses_fresh", todos, options: undefined }])
+    expect(writes).toEqual([{ sessionID: "ses_fresh", snapshot: { revision: 2, todos } }])
   })
 
-  test("marks detached empty todo updates as active-parts clears", () => {
-    const writes: Array<{
-      sessionID: string
-      todos: Todo[] | undefined
-      options?: { clearActiveParts?: boolean }
-    }> = []
+  test("rejects detached todo updates when live writes are fenced", () => {
+    const writes: TodoSnapshot[] = []
 
     const handled = applyDetachedDirectoryEvent({
-      event: { type: "todo.updated", properties: { sessionID: "ses_clear", todos: [] } },
-      setSessionTodo(sessionID, value, options) {
-        writes.push({ sessionID, todos: value, options })
+      directory: "/tmp",
+      event: { type: "todo.updated", properties: { sessionID: "ses_clear", revision: 3, todos: [] } },
+      acceptSessionTodo(_sessionID, snapshot) {
+        writes.push(snapshot)
+        return true
       },
+      todoHydrate: { canAcceptLiveTodo: () => false },
     })
 
     expect(handled).toBe(true)
-    expect(writes).toEqual([{ sessionID: "ses_clear", todos: [], options: { clearActiveParts: true } }])
+    expect(writes).toEqual([])
   })
 
-  test("marks directory empty todo updates as active-parts clears", () => {
+  test("directory todo updates mirror only accepted snapshots", () => {
     const [store, setStore] = createStore(baseState())
-    const writes: Array<{
-      sessionID: string
-      todos: Todo[] | undefined
-      options?: { clearActiveParts?: boolean }
-    }> = []
+    const writes: TodoSnapshot[] = []
 
     applyDirectoryEvent({
-      event: { type: "todo.updated", properties: { sessionID: "ses_clear", todos: [] } },
+      event: { type: "todo.updated", properties: { sessionID: "ses_clear", revision: 4, todos: [] } },
       store,
       setStore,
       push() {},
       directory: "/tmp",
       loadLsp() {},
-      setSessionTodo(sessionID, value, options) {
-        writes.push({ sessionID, todos: value, options })
+      acceptSessionTodo(_sessionID, snapshot) {
+        writes.push(snapshot)
+        return true
       },
+      todoHydrate: { canAcceptLiveTodo: () => true },
     })
 
     expect(store.todo.ses_clear).toEqual([])
-    expect(writes).toEqual([{ sessionID: "ses_clear", todos: [], options: { clearActiveParts: true } }])
+    expect(writes).toEqual([{ revision: 4, todos: [] }])
   })
 
   test("ignores detached events that need a directory child store", () => {
     const handled = applyDetachedDirectoryEvent({
+      directory: "/tmp",
       event: { type: "message.updated", properties: { info: userMessage("msg_1", "ses_1") } },
-      setSessionTodo() {
+      acceptSessionTodo() {
         throw new Error("should not write detached todo cache")
       },
     })
@@ -212,8 +228,9 @@ describe("applyDirectoryEvent", () => {
 
   test("ignores malformed detached todo updates", () => {
     const handled = applyDetachedDirectoryEvent({
+      directory: "/tmp",
       event: { type: "todo.updated" },
-      setSessionTodo() {
+      acceptSessionTodo() {
         throw new Error("should not write detached todo cache")
       },
     })
@@ -221,32 +238,37 @@ describe("applyDirectoryEvent", () => {
     expect(handled).toBe(false)
   })
 
-  test("clears detached todo cache for deleted and archived sessions", () => {
-    const writes: Array<{ sessionID: string; todos: Todo[] | undefined }> = []
-    const setSessionTodo = (sessionID: string, todos: Todo[] | undefined) => {
-      writes.push({ sessionID, todos })
+  test("clears and invalidates detached todo cache for deleted and archived sessions", () => {
+    const clears: string[] = []
+    const invalidated: string[] = []
+    const clearSessionTodoAuthoritative = (sessionID: string) => {
+      clears.push(sessionID)
     }
 
     const deleted = applyDetachedDirectoryEvent({
+      directory: "/tmp",
       event: { type: "session.deleted", properties: { info: rootSession({ id: "ses_deleted" }) } },
-      setSessionTodo,
+      clearSessionTodoAuthoritative,
+      todoHydrate: { invalidateSession: (sessionID: string) => invalidated.push(sessionID) },
     })
     const archived = applyDetachedDirectoryEvent({
+      directory: "/tmp",
       event: { type: "session.updated", properties: { info: rootSession({ id: "ses_archived", archived: 2 }) } },
-      setSessionTodo,
+      clearSessionTodoAuthoritative,
+      todoHydrate: { invalidateSession: (sessionID: string) => invalidated.push(sessionID) },
     })
     const activeUpdate = applyDetachedDirectoryEvent({
+      directory: "/tmp",
       event: { type: "session.updated", properties: { info: rootSession({ id: "ses_active" }) } },
-      setSessionTodo,
+      clearSessionTodoAuthoritative,
+      todoHydrate: { invalidateSession: (sessionID: string) => invalidated.push(sessionID) },
     })
 
     expect(deleted).toBe(true)
     expect(archived).toBe(true)
     expect(activeUpdate).toBe(false)
-    expect(writes).toEqual([
-      { sessionID: "ses_deleted", todos: undefined },
-      { sessionID: "ses_archived", todos: undefined },
-    ])
+    expect(clears).toEqual(["ses_deleted", "ses_archived"])
+    expect(invalidated).toEqual(["ses_deleted", "ses_archived"])
   })
 
   test("inserts root sessions in sorted order and updates sessionTotal", () => {
@@ -385,10 +407,7 @@ describe("applyDirectoryEvent", () => {
       push() {},
       directory: "/tmp",
       loadLsp() {},
-      setSessionTodo(sessionID, value) {
-        if (value !== undefined) return
-        todos.push(sessionID)
-      },
+      clearSessionTodoAuthoritative: (sessionID) => todos.push(sessionID),
     })
 
     expect(store.session.map((x) => x.id)).toEqual([created.id, existing.id])
@@ -412,6 +431,21 @@ describe("applyDirectoryEvent", () => {
     cleanupDroppedSessionCaches(store, setStore, store.session)
 
     expect(store.part.msg_1).toBeUndefined()
+  })
+
+  test("cleanupDroppedSessionCaches reports dropped sessions even without child caches", () => {
+    const forgotten: string[] = []
+    const keep = rootSession({ id: "ses_keep" })
+    const drop = rootSession({ id: "ses_drop" })
+    const [store, setStore] = createStore(baseState({ session: [keep, drop] }))
+
+    cleanupDroppedSessionCaches(store, setStore, [keep], {
+      onDropSession: (sessionID) => {
+        forgotten.push(sessionID)
+      },
+    })
+
+    expect(forgotten).toEqual(["ses_drop"])
   })
 
   test("clears cached aggregate when turn changes are invalidated", () => {
@@ -550,6 +584,35 @@ describe("applyDirectoryEvent", () => {
     })
 
     expect(store.part[messageID]).toBeUndefined()
+  })
+
+  test("completed live todowrite metadata writes canonical todo before part storage returns", () => {
+    const sessionID = "ses_1"
+    const messageID = "msg_1"
+    const todos: Todo[] = [{ id: "todo_1", content: "from metadata", status: "in_progress", priority: "high" } as Todo]
+    const [store, setStore] = createStore(baseState())
+    const writes: TodoSnapshot[] = []
+
+    applyDirectoryEvent({
+      event: {
+        type: "message.part.updated",
+        properties: { part: todoToolPart("prt_1", sessionID, messageID, { revision: 5, todos }) },
+      },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+      acceptSessionTodo(_sessionID, snapshot) {
+        writes.push(snapshot)
+        return true
+      },
+      todoHydrate: { canAcceptLiveTodo: () => true },
+    })
+
+    expect(writes).toEqual([{ revision: 5, todos }])
+    expect(store.todo[sessionID]).toEqual(todos)
+    expect(store.part[messageID]?.[0]?.id).toBe("prt_1")
   })
 
   test("tracks permission request lifecycle", () => {

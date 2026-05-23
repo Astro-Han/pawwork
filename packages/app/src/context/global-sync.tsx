@@ -6,11 +6,12 @@ import type {
   ProviderAuthResponse,
   ProviderListResponse,
   Todo,
+  TodoSnapshot,
 } from "@opencode-ai/sdk/v2/client"
 import { showToast } from "@opencode-ai/ui/toast"
 import { getFilename } from "@opencode-ai/util/path"
 import { createContext, getOwner, onCleanup, onMount, type ParentProps, untrack, useContext } from "solid-js"
-import { createStore, produce, reconcile } from "solid-js/store"
+import { createStore, produce, reconcile, type SetStoreFunction } from "solid-js/store"
 import { useLanguage } from "@/context/language"
 import { Persist, persisted } from "@/utils/persist"
 import { clientActionHeaders } from "@/utils/server"
@@ -31,20 +32,42 @@ import { estimateRootSessionTotal, loadRootSessionsWithFallback } from "./global
 import { trimSessions } from "./global-sync/session-trim"
 import type { ProjectMeta } from "./global-sync/types"
 import { SESSION_RECENT_LIMIT } from "./global-sync/types"
+import { createTodoHydrateCoordinator } from "./global-sync/todo-hydrate-coordinator"
 import { sanitizeProject } from "./global-sync/utils"
 import { formatServerError } from "@/utils/server-errors"
 import { queryOptions, useQueryClient } from "@tanstack/solid-query"
 
-type GlobalStore = {
+export type SessionTodoSnapshot = TodoSnapshot
+
+export function canAcceptSessionTodo(
+  current: SessionTodoSnapshot | undefined,
+  incoming: SessionTodoSnapshot,
+): boolean {
+  return current === undefined || incoming.revision > current.revision
+}
+
+export function setSessionTodoSnapshot(
+  setStore: SetStoreFunction<GlobalStore>,
+  sessionID: string,
+  current: SessionTodoSnapshot | undefined,
+  incoming: SessionTodoSnapshot,
+) {
+  if (current === undefined) {
+    setStore("session_todo", sessionID, incoming)
+    return
+  }
+
+  setStore("session_todo", sessionID, "todos", reconcile(incoming.todos, { key: "id" }))
+  setStore("session_todo", sessionID, "revision", incoming.revision)
+}
+
+export type GlobalStore = {
   ready: boolean
   error?: InitError
   path: Path
   project: Project[]
   session_todo: {
-    [sessionID: string]: Todo[]
-  }
-  session_todo_clear: {
-    [sessionID: string]: number
+    [sessionID: string]: SessionTodoSnapshot
   }
   provider: ProviderListResponse
   provider_auth: ProviderAuthResponse
@@ -53,18 +76,6 @@ type GlobalStore = {
 }
 
 const inactiveQueryFn = async () => null
-
-export function nextSessionTodoClearFlag(
-  previous: number | undefined,
-  todos: Todo[] | undefined,
-  options?: { clearActiveParts?: boolean },
-  now = Date.now(),
-) {
-  if (!todos) return undefined
-  if (todos.length > 0) return undefined
-  if (options?.clearActiveParts === true) return now
-  return previous
-}
 
 export const loadSessionsQuery = (directory: string) =>
   queryOptions<null>({ queryKey: [directory, "loadSessions"], queryFn: inactiveQueryFn, enabled: false })
@@ -80,6 +91,7 @@ function createGlobalSync() {
   const sessionLoads = new Map<string, Promise<void>>()
   const sessionMeta = new Map<string, { limit: number }>()
   const blockerTerminals = createBlockerTerminalCache()
+  const todoHydrate = createTodoHydrateCoordinator()
 
   const [projectCache, setProjectCache, projectInit] = persisted(
     Persist.global("globalSync.project", ["globalSync.project.v1"]),
@@ -91,7 +103,6 @@ function createGlobalSync() {
     path: { state: "", config: "", worktree: "", directory: "", home: "" },
     project: projectCache.value,
     session_todo: {},
-    session_todo_clear: {},
     provider: { all: [], connected: [], default: {} },
     provider_auth: {},
     config: {},
@@ -162,39 +173,35 @@ function createGlobalSync() {
       })
   }
 
-  const setSessionTodo = (
-    sessionID: string,
-    todos: Todo[] | undefined,
-    options?: { clearActiveParts?: boolean },
-  ) => {
+  const acceptSessionTodo = (sessionID: string, incoming: SessionTodoSnapshot): boolean => {
+    if (!sessionID) return false
+    const current = globalStore.session_todo[sessionID]
+    if (!canAcceptSessionTodo(current, incoming)) return false
+    setSessionTodoSnapshot(setGlobalStore, sessionID, current, incoming)
+    return true
+  }
+
+  const clearSessionTodoAuthoritative = (sessionID: string) => {
     if (!sessionID) return
-    if (!todos) {
-      setGlobalStore(
-        "session_todo",
-        produce((draft) => {
-          delete draft[sessionID]
-        }),
-      )
-      setGlobalStore(
-        "session_todo_clear",
-        produce((draft) => {
-          delete draft[sessionID]
-        }),
-      )
-      return
-    }
-    setGlobalStore("session_todo", sessionID, reconcile(todos, { key: "id" }))
-    const clearFlag = nextSessionTodoClearFlag(globalStore.session_todo_clear[sessionID], todos, options)
-    if (clearFlag !== undefined) {
-      setGlobalStore("session_todo_clear", sessionID, clearFlag)
-      return
-    }
     setGlobalStore(
-      "session_todo_clear",
+      "session_todo",
       produce((draft) => {
         delete draft[sessionID]
       }),
     )
+  }
+
+  const setSessionTodo = (
+    sessionID: string,
+    value: Todo[] | SessionTodoSnapshot | undefined,
+  ) => {
+    if (!sessionID) return
+    if (!value) {
+      clearSessionTodoAuthoritative(sessionID)
+      return
+    }
+    const snapshot = Array.isArray(value) ? { revision: 0, todos: value } : value
+    acceptSessionTodo(sessionID, snapshot)
   }
 
   const paused = () => untrack(() => globalStore.reload) !== undefined
@@ -216,6 +223,7 @@ function createGlobalSync() {
       queue.clear(directory)
       sessionMeta.delete(directory)
       blockerTerminals.clearDirectory(directory)
+      todoHydrate.clearDirectory(directory)
       sdkCache.delete(directory)
       clearProviderRev(directory)
       clearSessionPrefetchDirectory(directory)
@@ -247,8 +255,10 @@ function createGlobalSync() {
         permission: store.permission,
       })
       if (next.length !== store.session.length) {
+        cleanupDroppedSessionCaches(store, setStore, next, {
+          onDropSession: (sessionID) => todoHydrate.invalidate(directory, sessionID),
+        })
         setStore("session", reconcile(next, { key: "id" }))
-        cleanupDroppedSessionCaches(store, setStore, next, setSessionTodo)
       }
       children.unpin(directory)
       return
@@ -283,8 +293,10 @@ function createGlobalSync() {
                   limited: x.limited,
                 }),
               )
+              cleanupDroppedSessionCaches(store, setStore, sessions, {
+                onDropSession: (sessionID) => todoHydrate.invalidate(directory, sessionID),
+              })
               setStore("session", reconcile(sessions, { key: "id" }))
-              cleanupDroppedSessionCaches(store, setStore, sessions, setSessionTodo)
               sessionMeta.set(directory, { limit })
             })
             .catch((err) => {
@@ -361,12 +373,14 @@ function createGlobalSync() {
         setGlobalProject: setProjects,
       })
       if (event.type === "server.connected") {
+        todoHydrate.markGlobalRecovery()
         for (const directory of Object.keys(children.children)) {
           queue.push(directory)
         }
       }
       if (event.type === "global.disposed") {
         if (recent) return
+        todoHydrate.markGlobalRecovery()
         for (const directory of Object.keys(children.children)) {
           queue.push(directory)
         }
@@ -376,7 +390,13 @@ function createGlobalSync() {
 
     const existing = children.children[directory]
     if (!existing) {
-      applyDetachedDirectoryEvent({ event, setSessionTodo })
+      applyDetachedDirectoryEvent({
+        directory,
+        event,
+        acceptSessionTodo,
+        clearSessionTodoAuthoritative,
+        todoHydrate,
+      })
       return
     }
     children.mark(directory)
@@ -387,7 +407,9 @@ function createGlobalSync() {
       store,
       setStore,
       push: queue.push,
-      setSessionTodo,
+      acceptSessionTodo,
+      clearSessionTodoAuthoritative,
+      todoHydrate,
       blockerTerminals,
       vcsCache: children.vcsCache.get(directory),
       loadLsp: () => {
@@ -530,7 +552,10 @@ function createGlobalSync() {
     project: projectApi,
     todo: {
       set: setSessionTodo,
+      accept: acceptSessionTodo,
+      clearAuthoritative: clearSessionTodoAuthoritative,
     },
+    todoHydrate,
   }
 }
 

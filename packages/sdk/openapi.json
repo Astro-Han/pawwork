@@ -2766,10 +2766,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/Todo"
-                  }
+                  "$ref": "#/components/schemas/TodoSnapshot"
                 }
               }
             }
@@ -7933,6 +7930,24 @@
           "priority"
         ]
       },
+      "TodoSnapshot": {
+        "type": "object",
+        "properties": {
+          "revision": {
+            "type": "number"
+          },
+          "todos": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Todo"
+            }
+          }
+        },
+        "required": [
+          "revision",
+          "todos"
+        ]
+      },
       "Event.todo.updated": {
         "type": "object",
         "properties": {
@@ -7947,6 +7962,9 @@
                 "type": "string",
                 "pattern": "^ses.*"
               },
+              "revision": {
+                "type": "number"
+              },
               "todos": {
                 "type": "array",
                 "items": {
@@ -7956,6 +7974,7 @@
             },
             "required": [
               "sessionID",
+              "revision",
               "todos"
             ]
           }

@@ -512,10 +512,16 @@ export type Todo = {
   id: string
 }
 
+export type TodoSnapshot = {
+  revision: number
+  todos: Array<Todo>
+}
+
 export type EventTodoUpdated = {
   type: "todo.updated"
   properties: {
     sessionID: string
+    revision: number
     todos: Array<Todo>
   }
 }
@@ -2039,7 +2045,7 @@ export type SessionTodoResponses = {
   /**
    * Todo list
    */
-  200: Array<Todo>
+  200: TodoSnapshot
 }
 
 export type SessionTodoResponse = SessionTodoResponses[keyof SessionTodoResponses]

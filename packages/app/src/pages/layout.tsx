@@ -963,9 +963,6 @@ export default function Layout(props: ParentProps) {
 
             if (stale.length > 0) {
               clearSessionPrefetch(directory, stale)
-              for (const id of stale) {
-                globalSync.todo.set(id, undefined)
-              }
             }
 
             const current = store.message[sessionID] ?? []

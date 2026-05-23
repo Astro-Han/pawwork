@@ -37,14 +37,12 @@ describe("todoSnapshot", () => {
         sessionID: "ses_1",
         source: "primary-parts",
         items: [todo("working", "in_progress", "high", "todo_1")],
-        sourceUpdatedAt: 10,
       }),
     ).toEqual({
       sessionID: "ses_1",
       source: "primary-parts",
       items: [todo("working", "in_progress", "high", "todo_1")],
       phase: "active",
-      sourceUpdatedAt: 10,
     })
   })
 })
