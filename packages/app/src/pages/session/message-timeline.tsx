@@ -135,9 +135,9 @@ export function MessageTimeline(props: {
       }),
     emptyTimelineFrame,
   )
-  const frameRows = createMemo(() => timelineFrame().rows)
-  const frameMutation = createMemo(() => timelineFrame().mutation)
-  const frameRenderMode = createMemo(() => timelineFrame().renderMode)
+  const frameRows = createMemo(() => timelineFrame().rows, emptyTimelineFrame.rows)
+  const frameMutation = createMemo(() => timelineFrame().mutation, emptyTimelineFrame.mutation)
+  const frameRenderMode = createMemo(() => timelineFrame().renderMode, emptyTimelineFrame.renderMode)
   const currentVisibleRangeData = () => visibleRangeDataFromFrame(timelineFrame())
   let lastTimelineFrame = emptyTimelineFrame
 
