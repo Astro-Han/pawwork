@@ -11,7 +11,7 @@ import type {
 import { showToast } from "@opencode-ai/ui/toast"
 import { getFilename } from "@opencode-ai/util/path"
 import { createContext, getOwner, onCleanup, onMount, type ParentProps, untrack, useContext } from "solid-js"
-import { createStore, produce, reconcile } from "solid-js/store"
+import { createStore, produce, reconcile, type SetStoreFunction } from "solid-js/store"
 import { useLanguage } from "@/context/language"
 import { Persist, persisted } from "@/utils/persist"
 import { clientActionHeaders } from "@/utils/server"
@@ -44,6 +44,15 @@ export function canAcceptSessionTodo(
   incoming: SessionTodoSnapshot,
 ): boolean {
   return current === undefined || incoming.revision > current.revision
+}
+
+export function setSessionTodoSnapshot(
+  setStore: SetStoreFunction<GlobalStore>,
+  sessionID: string,
+  incoming: SessionTodoSnapshot,
+) {
+  setStore("session_todo", sessionID, "todos", reconcile(incoming.todos, { key: "id" }))
+  setStore("session_todo", sessionID, "revision", incoming.revision)
 }
 
 type GlobalStore = {
@@ -161,7 +170,7 @@ function createGlobalSync() {
   const acceptSessionTodo = (sessionID: string, incoming: SessionTodoSnapshot): boolean => {
     if (!sessionID) return false
     if (!canAcceptSessionTodo(globalStore.session_todo[sessionID], incoming)) return false
-    setGlobalStore("session_todo", sessionID, reconcile(incoming))
+    setSessionTodoSnapshot(setGlobalStore, sessionID, incoming)
     return true
   }
 

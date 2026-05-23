@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { Todo } from "@opencode-ai/sdk/v2/client"
-import { canAcceptSessionTodo, type SessionTodoSnapshot } from "./global-sync"
+import { canAcceptSessionTodo, setSessionTodoSnapshot, type SessionTodoSnapshot } from "./global-sync"
 import { canDisposeDirectory, pickDirectoriesToEvict } from "./global-sync/eviction"
 import { estimateRootSessionTotal, loadRootSessionsWithFallback } from "./global-sync/session-load"
 
@@ -19,6 +19,23 @@ describe("canAcceptSessionTodo", () => {
 
   test("accepts newer revisions including authoritative empty snapshots", () => {
     expect(canAcceptSessionTodo(snapshot(2), { revision: 3, todos: [] })).toBe(true)
+  })
+})
+
+describe("setSessionTodoSnapshot", () => {
+  test("updates todos through a keyed array path before writing revision", () => {
+    const calls: unknown[][] = []
+    const setStore = ((...input: unknown[]) => {
+      calls.push(input)
+      return input.at(-1)
+    }) as Parameters<typeof setSessionTodoSnapshot>[0]
+    const todo = { id: "todo_1", content: "work", status: "in_progress", priority: "medium" } as Todo
+
+    setSessionTodoSnapshot(setStore, "ses_1", { revision: 2, todos: [todo] })
+
+    expect(calls).toHaveLength(2)
+    expect(calls[0].slice(0, 3)).toEqual(["session_todo", "ses_1", "todos"])
+    expect(calls[1]).toEqual(["session_todo", "ses_1", "revision", 2])
   })
 })
 
