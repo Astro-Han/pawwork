@@ -16,6 +16,7 @@ import { composerEvent, type ComposerDriverState, type ComposerWindow } from "..
 import { installPerfProbe, resetPerfProbe, snapshotPerfProbe, summarizeScenarioRuns } from "./probe"
 import { applyPerfProfile, readPerfProfile, shouldRunScenario, type PerfScenarioName } from "./profiles"
 import { readTimelineDomBudget, shouldAssertTimelineVirtualization } from "./timeline-dom-budget"
+import { createPerfWindowGuard } from "./perf-window"
 import {
   TIMELINE_RECOMPUTE_SEED_TURN_COUNT,
   buildHeterogeneousScrollSeedText,
@@ -27,6 +28,7 @@ const outputPath =
   process.env.PAWWORK_PERF_OUTPUT ?? path.join(process.cwd(), "e2e", "perf-results", "pr0.1-baseline.json")
 const perfBranch = process.env.PAWWORK_PERF_BRANCH ?? "dev"
 const PERF_PROFILE = readPerfProfile()
+const perfWindowGuard = createPerfWindowGuard()
 
 const longMarkdown = [
   "# Baseline stream",
@@ -66,7 +68,6 @@ const longScrollMinimumMovingSamples = 16
 const longScrollMinimumDistinctScrollTops = 12
 
 const scenarioResults: ReturnType<typeof summarizeScenarioRuns>[] = []
-let measuredPerfWindowDepth = 0
 
 type PerfSdk = ReturnType<typeof createSdk>
 type PerfProject = {
@@ -84,6 +85,10 @@ type TimelineMetrics = {
   scrollHeight: number
   clientHeight: number
   maxScrollTop: number
+}
+
+type TimelineSetupMetrics = TimelineMetrics & {
+  layoutTransactionActive: boolean
 }
 
 type WheelRouteResult = {
@@ -152,19 +157,61 @@ async function measurePerfWindow(
   action: () => Promise<void>,
 ) {
   await settleFrames(page, 2)
-  await resetPerfProbe(page)
-  measuredPerfWindowDepth += 1
-  try {
-    await action()
-    return await snapshotPerfProbe(page)
-  } finally {
-    measuredPerfWindowDepth -= 1
-  }
+  return perfWindowGuard.measure({
+    reset: () => resetPerfProbe(page),
+    action,
+    snapshot: () => snapshotPerfProbe(page),
+  })
+}
+
+async function readTimelineSetupMetrics(page: Parameters<typeof snapshotPerfProbe>[0]) {
+  const metrics = await page.evaluate(
+    ({ scrollViewportSelector, turnListSelector }) => {
+      const list = document.querySelector(turnListSelector)
+      const viewport = list?.closest(scrollViewportSelector)
+      if (!(viewport instanceof HTMLElement)) return undefined
+      const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight)
+      return {
+        scrollTop: viewport.scrollTop,
+        scrollHeight: viewport.scrollHeight,
+        clientHeight: viewport.clientHeight,
+        maxScrollTop,
+        layoutTransactionActive: list.getAttribute("data-layout-transaction-active") === "true",
+      }
+    },
+    { scrollViewportSelector, turnListSelector: sessionTurnListSelector },
+  )
+  expect(metrics).toBeTruthy()
+  return metrics as TimelineSetupMetrics
+}
+
+function sameTimelineSetupMetrics(a: TimelineSetupMetrics, b: TimelineSetupMetrics) {
+  return (
+    Math.round(a.scrollTop) === Math.round(b.scrollTop) &&
+    a.scrollHeight === b.scrollHeight &&
+    a.clientHeight === b.clientHeight &&
+    a.layoutTransactionActive === b.layoutTransactionActive
+  )
 }
 
 async function settlePerfSetup(page: Parameters<typeof snapshotPerfProbe>[0]) {
-  await settleFrames(page, 12)
-  await page.waitForTimeout(250)
+  await expect
+    .poll(
+      async () => {
+        const samples: TimelineSetupMetrics[] = []
+        for (let index = 0; index < 3; index += 1) {
+          await settleFrames(page, 1)
+          samples.push(await readTimelineSetupMetrics(page))
+        }
+        const first = samples[0]
+        const last = samples[samples.length - 1]
+        if (!first || !last) return false
+        const stable = samples.every((sample) => sameTimelineSetupMetrics(first, sample))
+        return stable && !last.layoutTransactionActive
+      },
+      { timeout: 5_000 },
+    )
+    .toBe(true)
 }
 
 async function ensureTerminalClosed(page: Parameters<typeof snapshotPerfProbe>[0]) {
@@ -274,9 +321,7 @@ async function readTimelineDriverEvent() {
 }
 
 async function setTimelineScrollTopForSetup(page: Parameters<typeof snapshotPerfProbe>[0], top: number) {
-  if (measuredPerfWindowDepth > 0) {
-    throw new Error("setTimelineScrollTopForSetup must run outside perf measured windows")
-  }
+  perfWindowGuard.assertSetupAllowed("setTimelineScrollTopForSetup")
   const found = await page.evaluate(
     ({ top, scrollViewportSelector, turnListSelector }) => {
       const list = document.querySelector(turnListSelector)
@@ -1035,18 +1080,25 @@ test.describe("PR0.1 perf probe baseline", () => {
         await expect.poll(async () => page.locator(sessionMessageItemSelector).count()).toBeGreaterThanOrEqual(8)
         const before = await readTimelineMetrics(page)
         expect(before.maxScrollTop).toBeGreaterThan(1200)
-        await setTimelineScrollTopForSetup(page, 0)
+        const setupScrollTop = Math.min(1200, before.maxScrollTop)
+        await setTimelineScrollTopForSetup(page, setupScrollTop)
         await settlePerfSetup(page)
         runs.push(
           await measurePerfWindow(page, async () => {
             await hoverTimelineScrollLane(page)
-            const samples = new Set([Math.round((await readTimelineMetrics(page)).scrollTop)])
+            const start = await readTimelineMetrics(page)
+            expect(start.scrollTop).toBeGreaterThan(1)
+            const samples = new Set([Math.round(start.scrollTop)])
+            let minScrollTop = start.scrollTop
             for (let index = 0; index < 4; index += 1) {
               await page.mouse.wheel(0, -2400)
               await settleFrames(page, 2)
-              samples.add(Math.round((await readTimelineMetrics(page)).scrollTop))
+              const next = await readTimelineMetrics(page)
+              minScrollTop = Math.min(minScrollTop, next.scrollTop)
+              samples.add(Math.round(next.scrollTop))
             }
             expect(samples.size).toBeGreaterThanOrEqual(2)
+            expect(minScrollTop).toBeLessThan(start.scrollTop - 1)
           }),
         )
         if (run < 2) await cooldownAfterRun(page)
