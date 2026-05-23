@@ -87,7 +87,7 @@
   --surface-raised: #ffffff;
   --surface-sunken: #faf9f7; /* light alias → bg-cream; no third neutral tier (L9) */
   --code-surface:   rgba(0, 0, 0, 0.04); /* #642: alpha overlay for inline code + code-block */
-  --sidebar:        #f9f9f9; /* neutral pale grey, decoupled from bg-cream per ui_kits mock */
+  --sidebar:        #f2f0ed; /* chrome 独立 surface（与 cream #faf9f7 区分） */
   --surface-base-active: rgba(0, 0, 0, 0.051);
 
   /* ────────── Light ink · 2-tier collapse (strong + weak); base/weaker pairs merge.
@@ -278,24 +278,25 @@
  * aligned with that runtime path; it is not the runtime source of truth.
  * ────────────────────────────────────────────────────────────────────────── */
 :root[data-color-scheme="dark"] {
-  /* Dark surface · 2-tier collapse (canvas + raised), R-B=3 warm coffee.
-   * The legacy 6-tier ladder collapses into 2 visible tones:
-   *   canvas  #1a1917  — chrome floor: bg / sidebar / popover / textfield / sunken alias
-   *   raised  #262523  — anchored: dialog / composer / msg-user / list-hover / command palette
+  /* Dark surface · 3-tier (canvas + sidebar + raised), R-B=3 warm coffee.
+   * The legacy 6-tier ladder collapses into 3 visible tones:
+   *   canvas  #1a1917  — chrome floor: bg / sunken alias / cream alias / surface-base alias
+   *   sidebar #232120  — chrome middle: 左栏独立 surface (2026-05-23 从 canvas 拆出)
+   *   raised  #2d2a27  — anchored: dialog / composer / msg-user / list-hover / popover / textfield / picker / cp body
    * Token names survive for light-mode parity and callsite stability. */
   --bg-base:        #1a1917;
   --bg-cream:       #1a1917; /* dark collapse → canvas (no separate cream tier) */
-  --surface-base:   #1a1917; /* dark collapse → canvas (popover / textfield share chrome) */
-  --surface-raised: #262523;
+  --surface-base:   #1a1917; /* dark collapse → canvas (secondary button / inline controls) */
+  --surface-raised: #2d2a27;
   --surface-sunken: #1a1917; /* dark collapse → canvas (no sunken tier) */
   --code-surface:   rgba(255, 255, 255, 0.06); /* #642: alpha overlay for inline code + code-block */
-  --sidebar:        #1a1917; /* dark collapse → canvas (three columns share one surface) */
+  --sidebar:        #232120; /* sidebar chrome 中间一档 */
 
   /* Dark ink · 2-tier collapse (fg + fg-weak); strong/base and weak/weaker pairs merge */
-  --fg-strong: #ebe7e0;
-  --fg-base:   #ebe7e0; /* dark collapse → fg */
-  --fg-weak:   #7e7872;
-  --fg-weaker: #7e7872; /* dark collapse → fg-weak */
+  --fg-strong: #f4efe7;
+  --fg-base:   #f4efe7; /* dark collapse → fg */
+  --fg-weak:   #928c82;
+  --fg-weaker: #928c82; /* dark collapse → fg-weak */
 
   /* Dark border · 1-tier collapse to a single hairline alpha; container outlines
    * keep the `--ring-base` 1px white-18% halo for elevation pickup.
@@ -307,9 +308,9 @@
   --border-weaker: rgba(255, 255, 255, 0.08);
 
   /* Icon mirrors collapsed dark ink */
-  --icon-base:   #7e7872;
-  --icon-strong: #ebe7e0;
-  --icon-weak:   #7e7872;
+  --icon-base:   #928c82;
+  --icon-strong: #f4efe7;
+  --icon-weak:   #928c82;
 
   /* Brand hover lifted in dark for legibility on warm coffee surface */
   --brand-primary-hover: #ff7a3a;
@@ -435,23 +436,23 @@
     --bg-base:        #1a1917;
     --bg-cream:       #1a1917;
     --surface-base:   #1a1917;
-    --surface-raised: #262523;
+    --surface-raised: #2d2a27;
     --surface-sunken: #1a1917;
     --code-surface:   rgba(255, 255, 255, 0.06); /* #642: alpha overlay for inline code + code-block */
-    --sidebar:        #1a1917;
+    --sidebar:        #232120;
 
-    --fg-strong: #ebe7e0;
-    --fg-base:   #ebe7e0;
-    --fg-weak:   #7e7872;
-    --fg-weaker: #7e7872;
+    --fg-strong: #f4efe7;
+    --fg-base:   #f4efe7;
+    --fg-weak:   #928c82;
+    --fg-weaker: #928c82;
 
     --border-base:   rgba(255, 255, 255, 0.08);
     --border-weak:   rgba(255, 255, 255, 0.08);
     --border-weaker: rgba(255, 255, 255, 0.08);
 
-    --icon-base:   #7e7872;
-    --icon-strong: #ebe7e0;
-    --icon-weak:   #7e7872;
+    --icon-base:   #928c82;
+    --icon-strong: #f4efe7;
+    --icon-weak:   #928c82;
 
     --brand-primary-hover: #ff7a3a;
 
