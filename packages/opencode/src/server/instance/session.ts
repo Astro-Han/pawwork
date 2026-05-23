@@ -239,7 +239,7 @@ export const SessionRoutes = lazy(() =>
             description: "Todo list",
             content: {
               "application/json": {
-                schema: resolver(Todo.Info.array()),
+                schema: resolver(Todo.Snapshot),
               },
             },
           },
