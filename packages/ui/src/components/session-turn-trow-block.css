@@ -195,6 +195,10 @@
   color: var(--fg-weak);
 }
 
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-component="tool-output"] {
+  margin-bottom: 0;
+}
+
 /* Scoped reset for inner Part chrome hard-coded typography. Inside the
  * trow result body the W1 caption family wins; outside (e.g. an
  * agent-prose Part), the original sans/base/large header still

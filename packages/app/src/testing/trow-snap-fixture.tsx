@@ -15,6 +15,7 @@ function tool(
   command: string,
   status: ToolState["status"] = "completed",
   output?: string,
+  toolName = "bash",
 ): ToolPart {
   const input = { command, description }
   const state: ToolState =
@@ -35,7 +36,7 @@ function tool(
     messageID: "snap-message",
     type: "tool",
     callID: `call-${id}`,
-    tool: "bash",
+    tool: toolName,
     state,
   }
 }
@@ -55,6 +56,10 @@ const runningParts = [
 const singleQuietParts = [tool("single-quiet", "quiet command", "sleep 0", "completed", "")]
 const singleResultParts = [tool("single-result", "prints one line", "echo one")]
 const singleRunningParts = [tool("single-running", "long command", "sleep 30", "running")]
+const toolOutputParts = [
+  tool("glob-output", "matched markdown", "", "completed", "/Users/yuhan/PawWork/a.md\n/Users/yuhan/PawWork/b.md", "glob"),
+  tool("grep-output", "found one match", "", "completed", "Found 1 matches\n/Users/yuhan/PawWork/a.md:\n  Line 3: test", "grep"),
+]
 
 function describeTool(part: ToolPart) {
   const description = part.state.input?.description
@@ -93,6 +98,27 @@ function BashOutput(props: { command: string; output?: string }) {
       </div>
     </div>
   )
+}
+
+function renderToolOutput(prefix: string, openTool?: string) {
+  return (part: ToolPart) => {
+    const output = part.state.status === "completed" ? part.state.output : ""
+    return (
+      <div data-slot="trow-result-body" data-timeline-anchor={`tool:${part.id}`}>
+        <BasicTool
+          icon="magnifying-glass-menu"
+          status={part.state.status}
+          defaultOpen={part.id === openTool}
+          stateKey={`${prefix}:${part.id}`}
+          trigger={{ title: part.tool === "glob" ? "查找文件" : "搜索文本", subtitle: "/Users/yuhan/" }}
+        >
+          <div data-component="tool-output" data-scrollable>
+            <pre>{output}</pre>
+          </div>
+        </BasicTool>
+      </div>
+    )
+  }
 }
 
 function TrowSnapFixture() {
@@ -140,6 +166,15 @@ function TrowSnapFixture() {
           labels={labels}
           describeTool={describeTool}
           renderTool={renderTool("inner", "third")}
+        />
+      </div>
+      <div data-snap="tool-output-spacing">
+        <TrowBlock
+          parts={toolOutputParts}
+          defaultOpen
+          labels={labels}
+          describeTool={describeTool}
+          renderTool={renderToolOutput("tool-output", "glob-output")}
         />
       </div>
       <div data-snap="single-command-direct">

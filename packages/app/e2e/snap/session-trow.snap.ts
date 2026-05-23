@@ -45,6 +45,20 @@ test("session-trow", async ({ page }) => {
     timeout: 30_000,
   })
   shots.push(await captureBlock("inner-bash-expanded", page.locator('[data-snap="inner-bash-expanded"]')))
+
+  const toolOutputSpacing = page.locator('[data-snap="tool-output-spacing"]')
+  await expect(toolOutputSpacing.locator('[data-component="tool-output"]')).toBeVisible({ timeout: 30_000 })
+  const toolOutputGap = await toolOutputSpacing.evaluate((root) => {
+    const output = root.querySelector<HTMLElement>('[data-component="tool-output"]')
+    const triggers = root.querySelectorAll<HTMLElement>('[data-slot="collapsible-trigger"]')
+    const nextTrigger = triggers[1]
+    if (!output || !nextTrigger) return Number.NaN
+    return nextTrigger.getBoundingClientRect().top - output.getBoundingClientRect().bottom
+  })
+  expect(toolOutputGap).toBeGreaterThanOrEqual(0)
+  expect(toolOutputGap).toBeLessThanOrEqual(8)
+  shots.push(await captureBlock("tool-output-spacing", toolOutputSpacing))
+
   const singleDirect = page.locator('[data-snap="single-command-direct"]')
   await expect(singleDirect.locator('[data-component="session-turn-trow-block"][data-single]')).toBeVisible({
     timeout: 30_000,
