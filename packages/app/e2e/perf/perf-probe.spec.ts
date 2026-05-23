@@ -1,6 +1,6 @@
 import fs from "node:fs/promises"
 import path from "node:path"
-import type { Page } from "@playwright/test"
+import type { Locator, Page } from "@playwright/test"
 import { raw } from "../../../opencode/test/lib/llm-server"
 import { test, expect } from "../fixtures"
 import { cleanupSession, waitSessionIdle, waitSessionSaved, waitTerminalFocusIdle, withSession } from "../actions"
@@ -699,30 +699,49 @@ async function revealTrowBodyIfPresent(page: Page) {
   await expect(page.locator('[data-slot="trow-body"]').first()).toBeVisible()
 }
 
-function expandableToolTrigger(page: Page) {
+function expandableToolTriggers(page: Page) {
   return page
-    .locator('[data-slot="collapsible-trigger"]:not([data-hide-details="true"])')
+    .locator('[data-slot="collapsible-trigger"]')
     .filter({ has: page.locator('[data-component="tool-trigger"]') })
-    .first()
+}
+
+async function visibleExpandableToolTrigger(page: Page) {
+  const triggers = expandableToolTriggers(page)
+  const count = await triggers.count()
+  for (let index = 0; index < count; index += 1) {
+    const trigger = triggers.nth(index)
+    if (!(await trigger.isVisible().catch(() => false))) continue
+    if ((await trigger.getAttribute("data-hide-details").catch(() => null)) === "true") continue
+    return trigger
+  }
+  return undefined
 }
 
 async function exerciseToolExpandCycle(page: Page) {
   const trowDetails = page.locator('[data-component="session-turn-trow-block"] details').first()
   const trowSummary = trowDetails.locator('[data-slot="trow-summary"]').first()
-  const trigger = expandableToolTrigger(page)
+  let trigger: Locator | undefined
+  let mode: "trow" | "tool" | undefined
 
   await expect
     .poll(
       async () => {
-        if (await trowSummary.isVisible().catch(() => false)) return "trow"
-        if (await trigger.isVisible().catch(() => false)) return "tool"
+        if (await trowSummary.isVisible().catch(() => false)) {
+          mode = "trow"
+          return "ready"
+        }
+        trigger = await visibleExpandableToolTrigger(page)
+        if (trigger) {
+          mode = "tool"
+          return "ready"
+        }
         return "loading"
       },
       { timeout: 30_000 },
     )
-    .not.toBe("loading")
+    .toBe("ready")
 
-  if (await trowSummary.isVisible().catch(() => false)) {
+  if (mode === "trow") {
     await resetPerfProbe(page)
     await trowSummary.click()
     await expect(trowDetails).toHaveAttribute("open", "")
@@ -733,6 +752,7 @@ async function exerciseToolExpandCycle(page: Page) {
     return
   }
 
+  if (!trigger) throw new Error("No expandable tool trigger found")
   await resetPerfProbe(page)
   await trigger.click()
   await expect(trigger).toHaveAttribute("aria-expanded", "true")
@@ -909,8 +929,11 @@ test.describe("PR0.1 perf probe baseline", () => {
       try {
         await page.goto(sessionPath(project.directory, session.id))
         await revealTrowBodyIfPresent(page)
-        const trigger = expandableToolTrigger(page)
-        await expect(trigger).toBeVisible({ timeout: 30_000 })
+        await expect
+          .poll(async () => Boolean(await visibleExpandableToolTrigger(page)), { timeout: 30_000 })
+          .toBe(true)
+        const trigger = await visibleExpandableToolTrigger(page)
+        if (!trigger) throw new Error("No expandable tool trigger found")
         await expect(trigger).toHaveAttribute("aria-expanded", "true")
         await settleFrames(page, 2)
         runs.push(await snapshotPerfProbe(page))
