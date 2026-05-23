@@ -434,6 +434,73 @@ describe("perf metrics", () => {
     ])
   })
 
+  test("does not confirm a different metric failure from the same scenario", () => {
+    const result = comparePerfBaselines({
+      base: [scenario({ branch: "base", scenario: "session-scroll-reading", interaction: 32, frameMax: 16 })],
+      head: [scenario({ branch: "head", scenario: "session-scroll-reading", interaction: 40, frameMax: 120 })],
+      scenarioKeys: ["default:session-scroll-reading"],
+      failureKeys: ["default:session-scroll-reading:interaction_ms_median"],
+    })
+
+    expect(result.pass).toBe(true)
+    expect(result.failures).toHaveLength(0)
+    expect(result.scenarios[0].failures).toHaveLength(0)
+    expect(result.confirmation).toEqual({
+      initialFailureKeys: ["default:session-scroll-reading:interaction_ms_median"],
+      rawConfirmedFailures: ["default:session-scroll-reading:frame_gap_max_ms_delta"],
+      intersectedFailures: [],
+    })
+  })
+
+  test("confirms the same metric failure from the same scenario", () => {
+    const result = comparePerfBaselines({
+      base: [scenario({ branch: "base", scenario: "session-scroll-reading", interaction: 48 })],
+      head: [scenario({ branch: "head", scenario: "session-scroll-reading", interaction: 76 })],
+      scenarioKeys: ["default:session-scroll-reading"],
+      failureKeys: ["default:session-scroll-reading:interaction_ms_median"],
+    })
+
+    expect(result.pass).toBe(false)
+    expect(result.failures).toEqual(["default:session-scroll-reading:interaction_ms_median"])
+    expect(result.scenarios[0].failures).toEqual(["interaction_ms_median"])
+    expect(result.confirmation).toEqual({
+      initialFailureKeys: ["default:session-scroll-reading:interaction_ms_median"],
+      rawConfirmedFailures: ["default:session-scroll-reading:interaction_ms_median"],
+      intersectedFailures: ["default:session-scroll-reading:interaction_ms_median"],
+    })
+  })
+
+  test("keeps missing requested confirmation scenarios as hard failures", () => {
+    const missingHead = comparePerfBaselines({
+      base: [scenario({ branch: "base", scenario: "session-scroll-reading" })],
+      head: [],
+      scenarioKeys: ["default:session-scroll-reading"],
+      failureKeys: ["default:session-scroll-reading:interaction_ms_median"],
+    })
+    const missingBase = comparePerfBaselines({
+      base: [],
+      head: [scenario({ branch: "head", scenario: "session-scroll-reading" })],
+      scenarioKeys: ["default:session-scroll-reading"],
+      failureKeys: ["default:session-scroll-reading:interaction_ms_median"],
+    })
+    const missingBoth = comparePerfBaselines({
+      base: [],
+      head: [],
+      scenarioKeys: ["default:session-scroll-reading"],
+      failureKeys: ["default:session-scroll-reading:interaction_ms_median"],
+    })
+
+    expect(missingHead.pass).toBe(false)
+    expect(missingHead.failures).toEqual(["missing_head_scenario:default:session-scroll-reading"])
+    expect(missingBase.pass).toBe(false)
+    expect(missingBase.failures).toEqual(["missing_base_scenario:default:session-scroll-reading"])
+    expect(missingBoth.pass).toBe(false)
+    expect(missingBoth.failures).toEqual([
+      "missing_base_scenario:default:session-scroll-reading",
+      "missing_head_scenario:default:session-scroll-reading",
+    ])
+  })
+
   test("keeps low-end moderate regressions warning-only", () => {
     const result = comparePerfScenarioSummaries({
       scenario: "session-timeline-recompute",
