@@ -197,32 +197,33 @@ export function SessionTurnChangesPanel(props: {
                     </Show>
                   </span>
                   <span data-slot="session-turn-change-path">{file.path}</span>
-                  <span data-slot="session-turn-change-meta">
-                    <Show when={file.restoreState !== "applied"}>
-                      <span data-slot="session-turn-change-restore-state">
-                        {i18n.t(
-                          file.restoreState === "undone"
-                            ? "ui.sessionTurn.turnChanges.undone"
-                            : "ui.sessionTurn.turnChanges.superseded",
-                        )}
-                      </span>
-                    </Show>
-                    <Show when={file.restoreState === "applied"}>
-                      <Show
-                        when={file.additions !== undefined || file.deletions !== undefined}
-                        fallback={<span data-slot="session-turn-change-status">{turnStatusLabel(file.status)}</span>}
-                      >
-                        <span data-slot="session-turn-changes-additions">+{file.additions ?? 0}</span>
-                        <span data-slot="session-turn-changes-deletions">-{file.deletions ?? 0}</span>
+                  <span data-slot="session-turn-change-trailing">
+                    <span data-slot="session-turn-change-meta">
+                      <Show when={file.restoreState !== "applied"}>
+                        <span data-slot="session-turn-change-restore-state">
+                          {i18n.t(
+                            file.restoreState === "undone"
+                              ? "ui.sessionTurn.turnChanges.undone"
+                              : "ui.sessionTurn.turnChanges.superseded",
+                          )}
+                        </span>
                       </Show>
-                    </Show>
-                    <Show when={file.large && file.restoreAvailable === false}>
-                      <span data-slot="session-turn-change-unrestorable">
-                        {i18n.t("ui.sessionTurn.turnChanges.unrestorable")}
-                      </span>
-                    </Show>
-                  </span>
-                  <span data-slot="session-turn-change-actions" onClick={(event) => event.stopPropagation()}>
+                      <Show when={file.restoreState === "applied"}>
+                        <Show
+                          when={file.additions !== undefined || file.deletions !== undefined}
+                          fallback={<span data-slot="session-turn-change-status">{turnStatusLabel(file.status)}</span>}
+                        >
+                          <span data-slot="session-turn-changes-additions">+{file.additions ?? 0}</span>
+                          <span data-slot="session-turn-changes-deletions">-{file.deletions ?? 0}</span>
+                        </Show>
+                      </Show>
+                      <Show when={file.large && file.restoreAvailable === false}>
+                        <span data-slot="session-turn-change-unrestorable">
+                          {i18n.t("ui.sessionTurn.turnChanges.unrestorable")}
+                        </span>
+                      </Show>
+                    </span>
+                    <span data-slot="session-turn-change-actions" onClick={(event) => event.stopPropagation()}>
                     <Tooltip value={i18n.t("ui.sessionTurn.turnChanges.openFile")} placement="top">
                       <IconButton
                         icon="open-file"
@@ -244,6 +245,7 @@ export function SessionTurnChangesPanel(props: {
                         }
                       />
                     </Tooltip>
+                    </span>
                   </span>
                 </div>
                 <Show when={expanded() && view()}>
