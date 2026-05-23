@@ -6,6 +6,7 @@ import {
   clearSessionDockSeed,
   closeSettingsPanel,
   openSettings,
+  openRightPanel,
   seedSessionQuestion,
 } from "../actions"
 import {
@@ -15,7 +16,6 @@ import {
   scrollViewportSelector,
   sessionComposerDockSelector,
   sessionTurnListSelector,
-  titlebarRightSelector,
 } from "../selectors"
 import { modKey } from "../utils"
 import { inputMatch } from "../prompt/mock"
@@ -948,9 +948,7 @@ test("todo updates do not switch an open right panel to status", async ({ page, 
     async (session) => {
       await project.gotoSession(session.id)
 
-      const rightPanel = page.locator("#right-panel")
-      const rightToggle = page.locator(`${titlebarRightSelector} button`).first()
-      await rightToggle.click()
+      const rightPanel = await openRightPanel(page)
       await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
 
       await rightPanel.getByRole("button", { name: "Add tab" }).click()
@@ -991,8 +989,7 @@ test("todo updates remain visible in the status panel", async ({ page, project }
         },
       )
 
-      const rightPanel = page.locator("#right-panel")
-      await page.locator(`${titlebarRightSelector} button`).first().click()
+      const rightPanel = await openRightPanel(page)
       await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
       const statusTab = rightPanel.getByRole("tab", { name: "Status", exact: true }).first()
       await statusTab.click()

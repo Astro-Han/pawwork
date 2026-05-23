@@ -502,6 +502,7 @@ async function driveWheelToRatio(
 async function sustainMovingScrollWindow(
   page: Parameters<typeof snapshotPerfProbe>[0],
   input: {
+    startedAt: number
     stepPx: number
   },
 ): Promise<WheelRouteResult> {
@@ -514,7 +515,7 @@ async function sustainMovingScrollWindow(
   const distinct = new Set([Math.round(previous.scrollTop)])
   await hoverTimelineScrollLane(page)
 
-  while (Date.now() - started < longScrollMinimumProbeWindowMs) {
+  while (Date.now() - input.startedAt < longScrollMinimumProbeWindowMs) {
     const ratio = previous.maxScrollTop > 0 ? previous.scrollTop / previous.maxScrollTop : 0
     if (ratio >= 0.85) direction = -1
     if (ratio <= 0.15) direction = 1
@@ -928,6 +929,7 @@ test.describe("PR0.1 perf probe baseline", () => {
         const stepPx = calculateLongScrollStepPx(atTop.maxScrollTop)
 
         await resetPerfProbe(page)
+        const probeStartedAt = Date.now()
         const down = await driveWheelToRatio(page, {
           direction: 1,
           targetRatio: longScrollCoverageRatio,
@@ -952,7 +954,7 @@ test.describe("PR0.1 perf probe baseline", () => {
         expect(up.distinctScrollTopSamples).toBeGreaterThanOrEqual(longScrollMinimumDistinctScrollTops)
         expect(remainingTopRatio).toBeLessThanOrEqual(1 - longScrollCoverageRatio)
 
-        const sustain = await sustainMovingScrollWindow(page, { stepPx })
+        const sustain = await sustainMovingScrollWindow(page, { startedAt: probeStartedAt, stepPx })
         const totalMovingSamples = down.movingSamples + up.movingSamples + sustain.movingSamples
         const totalDistinctScrollTops =
           down.distinctScrollTopSamples + up.distinctScrollTopSamples + sustain.distinctScrollTopSamples
