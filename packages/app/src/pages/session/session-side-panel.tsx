@@ -409,7 +409,9 @@ export function SessionSidePanel(props: {
             </Tabs.Content>
 
             <Tabs.Content value="files" class="min-h-0 flex-1 overflow-hidden">
-              <FilesTab files={props.files()} />
+              <Show when={sidePanelTab() === "files"}>
+                <FilesTab files={props.files()} />
+              </Show>
             </Tabs.Content>
 
             <Tabs.Content value="review" class="min-h-0 flex-1 overflow-hidden">
@@ -541,7 +543,9 @@ export function SessionSidePanel(props: {
               </Tabs.Content>
 
               <Tabs.Content value="context" class="min-h-0 flex-1 overflow-hidden">
-                <SessionContextTab />
+                <Show when={sidePanelTab() === "context"}>
+                  <SessionContextTab />
+                </Show>
               </Tabs.Content>
             </Tabs>
           </DragDropProvider>
