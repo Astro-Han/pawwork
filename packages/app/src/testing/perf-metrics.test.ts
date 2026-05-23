@@ -160,6 +160,39 @@ describe("perf metrics", () => {
     expect(summary.run_details).toHaveLength(3)
   })
 
+  test("does not fail default interaction median on a single-frame delta", () => {
+    const result = comparePerfScenarioSummaries({
+      scenario: "long-session-input-lag",
+      base: scenario({ branch: "base", scenario: "long-session-input-lag", interaction: 48 }),
+      head: scenario({ branch: "head", scenario: "long-session-input-lag", interaction: 64 }),
+    })
+
+    expect(result.pass).toBe(true)
+    expect(result.failures).not.toContain("interaction_ms_median")
+  })
+
+  test("keeps default interaction median at the 20ms floor passing", () => {
+    const result = comparePerfScenarioSummaries({
+      scenario: "long-session-input-lag",
+      base: scenario({ branch: "base", scenario: "long-session-input-lag", interaction: 100 }),
+      head: scenario({ branch: "head", scenario: "long-session-input-lag", interaction: 120 }),
+    })
+
+    expect(result.pass).toBe(true)
+    expect(result.failures).not.toContain("interaction_ms_median")
+  })
+
+  test("fails default interaction median above the 20ms floor", () => {
+    const result = comparePerfScenarioSummaries({
+      scenario: "long-session-input-lag",
+      base: scenario({ branch: "base", scenario: "long-session-input-lag", interaction: 100 }),
+      head: scenario({ branch: "head", scenario: "long-session-input-lag", interaction: 121 }),
+    })
+
+    expect(result.pass).toBe(false)
+    expect(result.failures).toContain("interaction_ms_median")
+  })
+
   test("fails a scenario when median regression breaks both the ms and percentage budgets", () => {
     const result = comparePerfScenarioSummaries({
       scenario: "session-streaming-long",
@@ -187,9 +220,9 @@ describe("perf metrics", () => {
         profile: "default",
         scenario: "session-streaming-long",
         runs: 3,
-        interaction_ms_median: 116,
+        interaction_ms_median: 125,
         interaction_ms_worst: 168,
-        interaction_ms: 116,
+        interaction_ms: 125,
         interaction_delay_ms: 14,
         long_task_count: 1,
         long_task_max_ms: 88,
@@ -501,7 +534,7 @@ describe("perf metrics", () => {
           scenario: "session-scroll-reading",
           runs: [
             {
-              interaction_ms: 32,
+              interaction_ms: 40,
               interaction_delay_ms: 1,
               long_task_count: 0,
               long_task_max_ms: 0,

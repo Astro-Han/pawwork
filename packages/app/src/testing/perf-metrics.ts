@@ -74,7 +74,7 @@ export type PerfBaselineComparison = {
 export const PERF_COMMENT_MARKER = "<!-- pawwork-perf-probe-baseline -->"
 
 const perfDeltaThresholds = {
-  interactionMedianMs: 10,
+  interactionMedianMs: 20,
   interactionMedianRatio: 1.05,
   interactionWorstMs: 50,
   longTaskMaxMs: 25,
