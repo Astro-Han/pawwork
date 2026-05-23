@@ -68,7 +68,7 @@ export function SessionTurnChangesPanel(props: {
     const action = turnChangeAction(props.turnChange)
     if (!action) return ""
     const base =
-      action === "undo" ? i18n.t("ui.sessionTurn.turnChanges.undo") : i18n.t("ui.sessionTurn.turnChanges.reapply")
+      action === "undo" ? i18n.t("ui.sessionTurn.turnChanges.undo") : i18n.t("ui.sessionTurn.turnChanges.redo")
     return confirmAction() === action
       ? action === "undo"
         ? i18n.t("ui.sessionTurn.turnChanges.undoConfirm")
@@ -226,8 +226,6 @@ export function SessionTurnChangesPanel(props: {
                     <Tooltip value={i18n.t("ui.sessionTurn.turnChanges.openFile")} placement="top">
                       <IconButton
                         icon="open-file"
-                        size="small"
-                        variant="ghost"
                         aria-label={i18n.t("ui.sessionTurn.turnChanges.openFile")}
                         disabled={file.status === "deleted" || !file.openPath || !props.actions?.openFile}
                         onClick={() => file.openPath && props.actions?.openFile?.(file.openPath)}
@@ -236,8 +234,6 @@ export function SessionTurnChangesPanel(props: {
                     <Tooltip value={i18n.t("ui.sessionTurn.turnChanges.showInFolder")} placement="top">
                       <IconButton
                         icon="folder-add-left"
-                        size="small"
-                        variant="ghost"
                         aria-label={i18n.t("ui.sessionTurn.turnChanges.showInFolder")}
                         disabled={!file.openPath || !props.actions?.showInFolder}
                         onClick={() =>
