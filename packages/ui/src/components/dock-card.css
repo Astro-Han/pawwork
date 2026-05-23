@@ -1,5 +1,5 @@
 [data-dock="card"] {
-  background-color: var(--bg-base);
+  background-color: var(--surface-dock);
   border-radius: var(--radius-lg);
   box-shadow: 0 0 0 1px var(--border-weak), var(--shadow-raised);
   overflow: hidden;

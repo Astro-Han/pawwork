@@ -88,6 +88,7 @@
   --surface-sunken: #faf9f7; /* light alias → bg-cream; no third neutral tier (L9) */
   --code-surface:   rgba(0, 0, 0, 0.04); /* #642: alpha overlay for inline code + code-block */
   --sidebar:        #f2f0ed; /* chrome 独立 surface（与 cream #faf9f7 区分） */
+  --surface-dock:   #ffffff; /* composer/dock fill — light: white, dark: sidebar tone (see dark blocks) */
   --surface-base-active: rgba(0, 0, 0, 0.051);
 
   /* ────────── Light ink · 2-tier collapse (strong + weak); base/weaker pairs merge.
@@ -291,6 +292,7 @@
   --surface-sunken: #1a1917; /* dark collapse → canvas (no sunken tier) */
   --code-surface:   rgba(255, 255, 255, 0.06); /* #642: alpha overlay for inline code + code-block */
   --sidebar:        #232120; /* sidebar chrome 中间一档 */
+  --surface-dock:   #232120; /* composer/dock 跟 sidebar 同色（chrome 中间一档） */
 
   /* Dark ink · 2-tier collapse (fg + fg-weak); strong/base and weak/weaker pairs merge */
   --fg-strong: #f4efe7;
@@ -440,6 +442,7 @@
     --surface-sunken: #1a1917;
     --code-surface:   rgba(255, 255, 255, 0.06); /* #642: alpha overlay for inline code + code-block */
     --sidebar:        #232120;
+    --surface-dock:   #232120;
 
     --fg-strong: #f4efe7;
     --fg-base:   #f4efe7;
