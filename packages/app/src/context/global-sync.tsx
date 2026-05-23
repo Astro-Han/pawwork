@@ -49,13 +49,19 @@ export function canAcceptSessionTodo(
 export function setSessionTodoSnapshot(
   setStore: SetStoreFunction<GlobalStore>,
   sessionID: string,
+  current: SessionTodoSnapshot | undefined,
   incoming: SessionTodoSnapshot,
 ) {
+  if (current === undefined) {
+    setStore("session_todo", sessionID, incoming)
+    return
+  }
+
   setStore("session_todo", sessionID, "todos", reconcile(incoming.todos, { key: "id" }))
   setStore("session_todo", sessionID, "revision", incoming.revision)
 }
 
-type GlobalStore = {
+export type GlobalStore = {
   ready: boolean
   error?: InitError
   path: Path
@@ -169,8 +175,9 @@ function createGlobalSync() {
 
   const acceptSessionTodo = (sessionID: string, incoming: SessionTodoSnapshot): boolean => {
     if (!sessionID) return false
-    if (!canAcceptSessionTodo(globalStore.session_todo[sessionID], incoming)) return false
-    setSessionTodoSnapshot(setGlobalStore, sessionID, incoming)
+    const current = globalStore.session_todo[sessionID]
+    if (!canAcceptSessionTodo(current, incoming)) return false
+    setSessionTodoSnapshot(setGlobalStore, sessionID, current, incoming)
     return true
   }
 

@@ -1,8 +1,20 @@
 import { describe, expect, test } from "bun:test"
 import type { Todo } from "@opencode-ai/sdk/v2/client"
-import { canAcceptSessionTodo, setSessionTodoSnapshot, type SessionTodoSnapshot } from "./global-sync"
+import { createStore } from "solid-js/store"
+import { canAcceptSessionTodo, setSessionTodoSnapshot, type GlobalStore, type SessionTodoSnapshot } from "./global-sync"
 import { canDisposeDirectory, pickDirectoriesToEvict } from "./global-sync/eviction"
 import { estimateRootSessionTotal, loadRootSessionsWithFallback } from "./global-sync/session-load"
+
+const globalStoreFixture = (): GlobalStore => ({
+  ready: true,
+  path: { state: "", config: "", worktree: "", directory: "", home: "" },
+  project: [],
+  session_todo: {},
+  provider: { all: [], connected: [], default: {} },
+  provider_auth: {},
+  config: {},
+  reload: undefined,
+})
 
 describe("canAcceptSessionTodo", () => {
   const todo = { id: "todo_1", content: "work", status: "in_progress", priority: "medium" } as Todo
@@ -23,6 +35,18 @@ describe("canAcceptSessionTodo", () => {
 })
 
 describe("setSessionTodoSnapshot", () => {
+  test("creates the canonical todo entry on first write", () => {
+    const [store, setStore] = createStore<GlobalStore>(globalStoreFixture())
+    const todo = { id: "todo_1", content: "work", status: "in_progress", priority: "medium" } as Todo
+
+    setSessionTodoSnapshot(setStore, "ses_1", undefined, {
+      revision: 1,
+      todos: [todo],
+    })
+
+    expect(store.session_todo.ses_1).toEqual({ revision: 1, todos: [todo] })
+  })
+
   test("updates todos through a keyed array path before writing revision", () => {
     const calls: unknown[][] = []
     const setStore = ((...input: unknown[]) => {
@@ -30,8 +54,9 @@ describe("setSessionTodoSnapshot", () => {
       return input.at(-1)
     }) as Parameters<typeof setSessionTodoSnapshot>[0]
     const todo = { id: "todo_1", content: "work", status: "in_progress", priority: "medium" } as Todo
+    const current = { revision: 1, todos: [] }
 
-    setSessionTodoSnapshot(setStore, "ses_1", { revision: 2, todos: [todo] })
+    setSessionTodoSnapshot(setStore, "ses_1", current, { revision: 2, todos: [todo] })
 
     expect(calls).toHaveLength(2)
     expect(calls[0].slice(0, 3)).toEqual(["session_todo", "ses_1", "todos"])
