@@ -27,8 +27,6 @@ export class StringSerializeHandler {
   }
 
   public serialize(range: IBufferRange, excludeFinalCursorPosition?: boolean): string {
-    let oldCell = this._buffer.getNullCell()
-
     const startRow = range.start.y
     const endRow = range.end.y
     const startColumn = range.start.x
@@ -47,8 +45,7 @@ export class StringSerializeHandler {
           if (!c) {
             continue
           }
-          this._nextCell(c, oldCell, row, col)
-          oldCell = c
+          this._nextCell(c, row, col)
         }
       }
       this._rowEnd(row, row === endRow)
@@ -95,7 +92,7 @@ export class StringSerializeHandler {
     this._nullCellCount = 0
   }
 
-  private _nextCell(cell: IBufferCell, _oldCell: IBufferCell, row: number, col: number): void {
+  private _nextCell(cell: IBufferCell, row: number, col: number): void {
     const isPlaceHolderCell = cell.getWidth() === 0
 
     if (isPlaceHolderCell) {
