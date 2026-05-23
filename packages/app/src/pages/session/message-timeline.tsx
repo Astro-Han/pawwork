@@ -22,16 +22,16 @@ import {
   shouldMarkTimelineBoundaryGesture,
 } from "@/pages/session/session-timeline-scroll-intents"
 import { createTimelineStaging } from "@/pages/session/session-timeline-staging"
+import type { TimelineVirtualRow } from "@/pages/session/timeline-virtual-rows"
 import {
-  createTimelineVirtualRows,
-  classifyTimelineRowMutation,
-  type TimelineRowMutation,
-  type TimelineVirtualRow,
-} from "@/pages/session/timeline-virtual-rows"
+  createTimelineFrame,
+  emptyTimelineFrame,
+  visibleRangeDataFromFrame,
+  type TimelineFrame,
+} from "@/pages/session/timeline-frame"
 import { TimelineRowRenderer } from "@/pages/session/timeline-row-renderer"
 import { timelineMessageRowStyle } from "@/pages/session/timeline-row-layout"
 import type { TimelineVirtualizerBridge } from "@/pages/session/timeline-virtualizer-bridge"
-import { chooseTimelineRowRenderMode } from "@/pages/session/timeline-virtualization-strategy"
 import {
   areMessageCommentsEqual,
   extractMessageComments,
@@ -125,26 +125,28 @@ export function MessageTimeline(props: {
     if (scrollSampleFrame !== undefined) cancelAnimationFrame(scrollSampleFrame)
   })
 
-  const rendered = createMemo(() => props.renderedUserMessages.map((message) => message.id))
-  const visibleRange = createMemo(() => {
-    const ids = rendered()
-    const first = ids[0]
-    const last = ids.at(-1)
-    return {
-      rendered_count: ids.length,
-      visible_first_message_id: first,
-      visible_last_message_id: last,
-      signature: `${ids.length}:${first ?? ""}:${last ?? ""}`,
-    }
+  const timelineFrame = createMemo<TimelineFrame>(
+    (previous) =>
+      createTimelineFrame({
+        previous,
+        messages: props.renderedUserMessages,
+        historyMore: props.historyMore,
+        turnStart: props.turnStart,
+      }),
+    emptyTimelineFrame,
+  )
+  const frameRows = createMemo(() => timelineFrame().rows)
+  const frameMutation = createMemo(() => timelineFrame().mutation)
+  const frameRenderMode = createMemo(() => timelineFrame().renderMode)
+  const currentVisibleRangeData = () => visibleRangeDataFromFrame(timelineFrame())
+  let lastTimelineFrame = emptyTimelineFrame
+
+  // Cleanup can run while Solid is disposing derived memos, so diagnostics use
+  // the last stable frame instead of recomputing through live reactive chains.
+  createEffect(() => {
+    lastTimelineFrame = timelineFrame()
   })
-  const visibleRangeData = () => {
-    const range = visibleRange()
-    return {
-      rendered_count: range.rendered_count,
-      visible_first_message_id: range.visible_first_message_id,
-      visible_last_message_id: range.visible_last_message_id,
-    }
-  }
+
   const sessionKey = createMemo(() => props.sessionKey)
   const sessionID = createMemo(() => props.sessionID)
   const sessionMessages = createMemo(() => props.sessionMessages)
@@ -160,7 +162,7 @@ export function MessageTimeline(props: {
       route_session_id: params.id,
       visible_session_id: props.sessionID,
       timeline_session_id: props.sessionID,
-      data: visibleRangeData(),
+      data: currentVisibleRangeData(),
     })
   })
 
@@ -170,20 +172,20 @@ export function MessageTimeline(props: {
       route_session_id: params.id,
       visible_session_id: props.sessionID,
       timeline_session_id: props.sessionID,
-      data: visibleRangeData(),
+      data: visibleRangeDataFromFrame(lastTimelineFrame),
     })
   })
 
   createEffect(
     on(
-      () => visibleRange().signature,
+      () => timelineFrame().visibleRange.signature,
       () => {
         void emitRendererDiagnostic({
           name: "session.timeline.visible",
           route_session_id: params.id,
           visible_session_id: props.sessionID,
           timeline_session_id: props.sessionID,
-          data: visibleRangeData(),
+          data: currentVisibleRangeData(),
         })
       },
     ),
@@ -268,19 +270,6 @@ export function MessageTimeline(props: {
     messages: () => props.renderedUserMessages,
     config: stageCfg,
   })
-  const rows = createMemo(() =>
-    createTimelineVirtualRows({
-      messages: props.renderedUserMessages,
-      historyMore: props.historyMore,
-      turnStart: props.turnStart,
-    }),
-  )
-  const rowMutation = createMemo<{ rows: TimelineVirtualRow[]; mutation: TimelineRowMutation }>((previous) => {
-    const next = rows()
-    return { rows: next, mutation: classifyTimelineRowMutation({ previous: previous?.rows ?? [], next }) }
-  })
-  const rowRenderMode = createMemo(() => chooseTimelineRowRenderMode({ rowCount: rowMutation().rows.length }))
-
   const renderTimelineRow = (row: TimelineVirtualRow): JSX.Element => {
     if (row.type === "load-earlier") {
       return (
@@ -316,7 +305,7 @@ export function MessageTimeline(props: {
           "min-w-0 w-full max-w-full": true,
           "md:max-w-[800px] 2xl:max-w-[1000px]": props.centered,
         }}
-        style={timelineMessageRowStyle({ mode: rowRenderMode(), active: active() })}
+        style={timelineMessageRowStyle({ mode: frameRenderMode(), active: active() })}
       >
         <SessionMessageComments comments={comments()} />
         <SessionTurn
@@ -457,7 +446,7 @@ export function MessageTimeline(props: {
                   route_session_id: params.id,
                   visible_session_id: props.sessionID,
                   timeline_session_id: props.sessionID,
-                  data: { ...sample, ...visibleRangeData() },
+                  data: { ...sample, ...currentVisibleRangeData() },
                 }).catch(() => {})
               })
             }
@@ -487,8 +476,8 @@ export function MessageTimeline(props: {
               role="log"
               data-component="session-timeline-virtualizer"
               data-slot="session-turn-list"
-              data-render-mode={rowRenderMode()}
-              data-total-rows={rowMutation().rows.length}
+              data-render-mode={frameRenderMode()}
+              data-total-rows={frameRows().length}
               data-layout-transaction-active={props.layoutTransactionActive() ? "true" : "false"}
               data-layout-transaction-id={props.layoutTransactionID()}
               data-layout-transaction-kind={props.layoutTransactionKind()}
@@ -501,11 +490,11 @@ export function MessageTimeline(props: {
               }}
             >
               <TimelineRowRenderer
-                mode={rowRenderMode()}
-                rows={rowMutation().rows}
+                mode={frameRenderMode()}
+                rows={frameRows()}
                 viewport={virtualizerViewport()}
                 virtualizerBridge={props.virtualizerBridge}
-                shift={rowMutation().mutation === "prepend"}
+                shift={frameMutation() === "prepend"}
                 transactionActive={props.layoutTransactionActive()}
                 renderRow={renderTimelineRow}
               />
