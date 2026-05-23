@@ -324,6 +324,7 @@ export type EventTodoUpdated = {
   type: "todo.updated"
   properties: {
     sessionID: string
+    revision: number
     todos: Array<Todo>
   }
 }
@@ -1997,6 +1998,11 @@ export type McpResource = {
   client: string
 }
 
+export type TodoSnapshot = {
+  revision: number
+  todos: Array<Todo>
+}
+
 export type SessionArtifact = {
   file: string
   kind: "added" | "modified"
@@ -3632,7 +3638,7 @@ export type SessionTodoResponses = {
   /**
    * Todo list
    */
-  200: Array<Todo>
+  200: TodoSnapshot
 }
 
 export type SessionTodoResponse = SessionTodoResponses[keyof SessionTodoResponses]
