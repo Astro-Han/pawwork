@@ -244,7 +244,36 @@ describe("reorderPawworkPinnedByVisible", () => {
     expect(result).toEqual(["hidden_a", "V3", "hidden_b", "V1", "V2"])
   })
 
-  test("cross-zone insert from recent at the bottom of visible appends to raw tail", () => {
+  test("moving a visible row DOWN across a hidden anchor keeps the hidden ID at its raw index", () => {
+    // pinnedIDs = [V1, V2, hidden_a, V3]: hidden_a sits between V2 and V3 in raw.
+    // User drags V1 down to visible position 2 → visible order becomes [V2, V3, V1].
+    // Naive iteration cursors would shift hidden_a earlier; the algorithm must
+    // pin it to raw index 2 regardless of which direction the source moved.
+    const result = reorderPawworkPinnedByVisible({
+      pinnedIDs: ["V1", "V2", "hidden_a", "V3"],
+      visiblePinnedIDs: ["V1", "V2", "V3"],
+      sourceID: "V1",
+      targetVisibleIndex: 2,
+    })
+
+    expect(result).toEqual(["V2", "V3", "hidden_a", "V1"])
+  })
+
+  test("cross-zone insert lands between visible neighbours, not after a trailing hidden anchor", () => {
+    // hidden_a sits AFTER V1 in raw; user drops gamma after V1 visually.
+    // The new entry should land immediately after V1, even though hidden_a
+    // would be the next raw entry if we walked the array linearly.
+    const result = reorderPawworkPinnedByVisible({
+      pinnedIDs: ["V1", "hidden_a"],
+      visiblePinnedIDs: ["V1"],
+      sourceID: "gamma",
+      targetVisibleIndex: 1,
+    })
+
+    expect(result).toEqual(["V1", "gamma", "hidden_a"])
+  })
+
+  test("cross-zone insert with hidden BEFORE visible appends after the visible tail", () => {
     const result = reorderPawworkPinnedByVisible({
       pinnedIDs: ["hidden_a", "V1"],
       visiblePinnedIDs: ["V1"],
@@ -253,6 +282,17 @@ describe("reorderPawworkPinnedByVisible", () => {
     })
 
     expect(result).toEqual(["hidden_a", "V1", "gamma"])
+  })
+
+  test("cross-zone insert at the top of visible lands before the first visible neighbour", () => {
+    const result = reorderPawworkPinnedByVisible({
+      pinnedIDs: ["hidden_a", "V1", "V2"],
+      visiblePinnedIDs: ["V1", "V2"],
+      sourceID: "gamma",
+      targetVisibleIndex: 0,
+    })
+
+    expect(result).toEqual(["hidden_a", "gamma", "V1", "V2"])
   })
 
   test("clamps an out-of-range visible target index to the visible list bounds", () => {
@@ -284,5 +324,12 @@ describe("unpinPawworkSession", () => {
     })
 
     expect(result).toEqual(["alpha", "beta"])
+  })
+
+  test("returns the same array identity when the source is absent (no spurious setStore writes)", () => {
+    const pinnedIDs = ["alpha", "beta"]
+    const result = unpinPawworkSession({ pinnedIDs, sourceID: "missing" })
+
+    expect(result).toBe(pinnedIDs)
   })
 })

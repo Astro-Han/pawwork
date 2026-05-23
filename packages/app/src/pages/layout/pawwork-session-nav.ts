@@ -102,12 +102,15 @@ export function findPawworkSessionNavigationTarget(input: {
 /**
  * Reorder pinned IDs by a visible-list operation, preserving any pinned IDs
  * that are NOT in `visiblePinnedIDs` (sessions persisted as pinned but not
- * currently loaded into the sidebar window) at their original raw positions.
+ * currently loaded into the sidebar window) at their original raw indexes.
  *
- * Conceptually: visible slots inside `pinnedIDs` get refilled by the new
- * visible order; hidden slots are anchored. This keeps drag indexes,
- * menu-driven moves, and rendered row order coupled to the same surface
- * (the rendered list), without losing data about un-loaded pinned sessions.
+ * Algorithm: find the raw indexes of the visible slots, then refill those
+ * exact slots with the reordered visible IDs. Hidden slots are never iterated
+ * over with a moving cursor, so they cannot drift earlier or later just
+ * because the source crossed them. A cross-zone source (not previously
+ * pinned) is then spliced in at a raw index derived from its visible
+ * neighbour — between the visible-slot-before and the visible-slot-at the
+ * target, so the user's visual drop position is preserved.
  */
 export function reorderPawworkPinnedByVisible(input: {
   pinnedIDs: string[]
@@ -117,34 +120,58 @@ export function reorderPawworkPinnedByVisible(input: {
   /** Slot in the new visible order (0 = top of pinned section). */
   targetVisibleIndex: number
 }): string[] {
-  const nextVisible = input.visiblePinnedIDs.filter((id) => id !== input.sourceID)
-  const clampedIndex = Math.max(0, Math.min(nextVisible.length, input.targetVisibleIndex))
-  nextVisible.splice(clampedIndex, 0, input.sourceID)
-
   const visibleSet = new Set<string>(input.visiblePinnedIDs)
-  visibleSet.add(input.sourceID)
+  // Raw indexes that hold currently-visible IDs, in raw order.
+  const visibleRawIndexes: number[] = []
+  for (let i = 0; i < input.pinnedIDs.length; i++) {
+    if (visibleSet.has(input.pinnedIDs[i]!)) visibleRawIndexes.push(i)
+  }
 
-  const result: string[] = []
-  let visibleCursor = 0
-  for (const id of input.pinnedIDs) {
-    if (id === input.sourceID) continue
-    if (visibleSet.has(id)) {
-      result.push(nextVisible[visibleCursor]!)
-      visibleCursor++
-    } else {
-      result.push(id)
+  const sourceAlreadyPinned = visibleSet.has(input.sourceID)
+  const nextVisible = input.visiblePinnedIDs.filter((id) => id !== input.sourceID)
+  const clampedTarget = Math.max(0, Math.min(nextVisible.length, input.targetVisibleIndex))
+
+  if (sourceAlreadyPinned) {
+    // Intra-pinned reorder: visible-slot count stays the same. Refill each
+    // visible raw slot with the new visible order; hidden slots untouched.
+    nextVisible.splice(clampedTarget, 0, input.sourceID)
+    const result = [...input.pinnedIDs]
+    for (let i = 0; i < visibleRawIndexes.length; i++) {
+      result[visibleRawIndexes[i]!] = nextVisible[i]!
     }
+    return result
   }
-  // Source was not previously in pinnedIDs (cross-zone drop from recent /
-  // project group): append the remaining visible tail.
-  while (visibleCursor < nextVisible.length) {
-    result.push(nextVisible[visibleCursor]!)
-    visibleCursor++
+
+  // Cross-zone insert: source is new to the pinned array. Existing visible
+  // slots keep their raw indexes; source needs a brand-new slot derived from
+  // the visible neighbour at the target.
+  const result = [...input.pinnedIDs]
+  let insertAt: number
+  if (visibleRawIndexes.length === 0) {
+    // No visible neighbours to reference — drop at the end of raw. Empty
+    // pinned section may still hold hidden anchors; appending keeps those
+    // anchored ahead of the new item.
+    insertAt = input.pinnedIDs.length
+  } else if (clampedTarget === 0) {
+    insertAt = visibleRawIndexes[0]!
+  } else if (clampedTarget >= input.visiblePinnedIDs.length) {
+    insertAt = visibleRawIndexes[visibleRawIndexes.length - 1]! + 1
+  } else {
+    // Drop between visible-slot (target-1) and visible-slot (target). Use
+    // the target-slot's raw index — splice(insertAt, 0, src) shifts that
+    // slot right, putting source visually before it.
+    insertAt = visibleRawIndexes[clampedTarget]!
   }
+  result.splice(insertAt, 0, input.sourceID)
   return result
 }
 
-/** Drop `sourceID` from the pinned array (unpin). Hidden pinned IDs untouched. */
+/**
+ * Drop `sourceID` from the pinned array (unpin). Returns the original array
+ * identity when the source was not pinned, so a downstream setStore is a
+ * no-op rather than scheduling a fresh array.
+ */
 export function unpinPawworkSession(input: { pinnedIDs: string[]; sourceID: string }): string[] {
+  if (!input.pinnedIDs.includes(input.sourceID)) return input.pinnedIDs
   return input.pinnedIDs.filter((id) => id !== input.sourceID)
 }

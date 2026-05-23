@@ -441,8 +441,20 @@ export const PawworkSidebar = (props: {
         if (!sessionID || !toKind) return
 
         // No-op drag: dropped back into the same container at the same slot.
-        // Firing the handler would still touch state for nothing — bail.
-        if (evt.to === evt.from && evt.oldDraggableIndex === evt.newDraggableIndex) return
+        // Require both indexes to be numbers — a degenerate event with one
+        // undefined would otherwise compare equal and skip the bail, then
+        // fall through with newIndex defaulted to 0, producing a spurious
+        // top-insert.
+        const oldDraggableIndex = evt.oldDraggableIndex
+        const newDraggableIndex = evt.newDraggableIndex
+        if (
+          evt.to === evt.from &&
+          typeof oldDraggableIndex === "number" &&
+          typeof newDraggableIndex === "number" &&
+          oldDraggableIndex === newDraggableIndex
+        ) {
+          return
+        }
 
         // Map project-group drop to "recent" semantics: both mean "not pinned".
         // The row settles into its own project group on next render.
