@@ -66,17 +66,44 @@ function renderTool(prefix: string, openTool?: string) {
           stateKey={`${prefix}:${part.id}`}
           trigger={{ title: "执行命令", subtitle: description }}
         >
-          <div data-component="bash-output">
-            <div data-slot="bash-scroll" data-scrollable>
-              <pre data-slot="bash-pre">
-                <code>{`$ ${command}${output ? `\n\n${output.trim()}` : ""}`}</code>
-              </pre>
-            </div>
-          </div>
+          <BashOutput command={command} output={output} />
         </BasicTool>
       </div>
     )
   }
+}
+
+function BashOutput(props: { command: string; output?: string }) {
+  return (
+    <div data-component="bash-output">
+      <div data-slot="bash-scroll" data-scrollable>
+        <pre data-slot="bash-pre">
+          <code>{`$ ${props.command}${props.output ? `\n\n${props.output.trim()}` : ""}`}</code>
+        </pre>
+      </div>
+    </div>
+  )
+}
+
+function DirectBashTool(props: {
+  description: string
+  command: string
+  output?: string
+  stateKey: string
+  status?: string
+  defaultOpen?: boolean
+}) {
+  return (
+    <BasicTool
+      icon="console"
+      status={props.status}
+      defaultOpen={props.defaultOpen}
+      trigger={{ title: "执行命令", subtitle: props.description }}
+      stateKey={props.stateKey}
+    >
+      <BashOutput command={props.command} output={props.output} />
+    </BasicTool>
+  )
 }
 
 function TrowSnapFixture() {
@@ -127,10 +154,28 @@ function TrowSnapFixture() {
         />
       </div>
       <div data-snap="single-command-direct">
-        <BasicTool
-          icon="console"
-          trigger={{ title: "执行命令", subtitle: "quiet command" }}
+        <DirectBashTool
+          description="quiet command"
+          command="sleep 0"
+          output=""
           stateKey="single-command-direct"
+        />
+      </div>
+      <div data-snap="single-command-expanded">
+        <DirectBashTool
+          description="prints one line"
+          command="echo single"
+          output="single"
+          stateKey="single-command-expanded"
+          defaultOpen
+        />
+      </div>
+      <div data-snap="single-command-running">
+        <DirectBashTool
+          description="long command"
+          command="sleep 30"
+          stateKey="single-command-running"
+          status="running"
         />
       </div>
     </div>
