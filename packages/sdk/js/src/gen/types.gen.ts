@@ -615,6 +615,13 @@ export type EventFileWatcherUpdated = {
   }
 }
 
+export type EventFileWatcherRescan = {
+  type: "file.watcher.rescan"
+  properties: {
+    directory: string
+  }
+}
+
 export type EventVcsBranchUpdated = {
   type: "vcs.branch.updated"
   properties: {
@@ -692,6 +699,7 @@ export type Event =
   | EventSessionDiff
   | EventSessionError
   | EventFileWatcherUpdated
+  | EventFileWatcherRescan
   | EventVcsBranchUpdated
   | EventPtyCreated
   | EventPtyUpdated

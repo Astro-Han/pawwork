@@ -22,6 +22,7 @@ declare const OPENCODE_LIBC: string | undefined
 export namespace FileWatcher {
   const log = Log.create({ service: "file.watcher" })
   const SUBSCRIBE_TIMEOUT_MS = 10_000
+  const RESCAN_DEDUPE_MS = 1_000
 
   export const Event = {
     Updated: BusEvent.define(
@@ -29,6 +30,12 @@ export namespace FileWatcher {
       z.object({
         file: z.string(),
         event: z.union([z.literal("add"), z.literal("change"), z.literal("unlink")]),
+      }),
+    ),
+    Rescan: BusEvent.define(
+      "file.watcher.rescan",
+      z.object({
+        directory: z.string(),
       }),
     ),
   }
@@ -59,6 +66,63 @@ export namespace FileWatcher {
   }
 
   export const hasNativeBinding = () => !!watcher()
+
+  export function isDroppedEventsError(error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    return message.includes("Events were dropped") && message.includes("File system must be re-scanned")
+  }
+
+  export function createRescanScheduler(input: {
+    publish: (directory: string) => void
+    schedule?: (callback: () => void) => (() => void) | void
+  }) {
+    type RescanState = { dirty: boolean; cancel?: () => void }
+    const pending = new Map<string, RescanState>()
+    const schedule = (callback: () => void) => {
+      const cancel = input.schedule?.(callback)
+      if (cancel) return cancel
+      const timer = setTimeout(callback, RESCAN_DEDUPE_MS)
+      return () => clearTimeout(timer)
+    }
+    let disposed = false
+
+    const arm = (directory: string, state: RescanState) => {
+      state.cancel = schedule(() => {
+        state.cancel = undefined
+        if (disposed) return
+        if (state.dirty) {
+          state.dirty = false
+          input.publish(directory)
+          arm(directory, state)
+          return
+        }
+        pending.delete(directory)
+      })
+    }
+
+    return {
+      request(directory: string) {
+        if (disposed) return
+        const state = pending.get(directory)
+        if (state) {
+          state.dirty = true
+          return
+        }
+
+        const next = { dirty: false }
+        pending.set(directory, next)
+        input.publish(directory)
+        arm(directory, next)
+      },
+      dispose() {
+        disposed = true
+        for (const state of pending.values()) {
+          state.cancel?.()
+        }
+        pending.clear()
+      },
+    }
+  }
 
   export interface Interface {
     readonly init: () => Effect.Effect<void>
@@ -95,9 +159,26 @@ export namespace FileWatcher {
               Effect.promise(() => Promise.allSettled(subs.map((sub) => sub.unsubscribe()))),
             )
 
-            const cb: ParcelWatcher.SubscribeCallback = (err, evts) =>
+            const requestRescan = createRescanScheduler({
+              publish: (dir) => {
+                log.warn("watcher events dropped, requesting rescan", { dir })
+                Bus.publish(Event.Rescan, { directory: dir }).catch((error) =>
+                  log.warn("failed to publish watcher rescan", { dir, error }),
+                )
+              },
+              schedule: (callback) => {
+                const timer = setTimeout(() => Instance.restore(ctx, callback), RESCAN_DEDUPE_MS)
+                return () => clearTimeout(timer)
+              },
+            })
+            yield* Effect.addFinalizer(() => Effect.sync(() => requestRescan.dispose()))
+            const createCallback = (dir: string): ParcelWatcher.SubscribeCallback => (err, evts) =>
               Instance.restore(ctx, () => {
                 if (err) {
+                  if (isDroppedEventsError(err)) {
+                    requestRescan.request(dir)
+                    return
+                  }
                   log.error("watcher callback error", { err })
                   return
                 }
@@ -109,7 +190,7 @@ export namespace FileWatcher {
               })
 
             const subscribe = (dir: string, ignore: string[]) => {
-              const pending = w.subscribe(dir, cb, { ignore, backend })
+              const pending = w.subscribe(dir, createCallback(dir), { ignore, backend })
               return Effect.gen(function* () {
                 const sub = yield* Effect.promise(() => pending)
                 subs.push(sub)
