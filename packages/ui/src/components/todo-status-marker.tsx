@@ -33,6 +33,11 @@ export interface TodoStatusMarkerProps {
    * The composer dock and right-panel Status tab pass `"1px"` because they sit
    * next to body type at 13/130; the message-part TodoWrite card leaves this
    * unset because its row uses a different baseline.
+   *
+   * Callsite contract: passed as a static literal, not a reactive value. The
+   * inline-style object is evaluated once per render and won't re-spread on
+   * marginTop changes; if a future surface needs a dynamic nudge, wrap the
+   * style in a getter (`style={() => ({...})}`) or promote the prop.
    */
   marginTop?: string
 }
