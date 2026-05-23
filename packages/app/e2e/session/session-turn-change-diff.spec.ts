@@ -2,8 +2,10 @@ import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures"
 import {
   routeTurnChangeDiff,
+  routeTailTurnChangeDiff,
   TURN_CHANGE_MODIFIED_DIFF_FILE_PATH,
   TURN_CHANGE_SMALL_MODIFIED_DIFF_FILE_PATH,
+  TURN_CHANGE_TAIL_REPLACEMENT_FILE_PATH,
 } from "./turn-change-diff-fixture"
 
 async function installClsProbe(page: Page) {
@@ -125,4 +127,51 @@ test("small replacement diffs settle close to rendered content height", async ({
     .toBeLessThan(96)
 
   expect(await readClsProbe(page)).toBeLessThan(0.1)
+})
+
+test("tail one-line replacement diff renders without inline virtualization", async ({ page, llm, project }) => {
+  test.setTimeout(180_000)
+
+  await project.open()
+  await routeTailTurnChangeDiff(page, { sessionID: "e2e-tail-session" })
+
+  await llm.text(
+    Array.from({ length: 18 }, (_, index) => `Tail context paragraph ${index + 1}.`).join("\n\n"),
+  )
+  await project.prompt(`seed tail turn-change diff ${Date.now()}`)
+
+  const card = page.locator('[data-component="session-turn-changes"]').last()
+  await expect(card).toBeVisible({ timeout: 30_000 })
+  const row = card
+    .locator('[data-component="session-turn-change-row"]')
+    .filter({ hasText: TURN_CHANGE_TAIL_REPLACEMENT_FILE_PATH })
+    .first()
+  await expect(row).toBeVisible()
+
+  await row.click()
+  const diff = card.locator('[data-component="session-turn-change-diff"]').first()
+  await expect(diff).toBeVisible()
+  await expect
+    .poll(async () => {
+      const box = await diff.boundingBox()
+      return box?.y ?? 0
+    })
+    .toBeGreaterThan(240)
+
+  const lines = diff.locator("[data-line]")
+  await expect.poll(async () => await lines.count()).toBeGreaterThan(0)
+  await expect(lines.first()).toBeVisible({ timeout: 30_000 })
+  await expect(lines.filter({ hasText: "worktree is removed" }).first()).toBeVisible({ timeout: 30_000 })
+  await expect(lines.filter({ hasText: "any current agent session has exited" }).first()).toBeVisible({
+    timeout: 30_000,
+  })
+
+  await expect
+    .poll(async () =>
+      await page.evaluate(() => {
+        const root = (window as unknown as { __INSTANCE?: { root?: Element } }).__INSTANCE?.root
+        return root?.matches('[data-component="session-turn-change-diff"]') ?? false
+      }),
+    )
+    .toBe(false)
 })

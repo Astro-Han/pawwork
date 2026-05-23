@@ -82,12 +82,14 @@ export type TextFileProps<T = {}> = FileOptions<T> &
   }
 
 type DiffPreload<T> = PreloadMultiFileDiffResult<T> | PreloadFileDiffResult<T>
+type DiffRenderStrategy = "auto" | "static" | "virtualized"
 
 type DiffBaseProps<T> = FileDiffOptions<T> &
   SharedProps<T> & {
     mode: "diff"
     annotations?: DiffLineAnnotation<T>[]
     preloadedDiff?: DiffPreload<T>
+    renderStrategy?: DiffRenderStrategy
   }
 
 type DiffPairProps<T> = DiffBaseProps<T> & {
@@ -123,7 +125,7 @@ const sharedKeys = [
 ] as const
 
 const textKeys = ["file", ...sharedKeys] as const
-const diffKeys = ["fileDiff", "before", "after", ...sharedKeys] as const
+const diffKeys = ["fileDiff", "before", "after", "renderStrategy", ...sharedKeys] as const
 
 // ---------------------------------------------------------------------------
 // Shared viewer hook
@@ -566,7 +568,7 @@ function createLocalVirtualStrategy(host: () => HTMLDivElement | undefined, enab
   }
 }
 
-function createSharedVirtualStrategy(host: () => HTMLDivElement | undefined): VirtualStrategy {
+function createSharedVirtualStrategy(host: () => HTMLDivElement | undefined, enabled: () => boolean): VirtualStrategy {
   let shared: NonNullable<ReturnType<typeof acquireVirtualizer>> | undefined
 
   const release = () => {
@@ -576,6 +578,10 @@ function createSharedVirtualStrategy(host: () => HTMLDivElement | undefined): Vi
 
   return {
     get: () => {
+      if (!enabled()) {
+        release()
+        return
+      }
       if (shared) return shared.virtualizer
 
       const container = host()
@@ -988,7 +994,8 @@ function DiffViewer<T>(props: DiffFileProps<T>) {
     adapter,
   )
 
-  const virtuals = createSharedVirtualStrategy(() => viewer.container)
+  const renderStrategy = () => local.renderStrategy ?? "auto"
+  const virtuals = createSharedVirtualStrategy(() => viewer.container, () => renderStrategy() !== "static")
 
   const large = createMemo(() => {
     if (local.fileDiff) {

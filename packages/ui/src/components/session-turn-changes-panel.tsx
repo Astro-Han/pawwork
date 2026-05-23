@@ -263,6 +263,7 @@ export function SessionTurnChangesPanel(props: {
                         component={fileComponent}
                         mode="diff"
                         fileDiff={diff().fileDiff}
+                        renderStrategy="static"
                         onRendered={handleDiffRendered}
                       />
                     </div>
