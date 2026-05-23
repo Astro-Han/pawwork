@@ -74,13 +74,22 @@ export namespace FileWatcher {
 
   export function createRescanScheduler(input: {
     publish: (directory: string) => void
-    schedule?: (callback: () => void) => void
+    schedule?: (callback: () => void) => (() => void) | void
   }) {
-    const pending = new Map<string, { dirty: boolean }>()
-    const schedule = input.schedule ?? ((callback: () => void) => setTimeout(callback, RESCAN_DEDUPE_MS))
+    type RescanState = { dirty: boolean; cancel?: () => void }
+    const pending = new Map<string, RescanState>()
+    const schedule = (callback: () => void) => {
+      const cancel = input.schedule?.(callback)
+      if (cancel) return cancel
+      const timer = setTimeout(callback, RESCAN_DEDUPE_MS)
+      return () => clearTimeout(timer)
+    }
+    let disposed = false
 
-    const arm = (directory: string, state: { dirty: boolean }) => {
-      schedule(() => {
+    const arm = (directory: string, state: RescanState) => {
+      state.cancel = schedule(() => {
+        state.cancel = undefined
+        if (disposed) return
         if (state.dirty) {
           state.dirty = false
           input.publish(directory)
@@ -91,17 +100,27 @@ export namespace FileWatcher {
       })
     }
 
-    return (directory: string) => {
-      const state = pending.get(directory)
-      if (state) {
-        state.dirty = true
-        return
-      }
+    return {
+      request(directory: string) {
+        if (disposed) return
+        const state = pending.get(directory)
+        if (state) {
+          state.dirty = true
+          return
+        }
 
-      const next = { dirty: false }
-      pending.set(directory, next)
-      input.publish(directory)
-      arm(directory, next)
+        const next = { dirty: false }
+        pending.set(directory, next)
+        input.publish(directory)
+        arm(directory, next)
+      },
+      dispose() {
+        disposed = true
+        for (const state of pending.values()) {
+          state.cancel?.()
+        }
+        pending.clear()
+      },
     }
   }
 
@@ -148,14 +167,16 @@ export namespace FileWatcher {
                 )
               },
               schedule: (callback) => {
-                setTimeout(() => Instance.restore(ctx, callback), RESCAN_DEDUPE_MS)
+                const timer = setTimeout(() => Instance.restore(ctx, callback), RESCAN_DEDUPE_MS)
+                return () => clearTimeout(timer)
               },
             })
+            yield* Effect.addFinalizer(() => Effect.sync(() => requestRescan.dispose()))
             const createCallback = (dir: string): ParcelWatcher.SubscribeCallback => (err, evts) =>
               Instance.restore(ctx, () => {
                 if (err) {
                   if (isDroppedEventsError(err)) {
-                    requestRescan(dir)
+                    requestRescan.request(dir)
                     return
                   }
                   log.error("watcher callback error", { err })

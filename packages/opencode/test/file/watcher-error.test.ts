@@ -14,7 +14,7 @@ describe("FileWatcher error handling", () => {
   test("publishes a trailing rescan when dropped-event errors repeat inside the dedupe window", () => {
     const published: string[] = []
     const scheduled: Array<() => void> = []
-    const requestRescan = FileWatcher.createRescanScheduler({
+    const scheduler = FileWatcher.createRescanScheduler({
       publish: (directory) => {
         published.push(directory)
       },
@@ -23,8 +23,8 @@ describe("FileWatcher error handling", () => {
       },
     })
 
-    requestRescan("/repo")
-    requestRescan("/repo")
+    scheduler.request("/repo")
+    scheduler.request("/repo")
 
     expect(published).toEqual(["/repo"])
     expect(scheduled).toHaveLength(1)
@@ -37,5 +37,26 @@ describe("FileWatcher error handling", () => {
     scheduled[1]?.()
 
     expect(published).toEqual(["/repo", "/repo"])
+  })
+
+  test("does not publish queued trailing rescans after dispose", () => {
+    const published: string[] = []
+    const scheduled: Array<() => void> = []
+    const scheduler = FileWatcher.createRescanScheduler({
+      publish: (directory) => {
+        published.push(directory)
+      },
+      schedule: (callback) => {
+        scheduled.push(callback)
+      },
+    })
+
+    scheduler.request("/repo")
+    scheduler.request("/repo")
+    scheduler.dispose()
+
+    scheduled[0]?.()
+
+    expect(published).toEqual(["/repo"])
   })
 })
