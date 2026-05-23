@@ -127,6 +127,7 @@ export type Summary = {
   side_effect_boundary_snapshot?: SideEffectBoundarySnapshot
   pending_tool_parts_interrupted?: number
   incident?: RunIncident.Summary
+  recovered_incidents?: RunIncident.Summary[]
   lifecycle?: {
     action_id: string
     kind: LifecycleKind
@@ -219,6 +220,7 @@ export type Recorder = {
     evidence?: string[]
     watchdog?: { phase: "connect" | "silent_stream" | "unknown" }
   }): RunIncident.Recovery
+  recordAutoRetryAttempted(input: { attemptID: AttemptID; at: number; monotonicMs: number }): void
   recordTransportFailure(input: {
     attemptID?: AttemptID
     at: number

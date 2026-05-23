@@ -2084,6 +2084,75 @@ describe("redactPart", () => {
     expect(serialized).not.toContain("raw provider body")
   })
 
+  test("exports recovered stream incidents without making final run observability terminal", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_recovered_incident_export"),
+      traceID: MessageID.make("msg_recovered_incident_export"),
+      sessionID: SessionID.make("ses_recovered_incident_export"),
+      messageID: MessageID.make("msg_recovered_incident_export"),
+      providerID: "test",
+      modelID: "test-model",
+      createdAt: 1,
+      monotonicStartMs: 100,
+    })
+    const first = recorder.beginAttempt({ attemptIndex: 1, at: 2, monotonicMs: 110 })
+    recorder.recordAttemptFailureAndDeriveRecovery({
+      attemptID: first.attemptID,
+      at: 3,
+      monotonicMs: 120,
+      error: new Error("LLM stream connection timed out after 120000ms without provider progress"),
+      evidence: ["watchdog_fired", "iterator_error"],
+      watchdog: { phase: "connect" },
+    })
+    recorder.recordAutoRetryAttempted({ attemptID: first.attemptID, at: 4, monotonicMs: 130 })
+    const second = recorder.beginAttempt({ attemptIndex: 2, at: 5, monotonicMs: 140 })
+    recorder.recordVisibleOutput({ attemptID: second.attemptID, at: 6, monotonicMs: 150 })
+    const summary = recorder.finalize({ completedAt: 7, monotonicMs: 160 })
+
+    const sanitized = Export.sanitizeSnapshot({
+      schema_version: 1,
+      format: "pawwork-session-export",
+      exported_at: 1,
+      root_session_id: SessionID.make("ses_recovered_incident_export"),
+      runtime_context: {
+        app_version: "test",
+        runtime_namespace: "pawwork",
+        platform: process.platform,
+        os_version: "test",
+        locale: "en-US",
+        timezone: "UTC",
+        instruction_sources: [],
+        model_refs: {},
+        stats: { session_count: 1, message_count: 0, part_count: 0, omitted_attachment_count: 0 },
+      },
+      diagnostics: { run_observability_schema_version: 1, run_observability: [summary] },
+      session: {
+        info: {
+          id: SessionID.make("ses_recovered_incident_export"),
+          version: "0.0.0",
+          time: { created: 1, updated: 1 },
+          title: "x",
+          directory: "/tmp/project",
+        } as SessionNs.Info,
+        had_cloud_share: false,
+        diffs: [],
+        messages: [],
+        children: [],
+      },
+    })
+
+    expect(sanitized.diagnostics.run_observability?.[0]?.classification).toBe("success")
+    expect(sanitized.diagnostics.run_observability?.[0]?.incident).toBeUndefined()
+    expect(sanitized.diagnostics.run_observability?.[0]?.recovered_incidents?.[0]?.terminal_cause).toMatchObject({
+      category: "watchdog_timeout",
+      subcategory: "connect",
+    })
+    expect(sanitized.diagnostics.run_incidents?.[0]?.terminal_cause).toMatchObject({
+      category: "watchdog_timeout",
+      subcategory: "connect",
+    })
+  })
+
   test("sanitizes generated lifecycle incident provenance and chains", () => {
     const recorder = RunObservability.createRecorder({
       runID: RunObservability.RunID.make("run_generated_chain_sanitize"),

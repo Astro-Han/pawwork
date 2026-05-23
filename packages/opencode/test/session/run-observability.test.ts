@@ -84,6 +84,43 @@ describe("RunObservability", () => {
     })
   })
 
+  test("auto retried attempt is recovered instead of becoming the final incident", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_recovered_watchdog_timeout"),
+      traceID: MessageID.make("msg_recovered_watchdog_timeout"),
+      sessionID: SessionID.make("ses_recovered_watchdog_timeout"),
+      messageID: MessageID.make("msg_recovered_watchdog_timeout"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+
+    const first = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordAttemptFailureAndDeriveRecovery({
+      attemptID: first.attemptID,
+      at: 12,
+      monotonicMs: 120,
+      error: new Error("LLM stream connection timed out after 120000ms without provider progress"),
+      evidence: ["watchdog_fired", "iterator_error"],
+      watchdog: { phase: "connect" },
+    })
+    recorder.recordAutoRetryAttempted({ attemptID: first.attemptID, at: 13, monotonicMs: 130 })
+    const second = recorder.beginAttempt({ attemptIndex: 2, at: 14, monotonicMs: 140 })
+    recorder.recordVisibleOutput({ attemptID: second.attemptID, at: 15, monotonicMs: 150 })
+
+    const summary = recorder.finalize({ completedAt: 16, monotonicMs: 160 })
+    expect(summary.classification).toBe("success")
+    expect(String(summary.summary_key)).toBe("success.completed")
+    expect(summary.terminal_attempt_id).toBeUndefined()
+    expect(summary.incident).toBeUndefined()
+    expect(summary.recovered_incidents).toHaveLength(1)
+    expect(summary.recovered_incidents?.[0]?.terminal_cause).toMatchObject({
+      category: "watchdog_timeout",
+      subcategory: "connect",
+    })
+  })
+
   test("classifies completed runs without failure as success", () => {
     const recorder = RunObservability.createRecorder({
       runID: RunObservability.RunID.make("run_success"),
@@ -754,7 +791,7 @@ describe("RunObservability", () => {
     expect(summary.error?.message).toBe("redacted")
   })
 
-  test("retry safety is denied when any earlier attempt emitted visible output", () => {
+  test("retry safety is denied when the failed attempt emitted visible output", () => {
     const recorder = RunObservability.createRecorder({
       runID: RunObservability.RunID.make("run_retry_aggregate"),
       traceID: MessageID.make("msg_retry_aggregate"),
@@ -766,11 +803,10 @@ describe("RunObservability", () => {
       monotonicStartMs: 100,
     })
 
-    const first = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
-    recorder.recordVisibleOutput({ attemptID: first.attemptID, at: 12, monotonicMs: 120 })
-    const second = recorder.beginAttempt({ attemptIndex: 2, at: 20, monotonicMs: 200 })
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordVisibleOutput({ attemptID: attempt.attemptID, at: 12, monotonicMs: 120 })
     recorder.recordTransportFailure({
-      attemptID: second.attemptID,
+      attemptID: attempt.attemptID,
       at: 21,
       monotonicMs: 210,
       error: { name: "TypeError", message: "terminated", cause: { code: "UND_ERR_SOCKET" } },
@@ -778,13 +814,63 @@ describe("RunObservability", () => {
     })
 
     const summary = recorder.finalize({ completedAt: 22, monotonicMs: 220 })
-    expect(summary.attempts).toHaveLength(2)
+    expect(summary.attempts).toHaveLength(1)
     expect(summary.visible_output_seen).toBe(true)
     expect(summary.retry_safety.recommendation).toBe("do_not_auto_retry")
     expect(summary.retry_safety.reason).toBe("visible_output_seen")
   })
 
-  test("terminal attempt facts drive transport cause while run facts drive recovery safety", () => {
+  test("independent assistant messages do not share tool execution facts for recovery safety", () => {
+    const previous = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_previous_assistant_step"),
+      traceID: MessageID.make("msg_previous_assistant_step"),
+      sessionID: SessionID.make("ses_same_session"),
+      messageID: MessageID.make("msg_previous_assistant_step"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const previousAttempt = previous.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    previous.recordToolExecutionStarted({
+      attemptID: previousAttempt.attemptID,
+      at: 12,
+      monotonicMs: 120,
+      toolName: RunObservability.safeToolName("read"),
+      effect: RunObservability.toolEffect("read"),
+    })
+    previous.recordToolCompleted({ attemptID: previousAttempt.attemptID, at: 13, monotonicMs: 130 })
+    const previousSummary = previous.finalize({ completedAt: 14, monotonicMs: 140 })
+    expect(previousSummary.tool_execution_started).toBe(true)
+
+    const current = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_current_assistant_step"),
+      traceID: MessageID.make("msg_current_assistant_step"),
+      sessionID: SessionID.make("ses_same_session"),
+      messageID: MessageID.make("msg_current_assistant_step"),
+      parentMessageID: MessageID.make("msg_previous_assistant_step"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 20,
+      monotonicStartMs: 200,
+    })
+    const currentAttempt = current.beginAttempt({ attemptIndex: 1, at: 21, monotonicMs: 210 })
+    const decision = current.recordAttemptFailureAndDeriveRecovery({
+      attemptID: currentAttempt.attemptID,
+      at: 22,
+      monotonicMs: 220,
+      error: new Error("LLM stream connection timed out after 120000ms without provider progress"),
+      evidence: ["watchdog_fired", "iterator_error"],
+      watchdog: { phase: "connect" },
+    })
+
+    expect(decision).toMatchObject({
+      recommendation: "auto_retry_once",
+      reason: "no_visible_output_or_tool_execution",
+    })
+  })
+
+  test("terminal attempt facts drive transport recovery while message facts stay diagnostic", () => {
     const recorder = RunObservability.createRecorder({
       runID: RunObservability.RunID.make("run_attempt_scoped_terminal"),
       traceID: MessageID.make("msg_attempt_scoped_terminal"),
@@ -817,9 +903,17 @@ describe("RunObservability", () => {
       tool_phase: "none",
       terminal_attempt_id: second.attemptID,
     })
+    expect(summary.incident?.facts).toMatchObject({
+      visible_output_seen: true,
+      tool_input_started: true,
+    })
     expect(summary.incident?.recovery).toMatchObject({
-      recommendation: "offer_continue",
-      reason: "visible_output_without_tool_execution",
+      recommendation: "auto_retry_once",
+      reason: "no_visible_output_or_tool_execution",
+    })
+    expect(summary.retry_safety).toMatchObject({
+      recommendation: "candidate_safe_auto_retry",
+      reason: "no_visible_output_or_tool_execution",
     })
   })
 
@@ -1559,7 +1653,7 @@ describe("RunObservability", () => {
     })
   })
 
-  test("earlier attempt unsafe materialized tool prevents later auto retry", () => {
+  test("earlier attempt unsafe materialized tool does not prevent later clean attempt auto retry", () => {
     const recorder = RunObservability.createRecorder({
       runID: RunObservability.RunID.make("run_cross_attempt_unsafe_materialized_tool"),
       traceID: MessageID.make("msg_cross_attempt_unsafe_materialized_tool"),
@@ -1592,12 +1686,12 @@ describe("RunObservability", () => {
       subcategory: "before_first_provider_progress",
     })
     expect(summary.incident?.recovery).toMatchObject({
-      recommendation: "ask_user_before_retry",
-      reason: "tool_call_materialized_without_execution",
+      recommendation: "auto_retry_once",
+      reason: "no_visible_output_or_tool_execution",
     })
   })
 
-  test("earlier attempt safe materialized tool prevents later auto retry", () => {
+  test("earlier attempt safe materialized tool does not prevent later clean attempt auto retry", () => {
     const recorder = RunObservability.createRecorder({
       runID: RunObservability.RunID.make("run_cross_attempt_safe_materialized_tool"),
       traceID: MessageID.make("msg_cross_attempt_safe_materialized_tool"),
@@ -1626,12 +1720,12 @@ describe("RunObservability", () => {
 
     const summary = recorder.finalize({ completedAt: 22, monotonicMs: 220 })
     expect(summary.incident?.recovery).toMatchObject({
-      recommendation: "offer_continue",
-      reason: "tool_call_materialized_without_execution",
+      recommendation: "auto_retry_once",
+      reason: "no_visible_output_or_tool_execution",
     })
   })
 
-  test("earlier attempt unknown materialized tool prevents later auto retry", () => {
+  test("earlier attempt unknown materialized tool does not prevent later clean attempt auto retry", () => {
     const recorder = RunObservability.createRecorder({
       runID: RunObservability.RunID.make("run_cross_attempt_unknown_materialized_tool"),
       traceID: MessageID.make("msg_cross_attempt_unknown_materialized_tool"),
@@ -1661,8 +1755,8 @@ describe("RunObservability", () => {
 
     const summary = recorder.finalize({ completedAt: 23, monotonicMs: 230 })
     expect(summary.incident?.recovery).toMatchObject({
-      recommendation: "ask_user_before_retry",
-      reason: "side_effect_facts_incomplete",
+      recommendation: "auto_retry_once",
+      reason: "no_visible_output_or_tool_execution",
     })
   })
 

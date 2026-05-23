@@ -1089,15 +1089,28 @@ it.live("connect timeout before provider progress auto retries once and succeeds
         expect(stored?.info.role).toBe("assistant")
         if (stored?.info.role === "assistant") {
           expect(stored.info.error).toBeUndefined()
-          expect(stored.info.diagnostics?.run_observability?.attempts).toHaveLength(2)
-          expect(stored.info.diagnostics?.run_observability?.attempts[0]).toMatchObject({
+          const observability = stored.info.diagnostics?.run_observability
+          expect(observability?.classification).toBe("success")
+          expect(String(observability?.summary_key)).toBe("success.completed")
+          expect(observability?.terminal_attempt_id).toBeUndefined()
+          expect(observability?.incident).toBeUndefined()
+          expect(observability?.recovered_incidents?.[0]?.terminal_cause).toMatchObject({
+            category: "watchdog_timeout",
+            subcategory: "connect",
+          })
+          expect(observability?.recovered_incidents?.[0]?.recovery).toMatchObject({
+            recommendation: "auto_retry_once",
+            reason: "no_visible_output_or_tool_execution",
+          })
+          expect(observability?.attempts).toHaveLength(2)
+          expect(observability?.attempts[0]).toMatchObject({
             attempt_index: 1,
             provider_progress_seen: false,
             visible_output_seen: false,
             tool_call_materialized: false,
             tool_execution_started: false,
           })
-          expect(stored.info.diagnostics?.run_observability?.attempts[1]).toMatchObject({
+          expect(observability?.attempts[1]).toMatchObject({
             attempt_index: 2,
             visible_output_seen: true,
           })

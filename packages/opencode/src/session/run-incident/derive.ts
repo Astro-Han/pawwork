@@ -128,6 +128,9 @@ function factsFromEvidence(
   const materializedToolBoundary = summarizeMaterializedToolBoundaries(input.materializedToolBoundaries, attemptID)
   const has = (eventType: string) => scopedEvidence.some((event) => event.event_type === eventType)
   const count = (eventType: string) => scopedEvidence.filter((event) => event.event_type === eventType).length
+  const sideEffectFactsComplete = attemptID
+    ? scopedSideEffectFactsComplete(scopedEvidence, materializedToolBoundary)
+    : input.sideEffectFactsComplete
   return {
     provider_progress_seen: has("provider_progress_seen"),
     visible_output_seen: has("visible_output_seen"),
@@ -145,12 +148,25 @@ function factsFromEvidence(
     materialized_tool_requires_confirmation: materializedToolBoundary
       ? materializedToolBoundary.effect.unsafe || !materializedToolBoundary.effect.complete
       : undefined,
-    side_effect_facts_complete: input.sideEffectFactsComplete,
+    side_effect_facts_complete: sideEffectFactsComplete,
     lifecycle_close_seen: has("lifecycle_close_seen"),
     user_cancel_seen: has("user_cancel_seen"),
     watchdog_fired: has("watchdog_fired"),
     pending_tool_parts_interrupted: count("pending_tool_part_interrupted") || undefined,
   }
+}
+
+function scopedSideEffectFactsComplete(
+  scopedEvidence: IncidentEvidenceEvent[],
+  materializedToolBoundary: MaterializedToolBoundary | undefined,
+) {
+  if (scopedEvidence.some((event) => event.event_type === "provider_executed_tool_boundary")) return false
+  if (materializedToolBoundary && !materializedToolBoundary.effect.complete) return false
+  if (scopedEvidence.some((event) => event.tool_effect_complete === false)) return false
+  const snapshots = scopedEvidence.flatMap((event) =>
+    event.side_effect_boundary_snapshot ? [event.side_effect_boundary_snapshot] : [],
+  )
+  return snapshots.every((snapshot) => snapshot.proof_result === "complete")
 }
 
 function evidenceAtOrBefore(event: IncidentEvidenceEvent, terminal: IncidentEvidenceEvent) {

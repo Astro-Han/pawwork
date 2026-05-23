@@ -1296,12 +1296,18 @@ export const layer: Layer.Layer<
             })
 
             if (
+              attemptID &&
               retrySignal.retryable &&
               decision.recommendation === "auto_retry_once" &&
               automaticStreamRetriesUsed === 0 &&
               (yield* retryStillAllowed("before_backoff"))
             ) {
               automaticStreamRetriesUsed += 1
+              ctx.runTrace.recordAutoRetryAttempted({
+                attemptID,
+                at: Date.now(),
+                monotonicMs: performance.now(),
+              })
               const next = Date.now() + SAFE_RECOVERY_AUTO_RETRY_BACKOFF_MS
               yield* status.set(ctx.sessionID, {
                 type: "retry",

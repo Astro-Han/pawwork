@@ -61,6 +61,8 @@ export function createRecorder(input: RecorderInput): Recorder {
   let lifecycleFailure: ScopeClosedFailure | undefined
   let pendingToolPartsInterrupted = 0
   const evidence: RunIncident.EvidenceEvent[] = []
+  const recoveredAttemptIDs = new Set<AttemptID>()
+  const recoveredIncidents: RunIncident.Summary[] = []
 
   const rememberEvent = (monotonicMs: number) => {
     lastEventMonotonicMs = Math.max(lastEventMonotonicMs, monotonicMs)
@@ -95,7 +97,16 @@ export function createRecorder(input: RecorderInput): Recorder {
       toolExecutionCompleted: has("tool_execution_completed"),
     }
   }
-  const deriveCurrentIncident = (completedAt?: number) => {
+  const terminalEvidence = () =>
+    evidence.map((event) => {
+      if (!event.attempt_id || !recoveredAttemptIDs.has(event.attempt_id) || !event.terminal_candidate) return event
+      const { cause: _cause, ...nonTerminalEvent } = event
+      return { ...nonTerminalEvent, terminal_candidate: false }
+    })
+  const deriveCurrentIncident = (
+    completedAt?: number,
+    options?: { includeRecoveredTerminal?: boolean },
+  ) => {
     const incidentLifecycle = lifecycleSummary(lifecycleFailure)
     return RunIncident.derive({
       runID: input.runID,
@@ -105,7 +116,7 @@ export function createRecorder(input: RecorderInput): Recorder {
       parentMessageID: input.parentMessageID,
       createdAt: input.createdAt,
       completedAt,
-      evidence,
+      evidence: options?.includeRecoveredTerminal ? evidence : terminalEvidence(),
       unsafeSideEffectKinds: unsafeKinds,
       sideEffectFactsComplete,
       materializedToolBoundaries,
@@ -476,7 +487,27 @@ export function createRecorder(input: RecorderInput): Recorder {
       } else {
         recordTransportFailureEvidence(next)
       }
-      return deriveCurrentIncident(next.at)?.recovery ?? unknownRecovery()
+      return deriveCurrentIncident(next.at, { includeRecoveredTerminal: true })?.recovery ?? unknownRecovery()
+    },
+    recordAutoRetryAttempted(next) {
+      appendEvidence({
+        monotonic_ms: next.monotonicMs,
+        source: "recovery",
+        attempt_id: next.attemptID,
+        event_type: "auto_retry_attempted",
+        terminal_candidate: false,
+        confidence: "high",
+      })
+      const incident = deriveCurrentIncident(next.at, { includeRecoveredTerminal: true })
+      if (incident && !recoveredIncidents.some((entry) => entry.phase.terminal_attempt_id === next.attemptID)) {
+        recoveredIncidents.push({
+          ...incident,
+          incident_id: `${incident.incident_id}:recovered:${next.attemptID}`,
+        })
+      }
+      recoveredAttemptIDs.add(next.attemptID)
+      if (failure && "attemptID" in failure && failure.attemptID === next.attemptID) failure = undefined
+      rememberEvent(next.monotonicMs)
     },
     recordTransportFailure(next) {
       recordTransportFailureEvidence(next)
@@ -549,16 +580,19 @@ export function createRecorder(input: RecorderInput): Recorder {
           ? summarySuffixForIncident(incident.terminal_cause, { providerProgressSeen })
           : summarySuffix({ failure, providerProgressSeen }),
       )
+      const terminalAttempt = incident?.phase.terminal_attempt_id ? getAttempt(incident.phase.terminal_attempt_id) : undefined
       const retrySafety = retrySafetyFor({
         classification,
-        visibleOutputSeen,
-        toolExecutionStarted,
-        unsafeSideEffectStarted,
+        visibleOutputSeen: terminalAttempt?.visible_output_seen ?? visibleOutputSeen,
+        toolExecutionStarted: terminalAttempt?.tool_execution_started ?? toolExecutionStarted,
+        unsafeSideEffectStarted: terminalAttempt?.unsafe_side_effect_started ?? unsafeSideEffectStarted,
       })
       const completedAt = final.completedAt
       const failureMonotonicMs = failure?.monotonicMs
       const error = failure && "error" in failure ? safeErrorFingerprint(failure.error) : undefined
-      const terminalAttemptID = failure && "attemptID" in failure ? failure.attemptID : attempts.at(-1)?.attempt_id
+      const terminalAttemptID = incident
+        ? (incident.phase.terminal_attempt_id ?? (failure && "attemptID" in failure ? failure.attemptID : undefined))
+        : undefined
       return {
         schema_version: SCHEMA_VERSION,
         run_id: input.runID,
@@ -589,6 +623,7 @@ export function createRecorder(input: RecorderInput): Recorder {
         side_effect_boundary_snapshot: sideEffectBoundarySnapshot ? { ...sideEffectBoundarySnapshot } : undefined,
         pending_tool_parts_interrupted: pendingToolPartsInterrupted || undefined,
         incident,
+        recovered_incidents: recoveredIncidents.length ? recoveredIncidents : undefined,
         lifecycle,
         missing_provenance: missingProvenance,
         durations_ms: {
