@@ -35,3 +35,20 @@ test("visible turn-change memo is declared after working state", () => {
 
   expect(source.indexOf("const working = createMemo")).toBeLessThan(source.indexOf("const visibleTurnChange = createMemo"))
 })
+
+test("assistant content aria-hidden is driven by focus-safe state", () => {
+  const source = readFileSync(new URL("./session-turn.tsx", import.meta.url), "utf8")
+
+  const blurIndex = source.indexOf("if (shouldHide) blurActiveElementInside(assistantContent())")
+  const hideIndex = source.indexOf("setAssistantHidden(shouldHide)")
+
+  expect(source).toContain('import { blurActiveElementInside } from "./session-turn-focus"')
+  expect(source).toContain("const [assistantContent, setAssistantContent] = createSignal<HTMLElement>()")
+  expect(source).toContain("const [assistantHidden, setAssistantHidden] = createSignal(false)")
+  expect(blurIndex).toBeGreaterThanOrEqual(0)
+  expect(hideIndex).toBeGreaterThanOrEqual(0)
+  expect(blurIndex).toBeLessThan(hideIndex)
+  expect(source).toContain("aria-hidden={assistantHidden()}")
+  expect(source).toContain("onFocusIn={() =>")
+  expect(source).not.toContain("aria-hidden={working()}")
+})
