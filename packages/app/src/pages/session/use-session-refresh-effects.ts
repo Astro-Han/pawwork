@@ -208,7 +208,6 @@ export function useSessionRefreshEffects(input: {
           }, 0)
         })
       },
-      { defer: true },
     ),
   )
 
