@@ -2,18 +2,10 @@ import type { Page } from "@playwright/test"
 import type { PermissionRequest, Todo } from "@opencode-ai/sdk/v2/client"
 import { test, expect } from "../fixtures"
 import {
-  composerEvent,
-  type ComposerDriverState,
-  type ComposerProbeState,
-  type ComposerStateProbeState,
-  type ComposerWindow,
-} from "../../src/testing/session-composer"
-import {
   cleanupSession,
   clearSessionDockSeed,
   closeSettingsPanel,
   openSettings,
-  openSidebar,
   seedSessionQuestion,
 } from "../actions"
 import {
@@ -23,12 +15,10 @@ import {
   scrollViewportSelector,
   sessionComposerDockSelector,
   sessionTurnListSelector,
-  sessionTodoToggleButtonSelector,
   titlebarRightSelector,
 } from "../selectors"
 import { modKey } from "../utils"
 import { inputMatch } from "../prompt/mock"
-import { dict as enDict } from "../../src/i18n/en"
 
 type Sdk = Parameters<typeof clearSessionDockSeed>[0]
 type PermissionRule = { permission: string; pattern: string; action: "allow" | "deny" | "ask" }
@@ -252,17 +242,6 @@ async function submitVisiblePrompt(page: Page, text: string) {
   await page.keyboard.press("Enter")
 }
 
-async function readPromptSend(page: Page) {
-  return page.evaluate(() => {
-    const win = window as ComposerWindow
-    const sent = win.__opencode_e2e?.prompt?.sent
-    return {
-      count: sent?.count ?? 0,
-      sessionID: sent?.sessionID,
-    }
-  })
-}
-
 async function scrollTimelineToBottom(page: Page) {
   await page.evaluate(() => {
     const viewport = document.querySelector('[data-component="scroll-viewport"]')
@@ -311,137 +290,6 @@ async function expectQuestionOptionsOverflow(page: Page) {
       })
     })
     .toBe(true)
-}
-
-async function todoDock(page: any, sessionID: string) {
-  await page.addInitScript(() => {
-    const win = window as ComposerWindow
-    const saved = window.sessionStorage.getItem("__opencode_e2e_composer_sessions")
-    const sessions = saved ? JSON.parse(saved) : {}
-    win.__opencode_e2e = {
-      ...win.__opencode_e2e,
-      composer: {
-        enabled: true,
-        sessions,
-      },
-    }
-  })
-
-  const write = async (driver: ComposerDriverState | undefined) => {
-    await page.evaluate(
-      (input: { event: string; sessionID: string; driver: ComposerDriverState | undefined }) => {
-        const win = window as ComposerWindow
-        const composer = win.__opencode_e2e?.composer
-        if (!composer?.enabled) throw new Error("Composer e2e driver is not enabled")
-        composer.sessions ??= {}
-        const prev = composer.sessions[input.sessionID] ?? {}
-        const stateProbe = prev.stateProbe
-        const stateProbeHasValue =
-          stateProbe &&
-          (stateProbe.dock ||
-            stateProbe.opening ||
-            stateProbe.completing ||
-            stateProbe.count > 0 ||
-            stateProbe.states.length > 0)
-        const nextStateProbe = stateProbeHasValue ? stateProbe : undefined
-        if (!input.driver) {
-          if (!prev.probe && !nextStateProbe) {
-            delete composer.sessions[input.sessionID]
-          } else {
-            composer.sessions[input.sessionID] = { probe: prev.probe, stateProbe: nextStateProbe }
-          }
-        } else {
-          composer.sessions[input.sessionID] = {
-            ...prev,
-            stateProbe: nextStateProbe,
-            driver: input.driver,
-          }
-        }
-        window.sessionStorage.setItem("__opencode_e2e_composer_sessions", JSON.stringify(composer.sessions))
-        window.dispatchEvent(new CustomEvent(input.event, { detail: { sessionID: input.sessionID } }))
-      },
-      { event: composerEvent, sessionID, driver },
-    )
-  }
-
-  const readUi = () =>
-    page.evaluate((sessionID: string) => {
-      const win = window as ComposerWindow
-      return win.__opencode_e2e?.composer?.sessions?.[sessionID]?.probe ?? null
-    }, sessionID) as Promise<ComposerProbeState | null>
-
-  const readState = () =>
-    page.evaluate((sessionID: string) => {
-      const win = window as ComposerWindow
-      return win.__opencode_e2e?.composer?.sessions?.[sessionID]?.stateProbe ?? null
-    }, sessionID) as Promise<ComposerStateProbeState | null>
-
-  const api = {
-    async expectUi(expected: Partial<ComposerProbeState>, timeout = 10_000) {
-      await expect.poll(readUi, { timeout }).toMatchObject(expected)
-      return api
-    },
-    async expectState(expected: Partial<ComposerStateProbeState>, timeout = 10_000) {
-      await expect.poll(readState, { timeout }).toMatchObject(expected)
-      return api
-    },
-    readState,
-    async expectUnmounted(timeout = 10_000) {
-      await expect.poll(readUi, { timeout }).toMatchObject({
-        mounted: false,
-        hidden: true,
-        count: 0,
-        states: [],
-      })
-      return api
-    },
-    async expectDockGone(timeout = 10_000) {
-      await expect(page.locator('[data-component="session-todo-dock"]')).toHaveCount(0, { timeout })
-      return api
-    },
-    async clear() {
-      await write(undefined)
-      return api
-    },
-    async open(todos: NonNullable<ComposerDriverState["todos"]>) {
-      await write({ todos })
-      return api
-    },
-    async finish(todos: NonNullable<ComposerDriverState["todos"]>) {
-      await write({ todos })
-      return api
-    },
-    async expectOpen(states: ComposerProbeState["states"]) {
-      await expect.poll(readUi, { timeout: 10_000 }).toMatchObject({
-        mounted: true,
-        collapsed: false,
-        hidden: false,
-        count: states.length,
-        states,
-      })
-      return api
-    },
-    async expectCollapsed(states: ComposerProbeState["states"]) {
-      await expect.poll(readUi, { timeout: 10_000 }).toMatchObject({
-        mounted: true,
-        collapsed: true,
-        hidden: true,
-        count: states.length,
-        states,
-      })
-      return api
-    },
-    async collapse() {
-      await page.locator(sessionTodoToggleButtonSelector).click()
-      return api
-    },
-    async expand() {
-      await page.locator(sessionTodoToggleButtonSelector).click()
-      return api
-    },
-  }
-
-  return api
 }
 
 async function withMockPermission<T>(
@@ -1071,174 +919,87 @@ test("child session permission request blocks parent dock and supports allow onc
   )
 })
 
-test("todo dock transitions and collapse behavior", async ({ page, project }) => {
+test("todo updates stay out of the composer dock", async ({ page, llm, project }) => {
   await project.open()
   await withDockSession(
     project.sdk,
-    "e2e composer dock todo",
+    "e2e todo status-only active",
     async (session) => {
-      const dock = await todoDock(page, session.id)
-      await project.gotoSession(session.id)
-      await expect(page.locator(sessionComposerDockSelector)).toBeVisible()
-
-      try {
-        await dock.open([
-          { content: "first task", status: "pending", priority: "high" },
-          { content: "second task", status: "in_progress", priority: "medium" },
-        ])
-        await dock.expectCollapsed(["pending", "in_progress"])
-
-        await dock.expand()
-        await dock.expectOpen(["pending", "in_progress"])
-
-        await dock.collapse()
-        await dock.expectCollapsed(["pending", "in_progress"])
-
-        await dock.finish([
-          { content: "first task", status: "completed", priority: "high" },
-          { content: "second task", status: "cancelled", priority: "medium" },
-        ])
-        await dock.expectCollapsed(["completed", "cancelled"])
-      } finally {
-        await dock.clear()
-      }
-    },
-    { trackSession: project.trackSession },
-  )
-})
-
-test("todo dock auto-hides after all todos complete", async ({ page, project }) => {
-  await project.open()
-  await page.clock.install()
-  await withDockSession(
-    project.sdk,
-    "e2e composer dock todo complete auto-hide",
-    async (session) => {
-      const dock = await todoDock(page, session.id)
-      await project.gotoSession(session.id)
-
-      try {
-        await dock.open([
-          { content: "first task", status: "pending", priority: "high" },
-          { content: "second task", status: "in_progress", priority: "medium" },
-        ])
-        await dock.expectCollapsed(["pending", "in_progress"])
-
-        await dock.finish([
-          { content: "first task", status: "completed", priority: "high" },
-          { content: "second task", status: "completed", priority: "medium" },
-        ])
-        await dock.expectState({ dock: true, completing: true, count: 2, states: ["completed", "completed"] })
-        await page.clock.fastForward(3_000)
-        await dock.expectState({ dock: false, completing: false, count: 2, states: ["completed", "completed"] })
-        await dock.expectUnmounted()
-        await dock.expectDockGone()
-      } finally {
-        await dock.clear()
-      }
-    },
-    { trackSession: project.trackSession },
-  )
-})
-
-test("todo dock keeps the original hide timer during terminal-only refreshes", async ({ page, project }) => {
-  await project.open()
-  await page.clock.install()
-  await withDockSession(
-    project.sdk,
-    "e2e composer dock todo unchanged terminal refresh",
-    async (session) => {
-      const dock = await todoDock(page, session.id)
-      await project.gotoSession(session.id)
-
-      try {
-        await dock.open([
-          { content: "first task", status: "pending", priority: "high" },
-          { content: "second task", status: "in_progress", priority: "medium" },
-          { content: "third task", status: "pending", priority: "medium" },
-          { content: "fourth task", status: "pending", priority: "low" },
-        ])
-        await dock.expectCollapsed(["pending", "in_progress", "pending", "pending"])
-
-        const completed = [
-          { content: "first task", status: "completed", priority: "high" },
-          { content: "second task", status: "completed", priority: "medium" },
-          { content: "third task", status: "completed", priority: "medium" },
-          { content: "fourth task", status: "completed", priority: "low" },
-        ] as const
-
-        await dock.finish([
-          { ...completed[0], content: "first task done" },
-          { ...completed[1], content: "second task done" },
-          { ...completed[2], content: "third task done" },
-          { ...completed[3], content: "fourth task done" },
-        ])
-        await dock.expectState({ dock: true, completing: true, count: 4 })
-        await page.clock.fastForward(2_500)
-
-        await dock.finish([...completed])
-        await dock.expectState({ dock: true, completing: true, count: 4 })
-        await page.clock.fastForward(500)
-
-        await dock.expectState({ dock: false, completing: false, count: 4 })
-        await dock.expectDockGone()
-      } finally {
-        await dock.clear()
-      }
-    },
-    { trackSession: project.trackSession },
-  )
-})
-
-test("todo dock appears from real todowrite tool parts", async ({ page, llm, project }) => {
-  await project.open()
-  await withDockSession(
-    project.sdk,
-    "e2e composer dock real todowrite",
-    async (session) => {
-      const dock = await todoDock(page, session.id)
       await project.gotoSession(session.id)
 
       await llm.tool("todowrite", {
-        todos: [
-          { content: "count to 0", status: "completed", priority: "high" },
-          { content: "count to 1", status: "in_progress", priority: "medium" },
-          { content: "count to 2", status: "pending", priority: "medium" },
-        ],
-      })
-      await llm.text("counting started")
-
-      await project.prompt("Create a todo list and start counting.")
-
-      await dock.expectState({ dock: true, count: 3, states: ["completed", "in_progress", "pending"] }, 30_000)
-      expect((await dock.readState())?.openingSamples).toContain(true)
-      await dock.expectCollapsed(["completed", "in_progress", "pending"])
-    },
-    { trackSession: project.trackSession },
-  )
-})
-
-test("todo dock and status summary use backend terminal update over stale todowrite parts", async ({
-  page,
-  llm,
-  project,
-}) => {
-  await project.open()
-  await withDockSession(
-    project.sdk,
-    "e2e composer dock backend terminal todo",
-    async (session) => {
-      const content = "backend terminal todo"
-      await project.gotoSession(session.id)
-
-      await llm.tool("todowrite", {
-        todos: [{ content, status: "in_progress", priority: "medium" }],
+        todos: [{ content: "status-only active todo", status: "in_progress", priority: "medium" }],
       })
       await llm.text("todo started")
       await project.prompt("Create a todo and start it.")
 
-      const dockItem = page.locator('[data-slot="session-todo-item"]').filter({ hasText: content }).first()
-      await expect(dockItem).toHaveAttribute("data-state", "in_progress", { timeout: 30_000 })
+      await expect(page.locator('[data-component="session-todo-dock"]')).toHaveCount(0)
+      await expect(page.locator("#right-panel")).toHaveAttribute("aria-hidden", "true")
+    },
+    { trackSession: project.trackSession },
+  )
+})
+
+test("todo updates do not switch an open right panel to status", async ({ page, project }) => {
+  await project.open()
+  await withDockSession(
+    project.sdk,
+    "e2e todo does not switch right panel",
+    async (session) => {
+      await project.gotoSession(session.id)
+
+      const rightPanel = page.locator("#right-panel")
+      const rightToggle = page.locator(`${titlebarRightSelector} button`).first()
+      await rightToggle.click()
+      await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
+
+      await rightPanel.getByRole("button", { name: "Add tab" }).click()
+      await page.getByRole("menuitem", { name: "Files" }).click()
+      const filesTab = rightPanel.getByRole("tab", { name: "Files", exact: true }).first()
+      await expect(filesTab).toHaveAttribute("aria-selected", "true")
+
+      await e2eUpdateTodos(
+        { url: project.url, directory: project.directory, sdk: project.sdk },
+        {
+          sessionID: session.id,
+          todos: [{ content: "right panel stays on files", status: "in_progress", priority: "medium" }],
+        },
+      )
+
+      await expect(page.locator('[data-component="session-todo-dock"]')).toHaveCount(0)
+      await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
+      await expect(filesTab).toHaveAttribute("aria-selected", "true")
+    },
+    { trackSession: project.trackSession },
+  )
+})
+
+test("todo updates remain visible in the status panel", async ({ page, project }) => {
+  await project.open()
+  await withDockSession(
+    project.sdk,
+    "e2e todo status-only rows",
+    async (session) => {
+      const content = "status-only todo row"
+      await project.gotoSession(session.id)
+
+      await e2eUpdateTodos(
+        { url: project.url, directory: project.directory, sdk: project.sdk },
+        {
+          sessionID: session.id,
+          todos: [{ content, status: "in_progress", priority: "medium" }],
+        },
+      )
+
+      const rightPanel = page.locator("#right-panel")
+      await page.locator(`${titlebarRightSelector} button`).first().click()
+      await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
+      const statusTab = rightPanel.getByRole("tab", { name: "Status", exact: true }).first()
+      await statusTab.click()
+      await expect(statusTab).toHaveAttribute("aria-selected", "true")
+
+      const summaryTodo = rightPanel.locator('[data-slot="status-summary-todo"]').filter({ hasText: content }).first()
+      await expect(summaryTodo).toHaveAttribute("data-state", "in_progress", { timeout: 10_000 })
 
       await e2eUpdateTodos(
         { url: project.url, directory: project.directory, sdk: project.sdk },
@@ -1248,464 +1009,7 @@ test("todo dock and status summary use backend terminal update over stale todowr
         },
       )
 
-      await expect(dockItem).toHaveAttribute("data-state", "completed", { timeout: 10_000 })
-
-      const rightPanel = page.locator("#right-panel")
-      if ((await rightPanel.getAttribute("aria-hidden")) !== "false") {
-        await page.locator(`${titlebarRightSelector} button`).first().click()
-      }
-      await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
-      const summaryTodo = rightPanel.locator('[data-slot="status-summary-todo"]').filter({ hasText: content }).first()
       await expect(summaryTodo).toHaveAttribute("data-state", "completed", { timeout: 10_000 })
-    },
-    { trackSession: project.trackSession },
-  )
-})
-
-test("todo dock and status summary clear when backend todo update is empty", async ({ page, llm, project }) => {
-  await project.open()
-  await withDockSession(
-    project.sdk,
-    "e2e composer dock backend empty todo",
-    async (session) => {
-      const content = "backend cleared todo"
-      await project.gotoSession(session.id)
-
-      await llm.tool("todowrite", {
-        todos: [{ content, status: "in_progress", priority: "medium" }],
-      })
-      await llm.text("todo started")
-      await project.prompt("Create a todo and start it.")
-
-      const dockItem = page.locator('[data-slot="session-todo-item"]').filter({ hasText: content })
-      await expect(dockItem.first()).toHaveAttribute("data-state", "in_progress", { timeout: 30_000 })
-
-      await e2eUpdateTodos(
-        { url: project.url, directory: project.directory, sdk: project.sdk },
-        {
-          sessionID: session.id,
-          todos: [],
-        },
-      )
-
-      await expect(dockItem).toHaveCount(0, { timeout: 10_000 })
-
-      const rightPanel = page.locator("#right-panel")
-      if ((await rightPanel.getAttribute("aria-hidden")) !== "false") {
-        await page.locator(`${titlebarRightSelector} button`).first().click()
-      }
-      await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
-      await expect(rightPanel.locator('[data-slot="status-summary-todo"]').filter({ hasText: content })).toHaveCount(0)
-    },
-    { trackSession: project.trackSession },
-  )
-})
-
-test("todo dock appears for the first todowrite in a fresh session", async ({ page, llm, project }) => {
-  await project.open()
-
-  await llm.tool("todowrite", {
-    todos: [
-      { content: "fresh first todo", status: "in_progress", priority: "high" },
-      { content: "fresh follow-up todo", status: "pending", priority: "medium" },
-    ],
-  })
-  await llm.text("fresh todo started")
-
-  const before = await readPromptSend(page)
-  await submitVisiblePrompt(page, "Create todos in a fresh session.")
-  const sent = await expect
-    .poll(async () => readPromptSend(page), { timeout: 30_000 })
-    .toMatchObject({ count: before.count + 1 })
-    .then(() => readPromptSend(page))
-  if (!sent.sessionID) throw new Error("Prompt submission did not expose a session id")
-
-  const dock = page.locator('[data-component="session-todo-dock"]')
-
-  await expect(dock).toHaveCount(1, { timeout: 30_000 })
-  await expect(dock).toContainText("fresh first todo", { timeout: 30_000 })
-  project.trackSession(sent.sessionID)
-})
-
-test("todo dock recovers after missed todowrite via SSE replay", async ({ page, llm, project }) => {
-  await project.open()
-  await withDockSession(
-    project.sdk,
-    "e2e composer dock todowrite replay",
-    async (session) => {
-      const dock = await todoDock(page, session.id)
-      await project.gotoSession(session.id)
-
-      const stream = globalEventStream(page)
-      await expect.poll(stream.cursor, { timeout: 10_000 }).toMatch(/:/)
-      await stream.stop()
-
-      await llm.tool("todowrite", {
-        todos: [{ content: "missed live todo", status: "in_progress", priority: "high" }],
-      })
-      await llm.text("todo started while stream was stopped")
-      await project.prompt("Create a todo while the event stream is paused.")
-
-      await expect(page.locator('[data-component="session-todo-dock"]')).toHaveCount(0, { timeout: 750 })
-      await stream.start()
-
-      await dock.expectCollapsed(["in_progress"])
-    },
-    { trackSession: project.trackSession },
-  )
-})
-
-test("todo dock stays hidden when landing on an already completed session", async ({ page, project }) => {
-  await project.open()
-  await withDockSession(
-    project.sdk,
-    "e2e composer dock todo completed landing source",
-    async (sessionA) => {
-      await withDockSession(
-        project.sdk,
-        "e2e composer dock todo completed landing target",
-        async (sessionB) => {
-          const dockA = await todoDock(page, sessionA.id)
-          const dockB = await todoDock(page, sessionB.id)
-          await project.gotoSession(sessionA.id)
-
-          try {
-            await dockB.finish([
-              { content: "first task", status: "completed", priority: "high" },
-              { content: "second task", status: "completed", priority: "medium" },
-              { content: "third task", status: "completed", priority: "medium" },
-              { content: "fourth task", status: "completed", priority: "low" },
-            ])
-            await project.gotoSession(sessionB.id)
-
-            await dockB.expectState(
-              {
-                dock: false,
-                completing: false,
-                count: 4,
-                states: ["completed", "completed", "completed", "completed"],
-              },
-              1_000,
-            )
-            await dockB.expectDockGone(1_000)
-          } finally {
-            await dockA.clear()
-            await dockB.clear()
-          }
-        },
-        { trackSession: project.trackSession },
-      )
-    },
-    { trackSession: project.trackSession },
-  )
-})
-
-test("todo dock treats cancelled todos as terminal and labels all-cancelled progress", async ({ page, project }) => {
-  await project.open()
-  await page.clock.install()
-  await withDockSession(
-    project.sdk,
-    "e2e composer dock todo cancelled auto-hide",
-    async (session) => {
-      const dock = await todoDock(page, session.id)
-      await project.gotoSession(session.id)
-
-      try {
-        await dock.open([
-          { content: "first task", status: "pending", priority: "high" },
-          { content: "second task", status: "in_progress", priority: "medium" },
-        ])
-        await dock.expectCollapsed(["pending", "in_progress"])
-
-        await dock.finish([
-          { content: "first task", status: "cancelled", priority: "high" },
-          { content: "second task", status: "cancelled", priority: "medium" },
-        ])
-        await expect(page.locator('[data-slot="session-todo-progress"]')).toHaveAttribute(
-          "aria-label",
-          enDict["session.todo.cancelled"],
-        )
-        await dock.expectState({ dock: true, completing: true, count: 2, states: ["cancelled", "cancelled"] })
-        await page.clock.fastForward(3_000)
-        await dock.expectState({ dock: false, completing: false, count: 2, states: ["cancelled", "cancelled"] })
-        await dock.expectUnmounted()
-      } finally {
-        await dock.clear()
-      }
-    },
-    { trackSession: project.trackSession },
-  )
-})
-
-test("todo dock hides immediately when todos become empty", async ({ page, project }) => {
-  await project.open()
-  await withDockSession(
-    project.sdk,
-    "e2e composer dock todo empty hides",
-    async (session) => {
-      const dock = await todoDock(page, session.id)
-      await project.gotoSession(session.id)
-
-      try {
-        await dock.open([{ content: "active task", status: "in_progress", priority: "high" }])
-        await dock.expectCollapsed(["in_progress"])
-
-        await dock.finish([])
-        await dock.expectState({ dock: false, completing: false, count: 0, states: [] }, 1_000)
-        await dock.expectUnmounted(1_000)
-        await dock.expectDockGone(1_000)
-      } finally {
-        await dock.clear()
-      }
-    },
-    { trackSession: project.trackSession },
-  )
-})
-
-test("todo dock does not treat completed-only todos as recent after clearing", async ({ page, project }) => {
-  await project.open()
-  await withDockSession(
-    project.sdk,
-    "e2e composer dock todo empty clears active history",
-    async (session) => {
-      const dock = await todoDock(page, session.id)
-      await project.gotoSession(session.id)
-
-      try {
-        await dock.open([{ content: "active task", status: "in_progress", priority: "high" }])
-        await dock.expectState({ dock: true, completing: false, count: 1, states: ["in_progress"] })
-
-        await dock.finish([])
-        await dock.expectState({ dock: false, completing: false, count: 0, states: [] }, 1_000)
-
-        await dock.finish([{ content: "historical done task", status: "completed", priority: "high" }])
-        await dock.expectState({ dock: false, completing: false, count: 1, states: ["completed"] }, 1_000)
-        await dock.expectDockGone(1_000)
-      } finally {
-        await dock.clear()
-      }
-    },
-    { trackSession: project.trackSession },
-  )
-})
-
-test("todo dock cancels pending hide when a new active todo arrives", async ({ page, project }) => {
-  await project.open()
-  await page.clock.install()
-  await withDockSession(
-    project.sdk,
-    "e2e composer dock todo hide cancelled",
-    async (session) => {
-      const dock = await todoDock(page, session.id)
-      await project.gotoSession(session.id)
-
-      try {
-        await dock.open([{ content: "done task", status: "in_progress", priority: "high" }])
-        await dock.expectState({ dock: true, completing: false, count: 1, states: ["in_progress"] })
-
-        await dock.finish([{ content: "done task", status: "completed", priority: "high" }])
-        await dock.expectState({ dock: true, completing: true, count: 1, states: ["completed"] })
-
-        await dock.finish([
-          { content: "done task", status: "completed", priority: "high" },
-          { content: "new task", status: "pending", priority: "medium" },
-        ])
-        await dock.expectState({ dock: true, completing: false, count: 2, states: ["completed", "pending"] })
-        await page.clock.fastForward(3_500)
-        await dock.expectState({ dock: true, completing: false, count: 2, states: ["completed", "pending"] })
-      } finally {
-        await dock.clear()
-      }
-    },
-    { trackSession: project.trackSession },
-  )
-})
-
-test("todo dock restarts the hide timer when todos re-complete", async ({ page, project }) => {
-  await project.open()
-  await page.clock.install()
-  await withDockSession(
-    project.sdk,
-    "e2e composer dock todo timer reset",
-    async (session) => {
-      const dock = await todoDock(page, session.id)
-      await project.gotoSession(session.id)
-
-      try {
-        await dock.open([{ content: "first task", status: "in_progress", priority: "high" }])
-        await dock.expectState({ dock: true, completing: false, count: 1, states: ["in_progress"] })
-
-        await dock.finish([{ content: "first task", status: "completed", priority: "high" }])
-        await dock.expectState({ dock: true, completing: true, count: 1, states: ["completed"] })
-
-        await page.clock.fastForward(2_400)
-        await dock.finish([
-          { content: "first task", status: "completed", priority: "high" },
-          { content: "second task", status: "pending", priority: "medium" },
-        ])
-        await dock.expectState({ dock: true, completing: false, count: 2, states: ["completed", "pending"] })
-
-        await dock.finish([
-          { content: "first task", status: "completed", priority: "high" },
-          { content: "second task", status: "completed", priority: "medium" },
-        ])
-        await dock.expectState({ dock: true, completing: true, count: 2, states: ["completed", "completed"] })
-        await page.clock.fastForward(2_500)
-        await dock.expectState({ dock: true, completing: true, count: 2, states: ["completed", "completed"] })
-        await page.clock.fastForward(500)
-        await dock.expectState({ dock: false, completing: false, count: 2, states: ["completed", "completed"] })
-      } finally {
-        await dock.clear()
-      }
-    },
-    { trackSession: project.trackSession },
-  )
-})
-
-test("todo dock does not leak a pending hide timeout across sessions", async ({ page, project }) => {
-  await project.open()
-  await page.clock.install()
-  await withDockSession(
-    project.sdk,
-    "e2e composer dock todo session switch source",
-    async (sessionA) => {
-      await withDockSession(
-        project.sdk,
-        "e2e composer dock todo session switch target",
-        async (sessionB) => {
-          const dockA = await todoDock(page, sessionA.id)
-          const dockB = await todoDock(page, sessionB.id)
-          await project.gotoSession(sessionA.id)
-
-          try {
-            await dockA.open([{ content: "done task", status: "in_progress", priority: "high" }])
-            await dockA.expectState({ dock: true, completing: false, count: 1, states: ["in_progress"] })
-
-            await dockA.finish([{ content: "done task", status: "completed", priority: "high" }])
-            await dockA.expectState({ dock: true, completing: true, count: 1, states: ["completed"] })
-
-            await project.gotoSession(sessionB.id)
-            await dockB.expectState({ dock: false, completing: false, count: 0, states: [] })
-
-            await page.clock.fastForward(3_500)
-            await project.gotoSession(sessionA.id)
-            await dockA.expectState({ dock: false, completing: false, count: 1, states: ["completed"] })
-          } finally {
-            await dockA.clear()
-            await dockB.clear()
-          }
-        },
-        { trackSession: project.trackSession },
-      )
-    },
-    { trackSession: project.trackSession },
-  )
-})
-
-test("todo dock stays hidden after same-count terminal session switch", async ({ page, project }) => {
-  await project.open()
-  await page.clock.install()
-  await withDockSession(
-    project.sdk,
-    "e2e composer dock terminal switch source",
-    async (sessionA) => {
-      await withDockSession(
-        project.sdk,
-        "e2e composer dock terminal switch target",
-        async (sessionB) => {
-          const dockA = await todoDock(page, sessionA.id)
-          const dockB = await todoDock(page, sessionB.id)
-          await project.gotoSession(sessionA.id)
-
-          try {
-            await dockA.open([{ content: "source done", status: "in_progress", priority: "high" }])
-            await dockA.expectState({ dock: true, completing: false, count: 1, states: ["in_progress"] })
-
-            await dockA.finish([{ content: "source done", status: "completed", priority: "high" }])
-            await dockA.expectState({ dock: true, completing: true, count: 1, states: ["completed"] })
-
-            await page.clock.fastForward(2_400)
-
-            await dockB.open([{ content: "target done", status: "completed", priority: "high" }])
-            await project.gotoSession(sessionB.id)
-            await dockB.expectState({ dock: false, completing: false, count: 1, states: ["completed"] })
-
-            await page.clock.fastForward(900)
-            await dockB.expectState({ dock: false, completing: false, count: 1, states: ["completed"] })
-            await page.clock.fastForward(2_100)
-            await dockB.expectState({ dock: false, completing: false, count: 1, states: ["completed"] })
-          } finally {
-            await dockA.clear()
-            await dockB.clear()
-          }
-        },
-        { trackSession: project.trackSession },
-      )
-    },
-    { trackSession: project.trackSession },
-  )
-})
-
-test("todo dock does not flash on home after navigating from a session", async ({ page, project }) => {
-  await project.open()
-  await withDockSession(
-    project.sdk,
-    "e2e composer dock no home flash",
-    async (session) => {
-      const dock = await todoDock(page, session.id)
-      await project.gotoSession(session.id)
-      await expect(page.locator(sessionComposerDockSelector)).toBeVisible()
-
-      try {
-        await dock.open([
-          { content: "first task", status: "pending", priority: "high" },
-          { content: "second task", status: "in_progress", priority: "medium" },
-        ])
-        await dock.expectCollapsed(["pending", "in_progress"])
-        await expect(page.locator('[data-component="session-todo-dock"]')).toBeVisible()
-
-        await page.evaluate(() => {
-          const SELECTOR = '[data-component="session-todo-dock"]'
-          const records: string[] = []
-          const observer = new MutationObserver((mutations) => {
-            for (const m of mutations) {
-              for (const node of Array.from(m.addedNodes)) {
-                if (node.nodeType !== Node.ELEMENT_NODE) continue
-                const el = node as Element
-                if (el.matches(SELECTOR) || el.querySelector(SELECTOR)) {
-                  records.push(el.outerHTML.slice(0, 200))
-                }
-              }
-            }
-          })
-          observer.observe(document.body, { childList: true, subtree: true })
-          ;(
-            window as unknown as {
-              __todoDockObserver: { observer: MutationObserver; records: string[] }
-            }
-          ).__todoDockObserver = { observer, records }
-        })
-
-        await openSidebar(page)
-        await page.locator('[data-action="pawwork-session-new"]').click()
-        await expect(page.locator('[data-component="session-new-home"]')).toBeVisible()
-
-        const flashes = await page.evaluate(() => {
-          const w = window as unknown as {
-            __todoDockObserver?: { observer: MutationObserver; records: string[] }
-          }
-          const o = w.__todoDockObserver
-          if (!o) return null
-          o.observer.disconnect()
-          delete w.__todoDockObserver
-          return o.records
-        })
-
-        expect(flashes, "session-todo-dock must not appear on home during the transition").toEqual([])
-        await expect(page.locator('[data-component="session-todo-dock"]')).toHaveCount(0)
-      } finally {
-        await dock.clear()
-      }
     },
     { trackSession: project.trackSession },
   )
