@@ -37,7 +37,6 @@ function TodoMarker(props: { status: SessionTodoItem["status"] }) {
       }
     >
       <span
-        data-slot="status-summary-todo-running"
         style={{
           display: "inline-flex",
           "align-items": "center",

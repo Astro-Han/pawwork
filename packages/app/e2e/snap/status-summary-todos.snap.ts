@@ -82,7 +82,10 @@ test("status-summary-todos", async ({ page, project }) => {
   // so a partial render does not silently produce a misleading baseline.
   const todoRows = page.locator('[data-slot="status-summary-todo"]')
   await todoRows.first().waitFor({ state: "visible", timeout: 30_000 })
-  await expect.poll(() => todoRows.count(), { timeout: 30_000 }).toBeGreaterThanOrEqual(4)
+  // Exactly the four seeded states — strict equality so a leaked previous turn
+  // or duplicated render surfaces as a failure instead of silently producing a
+  // misleading baseline.
+  await expect.poll(() => todoRows.count(), { timeout: 30_000 }).toBe(4)
 
   // animations: "disabled" freezes CSS animations at their initial frame so the
   // in_progress 13×13 pw-spin ring captures the same orientation every run;
