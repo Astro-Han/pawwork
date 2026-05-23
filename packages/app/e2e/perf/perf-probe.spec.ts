@@ -16,6 +16,7 @@ import { composerEvent, type ComposerDriverState, type ComposerWindow } from "..
 import { installPerfProbe, resetPerfProbe, snapshotPerfProbe, summarizeScenarioRuns } from "./probe"
 import { applyPerfProfile, readPerfProfile, shouldRunScenario, type PerfScenarioName } from "./profiles"
 import { readTimelineDomBudget, shouldAssertTimelineVirtualization } from "./timeline-dom-budget"
+import { createPerfWindowGuard } from "./perf-window"
 import {
   TIMELINE_RECOMPUTE_SEED_TURN_COUNT,
   buildHeterogeneousScrollSeedText,
@@ -27,6 +28,7 @@ const outputPath =
   process.env.PAWWORK_PERF_OUTPUT ?? path.join(process.cwd(), "e2e", "perf-results", "pr0.1-baseline.json")
 const perfBranch = process.env.PAWWORK_PERF_BRANCH ?? "dev"
 const PERF_PROFILE = readPerfProfile()
+const perfWindowGuard = createPerfWindowGuard()
 
 const longMarkdown = [
   "# Baseline stream",
@@ -83,6 +85,10 @@ type TimelineMetrics = {
   scrollHeight: number
   clientHeight: number
   maxScrollTop: number
+}
+
+type TimelineSetupMetrics = TimelineMetrics & {
+  layoutTransactionActive: boolean
 }
 
 type WheelRouteResult = {
@@ -144,6 +150,68 @@ async function settleFrames(page: Parameters<typeof snapshotPerfProbe>[0], count
 async function cooldownAfterRun(page: Parameters<typeof snapshotPerfProbe>[0]) {
   await settleFrames(page, 6)
   await page.waitForTimeout(250)
+}
+
+async function measurePerfWindow(
+  page: Parameters<typeof snapshotPerfProbe>[0],
+  action: () => Promise<void>,
+) {
+  await settleFrames(page, 2)
+  return perfWindowGuard.measure({
+    reset: () => resetPerfProbe(page),
+    action,
+    snapshot: () => snapshotPerfProbe(page),
+  })
+}
+
+async function readTimelineSetupMetrics(page: Parameters<typeof snapshotPerfProbe>[0]) {
+  const metrics = await page.evaluate(
+    ({ scrollViewportSelector, turnListSelector }) => {
+      const list = document.querySelector(turnListSelector)
+      const viewport = list?.closest(scrollViewportSelector)
+      if (!(viewport instanceof HTMLElement)) return undefined
+      const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight)
+      return {
+        scrollTop: viewport.scrollTop,
+        scrollHeight: viewport.scrollHeight,
+        clientHeight: viewport.clientHeight,
+        maxScrollTop,
+        layoutTransactionActive: list.getAttribute("data-layout-transaction-active") === "true",
+      }
+    },
+    { scrollViewportSelector, turnListSelector: sessionTurnListSelector },
+  )
+  expect(metrics).toBeTruthy()
+  return metrics as TimelineSetupMetrics
+}
+
+function sameTimelineSetupMetrics(a: TimelineSetupMetrics, b: TimelineSetupMetrics) {
+  return (
+    Math.round(a.scrollTop) === Math.round(b.scrollTop) &&
+    a.scrollHeight === b.scrollHeight &&
+    a.clientHeight === b.clientHeight &&
+    a.layoutTransactionActive === b.layoutTransactionActive
+  )
+}
+
+async function settlePerfSetup(page: Parameters<typeof snapshotPerfProbe>[0]) {
+  await expect
+    .poll(
+      async () => {
+        const samples: TimelineSetupMetrics[] = []
+        for (let index = 0; index < 3; index += 1) {
+          await settleFrames(page, 1)
+          samples.push(await readTimelineSetupMetrics(page))
+        }
+        const first = samples[0]
+        const last = samples[samples.length - 1]
+        if (!first || !last) return false
+        const stable = samples.every((sample) => sameTimelineSetupMetrics(first, sample))
+        return stable && !last.layoutTransactionActive
+      },
+      { timeout: 5_000 },
+    )
+    .toBe(true)
 }
 
 async function ensureTerminalClosed(page: Parameters<typeof snapshotPerfProbe>[0]) {
@@ -210,7 +278,7 @@ async function revealCachedSessionMessages(page: Parameters<typeof snapshotPerfP
     await page.mouse.wheel(0, -2400)
     await markTimelineWheelIntent(page, -2400)
     await settleFrames(page, 2)
-    await scrollTimelineTo(page, 0)
+    await setTimelineScrollTopForSetup(page, 0)
     await settleFrames(page, 2)
     const loadEarlier = page.getByRole("button", { name: /Load earlier messages|加载更早的消息/i }).first()
     if (await loadEarlier.isVisible().catch(() => false))
@@ -252,7 +320,8 @@ async function readTimelineDriverEvent() {
   }
 }
 
-async function scrollTimelineTo(page: Parameters<typeof snapshotPerfProbe>[0], top: number) {
+async function setTimelineScrollTopForSetup(page: Parameters<typeof snapshotPerfProbe>[0], top: number) {
+  perfWindowGuard.assertSetupAllowed("setTimelineScrollTopForSetup")
   const found = await page.evaluate(
     ({ top, scrollViewportSelector, turnListSelector }) => {
       const list = document.querySelector(turnListSelector)
@@ -282,7 +351,16 @@ async function markTimelineWheelIntent(page: Parameters<typeof snapshotPerfProbe
 }
 
 async function hoverTimelineScrollLane(page: Parameters<typeof snapshotPerfProbe>[0]) {
-  const box = await page.locator(scrollViewportSelector).first().boundingBox()
+  const box = await page.evaluate(
+    ({ scrollViewportSelector, turnListSelector }) => {
+      const list = document.querySelector(turnListSelector)
+      const viewport = list?.closest(scrollViewportSelector)
+      if (!(viewport instanceof HTMLElement)) return undefined
+      const rect = viewport.getBoundingClientRect()
+      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+    },
+    { scrollViewportSelector, turnListSelector: sessionTurnListSelector },
+  )
   expect(box).toBeTruthy()
   if (!box) return
   await page.mouse.move(box.x + box.width / 2, box.y + Math.min(120, box.height * 0.25))
@@ -332,7 +410,7 @@ async function revealLongScrollWindow(page: Parameters<typeof snapshotPerfProbe>
     await page.mouse.wheel(0, -2400)
     await markTimelineWheelIntent(page, -2400)
     await settleFrames(page, 2)
-    await scrollTimelineTo(page, 0)
+    await setTimelineScrollTopForSetup(page, 0)
     await settleFrames(page, 2)
     try {
       await expect
@@ -869,15 +947,22 @@ test.describe("PR0.1 perf probe baseline", () => {
         await page.goto(sessionPath(project.directory, session.id))
         await expect(page.locator(sessionMessageItemSelector).first()).toBeVisible({ timeout: 30_000 })
         await expect.poll(async () => page.locator(sessionMessageItemSelector).count()).toBeGreaterThanOrEqual(8)
-        await resetPerfProbe(page)
         await hoverTimelineScrollLane(page)
         await page.mouse.wheel(0, -3600)
         await settleFrames(page, 2)
-        await scrollTimelineTo(page, 0)
+        await setTimelineScrollTopForSetup(page, 0)
         await settleFrames(page, 2)
-        await page.mouse.wheel(0, 3600)
-        await settleFrames(page, 4)
-        runs.push(await snapshotPerfProbe(page))
+        runs.push(
+          await measurePerfWindow(page, async () => {
+            const samples = new Set([Math.round((await readTimelineMetrics(page)).scrollTop)])
+            for (let index = 0; index < 3; index += 1) {
+              await page.mouse.wheel(0, 1200)
+              await settleFrames(page, 2)
+              samples.add(Math.round((await readTimelineMetrics(page)).scrollTop))
+            }
+            expect(samples.size).toBeGreaterThanOrEqual(2)
+          }),
+        )
         if (run < 2) await cooldownAfterRun(page)
       })
     }
@@ -916,7 +1001,7 @@ test.describe("PR0.1 perf probe baseline", () => {
 
         await hoverTimelineScrollLane(page)
         await markTimelineWheelIntent(page, -2400)
-        await scrollTimelineTo(page, 0)
+        await setTimelineScrollTopForSetup(page, 0)
         await settleFrames(page, 4)
         const atTop = await readTimelineMetrics(page)
         expect(atTop.maxScrollTop).toBeGreaterThan(4_000)
@@ -993,15 +1078,29 @@ test.describe("PR0.1 perf probe baseline", () => {
         await revealCachedSessionMessagesThroughDriver(page)
         await revealCachedSessionMessages(page, TIMELINE_RECOMPUTE_SEED_TURN_COUNT)
         await expect.poll(async () => page.locator(sessionMessageItemSelector).count()).toBeGreaterThanOrEqual(8)
-        await resetPerfProbe(page)
-        await page.locator(scrollViewportSelector).first().hover()
-        for (let index = 0; index < 4; index += 1) {
-          await page.mouse.wheel(0, index % 2 === 0 ? 2400 : -2400)
-          await settleFrames(page, 2)
-          await scrollTimelineTo(page, index % 2 === 0 ? 0 : 1200)
-          await settleFrames(page, 2)
-        }
-        runs.push(await snapshotPerfProbe(page))
+        const before = await readTimelineMetrics(page)
+        expect(before.maxScrollTop).toBeGreaterThan(1200)
+        const setupScrollTop = Math.min(1200, before.maxScrollTop)
+        await setTimelineScrollTopForSetup(page, setupScrollTop)
+        await settlePerfSetup(page)
+        runs.push(
+          await measurePerfWindow(page, async () => {
+            await hoverTimelineScrollLane(page)
+            const start = await readTimelineMetrics(page)
+            expect(start.scrollTop).toBeGreaterThan(1)
+            const samples = new Set([Math.round(start.scrollTop)])
+            let minScrollTop = start.scrollTop
+            for (let index = 0; index < 4; index += 1) {
+              await page.mouse.wheel(0, -2400)
+              await settleFrames(page, 2)
+              const next = await readTimelineMetrics(page)
+              minScrollTop = Math.min(minScrollTop, next.scrollTop)
+              samples.add(Math.round(next.scrollTop))
+            }
+            expect(samples.size).toBeGreaterThanOrEqual(2)
+            expect(minScrollTop).toBeLessThan(start.scrollTop - 1)
+          }),
+        )
         if (run < 2) await cooldownAfterRun(page)
       })
     }
