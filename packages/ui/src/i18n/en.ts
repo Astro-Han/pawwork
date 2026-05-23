@@ -61,7 +61,6 @@ export const dict: Record<string, string> = {
   "ui.sessionTurn.turnChanges.undoneSummary.one": "{{count}} file undone",
   "ui.sessionTurn.turnChanges.undoneSummary.other": "{{count}} files undone",
   "ui.sessionTurn.turnChanges.superseded": "Superseded",
-  "ui.sessionTurn.turnChanges.reapply": "Reapply",
   "ui.sessionTurn.turnChanges.confirmTitle": "Some files have been changed since this turn",
   "ui.sessionTurn.turnChanges.confirmDescription":
     "PawWork will skip the file(s) below and apply the rest. The skipped files keep their current contents.",
