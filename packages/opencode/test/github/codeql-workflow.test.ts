@@ -59,8 +59,10 @@ describe("codeql workflow", () => {
     expect(analyzeStep?.with).toEqual({ category: "/language:javascript-typescript" })
     expect(steps.every((step) => step.run === undefined && step.env === undefined)).toBe(true)
 
+    expect(parsed.concurrency?.group).toContain("codeql-")
     expect(parsed.concurrency?.group).toContain("github.ref == 'refs/heads/dev'")
     expect(parsed.concurrency?.group).toContain("github.run_id")
+    expect(parsed.concurrency?.group).toContain("github.event.pull_request.number || github.ref")
     expect(parsed.concurrency?.["cancel-in-progress"]).toBe("${{ github.ref != 'refs/heads/dev' }}")
     expect(workflow).not.toContain("pull_request_target")
     expect(workflow).not.toContain("persist-credentials: true")
