@@ -17,6 +17,7 @@ import { LLM } from "../../src/session/llm"
 import { MessageV2 } from "../../src/session/message-v2"
 import { SessionProcessor } from "../../src/session/processor"
 import { SessionDiagnostics } from "../../src/session/diagnostics"
+import { createLifecycleCloseAction, withLifecycleCloseAction } from "../../src/session/lifecycle-provenance"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { SessionStatus } from "../../src/session/status"
 import { SessionSummary } from "../../src/session/summary"
@@ -986,6 +987,65 @@ it.live("session.processor effect tests retry recognized structured json errors"
   ),
 )
 
+it.live("retryable API errors stop after one safe recovery retry", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const seen = defer<void>()
+        const { processors, session, provider } = yield* boot()
+        const bus = yield* Bus.Service
+
+        yield* llm.error(503, { error: "temporarily unavailable" })
+        yield* llm.error(503, { error: "still unavailable" })
+        yield* llm.text("third attempt should not run")
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "retry api twice")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const off = yield* bus.subscribeCallback(Session.Event.Error, (evt) => {
+          if (evt.properties.sessionID !== chat.id) return
+          if (!evt.properties.error) return
+          seen.resolve()
+        })
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const value = yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "retry api twice" }],
+          tools: {},
+        })
+
+        yield* Effect.promise(() => seen.promise)
+        const parts = MessageV2.parts(msg.id)
+        off()
+
+        expect(value).toBe("stop")
+        expect(yield* llm.calls).toBe(2)
+        expect(parts.some((part) => part.type === "text" && part.text === "third attempt should not run")).toBe(false)
+        expect(handle.message.error?.name).toBe("APIError")
+        expect(handle.message.diagnostics?.run_observability?.attempts).toHaveLength(2)
+        expect(handle.message.diagnostics?.run_observability?.recovered_incidents).toHaveLength(1)
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
 it.live("session.processor effect tests publish retry status updates", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>
@@ -1033,6 +1093,391 @@ it.live("session.processor effect tests publish retry status updates", () =>
         expect(value).toBe("continue")
         expect(yield* llm.calls).toBe(2)
         expect(states).toStrictEqual([1])
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
+it.live("connect timeout before provider progress auto retries once and succeeds", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+
+        yield* llm.hang
+        yield* llm.text("after retry")
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "auto retry connect timeout")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const value = yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "auto retry connect timeout" }],
+          tools: {},
+          connectTimeoutMs: 20,
+          streamTimeoutMs: 1_000,
+        })
+
+        const parts = MessageV2.parts(msg.id)
+        const stored = (yield* session.messages({ sessionID: chat.id })).find(
+          (message) => message.info.role === "assistant" && message.info.id === msg.id,
+        )
+
+        expect(value).toBe("continue")
+        expect(yield* llm.calls).toBe(2)
+        expect(parts.some((part) => part.type === "text" && part.text === "after retry")).toBe(true)
+        expect(handle.message.error).toBeUndefined()
+        expect(stored?.info.role).toBe("assistant")
+        if (stored?.info.role === "assistant") {
+          expect(stored.info.error).toBeUndefined()
+          const observability = stored.info.diagnostics?.run_observability
+          expect(observability?.classification).toBe("success")
+          expect(String(observability?.summary_key)).toBe("success.completed")
+          expect(observability?.terminal_attempt_id).toBeUndefined()
+          expect(observability?.incident).toBeUndefined()
+          expect(observability?.recovered_incidents?.[0]?.terminal_cause).toMatchObject({
+            category: "watchdog_timeout",
+            subcategory: "connect",
+          })
+          expect(observability?.recovered_incidents?.[0]?.recovery).toMatchObject({
+            recommendation: "auto_retry_once",
+            reason: "no_visible_output_or_tool_execution",
+          })
+          expect(observability?.attempts).toHaveLength(2)
+          expect(observability?.attempts[0]).toMatchObject({
+            attempt_index: 1,
+            provider_progress_seen: false,
+            visible_output_seen: false,
+            tool_call_materialized: false,
+            tool_execution_started: false,
+          })
+          expect(observability?.attempts[1]).toMatchObject({
+            attempt_index: 2,
+            visible_output_seen: true,
+          })
+        }
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
+it.live("connect timeout auto retry stops if lifecycle closes during backoff", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const retrySeen = defer<void>()
+        const { processors, session, provider } = yield* boot()
+        const bus = yield* Bus.Service
+
+        yield* llm.hang
+        yield* llm.text("should not run")
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "auto retry lifecycle close")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const off = yield* bus.subscribeCallback(SessionStatus.Event.Status, (evt) => {
+          if (evt.properties.sessionID !== chat.id) return
+          if (evt.properties.status.type === "retry") retrySeen.resolve()
+        })
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const run = yield* handle
+          .process({
+            user: {
+              id: parent.id,
+              sessionID: chat.id,
+              role: "user",
+              time: parent.time,
+              agent: parent.agent,
+              model: { providerID: ref.providerID, modelID: ref.modelID },
+            } satisfies MessageV2.User,
+            sessionID: chat.id,
+            model: mdl,
+            agent: agent(),
+            system: [],
+            messages: [{ role: "user", content: "auto retry lifecycle close" }],
+            tools: {},
+            connectTimeoutMs: 20,
+            streamTimeoutMs: 1_000,
+          })
+          .pipe(Effect.forkChild)
+
+        yield* Effect.promise(() => retrySeen.promise)
+        const action = createLifecycleCloseAction("instance_reload", {
+          affectedDirectories: [path.resolve(dir)],
+          origin: { source: "runtime", operation: "instance.reload", reason: "test_retry_backoff" },
+        })
+        yield* Effect.promise(() =>
+          withLifecycleCloseAction([path.resolve(dir)], action, async () => {
+            await Bun.sleep(1_200)
+          }),
+        )
+        const value = yield* Fiber.join(run)
+        off()
+
+        const stored = (yield* session.messages({ sessionID: chat.id })).find(
+          (message) => message.info.role === "assistant" && message.info.id === msg.id,
+        )
+        expect(value).toBe("stop")
+        expect(yield* llm.calls).toBe(1)
+        expect(stored?.info.role).toBe("assistant")
+        if (stored?.info.role === "assistant") {
+          expect(stored.info.error?.data.message).toContain("local lifecycle close")
+          expect(stored.info.error?.data.message).not.toContain("provider connection")
+          expect(stored.info.diagnostics?.run_observability?.incident?.facts.lifecycle_close_seen).toBe(true)
+          expect(stored.info.diagnostics?.run_observability?.incident?.recovery).toMatchObject({
+            recommendation: "do_not_retry",
+            reason: "local_lifecycle_close",
+          })
+        }
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
+it.live("connect timeout auto retry records abort if interrupted during backoff", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const retrySeen = defer<void>()
+        const { processors, session, provider } = yield* boot()
+        const bus = yield* Bus.Service
+
+        yield* llm.hang
+        yield* llm.text("should not run")
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "auto retry backoff interrupt")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const off = yield* bus.subscribeCallback(SessionStatus.Event.Status, (evt) => {
+          if (evt.properties.sessionID !== chat.id) return
+          if (evt.properties.status.type === "retry") retrySeen.resolve()
+        })
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const run = yield* handle
+          .process({
+            user: {
+              id: parent.id,
+              sessionID: chat.id,
+              role: "user",
+              time: parent.time,
+              agent: parent.agent,
+              model: { providerID: ref.providerID, modelID: ref.modelID },
+            } satisfies MessageV2.User,
+            sessionID: chat.id,
+            model: mdl,
+            agent: agent(),
+            system: [],
+            messages: [{ role: "user", content: "auto retry backoff interrupt" }],
+            tools: {},
+            connectTimeoutMs: 20,
+            streamTimeoutMs: 1_000,
+          })
+          .pipe(Effect.forkChild)
+
+        yield* Effect.promise(() => retrySeen.promise)
+        yield* Fiber.interrupt(run)
+        const exit = yield* Fiber.await(run)
+        off()
+
+        const stored = (yield* session.messages({ sessionID: chat.id })).find(
+          (message) => message.info.role === "assistant" && message.info.id === msg.id,
+        )
+        expect(Exit.isFailure(exit)).toBe(true)
+        expect(yield* llm.calls).toBe(1)
+        expect(handle.message.error?.name).toBe("MessageAbortedError")
+        expect(stored?.info.role).toBe("assistant")
+        if (stored?.info.role === "assistant") {
+          const observability = stored.info.diagnostics?.run_observability
+          expect(stored.info.error?.name).toBe("MessageAbortedError")
+          expect(observability?.classification).not.toBe("success")
+          expect(String(observability?.summary_key)).not.toBe("success.completed")
+          expect(observability?.recovered_incidents).toBeUndefined()
+        }
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
+it.live("disabled unknown tools do not block safe connect-timeout auto retry", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+
+        yield* llm.hang
+        yield* llm.text("after retry")
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "disabled unknown tool retry")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const value = yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+            tools: { mcp_write: false },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "disabled unknown tool retry" }],
+          tools: {
+            read: tool({
+              description: "read",
+              inputSchema: z.object({}),
+            }),
+            mcp_write: tool({
+              description: "unknown disabled tool",
+              inputSchema: z.object({}),
+            }),
+          },
+          connectTimeoutMs: 20,
+          streamTimeoutMs: 1_000,
+        })
+
+        const stored = (yield* session.messages({ sessionID: chat.id })).find(
+          (message) => message.info.role === "assistant" && message.info.id === msg.id,
+        )
+        expect(value).toBe("continue")
+        expect(yield* llm.calls).toBe(2)
+        expect(stored?.info.role).toBe("assistant")
+        if (stored?.info.role === "assistant") {
+          const snapshot = stored.info.diagnostics?.run_observability?.side_effect_boundary_snapshot
+          expect(snapshot).toMatchObject({
+            exposed_tool_count: 1,
+            unknown_tool_count: 0,
+            unclassified_effect_count: 0,
+            proof_result: "complete",
+          })
+          expect(stored.info.diagnostics?.run_observability?.recovered_incidents?.[0]?.recovery).toMatchObject({
+            recommendation: "auto_retry_once",
+            reason: "no_visible_output_or_tool_execution",
+          })
+        }
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
+it.live("retryable stream error after visible output does not replay the assistant message", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+
+        yield* llm.push(
+          raw({
+            head: [
+              {
+                id: "chatcmpl-visible-retry-guard",
+                object: "chat.completion.chunk",
+                choices: [{ delta: { role: "assistant" } }],
+              },
+              {
+                id: "chatcmpl-visible-retry-guard",
+                object: "chat.completion.chunk",
+                choices: [{ delta: { content: "visible" } }],
+              },
+            ],
+            tail: [
+              {
+                error: {
+                  message: "stream terminated",
+                  type: "server_error",
+                  code: "stream_terminated",
+                },
+              },
+            ],
+          }),
+        )
+        yield* llm.text("replayed")
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "visible output retry guard")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const value = yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "visible output retry guard" }],
+          tools: {},
+        })
+
+        const textParts = MessageV2.parts(msg.id).filter((part): part is MessageV2.TextPart => part.type === "text")
+        const stored = (yield* session.messages({ sessionID: chat.id })).find(
+          (message) => message.info.role === "assistant" && message.info.id === msg.id,
+        )
+
+        expect(value).toBe("stop")
+        expect(yield* llm.calls).toBe(1)
+        expect(textParts.map((part) => part.text)).toContain("visible")
+        expect(textParts.map((part) => part.text)).not.toContain("replayed")
+        expect(stored?.info.role).toBe("assistant")
+        if (stored?.info.role === "assistant") {
+          expect(stored.info.error?.data.message).toContain("interrupted after output started")
+          expect(stored.info.error?.data.message).not.toContain("stream terminated")
+          expect(stored.info.diagnostics?.run_observability?.incident?.recovery).toMatchObject({
+            recommendation: "offer_continue",
+            reason: "visible_output_without_tool_execution",
+          })
+        }
       }),
     { git: true, config: (url) => providerCfg(url) },
   ),
@@ -1531,7 +1976,7 @@ it.live("session.processor effect tests record aborted errors and idle state", (
   ),
 )
 
-it.live("connect timeout writes assistant info.error and flips session_status idle", () =>
+it.live("connect timeout writes assistant info.error and flips session_status idle after retry also fails", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>
       Effect.gen(function* () {
@@ -1540,6 +1985,7 @@ it.live("connect timeout writes assistant info.error and flips session_status id
         const bus = yield* Bus.Service
         const sts = yield* SessionStatus.Service
 
+        yield* llm.hang
         yield* llm.hang
 
         const chat = yield* session.create({})
@@ -1584,6 +2030,7 @@ it.live("connect timeout writes assistant info.error and flips session_status id
         off()
 
         expect(result).toBe("stop")
+        expect(yield* llm.calls).toBe(2)
         expect(handle.message.error).toBeTruthy()
         expect(stored.info.role).toBe("assistant")
         if (stored.info.role === "assistant") {
