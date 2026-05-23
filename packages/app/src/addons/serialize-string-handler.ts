@@ -1,29 +1,9 @@
 import type { ITerminalCore, IBufferRange } from "ghostty-web"
 import type { IBuffer, IBufferCell } from "./serialize-buffer"
+import { diffStyle } from "./serialize-style"
 
 export function constrain(value: number, low: number, high: number): number {
   return Math.max(low, Math.min(value, high))
-}
-
-function equalFg(cell1: IBufferCell, cell2: IBufferCell): boolean {
-  return cell1.getFgColorMode() === cell2.getFgColorMode() && cell1.getFgColor() === cell2.getFgColor()
-}
-
-function equalBg(cell1: IBufferCell, cell2: IBufferCell): boolean {
-  return cell1.getBgColorMode() === cell2.getBgColorMode() && cell1.getBgColor() === cell2.getBgColor()
-}
-
-function equalFlags(cell1: IBufferCell, cell2: IBufferCell): boolean {
-  return (
-    !!cell1.isInverse() === !!cell2.isInverse() &&
-    !!cell1.isBold() === !!cell2.isBold() &&
-    !!cell1.isUnderline() === !!cell2.isUnderline() &&
-    !!cell1.isBlink() === !!cell2.isBlink() &&
-    !!cell1.isInvisible() === !!cell2.isInvisible() &&
-    !!cell1.isItalic() === !!cell2.isItalic() &&
-    !!cell1.isDim() === !!cell2.isDim() &&
-    !!cell1.isStrikethrough() === !!cell2.isStrikethrough()
-  )
 }
 
 abstract class BaseSerializeHandler {
@@ -130,119 +110,6 @@ export class StringSerializeHandler extends BaseSerializeHandler {
     this._nullCellCount = 0
   }
 
-  private _diffStyle(cell: IBufferCell, oldCell: IBufferCell): number[] {
-    const sgrSeq: number[] = []
-    const fgChanged = !equalFg(cell, oldCell)
-    const bgChanged = !equalBg(cell, oldCell)
-    const flagsChanged = !equalFlags(cell, oldCell)
-
-    if (fgChanged || bgChanged || flagsChanged) {
-      if (this._isAttributeDefault(cell)) {
-        if (!this._isAttributeDefault(oldCell)) {
-          sgrSeq.push(0)
-        }
-      } else {
-        if (flagsChanged) {
-          if (!!cell.isInverse() !== !!oldCell.isInverse()) {
-            sgrSeq.push(cell.isInverse() ? 7 : 27)
-          }
-          if (!!cell.isBold() !== !!oldCell.isBold()) {
-            sgrSeq.push(cell.isBold() ? 1 : 22)
-          }
-          if (!!cell.isUnderline() !== !!oldCell.isUnderline()) {
-            sgrSeq.push(cell.isUnderline() ? 4 : 24)
-          }
-          if (!!cell.isBlink() !== !!oldCell.isBlink()) {
-            sgrSeq.push(cell.isBlink() ? 5 : 25)
-          }
-          if (!!cell.isInvisible() !== !!oldCell.isInvisible()) {
-            sgrSeq.push(cell.isInvisible() ? 8 : 28)
-          }
-          if (!!cell.isItalic() !== !!oldCell.isItalic()) {
-            sgrSeq.push(cell.isItalic() ? 3 : 23)
-          }
-          if (!!cell.isDim() !== !!oldCell.isDim()) {
-            sgrSeq.push(cell.isDim() ? 2 : 22)
-          }
-          if (!!cell.isStrikethrough() !== !!oldCell.isStrikethrough()) {
-            sgrSeq.push(cell.isStrikethrough() ? 9 : 29)
-          }
-        }
-        if (fgChanged) {
-          const color = cell.getFgColor()
-          const mode = cell.getFgColorMode()
-          if (mode === 2 || mode === 3 || mode === -1) {
-            sgrSeq.push(38, 2, (color >>> 16) & 0xff, (color >>> 8) & 0xff, color & 0xff)
-          } else if (mode === 1) {
-            // Palette
-            if (color >= 16) {
-              sgrSeq.push(38, 5, color)
-            } else {
-              sgrSeq.push(color & 8 ? 90 + (color & 7) : 30 + (color & 7))
-            }
-          } else {
-            sgrSeq.push(39)
-          }
-        }
-        if (bgChanged) {
-          const color = cell.getBgColor()
-          const mode = cell.getBgColorMode()
-          if (mode === 2 || mode === 3 || mode === -1) {
-            sgrSeq.push(48, 2, (color >>> 16) & 0xff, (color >>> 8) & 0xff, color & 0xff)
-          } else if (mode === 1) {
-            // Palette
-            if (color >= 16) {
-              sgrSeq.push(48, 5, color)
-            } else {
-              sgrSeq.push(color & 8 ? 100 + (color & 7) : 40 + (color & 7))
-            }
-          } else {
-            sgrSeq.push(49)
-          }
-        }
-      }
-    }
-
-    return sgrSeq
-  }
-
-  private _isAttributeDefault(cell: IBufferCell): boolean {
-    const mode = cell.getFgColorMode()
-    const bgMode = cell.getBgColorMode()
-
-    if (mode === 0 && bgMode === 0) {
-      return (
-        !cell.isBold() &&
-        !cell.isItalic() &&
-        !cell.isUnderline() &&
-        !cell.isBlink() &&
-        !cell.isInverse() &&
-        !cell.isInvisible() &&
-        !cell.isDim() &&
-        !cell.isStrikethrough()
-      )
-    }
-
-    const fgColor = cell.getFgColor()
-    const bgColor = cell.getBgColor()
-    const nullCell = this._buffer.getNullCell()
-    const nullFg = nullCell.getFgColor()
-    const nullBg = nullCell.getBgColor()
-
-    return (
-      fgColor === nullFg &&
-      bgColor === nullBg &&
-      !cell.isBold() &&
-      !cell.isItalic() &&
-      !cell.isUnderline() &&
-      !cell.isBlink() &&
-      !cell.isInverse() &&
-      !cell.isInvisible() &&
-      !cell.isDim() &&
-      !cell.isStrikethrough()
-    )
-  }
-
   protected _nextCell(cell: IBufferCell, _oldCell: IBufferCell, row: number, col: number): void {
     const isPlaceHolderCell = cell.getWidth() === 0
 
@@ -255,7 +122,7 @@ export class StringSerializeHandler extends BaseSerializeHandler {
     const isGarbage = isInvalidCodepoint || (codepoint >= 0xf000 && cell.getWidth() === 1)
     const isEmptyCell = codepoint === 0 || cell.getChars() === "" || isGarbage
 
-    const sgrSeq = this._diffStyle(cell, this._cursorStyle)
+    const sgrSeq = diffStyle(this._buffer, cell, this._cursorStyle)
 
     const styleChanged = sgrSeq.length > 0
 
@@ -326,7 +193,7 @@ export class StringSerializeHandler extends BaseSerializeHandler {
       return cell
     })()
 
-    const sgrSeq = this._diffStyle(style, this._cursorStyle)
+    const sgrSeq = diffStyle(this._buffer, style, this._cursorStyle)
     if (sgrSeq.length) content += `\u001b[${sgrSeq.join(";")}m`
 
     return content
