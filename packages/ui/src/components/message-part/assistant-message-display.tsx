@@ -1,7 +1,8 @@
 import { createMemo, Index, Match, Show, Switch } from "solid-js"
 import type { AssistantMessage, Part as PartType, ToolPart } from "@opencode-ai/sdk/v2"
-import { ContextToolGroup } from "./context-tool-group"
-import { groupParts, isContextGroupTool, renderable, sameGroups, type PartGroup } from "./grouping"
+import { useI18n } from "../../context/i18n"
+import { TrowBlock } from "../session-turn-trow-block"
+import { groupParts, renderable, sameGroups, type PartGroup } from "./grouping"
 import { index, latestDefined, same } from "./shared-utils"
 import { Part } from "./message-router"
 
@@ -10,6 +11,7 @@ export function AssistantMessageDisplay(props: {
   parts: PartType[]
   showReasoningSummaries?: boolean
 }) {
+  const i18n = useI18n()
   const emptyTools: ToolPart[] = []
   const part = createMemo(() => index(props.parts))
   const grouped = createMemo(
@@ -33,15 +35,15 @@ export function AssistantMessageDisplay(props: {
 
         return (
           <Switch>
-            <Match when={entryType() === "context"}>
+            <Match when={entryType() === "trow"}>
               {(() => {
                 const parts = createMemo(
                   () => {
                     const entry = entryAccessor()
-                    if (entry.type !== "context") return emptyTools
+                    if (entry.type !== "trow") return emptyTools
                     return entry.refs
                       .map((ref) => part().get(ref.partID))
-                      .filter((part): part is ToolPart => !!part && isContextGroupTool(part))
+                      .filter((part): part is ToolPart => !!part && part.type === "tool")
                   },
                   emptyTools,
                   { equals: same },
@@ -49,7 +51,20 @@ export function AssistantMessageDisplay(props: {
 
                 return (
                   <Show when={parts().length > 0}>
-                    <ContextToolGroup parts={parts()} />
+                    <TrowBlock
+                      parts={parts()}
+                      labels={{
+                        summaryRunning: (count) => i18n.t("ui.sessionTurn.trow.summary.running", { count }),
+                        summaryCompleted: (count) => i18n.t("ui.sessionTurn.trow.summary.completed", { count }),
+                        summaryWithFailed: (count, failed) =>
+                          i18n.t("ui.sessionTurn.trow.summary.withFailed", { count, failed }),
+                      }}
+                      renderTool={(tool) => (
+                        <div data-slot="trow-result-body" data-timeline-anchor={`tool:${tool.id}`}>
+                          <Part part={tool} message={props.message} stateKey={`tool:${tool.id}`} />
+                        </div>
+                      )}
+                    />
                   </Show>
                 )
               })()}

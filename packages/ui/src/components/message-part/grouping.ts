@@ -1,6 +1,6 @@
-import type { Part as PartType, ToolPart } from "@opencode-ai/sdk/v2"
+import type { Part as PartType } from "@opencode-ai/sdk/v2"
 import { PART_MAPPING } from "./registry"
-import { CONTEXT_GROUP_TOOLS, HIDDEN_TOOLS } from "./shared-utils"
+import { HIDDEN_TOOLS } from "./shared-utils"
 import { TOOL_QUESTION } from "../tool-contract"
 
 export type PartRef = {
@@ -16,7 +16,7 @@ export type PartGroup =
     }
   | {
       key: string
-      type: "context"
+      type: "trow"
       refs: PartRef[]
     }
 
@@ -32,7 +32,7 @@ function sameGroup(a: PartGroup, b: PartGroup) {
     if (b.type !== "part") return false
     return sameRef(a.ref, b.ref)
   }
-  if (b.type !== "context") return false
+  if (b.type !== "trow") return false
   if (a.refs.length !== b.refs.length) return false
   return a.refs.every((ref, i) => sameRef(ref, b.refs[i]!))
 }
@@ -57,8 +57,8 @@ export function groupParts(parts: { messageID: string; part: PartType }[]) {
       return
     }
     result.push({
-      key: `context:${first.part.id}`,
-      type: "context",
+      key: `trow:${first.part.id}`,
+      type: "trow",
       refs: parts.slice(start, end + 1).map((item) => ({
         messageID: item.messageID,
         partID: item.part.id,
@@ -68,7 +68,7 @@ export function groupParts(parts: { messageID: string; part: PartType }[]) {
   }
 
   parts.forEach((item, index) => {
-    if (isContextGroupTool(item.part)) {
+    if (item.part.type === "tool") {
       if (start < 0) start = index
       return
     }
@@ -107,8 +107,4 @@ function toolDefaultOpen(tool: string, shell = false, edit = false) {
 export function partDefaultOpen(part: PartType, shell = false, edit = false) {
   if (part.type !== "tool") return
   return toolDefaultOpen(part.tool, shell, edit)
-}
-
-export function isContextGroupTool(part: PartType): part is ToolPart {
-  return part.type === "tool" && CONTEXT_GROUP_TOOLS.has(part.tool)
 }
