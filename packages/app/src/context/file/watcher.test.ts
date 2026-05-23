@@ -146,4 +146,28 @@ describe("file watcher invalidation", () => {
 
     expect(refresh).toEqual([])
   })
+
+  test("refreshes loaded directories on rescan", () => {
+    const refresh: string[] = []
+
+    invalidateFromWatcher(
+      {
+        type: "file.watcher.rescan",
+        properties: {
+          directory: "/repo",
+        },
+      },
+      {
+        normalize: (input) => input,
+        hasFile: () => false,
+        loadFile: () => {},
+        node: () => undefined,
+        isDirLoaded: (path) => path === "" || path === "src" || path === "src/components",
+        loadedDirs: () => ["", "src", "src/components", "src/unloaded"],
+        refreshDir: (path) => refresh.push(path),
+      },
+    )
+
+    expect(refresh).toEqual(["", "src", "src/components"])
+  })
 })

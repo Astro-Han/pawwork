@@ -31,6 +31,12 @@ export namespace FileWatcher {
         event: z.union([z.literal("add"), z.literal("change"), z.literal("unlink")]),
       }),
     ),
+    Rescan: BusEvent.define(
+      "file.watcher.rescan",
+      z.object({
+        directory: z.string(),
+      }),
+    ),
   }
 
   const watcher = lazy((): typeof import("@parcel/watcher") | undefined => {
@@ -59,6 +65,11 @@ export namespace FileWatcher {
   }
 
   export const hasNativeBinding = () => !!watcher()
+
+  export function isDroppedEventsError(error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    return message.includes("Events were dropped") && message.includes("File system must be re-scanned")
+  }
 
   export interface Interface {
     readonly init: () => Effect.Effect<void>
@@ -95,9 +106,20 @@ export namespace FileWatcher {
               Effect.promise(() => Promise.allSettled(subs.map((sub) => sub.unsubscribe()))),
             )
 
-            const cb: ParcelWatcher.SubscribeCallback = (err, evts) =>
+            const rescanQueued = new Set<string>()
+            const createCallback = (dir: string): ParcelWatcher.SubscribeCallback => (err, evts) =>
               Instance.restore(ctx, () => {
                 if (err) {
+                  if (isDroppedEventsError(err)) {
+                    if (rescanQueued.has(dir)) return
+                    rescanQueued.add(dir)
+                    setTimeout(() => rescanQueued.delete(dir), 1000)
+                    log.warn("watcher events dropped, requesting rescan", { dir, err })
+                    Bus.publish(Event.Rescan, { directory: dir }).catch((error) =>
+                      log.warn("failed to publish watcher rescan", { dir, error }),
+                    )
+                    return
+                  }
                   log.error("watcher callback error", { err })
                   return
                 }
@@ -109,7 +131,7 @@ export namespace FileWatcher {
               })
 
             const subscribe = (dir: string, ignore: string[]) => {
-              const pending = w.subscribe(dir, cb, { ignore, backend })
+              const pending = w.subscribe(dir, createCallback(dir), { ignore, backend })
               return Effect.gen(function* () {
                 const sub = yield* Effect.promise(() => pending)
                 subs.push(sub)

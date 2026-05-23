@@ -210,6 +210,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
         },
         node: tree.node,
         isDirLoaded: tree.isLoaded,
+        loadedDirs: tree.loadedDirs,
         refreshDir: (dir) => {
           void tree.listDir(dir, { force: true })
         },

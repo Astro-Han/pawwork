@@ -44,14 +44,17 @@ export function useSessionVcsRefresh(input: {
   )
 
   const stop = input.event.listen((evt) => {
-    if (evt.details.type !== "file.watcher.updated") return
-    const props =
-      typeof evt.details.properties === "object" && evt.details.properties
-        ? (evt.details.properties as Record<string, unknown>)
-        : undefined
-    const file = typeof props?.file === "string" ? props.file : undefined
-    if (!file || file.startsWith(".git/")) return
+    if (!isFileWatcherVcsRefreshEvent(evt.details)) return
     refresh()
   })
   onCleanup(stop)
+}
+
+export function isFileWatcherVcsRefreshEvent(event: { type: string; properties?: unknown }) {
+  if (event.type === "file.watcher.rescan") return true
+  if (event.type !== "file.watcher.updated") return false
+  const props =
+    typeof event.properties === "object" && event.properties ? (event.properties as Record<string, unknown>) : undefined
+  const file = typeof props?.file === "string" ? props.file : undefined
+  return !!file && !file.startsWith(".git/")
 }
