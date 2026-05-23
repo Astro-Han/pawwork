@@ -987,6 +987,65 @@ it.live("session.processor effect tests retry recognized structured json errors"
   ),
 )
 
+it.live("retryable API errors stop after one safe recovery retry", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const seen = defer<void>()
+        const { processors, session, provider } = yield* boot()
+        const bus = yield* Bus.Service
+
+        yield* llm.error(503, { error: "temporarily unavailable" })
+        yield* llm.error(503, { error: "still unavailable" })
+        yield* llm.text("third attempt should not run")
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "retry api twice")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const off = yield* bus.subscribeCallback(Session.Event.Error, (evt) => {
+          if (evt.properties.sessionID !== chat.id) return
+          if (!evt.properties.error) return
+          seen.resolve()
+        })
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const value = yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "retry api twice" }],
+          tools: {},
+        })
+
+        yield* Effect.promise(() => seen.promise)
+        const parts = MessageV2.parts(msg.id)
+        off()
+
+        expect(value).toBe("stop")
+        expect(yield* llm.calls).toBe(2)
+        expect(parts.some((part) => part.type === "text" && part.text === "third attempt should not run")).toBe(false)
+        expect(handle.message.error?.name).toBe("APIError")
+        expect(handle.message.diagnostics?.run_observability?.attempts).toHaveLength(2)
+        expect(handle.message.diagnostics?.run_observability?.recovered_incidents).toHaveLength(1)
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
 it.live("session.processor effect tests publish retry status updates", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>
