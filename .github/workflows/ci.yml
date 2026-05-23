@@ -280,11 +280,14 @@ jobs:
           retention-days: 7
           path: packages/app/.artifacts/unit/junit.xml
 
-  unit-ui-focused:
+  unit-ui:
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      checks: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6
         with:
@@ -310,16 +313,43 @@ jobs:
           restore-keys: |
             bun-${{ runner.os }}-
 
+      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
+        with:
+          path: .turbo/cache
+          key: turbo-${{ runner.os }}-unit-ui-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-unit-ui-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-
+            turbo-${{ runner.os }}-unit-ui-
+
       - run: bun install --frozen-lockfile
 
-      - name: focused UI theme guards
-        run: >
-          bun --cwd packages/ui test
-          test/theme-parity.test.ts
-          test/typography-utility-parity.test.ts
-          test/no-dead-tokens.test.ts
-          test/theme-css-safety.test.ts
-          test/typography-semantics.test.ts
+      - name: unit
+        run: bun turbo test:ci --filter=@opencode-ai/ui
+
+      - name: Publish unit reports
+        if: >
+          always() &&
+          (
+            github.event_name != 'pull_request' ||
+            github.event.pull_request.head.repo.full_name == github.repository
+          )
+        uses: mikepenz/action-junit-report@bccf2e31636835cf0874589931c4116687171386 # mikepenz/action-junit-report@v6
+        with:
+          report_paths: packages/ui/.artifacts/unit/junit.xml
+          check_name: unit results (ui)
+          detailed_summary: true
+          include_time_in_summary: true
+          fail_on_failure: false
+
+      - name: Upload unit artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # actions/upload-artifact@v7
+        with:
+          name: unit-ui-${{ github.run_attempt }}
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
+          path: packages/ui/.artifacts/unit/junit.xml
 
   unit-opencode:
     needs: changes
@@ -475,7 +505,7 @@ jobs:
       - changes
       - typecheck
       - frontend-architecture
-      - unit-ui-focused
+      - unit-ui
       - unit-app
       - unit-opencode
       - unit-desktop
@@ -486,7 +516,7 @@ jobs:
           DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
           TYPECHECK_RESULT: ${{ needs.typecheck.result }}
           FRONTEND_ARCHITECTURE_RESULT: ${{ needs['frontend-architecture'].result }}
-          UNIT_UI_FOCUSED_RESULT: ${{ needs['unit-ui-focused'].result }}
+          UNIT_UI_RESULT: ${{ needs['unit-ui'].result }}
           UNIT_APP_RESULT: ${{ needs['unit-app'].result }}
           UNIT_OPENCODE_RESULT: ${{ needs['unit-opencode'].result }}
           UNIT_DESKTOP_RESULT: ${{ needs['unit-desktop'].result }}
@@ -500,13 +530,13 @@ jobs:
 
           if [ "$TYPECHECK_RESULT" != "success" ] ||
              [ "$FRONTEND_ARCHITECTURE_RESULT" != "success" ] ||
-             [ "$UNIT_UI_FOCUSED_RESULT" != "success" ] ||
+             [ "$UNIT_UI_RESULT" != "success" ] ||
              [ "$UNIT_APP_RESULT" != "success" ] ||
              [ "$UNIT_OPENCODE_RESULT" != "success" ] ||
              [ "$UNIT_DESKTOP_RESULT" != "success" ]; then
             echo "typecheck=$TYPECHECK_RESULT"
             echo "frontend-architecture=$FRONTEND_ARCHITECTURE_RESULT"
-            echo "unit-ui-focused=$UNIT_UI_FOCUSED_RESULT"
+            echo "unit-ui=$UNIT_UI_RESULT"
             echo "unit-app=$UNIT_APP_RESULT"
             echo "unit-opencode=$UNIT_OPENCODE_RESULT"
             echo "unit-desktop=$UNIT_DESKTOP_RESULT"
