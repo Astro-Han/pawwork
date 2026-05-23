@@ -717,6 +717,16 @@ async function visibleExpandableToolTrigger(page: Page) {
   return undefined
 }
 
+async function visibleToolTrigger(page: Page) {
+  const triggers = expandableToolTriggers(page)
+  const count = await triggers.count()
+  for (let index = 0; index < count; index += 1) {
+    const trigger = triggers.nth(index)
+    if (await trigger.isVisible().catch(() => false)) return trigger
+  }
+  return undefined
+}
+
 async function exerciseToolExpandCycle(page: Page) {
   const trowDetails = page.locator('[data-component="session-turn-trow-block"] details').first()
   const trowSummary = trowDetails.locator('[data-slot="trow-summary"]').first()
@@ -731,6 +741,7 @@ async function exerciseToolExpandCycle(page: Page) {
           return "ready"
         }
         trigger = await visibleExpandableToolTrigger(page)
+        trigger ??= await visibleToolTrigger(page)
         if (trigger) {
           mode = "tool"
           return "ready"
