@@ -41,6 +41,26 @@ function merge<T extends { id: string }>(a: readonly T[], b: readonly T[]) {
   return [...map.values()].sort((x, y) => cmp(x.id, y.id))
 }
 
+export function resolveLoadMessagePage<T extends { id: string }>(params: {
+  mode?: "prepend" | "replace"
+  stored: readonly T[] | undefined
+  fetched: readonly T[]
+  hasCachedMeta: boolean
+}): T[] {
+  const { mode, stored, fetched, hasCachedMeta } = params
+  if (mode === "prepend") return merge(stored ?? [], fetched)
+  // Race window: SSE events (from the same request that triggered this load)
+  // have populated the store but page metadata has not been established yet.
+  // Merge rather than replace so event data survives a stale GET response.
+  // When the same message ID exists in both, fetched wins — this is safe
+  // because GET data comes from the DB after the same shell execution that
+  // produced the SSE events, so it is at least as fresh.
+  if (stored && stored.length > 0 && !hasCachedMeta) {
+    return merge(stored, fetched)
+  }
+  return fetched as T[]
+}
+
 type OptimisticStore = {
   message: Record<string, Message[] | undefined>
   part: Record<string, Part[] | undefined>
@@ -386,8 +406,13 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
             clearOptimistic(input.directory, input.sessionID, messageID)
           }
           const [store] = globalSync.child(input.directory, { bootstrap: false })
-          const cached = input.mode === "prepend" ? (store.message[input.sessionID] ?? []) : []
-          const message = input.mode === "prepend" ? merge(cached, next.session) : next.session
+          const hasCachedMeta = meta.limit[key] !== undefined
+          const message = resolveLoadMessagePage({
+            mode: input.mode,
+            stored: store.message[input.sessionID],
+            fetched: next.session,
+            hasCachedMeta,
+          })
           batch(() => {
             input.setStore("message", input.sessionID, reconcile(message, { key: "id" }))
             for (const p of next.part) {
