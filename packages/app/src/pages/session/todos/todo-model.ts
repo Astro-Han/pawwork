@@ -11,10 +11,6 @@ export type TodoSnapshot = {
   source: TodoSourceKind
   items: SessionTodoItem[]
   phase: TodoPhase
-  lifecycleSignature: string
-  displaySignature: string
-  dockEligible: boolean
-  historicalTerminal: boolean
 }
 
 export function isTerminalTodo(todo: Pick<Todo, "status">): boolean {
@@ -26,32 +22,15 @@ export function todoPhase(todos: readonly Pick<Todo, "status">[]): TodoPhase {
   return todos.every(isTerminalTodo) ? "terminal" : "active"
 }
 
-export function todoLifecycleSignature(todos: readonly Pick<SessionTodoItem, "id" | "status">[]): string {
-  const hasStableIDs = todos.every((todo) => typeof todo.id === "string" && todo.id.length > 0)
-  if (hasStableIDs) return JSON.stringify(todos.map((todo) => [todo.id, todo.status]))
-  return JSON.stringify(todos.map((todo) => [todo.status]))
-}
-
-export function todoDisplaySignature(todos: readonly Pick<Todo, "content" | "priority" | "status">[]): string {
-  return JSON.stringify(todos.map((todo) => [todo.status, todo.priority, todo.content]))
-}
-
 export function todoSnapshot(input: {
   sessionID?: string
   source: TodoSourceKind
   items: SessionTodoItem[]
-  dockEligible?: boolean
-  historicalTerminal?: boolean
 }): TodoSnapshot {
-  const phase = todoPhase(input.items)
   return {
     sessionID: input.sessionID,
     source: input.source,
     items: input.items,
-    phase,
-    lifecycleSignature: todoLifecycleSignature(input.items),
-    displaySignature: todoDisplaySignature(input.items),
-    dockEligible: input.dockEligible ?? phase === "active",
-    historicalTerminal: input.historicalTerminal ?? false,
+    phase: todoPhase(input.items),
   }
 }
