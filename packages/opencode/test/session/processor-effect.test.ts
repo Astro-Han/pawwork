@@ -1186,10 +1186,154 @@ it.live("connect timeout auto retry stops if lifecycle closes during backoff", (
         expect(yield* llm.calls).toBe(1)
         expect(stored?.info.role).toBe("assistant")
         if (stored?.info.role === "assistant") {
+          expect(stored.info.error?.data.message).toContain("local lifecycle close")
+          expect(stored.info.error?.data.message).not.toContain("provider connection")
           expect(stored.info.diagnostics?.run_observability?.incident?.facts.lifecycle_close_seen).toBe(true)
           expect(stored.info.diagnostics?.run_observability?.incident?.recovery).toMatchObject({
             recommendation: "do_not_retry",
             reason: "local_lifecycle_close",
+          })
+        }
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
+it.live("connect timeout auto retry records abort if interrupted during backoff", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const retrySeen = defer<void>()
+        const { processors, session, provider } = yield* boot()
+        const bus = yield* Bus.Service
+
+        yield* llm.hang
+        yield* llm.text("should not run")
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "auto retry backoff interrupt")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const off = yield* bus.subscribeCallback(SessionStatus.Event.Status, (evt) => {
+          if (evt.properties.sessionID !== chat.id) return
+          if (evt.properties.status.type === "retry") retrySeen.resolve()
+        })
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const run = yield* handle
+          .process({
+            user: {
+              id: parent.id,
+              sessionID: chat.id,
+              role: "user",
+              time: parent.time,
+              agent: parent.agent,
+              model: { providerID: ref.providerID, modelID: ref.modelID },
+            } satisfies MessageV2.User,
+            sessionID: chat.id,
+            model: mdl,
+            agent: agent(),
+            system: [],
+            messages: [{ role: "user", content: "auto retry backoff interrupt" }],
+            tools: {},
+            connectTimeoutMs: 20,
+            streamTimeoutMs: 1_000,
+          })
+          .pipe(Effect.forkChild)
+
+        yield* Effect.promise(() => retrySeen.promise)
+        yield* Fiber.interrupt(run)
+        const exit = yield* Fiber.await(run)
+        off()
+
+        const stored = (yield* session.messages({ sessionID: chat.id })).find(
+          (message) => message.info.role === "assistant" && message.info.id === msg.id,
+        )
+        expect(Exit.isFailure(exit)).toBe(true)
+        expect(yield* llm.calls).toBe(1)
+        expect(handle.message.error?.name).toBe("MessageAbortedError")
+        expect(stored?.info.role).toBe("assistant")
+        if (stored?.info.role === "assistant") {
+          const observability = stored.info.diagnostics?.run_observability
+          expect(stored.info.error?.name).toBe("MessageAbortedError")
+          expect(observability?.classification).not.toBe("success")
+          expect(String(observability?.summary_key)).not.toBe("success.completed")
+          expect(observability?.recovered_incidents).toBeUndefined()
+        }
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
+it.live("disabled unknown tools do not block safe connect-timeout auto retry", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+
+        yield* llm.hang
+        yield* llm.text("after retry")
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "disabled unknown tool retry")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const value = yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+            tools: { mcp_write: false },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "disabled unknown tool retry" }],
+          tools: {
+            read: tool({
+              description: "read",
+              inputSchema: z.object({}),
+            }),
+            mcp_write: tool({
+              description: "unknown disabled tool",
+              inputSchema: z.object({}),
+            }),
+          },
+          connectTimeoutMs: 20,
+          streamTimeoutMs: 1_000,
+        })
+
+        const stored = (yield* session.messages({ sessionID: chat.id })).find(
+          (message) => message.info.role === "assistant" && message.info.id === msg.id,
+        )
+        expect(value).toBe("continue")
+        expect(yield* llm.calls).toBe(2)
+        expect(stored?.info.role).toBe("assistant")
+        if (stored?.info.role === "assistant") {
+          const snapshot = stored.info.diagnostics?.run_observability?.side_effect_boundary_snapshot
+          expect(snapshot).toMatchObject({
+            exposed_tool_count: 1,
+            unknown_tool_count: 0,
+            unclassified_effect_count: 0,
+            proof_result: "complete",
+          })
+          expect(stored.info.diagnostics?.run_observability?.recovered_incidents?.[0]?.recovery).toMatchObject({
+            recommendation: "auto_retry_once",
+            reason: "no_visible_output_or_tool_execution",
           })
         }
       }),

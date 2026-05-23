@@ -31,6 +31,7 @@ import { currentLifecycleCloseAction, lifecycleCloseActionMeta } from "./lifecyc
 const log = Log.create({ service: "session.processor" })
 const TOOL_CLEANUP_TIMEOUT_MS = 1_000
 const SAFE_RECOVERY_AUTO_RETRY_BACKOFF_MS = 1_000
+const LOCAL_LIFECYCLE_CLOSE_INTERRUPTION_MESSAGE = "The run was interrupted by a local lifecycle close."
 
 export type Result = "compact" | "stop" | "continue"
 
@@ -158,7 +159,7 @@ function recoveryInterruptionMessage(recovery: NonNullable<RunObservability.Summ
     case "side_effect_facts_incomplete":
       return "The connection was interrupted, and PawWork could not prove whether external side effects were possible."
     case "local_lifecycle_close":
-      return "The run was interrupted by a local lifecycle close."
+      return LOCAL_LIFECYCLE_CLOSE_INTERRUPTION_MESSAGE
     case "user_cancel":
       return "The run was cancelled by the user."
     case "no_visible_output_or_tool_execution":
@@ -1170,6 +1171,30 @@ export const layer: Layer.Layer<
         yield* status.set(ctx.sessionID, { type: "idle" })
       })
 
+      const recordProcessInterrupt = Effect.fn("SessionProcessor.recordProcessInterrupt")(function* (
+        attemptID: RunObservability.AttemptID | undefined,
+      ) {
+        aborted = true
+        const lifecycleAction = currentLifecycleCloseAction(ctx.directory)
+        ctx.runTrace.recordScopeClosed({
+          at: Date.now(),
+          monotonicMs: performance.now(),
+          source: "session.processor.onInterrupt",
+          reason: "aborted",
+          propagationPoint: "session.processor.process.onInterrupt",
+          ...(lifecycleAction ? lifecycleCloseActionMeta(lifecycleAction) : {}),
+        })
+        ctx.trace.recordAbortState({
+          provenanceSource: "session.processor.onInterrupt",
+          provenanceReason: "aborted",
+          provenanceMode: "hard",
+          provenanceRecordedAt: Date.now(),
+        })
+        if (!ctx.assistantMessage.error) {
+          yield* halt(new DOMException("Aborted", "AbortError"), attemptID)
+        }
+      })
+
       const process = Effect.fn("SessionProcessor.process")(function* (streamInput: LLM.StreamInput) {
         slog.info("process")
         ctx.needsCompaction = false
@@ -1179,7 +1204,7 @@ export const layer: Layer.Layer<
 
         const retryStillAllowed = Effect.fn("SessionProcessor.retryStillAllowed")(function* (stage: string) {
           const lifecycleAction = currentLifecycleCloseAction(ctx.directory)
-          if (!lifecycleAction) return true
+          if (!lifecycleAction) return { allowed: true as const }
           ctx.runTrace.recordScopeClosed({
             at: Date.now(),
             monotonicMs: performance.now(),
@@ -1188,7 +1213,10 @@ export const layer: Layer.Layer<
             propagationPoint: "session.processor.safe_recovery",
             ...lifecycleCloseActionMeta(lifecycleAction),
           })
-          return false
+          return {
+            allowed: false as const,
+            interruptionMessage: LOCAL_LIFECYCLE_CLOSE_INTERRUPTION_MESSAGE,
+          }
         })
 
         const retrySignalFor = (error: unknown) => {
@@ -1214,6 +1242,7 @@ export const layer: Layer.Layer<
           ctx.currentText = undefined
           ctx.reasoningMap = {}
           ctx.attemptCount++
+          const activeTools = LLM.resolveTools(streamInput)
           const attempt = ctx.runTrace.beginAttempt({
             attemptIndex: ctx.attemptCount,
             at: Date.now(),
@@ -1225,13 +1254,14 @@ export const layer: Layer.Layer<
             attemptID: attempt.attemptID,
             at: Date.now(),
             monotonicMs: performance.now(),
-            snapshot: sideEffectBoundarySnapshot(streamInput.tools),
+            snapshot: sideEffectBoundarySnapshot(activeTools),
           })
           let stream: Stream.Stream<LLM.Event, unknown>
           try {
             stream = llm.stream({
               ...ProviderTransform.streamTimeouts(streamInput.model),
               ...streamInput,
+              tools: activeTools,
               trace: ctx.trace,
             })
           } catch (error) {
@@ -1252,29 +1282,7 @@ export const layer: Layer.Layer<
         return yield* Effect.gen(function* () {
           while (true) {
             const result = yield* runAttempt().pipe(
-              Effect.onInterrupt(() =>
-                Effect.gen(function* () {
-                  aborted = true
-                  const lifecycleAction = currentLifecycleCloseAction(ctx.directory)
-                  ctx.runTrace.recordScopeClosed({
-                    at: Date.now(),
-                    monotonicMs: performance.now(),
-                    source: "session.processor.onInterrupt",
-                    reason: "aborted",
-                    propagationPoint: "session.processor.process.onInterrupt",
-                    ...(lifecycleAction ? lifecycleCloseActionMeta(lifecycleAction) : {}),
-                  })
-                  ctx.trace.recordAbortState({
-                    provenanceSource: "session.processor.onInterrupt",
-                    provenanceReason: "aborted",
-                    provenanceMode: "hard",
-                    provenanceRecordedAt: Date.now(),
-                  })
-                  if (!ctx.assistantMessage.error) {
-                    yield* halt(new DOMException("Aborted", "AbortError"), processAttemptID)
-                  }
-                }),
-              ),
+              Effect.onInterrupt(() => recordProcessInterrupt(processAttemptID)),
               Effect.catchCauseIf(
                 (cause) => !Cause.hasInterruptsOnly(cause),
                 (cause) => Effect.fail(Cause.squash(cause)),
@@ -1299,24 +1307,41 @@ export const layer: Layer.Layer<
               attemptID &&
               retrySignal.retryable &&
               decision.recommendation === "auto_retry_once" &&
-              automaticStreamRetriesUsed === 0 &&
-              (yield* retryStillAllowed("before_backoff"))
+              automaticStreamRetriesUsed === 0
             ) {
-              automaticStreamRetriesUsed += 1
-              ctx.runTrace.recordAutoRetryAttempted({
-                attemptID,
-                at: Date.now(),
-                monotonicMs: performance.now(),
+              const beforeRetry = yield* retryStillAllowed("before_backoff")
+              if (beforeRetry.allowed) {
+                automaticStreamRetriesUsed += 1
+                const next = Date.now() + SAFE_RECOVERY_AUTO_RETRY_BACKOFF_MS
+                yield* status.set(ctx.sessionID, {
+                  type: "retry",
+                  attempt: ctx.attemptCount,
+                  message: retrySignal.message ?? "Retrying interrupted stream",
+                  next,
+                })
+                yield* Effect.sleep(`${SAFE_RECOVERY_AUTO_RETRY_BACKOFF_MS} millis`).pipe(
+                  Effect.onInterrupt(() => recordProcessInterrupt(attemptID)),
+                )
+                const afterRetry = yield* retryStillAllowed("after_backoff")
+                if (afterRetry.allowed) {
+                  ctx.runTrace.recordAutoRetryAttempted({
+                    attemptID,
+                    at: Date.now(),
+                    monotonicMs: performance.now(),
+                  })
+                  continue
+                }
+                yield* halt(result.error, attemptID, {
+                  recordFailure: false,
+                  interruptionMessage: afterRetry.interruptionMessage,
+                })
+                break
+              }
+              yield* halt(result.error, attemptID, {
+                recordFailure: false,
+                interruptionMessage: beforeRetry.interruptionMessage,
               })
-              const next = Date.now() + SAFE_RECOVERY_AUTO_RETRY_BACKOFF_MS
-              yield* status.set(ctx.sessionID, {
-                type: "retry",
-                attempt: ctx.attemptCount,
-                message: retrySignal.message ?? "Retrying interrupted stream",
-                next,
-              })
-              yield* Effect.sleep(`${SAFE_RECOVERY_AUTO_RETRY_BACKOFF_MS} millis`)
-              if (yield* retryStillAllowed("after_backoff")) continue
+              break
             }
 
             yield* halt(result.error, attemptID, {
