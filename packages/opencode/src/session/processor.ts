@@ -1155,7 +1155,7 @@ export const layer: Layer.Layer<
         }
 
         const error = parse(e)
-        if (options?.interruptionMessage && "data" in error && error.data && typeof error.data === "object") {
+        if (options?.interruptionMessage && isRecord(error.data)) {
           error.data = { ...error.data, message: options.interruptionMessage }
         }
         if (MessageV2.ContextOverflowError.isInstance(error)) {
