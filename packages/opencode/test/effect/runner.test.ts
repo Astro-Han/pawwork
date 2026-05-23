@@ -405,8 +405,10 @@ describe("Runner", () => {
     Effect.gen(function* () {
       const s = yield* Scope.Scope
       const runner = Runner.make<string>(s)
-      const fiber = yield* runner.ensureRunning(Effect.never.pipe(Effect.as("x"))).pipe(Effect.forkChild)
+      const blocked = yield* makeBlockedWork("x")
+      const fiber = yield* runner.ensureRunning(blocked.work).pipe(Effect.forkChild)
       yield* waitForRunnerState(runner, "Running")
+      yield* blocked.waitUntilStarted
 
       const exit = yield* runner.startShell(Effect.succeed("nope")).pipe(Effect.exit)
       expect(Exit.isFailure(exit)).toBe(true)
