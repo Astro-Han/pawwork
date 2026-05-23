@@ -54,6 +54,21 @@ describe("createTodoHydrateCoordinator", () => {
     })
   })
 
+  test("cancels scheduled hydrate without evicting the tracked session", () => {
+    createRoot((dispose) => {
+      const coordinator = createTodoHydrateCoordinator()
+
+      coordinator.touch("dir-a", "ses_1")
+      coordinator.scheduleHydrate("dir-a", "ses_1", "visible")
+      coordinator.cancelHydrate("dir-a", "ses_1")
+
+      expect(coordinator.isPending("dir-a", "ses_1")).toBe(false)
+      expect(coordinator.has("dir-a", "ses_1")).toBe(true)
+
+      dispose()
+    })
+  })
+
   test("records recovery validation against the token target epoch", () => {
     createRoot((dispose) => {
       const coordinator = createTodoHydrateCoordinator()

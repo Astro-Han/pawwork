@@ -178,7 +178,10 @@ export function createTodoHydrateCoordinator(options?: { sessionLimit?: number; 
     beginHydrate,
     isCurrent,
     completeHydrate,
-    cancelHydrate: invalidate,
+    cancelHydrate(directory: string, sessionID: string) {
+      bumpToken(directory, sessionID)
+      clearPending(directory, sessionID)
+    },
     isPending: (directory: string, sessionID: string) => state.pending[keyFor(directory, sessionID)] !== undefined,
     isAuthoritativelyInvalidated: (sessionID: string) => state.invalidated[sessionID] === true,
     canAcceptLiveTodo: (_directory: string, sessionID: string) => state.invalidated[sessionID] !== true,

@@ -261,7 +261,7 @@ function createGlobalSync() {
       })
       if (next.length !== store.session.length) {
         setStore("session", reconcile(next, { key: "id" }))
-        cleanupDroppedSessionCaches(store, setStore, next, setSessionTodo)
+        cleanupDroppedSessionCaches(store, setStore, next)
       }
       children.unpin(directory)
       return
@@ -297,7 +297,7 @@ function createGlobalSync() {
                 }),
               )
               setStore("session", reconcile(sessions, { key: "id" }))
-              cleanupDroppedSessionCaches(store, setStore, sessions, setSessionTodo)
+              cleanupDroppedSessionCaches(store, setStore, sessions)
               sessionMeta.set(directory, { limit })
             })
             .catch((err) => {
@@ -374,12 +374,14 @@ function createGlobalSync() {
         setGlobalProject: setProjects,
       })
       if (event.type === "server.connected") {
+        todoHydrate.markGlobalRecovery()
         for (const directory of Object.keys(children.children)) {
           queue.push(directory)
         }
       }
       if (event.type === "global.disposed") {
         if (recent) return
+        todoHydrate.markGlobalRecovery()
         for (const directory of Object.keys(children.children)) {
           queue.push(directory)
         }
@@ -389,7 +391,13 @@ function createGlobalSync() {
 
     const existing = children.children[directory]
     if (!existing) {
-      applyDetachedDirectoryEvent({ event, setSessionTodo })
+      applyDetachedDirectoryEvent({
+        directory,
+        event,
+        acceptSessionTodo,
+        clearSessionTodoAuthoritative,
+        todoHydrate,
+      })
       return
     }
     children.mark(directory)
@@ -400,7 +408,9 @@ function createGlobalSync() {
       store,
       setStore,
       push: queue.push,
-      setSessionTodo,
+      acceptSessionTodo,
+      clearSessionTodoAuthoritative,
+      todoHydrate,
       blockerTerminals,
       vcsCache: children.vcsCache.get(directory),
       loadLsp: () => {

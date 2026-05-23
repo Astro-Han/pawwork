@@ -8,15 +8,52 @@ import type {
   Session,
   SessionStatus,
   Todo,
+  TodoSnapshot,
 } from "@opencode-ai/sdk/v2/client"
 import type { State, VcsCache } from "./types"
 import { trimSessions } from "./session-trim"
 import { dropSessionCaches } from "./session-cache"
 import { message as clean } from "@/utils/diffs"
 import type { createBlockerTerminalCache } from "./blocker-terminal-cache"
+import type { TodoHydrateCoordinator } from "./todo-hydrate-coordinator"
 
 const SKIP_PARTS = new Set(["patch", "step-start", "step-finish"])
-type SetSessionTodo = (sessionID: string, todos: Todo[] | undefined, options?: { clearActiveParts?: boolean }) => void
+type AcceptSessionTodo = (sessionID: string, snapshot: TodoSnapshot) => boolean
+type ClearSessionTodoAuthoritative = (sessionID: string) => void
+type TodoHydrateBoundary = Partial<Pick<TodoHydrateCoordinator, "canAcceptLiveTodo" | "invalidateSession">>
+
+function todoSnapshotFromProperties(properties: unknown): { sessionID: string; snapshot: TodoSnapshot } | undefined {
+  if (!properties || typeof properties !== "object") return undefined
+  const props = properties as { sessionID?: unknown; revision?: unknown; todos?: unknown }
+  if (typeof props.sessionID !== "string") return undefined
+  if (typeof props.revision !== "number") return undefined
+  if (!Array.isArray(props.todos)) return undefined
+  return { sessionID: props.sessionID, snapshot: { revision: props.revision, todos: props.todos as Todo[] } }
+}
+
+function todoSnapshotFromPart(part: Part): { sessionID: string; snapshot: TodoSnapshot } | undefined {
+  if (part.type !== "tool") return undefined
+  if (part.tool !== "todowrite") return undefined
+  if (part.state.status !== "completed") return undefined
+  if (!part.sessionID) return undefined
+  const metadata = part.state.metadata
+  if (!metadata || typeof metadata !== "object") return undefined
+  const snapshot = metadata as { revision?: unknown; todos?: unknown }
+  if (typeof snapshot.revision !== "number") return undefined
+  if (!Array.isArray(snapshot.todos)) return undefined
+  return { sessionID: part.sessionID, snapshot: { revision: snapshot.revision, todos: snapshot.todos as Todo[] } }
+}
+
+function acceptLiveTodo(input: {
+  directory: string
+  sessionID: string
+  snapshot: TodoSnapshot
+  acceptSessionTodo?: AcceptSessionTodo
+  todoHydrate?: Pick<TodoHydrateBoundary, "canAcceptLiveTodo">
+}) {
+  if (input.todoHydrate?.canAcceptLiveTodo?.(input.directory, input.sessionID) === false) return false
+  return input.acceptSessionTodo?.(input.sessionID, input.snapshot) ?? false
+}
 
 export function applyGlobalEvent(input: {
   event: { type: string; properties?: unknown }
@@ -43,9 +80,16 @@ export function applyGlobalEvent(input: {
   })
 }
 
-function cleanupSessionCaches(setStore: SetStoreFunction<State>, sessionID: string, setSessionTodo?: SetSessionTodo) {
+function cleanupSessionCaches(input: {
+  setStore: SetStoreFunction<State>
+  sessionID: string
+  clearSessionTodoAuthoritative?: ClearSessionTodoAuthoritative
+  todoHydrate?: Pick<TodoHydrateBoundary, "invalidateSession">
+}) {
+  const { setStore, sessionID } = input
   if (!sessionID) return
-  setSessionTodo?.(sessionID, undefined)
+  input.clearSessionTodoAuthoritative?.(sessionID)
+  input.todoHydrate?.invalidateSession?.(sessionID)
   setStore(
     produce((draft) => {
       dropSessionCaches(draft, [sessionID])
@@ -57,7 +101,6 @@ export function cleanupDroppedSessionCaches(
   store: Store<State>,
   setStore: SetStoreFunction<State>,
   next: Session[],
-  setSessionTodo?: SetSessionTodo,
 ) {
   const keep = new Set(next.map((item) => item.id))
   const stale = [
@@ -71,9 +114,6 @@ export function cleanupDroppedSessionCaches(
       .filter((sessionID): sessionID is string => !!sessionID),
   ].filter((sessionID, index, list) => !keep.has(sessionID) && list.indexOf(sessionID) === index)
   if (stale.length === 0) return
-  for (const sessionID of stale) {
-    setSessionTodo?.(sessionID, undefined)
-  }
   setStore(
     produce((draft) => {
       dropSessionCaches(draft, stale)
@@ -82,31 +122,38 @@ export function cleanupDroppedSessionCaches(
 }
 
 export function applyDetachedDirectoryEvent(input: {
+  directory: string
   event: { type: string; properties?: unknown }
-  setSessionTodo?: SetSessionTodo
+  acceptSessionTodo?: AcceptSessionTodo
+  clearSessionTodoAuthoritative?: ClearSessionTodoAuthoritative
+  todoHydrate?: TodoHydrateBoundary
 }) {
   if (!input.event.properties || typeof input.event.properties !== "object") return false
   switch (input.event.type) {
     case "todo.updated": {
-      const props = input.event.properties as { sessionID?: string; todos?: Todo[] }
-      if (!props.sessionID || !Array.isArray(props.todos)) return false
-      input.setSessionTodo?.(
-        props.sessionID,
-        props.todos,
-        props.todos.length === 0 ? { clearActiveParts: true } : undefined,
-      )
+      const todo = todoSnapshotFromProperties(input.event.properties)
+      if (!todo) return false
+      acceptLiveTodo({
+        directory: input.directory,
+        sessionID: todo.sessionID,
+        snapshot: todo.snapshot,
+        acceptSessionTodo: input.acceptSessionTodo,
+        todoHydrate: input.todoHydrate,
+      })
       return true
     }
     case "session.deleted": {
       const info = (input.event.properties as { info?: Session }).info
       if (!info?.id) return false
-      input.setSessionTodo?.(info.id, undefined)
+      input.clearSessionTodoAuthoritative?.(info.id)
+      input.todoHydrate?.invalidateSession?.(info.id)
       return true
     }
     case "session.updated": {
       const info = (input.event.properties as { info?: Session }).info
       if (!info?.id || !info.time?.archived) return false
-      input.setSessionTodo?.(info.id, undefined)
+      input.clearSessionTodoAuthoritative?.(info.id)
+      input.todoHydrate?.invalidateSession?.(info.id)
       return true
     }
     default:
@@ -122,7 +169,9 @@ export function applyDirectoryEvent(input: {
   directory: string
   loadLsp: () => void
   vcsCache?: VcsCache
-  setSessionTodo?: SetSessionTodo
+  acceptSessionTodo?: AcceptSessionTodo
+  clearSessionTodoAuthoritative?: ClearSessionTodoAuthoritative
+  todoHydrate?: TodoHydrateBoundary
   blockerTerminals?: ReturnType<typeof createBlockerTerminalCache>
 }) {
   const event = input.event
@@ -156,7 +205,12 @@ export function applyDirectoryEvent(input: {
             }),
           )
         }
-        cleanupSessionCaches(input.setStore, info.id, input.setSessionTodo)
+        cleanupSessionCaches({
+          setStore: input.setStore,
+          sessionID: info.id,
+          clearSessionTodoAuthoritative: input.clearSessionTodoAuthoritative,
+          todoHydrate: input.todoHydrate,
+        })
         if (info.parentID) break
         input.setStore("sessionTotal", (value) => Math.max(0, value - 1))
         break
@@ -181,7 +235,12 @@ export function applyDirectoryEvent(input: {
           }),
         )
       }
-      cleanupSessionCaches(input.setStore, info.id, input.setSessionTodo)
+      cleanupSessionCaches({
+        setStore: input.setStore,
+        sessionID: info.id,
+        clearSessionTodoAuthoritative: input.clearSessionTodoAuthoritative,
+        todoHydrate: input.todoHydrate,
+      })
       if (info.parentID) break
       input.setStore("sessionTotal", (value) => Math.max(0, value - 1))
       break
@@ -192,13 +251,16 @@ export function applyDirectoryEvent(input: {
       break
     }
     case "todo.updated": {
-      const props = event.properties as { sessionID: string; todos: Todo[] }
-      input.setStore("todo", props.sessionID, reconcile(props.todos, { key: "id" }))
-      input.setSessionTodo?.(
-        props.sessionID,
-        props.todos,
-        props.todos.length === 0 ? { clearActiveParts: true } : undefined,
-      )
+      const todo = todoSnapshotFromProperties(event.properties)
+      if (!todo) break
+      const accepted = acceptLiveTodo({
+        directory: input.directory,
+        sessionID: todo.sessionID,
+        snapshot: todo.snapshot,
+        acceptSessionTodo: input.acceptSessionTodo,
+        todoHydrate: input.todoHydrate,
+      })
+      if (accepted) input.setStore("todo", todo.sessionID, reconcile(todo.snapshot.todos, { key: "id" }))
       break
     }
     case "session.status": {
@@ -244,6 +306,17 @@ export function applyDirectoryEvent(input: {
     case "message.part.updated": {
       const part = (event.properties as { part: Part }).part
       if (SKIP_PARTS.has(part.type)) break
+      const todo = todoSnapshotFromPart(part)
+      if (todo) {
+        const accepted = acceptLiveTodo({
+          directory: input.directory,
+          sessionID: todo.sessionID,
+          snapshot: todo.snapshot,
+          acceptSessionTodo: input.acceptSessionTodo,
+          todoHydrate: input.todoHydrate,
+        })
+        if (accepted) input.setStore("todo", todo.sessionID, reconcile(todo.snapshot.todos, { key: "id" }))
+      }
       const parts = input.store.part[part.messageID]
       if (!parts) {
         input.setStore("part", part.messageID, [part])

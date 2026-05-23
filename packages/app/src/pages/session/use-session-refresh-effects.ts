@@ -1,6 +1,12 @@
 import { createEffect, on, onCleanup, untrack } from "solid-js"
 import { getSessionPrefetch, SESSION_PREFETCH_TTL } from "@/context/global-sync/session-prefetch"
+import type { TodoHydrateReason } from "@/context/global-sync/todo-hydrate-coordinator"
 import type { RendererDiagnosticInput } from "@/context/platform"
+
+type TodoSyncOptions = {
+  force?: boolean
+  reason?: TodoHydrateReason
+}
 
 export function useSessionRefreshEffects(input: {
   directory: () => string
@@ -10,14 +16,20 @@ export function useSessionRefreshEffects(input: {
   blocked: () => boolean
   hasMessageCache: (sessionID: string) => boolean
   hasTodoCache: (sessionID: string) => boolean
+  isTodoInvalidated?: (sessionID: string) => boolean
+  scheduleTodoHydrate?: (directory: string, sessionID: string, reason: TodoHydrateReason) => void
+  cancelTodoHydrate?: (directory: string, sessionID: string) => void
+  recoveryEpoch?: () => number
+  validatedRecoveryEpoch?: (directory: string, sessionID: string) => number
   syncSession: (sessionID: string, options?: { force?: boolean }) => void | Promise<void>
-  syncTodo: (sessionID: string, options?: { force?: boolean }) => void | Promise<void>
+  syncTodo: (sessionID: string, options?: TodoSyncOptions) => void | Promise<void>
   emitRendererDiagnostic?: (event: RendererDiagnosticInput) => void | Promise<void>
 }) {
   let refreshFrame: number | undefined
   let refreshTimer: number | undefined
   let todoFrame: number | undefined
   let todoTimer: number | undefined
+  let scheduledTodo: { directory: string; sessionID: string } | undefined
 
   const emitRefresh = (event: RendererDiagnosticInput) => {
     try {
@@ -66,7 +78,17 @@ export function useSessionRefreshEffects(input: {
       })
   }
 
-  const syncTodoWithDiagnostics = (id: string, options: { force?: boolean } | undefined, cachePresent: boolean) => {
+  const cancelScheduledTodo = () => {
+    if (todoFrame !== undefined) cancelAnimationFrame(todoFrame)
+    if (todoTimer !== undefined) window.clearTimeout(todoTimer)
+    todoFrame = undefined
+    todoTimer = undefined
+    const pending = scheduledTodo
+    scheduledTodo = undefined
+    if (pending) input.cancelTodoHydrate?.(pending.directory, pending.sessionID)
+  }
+
+  const syncTodoWithDiagnostics = (id: string, options: TodoSyncOptions | undefined, cachePresent: boolean) => {
     const startedAt = performance.now()
     const routeSessionID = input.routeSessionID()
     const phase = options?.force ? "todo_force" : "todo"
@@ -143,24 +165,45 @@ export function useSessionRefreshEffects(input: {
     on(
       () => {
         const id = input.timelineSessionID()
-        return [input.directory(), id, id ? (input.statusType(id) ?? "idle") : "idle", id ? input.blocked() : false] as const
+        return [
+          input.directory(),
+          id,
+          id ? (input.statusType(id) ?? "idle") : "idle",
+          id ? input.blocked() : false,
+          input.recoveryEpoch?.() ?? 0,
+        ] as const
       },
-      ([dir, id, status, blocked]) => {
-        if (todoFrame !== undefined) cancelAnimationFrame(todoFrame)
-        if (todoTimer !== undefined) window.clearTimeout(todoTimer)
-        todoFrame = undefined
-        todoTimer = undefined
+      ([dir, id, status, blocked, recoveryEpoch]) => {
+        cancelScheduledTodo()
         if (!id) return
-        if (status === "idle" && !blocked) return
+        if (input.isTodoInvalidated?.(id)) return
         const cached = untrack(() => input.hasTodoCache(id))
+        const recoveryValidated = input.validatedRecoveryEpoch?.(dir, id) ?? 0
+        const recoveryDue = cached && recoveryEpoch > recoveryValidated
+        const busy = status !== "idle" || blocked
+        const reason: TodoHydrateReason | undefined = recoveryDue ? "recovery" : busy ? "busy" : cached ? undefined : "visible"
+        if (!reason) return
+
+        input.scheduleTodoHydrate?.(dir, id, reason)
+        scheduledTodo = { directory: dir, sessionID: id }
 
         todoFrame = requestAnimationFrame(() => {
           todoFrame = undefined
           todoTimer = window.setTimeout(() => {
             todoTimer = undefined
             if (input.directory() !== dir || input.timelineSessionID() !== id) return
+            scheduledTodo = undefined
             untrack(() => {
-              syncTodoWithDiagnostics(id, cached ? { force: true } : undefined, cached)
+              if (input.isTodoInvalidated?.(id)) {
+                input.cancelTodoHydrate?.(dir, id)
+                return
+              }
+              const currentCached = input.hasTodoCache(id)
+              if (reason === "visible" && currentCached) {
+                input.cancelTodoHydrate?.(dir, id)
+                return
+              }
+              syncTodoWithDiagnostics(id, { force: recoveryDue || (busy && currentCached), reason }, cached)
             })
           }, 0)
         })
@@ -172,7 +215,6 @@ export function useSessionRefreshEffects(input: {
   onCleanup(() => {
     if (refreshFrame !== undefined) cancelAnimationFrame(refreshFrame)
     if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
-    if (todoFrame !== undefined) cancelAnimationFrame(todoFrame)
-    if (todoTimer !== undefined) window.clearTimeout(todoTimer)
+    cancelScheduledTodo()
   })
 }
