@@ -105,6 +105,7 @@ describe("createTodoHydrateCoordinator", () => {
       expect(coordinator.canAcceptLiveTodo("dir-a", "ses_1")).toBe(false)
       expect(coordinator.isAuthoritativelyInvalidated("ses_1")).toBe(true)
 
+      coordinator.touch("dir-a", "ses_1")
       const reopened = coordinator.beginHydrate("dir-a", "ses_1", "visible")
       coordinator.completeHydrate(reopened, {
         cacheAccepted: true,
@@ -114,6 +115,27 @@ describe("createTodoHydrateCoordinator", () => {
 
       expect(coordinator.canAcceptLiveTodo("dir-a", "ses_1")).toBe(true)
       expect(coordinator.isAuthoritativelyInvalidated("ses_1")).toBe(false)
+
+      dispose()
+    })
+  })
+
+  test("authoritative invalidation removes tracked sessions from every directory", () => {
+    createRoot((dispose) => {
+      const coordinator = createTodoHydrateCoordinator()
+
+      coordinator.touch("dir-a", "ses_1")
+      coordinator.touch("dir-b", "ses_1")
+      coordinator.scheduleHydrate("dir-a", "ses_1", "visible")
+      coordinator.scheduleHydrate("dir-b", "ses_1", "busy")
+
+      coordinator.invalidateSession("ses_1")
+
+      expect(coordinator.has("dir-a", "ses_1")).toBe(false)
+      expect(coordinator.has("dir-b", "ses_1")).toBe(false)
+      expect(coordinator.isPending("dir-a", "ses_1")).toBe(false)
+      expect(coordinator.isPending("dir-b", "ses_1")).toBe(false)
+      expect(coordinator.isAuthoritativelyInvalidated("ses_1")).toBe(true)
 
       dispose()
     })

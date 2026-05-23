@@ -145,7 +145,7 @@ export function createTodoHydrateCoordinator(options?: { sessionLimit?: number; 
     }
   }
 
-  const invalidate = (directory: string, sessionID: string) => {
+  const forgetSession = (directory: string, sessionID: string) => {
     seen.get(directory)?.delete(sessionID)
     bumpToken(directory, sessionID)
     clearPending(directory, sessionID)
@@ -155,8 +155,7 @@ export function createTodoHydrateCoordinator(options?: { sessionLimit?: number; 
     if (!sessionID) return
     setState("invalidated", sessionID, true)
     for (const directory of seen.keys()) {
-      bumpToken(directory, sessionID)
-      clearPending(directory, sessionID)
+      forgetSession(directory, sessionID)
     }
   }
 
@@ -185,7 +184,7 @@ export function createTodoHydrateCoordinator(options?: { sessionLimit?: number; 
     isPending: (directory: string, sessionID: string) => state.pending[keyFor(directory, sessionID)] !== undefined,
     isAuthoritativelyInvalidated: (sessionID: string) => state.invalidated[sessionID] === true,
     canAcceptLiveTodo: (_directory: string, sessionID: string) => state.invalidated[sessionID] !== true,
-    invalidate,
+    invalidate: forgetSession,
     invalidateSession,
     clearDirectory,
     markGlobalRecovery,
