@@ -211,6 +211,14 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
         node: tree.node,
         isDirLoaded: tree.isLoaded,
         loadedDirs: tree.loadedDirs,
+        filesToReload: () => [
+          ...Object.keys(store.file),
+          ...tabs
+            .all()
+            .map((tab) => path.pathFromTab(tab))
+            .filter((file): file is string => !!file),
+        ],
+        rootDirectory: scope,
         refreshDir: (dir) => {
           void tree.listDir(dir, { force: true })
         },

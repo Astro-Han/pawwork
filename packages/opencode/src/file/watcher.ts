@@ -22,6 +22,7 @@ declare const OPENCODE_LIBC: string | undefined
 export namespace FileWatcher {
   const log = Log.create({ service: "file.watcher" })
   const SUBSCRIBE_TIMEOUT_MS = 10_000
+  const RESCAN_DEDUPE_MS = 1_000
 
   export const Event = {
     Updated: BusEvent.define(
@@ -71,6 +72,39 @@ export namespace FileWatcher {
     return message.includes("Events were dropped") && message.includes("File system must be re-scanned")
   }
 
+  export function createRescanScheduler(input: {
+    publish: (directory: string) => void
+    schedule?: (callback: () => void) => void
+  }) {
+    const pending = new Map<string, { dirty: boolean }>()
+    const schedule = input.schedule ?? ((callback: () => void) => setTimeout(callback, RESCAN_DEDUPE_MS))
+
+    const arm = (directory: string, state: { dirty: boolean }) => {
+      schedule(() => {
+        if (state.dirty) {
+          state.dirty = false
+          input.publish(directory)
+          arm(directory, state)
+          return
+        }
+        pending.delete(directory)
+      })
+    }
+
+    return (directory: string) => {
+      const state = pending.get(directory)
+      if (state) {
+        state.dirty = true
+        return
+      }
+
+      const next = { dirty: false }
+      pending.set(directory, next)
+      input.publish(directory)
+      arm(directory, next)
+    }
+  }
+
   export interface Interface {
     readonly init: () => Effect.Effect<void>
   }
@@ -106,18 +140,22 @@ export namespace FileWatcher {
               Effect.promise(() => Promise.allSettled(subs.map((sub) => sub.unsubscribe()))),
             )
 
-            const rescanQueued = new Set<string>()
+            const requestRescan = createRescanScheduler({
+              publish: (dir) => {
+                log.warn("watcher events dropped, requesting rescan", { dir })
+                Bus.publish(Event.Rescan, { directory: dir }).catch((error) =>
+                  log.warn("failed to publish watcher rescan", { dir, error }),
+                )
+              },
+              schedule: (callback) => {
+                setTimeout(() => Instance.restore(ctx, callback), RESCAN_DEDUPE_MS)
+              },
+            })
             const createCallback = (dir: string): ParcelWatcher.SubscribeCallback => (err, evts) =>
               Instance.restore(ctx, () => {
                 if (err) {
                   if (isDroppedEventsError(err)) {
-                    if (rescanQueued.has(dir)) return
-                    rescanQueued.add(dir)
-                    setTimeout(() => rescanQueued.delete(dir), 1000)
-                    log.warn("watcher events dropped, requesting rescan", { dir, err })
-                    Bus.publish(Event.Rescan, { directory: dir }).catch((error) =>
-                      log.warn("failed to publish watcher rescan", { dir, error }),
-                    )
+                    requestRescan(dir)
                     return
                   }
                   log.error("watcher callback error", { err })

@@ -297,6 +297,13 @@ export type EventFileWatcherUpdated = {
   }
 }
 
+export type EventFileWatcherRescan = {
+  type: "file.watcher.rescan"
+  properties: {
+    directory: string
+  }
+}
+
 export type Todo = {
   id: string
   /**
@@ -1082,6 +1089,7 @@ export type Event =
   | EventProjectUpdated
   | EventFileEdited
   | EventFileWatcherUpdated
+  | EventFileWatcherRescan
   | EventTodoUpdated
   | EventSessionCompacted
   | EventWorktreeReady

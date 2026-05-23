@@ -164,10 +164,68 @@ describe("file watcher invalidation", () => {
         node: () => undefined,
         isDirLoaded: (path) => path === "" || path === "src" || path === "src/components",
         loadedDirs: () => ["", "src", "src/components", "src/unloaded"],
+        rootDirectory: () => "/repo",
+        filesToReload: () => [],
         refreshDir: (path) => refresh.push(path),
       },
     )
 
     expect(refresh).toEqual(["", "src", "src/components"])
+  })
+
+  test("reloads cached and open files on worktree rescan", () => {
+    const loads: string[] = []
+
+    invalidateFromWatcher(
+      {
+        type: "file.watcher.rescan",
+        properties: {
+          directory: "/repo",
+        },
+      },
+      {
+        normalize: (input) => input,
+        hasFile: (path) => path === "src/cached.ts",
+        isOpen: (path) => path === "src/open.ts",
+        loadFile: (path) => loads.push(path),
+        node: () => undefined,
+        isDirLoaded: () => false,
+        loadedDirs: () => [],
+        rootDirectory: () => "/repo",
+        filesToReload: () => ["src/cached.ts", "src/open.ts", "src/cached.ts"],
+        refreshDir: () => {},
+      },
+    )
+
+    expect(loads).toEqual(["src/cached.ts", "src/open.ts"])
+  })
+
+  test("does not refresh the file tree for git directory rescans", () => {
+    const loads: string[] = []
+    const refresh: string[] = []
+
+    invalidateFromWatcher(
+      {
+        type: "file.watcher.rescan",
+        properties: {
+          directory: "/repo/.git",
+        },
+      },
+      {
+        normalize: (input) => input,
+        hasFile: () => true,
+        isOpen: () => true,
+        loadFile: (path) => loads.push(path),
+        node: () => undefined,
+        isDirLoaded: () => true,
+        loadedDirs: () => ["", "src"],
+        rootDirectory: () => "/repo",
+        filesToReload: () => ["src/open.ts"],
+        refreshDir: (path) => refresh.push(path),
+      },
+    )
+
+    expect(loads).toEqual([])
+    expect(refresh).toEqual([])
   })
 })
