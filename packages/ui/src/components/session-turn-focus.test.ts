@@ -35,6 +35,21 @@ describe("blurActiveElementInside", () => {
     expect(container.contains(document.activeElement)).toBe(false)
   })
 
+  test("blurs a focused SVG descendant before its ancestor is hidden from assistive tech", () => {
+    const container = document.createElement("div")
+    const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg")
+    icon.setAttribute("tabindex", "0")
+    container.append(icon)
+    document.body.append(container)
+
+    icon.focus()
+
+    expect(document.activeElement).toBe(icon)
+    expect(blurActiveElementInside(container)).toBe(true)
+    expect(document.activeElement).not.toBe(icon)
+    expect(container.contains(document.activeElement)).toBe(false)
+  })
+
   test("leaves focus alone when the active element is outside the hidden subtree", () => {
     const container = document.createElement("div")
     const inside = document.createElement("button")

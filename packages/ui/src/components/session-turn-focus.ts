@@ -2,7 +2,9 @@ export function blurActiveElementInside(container: HTMLElement | undefined): boo
   if (!container || typeof document === "undefined") return false
 
   const active = document.activeElement
-  if (!(active instanceof HTMLElement)) return false
+  const isFocusableElement =
+    active instanceof HTMLElement || (typeof SVGElement !== "undefined" && active instanceof SVGElement)
+  if (!isFocusableElement) return false
   if (!container.contains(active)) return false
 
   active.blur()
