@@ -405,6 +405,20 @@ describe("perf metrics", () => {
     ])
   })
 
+  test("deduplicates fallback comparison keys from baseline scenarios", () => {
+    const result = comparePerfBaselines({
+      base: [
+        scenario({ branch: "base", profile: "default", scenario: "session-scroll-reading" }),
+        scenario({ branch: "base", profile: "default", scenario: "session-scroll-reading" }),
+      ],
+      head: [scenario({ branch: "head", profile: "default", scenario: "session-scroll-reading" })],
+    })
+
+    expect(result.scenarios.map((entry) => `${entry.profile}:${entry.scenario}`)).toEqual([
+      "default:session-scroll-reading",
+    ])
+  })
+
   test("fails when the matching profile and scenario is missing", () => {
     const base = [
       scenario({ branch: "base", profile: "default", scenario: "session-timeline-recompute" }),

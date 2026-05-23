@@ -465,7 +465,7 @@ export function comparePerfBaselines(input: {
     pushUnique(confirmation.intersectedFailures, failure)
   }
 
-  const comparisonKeys = requestedScenarioKeys ?? input.base.map((scenario) => scenarioKey(scenario))
+  const comparisonKeys = requestedScenarioKeys ?? [...new Set(input.base.map((scenario) => scenarioKey(scenario)))]
 
   for (const key of comparisonKeys) {
     const baseScenario = baseByScenario.get(key)
