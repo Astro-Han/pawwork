@@ -23,6 +23,7 @@ export const Parameters = Schema.Struct({
 })
 
 type Metadata = {
+  revision: number
   todos: Todo.Info[]
 }
 
@@ -43,7 +44,7 @@ export const TodoWriteTool = Tool.define<typeof Parameters, Metadata, Todo.Servi
             metadata: {},
           })
 
-          const todos = yield* todo.update({
+          const snapshot = yield* todo.update({
             sessionID: ctx.sessionID,
             todos: params.todos.map((todo) => ({
               ...todo,
@@ -52,11 +53,9 @@ export const TodoWriteTool = Tool.define<typeof Parameters, Metadata, Todo.Servi
           })
 
           return {
-            title: `${todos.filter((x) => x.status !== "completed").length} todos`,
-            output: JSON.stringify(todos, null, 2),
-            metadata: {
-              todos,
-            },
+            title: `${snapshot.todos.filter((x) => x.status !== "completed").length} todos`,
+            output: JSON.stringify(snapshot.todos, null, 2),
+            metadata: snapshot,
           }
         }),
     } satisfies Tool.DefWithoutID<typeof Parameters, Metadata>

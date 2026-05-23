@@ -37,4 +37,9 @@ describe("session-status-summary · row contract", () => {
     expect(SOURCE).toMatch(/status === "completed"\s*\|\|\s*props\.todo\.status === "cancelled"/)
     expect(SOURCE).toContain("line-through text-fg-weak")
   })
+
+  test("does not render the empty progress fallback while todo hydrate is pending", () => {
+    expect(SOURCE).toContain("selectSessionTodoDataSnapshot")
+    expect(SOURCE).toContain('snapshot().phase !== "pending"')
+  })
 })

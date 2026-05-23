@@ -9,7 +9,14 @@ import { JsonMigration } from "../../src/storage/json-migration"
 import { Global } from "../../src/global"
 import { ProjectTable } from "../../src/project/project.sql"
 import { ProjectID } from "../../src/project/schema"
-import { SessionTable, MessageTable, PartTable, TodoTable, PermissionTable } from "../../src/session/session.sql"
+import {
+  SessionTable,
+  MessageTable,
+  PartTable,
+  TodoTable,
+  SessionTodoRevisionTable,
+  PermissionTable,
+} from "../../src/session/session.sql"
 import { SessionShareTable } from "../../src/share/share.sql"
 import { SessionID, MessageID, PartID, TodoID } from "../../src/session/schema"
 
@@ -510,6 +517,7 @@ describe("JSON to SQLite migration", () => {
     expect(stats?.todos).toBe(2)
 
     const todos = db.select().from(TodoTable).orderBy(TodoTable.position).all()
+    const revisions = db.select().from(SessionTodoRevisionTable).all()
     expect(todos.length).toBe(2)
     expect(todos[0].id).toBe(TodoID.ascending("todo_1"))
     expect(todos[0].content).toBe("First todo")
@@ -519,6 +527,24 @@ describe("JSON to SQLite migration", () => {
     expect(todos[1].id).toBe(TodoID.ascending("todo_2"))
     expect(todos[1].content).toBe("Second todo")
     expect(todos[1].position).toBe(1)
+    expect(revisions).toEqual([{ session_id: SessionID.make("ses_test456def"), revision: 1 }])
+  })
+
+  test("does not create a todo revision for empty migrated todo files", async () => {
+    await writeProject(storageDir, {
+      id: "proj_test123abc",
+      worktree: "/",
+      time: { created: Date.now(), updated: Date.now() },
+      sandboxes: [],
+    })
+    await writeSession(storageDir, "proj_test123abc", { ...fixtures.session })
+    await Bun.write(path.join(storageDir, "todo", "ses_test456def.json"), JSON.stringify([]))
+
+    const stats = await JsonMigration.run(db)
+
+    expect(stats?.todos).toBe(0)
+    expect(db.select().from(TodoTable).all()).toEqual([])
+    expect(db.select().from(SessionTodoRevisionTable).all()).toEqual([])
   })
 
   test("replaces duplicate legacy todo ids during migration", async () => {

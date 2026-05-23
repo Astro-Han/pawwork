@@ -12,7 +12,6 @@ import {
 } from "../selectors"
 import { sessionPath, terminalToggleKey } from "../utils"
 import type { createSdk } from "../utils"
-import { composerEvent, type ComposerDriverState, type ComposerWindow } from "../../src/testing/session-composer"
 import { installPerfProbe, resetPerfProbe, snapshotPerfProbe, summarizeScenarioRuns } from "./probe"
 import { applyPerfProfile, readPerfProfile, shouldRunScenario, type PerfScenarioName } from "./profiles"
 import { readTimelineDomBudget, shouldAssertTimelineVirtualization } from "./timeline-dom-budget"
@@ -425,15 +424,6 @@ async function revealLongScrollWindow(page: Parameters<typeof snapshotPerfProbe>
     .toBeGreaterThanOrEqual(longScrollMinimumAvailableRows)
 }
 
-async function installComposerPerfDriver(page: Parameters<typeof snapshotPerfProbe>[0]) {
-  await page.addInitScript(() => {
-    const win = window as ComposerWindow
-    const saved = window.sessionStorage.getItem("__opencode_e2e_composer_sessions")
-    const sessions = saved ? JSON.parse(saved) : {}
-    win.__opencode_e2e = { ...win.__opencode_e2e, composer: { enabled: true, sessions } }
-  })
-}
-
 async function installTimelinePerfDriver(page: Parameters<typeof snapshotPerfProbe>[0]) {
   const apply = () => {
     const win = window as Window & { __opencode_e2e?: { timeline?: { enabled?: boolean } } }
@@ -441,52 +431,6 @@ async function installTimelinePerfDriver(page: Parameters<typeof snapshotPerfPro
   }
   await page.addInitScript(apply)
   await page.evaluate(apply)
-}
-
-async function writeComposerDriver(
-  page: Parameters<typeof snapshotPerfProbe>[0],
-  sessionID: string,
-  driver: ComposerDriverState | undefined,
-) {
-  await page.evaluate(
-    (input: { event: string; sessionID: string; driver: ComposerDriverState | undefined }) => {
-      const win = window as ComposerWindow
-      const composer = win.__opencode_e2e?.composer
-      if (!composer?.enabled) throw new Error("Composer e2e driver is not enabled")
-      composer.sessions ??= {}
-      const prev = composer.sessions[input.sessionID] ?? {}
-      if (!input.driver) {
-        delete composer.sessions[input.sessionID]
-      } else {
-        composer.sessions[input.sessionID] = { ...prev, driver: input.driver }
-      }
-      window.sessionStorage.setItem("__opencode_e2e_composer_sessions", JSON.stringify(composer.sessions))
-      window.dispatchEvent(new CustomEvent(input.event, { detail: { sessionID: input.sessionID } }))
-    },
-    { event: composerEvent, sessionID, driver },
-  )
-}
-
-function longScrollTodoDriver(run: number, phase: number): ComposerDriverState {
-  const count = 4 + phase
-  return {
-    todos: Array.from({ length: count }, (_, index) => ({
-      content: `scroll perf active task ${run}-${phase}-${index}`,
-      priority: index === 0 ? "high" : index % 3 === 0 ? "low" : "medium",
-      status: index < phase ? "completed" : index === phase ? "in_progress" : "pending",
-    })),
-  }
-}
-
-function longScrollTodoPulse(page: Parameters<typeof snapshotPerfProbe>[0], sessionID: string, run: number) {
-  const checkpoints = [700, 1_600, 2_800, 4_200]
-  let next = 0
-  return async (elapsedMs: number) => {
-    while (next < checkpoints.length && elapsedMs >= checkpoints[next]) {
-      next += 1
-      await writeComposerDriver(page, sessionID, longScrollTodoDriver(run, next))
-    }
-  }
 }
 
 function calculateLongScrollStepPx(maxScrollTop: number) {
@@ -500,12 +444,9 @@ async function trackWheelMovement(
     direction: 1 | -1
     stepPx: number
     previous: TimelineMetrics
-    startedAt: number
-    onPulse?: (elapsedMs: number) => Promise<void>
   },
 ) {
   await page.mouse.wheel(0, input.direction * input.stepPx)
-  await input.onPulse?.(Date.now() - input.startedAt)
   await page.waitForTimeout(16)
 
   const next = await readTimelineMetrics(page)
@@ -519,8 +460,6 @@ async function driveWheelToRatio(
     direction: 1 | -1
     targetRatio: number
     stepPx: number
-    startedAt: number
-    onPulse?: (elapsedMs: number) => Promise<void>
   },
 ) {
   const started = Date.now()
@@ -536,8 +475,6 @@ async function driveWheelToRatio(
       direction: input.direction,
       stepPx: input.stepPx,
       previous,
-      startedAt: input.startedAt,
-      onPulse: input.onPulse,
     })
     events += 1
     if (delta > 0.5) {
@@ -567,7 +504,6 @@ async function sustainMovingScrollWindow(
   input: {
     startedAt: number
     stepPx: number
-    onPulse?: (elapsedMs: number) => Promise<void>
   },
 ): Promise<WheelRouteResult> {
   const started = Date.now()
@@ -588,8 +524,6 @@ async function sustainMovingScrollWindow(
       direction,
       stepPx: input.stepPx,
       previous,
-      startedAt: input.startedAt,
-      onPulse: input.onPulse,
     })
     events += 1
     if (delta > 0.5) {
@@ -608,15 +542,6 @@ async function sustainMovingScrollWindow(
     durationMs: Date.now() - started,
     final: previous,
   }
-}
-
-async function expandLongScrollTodoDock(page: Parameters<typeof snapshotPerfProbe>[0]) {
-  const dock = page.locator('[data-component="session-todo-dock"]').first()
-  await expect(dock).toBeVisible({ timeout: 10_000 })
-  await dock.locator('[data-action="session-todo-toggle-button"]').click()
-  const list = dock.locator('[data-slot="session-todo-list"]')
-  await expect(list).toHaveAttribute("aria-hidden", "false", { timeout: 5_000 })
-  await expect.poll(async () => (await dock.boundingBox())?.height ?? -1).toBeGreaterThan(60)
 }
 
 async function enableShellToolPartsExpanded(page: Parameters<typeof snapshotPerfProbe>[0]) {
@@ -975,7 +900,6 @@ test.describe("PR0.1 perf probe baseline", () => {
   test("session-scroll-reading-long emits a low-end full-coverage JSON baseline", async ({ page, project }) => {
     skipUnlessScenario("session-scroll-reading-long")
     test.setTimeout(180_000)
-    await installComposerPerfDriver(page)
     await installPerfProbe(page)
     await installTimelinePerfDriver(page)
     await applyPerfProfile(page, PERF_PROFILE)
@@ -996,9 +920,6 @@ test.describe("PR0.1 perf probe baseline", () => {
           expect(budget.mountedMessages).toBeLessThanOrEqual(longScrollMaximumMountedMessages)
           expect(budget.mountedMessages).toBeLessThan(budget.totalRows)
         }
-        await writeComposerDriver(page, session.id, longScrollTodoDriver(run, 0))
-        await expandLongScrollTodoDock(page)
-
         await hoverTimelineScrollLane(page)
         await markTimelineWheelIntent(page, -2400)
         await setTimelineScrollTopForSetup(page, 0)
@@ -1008,14 +929,11 @@ test.describe("PR0.1 perf probe baseline", () => {
         const stepPx = calculateLongScrollStepPx(atTop.maxScrollTop)
 
         await resetPerfProbe(page)
-        const startedAt = Date.now()
-        const pulse = longScrollTodoPulse(page, session.id, run)
+        const probeStartedAt = Date.now()
         const down = await driveWheelToRatio(page, {
           direction: 1,
           targetRatio: longScrollCoverageRatio,
           stepPx,
-          startedAt,
-          onPulse: pulse,
         })
         await settleFrames(page, 2)
         const atBottom = down.final
@@ -1028,7 +946,6 @@ test.describe("PR0.1 perf probe baseline", () => {
           direction: -1,
           targetRatio: 1 - longScrollCoverageRatio,
           stepPx,
-          startedAt,
         })
         await settleFrames(page, 4)
         const backAtTop = up.final
@@ -1037,7 +954,7 @@ test.describe("PR0.1 perf probe baseline", () => {
         expect(up.distinctScrollTopSamples).toBeGreaterThanOrEqual(longScrollMinimumDistinctScrollTops)
         expect(remainingTopRatio).toBeLessThanOrEqual(1 - longScrollCoverageRatio)
 
-        const sustain = await sustainMovingScrollWindow(page, { startedAt, stepPx, onPulse: pulse })
+        const sustain = await sustainMovingScrollWindow(page, { startedAt: probeStartedAt, stepPx })
         const totalMovingSamples = down.movingSamples + up.movingSamples + sustain.movingSamples
         const totalDistinctScrollTops =
           down.distinctScrollTopSamples + up.distinctScrollTopSamples + sustain.distinctScrollTopSamples
@@ -1047,7 +964,6 @@ test.describe("PR0.1 perf probe baseline", () => {
         const sample = await snapshotPerfProbe(page)
         expect(sample.window_ms).toBeGreaterThanOrEqual(15_000)
         runs.push(sample)
-        await writeComposerDriver(page, session.id, undefined)
         if (run < 2) await cooldownAfterRun(page)
       })
     }

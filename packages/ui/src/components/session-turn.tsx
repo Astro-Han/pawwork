@@ -22,6 +22,7 @@ import { useI18n } from "../context/i18n"
 import { hasVisibleTurnChanges, type TurnChangeActions, type TurnChangeDisplay } from "./session-turn-changes"
 import { SessionTurnChangesPanel } from "./session-turn-changes-panel"
 import { SessionTurnDiffs } from "./session-turn-diffs"
+import { blurActiveElementInside } from "./session-turn-focus"
 import {
   compactionDividerLabelKey,
   compactionDividerState,
@@ -308,6 +309,13 @@ export function SessionTurn(
     return data.store.session_status[props.sessionID] ?? idle
   })
   const working = createMemo(() => isWorkInFlightStatus(status()) && active())
+  const [assistantContent, setAssistantContent] = createSignal<HTMLElement>()
+  const [assistantHidden, setAssistantHidden] = createSignal(false)
+  createEffect(() => {
+    const shouldHide = working()
+    if (shouldHide) blurActiveElementInside(assistantContent())
+    setAssistantHidden(shouldHide)
+  })
   const compactionDivider = createMemo<CompactionDividerState | undefined>(() => {
     if (!compaction()) return undefined
     return compactionDividerState({ summaryAssistant: compactionSummary(), isWorking: working() })
@@ -502,7 +510,14 @@ export function SessionTurn(
                   </div>
                 </Show>
                 <Show when={visibleAssistantMessages().length > 0}>
-                  <div data-slot="session-turn-assistant-content" aria-hidden={working()}>
+                  <div
+                    ref={setAssistantContent}
+                    data-slot="session-turn-assistant-content"
+                    aria-hidden={assistantHidden()}
+                    onFocusIn={() => {
+                      if (assistantHidden()) blurActiveElementInside(assistantContent())
+                    }}
+                  >
                     <AssistantParts
                       messages={visibleAssistantMessages()}
                       working={working()}

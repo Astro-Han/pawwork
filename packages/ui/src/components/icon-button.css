@@ -5,7 +5,7 @@
   width: 30px;
   height: 30px;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   background-color: transparent;
   flex-shrink: 0;
   cursor: default;
@@ -76,7 +76,7 @@
   }
 }
 
-/* titlebar-icon: 32×24 non-square, DESIGN.md §172 — only 4 uses in titlebar.tsx */
+/* titlebar-icon: 32×30 non-square, DESIGN.md §346 — only 4 uses in titlebar.tsx */
 [data-component="icon-button"].titlebar-icon {
   width: 32px;
   height: 30px;

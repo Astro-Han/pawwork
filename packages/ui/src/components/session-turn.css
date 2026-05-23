@@ -406,7 +406,7 @@
 
   [data-slot="session-turn-diffs-toggle"]:focus-visible {
     opacity: 1;
-    outline: 1px solid var(--border-active);
+    outline: 1px solid var(--brand-primary);
     outline-offset: 2px;
   }
 

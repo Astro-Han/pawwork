@@ -12,7 +12,8 @@ import {
 import { useGlobalSync } from "./global-sync"
 import { useSDK } from "./sdk"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
-import { SESSION_CACHE_LIMIT, dropSessionCaches, pickSessionCacheEvictions } from "./global-sync/session-cache"
+import { dropSessionCaches } from "./global-sync/session-cache"
+import type { TodoHydrateReason } from "./global-sync/todo-hydrate-coordinator"
 import { diffs as list, message as clean } from "@/utils/diffs"
 
 const SKIP_PARTS = new Set(["patch", "step-start", "step-finish"])
@@ -34,6 +35,14 @@ function runInflight(map: Map<string, Promise<void>>, key: string, task: () => P
 const keyFor = (directory: string, id: string) => `${directory}\n${id}`
 
 const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+
+function isNotFoundError(error: unknown) {
+  if (!error || typeof error !== "object") return false
+  const value = error as { name?: unknown; status?: unknown; statusCode?: unknown; response?: { status?: unknown } }
+  if (value.name === "NotFoundError") return true
+  if (value.status === 404 || value.statusCode === 404) return true
+  return value.response?.status === 404
+}
 
 function merge<T extends { id: string }>(a: readonly T[], b: readonly T[]) {
   const map = new Map(a.map((item) => [item.id, item] as const))
@@ -257,8 +266,6 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
     const inflightDiff = new Map<string, Promise<void>>()
     const inflightTodo = new Map<string, Promise<void>>()
     const optimistic = new Map<string, Map<string, OptimisticItem>>()
-    const maxDirs = 30
-    const seen = new Map<string, Set<string>>()
     const [meta, setMeta] = createStore({
       limit: {} as Record<string, number>,
       cursor: {} as Record<string, string | undefined>,
@@ -300,26 +307,6 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       ...(optimistic.get(keyFor(directory, sessionID))?.values() ?? []),
     ]
 
-    const seenFor = (directory: string) => {
-      const existing = seen.get(directory)
-      if (existing) {
-        seen.delete(directory)
-        seen.set(directory, existing)
-        return existing
-      }
-      const created = new Set<string>()
-      seen.set(directory, created)
-      while (seen.size > maxDirs) {
-        const first = seen.keys().next().value
-        if (!first) break
-        const stale = [...(seen.get(first) ?? [])]
-        seen.delete(first)
-        const [, setStore] = globalSync.child(first, { bootstrap: false })
-        evict(first, setStore, stale)
-      }
-      return created
-    }
-
     const clearMeta = (directory: string, sessionIDs: string[]) => {
       if (sessionIDs.length === 0) return
       for (const sessionID of sessionIDs) {
@@ -342,7 +329,6 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       if (sessionIDs.length === 0) return
       clearSessionPrefetch(directory, sessionIDs)
       for (const sessionID of sessionIDs) {
-        globalSync.todo.set(sessionID, undefined)
         clearOptimistic(directory, sessionID)
       }
       setStore(
@@ -354,12 +340,15 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
     }
 
     const touch = (directory: string, setStore: Setter, sessionID: string) => {
-      const stale = pickSessionCacheEvictions({
-        seen: seenFor(directory),
-        keep: sessionID,
-        limit: SESSION_CACHE_LIMIT,
-      })
-      evict(directory, setStore, stale)
+      const evictions = globalSync.todoHydrate.touch(directory, sessionID)
+      for (const item of evictions) {
+        if (item.directory === directory) {
+          evict(directory, setStore, item.sessionIDs)
+          continue
+        }
+        const [, staleSetStore] = globalSync.child(item.directory, { bootstrap: false })
+        evict(item.directory, staleSetStore, item.sessionIDs)
+      }
     }
 
     const fetchMessages = async (input: {
@@ -383,7 +372,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       }
     }
 
-    const tracked = (directory: string, sessionID: string) => seen.get(directory)?.has(sessionID) ?? false
+    const tracked = (directory: string, sessionID: string) => globalSync.todoHydrate.has(directory, sessionID)
 
     const loadMessages = async (input: {
       directory: string
@@ -599,33 +588,56 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
             }),
           )
         },
-        async todo(sessionID: string, opts?: { force?: boolean }) {
+        async todo(sessionID: string, opts?: { force?: boolean; reason?: TodoHydrateReason }) {
           const directory = sdk.directory
           const client = sdk.client
           const [store, setStore] = globalSync.child(directory)
           touch(directory, setStore, sessionID)
-          const existing = store.todo[sessionID]
           const cached = globalSync.data.session_todo[sessionID]
-          if (existing !== undefined) {
-            if (cached === undefined) {
-              globalSync.todo.set(sessionID, existing)
-            }
-            if (!opts?.force) return
-          }
-
           if (cached !== undefined) {
-            setStore("todo", sessionID, reconcile(cached, { key: "id" }))
+            setStore("todo", sessionID, reconcile(cached.todos, { key: "id" }))
+            if (!opts?.force && opts?.reason !== "recovery") return
           }
 
           const key = keyFor(directory, sessionID)
-          return runInflight(inflightTodo, key, () =>
-            retry(() => client.session.todo({ sessionID })).then((todo) => {
-              if (!tracked(directory, sessionID)) return
-              const list = todo.data ?? []
-              setStore("todo", sessionID, reconcile(list, { key: "id" }))
-              globalSync.todo.set(sessionID, list)
-            }),
-          )
+          const reason = opts?.reason ?? (opts?.force ? "busy" : "visible")
+          const inflightKey = `${key}\n${opts?.force || reason === "recovery" ? "force" : "normal"}`
+          return runInflight(inflightTodo, inflightKey, async () => {
+            const token = globalSync.todoHydrate.beginHydrate(directory, sessionID, reason)
+            try {
+              const todo = await retry(() => client.session.todo({ sessionID }))
+              if (!globalSync.todoHydrate.isCurrent(token)) return
+              const snapshot = todo.data
+              if (!snapshot) {
+                globalSync.todoHydrate.completeHydrate(token, {
+                  cacheAccepted: false,
+                  recoveryValidated: false,
+                  liveWritesReopened: false,
+                })
+                return
+              }
+              const accepted = globalSync.todo.accept(sessionID, snapshot)
+              const current = globalSync.data.session_todo[sessionID]
+              if (current) setStore("todo", sessionID, reconcile(current.todos, { key: "id" }))
+              globalSync.todoHydrate.completeHydrate(token, {
+                cacheAccepted: accepted || current?.revision === snapshot.revision,
+                recoveryValidated: true,
+                liveWritesReopened: true,
+              })
+            } catch (err) {
+              if (!isNotFoundError(err)) throw err
+              if (!globalSync.todoHydrate.isCurrent(token)) return
+              globalSync.todo.clearAuthoritative(sessionID)
+              globalSync.todoHydrate.invalidateSession(sessionID)
+              clearSessionPrefetch(directory, [sessionID])
+              setStore(
+                produce((draft) => {
+                  dropSessionCaches(draft, [sessionID])
+                }),
+              )
+              clearMeta(directory, [sessionID])
+            }
+          })
         },
         history: {
           more(sessionID: string) {
@@ -665,7 +677,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
         },
         evict(sessionID: string, directory = sdk.directory) {
           const [, setStore] = globalSync.child(directory)
-          seenFor(directory).delete(sessionID)
+          globalSync.todoHydrate.invalidate(directory, sessionID)
           evict(directory, setStore, [sessionID])
         },
         fetch: async (count = 10) => {

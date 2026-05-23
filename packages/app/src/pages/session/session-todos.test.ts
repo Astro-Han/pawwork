@@ -40,35 +40,37 @@ const backendTodo = (content: string, status: Todo["status"] = "pending"): Todo 
   priority: "medium",
 })
 
+const canonical = (todos: Todo[]) => ({ revision: 1, todos })
+
 describe("selectSessionTodos", () => {
-  test("prefers message-derived todos over lagging backend todos", () => {
+  test("uses backend todos over render-only parts placeholders", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("from parts", "in_progress")] } }))]
 
-    expect(selectSessionTodos({ backend: [backendTodo("from backend", "pending")], parts })).toEqual([
-      todo("from parts", "in_progress"),
+    expect(selectSessionTodos({ canonical: canonical([backendTodo("from backend", "pending")]), parts })).toEqual([
+      backendTodo("from backend", "pending"),
     ])
   })
 
   test("uses backend terminal todos when matching message-derived todos are stale active", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("task A", "in_progress")] } }))]
 
-    expect(selectSessionTodos({ backend: [backendTodo("task A", "completed")], parts })).toEqual([
+    expect(selectSessionTodos({ canonical: canonical([backendTodo("task A", "completed")]), parts })).toEqual([
       backendTodo("task A", "completed"),
     ])
   })
 
-  test("keeps message-derived active todos when terminal backend todos do not match", () => {
+  test("uses terminal backend even when parts describe a different active todo", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("new task", "in_progress")] } }))]
 
-    expect(selectSessionTodos({ backend: [backendTodo("old task", "completed")], parts })).toEqual([
-      todo("new task", "in_progress"),
+    expect(selectSessionTodos({ canonical: canonical([backendTodo("old task", "completed")]), parts })).toEqual([
+      backendTodo("old task", "completed"),
     ])
   })
 
   test("returns completed-only historical parts for status summary display", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("done from parts", "completed")] } }))]
 
-    expect(selectSessionTodos({ backend: [], parts })).toEqual([todo("done from parts", "completed")])
+    expect(selectSessionTodos({ canonical: undefined, parts })).toEqual([todo("done from parts", "completed")])
   })
 
   test("falls back to latest todowrite parts when backend todos are unknown", () => {
@@ -77,16 +79,16 @@ describe("selectSessionTodos", () => {
       toolPart("todowrite", completedState({ input: { todos: [todo("new", "in_progress")] } })),
     ]
 
-    expect(selectSessionTodos({ backend: undefined, parts })).toEqual([todo("new", "in_progress")])
+    expect(selectSessionTodos({ canonical: undefined, parts })).toEqual([todo("new", "in_progress")])
   })
 
-  test("returns empty when known backend todos clear stale active parts", () => {
+  test("returns empty when backend snapshot is empty", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("old", "in_progress")] } }))]
 
-    expect(selectSessionTodos({ backend: [], backendClearActivePartsAt: 1, parts })).toEqual([])
+    expect(selectSessionTodos({ canonical: canonical([]), parts })).toEqual([])
   })
 
-  test("keeps active parts created after a live empty backend clear", () => {
+  test("does not use part timestamps to override an empty backend snapshot", () => {
     const parts = [
       toolPart(
         "todowrite",
@@ -94,15 +96,13 @@ describe("selectSessionTodos", () => {
       ),
     ]
 
-    expect(selectSessionTodos({ backend: [], backendClearActivePartsAt: 1, parts })).toEqual([
-      todo("new", "in_progress"),
-    ])
+    expect(selectSessionTodos({ canonical: canonical([]), parts })).toEqual([])
   })
 
-  test("keeps active parts over ordinary empty backend cache", () => {
+  test("returns empty when ordinary backend cache is empty", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("new", "in_progress")] } }))]
 
-    expect(selectSessionTodos({ backend: [], parts })).toEqual([todo("new", "in_progress")])
+    expect(selectSessionTodos({ canonical: canonical([]), parts })).toEqual([])
   })
 
   test("falls back to a secondary session source when the primary source is empty", () => {
@@ -110,7 +110,7 @@ describe("selectSessionTodos", () => {
       toolPart("todowrite", completedState({ input: { todos: [todo("route todo", "in_progress")] } })),
     ]
 
-    expect(selectSessionTodos({ backend: [], parts: [], fallback: { parts: fallbackParts } })).toEqual([
+    expect(selectSessionTodos({ parts: [], fallback: { parts: fallbackParts } })).toEqual([
       todo("route todo", "in_progress"),
     ])
   })

@@ -24,6 +24,7 @@ export namespace RunObservability {
   export type Summary = Types.Summary
   export type Recorder = Types.Recorder
   export type RecorderInput = Types.RecorderInput
+  export type SideEffectBoundarySnapshot = Types.SideEffectBoundarySnapshot
   export type Classification = Types.Classification
   export type SummaryKey = Types.SummaryKey
 }

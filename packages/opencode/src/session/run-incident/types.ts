@@ -5,6 +5,7 @@ import type {
   RunID,
   SafeErrorFingerprint,
   SafeToolName,
+  SideEffectBoundarySnapshot,
   ToolEffect,
   ToolEffectKind,
 } from "../run-observability/types"
@@ -41,6 +42,7 @@ export type IncidentEvidenceEvent = {
   tool_effect_kind?: ToolEffectKind
   tool_effect_unsafe?: boolean
   tool_effect_complete?: boolean
+  side_effect_boundary_snapshot?: SideEffectBoundarySnapshot
   interruption_phase?: "tool_input_generation" | "tool_call_materialized_without_execution" | "tool_execution"
   tool_execution_started?: boolean
 }
