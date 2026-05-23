@@ -1,11 +1,113 @@
 import { describe, expect, test } from "bun:test"
 import {
+  createSDKNotificationEventHandler,
   isCurrentOrDescendantSession,
   permissionSessionKey,
   questionCallKey,
   questionNotificationAction,
+  sessionNotificationHref,
   shouldThrottlePermissionAlert,
 } from "./layout-sdk-event-effects"
+
+type TestEvent = Parameters<ReturnType<typeof createSDKNotificationEventHandler>>[0]
+
+function questionUpdatedEvent(directory: string, sessionID: string, partID = "prt_1"): TestEvent {
+  return {
+    name: directory,
+    details: {
+      type: "message.part.updated",
+      properties: {
+        sessionID,
+        part: {
+          id: partID,
+          type: "tool",
+          tool: "question",
+          state: { status: "running", metadata: { externalResultReady: true } },
+        },
+      },
+    },
+  } as unknown as TestEvent
+}
+
+function permissionAskedEvent(directory: string, sessionID: string): TestEvent {
+  return {
+    name: directory,
+    details: {
+      type: "permission.asked",
+      properties: {
+        id: "perm_1",
+        sessionID,
+        permission: "edit",
+        patterns: [],
+        metadata: {},
+        always: [],
+      },
+    },
+  } as unknown as TestEvent
+}
+
+function createSDKNotificationHarness(input?: {
+  currentSessionID?: string
+  agentNotifications?: boolean
+  permissionNotifications?: boolean
+  now?: () => number
+}) {
+  let sessionsCalls = 0
+  const notifications: Array<{ title: string; description?: string; href?: string }> = []
+  const sessions = [
+    { id: "ses_root", title: "Root session" },
+    { id: "ses_child", parentID: "ses_root", title: "Child session" },
+    { id: "ses_other", title: "Other session" },
+  ]
+
+  const handler = createSDKNotificationEventHandler({
+    route: {
+      currentDirectory: () => "/repo",
+      currentSessionID: () => input?.currentSessionID,
+      sessionHref: sessionNotificationHref,
+    },
+    sdk: {
+      sessions: () => {
+        sessionsCalls += 1
+        return sessions
+      },
+    },
+    settings: {
+      notifications: {
+        agent: () => input?.agentNotifications ?? true,
+        permissions: () => input?.permissionNotifications ?? true,
+      },
+      sounds: {
+        permissionsEnabled: () => false,
+        permissions: () => "default",
+      },
+    },
+    permission: {
+      autoResponds: () => false,
+    },
+    effects: {
+      notify: (title, description, href) => {
+        notifications.push({ title, description, href })
+      },
+      playPermissionSound: () => undefined,
+      setBusy: () => undefined,
+      worktreeReady: () => undefined,
+      worktreeFailed: () => undefined,
+    },
+    copy: {
+      t: (key, params) => `${key}:${params?.sessionTitle ?? ""}:${params?.projectName ?? ""}`,
+    },
+    now: input?.now,
+  })
+
+  return {
+    emit(event: TestEvent) {
+      handler(event)
+    },
+    notifications,
+    sessionsCalls: () => sessionsCalls,
+  }
+}
 
 describe("layout sdk event effects", () => {
   test("matches the current session in the active workspace", () => {
@@ -100,5 +202,46 @@ describe("layout sdk event effects", () => {
     expect(shouldThrottlePermissionAlert(1000, 5999, 5000)).toBe(true)
     expect(shouldThrottlePermissionAlert(1000, 6000, 5000)).toBe(false)
     expect(shouldThrottlePermissionAlert(undefined, 1000, 5000)).toBe(false)
+  })
+
+  test("does not look up sessions for current-route question notifications", () => {
+    const hook = createSDKNotificationHarness({ currentSessionID: "ses_root" })
+    hook.emit(questionUpdatedEvent("/repo", "ses_root"))
+
+    expect(hook.sessionsCalls()).toBe(0)
+    expect(hook.notifications).toHaveLength(0)
+  })
+
+  test("does not look up sessions when question notifications are disabled", () => {
+    const hook = createSDKNotificationHarness({ agentNotifications: false })
+    hook.emit(questionUpdatedEvent("/repo", "ses_other"))
+
+    expect(hook.sessionsCalls()).toBe(0)
+    expect(hook.notifications).toHaveLength(0)
+  })
+
+  test("does not look up permission title while cooldown applies", () => {
+    let time = 1000
+    const hook = createSDKNotificationHarness({ now: () => time })
+    hook.emit(permissionAskedEvent("/repo", "ses_other"))
+    time = 2000
+    hook.emit(permissionAskedEvent("/repo", "ses_other"))
+
+    expect(hook.sessionsCalls()).toBe(1)
+    expect(hook.notifications).toHaveLength(1)
+  })
+
+  test("reuses one session snapshot when notifying for a question", () => {
+    const hook = createSDKNotificationHarness({ currentSessionID: "ses_root" })
+    hook.emit(questionUpdatedEvent("/repo", "ses_other"))
+
+    expect(hook.sessionsCalls()).toBe(1)
+    expect(hook.notifications).toEqual([
+      {
+        title: "notification.question.title::",
+        description: "notification.question.description:Other session:repo",
+        href: sessionNotificationHref("/repo", "ses_other"),
+      },
+    ])
   })
 })

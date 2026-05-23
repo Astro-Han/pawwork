@@ -33,6 +33,46 @@ type QuestionNotificationPart = Pick<Part, "type"> & {
   }
 }
 
+type LayoutSdkEventEffectsInput = {
+  route: {
+    currentDirectory: () => string
+    currentSessionID: () => string | undefined
+    sessionHref: (directory: string, sessionID: string) => string
+  }
+  sdk: {
+    sessions: (directory: string) => readonly LayoutSession[]
+  }
+  settings: {
+    notifications: {
+      agent: () => boolean
+      permissions: () => boolean
+    }
+    sounds: {
+      permissionsEnabled: () => boolean
+      permissions: () => string
+    }
+  }
+  permission: {
+    autoResponds: (request: PermissionRequest, directory: string) => boolean
+  }
+  effects: {
+    notify: (title: string, description?: string, href?: string) => Promise<void> | void
+    playPermissionSound: (soundID: string) => unknown
+    setBusy: (directory: string, value: boolean) => void
+    worktreeReady: (directory: string) => void
+    worktreeFailed: (directory: string, message: string) => void
+  }
+  copy: LayoutSdkEventCopy
+  cooldownMs?: number
+  now?: () => number
+}
+
+type LayoutSdkEventHookInput = Omit<LayoutSdkEventEffectsInput, "sdk"> & {
+  sdk: LayoutSdkEventEffectsInput["sdk"] & {
+    listen: (handler: (event: LayoutSdkEvent) => void) => () => void
+  }
+}
+
 export function permissionSessionKey(directory: string, sessionID: string) {
   return `${directory}:${sessionID}`
 }
@@ -87,139 +127,137 @@ export function isCurrentOrDescendantSession(input: {
   return false
 }
 
-export function useSDKNotificationToasts(input: {
-  route: {
-    currentDirectory: () => string
-    currentSessionID: () => string | undefined
-    sessionHref: (directory: string, sessionID: string) => string
+function currentRouteVisibility(
+  input: LayoutSdkEventEffectsInput,
+  directory: string,
+  sessionID: string,
+): { visible: boolean; sessions?: readonly LayoutSession[] } {
+  const currentSessionID = input.route.currentSessionID()
+  if (!currentSessionID) return { visible: false }
+
+  const currentDirectory = input.route.currentDirectory()
+  if (workspaceKey(directory) !== workspaceKey(currentDirectory)) return { visible: false }
+  if (sessionID === currentSessionID) return { visible: true }
+
+  const sessions = input.sdk.sessions(directory)
+  return {
+    visible: isCurrentOrDescendantSession({
+      directory,
+      sessionID,
+      currentDirectory,
+      currentSessionID,
+      sessions,
+    }),
+    sessions,
   }
-  sdk: {
-    listen: (handler: (event: LayoutSdkEvent) => void) => () => void
-    sessions: (directory: string) => readonly LayoutSession[]
-  }
-  settings: {
-    notifications: {
-      agent: () => boolean
-      permissions: () => boolean
+}
+
+function titleFromSessions(
+  sessions: readonly LayoutSession[] | undefined,
+  sessionID: string,
+  fallback: string,
+) {
+  return sessions?.find((item) => item.id === sessionID)?.title ?? fallback
+}
+
+export function createSDKNotificationEventHandler(input: LayoutSdkEventEffectsInput) {
+  const alertedAtBySession = new Map<string, number>()
+  const alertedQuestionCalls = new Set<string>()
+  const cooldownMs = input.cooldownMs ?? 5000
+  const now = input.now ?? Date.now
+
+  return (event: LayoutSdkEvent) => {
+    const details = event.details
+    if (!details) return
+
+    if (details.type === "worktree.ready") {
+      input.effects.setBusy(event.name, false)
+      input.effects.worktreeReady(event.name)
+      return
     }
-    sounds: {
-      permissionsEnabled: () => boolean
-      permissions: () => string
+
+    if (details.type === "worktree.failed") {
+      input.effects.setBusy(event.name, false)
+      input.effects.worktreeFailed(event.name, details.properties?.message ?? input.copy.t("common.requestFailed"))
+      return
     }
-  }
-  permission: {
-    autoResponds: (request: PermissionRequest, directory: string) => boolean
-  }
-  effects: {
-    notify: (title: string, description?: string, href?: string) => Promise<void> | void
-    playPermissionSound: (soundID: string) => unknown
-    setBusy: (directory: string, value: boolean) => void
-    worktreeReady: (directory: string) => void
-    worktreeFailed: (directory: string, message: string) => void
-  }
-  copy: LayoutSdkEventCopy
-  cooldownMs?: number
-  now?: () => number
-}) {
-  onMount(() => {
-    const alertedAtBySession = new Map<string, number>()
-    const alertedQuestionCalls = new Set<string>()
-    const cooldownMs = input.cooldownMs ?? 5000
-    const now = input.now ?? Date.now
 
-    const isVisibleInCurrentRoute = (directory: string, sessionID: string) =>
-      isCurrentOrDescendantSession({
-        directory,
-        sessionID,
-        currentDirectory: input.route.currentDirectory(),
-        currentSessionID: input.route.currentSessionID(),
-        sessions: input.sdk.sessions(directory),
-      })
+    if (details.type === "permission.replied") {
+      alertedAtBySession.delete(permissionSessionKey(event.name, details.properties.sessionID))
+      return
+    }
 
-    const unsub = input.sdk.listen((event) => {
-      const details = event.details
-      if (!details) return
-
-      if (details.type === "worktree.ready") {
-        input.effects.setBusy(event.name, false)
-        input.effects.worktreeReady(event.name)
-        return
-      }
-
-      if (details.type === "worktree.failed") {
-        input.effects.setBusy(event.name, false)
-        input.effects.worktreeFailed(event.name, details.properties?.message ?? input.copy.t("common.requestFailed"))
-        return
-      }
-
-      if (details.type === "permission.replied") {
-        alertedAtBySession.delete(permissionSessionKey(event.name, details.properties.sessionID))
-        return
-      }
-
-      if (details.type === "message.part.updated") {
-        const directory = event.name
-        const { sessionID, part } = details.properties
-        const action = questionNotificationAction(part)
-        if (action === "ignore") return
-
-        const callKey = questionCallKey(directory, sessionID, part.id)
-        if (action === "reset") {
-          alertedQuestionCalls.delete(callKey)
-          return
-        }
-
-        if (alertedQuestionCalls.has(callKey)) return
-        alertedQuestionCalls.add(callKey)
-
-        const session = input.sdk.sessions(directory).find((item) => item.id === sessionID)
-        if (isVisibleInCurrentRoute(directory, sessionID)) return
-
-        if (!input.settings.notifications.agent()) return
-        const sessionTitle = session?.title ?? input.copy.t("command.session.new")
-        const projectName = getFilename(directory)
-        void input.effects.notify(
-          input.copy.t("notification.question.title"),
-          input.copy.t("notification.question.description", { sessionTitle, projectName }),
-          input.route.sessionHref(directory, sessionID),
-        )
-        return
-      }
-
-      if (details.type === "message.part.removed") {
-        const { sessionID, partID } = details.properties
-        alertedQuestionCalls.delete(questionCallKey(event.name, sessionID, partID))
-        return
-      }
-
-      if (details.type !== "permission.asked") return
+    if (details.type === "message.part.updated") {
       const directory = event.name
-      const props = details.properties
-      if (input.permission.autoResponds(props, directory)) return
+      const { sessionID, part } = details.properties
+      const action = questionNotificationAction(part)
+      if (action === "ignore") return
 
-      const session = input.sdk.sessions(directory).find((item) => item.id === props.sessionID)
-      const sessionKey = permissionSessionKey(directory, props.sessionID)
-
-      const lastAlerted = alertedAtBySession.get(sessionKey)
-      const currentTime = now()
-      if (shouldThrottlePermissionAlert(lastAlerted, currentTime, cooldownMs)) return
-      alertedAtBySession.set(sessionKey, currentTime)
-
-      if (input.settings.sounds.permissionsEnabled()) {
-        void input.effects.playPermissionSound(input.settings.sounds.permissions())
+      const callKey = questionCallKey(directory, sessionID, part.id)
+      if (action === "reset") {
+        alertedQuestionCalls.delete(callKey)
+        return
       }
-      if (input.settings.notifications.permissions()) {
-        if (!isVisibleInCurrentRoute(directory, props.sessionID)) {
-          const sessionTitle = session?.title ?? input.copy.t("command.session.new")
-          const projectName = getFilename(directory)
-          void input.effects.notify(
-            input.copy.t("notification.permission.title"),
-            input.copy.t("notification.permission.description", { sessionTitle, projectName }),
-            input.route.sessionHref(directory, props.sessionID),
-          )
-        }
-      }
-    })
+
+      if (alertedQuestionCalls.has(callKey)) return
+      alertedQuestionCalls.add(callKey)
+
+      if (!input.settings.notifications.agent()) return
+
+      const visibility = currentRouteVisibility(input, directory, sessionID)
+      if (visibility.visible) return
+
+      const sessions = visibility.sessions ?? input.sdk.sessions(directory)
+      const sessionTitle = titleFromSessions(sessions, sessionID, input.copy.t("command.session.new"))
+      const projectName = getFilename(directory)
+      void input.effects.notify(
+        input.copy.t("notification.question.title"),
+        input.copy.t("notification.question.description", { sessionTitle, projectName }),
+        input.route.sessionHref(directory, sessionID),
+      )
+      return
+    }
+
+    if (details.type === "message.part.removed") {
+      const { sessionID, partID } = details.properties
+      alertedQuestionCalls.delete(questionCallKey(event.name, sessionID, partID))
+      return
+    }
+
+    if (details.type !== "permission.asked") return
+    const directory = event.name
+    const props = details.properties
+    if (input.permission.autoResponds(props, directory)) return
+
+    const sessionKey = permissionSessionKey(directory, props.sessionID)
+
+    const lastAlerted = alertedAtBySession.get(sessionKey)
+    const currentTime = now()
+    if (shouldThrottlePermissionAlert(lastAlerted, currentTime, cooldownMs)) return
+    alertedAtBySession.set(sessionKey, currentTime)
+
+    if (input.settings.sounds.permissionsEnabled()) {
+      void input.effects.playPermissionSound(input.settings.sounds.permissions())
+    }
+    if (!input.settings.notifications.permissions()) return
+
+    const visibility = currentRouteVisibility(input, directory, props.sessionID)
+    if (visibility.visible) return
+
+    const sessions = visibility.sessions ?? input.sdk.sessions(directory)
+    const sessionTitle = titleFromSessions(sessions, props.sessionID, input.copy.t("command.session.new"))
+    const projectName = getFilename(directory)
+    void input.effects.notify(
+      input.copy.t("notification.permission.title"),
+      input.copy.t("notification.permission.description", { sessionTitle, projectName }),
+      input.route.sessionHref(directory, props.sessionID),
+    )
+  }
+}
+
+export function useSDKNotificationToasts(input: LayoutSdkEventHookInput) {
+  onMount(() => {
+    const unsub = input.sdk.listen(createSDKNotificationEventHandler(input))
     onCleanup(unsub)
   })
 }
