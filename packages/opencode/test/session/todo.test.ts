@@ -169,18 +169,43 @@ describe("Todo service", () => {
     })
   })
 
-  test("get rejects unknown and archived sessions", async () => {
+  test("get reads archived sessions while update rejects them", async () => {
     await using tmp = await tmpdir({ git: true })
 
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
         const session = await Session.create({ title: "todo archived" })
+        const snapshot = await Effect.runPromise(
+          Todo.Service.use((svc) =>
+            svc.update({
+              sessionID: session.id,
+              todos: [{ content: "A", status: "pending", priority: "medium" }],
+            }),
+          ).pipe(Effect.provide(Todo.defaultLayer)),
+        )
         await Session.setArchived({ sessionID: session.id, time: Date.now() })
 
         await expect(
           Effect.runPromise(Todo.Service.use((svc) => svc.get(session.id)).pipe(Effect.provide(Todo.defaultLayer))),
+        ).resolves.toEqual(snapshot)
+        await expect(
+          Effect.runPromise(
+            Todo.Service.use((svc) => svc.update({ sessionID: session.id, todos: [] })).pipe(
+              Effect.provide(Todo.defaultLayer),
+            ),
+          ),
         ).rejects.toThrow("NotFoundError")
+      },
+    })
+  })
+
+  test("get rejects unknown sessions", async () => {
+    await using tmp = await tmpdir({ git: true })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
         await expect(
           Effect.runPromise(
             Todo.Service.use((svc) => svc.get(SessionID.make("ses_missing"))).pipe(Effect.provide(Todo.defaultLayer)),

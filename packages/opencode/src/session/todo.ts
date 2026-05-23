@@ -4,7 +4,7 @@ import { SessionID, TodoID as TodoIDSchema } from "./schema"
 import type { TodoID as TodoIDType } from "./schema"
 import { Effect, Layer, Context } from "effect"
 import z from "zod"
-import { Database, eq, asc, and, isNull, sql, NotFoundError } from "../storage/db"
+import { Database, eq, asc, sql, NotFoundError } from "../storage/db"
 import { SessionTable, SessionTodoRevisionTable, TodoTable } from "./session.sql"
 
 export const TodoID = TodoIDSchema
@@ -96,8 +96,41 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const bus = yield* Bus.Service
 
+    const readSnapshot = (sessionID: SessionID, options?: { activeOnly?: boolean }) =>
+      Effect.sync(() =>
+        Database.transaction((db) => {
+          const session = db
+            .select({ id: SessionTable.id, archived: SessionTable.time_archived })
+            .from(SessionTable)
+            .where(eq(SessionTable.id, sessionID))
+            .get()
+          if (!session || (options?.activeOnly && session.archived !== null)) {
+            throw new NotFoundError({ message: `Session not found: ${sessionID}` })
+          }
+          const revision = db
+            .select({ revision: SessionTodoRevisionTable.revision })
+            .from(SessionTodoRevisionTable)
+            .where(eq(SessionTodoRevisionTable.session_id, sessionID))
+            .get()
+          const rows = db
+            .select()
+            .from(TodoTable)
+            .where(eq(TodoTable.session_id, sessionID))
+            .orderBy(asc(TodoTable.position))
+            .all()
+          const todos = rows.map((row) => ({
+            id: row.id,
+            content: row.content,
+            status: row.status,
+            priority: row.priority,
+          }))
+          if (revision) return { revision: revision.revision, todos }
+          return { revision: todos.length > 0 ? 1 : 0, todos }
+        }),
+      )
+
     const update = Effect.fn("Todo.update")(function* (input: { sessionID: SessionID; todos: Input[] }) {
-      const previous = yield* get(input.sessionID)
+      const previous = yield* readSnapshot(input.sessionID, { activeOnly: true })
       const resolved = resolveTodoIDs(previous.todos, input.todos)
 
       const revision = yield* Effect.sync(() =>
@@ -140,35 +173,7 @@ export const layer = Layer.effect(
     })
 
     const get = Effect.fn("Todo.get")(function* (sessionID: SessionID) {
-      return yield* Effect.sync(() =>
-        Database.transaction((db) => {
-          const session = db
-            .select({ id: SessionTable.id })
-            .from(SessionTable)
-            .where(and(eq(SessionTable.id, sessionID), isNull(SessionTable.time_archived)))
-            .get()
-          if (!session) throw new NotFoundError({ message: `Session not found: ${sessionID}` })
-          const revision = db
-            .select({ revision: SessionTodoRevisionTable.revision })
-            .from(SessionTodoRevisionTable)
-            .where(eq(SessionTodoRevisionTable.session_id, sessionID))
-            .get()
-          const rows = db
-            .select()
-            .from(TodoTable)
-            .where(eq(TodoTable.session_id, sessionID))
-            .orderBy(asc(TodoTable.position))
-            .all()
-          const todos = rows.map((row) => ({
-            id: row.id,
-            content: row.content,
-            status: row.status,
-            priority: row.priority,
-          }))
-          if (revision) return { revision: revision.revision, todos }
-          return { revision: todos.length > 0 ? 1 : 0, todos }
-        }),
-      )
+      return yield* readSnapshot(sessionID)
     })
 
     return Service.of({ update, get })
