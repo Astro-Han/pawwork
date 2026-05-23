@@ -17,7 +17,7 @@ const BUTTON_TSX = readFileSync(join(ROOT, "src/components/button.tsx"), "utf-8"
 // ── API contract ────────────────────────────────────────────────────────────
 
 describe("Button — API contract", () => {
-  test("size prop is absent (DESIGN.md: single height 28px)", () => {
+  test("size prop is absent (DESIGN.md: single height 30px)", () => {
     expect(BUTTON_TSX).not.toMatch(/size\??\s*:/)
   })
 
@@ -28,14 +28,14 @@ describe("Button — API contract", () => {
 
 // ── Single canonical size ───────────────────────────────────────────────────
 
-describe("Button — single canonical size (28px)", () => {
+describe("Button — single canonical size (30px)", () => {
   test("CSS has no data-size selectors", () => {
     expect(BUTTON_CSS).not.toContain("data-size=")
   })
 
-  test("height 28px is declared outside any variant selector", () => {
+  test("height 30px is declared outside any variant selector", () => {
     // The root [data-component="button"] block must set height directly
-    expect(BUTTON_CSS).toMatch(/\[data-component="button"\]\s*\{[^}]*height:\s*28px/)
+    expect(BUTTON_CSS).toMatch(/\[data-component="button"\]\s*\{[^}]*height:\s*30px/)
   })
 })
 

@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test"
-import { existsSync, readdirSync, statSync } from "node:fs"
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
 import path from "node:path"
 import { parseWorkflow, readWorkflow } from "./workflow-parser"
 
 const repoRoot = path.join(import.meta.dir, "../../../..")
 const ciWorkflowPath = path.join(repoRoot, ".github", "workflows", "ci.yml")
 const windowsAdvisoryWorkflowPath = path.join(repoRoot, ".github", "workflows", "windows-advisory.yml")
+const turboJsonPath = path.join(repoRoot, "turbo.json")
+const uiPackageJsonPath = path.join(repoRoot, "packages", "ui", "package.json")
 const opencodeTestRoot = path.join(repoRoot, "packages", "opencode", "test")
 
 const pinned = {
@@ -26,6 +28,11 @@ const windowsUnitJobName = "unit-windows"
 // Suffixes drive readable job and artifact names; commands use package.json names verbatim.
 // `opencode` is intentionally unscoped because that is its actual package name.
 const linuxUnitPackages = [
+  {
+    suffix: "ui",
+    command: "bun turbo test:ci --filter=@opencode-ai/ui",
+    reportPath: "packages/ui/.artifacts/unit/junit.xml",
+  },
   {
     suffix: "app",
     command: "bun turbo test:ci --filter=@opencode-ai/app",
@@ -154,6 +161,22 @@ function isWindowsOpencodeShard(item: Record<string, unknown>): item is { comman
 }
 
 describe("ci workflow", () => {
+  test("keeps packages/ui as a first-class Turbo CI test target", () => {
+    const turbo = JSON.parse(readFileSync(turboJsonPath, "utf8")) as {
+      tasks?: Record<string, { dependsOn?: string[]; outputs?: string[]; passThroughEnv?: string[] }>
+    }
+    const uiPackage = JSON.parse(readFileSync(uiPackageJsonPath, "utf8")) as {
+      scripts?: Record<string, string>
+    }
+
+    expect(uiPackage.scripts?.["test:ci"]).toBe(
+      "mkdir -p .artifacts/unit && bun test --reporter=junit --reporter-outfile=.artifacts/unit/junit.xml",
+    )
+    expect(turbo.tasks?.["@opencode-ai/ui#test:ci"]?.dependsOn).toEqual(["^build"])
+    expect(turbo.tasks?.["@opencode-ai/ui#test:ci"]?.outputs).toEqual([".artifacts/unit/junit.xml"])
+    expect(turbo.tasks?.["@opencode-ai/ui#test:ci"]?.passThroughEnv).toEqual(["*"])
+  })
+
   test("pins third-party actions and disables checkout credential persistence", () => {
     const workflow = readWorkflow(ciWorkflowPath)
     const parsed = parseWorkflow(ciWorkflowPath)
@@ -470,7 +493,7 @@ describe("ci workflow", () => {
       "changes",
       "typecheck",
       frontendArchitectureJobName,
-      "unit-ui-focused",
+      "unit-ui",
       "unit-app",
       "unit-opencode",
       "unit-desktop",
@@ -486,13 +509,13 @@ describe("ci workflow", () => {
     expect(validate?.env?.DOCS_ONLY).toBe("${{ needs.changes.outputs.docs_only }}")
     expect(validate?.env?.TYPECHECK_RESULT).toBe("${{ needs.typecheck.result }}")
     expect(validate?.env?.FRONTEND_ARCHITECTURE_RESULT).toBe("${{ needs['frontend-architecture'].result }}")
-    expect(validate?.env?.UNIT_UI_FOCUSED_RESULT).toBe("${{ needs['unit-ui-focused'].result }}")
+    expect(validate?.env?.UNIT_UI_RESULT).toBe("${{ needs['unit-ui'].result }}")
     expect(validate?.env?.UNIT_APP_RESULT).toBe("${{ needs['unit-app'].result }}")
     expect(validate?.env?.UNIT_OPENCODE_RESULT).toBe("${{ needs['unit-opencode'].result }}")
     expect(validate?.env?.UNIT_DESKTOP_RESULT).toBe("${{ needs['unit-desktop'].result }}")
     expect(validate?.run).toContain("Docs-only change, daily CI skipped.")
     expect(validate?.run).toContain("FRONTEND_ARCHITECTURE_RESULT")
-    expect(validate?.run).toContain("UNIT_UI_FOCUSED_RESULT")
+    expect(validate?.run).toContain("UNIT_UI_RESULT")
     expect(validate?.run).toContain("UNIT_APP_RESULT")
     expect(validate?.run).toContain("UNIT_OPENCODE_RESULT")
     expect(validate?.run).toContain("UNIT_DESKTOP_RESULT")

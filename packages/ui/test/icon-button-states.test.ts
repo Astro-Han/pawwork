@@ -2,8 +2,8 @@
  * IconButton component contract — DESIGN.md §157-172 (icon button spec)
  * Slice #04, issue #440.
  *
- * Key spec: 24×24, ghost-only, radius-sm. Forbidden: size prop, iconSize prop,
- * variant primary/secondary. titlebar-icon (32×24) is the sole authorised exception.
+ * Key spec: 30×30, ghost-only, radius-md. Forbidden: size prop, iconSize prop,
+ * variant primary/secondary. titlebar-icon (32×30) is the sole authorised exception.
  */
 
 import { describe, expect, test } from "bun:test"
@@ -32,21 +32,21 @@ describe("IconButton — API contract", () => {
 
 // ── Single canonical size ───────────────────────────────────────────────────
 
-describe("IconButton — single canonical size (24×24)", () => {
+describe("IconButton — single canonical size (30×30)", () => {
   test("no data-size selectors in CSS", () => {
     expect(CSS).not.toContain("data-size=")
   })
 
-  test("width 24px declared at root level", () => {
-    expect(CSS).toMatch(/\[data-component="icon-button"\]\s*\{[^}]*width:\s*24px/)
+  test("width 30px declared at root level", () => {
+    expect(CSS).toMatch(/\[data-component="icon-button"\]\s*\{[^}]*width:\s*30px/)
   })
 
-  test("height 24px declared at root level", () => {
-    expect(CSS).toMatch(/\[data-component="icon-button"\]\s*\{[^}]*height:\s*24px/)
+  test("height 30px declared at root level", () => {
+    expect(CSS).toMatch(/\[data-component="icon-button"\]\s*\{[^}]*height:\s*30px/)
   })
 
-  test("base border-radius is radius-sm (DESIGN.md §157)", () => {
-    expect(CSS).toMatch(/\[data-component="icon-button"\]\s*\{[^}]*border-radius:\s*var\(--radius-sm\)/)
+  test("base border-radius is radius-md (DESIGN.md §342)", () => {
+    expect(CSS).toMatch(/\[data-component="icon-button"\]\s*\{[^}]*border-radius:\s*var\(--radius-md\)/)
   })
 })
 
@@ -105,13 +105,14 @@ describe("IconButton — disabled state", () => {
 
 // ── titlebar-icon exception ─────────────────────────────────────────────────
 
-describe("IconButton — titlebar-icon exception (DESIGN.md §172)", () => {
+describe("IconButton — titlebar-icon exception (DESIGN.md §346)", () => {
   test(".titlebar-icon override is preserved", () => {
     expect(CSS).toContain("titlebar-icon")
   })
 
-  test(".titlebar-icon is 32×24 (not square)", () => {
+  test(".titlebar-icon is 32×30 (not square)", () => {
     expect(CSS).toContain("width: 32px")
+    expect(CSS).toContain("height: 30px")
     expect(CSS).toContain("aspect-ratio: auto")
   })
 })
