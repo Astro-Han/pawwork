@@ -578,7 +578,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             style={{
               height: space,
               background:
-                "linear-gradient(to top, var(--surface-raised) calc(100% - 20px), transparent)",
+                "linear-gradient(to top, var(--bg-base) calc(100% - 20px), transparent)",
             }}
           />
 
