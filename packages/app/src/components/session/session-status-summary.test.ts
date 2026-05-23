@@ -24,9 +24,13 @@ describe("session-status-summary · todo marker contract", () => {
   test("renders the in-progress spinner via --animate-pw-spin", () => {
     // The running marker mirrors session-todo-dock / todowrite: a 13×13 ring with
     // brand-primary as the top border colour, animated by the shared pw-spin token.
+    // Asserting the literal "13px" pixel values guards against the ring being
+    // resized accidentally; the dock uses the same dimensions.
     expect(SOURCE).toContain("--animate-pw-spin")
     expect(SOURCE).toContain("border-top-color")
     expect(SOURCE).toContain("var(--brand-primary)")
+    expect(SOURCE).toMatch(/width:\s*"13px"/)
+    expect(SOURCE).toMatch(/height:\s*"13px"/)
   })
 
   test("strikes through completed and cancelled rows uniformly", () => {

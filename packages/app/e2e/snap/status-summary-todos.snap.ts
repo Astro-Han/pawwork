@@ -1,3 +1,4 @@
+import { expect } from "@playwright/test"
 import type { Todo } from "@opencode-ai/sdk/v2/client"
 import type { createSdk } from "../utils"
 import { test } from "../fixtures"
@@ -77,14 +78,16 @@ test("status-summary-todos", async ({ page, project }) => {
   const panel = await openRightPanel(page)
 
   // Status is the default sidePanelTab per RIGHT_PANEL_TAB_VALUES normalisation,
-  // so no tab switch is required. Wait until at least one todo row is on screen
-  // to confirm the Status tab body has actually rendered before snapping.
-  await page
-    .locator('[data-slot="status-summary-todo"]')
-    .first()
-    .waitFor({ state: "visible", timeout: 30_000 })
+  // so no tab switch is required. Wait until ALL four seeded rows are on screen
+  // so a partial render does not silently produce a misleading baseline.
+  const todoRows = page.locator('[data-slot="status-summary-todo"]')
+  await todoRows.first().waitFor({ state: "visible", timeout: 30_000 })
+  await expect.poll(() => todoRows.count(), { timeout: 30_000 }).toBeGreaterThanOrEqual(4)
 
-  const shot = await panel.screenshot()
+  // animations: "disabled" freezes CSS animations at their initial frame so the
+  // in_progress 13×13 pw-spin ring captures the same orientation every run;
+  // without this the snap is nondeterministic across rebuilds.
+  const shot = await panel.screenshot({ animations: "disabled" })
   const out = snapOutputPath("status-summary-todos")
   await composeGrid([{ name: "right-panel status todos", buf: shot }], out)
   process.stdout.write(`\n[snap] status-summary-todos grid -> ${out}\n\n`)
