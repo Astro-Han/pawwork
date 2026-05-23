@@ -32,6 +32,7 @@ import { ConfigPlugin } from "@/config/plugin"
 import { withConfigDepsLock } from "../shared/config-deps-lock"
 import { writeInstalledConfigDeps } from "../shared/mock-npm-install"
 import { Npm } from "@opencode-ai/core/npm"
+import { InstallationPluginVersion } from "@opencode-ai/core/installation/version"
 import { Installation } from "../../src/installation"
 import { PawWorkHome } from "@opencode-ai/core/pawwork-home"
 
@@ -1498,6 +1499,30 @@ test("installDependencies bootstraps the config plugin package metadata", async 
     expect(await Filesystem.readText(path.join(tmp.path, ".gitignore"))).toContain("package-lock.json")
     expect(install).toHaveBeenCalledWith(tmp.path)
   } finally {
+    install.mockRestore()
+  }
+})
+
+test("installDependencies does not pin config plugin metadata to a packaged app build version", async () => {
+  await using tmp = await tmpdir()
+  const install = spyOn(Npm, "install").mockResolvedValue(undefined)
+  const previousVersion = Installation.VERSION
+  const previousChannel = Installation.CHANNEL
+
+  try {
+    ;(Installation as { VERSION: string }).VERSION = "0.0.0-prod-202605230200"
+    ;(Installation as { CHANNEL: string }).CHANNEL = "prod"
+
+    await Config.installDependencies(tmp.path)
+
+    const pkg = await Filesystem.readJson<{ dependencies?: Record<string, string> }>(path.join(tmp.path, "package.json"))
+
+    expect(pkg.dependencies?.["@opencode-ai/plugin"]).toBe(InstallationPluginVersion)
+    expect(pkg.dependencies?.["@opencode-ai/plugin"]).not.toBe(Installation.VERSION)
+    expect(install).toHaveBeenCalledWith(tmp.path)
+  } finally {
+    ;(Installation as { VERSION: string }).VERSION = previousVersion
+    ;(Installation as { CHANNEL: string }).CHANNEL = previousChannel
     install.mockRestore()
   }
 })

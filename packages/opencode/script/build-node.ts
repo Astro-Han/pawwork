@@ -4,6 +4,7 @@ import { Script } from "@opencode-ai/script"
 import fs from "fs"
 import path from "path"
 import { fileURLToPath } from "url"
+import pluginPkg from "../../plugin/package.json"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -57,6 +58,7 @@ await Bun.build({
   external: ["jsonc-parser", "@lydell/node-pty"],
   define: {
     OPENCODE_VERSION: `'${Script.version}'`,
+    OPENCODE_PLUGIN_VERSION: `'${pluginPkg.version}'`,
     OPENCODE_MIGRATIONS: JSON.stringify(migrations),
     OPENCODE_CHANNEL: `'${Script.channel}'`,
   },
