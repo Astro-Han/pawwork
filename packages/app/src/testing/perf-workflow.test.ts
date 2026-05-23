@@ -16,6 +16,7 @@ describe("perf workflow contract", () => {
     )
 
     expect(workflow).toContain("fetch-depth: 0")
+    expect(workflow).toContain("issues: write")
     expect(workflow).toContain("Detect low-end perf scope")
     expect(workflow).toContain("PAWWORK_PERF_PROFILE: low-end")
     expect(workflow).toContain("restore-keys: |\n            playwright-${{ runner.os }}-")
