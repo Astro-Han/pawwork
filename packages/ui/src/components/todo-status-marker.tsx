@@ -14,6 +14,11 @@ import { Icon } from "./icon"
 // source of truth so any future change (size, palette, icon swap) propagates
 // to all surfaces in one edit.
 //
+// Both branches share one 16×16 inline-flex wrapper so the optional baseline
+// nudge (marginTop) applies symmetrically regardless of state: putting it on
+// the Icon would route it through splitProps onto the inner <svg> instead of
+// the outer wrapper, and `align-items: center` on the wrapper would erase it.
+//
 // `status` is typed as plain `string` because the SDK declares `Todo.status`
 // that way (see packages/sdk/js/src/v2/gen/types.gen.ts). The runtime narrows
 // safely: only the four documented values branch; anything else falls through
@@ -34,29 +39,20 @@ export interface TodoStatusMarkerProps {
 
 export function TodoStatusMarker(props: TodoStatusMarkerProps): JSX.Element {
   return (
-    <Show
-      when={props.status === "in_progress"}
-      fallback={
-        <Icon
-          name={props.status === "completed" ? "circle-check" : "circle"}
-          style={{
-            color: "var(--icon-base)",
-            "flex-shrink": "0",
-            ...(props.marginTop ? { "margin-top": props.marginTop } : {}),
-          }}
-        />
-      }
+    <span
+      style={{
+        display: "inline-flex",
+        "align-items": "center",
+        "justify-content": "center",
+        width: "16px",
+        height: "16px",
+        "flex-shrink": "0",
+        ...(props.marginTop ? { "margin-top": props.marginTop } : {}),
+      }}
     >
-      <span
-        style={{
-          display: "inline-flex",
-          "align-items": "center",
-          "justify-content": "center",
-          width: "16px",
-          height: "16px",
-          "flex-shrink": "0",
-          ...(props.marginTop ? { "margin-top": props.marginTop } : {}),
-        }}
+      <Show
+        when={props.status === "in_progress"}
+        fallback={<Icon name={props.status === "completed" ? "circle-check" : "circle"} />}
       >
         <span
           style={{
@@ -69,7 +65,7 @@ export function TodoStatusMarker(props: TodoStatusMarkerProps): JSX.Element {
             animation: "var(--animate-pw-spin)",
           }}
         />
-      </span>
-    </Show>
+      </Show>
+    </span>
   )
 }

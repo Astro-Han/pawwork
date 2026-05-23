@@ -18,10 +18,6 @@ describe("todo-status-marker · visual contract", () => {
     expect(SOURCE).toMatch(/status === "completed"\s*\?\s*"circle-check"\s*:\s*"circle"/)
   })
 
-  test("uses --icon-base for the fallback icon colour", () => {
-    expect(SOURCE).toContain("var(--icon-base)")
-  })
-
   test("renders the in-progress spinner as a 13×13 ring driven by --animate-pw-spin", () => {
     // The pixel values guard against an accidental size drift; the same
     // dimensions apply at every callsite.
@@ -32,21 +28,28 @@ describe("todo-status-marker · visual contract", () => {
     expect(SOURCE).toContain("var(--brand-primary)")
   })
 
-  test("wraps the spinner ring inside a 16×16 inline-flex box", () => {
-    // Outer wrapper matches the fallback Icon's 16×16 footprint so the marker
-    // claims the same width regardless of state.
+  test("shares one 16×16 inline-flex wrapper for both branches", () => {
+    // A single outer wrapper means marginTop applies symmetrically regardless
+    // of state; if a future edit forks the wrapper between branches this
+    // assertion guards the symmetry contract.
     expect(SOURCE).toMatch(/width:\s*"16px"/)
     expect(SOURCE).toMatch(/height:\s*"16px"/)
     expect(SOURCE).toContain('"inline-flex"')
+    // The Icon import is still used for the fallback branch; the
+    // `color: var(--icon-base)` style is intentionally removed because
+    // icon.css already applies the same colour to [data-component="icon"].
+    expect(SOURCE).not.toContain("var(--icon-base)")
   })
 
-  test("applies the optional marginTop prop only when provided", () => {
+  test("applies the optional marginTop prop on a single shared wrapper", () => {
     // Callers that need to align with the row's text baseline pass marginTop;
     // callsites with their own baseline (e.g. message-part todowrite) leave
     // it unset, so a literal "1px" default must NOT be baked into the source.
     expect(SOURCE).toMatch(/props\.marginTop\s*\?\s*\{\s*"margin-top":\s*props\.marginTop\s*\}\s*:\s*\{\}/)
-    // Both the fallback Icon style and the spinner wrapper style must honour it.
+    // After unifying both branches under one wrapper, the prop is read exactly
+    // once. If a future edit re-introduces a branch-local nudge this assertion
+    // will catch the regression.
     const occurrences = SOURCE.match(/"margin-top":\s*props\.marginTop/g) ?? []
-    expect(occurrences.length).toBe(2)
+    expect(occurrences.length).toBe(1)
   })
 })
