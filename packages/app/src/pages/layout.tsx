@@ -104,6 +104,8 @@ import {
   unpinPawworkSession,
 } from "./layout/pawwork-session-nav"
 import { createShellNavigation } from "./layout/shell-navigation"
+import { useUpdatePolling } from "./layout/layout-update-polling"
+import { sessionNotificationHref, useSDKNotificationToasts } from "./layout/layout-sdk-event-effects"
 import {
   buildPawworkSessionWindow,
   nextPawworkSessionWindowLimit,
@@ -277,182 +279,37 @@ export default function Layout(props: ParentProps) {
     setLocale(next)
   }
 
-  const useUpdatePolling = () =>
-    onMount(() => {
-      if (!platform.checkUpdate || !platform.update) return
-
-      let toastId: number | undefined
-      let interval: ReturnType<typeof setInterval> | undefined
-
-      const pollUpdate = () =>
-        platform.checkUpdate!().then(({ updateAvailable, version }) => {
-          if (!updateAvailable) return
-          if (toastId !== undefined) return
-          toastId = showToast({
-            persistent: true,
-            icon: "download",
-            title: language.t("toast.update.title"),
-            description: language.t("toast.update.description", { version: version ?? "" }),
-            actions: [
-              {
-                label: language.t("toast.update.action.installRestart"),
-                onClick: async () => {
-                  await platform.update!()
-                },
-              },
-              {
-                label: language.t("toast.update.action.notYet"),
-                onClick: "dismiss",
-              },
-            ],
-          })
-        })
-
-      createEffect(() => {
-        if (!settings.ready()) return
-
-        if (!settings.updates.startup()) {
-          if (interval === undefined) return
-          clearInterval(interval)
-          interval = undefined
-          return
-        }
-
-        if (interval !== undefined) return
-        void pollUpdate()
-        interval = setInterval(pollUpdate, 10 * 60 * 1000)
-      })
-
-      onCleanup(() => {
-        if (interval === undefined) return
-        clearInterval(interval)
-      })
-    })
-
-  const useSDKNotificationToasts = () =>
-    onMount(() => {
-      const alertedAtBySession = new Map<string, number>()
-      const alertedQuestionCalls = new Set<string>()
-      const cooldownMs = 5000
-
-      const isCurrentOrDescendant = (directory: string, sessionID: string) => {
-        const currentSession = params.id
-        if (!currentSession) return false
-        if (workspaceKey(directory) !== workspaceKey(currentDir())) return false
-        if (sessionID === currentSession) return true
-        // Walk up the parent chain so a great-grandchild question is also
-        // recognized as visible in-app whenever an ancestor session page is
-        // open — matches the dock, which walks descendants from currentSession.
-        const [store] = globalSync.child(directory, { bootstrap: false })
-        const byID = new Map(store.session.map((s) => [s.id, s]))
-        let cursor: string | undefined = byID.get(sessionID)?.parentID
-        const seen = new Set<string>([sessionID])
-        while (cursor) {
-          if (cursor === currentSession) return true
-          if (seen.has(cursor)) break
-          seen.add(cursor)
-          cursor = byID.get(cursor)?.parentID
-        }
-        return false
-      }
-
-      const unsub = globalSDK.event.listen((e) => {
-        if (e.details?.type === "worktree.ready") {
-          setBusy(e.name, false)
-          WorktreeState.ready(e.name)
-          return
-        }
-
-        if (e.details?.type === "worktree.failed") {
-          setBusy(e.name, false)
-          WorktreeState.failed(e.name, e.details.properties?.message ?? language.t("common.requestFailed"))
-          return
-        }
-
-        if (e.details?.type === "permission.replied") {
-          const props = e.details.properties as { sessionID: string }
-          const sessionKey = `${e.name}:${props.sessionID}`
-          alertedAtBySession.delete(sessionKey)
-          return
-        }
-
-        if (e.details?.type === "message.part.updated") {
-          const directory = e.name
-          const { sessionID, part } = e.details.properties
-          if (part.type !== "tool" || part.tool !== "question") return
-          const callKey = `${directory}:${sessionID}:${part.id}`
-          // Drop the dedup entry once the part settles. Without this the
-          // running-question dedup set grows unbounded across the app's
-          // lifetime, since terminal parts are not always followed by a
-          // message.part.removed event. The tool runner never transitions
-          // a question part out of `running` and back; if that ever changes
-          // the dedup will need to gate on a "first-ready" boolean instead.
-          if (part.state.status !== "running") {
-            alertedQuestionCalls.delete(callKey)
-            return
-          }
-          // The tool runner sets metadata.externalResultReady AFTER the
-          // Deferred is registered. Only notify once the route can resolve.
-          if (part.state.metadata?.externalResultReady !== true) return
-
-          if (alertedQuestionCalls.has(callKey)) return
-          alertedQuestionCalls.add(callKey)
-
-          const [store] = globalSync.child(directory, { bootstrap: false })
-          const session = store.session.find((s) => s.id === sessionID)
-          if (isCurrentOrDescendant(directory, sessionID)) return
-
-          if (!settings.notifications.agent()) return
-          const sessionTitle = session?.title ?? language.t("command.session.new")
-          const projectName = getFilename(directory)
-          void platform.notify(
-            language.t("notification.question.title"),
-            language.t("notification.question.description", { sessionTitle, projectName }),
-            `/${base64Encode(directory)}/session/${sessionID}`,
-          )
-          return
-        }
-
-        if (e.details?.type === "message.part.removed") {
-          const { sessionID, partID } = e.details.properties
-          alertedQuestionCalls.delete(`${e.name}:${sessionID}:${partID}`)
-          return
-        }
-
-        if (e.details?.type !== "permission.asked") return
-        const title = language.t("notification.permission.title")
-        const directory = e.name
-        const props = e.details.properties
-        if (permission.autoResponds(e.details.properties, directory)) return
-
-        const [store] = globalSync.child(directory, { bootstrap: false })
-        const session = store.session.find((s) => s.id === props.sessionID)
-        const sessionKey = `${directory}:${props.sessionID}`
-
-        const sessionTitle = session?.title ?? language.t("command.session.new")
-        const projectName = getFilename(directory)
-        const description = language.t("notification.permission.description", { sessionTitle, projectName })
-        const href = `/${base64Encode(directory)}/session/${props.sessionID}`
-
-        const now = Date.now()
-        const lastAlerted = alertedAtBySession.get(sessionKey) ?? 0
-        if (now - lastAlerted < cooldownMs) return
-        alertedAtBySession.set(sessionKey, now)
-
-        if (settings.sounds.permissionsEnabled()) {
-          void playSoundById(settings.sounds.permissions())
-        }
-        if (settings.notifications.permissions()) {
-          if (!isCurrentOrDescendant(directory, props.sessionID)) {
-            void platform.notify(title, description, href)
-          }
-        }
-      })
-      onCleanup(unsub)
-    })
-
-  useUpdatePolling()
-  useSDKNotificationToasts()
+  useUpdatePolling({
+    platform,
+    settings,
+    copy: language,
+    effects: {
+      showToast,
+    },
+  })
+  useSDKNotificationToasts({
+    route: {
+      currentDirectory: currentDir,
+      currentSessionID: () => params.id,
+      sessionHref: sessionNotificationHref,
+    },
+    sdk: {
+      listen: globalSDK.event.listen,
+      sessions: (directory) => globalSync.child(directory, { bootstrap: false })[0].session,
+    },
+    settings,
+    permission: {
+      autoResponds: (request, directory) => permission.autoResponds(request, directory),
+    },
+    effects: {
+      notify: (title, description, href) => platform.notify(title, description, href),
+      playPermissionSound: playSoundById,
+      setBusy,
+      worktreeReady: (directory) => WorktreeState.ready(directory),
+      worktreeFailed: (directory, message) => WorktreeState.failed(directory, message),
+    },
+    copy: language,
+  })
 
   function scrollToSession(sessionId: string, sessionKey: string) {
     if (!scrollContainerRef) return
