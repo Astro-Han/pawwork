@@ -101,7 +101,7 @@
     },
     "packages/desktop-electron": {
       "name": "@opencode-ai/desktop-electron",
-      "version": "2026.5.22",
+      "version": "2026.5.23",
       "dependencies": {
         "@opencode-ai/util": "workspace:*",
         "electron-context-menu": "4.1.2",
