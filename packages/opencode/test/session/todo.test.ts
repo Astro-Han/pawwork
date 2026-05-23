@@ -1,9 +1,10 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
 import { Effect } from "effect"
 import { Instance } from "../../src/project/instance"
 import { Session } from "../../src/session"
 import { Todo } from "../../src/session/todo"
 import { SessionID } from "../../src/session/schema"
+import { Database } from "../../src/storage/db"
 import { tmpdir } from "../fixture/fixture"
 
 const todo = (content: string, id?: Todo.TodoID): Todo.Input => ({
@@ -196,6 +197,42 @@ describe("Todo service", () => {
             ),
           ),
         ).rejects.toThrow("NotFoundError")
+      },
+    })
+  })
+
+  test("update checks the active session and writes todos in one transaction", async () => {
+    await using tmp = await tmpdir({ git: true })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({ title: "todo transaction boundary" })
+        const originalTransaction = Database.transaction
+        let transactionCount = 0
+        const transaction = spyOn(Database, "transaction").mockImplementation(
+          ((callback, options) => {
+            transactionCount += 1
+            return originalTransaction(callback, options)
+          }) as typeof Database.transaction,
+        )
+
+        try {
+          await Effect.runPromise(
+            Todo.Service.use((svc) =>
+              svc.update({
+                sessionID: session.id,
+                todos: [{ content: "A", status: "pending", priority: "medium" }],
+              }),
+            ).pipe(Effect.provide(Todo.defaultLayer)),
+          )
+        } finally {
+          transaction.mockRestore()
+        }
+
+        expect(transactionCount).toBe(1)
+
+        await Session.remove(session.id)
       },
     })
   })

@@ -96,78 +96,80 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const bus = yield* Bus.Service
 
+    const readSnapshotFromDb = (db: Database.TxOrDb, sessionID: SessionID, options?: { activeOnly?: boolean }) => {
+      const session = db
+        .select({ id: SessionTable.id, archived: SessionTable.time_archived })
+        .from(SessionTable)
+        .where(eq(SessionTable.id, sessionID))
+        .get()
+      if (!session || (options?.activeOnly && session.archived !== null)) {
+        throw new NotFoundError({ message: `Session not found: ${sessionID}` })
+      }
+      const revision = db
+        .select({ revision: SessionTodoRevisionTable.revision })
+        .from(SessionTodoRevisionTable)
+        .where(eq(SessionTodoRevisionTable.session_id, sessionID))
+        .get()
+      const rows = db
+        .select()
+        .from(TodoTable)
+        .where(eq(TodoTable.session_id, sessionID))
+        .orderBy(asc(TodoTable.position))
+        .all()
+      const todos = rows.map((row) => ({
+        id: row.id,
+        content: row.content,
+        status: row.status,
+        priority: row.priority,
+      }))
+      if (revision) return { revision: revision.revision, todos }
+      return { revision: todos.length > 0 ? 1 : 0, todos }
+    }
+
     const readSnapshot = (sessionID: SessionID, options?: { activeOnly?: boolean }) =>
-      Effect.sync(() =>
-        Database.transaction((db) => {
-          const session = db
-            .select({ id: SessionTable.id, archived: SessionTable.time_archived })
-            .from(SessionTable)
-            .where(eq(SessionTable.id, sessionID))
-            .get()
-          if (!session || (options?.activeOnly && session.archived !== null)) {
-            throw new NotFoundError({ message: `Session not found: ${sessionID}` })
-          }
-          const revision = db
-            .select({ revision: SessionTodoRevisionTable.revision })
-            .from(SessionTodoRevisionTable)
-            .where(eq(SessionTodoRevisionTable.session_id, sessionID))
-            .get()
-          const rows = db
-            .select()
-            .from(TodoTable)
-            .where(eq(TodoTable.session_id, sessionID))
-            .orderBy(asc(TodoTable.position))
-            .all()
-          const todos = rows.map((row) => ({
-            id: row.id,
-            content: row.content,
-            status: row.status,
-            priority: row.priority,
-          }))
-          if (revision) return { revision: revision.revision, todos }
-          return { revision: todos.length > 0 ? 1 : 0, todos }
-        }),
-      )
+      Effect.sync(() => Database.transaction((db) => readSnapshotFromDb(db, sessionID, options)))
 
     const update = Effect.fn("Todo.update")(function* (input: { sessionID: SessionID; todos: Input[] }) {
-      const previous = yield* readSnapshot(input.sessionID, { activeOnly: true })
-      const resolved = resolveTodoIDs(previous.todos, input.todos)
+      const snapshot = yield* Effect.sync(() =>
+        Database.transaction(
+          (db) => {
+            const previous = readSnapshotFromDb(db, input.sessionID, { activeOnly: true })
+            const resolved = resolveTodoIDs(previous.todos, input.todos)
 
-      const revision = yield* Effect.sync(() =>
-        Database.transaction((db) => {
-          db.delete(TodoTable).where(eq(TodoTable.session_id, input.sessionID)).run()
-          if (resolved.length > 0) {
-            db.insert(TodoTable)
-              .values(
-                resolved.map((todo, position) => ({
-                  id: todo.id,
-                  session_id: input.sessionID,
-                  content: todo.content,
-                  status: todo.status,
-                  priority: todo.priority,
-                  position,
-                })),
-              )
-              .run()
-          }
-          const row = db
-            .insert(SessionTodoRevisionTable)
-            .values({
-              session_id: input.sessionID,
-              revision: Math.max(previous.revision + 1, 1),
-            })
-            .onConflictDoUpdate({
-              target: SessionTodoRevisionTable.session_id,
-              set: {
-                revision: sql`${SessionTodoRevisionTable.revision} + 1`,
-              },
-            })
-            .returning({ revision: SessionTodoRevisionTable.revision })
-            .get()
-          return row.revision
-        }),
+            db.delete(TodoTable).where(eq(TodoTable.session_id, input.sessionID)).run()
+            if (resolved.length > 0) {
+              db.insert(TodoTable)
+                .values(
+                  resolved.map((todo, position) => ({
+                    id: todo.id,
+                    session_id: input.sessionID,
+                    content: todo.content,
+                    status: todo.status,
+                    priority: todo.priority,
+                    position,
+                  })),
+                )
+                .run()
+            }
+            const row = db
+              .insert(SessionTodoRevisionTable)
+              .values({
+                session_id: input.sessionID,
+                revision: Math.max(previous.revision + 1, 1),
+              })
+              .onConflictDoUpdate({
+                target: SessionTodoRevisionTable.session_id,
+                set: {
+                  revision: sql`${SessionTodoRevisionTable.revision} + 1`,
+                },
+              })
+              .returning({ revision: SessionTodoRevisionTable.revision })
+              .get()
+            return { revision: row.revision, todos: resolved }
+          },
+          { behavior: "immediate" },
+        ),
       )
-      const snapshot = { revision, todos: resolved }
       yield* bus.publish(Event.Updated, { sessionID: input.sessionID, ...snapshot })
       return snapshot
     })
