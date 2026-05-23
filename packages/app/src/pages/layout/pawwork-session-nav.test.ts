@@ -3,7 +3,8 @@ import {
   buildPawworkSessionSections,
   findPawworkSessionNavigationTarget,
   flattenPawworkSessionSections,
-  movePawworkSession,
+  reorderPawworkPinnedByVisible,
+  unpinPawworkSession,
   type PawworkSessionItem,
 } from "./pawwork-session-nav"
 
@@ -206,28 +207,168 @@ describe("findPawworkSessionNavigationTarget", () => {
   })
 })
 
-describe("movePawworkSession", () => {
-  test("moves a session from recent into pinned at a specific index", () => {
-    const result = movePawworkSession({
+describe("reorderPawworkPinnedByVisible", () => {
+  test("moves a session from recent into pinned at a specific visible index", () => {
+    const result = reorderPawworkPinnedByVisible({
       pinnedIDs: ["beta"],
-      visibleUnpinnedIDs: ["alpha", "gamma"],
+      visiblePinnedIDs: ["beta"],
       sourceID: "gamma",
-      targetSection: "pinned",
-      targetIndex: 0,
+      targetVisibleIndex: 0,
     })
 
     expect(result).toEqual(["gamma", "beta"])
   })
 
   test("removes duplicates when reordering inside pinned", () => {
-    const result = movePawworkSession({
+    const result = reorderPawworkPinnedByVisible({
       pinnedIDs: ["alpha", "beta", "gamma"],
-      visibleUnpinnedIDs: [],
+      visiblePinnedIDs: ["alpha", "beta", "gamma"],
       sourceID: "gamma",
-      targetSection: "pinned",
-      targetIndex: 1,
+      targetVisibleIndex: 1,
     })
 
     expect(result).toEqual(["alpha", "gamma", "beta"])
+  })
+
+  test("preserves un-loaded pinned IDs in their raw positions when reordering visible ones", () => {
+    // hidden_a and hidden_b are pinned but not rendered (e.g. not in the session window).
+    // The user sees [V1, V2, V3] and drags V3 to the top of the visible list.
+    // hidden_a should stay at raw index 0, hidden_b should stay between V1 and V2.
+    const result = reorderPawworkPinnedByVisible({
+      pinnedIDs: ["hidden_a", "V1", "hidden_b", "V2", "V3"],
+      visiblePinnedIDs: ["V1", "V2", "V3"],
+      sourceID: "V3",
+      targetVisibleIndex: 0,
+    })
+
+    expect(result).toEqual(["hidden_a", "V3", "hidden_b", "V1", "V2"])
+  })
+
+  test("moving a visible row DOWN across a hidden anchor keeps the hidden ID at its raw index", () => {
+    // pinnedIDs = [V1, V2, hidden_a, V3]: hidden_a sits between V2 and V3 in raw.
+    // User drags V1 down to visible position 2 → visible order becomes [V2, V3, V1].
+    // Naive iteration cursors would shift hidden_a earlier; the algorithm must
+    // pin it to raw index 2 regardless of which direction the source moved.
+    const result = reorderPawworkPinnedByVisible({
+      pinnedIDs: ["V1", "V2", "hidden_a", "V3"],
+      visiblePinnedIDs: ["V1", "V2", "V3"],
+      sourceID: "V1",
+      targetVisibleIndex: 2,
+    })
+
+    expect(result).toEqual(["V2", "V3", "hidden_a", "V1"])
+  })
+
+  test("cross-zone insert lands between visible neighbours, not after a trailing hidden anchor", () => {
+    // hidden_a sits AFTER V1 in raw; user drops gamma after V1 visually.
+    // The new entry should land immediately after V1, even though hidden_a
+    // would be the next raw entry if we walked the array linearly.
+    const result = reorderPawworkPinnedByVisible({
+      pinnedIDs: ["V1", "hidden_a"],
+      visiblePinnedIDs: ["V1"],
+      sourceID: "gamma",
+      targetVisibleIndex: 1,
+    })
+
+    expect(result).toEqual(["V1", "gamma", "hidden_a"])
+  })
+
+  test("cross-zone insert with hidden BEFORE visible appends after the visible tail", () => {
+    const result = reorderPawworkPinnedByVisible({
+      pinnedIDs: ["hidden_a", "V1"],
+      visiblePinnedIDs: ["V1"],
+      sourceID: "gamma",
+      targetVisibleIndex: 1,
+    })
+
+    expect(result).toEqual(["hidden_a", "V1", "gamma"])
+  })
+
+  test("cross-zone insert at the top of visible lands before the first visible neighbour", () => {
+    const result = reorderPawworkPinnedByVisible({
+      pinnedIDs: ["hidden_a", "V1", "V2"],
+      visiblePinnedIDs: ["V1", "V2"],
+      sourceID: "gamma",
+      targetVisibleIndex: 0,
+    })
+
+    expect(result).toEqual(["hidden_a", "gamma", "V1", "V2"])
+  })
+
+  test("clamps an out-of-range visible target index to the visible list bounds", () => {
+    const result = reorderPawworkPinnedByVisible({
+      pinnedIDs: ["V1", "V2"],
+      visiblePinnedIDs: ["V1", "V2"],
+      sourceID: "gamma",
+      targetVisibleIndex: 99,
+    })
+
+    expect(result).toEqual(["V1", "V2", "gamma"])
+  })
+
+  test("treats a hidden-anchor source as a no-op (no duplicate splice)", () => {
+    // sourceID is pinned but not in visiblePinnedIDs — should not be
+    // re-inserted as if it were cross-zone.
+    const pinnedIDs = ["hidden_a", "V1"]
+    const result = reorderPawworkPinnedByVisible({
+      pinnedIDs,
+      visiblePinnedIDs: ["V1"],
+      sourceID: "hidden_a",
+      targetVisibleIndex: 0,
+    })
+
+    expect(result).toBe(pinnedIDs)
+  })
+
+  test("drops stale visible IDs (race between memo recompute and store update)", () => {
+    // visiblePinnedIDs claims "stale" exists but pinnedIDs no longer holds it.
+    // Helper must ignore the stale entry, not invent a slot for it.
+    const result = reorderPawworkPinnedByVisible({
+      pinnedIDs: ["V1", "V2"],
+      visiblePinnedIDs: ["V1", "stale", "V2"],
+      sourceID: "V1",
+      targetVisibleIndex: 1,
+    })
+
+    expect(result).toEqual(["V2", "V1"])
+  })
+
+  test("returns original identity for an intra-pinned no-op (target equals current)", () => {
+    const pinnedIDs = ["V1", "V2"]
+    const result = reorderPawworkPinnedByVisible({
+      pinnedIDs,
+      visiblePinnedIDs: ["V1", "V2"],
+      sourceID: "V1",
+      targetVisibleIndex: 0,
+    })
+
+    expect(result).toBe(pinnedIDs)
+  })
+})
+
+describe("unpinPawworkSession", () => {
+  test("removes the source from the pinned array, leaving the rest intact", () => {
+    const result = unpinPawworkSession({
+      pinnedIDs: ["alpha", "beta", "gamma"],
+      sourceID: "beta",
+    })
+
+    expect(result).toEqual(["alpha", "gamma"])
+  })
+
+  test("is a no-op when the source is not in the pinned array", () => {
+    const result = unpinPawworkSession({
+      pinnedIDs: ["alpha", "beta"],
+      sourceID: "missing",
+    })
+
+    expect(result).toEqual(["alpha", "beta"])
+  })
+
+  test("returns the same array identity when the source is absent (no spurious setStore writes)", () => {
+    const pinnedIDs = ["alpha", "beta"]
+    const result = unpinPawworkSession({ pinnedIDs, sourceID: "missing" })
+
+    expect(result).toBe(pinnedIDs)
   })
 })

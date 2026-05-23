@@ -20,8 +20,8 @@ permissions:
   security-events: write
 
 concurrency:
-  group: codeql-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.ref == 'refs/heads/dev' && format('codeql-{0}', github.run_id) || format('codeql-{0}', github.event.pull_request.number || github.ref) }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/dev' }}
 
 jobs:
   changes:

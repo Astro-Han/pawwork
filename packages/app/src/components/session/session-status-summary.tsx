@@ -1,17 +1,11 @@
 import { For, Show, createMemo, type Accessor, type JSX } from "solid-js"
+import { TodoStatusMarker } from "@opencode-ai/ui/todo-status-marker"
 import type { Part } from "@opencode-ai/sdk/v2"
 import type { Todo } from "@opencode-ai/sdk/v2/client"
 import { useLanguage } from "@/context/language"
 import { extractSources } from "@/pages/session/session-status-extractors"
 import { selectSessionTodos } from "@/pages/session/session-todos"
 import type { SessionTodoItem } from "@/pages/session/todos/todo-model"
-
-const TODO_STATUS_STYLES: Record<string, { dot: string; text: string }> = {
-  completed: { dot: "bg-icon-success-base", text: "" },
-  in_progress: { dot: "bg-icon-info-base", text: "" },
-  pending: { dot: "bg-border-weak", text: "" },
-  cancelled: { dot: "bg-border-weak", text: "line-through text-fg-weaker" },
-}
 
 function Section(props: { title: string; children: JSX.Element }) {
   return (
@@ -27,11 +21,23 @@ function Empty(props: { text: string }) {
 }
 
 function TodoRow(props: { todo: SessionTodoItem }) {
-  const style = () => TODO_STATUS_STYLES[props.todo.status] ?? TODO_STATUS_STYLES.pending
+  const isDone = () => props.todo.status === "completed" || props.todo.status === "cancelled"
   return (
-    <div data-slot="status-summary-todo" data-state={props.todo.status} class="flex items-start gap-2.5 py-1">
-      <div class={`size-2 rounded-full shrink-0 mt-1.5 ${style().dot}`} aria-hidden />
-      <div class={`text-body text-fg-base min-w-0 ${style().text}`}>{props.todo.content}</div>
+    <div
+      data-slot="status-summary-todo"
+      data-state={props.todo.status}
+      class="flex items-start gap-2 py-1"
+    >
+      <TodoStatusMarker status={props.todo.status} marginTop="1px" />
+      <div
+        class="text-body min-w-0 break-words"
+        classList={{
+          "line-through text-fg-weak": isDone(),
+          "text-fg-base": !isDone(),
+        }}
+      >
+        {props.todo.content}
+      </div>
     </div>
   )
 }

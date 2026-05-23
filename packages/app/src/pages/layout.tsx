@@ -100,6 +100,8 @@ import {
   buildPawworkSessionSections,
   findPawworkSessionNavigationTarget,
   flattenPawworkSessionSections,
+  reorderPawworkPinnedByVisible,
+  unpinPawworkSession,
 } from "./layout/pawwork-session-nav"
 import { createShellNavigation } from "./layout/shell-navigation"
 import {
@@ -1189,6 +1191,56 @@ export default function Layout(props: ParentProps) {
       if (next.length !== current.length) return next
       return [sessionID, ...current]
     })
+  }
+
+  /**
+   * Cross-zone drag: All ⇄ Pinned with positional insert, or intra-Pinned
+   * reorder. `visiblePinnedIDs` is the rendered pinned order from the sidebar;
+   * `visibleTargetIndex` is a slot inside it. We translate to the raw
+   * pinned array so hidden / un-loaded pinned IDs keep their positions.
+   */
+  function dragPawworkSession(input: {
+    sessionID: string
+    targetSection: "pinned" | "recent"
+    visiblePinnedIDs: string[]
+    visibleTargetIndex: number
+  }) {
+    setStore("pawworkPinnedSessions", (current) => {
+      if (input.targetSection === "recent") {
+        return unpinPawworkSession({ pinnedIDs: current, sourceID: input.sessionID })
+      }
+      return reorderPawworkPinnedByVisible({
+        pinnedIDs: current,
+        visiblePinnedIDs: input.visiblePinnedIDs,
+        sourceID: input.sessionID,
+        targetVisibleIndex: input.visibleTargetIndex,
+      })
+    })
+  }
+
+  /**
+   * Menu-driven move up / down: keyboard-accessible reorder within the pinned
+   * zone. Operates on the visible pinned order so adjacency matches what the
+   * user sees; the helper reconciles back to the raw array.
+   */
+  function movePinnedSessionByOne(input: {
+    sessionID: string
+    direction: "up" | "down"
+    visiblePinnedIDs: string[]
+  }) {
+    const visibleIndex = input.visiblePinnedIDs.indexOf(input.sessionID)
+    if (visibleIndex === -1) return
+    const offset = input.direction === "up" ? -1 : 1
+    const nextVisibleIndex = Math.max(0, Math.min(input.visiblePinnedIDs.length - 1, visibleIndex + offset))
+    if (nextVisibleIndex === visibleIndex) return
+    setStore("pawworkPinnedSessions", (current) =>
+      reorderPawworkPinnedByVisible({
+        pinnedIDs: current,
+        visiblePinnedIDs: input.visiblePinnedIDs,
+        sourceID: input.sessionID,
+        targetVisibleIndex: nextVisibleIndex,
+      }),
+    )
   }
 
   function setPawworkSortMode(mode: "time" | "project") {
@@ -2412,6 +2464,8 @@ export default function Layout(props: ParentProps) {
       onRenameProject={handleRenameProject}
       onRemoveProject={hideProject}
       onTogglePinnedSession={togglePinnedSession}
+      onDragSession={dragPawworkSession}
+      onMovePinnedSession={movePinnedSessionByOne}
       exportSessionAvailable={exportSessionAvailable}
       onExportSession={exportSession}
       onDeleteSession={confirmDeleteSession}

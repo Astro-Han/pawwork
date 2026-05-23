@@ -2,8 +2,10 @@ import fs from "node:fs/promises"
 import path from "node:path"
 import {
   comparePerfBaselines,
+  perfFailureKey,
   renderPerfBaselineComment,
   type PerfBaselineComparison,
+  type PerfFailureKey,
   type PerfScenarioSummary,
 } from "../src/testing/perf-metrics"
 
@@ -23,14 +25,37 @@ async function readPerfFile(filePath: string) {
   return payload
 }
 
-async function readFailureScenarioKeys(filePath: string) {
+async function readFailureScope(filePath: string): Promise<{ scenarioKeys: string[]; failureKeys: PerfFailureKey[] }> {
   const payload = JSON.parse(await fs.readFile(filePath, "utf8")) as PerfBaselineComparison
   if (!Array.isArray(payload.scenarios)) {
     throw new Error(`Expected a perf comparison with scenarios in ${filePath}`)
   }
-  return payload.scenarios
-    .filter((scenario) => scenario.failures.length > 0)
-    .map((scenario) => `${scenario.profile}:${scenario.scenario}`)
+  if (!Array.isArray(payload.failures)) {
+    throw new Error(`Expected a perf comparison with failures in ${filePath}`)
+  }
+  const scenarioKeys = new Set<string>()
+  const failureKeys = new Set<PerfFailureKey>()
+
+  for (const failure of payload.failures) {
+    if (failure.startsWith("missing_base_scenario:")) {
+      scenarioKeys.add(failure.slice("missing_base_scenario:".length))
+    } else if (failure.startsWith("missing_head_scenario:")) {
+      scenarioKeys.add(failure.slice("missing_head_scenario:".length))
+    }
+  }
+
+  for (const scenario of payload.scenarios) {
+    if (scenario.failures.length === 0) continue
+    scenarioKeys.add(`${scenario.profile}:${scenario.scenario}`)
+    for (const failure of scenario.failures) {
+      failureKeys.add(perfFailureKey({ profile: scenario.profile, scenario: scenario.scenario, metric: failure }))
+    }
+  }
+
+  return {
+    scenarioKeys: [...scenarioKeys],
+    failureKeys: [...failureKeys],
+  }
 }
 
 async function inferFailureScenarioSource(input: { outputPath?: string; failuresFromPath?: string }) {
@@ -59,12 +84,17 @@ async function main() {
   }
 
   const failuresSourcePath = await inferFailureScenarioSource({ outputPath, failuresFromPath })
-  const [base, head, scenarioKeys] = await Promise.all([
+  const [base, head, failureScope] = await Promise.all([
     readPerfFile(basePath),
     readPerfFile(headPath),
-    failuresSourcePath ? readFailureScenarioKeys(failuresSourcePath) : undefined,
+    failuresSourcePath ? readFailureScope(failuresSourcePath) : undefined,
   ])
-  const comparison = comparePerfBaselines({ base, head, scenarioKeys })
+  const comparison = comparePerfBaselines({
+    base,
+    head,
+    scenarioKeys: failureScope?.scenarioKeys,
+    failureKeys: failureScope?.failureKeys,
+  })
 
   if (outputPath) {
     await fs.mkdir(path.dirname(outputPath), { recursive: true })
@@ -79,6 +109,7 @@ async function main() {
     pass: comparison.pass,
     failures: comparison.failures,
     warnings: comparison.warnings,
+    confirmation: comparison.confirmation,
   }
   console.log(JSON.stringify(summary, null, 2))
 

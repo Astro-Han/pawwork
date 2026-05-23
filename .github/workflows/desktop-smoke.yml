@@ -8,8 +8,8 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: desktop-smoke-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.ref == 'refs/heads/dev' && format('desktop-smoke-{0}', github.run_id) || format('desktop-smoke-{0}', github.event.pull_request.number || github.ref) }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/dev' }}
 
 permissions:
   contents: read

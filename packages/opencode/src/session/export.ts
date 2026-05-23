@@ -358,8 +358,8 @@ export namespace Export {
     const walk = (t: Tree) => {
       for (const message of t.messages ?? []) {
         if (message.info.role !== "assistant") continue
-        const incident = message.info.diagnostics?.run_observability?.incident
-        if (incident) incidents.push(incident)
+        const summary = message.info.diagnostics?.run_observability
+        if (summary) incidents.push(...runIncidentsFromSummary(summary))
       }
       for (const child of t.children ?? []) walk(child)
     }
@@ -1036,8 +1036,11 @@ export namespace Export {
   function sanitizeDiagnostics(diagnostics: Snapshot["diagnostics"]): Snapshot["diagnostics"] {
     const last = diagnostics.loop?.last
     const sanitizedIncidents = (
-      diagnostics.run_incidents ?? diagnostics.run_observability?.flatMap((summary) => summary.incident ?? [])
+      diagnostics.run_incidents ?? diagnostics.run_observability?.flatMap(runIncidentsFromSummary)
     )?.map(RunIncident.sanitize)
+    const hasRunIncident =
+      diagnostics.run_incidents?.length ||
+      diagnostics.run_observability?.some((summary) => summary.incident || summary.recovered_incidents?.length)
     const sanitizedChains =
       sanitizedIncidents?.map(RunIncident.toExportChain) ??
       diagnostics.incident_chains?.map((chain) => ({
@@ -1088,10 +1091,7 @@ export namespace Export {
       llm_traces: diagnostics.llm_traces?.map(sanitizeLLMTrace),
       run_observability: diagnostics.run_observability?.map(sanitizeRunObservability),
       run_incident_schema_version:
-        diagnostics.run_incident_schema_version ??
-        (diagnostics.run_incidents?.length || diagnostics.run_observability?.some((summary) => summary.incident)
-          ? RunIncident.SCHEMA_VERSION
-          : undefined),
+        diagnostics.run_incident_schema_version ?? (hasRunIncident ? RunIncident.SCHEMA_VERSION : undefined),
       run_incidents: sanitizedIncidents,
       incident_chains: sanitizedChains,
     }
@@ -1101,8 +1101,13 @@ export namespace Export {
     return {
       ...summary,
       incident: summary.incident ? RunIncident.sanitize(summary.incident) : undefined,
+      recovered_incidents: summary.recovered_incidents?.map(RunIncident.sanitize),
       error: summary.error,
     }
+  }
+
+  function runIncidentsFromSummary(summary: RunObservability.Summary) {
+    return [...(summary.recovered_incidents ?? []), ...(summary.incident ? [summary.incident] : [])]
   }
 
   function sanitizeLLMTrace(trace: LLMTrace.Summary): LLMTrace.Summary {

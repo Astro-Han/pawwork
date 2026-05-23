@@ -45,6 +45,15 @@ describe("timeline virtual rows", () => {
     expect(classifyTimelineRowMutation({ previous, next: appended })).toBe("append")
   })
 
+  test("classifies empty, initial, and same row sets", () => {
+    const empty = createTimelineVirtualRows({ messages: [], historyMore: false, turnStart: 0 })
+    const rows = createTimelineVirtualRows({ messages: userMessages(5, 8), historyMore: false, turnStart: 0 })
+
+    expect(classifyTimelineRowMutation({ previous: empty, next: empty })).toBe("same")
+    expect(classifyTimelineRowMutation({ previous: empty, next: rows })).toBe("initial")
+    expect(classifyTimelineRowMutation({ previous: rows, next: rows })).toBe("same")
+  })
+
   test("classifies replacement when neither end remains stable", () => {
     const previous = createTimelineVirtualRows({ messages: userMessages(5, 8), historyMore: false, turnStart: 0 })
     const next = createTimelineVirtualRows({ messages: userMessages(20, 23), historyMore: false, turnStart: 0 })
