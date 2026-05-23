@@ -695,8 +695,9 @@ async function seedHeavyBashSession(input: { project: PerfProject; llm: PerfLlm;
 async function revealTrowBodyIfPresent(page: Page) {
   const summary = page.locator('[data-slot="trow-summary"]').first()
   if (!(await summary.isVisible({ timeout: 1_000 }).catch(() => false))) return
-  await summary.click()
-  await expect(page.locator('[data-slot="trow-body"]').first()).toBeVisible()
+  const body = page.locator('[data-slot="trow-body"]').first()
+  if (!(await body.isVisible().catch(() => false))) await summary.click()
+  await expect(body).toBeVisible()
 }
 
 function expandableToolTriggers(page: Page) {
@@ -754,6 +755,10 @@ async function exerciseToolExpandCycle(page: Page) {
 
   if (mode === "trow") {
     await resetPerfProbe(page)
+    if ((await trowDetails.getAttribute("open").catch(() => null)) !== null) {
+      await trowSummary.click()
+      await expect(trowDetails).not.toHaveAttribute("open", "")
+    }
     await trowSummary.click()
     await expect(trowDetails).toHaveAttribute("open", "")
     await trowSummary.click()
