@@ -147,6 +147,10 @@
   gap: 6px;
 }
 
+[data-component="session-turn-trow-block"][data-single] [data-slot="trow-body"] {
+  margin-top: 0;
+}
+
 /* Fallback row (default `renderTool` path) — used when the caller does
  * not provide a per-tool renderer. */
 [data-component="session-turn-trow-block"] [data-slot="trow-item"] {

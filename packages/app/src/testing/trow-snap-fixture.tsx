@@ -9,7 +9,13 @@ const labels = {
   summaryWithFailed: (count: number, failed: number) => `已运行 ${count} 条命令，${failed} 条失败`,
 }
 
-function tool(id: string, description: string, command: string, status: ToolState["status"] = "completed"): ToolPart {
+function tool(
+  id: string,
+  description: string,
+  command: string,
+  status: ToolState["status"] = "completed",
+  output?: string,
+): ToolPart {
   const input = { command, description }
   const state: ToolState =
     status === "running"
@@ -17,7 +23,7 @@ function tool(id: string, description: string, command: string, status: ToolStat
       : {
           status: "completed",
           input,
-          output: command.includes("one") ? "one\n" : command.includes("two") ? "two\n" : "three\n",
+          output: output ?? (command.includes("one") ? "one\n" : command.includes("two") ? "two\n" : "three\n"),
           title: description,
           metadata: {},
           time: { start: 0, end: 1 },
@@ -45,6 +51,10 @@ const runningParts = [
   tool("second-running", "second command", "echo two"),
   tool("third-running", "third command", "echo three", "running"),
 ]
+
+const singleQuietParts = [tool("single-quiet", "quiet command", "sleep 0", "completed", "")]
+const singleResultParts = [tool("single-result", "prints one line", "echo one")]
+const singleRunningParts = [tool("single-running", "long command", "sleep 30", "running")]
 
 function describeTool(part: ToolPart) {
   const description = part.state.input?.description
@@ -82,27 +92,6 @@ function BashOutput(props: { command: string; output?: string }) {
         </pre>
       </div>
     </div>
-  )
-}
-
-function DirectBashTool(props: {
-  description: string
-  command: string
-  output?: string
-  stateKey: string
-  status?: string
-  defaultOpen?: boolean
-}) {
-  return (
-    <BasicTool
-      icon="console"
-      status={props.status}
-      defaultOpen={props.defaultOpen}
-      trigger={{ title: "执行命令", subtitle: props.description }}
-      stateKey={props.stateKey}
-    >
-      <BashOutput command={props.command} output={props.output} />
-    </BasicTool>
   )
 }
 
@@ -154,28 +143,28 @@ function TrowSnapFixture() {
         />
       </div>
       <div data-snap="single-command-direct">
-        <DirectBashTool
-          description="quiet command"
-          command="sleep 0"
-          output=""
-          stateKey="single-command-direct"
+        <TrowBlock
+          parts={singleQuietParts}
+          labels={labels}
+          describeTool={describeTool}
+          renderTool={renderTool("single-direct", "single-quiet")}
         />
       </div>
       <div data-snap="single-command-expanded">
-        <DirectBashTool
-          description="prints one line"
-          command="echo single"
-          output="single"
-          stateKey="single-command-expanded"
-          defaultOpen
+        <TrowBlock
+          parts={singleResultParts}
+          labels={labels}
+          describeTool={describeTool}
+          renderTool={renderTool("single-expanded", "single-result")}
         />
       </div>
       <div data-snap="single-command-running">
-        <DirectBashTool
-          description="long command"
-          command="sleep 30"
-          stateKey="single-command-running"
-          status="running"
+        <TrowBlock
+          parts={singleRunningParts}
+          working
+          labels={labels}
+          describeTool={describeTool}
+          renderTool={renderTool("single-running", "single-running")}
         />
       </div>
     </div>

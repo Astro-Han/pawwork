@@ -59,15 +59,6 @@ export function groupParts(parts: { messageID: string; part: PartType }[]) {
       messageID: item.messageID,
       partID: item.part.id,
     }))
-    if (refs.length === 1) {
-      result.push({
-        key: `part:${first.messageID}:${first.part.id}`,
-        type: "part",
-        ref: refs[0]!,
-      })
-      start = -1
-      return
-    }
     result.push({
       key: `trow:${first.part.id}`,
       type: "trow",

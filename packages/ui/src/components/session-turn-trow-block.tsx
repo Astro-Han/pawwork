@@ -159,6 +159,7 @@ export interface TrowBlockProps {
 export function TrowBlock(props: TrowBlockProps) {
   const summary = createMemo(() => reduceTrowBlock(props.parts))
   const activeTool = createMemo(() => activeTrowTool(props.parts, props.working))
+  const single = createMemo(() => props.parts.length === 1)
   const [open, setOpen] = createSignal(props.defaultOpen ?? false)
 
   const summaryText = createMemo(() => {
@@ -188,52 +189,64 @@ export function TrowBlock(props: TrowBlockProps) {
       return false
     })
   })
+  const renderToolItem = (part: ToolPart) => (
+    <Show when={props.renderTool} fallback={renderDefaultToolItem(part)}>
+      <div data-slot="trow-item">{props.renderTool?.(part)}</div>
+    </Show>
+  )
 
   return (
     <div
       data-component="session-turn-trow-block"
       data-running={!!activeTool() || undefined}
       data-failed={summary().failedCount > 0 || undefined}
+      data-single={single() || undefined}
     >
-      <details
-        open={open()}
-        onToggle={(event) => {
-          const el = event.currentTarget as HTMLDetailsElement
-          setOpen(el.open)
-        }}
-      >
-        <summary
-          data-slot="trow-summary"
-          data-timeline-anchor={`trow-summary:${props.parts[0]?.id ?? "empty"}`}
-        >
-          <span data-slot="trow-summary-icon">
-            <Icon name={leadingIcon()} />
-          </span>
-          <span data-slot="trow-summary-text">{summaryText()}</span>
-          <Show when={hasExpandableBody()}>
-            <span data-slot="trow-summary-chev" aria-hidden="true">
-              <Icon name="chevron-down" />
-            </span>
-          </Show>
-        </summary>
-        <div data-slot="trow-body">
-          {/*
-           * `<For>` is the outer reactive primitive so the body stays in
-           * sync with `props.parts` while the round is streaming. Earlier
-           * iterations of this file wrapped the fallback path in a
-           * `<Show fallback={defaultRenderTools(props.parts)}>` form,
-           * which captured the parts array at creation time and would
-           * not pick up new tool calls landing mid-stream.
-           */}
-          <For each={props.parts}>
-            {(part) => (
-              <Show when={props.renderTool} fallback={renderDefaultToolItem(part)}>
-                <div data-slot="trow-item">{props.renderTool?.(part)}</div>
+      <Show
+        when={single()}
+        fallback={
+          <details
+            open={open()}
+            onToggle={(event) => {
+              const el = event.currentTarget as HTMLDetailsElement
+              setOpen(el.open)
+            }}
+          >
+            <summary
+              data-slot="trow-summary"
+              data-timeline-anchor={`trow-summary:${props.parts[0]?.id ?? "empty"}`}
+            >
+              <span data-slot="trow-summary-icon">
+                <Icon name={leadingIcon()} />
+              </span>
+              <span data-slot="trow-summary-text">{summaryText()}</span>
+              <Show when={hasExpandableBody()}>
+                <span data-slot="trow-summary-chev" aria-hidden="true">
+                  <Icon name="chevron-down" />
+                </span>
               </Show>
-            )}
-          </For>
+            </summary>
+            <div data-slot="trow-body">
+              {/*
+               * `<For>` is the outer reactive primitive so the body stays in
+               * sync with `props.parts` while the round is streaming. Earlier
+               * iterations of this file wrapped the fallback path in a
+               * `<Show fallback={defaultRenderTools(props.parts)}>` form,
+               * which captured the parts array at creation time and would
+               * not pick up new tool calls landing mid-stream.
+               */}
+              <For each={props.parts}>{renderToolItem}</For>
+            </div>
+          </details>
+        }
+      >
+        <div
+          data-slot="trow-body"
+          data-timeline-anchor={`trow-single:${props.parts[0]?.id ?? "empty"}`}
+        >
+          <For each={props.parts}>{renderToolItem}</For>
         </div>
-      </details>
+      </Show>
     </div>
   )
 }

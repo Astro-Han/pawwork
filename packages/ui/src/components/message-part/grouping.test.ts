@@ -69,14 +69,14 @@ function groupRenderable(parts: Part[]) {
 }
 
 describe("message-part groupParts", () => {
-  test("a single renderable tool stays as a normal part", () => {
+  test("a single renderable tool emits one direct trow group", () => {
     const result = groupRenderable([toolPart("a", "bash")])
 
     expect(result).toEqual([
       {
-        key: "part:m:a",
-        type: "part",
-        ref: { messageID: "m", partID: "a" },
+        key: "trow:a",
+        type: "trow",
+        refs: [{ messageID: "m", partID: "a" }],
       },
     ])
   })
@@ -104,16 +104,16 @@ describe("message-part groupParts", () => {
       toolPart("t3", "edit"),
     ])
 
-    expect(result.map((group) => group.type)).toEqual(["trow", "part", "part"])
+    expect(result.map((group) => group.type)).toEqual(["trow", "part", "trow"])
     expect(result[1]).toEqual({
       key: "part:m:p1",
       type: "part",
       ref: { messageID: "m", partID: "p1" },
     })
     expect(result[2]).toEqual({
-      key: "part:m:t3",
-      type: "part",
-      ref: { messageID: "m", partID: "t3" },
+      key: "trow:t3",
+      type: "trow",
+      refs: [{ messageID: "m", partID: "t3" }],
     })
   })
 

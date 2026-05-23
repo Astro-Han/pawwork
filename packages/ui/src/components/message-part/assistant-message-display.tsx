@@ -49,6 +49,7 @@ export function AssistantMessageDisplay(props: {
                   emptyTools,
                   { equals: same },
                 )
+                const singleTool = createMemo(() => parts().length === 1)
 
                 return (
                   <Show when={parts().length > 0}>
@@ -63,7 +64,12 @@ export function AssistantMessageDisplay(props: {
                       describeTool={(tool) => contextToolSummaryText(tool, i18n)}
                       renderTool={(tool) => (
                         <div data-slot="trow-result-body" data-timeline-anchor={`tool:${tool.id}`}>
-                          <Part part={tool} message={props.message} stateKey={`tool:${tool.id}`} />
+                          <Part
+                            part={tool}
+                            message={props.message}
+                            defaultOpen={singleTool() ? true : undefined}
+                            stateKey={`tool:${tool.id}`}
+                          />
                         </div>
                       )}
                     />

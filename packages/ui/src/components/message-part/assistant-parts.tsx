@@ -63,6 +63,7 @@ export function AssistantParts(props: {
                   emptyTools,
                   { equals: same },
                 )
+                const singleTool = createMemo(() => parts().length === 1)
                 const renderTool = (tool: ToolPart) => {
                   const entry = entryAccessor()
                   if (entry.type !== "trow") return null
@@ -72,7 +73,12 @@ export function AssistantParts(props: {
                   if (!message) return null
                   return (
                     <div data-slot="trow-result-body" data-timeline-anchor={`tool:${tool.id}`}>
-                      <Part part={tool} message={message} stateKey={`tool:${tool.id}`} />
+                      <Part
+                        part={tool}
+                        message={message}
+                        defaultOpen={singleTool() ? true : undefined}
+                        stateKey={`tool:${tool.id}`}
+                      />
                     </div>
                   )
                 }
