@@ -49,6 +49,7 @@ import { Npm } from "@opencode-ai/core/npm"
 import { Filesystem } from "@/util/filesystem"
 import { Flock } from "@/util/flock"
 import { Installation } from "@/installation"
+import { InstallationPluginVersion } from "@opencode-ai/core/installation/version"
 import { withLifecycleOrigin } from "@/session/lifecycle-provenance"
 import { Runtime } from "@opencode-ai/core/runtime"
 
@@ -97,6 +98,10 @@ async function isWritable(dir: string) {
   } catch {
     return false
   }
+}
+
+function configPluginDependencyTarget() {
+  return Installation.isLocal() ? "*" : InstallationPluginVersion
 }
 
 // Custom merge function that concatenates array fields instead of replacing them
@@ -1300,7 +1305,7 @@ export async function installDependencies(dir: string) {
   await using _ = await Flock.acquire(key)
 
   const pkg = path.join(dir, "package.json")
-  const target = Installation.isLocal() ? "*" : Installation.VERSION
+  const target = configPluginDependencyTarget()
   const json = await Filesystem.readJson<Package>(pkg).catch(
     (): Package => ({
       dependencies: {},

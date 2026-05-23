@@ -15,6 +15,7 @@ await import("./generate.ts")
 
 import { Script } from "@opencode-ai/script"
 import pkg from "../package.json"
+import pluginPkg from "../../plugin/package.json"
 
 // Load migrations from migration directories
 const migrationDirs = (
@@ -200,6 +201,7 @@ for (const item of targets) {
     entrypoints: ["./src/index.ts", ...(embeddedFileMap ? ["opencode-web-ui.gen.ts"] : [])],
     define: {
       OPENCODE_VERSION: `'${Script.version}'`,
+      OPENCODE_PLUGIN_VERSION: `'${pluginPkg.version}'`,
       OPENCODE_MIGRATIONS: JSON.stringify(migrations),
       OPENCODE_CHANNEL: `'${Script.channel}'`,
       OPENCODE_LIBC: item.os === "linux" ? `'${item.abi ?? "glibc"}'` : "",
