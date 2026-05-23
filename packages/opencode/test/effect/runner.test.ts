@@ -29,7 +29,7 @@ function waitForRunnerState<A, E>(runner: RunnerInstance<A, E>, tag: State<A, E>
 }
 
 // Effect Deferred does not expose waiter counts publicly; keep this runtime-shape check
-// local so queued-caller tests can prove a forked caller is attached before cancel/release.
+// local so runner tests can prove a forked caller/work fiber is attached before cancel/release.
 function deferredWaiterCount<A, E>(deferred: Deferred.Deferred<A, E>) {
   return (deferred as DeferredRuntimeWaiters).resumes?.length ?? 0
 }
@@ -46,6 +46,16 @@ function currentRunDone<A, E>(runner: RunnerInstance<A, E>) {
     const state = runner.state
     if (state._tag === "Running" || state._tag === "ShellThenRun") return state.run.done
     return yield* Effect.die(new Error(`Runner has no current run; current state is ${state._tag}`))
+  })
+}
+
+function makeBlockedWork<A>(value: A, label = "running work") {
+  return Effect.gen(function* () {
+    const release = yield* Deferred.make<void>()
+    return {
+      waitUntilBlocked: waitForDeferredWaiters(release, 1, label),
+      work: Deferred.await(release).pipe(Effect.as(value)),
+    }
   })
 }
 
@@ -161,8 +171,10 @@ describe("Runner", () => {
     Effect.gen(function* () {
       const s = yield* Scope.Scope
       const runner = Runner.make<string>(s)
-      const fiber = yield* runner.ensureRunning(Effect.never.pipe(Effect.as("never"))).pipe(Effect.forkChild)
+      const blocked = yield* makeBlockedWork("never")
+      const fiber = yield* runner.ensureRunning(blocked.work).pipe(Effect.forkChild)
       yield* waitForRunnerState(runner, "Running")
+      yield* blocked.waitUntilBlocked
       expect(runner.busy).toBe(true)
       expect(runner.state._tag).toBe("Running")
 
@@ -189,8 +201,10 @@ describe("Runner", () => {
     Effect.gen(function* () {
       const s = yield* Scope.Scope
       const runner = Runner.make<string>(s, { onInterrupt: () => Effect.succeed("fallback") })
-      const fiber = yield* runner.ensureRunning(Effect.never.pipe(Effect.as("never"))).pipe(Effect.forkChild)
+      const blocked = yield* makeBlockedWork("never")
+      const fiber = yield* runner.ensureRunning(blocked.work).pipe(Effect.forkChild)
       yield* waitForRunnerState(runner, "Running")
+      yield* blocked.waitUntilBlocked
 
       yield* runner.cancel
 
@@ -207,8 +221,10 @@ describe("Runner", () => {
       const runner = Runner.make<string>(s, {
         onInterrupt: (meta) => Effect.succeed(`${meta?.source}:${meta?.reason}:${typeof meta?.recordedAt}`),
       })
-      const fiber = yield* runner.ensureRunning(Effect.never.pipe(Effect.as("never"))).pipe(Effect.forkChild)
+      const blocked = yield* makeBlockedWork("never")
+      const fiber = yield* runner.ensureRunning(blocked.work).pipe(Effect.forkChild)
       yield* waitForRunnerState(runner, "Running")
+      yield* blocked.waitUntilBlocked
 
       yield* runner.cancel
 
@@ -225,8 +241,10 @@ describe("Runner", () => {
       const runner = Runner.make<string>(s, {
         onInterrupt: (meta) => Effect.succeed(`${meta?.source}:${meta?.reason}:${typeof meta?.recordedAt}`),
       })
-      const fiber = yield* runner.ensureRunning(Effect.never.pipe(Effect.as("never"))).pipe(Effect.forkChild)
+      const blocked = yield* makeBlockedWork("never")
+      const fiber = yield* runner.ensureRunning(blocked.work).pipe(Effect.forkChild)
       yield* waitForRunnerState(runner, "Running")
+      yield* blocked.waitUntilBlocked
 
       yield* Scope.close(s, Exit.void)
 
@@ -243,9 +261,11 @@ describe("Runner", () => {
     Effect.gen(function* () {
       const s = yield* Scope.Scope
       const runner = Runner.make<string>(s, { onInterrupt: () => Effect.succeed("fallback") })
+      const blocked = yield* makeBlockedWork("x")
 
-      const a = yield* runner.ensureRunning(Effect.never.pipe(Effect.as("x"))).pipe(Effect.forkChild)
+      const a = yield* runner.ensureRunning(blocked.work).pipe(Effect.forkChild)
       yield* waitForRunnerState(runner, "Running")
+      yield* blocked.waitUntilBlocked
       const done = yield* currentRunDone(runner)
       const b = yield* runner.ensureRunning(Effect.succeed("y")).pipe(Effect.forkChild)
       yield* waitForDeferredWaiters(done, 2, "running run")
@@ -268,13 +288,14 @@ describe("Runner", () => {
       const runner = Runner.make<string>(s, {
         onInterrupt: (meta) => Effect.succeed(meta?.reason ?? "missing"),
       })
-      const work = Effect.never.pipe(
+      const blocked = yield* makeBlockedWork("never")
+      const work = blocked.work.pipe(
         Effect.onInterrupt(() => Deferred.await(release)),
-        Effect.as("never"),
       )
 
       const fiber = yield* runner.ensureRunning(work).pipe(Effect.forkChild)
       yield* waitForRunnerState(runner, "Running")
+      yield* blocked.waitUntilBlocked
 
       yield* runner.cancelWith({ source: "first", reason: "first" }).pipe(Effect.forkChild)
       yield* waitForRunnerState(runner, "Idle")
@@ -292,8 +313,10 @@ describe("Runner", () => {
     Effect.gen(function* () {
       const s = yield* Scope.Scope
       const runner = Runner.make<string>(s)
-      const fiber = yield* runner.ensureRunning(Effect.never.pipe(Effect.as("x"))).pipe(Effect.forkChild)
+      const blocked = yield* makeBlockedWork("x")
+      const fiber = yield* runner.ensureRunning(blocked.work).pipe(Effect.forkChild)
       yield* waitForRunnerState(runner, "Running")
+      yield* blocked.waitUntilBlocked
       yield* runner.cancel
       yield* Fiber.await(fiber)
 
@@ -585,8 +608,10 @@ describe("Runner", () => {
       const runner = Runner.make<string>(s, {
         onIdle: Ref.update(count, (n) => n + 1),
       })
-      const fiber = yield* runner.ensureRunning(Effect.never.pipe(Effect.as("x"))).pipe(Effect.forkChild)
+      const blocked = yield* makeBlockedWork("x")
+      const fiber = yield* runner.ensureRunning(blocked.work).pipe(Effect.forkChild)
       yield* waitForRunnerState(runner, "Running")
+      yield* blocked.waitUntilBlocked
       yield* runner.cancel
       yield* Fiber.await(fiber)
       expect(yield* Ref.get(count)).toBeGreaterThanOrEqual(1)
