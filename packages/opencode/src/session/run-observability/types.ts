@@ -65,6 +65,22 @@ export type ToolEffect = {
   complete: boolean
 }
 
+export type SideEffectBoundarySnapshot = {
+  exposed_tool_count: number
+  unknown_tool_count: number
+  unclassified_effect_count: number
+  provider_executed_capability_present: boolean
+  external_boundary_present: boolean
+  proof_result: "complete" | "incomplete"
+  proof_reason:
+    | "all_boundaries_classified"
+    | "unknown_tool_boundary"
+    | "unclassified_effect"
+    | "provider_executed_capability"
+    | "external_boundary"
+    | "unknown"
+}
+
 export type AttemptSummary = {
   attempt_id: AttemptID
   attempt_index: number
@@ -108,6 +124,7 @@ export type Summary = {
   unsafe_side_effect_started: boolean
   unsafe_side_effect_kinds: ToolEffectKind[]
   side_effect_facts_complete: boolean
+  side_effect_boundary_snapshot?: SideEffectBoundarySnapshot
   pending_tool_parts_interrupted?: number
   incident?: RunIncident.Summary
   lifecycle?: {
@@ -188,6 +205,20 @@ export type Recorder = {
     interruptionPhase?: RunIncident.EvidenceEvent["interruption_phase"]
     toolExecutionStarted?: boolean
   }): void
+  recordSideEffectBoundarySnapshot(input: {
+    attemptID?: AttemptID
+    at: number
+    monotonicMs: number
+    snapshot: SideEffectBoundarySnapshot
+  }): void
+  recordAttemptFailureAndDeriveRecovery(input: {
+    attemptID?: AttemptID
+    at: number
+    monotonicMs: number
+    error: unknown
+    evidence?: string[]
+    watchdog?: { phase: "connect" | "silent_stream" | "unknown" }
+  }): RunIncident.Recovery
   recordTransportFailure(input: {
     attemptID?: AttemptID
     at: number

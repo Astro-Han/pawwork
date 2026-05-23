@@ -30,6 +30,7 @@ import { currentLifecycleCloseAction, lifecycleCloseActionMeta } from "./lifecyc
 
 const log = Log.create({ service: "session.processor" })
 const TOOL_CLEANUP_TIMEOUT_MS = 1_000
+const SAFE_RECOVERY_AUTO_RETRY_BACKOFF_MS = 1_000
 
 export type Result = "compact" | "stop" | "continue"
 
@@ -116,6 +117,30 @@ const TOOL_INTERRUPTION_ERRORS: Record<ToolInterruptionPhase, string> = {
   tool_execution: "Tool execution aborted",
   tool_call_materialized_without_execution: "Tool call was prepared, but the tool did not run before the interruption.",
   tool_input_generation: "Tool call generation interrupted before the tool ran.",
+}
+
+function watchdogPhase(error: unknown): "connect" | "silent_stream" | "unknown" | undefined {
+  const message = errorMessage(error).toLowerCase()
+  if (!message.includes("llm stream connection timed out")) return undefined
+  if (message.includes("without provider progress")) return "connect"
+  return "silent_stream"
+}
+
+function sideEffectBoundarySnapshot(tools: LLM.StreamInput["tools"]): RunObservability.SideEffectBoundarySnapshot {
+  const names = Object.keys(tools ?? {})
+  const effects = names.map((name) => RunObservability.toolEffect(name))
+  const unknownCount = effects.filter((effect) => effect.kind === "unknown").length
+  const unclassifiedCount = effects.filter((effect) => !effect.complete).length
+  const incomplete = unknownCount > 0 || unclassifiedCount > 0
+  return {
+    exposed_tool_count: names.length,
+    unknown_tool_count: unknownCount,
+    unclassified_effect_count: unclassifiedCount,
+    provider_executed_capability_present: false,
+    external_boundary_present: false,
+    proof_result: incomplete ? "incomplete" : "complete",
+    proof_reason: incomplete ? (unknownCount > 0 ? "unknown_tool_boundary" : "unclassified_effect") : "all_boundaries_classified",
+  }
 }
 
 type PendingLoopAction = {
@@ -1073,10 +1098,11 @@ export const layer: Layer.Layer<
       const halt = Effect.fn("SessionProcessor.halt")(function* (
         e: unknown,
         attemptID: RunObservability.AttemptID | undefined = ctx.currentAttemptID,
+        options?: { recordFailure?: boolean },
       ) {
         slog.error("process", { error: errorMessage(e), stack: e instanceof Error ? e.stack : undefined })
         ctx.streamError = true
-        if (attemptID) {
+        if (attemptID && options?.recordFailure !== false) {
           ctx.runTrace.recordTransportFailure({
             attemptID,
             at: Date.now(),
@@ -1121,90 +1147,152 @@ export const layer: Layer.Layer<
         ctx.needsCompaction = false
         ctx.shouldBreak = (yield* config.get()).experimental?.continue_loop_on_deny !== true
         let processAttemptID: RunObservability.AttemptID | undefined
+        let automaticStreamRetriesUsed = 0
+
+        const retryStillAllowed = Effect.fn("SessionProcessor.retryStillAllowed")(function* (stage: string) {
+          const lifecycleAction = currentLifecycleCloseAction(ctx.directory)
+          if (!lifecycleAction) return true
+          ctx.runTrace.recordScopeClosed({
+            at: Date.now(),
+            monotonicMs: performance.now(),
+            source: `session.processor.safe_recovery.${stage}`,
+            reason: "lifecycle_close_before_auto_retry",
+            propagationPoint: "session.processor.safe_recovery",
+            ...lifecycleCloseActionMeta(lifecycleAction),
+          })
+          return false
+        })
+
+        const retrySignalFor = (error: unknown) => {
+          const phase = watchdogPhase(error)
+          if (phase) {
+            return {
+              retryable: true,
+              message: "Connection timed out",
+              watchdog: { phase },
+            }
+          }
+          const parsed = parse(error)
+          const classification = SessionRetry.classifyRetry(parsed)
+          if (!classification) return { retryable: false }
+          if (SessionRetry.retryAction(classification) === "stop") {
+            ctx.terminalClassification = classification
+            return { retryable: false }
+          }
+          return { retryable: true, message: classification.raw }
+        }
+
+        const runAttempt = Effect.fn("SessionProcessor.runAttempt")(function* () {
+          ctx.currentText = undefined
+          ctx.reasoningMap = {}
+          ctx.attemptCount++
+          const attempt = ctx.runTrace.beginAttempt({
+            attemptIndex: ctx.attemptCount,
+            at: Date.now(),
+            monotonicMs: performance.now(),
+          })
+          ctx.currentAttemptID = attempt.attemptID
+          processAttemptID = attempt.attemptID
+          ctx.runTrace.recordSideEffectBoundarySnapshot({
+            attemptID: attempt.attemptID,
+            at: Date.now(),
+            monotonicMs: performance.now(),
+            snapshot: sideEffectBoundarySnapshot(streamInput.tools),
+          })
+          let stream: Stream.Stream<LLM.Event, unknown>
+          try {
+            stream = llm.stream({
+              ...ProviderTransform.streamTimeouts(streamInput.model),
+              ...streamInput,
+              trace: ctx.trace,
+            })
+          } catch (error) {
+            ctx.runTrace.recordSetupFailure({ at: Date.now(), monotonicMs: performance.now(), error })
+            throw error
+          }
+
+          yield* stream.pipe(
+            Stream.tap((event) => handleEvent(event, attempt.attemptID)),
+            // Stop draining the stream as soon as the loop gate fires a synthetic stop
+            // (ctx.blocked) so any trailing model text after the synthetic stop tool-error
+            // is dropped — the turn ends with the rendered Chinese summary alone.
+            Stream.takeUntil(() => ctx.needsCompaction || ctx.blocked),
+            Stream.runDrain,
+          )
+        })
 
         return yield* Effect.gen(function* () {
-          yield* Effect.gen(function* () {
-            ctx.currentText = undefined
-            ctx.reasoningMap = {}
-            ctx.attemptCount++
-            const attempt = ctx.runTrace.beginAttempt({
-              attemptIndex: ctx.attemptCount,
+          while (true) {
+            const result = yield* runAttempt().pipe(
+              Effect.onInterrupt(() =>
+                Effect.gen(function* () {
+                  aborted = true
+                  const lifecycleAction = currentLifecycleCloseAction(ctx.directory)
+                  ctx.runTrace.recordScopeClosed({
+                    at: Date.now(),
+                    monotonicMs: performance.now(),
+                    source: "session.processor.onInterrupt",
+                    reason: "aborted",
+                    propagationPoint: "session.processor.process.onInterrupt",
+                    ...(lifecycleAction ? lifecycleCloseActionMeta(lifecycleAction) : {}),
+                  })
+                  ctx.trace.recordAbortState({
+                    provenanceSource: "session.processor.onInterrupt",
+                    provenanceReason: "aborted",
+                    provenanceMode: "hard",
+                    provenanceRecordedAt: Date.now(),
+                  })
+                  if (!ctx.assistantMessage.error) {
+                    yield* halt(new DOMException("Aborted", "AbortError"), processAttemptID)
+                  }
+                }),
+              ),
+              Effect.catchCauseIf(
+                (cause) => !Cause.hasInterruptsOnly(cause),
+                (cause) => Effect.fail(Cause.squash(cause)),
+              ),
+              Effect.catch((error: unknown) => Effect.succeed({ ok: false as const, error })),
+            )
+            if (result === undefined) break
+            if (result.ok !== false) break
+
+            const attemptID = processAttemptID
+            const retrySignal = retrySignalFor(result.error)
+            const decision = ctx.runTrace.recordAttemptFailureAndDeriveRecovery({
+              attemptID,
               at: Date.now(),
               monotonicMs: performance.now(),
+              error: result.error,
+              evidence: retrySignal.watchdog ? ["watchdog_fired", "iterator_error"] : ["iterator_error"],
+              watchdog: retrySignal.watchdog,
             })
-            ctx.currentAttemptID = attempt.attemptID
-            processAttemptID = attempt.attemptID
-            let stream: Stream.Stream<LLM.Event, unknown>
-            try {
-              stream = llm.stream({
-                ...ProviderTransform.streamTimeouts(streamInput.model),
-                ...streamInput,
-                trace: ctx.trace,
+
+            if (
+              retrySignal.retryable &&
+              decision.recommendation === "auto_retry_once" &&
+              automaticStreamRetriesUsed === 0 &&
+              (yield* retryStillAllowed("before_backoff"))
+            ) {
+              automaticStreamRetriesUsed += 1
+              const next = Date.now() + SAFE_RECOVERY_AUTO_RETRY_BACKOFF_MS
+              yield* status.set(ctx.sessionID, {
+                type: "retry",
+                attempt: ctx.attemptCount,
+                message: retrySignal.message ?? "Retrying interrupted stream",
+                next,
               })
-            } catch (error) {
-              ctx.runTrace.recordSetupFailure({ at: Date.now(), monotonicMs: performance.now(), error })
-              throw error
+              yield* Effect.sleep(`${SAFE_RECOVERY_AUTO_RETRY_BACKOFF_MS} millis`)
+              if (yield* retryStillAllowed("after_backoff")) continue
             }
 
-            yield* stream.pipe(
-              Stream.tap((event) => handleEvent(event, attempt.attemptID)),
-              // Stop draining the stream as soon as the loop gate fires a synthetic stop
-              // (ctx.blocked) so any trailing model text after the synthetic stop tool-error
-              // is dropped — the turn ends with the rendered Chinese summary alone.
-              Stream.takeUntil(() => ctx.needsCompaction || ctx.blocked),
-              Stream.runDrain,
-            )
-          }).pipe(
-            Effect.onInterrupt(() =>
-              Effect.gen(function* () {
-                aborted = true
-                const lifecycleAction = currentLifecycleCloseAction(ctx.directory)
-                ctx.runTrace.recordScopeClosed({
-                  at: Date.now(),
-                  monotonicMs: performance.now(),
-                  source: "session.processor.onInterrupt",
-                  reason: "aborted",
-                  propagationPoint: "session.processor.process.onInterrupt",
-                  ...(lifecycleAction ? lifecycleCloseActionMeta(lifecycleAction) : {}),
-                })
-                ctx.trace.recordAbortState({
-                  provenanceSource: "session.processor.onInterrupt",
-                  provenanceReason: "aborted",
-                  provenanceMode: "hard",
-                  provenanceRecordedAt: Date.now(),
-                })
-                if (!ctx.assistantMessage.error) {
-                  yield* halt(new DOMException("Aborted", "AbortError"), processAttemptID)
-                }
-              }),
-            ),
-            Effect.catchCauseIf(
-              (cause) => !Cause.hasInterruptsOnly(cause),
-              (cause) => Effect.fail(Cause.squash(cause)),
-            ),
-            Effect.retry(
-              SessionRetry.policy({
-                parse,
-                set: (info) =>
-                  status.set(ctx.sessionID, {
-                    type: "retry",
-                    attempt: info.attempt,
-                    message: info.message,
-                    next: info.next,
-                  }),
-                signalTerminal: (classification) => {
-                  ctx.terminalClassification = classification
-                },
-              }),
-            ),
-            Effect.catch((error) => halt(error, processAttemptID)),
-            Effect.ensuring(cleanup()),
-          )
+            yield* halt(result.error, attemptID, { recordFailure: false })
+            break
+          }
 
           if (ctx.needsCompaction) return "compact"
           if (ctx.blocked || ctx.assistantMessage.error) return "stop"
           return "continue"
-        })
+        }).pipe(Effect.ensuring(cleanup()))
       })
 
       const recordSyntheticBlock = Effect.fn("SessionProcessor.recordSyntheticBlock")(function* (input: {

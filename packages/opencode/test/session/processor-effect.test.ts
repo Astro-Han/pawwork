@@ -1038,6 +1038,155 @@ it.live("session.processor effect tests publish retry status updates", () =>
   ),
 )
 
+it.live("connect timeout before provider progress auto retries once and succeeds", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+
+        yield* llm.hang
+        yield* llm.text("after retry")
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "auto retry connect timeout")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const value = yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "auto retry connect timeout" }],
+          tools: {},
+          connectTimeoutMs: 20,
+          streamTimeoutMs: 1_000,
+        })
+
+        const parts = MessageV2.parts(msg.id)
+        const stored = (yield* session.messages({ sessionID: chat.id })).find(
+          (message) => message.info.role === "assistant" && message.info.id === msg.id,
+        )
+
+        expect(value).toBe("continue")
+        expect(yield* llm.calls).toBe(2)
+        expect(parts.some((part) => part.type === "text" && part.text === "after retry")).toBe(true)
+        expect(handle.message.error).toBeUndefined()
+        expect(stored?.info.role).toBe("assistant")
+        if (stored?.info.role === "assistant") {
+          expect(stored.info.error).toBeUndefined()
+          expect(stored.info.diagnostics?.run_observability?.attempts).toHaveLength(2)
+          expect(stored.info.diagnostics?.run_observability?.attempts[0]).toMatchObject({
+            attempt_index: 1,
+            provider_progress_seen: false,
+            visible_output_seen: false,
+            tool_call_materialized: false,
+            tool_execution_started: false,
+          })
+          expect(stored.info.diagnostics?.run_observability?.attempts[1]).toMatchObject({
+            attempt_index: 2,
+            visible_output_seen: true,
+          })
+        }
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
+it.live("retryable stream error after visible output does not replay the assistant message", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+
+        yield* llm.push(
+          raw({
+            head: [
+              {
+                id: "chatcmpl-visible-retry-guard",
+                object: "chat.completion.chunk",
+                choices: [{ delta: { role: "assistant" } }],
+              },
+              {
+                id: "chatcmpl-visible-retry-guard",
+                object: "chat.completion.chunk",
+                choices: [{ delta: { content: "visible" } }],
+              },
+            ],
+            tail: [
+              {
+                error: {
+                  message: "stream terminated",
+                  type: "server_error",
+                  code: "stream_terminated",
+                },
+              },
+            ],
+          }),
+        )
+        yield* llm.text("replayed")
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "visible output retry guard")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const value = yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "visible output retry guard" }],
+          tools: {},
+        })
+
+        const textParts = MessageV2.parts(msg.id).filter((part): part is MessageV2.TextPart => part.type === "text")
+        const stored = (yield* session.messages({ sessionID: chat.id })).find(
+          (message) => message.info.role === "assistant" && message.info.id === msg.id,
+        )
+
+        expect(value).toBe("stop")
+        expect(yield* llm.calls).toBe(1)
+        expect(textParts.map((part) => part.text)).toContain("visible")
+        expect(textParts.map((part) => part.text)).not.toContain("replayed")
+        expect(stored?.info.role).toBe("assistant")
+        if (stored?.info.role === "assistant") {
+          expect(stored.info.diagnostics?.run_observability?.incident?.recovery).toMatchObject({
+            recommendation: "offer_continue",
+            reason: "visible_output_without_tool_execution",
+          })
+        }
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
 it.live("session.processor effect tests compact on structured context overflow", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>
@@ -1531,7 +1680,7 @@ it.live("session.processor effect tests record aborted errors and idle state", (
   ),
 )
 
-it.live("connect timeout writes assistant info.error and flips session_status idle", () =>
+it.live("connect timeout writes assistant info.error and flips session_status idle after retry also fails", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>
       Effect.gen(function* () {
@@ -1540,6 +1689,7 @@ it.live("connect timeout writes assistant info.error and flips session_status id
         const bus = yield* Bus.Service
         const sts = yield* SessionStatus.Service
 
+        yield* llm.hang
         yield* llm.hang
 
         const chat = yield* session.create({})
@@ -1584,6 +1734,7 @@ it.live("connect timeout writes assistant info.error and flips session_status id
         off()
 
         expect(result).toBe("stop")
+        expect(yield* llm.calls).toBe(2)
         expect(handle.message.error).toBeTruthy()
         expect(stored.info.role).toBe("assistant")
         if (stored.info.role === "assistant") {

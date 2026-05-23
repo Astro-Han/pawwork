@@ -7,6 +7,7 @@ import {
   type RecorderInput,
   RunID,
   SCHEMA_VERSION,
+  type SideEffectBoundarySnapshot,
   type Summary,
   type SummaryKey,
   type LifecycleKind,
@@ -53,6 +54,7 @@ export function createRecorder(input: RecorderInput): Recorder {
   let readOnlyToolStarted = false
   let unsafeSideEffectStarted = false
   let sideEffectFactsComplete = true
+  let sideEffectBoundarySnapshot: SideEffectBoundarySnapshot | undefined
   const materializedToolBoundaries: RunIncident.MaterializedToolBoundary[] = []
   let lastEventMonotonicMs = input.monotonicStartMs
   let failure: Failure | undefined
@@ -92,6 +94,95 @@ export function createRecorder(input: RecorderInput): Recorder {
       toolExecutionStarted: has("tool_execution_started"),
       toolExecutionCompleted: has("tool_execution_completed"),
     }
+  }
+  const deriveCurrentIncident = (completedAt?: number) => {
+    const incidentLifecycle = lifecycleSummary(lifecycleFailure)
+    return RunIncident.derive({
+      runID: input.runID,
+      traceID: input.traceID,
+      sessionID: input.sessionID,
+      messageID: input.messageID,
+      parentMessageID: input.parentMessageID,
+      createdAt: input.createdAt,
+      completedAt,
+      evidence,
+      unsafeSideEffectKinds: unsafeKinds,
+      sideEffectFactsComplete,
+      materializedToolBoundaries,
+      lifecycle: incidentLifecycle,
+      missingProvenance: lifecycleFailure && !incidentLifecycle ? ["lifecycle.close_requested"] : undefined,
+    })
+  }
+  const unknownRecovery = (): RunIncident.Recovery => ({
+    recommendation: "unknown",
+    confidence: "low",
+    reason: "unknown",
+    safety_scope: "visible_output_and_tool_side_effects",
+  })
+  const recordTransportFailureEvidence = (next: {
+    attemptID?: AttemptID
+    at: number
+    monotonicMs: number
+    error: unknown
+    evidence?: string[]
+  }) => {
+    const error = safeErrorFingerprint(next.error)
+    const factsAtFailure = transportFactsAt(next.attemptID, next.monotonicMs)
+    failure ??= {
+      type: "transport",
+      at: next.at,
+      monotonicMs: next.monotonicMs,
+      error: next.error,
+      evidence: next.evidence ?? [],
+      attemptID: next.attemptID,
+    }
+    appendEvidence({
+      monotonic_ms: next.monotonicMs,
+      source: "provider_stream",
+      attempt_id: next.attemptID,
+      event_type: "provider_transport_failure",
+      terminal_candidate: true,
+      confidence: error.cause_code === "UND_ERR_SOCKET" ? "high" : "medium",
+      error,
+      cause: RunIncident.transportCause({
+        error,
+        providerProgressSeen: factsAtFailure.providerProgressSeen,
+        toolInputStarted: factsAtFailure.toolInputStarted,
+        toolInputCompleted: factsAtFailure.toolInputCompleted,
+        toolCallMaterialized: factsAtFailure.toolCallMaterialized,
+        toolExecutionStarted: factsAtFailure.toolExecutionStarted,
+        toolExecutionCompleted: factsAtFailure.toolExecutionCompleted,
+      }),
+    })
+    rememberEvent(next.monotonicMs)
+  }
+  const recordWatchdogFailureEvidence = (next: {
+    attemptID?: AttemptID
+    at: number
+    monotonicMs: number
+    error: unknown
+    phase: "connect" | "silent_stream" | "unknown"
+  }) => {
+    const error = safeErrorFingerprint(next.error)
+    failure ??= {
+      type: "transport",
+      at: next.at,
+      monotonicMs: next.monotonicMs,
+      error: next.error,
+      evidence: ["watchdog_fired", "iterator_error"],
+      attemptID: next.attemptID,
+    }
+    appendEvidence({
+      monotonic_ms: next.monotonicMs,
+      source: "watchdog",
+      attempt_id: next.attemptID,
+      event_type: "watchdog_fired",
+      terminal_candidate: true,
+      confidence: "high",
+      error,
+      cause: { category: "watchdog_timeout", subcategory: next.phase, confidence: "high" },
+    })
+    rememberEvent(next.monotonicMs)
   }
 
   return {
@@ -365,36 +456,30 @@ export function createRecorder(input: RecorderInput): Recorder {
       })
       rememberEvent(next.monotonicMs)
     },
-    recordTransportFailure(next) {
-      const error = safeErrorFingerprint(next.error)
-      const factsAtFailure = transportFactsAt(next.attemptID, next.monotonicMs)
-      failure ??= {
-        type: "transport",
-        at: next.at,
-        monotonicMs: next.monotonicMs,
-        error: next.error,
-        evidence: next.evidence ?? [],
-        attemptID: next.attemptID,
-      }
+    recordSideEffectBoundarySnapshot(next) {
+      sideEffectBoundarySnapshot = { ...next.snapshot }
+      if (next.snapshot.proof_result === "incomplete") sideEffectFactsComplete = false
       appendEvidence({
         monotonic_ms: next.monotonicMs,
-        source: "provider_stream",
+        source: "processor",
         attempt_id: next.attemptID,
-        event_type: "provider_transport_failure",
-        terminal_candidate: true,
-        confidence: error.cause_code === "UND_ERR_SOCKET" ? "high" : "medium",
-        error,
-        cause: RunIncident.transportCause({
-          error,
-          providerProgressSeen: factsAtFailure.providerProgressSeen,
-          toolInputStarted: factsAtFailure.toolInputStarted,
-          toolInputCompleted: factsAtFailure.toolInputCompleted,
-          toolCallMaterialized: factsAtFailure.toolCallMaterialized,
-          toolExecutionStarted: factsAtFailure.toolExecutionStarted,
-          toolExecutionCompleted: factsAtFailure.toolExecutionCompleted,
-        }),
+        event_type: "side_effect_boundary_snapshot",
+        terminal_candidate: false,
+        confidence: next.snapshot.proof_result === "complete" ? "high" : "medium",
+        side_effect_boundary_snapshot: { ...next.snapshot },
       })
       rememberEvent(next.monotonicMs)
+    },
+    recordAttemptFailureAndDeriveRecovery(next) {
+      if (next.watchdog) {
+        recordWatchdogFailureEvidence({ ...next, phase: next.watchdog.phase })
+      } else {
+        recordTransportFailureEvidence(next)
+      }
+      return deriveCurrentIncident(next.at)?.recovery ?? unknownRecovery()
+    },
+    recordTransportFailure(next) {
+      recordTransportFailureEvidence(next)
     },
     recordSetupFailure(next) {
       failure ??= { type: "setup", at: next.at, monotonicMs: next.monotonicMs, error: next.error }
@@ -455,22 +540,7 @@ export function createRecorder(input: RecorderInput): Recorder {
     },
     finalize(final) {
       const lifecycle = lifecycleSummary(lifecycleFailure)
-      const incidentLifecycle = lifecycleSummary(lifecycleFailure)
-      const incident = RunIncident.derive({
-        runID: input.runID,
-        traceID: input.traceID,
-        sessionID: input.sessionID,
-        messageID: input.messageID,
-        parentMessageID: input.parentMessageID,
-        createdAt: input.createdAt,
-        completedAt: final.completedAt,
-        evidence,
-        unsafeSideEffectKinds: unsafeKinds,
-        sideEffectFactsComplete,
-        materializedToolBoundaries,
-        lifecycle: incidentLifecycle,
-        missingProvenance: lifecycleFailure && !lifecycle ? ["lifecycle.close_requested"] : undefined,
-      })
+      const incident = deriveCurrentIncident(final.completedAt)
       const classification = incident ? classificationForIncident(incident.terminal_cause) : classify(failure)
       const missingProvenance = classification === "unknown_scope_close" ? ["lifecycle.close_requested"] : undefined
       const summaryKey = summaryKeyFor(
@@ -516,6 +586,7 @@ export function createRecorder(input: RecorderInput): Recorder {
         unsafe_side_effect_started: unsafeSideEffectStarted,
         unsafe_side_effect_kinds: unsafeKinds,
         side_effect_facts_complete: sideEffectFactsComplete,
+        side_effect_boundary_snapshot: sideEffectBoundarySnapshot ? { ...sideEffectBoundarySnapshot } : undefined,
         pending_tool_parts_interrupted: pendingToolPartsInterrupted || undefined,
         incident,
         lifecycle,
@@ -559,6 +630,7 @@ function classify(failure: Failure | undefined): Classification {
 function classificationForIncident(cause: RunIncident.TerminalCause): Classification {
   switch (cause.category) {
     case "provider_transport_disconnect":
+    case "watchdog_timeout":
       return "external_stream_disconnect"
     case "local_lifecycle_close":
       if (cause.subcategory === "unknown_lifecycle_close") return "unknown_scope_close"
@@ -581,6 +653,7 @@ function classificationForIncident(cause: RunIncident.TerminalCause): Classifica
 }
 
 function summarySuffixForIncident(cause: RunIncident.TerminalCause, input: { providerProgressSeen: boolean }) {
+  if (cause.category === "watchdog_timeout") return "watchdog_timeout"
   if (cause.category === "provider_transport_disconnect") {
     if (!input.providerProgressSeen) return "transport_failure"
     if (cause.subcategory === "during_tool_input_generation") return "provider_progress_tool_input_disconnect"

@@ -77,7 +77,7 @@ export function recoveryFor(input: {
       reason: "visible_output_without_tool_execution",
     }
   }
-  if (input.cause.category === "provider_transport_disconnect") {
+  if (input.cause.category === "provider_transport_disconnect" || input.cause.category === "watchdog_timeout") {
     return {
       ...base,
       recommendation: "auto_retry_once",

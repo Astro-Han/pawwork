@@ -45,6 +45,45 @@ describe("RunObservability", () => {
     expect(String(summary.summary_key)).toBe("external_stream_disconnect.transport_failure")
   })
 
+  test("derives watchdog timeout recovery from attempt failure evidence before first provider progress", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_watchdog_connect_timeout"),
+      traceID: MessageID.make("msg_watchdog_connect_timeout"),
+      sessionID: SessionID.make("ses_watchdog_connect_timeout"),
+      messageID: MessageID.make("msg_watchdog_connect_timeout"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    const decision = recorder.recordAttemptFailureAndDeriveRecovery({
+      attemptID: attempt.attemptID,
+      at: 130,
+      monotonicMs: 230,
+      error: new Error("LLM stream connection timed out after 120000ms without provider progress"),
+      evidence: ["watchdog_fired", "iterator_error"],
+      watchdog: { phase: "connect" },
+    })
+
+    const summary = recorder.finalize({ completedAt: 131, monotonicMs: 231 })
+    expect(decision).toMatchObject({
+      recommendation: "auto_retry_once",
+      reason: "no_visible_output_or_tool_execution",
+    })
+    expect(summary.incident?.terminal_cause).toMatchObject({
+      category: "watchdog_timeout",
+      subcategory: "connect",
+    })
+    expect(summary.incident?.facts.watchdog_fired).toBe(true)
+    expect(summary.incident?.phase).toMatchObject({
+      stream_phase: "before_first_provider_progress",
+      tool_phase: "none",
+      terminal_attempt_id: attempt.attemptID,
+    })
+  })
+
   test("classifies completed runs without failure as success", () => {
     const recorder = RunObservability.createRecorder({
       runID: RunObservability.RunID.make("run_success"),
@@ -812,6 +851,67 @@ describe("RunObservability", () => {
       reason: "side_effect_facts_incomplete",
     })
     expect(summary.incident?.evidence?.map((event) => event.event_type)).toContain("provider_executed_tool_boundary")
+  })
+
+  test("unknown request side-effect boundary prevents auto retry before local tool events", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_unknown_request_boundary"),
+      traceID: MessageID.make("msg_unknown_request_boundary"),
+      sessionID: SessionID.make("ses_unknown_request_boundary"),
+      messageID: MessageID.make("msg_unknown_request_boundary"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordSideEffectBoundarySnapshot({
+      attemptID: attempt.attemptID,
+      at: 12,
+      monotonicMs: 120,
+      snapshot: {
+        exposed_tool_count: 1,
+        unknown_tool_count: 1,
+        unclassified_effect_count: 1,
+        provider_executed_capability_present: false,
+        external_boundary_present: false,
+        proof_result: "incomplete",
+        proof_reason: "unknown_tool_boundary",
+      },
+    })
+    const decision = recorder.recordAttemptFailureAndDeriveRecovery({
+      attemptID: attempt.attemptID,
+      at: 13,
+      monotonicMs: 130,
+      error: {
+        name: "TypeError",
+        message: "terminated",
+        cause: { name: "SocketError", message: "other side closed", code: "UND_ERR_SOCKET" },
+      },
+      evidence: ["iterator_error"],
+    })
+
+    const summary = recorder.finalize({ completedAt: 14, monotonicMs: 140 })
+    expect(summary.visible_output_seen).toBe(false)
+    expect(summary.tool_call_materialized).toBe(false)
+    expect(summary.tool_execution_started).toBe(false)
+    expect(summary.side_effect_facts_complete).toBe(false)
+    expect(summary.side_effect_boundary_snapshot).toMatchObject({
+      exposed_tool_count: 1,
+      unknown_tool_count: 1,
+      unclassified_effect_count: 1,
+      proof_result: "incomplete",
+      proof_reason: "unknown_tool_boundary",
+    })
+    expect(decision).toMatchObject({
+      recommendation: "ask_user_before_retry",
+      reason: "side_effect_facts_incomplete",
+    })
+    expect(summary.incident?.recovery).toMatchObject({
+      recommendation: "ask_user_before_retry",
+      reason: "side_effect_facts_incomplete",
+    })
   })
 
   test("transport failure after tool input end is not classified as text generation", () => {
