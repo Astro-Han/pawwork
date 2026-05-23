@@ -32,11 +32,13 @@ const todo = (content: string, status: Todo["status"] = "pending"): Todo => ({
   priority: "medium",
 }) as Todo
 
+const canonical = (todos: Todo[]) => ({ revision: 1, todos })
+
 describe("selectSessionTodoDataSnapshot", () => {
   test("returns only status summary fields", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("status only", "in_progress")] } }))]
 
-    expect(Object.keys(selectSessionTodoDataSnapshot({ primary: { backend: undefined, parts } })).sort()).toEqual(
+    expect(Object.keys(selectSessionTodoDataSnapshot({ primary: { canonical: undefined, parts } })).sort()).toEqual(
       ["items", "phase", "sessionID", "source"].sort(),
     )
   })
@@ -44,7 +46,7 @@ describe("selectSessionTodoDataSnapshot", () => {
   test("uses transcript parts only while backend snapshot is absent", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("from parts", "in_progress")] } }))]
 
-    expect(selectSessionTodoDataSnapshot({ primary: { backend: undefined, parts } })).toMatchObject({
+    expect(selectSessionTodoDataSnapshot({ primary: { canonical: undefined, parts } })).toMatchObject({
       source: "primary-parts",
       items: [todo("from parts", "in_progress")],
       phase: "active",
@@ -55,7 +57,7 @@ describe("selectSessionTodoDataSnapshot", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("from parts", "in_progress")] } }))]
 
     expect(
-      selectSessionTodoDataSnapshot({ primary: { backend: [todo("from backend", "pending")], parts } }),
+      selectSessionTodoDataSnapshot({ primary: { canonical: canonical([todo("from backend", "pending")]), parts } }),
     ).toMatchObject({
       source: "primary-backend",
       items: [todo("from backend", "pending")],
@@ -68,7 +70,7 @@ describe("selectSessionTodoDataSnapshot", () => {
 
     expect(
       selectSessionTodoDataSnapshot({
-        primary: { backend: [todo("old task", "completed")], parts },
+        primary: { canonical: canonical([todo("old task", "completed")]), parts },
       }),
     ).toMatchObject({
       source: "primary-backend",
@@ -80,7 +82,7 @@ describe("selectSessionTodoDataSnapshot", () => {
   test("uses known empty backend over active parts placeholders", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("cleared task", "in_progress")] } }))]
 
-    expect(selectSessionTodoDataSnapshot({ primary: { backend: [], parts } })).toMatchObject({
+    expect(selectSessionTodoDataSnapshot({ primary: { canonical: canonical([]), parts } })).toMatchObject({
       source: "primary-backend",
       items: [],
       phase: "empty",
@@ -95,7 +97,7 @@ describe("selectSessionTodoDataSnapshot", () => {
       ),
     ]
 
-    expect(selectSessionTodoDataSnapshot({ primary: { backend: [], parts } })).toMatchObject({
+    expect(selectSessionTodoDataSnapshot({ primary: { canonical: canonical([]), parts } })).toMatchObject({
       source: "primary-backend",
       items: [],
       phase: "empty",
@@ -109,7 +111,7 @@ describe("selectSessionTodoDataSnapshot", () => {
 
     expect(
       selectSessionTodoDataSnapshot({
-        primary: { backend: [], parts: [] },
+        primary: { parts: [] },
         fallback: { parts: fallbackParts },
       }),
     ).toMatchObject({ source: "fallback-parts", items: [todo("route todo", "in_progress")] })
@@ -122,13 +124,56 @@ describe("selectSessionTodoDataSnapshot", () => {
 
     expect(
       selectSessionTodoDataSnapshot({
-        primary: { backend: [], parts: [] },
-        fallback: { backend: [], parts: fallbackParts },
+        primary: { parts: [] },
+        fallback: { canonical: canonical([]), parts: fallbackParts },
       }),
     ).toMatchObject({
       source: "fallback-backend",
       items: [],
       phase: "empty",
+    })
+  })
+
+  test("keeps present empty canonical snapshots authoritative over fallback parts", () => {
+    const fallbackParts = [
+      toolPart("todowrite", completedState({ input: { todos: [todo("route todo", "in_progress")] } })),
+    ]
+
+    expect(
+      selectSessionTodoDataSnapshot({
+        primary: { canonical: canonical([]), parts: [] },
+        fallback: { parts: fallbackParts },
+      }),
+    ).toMatchObject({
+      source: "primary-backend",
+      items: [],
+      phase: "empty",
+    })
+  })
+
+  test("does not show historical parts after authoritative invalidation", () => {
+    const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("old task", "in_progress")] } }))]
+
+    expect(
+      selectSessionTodoDataSnapshot({
+        primary: { parts, isAuthoritativelyInvalidated: true },
+      }),
+    ).toMatchObject({
+      source: "invalidated",
+      items: [],
+      phase: "empty",
+    })
+  })
+
+  test("returns an explicit pending snapshot while canonical hydrate is pending", () => {
+    expect(
+      selectSessionTodoDataSnapshot({
+        primary: { parts: [], isPending: true },
+      }),
+    ).toMatchObject({
+      source: "pending",
+      items: [],
+      phase: "pending",
     })
   })
 })
@@ -137,13 +182,13 @@ describe("selectSessionTodos", () => {
   test("keeps the existing items-only wrapper", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("from parts", "in_progress")] } }))]
 
-    expect(selectSessionTodos({ backend: undefined, parts })).toEqual([todo("from parts", "in_progress")])
+    expect(selectSessionTodos({ canonical: undefined, parts })).toEqual([todo("from parts", "in_progress")])
   })
 
   test("returns backend terminal todos when parts are stale active placeholders", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("task A", "in_progress")] } }))]
 
-    expect(selectSessionTodos({ backend: [todo("task A", "completed")], parts })).toEqual([
+    expect(selectSessionTodos({ canonical: canonical([todo("task A", "completed")]), parts })).toEqual([
       todo("task A", "completed"),
     ])
   })
@@ -151,6 +196,6 @@ describe("selectSessionTodos", () => {
   test("returns empty todos when backend snapshot is empty", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("cleared task", "in_progress")] } }))]
 
-    expect(selectSessionTodos({ backend: [], parts })).toEqual([])
+    expect(selectSessionTodos({ canonical: canonical([]), parts })).toEqual([])
   })
 })

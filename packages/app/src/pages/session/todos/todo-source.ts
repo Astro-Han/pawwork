@@ -2,9 +2,16 @@ import type { Part, Todo } from "@opencode-ai/sdk/v2"
 import { extractTodos } from "@/pages/session/session-status-extractors"
 import { todoSnapshot, type SessionTodoItem, type TodoSnapshot, type TodoSourceKind } from "./todo-model"
 
+export type CanonicalTodoSnapshot = {
+  revision: number
+  todos: Todo[]
+}
+
 export type SessionTodoSource = {
   sessionID?: string
-  backend?: Todo[]
+  canonical?: CanonicalTodoSnapshot
+  isAuthoritativelyInvalidated?: boolean
+  isPending?: boolean
   parts: Part[]
 }
 
@@ -19,17 +26,32 @@ const sourceTodoSnapshot = (
   input: SessionTodoSource,
   source: { backend: TodoSourceKind; parts: TodoSourceKind },
 ): TodoSnapshot | undefined => {
-  const sourceParts = partTodos(input.parts)
-
-  if (input.backend !== undefined) {
-    if (input.backend.length === 0 && sourceParts.length === 0) return undefined
+  if (input.isAuthoritativelyInvalidated) {
     return todoSnapshot({
       sessionID: input.sessionID,
-      source: source.backend,
-      items: input.backend,
+      source: "invalidated",
+      items: [],
     })
   }
 
+  if (input.canonical !== undefined) {
+    return todoSnapshot({
+      sessionID: input.sessionID,
+      source: source.backend,
+      items: input.canonical.todos,
+    })
+  }
+
+  if (input.isPending) {
+    return todoSnapshot({
+      sessionID: input.sessionID,
+      source: "pending",
+      items: [],
+      phase: "pending",
+    })
+  }
+
+  const sourceParts = partTodos(input.parts)
   if (sourceParts.length > 0) {
     return todoSnapshot({
       sessionID: input.sessionID,

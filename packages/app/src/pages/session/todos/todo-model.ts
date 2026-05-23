@@ -1,8 +1,15 @@
 import type { Todo } from "@opencode-ai/sdk/v2/client"
 
-export type TodoPhase = "empty" | "active" | "terminal"
+export type TodoPhase = "pending" | "empty" | "active" | "terminal"
 
-export type TodoSourceKind = "primary-backend" | "primary-parts" | "fallback-backend" | "fallback-parts" | "none"
+export type TodoSourceKind =
+  | "primary-backend"
+  | "primary-parts"
+  | "fallback-backend"
+  | "fallback-parts"
+  | "pending"
+  | "invalidated"
+  | "none"
 
 export type SessionTodoItem = Pick<Todo, "content" | "priority" | "status"> & Partial<Pick<Todo, "id">>
 
@@ -26,11 +33,12 @@ export function todoSnapshot(input: {
   sessionID?: string
   source: TodoSourceKind
   items: SessionTodoItem[]
+  phase?: TodoPhase
 }): TodoSnapshot {
   return {
     sessionID: input.sessionID,
     source: input.source,
     items: input.items,
-    phase: todoPhase(input.items),
+    phase: input.phase ?? todoPhase(input.items),
   }
 }
