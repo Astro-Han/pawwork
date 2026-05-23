@@ -16,7 +16,7 @@ export function SessionStatusPanel(props: { shown: Accessor<boolean> }) {
     const messages = sync.data.message[params.id] ?? []
     return messages.flatMap((message) => sync.data.part[message.id] ?? [])
   })
-  const backend = createMemo(() => (params.id ? globalSync.data.session_todo[params.id] : undefined))
+  const backend = createMemo(() => (params.id ? globalSync.data.session_todo[params.id]?.todos : undefined))
   const backendClearActivePartsAt = createMemo(() => (params.id ? globalSync.data.session_todo_clear[params.id] : undefined))
 
   return (

@@ -1,27 +1,24 @@
 import { describe, expect, test } from "bun:test"
 import type { Todo } from "@opencode-ai/sdk/v2/client"
-import { nextSessionTodoClearFlag } from "./global-sync"
+import { canAcceptSessionTodo, type SessionTodoSnapshot } from "./global-sync"
 import { canDisposeDirectory, pickDirectoriesToEvict } from "./global-sync/eviction"
 import { estimateRootSessionTotal, loadRootSessionsWithFallback } from "./global-sync/session-load"
 
-describe("nextSessionTodoClearFlag", () => {
+describe("canAcceptSessionTodo", () => {
   const todo = { id: "todo_1", content: "work", status: "in_progress", priority: "medium" } as Todo
+  const snapshot = (revision: number): SessionTodoSnapshot => ({ revision, todos: [todo] })
 
-  test("marks live empty backend updates as active-parts clears", () => {
-    expect(nextSessionTodoClearFlag(undefined, [], { clearActiveParts: true }, 10)).toBe(10)
+  test("accepts the first canonical snapshot", () => {
+    expect(canAcceptSessionTodo(undefined, snapshot(0))).toBe(true)
   })
 
-  test("preserves existing live clear flag across ordinary empty backend refreshes", () => {
-    expect(nextSessionTodoClearFlag(10, [])).toBe(10)
+  test("rejects stale or equal revisions", () => {
+    expect(canAcceptSessionTodo(snapshot(2), snapshot(1))).toBe(false)
+    expect(canAcceptSessionTodo(snapshot(2), snapshot(2))).toBe(false)
   })
 
-  test("does not create a clear flag for ordinary empty backend refreshes", () => {
-    expect(nextSessionTodoClearFlag(undefined, [])).toBeUndefined()
-  })
-
-  test("clears the flag on non-empty backend updates and cleanup", () => {
-    expect(nextSessionTodoClearFlag(10, [todo])).toBeUndefined()
-    expect(nextSessionTodoClearFlag(10, undefined)).toBeUndefined()
+  test("accepts newer revisions including authoritative empty snapshots", () => {
+    expect(canAcceptSessionTodo(snapshot(2), { revision: 3, todos: [] })).toBe(true)
   })
 })
 

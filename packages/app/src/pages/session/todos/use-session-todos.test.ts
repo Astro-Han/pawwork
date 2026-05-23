@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, mock, test } from "bun:test"
 import { createRoot } from "solid-js"
 import { createStore } from "solid-js/store"
 import type { Part, ToolState } from "@opencode-ai/sdk/v2"
-import type { Message, Todo } from "@opencode-ai/sdk/v2/client"
+import type { Message, Todo, TodoSnapshot } from "@opencode-ai/sdk/v2/client"
 
 let createSessionTodoModel: typeof import("./use-session-todos").createSessionTodoModel
 let isTodoSnapshotKnownForRestore: typeof import("./use-session-todos").isTodoSnapshotKnownForRestore
@@ -12,7 +12,7 @@ let syncData: {
   todo: Record<string, Todo[] | undefined>
 }
 let globalSyncData: {
-  session_todo: Record<string, Todo[] | undefined>
+  session_todo: Record<string, TodoSnapshot | undefined>
   session_todo_clear: Record<string, number | undefined>
 }
 
