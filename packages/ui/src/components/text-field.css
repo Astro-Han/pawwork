@@ -222,3 +222,23 @@
     }
   }
 }
+
+/* Dark normal-variant wrapper lifts to raised (`#2d2a27`) so the input
+ * separates from thread / sidebar canvas (per DESIGN.md L353). The
+ * `:not([data-disabled]):not([data-readonly])` guard keeps the existing
+ * disabled / readonly path on `--bg-cream` (= canvas in dark, the spec
+ * sunken-back-to-thread reading). Specificity (0,5,0) sits above the
+ * `[data-disabled]` block (0,4,0); the :not() guard is what lets the
+ * disabled rule still take over. */
+:root[data-color-scheme="dark"]
+  [data-component="input"][data-variant="normal"]:not([data-disabled]):not([data-readonly])
+  [data-slot="input-wrapper"] {
+  background: var(--surface-raised);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-color-scheme="light"])
+    [data-component="input"][data-variant="normal"]:not([data-disabled]):not([data-readonly])
+    [data-slot="input-wrapper"] {
+    background: var(--surface-raised);
+  }
+}
