@@ -6,8 +6,25 @@ export function constrain(value: number, low: number, high: number): number {
   return Math.max(low, Math.min(value, high))
 }
 
-abstract class BaseSerializeHandler {
-  constructor(protected readonly _buffer: IBuffer) {}
+export class StringSerializeHandler {
+  private _rowIndex: number = 0
+  private _allRows: string[] = []
+  private _allRowSeparators: string[] = []
+  private _currentRow: string = ""
+  private _nullCellCount: number = 0
+  private _cursorStyle: IBufferCell
+  private _firstRow: number = 0
+  private _lastCursorRow: number = 0
+  private _lastCursorCol: number = 0
+  private _lastContentCursorRow: number = 0
+  private _lastContentCursorCol: number = 0
+
+  constructor(
+    private readonly _buffer: IBuffer,
+    private readonly _terminal: ITerminalCore,
+  ) {
+    this._cursorStyle = this._buffer.getNullCell()
+  }
 
   public serialize(range: IBufferRange, excludeFinalCursorPosition?: boolean): string {
     let oldCell = this._buffer.getNullCell()
@@ -37,42 +54,10 @@ abstract class BaseSerializeHandler {
       this._rowEnd(row, row === endRow)
     }
 
-    this._afterSerialize()
-
     return this._serializeString(excludeFinalCursorPosition)
   }
 
-  protected _nextCell(_cell: IBufferCell, _oldCell: IBufferCell, _row: number, _col: number): void {}
-  protected _rowEnd(_row: number, _isLastRow: boolean): void {}
-  protected _beforeSerialize(_rows: number, _startRow: number, _endRow: number): void {}
-  protected _afterSerialize(): void {}
-  protected _serializeString(_excludeFinalCursorPosition?: boolean): string {
-    return ""
-  }
-}
-
-export class StringSerializeHandler extends BaseSerializeHandler {
-  private _rowIndex: number = 0
-  private _allRows: string[] = []
-  private _allRowSeparators: string[] = []
-  private _currentRow: string = ""
-  private _nullCellCount: number = 0
-  private _cursorStyle: IBufferCell
-  private _firstRow: number = 0
-  private _lastCursorRow: number = 0
-  private _lastCursorCol: number = 0
-  private _lastContentCursorRow: number = 0
-  private _lastContentCursorCol: number = 0
-
-  constructor(
-    buffer: IBuffer,
-    private readonly _terminal: ITerminalCore,
-  ) {
-    super(buffer)
-    this._cursorStyle = this._buffer.getNullCell()
-  }
-
-  protected _beforeSerialize(rows: number, start: number, _end: number): void {
+  private _beforeSerialize(rows: number, start: number, _end: number): void {
     this._allRows = new Array<string>(rows)
     this._allRowSeparators = new Array<string>(rows)
     this._rowIndex = 0
@@ -86,7 +71,7 @@ export class StringSerializeHandler extends BaseSerializeHandler {
     this._firstRow = start
   }
 
-  protected _rowEnd(row: number, isLastRow: boolean): void {
+  private _rowEnd(row: number, isLastRow: boolean): void {
     let rowSeparator = ""
 
     const nextLine = isLastRow ? undefined : this._buffer.getLine(row + 1)
@@ -110,7 +95,7 @@ export class StringSerializeHandler extends BaseSerializeHandler {
     this._nullCellCount = 0
   }
 
-  protected _nextCell(cell: IBufferCell, _oldCell: IBufferCell, row: number, col: number): void {
+  private _nextCell(cell: IBufferCell, _oldCell: IBufferCell, row: number, col: number): void {
     const isPlaceHolderCell = cell.getWidth() === 0
 
     if (isPlaceHolderCell) {
@@ -159,7 +144,7 @@ export class StringSerializeHandler extends BaseSerializeHandler {
     }
   }
 
-  protected _serializeString(excludeFinalCursorPosition?: boolean): string {
+  private _serializeString(excludeFinalCursorPosition?: boolean): string {
     let rowEnd = this._allRows.length
 
     if (this._buffer.length - this._firstRow <= this._terminal.rows) {
