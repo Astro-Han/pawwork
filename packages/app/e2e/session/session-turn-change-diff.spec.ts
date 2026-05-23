@@ -3,6 +3,8 @@ import { test, expect } from "../fixtures"
 import {
   routeTurnChangeDiff,
   routeTailTurnChangeDiff,
+  routeDenseTurnChangeDiff,
+  TURN_CHANGE_DENSE_DIFF_FILE_PATH,
   TURN_CHANGE_MODIFIED_DIFF_FILE_PATH,
   TURN_CHANGE_SMALL_MODIFIED_DIFF_FILE_PATH,
   TURN_CHANGE_TAIL_REPLACEMENT_FILE_PATH,
@@ -64,6 +66,13 @@ async function expectDiffLinesVisible(diff: Locator, expectedText: string) {
   await expect(lines.first()).toBeVisible({ timeout: 30_000 })
   await expect(lines.filter({ hasText: expectedText }).first()).toBeVisible({ timeout: 30_000 })
   return lines
+}
+
+async function turnChangeDiffUsesInlineVirtualizer(page: Page) {
+  return await page.evaluate(() => {
+    const root = (window as unknown as { __INSTANCE?: { root?: Element } }).__INSTANCE?.root
+    return root?.matches('[data-component="session-turn-change-diff"]') ?? false
+  })
 }
 
 test("turn-change file rows reserve diff height before rendering", async ({ page, llm, project }) => {
@@ -167,11 +176,34 @@ test("tail one-line replacement diff renders without inline virtualization", asy
   })
 
   await expect
-    .poll(async () =>
-      await page.evaluate(() => {
-        const root = (window as unknown as { __INSTANCE?: { root?: Element } }).__INSTANCE?.root
-        return root?.matches('[data-component="session-turn-change-diff"]') ?? false
-      }),
-    )
+    .poll(async () => await turnChangeDiffUsesInlineVirtualizer(page))
     .toBe(false)
+})
+
+test("dense short-line turn-change diffs avoid the static render path", async ({ page, llm, project }) => {
+  test.setTimeout(180_000)
+
+  await project.open()
+  await routeDenseTurnChangeDiff(page, { sessionID: "e2e-dense-session" })
+
+  await llm.text(
+    Array.from({ length: 18 }, (_, index) => `Dense context paragraph ${index + 1}.`).join("\n\n"),
+  )
+  await project.prompt(`seed dense turn-change diff ${Date.now()}`)
+
+  const card = page.locator('[data-component="session-turn-changes"]').last()
+  await expect(card).toBeVisible({ timeout: 30_000 })
+  const row = card
+    .locator('[data-component="session-turn-change-row"]')
+    .filter({ hasText: TURN_CHANGE_DENSE_DIFF_FILE_PATH })
+    .first()
+  await expect(row).toBeVisible()
+
+  await row.click()
+  const diff = card.locator('[data-component="session-turn-change-diff"]').first()
+  await expect(diff).toBeVisible()
+  await expect(diff.locator("[data-line]").first()).toBeVisible({ timeout: 5_000 })
+  await expect
+    .poll(async () => await turnChangeDiffUsesInlineVirtualizer(page), { timeout: 5_000 })
+    .toBe(true)
 })

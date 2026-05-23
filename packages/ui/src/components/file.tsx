@@ -82,7 +82,7 @@ export type TextFileProps<T = {}> = FileOptions<T> &
   }
 
 type DiffPreload<T> = PreloadMultiFileDiffResult<T> | PreloadFileDiffResult<T>
-type DiffRenderStrategy = "auto" | "static" | "virtualized"
+type DiffRenderStrategy = "auto" | "static"
 
 type DiffBaseProps<T> = FileDiffOptions<T> &
   SharedProps<T> & {

@@ -21,6 +21,18 @@ import {
 } from "./session-turn-changes"
 
 const emptyExpanded: readonly string[] = []
+const TURN_CHANGE_STATIC_DIFF_MAX_PATCH_LINES = 800
+
+function turnChangeDiffRenderStrategy(patch: string) {
+  if (!patch) return "static"
+  let count = 1
+  for (let index = 0; index < patch.length; index += 1) {
+    if (patch.charCodeAt(index) !== 10) continue
+    count += 1
+    if (count > TURN_CHANGE_STATIC_DIFF_MAX_PATCH_LINES) return "auto"
+  }
+  return "static"
+}
 
 export function SessionTurnChangesPanel(props: {
   turnChange: TurnChangeDisplay
@@ -263,7 +275,7 @@ export function SessionTurnChangesPanel(props: {
                         component={fileComponent}
                         mode="diff"
                         fileDiff={diff().fileDiff}
-                        renderStrategy="static"
+                        renderStrategy={turnChangeDiffRenderStrategy(diff().patch)}
                         onRendered={handleDiffRendered}
                       />
                     </div>
