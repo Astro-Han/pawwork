@@ -485,11 +485,13 @@ describe("Runner", () => {
     Effect.gen(function* () {
       const s = yield* Scope.Scope
       const runner = Runner.make<string>(s, { onInterrupt: () => Effect.succeed("interrupted") })
+      const blocked = yield* makeBlockedWork("ignored", "defective shell")
 
       const sh = yield* runner
-        .startShell(Effect.never.pipe(Effect.ensuring(Effect.die("boom")), Effect.as("ignored")))
+        .startShell(blocked.work.pipe(Effect.ensuring(Effect.die("boom"))))
         .pipe(Effect.forkChild)
       yield* waitForRunnerState(runner, "Shell")
+      yield* blocked.waitUntilStarted
 
       yield* runner.cancel
       expect(Exit.isFailure(yield* Fiber.await(sh))).toBe(true)
@@ -501,11 +503,13 @@ describe("Runner", () => {
     Effect.gen(function* () {
       const s = yield* Scope.Scope
       const runner = Runner.make<string, string>(s, { onInterrupt: () => Effect.succeed("interrupted") })
+      const blocked = yield* makeBlockedWork("ignored", "typed failing shell")
 
       const sh = yield* runner
-        .startShell(Effect.never.pipe(Effect.onInterrupt(() => Effect.fail("boom")), Effect.as("ignored")))
+        .startShell(blocked.work.pipe(Effect.onInterrupt(() => Effect.fail("boom"))))
         .pipe(Effect.forkChild)
       yield* waitForRunnerState(runner, "Shell")
+      yield* blocked.waitUntilStarted
 
       yield* runner.cancel
       const exit = yield* Fiber.await(sh)
