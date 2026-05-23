@@ -120,20 +120,41 @@ export function reorderPawworkPinnedByVisible(input: {
   /** Slot in the new visible order (0 = top of pinned section). */
   targetVisibleIndex: number
 }): string[] {
-  const visibleSet = new Set<string>(input.visiblePinnedIDs)
+  const pinnedSet = new Set(input.pinnedIDs)
+  // Defensive narrowing: if the caller's visible memo is stale (a session was
+  // unpinned between memo recompute and this call), drop visible IDs that
+  // are no longer pinned. Without this the refill loop would silently lose
+  // tail entries when `visibleRawIndexes.length < visiblePinnedIDs.length`.
+  const visiblePinnedIDs = input.visiblePinnedIDs.filter((id) => pinnedSet.has(id))
+  const visibleSet = new Set<string>(visiblePinnedIDs)
+
   // Raw indexes that hold currently-visible IDs, in raw order.
   const visibleRawIndexes: number[] = []
   for (let i = 0; i < input.pinnedIDs.length; i++) {
     if (visibleSet.has(input.pinnedIDs[i]!)) visibleRawIndexes.push(i)
   }
 
-  const sourceAlreadyPinned = visibleSet.has(input.sourceID)
-  const nextVisible = input.visiblePinnedIDs.filter((id) => id !== input.sourceID)
-  const clampedTarget = Math.max(0, Math.min(nextVisible.length, input.targetVisibleIndex))
+  // "Already pinned" must check the raw array, not just the visible set —
+  // otherwise a hidden-anchor source would fall through to the cross-zone
+  // branch and get spliced in a second time, duplicating the ID.
+  const sourceAlreadyPinned = pinnedSet.has(input.sourceID)
+  const sourceIsVisible = visibleSet.has(input.sourceID)
 
   if (sourceAlreadyPinned) {
-    // Intra-pinned reorder: visible-slot count stays the same. Refill each
-    // visible raw slot with the new visible order; hidden slots untouched.
+    if (!sourceIsVisible) {
+      // Source is pinned but not rendered (hidden anchor). The UI does not
+      // currently surface these rows, so this is a defensive no-op; mutating
+      // would either duplicate or invent a visible position we cannot verify.
+      return input.pinnedIDs
+    }
+
+    const currentVisibleIndex = visiblePinnedIDs.indexOf(input.sourceID)
+    const nextVisible = visiblePinnedIDs.filter((id) => id !== input.sourceID)
+    const clampedTarget = Math.max(0, Math.min(nextVisible.length, input.targetVisibleIndex))
+    // Fast-path no-op: dropping onto the current slot would rebuild the array
+    // for no reason. Preserve identity so setStore can short-circuit.
+    if (clampedTarget === currentVisibleIndex) return input.pinnedIDs
+
     nextVisible.splice(clampedTarget, 0, input.sourceID)
     const result = [...input.pinnedIDs]
     for (let i = 0; i < visibleRawIndexes.length; i++) {
@@ -145,6 +166,8 @@ export function reorderPawworkPinnedByVisible(input: {
   // Cross-zone insert: source is new to the pinned array. Existing visible
   // slots keep their raw indexes; source needs a brand-new slot derived from
   // the visible neighbour at the target.
+  const visibleCount = visiblePinnedIDs.length
+  const clampedTarget = Math.max(0, Math.min(visibleCount, input.targetVisibleIndex))
   const result = [...input.pinnedIDs]
   let insertAt: number
   if (visibleRawIndexes.length === 0) {
@@ -154,7 +177,7 @@ export function reorderPawworkPinnedByVisible(input: {
     insertAt = input.pinnedIDs.length
   } else if (clampedTarget === 0) {
     insertAt = visibleRawIndexes[0]!
-  } else if (clampedTarget >= input.visiblePinnedIDs.length) {
+  } else if (clampedTarget >= visibleRawIndexes.length) {
     insertAt = visibleRawIndexes[visibleRawIndexes.length - 1]! + 1
   } else {
     // Drop between visible-slot (target-1) and visible-slot (target). Use

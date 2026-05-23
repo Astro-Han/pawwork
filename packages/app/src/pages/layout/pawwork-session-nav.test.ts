@@ -305,6 +305,45 @@ describe("reorderPawworkPinnedByVisible", () => {
 
     expect(result).toEqual(["V1", "V2", "gamma"])
   })
+
+  test("treats a hidden-anchor source as a no-op (no duplicate splice)", () => {
+    // sourceID is pinned but not in visiblePinnedIDs — should not be
+    // re-inserted as if it were cross-zone.
+    const pinnedIDs = ["hidden_a", "V1"]
+    const result = reorderPawworkPinnedByVisible({
+      pinnedIDs,
+      visiblePinnedIDs: ["V1"],
+      sourceID: "hidden_a",
+      targetVisibleIndex: 0,
+    })
+
+    expect(result).toBe(pinnedIDs)
+  })
+
+  test("drops stale visible IDs (race between memo recompute and store update)", () => {
+    // visiblePinnedIDs claims "stale" exists but pinnedIDs no longer holds it.
+    // Helper must ignore the stale entry, not invent a slot for it.
+    const result = reorderPawworkPinnedByVisible({
+      pinnedIDs: ["V1", "V2"],
+      visiblePinnedIDs: ["V1", "stale", "V2"],
+      sourceID: "V1",
+      targetVisibleIndex: 1,
+    })
+
+    expect(result).toEqual(["V2", "V1"])
+  })
+
+  test("returns original identity for an intra-pinned no-op (target equals current)", () => {
+    const pinnedIDs = ["V1", "V2"]
+    const result = reorderPawworkPinnedByVisible({
+      pinnedIDs,
+      visiblePinnedIDs: ["V1", "V2"],
+      sourceID: "V1",
+      targetVisibleIndex: 0,
+    })
+
+    expect(result).toBe(pinnedIDs)
+  })
 })
 
 describe("unpinPawworkSession", () => {

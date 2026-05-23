@@ -425,7 +425,7 @@ export const PawworkSidebar = (props: {
         setIsDragging(false)
         const sessionID = (evt.item as HTMLElement).dataset.sessionId
         const toKind = (evt.to as HTMLElement).dataset.pawworkList as SortableKind | undefined
-        const newIndex = typeof evt.newDraggableIndex === "number" ? evt.newDraggableIndex : 0
+        const newDraggableIndex = evt.newDraggableIndex
 
         // Revert SortableJS's DOM mutation; Solid's <For> reconciler owns the
         // DOM. Skip the revert if SortableJS already detached the node (e.g.
@@ -440,19 +440,16 @@ export const PawworkSidebar = (props: {
 
         if (!sessionID || !toKind) return
 
+        // SortableJS should always set newDraggableIndex when the dragged
+        // node carries `draggable=true` and lands in a draggable slot. If it
+        // doesn't, the event is degenerate (cancelled / clone-pull / fallback
+        // edge); bailing is safer than defaulting to 0 and silently inserting
+        // at the top of pinned.
+        if (typeof newDraggableIndex !== "number") return
+
         // No-op drag: dropped back into the same container at the same slot.
-        // Require both indexes to be numbers — a degenerate event with one
-        // undefined would otherwise compare equal and skip the bail, then
-        // fall through with newIndex defaulted to 0, producing a spurious
-        // top-insert.
         const oldDraggableIndex = evt.oldDraggableIndex
-        const newDraggableIndex = evt.newDraggableIndex
-        if (
-          evt.to === evt.from &&
-          typeof oldDraggableIndex === "number" &&
-          typeof newDraggableIndex === "number" &&
-          oldDraggableIndex === newDraggableIndex
-        ) {
+        if (evt.to === evt.from && typeof oldDraggableIndex === "number" && oldDraggableIndex === newDraggableIndex) {
           return
         }
 
@@ -463,7 +460,7 @@ export const PawworkSidebar = (props: {
           sessionID,
           targetSection,
           visiblePinnedIDs: visiblePinnedIDs(),
-          visibleTargetIndex: newIndex,
+          visibleTargetIndex: newDraggableIndex,
         })
       },
     })
