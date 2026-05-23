@@ -1,18 +1,51 @@
 import { describe, expect, test } from "bun:test"
-import { Cause, Deferred, Effect, Exit, Fiber, Ref, Scope } from "effect"
+import { Cause, Clock, Deferred, Effect, Exit, Fiber, Ref, Scope } from "effect"
 import { Runner } from "../../src/effect"
 import type { Runner as RunnerInstance, State } from "../../src/effect/runner"
 import { it } from "../lib/effect"
 
-function waitForRunnerState<A, E>(runner: RunnerInstance<A, E>, tag: State<A, E>["_tag"]) {
+interface DeferredRuntimeWaiters {
+  readonly resumes?: ReadonlyArray<unknown>
+}
+
+function waitUntil(message: () => string, ready: () => boolean) {
   return Effect.gen(function* () {
-    const stop = Date.now() + 1_000
-    while (runner.state._tag !== tag) {
-      if (Date.now() > stop) {
-        throw new Error(`Runner did not enter ${tag}; current state is ${runner.state._tag}`)
+    const started = yield* Clock.currentTimeMillis
+    while (!ready()) {
+      const now = yield* Clock.currentTimeMillis
+      if (now - started > 1_000) {
+        return yield* Effect.die(new Error(message()))
       }
       yield* Effect.sleep("1 millis")
     }
+  })
+}
+
+function waitForRunnerState<A, E>(runner: RunnerInstance<A, E>, tag: State<A, E>["_tag"]) {
+  return waitUntil(
+    () => `Runner did not enter ${tag}; current state is ${runner.state._tag}`,
+    () => runner.state._tag === tag,
+  )
+}
+
+// Effect Deferred does not expose waiter counts publicly; keep this runtime-shape check
+// local so queued-caller tests can prove a forked caller is attached before cancel/release.
+function deferredWaiterCount<A, E>(deferred: Deferred.Deferred<A, E>) {
+  return (deferred as DeferredRuntimeWaiters).resumes?.length ?? 0
+}
+
+function waitForDeferredWaiters<A, E>(deferred: Deferred.Deferred<A, E>, count: number, label: string) {
+  return waitUntil(
+    () => `${label} did not attach ${count} waiter(s); current waiters=${deferredWaiterCount(deferred)}`,
+    () => deferredWaiterCount(deferred) >= count,
+  )
+}
+
+function currentRunDone<A, E>(runner: RunnerInstance<A, E>) {
+  return Effect.gen(function* () {
+    const state = runner.state
+    if (state._tag === "Running" || state._tag === "ShellThenRun") return state.run.done
+    return yield* Effect.die(new Error(`Runner has no current run; current state is ${state._tag}`))
   })
 }
 
@@ -213,8 +246,9 @@ describe("Runner", () => {
 
       const a = yield* runner.ensureRunning(Effect.never.pipe(Effect.as("x"))).pipe(Effect.forkChild)
       yield* waitForRunnerState(runner, "Running")
+      const done = yield* currentRunDone(runner)
       const b = yield* runner.ensureRunning(Effect.succeed("y")).pipe(Effect.forkChild)
-      yield* Effect.yieldNow
+      yield* waitForDeferredWaiters(done, 2, "running run")
 
       yield* runner.cancel
 
@@ -491,9 +525,10 @@ describe("Runner", () => {
         return "run"
       })
       const a = yield* runner.ensureRunning(work).pipe(Effect.forkChild)
-      const b = yield* runner.ensureRunning(work).pipe(Effect.forkChild)
       yield* waitForRunnerState(runner, "ShellThenRun")
-      yield* Effect.yieldNow
+      const done = yield* currentRunDone(runner)
+      const b = yield* runner.ensureRunning(work).pipe(Effect.forkChild)
+      yield* waitForDeferredWaiters(done, 2, "queued shell run")
 
       yield* Deferred.succeed(gate, undefined)
       yield* Fiber.await(sh)
