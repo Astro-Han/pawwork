@@ -4,6 +4,7 @@ import { useData } from "../../context"
 import { useI18n } from "../../context/i18n"
 import { TrowBlock } from "../session-turn-trow-block"
 import { groupParts, partDefaultOpen, renderable, sameGroups, type PartGroup } from "./grouping"
+import { contextToolSummaryText } from "./context-tool-helpers"
 import { index, latestDefined, list, same } from "./shared-utils"
 import { Part } from "./message-router"
 
@@ -80,12 +81,14 @@ export function AssistantParts(props: {
                   <Show when={parts().length > 0}>
                     <TrowBlock
                       parts={parts()}
+                      working={props.working}
                       labels={{
                         summaryRunning: (count) => i18n.t("ui.sessionTurn.trow.summary.running", { count }),
                         summaryCompleted: (count) => i18n.t("ui.sessionTurn.trow.summary.completed", { count }),
                         summaryWithFailed: (count, failed) =>
                           i18n.t("ui.sessionTurn.trow.summary.withFailed", { count, failed }),
                       }}
+                      describeTool={(tool) => contextToolSummaryText(tool, i18n)}
                       renderTool={renderTool}
                     />
                   </Show>

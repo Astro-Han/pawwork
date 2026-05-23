@@ -1,6 +1,7 @@
 import { expect, test, describe } from "bun:test"
 import type { ToolPart, ToolState } from "@opencode-ai/sdk/v2"
 import {
+  activeTrowTool,
   reduceTrowBlock,
   toolFamilyIcon,
   trowSummaryI18nKey,
@@ -83,6 +84,14 @@ describe("reduceTrowBlock", () => {
     expect(summary.running).toBe(true)
   })
 
+  test("pending tools count as live state", () => {
+    const summary = reduceTrowBlock([
+      tool("a", "bash", "completed"),
+      tool("b", "bash", "pending"),
+    ])
+    expect(summary.running).toBe(true)
+  })
+
   test("running flag is false once every part has completed or errored", () => {
     const summary = reduceTrowBlock([
       tool("a", "bash", "completed"),
@@ -105,6 +114,28 @@ describe("reduceTrowBlock", () => {
     expect(reduceTrowBlock([tool("a", "bash"), tool("b", "edit")]).leadingIcon).toBe("console")
     expect(reduceTrowBlock([tool("a", "edit"), tool("b", "bash")]).leadingIcon).toBe("code-lines")
     expect(reduceTrowBlock([tool("a", "read")]).leadingIcon).toBe("glasses")
+  })
+})
+
+describe("activeTrowTool", () => {
+  test("returns the last live tool, not the first one", () => {
+    const parts = [
+      tool("a", "read", "completed"),
+      tool("b", "bash", "running"),
+      tool("c", "glob", "pending"),
+    ]
+
+    expect(activeTrowTool(parts)?.id).toBe("c")
+  })
+
+  test("keeps the last tool visible while the assistant round is still working", () => {
+    const parts = [
+      tool("a", "read", "completed"),
+      tool("b", "bash", "completed"),
+    ]
+
+    expect(activeTrowTool(parts, true)?.id).toBe("b")
+    expect(activeTrowTool(parts, false)).toBeUndefined()
   })
 })
 

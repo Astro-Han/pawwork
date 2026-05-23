@@ -77,7 +77,7 @@ export function reduceTrowBlock(parts: readonly ToolPart[]): TrowBlockSummary {
   let running = false
   let failedCount = 0
   for (const part of parts) {
-    if (part.state.status === "running") running = true
+    if (part.state.status === "running" || part.state.status === "pending") running = true
     if (part.state.status === "error") failedCount += 1
   }
   return {
@@ -86,6 +86,15 @@ export function reduceTrowBlock(parts: readonly ToolPart[]): TrowBlockSummary {
     failedCount,
     leadingIcon: toolFamilyIcon(parts[0]!.tool),
   }
+}
+
+export function activeTrowTool(parts: readonly ToolPart[], working = false): ToolPart | undefined {
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const part = parts[i]!
+    if (part.state.status === "running" || part.state.status === "pending") return part
+  }
+  if (!working || parts.length === 0) return undefined
+  return parts[parts.length - 1]
 }
 
 /**
@@ -127,6 +136,8 @@ export interface TrowBlockProps {
    * omitted, the block falls back to a minimal "name + status" row.
    */
   renderTool?: (part: ToolPart) => JSX.Element
+  working?: boolean
+  describeTool?: (part: ToolPart) => string | undefined
 }
 
 /**
@@ -147,13 +158,21 @@ export interface TrowBlockProps {
  */
 export function TrowBlock(props: TrowBlockProps) {
   const summary = createMemo(() => reduceTrowBlock(props.parts))
+  const activeTool = createMemo(() => activeTrowTool(props.parts, props.working))
   const [open, setOpen] = createSignal(props.defaultOpen ?? false)
 
   const summaryText = createMemo(() => {
+    const active = activeTool()
+    const activeLabel = active ? props.describeTool?.(active) : undefined
+    if (activeLabel) return activeLabel
     const s = summary()
     if (s.running) return props.labels.summaryRunning(s.count)
     if (s.failedCount > 0) return props.labels.summaryWithFailed(s.count, s.failedCount)
     return props.labels.summaryCompleted(s.count)
+  })
+  const leadingIcon = createMemo(() => {
+    const active = activeTool()
+    return active ? toolFamilyIcon(active.tool) : summary().leadingIcon
   })
 
   // Suppress the chev (and the disclosure affordance) when no tool in the
@@ -173,7 +192,7 @@ export function TrowBlock(props: TrowBlockProps) {
   return (
     <div
       data-component="session-turn-trow-block"
-      data-running={summary().running || undefined}
+      data-running={!!activeTool() || undefined}
       data-failed={summary().failedCount > 0 || undefined}
     >
       <details
@@ -188,7 +207,7 @@ export function TrowBlock(props: TrowBlockProps) {
           data-timeline-anchor={`trow-summary:${props.parts[0]?.id ?? "empty"}`}
         >
           <span data-slot="trow-summary-icon">
-            <Icon name={summary().leadingIcon} />
+            <Icon name={leadingIcon()} />
           </span>
           <span data-slot="trow-summary-text">{summaryText()}</span>
           <Show when={hasExpandableBody()}>

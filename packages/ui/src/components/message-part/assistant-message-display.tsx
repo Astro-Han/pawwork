@@ -3,6 +3,7 @@ import type { AssistantMessage, Part as PartType, ToolPart } from "@opencode-ai/
 import { useI18n } from "../../context/i18n"
 import { TrowBlock } from "../session-turn-trow-block"
 import { groupParts, renderable, sameGroups, type PartGroup } from "./grouping"
+import { contextToolSummaryText } from "./context-tool-helpers"
 import { index, latestDefined, same } from "./shared-utils"
 import { Part } from "./message-router"
 
@@ -59,6 +60,7 @@ export function AssistantMessageDisplay(props: {
                         summaryWithFailed: (count, failed) =>
                           i18n.t("ui.sessionTurn.trow.summary.withFailed", { count, failed }),
                       }}
+                      describeTool={(tool) => contextToolSummaryText(tool, i18n)}
                       renderTool={(tool) => (
                         <div data-slot="trow-result-body" data-timeline-anchor={`tool:${tool.id}`}>
                           <Part part={tool} message={props.message} stateKey={`tool:${tool.id}`} />

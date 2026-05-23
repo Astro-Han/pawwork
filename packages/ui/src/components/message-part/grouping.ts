@@ -51,18 +51,27 @@ export function groupParts(parts: { messageID: string; part: PartType }[]) {
   const flush = (end: number) => {
     if (start < 0) return
     const first = parts[start]
-    const last = parts[end]
-    if (!first || !last) {
+    if (!first) {
+      start = -1
+      return
+    }
+    const refs = parts.slice(start, end + 1).map((item) => ({
+      messageID: item.messageID,
+      partID: item.part.id,
+    }))
+    if (refs.length === 1) {
+      result.push({
+        key: `part:${first.messageID}:${first.part.id}`,
+        type: "part",
+        ref: refs[0]!,
+      })
       start = -1
       return
     }
     result.push({
       key: `trow:${first.part.id}`,
       type: "trow",
-      refs: parts.slice(start, end + 1).map((item) => ({
-        messageID: item.messageID,
-        partID: item.part.id,
-      })),
+      refs,
     })
     start = -1
   }

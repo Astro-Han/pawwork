@@ -67,6 +67,11 @@ export function contextToolTrigger(part: ToolPart, i18n: ReturnType<typeof useI1
   }
 }
 
+export function contextToolSummaryText(part: ToolPart, i18n: ReturnType<typeof useI18n>) {
+  const trigger = contextToolTrigger(part, i18n)
+  return [trigger.title, trigger.subtitle, ...(trigger.args ?? [])].filter(Boolean).join(" ")
+}
+
 export function toolStateMetadata(state: ToolPart["state"] | undefined): Record<string, any> {
   if (!state || !("metadata" in state)) return {}
   const metadata = state.metadata
