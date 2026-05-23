@@ -1,4 +1,5 @@
-import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup, type JSX } from "solid-js"
+import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup, onMount, type JSX } from "solid-js"
+import { Portal } from "solid-js/web"
 import { createStore } from "solid-js/store"
 import { createMediaQuery } from "@solid-primitives/media"
 import { Tabs } from "@opencode-ai/ui/tabs"
@@ -7,7 +8,6 @@ import { IconButton } from "@opencode-ai/ui/icon-button"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
-import { Mark } from "@opencode-ai/ui/logo"
 import { DragDropProvider, DragDropSensors, DragOverlay, SortableProvider, closestCenter } from "@thisbeyond/solid-dnd"
 import type { DragEvent } from "@thisbeyond/solid-dnd"
 import type { SnapshotFileDiff, VcsFileDiff } from "@opencode-ai/sdk/v2"
@@ -118,6 +118,15 @@ export function SessionSidePanel(props: {
   const sidePanelTab = createMemo(() => view().sidePanel.tab())
   const panelWidth = createMemo(() => formatRightPanelWidth(open(), layout.rightPanel.width()))
   const [bodyMounted, setBodyMounted] = createSignal(open())
+  // Tabs render into the titlebar so they read as window chrome instead of a
+  // second toolbar. Portal preserves the virtual tree, so Tabs/Sortable/DnD
+  // contexts still flow to the moved <Tabs.List>. Mount lookup is deferred to
+  // onMount because the titlebar slot is created by <Titlebar> at the shell
+  // root — by the time SessionSidePanel mounts it always exists.
+  const [tabsPortalMount, setTabsPortalMount] = createSignal<HTMLElement>()
+  onMount(() => {
+    setTabsPortalMount(document.getElementById("pawwork-titlebar-tabs") ?? undefined)
+  })
   let bodyUnmountTimer: number | undefined
 
   const clearBodyUnmountTimer = () => {
@@ -334,75 +343,84 @@ export function SessionSidePanel(props: {
               class="h-full flex flex-col"
               data-scope="right-panel"
             >
-              <Tabs.List class="h-11 shrink-0 px-2 py-0 border-b border-border-weaker gap-1 items-center">
-                <SortableProvider ids={sortableShellTabIds(view().sidePanel.openTabs())}>
-                  <For each={shellTabs()}>
-                    {(tab) => (
-                      <Show
-                        when={tab.value !== "status"}
-                        fallback={
-                          <ShellTab
-                            value={tab.value}
-                            label={tab.label}
-                            closable={tab.closable}
-                            onClose={view().sidePanel.closeTab}
-                          >
-                            <RightPanelShellIcon icon={tab.icon} active={activeTab() === tab.value} />
-                            <span>{tab.label}</span>
-                          </ShellTab>
-                        }
-                      >
-                        <SortableShellTab
-                          value={tab.value}
-                          label={tab.label}
-                          closable={tab.closable}
-                          onClose={view().sidePanel.closeTab}
-                        >
-                          <RightPanelShellIcon icon={tab.icon} active={activeTab() === tab.value} />
-                          <span>{tab.label}</span>
-                        </SortableShellTab>
-                      </Show>
-                    )}
-                  </For>
-                </SortableProvider>
-                <div class="flex-1" />
-                {/* 40px right-gutter reserve — matches docs/design/src/rightpanel.jsx,
-                  gives the tab row breathing room against the panel edge. */}
-                <DropdownMenu gutter={4} placement="bottom-end">
-                  <DropdownMenu.Trigger
-                    as={IconButton}
-                    icon="plus-small"
-                    variant="ghost"
-                    class="shrink-0"
-                    aria-label={language.t("session.panel.addTab")}
-                  />
-                  <DropdownMenu.Portal>
-                    <DropdownMenu.Content>
-                      <DropdownMenu.Item onSelect={() => openFilePicker(showAllFiles)}>
-                        <Icon name="open-file" />
-                        <DropdownMenu.ItemLabel>{language.t("command.file.open")}</DropdownMenu.ItemLabel>
-                        <span class="ml-auto text-body text-fg-weaker">{command.keybind("file.open")}</span>
-                      </DropdownMenu.Item>
-                      <Show when={closableMissingTabs().length > 0}>
-                        <DropdownMenu.Separator />
-                        <For each={closableMissingTabs()}>
+              {/* Tabs.List portals into <Titlebar>'s `pawwork-titlebar-tabs` slot so the
+                  tabs visually sit on the window chrome and the panel's body border-left
+                  meets the titlebar separator with no gap. Portal keeps Tabs/Sortable/DnD
+                  contexts intact via the virtual tree. The slot owns the titlebar height
+                  (--shell-titlebar-height, 44px on desktop) and centers this list
+                  vertically; no border-b because the titlebar slot owns the bottom-edge
+                  alignment with the panel body below. */}
+              <Show when={tabsPortalMount()}>
+                {(mount) => (
+                  <Portal mount={mount()}>
+                    <Tabs.List class="h-full shrink-0 px-1 py-0 gap-0 items-center">
+                      <SortableProvider ids={sortableShellTabIds(view().sidePanel.openTabs())}>
+                        <For each={shellTabs()}>
                           {(tab) => (
-                            <DropdownMenu.Item onSelect={() => view().sidePanel.openTab(tab.value)}>
-                              <Icon name={tab.iconName} />
-                              <DropdownMenu.ItemLabel>{tab.label}</DropdownMenu.ItemLabel>
-                              <Show when={tab.keybind}>
-                                {(keybind) => (
-                                  <span class="ml-auto text-body text-fg-weaker">{keybind()}</span>
-                                )}
-                              </Show>
-                            </DropdownMenu.Item>
+                            <Show
+                              when={tab.value !== "status"}
+                              fallback={
+                                <ShellTab
+                                  value={tab.value}
+                                  label={tab.label}
+                                  closable={tab.closable}
+                                  onClose={view().sidePanel.closeTab}
+                                  icon={<RightPanelShellIcon icon={tab.icon} active={activeTab() === tab.value} />}
+                                />
+                              }
+                            >
+                              <SortableShellTab
+                                value={tab.value}
+                                label={tab.label}
+                                closable={tab.closable}
+                                onClose={view().sidePanel.closeTab}
+                                icon={<RightPanelShellIcon icon={tab.icon} active={activeTab() === tab.value} />}
+                              />
+                            </Show>
                           )}
                         </For>
-                      </Show>
-                    </DropdownMenu.Content>
-                  </DropdownMenu.Portal>
-                </DropdownMenu>
-              </Tabs.List>
+                      </SortableProvider>
+                      <div class="flex-1" />
+                      {/* 40px right-gutter reserve — matches docs/design/src/rightpanel.jsx,
+                        gives the tab row breathing room against the panel edge. */}
+                      <DropdownMenu gutter={4} placement="bottom-end">
+                        <DropdownMenu.Trigger
+                          as={IconButton}
+                          icon="plus-small"
+                          variant="ghost"
+                          class="shrink-0"
+                          aria-label={language.t("session.panel.addTab")}
+                        />
+                        <DropdownMenu.Portal>
+                          <DropdownMenu.Content>
+                            <DropdownMenu.Item onSelect={() => openFilePicker(showAllFiles)}>
+                              <Icon name="open-file" />
+                              <DropdownMenu.ItemLabel>{language.t("command.file.open")}</DropdownMenu.ItemLabel>
+                              <span class="ml-auto text-body text-fg-weaker">{command.keybind("file.open")}</span>
+                            </DropdownMenu.Item>
+                            <Show when={closableMissingTabs().length > 0}>
+                              <DropdownMenu.Separator />
+                              <For each={closableMissingTabs()}>
+                                {(tab) => (
+                                  <DropdownMenu.Item onSelect={() => view().sidePanel.openTab(tab.value)}>
+                                    <Icon name={tab.iconName} />
+                                    <DropdownMenu.ItemLabel>{tab.label}</DropdownMenu.ItemLabel>
+                                    <Show when={tab.keybind}>
+                                      {(keybind) => (
+                                        <span class="ml-auto text-body text-fg-weaker">{keybind()}</span>
+                                      )}
+                                    </Show>
+                                  </DropdownMenu.Item>
+                                )}
+                              </For>
+                            </Show>
+                          </DropdownMenu.Content>
+                        </DropdownMenu.Portal>
+                      </DropdownMenu>
+                    </Tabs.List>
+                  </Portal>
+                )}
+              </Show>
 
             <Tabs.Content value="status" class="min-h-0 flex-1 overflow-hidden">
               <SessionStatusPanel shown={() => open() && sidePanelTab() === "status"} />
@@ -498,8 +516,7 @@ export function SessionSidePanel(props: {
                         <Tabs.Content value="empty" class="flex flex-col h-full overflow-hidden contain-strict">
                           <Show when={activeTab() === "empty"}>
                             <div class="relative pt-2 flex-1 min-h-0 overflow-hidden">
-                              <div class="h-full px-6 pb-42 -mt-4 flex flex-col items-center justify-center text-center gap-6">
-                                <Mark class="w-14 opacity-10" />
+                              <div class="h-full px-6 pb-42 -mt-4 flex flex-col items-center justify-center text-center">
                                 <div class="text-body text-fg-weak max-w-56">
                                   {language.t("session.files.selectToOpen")}
                                 </div>

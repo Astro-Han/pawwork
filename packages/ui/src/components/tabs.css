@@ -398,8 +398,10 @@
 
   &[data-variant="sidepanel"] {
     [data-slot="tabs-list"] {
-      /* Let the consumer-owned h-11 shell row define the final height. */
-      height: 44px;
+      /* Consumer owns the height. The right-panel tab strip portals into the
+         titlebar slot, which varies (macOS 40px chrome / Windows 44px), and
+         hard-coding 44px here pushed tabs past the titlebar bottom on macOS. */
+      height: 100%;
 
       &::after {
         display: none;
@@ -412,7 +414,6 @@
       background-color: transparent;
       color: inherit;
       font: inherit;
-      height: auto;
       max-width: none;
       gap: 0;
 
@@ -424,20 +425,39 @@
       }
     }
 
+    /* Active marker: weight + color shift only. No chip background, no brand
+       underline — DESIGN.md keeps brand orange as a small accent and the
+       titlebar tab strip is too prominent a surface to carry it. The contrast
+       between fg-weak (resting / hover) and fg-strong+medium (active) is
+       enough at this size; inactive tabs already say "I'm tappable". */
     [data-slot="tabs-trigger"] {
       border: 1px solid transparent;
       color: var(--fg-weak);
       background-color: transparent;
-      transition: background-color 120ms ease;
+      transition: color 120ms ease;
 
       &:hover {
-        background-color: var(--surface-sunken);
+        color: var(--fg-base);
       }
 
       &[data-selected] {
-        background-color: var(--surface-raised);
-        color: var(--fg-base);
+        color: var(--fg-strong);
+        font-weight: 500;
       }
+    }
+
+    /* Leading icon ↔ close swap. On a closable tab, hovering the trigger
+       fades the icon out and the × in. Same 14×14 slot, no layout shift —
+       closable and non-closable tabs share an identical resting width. */
+    [data-slot="tabs-trigger-wrapper"]:hover
+      [data-slot="tab-icon-swap"][data-closable]
+      [data-slot="tab-icon-default"] {
+      opacity: 0;
+    }
+    [data-slot="tabs-trigger-wrapper"]:hover
+      [data-slot="tab-icon-swap"][data-closable]
+      [data-slot="tab-icon-close"] {
+      opacity: 1;
     }
   }
 

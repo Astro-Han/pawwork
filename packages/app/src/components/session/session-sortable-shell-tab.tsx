@@ -1,17 +1,34 @@
-import type { JSX } from "solid-js"
+import { Show, type JSX } from "solid-js"
 import { createSortable } from "@thisbeyond/solid-dnd"
-import { IconButton } from "@opencode-ai/ui/icon-button"
+import { Icon } from "@opencode-ai/ui/icon"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { useLanguage } from "@/context/language"
 import type { RightPanelTab } from "@/pages/session/right-panel-tabs"
 
+/**
+ * Right-panel shell tab. Renders as `icon + label`; on a closable tab, hovering
+ * the leading icon swaps it in place for a close-small × — same 14×14 slot, no
+ * layout shift, so closable and non-closable tabs share an identical resting
+ * width. The active tab is marked by a 2px brand underline (handled in
+ * packages/ui/src/components/tabs.css for `data-variant="sidepanel"`) — chip
+ * backgrounds are intentionally absent so the strip reads as titlebar chrome
+ * rather than a competing toolbar.
+ *
+ * Click target rules:
+ *  - Click on the icon area:
+ *      • closable + hovered → close (stopPropagation, so Tabs.Trigger doesn't
+ *        also fire the value-change).
+ *      • otherwise           → falls through to Tabs.Trigger, selecting the tab.
+ *  - Click anywhere else on the tab → Tabs.Trigger handles the selection.
+ *  - Middle-click anywhere → close (existing onMiddleClick contract).
+ */
 export function ShellTab(props: {
   value: RightPanelTab
   label: string
   closable: boolean
   onClose: (tab: RightPanelTab) => void
-  children: JSX.Element
+  icon: JSX.Element
 }): JSX.Element {
   const language = useLanguage()
   const close = () => {
@@ -19,33 +36,53 @@ export function ShellTab(props: {
     props.onClose(props.value)
   }
 
+  const swap = (
+    <span
+      data-slot="tab-icon-swap"
+      data-closable={props.closable || undefined}
+      class="relative inline-flex items-center justify-center size-3.5"
+      onClick={(event) => {
+        if (!props.closable) return
+        event.stopPropagation()
+        event.preventDefault()
+        close()
+      }}
+    >
+      <span
+        data-slot="tab-icon-default"
+        class="absolute inset-0 inline-flex items-center justify-center transition-opacity duration-100"
+      >
+        {props.icon}
+      </span>
+      <Show when={props.closable}>
+        <span
+          data-slot="tab-icon-close"
+          class="absolute inset-0 inline-flex items-center justify-center opacity-0 transition-opacity duration-100"
+        >
+          <Icon name="close-small" class="text-fg-weak" />
+        </span>
+      </Show>
+    </span>
+  )
+
   return (
     <div class="h-full flex items-center">
       <Tabs.Trigger
         value={props.value}
-        class="shrink-0 h-7"
+        class="shrink-0 h-full"
         classes={{
           button:
             "h-7 min-h-7 inline-flex items-center whitespace-nowrap rounded-md text-h3 text-fg-weak gap-1.5 px-2.5",
         }}
-        closeButton={
-          props.closable ? (
-            <Tooltip value={language.t("common.closeTab")} placement="bottom" gutter={10}>
-              <IconButton
-                icon="close-small"
-                variant="ghost"
-                class="h-5 w-5"
-                onClick={close}
-                aria-label={language.t("common.closeTab")}
-              />
-            </Tooltip>
-          ) : undefined
-        }
-        hideCloseButton
         onMiddleClick={close}
         aria-label={props.label}
       >
-        {props.children}
+        <Show when={props.closable} fallback={swap}>
+          <Tooltip value={language.t("common.closeTab")} placement="bottom" gutter={10} openDelay={400}>
+            {swap}
+          </Tooltip>
+        </Show>
+        <span>{props.label}</span>
       </Tabs.Trigger>
     </div>
   )
@@ -56,7 +93,7 @@ export function SortableShellTab(props: {
   label: string
   closable: boolean
   onClose: (tab: RightPanelTab) => void
-  children: JSX.Element
+  icon: JSX.Element
 }): JSX.Element {
   const sortable = createSortable(props.value)
 

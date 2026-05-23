@@ -131,13 +131,12 @@ export function FilesTab(props: { files: FilesTabEntry[] }) {
                     <FileIcon node={{ path: entry.path, type: "file" }} class="shrink-0 mt-0.5" />
                     <div class="min-w-0 flex-1">
                       <div class="text-h3 text-fg-strong break-all">{entry.file}</div>
-                      <div class="mt-1 flex items-center gap-2 text-body text-fg-weak">
+                      <div class="mt-1 flex items-center gap-3 text-body text-fg-weak">
                         <span>
                           {entry.kind === "added"
                             ? language.t("session.files.status.added")
                             : language.t("session.files.status.updated")}
                         </span>
-                        <span aria-hidden>•</span>
                         <span>{meta().exists ? formatSize(meta().size) : language.t("session.files.missing")}</span>
                       </div>
                     </div>
@@ -153,6 +152,7 @@ export function FilesTab(props: { files: FilesTabEntry[] }) {
                   <div class="flex items-center gap-2">
                     <Button
                       size="small"
+                      icon="open-file"
                       disabled={!meta().exists || !platform.openPath}
                       onClick={() => platform.openPath?.(entry.path)}
                       aria-label={language.t("command.file.open")}
@@ -162,6 +162,7 @@ export function FilesTab(props: { files: FilesTabEntry[] }) {
                     <Button
                       size="small"
                       variant="secondary"
+                      icon="folder"
                       disabled={!meta().exists || !platform.showItemInFolder}
                       onClick={() => platform.showItemInFolder?.(entry.path)}
                       aria-label={language.t("command.file.revealInFolder")}
