@@ -52,11 +52,11 @@ describe("picker.css: trigger contract", () => {
 })
 
 describe("picker.css: content contract", () => {
-  test("content uses --surface-base background", () => {
+  test("content uses --surface-raised background", () => {
     const contentIdx = css.indexOf("[data-picker-content] {")
     expect(contentIdx).toBeGreaterThan(-1)
     const block = css.slice(contentIdx, contentIdx + 300)
-    expect(block).toContain("--surface-base")
+    expect(block).toContain("--surface-raised")
   })
 
   test("content uses --radius-md", () => {

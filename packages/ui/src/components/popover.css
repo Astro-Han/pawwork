@@ -5,7 +5,7 @@
 [data-component="popover-content"] {
   z-index: 50;
   border-radius: var(--radius-md);
-  background-color: var(--surface-base);
+  background-color: var(--surface-raised);
   background-clip: padding-box;
   box-shadow: var(--ring-base), var(--shadow-floating);
 
@@ -113,24 +113,26 @@
 
   &:hover,
   &[data-force-state="hover"] {
-    background: var(--bg-cream);
+    background: var(--row-hover-overlay);
   }
 
   &[data-active],
   &[data-force-state="active"] {
-    background: var(--bg-cream);
+    background: var(--surface-interactive-base);
     opacity: 0.8;
   }
 
   &:focus-visible,
   &[data-force-state="focus-visible"] {
     outline: none;
-    background: var(--bg-cream);
+    background: var(--row-hover-overlay);
   }
 
   &[data-selected],
   &[data-force-state="selected"] {
-    background: var(--bg-cream);
+    background: var(--surface-interactive-base);
+    font-weight: 500;
+    color: var(--fg-strong);
   }
 
   &[data-disabled],

@@ -29,7 +29,7 @@
 }
 
 [data-picker-content] {
-  background-color: var(--surface-base);
+  background-color: var(--surface-raised);
   border-radius: var(--radius-md);
   padding: 4px;
   box-shadow: var(--ring-base), var(--shadow-floating);
