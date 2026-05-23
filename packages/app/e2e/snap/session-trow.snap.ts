@@ -60,15 +60,37 @@ test("session-trow", async ({ page }) => {
 
   const toolOutputSpacing = page.locator('[data-snap="tool-output-spacing"]')
   await expect(toolOutputSpacing.locator('[data-component="tool-output"]')).toBeVisible({ timeout: 30_000 })
-  const toolOutputGap = await toolOutputSpacing.evaluate((root) => {
+  const toolOutputMetrics = await toolOutputSpacing.evaluate((root) => {
     const output = root.querySelector<HTMLElement>('[data-component="tool-output"]')
+    const lastContent =
+      output?.querySelector<HTMLElement>('[data-component="markdown"] > :last-child') ??
+      output?.querySelector<HTMLElement>("pre") ??
+      output
     const triggers = root.querySelectorAll<HTMLElement>('[data-slot="collapsible-trigger"]')
     const nextTrigger = triggers[1]
-    if (!output || !nextTrigger) return Number.NaN
-    return nextTrigger.getBoundingClientRect().top - output.getBoundingClientRect().bottom
+    if (!output || !lastContent || !nextTrigger) return { outputGap: Number.NaN, contentGap: Number.NaN }
+    return {
+      outputGap: nextTrigger.getBoundingClientRect().top - output.getBoundingClientRect().bottom,
+      contentGap: nextTrigger.getBoundingClientRect().top - lastContent.getBoundingClientRect().bottom,
+    }
   })
-  expect(toolOutputGap).toBeGreaterThanOrEqual(0)
-  expect(toolOutputGap).toBeLessThanOrEqual(8)
+  expect(toolOutputMetrics.outputGap).toBeGreaterThanOrEqual(0)
+  expect(toolOutputMetrics.outputGap).toBeLessThanOrEqual(8)
+  expect(toolOutputMetrics.contentGap).toBeGreaterThanOrEqual(0)
+  expect(toolOutputMetrics.contentGap).toBeLessThanOrEqual(8)
+  const toolOutputUserSelect = await toolOutputSpacing.evaluate((root) => {
+    const summary = root.querySelector<HTMLElement>('[data-slot="trow-summary"]')
+    const trigger = root.querySelector<HTMLElement>('[data-slot="collapsible-trigger"]')
+    const output = root.querySelector<HTMLElement>('[data-component="tool-output"]')
+    return {
+      summary: summary ? getComputedStyle(summary).userSelect : "",
+      trigger: trigger ? getComputedStyle(trigger).userSelect : "",
+      output: output ? getComputedStyle(output).userSelect : "",
+    }
+  })
+  expect(toolOutputUserSelect.summary).toBe("text")
+  expect(toolOutputUserSelect.trigger).toBe("text")
+  expect(toolOutputUserSelect.output).toBe("text")
   shots.push(await captureBlock("tool-output-spacing", toolOutputSpacing))
 
   const registeredToolRows = page.locator('[data-snap="registered-tool-rows"]')

@@ -202,6 +202,8 @@
   font-weight: var(--font-weight-mono-small);
   line-height: var(--line-height-mono-small);
   color: var(--fg-weak);
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 [data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-component="tool-output"] {
@@ -215,6 +217,27 @@
 [data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="collapsible-trigger"],
 [data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="basic-tool-tool-info"] {
   text-align: left;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-summary"] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-component="tool-output"] [data-component="markdown"] {
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  color: inherit;
+  white-space: normal;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-component="tool-output"] [data-component="markdown"] p {
+  margin: 0;
+  white-space: pre-wrap;
 }
 
 [data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-component="exa-tool-output"] {

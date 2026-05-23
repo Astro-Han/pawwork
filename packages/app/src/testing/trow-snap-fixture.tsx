@@ -1,7 +1,8 @@
 import { Dynamic, render } from "solid-js/web"
 import type { ToolPart, ToolState } from "@opencode-ai/sdk/v2"
 import { BasicTool } from "@opencode-ai/ui/basic-tool"
-import { I18nProvider, type UiI18nKey, type UiI18nParams } from "@opencode-ai/ui/context"
+import { DataProvider, I18nProvider, type UiI18nKey, type UiI18nParams } from "@opencode-ai/ui/context"
+import { MarkedProvider } from "@opencode-ai/ui/context/marked"
 import { dict as zh } from "@opencode-ai/ui/i18n/zh"
 import { ToolRegistry } from "@opencode-ai/ui/message-part"
 import { TrowBlock } from "@opencode-ai/ui/session-turn-trow-block"
@@ -60,8 +61,18 @@ const singleQuietParts = [tool("single-quiet", "quiet command", "sleep 0", "comp
 const singleResultParts = [tool("single-result", "prints one line", "echo one")]
 const singleRunningParts = [tool("single-running", "long command", "sleep 30", "running")]
 const toolOutputParts = [
-  tool("glob-output", "matched markdown", "", "completed", "/Users/yuhan/PawWork/a.md\n/Users/yuhan/PawWork/b.md", "glob"),
-  tool("grep-output", "found one match", "", "completed", "Found 1 matches\n/Users/yuhan/PawWork/a.md:\n  Line 3: test", "grep"),
+  realTool(
+    "glob-output",
+    "glob",
+    { path: "/Users/yuhan/PawWork", pattern: "*.md" },
+    "/Users/yuhan/PawWork/a.md\n/Users/yuhan/PawWork/b.md\n",
+  ),
+  realTool(
+    "grep-output",
+    "grep",
+    { path: "/Users/yuhan/PawWork", pattern: "test", include: "*.md" },
+    "Found 1 matches\n/Users/yuhan/PawWork/a.md:\n  Line 3: test\n",
+  ),
 ]
 const mixedRealToolParts = [
   realTool("websearch-real", "websearch", { query: "PawWork desktop app AI agent 2026" }, "https://example.com/"),
@@ -100,6 +111,14 @@ const zhI18n = {
     const value = (zh as Record<string, string>)[key] ?? String(key)
     return resolveTemplate(value, params)
   },
+}
+
+const fixtureData = {
+  session: [],
+  session_status: {},
+  turn_change_aggregate: {},
+  message: {},
+  part: {},
 }
 
 function realTool(
@@ -166,28 +185,7 @@ function BashOutput(props: { command: string; output?: string }) {
   )
 }
 
-function renderToolOutput(prefix: string, openTool?: string) {
-  return (part: ToolPart) => {
-    const output = part.state.status === "completed" ? part.state.output : ""
-    return (
-      <div data-slot="trow-result-body" data-timeline-anchor={`tool:${part.id}`}>
-        <BasicTool
-          icon="magnifying-glass-menu"
-          status={part.state.status}
-          defaultOpen={part.id === openTool}
-          stateKey={`${prefix}:${part.id}`}
-          trigger={{ title: part.tool === "glob" ? "查找文件" : "搜索文本", subtitle: "/Users/yuhan/" }}
-        >
-          <div data-component="tool-output" data-scrollable>
-            <pre>{output}</pre>
-          </div>
-        </BasicTool>
-      </div>
-    )
-  }
-}
-
-function renderRegisteredTool(prefix: string) {
+function renderRegisteredTool(prefix: string, openTool?: string) {
   return (part: ToolPart) => {
     const component = ToolRegistry.render(part.tool)
     const state = part.state
@@ -203,7 +201,7 @@ function renderRegisteredTool(prefix: string) {
           metadata={metadata}
           output={output}
           status={state.status}
-          defaultOpen={part.id === "websearch-real"}
+          defaultOpen={part.id === (openTool ?? "websearch-real")}
           stateKey={`${prefix}:${part.id}`}
         />
       </div>
@@ -279,7 +277,7 @@ function TrowSnapFixture() {
           defaultOpen
           labels={labels}
           describeTool={describeTool}
-          renderTool={renderToolOutput("tool-output", "glob-output")}
+          renderTool={renderRegisteredTool("tool-output", "glob-output")}
         />
       </div>
       <div data-snap="registered-tool-rows">
@@ -325,7 +323,11 @@ export function mountTrowSnapFixture(root: HTMLElement) {
   render(
     () => (
       <I18nProvider value={zhI18n}>
-        <TrowSnapFixture />
+        <MarkedProvider>
+          <DataProvider data={fixtureData} directory="/Users/yuhan/PawWork">
+            <TrowSnapFixture />
+          </DataProvider>
+        </MarkedProvider>
       </I18nProvider>
     ),
     root,
