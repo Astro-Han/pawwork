@@ -140,4 +140,64 @@ describe("createTodoHydrateCoordinator", () => {
       dispose()
     })
   })
+
+  test("local session eviction clears pending and recovery state", () => {
+    createRoot((dispose) => {
+      const coordinator = createTodoHydrateCoordinator({ sessionLimit: 1 })
+
+      coordinator.touch("dir-a", "ses_1")
+      coordinator.markGlobalRecovery()
+      const token = coordinator.beginHydrate("dir-a", "ses_1", "recovery")
+      coordinator.completeHydrate(token, {
+        cacheAccepted: true,
+        recoveryValidated: true,
+        liveWritesReopened: true,
+      })
+      coordinator.scheduleHydrate("dir-a", "ses_1", "visible")
+
+      expect(coordinator.touch("dir-a", "ses_2")).toEqual([{ directory: "dir-a", sessionIDs: ["ses_1"] }])
+      expect(coordinator.has("dir-a", "ses_1")).toBe(false)
+      expect(coordinator.isPending("dir-a", "ses_1")).toBe(false)
+      expect(coordinator.validatedRecoveryEpoch("dir-a", "ses_1")).toBe(0)
+
+      dispose()
+    })
+  })
+
+  test("forgetting a session clears recovery state", () => {
+    createRoot((dispose) => {
+      const coordinator = createTodoHydrateCoordinator()
+
+      coordinator.touch("dir-a", "ses_1")
+      coordinator.markGlobalRecovery()
+      const token = coordinator.beginHydrate("dir-a", "ses_1", "recovery")
+      coordinator.completeHydrate(token, {
+        cacheAccepted: true,
+        recoveryValidated: true,
+        liveWritesReopened: true,
+      })
+
+      coordinator.invalidate("dir-a", "ses_1")
+
+      expect(coordinator.has("dir-a", "ses_1")).toBe(false)
+      expect(coordinator.isPending("dir-a", "ses_1")).toBe(false)
+      expect(coordinator.validatedRecoveryEpoch("dir-a", "ses_1")).toBe(0)
+
+      dispose()
+    })
+  })
+
+  test("authoritative invalidation clears pending-only sessions", () => {
+    createRoot((dispose) => {
+      const coordinator = createTodoHydrateCoordinator()
+
+      coordinator.scheduleHydrate("dir-a", "ses_1", "visible")
+      coordinator.invalidateSession("ses_1")
+
+      expect(coordinator.isPending("dir-a", "ses_1")).toBe(false)
+      expect(coordinator.isAuthoritativelyInvalidated("ses_1")).toBe(true)
+
+      dispose()
+    })
+  })
 })

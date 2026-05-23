@@ -255,8 +255,10 @@ function createGlobalSync() {
         permission: store.permission,
       })
       if (next.length !== store.session.length) {
+        cleanupDroppedSessionCaches(store, setStore, next, {
+          onDropSession: (sessionID) => todoHydrate.invalidate(directory, sessionID),
+        })
         setStore("session", reconcile(next, { key: "id" }))
-        cleanupDroppedSessionCaches(store, setStore, next)
       }
       children.unpin(directory)
       return
@@ -291,8 +293,10 @@ function createGlobalSync() {
                   limited: x.limited,
                 }),
               )
+              cleanupDroppedSessionCaches(store, setStore, sessions, {
+                onDropSession: (sessionID) => todoHydrate.invalidate(directory, sessionID),
+              })
               setStore("session", reconcile(sessions, { key: "id" }))
-              cleanupDroppedSessionCaches(store, setStore, sessions)
               sessionMeta.set(directory, { limit })
             })
             .catch((err) => {

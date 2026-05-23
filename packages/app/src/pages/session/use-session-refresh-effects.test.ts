@@ -39,8 +39,9 @@ const installTimerQueue = () => {
   }
 }
 
-const mountRefreshEffects = ({ hasTodoCache }) => {
+const mountRefreshEffects = ({ hasTodoCache, recoveryEpoch = () => 0, validatedRecoveryEpoch = () => 0 }) => {
   const scheduledTodos = []
+  const canceledTodos = []
   const syncedTodos = []
 
   const dispose = createRoot((dispose) => {
@@ -59,8 +60,11 @@ const mountRefreshEffects = ({ hasTodoCache }) => {
       scheduleTodoHydrate: (directory, sessionID, reason) => {
         scheduledTodos.push({ directory, sessionID, reason })
       },
-      recoveryEpoch: () => 0,
-      validatedRecoveryEpoch: () => 0,
+      cancelTodoHydrate: (directory, sessionID) => {
+        canceledTodos.push({ directory, sessionID })
+      },
+      recoveryEpoch,
+      validatedRecoveryEpoch,
       syncSession: () => {},
       syncTodo: (sessionID, options) => {
         syncedTodos.push({ sessionID, options })
@@ -71,7 +75,7 @@ const mountRefreshEffects = ({ hasTodoCache }) => {
     return dispose
   })
 
-  return { dispose, scheduledTodos, syncedTodos }
+  return { dispose, scheduledTodos, canceledTodos, syncedTodos }
 }
 
 {
@@ -95,6 +99,31 @@ const mountRefreshEffects = ({ hasTodoCache }) => {
 
   await Promise.resolve()
   assert(scheduledTodos.length === 0, "initial cached idle todo should not schedule a redundant hydrate")
+  dispose()
+}
+
+{
+  installAnimationFrameQueue()
+  installTimerQueue()
+  const [recoveryEpoch, setRecoveryEpoch] = createSignal(1)
+  const [validatedRecoveryEpoch, setValidatedRecoveryEpoch] = createSignal(0)
+  const { dispose, scheduledTodos, canceledTodos } = mountRefreshEffects({
+    hasTodoCache: () => true,
+    recoveryEpoch,
+    validatedRecoveryEpoch,
+  })
+
+  await Promise.resolve()
+  assert(scheduledTodos.length === 1, "stale cached todo should schedule recovery hydrate")
+  assert(scheduledTodos[0].reason === "recovery", "stale cached todo schedule should use recovery reason")
+
+  setValidatedRecoveryEpoch(1)
+  await Promise.resolve()
+  assert(canceledTodos.length === 1, "validated recovery change should cancel the stale recovery hydrate")
+
+  setRecoveryEpoch(2)
+  await Promise.resolve()
+  assert(scheduledTodos.length === 2, "new recovery epoch should schedule another recovery hydrate")
   dispose()
 }
 `

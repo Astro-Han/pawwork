@@ -165,20 +165,21 @@ export function useSessionRefreshEffects(input: {
     on(
       () => {
         const id = input.timelineSessionID()
+        const dir = input.directory()
         return [
-          input.directory(),
+          dir,
           id,
           id ? (input.statusType(id) ?? "idle") : "idle",
           id ? input.blocked() : false,
           input.recoveryEpoch?.() ?? 0,
+          id ? (input.validatedRecoveryEpoch?.(dir, id) ?? 0) : 0,
         ] as const
       },
-      ([dir, id, status, blocked, recoveryEpoch]) => {
+      ([dir, id, status, blocked, recoveryEpoch, recoveryValidated]) => {
         cancelScheduledTodo()
         if (!id) return
         if (input.isTodoInvalidated?.(id)) return
         const cached = untrack(() => input.hasTodoCache(id))
-        const recoveryValidated = input.validatedRecoveryEpoch?.(dir, id) ?? 0
         const recoveryDue = cached && recoveryEpoch > recoveryValidated
         const busy = status !== "idle" || blocked
         const reason: TodoHydrateReason | undefined = recoveryDue ? "recovery" : busy ? "busy" : cached ? undefined : "visible"

@@ -433,6 +433,21 @@ describe("applyDirectoryEvent", () => {
     expect(store.part.msg_1).toBeUndefined()
   })
 
+  test("cleanupDroppedSessionCaches reports dropped sessions even without child caches", () => {
+    const forgotten: string[] = []
+    const keep = rootSession({ id: "ses_keep" })
+    const drop = rootSession({ id: "ses_drop" })
+    const [store, setStore] = createStore(baseState({ session: [keep, drop] }))
+
+    cleanupDroppedSessionCaches(store, setStore, [keep], {
+      onDropSession: (sessionID) => {
+        forgotten.push(sessionID)
+      },
+    })
+
+    expect(forgotten).toEqual(["ses_drop"])
+  })
+
   test("clears cached aggregate when turn changes are invalidated", () => {
     const [store, setStore] = createStore(
       baseState({

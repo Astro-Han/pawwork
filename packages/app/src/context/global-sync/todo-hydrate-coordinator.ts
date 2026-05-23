@@ -21,11 +21,18 @@ export type TodoHydrateCoordinator = ReturnType<typeof createTodoHydrateCoordina
 
 const keyFor = (directory: string, sessionID: string) => `${directory}\0${sessionID}`
 
+const splitKey = (key: string) => {
+  const index = key.indexOf("\0")
+  if (index < 0) return undefined
+  return { directory: key.slice(0, index), sessionID: key.slice(index + 1) }
+}
+
 export function createTodoHydrateCoordinator(options?: { sessionLimit?: number; directoryLimit?: number }) {
   const sessionLimit = options?.sessionLimit ?? SESSION_CACHE_LIMIT
   const directoryLimit = options?.directoryLimit ?? MAX_DIR_STORES
   const seen = new Map<string, Set<string>>()
   const tokenEpoch = new Map<string, number>()
+  let nextTokenEpoch = 0
   const [state, setState] = createStore({
     pending: {} as Record<string, TodoHydrateReason | undefined>,
     invalidated: {} as Record<string, true | undefined>,
@@ -35,7 +42,8 @@ export function createTodoHydrateCoordinator(options?: { sessionLimit?: number; 
 
   const bumpToken = (directory: string, sessionID: string) => {
     const key = keyFor(directory, sessionID)
-    const next = (tokenEpoch.get(key) ?? 0) + 1
+    const next = nextTokenEpoch + 1
+    nextTokenEpoch = next
     tokenEpoch.set(key, next)
     return next
   }
@@ -50,30 +58,34 @@ export function createTodoHydrateCoordinator(options?: { sessionLimit?: number; 
     )
   }
 
+  const clearSessionState = (directory: string, sessionID: string) => {
+    const key = keyFor(directory, sessionID)
+    seen.get(directory)?.delete(sessionID)
+    tokenEpoch.delete(key)
+    setState(
+      produce((draft) => {
+        delete draft.pending[key]
+        delete draft.validatedRecovery[key]
+      }),
+    )
+  }
+
   const removeDirectoryState = (directory: string) => {
+    const sessionIDs = new Set(seen.get(directory) ?? [])
     for (const key of Object.keys(state.pending)) {
-      if (key.startsWith(`${directory}\0`)) {
-        setState(
-          "pending",
-          produce((draft) => {
-            delete draft[key]
-          }),
-        )
-      }
+      const parsed = splitKey(key)
+      if (parsed?.directory === directory) sessionIDs.add(parsed.sessionID)
     }
     for (const key of Object.keys(state.validatedRecovery)) {
-      if (key.startsWith(`${directory}\0`)) {
-        setState(
-          "validatedRecovery",
-          produce((draft) => {
-            delete draft[key]
-          }),
-        )
-      }
+      const parsed = splitKey(key)
+      if (parsed?.directory === directory) sessionIDs.add(parsed.sessionID)
     }
     for (const key of Array.from(tokenEpoch.keys())) {
-      if (key.startsWith(`${directory}\0`)) tokenEpoch.delete(key)
+      const parsed = splitKey(key)
+      if (parsed?.directory === directory) sessionIDs.add(parsed.sessionID)
     }
+    for (const sessionID of sessionIDs) clearSessionState(directory, sessionID)
+    seen.delete(directory)
   }
 
   const touch = (directory: string, sessionID: string): SessionRequestEviction[] => {
@@ -89,7 +101,10 @@ export function createTodoHydrateCoordinator(options?: { sessionLimit?: number; 
 
     const evictions: SessionRequestEviction[] = []
     const local = pickSessionCacheEvictions({ seen: tracked, keep: sessionID, limit: sessionLimit })
-    if (local.length > 0) evictions.push({ directory, sessionIDs: local })
+    if (local.length > 0) {
+      for (const evictedSessionID of local) clearSessionState(directory, evictedSessionID)
+      evictions.push({ directory, sessionIDs: local })
+    }
 
     while (seen.size > directoryLimit) {
       const staleDirectory = seen.keys().next().value
@@ -146,16 +161,30 @@ export function createTodoHydrateCoordinator(options?: { sessionLimit?: number; 
   }
 
   const forgetSession = (directory: string, sessionID: string) => {
-    seen.get(directory)?.delete(sessionID)
-    bumpToken(directory, sessionID)
-    clearPending(directory, sessionID)
+    clearSessionState(directory, sessionID)
   }
 
   const invalidateSession = (sessionID: string) => {
     if (!sessionID) return
     setState("invalidated", sessionID, true)
-    for (const directory of seen.keys()) {
-      forgetSession(directory, sessionID)
+    const directories = new Set<string>()
+    for (const [directory, sessions] of seen) {
+      if (sessions.has(sessionID)) directories.add(directory)
+    }
+    for (const key of Object.keys(state.pending)) {
+      const parsed = splitKey(key)
+      if (parsed?.sessionID === sessionID) directories.add(parsed.directory)
+    }
+    for (const key of Object.keys(state.validatedRecovery)) {
+      const parsed = splitKey(key)
+      if (parsed?.sessionID === sessionID) directories.add(parsed.directory)
+    }
+    for (const key of Array.from(tokenEpoch.keys())) {
+      const parsed = splitKey(key)
+      if (parsed?.sessionID === sessionID) directories.add(parsed.directory)
+    }
+    for (const directory of directories) {
+      clearSessionState(directory, sessionID)
     }
   }
 

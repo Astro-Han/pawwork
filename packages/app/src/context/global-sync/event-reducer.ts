@@ -101,9 +101,13 @@ export function cleanupDroppedSessionCaches(
   store: Store<State>,
   setStore: SetStoreFunction<State>,
   next: Session[],
+  options?: { onDropSession?: (sessionID: string) => void },
 ) {
   const keep = new Set(next.map((item) => item.id))
+  const dropped = store.session.map((session) => session.id).filter((sessionID) => !keep.has(sessionID))
+  for (const sessionID of dropped) options?.onDropSession?.(sessionID)
   const stale = [
+    ...dropped,
     ...Object.keys(store.message),
     ...Object.keys(store.turn_change_aggregate),
     ...Object.keys(store.todo),
