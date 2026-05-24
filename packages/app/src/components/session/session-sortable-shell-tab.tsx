@@ -69,9 +69,12 @@ export function ShellTab(props: {
     props.onClose(props.value)
 
     // Wait one tick for Solid to commit the DOM removal, then restore focus.
+    // Re-check `isConnected` inside the rAF: rapid successive closes can
+    // remove the captured sibling before its frame fires, and calling
+    // `.focus()` on a detached node silently moves focus to <body>.
     if (focusTarget) {
       requestAnimationFrame(() => {
-        focusTarget?.focus()
+        if (focusTarget?.isConnected) focusTarget.focus()
       })
     }
   }
@@ -90,15 +93,23 @@ export function ShellTab(props: {
       value={props.value}
       class="shrink-0 h-full"
       classes={{
-        button:
-          "h-7 min-h-7 inline-flex items-center whitespace-nowrap rounded-md text-h3 text-fg-weak gap-1.5 px-2.5",
+        // Spacing (gap, padding-inline, border-radius) lives in tabs.css under
+        // the sidepanel variant: icon↔label gap `--space-sm` (8), chip-edge
+        // padding `--space-xs` (4), corner `--radius-md` (10). Tailwind
+        // utilities are kept out here because the app pins
+        // `html { font-size: 13px }`, which makes the default rem-based
+        // spacing scale drift off the 4pt grid (gap-2 = 0.5rem = 6.5px
+        // instead of 8). Routing through CSS variables in the variant block
+        // keeps the chip exactly on the grid.
+        button: "h-7 min-h-7 inline-flex items-center whitespace-nowrap text-h3 text-fg-weak",
       }}
       onMiddleClick={close}
       aria-label={props.label}
-      // Advertise the Delete key shortcut to assistive technology — only on
-      // closable tabs, since Status's onKeyDown is a no-op and exposing the
-      // shortcut there would be a false promise.
-      aria-keyshortcuts={props.closable ? "Delete" : undefined}
+      // Advertise both close shortcuts to assistive technology — handler
+      // below accepts Delete OR Backspace (the macOS alias). Space-separated
+      // per ARIA spec. Only declared on closable tabs; Status's onKeyDown is
+      // a no-op and exposing the shortcut there would be a false promise.
+      aria-keyshortcuts={props.closable ? "Delete Backspace" : undefined}
       onKeyDown={
         props.closable
           ? (event: KeyboardEvent) => {

@@ -353,11 +353,13 @@ export function SessionSidePanel(props: {
               <Show when={tabsPortalMount()}>
                 {(mount) => (
                   <Portal mount={mount()}>
-                    {/* `pointer-events-auto` brings clicks back here — the titlebar slot
-                        itself is `pointer-events-none` (see Titlebar) so the rest of the
-                        slot box does not occlude the Right utility panel toggle that sits
-                        in the right portal beneath it. */}
-                    <Tabs.List class="h-full shrink-0 px-1 py-0 gap-0 items-center pointer-events-auto">
+                    {/* `gap` is intentionally omitted — the sidepanel variant
+                        in tabs.css owns the inter-tab gap via `var(--space-xs)`
+                        (4px / 4pt-grid). Tailwind's `gap-1` would sit in the
+                        utilities layer and outrank the components-layer rule,
+                        and the rem-13 base would also drift it off the grid
+                        (gap-1 = 0.25rem = 3.25px, not 4). */}
+                    <Tabs.List class="h-full shrink-0 px-1 py-0 items-center">
                       <SortableProvider ids={sortableShellTabIds(view().sidePanel.openTabs())}>
                         <For each={shellTabs()}>
                           {(tab) => (
@@ -384,6 +386,9 @@ export function SessionSidePanel(props: {
                           )}
                         </For>
                       </SortableProvider>
+                      {/* Spacer pushes the `+` button to the rail's right edge so
+                          the chip strip reads left-justified and `+` lives at the
+                          end of the rail (matching docs/design/ui_kits/desktop/RightPanel.jsx). */}
                       <div class="flex-1" />
                       {/* 40px right-gutter reserve — matches docs/design/src/rightpanel.jsx,
                         gives the tab row breathing room against the panel edge. */}
