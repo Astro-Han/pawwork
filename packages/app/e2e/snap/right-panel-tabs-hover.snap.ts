@@ -70,6 +70,19 @@ async function dumpBoxes(page: Page, label: string) {
   process.stdout.write(`\n[boxes ${label}]\n${JSON.stringify(data, null, 2)}\n`)
 }
 
+// Tab-strip clip: shared by every shot so all states crop identically and
+// diff cleanly in the grid.
+const TAB_STRIP_CLIP = { x: 600, y: 0, width: 700, height: 80 } as const
+
+async function captureShot(page: Page, name: string): Promise<Shot> {
+  await page.waitForTimeout(200)
+  await dumpBoxes(page, name)
+  return {
+    name,
+    buf: await page.screenshot({ clip: TAB_STRIP_CLIP, animations: "disabled" }),
+  }
+}
+
 async function captureStates(
   page: Page,
   label: "light" | "dark",
@@ -82,43 +95,17 @@ async function captureStates(
 
   // Rest state — mouse parked far away so no tab hovers.
   await page.mouse.move(0, 0)
-  await page.waitForTimeout(200)
-  await dumpBoxes(page, `${label}-rest`)
-  const rest = {
-    name: `${label}-rest`,
-    buf: await page.screenshot({
-      clip: { x: 600, y: 0, width: 700, height: 80 },
-      animations: "disabled",
-    }),
-  }
+  const rest = await captureShot(page, `${label}-rest`)
 
   // Hover state — hover the Files tab (closable). This should fade the
   // leading icon and reveal the × close button.
   await page.getByRole("tab", { name: "Files" }).hover()
-  await page.waitForTimeout(200)
-  await dumpBoxes(page, `${label}-hover-files`)
-  const hoverFiles = {
-    name: `${label}-hover-files`,
-    buf: await page.screenshot({
-      clip: { x: 600, y: 0, width: 700, height: 80 },
-      animations: "disabled",
-    }),
-  }
+  const hoverFiles = await captureShot(page, `${label}-hover-files`)
 
-  // Hover state on Review (also closable) — Review is selected by default
-  // after openFilesAndReview clicks Status? No, openFilesAndReview clicks
-  // Status; Review/Files are open but unselected. So this is hover on an
-  // unselected closable tab — same expected swap.
+  // Hover state on Review (also closable). openFilesAndReview clicks Status,
+  // so Review/Files are open but unselected — same expected swap as Files.
   await page.getByRole("tab", { name: "Review" }).hover()
-  await page.waitForTimeout(200)
-  await dumpBoxes(page, `${label}-hover-review`)
-  const hoverReview = {
-    name: `${label}-hover-review`,
-    buf: await page.screenshot({
-      clip: { x: 600, y: 0, width: 700, height: 80 },
-      animations: "disabled",
-    }),
-  }
+  const hoverReview = await captureShot(page, `${label}-hover-review`)
 
   return [rest, hoverFiles, hoverReview]
 }

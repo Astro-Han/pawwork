@@ -38,14 +38,10 @@ async function openExtraTabs(page: Page) {
   await expect.poll(() => page.getByRole("tab").count(), { timeout: 5_000 }).toBeGreaterThanOrEqual(3)
 }
 
-async function ensureRightPanelOpen(page: Page) {
-  await openRightPanel(page)
-}
-
 test.describe("right-panel tab chip + × contract", () => {
   test("selected tab uses --row-active-overlay (matches sidebar session row)", async ({ page, gotoSession }) => {
     await gotoSession()
-    await ensureRightPanelOpen(page)
+    await openRightPanel(page)
     await openExtraTabs(page)
 
     // Click Files so Files is selected. Then sample its computed bg.
@@ -80,7 +76,7 @@ test.describe("right-panel tab chip + × contract", () => {
 
   test("× glyph stays ~8px (subordinate to the 14px leading icon)", async ({ page, gotoSession }) => {
     await gotoSession()
-    await ensureRightPanelOpen(page)
+    await openRightPanel(page)
     await openExtraTabs(page)
 
     // Hover the Files tab so the × is rendered (opacity 1).
@@ -108,7 +104,7 @@ test.describe("right-panel tab chip + × contract", () => {
 
   test("× center aligns with leading icon center (within 1px)", async ({ page, gotoSession }) => {
     await gotoSession()
-    await ensureRightPanelOpen(page)
+    await openRightPanel(page)
     await openExtraTabs(page)
 
     // After the grid overlay refactor: the close-button slot is a full-cell
@@ -138,7 +134,7 @@ test.describe("right-panel tab chip + × contract", () => {
 
   test("icon swap is instant (no opacity transition)", async ({ page, gotoSession }) => {
     await gotoSession()
-    await ensureRightPanelOpen(page)
+    await openRightPanel(page)
     await openExtraTabs(page)
     await page.mouse.move(0, 0)
 
@@ -177,7 +173,7 @@ test.describe("right-panel tab chip + × contract", () => {
     // user saw the × layered on top of the leading icon whenever they clicked
     // a tab and moved the cursor away.
     await gotoSession()
-    await ensureRightPanelOpen(page)
+    await openRightPanel(page)
     await openExtraTabs(page)
 
     // Select Files (closable), then park the cursor far off the tab strip so
@@ -214,7 +210,7 @@ test.describe("right-panel tab chip + × contract", () => {
     // titlebar tab strip felt dead on hover and clicks landed without any
     // visual lead-in, which the user flagged as poor UX.
     await gotoSession()
-    await ensureRightPanelOpen(page)
+    await openRightPanel(page)
     await openExtraTabs(page)
 
     // Files is closable AND currently unselected (Status is the default).
@@ -263,7 +259,7 @@ test.describe("right-panel tab chip + × contract", () => {
     // (Terminal at 8 chars, 上下文 at 3 CJK chars) extend past 72 naturally
     // and the strip scrolls horizontally if the total exceeds the slot width.
     await gotoSession()
-    await ensureRightPanelOpen(page)
+    await openRightPanel(page)
     await openExtraTabs(page)
     await page.mouse.move(0, 0)
 
@@ -299,7 +295,7 @@ test.describe("right-panel tab chip + × contract", () => {
     // Review / Terminal) visibly wider than Status at the same min-width.
     // The sidepanel override resets it to 0; this test pins that.
     await gotoSession()
-    await ensureRightPanelOpen(page)
+    await openRightPanel(page)
     await openExtraTabs(page)
 
     const paddings = await page.evaluate(() => {
@@ -326,7 +322,7 @@ test.describe("right-panel tab chip + × contract", () => {
     // a `:has(close-button-slot)` selector even though Status has no slot.
     // The current contract is: Status icon never fades, no × ever renders.
     await gotoSession()
-    await ensureRightPanelOpen(page)
+    await openRightPanel(page)
     await openExtraTabs(page)
 
     await page.getByRole("tab", STATUS_TAB).hover()
@@ -364,7 +360,7 @@ test.describe("right-panel tab chip + × contract", () => {
     // Pin every value so a future Tailwind/token tweak cannot quietly drift
     // any one of them off the contract.
     await gotoSession()
-    await ensureRightPanelOpen(page)
+    await openRightPanel(page)
     await openExtraTabs(page)
     await page.mouse.move(0, 0)
 

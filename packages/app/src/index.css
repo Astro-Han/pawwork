@@ -127,19 +127,18 @@
     border-top-width: 0;
   }
 
-  /* Tab chip backgrounds share the sidebar session row's vocabulary:
+  /* Right-panel tab chip backgrounds share the sidebar session row's
+   * vocabulary, on the WRAPPER (matches the sidebar's chip-on-container
+   * shape, not the inner trigger button):
    *   hover (non-selected) → --row-hover-overlay  (4% overlay)
    *   selected              → --row-active-overlay (6% overlay)
-   * Single selection language across the app, and the lighter hover state
-   * previews where a click will land before commit. Replaces the previous
-   * opaque var(--sidebar) chip, which read too heavy now that the tab strip
-   * lives in the titlebar. Paired with the fg-weak → fg-strong color shift
-   * in tabs.css; font-weight is not used as a selection marker (all
-   * sidepanel triggers already inherit 500 from text-h3, and bumping a
-   * subset would shift tab widths). */
-  /* Chip backgrounds live on the WRAPPER, matching the sidebar session row
-   * (chip on the row container, not the underlying button). Hover paints a
-   * preview overlay; selected upgrades to the heavier active overlay.
+   * One selection language across the app; the lighter hover overlay
+   * previews where a click will land. Replaces the previous opaque
+   * var(--sidebar) chip, which read too heavy now that the tab strip lives
+   * in the titlebar. Paired with the fg-weak → fg-strong color shift in
+   * tabs.css; font-weight is not used as a selection marker (all sidepanel
+   * triggers already inherit 500 from text-h3, and bumping a subset would
+   * shift tab widths).
    *
    * `:not(:disabled)` is here to bump specificity (5 attrs → 6) above the
    * sidepanel base rule in tabs.css:
