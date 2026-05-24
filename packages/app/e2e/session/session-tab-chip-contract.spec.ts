@@ -304,12 +304,19 @@ test.describe("right-panel tab chip + × contract", () => {
     await openExtraTabs(page)
     await page.mouse.move(0, 0)
 
-    const widths = await page.evaluate(() =>
-      Array.from(document.querySelectorAll<HTMLElement>('[data-slot="tabs-trigger"]')).map((trig) => ({
+    const widths = await page.evaluate(() => {
+      // Scope to the right-panel tablist so an unrelated Tabs instance
+      // elsewhere on the page (e.g. inside the Review content area) cannot
+      // pollute the measurement.
+      const root = document.querySelector(
+        '[data-component="tabs"][data-variant="sidepanel"][data-scope="right-panel"]',
+      )
+      if (!root) return []
+      return Array.from(root.querySelectorAll<HTMLElement>('[data-slot="tabs-trigger"]')).map((trig) => ({
         value: trig.getAttribute("data-value"),
         width: Math.round(trig.getBoundingClientRect().width),
-      })),
-    )
+      }))
+    })
 
     const MIN_WIDTH_PX = 72
     // In production Chinese ("状态" / "文件" / "评审" all 2 full-width CJK
@@ -340,10 +347,14 @@ test.describe("right-panel tab chip + × contract", () => {
     await openExtraTabs(page)
 
     const paddings = await page.evaluate(() => {
-      const wraps = Array.from(
-        document.querySelectorAll<HTMLElement>('[data-slot="tabs-trigger-wrapper"]'),
+      // Scope to the right-panel tablist (see min-width test above).
+      const root = document.querySelector(
+        '[data-component="tabs"][data-variant="sidepanel"][data-scope="right-panel"]',
       )
-      return wraps.map((w) => ({
+      if (!root) return []
+      return Array.from(
+        root.querySelectorAll<HTMLElement>('[data-slot="tabs-trigger-wrapper"]'),
+      ).map((w) => ({
         value: w.getAttribute("data-value"),
         hasCloseSlot:
           w.querySelector('[data-slot="tabs-trigger-close-button"]') !== null,
@@ -388,6 +399,39 @@ test.describe("right-panel tab chip + × contract", () => {
     )
     expect(reviewHasSlot).toBe(true)
     await page.getByRole("tab", REVIEW_TAB).hover() // also closes the hover test cleanly
+  })
+
+  test("right utility toggle stays clickable with the full tab set open", async ({
+    page,
+    gotoSession,
+  }) => {
+    // Regression guard: PR #878 had the titlebar tabs slot absolute-positioned
+    // over `#pawwork-titlebar-right`, relying on `pointer-events-none` /
+    // `-auto` choreography to keep the toggle clickable through the overlay.
+    // That broke at 4+ tabs because the `+` button got pushed into the
+    // toggle's x range and `pointer-events: auto` (required for the `+`
+    // dropdown to open) intercepted clicks meant for the toggle.
+    // Fix: the tabs slot is now an in-flow flex sibling of the toggle inside
+    // the titlebar's right rail (see `Titlebar` comments) — disjoint
+    // geometry, no overlay, no click choreography. This test opens the full
+    // default-reachable tab set so any future regression that reintroduces
+    // overlap (e.g. re-absolutising the slot, growing toggle into the rail)
+    // fails fast.
+    await gotoSession()
+    await openRightPanel(page)
+    // Open the maximum default-reachable tab set so the strip is widest.
+    await page.locator("main").first().click()
+    await page.keyboard.press(`${modKey}+\\`) // fileTree.toggle → Files
+    await page.keyboard.press(`${modKey}+Shift+R`) // review.toggle → Review
+    await page.keyboard.press("Control+`") // terminal.toggle → Terminal (always Ctrl)
+    await page.mouse.move(0, 0)
+
+    const toggle = page.getByRole("button", { name: "Right utility panel" })
+    await expect(toggle).toHaveAttribute("aria-expanded", "true")
+    // If anything in the tabs-portal overlay swallows the click, this
+    // times out with "subtree intercepts pointer events".
+    await toggle.click({ timeout: 3_000 })
+    await expect(toggle).toHaveAttribute("aria-expanded", "false", { timeout: 2_000 })
   })
 
   test("chip geometry pins to the 4pt grid (gap, padding, radius)", async ({ page, gotoSession }) => {

@@ -22,6 +22,13 @@ export function Titlebar() {
 
   const mac = createMemo(() => isMacShell(platform))
   const windows = createMemo(() => isWindowsShell(platform))
+  // Tabs rail is only meaningful on session routes — `--right-panel-width`
+  // is a global CSS var that survives navigation, so without this gate the
+  // tabs slot would still claim panel-width on home/settings (where
+  // SessionSidePanel doesn't render any tabs), pushing the right utility
+  // toggle's StatusPopover fallback to the left.
+  const tabsRailActive = createMemo(() => location.pathname.includes("/session") && layout.rightPanel.opened())
+  const tabsRailWidth = () => (tabsRailActive() ? "var(--right-panel-width, 0px)" : "0px")
   const zoom = () => platform.webviewZoom?.() ?? 1
   const currentTitlebarHeight = () =>
     mac() ? "var(--shell-titlebar-current-height, var(--shell-titlebar-height, 44px))" : undefined
@@ -149,64 +156,66 @@ export function Titlebar() {
         <div id="pawwork-titlebar-center" class="pointer-events-auto min-w-0 flex justify-center w-fit max-w-full" />
       </div>
 
-      <div
-        classList={{
-          "flex items-center min-w-0 justify-end": true,
-          "pr-2": !windows(),
-        }}
-      >
+      {/* Right titlebar rail. Two in-flow flex siblings, ordered left→right:
+          (1) `#pawwork-titlebar-right` — the right utility toggle (or
+              StatusPopover fallback on non-session routes), portalled in
+              by SessionHeader.
+          (2) `#pawwork-titlebar-tabs` — the right-panel tab strip, portalled
+              in by SessionSidePanel only when the panel is open.
+
+          The tabs slot's width follows `var(--right-panel-width)` so it
+          occupies the same x-range as the right-panel body directly below
+          and the `border-l` reads as one continuous separator from titlebar
+          top to viewport bottom. Because the two slots are flex siblings
+          (not an absolute overlay over the toggle), the toggle is naturally
+          pushed left by `--right-panel-width` when the panel opens and
+          slides back to the viewport edge when it closes. The 240ms
+          transition on `--right-panel-width` carries the toggle smoothly
+          along with the panel edge, and no pointer-events choreography is
+          needed — the toggle and the tab strip own disjoint geometry.
+
+          "Borrowed identity": the tabs slot stamps `data-component="tabs"`
+          + `data-variant="sidepanel"` + `data-scope` + `data-orientation`
+          so the descendant selectors in `packages/ui/src/components/tabs.css`
+          (e.g. `[data-component="tabs"] [data-slot="tabs-list"]`) match the
+          portalled `Tabs.List`. The base `[data-component="tabs"]` rule
+          also sets `flex-direction: column` on the host (expecting
+          Tabs.List + Tabs.Content stacked vertically); the slot's own
+          `flex-row` class flips that locally so it stays a horizontal
+          strip.
+
+          `border-l` and the panel-width track only when `tabsRailActive`
+          (session route + right panel open). On home/settings the slot
+          shrinks to 0 width — without this gate, navigating away while
+          the panel was left open would still claim panel-width in the
+          titlebar (the CSS var survives navigation) and push the
+          StatusPopover fallback to the left.
+
+          `pr-2` lives on `#pawwork-titlebar-right` (not the outer rail)
+          so it reads as "toggle inset from viewport edge" when the panel
+          is closed and "gap between toggle and tabs border-l" when open.
+          Putting it on the outer rail would shift the tabs slot 8px
+          inboard of the viewport, misaligning its `border-l` with the
+          right-panel body's `border-l` directly below it. */}
+      <div class="flex items-center min-w-0 justify-end">
         <div
           id="pawwork-titlebar-right"
           data-shell-slot="right-portal"
           class="flex items-center gap-1 shrink-0 justify-end"
+          classList={{ "pr-2": !windows() }}
+        />
+        <div
+          id="pawwork-titlebar-tabs"
+          data-shell-slot="tabs-portal"
+          data-component="tabs"
+          data-variant="sidepanel"
+          data-orientation="horizontal"
+          data-scope="right-panel"
+          class="self-stretch flex flex-row items-center shrink-0"
+          classList={{ "border-l border-border-weaker": tabsRailActive() }}
+          style={{ width: tabsRailWidth() }}
         />
       </div>
-
-      {/* Portal slot for the right-panel tab bar. Lives inside the titlebar so the
-          tabs read as part of the window chrome rather than a second toolbar
-          beneath it. The slot sits directly above the right-panel body — same
-          width (`var(--right-panel-width)`) and anchored to the viewport's right
-          edge (`right: 0`). `border-l` puts the 1px on the slot's left edge,
-          which is the same x as `right-panel-body`'s `border-l` immediately
-          below it, so the two read as one continuous separator from titlebar
-          top to viewport bottom. Only populated when the right panel is open
-          (SessionSidePanel guards its Portal).
-
-          "Borrowed identity": the slot stamps `data-component="tabs"` +
-          `data-variant="sidepanel"` + `data-scope` + `data-orientation` so
-          the descendant selectors in `packages/ui/src/components/tabs.css`
-          (e.g. `[data-component="tabs"] [data-slot="tabs-list"]`) still match
-          the portalled `Tabs.List` — otherwise the strip would lose flex,
-          height, and sidepanel hover/selected colors. Two side effects to
-          neutralise:
-          - Click occlusion — the slot's z-10 absolute box would swallow
-            clicks on the Right utility panel toggle in `#pawwork-titlebar-right`.
-            Fixed here with `pointer-events-none` on the slot; the portalled
-            tab buttons opt back in via `pointer-events-auto` on `<Tabs.List>`
-            (see session-side-panel.tsx, where the flex-1 spacer between the
-            last tab and the `+` button is itself re-set to `pointer-events-none`).
-          - Visual occlusion — the base `[data-component="tabs"]` rule applies
-            `background-color: var(--bg-base)` to the host. The sidepanel
-            variant resets that to transparent in tabs.css so the slot does
-            not paint over the toggle button beneath it.
-
-          `flex-row` is intentional and not redundant: the same
-          `[data-component="tabs"]` rule that we're inheriting also sets
-          `flex-direction: column` on the host (it expects to wrap Tabs.List
-          + Tabs.Content vertically). Without an explicit override, the slot
-          ends up as a column flex container and `items-center` would align
-          its single child horizontally instead of vertically, leaving the
-          tabs glued to the top of the titlebar. */}
-      <div
-        id="pawwork-titlebar-tabs"
-        data-shell-slot="tabs-portal"
-        data-component="tabs"
-        data-variant="sidepanel"
-        data-orientation="horizontal"
-        data-scope="right-panel"
-        class="absolute top-0 bottom-0 right-0 z-10 flex flex-row items-center border-l border-border-weaker pointer-events-none"
-        style={{ width: "var(--right-panel-width, 0px)" }}
-      />
     </header>
   )
 }
