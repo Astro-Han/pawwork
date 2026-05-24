@@ -157,6 +157,48 @@ test.describe("right-panel tab chip + × contract", () => {
     expect(allZero(transitions.closeSlotDur)).toBe(true)
   })
 
+  test("selected closable tab with mouse parked away shows leading icon, not ×", async ({
+    page,
+    gotoSession,
+  }) => {
+    // Regression for the "leading icon + × both visible" state. PR #878 left a
+    // base-level rule:
+    //
+    //   [data-component="tabs"] [data-slot="tabs-trigger-wrapper"]:has([data-selected])
+    //     [data-slot="tabs-trigger-close-button"] { opacity: 1 }
+    //
+    // That outranks the sidepanel slot's `opacity: 0` rest state (3 attrs vs 4),
+    // so every selected closable tab forced the × on regardless of hover. The
+    // user saw the × layered on top of the leading icon whenever they clicked
+    // a tab and moved the cursor away.
+    await gotoSession()
+    await ensureRightPanelOpen(page)
+    await openExtraTabs(page)
+
+    // Select Files (closable), then park the cursor far off the tab strip so
+    // neither :hover nor the swap rules fire.
+    await page.getByRole("tab", FILES_TAB).click()
+    await page.mouse.move(10, 700)
+
+    const state = await page.evaluate(() => {
+      const wrap = document.querySelector(
+        '[data-slot="tabs-trigger-wrapper"][data-value="files"]',
+      ) as HTMLElement | null
+      const leading = wrap?.querySelector('[data-slot="tab-icon-default"]') as HTMLElement | null
+      const slot = wrap?.querySelector('[data-slot="tabs-trigger-close-button"]') as HTMLElement | null
+      return {
+        leadingOpacity: leading ? getComputedStyle(leading).opacity : null,
+        closeOpacity: slot ? getComputedStyle(slot).opacity : null,
+        selected:
+          wrap?.querySelector('[data-slot="tabs-trigger"][data-selected]') !== null,
+      }
+    })
+
+    expect(state.selected).toBe(true)
+    expect(state.leadingOpacity).toBe("1")
+    expect(state.closeOpacity).toBe("0")
+  })
+
   test("Status (non-closable) shows no × on hover and keeps its icon", async ({ page, gotoSession }) => {
     // Regression guard: PR #878 had a moment where Status's icon faded under
     // a `:has(close-button-slot)` selector even though Status has no slot.

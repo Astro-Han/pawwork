@@ -496,8 +496,14 @@
        offset (or invert the coupling by exposing a CSS custom property from
        the component). The coupling is local to the sidepanel variant — other
        variants render the close button as a sibling in normal flow and do not
-       need positional anchoring. */
-    [data-slot="tabs-trigger-close-button"] {
+       need positional anchoring. The selector intentionally goes through
+       `[data-slot="tabs-trigger-wrapper"]` to bump specificity above the
+       base `[data-component="tabs"] [data-slot="tabs-trigger-wrapper"]:has([data-selected])
+       [data-slot="tabs-trigger-close-button"] { opacity: 1 }` rule (4 attrs),
+       which would otherwise force the × visible on every selected closable
+       tab regardless of hover — producing the "leading icon + × both visible"
+       state the sidepanel design explicitly forbids. */
+    [data-slot="tabs-trigger-wrapper"] [data-slot="tabs-trigger-close-button"] {
       position: absolute;
       left: 0.625rem;
       top: 50%;
@@ -510,8 +516,8 @@
       opacity: 0;
       pointer-events: none;
 
-      /* Inner Icon's intrinsic 16×16 box (from icon.css) overflows this 14px
-         slot and visually competes with the 16×16 leading icon. Clamp the SVG
+      /* Inner Icon's intrinsic 16×16 box (from icon.css) overflows the slot
+         and visually competes with the 16×16 leading icon. Clamp the SVG
          glyph to 8px here so the × is visibly smaller — clearly an action
          affordance, not a peer of the leading icon. The IconButton's own
          hover-overlay background is also suppressed below so the × renders
@@ -530,7 +536,10 @@
       }
     }
 
-    [data-slot="tabs-trigger-wrapper"]:hover [data-slot="tabs-trigger-close-button"] {
+    /* Hover-only reveal. Selector chain mirrors the slot rule above so this
+       wins specificity over the base `:has([data-selected])` opacity:1 path. */
+    [data-slot="tabs-trigger-wrapper"]:hover
+      [data-slot="tabs-trigger-close-button"] {
       opacity: 1;
       pointer-events: auto;
     }
