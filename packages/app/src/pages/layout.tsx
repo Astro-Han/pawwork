@@ -2369,8 +2369,8 @@ export default function Layout(props: ParentProps) {
         style={{
           "--shell-titlebar-current-height":
             isMacShell(platform)
-              ? `calc(var(--shell-titlebar-height, 40px) / ${platform.webviewZoom?.() ?? 1})`
-              : "var(--shell-titlebar-height, 40px)",
+              ? `calc(var(--shell-titlebar-height, 44px) / ${platform.webviewZoom?.() ?? 1})`
+              : "var(--shell-titlebar-height, 44px)",
           "--sidebar-width": layout.sidebar.opened() ? `${side()}px` : "0px",
           "--right-panel-width": layout.rightPanel.opened() ? `${layout.rightPanel.width()}px` : "0px",
           "--right-panel-divider": layout.rightPanel.opened() ? "var(--border-weaker)" : "transparent",

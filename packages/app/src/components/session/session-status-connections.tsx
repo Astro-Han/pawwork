@@ -30,7 +30,7 @@ function SectionRow(props: {
     return "bg-border-weak"
   }
   return (
-    <div class="border-b border-border-weaker last:border-b-0">
+    <div>
       <button
         type="button"
         class="flex items-center gap-2 w-full px-4 py-2.5 hover:bg-surface-raised text-left"
@@ -172,9 +172,12 @@ export function SessionStatusConnections(props: { shown: Accessor<boolean> }) {
     }),
   )
 
+  // Matches the breathing-room rhythm of Section in session-status-summary:
+  // 24px top padding pulls this block away from Sources above; no hairline
+  // separator (sections distinguish themselves by space alone).
   return (
-    <div class="flex flex-col">
-      <div class="text-h3 uppercase tracking-wide text-fg-weaker px-4 py-3 pb-1">
+    <div class="flex flex-col pt-6">
+      <div class="text-caption text-fg-weak px-4 pb-2">
         {language.t("status.connections.title")}
       </div>
 
@@ -297,7 +300,7 @@ export function SessionStatusConnections(props: { shown: Accessor<boolean> }) {
         </Show>
       </SectionRow>
 
-      <div class="px-4 py-3">
+      <div class="px-4 pt-2 pb-6">
         <Button variant="secondary" class="px-3 py-1.5" onClick={openServerPicker}>
           {language.t("status.popover.action.manageServers")}
         </Button>

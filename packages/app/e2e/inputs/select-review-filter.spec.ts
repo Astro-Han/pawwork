@@ -6,13 +6,16 @@
  * IconButtons toggle aria-pressed correctly.
  */
 import type { Page } from "@playwright/test"
-import { openRightPanel, withSession } from "../actions"
+import { openRightPanel, rightPanelTabList, withSession } from "../actions"
 import { test, expect } from "../fixtures"
 import { bodyText } from "../prompt/mock"
 
 async function openReviewPanel(page: Page) {
-  const panel = await openRightPanel(page)
-  const tabList = panel.getByRole("tablist").first()
+  await openRightPanel(page)
+  // Tabs.List is portalled into the titlebar (see #pawwork-titlebar-tabs), so it
+  // no longer lives inside the complementary right-panel region — query via the
+  // data-scope helper instead of `panel.getByRole("tablist")`.
+  const tabList = rightPanelTabList(page)
   const reviewTab = tabList.getByRole("tab", { name: "Review", exact: true })
 
   if (await reviewTab.isVisible().catch(() => false)) {

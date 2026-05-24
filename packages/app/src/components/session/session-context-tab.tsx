@@ -19,12 +19,16 @@ import { getSessionContextMetrics } from "./session-context-metrics"
 import { estimateSessionContextBreakdown, type SessionContextBreakdownKey } from "./session-context-breakdown"
 import { createSessionContextFormatter } from "./session-context-format"
 
+// brand-primary alpha ladder: user gets the full brand color (focus), assistant/tool/system/other
+// recede via decreasing alpha. Hardcoded rgba (not color-mix(..., transparent)) per PawWork pierre
+// convention — Safari's non-premultiplied interpolation can shift the apparent hue.
+// Previous syntax-* tokens violated DESIGN.md (those are reserved for code highlighting).
 const BREAKDOWN_COLOR: Record<SessionContextBreakdownKey, string> = {
-  system: "var(--syntax-info)",
-  user: "var(--syntax-success)",
-  assistant: "var(--syntax-property)",
-  tool: "var(--syntax-warning)",
-  other: "var(--syntax-comment)",
+  system: "rgba(255, 89, 16, 0.30)",
+  user: "var(--brand-primary)",
+  assistant: "rgba(255, 89, 16, 0.70)",
+  tool: "rgba(255, 89, 16, 0.45)",
+  other: "rgba(255, 89, 16, 0.18)",
 }
 
 function Stat(props: { label: string; value: JSX.Element }) {

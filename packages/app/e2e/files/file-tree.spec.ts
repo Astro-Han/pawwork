@@ -1,5 +1,5 @@
 import { test, expect } from "../fixtures"
-import { openRightPanel, withSession } from "../actions"
+import { openRightPanel, rightPanelTabList, withSession } from "../actions"
 
 // Historical context: before the right-panel-polish PR (#52), the Review tab
 // carried a sibling vertical file-tree pane (#file-tree-panel) that surfaced
@@ -13,8 +13,10 @@ test("@smoke review tab no longer renders the legacy file-tree sub-panel", async
   await withSession(project.sdk, `e2e review layout smoke ${Date.now()}`, async (session) => {
     await project.gotoSession(session.id)
 
-    const rightPanel = await openRightPanel(page)
-    const shellTabList = rightPanel.getByRole("tablist")
+    await openRightPanel(page)
+    // Tabs.List is portalled into the titlebar — use the scope-aware helper instead
+    // of scoping to the complementary region.
+    const shellTabList = rightPanelTabList(page)
     await shellTabList.locator("button").last().click()
     await page.getByRole("menuitem", { name: "Review" }).click()
 

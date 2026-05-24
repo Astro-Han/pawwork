@@ -1,5 +1,5 @@
 import { test, expect } from "../fixtures"
-import { cleanupSession, openSidebar } from "../actions"
+import { cleanupSession, openSidebar, rightPanelTabList } from "../actions"
 import { pawworkSessionNewSelector, promptSelector, titlebarRightSelector } from "../selectors"
 import { modKey } from "../utils"
 
@@ -14,7 +14,7 @@ test("desktop right-panel tabs switch between review and files within a unified 
   await rightToggle.click()
   await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
 
-  const shellTabList = rightPanel.getByRole("tablist").first()
+  const shellTabList = rightPanelTabList(page)
   const reviewTab = shellTabList.getByRole("tab", { name: "Review", exact: true })
   const filesTab = shellTabList.getByRole("tab", { name: "Files", exact: true })
   await expect(shellTabList.getByRole("tab", { name: "Status", exact: true })).toBeVisible()
@@ -121,7 +121,7 @@ test("desktop session keeps a single right-panel toggle and icon-first utility t
   await page.keyboard.press(`${modKey}+Shift+R`)
   await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
 
-  const shellTabList = rightPanel.getByRole("tablist").first()
+  const shellTabList = rightPanelTabList(page)
   await expect(shellTabList.locator('[data-component="icon"]')).toHaveCount(4)
 
   const widths = await shellTabList.locator('[data-slot="tabs-trigger"]').evaluateAll((els) =>
@@ -139,7 +139,7 @@ test("desktop right-panel shell tabs keep the sidepanel chrome contract", async 
   await page.keyboard.press(`${modKey}+Shift+R`)
   await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
 
-  const shellTabList = rightPanel.getByRole("tablist").first()
+  const shellTabList = rightPanelTabList(page)
   const statusWrapper = shellTabList.locator('[data-slot="tabs-trigger-wrapper"]').first()
 
   const wrapperStyles = await statusWrapper.evaluate((el) => {
@@ -185,7 +185,7 @@ test("desktop right-panel uses the design icon set for utility tabs", async ({ p
   await page.keyboard.press(`${modKey}+Shift+R`)
   await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
 
-  const shellTabList = rightPanel.getByRole("tablist").first()
+  const shellTabList = rightPanelTabList(page)
   const icons = await shellTabList.locator('[data-slot="tabs-trigger"] [data-slot="icon-svg"]').evaluateAll((els) =>
     els.map((el) => el.innerHTML),
   )
@@ -203,12 +203,16 @@ test("desktop review root shows a simple toolbar before opening files", async ({
   await page.keyboard.press(`${modKey}+Shift+R`)
   await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
 
-  const shellTabList = rightPanel.getByRole("tablist").first()
+  const shellTabList = rightPanelTabList(page)
   const reviewTab = shellTabList.getByRole("tab", { name: "Review", exact: true })
   await reviewTab.click()
   await expect(reviewTab).toHaveAttribute("aria-selected", "true")
 
-  await expect(rightPanel.getByRole("tablist")).toHaveCount(2)
+  // Shell tabs are now portalled into the titlebar; only the inner review
+  // tablist remains inside the complementary panel region.
+  await expect(rightPanel.getByRole("tablist")).toHaveCount(1)
+  // The portalled shell tablist is still present and visible.
+  await expect(shellTabList).toBeVisible()
 
   const openFile = rightPanel.getByRole("button", { name: /^Open file$/i }).first()
   await expect(openFile).toBeVisible()
@@ -222,7 +226,12 @@ test("desktop right-panel collapses shell tab labels below the compact threshold
   await page.keyboard.press(`${modKey}+Shift+R`)
   await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
 
-  const shellTabList = rightPanel.getByRole("tablist").first()
+  // Shell tabs are portalled into the titlebar; the slot's width — and thus the
+  // label-collapse container queries — is driven by --right-panel-width set on
+  // [data-component="desktop-shell"] (layout.tsx). documentElement-level
+  // overrides lose the cascade to the inline style on desktop-shell, so set the
+  // var directly on that element.
+  const shellTabList = rightPanelTabList(page)
   const tabLabels = () =>
     shellTabList
       .locator('[data-slot="tabs-trigger"]')
@@ -230,14 +239,16 @@ test("desktop right-panel collapses shell tab labels below the compact threshold
 
   await expect.poll(tabLabels).toEqual(["", "", "", ""])
 
-  await rightPanel.evaluate((el) => {
-    ;(el as HTMLElement).style.width = "400px"
+  await page.evaluate(() => {
+    const shell = document.querySelector('[data-component="desktop-shell"]') as HTMLElement | null
+    shell?.style.setProperty("--right-panel-width", "400px")
   })
 
   await expect.poll(tabLabels).toEqual(["Status", "Files", "Review", "Terminal"])
 
-  await rightPanel.evaluate((el) => {
-    ;(el as HTMLElement).style.width = "320px"
+  await page.evaluate(() => {
+    const shell = document.querySelector('[data-component="desktop-shell"]') as HTMLElement | null
+    shell?.style.setProperty("--right-panel-width", "320px")
   })
 
   await expect.poll(tabLabels).toEqual(["", "", "", ""])
@@ -291,7 +302,7 @@ test("legacy changes side-panel state restores into the review tab", async ({ pa
   await gotoSession()
 
   const rightPanel = page.locator("#right-panel")
-  const shellTabList = rightPanel.getByRole("tablist").first()
+  const shellTabList = rightPanelTabList(page)
 
   await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
   await expect(shellTabList.getByRole("tab", { name: "Review", exact: true })).toHaveAttribute("aria-selected", "true")

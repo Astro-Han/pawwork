@@ -1,6 +1,6 @@
 import { expect, type Page } from "@playwright/test"
 import type { Todo } from "@opencode-ai/sdk/v2/client"
-import { openRightPanel, withSession } from "../actions"
+import { openRightPanel, rightPanelTabList, withSession } from "../actions"
 import { test } from "../fixtures"
 import { promptSelector } from "../selectors"
 import { composeGrid, snapOutputPath, type Shot } from "./_compose"
@@ -62,7 +62,7 @@ test("todo-status-only", async ({ page, project }) => {
     )
 
     const rightPanel = await openRightPanel(page)
-    const statusTab = rightPanel.getByRole("tab", { name: "Status", exact: true }).first()
+    const statusTab = rightPanelTabList(page).getByRole("tab", { name: "Status", exact: true })
     await statusTab.click()
     await expect(statusTab).toHaveAttribute("aria-selected", "true")
 

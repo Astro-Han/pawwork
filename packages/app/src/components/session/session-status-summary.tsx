@@ -8,9 +8,13 @@ import type { SessionTodoItem } from "@/pages/session/todos/todo-model"
 import type { CanonicalTodoSnapshot } from "@/pages/session/todos/todo-source"
 
 function Section(props: { title: string; children: JSX.Element }) {
+  // No divider — sections are separated by 24px of breathing room only.
+  // Hairlines felt too "boxed in" against the warm-neutral surface; the
+  // generous py-6 (24px top + 24px bottom = 48px between sections) reads
+  // as a calm pause without enclosing each section in chrome.
   return (
-    <div class="flex flex-col gap-2 px-4 py-3">
-      <div class="text-h3 uppercase tracking-wide text-fg-weaker">{props.title}</div>
+    <div class="flex flex-col gap-2 px-4 py-6">
+      <div class="text-caption text-fg-weak">{props.title}</div>
       {props.children}
     </div>
   )
@@ -70,8 +74,12 @@ export function SessionStatusSummary(props: {
   const todos = createMemo(() => snapshot().items)
   const sources = createMemo(() => extractSources(props.parts()))
 
+  // No outer wrapper — Section components attach directly to SessionStatusPanel's
+  // scroll container, so the first:border-t-0 selector correctly drops the leading
+  // hairline regardless of whether SessionStatusSummary's siblings (e.g.
+  // SessionStatusConnections below) come first or last in the DOM.
   return (
-    <div class="flex flex-col">
+    <>
       <Show when={snapshot().phase !== "pending"}>
         <Section title={language.t("status.summary.progress")}>
           <Show when={todos().length > 0} fallback={<Empty text={language.t("status.summary.progress.empty")} />}>
@@ -89,6 +97,6 @@ export function SessionStatusSummary(props: {
           </div>
         </Show>
       </Section>
-    </div>
+    </>
   )
 }
