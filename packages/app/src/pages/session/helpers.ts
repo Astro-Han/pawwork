@@ -2,6 +2,7 @@ import { batch, createMemo, onCleanup, onMount, type Accessor } from "solid-js"
 import { createStore } from "solid-js/store"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import { same } from "@/utils/same"
+import type { RightPanelTab } from "@/pages/session/right-panel-tabs"
 
 const emptyTabs: string[] = []
 
@@ -192,3 +193,34 @@ export const createSizing = () => {
 }
 
 export type Sizing = ReturnType<typeof createSizing>
+
+/** Converts right-panel state into the CSS width applied to the shell. */
+export function formatRightPanelWidth(open: boolean, width: number): string {
+  return open ? `${width}px` : "0px"
+}
+
+/** Creates a resize callback that marks user sizing before delegating width storage to layout state. */
+export function makeRightPanelResizeHandler(
+  size: { touch: () => void },
+  layout: { rightPanel: { resize: (width: number) => void } },
+): (width: number) => void {
+  return (width) => {
+    size.touch()
+    layout.rightPanel.resize(width)
+  }
+}
+
+/** Returns whether the Review inner tab row should expose the file-open shortcut. */
+export function shouldShowReviewFileOpenButton(activeTab: string | undefined, hasSecondaryTabs: boolean): boolean {
+  return hasSecondaryTabs || activeTab !== "review"
+}
+
+/** Returns shell tabs that can be reordered by the user. Status is pinned. */
+export function sortableShellTabIds(tabs: readonly RightPanelTab[]): RightPanelTab[] {
+  return tabs.filter((tab) => tab !== "status")
+}
+
+/** Names the file-opening transition that must activate Review before showing file-specific content. */
+export function openReviewShellTab(sidePanel: { openTab: (tab: "review") => void }) {
+  sidePanel.openTab("review")
+}

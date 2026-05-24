@@ -1,97 +1,52 @@
-import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup, onMount, type JSX } from "solid-js"
-import { Portal } from "solid-js/web"
-import { createStore } from "solid-js/store"
+import { Show, createEffect, createMemo, createSignal, onCleanup, onMount, type JSX } from "solid-js"
 import { createMediaQuery } from "@solid-primitives/media"
 import { Tabs } from "@opencode-ai/ui/tabs"
-import { Icon } from "@opencode-ai/ui/icon"
-import { IconButton } from "@opencode-ai/ui/icon-button"
-import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
-import { TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
-import { DragDropProvider, DragDropSensors, DragOverlay, SortableProvider, closestCenter } from "@thisbeyond/solid-dnd"
+import { DragDropProvider, DragDropSensors, closestCenter } from "@thisbeyond/solid-dnd"
 import type { DragEvent } from "@thisbeyond/solid-dnd"
 import type { SnapshotFileDiff, VcsFileDiff } from "@opencode-ai/sdk/v2"
-import { ConstrainDragYAxis, getDraggableId } from "@/utils/solid-dnd"
+import { ConstrainDragYAxis } from "@/utils/solid-dnd"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 
-import { SessionContextUsage } from "@/components/session-context-usage"
-import { FileVisual, SessionContextTab, ShellTab, SortableShellTab, SortableTab } from "@/components/session"
+import { SessionContextTab } from "@/components/session"
 import { SessionStatusPanel } from "@/components/session/session-status-panel"
 import { useCommand } from "@/context/command"
 import { useFile, type SelectedLineRange } from "@/context/file"
 import { useLanguage } from "@/context/language"
 import { MAX_RIGHT_PANEL_WIDTH, MIN_RIGHT_PANEL_WIDTH, useLayout } from "@/context/layout"
-import { createFileTabListSync } from "@/pages/session/file-tab-scroll"
-import { FileTabContent } from "@/pages/session/file-tabs"
 import { FilesTab } from "@/pages/session/files-tab"
 import type { FilesTabEntry } from "@/pages/session/files-tab-state"
-import { createOpenSessionFileTab, createSessionTabs, getTabReorderIndex, type Sizing } from "@/pages/session/helpers"
+import {
+  createOpenSessionFileTab,
+  createSessionTabs,
+  formatRightPanelWidth,
+  getTabReorderIndex,
+  makeRightPanelResizeHandler,
+  openReviewShellTab,
+  shouldShowReviewFileOpenButton,
+  sortableShellTabIds,
+  type Sizing,
+} from "@/pages/session/helpers"
+
+export {
+  formatRightPanelWidth,
+  makeRightPanelResizeHandler,
+  shouldShowReviewFileOpenButton,
+  sortableShellTabIds,
+  openReviewShellTab,
+}
 import { setSessionHandoff } from "@/pages/session/handoff"
+import { RightPanelReviewBody } from "@/pages/session/right-panel-review-body"
+import { RightPanelTabStrip } from "@/pages/session/right-panel-tab-strip"
 import {
   isRightPanelTab,
   RIGHT_PANEL_TAB_META,
   RIGHT_PANEL_TAB_VALUES,
   type RightPanelShellIconName,
-  type RightPanelTab,
-  type ShellTabIcon,
 } from "@/pages/session/right-panel-tabs"
 import { useSessionLayout } from "@/pages/session/session-layout"
 
 const RIGHT_PANEL_BODY_UNMOUNT_DELAY_MS = 240
-
-/** Converts right-panel state into the CSS width applied to the shell. */
-export function formatRightPanelWidth(open: boolean, width: number): string {
-  return open ? `${width}px` : "0px"
-}
-
-/** Creates a resize callback that marks user sizing before delegating width storage to layout state. */
-export function makeRightPanelResizeHandler(
-  size: { touch: () => void },
-  layout: { rightPanel: { resize: (width: number) => void } },
-): (width: number) => void {
-  return (width) => {
-    size.touch()
-    layout.rightPanel.resize(width)
-  }
-}
-
-/** Returns whether the Review inner tab row should expose the file-open shortcut. */
-export function shouldShowReviewFileOpenButton(activeTab: string | undefined, hasSecondaryTabs: boolean): boolean {
-  return hasSecondaryTabs || activeTab !== "review"
-}
-
-/** Returns shell tabs that can be reordered by the user. Status is pinned. */
-export function sortableShellTabIds(tabs: readonly RightPanelTab[]): RightPanelTab[] {
-  return tabs.filter((tab) => tab !== "status")
-}
-
-/** Names the file-opening transition that must activate Review before showing file-specific content. */
-export function openReviewShellTab(sidePanel: { openTab: (tab: "review") => void }) {
-  sidePanel.openTab("review")
-}
-
-/** Maps right-panel tab names to their shell icon components. */
-function RightPanelShellIcon(props: { icon: ShellTabIcon; active?: boolean }) {
-  return (
-    <Switch>
-      <Match when={props.icon.kind === "indicator"}>
-        <SessionContextUsage variant="indicator" />
-      </Match>
-      <Match when={props.icon.kind === "icon" && props.icon.name === "status"}>
-        <Icon name="status" class="text-fg-weaker" />
-      </Match>
-      <Match when={props.icon.kind === "icon" && props.icon.name === "folder"}>
-        <Icon name="folder" class="text-fg-weaker" />
-      </Match>
-      <Match when={props.icon.kind === "icon" && props.icon.name === "review"}>
-        <Icon name={props.active ? "review-active" : "review"} class="text-fg-weaker" />
-      </Match>
-      <Match when={props.icon.kind === "icon" && props.icon.name === "terminal"}>
-        <Icon name={props.active ? "terminal-active" : "terminal"} class="text-fg-weaker" />
-      </Match>
-    </Switch>
-  )
-}
 
 /** Hosts the session right panel tabs, resize behavior, and active panel content. */
 export function SessionSidePanel(props: {
@@ -164,19 +119,18 @@ export function SessionSidePanel(props: {
   const activeTab = tabState.activeTab
   const activeFileTab = tabState.activeFileTab
   const showSecondaryReviewTabs = createMemo(() => openedTabs().length > 0)
-  const shellTabs = createMemo(
-    () =>
-      view()
-        .sidePanel.openTabs()
-        .map((value) => {
-          const meta = RIGHT_PANEL_TAB_META[value]
-          return {
-            value,
-            label: language.t(meta.labelKey),
-            icon: meta.icon,
-            closable: meta.closable,
-          }
-        }),
+  const shellTabs = createMemo(() =>
+    view()
+      .sidePanel.openTabs()
+      .map((value) => {
+        const meta = RIGHT_PANEL_TAB_META[value]
+        return {
+          value,
+          label: language.t(meta.labelKey),
+          icon: meta.icon,
+          closable: meta.closable,
+        }
+      }),
   )
   const closableMissingTabs = createMemo(() => {
     const open = new Set(view().sidePanel.openTabs())
@@ -196,10 +150,6 @@ export function SessionSidePanel(props: {
     if (view().sidePanel.explorer.tab() !== "changes") return
     view().sidePanel.explorer.setTab("all")
   }
-
-  const [store, setStore] = createStore({
-    activeDraggable: undefined as string | undefined,
-  })
 
   // Mirror right-panel drag-resize state to the desktop shell so the CSS
   // `--right-panel-width` transition on `<desktop-shell>` can be suppressed
@@ -237,7 +187,6 @@ export function SessionSidePanel(props: {
       .querySelector<HTMLElement>('[data-component="desktop-shell"]')
       ?.removeAttribute("data-resizing-right-panel")
   })
-
   createEffect(() => {
     if (!isDesktop()) return
 
@@ -272,22 +221,6 @@ export function SessionSidePanel(props: {
 
   onCleanup(clearBodyUnmountTimer)
 
-  const handleDragStart = (event: unknown) => {
-    const id = getDraggableId(event)
-    if (!id) return
-    setStore("activeDraggable", id)
-  }
-
-  const handleDragOver = (event: DragEvent) => {
-    const { draggable, droppable } = event
-    if (!draggable || !droppable) return
-
-    const currentTabs = tabs().all()
-    const toIndex = getTabReorderIndex(currentTabs, draggable.id.toString(), droppable.id.toString())
-    if (toIndex === undefined) return
-    tabs().move(draggable.id.toString(), toIndex)
-  }
-
   const handleShellDragOver = (event: DragEvent) => {
     const { draggable, droppable } = event
     if (!draggable || !droppable) return
@@ -300,10 +233,6 @@ export function SessionSidePanel(props: {
     const toIndex = getTabReorderIndex(currentTabs, from, to)
     if (toIndex === undefined) return
     view().sidePanel.moveTab(from, toIndex)
-  }
-
-  const handleDragEnd = () => {
-    setStore("activeDraggable", undefined)
   }
 
   const openFilePicker = (onOpenFile?: () => void) => {
@@ -364,255 +293,81 @@ export function SessionSidePanel(props: {
           />
         </div>
         <Show when={bodyMounted()}>
-        <div data-component="right-panel-body" class="size-full border-l border-border-weaker">
-          <DragDropProvider
-            onDragStart={handleDragStart}
-            onDragEnd={handleDragEnd}
-            onDragOver={handleShellDragOver}
-            collisionDetector={closestCenter}
-          >
-            <DragDropSensors />
-            <ConstrainDragYAxis />
-            <Tabs
-              variant="sidepanel"
-              value={sidePanelTab()}
-              onChange={setSidePanelTabValue}
-              class="h-full flex flex-col"
-              data-scope="right-panel"
-            >
-              {/* Tabs.List portals into <Titlebar>'s `pawwork-titlebar-tabs` slot so the
-                  tabs visually sit on the window chrome and the panel's body border-left
-                  meets the titlebar separator with no gap. Portal keeps Tabs/Sortable/DnD
-                  contexts intact via the virtual tree. The slot owns the titlebar height
-                  (--shell-titlebar-height, 44px on desktop) and centers this list
-                  vertically; no border-b because the titlebar slot owns the bottom-edge
-                  alignment with the panel body below. */}
-              <Show when={tabsPortalMount()}>
-                {(mount) => (
-                  <Portal mount={mount()}>
-                    {/* `gap` is intentionally omitted — the sidepanel variant
-                        in tabs.css owns the inter-tab gap via `var(--space-xs)`
-                        (4px / 4pt-grid). Tailwind's `gap-1` would sit in the
-                        utilities layer and outrank the components-layer rule,
-                        and the rem-13 base would also drift it off the grid
-                        (gap-1 = 0.25rem = 3.25px, not 4). */}
-                    <Tabs.List class="h-full shrink-0 px-1 py-0 items-center">
-                      <SortableProvider ids={sortableShellTabIds(view().sidePanel.openTabs())}>
-                        <For each={shellTabs()}>
-                          {(tab) => (
-                            <Show
-                              when={tab.value !== "status"}
-                              fallback={
-                                <ShellTab
-                                  value={tab.value}
-                                  label={tab.label}
-                                  closable={tab.closable}
-                                  onClose={view().sidePanel.closeTab}
-                                  icon={<RightPanelShellIcon icon={tab.icon} active={activeTab() === tab.value} />}
-                                />
-                              }
-                            >
-                              <SortableShellTab
-                                value={tab.value}
-                                label={tab.label}
-                                closable={tab.closable}
-                                onClose={view().sidePanel.closeTab}
-                                icon={<RightPanelShellIcon icon={tab.icon} active={activeTab() === tab.value} />}
-                              />
-                            </Show>
-                          )}
-                        </For>
-                      </SortableProvider>
-                      {/* Spacer pushes the `+` button to the rail's right edge so
-                          the chip strip reads left-justified and `+` lives at the
-                          end of the rail (matching docs/design/ui_kits/desktop/RightPanel.jsx). */}
-                      <div class="flex-1" />
-                      {/* 40px right-gutter reserve — matches docs/design/src/rightpanel.jsx,
-                        gives the tab row breathing room against the panel edge. */}
-                      <DropdownMenu gutter={4} placement="bottom-end">
-                        <DropdownMenu.Trigger
-                          as={IconButton}
-                          icon="plus-small"
-                          variant="ghost"
-                          class="shrink-0"
-                          aria-label={language.t("session.panel.addTab")}
-                        />
-                        <DropdownMenu.Portal>
-                          <DropdownMenu.Content>
-                            <DropdownMenu.Item onSelect={() => openFilePicker(showAllFiles)}>
-                              <Icon name="open-file" />
-                              <DropdownMenu.ItemLabel>{language.t("command.file.open")}</DropdownMenu.ItemLabel>
-                              <span class="ml-auto text-body text-fg-weaker">{command.keybind("file.open")}</span>
-                            </DropdownMenu.Item>
-                            <Show when={closableMissingTabs().length > 0}>
-                              <DropdownMenu.Separator />
-                              <For each={closableMissingTabs()}>
-                                {(tab) => (
-                                  <DropdownMenu.Item onSelect={() => view().sidePanel.openTab(tab.value)}>
-                                    <Icon name={tab.iconName} />
-                                    <DropdownMenu.ItemLabel>{tab.label}</DropdownMenu.ItemLabel>
-                                    <Show when={tab.keybind}>
-                                      {(keybind) => (
-                                        <span class="ml-auto text-body text-fg-weaker">{keybind()}</span>
-                                      )}
-                                    </Show>
-                                  </DropdownMenu.Item>
-                                )}
-                              </For>
-                            </Show>
-                          </DropdownMenu.Content>
-                        </DropdownMenu.Portal>
-                      </DropdownMenu>
-                    </Tabs.List>
-                  </Portal>
-                )}
-              </Show>
+          <div data-component="right-panel-body" class="size-full border-l border-border-weaker">
+            <DragDropProvider onDragOver={handleShellDragOver} collisionDetector={closestCenter}>
+              <DragDropSensors />
+              <ConstrainDragYAxis />
+              <Tabs
+                variant="sidepanel"
+                value={sidePanelTab()}
+                onChange={setSidePanelTabValue}
+                class="h-full flex flex-col"
+                data-scope="right-panel"
+              >
+                <RightPanelTabStrip
+                  tabsPortalMount={tabsPortalMount}
+                  shellTabs={shellTabs}
+                  activeTab={activeTab}
+                  openShellTabs={() => view().sidePanel.openTabs()}
+                  closeTab={view().sidePanel.closeTab}
+                  openTab={view().sidePanel.openTab}
+                  closableMissingTabs={closableMissingTabs}
+                  openFilePicker={openFilePicker}
+                  showAllFiles={showAllFiles}
+                  t={language.t}
+                  keybind={command.keybind}
+                />
 
-            <Tabs.Content value="status" class="min-h-0 flex-1 overflow-hidden">
-              <SessionStatusPanel shown={() => open() && sidePanelTab() === "status"} />
-            </Tabs.Content>
+                <Tabs.Content value="status" class="min-h-0 flex-1 overflow-hidden">
+                  <SessionStatusPanel shown={() => open() && sidePanelTab() === "status"} />
+                </Tabs.Content>
 
-            <Tabs.Content value="files" class="min-h-0 flex-1 overflow-hidden">
-              <Show when={sidePanelTab() === "files"}>
-                <FilesTab files={props.files()} />
-              </Show>
-            </Tabs.Content>
-
-            <Tabs.Content value="review" class="min-h-0 flex-1 overflow-hidden">
-              <div class="relative min-w-0 h-full flex-1 overflow-hidden bg-bg-base">
-                <div class="size-full min-w-0 h-full bg-bg-base">
-                    <DragDropProvider
-                      onDragStart={handleDragStart}
-                      onDragEnd={handleDragEnd}
-                      onDragOver={handleDragOver}
-                      collisionDetector={closestCenter}
-                    >
-                      <DragDropSensors />
-                      <ConstrainDragYAxis />
-                      <Tabs value={activeTab()} onChange={openTab}>
-                        <div class="sticky top-0 shrink-0 flex">
-                          <Show
-                            when={showSecondaryReviewTabs()}
-                            fallback={
-                              <Show when={shouldShowReviewFileOpenButton(activeTab(), false)}>
-                                <div class="w-full bg-bg-base flex items-center justify-end px-3 py-1.5">
-                                  <TooltipKeybind
-                                    title={language.t("command.file.open")}
-                                    keybind={command.keybind("file.open")}
-                                    class="flex items-center"
-                                  >
-                                    <IconButton
-                                      icon="plus-small"
-                                      variant="ghost"
-                                      iconSize="large"
-                                      class="!rounded-md"
-                                      onClick={() => openFilePicker(showAllFiles)}
-                                      aria-label={language.t("command.file.open")}
-                                    />
-                                  </TooltipKeybind>
-                                </div>
-                              </Show>
-                            }
-                          >
-                            <Tabs.List
-                              ref={(el: HTMLDivElement) => {
-                                const stop = createFileTabListSync({ el })
-                                onCleanup(stop)
-                              }}
-                            >
-                              <Show when={reviewTab() && props.canReview()}>
-                                <Tabs.Trigger value="review">
-                                  <div class="flex items-center gap-1.5">
-                                    <div>{language.t("session.tab.review")}</div>
-                                    <Show when={props.hasReview()}>
-                                      <div>{props.reviewCount()}</div>
-                                    </Show>
-                                  </div>
-                                </Tabs.Trigger>
-                              </Show>
-                              <SortableProvider ids={openedTabs()}>
-                                <For each={openedTabs()}>{(tab) => <SortableTab tab={tab} onTabClose={tabs().close} />}</For>
-                              </SortableProvider>
-                              <div class="bg-bg-base h-full shrink-0 sticky right-0 z-10 flex items-center justify-center pr-3">
-                                <TooltipKeybind
-                                  title={language.t("command.file.open")}
-                                  keybind={command.keybind("file.open")}
-                                  class="flex items-center"
-                                >
-                                  <IconButton
-                                    icon="plus-small"
-                                    variant="ghost"
-                                    iconSize="large"
-                                    class="!rounded-md"
-                                    onClick={() => openFilePicker(showAllFiles)}
-                                    aria-label={language.t("command.file.open")}
-                                  />
-                                </TooltipKeybind>
-                              </div>
-                            </Tabs.List>
-                          </Show>
-                        </div>
-
-                        <Show when={reviewTab() && props.canReview()}>
-                          <Tabs.Content value="review" class="flex flex-col h-full overflow-hidden contain-strict">
-                            <Show when={activeTab() === "review"}>{props.reviewPanel()}</Show>
-                          </Tabs.Content>
-                        </Show>
-
-                        <Tabs.Content value="empty" class="flex flex-col h-full overflow-hidden contain-strict">
-                          <Show when={activeTab() === "empty"}>
-                            <div class="relative pt-2 flex-1 min-h-0 overflow-hidden">
-                              <div class="h-full px-6 pb-42 -mt-4 flex flex-col items-center justify-center text-center">
-                                <div class="text-body text-fg-weak max-w-56">
-                                  {language.t("session.files.selectToOpen")}
-                                </div>
-                              </div>
-                            </div>
-                          </Show>
-                        </Tabs.Content>
-
-                        <Show when={activeFileTab()} keyed>
-                          {(tab) => <FileTabContent tab={tab} />}
-                        </Show>
-                      </Tabs>
-                      <DragOverlay>
-                        <Show when={store.activeDraggable} keyed>
-                          {(tab) => {
-                            const path = file.pathFromTab(tab)
-                            return (
-                              <div data-component="tabs-drag-preview">
-                                <Show when={path}>{(p) => <FileVisual active path={p()} />}</Show>
-                              </div>
-                            )
-                          }}
-                        </Show>
-                      </DragOverlay>
-                    </DragDropProvider>
-                  </div>
-                </div>
-            </Tabs.Content>
-
-              <Tabs.Content value="terminal" class="min-h-0 flex-1 overflow-hidden">
-                <Show when={sidePanelTab() === "terminal"}>
-                  <Show
-                    when={props.terminalPanel}
-                    fallback={
-                      <div class="px-4 py-3 text-body text-fg-weak">{language.t("terminal.loading")}</div>
-                    }
-                  >
-                    {(renderTerminal) => renderTerminal()()}
+                <Tabs.Content value="files" class="min-h-0 flex-1 overflow-hidden">
+                  <Show when={sidePanelTab() === "files"}>
+                    <FilesTab files={props.files()} />
                   </Show>
-                </Show>
-              </Tabs.Content>
+                </Tabs.Content>
 
-              <Tabs.Content value="context" class="min-h-0 flex-1 overflow-hidden">
-                <Show when={sidePanelTab() === "context"}>
-                  <SessionContextTab />
-                </Show>
-              </Tabs.Content>
-            </Tabs>
-          </DragDropProvider>
-        </div>
+                <Tabs.Content value="review" class="min-h-0 flex-1 overflow-hidden">
+                  <RightPanelReviewBody
+                    canReview={props.canReview}
+                    hasReview={props.hasReview}
+                    reviewCount={props.reviewCount}
+                    reviewPanel={props.reviewPanel}
+                    activeTab={activeTab}
+                    activeFileTab={activeFileTab}
+                    openedTabs={openedTabs}
+                    showSecondaryReviewTabs={showSecondaryReviewTabs}
+                    openTab={openTab}
+                    openFilePicker={openFilePicker}
+                    showAllFiles={showAllFiles}
+                    tabs={{ all: tabs().all, close: tabs().close, move: tabs().move }}
+                    pathFromTab={file.pathFromTab}
+                    reviewTab={reviewTab}
+                    t={language.t}
+                    keybind={command.keybind}
+                  />
+                </Tabs.Content>
+
+                <Tabs.Content value="terminal" class="min-h-0 flex-1 overflow-hidden">
+                  <Show when={sidePanelTab() === "terminal"}>
+                    <Show
+                      when={props.terminalPanel}
+                      fallback={<div class="px-4 py-3 text-body text-fg-weak">{language.t("terminal.loading")}</div>}
+                    >
+                      {(renderTerminal) => renderTerminal()()}
+                    </Show>
+                  </Show>
+                </Tabs.Content>
+
+                <Tabs.Content value="context" class="min-h-0 flex-1 overflow-hidden">
+                  <Show when={sidePanelTab() === "context"}>
+                    <SessionContextTab />
+                  </Show>
+                </Tabs.Content>
+              </Tabs>
+            </DragDropProvider>
+          </div>
         </Show>
       </aside>
     </Show>
