@@ -2,6 +2,7 @@ import { For, Show, createMemo, createSignal, type JSX } from "solid-js"
 import type { ToolPart } from "@opencode-ai/sdk/v2"
 import { patchFiles } from "./apply-patch-file"
 import { Icon, type IconName } from "./icon"
+import { TextShimmer } from "./text-shimmer"
 import "./session-turn-trow-block.css"
 
 // ============================================================================
@@ -230,8 +231,12 @@ export function TrowBlock(props: TrowBlockProps) {
               <span data-slot="trow-summary-icon">
                 <Icon name={leadingIcon()} />
               </span>
-              <Show keyed when={summaryText()}>
-                {(text) => <span data-slot="trow-summary-text">{text}</span>}
+              <Show when={summaryText()}>
+                {(text) => (
+                  <span data-slot="trow-summary-text">
+                    <TextShimmer text={text()} active={!!activeTool()} />
+                  </span>
+                )}
               </Show>
               <Show when={hasExpandableBody()}>
                 <span data-slot="trow-summary-chev" aria-hidden="true">
