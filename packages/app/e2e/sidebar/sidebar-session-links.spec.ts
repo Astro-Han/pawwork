@@ -4,6 +4,17 @@ import { cleanupSession, cleanupTestProject, createTestProject, openSidebar, wai
 import { promptSelector, sessionTurnListSelector } from "../selectors"
 import type { createSdk } from "../utils"
 
+async function sessionRowPaint(page: Page, sessionID: string) {
+  return page
+    .locator(`[data-session-id="${sessionID}"][data-component="pawwork-session-row"]`)
+    .first()
+    .evaluate((element) => ({
+      backgroundColor: getComputedStyle(element).backgroundColor,
+      selectedLayerOpacity: getComputedStyle(element, "::before").opacity,
+      hoverLayerOpacity: getComputedStyle(element, "::after").opacity,
+    }))
+}
+
 async function expectUrlToStayMatched(page: Page, pattern: RegExp, stableFor = 300) {
   let stableSince = Date.now()
   await expect
@@ -72,6 +83,41 @@ test("sidebar session links navigate to the selected session", async ({ page, sl
   } finally {
     await cleanupSession({ sdk, sessionID: one.id })
     await cleanupSession({ sdk, sessionID: two.id })
+  }
+})
+
+test("sidebar session selection paint switches without leaving the previous row highlighted", async ({ page, slug, sdk, gotoSession }) => {
+  const stamp = Date.now()
+
+  const source = await sdk.session.create({ title: `e2e sidebar paint source ${stamp}` }).then((r) => r.data)
+  const target = await sdk.session.create({ title: `e2e sidebar paint target ${stamp}` }).then((r) => r.data)
+
+  if (!source?.id) throw new Error("Source session create did not return an id")
+  if (!target?.id) throw new Error("Target session create did not return an id")
+
+  try {
+    await gotoSession(source.id)
+    await openSidebar(page)
+
+    const targetLink = page.locator(`[data-session-id="${target.id}"] a`).first()
+    await expect(targetLink).toBeVisible()
+    await targetLink.hover()
+    await targetLink.click()
+
+    await expect(page).toHaveURL(new RegExp(`/${slug}/session/${target.id}(?:\\?|#|$)`))
+    await page.waitForTimeout(16)
+
+    await expect(page.locator(`[data-session-id="${target.id}"] a`).first()).toHaveClass(/\bactive\b/)
+    const sourcePaint = await sessionRowPaint(page, source.id)
+    const targetPaint = await sessionRowPaint(page, target.id)
+
+    expect(sourcePaint.backgroundColor).toBe("rgba(0, 0, 0, 0)")
+    expect(sourcePaint.selectedLayerOpacity).toBe("0")
+    expect(targetPaint.selectedLayerOpacity).toBe("1")
+    expect(targetPaint.hoverLayerOpacity).toBe("0")
+  } finally {
+    await cleanupSession({ sdk, sessionID: source.id })
+    await cleanupSession({ sdk, sessionID: target.id })
   }
 })
 

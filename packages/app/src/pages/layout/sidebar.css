@@ -1,7 +1,45 @@
-/* Slice 09 (L35): session row transition tracks --duration-fast (80ms) per
-   the L35 lock instead of Tailwind's default 150ms transition-colors. */
 [data-component="pawwork-session-row"] {
-  transition: background-color var(--duration-fast) ease-out;
+  isolation: isolate;
+  background-color: transparent;
+}
+
+/* Keep selected paint instant while preserving the soft hover/menu/focus fade. */
+[data-component="pawwork-session-row"]::before,
+[data-component="pawwork-session-row"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+}
+
+[data-component="pawwork-session-row"]::before {
+  background-color: var(--row-active-overlay);
+  opacity: 0;
+}
+
+[data-component="pawwork-session-row"]::after {
+  background-color: var(--row-hover-overlay);
+  opacity: 0;
+  transition: opacity var(--duration-fast) ease-out;
+}
+
+[data-component="pawwork-session-row"]:has(.active)::before {
+  opacity: 1;
+}
+
+[data-component="pawwork-session-row"]:not(:has(.active)):where(
+  :hover,
+  :has(:focus-visible),
+  :has([data-expanded])
+)::after {
+  opacity: 1;
+}
+
+[data-component="pawwork-session-row"] > * {
+  position: relative;
+  z-index: 1;
 }
 
 /* Status box and action overlay opacity track --duration-base (120ms) — opacity
