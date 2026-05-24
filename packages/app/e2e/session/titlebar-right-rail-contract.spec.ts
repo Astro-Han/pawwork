@@ -127,4 +127,42 @@ test.describe("titlebar right rail contract", () => {
     expect(heights.tabs).not.toBeNull()
     expect(heights.tabs).toBe(heights.titlebar)
   })
+
+  test("tabs slot border-l aligns horizontally with the right-panel body border-l (no x-axis seam break)", async ({
+    page,
+    gotoSession,
+  }) => {
+    // Regression guard for the post-release seam reported after PR #880:
+    // the macOS titlebar-shell carried a symmetric `padding-inline: 8px`,
+    // which pushed the tabs slot's right edge 8px inboard of the viewport.
+    // The right-panel `<aside>` directly below sits in a sibling layout
+    // tree without that padding, so its `border-left` reached the viewport
+    // edge — the two `border-l`s ended up offset by 8px on macOS only.
+    // Fix: macOS titlebar uses `padding-inline-start: 8px` only (see
+    // `packages/app/src/index.css` `[data-shell-os="macos"]` rule). This
+    // test asserts the horizontal seam is continuous so any future
+    // re-introduction of right-side titlebar padding (or any other
+    // x-offset between the two `border-l`s) fails fast.
+    await gotoSession()
+    await openRightPanel(page)
+    await page.mouse.move(0, 0)
+
+    const lefts = await page.evaluate(() => {
+      const tabs = document.getElementById("pawwork-titlebar-tabs") as HTMLElement | null
+      const body = document.querySelector(
+        '[data-component="right-panel-body"]',
+      ) as HTMLElement | null
+      return {
+        tabs: tabs ? tabs.getBoundingClientRect().left : null,
+        body: body ? body.getBoundingClientRect().left : null,
+      }
+    })
+
+    expect(lefts.tabs).not.toBeNull()
+    expect(lefts.body).not.toBeNull()
+    // Sub-pixel tolerance — both use the same panel-width source, so they
+    // should be identical at integer-CSS-pixel widths, but devicePixelRatio
+    // rounding can introduce ≤0.5px noise on Retina.
+    expect(Math.abs((lefts.tabs ?? 0) - (lefts.body ?? 0))).toBeLessThan(1)
+  })
 })

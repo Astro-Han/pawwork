@@ -94,8 +94,16 @@
      bg. Right-panel boundary is intentionally NOT drawn into the titlebar
      (Mail / Finder / Notes do not split their toolbar) so it never overlaps
      with breadcrumb or center-portal content when the panel is wide. */
+  /* Right edge intentionally has no padding so the right-panel tabs slot
+     (inside the rightmost grid cell) ends at the viewport edge. Its
+     `border-l` then aligns pixel-for-pixel with the right-panel body's
+     `border-left` directly below it, forming one continuous separator from
+     titlebar top to viewport bottom. A symmetric `padding-inline: 8px`
+     pushes the tabs slot 8px inboard and breaks that seam on macOS only —
+     see issue tracked alongside PR #880 follow-up. The toggle's own
+     `pr-2` provides the closed-state inset from the viewport edge. */
   [data-component="titlebar-shell"][data-shell="desktop"][data-shell-os="macos"] {
-    padding-inline: 8px;
+    padding-inline-start: 8px;
     background: linear-gradient(
       to right,
       var(--sidebar) 0,
