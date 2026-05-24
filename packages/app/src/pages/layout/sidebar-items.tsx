@@ -17,6 +17,11 @@ import { childSessionOnPath } from "./helpers"
 import { sidebarStatusKind } from "./sidebar-status-kind"
 import { defaultNewSessionHref, defaultSessionHref, openShellLinkWithOwner } from "./sidebar-item-navigation"
 
+export type SessionSwitchPaint = {
+  sourceID: string
+  targetID: string
+}
+
 export type SessionItemProps = {
   session: Session
   list: Session[]
@@ -28,6 +33,8 @@ export type SessionItemProps = {
   prefetchSession: (session: Session, priority?: "high" | "low") => void
   hrefForSession?: (session: Session) => string
   onOpenSession?: (session: Session) => void
+  onSwitchPaint?: (session: Session, event: MouseEvent) => void
+  switchPaint?: Accessor<SessionSwitchPaint | undefined>
   titleContent?: (input: { session: Session; title: Accessor<string> }) => JSX.Element
   actionSlot?: (session: Session) => JSX.Element
   timeText?: (session: Session) => string | undefined
@@ -40,6 +47,7 @@ const SessionRow = (props: {
   warmFocus: () => void
   href: string
   onOpenSession?: (event: MouseEvent) => void
+  onSwitchPaint?: (event: MouseEvent) => void
   titleContent?: JSX.Element
 }): JSX.Element => {
   const title = () => sessionTitle(props.session.title)
@@ -50,7 +58,10 @@ const SessionRow = (props: {
       class="flex items-center min-w-0 w-full text-left focus:outline-none"
       onPointerDown={props.warmPress}
       onFocus={props.warmFocus}
-      onClick={props.onOpenSession}
+      onClick={(event) => {
+        props.onSwitchPaint?.(event)
+        props.onOpenSession?.(event)
+      }}
     >
       <Show
         when={props.titleContent}
@@ -101,6 +112,13 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
 
   const tint = createMemo(() => messageAgentColor(sessionStore.message[props.session.id], sessionStore.agent))
   const tooltip = createMemo(() => props.showTooltip ?? false)
+  const switchPaintRole = createMemo(() => {
+    const current = props.switchPaint?.()
+    if (!current) return undefined
+    if (current.targetID === props.session.id) return "target"
+    if (current.sourceID === props.session.id) return "source"
+    return undefined
+  })
   const currentChild = createMemo(() => {
     if (!props.showChild) return
     return childSessionOnPath(sessionStore.session, props.session.id, params.id)
@@ -173,6 +191,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
         if (!props.onOpenSession) return
         openShellLinkWithOwner(event, () => props.onOpenSession?.(props.session))
       }}
+      onSwitchPaint={(event) => props.onSwitchPaint?.(props.session, event)}
       warmPress={() => warm(2, "high")}
       warmFocus={() => warm(2, "high")}
       titleContent={props.titleContent?.({ session: props.session, title: () => sessionTitle(props.session.title) ?? "" })}
@@ -184,7 +203,8 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
       <div
         data-session-id={props.session.id}
         data-component="pawwork-session-row"
-        class="group/session relative w-full min-w-0 h-[30px] flex items-center rounded-sm cursor-default pr-[10px] transition-colors hover:bg-row-hover-overlay [&:has(:focus-visible)]:bg-row-hover-overlay has-[[data-expanded]]:bg-row-hover-overlay has-[.active]:bg-row-active-overlay has-[.active]:hover:bg-row-active-overlay"
+        data-switch-paint={switchPaintRole()}
+        class="group/session relative w-full min-w-0 h-[30px] flex items-center rounded-sm cursor-default pr-[10px]"
         // Sub-session indentation: base padding is 10 (sidebar row spec); add 16 per nesting level.
         // The flat-row spec locks left-side affordances at 10; nested-row indentation is a deliberate
         // visual departure to express parent/child without re-introducing accent bars.
@@ -211,13 +231,13 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
 
           <Show when={!props.level}>
             <div class="relative shrink-0 flex items-center justify-end h-[20px] min-w-[20px]">
-              {/* default 4-state status (asking|busy|error|time) — fades on hover, never display:none per L35.
-                 Inner box centers icons in a 20px square but lets time text grow horizontally. */}
-              <div data-status-default class="pointer-events-none h-full min-w-[20px] flex items-center justify-center group-hover/session:opacity-0 group-focus-within/session:opacity-0 group-has-[[data-expanded]]/session:opacity-0">
+              {/* default 4-state status (asking|busy|error|time). The row paint contract in
+                 sidebar.css controls opacity so hover/menu/switching states stay in sync. */}
+              <div data-status-default class="h-full min-w-[20px] flex items-center justify-center">
                 {statusContent()}
               </div>
               {/* hover/focus/menu-open action overlay */}
-              <div data-status-overlay class="absolute inset-y-0 right-0 flex items-center justify-end opacity-0 pointer-events-none group-hover/session:opacity-100 group-hover/session:pointer-events-auto group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto group-has-[[data-expanded]]/session:opacity-100 group-has-[[data-expanded]]/session:pointer-events-auto">
+              <div data-status-overlay class="absolute inset-y-0 right-0 flex items-center justify-end">
                 <Show when={props.actionSlot}>{props.actionSlot?.(props.session)}</Show>
               </div>
             </div>

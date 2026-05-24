@@ -4,6 +4,34 @@ import { cleanupSession, cleanupTestProject, createTestProject, openSidebar, wai
 import { promptSelector, sessionTurnListSelector } from "../selectors"
 import type { createSdk } from "../utils"
 
+async function sessionRowPaint(page: Page, sessionID: string) {
+  return page
+    .locator(`[data-session-id="${sessionID}"][data-component="pawwork-session-row"]`)
+    .first()
+    .evaluate((element) => {
+      const statusDefault = element.querySelector("[data-status-default]") as HTMLElement | null
+      const statusOverlay = element.querySelector("[data-status-overlay]") as HTMLElement | null
+      return {
+        backgroundColor: getComputedStyle(element).backgroundColor,
+        selectedLayerOpacity: getComputedStyle(element, "::before").opacity,
+        hoverLayerOpacity: getComputedStyle(element, "::after").opacity,
+        statusDefaultOpacity: statusDefault ? getComputedStyle(statusDefault).opacity : null,
+        statusOverlayOpacity: statusOverlay ? getComputedStyle(statusOverlay).opacity : null,
+      }
+    })
+}
+
+async function nextFrame(page: Page) {
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
+}
+
+async function sessionDragWrapperOpacity(page: Page, sessionID: string) {
+  return page
+    .locator(`.pw-drag-row[data-pw-drag-session-id="${sessionID}"]`)
+    .first()
+    .evaluate((element) => getComputedStyle(element).opacity)
+}
+
 async function expectUrlToStayMatched(page: Page, pattern: RegExp, stableFor = 300) {
   let stableSince = Date.now()
   await expect
@@ -72,6 +100,117 @@ test("sidebar session links navigate to the selected session", async ({ page, sl
   } finally {
     await cleanupSession({ sdk, sessionID: one.id })
     await cleanupSession({ sdk, sessionID: two.id })
+  }
+})
+
+test("sidebar session selection paint switches without leaving the previous row highlighted", async ({ page, slug, sdk, gotoSession }) => {
+  const stamp = Date.now()
+
+  const source = await sdk.session.create({ title: `e2e sidebar paint source ${stamp}` }).then((r) => r.data)
+  const target = await sdk.session.create({ title: `e2e sidebar paint target ${stamp}` }).then((r) => r.data)
+
+  if (!source?.id) throw new Error("Source session create did not return an id")
+  if (!target?.id) throw new Error("Target session create did not return an id")
+
+  try {
+    await gotoSession(source.id)
+    await openSidebar(page)
+
+    const sourceLink = page.locator(`[data-session-id="${source.id}"] a`).first()
+    await expect(sourceLink).toBeVisible()
+    await sourceLink.click()
+    await expect(page).toHaveURL(new RegExp(`/${slug}/session/${source.id}(?:\\?|#|$)`))
+
+    const targetRow = page.locator(`[data-session-id="${target.id}"][data-component="pawwork-session-row"]`).first()
+    await expect(targetRow).toBeVisible()
+    const targetBox = await targetRow.boundingBox()
+    if (!targetBox) throw new Error("Target session row did not expose a bounding box")
+
+    await page.mouse.move(targetBox.x + targetBox.width / 3, targetBox.y + targetBox.height / 2)
+    await nextFrame(page)
+    await page.mouse.down()
+    await nextFrame(page)
+    await page.mouse.up()
+
+    const immediateTargetPaint = await sessionRowPaint(page, target.id)
+    expect(immediateTargetPaint.selectedLayerOpacity).toBe("1")
+    expect(immediateTargetPaint.hoverLayerOpacity).toBe("0")
+
+    await expect(page).toHaveURL(new RegExp(`/${slug}/session/${target.id}(?:\\?|#|$)`))
+
+    await expect(page.locator(`[data-session-id="${target.id}"] a`).first()).toHaveClass(/\bactive\b/)
+    const sourcePaint = await sessionRowPaint(page, source.id)
+    const targetPaint = await sessionRowPaint(page, target.id)
+
+    expect(sourcePaint.backgroundColor).toBe("rgba(0, 0, 0, 0)")
+    expect(sourcePaint.selectedLayerOpacity).toBe("0")
+    expect(sourcePaint.statusDefaultOpacity).toBe("1")
+    expect(sourcePaint.statusOverlayOpacity).toBe("0")
+    expect(targetPaint.selectedLayerOpacity).toBe("1")
+    expect(targetPaint.hoverLayerOpacity).toBe("0")
+    expect(targetPaint.statusDefaultOpacity).toBe("0")
+    expect(targetPaint.statusOverlayOpacity).toBe("1")
+  } finally {
+    await cleanupSession({ sdk, sessionID: source.id })
+    await cleanupSession({ sdk, sessionID: target.id })
+  }
+})
+
+test("sidebar switch paint suppresses hover before the active class arrives", async ({ page, sdk, gotoSession }) => {
+  const stamp = Date.now()
+
+  const source = await sdk.session.create({ title: `e2e sidebar switch source ${stamp}` }).then((r) => r.data)
+  const target = await sdk.session.create({ title: `e2e sidebar switch target ${stamp}` }).then((r) => r.data)
+
+  if (!source?.id) throw new Error("Source session create did not return an id")
+  if (!target?.id) throw new Error("Target session create did not return an id")
+
+  try {
+    await gotoSession(source.id)
+    await openSidebar(page)
+
+    const targetRow = page.locator(`[data-session-id="${target.id}"][data-component="pawwork-session-row"]`).first()
+    await expect(targetRow).toBeVisible()
+    await targetRow.hover()
+    await targetRow.evaluate((element) => element.setAttribute("data-switch-paint", "target"))
+
+    const targetPaint = await sessionRowPaint(page, target.id)
+    expect(targetPaint.selectedLayerOpacity).toBe("1")
+    expect(targetPaint.hoverLayerOpacity).toBe("0")
+  } finally {
+    await cleanupSession({ sdk, sessionID: source.id })
+    await cleanupSession({ sdk, sessionID: target.id })
+  }
+})
+
+test("sidebar session press does not dim the row before drag starts", async ({ page, sdk, gotoSession }) => {
+  const stamp = Date.now()
+  const source = await sdk.session.create({ title: `e2e sidebar press source ${stamp}` }).then((r) => r.data)
+  const target = await sdk.session.create({ title: `e2e sidebar press target ${stamp}` }).then((r) => r.data)
+
+  if (!source?.id) throw new Error("Source session create did not return an id")
+  if (!target?.id) throw new Error("Target session create did not return an id")
+
+  try {
+    await gotoSession(source.id)
+    await openSidebar(page)
+
+    const targetRow = page.locator(`[data-session-id="${target.id}"][data-component="pawwork-session-row"]`).first()
+    await expect(targetRow).toBeVisible()
+    const targetBox = await targetRow.boundingBox()
+    if (!targetBox) throw new Error("Target session row did not expose a bounding box")
+
+    await page.mouse.move(targetBox.x + targetBox.width / 3, targetBox.y + targetBox.height / 2)
+    await nextFrame(page)
+    await page.mouse.down()
+    try {
+      await expect.poll(() => sessionDragWrapperOpacity(page, target.id)).toBe("1")
+    } finally {
+      await page.mouse.up()
+    }
+  } finally {
+    await cleanupSession({ sdk, sessionID: source.id })
+    await cleanupSession({ sdk, sessionID: target.id })
   }
 })
 

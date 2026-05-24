@@ -1,7 +1,58 @@
-/* Slice 09 (L35): session row transition tracks --duration-fast (80ms) per
-   the L35 lock instead of Tailwind's default 150ms transition-colors. */
+/* Session row paint contract:
+ * switching > selected > interaction (hover/focus/menu) > idle.
+ * Keep this priority centralized so row backgrounds and status/action opacity
+ * cannot stack competing visual states during route changes. */
 [data-component="pawwork-session-row"] {
-  transition: background-color var(--duration-fast) ease-out;
+  isolation: isolate;
+  background-color: transparent;
+}
+
+[data-component="pawwork-session-row"]::before,
+[data-component="pawwork-session-row"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+}
+
+[data-component="pawwork-session-row"]::before {
+  background-color: var(--row-active-overlay);
+  opacity: 0;
+}
+
+[data-component="pawwork-session-row"]::after {
+  background-color: var(--row-hover-overlay);
+  opacity: 0;
+  transition: opacity var(--duration-fast) ease-out;
+}
+
+[data-component="pawwork-session-row"]:has(.active)::before,
+[data-component="pawwork-session-row"][data-switch-paint="target"]::before {
+  opacity: 1;
+}
+
+[data-component="pawwork-session-row"][data-switch-paint="source"]::before {
+  opacity: 0;
+}
+
+[data-component="pawwork-session-row"][data-switch-paint]::after {
+  opacity: 0;
+  transition: none;
+}
+
+[data-component="pawwork-session-row"]:not([data-switch-paint]):not(:has(.active)):where(
+  :hover,
+  :has(:focus-visible),
+  :has([data-expanded])
+)::after {
+  opacity: 1;
+}
+
+[data-component="pawwork-session-row"] > * {
+  position: relative;
+  z-index: 1;
 }
 
 /* Status box and action overlay opacity track --duration-base (120ms) — opacity
@@ -10,6 +61,40 @@
 [data-component="pawwork-session-row"] [data-status-default],
 [data-component="pawwork-session-row"] [data-status-overlay] {
   transition: opacity var(--duration-base) ease-out;
+}
+
+[data-component="pawwork-session-row"] [data-status-default] {
+  opacity: 1;
+  pointer-events: none;
+}
+
+[data-component="pawwork-session-row"] [data-status-overlay] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+[data-component="pawwork-session-row"][data-switch-paint] [data-status-default],
+[data-component="pawwork-session-row"][data-switch-paint] [data-status-overlay] {
+  transition: none;
+}
+
+[data-component="pawwork-session-row"]:not([data-switch-paint]):where(
+  :hover,
+  :has(:focus-visible),
+  :has([data-expanded])
+) [data-status-default],
+[data-component="pawwork-session-row"][data-switch-paint="target"] [data-status-default] {
+  opacity: 0;
+}
+
+[data-component="pawwork-session-row"]:not([data-switch-paint]):where(
+  :hover,
+  :has(:focus-visible),
+  :has([data-expanded])
+) [data-status-overlay],
+[data-component="pawwork-session-row"][data-switch-paint="target"] [data-status-overlay] {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 /* ─────────────────────────────────────────────────────────────────────
@@ -26,11 +111,9 @@
   cursor: grabbing;
 }
 
-/* Origin row (the one being dragged): semi-transparent + row-hover bg.
- * Stays in place visually as a "this is what's moving" anchor. */
+/* SortableJS applies chosenClass on pointer down, before a drag is confirmed.
+ * Keep it non-dimming so ordinary clicks do not flash. */
 .pw-drag-chosen {
-  opacity: 0.35;
-  background-color: var(--row-hover-overlay);
   border-radius: var(--radius-sm);
 }
 
@@ -45,8 +128,14 @@
   visibility: hidden;
 }
 
-/* Fallback drag image (forceFallback follows the cursor). Just enforce
- * grabbing cursor; visual is the cloned row, which is fine as-is. */
+/* Fallback drag image (forceFallback follows the cursor). This is the actual
+ * moving preview, unlike chosenClass which also appears during normal clicks. */
 .pw-drag-active {
   cursor: grabbing !important;
+}
+
+.sortable-fallback.pw-drag-active {
+  opacity: 0.92;
+  background-color: var(--row-hover-overlay);
+  border-radius: var(--radius-sm);
 }
