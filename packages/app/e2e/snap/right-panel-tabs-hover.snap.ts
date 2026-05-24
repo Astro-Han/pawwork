@@ -131,10 +131,12 @@ test("right-panel-tabs-hover", async ({ page, project }) => {
     beforeGoto: async ({ sdk }) => {
       const session = await sdk.session.create({ title: "snap right panel tabs hover" }).then((res) => res.data)
       sessionID = session?.id
+      // Track immediately on creation so cleanup runs even if a later
+      // step in project.open() throws before this test completes.
+      if (sessionID) project.trackSession(sessionID)
     },
   })
   if (!sessionID) throw new Error("Session create did not return an id")
-  project.trackSession(sessionID)
 
   const shots: Shot[] = []
   shots.push(...(await captureStates(page, "light", sessionID)))

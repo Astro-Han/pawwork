@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "../fixtures"
 import { openRightPanel } from "../actions"
+import { modKey } from "../utils"
 
 // Contract for the right-panel tab strip after the PR #880 chip + × cleanup.
 //
@@ -29,8 +30,8 @@ const STATUS_TAB = { name: "Status" }
 
 async function openExtraTabs(page: Page) {
   await page.locator("main").first().click()
-  await page.keyboard.press("ControlOrMeta+\\") // fileTree.toggle
-  await page.keyboard.press("ControlOrMeta+Shift+R") // review.toggle
+  await page.keyboard.press(`${modKey}+\\`) // fileTree.toggle
+  await page.keyboard.press(`${modKey}+Shift+R`) // review.toggle
   await expect.poll(() => page.getByRole("tab").count(), { timeout: 5_000 }).toBe(3)
 }
 
@@ -148,8 +149,10 @@ test.describe("right-panel tab chip + × contract", () => {
 
     // Both must be 0s — the swap is instant on hover, not faded. Multi-property
     // transitions can produce a comma-joined string like "0s, 0s"; accept any
-    // shape that contains only zero durations.
-    const allZero = (val: string | null) => val !== null && /^(0s\s*,?\s*)+$/.test(val.trim())
+    // shape that contains only zero durations. Split-and-check instead of a
+    // regex with nested quantifiers to avoid CodeQL ReDoS flag (js/redos).
+    const allZero = (val: string | null) =>
+      val !== null && val.split(",").every((part) => part.trim() === "0s")
     expect(allZero(transitions.iconDur)).toBe(true)
     expect(allZero(transitions.closeSlotDur)).toBe(true)
   })
@@ -237,15 +240,17 @@ test.describe("right-panel tab chip + × contract", () => {
     expect(bgAlpha).toBeLessThanOrEqual(alpha(colors.activeToken))
   })
 
-  test("short sidepanel tabs share a 5.5rem min-width footprint", async ({ page, gotoSession }) => {
+  test("short sidepanel tabs share a 72px min-width footprint", async ({ page, gotoSession }) => {
     // Status / Files / Review labels are short (2-3 Chinese chars or 5-6
     // Latin chars). Without a floor they render visibly mismatched in the
-    // titlebar strip — the user's "宽度不统一难看" feedback. min-width 5.5rem
-    // (~71.5px at the 13px html base) pulls short chips up to a uniform
-    // footprint; longer labels (Terminal at 8 Latin chars) extend past it
-    // naturally and the strip scrolls horizontally if the total exceeds the
-    // slot width. The 5.5rem floor is sized to fit "Files" + icon + padding
-    // without dwarfing it, which the earlier 7.5rem attempt did.
+    // titlebar strip — the user's "宽度不统一难看" feedback. min-width 72px
+    // covers the natural width of a 2-char CJK label + icon + gap + padding
+    // (~53px) plus breathing room, so all 2-char tabs land on the same width
+    // in production (Chinese labels are full-width ~13px per char, uniform).
+    // Latin labels in the e2e environment (Status/Files/Review at 5-6 chars)
+    // also fall under the floor and land on the same width. Longer labels
+    // (Terminal at 8 chars, 上下文 at 3 CJK chars) extend past 72 naturally
+    // and the strip scrolls horizontally if the total exceeds the slot width.
     await gotoSession()
     await ensureRightPanelOpen(page)
     await openExtraTabs(page)
@@ -258,7 +263,7 @@ test.describe("right-panel tab chip + × contract", () => {
       })),
     )
 
-    const MIN_WIDTH_PX = Math.round(5.5 * 13) // ~72
+    const MIN_WIDTH_PX = 72
     expect(widths.length).toBeGreaterThanOrEqual(3)
     for (const t of widths) {
       expect(t.width).toBeGreaterThanOrEqual(MIN_WIDTH_PX - 1) // -1 for rounding
@@ -327,12 +332,13 @@ test.describe("right-panel tab chip + × contract", () => {
     await page.getByRole("tab", REVIEW_TAB).hover() // also closes the hover test cleanly
   })
 
-  test("trigger gap and tabs-list gap both follow the 4pt grid at 8px", async ({ page, gotoSession }) => {
+  test("trigger gap is 8px and tabs-list gap is 4px (both on the 4pt grid)", async ({ page, gotoSession }) => {
     // DESIGN.md L233: gap/padding/margin must be multiples of 4. The previous
     // production values `gap-1.5` (6px) and `px-2.5` (10px) drifted off the
-    // 4pt grid; PR #880 round 6 unified both to 8px so the chip and the strip
-    // share one spacing language with the rest of the system. Pin both here
-    // so a future Tailwind class tweak cannot quietly revert to off-grid.
+    // 4pt grid; PR #880 unified the chip's internal gap to 8px (icon↔label)
+    // and the strip's between-chip gap to 4px (--space-xs) so chips read as a
+    // tight strip rather than spaced-out cards. Pin both so a future Tailwind
+    // tweak cannot quietly revert to off-grid.
     await gotoSession()
     await ensureRightPanelOpen(page)
     await openExtraTabs(page)
@@ -355,7 +361,7 @@ test.describe("right-panel tab chip + × contract", () => {
       }
     })
 
-    expect(gaps.listGap).toBe("8px")
+    expect(gaps.listGap).toBe("4px")
     expect(gaps.triggerGap).toBe("8px")
   })
 })

@@ -90,7 +90,6 @@
   aspect-ratio: auto;
 }
 
-.titlebar-icon[data-icon="menu"][aria-expanded="true"],
 .titlebar-icon[aria-expanded="true"] {
   background-color: var(--surface-base);
 

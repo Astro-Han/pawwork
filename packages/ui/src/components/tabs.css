@@ -412,14 +412,16 @@
          titlebar slot, which varies (macOS 40px chrome / Windows 44px), and
          hard-coding 44px here pushed tabs past the titlebar bottom on macOS. */
       height: 100%;
-      /* 8px between adjacent tabs (--space-sm, 4pt-grid compliant per
-         DESIGN.md L233). Lets each chip read as its own cell rather than a
-         continuous band; hover overlay on one tab and selected overlay on
-         its neighbour stay distinct. NB the consumer-side Tabs.List
-         intentionally OMITS Tailwind `gap-*` — utilities layer would outrank
-         this components-layer value, and the rem-13 base would also drift
-         the gap off-grid (gap-2 = 0.5rem = 6.5px, not 8). */
-      gap: var(--space-sm);
+      /* 4px between adjacent tabs (--space-xs, 4pt-grid compliant per
+         DESIGN.md L233). Tighter than the 8px inside-chip gap so chips read
+         as a single strip — each cell is its own pill but the strip feels
+         cohesive rather than spaced-out. 8px between tabs was too generous
+         given the chip's own 8px internal padding (it visually doubled up
+         to a 16px gulf). NB the consumer-side Tabs.List intentionally
+         OMITS Tailwind `gap-*` — utilities layer would outrank this
+         components-layer value, and the rem-13 base would also drift the
+         gap off-grid (gap-1 = 0.25rem = 3.25px, not 4). */
+      gap: var(--space-xs);
 
       &::after {
         display: none;
@@ -447,10 +449,11 @@
       font: inherit;
       max-width: none;
       gap: 0;
-      /* Full pill at 28px high — `radius-lg` 14px ≈ height/2. Matches the
-         Codex / Linear pill-tab silhouette and lets hover + selected chip
-         backgrounds read as cohesive shapes rather than rounded rectangles. */
-      border-radius: var(--radius-lg);
+      /* `radius-md` (10px) — one of the three standard radii per DESIGN.md
+         L305 (sm/md/lg = 6/10/14). At 28px high this softens the chip well
+         shy of a full pill, matching the visual weight of the surrounding
+         icon-button (also md) without dominating the strip. */
+      border-radius: var(--radius-md);
 
       /* Base tabs CSS adds `padding-right: 12px` on wrappers that own a
          close-button slot. That made closable wrappers (Files / Review /
@@ -476,10 +479,12 @@
        triggers already inherit 500 from `text-h3` (--font-weight-h3) and
        bumping a subset would shift tab widths when selection changes.
        `min-width` pulls short labels (Status / Files / Review at 2 Chinese
-       chars or 5–6 Latin chars) up to a consistent chip footprint. 5.5rem
-       (~71.5px under the 13px html base) covers the short labels — Terminal
-       (longest at 8 chars) naturally extends past it, and the strip scrolls
-       horizontally if total content exceeds the slot width. */
+       chars or 5–6 Latin chars) up to a consistent chip footprint. 72px is
+       sized to comfortably hold a 2-char CJK label + 14px icon + 8px gap +
+       8px padding (~53px natural) with breathing room, while staying tight
+       enough that "上下文" (3 chars) and longer labels extend past it
+       naturally rather than getting an over-padded floor. 72 sits on the
+       4pt grid (DESIGN.md L233). */
     /* Selector includes the wrapper deliberately to reach 4 attrs of
        specificity — base tabs CSS gives closable-wrapper triggers a
        `padding-right: 0` at the same 4-attr count
@@ -490,13 +495,16 @@
       border: 1px solid transparent;
       color: var(--fg-weak);
       background-color: transparent;
-      min-width: 5.5rem;
+      min-width: 72px;
       /* Authoritative spacing source — see SortableTab comment for why the
          component intentionally does not declare gap / padding-inline
-         utilities on its Tailwind class. Both routes through `--space-sm`
-         (8px) keep the chip on the 4pt grid (DESIGN.md L233). */
+         utilities on its Tailwind class. Internal gap (icon ↔ label) is
+         8px (--space-sm) for readability; chip edge padding is 4px
+         (--space-xs) — tighter than the gap so the chip outline hugs the
+         content without doubling up against the 4px between-chip gap.
+         Both values stay on the 4pt grid (DESIGN.md L233). */
       gap: var(--space-sm);
-      padding-inline: var(--space-sm);
+      padding-inline: var(--space-xs);
       /* Centered content inside the min-width chip. The close button is
          no longer a flex peer (it's absolutely positioned via anchor()),
          so center alignment doesn't drift it — × is mathematically pinned
