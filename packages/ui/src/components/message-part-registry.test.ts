@@ -117,7 +117,7 @@ test("split keeps hidden tools and deferred heavy tool bodies explicit", () => {
 
   expect(source).toContain("export const HIDDEN_TOOLS = new Set<string>(HIDDEN_TOOL_NAMES)")
   expect(source).toContain('if (tool === "edit" || tool === "write" || tool === "apply_patch") return edit')
-  expect(source).toContain("defaultOpen={completed()}")
+  expect(source).toContain("defaultOpen={props.defaultOpen ?? completed()}")
 
   const deferredHeavyTools = {
     "bash.tsx": 1,

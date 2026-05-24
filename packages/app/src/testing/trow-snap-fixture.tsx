@@ -95,6 +95,39 @@ const mixedRealToolParts = [
     { activeDirectory: "/Users/yuhan/workspace/dev/pawwork", previousBranch: "session-trow-revival" },
   ),
   realTool("skill-real", "skill", { name: "learn-code" }),
+  realTool(
+    "question-real",
+    "question",
+    {
+      questions: [
+        {
+          header: "Follow up",
+          question: "你想继续深入测试某个工具吗?",
+          options: [{ label: "够了" }],
+        },
+      ],
+    },
+    "",
+    { answers: [["够了"]] },
+  ),
+]
+const questionDetailParts = [
+  realTool("question-detail-skill", "skill", { name: "learn-code" }),
+  realTool(
+    "question-detail-real",
+    "question",
+    {
+      questions: [
+        {
+          header: "Follow up",
+          question: "你想继续深入测试某个工具吗?",
+          options: [{ label: "够了" }],
+        },
+      ],
+    },
+    "",
+    { answers: [["够了"]] },
+  ),
 ]
 
 function resolveTemplate(text: string, params?: UiI18nParams) {
@@ -287,6 +320,15 @@ function TrowSnapFixture() {
           labels={labels}
           describeTool={describeTool}
           renderTool={renderRegisteredTool("registered")}
+        />
+      </div>
+      <div data-snap="question-expanded">
+        <TrowBlock
+          parts={questionDetailParts}
+          defaultOpen
+          labels={labels}
+          describeTool={describeTool}
+          renderTool={renderRegisteredTool("question-detail", "question-detail-real")}
         />
       </div>
       <div data-snap="single-command-direct">

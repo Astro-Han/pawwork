@@ -153,6 +153,10 @@ test("session-trow", async ({ page }) => {
   await expect(registeredToolRows).toContainText("进入工作树", { timeout: 30_000 })
   await expect(registeredToolRows).toContainText("使用技能", { timeout: 30_000 })
   await expect(registeredToolRows).toContainText("learn-code", { timeout: 30_000 })
+  await expect(registeredToolRows).toContainText("提出问题", { timeout: 30_000 })
+  await expect(registeredToolRows).toContainText("1 已回答", { timeout: 30_000 })
+  await expect(registeredToolRows).not.toContainText("你想继续深入测试某个工具吗?", { timeout: 30_000 })
+  await expect(registeredToolRows).not.toContainText("够了", { timeout: 30_000 })
   const registeredMetrics = await registeredToolRows.evaluate((root) => {
     const titleSelectors = ['[data-slot="basic-tool-tool-title"]', '[data-component="task-tool-title"]']
     const titles = titleSelectors.flatMap((selector) =>
@@ -175,6 +179,30 @@ test("session-trow", async ({ page }) => {
   expect(registeredMetrics.webSearchOutputGap).toBeGreaterThanOrEqual(0)
   expect(registeredMetrics.webSearchOutputGap).toBeLessThanOrEqual(8)
   shots.push(await captureBlock("registered-tool-rows", registeredToolRows))
+
+  const questionExpanded = page.locator('[data-snap="question-expanded"]')
+  await expect(questionExpanded).toContainText("提出问题", { timeout: 30_000 })
+  await expect(questionExpanded).toContainText("你想继续深入测试某个工具吗?", { timeout: 30_000 })
+  await expect(questionExpanded).toContainText("够了", { timeout: 30_000 })
+  const questionMetrics = await questionExpanded.evaluate((root) => {
+    const answers = root.querySelector<HTMLElement>('[data-component="question-answers"]')
+    const item = root.querySelector<HTMLElement>('[data-slot="question-answer-item"]')
+    const question = root.querySelector<HTMLElement>('[data-slot="question-text"]')
+    if (!answers || !item || !question) {
+      return { listGap: "", itemGap: "", fontSize: "", lineHeight: "" }
+    }
+    return {
+      listGap: getComputedStyle(answers).rowGap,
+      itemGap: getComputedStyle(item).rowGap,
+      fontSize: getComputedStyle(question).fontSize,
+      lineHeight: getComputedStyle(question).lineHeight,
+    }
+  })
+  expect(questionMetrics.listGap).toBe("4px")
+  expect(questionMetrics.itemGap).toBe("0px")
+  expect(questionMetrics.fontSize).toBe("12px")
+  expect(questionMetrics.lineHeight).toBe("18px")
+  shots.push(await captureBlock("question-expanded", questionExpanded))
 
   const singleDirect = page.locator('[data-snap="single-command-direct"]')
   await expect(singleDirect.locator('[data-component="session-turn-trow-block"][data-single]')).toBeVisible({

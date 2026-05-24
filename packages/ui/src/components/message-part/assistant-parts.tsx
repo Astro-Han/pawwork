@@ -73,7 +73,7 @@ export function AssistantParts(props: {
                       <Part
                         part={tool}
                         message={message}
-                        defaultOpen={singleTool() ? true : undefined}
+                        defaultOpen={singleTool()}
                         stateKey={`tool:${tool.id}`}
                       />
                     </div>

@@ -67,7 +67,7 @@ export function AssistantMessageDisplay(props: {
                           <Part
                             part={tool}
                             message={props.message}
-                            defaultOpen={singleTool() ? true : undefined}
+                            defaultOpen={singleTool()}
                             stateKey={`tool:${tool.id}`}
                           />
                         </div>
