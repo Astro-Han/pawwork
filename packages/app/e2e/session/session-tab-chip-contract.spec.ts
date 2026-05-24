@@ -148,10 +148,12 @@ test.describe("right-panel tab chip + × contract", () => {
       return { iconDur: dur(icon), closeSlotDur: dur(closeSlot) }
     })
 
-    // Both must be 0s — the swap is instant on hover, not faded. Multi-property
-    // transitions can produce a comma-joined string like "0s, 0s"; accept any
-    // shape that contains only zero durations. Split-and-check instead of a
-    // regex with nested quantifiers to avoid CodeQL ReDoS flag (js/redos).
+    // Both durations must be zero — the swap is instant on hover, not faded.
+    // Multi-property transitions can produce a comma-joined duration string,
+    // so split on commas and verify every part is zero. Split-and-check is
+    // intentional: CodeQL flagged an earlier regex form (js/redos) and CodeQL
+    // also misreads quote-wrapped duration examples in comments as regex
+    // patterns, so the literal example is deliberately omitted here.
     const allZero = (val: string | null) =>
       val !== null && val.split(",").every((part) => part.trim() === "0s")
     expect(allZero(transitions.iconDur)).toBe(true)
