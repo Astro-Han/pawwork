@@ -217,6 +217,7 @@ test("session-trow", async ({ page }) => {
   await expect(singleDirect.locator('[data-component="session-turn-trow-block"][data-single]')).toBeVisible({
     timeout: 30_000,
   })
+  await expect(singleDirect.locator('[data-slot="trow-summary-icon"]')).toBeVisible({ timeout: 30_000 })
   await expect(singleDirect.locator('[data-component="bash-output"]')).toBeVisible({ timeout: 30_000 })
   shots.push(await captureBlock("single-command-direct", singleDirect))
 
@@ -224,6 +225,7 @@ test("session-trow", async ({ page }) => {
   await expect(singleExpanded.locator('[data-component="session-turn-trow-block"][data-single]')).toBeVisible({
     timeout: 30_000,
   })
+  await expect(singleExpanded.locator('[data-slot="trow-summary-icon"]')).toBeVisible({ timeout: 30_000 })
   await expect(singleExpanded.locator('[data-component="bash-output"]')).toBeVisible({
     timeout: 30_000,
   })
@@ -245,6 +247,7 @@ test("session-trow", async ({ page }) => {
   await expect(singleRunning.locator('[data-component="session-turn-trow-block"][data-single]')).toBeVisible({
     timeout: 30_000,
   })
+  await expect(singleRunning.locator('[data-slot="trow-summary-icon"]')).toBeVisible({ timeout: 30_000 })
   await expect(singleRunning).toContainText("执行命令", { timeout: 30_000 })
   shots.push(await captureBlock("single-command-running", singleRunning))
 

@@ -204,7 +204,9 @@ export function TrowBlock(props: TrowBlockProps) {
               <span data-slot="trow-summary-icon">
                 <Icon name={leadingIcon()} />
               </span>
-              <span data-slot="trow-summary-text">{summaryText()}</span>
+              <Show keyed when={summaryText()}>
+                {(text) => <span data-slot="trow-summary-text">{text}</span>}
+              </Show>
               <Show when={hasExpandableBody()}>
                 <span data-slot="trow-summary-chev" aria-hidden="true">
                   <Icon name="chevron-down" />
@@ -225,11 +227,13 @@ export function TrowBlock(props: TrowBlockProps) {
           </details>
         }
       >
-        <div
-          data-slot="trow-body"
-          data-timeline-anchor={trowBlockAnchor(props.parts)}
-        >
-          <For each={props.parts}>{renderToolItem}</For>
+        <div data-slot="trow-single-row" data-timeline-anchor={trowBlockAnchor(props.parts)}>
+          <span data-slot="trow-summary-icon" aria-hidden="true">
+            <Icon name={leadingIcon()} />
+          </span>
+          <div data-slot="trow-body">
+            <For each={props.parts}>{renderToolItem}</For>
+          </div>
         </div>
       </Show>
     </div>
