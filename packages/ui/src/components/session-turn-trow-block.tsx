@@ -231,10 +231,10 @@ export function TrowBlock(props: TrowBlockProps) {
               <span data-slot="trow-summary-icon">
                 <Icon name={leadingIcon()} />
               </span>
-              <Show keyed when={summaryText()}>
+              <Show when={summaryText()}>
                 {(text) => (
                   <span data-slot="trow-summary-text">
-                    <TextShimmer text={text} active={!!activeTool()} />
+                    <TextShimmer text={text()} active={!!activeTool()} />
                   </span>
                 )}
               </Show>
