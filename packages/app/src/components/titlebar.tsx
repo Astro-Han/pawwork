@@ -196,8 +196,16 @@ export function Titlebar() {
           is closed and "gap between toggle and tabs border-l" when open.
           Putting it on the outer rail would shift the tabs slot 8px
           inboard of the viewport, misaligning its `border-l` with the
-          right-panel body's `border-l` directly below it. */}
-      <div class="flex items-center min-w-0 justify-end">
+          right-panel body's `border-l` directly below it.
+
+          `self-stretch` on the rail is load-bearing — the titlebar root
+          uses `items-center`, which lets each grid cell collapse to its
+          child's content height. Without this opt-out, the tabs slot's
+          `self-stretch` would only reach the rail's content height
+          (≈30px toggle row), and its `border-l` would break above and
+          below the toggle row instead of meeting the right-panel body's
+          `border-l` as one continuous separator. */}
+      <div class="self-stretch flex items-center min-w-0 justify-end">
         <div
           id="pawwork-titlebar-right"
           data-shell-slot="right-portal"

@@ -434,6 +434,39 @@ test.describe("right-panel tab chip + × contract", () => {
     await expect(toggle).toHaveAttribute("aria-expanded", "false", { timeout: 2_000 })
   })
 
+  test("tabs slot border-l spans the full titlebar height (no top/bottom seam break)", async ({
+    page,
+    gotoSession,
+  }) => {
+    // Regression guard from PR #880 followup review: with the tabs slot moved
+    // from absolute overlay to an in-flow flex sibling, its `self-stretch` only
+    // matches the parent flex container's content height. The titlebar root
+    // uses `items-center` (grid), which lets each grid cell collapse to its
+    // child's content box unless the cell opts out with `self-stretch` / `h-full`.
+    // If the right rail isn't full-height, the tabs slot's `border-l` also
+    // isn't full-height — it would visibly break above and below the toggle's
+    // 30px row, and stop meeting the right-panel body's `border-l` directly
+    // below the titlebar. This test pins the slot's painted height to the
+    // titlebar's own height so any future regression that drops the
+    // stretch chain fails fast.
+    await gotoSession()
+    await openRightPanel(page)
+    await page.mouse.move(0, 0)
+
+    const heights = await page.evaluate(() => {
+      const titlebar = document.querySelector('[data-component="titlebar-shell"]') as HTMLElement | null
+      const tabs = document.getElementById("pawwork-titlebar-tabs") as HTMLElement | null
+      return {
+        titlebar: titlebar ? Math.round(titlebar.getBoundingClientRect().height) : null,
+        tabs: tabs ? Math.round(tabs.getBoundingClientRect().height) : null,
+      }
+    })
+
+    expect(heights.titlebar).not.toBeNull()
+    expect(heights.tabs).not.toBeNull()
+    expect(heights.tabs).toBe(heights.titlebar)
+  })
+
   test("chip geometry pins to the 4pt grid (gap, padding, radius)", async ({ page, gotoSession }) => {
     // DESIGN.md L233 (4pt grid) + L305 (radius tiers sm/md/lg = 6/10/14).
     // The previous production values `gap-1.5` (6px) and `px-2.5` (10px)
