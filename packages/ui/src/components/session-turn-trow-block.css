@@ -56,6 +56,7 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  max-width: 100%;
   cursor: default;
   list-style: none;
   color: var(--fg-base);
@@ -75,6 +76,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: 0 0 auto;
   width: 16px;
   height: 16px;
   color: var(--icon-base);
@@ -86,6 +88,10 @@
 }
 
 [data-component="session-turn-trow-block"] [data-slot="trow-summary-text"] {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: var(--font-family-sans);
   font-size: var(--font-size-body);
   font-weight: var(--font-weight-body);
@@ -97,6 +103,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: 0 0 auto;
   width: 12px;
   height: 12px;
   color: var(--icon-weak);
@@ -145,10 +152,7 @@
   color: var(--fg-weak);
   display: flex;
   flex-direction: column;
-  /* gap 8→6: AstroHan's fourth W1 retest (msg=ac13481a) flagged the
-   * expanded body felt too loose vs preview. message-flow.html L199
-   * `.mf-tlist` locks gap at 6px between sub-tool rows. */
-  gap: 6px;
+  gap: 4px;
 }
 
 [data-component="session-turn-trow-block"][data-single] [data-slot="trow-body"] {
@@ -208,6 +212,16 @@
 
 [data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-component="tool-output"] {
   margin-bottom: 0;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-component="bash-output"] [data-slot="bash-pre"] {
+  padding: 8px 10px;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-component="bash-output"] [data-slot="bash-pre"] code {
+  font-size: var(--font-size-mono-small);
+  line-height: var(--line-height-mono-small);
+  color: var(--fg-weak);
 }
 
 [data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-component="collapsible"].tool-collapsible {

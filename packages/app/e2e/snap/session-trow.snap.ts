@@ -56,6 +56,27 @@ test("session-trow", async ({ page }) => {
   await expect(page.locator('[data-snap="inner-bash-expanded"] [data-component="bash-output"]')).toBeVisible({
     timeout: 30_000,
   })
+  const innerBashMetrics = await page.locator('[data-snap="inner-bash-expanded"]').evaluate((root) => {
+    const body = root.querySelector<HTMLElement>('[data-slot="trow-body"]')
+    const pre = root.querySelector<HTMLElement>('[data-component="bash-output"] [data-slot="bash-pre"]')
+    const code = pre?.querySelector<HTMLElement>("code")
+    const summaryText = root.querySelector<HTMLElement>('[data-slot="trow-summary-text"]')
+    if (!body || !pre || !code || !summaryText) {
+      return { rowGap: "", prePadding: "", codeFontSize: "", codeLineHeight: "", summaryWhiteSpace: "" }
+    }
+    return {
+      rowGap: getComputedStyle(body).rowGap,
+      prePadding: getComputedStyle(pre).padding,
+      codeFontSize: getComputedStyle(code).fontSize,
+      codeLineHeight: getComputedStyle(code).lineHeight,
+      summaryWhiteSpace: getComputedStyle(summaryText).whiteSpace,
+    }
+  })
+  expect(innerBashMetrics.rowGap).toBe("4px")
+  expect(innerBashMetrics.prePadding).toBe("8px 10px")
+  expect(innerBashMetrics.codeFontSize).toBe("12px")
+  expect(innerBashMetrics.codeLineHeight).toBe("18px")
+  expect(innerBashMetrics.summaryWhiteSpace).toBe("nowrap")
   shots.push(await captureBlock("inner-bash-expanded", page.locator('[data-snap="inner-bash-expanded"]')))
 
   const toolOutputSpacing = page.locator('[data-snap="tool-output-spacing"]')
