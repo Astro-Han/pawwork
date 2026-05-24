@@ -24,7 +24,7 @@ export function Titlebar() {
   const windows = createMemo(() => isWindowsShell(platform))
   const zoom = () => platform.webviewZoom?.() ?? 1
   const currentTitlebarHeight = () =>
-    mac() ? "var(--shell-titlebar-current-height, var(--shell-titlebar-height, 40px))" : undefined
+    mac() ? "var(--shell-titlebar-current-height, var(--shell-titlebar-height, 44px))" : undefined
   const leftPortalStyle = () => ({
     left: "max(172px, calc(var(--sidebar-width, 0px) + 16px))",
     right: "calc(var(--right-panel-width, 0px) + 52px)",
@@ -161,6 +161,50 @@ export function Titlebar() {
           class="flex items-center gap-1 shrink-0 justify-end"
         />
       </div>
+
+      {/* Portal slot for the right-panel tab bar. Lives inside the titlebar so the
+          tabs read as part of the window chrome rather than a second toolbar
+          beneath it. The slot sits directly above the right-panel body — same
+          width (`var(--right-panel-width)`) and anchored to the viewport's right
+          edge (`right: 0`). `border-l` puts the 1px on the slot's left edge,
+          which is the same x as `right-panel-body`'s `border-l` immediately
+          below it, so the two read as one continuous separator from titlebar
+          top to viewport bottom.
+
+          The `data-component="tabs"` + `data-variant="sidepanel"` + `data-scope`
+          + `data-orientation` attributes mirror what <Tabs variant="sidepanel">
+          renders on its root. Portalling Tabs.List takes it out of that ancestor,
+          so the CSS in packages/ui/src/components/tabs.css (which uses descendant
+          selectors like `[data-component="tabs"] [data-slot="tabs-list"]`) would
+          otherwise miss it — no flex, no height, no sidepanel hover/selected
+          colors. Stamping the same data attrs here lets all existing selectors
+          re-match without forking the stylesheet.
+
+          `flex-row` is intentional and not redundant: the same `[data-component="tabs"]`
+          rule that we are inheriting also sets `flex-direction: column` on the host
+          (it expects to wrap Tabs.List + Tabs.Content vertically). Without an explicit
+          override, the slot ends up as a column flex container and `items-center` would
+          align its single child horizontally instead of vertically, leaving the tabs
+          glued to the top of the titlebar.
+
+          Only populated when the right panel is open (SessionSidePanel guards its Portal). */}
+      {/* `pointer-events-none` on the slot mirrors `#pawwork-titlebar-left` — only
+          the portalled tab buttons (which carry their own `pointer-events-auto`
+          via the sidepanel CSS variant) should swallow clicks. Otherwise the
+          slot's z-10 box covers the Right utility panel toggle in
+          `#pawwork-titlebar-right` whenever the panel is open, making the toggle
+          unclickable (caught by perf-probe-baseline's session-streaming-long
+          run on PR #878). */}
+      <div
+        id="pawwork-titlebar-tabs"
+        data-shell-slot="tabs-portal"
+        data-component="tabs"
+        data-variant="sidepanel"
+        data-orientation="horizontal"
+        data-scope="right-panel"
+        class="absolute top-0 bottom-0 right-0 z-10 flex flex-row items-center border-l border-border-weaker pointer-events-none"
+        style={{ width: "var(--right-panel-width, 0px)" }}
+      />
     </header>
   )
 }

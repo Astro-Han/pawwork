@@ -1,16 +1,20 @@
 import { For, Show, createMemo, type Accessor, type JSX } from "solid-js"
 import { TodoStatusMarker } from "@opencode-ai/ui/todo-status-marker"
 import type { Part } from "@opencode-ai/sdk/v2"
-import type { Todo } from "@opencode-ai/sdk/v2/client"
 import { useLanguage } from "@/context/language"
 import { extractSources } from "@/pages/session/session-status-extractors"
-import { selectSessionTodos } from "@/pages/session/session-todos"
+import { selectSessionTodoDataSnapshot } from "@/pages/session/session-todos"
 import type { SessionTodoItem } from "@/pages/session/todos/todo-model"
+import type { CanonicalTodoSnapshot } from "@/pages/session/todos/todo-source"
 
 function Section(props: { title: string; children: JSX.Element }) {
+  // No divider — sections are separated by 24px of breathing room only.
+  // Hairlines felt too "boxed in" against the warm-neutral surface; the
+  // generous py-6 (24px top + 24px bottom = 48px between sections) reads
+  // as a calm pause without enclosing each section in chrome.
   return (
-    <div class="flex flex-col gap-2 px-4 py-3">
-      <div class="text-h3 uppercase tracking-wide text-fg-weaker">{props.title}</div>
+    <div class="flex flex-col gap-2 px-4 py-6">
+      <div class="text-caption text-fg-weak">{props.title}</div>
       {props.children}
     </div>
   )
@@ -51,29 +55,40 @@ function SourceRow(props: { url: string }) {
 }
 
 export function SessionStatusSummary(props: {
-  backend?: Accessor<Todo[] | undefined>
-  backendClearActivePartsAt?: Accessor<number | undefined>
+  canonical?: Accessor<CanonicalTodoSnapshot | undefined>
+  isAuthoritativelyInvalidated?: Accessor<boolean>
+  isPending?: Accessor<boolean>
   parts: Accessor<Part[]>
 }) {
   const language = useLanguage()
-  const todos = createMemo(() =>
-    selectSessionTodos({
-      backend: props.backend?.(),
-      backendClearActivePartsAt: props.backendClearActivePartsAt?.(),
-      parts: props.parts(),
+  const snapshot = createMemo(() =>
+    selectSessionTodoDataSnapshot({
+      primary: {
+        canonical: props.canonical?.(),
+        isAuthoritativelyInvalidated: props.isAuthoritativelyInvalidated?.() ?? false,
+        isPending: props.isPending?.() ?? false,
+        parts: props.parts(),
+      },
     }),
   )
+  const todos = createMemo(() => snapshot().items)
   const sources = createMemo(() => extractSources(props.parts()))
 
+  // No outer wrapper — Section components attach directly to SessionStatusPanel's
+  // scroll container, so the first:border-t-0 selector correctly drops the leading
+  // hairline regardless of whether SessionStatusSummary's siblings (e.g.
+  // SessionStatusConnections below) come first or last in the DOM.
   return (
-    <div class="flex flex-col">
-      <Section title={language.t("status.summary.progress")}>
-        <Show when={todos().length > 0} fallback={<Empty text={language.t("status.summary.progress.empty")} />}>
-          <div class="flex flex-col">
-            <For each={todos()}>{(todo) => <TodoRow todo={todo} />}</For>
-          </div>
-        </Show>
-      </Section>
+    <>
+      <Show when={snapshot().phase !== "pending"}>
+        <Section title={language.t("status.summary.progress")}>
+          <Show when={todos().length > 0} fallback={<Empty text={language.t("status.summary.progress.empty")} />}>
+            <div class="flex flex-col">
+              <For each={todos()}>{(todo) => <TodoRow todo={todo} />}</For>
+            </div>
+          </Show>
+        </Section>
+      </Show>
 
       <Section title={language.t("status.summary.sources")}>
         <Show when={sources().length > 0} fallback={<Empty text={language.t("status.summary.sources.empty")} />}>
@@ -82,6 +97,6 @@ export function SessionStatusSummary(props: {
           </div>
         </Show>
       </Section>
-    </div>
+    </>
   )
 }

@@ -194,6 +194,24 @@ test("home composer region does not import session-only docks or composer state"
   }
 })
 
+test("todo progress is not a composer dock surface", () => {
+  const composerState = stripComments(read("./pages/session/composer/session-composer-state.ts"))
+  const composerRegion = stripComments(read("./pages/session/composer/session-composer-region.tsx"))
+  const sessionPage = stripComments(read("./pages/session.tsx"))
+  const scrollDock = stripComments(read("./pages/session/use-session-scroll-dock.ts"))
+  const scrollController = stripComments(read("./pages/session/session-timeline-scroll-controller.ts"))
+
+  for (const source of [composerState, composerRegion, sessionPage]) {
+    expect(source).not.toContain("createSessionTodoModel")
+    expect(source).not.toContain("SessionTodoDock")
+    expect(source).not.toContain("composerStateProbe")
+    expect(source).not.toContain("fallbackSessionID")
+  }
+
+  expect(scrollDock).not.toContain('"todo"')
+  expect(scrollController).not.toContain('"todo"')
+})
+
 test("session header uses a view title on home and breadcrumb title in sessions", () => {
   const sessionHeader = read("./components/session/session-header.tsx")
 

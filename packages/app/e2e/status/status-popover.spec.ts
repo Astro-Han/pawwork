@@ -1,4 +1,5 @@
 import { test, expect } from "../fixtures"
+import { rightPanelTabList } from "../actions"
 import { titlebarRightSelector } from "../selectors"
 
 test("desktop right-panel toggle opens the status tab by default", async ({ page, gotoSession }) => {
@@ -6,7 +7,7 @@ test("desktop right-panel toggle opens the status tab by default", async ({ page
 
   const rightToggle = page.locator(`${titlebarRightSelector} button`).first()
   const rightPanel = page.locator("#right-panel")
-  const shellTabList = rightPanel.getByRole("tablist").first()
+  const shellTabList = rightPanelTabList(page)
 
   await expect(rightPanel).toHaveAttribute("aria-hidden", "true")
 
@@ -14,13 +15,16 @@ test("desktop right-panel toggle opens the status tab by default", async ({ page
 
   await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
   await expect(shellTabList.getByRole("tab", { name: "Status", exact: true })).toHaveAttribute("aria-selected", "true")
-  await expect(rightPanel.getByRole("tab", { name: /servers/i })).toBeVisible()
-  await expect(rightPanel.getByRole("tab", { name: /mcp/i })).toBeVisible()
-  await expect(rightPanel.getByRole("tab", { name: /lsp/i })).toBeVisible()
-  await expect(rightPanel.getByRole("tab", { name: /plugins/i })).toBeVisible()
+  // Servers/MCP/LSP/Plugins render as collapsible SectionRow `<button aria-expanded>`
+  // inside the Status panel body (see SessionStatusConnections.SectionRow) —
+  // not as `role="tab"`. Mobile still uses tabs in the popover (separate test below).
+  await expect(rightPanel.getByRole("button", { name: /servers/i })).toBeVisible()
+  await expect(rightPanel.getByRole("button", { name: /mcp/i })).toBeVisible()
+  await expect(rightPanel.getByRole("button", { name: /lsp/i })).toBeVisible()
+  await expect(rightPanel.getByRole("button", { name: /plugins/i })).toBeVisible()
 })
 
-test("session status tab can switch to mcp", async ({ page, gotoSession }) => {
+test("session status panel can expand mcp section", async ({ page, gotoSession }) => {
   await gotoSession()
 
   const rightToggle = page.locator(`${titlebarRightSelector} button`).first()
@@ -28,10 +32,12 @@ test("session status tab can switch to mcp", async ({ page, gotoSession }) => {
 
   await rightToggle.click()
 
-  const mcpTab = rightPanel.getByRole("tab", { name: /mcp/i })
-  await mcpTab.click()
-  await expect(mcpTab).toHaveAttribute("aria-selected", "true")
-  await expect(rightPanel.locator('[role="tabpanel"]:visible').first()).toBeVisible()
+  // MCP section is a collapsible <button aria-expanded> row in the Status panel,
+  // not a tab — click toggles aria-expanded and reveals the section body.
+  const mcpRow = rightPanel.getByRole("button", { name: /mcp/i })
+  await expect(mcpRow).toHaveAttribute("aria-expanded", "false")
+  await mcpRow.click()
+  await expect(mcpRow).toHaveAttribute("aria-expanded", "true")
 })
 
 test("desktop right-panel toggle closes the right panel", async ({ page, gotoSession }) => {

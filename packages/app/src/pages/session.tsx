@@ -162,7 +162,6 @@ export default function Page() {
       : Promise.resolve()
   const composer = createSessionComposerState({
     sessionID: timelineSessionID,
-    fallbackSessionID: () => params.id,
   })
   createEffect(() => {
     const tab = activeFileTab()
@@ -212,7 +211,12 @@ export default function Page() {
     statusType: (id) => sync.data.session_status[id]?.type,
     blocked: composer.blocked,
     hasMessageCache: (id) => sync.data.message[id] !== undefined,
-    hasTodoCache: (id) => sync.data.todo[id] !== undefined || globalSync.data.session_todo[id] !== undefined,
+    hasTodoCache: (id) => globalSync.data.session_todo[id] !== undefined,
+    isTodoInvalidated: globalSync.todoHydrate.isAuthoritativelyInvalidated,
+    scheduleTodoHydrate: globalSync.todoHydrate.scheduleHydrate,
+    cancelTodoHydrate: globalSync.todoHydrate.cancelHydrate,
+    recoveryEpoch: globalSync.todoHydrate.recoveryEpoch,
+    validatedRecoveryEpoch: globalSync.todoHydrate.validatedRecoveryEpoch,
     syncSession: (id, options) => sync.session.sync(id, options),
     syncTodo: (id, options) => sync.session.todo(id, options),
     emitRendererDiagnostic,

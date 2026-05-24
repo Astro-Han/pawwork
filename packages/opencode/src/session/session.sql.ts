@@ -112,6 +112,14 @@ export const TodoTable = sqliteTable(
   ],
 )
 
+export const SessionTodoRevisionTable = sqliteTable("session_todo_revision", {
+  session_id: text()
+    .$type<SessionID>()
+    .primaryKey()
+    .references(() => SessionTable.id, { onDelete: "cascade" }),
+  revision: integer().notNull().default(0),
+})
+
 export const SessionEntryTable = sqliteTable(
   "session_entry",
   {

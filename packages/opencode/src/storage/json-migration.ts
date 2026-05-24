@@ -3,7 +3,14 @@ import type { NodeSQLiteDatabase } from "drizzle-orm/node-sqlite"
 import { Global } from "../global"
 import { Log } from "@opencode-ai/core/util/log"
 import { ProjectTable } from "../project/project.sql"
-import { SessionTable, MessageTable, PartTable, TodoTable, PermissionTable } from "../session/session.sql"
+import {
+  SessionTable,
+  MessageTable,
+  PartTable,
+  TodoTable,
+  SessionTodoRevisionTable,
+  PermissionTable,
+} from "../session/session.sql"
 import { SessionShareTable } from "../share/share.sql"
 import path from "path"
 import { existsSync } from "fs"
@@ -322,6 +329,7 @@ export namespace JsonMigration {
       const end = Math.min(i + batchSize, todoFiles.length)
       const batch = await read(todoFiles, i, end)
       const values = [] as any[]
+      const revisionValues = [] as any[]
       for (let j = 0; j < batch.length; j++) {
         const data = batch[j]
         if (!data) continue
@@ -334,6 +342,7 @@ export namespace JsonMigration {
           errs.push(`todo not an array: ${todoFiles[i + j]}`)
           continue
         }
+        let validCount = 0
         for (let position = 0; position < data.length; position++) {
           const todo = data[position]
           if (!todo?.content || !todo?.status || !todo?.priority) continue
@@ -351,9 +360,12 @@ export namespace JsonMigration {
             time_created: now,
             time_updated: now,
           })
+          validCount++
         }
+        if (validCount > 0) revisionValues.push({ session_id: sessionID, revision: 1 })
       }
       stats.todos += insert(values, TodoTable, "todo")
+      insert(revisionValues, SessionTodoRevisionTable, "todo revision")
       step("todos", end - i)
     }
     log.info("migrated todos", { count: stats.todos })

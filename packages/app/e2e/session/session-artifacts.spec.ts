@@ -1,5 +1,5 @@
 import { test, expect } from "../fixtures"
-import { openRightPanel, waitSessionIdle } from "../actions"
+import { openRightPanel, rightPanelTabList, waitSessionIdle } from "../actions"
 import { bodyText } from "../prompt/mock"
 
 test("added files stay quiet until the user opens the Files tab", async ({ page, llm, project }) => {
@@ -50,11 +50,11 @@ test("added files stay quiet until the user opens the Files tab", async ({ page,
   const rightPanel = page.locator('[data-component="right-panel"]')
   await expect(rightPanel).toHaveAttribute("aria-hidden", "true")
 
-  const panel = await openRightPanel(page)
-  await panel.getByRole("button", { name: "Add tab" }).click()
+  await openRightPanel(page)
+  const shellTabList = rightPanelTabList(page)
+  await shellTabList.getByRole("button", { name: "Add tab" }).click()
   await page.getByRole("menuitem", { name: "Files" }).click()
 
-  const shellTabList = panel.getByRole("tablist").first()
   const filesTab = shellTabList.getByRole("tab", { name: "Files", exact: true })
   await expect(filesTab).toHaveAttribute("aria-selected", "true")
   await expect(page.locator('[data-artifact-file="artifact-report.md"]')).toBeVisible({ timeout: 30000 })

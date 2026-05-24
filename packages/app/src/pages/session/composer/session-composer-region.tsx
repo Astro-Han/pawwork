@@ -1,6 +1,5 @@
-import { Show, createEffect, createMemo, createSignal, on } from "solid-js"
+import { Show, createEffect, createMemo } from "solid-js"
 import { useNavigate } from "@solidjs/router"
-import { useSpring } from "@opencode-ai/ui/motion-spring"
 import { DockCard, DockSegment } from "@opencode-ai/ui/dock-card"
 import { PromptInput } from "@/components/prompt-input"
 import { useLanguage } from "@/context/language"
@@ -13,8 +12,6 @@ import { SessionQuestionDock } from "@/pages/session/composer/session-question-d
 import { SessionFollowupDock } from "@/pages/session/composer/session-followup-dock"
 import { SessionRevertDock } from "@/pages/session/composer/session-revert-dock"
 import type { SessionComposerState } from "@/pages/session/composer/session-composer-state"
-import { DOCK_MOTION } from "@/pages/session/composer/motion"
-import { SessionTodoDock } from "@/pages/session/composer/session-todo-dock"
 import type { FollowupDraft } from "@/components/prompt-input/submit"
 
 export function SessionComposerRegion(props: {
@@ -88,39 +85,9 @@ export function SessionComposerRegion(props: {
 
   const rolled = createMemo(() => (props.revert?.items.length ? props.revert : undefined))
 
-  // Animate the Todo dock from 0 → visible only for newly created live todos
-  // (and back out when the dock closes). Restored session todos jump straight
-  // to the settled height so opening an existing session does not replay the
-  // entrance animation from history.
-  const dockOpen = createMemo(() => props.state.dock())
-  const [dockOpeningMotion, setDockOpeningMotion] = createSignal(false)
-  const dockSpring = useSpring(() => (dockOpen() ? 1 : 0), DOCK_MOTION)
-  createEffect(
-    on(
-      () => ({ open: dockOpen(), opening: props.state.opening(), key: displaySessionKey() }),
-      (current, previous) => {
-        if (!current.open) {
-          setDockOpeningMotion(false)
-          return
-        }
-        if (current.opening) setDockOpeningMotion(true)
-        else if (previous?.key !== current.key) setDockOpeningMotion(false)
-      },
-    ),
-  )
-  createEffect(() => {
-    if (dockOpeningMotion() && dockSpring() >= 0.999) setDockOpeningMotion(false)
-  })
-  const dockProgress = createMemo(() => {
-    const progress = Math.max(0, Math.min(1, dockSpring()))
-    if (dockOpen() && !dockOpeningMotion()) return 1
-    return progress
-  })
-  const dockMounted = createMemo(() => dockOpen() || dockProgress() > 0.001)
   const dockKind = createMemo(() => {
     if (props.state.questionRequest()) return "question"
     if (props.state.permissionRequest()) return "permission"
-    if (dockMounted()) return "todo"
     if (rolled()) return "revert"
     if (props.followup?.items.length) return "followup"
     if (showComposer()) return "prompt"
@@ -199,15 +166,6 @@ export function SessionComposerRegion(props: {
           >
             <div class="relative z-30">
               <DockCard class="overflow-visible!">
-                <Show when={dockMounted()}>
-                  <SessionTodoDock
-                    sessionID={displaySessionID()}
-                    todos={props.state.todos()}
-                    collapseLabel={language.t("session.todo.collapse")}
-                    expandLabel={language.t("session.todo.expand")}
-                    dockProgress={dockProgress()}
-                  />
-                </Show>
                 <Show when={rolled()} keyed>
                   {(revert) => (
                     <SessionRevertDock

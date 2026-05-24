@@ -99,7 +99,7 @@ export function createSessionScrollDock(input: {
   clearActiveMessage: () => void
   fill: () => void
   onDockHeightChange?: (event: {
-    dockKind: "composer" | "question" | "permission" | "todo" | "followup" | "revert" | "prompt"
+    dockKind: "composer" | "question" | "permission" | "followup" | "revert" | "prompt"
     composerHeight: number
     previousComposerHeight: number
     layoutTransactionHandled?: boolean
@@ -377,7 +377,6 @@ export function createSessionScrollDock(input: {
       value === "composer" ||
       value === "question" ||
       value === "permission" ||
-      value === "todo" ||
       value === "followup" ||
       value === "revert" ||
       value === "prompt"

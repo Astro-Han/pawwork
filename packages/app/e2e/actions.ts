@@ -334,6 +334,17 @@ export async function openRightPanel(page: Page) {
   return panel
 }
 
+/**
+ * Returns the right-panel shell tab strip. The Tabs.List is portalled into the
+ * titlebar (see <Titlebar> #pawwork-titlebar-tabs) so queries scoped to the
+ * complementary right panel no longer find it. Use this helper instead of
+ * `rightPanel.getByRole("tablist")` — it stays correct whether the tabs render
+ * portalled (desktop) or inline.
+ */
+export function rightPanelTabList(page: Page) {
+  return page.locator('[data-scope="right-panel"][data-component="tabs"]').getByRole("tablist").first()
+}
+
 export async function closeSidebar(page: Page) {
   if (await isSidebarClosed(page)) return
 

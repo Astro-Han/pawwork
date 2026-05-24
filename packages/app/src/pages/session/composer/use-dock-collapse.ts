@@ -9,8 +9,6 @@ import { DOCK_MOTION } from "./motion"
 // (collapsed widget header — DESIGN.md L305) and the measured full content
 // height.
 //
-// Todo dock keeps its own wiring because it layers a separate dockProgress
-// signal (whole-dock fade) on top of this base animation.
 export function useDockCollapse(collapsed: () => boolean) {
   const [height, setHeight] = createSignal(0)
   // contentRef is a signal so createResizeObserver reactively re-binds when
