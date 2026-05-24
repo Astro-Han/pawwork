@@ -18,7 +18,7 @@ import { sidebarStatusKind } from "./sidebar-status-kind"
 import { defaultNewSessionHref, defaultSessionHref, openShellLinkWithOwner } from "./sidebar-item-navigation"
 
 export type SessionSwitchPaint = {
-  sourceID?: string
+  sourceID: string
   targetID: string
 }
 
@@ -231,13 +231,13 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
 
           <Show when={!props.level}>
             <div class="relative shrink-0 flex items-center justify-end h-[20px] min-w-[20px]">
-              {/* default 4-state status (asking|busy|error|time) — fades on hover, never display:none per L35.
-                 Inner box centers icons in a 20px square but lets time text grow horizontally. */}
-              <div data-status-default class="pointer-events-none h-full min-w-[20px] flex items-center justify-center group-hover/session:opacity-0 group-focus-within/session:opacity-0 group-has-[[data-expanded]]/session:opacity-0">
+              {/* default 4-state status (asking|busy|error|time). The row paint contract in
+                 sidebar.css controls opacity so hover/menu/switching states stay in sync. */}
+              <div data-status-default class="h-full min-w-[20px] flex items-center justify-center">
                 {statusContent()}
               </div>
               {/* hover/focus/menu-open action overlay */}
-              <div data-status-overlay class="absolute inset-y-0 right-0 flex items-center justify-end opacity-0 pointer-events-none group-hover/session:opacity-100 group-hover/session:pointer-events-auto group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto group-has-[[data-expanded]]/session:opacity-100 group-has-[[data-expanded]]/session:pointer-events-auto">
+              <div data-status-overlay class="absolute inset-y-0 right-0 flex items-center justify-end">
                 <Show when={props.actionSlot}>{props.actionSlot?.(props.session)}</Show>
               </div>
             </div>

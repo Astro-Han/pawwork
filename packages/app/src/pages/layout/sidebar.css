@@ -1,9 +1,12 @@
+/* Session row paint contract:
+ * switching > selected > interaction (hover/focus/menu) > idle.
+ * Keep this priority centralized so row backgrounds and status/action opacity
+ * cannot stack competing visual states during route changes. */
 [data-component="pawwork-session-row"] {
   isolation: isolate;
   background-color: transparent;
 }
 
-/* Keep selected paint instant while preserving the soft hover/menu/focus fade. */
 [data-component="pawwork-session-row"]::before,
 [data-component="pawwork-session-row"]::after {
   content: "";
@@ -25,10 +28,7 @@
   transition: opacity var(--duration-fast) ease-out;
 }
 
-[data-component="pawwork-session-row"]:has(.active)::before {
-  opacity: 1;
-}
-
+[data-component="pawwork-session-row"]:has(.active)::before,
 [data-component="pawwork-session-row"][data-switch-paint="target"]::before {
   opacity: 1;
 }
@@ -42,7 +42,7 @@
   transition: none;
 }
 
-[data-component="pawwork-session-row"]:not(:has(.active)):where(
+[data-component="pawwork-session-row"]:not([data-switch-paint]):not(:has(.active)):where(
   :hover,
   :has(:focus-visible),
   :has([data-expanded])
@@ -63,25 +63,44 @@
   transition: opacity var(--duration-base) ease-out;
 }
 
+[data-component="pawwork-session-row"] [data-status-default] {
+  opacity: 1;
+  pointer-events: none;
+}
+
+[data-component="pawwork-session-row"] [data-status-overlay] {
+  opacity: 0;
+  pointer-events: none;
+}
+
 [data-component="pawwork-session-row"][data-switch-paint] [data-status-default],
 [data-component="pawwork-session-row"][data-switch-paint] [data-status-overlay] {
   transition: none;
 }
 
-[data-component="pawwork-session-row"][data-switch-paint="source"] [data-status-default],
-[data-component="pawwork-session-row"][data-switch-paint="target"] [data-status-overlay] {
-  opacity: 1;
-}
-
-[data-component="pawwork-session-row"][data-switch-paint="source"] [data-status-overlay],
+[data-component="pawwork-session-row"]:not([data-switch-paint]):where(
+  :hover,
+  :has(:focus-visible),
+  :has([data-expanded])
+) [data-status-default],
 [data-component="pawwork-session-row"][data-switch-paint="target"] [data-status-default] {
   opacity: 0;
 }
 
-[data-component="pawwork-session-row"][data-switch-paint="source"] [data-status-overlay] {
-  pointer-events: none;
+[data-component="pawwork-session-row"]:not([data-switch-paint]):where(
+  :hover,
+  :has(:focus-visible),
+  :has([data-expanded])
+) [data-status-overlay],
+[data-component="pawwork-session-row"][data-switch-paint="target"] [data-status-overlay] {
+  opacity: 1;
 }
 
+[data-component="pawwork-session-row"]:not([data-switch-paint]):where(
+  :hover,
+  :has(:focus-visible),
+  :has([data-expanded])
+) [data-status-overlay],
 [data-component="pawwork-session-row"][data-switch-paint="target"] [data-status-overlay] {
   pointer-events: auto;
 }

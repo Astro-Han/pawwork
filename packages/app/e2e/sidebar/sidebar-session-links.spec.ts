@@ -125,6 +125,10 @@ test("sidebar session selection paint switches without leaving the previous row 
     await nextFrame(page)
     await page.mouse.up()
 
+    const immediateTargetPaint = await sessionRowPaint(page, target.id)
+    expect(immediateTargetPaint.selectedLayerOpacity).toBe("1")
+    expect(immediateTargetPaint.hoverLayerOpacity).toBe("0")
+
     await expect(page).toHaveURL(new RegExp(`/${slug}/session/${target.id}(?:\\?|#|$)`))
 
     await expect(page.locator(`[data-session-id="${target.id}"] a`).first()).toHaveClass(/\bactive\b/)
@@ -139,6 +143,33 @@ test("sidebar session selection paint switches without leaving the previous row 
     expect(targetPaint.hoverLayerOpacity).toBe("0")
     expect(targetPaint.statusDefaultOpacity).toBe("0")
     expect(targetPaint.statusOverlayOpacity).toBe("1")
+  } finally {
+    await cleanupSession({ sdk, sessionID: source.id })
+    await cleanupSession({ sdk, sessionID: target.id })
+  }
+})
+
+test("sidebar switch paint suppresses hover before the active class arrives", async ({ page, sdk, gotoSession }) => {
+  const stamp = Date.now()
+
+  const source = await sdk.session.create({ title: `e2e sidebar switch source ${stamp}` }).then((r) => r.data)
+  const target = await sdk.session.create({ title: `e2e sidebar switch target ${stamp}` }).then((r) => r.data)
+
+  if (!source?.id) throw new Error("Source session create did not return an id")
+  if (!target?.id) throw new Error("Target session create did not return an id")
+
+  try {
+    await gotoSession(source.id)
+    await openSidebar(page)
+
+    const targetRow = page.locator(`[data-session-id="${target.id}"][data-component="pawwork-session-row"]`).first()
+    await expect(targetRow).toBeVisible()
+    await targetRow.hover()
+    await targetRow.evaluate((element) => element.setAttribute("data-switch-paint", "target"))
+
+    const targetPaint = await sessionRowPaint(page, target.id)
+    expect(targetPaint.selectedLayerOpacity).toBe("1")
+    expect(targetPaint.hoverLayerOpacity).toBe("0")
   } finally {
     await cleanupSession({ sdk, sessionID: source.id })
     await cleanupSession({ sdk, sessionID: target.id })
