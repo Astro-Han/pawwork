@@ -191,12 +191,14 @@ export function Titlebar() {
               absolute position trades a 240ms slide for a stable corner.
 
               The toggle visually overlaps the rightmost area of the tabs
-              slot when open, but in practice they don't collide: Kobalte's
-              `Tabs.List` sizes to its content (~150px for 1-4 chips, well
-              under the ~380px panel width), so the trailing `+` button
-              sits in the middle of the panel column with empty space to
-              its right. The toggle floats in that empty space at the
-              viewport corner.
+              slot when open. The slot explicitly reserves a 44px
+              padding-end (toggle width + viewport inset + gap + buffer;
+              see the math in the inline style on the slot below) so the
+              trailing `+` button cannot enter the toggle's hit-target
+              zone — even if a future change makes Kobalte's Tabs.List
+              fill the slot 100% (today it renders at content width as a
+              CSS side-effect; the reserve makes the no-collision contract
+              independent of that side-effect).
 
           "Borrowed identity": the tabs slot stamps `data-component="tabs"`
           + `data-variant="sidepanel"` + `data-scope` + `data-orientation`
@@ -235,7 +237,30 @@ export function Titlebar() {
           data-scope="right-panel"
           class="self-stretch flex flex-row items-center shrink-0"
           classList={{ "border-l border-border-weaker": tabsRailActive() }}
-          style={{ width: tabsRailWidth() }}
+          style={{
+            width: tabsRailWidth(),
+            // Reserve the rightmost area of the slot for the absolute-
+            // positioned toggle above it. Today Kobalte's Tabs.List renders
+            // at content-width (~150px for 1-4 chips), so the `+` button
+            // never reaches the slot's right edge and doesn't collide with
+            // the toggle's hit-target. That's a coincidence of the current
+            // CSS — if a future change makes Tabs.List fill 100% (a `w-full`
+            // on the consumer, a tabs.css refactor, a Kobalte upgrade), the
+            // `+` would slide under the toggle and intercept clicks meant
+            // for it. The explicit padding-end makes the right-edge zone
+            // part of the slot's layout contract, not a CSS coincidence.
+            //
+            // Math (44px): toggle button width 30 + `right-2` viewport
+            // inset 8 + minimum visual gap 4 + 2px buffer for the Tabs.List
+            // `px-1` content padding. Physical `padding-right` matches the
+            // physical `right-2`/`right-0` on the toggle — they must stay
+            // in the same writing-mode axis (both physical, or both
+            // logical) or RTL flips one but not the other.
+            //
+            // Only applied when the rail is active; an empty slot
+            // (panel closed, non-session route) needs no reserve.
+            "padding-right": tabsRailActive() ? "44px" : undefined,
+          }}
         />
         <div
           id="pawwork-titlebar-right"

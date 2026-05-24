@@ -213,13 +213,29 @@ export function SessionSidePanel(props: {
   // attribute lets a CSS rule in `index.css` turn the var transition off
   // for the drag without needing to plumb session-scope sizing state up
   // into the global layout context.
+  //
+  // The effect must guard against three leak paths that would lock the
+  // shell's transition off indefinitely (CSS rule is `!important`):
+  //  1. Viewport shrinks mid-drag and `isDesktop()` flips to false — the
+  //     early-return must not skip removing the attribute.
+  //  2. Navigation away from the session route unmounts SessionSidePanel
+  //     while drag is still "active" — `onCleanup` must remove the
+  //     attribute even if `props.size.active()` is still true.
+  //  3. Component re-mount finds a stale attribute from a previous
+  //     instance — we always clear before optionally re-setting.
   createEffect(() => {
-    if (!isDesktop()) return
-    const active = props.size.active()
     const shell = document.querySelector<HTMLElement>('[data-component="desktop-shell"]')
     if (!shell) return
-    if (active) shell.setAttribute("data-resizing-right-panel", "")
-    else shell.removeAttribute("data-resizing-right-panel")
+    // Always clear first; only re-set when desktop AND actively resizing.
+    shell.removeAttribute("data-resizing-right-panel")
+    if (!isDesktop()) return
+    if (props.size.active()) shell.setAttribute("data-resizing-right-panel", "")
+  })
+
+  onCleanup(() => {
+    document
+      .querySelector<HTMLElement>('[data-component="desktop-shell"]')
+      ?.removeAttribute("data-resizing-right-panel")
   })
 
   createEffect(() => {
