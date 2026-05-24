@@ -58,10 +58,10 @@
   position: static;
   z-index: auto;
   background: var(--surface-raised);
-}
 
-[data-picker-content] [data-slot="list-scroll"] [data-slot="list-group"] [data-slot="list-header"]::after {
-  display: none;
+  &::after {
+    display: none;
+  }
 }
 
 [data-picker-content] [data-slot="list-group"] {
