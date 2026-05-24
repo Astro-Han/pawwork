@@ -94,14 +94,6 @@
 ) [data-status-overlay],
 [data-component="pawwork-session-row"][data-switch-paint="target"] [data-status-overlay] {
   opacity: 1;
-}
-
-[data-component="pawwork-session-row"]:not([data-switch-paint]):where(
-  :hover,
-  :has(:focus-visible),
-  :has([data-expanded])
-) [data-status-overlay],
-[data-component="pawwork-session-row"][data-switch-paint="target"] [data-status-overlay] {
   pointer-events: auto;
 }
 
