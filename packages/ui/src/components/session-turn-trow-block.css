@@ -17,6 +17,10 @@
 [data-component="session-turn-trow-block"] {
   display: block;
   width: 100%;
+  --trow-collapse-transition:
+    height var(--duration-slow) cubic-bezier(0.16, 1, 0.3, 1),
+    opacity var(--duration-fast) ease-out,
+    content-visibility var(--duration-slow);
 }
 
 [data-component="session-turn-trow-block"] + [data-component="text-part"] {
@@ -38,10 +42,7 @@
     height: 0;
     opacity: 0;
     overflow: hidden;
-    transition:
-      height var(--duration-slow) cubic-bezier(0.16, 1, 0.3, 1),
-      opacity var(--duration-fast) ease-out,
-      content-visibility var(--duration-slow);
+    transition: var(--trow-collapse-transition);
     transition-behavior: allow-discrete;
   }
   [data-component="session-turn-trow-block"] details[open]::details-content {
@@ -225,14 +226,38 @@
 }
 
 [data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-component="collapsible"].tool-collapsible {
-  --tool-content-gap: 0px;
+  --tool-content-gap: 4px;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-component="tool-trigger"] {
+  gap: 8px;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="basic-tool-tool-trigger-content"] {
+  max-width: 100%;
 }
 
 [data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="collapsible-trigger"],
 [data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="basic-tool-tool-info"] {
   text-align: left;
+  cursor: text;
   -webkit-user-select: text;
   user-select: text;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="basic-tool-tool-title"],
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="basic-tool-tool-subtitle"],
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="basic-tool-tool-arg"],
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-component="tool-output"],
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-component="bash-output"],
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-component="exa-tool-output"] {
+  cursor: text;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="collapsible-arrow"] {
+  cursor: default;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 [data-component="session-turn-trow-block"] [data-slot="trow-summary"] {
@@ -343,9 +368,8 @@
     height: 0;
     opacity: 0;
     overflow: hidden;
-    transition:
-      height var(--duration-slow) cubic-bezier(0.16, 1, 0.3, 1),
-      opacity var(--duration-fast) ease-out;
+    transition: var(--trow-collapse-transition);
+    transition-behavior: allow-discrete;
   }
   [data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="collapsible-content"][data-expanded] {
     height: auto;

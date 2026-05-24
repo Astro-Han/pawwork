@@ -61,8 +61,23 @@ test("session-trow", async ({ page }) => {
     const pre = root.querySelector<HTMLElement>('[data-component="bash-output"] [data-slot="bash-pre"]')
     const code = pre?.querySelector<HTMLElement>("code")
     const summaryText = root.querySelector<HTMLElement>('[data-slot="trow-summary-text"]')
-    if (!body || !pre || !code || !summaryText) {
-      return { rowGap: "", prePadding: "", codeFontSize: "", codeLineHeight: "", summaryWhiteSpace: "" }
+    const openTool = pre?.closest<HTMLElement>('[data-slot="trow-result-body"]')
+    const trigger = openTool?.querySelector<HTMLElement>('[data-slot="collapsible-trigger"]')
+    const triggerContent = openTool?.querySelector<HTMLElement>('[data-slot="basic-tool-tool-trigger-content"]')
+    const arrow = openTool?.querySelector<HTMLElement>('[data-slot="collapsible-arrow"]')
+    const content = openTool?.querySelector<HTMLElement>('[data-slot="collapsible-content"]')
+    if (!body || !pre || !code || !summaryText || !trigger || !triggerContent || !arrow || !content) {
+      return {
+        rowGap: "",
+        prePadding: "",
+        codeFontSize: "",
+        codeLineHeight: "",
+        summaryWhiteSpace: "",
+        triggerCursor: "",
+        arrowGap: Number.NaN,
+        contentGap: Number.NaN,
+        contentTransitionProperty: "",
+      }
     }
     return {
       rowGap: getComputedStyle(body).rowGap,
@@ -70,6 +85,10 @@ test("session-trow", async ({ page }) => {
       codeFontSize: getComputedStyle(code).fontSize,
       codeLineHeight: getComputedStyle(code).lineHeight,
       summaryWhiteSpace: getComputedStyle(summaryText).whiteSpace,
+      triggerCursor: getComputedStyle(trigger).cursor,
+      arrowGap: Math.round(arrow.getBoundingClientRect().left - triggerContent.getBoundingClientRect().right),
+      contentGap: Math.round(content.getBoundingClientRect().top - trigger.getBoundingClientRect().bottom),
+      contentTransitionProperty: getComputedStyle(content).transitionProperty,
     }
   })
   expect(innerBashMetrics.rowGap).toBe("4px")
@@ -77,6 +96,11 @@ test("session-trow", async ({ page }) => {
   expect(innerBashMetrics.codeFontSize).toBe("12px")
   expect(innerBashMetrics.codeLineHeight).toBe("18px")
   expect(innerBashMetrics.summaryWhiteSpace).toBe("nowrap")
+  expect(innerBashMetrics.triggerCursor).toBe("text")
+  expect(innerBashMetrics.arrowGap).toBe(8)
+  expect(innerBashMetrics.contentGap).toBe(4)
+  expect(innerBashMetrics.contentTransitionProperty).toContain("height")
+  expect(innerBashMetrics.contentTransitionProperty).toContain("content-visibility")
   shots.push(await captureBlock("inner-bash-expanded", page.locator('[data-snap="inner-bash-expanded"]')))
 
   const toolOutputSpacing = page.locator('[data-snap="tool-output-spacing"]')
@@ -88,17 +112,22 @@ test("session-trow", async ({ page }) => {
       output?.querySelector<HTMLElement>("pre") ??
       output
     const triggers = root.querySelectorAll<HTMLElement>('[data-slot="collapsible-trigger"]')
+    const firstTrigger = triggers[0]
     const nextTrigger = triggers[1]
-    if (!output || !lastContent || !nextTrigger) return { outputGap: Number.NaN, contentGap: Number.NaN }
+    if (!output || !lastContent || !firstTrigger || !nextTrigger) {
+      return { outputGap: Number.NaN, contentGap: Number.NaN, triggerOutputGap: Number.NaN }
+    }
     return {
       outputGap: nextTrigger.getBoundingClientRect().top - output.getBoundingClientRect().bottom,
       contentGap: nextTrigger.getBoundingClientRect().top - lastContent.getBoundingClientRect().bottom,
+      triggerOutputGap: output.getBoundingClientRect().top - firstTrigger.getBoundingClientRect().bottom,
     }
   })
   expect(toolOutputMetrics.outputGap).toBeGreaterThanOrEqual(0)
   expect(toolOutputMetrics.outputGap).toBeLessThanOrEqual(8)
   expect(toolOutputMetrics.contentGap).toBeGreaterThanOrEqual(0)
   expect(toolOutputMetrics.contentGap).toBeLessThanOrEqual(8)
+  expect(Math.round(toolOutputMetrics.triggerOutputGap)).toBe(4)
   const toolOutputUserSelect = await toolOutputSpacing.evaluate((root) => {
     const summary = root.querySelector<HTMLElement>('[data-slot="trow-summary"]')
     const trigger = root.querySelector<HTMLElement>('[data-slot="collapsible-trigger"]')
