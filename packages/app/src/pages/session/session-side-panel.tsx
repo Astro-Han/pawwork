@@ -390,7 +390,13 @@ export function SessionSidePanel(props: {
                           )}
                         </For>
                       </SortableProvider>
-                      <div class="flex-1" />
+                      {/* Spacer must be `pointer-events-none` — Tabs.List re-enables
+                          pointer events for itself (so tab buttons can be clicked),
+                          but this flex-1 gap between the last tab and the `+` button
+                          overlaps the right utility toggle in `#pawwork-titlebar-right`
+                          and would silently swallow its clicks. Only interactive
+                          children should keep `pointer-events-auto`. */}
+                      <div class="flex-1 pointer-events-none" />
                       {/* 40px right-gutter reserve — matches docs/design/src/rightpanel.jsx,
                         gives the tab row breathing room against the panel edge. */}
                       <DropdownMenu gutter={4} placement="bottom-end">

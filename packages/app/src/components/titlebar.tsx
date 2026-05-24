@@ -169,39 +169,34 @@ export function Titlebar() {
           edge (`right: 0`). `border-l` puts the 1px on the slot's left edge,
           which is the same x as `right-panel-body`'s `border-l` immediately
           below it, so the two read as one continuous separator from titlebar
-          top to viewport bottom.
+          top to viewport bottom. Only populated when the right panel is open
+          (SessionSidePanel guards its Portal).
 
-          The `data-component="tabs"` + `data-variant="sidepanel"` + `data-scope`
-          + `data-orientation` attributes mirror what <Tabs variant="sidepanel">
-          renders on its root. Portalling Tabs.List takes it out of that ancestor,
-          so the CSS in packages/ui/src/components/tabs.css (which uses descendant
-          selectors like `[data-component="tabs"] [data-slot="tabs-list"]`) would
-          otherwise miss it — no flex, no height, no sidepanel hover/selected
-          colors. Stamping the same data attrs here lets all existing selectors
-          re-match without forking the stylesheet.
-
-          `flex-row` is intentional and not redundant: the same `[data-component="tabs"]`
-          rule that we are inheriting also sets `flex-direction: column` on the host
-          (it expects to wrap Tabs.List + Tabs.Content vertically). Without an explicit
-          override, the slot ends up as a column flex container and `items-center` would
-          align its single child horizontally instead of vertically, leaving the tabs
-          glued to the top of the titlebar.
-
-          Only populated when the right panel is open (SessionSidePanel guards its Portal). */}
-      {/* The slot is a portal landing pad, not a real Tabs root. It stamps
-          `data-component="tabs"` only so the existing sidepanel descendant
-          selectors in `packages/ui/src/components/tabs.css` still match the
-          portalled `Tabs.List`. Two consequences flow from that "borrowed
-          identity":
-          - Click occlusion: the slot's z-10 absolute box would swallow clicks
-            on the Right utility panel toggle in `#pawwork-titlebar-right`.
+          "Borrowed identity": the slot stamps `data-component="tabs"` +
+          `data-variant="sidepanel"` + `data-scope` + `data-orientation` so
+          the descendant selectors in `packages/ui/src/components/tabs.css`
+          (e.g. `[data-component="tabs"] [data-slot="tabs-list"]`) still match
+          the portalled `Tabs.List` — otherwise the strip would lose flex,
+          height, and sidepanel hover/selected colors. Two side effects to
+          neutralise:
+          - Click occlusion — the slot's z-10 absolute box would swallow
+            clicks on the Right utility panel toggle in `#pawwork-titlebar-right`.
             Fixed here with `pointer-events-none` on the slot; the portalled
-            tab buttons opt back in via `pointer-events-auto` on
-            `<Tabs.List>` (see session-side-panel.tsx).
-          - Visual occlusion: the base `[data-component="tabs"]` rule applies
+            tab buttons opt back in via `pointer-events-auto` on `<Tabs.List>`
+            (see session-side-panel.tsx, where the flex-1 spacer between the
+            last tab and the `+` button is itself re-set to `pointer-events-none`).
+          - Visual occlusion — the base `[data-component="tabs"]` rule applies
             `background-color: var(--bg-base)` to the host. The sidepanel
             variant resets that to transparent in tabs.css so the slot does
-            not paint over the toggle button beneath it. */}
+            not paint over the toggle button beneath it.
+
+          `flex-row` is intentional and not redundant: the same
+          `[data-component="tabs"]` rule that we're inheriting also sets
+          `flex-direction: column` on the host (it expects to wrap Tabs.List
+          + Tabs.Content vertically). Without an explicit override, the slot
+          ends up as a column flex container and `items-center` would align
+          its single child horizontally instead of vertically, leaving the
+          tabs glued to the top of the titlebar. */}
       <div
         id="pawwork-titlebar-tabs"
         data-shell-slot="tabs-portal"

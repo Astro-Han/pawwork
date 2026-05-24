@@ -69,9 +69,12 @@ export function ShellTab(props: {
     props.onClose(props.value)
 
     // Wait one tick for Solid to commit the DOM removal, then restore focus.
+    // Re-check `isConnected` inside the rAF: rapid successive closes can
+    // remove the captured sibling before its frame fires, and calling
+    // `.focus()` on a detached node silently moves focus to <body>.
     if (focusTarget) {
       requestAnimationFrame(() => {
-        focusTarget?.focus()
+        if (focusTarget?.isConnected) focusTarget.focus()
       })
     }
   }
@@ -101,10 +104,11 @@ export function ShellTab(props: {
       }}
       onMiddleClick={close}
       aria-label={props.label}
-      // Advertise the Delete key shortcut to assistive technology — only on
-      // closable tabs, since Status's onKeyDown is a no-op and exposing the
-      // shortcut there would be a false promise.
-      aria-keyshortcuts={props.closable ? "Delete" : undefined}
+      // Advertise both close shortcuts to assistive technology — handler
+      // below accepts Delete OR Backspace (the macOS alias). Space-separated
+      // per ARIA spec. Only declared on closable tabs; Status's onKeyDown is
+      // a no-op and exposing the shortcut there would be a false promise.
+      aria-keyshortcuts={props.closable ? "Delete Backspace" : undefined}
       onKeyDown={
         props.closable
           ? (event: KeyboardEvent) => {

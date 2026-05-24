@@ -32,7 +32,10 @@ async function openExtraTabs(page: Page) {
   await page.locator("main").first().click()
   await page.keyboard.press(`${modKey}+\\`) // fileTree.toggle
   await page.keyboard.press(`${modKey}+Shift+R`) // review.toggle
-  await expect.poll(() => page.getByRole("tab").count(), { timeout: 5_000 }).toBe(3)
+  // `>= 3` not `=== 3` — Status / Files / Review are the three this spec
+  // exercises, but a future default-open tab (Terminal / 上下文 / …) would
+  // otherwise fail this gate before reaching the actual assertions.
+  await expect.poll(() => page.getByRole("tab").count(), { timeout: 5_000 }).toBeGreaterThanOrEqual(3)
 }
 
 async function ensureRightPanelOpen(page: Page) {
@@ -50,27 +53,29 @@ test.describe("right-panel tab chip + × contract", () => {
     await page.mouse.move(0, 0) // no hover; rest state
 
     const tokenAndComputed = await page.evaluate(() => {
-      const root = document.documentElement
-      const tokenRaw = getComputedStyle(root).getPropertyValue("--row-active-overlay").trim()
+      // Resolve the active-overlay token by painting it onto a throwaway
+      // element so the browser canonicalises the rgba string. Comparing the
+      // raw `--row-active-overlay` value would only match if the token were
+      // already in the exact `rgba(…)` form the renderer emits.
+      const probe = document.createElement("div")
+      probe.style.backgroundColor = "var(--row-active-overlay)"
+      document.body.appendChild(probe)
+      const expected = getComputedStyle(probe).backgroundColor
+      probe.remove()
       // Chip background lives on the wrapper now (matches the sidebar session
       // row's chip-on-container vocabulary), not the inner trigger button.
       const wrap = document.querySelector(
         '[data-slot="tabs-trigger-wrapper"][data-value="files"]',
       ) as HTMLElement | null
       const computed = wrap ? getComputedStyle(wrap).backgroundColor : ""
-      return { tokenRaw, computed }
+      return { expected, computed }
     })
 
-    // --row-active-overlay is defined as rgba(0,0,0,0.06) light / rgba(255,255,255,0.06) dark.
-    // We just assert the token resolves to a low-alpha rgba (not the previous
-    // opaque var(--sidebar) hex) so this test survives palette tweaks.
-    expect(tokenAndComputed.tokenRaw).toMatch(/rgba?\(/)
-    expect(tokenAndComputed.computed).toMatch(/rgba\(/) // not transparent, not solid hex
-    const alphaMatch = tokenAndComputed.computed.match(/rgba?\([^)]*,\s*([\d.]+)\s*\)/)
-    expect(alphaMatch).not.toBeNull()
-    const alpha = Number(alphaMatch![1])
-    expect(alpha).toBeGreaterThan(0)
-    expect(alpha).toBeLessThan(0.2) // overlay band, not opaque
+    // Exact match against the resolved `--row-active-overlay` token.
+    // Replacing the token with `--row-hover-overlay` (different alpha) or
+    // any other low-alpha rgba would now break this test — the previous
+    // alpha-range check tolerated that silently.
+    expect(tokenAndComputed.computed).toBe(tokenAndComputed.expected)
   })
 
   test("× glyph stays ~8px (subordinate to the 14px leading icon)", async ({ page, gotoSession }) => {
@@ -218,26 +223,32 @@ test.describe("right-panel tab chip + × contract", () => {
     await page.getByRole("tab", FILES_TAB).hover()
 
     const colors = await page.evaluate(() => {
-      const root = document.documentElement
-      const hoverToken = getComputedStyle(root).getPropertyValue("--row-hover-overlay").trim()
-      const activeToken = getComputedStyle(root).getPropertyValue("--row-active-overlay").trim()
+      // Resolve hover + active tokens through actual paint (same trick as
+      // the selected-overlay test) so we can compare rgba strings exactly.
+      const resolve = (varName: string) => {
+        const probe = document.createElement("div")
+        probe.style.backgroundColor = `var(${varName})`
+        document.body.appendChild(probe)
+        const out = getComputedStyle(probe).backgroundColor
+        probe.remove()
+        return out
+      }
+      const hoverExpected = resolve("--row-hover-overlay")
+      const activeExpected = resolve("--row-active-overlay")
       // Chip backgrounds now live on the wrapper, not the trigger button.
       const wrap = document.querySelector(
         '[data-slot="tabs-trigger-wrapper"][data-value="files"]',
       ) as HTMLElement | null
       const bg = wrap ? getComputedStyle(wrap).backgroundColor : ""
-      return { bg, hoverToken, activeToken }
+      return { bg, hoverExpected, activeExpected }
     })
 
-    const alpha = (rgba: string) => {
-      const m = rgba.match(/rgba?\([^)]*,\s*([\d.]+)\s*\)/)
-      return m ? Number(m[1]) : NaN
-    }
-    // Hover paints SOME overlay (alpha between 0 and the active value).
-    expect(colors.bg).toMatch(/rgba\(/)
-    const bgAlpha = alpha(colors.bg)
-    expect(bgAlpha).toBeGreaterThan(0)
-    expect(bgAlpha).toBeLessThanOrEqual(alpha(colors.activeToken))
+    // Exact-token match: hover state must paint `--row-hover-overlay`
+    // verbatim, not "some other low-alpha rgba". The selected overlay is a
+    // distinct token at a different alpha; swapping them silently must fail
+    // here.
+    expect(colors.bg).toBe(colors.hoverExpected)
+    expect(colors.bg).not.toBe(colors.activeExpected)
   })
 
   test("short sidepanel tabs share a 72px min-width footprint", async ({ page, gotoSession }) => {
@@ -264,10 +275,20 @@ test.describe("right-panel tab chip + × contract", () => {
     )
 
     const MIN_WIDTH_PX = 72
-    expect(widths.length).toBeGreaterThanOrEqual(3)
-    for (const t of widths) {
-      expect(t.width).toBeGreaterThanOrEqual(MIN_WIDTH_PX - 1) // -1 for rounding
-    }
+    // In production Chinese ("状态" / "文件" / "评审" all 2 full-width CJK
+    // chars) all three short tabs hit the min-width floor exactly. In the
+    // e2e Latin environment "Status" (40px) and "Files" (28.6px) still fall
+    // under the floor and snap to 72; "Review" (43.9px in system-ui) plus
+    // icon + gap + padding adds up to ~73px, just over the floor, so it
+    // renders at its natural width. Assert per-tab to lock both bands:
+    //   - Status + Files: exactly 72 (the floor is the only thing keeping
+    //     them uniform — drop min-width and they shrink visibly)
+    //   - Review: at least 72 (it stretches naturally above the floor here,
+    //     but in Chinese it lands at 72; tolerate either)
+    const byValue = Object.fromEntries(widths.map((w) => [w.value, w.width]))
+    expect(byValue.status).toBe(MIN_WIDTH_PX)
+    expect(byValue.files).toBe(MIN_WIDTH_PX)
+    expect(byValue.review).toBeGreaterThanOrEqual(MIN_WIDTH_PX)
   })
 
   test("closable wrapper has no trailing padding (parity with non-closable)", async ({ page, gotoSession }) => {
@@ -332,36 +353,47 @@ test.describe("right-panel tab chip + × contract", () => {
     await page.getByRole("tab", REVIEW_TAB).hover() // also closes the hover test cleanly
   })
 
-  test("trigger gap is 8px and tabs-list gap is 4px (both on the 4pt grid)", async ({ page, gotoSession }) => {
-    // DESIGN.md L233: gap/padding/margin must be multiples of 4. The previous
-    // production values `gap-1.5` (6px) and `px-2.5` (10px) drifted off the
-    // 4pt grid; PR #880 unified the chip's internal gap to 8px (icon↔label)
-    // and the strip's between-chip gap to 4px (--space-xs) so chips read as a
-    // tight strip rather than spaced-out cards. Pin both so a future Tailwind
-    // tweak cannot quietly revert to off-grid.
+  test("chip geometry pins to the 4pt grid (gap, padding, radius)", async ({ page, gotoSession }) => {
+    // DESIGN.md L233 (4pt grid) + L305 (radius tiers sm/md/lg = 6/10/14).
+    // The previous production values `gap-1.5` (6px) and `px-2.5` (10px)
+    // drifted off the 4pt grid; PR #880 settled the full chip geometry:
+    //   - list  gap (between chips)             : 4px (--space-xs)
+    //   - trigger gap (icon ↔ label)            : 8px (--space-sm)
+    //   - trigger padding-inline (chip edge)    : 4px (--space-xs)
+    //   - wrapper border-radius (chip corner)   : 10px (--radius-md)
+    // Pin every value so a future Tailwind/token tweak cannot quietly drift
+    // any one of them off the contract.
     await gotoSession()
     await ensureRightPanelOpen(page)
     await openExtraTabs(page)
     await page.mouse.move(0, 0)
 
-    const gaps = await page.evaluate(() => {
+    const geometry = await page.evaluate(() => {
       // Scope to the sidepanel-variant tabs (right-panel strip) — the doc
       // may host other tablists whose spacing is unrelated.
       const list = document.querySelector(
         '[data-component="tabs"][data-variant="sidepanel"] [data-slot="tabs-list"]',
       ) as HTMLElement | null
-      // Trigger is inline-flex (SortableTab sets `gap-1.5 px-2.5` …→ now
-      // `gap-2 px-2`); the column-gap is the leading-icon ↔ label spacing.
-      const trigger = document.querySelector(
-        '[data-slot="tabs-trigger-wrapper"][data-value="files"] [data-slot="tabs-trigger"]',
+      const wrap = document.querySelector(
+        '[data-slot="tabs-trigger-wrapper"][data-value="files"]',
       ) as HTMLElement | null
+      const trigger = wrap?.querySelector('[data-slot="tabs-trigger"]') as HTMLElement | null
+      const listCS = list ? getComputedStyle(list) : null
+      const wrapCS = wrap ? getComputedStyle(wrap) : null
+      const trigCS = trigger ? getComputedStyle(trigger) : null
       return {
-        listGap: list ? getComputedStyle(list).columnGap : null,
-        triggerGap: trigger ? getComputedStyle(trigger).columnGap : null,
+        listGap: listCS?.columnGap ?? null,
+        triggerGap: trigCS?.columnGap ?? null,
+        triggerPaddingLeft: trigCS?.paddingLeft ?? null,
+        triggerPaddingRight: trigCS?.paddingRight ?? null,
+        wrapperBorderRadius: wrapCS?.borderTopLeftRadius ?? null,
       }
     })
 
-    expect(gaps.listGap).toBe("4px")
-    expect(gaps.triggerGap).toBe("8px")
+    expect(geometry.listGap).toBe("4px")
+    expect(geometry.triggerGap).toBe("8px")
+    expect(geometry.triggerPaddingLeft).toBe("4px")
+    expect(geometry.triggerPaddingRight).toBe("4px")
+    expect(geometry.wrapperBorderRadius).toBe("10px")
   })
 })
