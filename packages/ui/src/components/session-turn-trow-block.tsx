@@ -1,5 +1,6 @@
 import { For, Show, createMemo, createSignal, type JSX } from "solid-js"
 import type { ToolPart } from "@opencode-ai/sdk/v2"
+import { patchFiles } from "./apply-patch-file"
 import { Icon, type IconName } from "./icon"
 import "./session-turn-trow-block.css"
 
@@ -97,6 +98,37 @@ export function activeTrowTool(parts: readonly ToolPart[], working = false): Too
   return parts[parts.length - 1]
 }
 
+export function trowPartHasExpandableBody(part: ToolPart): boolean {
+  const state = part.state
+  if (state.status === "error") return true
+  if (state.status !== "completed") return false
+  if (state.output) return true
+
+  const input = state.input ?? {}
+  const metadata = state.metadata ?? {}
+
+  switch (part.tool) {
+    case "question":
+      return (
+        Array.isArray(input.questions) &&
+        input.questions.length > 0 &&
+        Array.isArray(metadata.answers) &&
+        metadata.answers.length > 0
+      )
+    case "edit":
+      return (
+        !!metadata.filediff ||
+        (typeof input.filePath === "string" && (input.oldString != null || input.newString != null))
+      )
+    case "write":
+      return typeof input.filePath === "string" && input.content != null
+    case "apply_patch":
+      return patchFiles(metadata.files).length > 0
+    default:
+      return false
+  }
+}
+
 export function trowBlockAnchor(parts: readonly ToolPart[]): string {
   return `trow:${parts[0]?.id ?? "empty"}`
 }
@@ -164,16 +196,9 @@ export function TrowBlock(props: TrowBlockProps) {
     return active ? toolFamilyIcon(active.tool) : summary().leadingIcon
   })
 
-  // Suppress the chev (and the disclosure affordance) when no tool in the
-  // group has any per-row body worth expanding. We approximate this by
-  // checking for either `state.output` (completed) or an
-  // `error` (errored) — pending / running tools alone do not earn a chev
-  // (matches W1 preview's "无中间输出的工具 summary 不渲染 chev" rule).
-  const hasExpandableBody = createMemo(() =>
-    props.parts.some(
-      (part) => part.state.status === "error" || (part.state.status === "completed" && !!part.state.output),
-    ),
-  )
+  // Suppress the chev when no tool in the group has a visible expanded body.
+  // Some renderers show details from input/metadata instead of state.output.
+  const hasExpandableBody = createMemo(() => props.parts.some(trowPartHasExpandableBody))
   const renderToolItem = (part: ToolPart) => (
     <Show when={props.renderTool} fallback={renderDefaultToolItem(part)}>
       <div data-slot="trow-tool">{props.renderTool?.(part)}</div>

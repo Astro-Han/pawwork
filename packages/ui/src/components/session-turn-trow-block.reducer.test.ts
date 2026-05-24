@@ -3,25 +3,33 @@ import type { ToolPart, ToolState } from "@opencode-ai/sdk/v2"
 import {
   activeTrowTool,
   reduceTrowBlock,
+  trowPartHasExpandableBody,
   trowBlockAnchor,
   toolFamilyIcon,
 } from "./session-turn-trow-block"
 
-function tool(id: string, name: string, status: ToolState["status"] = "completed"): ToolPart {
+function tool(
+  id: string,
+  name: string,
+  status: ToolState["status"] = "completed",
+  options: { input?: Record<string, unknown>; output?: string; metadata?: Record<string, unknown> } = {},
+): ToolPart {
+  const input = options.input ?? {}
+  const metadata = options.metadata ?? {}
   let state: ToolState
   switch (status) {
     case "pending":
-      state = { status: "pending", input: {}, raw: "" }
+      state = { status: "pending", input, raw: "" }
       break
     case "running":
-      state = { status: "running", input: {}, time: { start: 0 } }
+      state = { status: "running", input, time: { start: 0 } }
       break
     case "error":
-      state = { status: "error", input: {}, error: "boom", time: { start: 0, end: 1 } }
+      state = { status: "error", input, error: "boom", time: { start: 0, end: 1 } }
       break
     case "completed":
     default:
-      state = { status: "completed", input: {}, output: "", title: "", metadata: {}, time: { start: 0, end: 1 } }
+      state = { status: "completed", input, output: options.output ?? "", title: "", metadata, time: { start: 0, end: 1 } }
   }
   return {
     id,
@@ -136,6 +144,75 @@ describe("activeTrowTool", () => {
 
     expect(activeTrowTool(parts, true)?.id).toBe("b")
     expect(activeTrowTool(parts, false)).toBeUndefined()
+  })
+})
+
+describe("trowPartHasExpandableBody", () => {
+  test("keeps the chevron for completed output and errors", () => {
+    expect(trowPartHasExpandableBody(tool("output", "bash", "completed", { output: "done" }))).toBe(true)
+    expect(trowPartHasExpandableBody(tool("error", "bash", "error"))).toBe(true)
+  })
+
+  test("keeps the chevron for completed question answers without output", () => {
+    expect(
+      trowPartHasExpandableBody(
+        tool(
+          "question",
+          "question",
+          "completed",
+          {
+            input: { questions: [{ question: "Continue?" }] },
+            metadata: { answers: [["Yes"]] },
+          },
+        ),
+      ),
+    ).toBe(true)
+  })
+
+  test("keeps the chevron for completed edit details without output", () => {
+    expect(
+      trowPartHasExpandableBody(
+        tool("edit", "edit", "completed", {
+          input: { filePath: "/tmp/example.txt", oldString: "before", newString: "after" },
+        }),
+      ),
+    ).toBe(true)
+  })
+
+  test("keeps the chevron for completed write content without output", () => {
+    expect(
+      trowPartHasExpandableBody(
+        tool("write", "write", "completed", {
+          input: { filePath: "/tmp/example.txt", content: "hello" },
+        }),
+      ),
+    ).toBe(true)
+  })
+
+  test("keeps the chevron for completed apply_patch files without output", () => {
+    expect(
+      trowPartHasExpandableBody(
+        tool("patch", "apply_patch", "completed", {
+          metadata: {
+            files: [
+              {
+                filePath: "/tmp/example.txt",
+                relativePath: "example.txt",
+                type: "add",
+                before: "",
+                after: "hello",
+                additions: 1,
+                deletions: 0,
+              },
+            ],
+          },
+        }),
+      ),
+    ).toBe(true)
+  })
+
+  test("does not add a chevron for completed tools with no visible body", () => {
+    expect(trowPartHasExpandableBody(tool("empty", "skill", "completed"))).toBe(false)
   })
 })
 

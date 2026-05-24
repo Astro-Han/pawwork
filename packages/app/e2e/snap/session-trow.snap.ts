@@ -213,6 +213,22 @@ test("session-trow", async ({ page }) => {
   expect(questionMetrics.lineHeight).toBe("18px")
   shots.push(await captureBlock("question-expanded", questionExpanded))
 
+  const metadataDetailCollapsed = page.locator('[data-snap="metadata-detail-collapsed"]')
+  await expect(metadataDetailCollapsed.locator('[data-slot="trow-summary-chev"]')).toBeVisible({ timeout: 30_000 })
+  await expect(metadataDetailCollapsed).not.toContainText("这组工具详情还能看到吗?", { timeout: 30_000 })
+  shots.push(await captureBlock("metadata-detail-collapsed", metadataDetailCollapsed))
+
+  const metadataDetailExpanded = page.locator('[data-snap="metadata-detail-expanded"]')
+  await expect(metadataDetailExpanded.locator('[data-component="question-answers"]')).toBeVisible({ timeout: 30_000 })
+  await expect(metadataDetailExpanded).toContainText("这组工具详情还能看到吗?", { timeout: 30_000 })
+  await expect(metadataDetailExpanded).toContainText("可以", { timeout: 30_000 })
+  await expect(metadataDetailExpanded.locator('[data-component="edit-content"]')).toBeVisible({ timeout: 30_000 })
+  await expect(metadataDetailExpanded.locator('[data-component="write-content"]')).toBeVisible({ timeout: 30_000 })
+  await expect(metadataDetailExpanded.locator('[data-component="apply-patch-file-diff"]')).toBeVisible({
+    timeout: 30_000,
+  })
+  shots.push(await captureBlock("metadata-detail-expanded", metadataDetailExpanded))
+
   const singleDirect = page.locator('[data-snap="single-command-direct"]')
   await expect(singleDirect.locator('[data-component="session-turn-trow-block"][data-single]')).toBeVisible({
     timeout: 30_000,

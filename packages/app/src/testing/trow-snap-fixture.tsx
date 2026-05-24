@@ -2,6 +2,7 @@ import { Dynamic, render } from "solid-js/web"
 import type { AssistantMessage, ToolPart, ToolState } from "@opencode-ai/sdk/v2"
 import { BasicTool } from "@opencode-ai/ui/basic-tool"
 import { DataProvider, I18nProvider, type UiI18nKey, type UiI18nParams } from "@opencode-ai/ui/context"
+import { FileComponentProvider } from "@opencode-ai/ui/context/file"
 import { MarkedProvider } from "@opencode-ai/ui/context/marked"
 import { dict as zh } from "@opencode-ai/ui/i18n/zh"
 import { AssistantParts, contextTrowSummaryText, ToolRegistry } from "@opencode-ai/ui/message-part"
@@ -154,6 +155,51 @@ const questionDetailParts = [
     { answers: [["够了"]] },
   ),
 ]
+const metadataDetailParts = [
+  realTool(
+    "metadata-detail-question",
+    "question",
+    {
+      questions: [
+        {
+          header: "Follow up",
+          question: "这组工具详情还能看到吗?",
+          options: [{ label: "可以" }],
+        },
+      ],
+    },
+    "",
+    { answers: [["可以"]] },
+  ),
+  realTool("metadata-detail-edit", "edit", {
+    filePath: "/Users/yuhan/PawWork/temp/tool-test-output.md",
+    oldString: "before",
+    newString: "after",
+  }),
+  realTool("metadata-detail-write", "write", {
+    filePath: "/Users/yuhan/PawWork/temp/new-file.md",
+    content: "# New file\n\nhello",
+  }),
+  realTool(
+    "metadata-detail-patch",
+    "apply_patch",
+    {},
+    "",
+    {
+      files: [
+        {
+          filePath: "/Users/yuhan/PawWork/temp/patched-file.md",
+          relativePath: "temp/patched-file.md",
+          type: "add",
+          before: "",
+          after: "# Patched file\n",
+          additions: 1,
+          deletions: 0,
+        },
+      ],
+    },
+  ),
+]
 
 function resolveTemplate(text: string, params?: UiI18nParams) {
   if (!params) return text
@@ -177,6 +223,10 @@ const fixtureData = {
   turn_change_aggregate: {},
   message: {},
   part: {},
+}
+
+function FileStub() {
+  return <div style={{ padding: "8px", color: "var(--fg-weak)", "font-size": "12px" }}>File viewer stub</div>
 }
 
 const snapAssistantMessage = {
@@ -277,13 +327,15 @@ function BashOutput(props: { command: string; output?: string }) {
   )
 }
 
-function renderRegisteredTool(prefix: string, openTool?: string) {
+function renderRegisteredTool(prefix: string, openTool?: string | readonly string[]) {
   return (part: ToolPart) => {
     const component = ToolRegistry.render(part.tool)
     const state = part.state
     const input = state.input ?? {}
     const output = state.status === "completed" ? state.output : undefined
     const metadata = state.status === "completed" ? (state.metadata ?? {}) : {}
+    const open =
+      Array.isArray(openTool) ? openTool.includes(part.id) : part.id === (openTool ?? "websearch-real")
     return (
       <div data-slot="trow-result-body" data-timeline-anchor={`tool:${part.id}`}>
         <Dynamic
@@ -293,7 +345,7 @@ function renderRegisteredTool(prefix: string, openTool?: string) {
           metadata={metadata}
           output={output}
           status={state.status}
-          defaultOpen={part.id === (openTool ?? "websearch-real")}
+          defaultOpen={open}
           stateKey={`${prefix}:${part.id}`}
         />
       </div>
@@ -402,6 +454,28 @@ function TrowSnapFixture() {
           renderTool={renderRegisteredTool("question-detail", "question-detail-real")}
         />
       </div>
+      <div data-snap="metadata-detail-collapsed">
+        <TrowBlock
+          parts={metadataDetailParts}
+          labels={labels}
+          describeTool={describeTool}
+          renderTool={renderRegisteredTool("metadata-detail-collapsed")}
+        />
+      </div>
+      <div data-snap="metadata-detail-expanded">
+        <TrowBlock
+          parts={metadataDetailParts}
+          defaultOpen
+          labels={labels}
+          describeTool={describeTool}
+          renderTool={renderRegisteredTool("metadata-detail-expanded", [
+            "metadata-detail-question",
+            "metadata-detail-edit",
+            "metadata-detail-write",
+            "metadata-detail-patch",
+          ])}
+        />
+      </div>
       <div data-snap="single-command-direct">
         <TrowBlock
           parts={singleQuietParts}
@@ -453,7 +527,9 @@ export function mountTrowSnapFixture(root: HTMLElement) {
       <I18nProvider value={zhI18n}>
         <MarkedProvider>
           <DataProvider data={fixtureData} directory="/Users/yuhan/PawWork">
-            <TrowSnapFixture />
+            <FileComponentProvider component={FileStub}>
+              <TrowSnapFixture />
+            </FileComponentProvider>
           </DataProvider>
         </MarkedProvider>
       </I18nProvider>
