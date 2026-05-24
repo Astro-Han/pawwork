@@ -169,6 +169,16 @@ describe("trowPartHasExpandableBody", () => {
     ).toBe(true)
   })
 
+  test("keeps the chevron for completed dismissed questions without output", () => {
+    expect(
+      trowPartHasExpandableBody(
+        tool("question", "question", "completed", {
+          metadata: { dismissed: true },
+        }),
+      ),
+    ).toBe(true)
+  })
+
   test("keeps the chevron for completed edit details without output", () => {
     expect(
       trowPartHasExpandableBody(

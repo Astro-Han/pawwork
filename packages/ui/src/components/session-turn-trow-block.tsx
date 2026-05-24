@@ -110,6 +110,7 @@ export function trowPartHasExpandableBody(part: ToolPart): boolean {
   switch (part.tool) {
     case "question":
       return (
+        metadata.dismissed === true ||
         Array.isArray(input.questions) &&
         input.questions.length > 0 &&
         Array.isArray(metadata.answers) &&

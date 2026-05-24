@@ -213,6 +213,14 @@ test("session-trow", async ({ page }) => {
   expect(questionMetrics.lineHeight).toBe("18px")
   shots.push(await captureBlock("question-expanded", questionExpanded))
 
+  const dismissedQuestion = page.locator('[data-snap="dismissed-question-collapsed"]')
+  await expect(dismissedQuestion.locator('[data-slot="trow-summary-chev"]')).toBeVisible({ timeout: 30_000 })
+  await expect(dismissedQuestion.getByText("问题已忽略")).toBeHidden({ timeout: 30_000 })
+  shots.push(await captureBlock("dismissed-question-collapsed", dismissedQuestion))
+  await dismissedQuestion.locator('[data-slot="trow-summary"]').click()
+  await expect(dismissedQuestion.getByText("问题已忽略")).toBeVisible({ timeout: 30_000 })
+  shots.push(await captureBlock("dismissed-question-expanded", dismissedQuestion))
+
   const metadataDetailCollapsed = page.locator('[data-snap="metadata-detail-collapsed"]')
   await expect(metadataDetailCollapsed.locator('[data-slot="trow-summary-chev"]')).toBeVisible({ timeout: 30_000 })
   await expect(metadataDetailCollapsed).not.toContainText("这组工具详情还能看到吗?", { timeout: 30_000 })

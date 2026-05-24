@@ -155,6 +155,24 @@ const questionDetailParts = [
     { answers: [["够了"]] },
   ),
 ]
+const dismissedQuestionParts = [
+  realTool(
+    "dismissed-question-real",
+    "question",
+    {
+      questions: [
+        {
+          header: "Follow up",
+          question: "要继续吗?",
+          options: [{ label: "继续" }],
+        },
+      ],
+    },
+    "",
+    { dismissed: true },
+  ),
+  realTool("dismissed-question-skill", "skill", { name: "debug" }),
+]
 const metadataDetailParts = [
   realTool(
     "metadata-detail-question",
@@ -453,6 +471,9 @@ function TrowSnapFixture() {
           describeTool={describeTool}
           renderTool={renderRegisteredTool("question-detail", "question-detail-real")}
         />
+      </div>
+      <div data-snap="dismissed-question-collapsed">
+        <AssistantPartsCase parts={dismissedQuestionParts} />
       </div>
       <div data-snap="metadata-detail-collapsed">
         <TrowBlock
