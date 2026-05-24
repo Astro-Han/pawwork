@@ -188,6 +188,13 @@ export function Titlebar() {
           glued to the top of the titlebar.
 
           Only populated when the right panel is open (SessionSidePanel guards its Portal). */}
+      {/* `pointer-events-none` on the slot mirrors `#pawwork-titlebar-left` — only
+          the portalled tab buttons (which carry their own `pointer-events-auto`
+          via the sidepanel CSS variant) should swallow clicks. Otherwise the
+          slot's z-10 box covers the Right utility panel toggle in
+          `#pawwork-titlebar-right` whenever the panel is open, making the toggle
+          unclickable (caught by perf-probe-baseline's session-streaming-long
+          run on PR #878). */}
       <div
         id="pawwork-titlebar-tabs"
         data-shell-slot="tabs-portal"
@@ -195,7 +202,7 @@ export function Titlebar() {
         data-variant="sidepanel"
         data-orientation="horizontal"
         data-scope="right-panel"
-        class="absolute top-0 bottom-0 right-0 z-10 flex flex-row items-center border-l border-border-weaker pointer-events-auto"
+        class="absolute top-0 bottom-0 right-0 z-10 flex flex-row items-center border-l border-border-weaker pointer-events-none"
         style={{ width: "var(--right-panel-width, 0px)" }}
       />
     </header>

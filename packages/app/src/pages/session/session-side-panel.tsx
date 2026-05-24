@@ -353,7 +353,11 @@ export function SessionSidePanel(props: {
               <Show when={tabsPortalMount()}>
                 {(mount) => (
                   <Portal mount={mount()}>
-                    <Tabs.List class="h-full shrink-0 px-1 py-0 gap-0 items-center">
+                    {/* `pointer-events-auto` brings clicks back here — the titlebar slot
+                        itself is `pointer-events-none` (see Titlebar) so the rest of the
+                        slot box does not occlude the Right utility panel toggle that sits
+                        in the right portal beneath it. */}
+                    <Tabs.List class="h-full shrink-0 px-1 py-0 gap-0 items-center pointer-events-auto">
                       <SortableProvider ids={sortableShellTabIds(view().sidePanel.openTabs())}>
                         <For each={shellTabs()}>
                           {(tab) => (
