@@ -127,9 +127,16 @@
     border-top-width: 0;
   }
 
+  /* Selected-tab chip uses the same --row-active-overlay (6% black/white) the
+   * sidebar session row uses for its selected state — single selection
+   * vocabulary across the app. Replaces the previous opaque var(--sidebar)
+   * chip, which read too heavy now that the tab strip lives in the titlebar.
+   * Paired with the fg-weak → fg-strong color shift in tabs.css; font-weight
+   * is not used as a selection marker (all sidepanel triggers already inherit
+   * 500 from text-h3 and bumping a subset of them would shift tab widths). */
   [data-component="tabs"][data-variant="sidepanel"][data-scope="right-panel"]
     [data-slot="tabs-trigger"][data-selected] {
-    background-color: var(--sidebar);
+    background-color: var(--row-active-overlay);
   }
 
   @media (min-width: 1280px) {
