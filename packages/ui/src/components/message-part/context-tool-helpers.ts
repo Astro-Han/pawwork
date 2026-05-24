@@ -1,10 +1,10 @@
 import type { ToolPart } from "@opencode-ai/sdk/v2"
 import { getFilename } from "@opencode-ai/core/util/path"
-import type { useI18n } from "../../context/i18n"
+import type { UiI18n, UiI18nKey } from "../../context/i18n"
 import { getDirectory } from "./markdown-render"
 import { toolInfoForInput } from "../tool-info"
 
-export function contextToolDetail(part: ToolPart, i18n: ReturnType<typeof useI18n>): string | undefined {
+export function contextToolDetail(part: ToolPart, i18n: UiI18n): string | undefined {
   const info = toolInfoForInput(part.tool, part.state.input ?? {}, toolStateMetadata(part.state), i18n)
   if (info.subtitle) return info.subtitle
   if (part.state.status === "error") return toolStateError(part.state)
@@ -15,7 +15,7 @@ export function contextToolDetail(part: ToolPart, i18n: ReturnType<typeof useI18
   return undefined
 }
 
-export function contextToolTrigger(part: ToolPart, i18n: ReturnType<typeof useI18n>) {
+export function contextToolTrigger(part: ToolPart, i18n: UiI18n) {
   const input = (part.state.input ?? {}) as Record<string, unknown>
   const path = typeof input.path === "string" ? input.path : "/"
   const filePath = typeof input.filePath === "string" ? input.filePath : undefined
@@ -67,6 +67,11 @@ export function contextToolTrigger(part: ToolPart, i18n: ReturnType<typeof useI1
   }
 }
 
+export function contextToolSummaryText(part: ToolPart, i18n: UiI18n) {
+  const trigger = contextToolTrigger(part, i18n)
+  return [trigger.title, trigger.subtitle, ...(trigger.args ?? [])].filter(Boolean).join(" ")
+}
+
 export function toolStateMetadata(state: ToolPart["state"] | undefined): Record<string, any> {
   if (!state || !("metadata" in state)) return {}
   const metadata = state.metadata
@@ -91,4 +96,64 @@ export function contextToolSummary(parts: ToolPart[]) {
   const search = parts.filter((part) => part.tool === "glob" || part.tool === "grep").length
   const list = parts.filter((part) => part.tool === "list").length
   return { read, search, list }
+}
+
+type TrowActivityKind = "read" | "search" | "websearch" | "webfetch" | "edit" | "command" | "tool"
+
+function trowActivityKind(tool: string): TrowActivityKind {
+  switch (tool) {
+    case "read":
+    case "list":
+      return "read"
+    case "glob":
+    case "grep":
+      return "search"
+    case "websearch":
+      return "websearch"
+    case "webfetch":
+      return "webfetch"
+    case "edit":
+    case "write":
+    case "apply_patch":
+      return "edit"
+    case "bash":
+      return "command"
+    default:
+      return "tool"
+  }
+}
+
+function trowActivityCount(part: ToolPart): number {
+  if (part.tool !== "apply_patch") return 1
+  const files = toolStateMetadata(part.state).files
+  return Array.isArray(files) && files.length > 0 ? files.length : 1
+}
+
+function trowSummaryKey(kind: TrowActivityKind, count: number) {
+  return `ui.sessionTurn.trow.summary.${kind}.${count === 1 ? "one" : "other"}` as UiI18nKey
+}
+
+function trowFailedKey(count: number) {
+  return `ui.sessionTurn.trow.summary.failed.${count === 1 ? "one" : "other"}` as UiI18nKey
+}
+
+function trowSummarySeparator(i18n: UiI18n) {
+  return i18n.locale().startsWith("zh") ? "，" : ", "
+}
+
+export function contextTrowSummaryText(parts: readonly ToolPart[], failedCount: number, i18n: UiI18n) {
+  const order: TrowActivityKind[] = []
+  const counts = new Map<TrowActivityKind, number>()
+  for (const part of parts) {
+    const kind = trowActivityKind(part.tool)
+    if (!counts.has(kind)) order.push(kind)
+    counts.set(kind, (counts.get(kind) ?? 0) + trowActivityCount(part))
+  }
+
+  const items = order.map((kind) => {
+    const count = counts.get(kind) ?? 0
+    return i18n.t(trowSummaryKey(kind, count), { count })
+  })
+  if (failedCount > 0) items.push(i18n.t(trowFailedKey(failedCount), { count: failedCount }))
+  return items.join(trowSummarySeparator(i18n))
 }

@@ -1,6 +1,6 @@
-import type { Part as PartType, ToolPart } from "@opencode-ai/sdk/v2"
+import type { Part as PartType } from "@opencode-ai/sdk/v2"
 import { PART_MAPPING } from "./registry"
-import { CONTEXT_GROUP_TOOLS, HIDDEN_TOOLS } from "./shared-utils"
+import { HIDDEN_TOOLS } from "./shared-utils"
 import { TOOL_QUESTION } from "../tool-contract"
 
 export type PartRef = {
@@ -16,7 +16,7 @@ export type PartGroup =
     }
   | {
       key: string
-      type: "context"
+      type: "trow"
       refs: PartRef[]
     }
 
@@ -32,7 +32,7 @@ function sameGroup(a: PartGroup, b: PartGroup) {
     if (b.type !== "part") return false
     return sameRef(a.ref, b.ref)
   }
-  if (b.type !== "context") return false
+  if (b.type !== "trow") return false
   if (a.refs.length !== b.refs.length) return false
   return a.refs.every((ref, i) => sameRef(ref, b.refs[i]!))
 }
@@ -44,6 +44,13 @@ export function sameGroups(a: readonly PartGroup[] | undefined, b: readonly Part
   return a.every((item, i) => sameGroup(item, b[i]!))
 }
 
+export function activeWorkingTrowKey(groups: readonly PartGroup[], working?: boolean) {
+  if (!working) return
+  const last = groups[groups.length - 1]
+  if (last?.type !== "trow") return
+  return last.key
+}
+
 export function groupParts(parts: { messageID: string; part: PartType }[]) {
   const result: PartGroup[] = []
   let start = -1
@@ -51,24 +58,24 @@ export function groupParts(parts: { messageID: string; part: PartType }[]) {
   const flush = (end: number) => {
     if (start < 0) return
     const first = parts[start]
-    const last = parts[end]
-    if (!first || !last) {
+    if (!first) {
       start = -1
       return
     }
+    const refs = parts.slice(start, end + 1).map((item) => ({
+      messageID: item.messageID,
+      partID: item.part.id,
+    }))
     result.push({
-      key: `context:${first.part.id}`,
-      type: "context",
-      refs: parts.slice(start, end + 1).map((item) => ({
-        messageID: item.messageID,
-        partID: item.part.id,
-      })),
+      key: `trow:${first.part.id}`,
+      type: "trow",
+      refs,
     })
     start = -1
   }
 
   parts.forEach((item, index) => {
-    if (isContextGroupTool(item.part)) {
+    if (item.part.type === "tool") {
       if (start < 0) start = index
       return
     }
@@ -107,8 +114,4 @@ function toolDefaultOpen(tool: string, shell = false, edit = false) {
 export function partDefaultOpen(part: PartType, shell = false, edit = false) {
   if (part.type !== "tool") return
   return toolDefaultOpen(part.tool, shell, edit)
-}
-
-export function isContextGroupTool(part: PartType): part is ToolPart {
-  return part.type === "tool" && CONTEXT_GROUP_TOOLS.has(part.tool)
 }
