@@ -435,17 +435,36 @@
       }
     }
 
-    /* Active marker: color shift + chip background. The chip color is painted
-       from app-level CSS (var(--row-active-overlay), matching the sidebar
-       session row), so this rule only owns the color half. Font-weight is
-       intentionally not used as a marker: all sidepanel triggers already pick
-       up 500 from `text-h3` (--font-weight-h3), and bumping a subset would
-       shift tab widths when selection changes. */
+    /* Active marker: color shift + chip background. The chip color (hover and
+       selected) is painted from app-level CSS (var(--row-{hover,active}-overlay),
+       matching the sidebar session row), so this rule only owns the color
+       half. Font-weight is intentionally not used as a marker: all sidepanel
+       triggers already pick up 500 from `text-h3` (--font-weight-h3), and
+       bumping a subset would shift tab widths when selection changes.
+       `min-width` pulls short labels (Status / Files / Review at 2 Chinese
+       chars or 5–6 Latin chars) up to a uniform chip footprint. 7.5rem
+       (~97.5px under the 13px html base) comfortably fits "Terminal" + the
+       leading icon + close slot + padding; longer labels would naturally
+       extend and the strip scrolls horizontally if total content exceeds the
+       slot width. */
     [data-slot="tabs-trigger"] {
       border: 1px solid transparent;
       color: var(--fg-weak);
       background-color: transparent;
-      transition: color 120ms ease;
+      min-width: 7.5rem;
+      /* Anchor content to the leading edge so the leading icon stays at
+         `padding-inline-start` (0.625rem) regardless of trigger width. The
+         base trigger uses `justify-content: center`, which works for content-
+         sized tabs but drifts the leading icon to the cell center as soon as
+         min-width pushes the trigger wider than content. The close-button
+         slot is absolutely positioned at `left: 0.625rem` (see slot rule
+         below), so centering content here would offset × from the leading
+         icon by half the slack — the regression caught by the e2e
+         "× center aligns with leading icon center" assertion. */
+      justify-content: flex-start;
+      transition:
+        color 120ms ease,
+        background-color 120ms ease;
 
       &:hover {
         color: var(--fg-base);

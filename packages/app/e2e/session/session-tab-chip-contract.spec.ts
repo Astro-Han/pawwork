@@ -51,8 +51,12 @@ test.describe("right-panel tab chip + × contract", () => {
     const tokenAndComputed = await page.evaluate(() => {
       const root = document.documentElement
       const tokenRaw = getComputedStyle(root).getPropertyValue("--row-active-overlay").trim()
-      const trig = document.querySelector('[data-slot="tabs-trigger"][data-value="files"]') as HTMLElement | null
-      const computed = trig ? getComputedStyle(trig).backgroundColor : ""
+      // Chip background lives on the wrapper now (matches the sidebar session
+      // row's chip-on-container vocabulary), not the inner trigger button.
+      const wrap = document.querySelector(
+        '[data-slot="tabs-trigger-wrapper"][data-value="files"]',
+      ) as HTMLElement | null
+      const computed = wrap ? getComputedStyle(wrap).backgroundColor : ""
       return { tokenRaw, computed }
     })
 
@@ -197,6 +201,74 @@ test.describe("right-panel tab chip + × contract", () => {
     expect(state.selected).toBe(true)
     expect(state.leadingOpacity).toBe("1")
     expect(state.closeOpacity).toBe("0")
+  })
+
+  test("hover paints a chip preview (--row-hover-overlay), selected wins", async ({
+    page,
+    gotoSession,
+  }) => {
+    // Hover should preview the selection with a lighter overlay than the
+    // selected state — matches the sidebar session row's two-tier vocabulary
+    // (--row-hover-overlay 4%, --row-active-overlay 6%). Without this rule the
+    // titlebar tab strip felt dead on hover and clicks landed without any
+    // visual lead-in, which the user flagged as poor UX.
+    await gotoSession()
+    await ensureRightPanelOpen(page)
+    await openExtraTabs(page)
+
+    // Files is closable AND currently unselected (Status is the default).
+    // Hover it; assert chip bg is the hover overlay, not transparent and not
+    // the selected overlay.
+    await page.getByRole("tab", FILES_TAB).hover()
+
+    const colors = await page.evaluate(() => {
+      const root = document.documentElement
+      const hoverToken = getComputedStyle(root).getPropertyValue("--row-hover-overlay").trim()
+      const activeToken = getComputedStyle(root).getPropertyValue("--row-active-overlay").trim()
+      // Chip backgrounds now live on the wrapper, not the trigger button.
+      const wrap = document.querySelector(
+        '[data-slot="tabs-trigger-wrapper"][data-value="files"]',
+      ) as HTMLElement | null
+      const bg = wrap ? getComputedStyle(wrap).backgroundColor : ""
+      return { bg, hoverToken, activeToken }
+    })
+
+    const alpha = (rgba: string) => {
+      const m = rgba.match(/rgba?\([^)]*,\s*([\d.]+)\s*\)/)
+      return m ? Number(m[1]) : NaN
+    }
+    // Hover paints SOME overlay (alpha between 0 and the active value).
+    expect(colors.bg).toMatch(/rgba\(/)
+    const bgAlpha = alpha(colors.bg)
+    expect(bgAlpha).toBeGreaterThan(0)
+    expect(bgAlpha).toBeLessThanOrEqual(alpha(colors.activeToken))
+  })
+
+  test("all sidepanel tabs share a uniform min-width chip", async ({ page, gotoSession }) => {
+    // Status / Files / Review labels differ in character count, which produced
+    // visibly mismatched chip widths. A shared min-width pulls short labels up
+    // to a consistent footprint; the rule lives in tabs.css under the
+    // sidepanel variant.
+    await gotoSession()
+    await ensureRightPanelOpen(page)
+    await openExtraTabs(page)
+    await page.mouse.move(0, 0)
+
+    const widths = await page.evaluate(() =>
+      Array.from(document.querySelectorAll<HTMLElement>('[data-slot="tabs-trigger"]')).map((trig) => ({
+        value: trig.getAttribute("data-value"),
+        width: Math.round(trig.getBoundingClientRect().width),
+      })),
+    )
+
+    // All triggers measured (Status / Files / Review at minimum) must be at
+    // or above the 7.5rem min-width (~97px under the 13px html base) — short
+    // labels are pulled up, long labels expand naturally.
+    const MIN_WIDTH_PX = Math.round(7.5 * 13) // ~98
+    expect(widths.length).toBeGreaterThanOrEqual(3)
+    for (const t of widths) {
+      expect(t.width).toBeGreaterThanOrEqual(MIN_WIDTH_PX - 1) // -1 for rounding
+    }
   })
 
   test("Status (non-closable) shows no × on hover and keeps its icon", async ({ page, gotoSession }) => {
