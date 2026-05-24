@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test"
+import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures"
 import { promptModelSelector } from "../selectors"
 import { applyDarkModeForTests } from "../utils"
@@ -39,16 +39,61 @@ async function openModelPicker(page: Page) {
   return picker
 }
 
+// Locked computed-style invariants for the picker grouped header. Asserted
+// in addition to the screenshot because the visible `data-stuck` regression
+// path only paints once the user scrolls — fixture has too few models to
+// guarantee an overflowing picker, so a snap alone cannot reach it. These
+// two reads exercise the rule directly: a future selector demotion or token
+// drift fails the test even though the screenshot would still pass.
+async function assertHeaderInvariants(picker: Locator) {
+  const header = picker.locator('[data-slot="list-header"]').first()
+  await expect(header).toBeVisible()
+
+  const computed = await header.evaluate((el) => {
+    const headerStyle = window.getComputedStyle(el)
+    const afterStyle = window.getComputedStyle(el, "::after")
+    const expectedSurface = window
+      .getComputedStyle(document.documentElement)
+      .getPropertyValue("--surface-raised")
+      .trim()
+    const probe = document.createElement("span")
+    probe.style.color = expectedSurface
+    document.body.appendChild(probe)
+    const expectedRgb = window.getComputedStyle(probe).color
+    probe.remove()
+    return {
+      headerBg: headerStyle.backgroundColor,
+      headerPosition: headerStyle.position,
+      afterDisplay: afterStyle.display,
+      expectedRgb,
+    }
+  })
+
+  // `position: static` is the picker-scoped override that disables the
+  // sticky header. If the picker.css selector drops below list.css's 0,4,0
+  // chain again, position flips back to sticky and this fails.
+  expect(computed.headerPosition).toBe("static")
+  // Header surface must match the picker body's --surface-raised, not List's
+  // default --surface-base.
+  expect(computed.headerBg).toBe(computed.expectedRgb)
+  // ::after is the 16px stuck gradient. Hiding it is the second half of the
+  // fix; without this assertion, only a scroll-driven snap could catch its
+  // re-emergence.
+  expect(computed.afterDisplay).toBe("none")
+}
+
 test("model-picker-header", async ({ page, gotoSession }) => {
   test.setTimeout(180_000)
 
   await gotoSession()
   const lightPicker = await openModelPicker(page)
+  await assertHeaderInvariants(lightPicker)
   const lightShot: Shot = { name: "light", buf: await lightPicker.screenshot() }
 
   await applyDarkModeForTests(page)
   await gotoSession()
   const darkPicker = await openModelPicker(page)
+  await assertHeaderInvariants(darkPicker)
   const darkShot: Shot = { name: "dark", buf: await darkPicker.screenshot() }
 
   const out = snapOutputPath("model-picker-header")
