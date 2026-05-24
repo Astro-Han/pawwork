@@ -25,6 +25,13 @@ async function nextFrame(page: Page) {
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
 }
 
+async function sessionDragWrapperOpacity(page: Page, sessionID: string) {
+  return page
+    .locator(`.pw-drag-row[data-pw-drag-session-id="${sessionID}"]`)
+    .first()
+    .evaluate((element) => getComputedStyle(element).opacity)
+}
+
 async function expectUrlToStayMatched(page: Page, pattern: RegExp, stableFor = 300) {
   let stableSince = Date.now()
   await expect
@@ -170,6 +177,37 @@ test("sidebar switch paint suppresses hover before the active class arrives", as
     const targetPaint = await sessionRowPaint(page, target.id)
     expect(targetPaint.selectedLayerOpacity).toBe("1")
     expect(targetPaint.hoverLayerOpacity).toBe("0")
+  } finally {
+    await cleanupSession({ sdk, sessionID: source.id })
+    await cleanupSession({ sdk, sessionID: target.id })
+  }
+})
+
+test("sidebar session press does not dim the row before drag starts", async ({ page, sdk, gotoSession }) => {
+  const stamp = Date.now()
+  const source = await sdk.session.create({ title: `e2e sidebar press source ${stamp}` }).then((r) => r.data)
+  const target = await sdk.session.create({ title: `e2e sidebar press target ${stamp}` }).then((r) => r.data)
+
+  if (!source?.id) throw new Error("Source session create did not return an id")
+  if (!target?.id) throw new Error("Target session create did not return an id")
+
+  try {
+    await gotoSession(source.id)
+    await openSidebar(page)
+
+    const targetRow = page.locator(`[data-session-id="${target.id}"][data-component="pawwork-session-row"]`).first()
+    await expect(targetRow).toBeVisible()
+    const targetBox = await targetRow.boundingBox()
+    if (!targetBox) throw new Error("Target session row did not expose a bounding box")
+
+    await page.mouse.move(targetBox.x + targetBox.width / 3, targetBox.y + targetBox.height / 2)
+    await nextFrame(page)
+    await page.mouse.down()
+    try {
+      await expect.poll(() => sessionDragWrapperOpacity(page, target.id)).toBe("1")
+    } finally {
+      await page.mouse.up()
+    }
   } finally {
     await cleanupSession({ sdk, sessionID: source.id })
     await cleanupSession({ sdk, sessionID: target.id })

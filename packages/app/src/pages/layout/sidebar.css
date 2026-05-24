@@ -119,11 +119,9 @@
   cursor: grabbing;
 }
 
-/* Origin row (the one being dragged): semi-transparent + row-hover bg.
- * Stays in place visually as a "this is what's moving" anchor. */
+/* SortableJS applies chosenClass on pointer down, before a drag is confirmed.
+ * Keep it non-dimming so ordinary clicks do not flash. */
 .pw-drag-chosen {
-  opacity: 0.35;
-  background-color: var(--row-hover-overlay);
   border-radius: var(--radius-sm);
 }
 
@@ -138,8 +136,14 @@
   visibility: hidden;
 }
 
-/* Fallback drag image (forceFallback follows the cursor). Just enforce
- * grabbing cursor; visual is the cloned row, which is fine as-is. */
+/* Fallback drag image (forceFallback follows the cursor). This is the actual
+ * moving preview, unlike chosenClass which also appears during normal clicks. */
 .pw-drag-active {
   cursor: grabbing !important;
+}
+
+.sortable-fallback.pw-drag-active {
+  opacity: 0.92;
+  background-color: var(--row-hover-overlay);
+  border-radius: var(--radius-sm);
 }
