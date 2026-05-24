@@ -5,7 +5,6 @@ import {
   reduceTrowBlock,
   trowBlockAnchor,
   toolFamilyIcon,
-  trowSummaryI18nKey,
 } from "./session-turn-trow-block"
 
 function tool(id: string, name: string, status: ToolState["status"] = "completed"): ToolPart {
@@ -137,32 +136,6 @@ describe("activeTrowTool", () => {
 
     expect(activeTrowTool(parts, true)?.id).toBe("b")
     expect(activeTrowTool(parts, false)).toBeUndefined()
-  })
-})
-
-describe("trowSummaryI18nKey", () => {
-  test("running summary takes precedence over failure (live state wins)", () => {
-    const summary = reduceTrowBlock([
-      tool("a", "bash", "error"),
-      tool("b", "bash", "running"),
-    ])
-    expect(trowSummaryI18nKey(summary)).toBe("ui.sessionTurn.trow.summary.running")
-  })
-
-  test("completed-with-failures summary surfaces the failure count", () => {
-    const summary = reduceTrowBlock([
-      tool("a", "bash", "completed"),
-      tool("b", "bash", "error"),
-    ])
-    expect(trowSummaryI18nKey(summary)).toBe("ui.sessionTurn.trow.summary.withFailed")
-  })
-
-  test("plain completed summary when no errors and no running parts", () => {
-    const summary = reduceTrowBlock([
-      tool("a", "bash", "completed"),
-      tool("b", "bash", "completed"),
-    ])
-    expect(trowSummaryI18nKey(summary)).toBe("ui.sessionTurn.trow.summary.completed")
   })
 })
 

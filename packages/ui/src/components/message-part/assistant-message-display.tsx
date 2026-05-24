@@ -3,7 +3,7 @@ import type { AssistantMessage, Part as PartType, ToolPart } from "@opencode-ai/
 import { useI18n } from "../../context/i18n"
 import { TrowBlock } from "../session-turn-trow-block"
 import { groupParts, partDefaultOpen, renderable, sameGroups, type PartGroup } from "./grouping"
-import { contextToolSummaryText } from "./context-tool-helpers"
+import { contextToolSummaryText, contextTrowSummaryText } from "./context-tool-helpers"
 import { index, latestDefined, same } from "./shared-utils"
 import { Part } from "./message-router"
 
@@ -58,9 +58,7 @@ export function AssistantMessageDisplay(props: {
                       parts={parts()}
                       labels={{
                         summaryRunning: (count) => i18n.t("ui.sessionTurn.trow.summary.running", { count }),
-                        summaryCompleted: (count) => i18n.t("ui.sessionTurn.trow.summary.completed", { count }),
-                        summaryWithFailed: (count, failed) =>
-                          i18n.t("ui.sessionTurn.trow.summary.withFailed", { count, failed }),
+                        summaryCompleted: (parts, failed) => contextTrowSummaryText(parts, failed, i18n),
                       }}
                       describeTool={(tool) => contextToolSummaryText(tool, i18n)}
                       renderTool={(tool) => (

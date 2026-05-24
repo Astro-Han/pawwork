@@ -4,13 +4,12 @@ import { BasicTool } from "@opencode-ai/ui/basic-tool"
 import { DataProvider, I18nProvider, type UiI18nKey, type UiI18nParams } from "@opencode-ai/ui/context"
 import { MarkedProvider } from "@opencode-ai/ui/context/marked"
 import { dict as zh } from "@opencode-ai/ui/i18n/zh"
-import { AssistantParts, ToolRegistry } from "@opencode-ai/ui/message-part"
+import { AssistantParts, contextTrowSummaryText, ToolRegistry } from "@opencode-ai/ui/message-part"
 import { TrowBlock } from "@opencode-ai/ui/session-turn-trow-block"
 
 const labels = {
-  summaryRunning: (count: number) => `正在运行 ${count} 条命令`,
-  summaryCompleted: (count: number) => `已运行 ${count} 条命令`,
-  summaryWithFailed: (count: number, failed: number) => `已运行 ${count} 条命令，${failed} 条失败`,
+  summaryRunning: (count: number) => `正在处理 ${count} 个工具调用`,
+  summaryCompleted: (parts: readonly ToolPart[], failed: number) => contextTrowSummaryText(parts, failed, zhI18n),
 }
 
 function tool(
@@ -22,17 +21,28 @@ function tool(
   toolName = "bash",
 ): ToolPart {
   const input = { command, description }
-  const state: ToolState =
-    status === "running"
-      ? { status: "running", input, time: { start: 0 } }
-      : {
-          status: "completed",
-          input,
-          output: output ?? (command.includes("one") ? "one\n" : command.includes("two") ? "two\n" : "three\n"),
-          title: description,
-          metadata: {},
-          time: { start: 0, end: 1 },
-        }
+  let state: ToolState
+  switch (status) {
+    case "pending":
+      state = { status: "pending", input, raw: "" }
+      break
+    case "running":
+      state = { status: "running", input, time: { start: 0 } }
+      break
+    case "error":
+      state = { status: "error", input, error: "Command failed", time: { start: 0, end: 1 } }
+      break
+    case "completed":
+    default:
+      state = {
+        status: "completed",
+        input,
+        output: output ?? (command.includes("one") ? "one\n" : command.includes("two") ? "two\n" : "three\n"),
+        title: description,
+        metadata: {},
+        time: { start: 0, end: 1 },
+      }
+  }
 
   return {
     id,
@@ -49,6 +59,20 @@ const completedParts = [
   tool("first", "first command", "echo one"),
   tool("second", "second command", "echo two"),
   tool("third", "third command", "echo three"),
+]
+
+const activitySummaryParts = [
+  realTool("summary-read", "read", { filePath: "/Users/yuhan/PawWork/titlebar.tsx" }),
+  tool("summary-bash", "Find titlebar CSS rules", "rg titlebar"),
+  realTool("summary-grep", "grep", { path: "/Users/yuhan/PawWork", pattern: "titlebar" }),
+  realTool("summary-websearch", "websearch", { query: "PawWork titlebar icon" }),
+  realTool("summary-webfetch", "webfetch", { url: "https://example.com/" }),
+  realTool("summary-edit", "edit", { filePath: "/Users/yuhan/PawWork/titlebar.tsx" }),
+  realTool("summary-skill", "skill", { name: "debug" }),
+]
+const failedParts = [
+  tool("failed-command", "Failing command", "exit 1", "error"),
+  realTool("failed-read", "read", { filePath: "/Users/yuhan/PawWork/titlebar.tsx" }),
 ]
 
 const runningParts = [
@@ -295,6 +319,18 @@ function TrowSnapFixture() {
           labels={labels}
           describeTool={describeTool}
           renderTool={renderTool("running")}
+        />
+      </div>
+      <div data-snap="activity-summary-collapsed">
+        <TrowBlock
+          parts={activitySummaryParts}
+          labels={labels}
+        />
+      </div>
+      <div data-snap="failed-summary-collapsed">
+        <TrowBlock
+          parts={failedParts}
+          labels={labels}
         />
       </div>
       <div data-snap="mixed-collapsed">

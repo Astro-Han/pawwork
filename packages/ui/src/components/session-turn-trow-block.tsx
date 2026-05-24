@@ -97,19 +97,6 @@ export function activeTrowTool(parts: readonly ToolPart[], working = false): Too
   return parts[parts.length - 1]
 }
 
-/**
- * i18n key for the summary copy line, given a reducer summary.
- *
- * - `ui.sessionTurn.trow.summary.running` — "正在运行 {count} 条命令" / "Running {count} commands"
- * - `ui.sessionTurn.trow.summary.withFailed` — "已运行 {count} 条命令，{failed} 条失败" / "Ran {count} commands, {failed} failed"
- * - `ui.sessionTurn.trow.summary.completed` — "已运行 {count} 条命令" / "Ran {count} commands"
- */
-export function trowSummaryI18nKey(summary: TrowBlockSummary): string {
-  if (summary.running) return "ui.sessionTurn.trow.summary.running"
-  if (summary.failedCount > 0) return "ui.sessionTurn.trow.summary.withFailed"
-  return "ui.sessionTurn.trow.summary.completed"
-}
-
 export function trowBlockAnchor(parts: readonly ToolPart[]): string {
   return `trow:${parts[0]?.id ?? "empty"}`
 }
@@ -119,12 +106,10 @@ export function trowBlockAnchor(parts: readonly ToolPart[]): string {
 // ============================================================================
 
 export interface TrowBlockLabels {
-  /** "正在运行 {count} 条命令" / "Running {count} commands" */
+  /** Fallback running summary used only when no active tool label is available. */
   summaryRunning: (count: number) => string
-  /** "已运行 {count} 条命令" / "Ran {count} commands" */
-  summaryCompleted: (count: number) => string
-  /** "已运行 {count} 条命令，{failed} 条失败" / "Ran {count} commands, {failed} failed" */
-  summaryWithFailed: (count: number, failed: number) => string
+  /** Caller-resolved completed summary, including any failure tail. */
+  summaryCompleted: (parts: readonly ToolPart[], failedCount: number) => string
 }
 
 export interface TrowBlockProps {
@@ -149,10 +134,10 @@ export interface TrowBlockProps {
  * tool calls produced by `groupParts()`, with a native `<details>` body
  * that lists each tool. DESIGN.md L412-L417 / L471, design doc §3.1 / §3.6.
  *
- * Default-collapsed (DESIGN.md L468). Summary copy switches between
- * running / completed / failed based on the pure {@link reduceTrowBlock}
- * derivation. The summary shimmer (slot exposes a `data-running` attribute
- * the CSS can target) signals live state without an extra spinner.
+ * Default-collapsed (DESIGN.md L468). The active row shows the current tool;
+ * once the row is no longer active, the caller supplies the compact completed
+ * summary. The summary shimmer (slot exposes a `data-running` attribute the
+ * CSS can target) signals live state without an extra spinner.
  *
  * Per-tool rich rendering (file accordion, raw output, copy button on
  * hover) is intentionally delegated to a caller-provided slot — the
@@ -172,8 +157,7 @@ export function TrowBlock(props: TrowBlockProps) {
     if (activeLabel) return activeLabel
     const s = summary()
     if (s.running) return props.labels.summaryRunning(s.count)
-    if (s.failedCount > 0) return props.labels.summaryWithFailed(s.count, s.failedCount)
-    return props.labels.summaryCompleted(s.count)
+    return props.labels.summaryCompleted(props.parts, s.failedCount)
   })
   const leadingIcon = createMemo(() => {
     const active = activeTool()

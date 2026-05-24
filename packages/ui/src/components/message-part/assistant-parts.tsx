@@ -4,7 +4,7 @@ import { useData } from "../../context"
 import { useI18n } from "../../context/i18n"
 import { TrowBlock } from "../session-turn-trow-block"
 import { activeWorkingTrowKey, groupParts, partDefaultOpen, renderable, sameGroups, type PartGroup } from "./grouping"
-import { contextToolSummaryText } from "./context-tool-helpers"
+import { contextToolSummaryText, contextTrowSummaryText } from "./context-tool-helpers"
 import { index, latestDefined, list, same } from "./shared-utils"
 import { Part } from "./message-router"
 
@@ -89,9 +89,7 @@ export function AssistantParts(props: {
                       working={entryAccessor().key === workingTrowKey()}
                       labels={{
                         summaryRunning: (count) => i18n.t("ui.sessionTurn.trow.summary.running", { count }),
-                        summaryCompleted: (count) => i18n.t("ui.sessionTurn.trow.summary.completed", { count }),
-                        summaryWithFailed: (count, failed) =>
-                          i18n.t("ui.sessionTurn.trow.summary.withFailed", { count, failed }),
+                        summaryCompleted: (parts, failed) => contextTrowSummaryText(parts, failed, i18n),
                       }}
                       describeTool={(tool) => contextToolSummaryText(tool, i18n)}
                       renderTool={renderTool}
