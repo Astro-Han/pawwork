@@ -470,11 +470,16 @@
     }
 
     /* Close button slot: absolutely positioned over the icon area so it shares
-       the same 14×14 cell as the default icon — no layout shift between states. */
+       the same 14×14 cell as the default icon — no layout shift between states.
+       NOTE: `left: 10px` is coupled to the trigger's left padding, set in
+       packages/app/src/components/session/session-sortable-shell-tab.tsx as
+       `px-2.5` on the `classes.button`. If that padding changes, update this
+       offset (or invert the coupling by exposing a CSS custom property from
+       the component). The coupling is local to the sidepanel variant — other
+       variants render the close button as a sibling in normal flow and do not
+       need positional anchoring. */
     [data-slot="tabs-trigger-close-button"] {
       position: absolute;
-      /* Align with the trigger's leading icon. The trigger has 10px (px-2.5)
-         left padding, so offset by the same amount from the wrapper's left edge. */
       left: 10px;
       top: 50%;
       transform: translateY(-50%);
