@@ -20,6 +20,7 @@ export {
 } from "./message-part/registry"
 export { AssistantParts } from "./message-part/assistant-parts"
 export { AssistantMessageDisplay } from "./message-part/assistant-message-display"
+export { contextTrowSummaryText } from "./message-part/context-tool-helpers"
 export { Message, Part } from "./message-part/message-router"
 export { UserMessageDisplay } from "./message-part/user-message"
 export { MessageDivider } from "./message-part/parts/compaction-and-divider"

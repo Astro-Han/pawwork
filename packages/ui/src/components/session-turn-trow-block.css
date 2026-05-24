@@ -1,0 +1,466 @@
+/*
+ * Slice 11b.1 trow-block.
+ *
+ * Native `<details>` element drives expand / collapse — W1 lock. The
+ * height + opacity transition under `prefers-reduced-motion:
+ * no-preference` is owned by the `::details-content` rule below and
+ * mirrors `docs/design/preview/message-flow.html` L13-23. The header
+ * comment used to claim session-turn.css owned this rule, but it was
+ * never actually wired there; AstroHan's fourth W1 retest
+ * (msg=ac13481a) flagged the missing animation and slice 11b.1
+ * landed the rule here. The `interpolate-size: allow-keywords` global
+ * (utilities.css L2) is what lets `height: 0` ↔ `height: auto`
+ * interpolate; `transition-behavior: allow-discrete` covers the
+ * discrete `content-visibility` step.
+ */
+
+[data-component="session-turn-trow-block"] {
+  display: block;
+  width: 100%;
+  --trow-collapse-transition:
+    height var(--duration-slow) cubic-bezier(0.16, 1, 0.3, 1),
+    opacity var(--duration-fast) ease-out,
+    content-visibility var(--duration-slow);
+}
+
+[data-component="session-turn-trow-block"] + [data-component="text-part"] {
+  margin-top: 0;
+}
+
+[data-component="session-turn-trow-block"] details {
+  width: 100%;
+}
+
+/* Trow expand / collapse animation — mirror of preview
+ * message-flow.html L13-23. Gated by `prefers-reduced-motion: no-
+ * preference` so reduced-motion users see an instant toggle. The
+ * `:root { interpolate-size: allow-keywords }` declaration in
+ * utilities.css is what lets `height: auto` participate in the
+ * transition; without it the rule silently no-ops to a snap. */
+@media (prefers-reduced-motion: no-preference) {
+  [data-component="session-turn-trow-block"] details::details-content {
+    height: 0;
+    opacity: 0;
+    overflow: hidden;
+    transition: var(--trow-collapse-transition);
+    transition-behavior: allow-discrete;
+  }
+  [data-component="session-turn-trow-block"] details[open]::details-content {
+    height: auto;
+    opacity: 1;
+  }
+
+  [data-component="session-turn-trow-block"] [data-slot="trow-summary-text"] {
+    animation: trow-summary-text-in var(--duration-fast) ease-out;
+  }
+}
+
+@keyframes trow-summary-text-in {
+  from {
+    opacity: 0.72;
+    transform: translateY(1px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Summary row — leading icon (16px) + text + optional chev. The chev is
+ * absent for groups whose tools produced no expandable body. */
+[data-component="session-turn-trow-block"] [data-slot="trow-summary"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  cursor: default;
+  list-style: none;
+  color: var(--fg-base);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-body);
+  line-height: var(--line-height-body);
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-summary"]::-webkit-details-marker,
+[data-component="session-turn-trow-block"] [data-slot="trow-summary"]::marker {
+  display: none;
+  content: "";
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-summary-icon"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  color: var(--icon-base);
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-summary-icon"] [data-icon] {
+  width: 16px;
+  height: 16px;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-summary-text"] {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-body);
+  color: var(--fg-base);
+  line-height: 1.4;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-summary-chev"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  color: var(--icon-weak);
+  transition: transform var(--duration-base) ease-out;
+  /* Collapsed = chevron points right ("click to expand sideways into
+   * detail"). AstroHan's third W1 retest (msg=362e9b72) re-defined the
+   * affordance: 折叠朝右、展开朝下. The second retest's "open = up"
+   * rule was wrong — file-tree and Collapsible's own chev all use
+   * down-when-open, so trow should match. */
+  transform: rotate(-90deg);
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-summary-chev"] [data-icon] {
+  width: 12px;
+  height: 12px;
+}
+
+[data-component="session-turn-trow-block"] details[open] [data-slot="trow-summary-chev"] {
+  /* Open = chevron points down (natural `chevron-down` orientation). */
+  transform: rotate(0deg);
+}
+
+/* Running state — summary shimmer hook. The actual pw-shimmer animation
+ * is wired by the caller (session-turn.css owns the `.pw-shimmer` class
+ * application against `[data-running]` after the Phase 2a rewrite); this
+ * file leaves the data attribute exposed so the shimmer can attach. */
+[data-component="session-turn-trow-block"][data-running] [data-slot="trow-summary-text"] {
+  /* Hook for shimmer; intentionally no animation rule here. */
+}
+
+/* Body — the outer wrapper that holds the per-tool sub-rows. AstroHan
+ * flagged in the second W1 retest that having a frame here AND a frame
+ * on each per-tool body produced a double-bordered "nested box" look;
+ * DESIGN.md L417 actually scopes the transparent + 1px --border-weaker
+ * + radius-sm frame to the per-tool result body, not the trow group
+ * wrapper. So the wrapper stays borderless and only owns the vertical
+ * rhythm + caption typography between sub-rows. */
+[data-component="session-turn-trow-block"] [data-slot="trow-body"] {
+  margin-top: 0;
+  padding: 0;
+  background: transparent;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-mono-small);
+  font-weight: var(--font-weight-mono-small);
+  line-height: var(--line-height-mono-small);
+  color: var(--fg-weak);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+[data-component="session-turn-trow-block"][data-single] [data-slot="trow-body"] {
+  margin-top: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-single-row"] {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-single-row"] [data-slot="trow-summary-icon"] {
+  margin-top: 1px;
+}
+
+[data-component="session-turn-trow-block"][data-single] [data-slot="trow-result-body"] [data-slot="basic-tool-tool-title"],
+[data-component="session-turn-trow-block"][data-single] [data-slot="trow-result-body"] [data-slot="basic-tool-tool-subtitle"],
+[data-component="session-turn-trow-block"][data-single] [data-slot="trow-result-body"] [data-slot="basic-tool-tool-arg"] {
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-body);
+  line-height: 1.4;
+  color: var(--fg-base);
+}
+
+[data-component="session-turn-trow-block"][data-single] [data-slot="trow-result-body"] [data-kind="tool-error-card"] {
+  --card-line-pad: 0px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+[data-component="session-turn-trow-block"][data-single] [data-slot="trow-result-body"] [data-kind="tool-error-card"]
+  [data-slot="collapsible-trigger"],
+[data-component="session-turn-trow-block"][data-single] [data-slot="trow-result-body"] [data-kind="tool-error-card"]
+  [data-component="tool-trigger"] {
+  min-height: 18px;
+  height: auto;
+}
+
+/* Fallback row (default `renderTool` path) — used when the caller does
+ * not provide a per-tool renderer. */
+[data-component="session-turn-trow-block"] [data-slot="trow-item"] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-item-name"] {
+  color: var(--fg-base);
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-item-status"] {
+  color: var(--fg-weak);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-tool"] {
+  width: 100%;
+  min-width: 0;
+}
+
+/* Per-tool result body — a pure CSS scope marker, no visual chrome.
+ *
+ * The earlier W1 design lock (DESIGN.md L417) called for a transparent
+ * + 1px --border-weaker + radius-sm frame around each tool's rich body.
+ * Slice 11b.1 #5 B+ shipped that frame and AstroHan flagged in the
+ * third W1 retest (msg=362e9b72) that it produced a "box per tool"
+ * look (and stacked on top of bash-output's own border when expanded).
+ * The W1 intent is a flat stacked feed where tools 叠在一起 inside the
+ * trow body — per-tool framing breaks that.
+ *
+ * The wrapper stays because it is the scope boundary that lets the
+ * resets below flatten inner Part chrome's hard-coded sans / base /
+ * large typography to the W1 caption family without touching the tool
+ * registry. The visual chrome (border / radius / padding) is what's
+ * removed. */
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] {
+  width: 100%;
+  min-width: 0;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-mono-small);
+  font-weight: var(--font-weight-mono-small);
+  line-height: var(--line-height-mono-small);
+  color: var(--fg-weak);
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-component="tool-output"] {
+  margin-bottom: 0;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-component="bash-output"] [data-slot="bash-pre"] {
+  padding: 8px 10px;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-component="bash-output"] [data-slot="bash-pre"] code {
+  font-size: var(--font-size-mono-small);
+  line-height: var(--line-height-mono-small);
+  color: var(--fg-weak);
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-component="collapsible"].tool-collapsible {
+  --tool-content-gap: 4px;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-component="tool-trigger"] {
+  gap: 8px;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="basic-tool-tool-trigger-content"] {
+  max-width: 100%;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="collapsible-trigger"],
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="basic-tool-tool-info"] {
+  text-align: left;
+  cursor: text;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="basic-tool-tool-title"],
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="basic-tool-tool-subtitle"],
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="basic-tool-tool-arg"],
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-component="tool-output"],
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-component="bash-output"],
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-component="exa-tool-output"] {
+  cursor: text;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="collapsible-arrow"] {
+  cursor: default;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-summary"] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-component="tool-output"] [data-component="markdown"] {
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  color: inherit;
+  white-space: normal;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-component="tool-output"] [data-component="markdown"] p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-component="question-answers"] {
+  gap: 4px;
+  padding: 0;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  color: inherit;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-component="question-answers"] [data-slot="question-answer-item"] {
+  gap: 0;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-component="question-answers"] [data-slot="question-text"],
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-component="question-answers"] [data-slot="answer-text"] {
+  color: inherit;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-component="exa-tool-output"] {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-mono-small);
+  font-weight: var(--font-weight-mono-small);
+  line-height: var(--line-height-mono-small);
+  color: var(--fg-weak);
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="exa-tool-link"] {
+  color: inherit;
+  text-decoration: none;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-component="task-tool-card"] {
+  padding: 0;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-component="task-tool-action"] {
+  display: none;
+}
+
+/* Scoped reset for inner Part chrome hard-coded typography. Inside the
+ * trow result body the W1 caption family wins; outside (e.g. an
+ * agent-prose Part), the original sans/base/large header still
+ * applies — these selectors only fire as descendants of
+ * `[data-slot="trow-result-body"]`. */
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="basic-tool-tool-title"],
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="basic-tool-tool-subtitle"],
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="basic-tool-tool-arg"],
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="message-part-title"],
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="message-part-title-text"],
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="message-part-title-filename"] {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-mono-small);
+  font-weight: var(--font-weight-mono-small);
+  line-height: var(--line-height-mono-small);
+  color: var(--fg-weak);
+}
+
+/* Scoped reset for inner Collapsible.Arrow chev. AstroHan's third W1
+ * retest flagged that the chev inside each tool trigger ("执行命令
+ * XXXX" row) rendered as a "大 chevron" — Collapsible defaults to the
+ * 16px icon, but inside a trow caption surface it needs to match the
+ * trow summary chev's 12px. DESIGN.md L412 caps the chev at 12px. The
+ * reset only fires inside `[data-slot="trow-result-body"]` so the
+ * Collapsible default chev size elsewhere (file-tree, settings, etc.)
+ * is unaffected. */
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="collapsible-arrow-icon"] [data-component="icon"] {
+  width: 12px;
+  height: 12px;
+}
+
+/* Slice 11b.1 P0 #4 retest 5 (AstroHan msg=34822d84): the previous
+ * `gap: 8 → 6` on `trow-body` was masked by Solid Collapsible's
+ * hardcoded 30px trigger row + 26px arrow wrapper (collapsible.css
+ * L19, L72-77). Each per-tool row was effectively `max(30, content)`
+ * px tall regardless of the caption typography — stride was 30 + 6 =
+ * 36px between rows. Preview `.mf-tlist .ti`
+ * (message-flow.html L200-208) uses natural content height (~18px
+ * from mono-small 12px/150%) with a 12px hover-only chev. Mirror that
+ * inside the trow scope so the rendered rows match the screenshot
+ * spec — the resets are scoped to `[data-slot="trow-result-body"]`
+ * so Collapsible elsewhere (file-tree, settings, every other
+ * trigger) keeps the 30px default. */
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="collapsible-trigger"] {
+  height: auto;
+  min-height: 0;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="collapsible-arrow"] {
+  width: 12px;
+  height: 12px;
+}
+
+/* Inner Collapsible.Content expand / collapse animation — Solid's
+ * Collapsible primitive ships with the keyframe rules commented out
+ * (`collapsible.css` L92-101), so without this scoped override the
+ * inner per-tool body would snap open. AstroHan's fourth W1 retest
+ * (msg=ac13481a) flagged the missing animation. The rule below
+ * mirrors the trow `::details-content` transition and is scoped to
+ * the trow result body so Collapsible elsewhere (file-tree, settings)
+ * stays on its default behaviour. The `:root { interpolate-size:
+ * allow-keywords }` global is what lets `height: auto` participate
+ * in the transition. */
+@media (prefers-reduced-motion: no-preference) {
+  [data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="collapsible-content"] {
+    height: 0;
+    opacity: 0;
+    overflow: hidden;
+    transition: var(--trow-collapse-transition);
+    transition-behavior: allow-discrete;
+  }
+  [data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="collapsible-content"][data-expanded] {
+    height: auto;
+    opacity: 1;
+    overflow: visible;
+  }
+}
+
+/* WebFetch's renderer (`message-part-tools-basic.tsx` L142) is the
+ * only tool that ships a right-aligned `[data-component="tool-action"]`
+ * arrow inside its trigger row — the other tools (read / list / glob /
+ * grep / websearch) use the plain `trigger={{ title, subtitle }}`
+ * object form. AstroHan's fourth W1 retest (msg=ac13481a) flagged that
+ * the right arrow makes WebFetch look like an "old-style" interactive
+ * card instead of a left-aligned trow caption row. Suppress the action
+ * icon only inside the trow result body — standalone WebFetch outside
+ * the trow keeps the affordance. */
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-component="tool-action"] {
+  display: none;
+}

@@ -34,7 +34,7 @@ ToolRegistry.register({
     return (
       <BasicTool
         {...props}
-        defaultOpen={completed()}
+        defaultOpen={props.defaultOpen ?? completed()}
         icon="bubble-5"
         trigger={{
           title: i18n.t("ui.tool.questions"),

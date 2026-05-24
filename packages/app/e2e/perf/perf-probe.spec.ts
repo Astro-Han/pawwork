@@ -1,5 +1,6 @@
 import fs from "node:fs/promises"
 import path from "node:path"
+import type { Locator, Page } from "@playwright/test"
 import { raw } from "../../../opencode/test/lib/llm-server"
 import { test, expect } from "../fixtures"
 import { cleanupSession, waitSessionIdle, waitSessionSaved, waitTerminalFocusIdle, withSession } from "../actions"
@@ -616,6 +617,92 @@ async function seedHeavyBashSession(input: { project: PerfProject; llm: PerfLlm;
   return session
 }
 
+async function revealTrowBodyIfPresent(page: Page) {
+  const summary = page.locator('[data-slot="trow-summary"]').first()
+  if (!(await summary.isVisible({ timeout: 1_000 }).catch(() => false))) return
+  const body = page.locator('[data-slot="trow-body"]').first()
+  if (!(await body.isVisible().catch(() => false))) await summary.click()
+  await expect(body).toBeVisible()
+}
+
+function expandableToolTriggers(page: Page) {
+  return page
+    .locator('[data-slot="collapsible-trigger"]')
+    .filter({ has: page.locator('[data-component="tool-trigger"]') })
+}
+
+async function visibleExpandableToolTrigger(page: Page) {
+  const triggers = expandableToolTriggers(page)
+  const count = await triggers.count()
+  for (let index = 0; index < count; index += 1) {
+    const trigger = triggers.nth(index)
+    if (!(await trigger.isVisible().catch(() => false))) continue
+    if ((await trigger.getAttribute("data-hide-details").catch(() => null)) === "true") continue
+    return trigger
+  }
+  return undefined
+}
+
+async function visibleToolTrigger(page: Page) {
+  const triggers = expandableToolTriggers(page)
+  const count = await triggers.count()
+  for (let index = 0; index < count; index += 1) {
+    const trigger = triggers.nth(index)
+    if (await trigger.isVisible().catch(() => false)) return trigger
+  }
+  return undefined
+}
+
+async function exerciseToolExpandCycle(page: Page) {
+  const trowDetails = page.locator('[data-component="session-turn-trow-block"] details').first()
+  const trowSummary = trowDetails.locator('[data-slot="trow-summary"]').first()
+  let trigger: Locator | undefined
+  let mode: "trow" | "tool" | undefined
+
+  await expect
+    .poll(
+      async () => {
+        if (await trowSummary.isVisible().catch(() => false)) {
+          mode = "trow"
+          return "ready"
+        }
+        trigger = await visibleExpandableToolTrigger(page)
+        trigger ??= await visibleToolTrigger(page)
+        if (trigger) {
+          mode = "tool"
+          return "ready"
+        }
+        return "loading"
+      },
+      { timeout: 30_000 },
+    )
+    .toBe("ready")
+
+  if (mode === "trow") {
+    await resetPerfProbe(page)
+    if ((await trowDetails.getAttribute("open").catch(() => null)) !== null) {
+      await trowSummary.click()
+      await expect(trowDetails).not.toHaveAttribute("open", "")
+    }
+    await trowSummary.click()
+    await expect(trowDetails).toHaveAttribute("open", "")
+    await trowSummary.click()
+    await expect(trowDetails).not.toHaveAttribute("open", "")
+    await trowSummary.click()
+    await expect(trowDetails).toHaveAttribute("open", "")
+    return
+  }
+
+  if (!trigger) throw new Error("No expandable tool trigger found")
+  await resetPerfProbe(page)
+  await trigger.click()
+  await expect(trigger).toHaveAttribute("aria-expanded", "true")
+  await trigger.click()
+  await expect(trigger).toHaveAttribute("aria-expanded", "false")
+  await trigger.click()
+  await expect(trigger).toHaveAttribute("aria-expanded", "true")
+}
+
 function skipUnlessScenario(name: PerfScenarioName) {
   test.skip(!shouldRunScenario(PERF_PROFILE, name), `${PERF_PROFILE} profile does not run ${name}`)
 }
@@ -756,20 +843,10 @@ test.describe("PR0.1 perf probe baseline", () => {
       if (!created?.directory) throw new Error("Failed to create worktree for perf probe")
       project.trackDirectory(created.directory)
       await llm.tool("enter-worktree", { path: created.directory })
+      await llm.tool("read", { filePath: "package.json" })
       await llm.text(`tool call baseline ${run + 1}`)
-      await project.prompt(`Create todos for perf probe run ${run + 1}.`)
-      const trigger = page
-        .locator('[data-slot="collapsible-trigger"]')
-        .filter({ has: page.locator('[data-component="tool-trigger"]') })
-        .first()
-      await expect(trigger).toBeVisible({ timeout: 30_000 })
-      await resetPerfProbe(page)
-      await trigger.click()
-      await expect(trigger).toHaveAttribute("aria-expanded", "true")
-      await trigger.click()
-      await expect(trigger).toHaveAttribute("aria-expanded", "false")
-      await trigger.click()
-      await expect(trigger).toHaveAttribute("aria-expanded", "true")
+      await project.prompt(`Read package.json for perf probe run ${run + 1}.`)
+      await exerciseToolExpandCycle(page)
       await settleFrames(page, 4)
       runs.push(await snapshotPerfProbe(page))
       if (run < 2) await cooldownAfterRun(page)
@@ -792,11 +869,12 @@ test.describe("PR0.1 perf probe baseline", () => {
       const session = await seedHeavyBashSession({ project, llm, run })
       try {
         await page.goto(sessionPath(project.directory, session.id))
-        const trigger = page
-          .locator('[data-slot="collapsible-trigger"]')
-          .filter({ has: page.locator('[data-component="tool-trigger"]') })
-          .first()
-        await expect(trigger).toBeVisible({ timeout: 30_000 })
+        await revealTrowBodyIfPresent(page)
+        await expect
+          .poll(async () => Boolean(await visibleExpandableToolTrigger(page)), { timeout: 30_000 })
+          .toBe(true)
+        const trigger = await visibleExpandableToolTrigger(page)
+        if (!trigger) throw new Error("No expandable tool trigger found")
         await expect(trigger).toHaveAttribute("aria-expanded", "true")
         await settleFrames(page, 2)
         runs.push(await snapshotPerfProbe(page))

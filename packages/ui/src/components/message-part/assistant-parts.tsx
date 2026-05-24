@@ -1,8 +1,10 @@
 import { createMemo, Index, Match, Show, Switch } from "solid-js"
 import type { AssistantMessage, Part as PartType, ToolPart } from "@opencode-ai/sdk/v2"
 import { useData } from "../../context"
-import { ContextToolGroup } from "./context-tool-group"
-import { groupParts, isContextGroupTool, partDefaultOpen, renderable, sameGroups, type PartGroup } from "./grouping"
+import { useI18n } from "../../context/i18n"
+import { TrowBlock } from "../session-turn-trow-block"
+import { activeWorkingTrowKey, groupParts, partDefaultOpen, renderable, sameGroups, type PartGroup } from "./grouping"
+import { contextToolSummaryText, contextTrowSummaryText } from "./context-tool-helpers"
 import { index, latestDefined, list, same } from "./shared-utils"
 import { Part } from "./message-router"
 
@@ -14,6 +16,7 @@ export function AssistantParts(props: {
   editToolDefaultOpen?: boolean
 }) {
   const data = useData()
+  const i18n = useI18n()
   const emptyParts: PartType[] = []
   const emptyTools: ToolPart[] = []
   const msgs = createMemo(() => index(props.messages))
@@ -39,8 +42,7 @@ export function AssistantParts(props: {
     [] as PartGroup[],
     { equals: sameGroups },
   )
-
-  const last = createMemo(() => grouped().at(-1)?.key)
+  const workingTrowKey = createMemo(() => activeWorkingTrowKey(grouped(), props.working))
 
   return (
     <Index each={grouped()}>
@@ -49,24 +51,49 @@ export function AssistantParts(props: {
 
         return (
           <Switch>
-            <Match when={entryType() === "context"}>
+            <Match when={entryType() === "trow"}>
               {(() => {
                 const parts = createMemo(
                   () => {
                     const entry = entryAccessor()
-                    if (entry.type !== "context") return emptyTools
+                    if (entry.type !== "trow") return emptyTools
                     return entry.refs
                       .map((ref) => part().get(ref.messageID)?.get(ref.partID))
-                      .filter((part): part is ToolPart => !!part && isContextGroupTool(part))
+                      .filter((part): part is ToolPart => !!part && part.type === "tool")
                   },
                   emptyTools,
                   { equals: same },
                 )
-                const busy = createMemo(() => props.working && last() === entryAccessor().key)
+                const singleTool = createMemo(() => parts().length === 1)
+                const defaultOpenForTool = (tool: ToolPart) =>
+                  partDefaultOpen(tool, props.shellToolDefaultOpen, props.editToolDefaultOpen) ?? singleTool()
+                const renderTool = (tool: ToolPart) => {
+                  const message = msgs().get(tool.messageID)
+                  if (!message) return null
+                  return (
+                    <div data-slot="trow-result-body" data-timeline-anchor={`tool:${tool.id}`}>
+                      <Part
+                        part={tool}
+                        message={message}
+                        defaultOpen={defaultOpenForTool(tool)}
+                        stateKey={`tool:${tool.id}`}
+                      />
+                    </div>
+                  )
+                }
 
                 return (
                   <Show when={parts().length > 0}>
-                    <ContextToolGroup parts={parts()} busy={busy()} />
+                    <TrowBlock
+                      parts={parts()}
+                      working={entryAccessor().key === workingTrowKey()}
+                      labels={{
+                        summaryRunning: (count) => i18n.t("ui.sessionTurn.trow.summary.running", { count }),
+                        summaryCompleted: (parts, failed) => contextTrowSummaryText(parts, failed, i18n),
+                      }}
+                      describeTool={(tool) => contextToolSummaryText(tool, i18n)}
+                      renderTool={renderTool}
+                    />
                   </Show>
                 )
               })()}
