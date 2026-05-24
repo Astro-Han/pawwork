@@ -57,6 +57,7 @@ test("session-trow", async ({ page }) => {
     timeout: 30_000,
   })
   const innerBashMetrics = await page.locator('[data-snap="inner-bash-expanded"]').evaluate((root) => {
+    const summary = root.querySelector<HTMLElement>('[data-slot="trow-summary"]')
     const body = root.querySelector<HTMLElement>('[data-slot="trow-body"]')
     const pre = root.querySelector<HTMLElement>('[data-component="bash-output"] [data-slot="bash-pre"]')
     const code = pre?.querySelector<HTMLElement>("code")
@@ -66,8 +67,9 @@ test("session-trow", async ({ page }) => {
     const triggerContent = openTool?.querySelector<HTMLElement>('[data-slot="basic-tool-tool-trigger-content"]')
     const arrow = openTool?.querySelector<HTMLElement>('[data-slot="collapsible-arrow"]')
     const content = openTool?.querySelector<HTMLElement>('[data-slot="collapsible-content"]')
-    if (!body || !pre || !code || !summaryText || !trigger || !triggerContent || !arrow || !content) {
+    if (!summary || !body || !pre || !code || !summaryText || !trigger || !triggerContent || !arrow || !content) {
       return {
+        bodyTopGap: Number.NaN,
         rowGap: "",
         prePadding: "",
         codeFontSize: "",
@@ -80,6 +82,7 @@ test("session-trow", async ({ page }) => {
       }
     }
     return {
+      bodyTopGap: Math.round(body.getBoundingClientRect().top - summary.getBoundingClientRect().bottom),
       rowGap: getComputedStyle(body).rowGap,
       prePadding: getComputedStyle(pre).padding,
       codeFontSize: getComputedStyle(code).fontSize,
@@ -91,6 +94,8 @@ test("session-trow", async ({ page }) => {
       contentTransitionProperty: getComputedStyle(content).transitionProperty,
     }
   })
+  expect(innerBashMetrics.bodyTopGap).toBeGreaterThanOrEqual(0)
+  expect(innerBashMetrics.bodyTopGap).toBeLessThanOrEqual(5)
   expect(innerBashMetrics.rowGap).toBe("4px")
   expect(innerBashMetrics.prePadding).toBe("8px 10px")
   expect(innerBashMetrics.codeFontSize).toBe("12px")

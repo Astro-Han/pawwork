@@ -143,7 +143,7 @@
  * wrapper. So the wrapper stays borderless and only owns the vertical
  * rhythm + caption typography between sub-rows. */
 [data-component="session-turn-trow-block"] [data-slot="trow-body"] {
-  margin-top: 8px;
+  margin-top: 0;
   padding: 0;
   background: transparent;
   font-family: var(--font-family-mono);
