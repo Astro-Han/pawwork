@@ -142,12 +142,10 @@
   transform: rotate(0deg);
 }
 
-/* Running state — summary shimmer hook. The actual pw-shimmer animation
- * is wired by the caller (session-turn.css owns the `.pw-shimmer` class
- * application against `[data-running]` after the Phase 2a rewrite); this
- * file leaves the data attribute exposed so the shimmer can attach. */
+/* Running state marker remains on the block; summary text uses TextShimmer
+ * directly so the shared reduced-motion and swap behavior stay centralized. */
 [data-component="session-turn-trow-block"][data-running] [data-slot="trow-summary-text"] {
-  /* Hook for shimmer; intentionally no animation rule here. */
+  /* Marker target for state-specific overrides; no local animation here. */
 }
 
 /* Body — the outer wrapper that holds the per-tool sub-rows. AstroHan

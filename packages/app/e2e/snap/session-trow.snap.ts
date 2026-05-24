@@ -6,6 +6,7 @@ import { composeGrid, snapOutputPath, type Shot } from "./_compose"
 test.use({ viewport: { width: 900, height: 560 }, deviceScaleFactor: 2 })
 
 const LANGUAGE_KEY = "pawwork.global.dat:language"
+const ACTIVE_SHIMMER = '[data-slot="trow-summary-text"] [data-component="text-shimmer"][data-active="true"]'
 const fixturePath = fileURLToPath(new URL("./fixtures/trow-snap-fixture.tsx", import.meta.url))
 async function captureBlock(name: string, block: Locator): Promise<Shot> {
   await expect(block).toBeVisible({ timeout: 30_000 })
@@ -37,15 +38,18 @@ test("session-trow", async ({ page }) => {
   const shots: Shot[] = []
   const running = page.locator('[data-snap="running-current"]')
   await expect(running).toContainText("执行命令 third command", { timeout: 30_000 })
+  await expect(running.locator(ACTIVE_SHIMMER)).toBeVisible({ timeout: 30_000 })
   shots.push(await captureBlock("running-current", running))
 
   const activitySummary = page.locator('[data-snap="activity-summary-collapsed"]')
   await expect(activitySummary).toContainText("读取 1 个文件，运行 1 条命令，搜索文件 1 次", { timeout: 30_000 })
   await expect(activitySummary).toContainText("使用 1 个工具", { timeout: 30_000 })
+  await expect(activitySummary.locator(ACTIVE_SHIMMER)).toHaveCount(0)
   shots.push(await captureBlock("activity-summary-collapsed", activitySummary))
 
   const failedSummary = page.locator('[data-snap="failed-summary-collapsed"]')
   await expect(failedSummary).toContainText("运行 1 条命令，读取 1 个文件，1 个失败", { timeout: 30_000 })
+  await expect(failedSummary.locator(ACTIVE_SHIMMER)).toHaveCount(0)
   shots.push(await captureBlock("failed-summary-collapsed", failedSummary))
 
   shots.push(await captureBlock("mixed-collapsed", page.locator('[data-snap="mixed-collapsed"]')))
