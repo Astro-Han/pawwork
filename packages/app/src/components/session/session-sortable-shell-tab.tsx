@@ -90,8 +90,14 @@ export function ShellTab(props: {
       value={props.value}
       class="shrink-0 h-full"
       classes={{
-        button:
-          "h-7 min-h-7 inline-flex items-center whitespace-nowrap rounded-md text-h3 text-fg-weak gap-2 px-2",
+        // Spacing (gap, padding-inline, border-radius) lives in tabs.css under
+        // the sidepanel variant so it rides on `--space-sm` (8px) and
+        // `--radius-lg` (14px) tokens. Tailwind utilities are kept out here
+        // because the app pins `html { font-size: 13px }`, which makes the
+        // default rem-based spacing scale drift off the 4pt grid (gap-2 =
+        // 0.5rem = 6.5px instead of 8px). Routing through CSS variables in
+        // the variant block keeps the chip exactly on the grid.
+        button: "h-7 min-h-7 inline-flex items-center whitespace-nowrap text-h3 text-fg-weak",
       }}
       onMiddleClick={close}
       aria-label={props.label}

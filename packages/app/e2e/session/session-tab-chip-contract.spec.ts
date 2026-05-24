@@ -265,6 +265,36 @@ test.describe("right-panel tab chip + × contract", () => {
     }
   })
 
+  test("closable wrapper has no trailing padding (parity with non-closable)", async ({ page, gotoSession }) => {
+    // Regression guard: base tabs CSS adds `padding-right: 12px` to any
+    // wrapper that owns a close-button slot. The sidepanel × is anchored on
+    // top of the leading icon (anchor positioning), so trailing padding has
+    // no purpose here — and leaving it in made closable wrappers (Files /
+    // Review / Terminal) visibly wider than Status at the same min-width.
+    // The sidepanel override resets it to 0; this test pins that.
+    await gotoSession()
+    await ensureRightPanelOpen(page)
+    await openExtraTabs(page)
+
+    const paddings = await page.evaluate(() => {
+      const wraps = Array.from(
+        document.querySelectorAll<HTMLElement>('[data-slot="tabs-trigger-wrapper"]'),
+      )
+      return wraps.map((w) => ({
+        value: w.getAttribute("data-value"),
+        hasCloseSlot:
+          w.querySelector('[data-slot="tabs-trigger-close-button"]') !== null,
+        paddingRight: getComputedStyle(w).paddingRight,
+      }))
+    })
+
+    const closable = paddings.filter((p) => p.hasCloseSlot)
+    expect(closable.length).toBeGreaterThan(0)
+    for (const p of closable) {
+      expect(p.paddingRight).toBe("0px")
+    }
+  })
+
   test("Status (non-closable) shows no × on hover and keeps its icon", async ({ page, gotoSession }) => {
     // Regression guard: PR #878 had a moment where Status's icon faded under
     // a `:has(close-button-slot)` selector even though Status has no slot.
@@ -295,5 +325,37 @@ test.describe("right-panel tab chip + × contract", () => {
     )
     expect(reviewHasSlot).toBe(true)
     await page.getByRole("tab", REVIEW_TAB).hover() // also closes the hover test cleanly
+  })
+
+  test("trigger gap and tabs-list gap both follow the 4pt grid at 8px", async ({ page, gotoSession }) => {
+    // DESIGN.md L233: gap/padding/margin must be multiples of 4. The previous
+    // production values `gap-1.5` (6px) and `px-2.5` (10px) drifted off the
+    // 4pt grid; PR #880 round 6 unified both to 8px so the chip and the strip
+    // share one spacing language with the rest of the system. Pin both here
+    // so a future Tailwind class tweak cannot quietly revert to off-grid.
+    await gotoSession()
+    await ensureRightPanelOpen(page)
+    await openExtraTabs(page)
+    await page.mouse.move(0, 0)
+
+    const gaps = await page.evaluate(() => {
+      // Scope to the sidepanel-variant tabs (right-panel strip) — the doc
+      // may host other tablists whose spacing is unrelated.
+      const list = document.querySelector(
+        '[data-component="tabs"][data-variant="sidepanel"] [data-slot="tabs-list"]',
+      ) as HTMLElement | null
+      // Trigger is inline-flex (SortableTab sets `gap-1.5 px-2.5` …→ now
+      // `gap-2 px-2`); the column-gap is the leading-icon ↔ label spacing.
+      const trigger = document.querySelector(
+        '[data-slot="tabs-trigger-wrapper"][data-value="files"] [data-slot="tabs-trigger"]',
+      ) as HTMLElement | null
+      return {
+        listGap: list ? getComputedStyle(list).columnGap : null,
+        triggerGap: trigger ? getComputedStyle(trigger).columnGap : null,
+      }
+    })
+
+    expect(gaps.listGap).toBe("8px")
+    expect(gaps.triggerGap).toBe("8px")
   })
 })

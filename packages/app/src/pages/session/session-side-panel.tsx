@@ -357,7 +357,13 @@ export function SessionSidePanel(props: {
                         itself is `pointer-events-none` (see Titlebar) so the rest of the
                         slot box does not occlude the Right utility panel toggle that sits
                         in the right portal beneath it. */}
-                    <Tabs.List class="h-full shrink-0 px-1 py-0 gap-0 items-center pointer-events-auto">
+                    {/* `gap` is intentionally omitted — the sidepanel variant
+                        in tabs.css owns the inter-tab gap via `var(--space-sm)`
+                        (8px / 4pt-grid). Tailwind's `gap-0` (or `gap-2`)
+                        would sit in the utilities layer and outrank the
+                        components-layer rule, drifting the strip off the
+                        grid. */}
+                    <Tabs.List class="h-full shrink-0 px-1 py-0 items-center pointer-events-auto">
                       <SortableProvider ids={sortableShellTabIds(view().sidePanel.openTabs())}>
                         <For each={shellTabs()}>
                           {(tab) => (
