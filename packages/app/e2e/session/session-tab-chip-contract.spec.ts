@@ -237,11 +237,15 @@ test.describe("right-panel tab chip + × contract", () => {
     expect(bgAlpha).toBeLessThanOrEqual(alpha(colors.activeToken))
   })
 
-  test("all sidepanel tabs share a uniform min-width chip", async ({ page, gotoSession }) => {
-    // Status / Files / Review labels differ in character count, which produced
-    // visibly mismatched chip widths. A shared min-width pulls short labels up
-    // to a consistent footprint; the rule lives in tabs.css under the
-    // sidepanel variant.
+  test("short sidepanel tabs share a 5.5rem min-width footprint", async ({ page, gotoSession }) => {
+    // Status / Files / Review labels are short (2-3 Chinese chars or 5-6
+    // Latin chars). Without a floor they render visibly mismatched in the
+    // titlebar strip — the user's "宽度不统一难看" feedback. min-width 5.5rem
+    // (~71.5px at the 13px html base) pulls short chips up to a uniform
+    // footprint; longer labels (Terminal at 8 Latin chars) extend past it
+    // naturally and the strip scrolls horizontally if the total exceeds the
+    // slot width. The 5.5rem floor is sized to fit "Files" + icon + padding
+    // without dwarfing it, which the earlier 7.5rem attempt did.
     await gotoSession()
     await ensureRightPanelOpen(page)
     await openExtraTabs(page)
@@ -254,9 +258,6 @@ test.describe("right-panel tab chip + × contract", () => {
       })),
     )
 
-    // All triggers measured (Status / Files / Review at minimum) must be at
-    // or above the 5.5rem min-width (~71px under the 13px html base) — short
-    // labels are pulled up, long labels (Terminal) expand naturally past it.
     const MIN_WIDTH_PX = Math.round(5.5 * 13) // ~72
     expect(widths.length).toBeGreaterThanOrEqual(3)
     for (const t of widths) {

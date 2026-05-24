@@ -412,6 +412,11 @@
          titlebar slot, which varies (macOS 40px chrome / Windows 44px), and
          hard-coding 44px here pushed tabs past the titlebar bottom on macOS. */
       height: 100%;
+      /* 8px between adjacent tabs (var(--space-sm), 4pt-grid compliant).
+         Lets each chip read as its own cell rather than a continuous band;
+         hover overlay on one tab and selected overlay on its neighbour stay
+         distinct. */
+      gap: 0.5rem;
 
       &::after {
         display: none;
@@ -427,7 +432,13 @@
        hard-coded the trigger's `px-2.5` padding in two places and drifted
        whenever the cell got wider than its content. */
     [data-slot="tabs-trigger-wrapper"] {
-      --tab-leading-inset: 0.625rem;
+      /* 8px (var(--space-sm)) inline padding inside the chip, matched by
+         SortableTab's `px-2` Tailwind class on the trigger. The leading
+         icon span and the close-button slot both flex-anchor at this
+         distance from the chip's leading edge, so × and the leading glyph
+         overlay pixel-for-pixel — no absolute-position math, no two-place
+         coupling. */
+      --tab-leading-inset: 0.5rem;
       border-bottom: none;
       border-right: none;
       background-color: transparent;
@@ -437,6 +448,10 @@
       gap: 0;
       display: grid;
       grid-template-columns: 1fr;
+      /* Full pill at 28px high — `radius-lg` 14px ≈ height/2. Matches the
+         Codex / Linear pill-tab silhouette and lets hover + selected chip
+         backgrounds read as cohesive shapes rather than rounded rectangles. */
+      border-radius: var(--radius-lg);
 
       &:has([data-selected]),
       &:hover:not(:disabled):not([data-selected]) {

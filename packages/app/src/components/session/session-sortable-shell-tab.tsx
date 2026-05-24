@@ -91,7 +91,7 @@ export function ShellTab(props: {
       class="shrink-0 h-full"
       classes={{
         button:
-          "h-7 min-h-7 inline-flex items-center whitespace-nowrap rounded-md text-h3 text-fg-weak gap-1.5 px-2.5",
+          "h-7 min-h-7 inline-flex items-center whitespace-nowrap rounded-md text-h3 text-fg-weak gap-2 px-2",
       }}
       onMiddleClick={close}
       aria-label={props.label}
