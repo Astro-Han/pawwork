@@ -17,6 +17,11 @@ import { childSessionOnPath } from "./helpers"
 import { sidebarStatusKind } from "./sidebar-status-kind"
 import { defaultNewSessionHref, defaultSessionHref, openShellLinkWithOwner } from "./sidebar-item-navigation"
 
+export type SessionSwitchPaint = {
+  sourceID?: string
+  targetID: string
+}
+
 export type SessionItemProps = {
   session: Session
   list: Session[]
@@ -28,6 +33,8 @@ export type SessionItemProps = {
   prefetchSession: (session: Session, priority?: "high" | "low") => void
   hrefForSession?: (session: Session) => string
   onOpenSession?: (session: Session) => void
+  onSwitchPaint?: (session: Session, event: MouseEvent) => void
+  switchPaint?: Accessor<SessionSwitchPaint | undefined>
   titleContent?: (input: { session: Session; title: Accessor<string> }) => JSX.Element
   actionSlot?: (session: Session) => JSX.Element
   timeText?: (session: Session) => string | undefined
@@ -40,6 +47,7 @@ const SessionRow = (props: {
   warmFocus: () => void
   href: string
   onOpenSession?: (event: MouseEvent) => void
+  onSwitchPaint?: (event: MouseEvent) => void
   titleContent?: JSX.Element
 }): JSX.Element => {
   const title = () => sessionTitle(props.session.title)
@@ -50,7 +58,10 @@ const SessionRow = (props: {
       class="flex items-center min-w-0 w-full text-left focus:outline-none"
       onPointerDown={props.warmPress}
       onFocus={props.warmFocus}
-      onClick={props.onOpenSession}
+      onClick={(event) => {
+        props.onSwitchPaint?.(event)
+        props.onOpenSession?.(event)
+      }}
     >
       <Show
         when={props.titleContent}
@@ -101,6 +112,13 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
 
   const tint = createMemo(() => messageAgentColor(sessionStore.message[props.session.id], sessionStore.agent))
   const tooltip = createMemo(() => props.showTooltip ?? false)
+  const switchPaintRole = createMemo(() => {
+    const current = props.switchPaint?.()
+    if (!current) return undefined
+    if (current.targetID === props.session.id) return "target"
+    if (current.sourceID === props.session.id) return "source"
+    return undefined
+  })
   const currentChild = createMemo(() => {
     if (!props.showChild) return
     return childSessionOnPath(sessionStore.session, props.session.id, params.id)
@@ -173,6 +191,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
         if (!props.onOpenSession) return
         openShellLinkWithOwner(event, () => props.onOpenSession?.(props.session))
       }}
+      onSwitchPaint={(event) => props.onSwitchPaint?.(props.session, event)}
       warmPress={() => warm(2, "high")}
       warmFocus={() => warm(2, "high")}
       titleContent={props.titleContent?.({ session: props.session, title: () => sessionTitle(props.session.title) ?? "" })}
@@ -184,6 +203,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
       <div
         data-session-id={props.session.id}
         data-component="pawwork-session-row"
+        data-switch-paint={switchPaintRole()}
         class="group/session relative w-full min-w-0 h-[30px] flex items-center rounded-sm cursor-default pr-[10px]"
         // Sub-session indentation: base padding is 10 (sidebar row spec); add 16 per nesting level.
         // The flat-row spec locks left-side affordances at 10; nested-row indentation is a deliberate

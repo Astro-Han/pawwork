@@ -16,7 +16,8 @@ import { buildPawworkSessionSections, type PawworkSortMode } from "./pawwork-ses
 import { createSortableAttacher } from "./pawwork-sidebar-drag"
 import { buildPawworkSidebarCollections } from "./pawwork-sidebar-identity"
 import { buildSessionMenuActions, type SessionMenuAction } from "./session-menu-actions"
-import { SessionItem } from "./sidebar-items"
+import { SessionItem, type SessionSwitchPaint } from "./sidebar-items"
+import { shouldUseShellOwnerForLink } from "./sidebar-item-navigation"
 import "./sidebar.css"
 
 export type PawworkSidebarSession = {
@@ -153,6 +154,7 @@ export const PawworkSidebar = (props: {
 }): JSX.Element => {
   const language = useLanguage()
   const dialog = useDialog()
+  const [switchPaint, setSwitchPaint] = createSignal<SessionSwitchPaint | undefined>()
   const navList = createMemo(() => props.sessions().map((item) => item.session))
   let scrollEl: HTMLDivElement | undefined
   const sections = createMemo(() =>
@@ -301,6 +303,16 @@ export const PawworkSidebar = (props: {
                 prefetchSession={props.prefetchSession}
                 hrefForSession={props.hrefForSession}
                 onOpenSession={props.onOpenSession}
+                switchPaint={switchPaint}
+                onSwitchPaint={(session, event) => {
+                  if (!shouldUseShellOwnerForLink(event)) return
+                  const sourceID = props.activeSessionID?.()
+                  if (!sourceID || sourceID === session.id) {
+                    setSwitchPaint(undefined)
+                    return
+                  }
+                  setSwitchPaint({ sourceID, targetID: session.id })
+                }}
                 timeText={() =>
                   current().created > 0
                     ? getRelativeTime(new Date(current().created).toISOString(), language.t)
@@ -359,6 +371,16 @@ export const PawworkSidebar = (props: {
   // update (e.g. time.updated bump on submit), pulling the sidebar back to top.
   const sessionCount = createMemo(() => props.sessions().length)
   const pinnedSignature = createMemo(() => props.pinnedIDs().join("\0"))
+  createEffect(() => {
+    const current = switchPaint()
+    if (!current) return
+    if (props.activeSessionID?.() !== current.targetID) return
+
+    requestAnimationFrame(() => {
+      setSwitchPaint((latest) => (latest === current ? undefined : latest))
+    })
+  })
+
   createEffect(() => {
     const activeSessionID = props.activeSessionID?.()
     props.sortMode()

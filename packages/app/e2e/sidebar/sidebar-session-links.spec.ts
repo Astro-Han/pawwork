@@ -8,11 +8,21 @@ async function sessionRowPaint(page: Page, sessionID: string) {
   return page
     .locator(`[data-session-id="${sessionID}"][data-component="pawwork-session-row"]`)
     .first()
-    .evaluate((element) => ({
-      backgroundColor: getComputedStyle(element).backgroundColor,
-      selectedLayerOpacity: getComputedStyle(element, "::before").opacity,
-      hoverLayerOpacity: getComputedStyle(element, "::after").opacity,
-    }))
+    .evaluate((element) => {
+      const statusDefault = element.querySelector("[data-status-default]") as HTMLElement | null
+      const statusOverlay = element.querySelector("[data-status-overlay]") as HTMLElement | null
+      return {
+        backgroundColor: getComputedStyle(element).backgroundColor,
+        selectedLayerOpacity: getComputedStyle(element, "::before").opacity,
+        hoverLayerOpacity: getComputedStyle(element, "::after").opacity,
+        statusDefaultOpacity: statusDefault ? getComputedStyle(statusDefault).opacity : null,
+        statusOverlayOpacity: statusOverlay ? getComputedStyle(statusOverlay).opacity : null,
+      }
+    })
+}
+
+async function nextFrame(page: Page) {
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
 }
 
 async function expectUrlToStayMatched(page: Page, pattern: RegExp, stableFor = 300) {
@@ -99,13 +109,23 @@ test("sidebar session selection paint switches without leaving the previous row 
     await gotoSession(source.id)
     await openSidebar(page)
 
-    const targetLink = page.locator(`[data-session-id="${target.id}"] a`).first()
-    await expect(targetLink).toBeVisible()
-    await targetLink.hover()
-    await targetLink.click()
+    const sourceLink = page.locator(`[data-session-id="${source.id}"] a`).first()
+    await expect(sourceLink).toBeVisible()
+    await sourceLink.click()
+    await expect(page).toHaveURL(new RegExp(`/${slug}/session/${source.id}(?:\\?|#|$)`))
+
+    const targetRow = page.locator(`[data-session-id="${target.id}"][data-component="pawwork-session-row"]`).first()
+    await expect(targetRow).toBeVisible()
+    const targetBox = await targetRow.boundingBox()
+    if (!targetBox) throw new Error("Target session row did not expose a bounding box")
+
+    await page.mouse.move(targetBox.x + targetBox.width / 3, targetBox.y + targetBox.height / 2)
+    await nextFrame(page)
+    await page.mouse.down()
+    await nextFrame(page)
+    await page.mouse.up()
 
     await expect(page).toHaveURL(new RegExp(`/${slug}/session/${target.id}(?:\\?|#|$)`))
-    await page.waitForTimeout(16)
 
     await expect(page.locator(`[data-session-id="${target.id}"] a`).first()).toHaveClass(/\bactive\b/)
     const sourcePaint = await sessionRowPaint(page, source.id)
@@ -113,8 +133,12 @@ test("sidebar session selection paint switches without leaving the previous row 
 
     expect(sourcePaint.backgroundColor).toBe("rgba(0, 0, 0, 0)")
     expect(sourcePaint.selectedLayerOpacity).toBe("0")
+    expect(sourcePaint.statusDefaultOpacity).toBe("1")
+    expect(sourcePaint.statusOverlayOpacity).toBe("0")
     expect(targetPaint.selectedLayerOpacity).toBe("1")
     expect(targetPaint.hoverLayerOpacity).toBe("0")
+    expect(targetPaint.statusDefaultOpacity).toBe("0")
+    expect(targetPaint.statusOverlayOpacity).toBe("1")
   } finally {
     await cleanupSession({ sdk, sessionID: source.id })
     await cleanupSession({ sdk, sessionID: target.id })
