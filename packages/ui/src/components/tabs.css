@@ -418,7 +418,16 @@
       }
     }
 
+    /* Wrapper as a single-cell grid: trigger and close-button-slot stack
+       in the same grid cell (`grid-area: 1 / 1`) and share the wrapper's
+       padding-inline-start. Leading icon and × no longer live in different
+       positioning systems — both ride on `--tab-leading-inset` as their
+       inline anchor, so a padding tweak propagates to both at once. This
+       replaces the earlier `position: absolute; left: 0.625rem` hack, which
+       hard-coded the trigger's `px-2.5` padding in two places and drifted
+       whenever the cell got wider than its content. */
     [data-slot="tabs-trigger-wrapper"] {
+      --tab-leading-inset: 0.625rem;
       border-bottom: none;
       border-right: none;
       background-color: transparent;
@@ -426,6 +435,8 @@
       font: inherit;
       max-width: none;
       gap: 0;
+      display: grid;
+      grid-template-columns: 1fr;
 
       &:has([data-selected]),
       &:hover:not(:disabled):not([data-selected]) {
@@ -435,32 +446,26 @@
       }
     }
 
-    /* Active marker: color shift + chip background. The chip color (hover and
-       selected) is painted from app-level CSS (var(--row-{hover,active}-overlay),
-       matching the sidebar session row), so this rule only owns the color
-       half. Font-weight is intentionally not used as a marker: all sidepanel
-       triggers already pick up 500 from `text-h3` (--font-weight-h3), and
+    /* Active marker: color shift only. Chip background is painted by app-level
+       CSS (var(--row-{hover,active}-overlay), matching the sidebar session
+       row). Font-weight is intentionally not used as a marker: all sidepanel
+       triggers already inherit 500 from `text-h3` (--font-weight-h3) and
        bumping a subset would shift tab widths when selection changes.
        `min-width` pulls short labels (Status / Files / Review at 2 Chinese
-       chars or 5–6 Latin chars) up to a uniform chip footprint. 7.5rem
-       (~97.5px under the 13px html base) comfortably fits "Terminal" + the
-       leading icon + close slot + padding; longer labels would naturally
-       extend and the strip scrolls horizontally if total content exceeds the
-       slot width. */
+       chars or 5–6 Latin chars) up to a consistent chip footprint. 5.5rem
+       (~71.5px under the 13px html base) covers the short labels — Terminal
+       (longest at 8 chars) naturally extends past it, and the strip scrolls
+       horizontally if total content exceeds the slot width. */
     [data-slot="tabs-trigger"] {
+      grid-area: 1 / 1;
       border: 1px solid transparent;
       color: var(--fg-weak);
       background-color: transparent;
-      min-width: 7.5rem;
-      /* Anchor content to the leading edge so the leading icon stays at
-         `padding-inline-start` (0.625rem) regardless of trigger width. The
-         base trigger uses `justify-content: center`, which works for content-
-         sized tabs but drifts the leading icon to the cell center as soon as
-         min-width pushes the trigger wider than content. The close-button
-         slot is absolutely positioned at `left: 0.625rem` (see slot rule
-         below), so centering content here would offset × from the leading
-         icon by half the slack — the regression caught by the e2e
-         "× center aligns with leading icon center" assertion. */
+      min-width: 5.5rem;
+      /* Anchor content to the leading edge: with min-width creating slack
+         the base `justify-content: center` would drift the leading icon to
+         the cell center, and the overlaid close-button — which uses the
+         same `--tab-leading-inset` — would no longer sit on top of it. */
       justify-content: flex-start;
       transition:
         color 120ms ease,
@@ -475,83 +480,60 @@
       }
     }
 
-    /* Leading icon ↔ close button swap. The close button slot is positioned
-       absolutely over the icon area so both occupy the same space without
-       shifting layout. The trigger wrapper needs relative positioning so the
-       absolute close button aligns correctly.
-       - Resting: close button invisible (opacity:0, pointer-events:none).
-       - On wrapper :hover: close button shown, icon hidden — instant swap, no
-         opacity transition. The 100ms fade we used to run produced a "both
-         icons visible" mid-frame whenever the cursor crossed multiple closable
-         tabs in quick succession; instant swap eliminates it.
-       Intentionally NOT triggered on :focus-within — keyboard arrow nav across
-       the tablist would otherwise replace every focused tab's icon with × on
-       the way past. Keyboard close uses the Delete shortcut (advertised via
-       `aria-keyshortcuts` on the trigger), not the visible glyph. */
-    [data-slot="tabs-trigger-wrapper"] {
-      position: relative;
-    }
-
-    /* Default icon: always visible at rest; hidden only on hover of a CLOSABLE
-       wrapper (one that owns a close-button slot) so the close button takes
-       visual ownership of that cell. The `:has(...)` scope keeps Status's icon
-       visible on hover — Status has no close slot, so hiding the icon would
-       leave the cell blank. */
+    /* Default leading icon: always visible at rest; faded out only on
+       hover of a CLOSABLE wrapper (one that owns a close-button slot) so
+       the × takes visual ownership of the leading cell. The `:has(...)`
+       scope keeps Status's icon visible on hover — Status has no close
+       slot, so hiding it would leave the cell blank. */
     [data-slot="tabs-trigger-wrapper"]:has([data-slot="tabs-trigger-close-button"]):hover
       [data-slot="tab-icon-default"] {
       opacity: 0;
     }
 
-    /* Close button slot: absolutely positioned over the icon area, sized to
-       match the leading icon span (`size-3.5` = 0.875rem) so their centers
-       overlap pixel-for-pixel. The previous literal `width: 14px` / `left: 10px`
-       drifted because the app pins html font-size to 13px (theme.css), making
-       `0.25rem ≈ 3.25px` — `size-3.5` renders ~11px, not 14px, and `px-2.5`
-       renders ~8px, not 10px. Keeping the slot rem-aware ties this contract
-       to the trigger's `px-2.5` padding and the leading span's `size-3.5`.
-       NOTE: `left: 0.625rem` is coupled to the trigger's left padding, set in
-       packages/app/src/components/session/session-sortable-shell-tab.tsx as
-       `px-2.5` on the `classes.button`. If that padding changes, update this
-       offset (or invert the coupling by exposing a CSS custom property from
-       the component). The coupling is local to the sidepanel variant — other
-       variants render the close button as a sibling in normal flow and do not
-       need positional anchoring. The selector intentionally goes through
-       `[data-slot="tabs-trigger-wrapper"]` to bump specificity above the
-       base `[data-component="tabs"] [data-slot="tabs-trigger-wrapper"]:has([data-selected])
-       [data-slot="tabs-trigger-close-button"] { opacity: 1 }` rule (4 attrs),
-       which would otherwise force the × visible on every selected closable
-       tab regardless of hover — producing the "leading icon + × both visible"
-       state the sidepanel design explicitly forbids. */
+    /* Close-button slot: lives in the same grid cell as the trigger and
+       shares its `padding-inline-start`. The × therefore lands at the same
+       inline coordinate as the leading icon WITHOUT any absolute-position
+       math — both are flex children of cells with identical
+       `padding-inline-start: var(--tab-leading-inset)` and
+       `justify-content: flex-start`. Drop padding, drop the slot's `left`
+       value, drop the contract comment about coupling — there is no
+       coupling left to manage. The slot itself is `pointer-events: none`
+       so it never steals clicks from the underlying trigger; the × button
+       inside re-enables pointer-events for its own hit area.
+       Intentionally NOT triggered on :focus-within — keyboard arrow nav
+       across the tablist would otherwise replace every focused tab's icon
+       with × on the way past. Keyboard close uses the Delete shortcut
+       (advertised via `aria-keyshortcuts` on the trigger), not the visible
+       glyph. */
     [data-slot="tabs-trigger-wrapper"] [data-slot="tabs-trigger-close-button"] {
-      position: absolute;
-      left: 0.625rem;
-      top: 50%;
-      transform: translateY(-50%);
+      grid-area: 1 / 1;
       display: flex;
       align-items: center;
-      justify-content: center;
-      width: 0.875rem;
-      height: 0.875rem;
+      justify-content: flex-start;
+      padding-inline-start: var(--tab-leading-inset);
       opacity: 0;
       pointer-events: none;
 
-      /* Inner Icon's intrinsic 16×16 box (from icon.css) overflows the slot
-         and visually competes with the 16×16 leading icon. Clamp the SVG
-         glyph to 8px here so the × is visibly smaller — clearly an action
-         affordance, not a peer of the leading icon. The IconButton's own
-         hover-overlay background is also suppressed below so the × renders
-         as a bare glyph, not a chip-shaped button. */
+      /* Inner Icon's intrinsic 16×16 box (from icon.css) would overflow the
+         leading cell and visually compete with the 16×16 leading icon.
+         Clamp the SVG glyph to 8px so the × reads as a subordinate
+         affordance, not a peer of the leading icon. */
       [data-component="icon"] {
         width: 8px;
         height: 8px;
       }
 
-      [data-component="icon-button"] {
-        background-color: transparent;
-      }
-
+      [data-component="icon-button"],
       [data-component="icon-button"]:hover:not(:disabled) {
         background-color: transparent;
+        pointer-events: auto;
+        /* The base tabs trigger sets `[data-component="icon-button"] {
+           margin: -0.25rem }` to cancel the IconButton's own padding for
+           inline-flow children. Here the icon-button is the close glyph
+           sitting in its own grid cell anchored by `padding-inline-start`,
+           so that negative margin would shift × ~3.25px left of where the
+           leading icon span (no such margin) lands — visibly mis-aligned. */
+        margin: 0;
       }
     }
 
@@ -560,7 +542,6 @@
     [data-slot="tabs-trigger-wrapper"]:hover
       [data-slot="tabs-trigger-close-button"] {
       opacity: 1;
-      pointer-events: auto;
     }
   }
 

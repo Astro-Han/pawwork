@@ -72,7 +72,7 @@ test.describe("right-panel tab chip + × contract", () => {
     expect(alpha).toBeLessThan(0.2) // overlay band, not opaque
   })
 
-  test("× icon visual is ~8px while click slot matches leading icon size", async ({ page, gotoSession }) => {
+  test("× glyph stays ~8px (subordinate to the 14px leading icon)", async ({ page, gotoSession }) => {
     await gotoSession()
     await ensureRightPanelOpen(page)
     await openExtraTabs(page)
@@ -83,24 +83,17 @@ test.describe("right-panel tab chip + × contract", () => {
     const dims = await page.evaluate(() => {
       const wrap = document.querySelector('[data-slot="tabs-trigger-wrapper"][data-value="files"]')
       const slot = wrap?.querySelector('[data-slot="tabs-trigger-close-button"]') as HTMLElement | null
-      const leadingSpan = wrap?.querySelector('[data-slot="tab-icon-default"]') as HTMLElement | null
       const svg = slot?.querySelector('[data-slot="icon-svg"]') as HTMLElement | null
       const box = (el: HTMLElement | null) => {
         if (!el) return null
         const r = el.getBoundingClientRect()
         return { w: Math.round(r.width), h: Math.round(r.height) }
       }
-      return { slot: box(slot), leading: box(leadingSpan), svg: box(svg) }
+      return { svg: box(svg) }
     })
 
-    // Click slot must match the leading icon span. Both use `size-3.5`-aware
-    // sizing now (0.875rem; ~11px under the app's rem-13 base) so swapping the
-    // icon for the × keeps the same hit target and footprint.
-    expect(dims.slot?.w).toBe(dims.leading?.w)
-    expect(dims.slot?.h).toBe(dims.leading?.h)
-    // Visible × glyph: smaller than the slot — 6 to 10px so it reads as a
-    // subordinate affordance instead of overflowing the slot like the 16×16
-    // leading icon does.
+    // Visible × glyph: 6 to 10px so it reads as a subordinate affordance
+    // instead of overflowing the cell like the 16×16 raw leading icon does.
     expect(dims.svg?.w).toBeGreaterThanOrEqual(6)
     expect(dims.svg?.w).toBeLessThanOrEqual(10)
     expect(dims.svg?.h).toBeGreaterThanOrEqual(6)
@@ -112,28 +105,28 @@ test.describe("right-panel tab chip + × contract", () => {
     await ensureRightPanelOpen(page)
     await openExtraTabs(page)
 
-    // Measure both elements while the wrapper is hovered. The close slot is
-    // `position: absolute` and the leading icon span sits in normal flow, so
-    // their CSS contracts both reference the same wrapper origin; we just need
-    // a state where both are laid out (the leading span still occupies space
-    // even when its opacity is 0 on hover).
+    // After the grid overlay refactor: the close-button slot is a full-cell
+    // flex container that pushes the × button to the same
+    // `padding-inline-start` the trigger uses for its leading icon. Measure
+    // the × icon-button (the actual visible glyph holder), not the slot box,
+    // against the leading icon span.
     await page.getByRole("tab", FILES_TAB).hover()
 
     const positions = await page.evaluate(() => {
       const wrap = document.querySelector('[data-slot="tabs-trigger-wrapper"][data-value="files"]') as HTMLElement | null
       const leading = wrap?.querySelector('[data-slot="tab-icon-default"]') as HTMLElement | null
-      const slot = wrap?.querySelector('[data-slot="tabs-trigger-close-button"]') as HTMLElement | null
+      const closeBtn = wrap?.querySelector('[data-slot="tabs-trigger-close-button"] [data-component="icon-button"]') as HTMLElement | null
       const box = (el: HTMLElement | null) => {
         if (!el) return null
         const r = el.getBoundingClientRect()
         return { x: r.x, w: r.width, center: r.x + r.width / 2 }
       }
-      return { leading: box(leading), slot: box(slot), wrapper: box(wrap) }
+      return { leading: box(leading), close: box(closeBtn) }
     })
 
     expect(positions.leading).not.toBeNull()
-    expect(positions.slot).not.toBeNull()
-    const diff = Math.abs(positions.leading!.center - positions.slot!.center)
+    expect(positions.close).not.toBeNull()
+    const diff = Math.abs(positions.leading!.center - positions.close!.center)
     expect(diff).toBeLessThanOrEqual(1)
   })
 
@@ -262,9 +255,9 @@ test.describe("right-panel tab chip + × contract", () => {
     )
 
     // All triggers measured (Status / Files / Review at minimum) must be at
-    // or above the 7.5rem min-width (~97px under the 13px html base) — short
-    // labels are pulled up, long labels expand naturally.
-    const MIN_WIDTH_PX = Math.round(7.5 * 13) // ~98
+    // or above the 5.5rem min-width (~71px under the 13px html base) — short
+    // labels are pulled up, long labels (Terminal) expand naturally past it.
+    const MIN_WIDTH_PX = Math.round(5.5 * 13) // ~72
     expect(widths.length).toBeGreaterThanOrEqual(3)
     for (const t of widths) {
       expect(t.width).toBeGreaterThanOrEqual(MIN_WIDTH_PX - 1) // -1 for rounding
