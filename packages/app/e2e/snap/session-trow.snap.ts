@@ -6,7 +6,7 @@ import { composeGrid, snapOutputPath, type Shot } from "./_compose"
 test.use({ viewport: { width: 900, height: 560 }, deviceScaleFactor: 2 })
 
 const LANGUAGE_KEY = "pawwork.global.dat:language"
-const fixturePath = fileURLToPath(new URL("../../src/testing/trow-snap-fixture.tsx", import.meta.url))
+const fixturePath = fileURLToPath(new URL("./fixtures/trow-snap-fixture.tsx", import.meta.url))
 async function captureBlock(name: string, block: Locator): Promise<Shot> {
   await expect(block).toBeVisible({ timeout: 30_000 })
   return { name, buf: await block.screenshot() }

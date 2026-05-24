@@ -1,266 +1,35 @@
 import { Dynamic, render } from "solid-js/web"
-import type { AssistantMessage, ToolPart, ToolState } from "@opencode-ai/sdk/v2"
+import type { ToolPart } from "@opencode-ai/sdk/v2"
 import { BasicTool } from "@opencode-ai/ui/basic-tool"
-import { DataProvider, I18nProvider, type UiI18nKey, type UiI18nParams } from "@opencode-ai/ui/context"
+import { DataProvider, I18nProvider } from "@opencode-ai/ui/context"
 import { FileComponentProvider } from "@opencode-ai/ui/context/file"
 import { MarkedProvider } from "@opencode-ai/ui/context/marked"
-import { dict as zh } from "@opencode-ai/ui/i18n/zh"
-import { AssistantParts, contextTrowSummaryText, ToolRegistry } from "@opencode-ai/ui/message-part"
+import { AssistantParts, ToolRegistry } from "@opencode-ai/ui/message-part"
 import { TrowBlock } from "@opencode-ai/ui/session-turn-trow-block"
-
-const labels = {
-  summaryRunning: (count: number) => `正在处理 ${count} 个工具调用`,
-  summaryCompleted: (parts: readonly ToolPart[], failed: number) => contextTrowSummaryText(parts, failed, zhI18n),
-}
-
-function tool(
-  id: string,
-  description: string,
-  command: string,
-  status: ToolState["status"] = "completed",
-  output?: string,
-  toolName = "bash",
-): ToolPart {
-  const input = { command, description }
-  let state: ToolState
-  switch (status) {
-    case "pending":
-      state = { status: "pending", input, raw: "" }
-      break
-    case "running":
-      state = { status: "running", input, time: { start: 0 } }
-      break
-    case "error":
-      state = { status: "error", input, error: "Command failed", time: { start: 0, end: 1 } }
-      break
-    case "completed":
-    default:
-      state = {
-        status: "completed",
-        input,
-        output: output ?? (command.includes("one") ? "one\n" : command.includes("two") ? "two\n" : "three\n"),
-        title: description,
-        metadata: {},
-        time: { start: 0, end: 1 },
-      }
-  }
-
-  return {
-    id,
-    sessionID: "snap-session",
-    messageID: "snap-message",
-    type: "tool",
-    callID: `call-${id}`,
-    tool: toolName,
-    state,
-  }
-}
-
-const completedParts = [
-  tool("first", "first command", "echo one"),
-  tool("second", "second command", "echo two"),
-  tool("third", "third command", "echo three"),
-]
-
-const activitySummaryParts = [
-  realTool("summary-read", "read", { filePath: "/Users/yuhan/PawWork/titlebar.tsx" }),
-  tool("summary-bash", "Find titlebar CSS rules", "rg titlebar"),
-  realTool("summary-grep", "grep", { path: "/Users/yuhan/PawWork", pattern: "titlebar" }),
-  realTool("summary-websearch", "websearch", { query: "PawWork titlebar icon" }),
-  realTool("summary-webfetch", "webfetch", { url: "https://example.com/" }),
-  realTool("summary-edit", "edit", { filePath: "/Users/yuhan/PawWork/titlebar.tsx" }),
-  realTool("summary-skill", "skill", { name: "debug" }),
-]
-const failedParts = [
-  tool("failed-command", "Failing command", "exit 1", "error"),
-  realTool("failed-read", "read", { filePath: "/Users/yuhan/PawWork/titlebar.tsx" }),
-]
-
-const runningParts = [
-  tool("first-running", "first command", "echo one"),
-  tool("second-running", "second command", "echo two"),
-  tool("third-running", "third command", "echo three", "running"),
-]
-
-const singleQuietParts = [tool("single-quiet", "quiet command", "sleep 0", "completed", "")]
-const singleResultParts = [tool("single-result", "prints one line", "echo one")]
-const singleErrorParts = [tool("single-error", "Command blocked", "rm -rf /", "error")]
-const singleRunningParts = [tool("single-running", "long command", "sleep 30", "running")]
-const toolOutputParts = [
-  realTool(
-    "glob-output",
-    "glob",
-    { path: "/Users/yuhan/PawWork", pattern: "*.md" },
-    "/Users/yuhan/PawWork/a.md\n/Users/yuhan/PawWork/b.md\n",
-  ),
-  realTool(
-    "grep-output",
-    "grep",
-    { path: "/Users/yuhan/PawWork", pattern: "test", include: "*.md" },
-    "Found 1 matches\n/Users/yuhan/PawWork/a.md:\n  Line 3: test\n",
-  ),
-]
-const mixedRealToolParts = [
-  realTool("websearch-real", "websearch", { query: "PawWork desktop app AI agent 2026" }, "https://example.com/"),
-  realTool("webfetch-real", "webfetch", { url: "https://example.com/" }),
-  realTool(
-    "enter-worktree-real",
-    "enter-worktree",
-    { name: "session-trow-revival" },
-    "",
-    {
-      ownerDirectory: "/Users/yuhan/workspace/dev/pawwork",
-      activeDirectory: "/Users/yuhan/workspace/dev/pawwork/.worktrees/session-trow-revival",
-    },
-  ),
-  realTool(
-    "exit-worktree-real",
-    "exit-worktree",
-    {},
-    "",
-    { activeDirectory: "/Users/yuhan/workspace/dev/pawwork", previousBranch: "session-trow-revival" },
-  ),
-  realTool("skill-real", "skill", { name: "learn-code" }),
-  realTool(
-    "question-real",
-    "question",
-    {
-      questions: [
-        {
-          header: "Follow up",
-          question: "你想继续深入测试某个工具吗?",
-          options: [{ label: "够了" }],
-        },
-      ],
-    },
-    "",
-    { answers: [["够了"]] },
-  ),
-]
-const questionDetailParts = [
-  realTool("question-detail-skill", "skill", { name: "learn-code" }),
-  realTool(
-    "question-detail-real",
-    "question",
-    {
-      questions: [
-        {
-          header: "Follow up",
-          question: "你想继续深入测试某个工具吗?",
-          options: [{ label: "够了" }],
-        },
-      ],
-    },
-    "",
-    { answers: [["够了"]] },
-  ),
-]
-const dismissedQuestionParts = [
-  realTool(
-    "dismissed-question-real",
-    "question",
-    {
-      questions: [
-        {
-          header: "Follow up",
-          question: "要继续吗?",
-          options: [{ label: "继续" }],
-        },
-      ],
-    },
-    "",
-    { dismissed: true },
-  ),
-  realTool("dismissed-question-skill", "skill", { name: "debug" }),
-]
-const metadataDetailParts = [
-  realTool(
-    "metadata-detail-question",
-    "question",
-    {
-      questions: [
-        {
-          header: "Follow up",
-          question: "这组工具详情还能看到吗?",
-          options: [{ label: "可以" }],
-        },
-      ],
-    },
-    "",
-    { answers: [["可以"]] },
-  ),
-  realTool("metadata-detail-edit", "edit", {
-    filePath: "/Users/yuhan/PawWork/temp/tool-test-output.md",
-    oldString: "before",
-    newString: "after",
-  }),
-  realTool("metadata-detail-write", "write", {
-    filePath: "/Users/yuhan/PawWork/temp/new-file.md",
-    content: "# New file\n\nhello",
-  }),
-  realTool(
-    "metadata-detail-patch",
-    "apply_patch",
-    {},
-    "",
-    {
-      files: [
-        {
-          filePath: "/Users/yuhan/PawWork/temp/patched-file.md",
-          relativePath: "temp/patched-file.md",
-          type: "add",
-          before: "",
-          after: "# Patched file\n",
-          additions: 1,
-          deletions: 0,
-        },
-      ],
-    },
-  ),
-]
-
-function resolveTemplate(text: string, params?: UiI18nParams) {
-  if (!params) return text
-  return text.replace(/{{\s*([^}]+?)\s*}}/g, (_, rawKey) => {
-    const value = params[String(rawKey)]
-    return value === undefined ? "" : String(value)
-  })
-}
-
-const zhI18n = {
-  locale: () => "zh",
-  t: (key: UiI18nKey, params?: UiI18nParams) => {
-    const value = (zh as Record<string, string>)[key] ?? String(key)
-    return resolveTemplate(value, params)
-  },
-}
-
-const fixtureData = {
-  session: [],
-  session_status: {},
-  turn_change_aggregate: {},
-  message: {},
-  part: {},
-}
+import {
+  activitySummaryParts,
+  completedParts,
+  dismissedQuestionParts,
+  failedParts,
+  fixtureData,
+  labels,
+  metadataDetailParts,
+  mixedRealToolParts,
+  questionDetailParts,
+  runningParts,
+  singleErrorParts,
+  singleQuietParts,
+  singleResultParts,
+  singleRunningParts,
+  snapAssistantMessage,
+  tool,
+  toolOutputParts,
+  zhI18n,
+} from "./trow-snap-fixture-data"
 
 function FileStub() {
   return <div style={{ padding: "8px", color: "var(--fg-weak)", "font-size": "12px" }}>File viewer stub</div>
 }
-
-const snapAssistantMessage = {
-  id: "snap-message",
-  sessionID: "snap-session",
-  role: "assistant",
-  time: { created: 0, completed: 1 },
-  parentID: "snap-user",
-  modelID: "snap-model",
-  providerID: "snap-provider",
-  mode: "build",
-  agent: "code",
-  path: { cwd: "/Users/yuhan/PawWork", root: "/Users/yuhan/PawWork" },
-  cost: 0,
-  tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-} as AssistantMessage
 
 function AssistantPartsCase(props: {
   parts: ToolPart[]
@@ -279,31 +48,6 @@ function AssistantPartsCase(props: {
       />
     </DataProvider>
   )
-}
-
-function realTool(
-  id: string,
-  toolName: string,
-  input: Record<string, unknown>,
-  output = "",
-  metadata: Record<string, unknown> = {},
-): ToolPart {
-  return {
-    id,
-    sessionID: "snap-session",
-    messageID: "snap-message",
-    type: "tool",
-    callID: `call-${id}`,
-    tool: toolName,
-    state: {
-      status: "completed",
-      input,
-      output,
-      title: toolName,
-      metadata,
-      time: { start: 0, end: 1 },
-    },
-  }
 }
 
 function describeTool(part: ToolPart) {
