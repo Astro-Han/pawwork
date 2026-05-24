@@ -247,6 +247,47 @@ test.describe("right-panel tab chip + × contract", () => {
     expect(colors.bg).not.toBe(colors.activeExpected)
   })
 
+  test("selected tab on hover keeps the active overlay (selected wins)", async ({
+    page,
+    gotoSession,
+  }) => {
+    // Regression guard for the cascade hazard caught in code review: the
+    // hover wrapper rule had a higher specificity (b=6, includes `:hover` +
+    // `:not(:disabled)`) than the selected rule (b=5, just `:has([data-selected])`),
+    // so hovering the *currently selected* tab repainted it with the
+    // lighter 4% hover overlay instead of the heavier 6% active overlay —
+    // the active tab visually weakened under the cursor. Title says
+    // "selected wins"; this test makes that promise testable.
+    await gotoSession()
+    await openRightPanel(page)
+    await openExtraTabs(page)
+
+    // Click Files so it becomes selected, THEN hover it (combined state).
+    await page.getByRole("tab", FILES_TAB).click()
+    await page.getByRole("tab", FILES_TAB).hover()
+
+    const colors = await page.evaluate(() => {
+      const resolve = (varName: string) => {
+        const probe = document.createElement("div")
+        probe.style.backgroundColor = `var(${varName})`
+        document.body.appendChild(probe)
+        const out = getComputedStyle(probe).backgroundColor
+        probe.remove()
+        return out
+      }
+      const hoverExpected = resolve("--row-hover-overlay")
+      const activeExpected = resolve("--row-active-overlay")
+      const wrap = document.querySelector(
+        '[data-slot="tabs-trigger-wrapper"][data-value="files"]',
+      ) as HTMLElement | null
+      const bg = wrap ? getComputedStyle(wrap).backgroundColor : ""
+      return { bg, hoverExpected, activeExpected }
+    })
+
+    expect(colors.bg).toBe(colors.activeExpected)
+    expect(colors.bg).not.toBe(colors.hoverExpected)
+  })
+
   test("short sidepanel tabs share a 72px min-width footprint", async ({ page, gotoSession }) => {
     // Status / Files / Review labels are short (2-3 Chinese chars or 5-6
     // Latin chars). Without a floor they render visibly mismatched in the

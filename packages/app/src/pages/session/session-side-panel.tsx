@@ -358,11 +358,11 @@ export function SessionSidePanel(props: {
                         slot box does not occlude the Right utility panel toggle that sits
                         in the right portal beneath it. */}
                     {/* `gap` is intentionally omitted — the sidepanel variant
-                        in tabs.css owns the inter-tab gap via `var(--space-sm)`
-                        (8px / 4pt-grid). Tailwind's `gap-0` (or `gap-2`)
-                        would sit in the utilities layer and outrank the
-                        components-layer rule, drifting the strip off the
-                        grid. */}
+                        in tabs.css owns the inter-tab gap via `var(--space-xs)`
+                        (4px / 4pt-grid). Tailwind's `gap-1` would sit in the
+                        utilities layer and outrank the components-layer rule,
+                        and the rem-13 base would also drift it off the grid
+                        (gap-1 = 0.25rem = 3.25px, not 4). */}
                     <Tabs.List class="h-full shrink-0 px-1 py-0 items-center pointer-events-auto">
                       <SortableProvider ids={sortableShellTabIds(view().sidePanel.openTabs())}>
                         <For each={shellTabs()}>

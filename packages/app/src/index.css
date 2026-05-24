@@ -140,21 +140,31 @@
    * triggers already inherit 500 from text-h3, and bumping a subset would
    * shift tab widths).
    *
-   * `:not(:disabled)` is here to bump specificity (5 attrs → 6) above the
+   * `:not(:disabled)` is here to bump specificity (5 → 6) above the
    * sidepanel base rule in tabs.css:
    *   [data-component="tabs"][data-variant="sidepanel"]
    *     [data-slot="tabs-trigger-wrapper"]:hover:not(:disabled):not([data-selected])
    *     { background-color: transparent }
-   * which is 6 attrs and would otherwise force wrapper bg back to transparent
-   * on hover. Equal specificity now — order wins, this rule declared later
-   * (after the @import) takes effect. */
+   * which is 6 and would otherwise force wrapper bg back to transparent on
+   * hover. Equal specificity now — order wins, this rule declared later
+   * (after the @import) takes effect.
+   *
+   * Selected+hover precedence is handled by the *next* rule (below), which
+   * pulls the same trick to outrank this hover rule by source order so the
+   * heavier active overlay always wins on the focused chip. */
   [data-component="tabs"][data-variant="sidepanel"][data-scope="right-panel"]
     [data-slot="tabs-trigger-wrapper"]:hover:not(:disabled) {
     background-color: var(--row-hover-overlay);
   }
 
+  /* `:not(:disabled)` bumps this rule's b-count to 6 (matching the hover
+   * rule above), so source order wins — this rule is declared last, so
+   * selected+hover paints the heavier active overlay instead of the lighter
+   * hover overlay. Without it, hover at b=6 outranked selected at b=5 and
+   * the active tab visually weakened under the cursor (regression caught in
+   * code review). */
   [data-component="tabs"][data-variant="sidepanel"][data-scope="right-panel"]
-    [data-slot="tabs-trigger-wrapper"]:has([data-selected]) {
+    [data-slot="tabs-trigger-wrapper"]:not(:disabled):has([data-selected]) {
     background-color: var(--row-active-overlay);
   }
 
