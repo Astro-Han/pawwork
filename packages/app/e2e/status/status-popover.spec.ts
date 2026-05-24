@@ -1,4 +1,5 @@
 import { test, expect } from "../fixtures"
+import { rightPanelTabList } from "../actions"
 import { titlebarRightSelector } from "../selectors"
 
 test("desktop right-panel toggle opens the status tab by default", async ({ page, gotoSession }) => {
@@ -6,7 +7,7 @@ test("desktop right-panel toggle opens the status tab by default", async ({ page
 
   const rightToggle = page.locator(`${titlebarRightSelector} button`).first()
   const rightPanel = page.locator("#right-panel")
-  const shellTabList = rightPanel.getByRole("tablist").first()
+  const shellTabList = rightPanelTabList(page)
 
   await expect(rightPanel).toHaveAttribute("aria-hidden", "true")
 
@@ -14,10 +15,10 @@ test("desktop right-panel toggle opens the status tab by default", async ({ page
 
   await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
   await expect(shellTabList.getByRole("tab", { name: "Status", exact: true })).toHaveAttribute("aria-selected", "true")
-  await expect(rightPanel.getByRole("tab", { name: /servers/i })).toBeVisible()
-  await expect(rightPanel.getByRole("tab", { name: /mcp/i })).toBeVisible()
-  await expect(rightPanel.getByRole("tab", { name: /lsp/i })).toBeVisible()
-  await expect(rightPanel.getByRole("tab", { name: /plugins/i })).toBeVisible()
+  await expect(shellTabList.getByRole("tab", { name: /servers/i })).toBeVisible()
+  await expect(shellTabList.getByRole("tab", { name: /mcp/i })).toBeVisible()
+  await expect(shellTabList.getByRole("tab", { name: /lsp/i })).toBeVisible()
+  await expect(shellTabList.getByRole("tab", { name: /plugins/i })).toBeVisible()
 })
 
 test("session status tab can switch to mcp", async ({ page, gotoSession }) => {
@@ -28,7 +29,8 @@ test("session status tab can switch to mcp", async ({ page, gotoSession }) => {
 
   await rightToggle.click()
 
-  const mcpTab = rightPanel.getByRole("tab", { name: /mcp/i })
+  const shellTabList = rightPanelTabList(page)
+  const mcpTab = shellTabList.getByRole("tab", { name: /mcp/i })
   await mcpTab.click()
   await expect(mcpTab).toHaveAttribute("aria-selected", "true")
   await expect(rightPanel.locator('[role="tabpanel"]:visible').first()).toBeVisible()

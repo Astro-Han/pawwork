@@ -7,6 +7,7 @@ import {
   closeSettingsPanel,
   openSettings,
   openRightPanel,
+  rightPanelTabList,
   seedSessionQuestion,
 } from "../actions"
 import {
@@ -951,9 +952,10 @@ test("todo updates do not switch an open right panel to status", async ({ page, 
       const rightPanel = await openRightPanel(page)
       await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
 
-      await rightPanel.getByRole("button", { name: "Add tab" }).click()
+      const shellTabList = rightPanelTabList(page)
+      await shellTabList.getByRole("button", { name: "Add tab" }).click()
       await page.getByRole("menuitem", { name: "Files" }).click()
-      const filesTab = rightPanel.getByRole("tab", { name: "Files", exact: true }).first()
+      const filesTab = shellTabList.getByRole("tab", { name: "Files", exact: true })
       await expect(filesTab).toHaveAttribute("aria-selected", "true")
 
       await e2eUpdateTodos(
@@ -991,7 +993,7 @@ test("todo updates remain visible in the status panel", async ({ page, project }
 
       const rightPanel = await openRightPanel(page)
       await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
-      const statusTab = rightPanel.getByRole("tab", { name: "Status", exact: true }).first()
+      const statusTab = rightPanelTabList(page).getByRole("tab", { name: "Status", exact: true })
       await statusTab.click()
       await expect(statusTab).toHaveAttribute("aria-selected", "true")
 

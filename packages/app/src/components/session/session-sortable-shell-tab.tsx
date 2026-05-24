@@ -36,13 +36,23 @@ export function ShellTab(props: {
     props.onClose(props.value)
   }
 
+  // Gate the close to "the × glyph is actually showing." The default icon and
+  // the close × overlay live in the same 14×14 cell — CSS swaps which is
+  // visible via :hover (see tabs.css `data-closable` rule). Without the
+  // :hover guard, ANY click on a closable tab's icon area closes the tab,
+  // which blocks selection-by-icon — see CodeRabbit feedback on PR #878.
+  let swapRef: HTMLSpanElement | undefined
   const swap = (
     <span
+      ref={swapRef}
       data-slot="tab-icon-swap"
       data-closable={props.closable || undefined}
       class="relative inline-flex items-center justify-center size-3.5"
       onClick={(event) => {
         if (!props.closable) return
+        // Only intercept when the × is the visible glyph (hover state). Otherwise
+        // let the click bubble to Tabs.Trigger so the tab gets selected.
+        if (!swapRef?.matches(":hover")) return
         event.stopPropagation()
         event.preventDefault()
         close()

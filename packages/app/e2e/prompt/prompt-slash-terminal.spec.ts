@@ -1,5 +1,5 @@
 import { test, expect } from "../fixtures"
-import { runPromptSlash, waitTerminalFocusIdle } from "../actions"
+import { runPromptSlash, waitTerminalFocusIdle, rightPanelTabList } from "../actions"
 import { promptSelector, terminalSelector } from "../selectors"
 
 test("/terminal opens the right-panel terminal tab", async ({ page, gotoSession }) => {
@@ -8,7 +8,7 @@ test("/terminal opens the right-panel terminal tab", async ({ page, gotoSession 
   const prompt = page.locator(promptSelector)
   const terminal = page.locator(terminalSelector)
   const rightPanel = page.locator("#right-panel")
-  const shellTabList = rightPanel.getByRole("tablist").first()
+  const shellTabList = rightPanelTabList(page)
   const terminalTab = shellTabList.getByRole("tab", { name: "Terminal", exact: true })
   const embeddedTerminalTabs = page.locator('#terminal-panel [data-slot="tabs-trigger"]')
 

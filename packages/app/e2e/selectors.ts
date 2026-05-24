@@ -56,6 +56,11 @@ export const projectWorkspacesToggleSelector = (slug: string) =>
   `[data-action="project-workspaces-toggle"][data-project="${slug}"]`
 
 export const titlebarRightSelector = "#pawwork-titlebar-right"
+// Right-panel shell tabs are portalled into the titlebar so the tab strip reads
+// as window chrome instead of a second toolbar (see <Titlebar> #pawwork-titlebar-tabs).
+// Scoping by data-scope (stamped on the slot) keeps test queries resilient to
+// portal-vs-inline rendering.
+export const rightPanelTabsScopeSelector = '[data-scope="right-panel"]'
 export const sidebarNavMobileSelector = '[data-component="sidebar-nav-mobile"]'
 
 export const popoverBodySelector = '[data-slot="popover-body"]'

@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises"
-import { waitSessionIdle, withSession } from "../actions"
+import { waitSessionIdle, withSession, rightPanelTabList } from "../actions"
 import { test, expect } from "../fixtures"
 import { bodyText } from "../prompt/mock"
 import { titlebarRightSelector } from "../selectors"
@@ -108,14 +108,14 @@ async function patchWithMock(
 async function show(page: Parameters<typeof test>[0]["page"]) {
   const rightToggle = page.locator(`${titlebarRightSelector} button`).first()
   const rightPanel = page.locator("#right-panel")
-  const shellTabList = rightPanel.getByRole("tablist").first()
+  const shellTabList = rightPanelTabList(page)
   const reviewTab = shellTabList.getByRole("tab", { name: "Review", exact: true })
 
   await expect(rightToggle).toBeVisible()
   if ((await rightPanel.getAttribute("aria-hidden")) === "true") await rightToggle.click()
   await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
   if ((await reviewTab.count()) === 0) {
-    await rightPanel.getByRole("button", { name: "Add tab" }).click()
+    await shellTabList.getByRole("button", { name: "Add tab" }).click()
     await page.getByRole("menuitem", { name: /Review/ }).click()
   }
   await reviewTab.click()
