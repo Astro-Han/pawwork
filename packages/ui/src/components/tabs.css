@@ -446,18 +446,51 @@
       }
     }
 
-    /* Leading icon ↔ close swap. On a closable tab, hovering the trigger
-       fades the icon out and the × in. Same 14×14 slot, no layout shift —
-       closable and non-closable tabs share an identical resting width. */
-    [data-slot="tabs-trigger-wrapper"]:hover
-      [data-slot="tab-icon-swap"][data-closable]
-      [data-slot="tab-icon-default"] {
+    /* Leading icon ↔ close button swap. The close button slot is positioned
+       absolutely over the icon area (same 14×14 footprint) so both occupy the
+       same space without shifting layout. The trigger wrapper needs relative
+       positioning so the absolute close button aligns correctly.
+       - Resting: close button invisible (opacity:0, pointer-events:none).
+       - On wrapper :hover: close button fades in, icon fades out.
+       Intentionally NOT triggered on :focus-within — keyboard arrow nav across
+       the tablist would otherwise replace every focused tab's icon with × on
+       the way past. Keyboard close uses the Delete shortcut (advertised via
+       `aria-keyshortcuts` on the trigger), not the visible glyph. */
+    [data-slot="tabs-trigger-wrapper"] {
+      position: relative;
+    }
+
+    /* Default icon: always visible at rest; fade out only on hover of the
+       wrapper so the close button takes visual ownership of that cell. */
+    [data-slot="tab-icon-default"] {
+      transition: opacity 100ms ease;
+    }
+    [data-slot="tabs-trigger-wrapper"]:hover [data-slot="tab-icon-default"] {
       opacity: 0;
     }
-    [data-slot="tabs-trigger-wrapper"]:hover
-      [data-slot="tab-icon-swap"][data-closable]
-      [data-slot="tab-icon-close"] {
+
+    /* Close button slot: absolutely positioned over the icon area so it shares
+       the same 14×14 cell as the default icon — no layout shift between states. */
+    [data-slot="tabs-trigger-close-button"] {
+      position: absolute;
+      /* Align with the trigger's leading icon. The trigger has 10px (px-2.5)
+         left padding, so offset by the same amount from the wrapper's left edge. */
+      left: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 14px;
+      height: 14px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 100ms ease;
+    }
+
+    [data-slot="tabs-trigger-wrapper"]:hover [data-slot="tabs-trigger-close-button"] {
       opacity: 1;
+      pointer-events: auto;
     }
   }
 
