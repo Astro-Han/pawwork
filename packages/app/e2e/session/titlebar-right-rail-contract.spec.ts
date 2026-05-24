@@ -75,18 +75,24 @@ test.describe("titlebar right rail contract", () => {
 
     await page.setViewportSize({ width: 600, height: 900 })
 
-    const narrow = await page.evaluate(() => {
-      const tabs = document.getElementById("pawwork-titlebar-tabs") as HTMLElement | null
-      const cs = tabs ? getComputedStyle(tabs) : null
-      return {
-        width: tabs ? Math.round(tabs.getBoundingClientRect().width) : null,
-        borderLeft: cs?.borderLeftWidth ?? null,
-      }
-    })
-
-    expect(narrow.width).toBe(0)
-    // `border-l` should be gone — no stray 1px line in a 0-width slot.
-    expect(narrow.borderLeft).toBe("0px")
+    // Poll until layout settles — viewport resize → media query → Solid memo →
+    // DOM update isn't synchronous, and reading geometry on the same tick that
+    // `setViewportSize` resolves can race the transition.
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const tabs = document.getElementById("pawwork-titlebar-tabs") as HTMLElement | null
+            const cs = tabs ? getComputedStyle(tabs) : null
+            return {
+              width: tabs ? Math.round(tabs.getBoundingClientRect().width) : null,
+              // `border-l` should be gone — no stray 1px line in a 0-width slot.
+              borderLeft: cs?.borderLeftWidth ?? null,
+            }
+          }),
+        { timeout: 2_000 },
+      )
+      .toEqual({ width: 0, borderLeft: "0px" })
   })
 
   test("tabs slot border-l spans the full titlebar height (no top/bottom seam break)", async ({
