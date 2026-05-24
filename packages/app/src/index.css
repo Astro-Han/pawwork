@@ -127,11 +127,6 @@
     border-top-width: 0;
   }
 
-  [data-component="tabs"][data-variant="sidepanel"][data-scope="right-panel"]
-    [data-slot="tabs-trigger"][data-selected] {
-    background-color: var(--sidebar);
-  }
-
   @media (min-width: 1280px) {
     [data-component="desktop-shell-frame"][data-shell="desktop"][data-shell-os="linux"] {
       margin: var(--shell-frame-margin);
