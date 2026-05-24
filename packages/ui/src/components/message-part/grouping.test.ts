@@ -1,6 +1,6 @@
 import { expect, test, describe } from "bun:test"
 import type { Part, TextPart, ToolPart } from "@opencode-ai/sdk/v2"
-import { groupParts, renderable } from "./grouping"
+import { activeWorkingTrowKey, groupParts, renderable } from "./grouping"
 
 function textPart(id: string, text: string): TextPart {
   return {
@@ -136,5 +136,25 @@ describe("message-part groupParts", () => {
 
     expect(result).toHaveLength(1)
     expect(result[0].type).toBe("trow")
+  })
+})
+
+describe("message-part activeWorkingTrowKey", () => {
+  test("keeps the last visible trow active while the turn is working", () => {
+    const result = groupRenderable([textPart("p1", "first"), toolPart("t1", "bash"), toolPart("t2", "grep")])
+
+    expect(activeWorkingTrowKey(result, true)).toBe("trow:t1")
+  })
+
+  test("does not keep an earlier trow active after following text appears", () => {
+    const result = groupRenderable([toolPart("t1", "bash"), toolPart("t2", "grep"), textPart("p1", "next prose")])
+
+    expect(activeWorkingTrowKey(result, true)).toBeUndefined()
+  })
+
+  test("does not mark any trow active when the turn is idle", () => {
+    const result = groupRenderable([toolPart("t1", "bash"), toolPart("t2", "grep")])
+
+    expect(activeWorkingTrowKey(result, false)).toBeUndefined()
   })
 })

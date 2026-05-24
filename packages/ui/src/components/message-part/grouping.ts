@@ -44,6 +44,13 @@ export function sameGroups(a: readonly PartGroup[] | undefined, b: readonly Part
   return a.every((item, i) => sameGroup(item, b[i]!))
 }
 
+export function activeWorkingTrowKey(groups: readonly PartGroup[], working?: boolean) {
+  if (!working) return
+  const last = groups[groups.length - 1]
+  if (last?.type !== "trow") return
+  return last.key
+}
+
 export function groupParts(parts: { messageID: string; part: PartType }[]) {
   const result: PartGroup[] = []
   let start = -1
