@@ -240,6 +240,15 @@ export const PawworkSidebar = (props: {
       onDeleteSession: props.onDeleteSession,
     })
   }
+  const markSessionSwitchPaint = (session: Session, event: MouseEvent) => {
+    if (!shouldUseShellOwnerForLink(event)) return
+    const sourceID = props.activeSessionID?.()
+    if (!sourceID || sourceID === session.id) {
+      setSwitchPaint(undefined)
+      return
+    }
+    setSwitchPaint({ sourceID, targetID: session.id })
+  }
   const renderDropdownActions = (actions: SessionMenuAction[]) => (
     <>
       <For each={actions}>
@@ -304,15 +313,7 @@ export const PawworkSidebar = (props: {
                 hrefForSession={props.hrefForSession}
                 onOpenSession={props.onOpenSession}
                 switchPaint={switchPaint}
-                onSwitchPaint={(session, event) => {
-                  if (!shouldUseShellOwnerForLink(event)) return
-                  const sourceID = props.activeSessionID?.()
-                  if (!sourceID || sourceID === session.id) {
-                    setSwitchPaint(undefined)
-                    return
-                  }
-                  setSwitchPaint({ sourceID, targetID: session.id })
-                }}
+                onSwitchPaint={markSessionSwitchPaint}
                 timeText={() =>
                   current().created > 0
                     ? getRelativeTime(new Date(current().created).toISOString(), language.t)
