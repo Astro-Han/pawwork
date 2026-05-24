@@ -189,6 +189,16 @@
   margin-top: 1px;
 }
 
+[data-component="session-turn-trow-block"][data-single] [data-slot="trow-result-body"] [data-slot="basic-tool-tool-title"],
+[data-component="session-turn-trow-block"][data-single] [data-slot="trow-result-body"] [data-slot="basic-tool-tool-subtitle"],
+[data-component="session-turn-trow-block"][data-single] [data-slot="trow-result-body"] [data-slot="basic-tool-tool-arg"] {
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-body);
+  line-height: 1.4;
+  color: var(--fg-base);
+}
+
 /* Fallback row (default `renderTool` path) — used when the caller does
  * not provide a per-tool renderer. */
 [data-component="session-turn-trow-block"] [data-slot="trow-item"] {
