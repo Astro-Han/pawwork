@@ -1,5 +1,6 @@
 import { createEffect, createMemo, Show, untrack } from "solid-js"
 import { createStore } from "solid-js/store"
+import { createMediaQuery } from "@solid-primitives/media"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Button } from "@opencode-ai/ui/button"
@@ -22,12 +23,22 @@ export function Titlebar() {
 
   const mac = createMemo(() => isMacShell(platform))
   const windows = createMemo(() => isWindowsShell(platform))
+  // Must match `SessionSidePanel`'s own desktop gate — that component only
+  // mounts the panel (and portals tab content into the titlebar) at ≥768px.
+  // Without this same predicate, opening the panel at desktop width and then
+  // resizing below the breakpoint would leave the titlebar reserving
+  // panel-width of empty rail (no portal to fill it), pushing the right
+  // utility toggle off the viewport. Single source of truth for "is the
+  // right panel actually visible right now": route + state + viewport.
+  const isDesktop = createMediaQuery("(min-width: 768px)")
   // Tabs rail is only meaningful on session routes — `--right-panel-width`
   // is a global CSS var that survives navigation, so without this gate the
   // tabs slot would still claim panel-width on home/settings (where
   // SessionSidePanel doesn't render any tabs), pushing the right utility
   // toggle's StatusPopover fallback to the left.
-  const tabsRailActive = createMemo(() => location.pathname.includes("/session") && layout.rightPanel.opened())
+  const tabsRailActive = createMemo(
+    () => isDesktop() && location.pathname.includes("/session") && layout.rightPanel.opened(),
+  )
   const tabsRailWidth = () => (tabsRailActive() ? "var(--right-panel-width, 0px)" : "0px")
   const zoom = () => platform.webviewZoom?.() ?? 1
   const currentTitlebarHeight = () =>

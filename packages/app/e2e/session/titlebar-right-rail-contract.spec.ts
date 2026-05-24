@@ -53,6 +53,42 @@ test.describe("titlebar right rail contract", () => {
     await expect(toggle).toHaveAttribute("aria-expanded", "false", { timeout: 2_000 })
   })
 
+  test("tabs slot shrinks to 0 width when viewport drops below the desktop breakpoint", async ({
+    page,
+    gotoSession,
+  }) => {
+    // Regression guard from PR #880 followup review: `SessionSidePanel` gates
+    // its render on `createMediaQuery("(min-width: 768px)")`, but
+    // `--right-panel-width` and the titlebar's `tabsRailActive` only check
+    // `layout.rightPanel.opened()`. Without an explicit viewport gate, opening
+    // the panel at desktop width and then shrinking the viewport below 768px
+    // would leave the titlebar reserving panel-width of empty rail (no portal
+    // mounts under the breakpoint), pushing the right utility toggle off the
+    // viewport edge with nothing visible to justify the gap.
+    await gotoSession()
+    await openRightPanel(page)
+    // Sanity: rail occupies panel-width while we're still desktop.
+    const desktopTabsWidth = await page
+      .locator("#pawwork-titlebar-tabs")
+      .evaluate((el) => Math.round(el.getBoundingClientRect().width))
+    expect(desktopTabsWidth).toBeGreaterThan(0)
+
+    await page.setViewportSize({ width: 600, height: 900 })
+
+    const narrow = await page.evaluate(() => {
+      const tabs = document.getElementById("pawwork-titlebar-tabs") as HTMLElement | null
+      const cs = tabs ? getComputedStyle(tabs) : null
+      return {
+        width: tabs ? Math.round(tabs.getBoundingClientRect().width) : null,
+        borderLeft: cs?.borderLeftWidth ?? null,
+      }
+    })
+
+    expect(narrow.width).toBe(0)
+    // `border-l` should be gone — no stray 1px line in a 0-width slot.
+    expect(narrow.borderLeft).toBe("0px")
+  })
+
   test("tabs slot border-l spans the full titlebar height (no top/bottom seam break)", async ({
     page,
     gotoSession,
