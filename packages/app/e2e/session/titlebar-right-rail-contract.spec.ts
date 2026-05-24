@@ -165,4 +165,73 @@ test.describe("titlebar right rail contract", () => {
     // rounding can introduce ≤0.5px noise on Retina.
     expect(Math.abs((lefts.tabs ?? 0) - (lefts.body ?? 0))).toBeLessThan(1)
   })
+
+  test("right utility toggle keeps the same x-position across open/close", async ({
+    page,
+    gotoSession,
+  }) => {
+    // Regression guard from the post-#887 design discussion: PR #880's
+    // structural layout (toggle as a flex sibling of the tabs slot) made
+    // the toggle slide left by `--right-panel-width` whenever the panel
+    // opened, which the maintainer reported as visually jarring once the
+    // alignment seam was fixed and the motion became visible. The agreed
+    // fix renders the toggle in two locations — `#pawwork-titlebar-right`
+    // when closed, and as the rightmost child of the portalled Tabs.List
+    // when open — both pinned to the same titlebar top-right corner so
+    // the user perceives no x-motion when toggling. This test pins that
+    // contract: the toggle's right edge stays within a small tolerance
+    // across open and closed states.
+    await gotoSession()
+    await page.mouse.move(0, 0)
+
+    const toggleRect = async () => {
+      const rect = await page.evaluate(() => {
+        const btn = document.querySelector<HTMLElement>(
+          'button[aria-label="Right utility panel"]',
+        )
+        if (!btn) return null
+        const r = btn.getBoundingClientRect()
+        return { right: r.right, top: r.top, height: r.height }
+      })
+      return rect
+    }
+
+    // Sanity: start closed (the default session view starts with the panel
+    // closed in the e2e harness).
+    const closed = await toggleRect()
+    expect(closed).not.toBeNull()
+
+    // Open the panel via the toggle itself (clicking the closed-state copy
+    // in `#pawwork-titlebar-right` triggers the open).
+    await page.getByRole("button", { name: "Right utility panel" }).click()
+    // Wait for `open()` to flip and the in-tabs toggle to mount.
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const btn = document.querySelector<HTMLElement>(
+              'button[aria-label="Right utility panel"][aria-expanded="true"]',
+            )
+            return !!btn
+          }),
+        { timeout: 2_000 },
+      )
+      .toBe(true)
+    // Let the 240ms width transition finish so the tabs slot is at its
+    // resting width — toggle.right shouldn't drift, but reading mid-
+    // transition can hit sub-pixel noise unrelated to the contract.
+    await page.waitForTimeout(300)
+
+    const open = await toggleRect()
+    expect(open).not.toBeNull()
+
+    // The two copies are intentionally different DOM nodes (closed copy
+    // in `#pawwork-titlebar-right`, open copy at the right end of the
+    // portalled Tabs.List). Their right edges should align within a few
+    // CSS pixels — perfect alignment requires matching the `pr-2` (8px)
+    // toggle inset against the Tabs.List `px-1` (4px) plus any toggle
+    // wrapper padding, so a small drift is acceptable; anything beyond
+    // ~12px would visibly read as motion.
+    expect(Math.abs((open?.right ?? 0) - (closed?.right ?? 0))).toBeLessThan(12)
+  })
 })

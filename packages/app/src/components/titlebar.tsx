@@ -167,62 +167,65 @@ export function Titlebar() {
         <div id="pawwork-titlebar-center" class="pointer-events-auto min-w-0 flex justify-center w-fit max-w-full" />
       </div>
 
-      {/* Right titlebar rail. Two in-flow flex siblings, ordered left→right:
-          (1) `#pawwork-titlebar-right` — the right utility toggle (or
-              StatusPopover fallback on non-session routes), portalled in
-              by SessionHeader.
-          (2) `#pawwork-titlebar-tabs` — the right-panel tab strip, portalled
-              in by SessionSidePanel only when the panel is open.
+      {/* Right titlebar rail. Two children, intentionally NOT flex siblings:
 
-          The tabs slot's width follows `var(--right-panel-width)` so it
-          occupies the same x-range as the right-panel body directly below
-          and the `border-l` reads as one continuous separator from titlebar
-          top to viewport bottom. Because the two slots are flex siblings
-          (not an absolute overlay over the toggle), the toggle is naturally
-          pushed left by `--right-panel-width` when the panel opens and
-          slides back to the viewport edge when it closes. The 240ms
-          transition on `--right-panel-width` carries the toggle smoothly
-          along with the panel edge, and no pointer-events choreography is
-          needed — the toggle and the tab strip own disjoint geometry.
+          (1) `#pawwork-titlebar-tabs` — the right-panel tab strip, portalled
+              in by SessionSidePanel only when the panel is open. In-flow,
+              the only flex child of the rail; with `justify-end` on the
+              rail it pins to the viewport right edge. Its width follows
+              `var(--right-panel-width)` so the `border-l` lands at the
+              same x as the right-panel body's `border-left` directly
+              below, forming one continuous separator from titlebar top to
+              viewport bottom.
+
+          (2) `#pawwork-titlebar-right` — the right utility toggle (or
+              StatusPopover fallback on non-session routes), portalled in
+              by SessionHeader. **Absolute-positioned** to the rail's
+              top-right corner (`right-2`) so it stays at the same visual
+              x-coordinate (`viewport.right - 8px`) regardless of whether
+              the panel is open or closed. PR #880 had this as an in-flow
+              flex sibling that got pushed left by `--right-panel-width`
+              when the panel opened; the resulting 240ms slide read as
+              visually jarring once the alignment seam was fixed and the
+              motion became visible against the now-aligned border-l. The
+              absolute position trades a 240ms slide for a stable corner.
+
+              The toggle visually overlaps the rightmost area of the tabs
+              slot when open, but in practice they don't collide: Kobalte's
+              `Tabs.List` sizes to its content (~150px for 1-4 chips, well
+              under the ~380px panel width), so the trailing `+` button
+              sits in the middle of the panel column with empty space to
+              its right. The toggle floats in that empty space at the
+              viewport corner.
 
           "Borrowed identity": the tabs slot stamps `data-component="tabs"`
           + `data-variant="sidepanel"` + `data-scope` + `data-orientation`
           so the descendant selectors in `packages/ui/src/components/tabs.css`
           (e.g. `[data-component="tabs"] [data-slot="tabs-list"]`) match the
           portalled `Tabs.List`. The base `[data-component="tabs"]` rule
-          also sets `flex-direction: column` on the host (expecting
-          Tabs.List + Tabs.Content stacked vertically); the slot's own
+          also sets `flex-direction: column` on the host; the slot's own
           `flex-row` class flips that locally so it stays a horizontal
           strip.
 
           `border-l` and the panel-width track only when `tabsRailActive`
-          (session route + right panel open). On home/settings the slot
-          shrinks to 0 width — without this gate, navigating away while
-          the panel was left open would still claim panel-width in the
-          titlebar (the CSS var survives navigation) and push the
-          StatusPopover fallback to the left.
+          (desktop + session route + right panel open). On home/settings
+          the slot shrinks to 0 width — without this gate, navigating away
+          while the panel was left open would still claim panel-width in
+          the titlebar (the CSS var survives navigation) and the empty
+          slot would still paint a border-l.
 
-          `pr-2` lives on `#pawwork-titlebar-right` (not the outer rail)
-          so it reads as "toggle inset from viewport edge" when the panel
-          is closed and "gap between toggle and tabs border-l" when open.
-          Putting it on the outer rail would shift the tabs slot 8px
-          inboard of the viewport, misaligning its `border-l` with the
-          right-panel body's `border-l` directly below it.
+          `pr-2` on `#pawwork-titlebar-right` is gone — the absolute
+          `right-2` positioning replaces it. `right-2` is `--space-2`
+          (8px) by default per the design tokens, matching the old `pr-2`
+          inset from the viewport edge.
 
           `self-stretch` on the rail is load-bearing — the titlebar root
           uses `items-center`, which lets each grid cell collapse to its
           child's content height. Without this opt-out, the tabs slot's
           `self-stretch` would only reach the rail's content height
-          (≈30px toggle row), and its `border-l` would break above and
-          below the toggle row instead of meeting the right-panel body's
-          `border-l` as one continuous separator. */}
-      <div class="self-stretch flex items-center min-w-0 justify-end">
-        <div
-          id="pawwork-titlebar-right"
-          data-shell-slot="right-portal"
-          class="flex items-center gap-1 shrink-0 justify-end"
-          classList={{ "pr-2": !windows() }}
-        />
+          (≈0px when the absolute toggle takes the rail out of intrinsic
+          sizing), and its `border-l` would not paint full-height. */}
+      <div class="self-stretch relative flex items-center min-w-0 justify-end">
         <div
           id="pawwork-titlebar-tabs"
           data-shell-slot="tabs-portal"
@@ -233,6 +236,12 @@ export function Titlebar() {
           class="self-stretch flex flex-row items-center shrink-0"
           classList={{ "border-l border-border-weaker": tabsRailActive() }}
           style={{ width: tabsRailWidth() }}
+        />
+        <div
+          id="pawwork-titlebar-right"
+          data-shell-slot="right-portal"
+          class="absolute top-1/2 -translate-y-1/2 z-10 flex items-center gap-1 justify-end"
+          classList={{ "right-2": !windows(), "right-0": windows() }}
         />
       </div>
     </header>

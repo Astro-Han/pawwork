@@ -201,6 +201,27 @@ export function SessionSidePanel(props: {
     activeDraggable: undefined as string | undefined,
   })
 
+  // Mirror right-panel drag-resize state to the desktop shell so the CSS
+  // `--right-panel-width` transition on `<desktop-shell>` can be suppressed
+  // while the user is dragging. Without this, the aside's inline `width`
+  // (gated on `props.size.active()`) snaps to the new value on every
+  // pointermove, but `--right-panel-width` is set on the desktop-shell —
+  // which uses `state.sizing` (a layout.tsx-local flag scoped to the
+  // sidebar resize handler only) as its transition gate. During right-panel
+  // drag the var keeps its 240ms cubic-bezier transition, so the titlebar
+  // tabs slot (whose width follows the var) lags behind the body. The
+  // attribute lets a CSS rule in `index.css` turn the var transition off
+  // for the drag without needing to plumb session-scope sizing state up
+  // into the global layout context.
+  createEffect(() => {
+    if (!isDesktop()) return
+    const active = props.size.active()
+    const shell = document.querySelector<HTMLElement>('[data-component="desktop-shell"]')
+    if (!shell) return
+    if (active) shell.setAttribute("data-resizing-right-panel", "")
+    else shell.removeAttribute("data-resizing-right-panel")
+  })
+
   createEffect(() => {
     if (!isDesktop()) return
 

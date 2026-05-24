@@ -88,6 +88,23 @@
     initial-value: 140px;
   }
 
+  /* During right-panel drag-resize, the inline `width` on the right-panel
+     `<aside>` snaps to each pointermove value (its own transition is gated
+     on `props.size.active()`), but `--right-panel-width` on the desktop
+     shell keeps its 240ms transition (gated on a separate `state.sizing`
+     flag scoped to the sidebar). That mismatch leaves the titlebar tabs
+     slot — whose width follows the var — lagging behind the panel body,
+     so the seam line visibly drifts apart while dragging. The attribute
+     is set imperatively by `SessionSidePanel`'s sizing effect; here we
+     match it and disable the var transition so both sides snap together.
+     `--right-panel-width` is the only transitioning property that needs
+     gating; the sidebar's `--sidebar-width` is unaffected because the
+     sidebar resize handler already flips `state.sizing` which suppresses
+     the entire shorthand class. */
+  [data-component="desktop-shell"][data-resizing-right-panel] {
+    transition: none !important;
+  }
+
   /* Mac native unified-chrome pattern: titlebar bg matches whatever surface
      sits below it. Left of --sidebar-width = sidebar bg (seamless vertical
      extension of the sidebar panel up through the titlebar). Right = main
