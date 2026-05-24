@@ -231,6 +231,27 @@ test("session-trow", async ({ page }) => {
   })
   shots.push(await captureBlock("single-command-expanded", singleExpanded))
 
+  const singleError = page.locator('[data-snap="single-command-error"]')
+  await expect(singleError.locator('[data-component="session-turn-trow-block"][data-single]')).toBeVisible({
+    timeout: 30_000,
+  })
+  await expect(singleError.locator('[data-kind="tool-error-card"]')).toBeVisible({ timeout: 30_000 })
+  const singleErrorMetrics = await singleError.evaluate((root) => {
+    const trigger = root.querySelector<HTMLElement>('[data-slot="collapsible-trigger"]')
+    const blockedIcon = root.querySelector<HTMLElement>('[data-component="tool-error-card-icon"]')
+    const title = root.querySelector<HTMLElement>('[data-slot="basic-tool-tool-title"]')
+    if (!trigger || !blockedIcon || !title) {
+      return { triggerHeight: 0, iconTitleTopDelta: Number.POSITIVE_INFINITY }
+    }
+    return {
+      triggerHeight: trigger.getBoundingClientRect().height,
+      iconTitleTopDelta: Math.abs(blockedIcon.getBoundingClientRect().top - title.getBoundingClientRect().top),
+    }
+  })
+  expect(singleErrorMetrics.triggerHeight).toBeGreaterThan(0)
+  expect(singleErrorMetrics.iconTitleTopDelta).toBeLessThanOrEqual(3)
+  shots.push(await captureBlock("single-command-error", singleError))
+
   const singleShellSettingCollapsed = page.locator('[data-snap="single-shell-setting-collapsed"]')
   await expect(singleShellSettingCollapsed).toContainText("执行命令", { timeout: 30_000 })
   await expect(singleShellSettingCollapsed).toContainText("respects shell setting", { timeout: 30_000 })

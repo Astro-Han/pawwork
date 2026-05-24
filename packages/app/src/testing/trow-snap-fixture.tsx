@@ -83,6 +83,7 @@ const runningParts = [
 
 const singleQuietParts = [tool("single-quiet", "quiet command", "sleep 0", "completed", "")]
 const singleResultParts = [tool("single-result", "prints one line", "echo one")]
+const singleErrorParts = [tool("single-error", "Command blocked", "rm -rf /", "error")]
 const singleRunningParts = [tool("single-running", "long command", "sleep 30", "running")]
 const toolOutputParts = [
   realTool(
@@ -416,6 +417,9 @@ function TrowSnapFixture() {
           describeTool={describeTool}
           renderTool={renderTool("single-expanded", "single-result")}
         />
+      </div>
+      <div data-snap="single-command-error">
+        <AssistantPartsCase parts={singleErrorParts} />
       </div>
       <div data-snap="single-shell-setting-collapsed">
         <AssistantPartsCase

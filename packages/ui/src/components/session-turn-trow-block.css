@@ -199,6 +199,20 @@
   color: var(--fg-base);
 }
 
+[data-component="session-turn-trow-block"][data-single] [data-slot="trow-result-body"] [data-kind="tool-error-card"] {
+  --card-line-pad: 0px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+[data-component="session-turn-trow-block"][data-single] [data-slot="trow-result-body"] [data-kind="tool-error-card"]
+  [data-slot="collapsible-trigger"],
+[data-component="session-turn-trow-block"][data-single] [data-slot="trow-result-body"] [data-kind="tool-error-card"]
+  [data-component="tool-trigger"] {
+  min-height: 18px;
+  height: auto;
+}
+
 /* Fallback row (default `renderTool` path) — used when the caller does
  * not provide a per-tool renderer. */
 [data-component="session-turn-trow-block"] [data-slot="trow-item"] {
