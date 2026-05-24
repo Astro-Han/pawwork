@@ -397,6 +397,16 @@
   }
 
   &[data-variant="sidepanel"] {
+    /* The sidepanel host paints no background of its own — the right-panel
+       body (which owns the visible bg-base + border-l) and the titlebar slot
+       (a transparent portal landing) both want the surface below to show
+       through. Without this reset the base `[data-component="tabs"]` rule
+       (`background-color: var(--bg-base)`) paints an opaque layer that, in
+       the titlebar slot, covers the Right utility panel toggle sitting in
+       `#pawwork-titlebar-right`. PR #878 fixed click-through with
+       pointer-events-none but not visual occlusion; this is the missing half. */
+    background-color: transparent;
+
     [data-slot="tabs-list"] {
       /* Consumer owns the height. The right-panel tab strip portals into the
          titlebar slot, which varies (macOS 40px chrome / Windows 44px), and

@@ -76,15 +76,22 @@
   }
 }
 
-/* titlebar-icon: 32×30 non-square, DESIGN.md §346 — only 4 uses in titlebar.tsx */
-[data-component="icon-button"].titlebar-icon {
+/* titlebar-icon: 32×30 non-square, DESIGN.md §346.
+   Lives in icon-button.css for historical reasons but is intentionally NOT
+   scoped to `[data-component="icon-button"]` — the four titlebar usages in
+   `titlebar.tsx` + `session-header.tsx` render `<Button variant="ghost">`
+   (data-component="button"), not `<IconButton>`. Scoping to icon-button
+   silently dropped the `aria-expanded` selected-state chip on the sidebar
+   toggle and Right utility panel toggle. The class name carries the contract;
+   the selector should not narrow it. */
+.titlebar-icon {
   width: 32px;
   height: 30px;
   aspect-ratio: auto;
 }
 
-[data-component="icon-button"].titlebar-icon[data-icon="menu"][aria-expanded="true"],
-[data-component="icon-button"].titlebar-icon[aria-expanded="true"] {
+.titlebar-icon[data-icon="menu"][aria-expanded="true"],
+.titlebar-icon[aria-expanded="true"] {
   background-color: var(--surface-base);
 
   [data-slot="icon-svg"] {

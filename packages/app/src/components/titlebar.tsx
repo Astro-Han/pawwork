@@ -188,13 +188,20 @@ export function Titlebar() {
           glued to the top of the titlebar.
 
           Only populated when the right panel is open (SessionSidePanel guards its Portal). */}
-      {/* `pointer-events-none` on the slot mirrors `#pawwork-titlebar-left` — only
-          the portalled tab buttons (which carry their own `pointer-events-auto`
-          via the sidepanel CSS variant) should swallow clicks. Otherwise the
-          slot's z-10 box covers the Right utility panel toggle in
-          `#pawwork-titlebar-right` whenever the panel is open, making the toggle
-          unclickable (caught by perf-probe-baseline's session-streaming-long
-          run on PR #878). */}
+      {/* The slot is a portal landing pad, not a real Tabs root. It stamps
+          `data-component="tabs"` only so the existing sidepanel descendant
+          selectors in `packages/ui/src/components/tabs.css` still match the
+          portalled `Tabs.List`. Two consequences flow from that "borrowed
+          identity":
+          - Click occlusion: the slot's z-10 absolute box would swallow clicks
+            on the Right utility panel toggle in `#pawwork-titlebar-right`.
+            Fixed here with `pointer-events-none` on the slot; the portalled
+            tab buttons opt back in via `pointer-events-auto` on
+            `<Tabs.List>` (see session-side-panel.tsx).
+          - Visual occlusion: the base `[data-component="tabs"]` rule applies
+            `background-color: var(--bg-base)` to the host. The sidepanel
+            variant resets that to transparent in tabs.css so the slot does
+            not paint over the toggle button beneath it. */}
       <div
         id="pawwork-titlebar-tabs"
         data-shell-slot="tabs-portal"
