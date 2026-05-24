@@ -460,12 +460,16 @@
       position: relative;
     }
 
-    /* Default icon: always visible at rest; fade out only on hover of the
-       wrapper so the close button takes visual ownership of that cell. */
+    /* Default icon: always visible at rest; fade out only on hover of a
+       CLOSABLE wrapper (one that owns a close-button slot) so the close
+       button takes visual ownership of that cell. The `:has(...)` scope
+       keeps Status's icon visible on hover — Status has no close slot,
+       so fading the icon would leave the cell blank. */
     [data-slot="tab-icon-default"] {
       transition: opacity 100ms ease;
     }
-    [data-slot="tabs-trigger-wrapper"]:hover [data-slot="tab-icon-default"] {
+    [data-slot="tabs-trigger-wrapper"]:has([data-slot="tabs-trigger-close-button"]):hover
+      [data-slot="tab-icon-default"] {
       opacity: 0;
     }
 

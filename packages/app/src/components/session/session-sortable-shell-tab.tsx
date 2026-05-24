@@ -95,17 +95,22 @@ export function ShellTab(props: {
       }}
       onMiddleClick={close}
       aria-label={props.label}
-      // Advertise the Delete key shortcut to assistive technology.
-      aria-keyshortcuts="Delete"
-      onKeyDown={(event: KeyboardEvent) => {
-        // ARIA APG closable-tabs pattern: Delete (or Backspace as macOS alias)
-        // on a focused closable trigger closes the tab immediately.
-        if (!props.closable) return
-        if (event.key === "Delete" || event.key === "Backspace") {
-          event.preventDefault()
-          close()
-        }
-      }}
+      // Advertise the Delete key shortcut to assistive technology — only on
+      // closable tabs, since Status's onKeyDown is a no-op and exposing the
+      // shortcut there would be a false promise.
+      aria-keyshortcuts={props.closable ? "Delete" : undefined}
+      onKeyDown={
+        props.closable
+          ? (event: KeyboardEvent) => {
+              // ARIA APG closable-tabs pattern: Delete (or Backspace as the
+              // macOS alias) on a focused closable trigger closes the tab.
+              if (event.key === "Delete" || event.key === "Backspace") {
+                event.preventDefault()
+                close()
+              }
+            }
+          : undefined
+      }
       // Only pass the slot when closable — passing `<Show when={false}>` would
       // still render an empty `[data-slot="tabs-trigger-close-button"]` div
       // (Tabs.Trigger's outer Show checks truthiness of the JSX value, not the
