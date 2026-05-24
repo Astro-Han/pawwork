@@ -65,6 +65,8 @@ export function AssistantParts(props: {
                   { equals: same },
                 )
                 const singleTool = createMemo(() => parts().length === 1)
+                const defaultOpenForTool = (tool: ToolPart) =>
+                  partDefaultOpen(tool, props.shellToolDefaultOpen, props.editToolDefaultOpen) ?? singleTool()
                 const renderTool = (tool: ToolPart) => {
                   const message = msgs().get(tool.messageID)
                   if (!message) return null
@@ -73,7 +75,7 @@ export function AssistantParts(props: {
                       <Part
                         part={tool}
                         message={message}
-                        defaultOpen={singleTool()}
+                        defaultOpen={defaultOpenForTool(tool)}
                         stateKey={`tool:${tool.id}`}
                       />
                     </div>

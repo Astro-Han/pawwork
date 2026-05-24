@@ -1,6 +1,6 @@
 import { expect, test, describe } from "bun:test"
 import type { Part, TextPart, ToolPart } from "@opencode-ai/sdk/v2"
-import { activeWorkingTrowKey, groupParts, renderable } from "./grouping"
+import { activeWorkingTrowKey, groupParts, partDefaultOpen, renderable } from "./grouping"
 
 function textPart(id: string, text: string): TextPart {
   return {
@@ -156,5 +156,22 @@ describe("message-part activeWorkingTrowKey", () => {
     const result = groupRenderable([toolPart("t1", "bash"), toolPart("t2", "grep")])
 
     expect(activeWorkingTrowKey(result, false)).toBeUndefined()
+  })
+})
+
+describe("message-part partDefaultOpen", () => {
+  test("respects shell and edit default-open settings for tool rows", () => {
+    expect(partDefaultOpen(toolPart("bash-closed", "bash"), false, true)).toBe(false)
+    expect(partDefaultOpen(toolPart("bash-open", "bash"), true, false)).toBe(true)
+
+    expect(partDefaultOpen(toolPart("edit-closed", "edit"), true, false)).toBe(false)
+    expect(partDefaultOpen(toolPart("edit-open", "edit"), false, true)).toBe(true)
+    expect(partDefaultOpen(toolPart("write-open", "write"), false, true)).toBe(true)
+    expect(partDefaultOpen(toolPart("patch-open", "apply_patch"), false, true)).toBe(true)
+  })
+
+  test("leaves non-configured tools to the caller fallback", () => {
+    expect(partDefaultOpen(toolPart("read", "read"), true, true)).toBeUndefined()
+    expect(partDefaultOpen(textPart("text", "done"), true, true)).toBeUndefined()
   })
 })

@@ -1,10 +1,10 @@
 import { Dynamic, render } from "solid-js/web"
-import type { ToolPart, ToolState } from "@opencode-ai/sdk/v2"
+import type { AssistantMessage, ToolPart, ToolState } from "@opencode-ai/sdk/v2"
 import { BasicTool } from "@opencode-ai/ui/basic-tool"
 import { DataProvider, I18nProvider, type UiI18nKey, type UiI18nParams } from "@opencode-ai/ui/context"
 import { MarkedProvider } from "@opencode-ai/ui/context/marked"
 import { dict as zh } from "@opencode-ai/ui/i18n/zh"
-import { ToolRegistry } from "@opencode-ai/ui/message-part"
+import { AssistantParts, ToolRegistry } from "@opencode-ai/ui/message-part"
 import { TrowBlock } from "@opencode-ai/ui/session-turn-trow-block"
 
 const labels = {
@@ -152,6 +152,40 @@ const fixtureData = {
   turn_change_aggregate: {},
   message: {},
   part: {},
+}
+
+const snapAssistantMessage = {
+  id: "snap-message",
+  sessionID: "snap-session",
+  role: "assistant",
+  time: { created: 0, completed: 1 },
+  parentID: "snap-user",
+  modelID: "snap-model",
+  providerID: "snap-provider",
+  mode: "build",
+  agent: "code",
+  path: { cwd: "/Users/yuhan/PawWork", root: "/Users/yuhan/PawWork" },
+  cost: 0,
+  tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+} as AssistantMessage
+
+function AssistantPartsCase(props: {
+  parts: ToolPart[]
+  shellToolDefaultOpen?: boolean
+  editToolDefaultOpen?: boolean
+}) {
+  return (
+    <DataProvider
+      data={{ ...fixtureData, part: { [snapAssistantMessage.id]: props.parts } }}
+      directory="/Users/yuhan/PawWork"
+    >
+      <AssistantParts
+        messages={[snapAssistantMessage]}
+        shellToolDefaultOpen={props.shellToolDefaultOpen}
+        editToolDefaultOpen={props.editToolDefaultOpen}
+      />
+    </DataProvider>
+  )
 }
 
 function realTool(
@@ -345,6 +379,18 @@ function TrowSnapFixture() {
           labels={labels}
           describeTool={describeTool}
           renderTool={renderTool("single-expanded", "single-result")}
+        />
+      </div>
+      <div data-snap="single-shell-setting-collapsed">
+        <AssistantPartsCase
+          parts={[tool("single-shell-setting-collapsed", "respects shell setting", "echo hidden")]}
+          shellToolDefaultOpen={false}
+        />
+      </div>
+      <div data-snap="single-shell-setting-expanded">
+        <AssistantPartsCase
+          parts={[tool("single-shell-setting-expanded", "respects shell setting", "echo shown")]}
+          shellToolDefaultOpen
         />
       </div>
       <div data-snap="single-command-running">

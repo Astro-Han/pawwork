@@ -2,7 +2,7 @@ import { createMemo, Index, Match, Show, Switch } from "solid-js"
 import type { AssistantMessage, Part as PartType, ToolPart } from "@opencode-ai/sdk/v2"
 import { useI18n } from "../../context/i18n"
 import { TrowBlock } from "../session-turn-trow-block"
-import { groupParts, renderable, sameGroups, type PartGroup } from "./grouping"
+import { groupParts, partDefaultOpen, renderable, sameGroups, type PartGroup } from "./grouping"
 import { contextToolSummaryText } from "./context-tool-helpers"
 import { index, latestDefined, same } from "./shared-utils"
 import { Part } from "./message-router"
@@ -50,6 +50,7 @@ export function AssistantMessageDisplay(props: {
                   { equals: same },
                 )
                 const singleTool = createMemo(() => parts().length === 1)
+                const defaultOpenForTool = (tool: ToolPart) => partDefaultOpen(tool) ?? singleTool()
 
                 return (
                   <Show when={parts().length > 0}>
@@ -67,7 +68,7 @@ export function AssistantMessageDisplay(props: {
                           <Part
                             part={tool}
                             message={props.message}
-                            defaultOpen={singleTool()}
+                            defaultOpen={defaultOpenForTool(tool)}
                             stateKey={`tool:${tool.id}`}
                           />
                         </div>
