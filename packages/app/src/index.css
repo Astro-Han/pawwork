@@ -118,7 +118,8 @@
      titlebar top to viewport bottom. A symmetric `padding-inline: 8px`
      pushes the tabs slot 8px inboard and breaks that seam on macOS only —
      see issue tracked alongside PR #880 follow-up. The toggle's own
-     `pr-2` provides the closed-state inset from the viewport edge. */
+     absolute `right-2` (or `right-0` on Windows) provides the inset from
+     the viewport edge in both open and closed states. */
   [data-component="titlebar-shell"][data-shell="desktop"][data-shell-os="macos"] {
     padding-inline-start: 8px;
     background: linear-gradient(
