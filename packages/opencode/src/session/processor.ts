@@ -1301,6 +1301,7 @@ export const layer: Layer.Layer<
               error: result.error,
               evidence: retrySignal.watchdog ? ["watchdog_fired", "iterator_error"] : ["iterator_error"],
               watchdog: retrySignal.watchdog,
+              retryable: retrySignal.retryable,
             })
 
             if (

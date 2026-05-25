@@ -131,6 +131,7 @@ export type IncidentFacts = {
   materialized_tool_effect_kind?: ToolEffectKind
   materialized_tool_requires_confirmation?: boolean
   side_effect_facts_complete: boolean
+  side_effect_boundary_snapshot?: SideEffectBoundarySnapshot
   lifecycle_close_seen: boolean
   user_cancel_seen: boolean
   watchdog_fired: boolean
@@ -176,6 +177,7 @@ export type RecoveryDecision = {
   confidence: Confidence
   reason:
     | "no_visible_output_or_tool_execution"
+    | "reasoning_only_without_final_text_or_tool_activity"
     | "visible_output_without_tool_execution"
     | "partial_tool_input_without_execution"
     | "tool_call_materialized_without_execution"

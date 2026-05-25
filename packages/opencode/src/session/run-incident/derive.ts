@@ -21,6 +21,7 @@ export type DeriveIncidentInput = {
   parentMessageID?: MessageID
   createdAt: number
   completedAt?: number
+  retryable?: boolean
   evidence: IncidentEvidenceEvent[]
   unsafeSideEffectKinds: ToolEffectKind[]
   sideEffectFactsComplete: boolean
@@ -47,7 +48,7 @@ export function deriveIncident(input: DeriveIncidentInput): RunIncident | undefi
   const facts = factsFromEvidence(input)
   const terminalFacts = terminal.attempt_id ? factsFromEvidence(input, terminal.attempt_id) : facts
   const terminalPhaseFacts = factsFromEvidence(input, terminal.attempt_id, terminal)
-  const recovery = recoveryFor({ cause: terminal.cause, facts, terminalFacts })
+  const recovery = recoveryFor({ cause: terminal.cause, facts, terminalFacts, retryable: input.retryable })
   const summary = userSummary({ cause: terminal.cause, recovery })
   const missingProvenance = [...(input.missingProvenance ?? []), ...diagnosticGaps(input, terminal, facts)]
   return sanitizeIncident({
@@ -128,6 +129,9 @@ function factsFromEvidence(
   const materializedToolBoundary = summarizeMaterializedToolBoundaries(input.materializedToolBoundaries, attemptID)
   const has = (eventType: string) => scopedEvidence.some((event) => event.event_type === eventType)
   const count = (eventType: string) => scopedEvidence.filter((event) => event.event_type === eventType).length
+  const snapshots = scopedEvidence.flatMap((event) =>
+    event.side_effect_boundary_snapshot ? [event.side_effect_boundary_snapshot] : [],
+  )
   const sideEffectFactsComplete = attemptID
     ? scopedSideEffectFactsComplete(scopedEvidence, materializedToolBoundary)
     : input.sideEffectFactsComplete
@@ -149,6 +153,7 @@ function factsFromEvidence(
       ? materializedToolBoundary.effect.unsafe || !materializedToolBoundary.effect.complete
       : undefined,
     side_effect_facts_complete: sideEffectFactsComplete,
+    side_effect_boundary_snapshot: snapshots.at(-1),
     lifecycle_close_seen: has("lifecycle_close_seen"),
     user_cancel_seen: has("user_cancel_seen"),
     watchdog_fired: has("watchdog_fired"),
