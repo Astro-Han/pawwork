@@ -98,3 +98,11 @@
 .titlebar-icon[data-variant="ghost"]:is([data-action="pawwork-sidebar-toggle"], [aria-controls="right-panel"])[aria-expanded="true"]:not(:hover):not(:active) {
   background-color: transparent;
 }
+
+.titlebar-icon[data-variant="ghost"][data-action="pawwork-status-popover-toggle"][aria-expanded="true"] {
+  background-color: var(--surface-base);
+
+  [data-slot="icon-svg"] {
+    color: var(--icon-strong);
+  }
+}
