@@ -262,7 +262,7 @@ jobs:
             github.event_name != 'pull_request' ||
             github.event.pull_request.head.repo.full_name == github.repository
           )
-        uses: mikepenz/action-junit-report@bccf2e31636835cf0874589931c4116687171386 # mikepenz/action-junit-report@v6
+        uses: mikepenz/action-junit-report@3a81627bfac62268172037048872e8ebd4207e6d # mikepenz/action-junit-report@v6
         with:
           report_paths: packages/app/.artifacts/unit/junit.xml
           check_name: unit results (app)
@@ -333,7 +333,7 @@ jobs:
             github.event_name != 'pull_request' ||
             github.event.pull_request.head.repo.full_name == github.repository
           )
-        uses: mikepenz/action-junit-report@bccf2e31636835cf0874589931c4116687171386 # mikepenz/action-junit-report@v6
+        uses: mikepenz/action-junit-report@3a81627bfac62268172037048872e8ebd4207e6d # mikepenz/action-junit-report@v6
         with:
           report_paths: packages/ui/.artifacts/unit/junit.xml
           check_name: unit results (ui)
@@ -404,7 +404,7 @@ jobs:
             github.event_name != 'pull_request' ||
             github.event.pull_request.head.repo.full_name == github.repository
           )
-        uses: mikepenz/action-junit-report@bccf2e31636835cf0874589931c4116687171386 # mikepenz/action-junit-report@v6
+        uses: mikepenz/action-junit-report@3a81627bfac62268172037048872e8ebd4207e6d # mikepenz/action-junit-report@v6
         with:
           report_paths: packages/opencode/.artifacts/unit/junit.xml
           check_name: unit results (opencode)
@@ -475,7 +475,7 @@ jobs:
             github.event_name != 'pull_request' ||
             github.event.pull_request.head.repo.full_name == github.repository
           )
-        uses: mikepenz/action-junit-report@bccf2e31636835cf0874589931c4116687171386 # mikepenz/action-junit-report@v6
+        uses: mikepenz/action-junit-report@3a81627bfac62268172037048872e8ebd4207e6d # mikepenz/action-junit-report@v6
         with:
           report_paths: packages/desktop-electron/.artifacts/unit/junit.xml
           check_name: unit results (desktop)
