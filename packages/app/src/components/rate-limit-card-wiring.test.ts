@@ -6,3 +6,7 @@ const source = readFileSync(new URL("./rate-limit-card-wiring.tsx", import.meta.
 test("OpenCode Go subscription opens PawWork referral link", () => {
   expect(source).toMatch(/const\s+SUBSCRIBE_URL\s*=\s*["']https:\/\/opencode\.ai\/go\?ref=V1WTSZKC69["']/)
 })
+
+test("DeepSeek action opens platform.deepseek.com", () => {
+  expect(source).toMatch(/const\s+DEEPSEEK_URL\s*=\s*["']https:\/\/platform\.deepseek\.com\/["']/)
+})

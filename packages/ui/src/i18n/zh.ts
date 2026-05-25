@@ -243,5 +243,6 @@ export const dict = {
   "ui.rateLimitCard.subtitleResetTomorrow": "约明天 {{time}} 恢复",
   "ui.rateLimitCard.subtitleNoTime": "稍后重试",
   "ui.rateLimitCard.actionSubscribe": "订阅 OpenCode Go",
+  "ui.rateLimitCard.actionDeepSeek": "注册 DeepSeek API",
   "ui.rateLimitCard.actionBYO": "使用自己的模型",
 } satisfies Partial<Record<Keys, string>>

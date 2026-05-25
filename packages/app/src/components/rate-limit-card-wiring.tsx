@@ -4,6 +4,7 @@ import { useShellSurface } from "../context/shell-surface"
 import { trackEvent } from "../utils/events"
 
 const SUBSCRIBE_URL = "https://opencode.ai/go?ref=V1WTSZKC69"
+const DEEPSEEK_URL = "https://platform.deepseek.com/"
 
 // openLink is exposed by the desktop-electron preload (packages/desktop-electron/src/preload/types.ts:97).
 // The renderer-side window.api type in app.tsx declares only the subset of API the app actually uses;
@@ -30,6 +31,10 @@ export function RateLimitCardWiring(props: {
       onSubscribeClick={() => {
         trackEvent("rate_limit_card.subscribe_click", { providerID: props.classification.providerID })
         ;(window.api as ApiWithOpenLink | undefined)?.openLink?.(SUBSCRIBE_URL)
+      }}
+      onDeepSeekClick={() => {
+        trackEvent("rate_limit_card.deepseek_click", { providerID: props.classification.providerID })
+        ;(window.api as ApiWithOpenLink | undefined)?.openLink?.(DEEPSEEK_URL)
       }}
       onUseOwnModelClick={() => {
         trackEvent("rate_limit_card.byo_click", { providerID: props.classification.providerID })

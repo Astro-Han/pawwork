@@ -78,6 +78,9 @@ export const DialogSelectProvider: Component = () => {
             <Show when={i.id === "opencode-go"}>
               <Tag>{language.t("dialog.provider.tag.recommended")}</Tag>
             </Show>
+            <Show when={i.id === "deepseek"}>
+              <Tag>{language.t("dialog.provider.tag.recommended")}</Tag>
+            </Show>
           </div>
         )}
       </List>

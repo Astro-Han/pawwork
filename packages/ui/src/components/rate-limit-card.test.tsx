@@ -27,6 +27,10 @@ describe("RateLimitCard: data-slot contract", () => {
   test('BYO link has data-slot="rate-limit-card-byo"', () => {
     expect(src).toContain('data-slot="rate-limit-card-byo"')
   })
+
+  test('DeepSeek link has data-slot="rate-limit-card-deepseek"', () => {
+    expect(src).toContain('data-slot="rate-limit-card-deepseek"')
+  })
 })
 
 // ── No-go: no buttons (DESIGN.md L463) ────────────────────────────────────
@@ -75,12 +79,20 @@ describe("RateLimitCard: callback props", () => {
     expect(src).toContain("onUseOwnModelClick")
   })
 
+  test("onDeepSeekClick prop is declared in RateLimitCardProps", () => {
+    expect(src).toContain("onDeepSeekClick")
+  })
+
   test("onSubscribeClick is called on subscribe link click", () => {
     expect(src).toContain("props.onSubscribeClick()")
   })
 
   test("onUseOwnModelClick is called on BYO link click", () => {
     expect(src).toContain("props.onUseOwnModelClick()")
+  })
+
+  test("onDeepSeekClick is called on DeepSeek link click", () => {
+    expect(src).toContain("props.onDeepSeekClick()")
   })
 })
 
@@ -101,7 +113,7 @@ describe("RateLimitCard: composes Card primitive", () => {
     expect(src).toContain("CardActions")
   })
 
-  test("renders <Card variant=\"warning\"> so the 2px rule and accent come from the primitive", () => {
+  test('renders <Card variant="warning"> so the 2px rule and accent come from the primitive', () => {
     expect(src).toMatch(/<Card\b[^>]*variant=["']warning["']/)
   })
 

@@ -7,6 +7,7 @@ import "./rate-limit-card.css"
 export interface RateLimitCardProps {
   classification: Extract<RetryClassification, { kind: "free_quota_exhausted" }>
   onSubscribeClick: () => void
+  onDeepSeekClick: () => void
   onUseOwnModelClick: () => void
 }
 
@@ -75,7 +76,23 @@ export function RateLimitCard(props: RateLimitCardProps) {
           }}
         >
           {i18n.t("ui.rateLimitCard.actionSubscribe")}
-          <span class="rate-limit-card__external" aria-hidden="true">↗</span>
+          <span class="rate-limit-card__external" aria-hidden="true">
+            ↗
+          </span>
+        </a>
+        <a
+          class="rate-limit-card__action rate-limit-card__action--primary"
+          href="#"
+          data-slot="rate-limit-card-deepseek"
+          onClick={(e) => {
+            e.preventDefault()
+            props.onDeepSeekClick()
+          }}
+        >
+          {i18n.t("ui.rateLimitCard.actionDeepSeek")}
+          <span class="rate-limit-card__external" aria-hidden="true">
+            ↗
+          </span>
         </a>
         <a
           class="rate-limit-card__action"

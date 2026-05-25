@@ -42,8 +42,10 @@ test("rate_limit_blocked renders RateLimitCard, keeps composer unlocked, BYO ope
   await expect(composer).toHaveAttribute("aria-disabled", "false")
 
   const subscribe = card.locator('[data-slot="rate-limit-card-subscribe"]')
+  const deepseek = card.locator('[data-slot="rate-limit-card-deepseek"]')
   const byo = card.locator('[data-slot="rate-limit-card-byo"]')
   await expect(subscribe).toBeVisible()
+  await expect(deepseek).toBeVisible()
   await expect(byo).toBeVisible()
 
   await subscribe.click()
@@ -58,6 +60,14 @@ test("rate_limit_blocked renders RateLimitCard, keeps composer unlocked, BYO ope
   await expect
     .poll(() => events.find((e) => e.name === "rate_limit_card.byo_click")?.name)
     .toBe("rate_limit_card.byo_click")
+
+  await deepseek.click()
+  await expect
+    .poll(() => events.find((e) => e.name === "rate_limit_card.deepseek_click")?.name)
+    .toBe("rate_limit_card.deepseek_click")
+  expect(events.find((e) => e.name === "rate_limit_card.deepseek_click")?.payload).toMatchObject({
+    providerID: "opencode",
+  })
 
   // BYO click should open Settings; the openSettings("providers") plumbing is
   // covered by the unit tests in Task 9 — here we only assert Settings opens.

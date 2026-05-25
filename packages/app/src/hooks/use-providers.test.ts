@@ -6,7 +6,8 @@ mock.module("@solidjs/router", () => ({
 
 const { popularProviders } = await import("./use-providers")
 
-test("popular providers keep OpenCode Zen and OpenCode Go visible", () => {
+test("popular providers keep OpenCode Zen, OpenCode Go, and DeepSeek visible", () => {
   expect(popularProviders).toContain("opencode")
   expect(popularProviders).toContain("opencode-go")
+  expect(popularProviders).toContain("deepseek")
 })
