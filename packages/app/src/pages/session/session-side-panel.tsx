@@ -201,6 +201,43 @@ export function SessionSidePanel(props: {
     activeDraggable: undefined as string | undefined,
   })
 
+  // Mirror right-panel drag-resize state to the desktop shell so the CSS
+  // `--right-panel-width` transition on `<desktop-shell>` can be suppressed
+  // while the user is dragging. Without this, the aside's inline `width`
+  // (gated on `props.size.active()`) snaps to the new value on every
+  // pointermove, but `--right-panel-width` is set on the desktop-shell —
+  // which uses `state.sizing` (a layout.tsx-local flag scoped to the
+  // sidebar resize handler only) as its transition gate. During right-panel
+  // drag the var keeps its 240ms cubic-bezier transition, so the titlebar
+  // tabs slot (whose width follows the var) lags behind the body. The
+  // attribute lets a CSS rule in `index.css` turn the var transition off
+  // for the drag without needing to plumb session-scope sizing state up
+  // into the global layout context.
+  //
+  // The effect must guard against three leak paths that would lock the
+  // shell's transition off indefinitely (CSS rule is `!important`):
+  //  1. Viewport shrinks mid-drag and `isDesktop()` flips to false — the
+  //     early-return must not skip removing the attribute.
+  //  2. Navigation away from the session route unmounts SessionSidePanel
+  //     while drag is still "active" — `onCleanup` must remove the
+  //     attribute even if `props.size.active()` is still true.
+  //  3. Component re-mount finds a stale attribute from a previous
+  //     instance — we always clear before optionally re-setting.
+  createEffect(() => {
+    const shell = document.querySelector<HTMLElement>('[data-component="desktop-shell"]')
+    if (!shell) return
+    // Always clear first; only re-set when desktop AND actively resizing.
+    shell.removeAttribute("data-resizing-right-panel")
+    if (!isDesktop()) return
+    if (props.size.active()) shell.setAttribute("data-resizing-right-panel", "")
+  })
+
+  onCleanup(() => {
+    document
+      .querySelector<HTMLElement>('[data-component="desktop-shell"]')
+      ?.removeAttribute("data-resizing-right-panel")
+  })
+
   createEffect(() => {
     if (!isDesktop()) return
 

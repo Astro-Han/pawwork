@@ -88,14 +88,40 @@
     initial-value: 140px;
   }
 
+  /* During right-panel drag-resize, the inline `width` on the right-panel
+     `<aside>` snaps to each pointermove value (its own transition is gated
+     on `props.size.active()`), but `--right-panel-width` on the desktop
+     shell keeps its 240ms transition (gated on a separate `state.sizing`
+     flag scoped to the sidebar). That mismatch leaves the titlebar tabs
+     slot — whose width follows the var — lagging behind the panel body,
+     so the seam line visibly drifts apart while dragging. The attribute
+     is set imperatively by `SessionSidePanel`'s sizing effect; here we
+     match it and disable the var transition so both sides snap together.
+     `--right-panel-width` is the only transitioning property that needs
+     gating; the sidebar's `--sidebar-width` is unaffected because the
+     sidebar resize handler already flips `state.sizing` which suppresses
+     the entire shorthand class. */
+  [data-component="desktop-shell"][data-resizing-right-panel] {
+    transition: none !important;
+  }
+
   /* Mac native unified-chrome pattern: titlebar bg matches whatever surface
      sits below it. Left of --sidebar-width = sidebar bg (seamless vertical
      extension of the sidebar panel up through the titlebar). Right = main
      bg. Right-panel boundary is intentionally NOT drawn into the titlebar
      (Mail / Finder / Notes do not split their toolbar) so it never overlaps
      with breadcrumb or center-portal content when the panel is wide. */
+  /* Right edge intentionally has no padding so the right-panel tabs slot
+     (inside the rightmost grid cell) ends at the viewport edge. Its
+     `border-l` then aligns pixel-for-pixel with the right-panel body's
+     `border-left` directly below it, forming one continuous separator from
+     titlebar top to viewport bottom. A symmetric `padding-inline: 8px`
+     pushes the tabs slot 8px inboard and breaks that seam on macOS only —
+     see issue tracked alongside PR #880 follow-up. The toggle's own
+     absolute `right-2` (or `right-0` on Windows) provides the inset from
+     the viewport edge in both open and closed states. */
   [data-component="titlebar-shell"][data-shell="desktop"][data-shell-os="macos"] {
-    padding-inline: 8px;
+    padding-inline-start: 8px;
     background: linear-gradient(
       to right,
       var(--sidebar) 0,
