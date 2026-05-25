@@ -16,6 +16,7 @@ import { createPathHelpers } from "./file/path"
 import {
   closeShellTab,
   defaultRightPanelTab,
+  isRightPanelTerminalTab,
   moveShellTab,
   normalizeShellTabs,
   openShellTab,
@@ -928,7 +929,47 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
             },
             openTab(tab: RightPanelTab) {
               const session = key()
-              setShellTabState(session, openShellTab(shellTabState(), tab))
+              const current = shellTabState()
+              const next = openShellTab(current, tab)
+              // Kobalte's Tabs.Root has a controlled-collection effect that
+              // snaps the selected key back to the collection's first item
+              // when the new key isn't yet registered (see
+              // @kobalte/core/src/tabs/tabs-root.tsx "Ensure a tab is always
+              // selected"). Trigger registration happens inside
+              // createDomCollectionItem's createEffect, which mounts *after*
+              // Tabs.Root's selection effect — Tabs.Root mounted with its
+              // parent, the new chip mounts on demand. So if we commit the
+              // chip and the selection switch in the same store mutation,
+              // Tabs.Root fires its selection effect first, the new key
+              // isn't in the collection yet, Kobalte fires
+              // onChange("status"), our setter writes it back, and the user
+              // sees the menu add the chip but Status stays active.
+              //
+              // Defer the selection write by one microtask whenever this
+              // call is the one introducing the static chip. The chip mounts
+              // and registers in the sync tick; the microtask then switches
+              // selection against a populated collection. Terminal chips
+              // never need this — they're sourced from terminal.all() and
+              // already exist by the time their value can be opened.
+              const addsStaticChip =
+                !isRightPanelTerminalTab(tab) &&
+                !current.openShellTabs.includes(tab) &&
+                next.openShellTabs.includes(tab)
+              if (addsStaticChip) {
+                setShellTabState(session, {
+                  openShellTabs: next.openShellTabs,
+                  sidePanelTab: current.sidePanelTab,
+                })
+                queueMicrotask(() => {
+                  // Re-validate: the chip may have been closed, or selection
+                  // may have moved elsewhere, between sync commit and now.
+                  const after = shellTabState()
+                  if (!(after.openShellTabs as readonly string[]).includes(tab)) return
+                  setShellTabState(session, { openShellTabs: after.openShellTabs, sidePanelTab: tab })
+                })
+              } else {
+                setShellTabState(session, next)
+              }
               this.open()
             },
             closeTab(tab: RightPanelTab) {
