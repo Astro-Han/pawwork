@@ -4,6 +4,7 @@ import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 import path from "path"
 import fs from "fs/promises"
+import { Log } from "@opencode-ai/core/util/log"
 
 const processWithResourcesPath = process as NodeJS.Process & { resourcesPath?: string }
 
@@ -281,6 +282,98 @@ This skill is loaded from the global home directory.
     })
   } finally {
     process.env.OPENCODE_TEST_HOME = originalHome
+  }
+})
+
+test("does not warn when the same .agents skill is discovered globally and by walking up", async () => {
+  await using tmp = await tmpdir({ git: true })
+
+  const originalHome = process.env.OPENCODE_TEST_HOME
+  const logger = Log.create({ service: "skill" })
+  const originalWarn = logger.warn
+  const warnings: Array<{ message?: unknown; extra?: Record<string, unknown> }> = []
+  process.env.OPENCODE_TEST_HOME = tmp.path
+  logger.warn = (message, extra) => {
+    warnings.push({ message, extra })
+  }
+
+  try {
+    const skillDir = path.join(tmp.path, ".agents", "skills", "global-agent-skill")
+    await fs.mkdir(skillDir, { recursive: true })
+    await Bun.write(
+      path.join(skillDir, "SKILL.md"),
+      `---
+name: global-agent-skill
+description: A global skill from ~/.agents/skills for testing.
+---
+
+# Global Agent Skill
+`,
+    )
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const skills = await Skill.all()
+        expect(skills.filter((item) => item.name === "global-agent-skill")).toHaveLength(1)
+      },
+    })
+
+    expect(warnings.filter((item) => item.message === "duplicate skill name")).toEqual([])
+  } finally {
+    logger.warn = originalWarn
+    if (originalHome === undefined) delete process.env.OPENCODE_TEST_HOME
+    else process.env.OPENCODE_TEST_HOME = originalHome
+  }
+})
+
+test("warns when different skill files declare the same name", async () => {
+  await using home = await tmpdir()
+  await using tmp = await tmpdir({
+    git: true,
+    init: async (dir) => {
+      for (const folder of ["shared-skill-a", "shared-skill-b"]) {
+        const skillDir = path.join(dir, ".agents", "skills", folder)
+        await fs.mkdir(skillDir, { recursive: true })
+        await Bun.write(
+          path.join(skillDir, "SKILL.md"),
+          `---
+name: shared-skill
+description: Duplicate skill name from ${folder}.
+---
+
+# Shared Skill
+`,
+        )
+      }
+    },
+  })
+
+  const logger = Log.create({ service: "skill" })
+  const originalWarn = logger.warn
+  const originalHome = process.env.OPENCODE_TEST_HOME
+  const warnings: Array<{ message?: unknown; extra?: Record<string, unknown> }> = []
+  process.env.OPENCODE_TEST_HOME = home.path
+  logger.warn = (message, extra) => {
+    warnings.push({ message, extra })
+  }
+
+  try {
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const skill = await Skill.get("shared-skill")
+        expect(skill).toBeDefined()
+      },
+    })
+
+    const duplicateWarnings = warnings.filter((item) => item.message === "duplicate skill name")
+    expect(duplicateWarnings).toHaveLength(1)
+    expect(duplicateWarnings[0]!.extra?.existing).not.toBe(duplicateWarnings[0]!.extra?.duplicate)
+  } finally {
+    logger.warn = originalWarn
+    if (originalHome === undefined) delete process.env.OPENCODE_TEST_HOME
+    else process.env.OPENCODE_TEST_HOME = originalHome
   }
 })
 

@@ -137,6 +137,7 @@ export namespace Skill {
 
   const scan = Effect.fnUntraced(function* (
     state: State,
+    scanned: Set<string>,
     bus: Bus.Interface,
     root: string,
     pattern: string,
@@ -160,8 +161,15 @@ export namespace Skill {
       }),
     )
 
-    yield* Effect.forEach(matches, (match) => add(state, match, bus), {
-      concurrency: "unbounded",
+    const uniqueMatches: string[] = []
+    for (const match of matches) {
+      if (scanned.has(match)) continue
+      scanned.add(match)
+      uniqueMatches.push(match)
+    }
+
+    yield* Effect.forEach(uniqueMatches, (match) => add(state, match, bus), {
+      concurrency: 1,
       discard: true,
     })
   })
@@ -175,12 +183,14 @@ export namespace Skill {
     directory: string,
     worktree: string,
   ) {
+    const scanned = new Set<string>()
+
     if (!Flag.OPENCODE_DISABLE_EXTERNAL_SKILLS) {
       const externalDirs = [AGENTS_EXTERNAL_DIR]
       for (const dir of externalDirs) {
         const root = path.join(Global.Path.home, dir)
         if (!(yield* fsys.isDir(root))) continue
-        yield* scan(state, bus, root, EXTERNAL_SKILL_PATTERN, { dot: true, scope: "global" })
+        yield* scan(state, scanned, bus, root, EXTERNAL_SKILL_PATTERN, { dot: true, scope: "global" })
       }
 
       const upDirs = yield* fsys
@@ -188,18 +198,18 @@ export namespace Skill {
         .pipe(Effect.catch(() => Effect.succeed([] as string[])))
 
       for (const root of upDirs) {
-        yield* scan(state, bus, root, EXTERNAL_SKILL_PATTERN, { dot: true, scope: "project" })
+        yield* scan(state, scanned, bus, root, EXTERNAL_SKILL_PATTERN, { dot: true, scope: "project" })
       }
     }
 
     for (const root of builtinRoots()) {
       if (!(yield* fsys.isDir(root))) continue
-      yield* scan(state, bus, root, BUILTIN_SKILL_PATTERN, { scope: "builtin" })
+      yield* scan(state, scanned, bus, root, BUILTIN_SKILL_PATTERN, { scope: "builtin" })
     }
 
     const configDirs = yield* config.directories()
     for (const dir of configDirs) {
-      yield* scan(state, bus, dir, OPENCODE_SKILL_PATTERN)
+      yield* scan(state, scanned, bus, dir, OPENCODE_SKILL_PATTERN)
     }
 
     const cfg = yield* config.get()
@@ -211,14 +221,14 @@ export namespace Skill {
         continue
       }
 
-      yield* scan(state, bus, dir, SKILL_PATTERN)
+      yield* scan(state, scanned, bus, dir, SKILL_PATTERN)
     }
 
     for (const url of cfg.skills?.urls ?? []) {
       const pulledDirs = yield* discovery.pull(url)
       for (const dir of pulledDirs) {
         state.dirs.add(dir)
-        yield* scan(state, bus, dir, SKILL_PATTERN)
+        yield* scan(state, scanned, bus, dir, SKILL_PATTERN)
       }
     }
 
