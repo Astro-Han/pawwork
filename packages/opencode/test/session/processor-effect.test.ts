@@ -1405,6 +1405,8 @@ it.live("reasoning-only retry removes failed reasoning before replaying the assi
     ({ dir, llm }) =>
       Effect.gen(function* () {
         const { processors, session, provider } = yield* boot()
+        const bus = yield* Bus.Service
+        const retrySeen = defer<SessionStatus.Info>()
 
         yield* llm.push(
           raw({
@@ -1437,6 +1439,10 @@ it.live("reasoning-only retry removes failed reasoning before replaying the assi
         const parent = yield* user(chat.id, "reasoning retry")
         const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
         const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const off = yield* bus.subscribeCallback(SessionStatus.Event.Status, (evt) => {
+          if (evt.properties.sessionID !== chat.id) return
+          if (evt.properties.status.type === "retry") retrySeen.resolve(evt.properties.status)
+        })
         const handle = yield* processors.create({
           assistantMessage: msg,
           sessionID: chat.id,
@@ -1466,12 +1472,20 @@ it.live("reasoning-only retry removes failed reasoning before replaying the assi
         })
 
         const parts = MessageV2.parts(msg.id)
+        const retryStatus = yield* Effect.promise(() => retrySeen.promise)
         const stored = (yield* session.messages({ sessionID: chat.id })).find(
           (message) => message.info.role === "assistant" && message.info.id === msg.id,
         )
+        off()
 
         expect(value).toBe("continue")
         expect(yield* llm.calls).toBe(2)
+        expect(retryStatus).toMatchObject({
+          type: "retry",
+          message: "",
+          presentation: "safe_recovery",
+          reason: "network_connection_dropped",
+        })
         expect(parts.some((part) => part.type === "reasoning")).toBe(false)
         expect(parts.some((part) => part.type === "reasoning" && part.text === "failed draft")).toBe(false)
         expect(parts.some((part) => part.type === "text" && part.text === "after retry")).toBe(true)

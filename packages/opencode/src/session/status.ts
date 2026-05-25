@@ -17,6 +17,7 @@ export const Info = z
       message: z.string(),
       next: z.number(),
       presentation: z.literal("safe_recovery").optional(),
+      reason: z.literal("network_connection_dropped").optional(),
       // optional: populated when the retry is caused by a classifiable rate-limit error
       classification: RetryClassification.optional(),
     }),

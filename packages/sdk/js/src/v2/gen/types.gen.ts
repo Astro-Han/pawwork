@@ -73,6 +73,7 @@ export type SessionStatus =
       message: string
       next: number
       presentation?: "safe_recovery"
+      reason?: "network_connection_dropped"
       classification?: RetryClassification
     }
   | {

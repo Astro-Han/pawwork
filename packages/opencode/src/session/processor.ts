@@ -1382,11 +1382,11 @@ export const layer: Layer.Layer<
                 yield* status.set(ctx.sessionID, {
                   type: "retry",
                   attempt: ctx.attemptCount,
-                  message: reasoningOnlySafeRetry
-                    ? "Network connection dropped, retrying automatically"
-                    : (retrySignal.message ?? "Retrying interrupted stream"),
+                  message: reasoningOnlySafeRetry ? "" : (retrySignal.message ?? "Retrying interrupted stream"),
                   next,
-                  ...(reasoningOnlySafeRetry ? { presentation: "safe_recovery" as const } : {}),
+                  ...(reasoningOnlySafeRetry
+                    ? { presentation: "safe_recovery" as const, reason: "network_connection_dropped" as const }
+                    : {}),
                 })
                 yield* Effect.sleep(`${SAFE_RECOVERY_AUTO_RETRY_BACKOFF_MS} millis`).pipe(
                   Effect.onInterrupt(() => recordProcessInterrupt(attemptID)),
