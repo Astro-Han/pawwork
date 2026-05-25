@@ -20,6 +20,7 @@ describe("global sync client action provenance wiring", () => {
     expect(settingsProvidersSource).toContain("clientActionHeaders")
     expect(settingsProvidersSource).toContain('kind: "settings.provider.disconnect"')
     expect(settingsProvidersSource).toContain("actionClient.global.dispose")
+    expect(settingsProvidersSource).toContain("provider.disconnect.toast.disconnected.deferredDescription")
   })
 
   test("tags workspace reset instance disposal with client action headers", () => {

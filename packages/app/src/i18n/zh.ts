@@ -190,6 +190,7 @@ export const dict = {
   "provider.connect.oauth.auto.confirmationCode": "确认码",
   "provider.connect.toast.connected.title": "{{provider}} 已连接",
   "provider.connect.toast.connected.description": "现在可以使用 {{provider}} 模型了。",
+  "provider.connect.toast.connected.deferredDescription": "{{provider}} 已连接。模型刷新会在当前任务结束后完成。",
 
   "provider.custom.title": "自定义提供商",
   "provider.custom.description.prefix": "配置与 OpenAI 兼容的提供商。请查看",
@@ -230,6 +231,7 @@ export const dict = {
 
   "provider.disconnect.toast.disconnected.title": "{{provider}} 已断开连接",
   "provider.disconnect.toast.disconnected.description": "{{provider}} 模型已不再可用。",
+  "provider.disconnect.toast.disconnected.deferredDescription": "{{provider}} 已断开连接。模型刷新会在当前任务结束后完成。",
 
   "model.tag.free": "免费",
   "model.tag.latest": "最新",
