@@ -599,7 +599,7 @@ export function createRecorder(input: RecorderInput): Recorder {
         classification,
         visibleOutputSeen: terminalAttempt?.visible_output_seen ?? visibleOutputSeen,
         textOutputStarted:
-          terminalAttempt?.text_output_started ?? incident?.facts.text_output_started ?? visibleOutputSeen,
+          terminalAttempt?.text_output_started ?? incident?.facts.text_output_started ?? false,
         reasoningOutputStarted: terminalAttempt?.reasoning_output_started ?? incident?.facts.reasoning_output_started ?? false,
         toolExecutionStarted: terminalAttempt?.tool_execution_started ?? toolExecutionStarted,
         unsafeSideEffectStarted: terminalAttempt?.unsafe_side_effect_started ?? unsafeSideEffectStarted,

@@ -1524,6 +1524,33 @@ describe("RunObservability", () => {
     expect(summary.incident?.phase.stream_phase).toBe("reasoning_generation")
   })
 
+  test("retry safety does not treat reasoning output as final text when terminal attempt is unknown", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_reasoning_unknown_terminal_attempt"),
+      traceID: MessageID.make("msg_reasoning_unknown_terminal_attempt"),
+      sessionID: SessionID.make("ses_reasoning_unknown_terminal_attempt"),
+      messageID: MessageID.make("msg_reasoning_unknown_terminal_attempt"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordProviderProgress({ attemptID: attempt.attemptID, at: 12, monotonicMs: 120 })
+    recorder.recordVisibleOutput({ attemptID: attempt.attemptID, at: 13, monotonicMs: 130, kind: "reasoning" })
+    recorder.recordTransportFailure({
+      at: 14,
+      monotonicMs: 140,
+      error: { name: "TypeError", message: "terminated", cause: { code: "UND_ERR_SOCKET" } },
+    })
+
+    const summary = recorder.finalize({ completedAt: 15, monotonicMs: 150 })
+    expect(summary.retry_safety).toMatchObject({
+      recommendation: "candidate_safe_auto_retry",
+      reason: "reasoning_only_without_final_text_or_tool_activity",
+    })
+  })
+
   test("reasoning-only transport failure with only local unknown tool boundaries is a safe retry candidate", () => {
     const recorder = RunObservability.createRecorder({
       runID: RunObservability.RunID.make("run_reasoning_only_safe_retry_boundary"),
