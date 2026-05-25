@@ -189,24 +189,20 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     addSelectionToContext(path, selectionFromLines(range))
   }
 
+  // Both handlers are desktop-only: terminal.new / terminal.toggle are not
+  // registered on narrow layouts (see viewCmds / terminalCmds), so neither
+  // their keybind nor a palette entry can reach here when !isDesktop().
+  // Post-flatten the whole terminal surface lives in the desktop-only right
+  // panel; there is no non-desktop terminal host to drive.
   const openTerminal = () => {
     // Create a brand new terminal and switch to its outer tab. After flatten,
     // every terminal is its own right-panel tab; "open" means "make a new one
-    // active". Non-desktop has no right panel — fall back to the legacy
-    // bottom-drawer signal (kept around for callers like command palette).
+    // active".
     terminal.new()
-    if (!isDesktop()) {
-      view().terminal.open()
-      return
-    }
     focusActiveTerminalTab(view().sidePanel, terminal)
   }
 
   const toggleTerminal = () => {
-    if (!isDesktop()) {
-      view().terminal.toggle()
-      return
-    }
     toggleDesktopTerminal(view(), terminal)
   }
 
@@ -423,13 +419,23 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   ]
 
   const viewCmds = () => [
-    viewCommand({
-      id: "terminal.toggle",
-      title: language.t("command.terminal.toggle"),
-      keybind: "ctrl+`",
-      slash: "terminal",
-      onSelect: toggleTerminal,
-    }),
+    // Terminal is a desktop-only surface after the flatten: the entire right
+    // panel (its only host) is gated by isDesktop. On narrow layouts the
+    // toggle would flip legacy view().terminal state with nothing to render,
+    // so don't register the command or its keybind there at all. Same gate
+    // on terminal.new below. The registration is reactive, so resizing across
+    // 768px re-registers correctly.
+    ...(isDesktop()
+      ? [
+          viewCommand({
+            id: "terminal.toggle",
+            title: language.t("command.terminal.toggle"),
+            keybind: "ctrl+`",
+            slash: "terminal",
+            onSelect: toggleTerminal,
+          }),
+        ]
+      : []),
     viewCommand({
       id: "review.toggle",
       title: language.t("command.review.toggle"),
@@ -457,15 +463,18 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     }),
   ]
 
-  const terminalCmds = () => [
-    terminalCommand({
-      id: "terminal.new",
-      title: language.t("command.terminal.new"),
-      description: language.t("command.terminal.new.description"),
-      keybind: "ctrl+alt+t",
-      onSelect: openTerminal,
-    }),
-  ]
+  const terminalCmds = () =>
+    isDesktop()
+      ? [
+          terminalCommand({
+            id: "terminal.new",
+            title: language.t("command.terminal.new"),
+            description: language.t("command.terminal.new.description"),
+            keybind: "ctrl+alt+t",
+            onSelect: openTerminal,
+          }),
+        ]
+      : []
 
   const messageCmds = () => [
     sessionCommand({
