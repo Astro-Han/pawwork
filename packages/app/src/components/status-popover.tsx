@@ -29,6 +29,7 @@ export function StatusPopover() {
       triggerProps={{
         variant: "ghost",
         class: "titlebar-icon w-8 h-[30px] p-0 box-border",
+        "data-action": "pawwork-status-popover-toggle",
         "aria-label": language.t("status.popover.trigger"),
         style: { scale: 1 },
       }}

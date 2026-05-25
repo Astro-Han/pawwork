@@ -149,6 +149,14 @@
     background-color: var(--surface-sunken);
   }
 
+  [data-component="titlebar-shell"][data-shell="desktop"][data-shell-os="macos"]
+    :is([data-component="button"], [data-component="icon-button"]).titlebar-icon[data-variant="ghost"]:is(
+      [data-action="pawwork-sidebar-toggle"],
+      [aria-controls="right-panel"]
+    )[aria-expanded="true"]:not(:hover):not(:active) {
+    background-color: transparent;
+  }
+
   [data-component="desktop-shell-main"][data-shell="desktop"][data-shell-os="macos"] {
     border-top-width: 0;
   }
