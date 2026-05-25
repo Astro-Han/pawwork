@@ -375,7 +375,17 @@ export const Terminal = (props: TerminalProps) => {
         allowTransparency: false,
         convertEol: false,
         theme: terminalColors(),
-        scrollback: 10_000,
+        // Workaround: ghostty-web has a known WASM ring-buffer misalignment
+        // when scrollback is set to small values (default 10_000). Once enough
+        // output accumulates the ring wraps and the buffer renders corrupted
+        // cells — surfaces in PawWork as garbage Hangul characters, abnormally
+        // wide CJK spacing, and mid-word wraps in shell prompts. Upstream has
+        // a documented regression test for this (anomalyco/ghostty-web
+        // lib/viewport-row-merge.test.ts) which uses scrollback: 10_000_000 as
+        // its working baseline, but the underlying WASM ring-buffer bug is not
+        // yet fixed. Track upstream and revert this to a smaller value once a
+        // patched ghostty-web ships.
+        scrollback: 10_000_000,
         ghostty: g,
       })
       cleanups.push(() => t.dispose())
