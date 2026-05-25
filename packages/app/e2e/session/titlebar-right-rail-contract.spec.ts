@@ -147,23 +147,27 @@ test.describe("titlebar right rail contract", () => {
     await openRightPanel(page)
     await page.mouse.move(0, 0)
 
-    const lefts = await page.evaluate(() => {
-      const tabs = document.getElementById("pawwork-titlebar-tabs") as HTMLElement | null
-      const body = document.querySelector(
-        '[data-component="right-panel-body"]',
-      ) as HTMLElement | null
-      return {
-        tabs: tabs ? tabs.getBoundingClientRect().left : null,
-        body: body ? body.getBoundingClientRect().left : null,
-      }
-    })
-
-    expect(lefts.tabs).not.toBeNull()
-    expect(lefts.body).not.toBeNull()
-    // Sub-pixel tolerance — both use the same panel-width source, so they
-    // should be identical at integer-CSS-pixel widths, but devicePixelRatio
-    // rounding can introduce ≤0.5px noise on Retina.
-    expect(Math.abs((lefts.tabs ?? 0) - (lefts.body ?? 0))).toBeLessThan(1)
+    // Poll for steady state instead of reading immediately: the panel
+    // `<aside>` width and shell `--right-panel-width` both transition over
+    // 240ms (CSS width transition vs @property var transition) and the
+    // `data-resizing-right-panel` snap-gate only fires during drag-resize,
+    // not panel open/close. Reading mid-flight can hit transient sub-pixel
+    // drift between the two interpolators and bust the <1px tolerance.
+    // Sub-pixel tolerance at steady state — both use the same panel-width
+    // source, so they should be identical at integer-CSS-pixel widths,
+    // but devicePixelRatio rounding can introduce ≤0.5px noise on Retina.
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const tabs = document.getElementById("pawwork-titlebar-tabs")
+            const body = document.querySelector('[data-component="right-panel-body"]')
+            if (!tabs || !body) return null
+            return Math.abs(tabs.getBoundingClientRect().left - body.getBoundingClientRect().left)
+          }),
+        { timeout: 2_000 },
+      )
+      .toBeLessThan(1)
   })
 
   test("right utility toggle keeps the same x-position across open/close", async ({
@@ -191,13 +195,21 @@ test.describe("titlebar right rail contract", () => {
         return btn ? btn.getBoundingClientRect().right : null
       })
 
-    // Sanity: start closed (the default session view starts with the panel
-    // closed in the e2e harness).
+    // Normalize to closed before sampling — the e2e harness defaults to
+    // closed today, but persisting that as a fixture assumption is fragile
+    // (a future session-fixture or persisted-layout shift would flip it
+    // and the test would silently measure "open" twice). aria-expanded is
+    // the source of truth.
+    const toggleButton = page.locator('button[aria-label="Right utility panel"]')
+    if ((await toggleButton.getAttribute("aria-expanded")) === "true") {
+      await toggleButton.click()
+      await expect(toggleButton).toHaveAttribute("aria-expanded", "false")
+    }
     const closed = await toggleRight()
     expect(closed).not.toBeNull()
 
     // Open the panel via the toggle itself.
-    await page.getByRole("button", { name: "Right utility panel" }).click()
+    await toggleButton.click()
     // Wait for `open()` to flip — aria-expanded reflects the source of truth.
     await expect
       .poll(
