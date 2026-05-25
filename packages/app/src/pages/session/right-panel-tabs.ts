@@ -228,6 +228,30 @@ export const shouldCommitDeferredOpen = (
   return true
 }
 
+/**
+ * Decide whether an active `terminal:<id>` selection is dangling — i.e. points
+ * at a terminal that no longer exists — so the caller can fall back to status.
+ *
+ * Crucially this returns false while the terminal store is still hydrating
+ * (`ready === false`): terminal.all() is empty until persistence loads, and
+ * layout's persisted `sidePanelTab` can restore a `terminal:<id>` before the
+ * terminal store catches up. Judging staleness too early would bounce a user
+ * who was parked on a terminal back to Status on reopen. Once ready() flips
+ * true the caller's effect re-runs and re-validates against the real list.
+ *
+ * Pure on purpose so the restore-race guard stays unit-testable without
+ * standing up the full SessionSidePanel context.
+ */
+export const isDanglingTerminalSelection = (
+  tab: RightPanelTab,
+  ready: boolean,
+  terminalIds: readonly string[],
+): boolean => {
+  if (!isTerminalTab(tab)) return false
+  if (!ready) return false
+  return !terminalIds.includes(terminalTabId(tab))
+}
+
 export const moveShellTab = (state: ShellTabState, target: RightPanelTab, to: number): ShellTabState => {
   if (target === "status") return state
   // Terminal tab reorder is owned by terminal.move; this helper only reorders

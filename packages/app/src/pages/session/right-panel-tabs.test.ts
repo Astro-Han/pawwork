@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test"
 import {
   coerceLegacySidePanelTab,
   defaultRightPanelTab,
+  isDanglingTerminalSelection,
   isRightPanelTab,
   isRightPanelTerminalTab,
   migrateLegacyRightPanelTab,
@@ -153,6 +154,27 @@ describe("terminalTabValue", () => {
     expect(() => terminalTabValue("")).toThrow()
     // The empty form would otherwise be rejected by the type guard.
     expect(isRightPanelTerminalTab("terminal:")).toBe(false)
+  })
+})
+
+describe("isDanglingTerminalSelection", () => {
+  test("not dangling while terminal store is still hydrating (ready=false)", () => {
+    // The restore race: layout restored sidePanelTab=terminal:t1 but the
+    // terminal store hasn't loaded yet, so all() is empty. Must NOT bounce.
+    expect(isDanglingTerminalSelection("terminal:t1" as RightPanelTab, false, [])).toBe(false)
+  })
+
+  test("dangling once ready and the id is absent", () => {
+    expect(isDanglingTerminalSelection("terminal:gone" as RightPanelTab, true, ["t1", "t2"])).toBe(true)
+  })
+
+  test("not dangling once ready and the id is present", () => {
+    expect(isDanglingTerminalSelection("terminal:t2" as RightPanelTab, true, ["t1", "t2"])).toBe(false)
+  })
+
+  test("static tabs are never dangling, ready or not", () => {
+    expect(isDanglingTerminalSelection("status", true, [])).toBe(false)
+    expect(isDanglingTerminalSelection("files", false, [])).toBe(false)
   })
 })
 

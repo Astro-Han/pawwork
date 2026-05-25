@@ -34,6 +34,7 @@ import { setSessionHandoff } from "@/pages/session/handoff"
 import { RightPanelReviewBody } from "@/pages/session/right-panel-review-body"
 import { RightPanelTabStrip } from "@/pages/session/right-panel-tab-strip"
 import {
+  isDanglingTerminalSelection,
   isRightPanelTab,
   isRightPanelTerminalTab,
   RIGHT_PANEL_TAB_META,
@@ -189,13 +190,16 @@ export function SessionSidePanel(props: {
   // `terminal:<id>` whose terminal no longer exists after restart. If we
   // render that selector, the panel body shows nothing because the matching
   // <Tabs.Content> isn't in the For loop. Fall back to status when we detect
-  // a dangling reference.
+  // a dangling reference — but only once terminal persistence has hydrated
+  // (terminal.ready()), since terminal.all() is empty until then and would
+  // otherwise mis-detect a freshly-restored active terminal as dangling and
+  // bounce the user to Status. ready() is reactive, so this re-validates when
+  // the terminal store loads.
   createEffect(() => {
-    const tab = sidePanelTab()
-    if (!isRightPanelTerminalTab(tab)) return
-    const id = terminalTabId(tab)
-    const exists = terminal.all().some((t) => (t.tabID as string) === id)
-    if (!exists) view().sidePanel.openTab("status")
+    const ids = terminal.all().map((t) => t.tabID as string)
+    if (isDanglingTerminalSelection(sidePanelTab(), terminal.ready(), ids)) {
+      view().sidePanel.openTab("status")
+    }
   })
   const showAllFiles = () => {
     if (view().sidePanel.explorer.tab() !== "changes") return
