@@ -41,6 +41,15 @@ describe("shell tab transitions", () => {
     expect(closeShellTab(start, "files")).toEqual({ openShellTabs: ["status", "review"], sidePanelTab: "review" })
   })
 
+  test("closeShellTab on an active terminal tab shifts selection to status, openShellTabs untouched", () => {
+    // The dangling-terminal guard in SessionSidePanel routes through this path
+    // (closeTab) instead of openTab so it corrects the selection without the
+    // this.open() side effect that would pop a closed panel.
+    const start = openShellTab(base, "terminal:x")
+    expect(start).toEqual({ openShellTabs: ["status"], sidePanelTab: "terminal:x" })
+    expect(closeShellTab(start, "terminal:x")).toEqual({ openShellTabs: ["status"], sidePanelTab: "status" })
+  })
+
   test("toggleShellTab opens when not in list", () => {
     const next = toggleShellTab(base, "files", true)
     expect(next.closePanel).toBe(false)

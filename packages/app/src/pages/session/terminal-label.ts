@@ -25,9 +25,12 @@ export const terminalTabLabel = (input: { title?: string; titleNumber?: number; 
  * Last path segment of a cwd, accepting both POSIX (`/`) and Windows (`\`)
  * separators. PawWork ships on macOS and Windows; session dir comes through
  * URL params from the platform's native filesystem, so a single regex won't
- * cover both. Returns empty for drive roots (`C:\`, `/`) and UNC roots
- * (`\\server\share` collapsed to nothing meaningful) — callers then fall back
- * to the numbered/generic label.
+ * cover both. Returns empty for roots that have no useful name — drive roots
+ * (`C:\`, `/`) and the bare UNC server prefix (`\\server`) — so callers fall
+ * back to the numbered/generic label. A complete UNC share keeps its trailing
+ * segment as the label like any other path: `\\server\share` → `share`,
+ * `\\server\share\repo` → `repo` (the share name is meaningful, unlike a lone
+ * drive letter).
  */
 const lastPathSegment = (cwd: string): string => {
   const trimmed = cwd.replace(/[/\\]+$/u, "")

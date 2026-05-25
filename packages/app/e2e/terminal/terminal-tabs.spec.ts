@@ -91,13 +91,18 @@ test("inactive terminal tab buffers persist across tab switches", async ({ page,
 
   // Echo something distinctive into terminal 1; the exact text doesn't need
   // to survive the serialize round-trip, but the snapshot length should
-  // grow well past the bare-prompt baseline.
-  await runTerminal(page, { cmd: `echo E2E_TERM_ONE_${Date.now()}`, token: `ONE_${Date.now()}` })
+  // grow well past the bare-prompt baseline. Snapshot one timestamp per run
+  // so the echoed token and the awaited token are identical — two separate
+  // Date.now() calls can straddle a millisecond and wait on a token that was
+  // never echoed.
+  const oneTs = Date.now()
+  await runTerminal(page, { cmd: `echo E2E_TERM_ONE_${oneTs}`, token: `ONE_${oneTs}` })
 
   await newTerminal(page)
   await expect(tabs).toHaveCount(2)
 
-  await runTerminal(page, { cmd: `echo E2E_TERM_TWO_${Date.now()}`, token: `TWO_${Date.now()}` })
+  const twoTs = Date.now()
+  await runTerminal(page, { cmd: `echo E2E_TERM_TWO_${twoTs}`, token: `TWO_${twoTs}` })
 
   const bufferLenFor = (state: State | undefined, n: number) =>
     state?.tabs?.find((item) => item.titleNumber === n)?.snapshot?.buffer?.length ?? 0

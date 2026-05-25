@@ -196,9 +196,14 @@ export function SessionSidePanel(props: {
   // bounce the user to Status. ready() is reactive, so this re-validates when
   // the terminal store loads.
   createEffect(() => {
+    const tab = sidePanelTab()
     const ids = terminal.all().map((t) => t.tabID as string)
-    if (isDanglingTerminalSelection(sidePanelTab(), terminal.ready(), ids)) {
-      view().sidePanel.openTab("status")
+    if (isDanglingTerminalSelection(tab, terminal.ready(), ids)) {
+      // Correct the selection without forcing the panel open. openTab("status")
+      // ends in this.open() and would pop a panel the user had closed; closeTab
+      // routes the dangling terminal through closeShellTab, which shifts
+      // sidePanelTab to status and leaves the panel's open/closed state alone.
+      view().sidePanel.closeTab(tab)
     }
   })
   const showAllFiles = () => {

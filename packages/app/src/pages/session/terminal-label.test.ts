@@ -142,6 +142,16 @@ describe("computeTerminalLabels", () => {
     expect(labels.get(terminalTabID("a"))).toBe("Terminal 5")
   })
 
+  test("windows UNC share root keeps the share name as label", () => {
+    // `\\server\share` is a complete share; the share name is meaningful, so
+    // it stays the label (unlike the bare `\\server` prefix, which is numbered).
+    const labels = computeTerminalLabels(
+      [{ tabID: terminalTabID("a"), title: "", titleNumber: 1, cwd: "\\\\server\\share" }],
+      { t },
+    )
+    expect(labels.get(terminalTabID("a"))).toBe("share")
+  })
+
   test("windows UNC share path returns leaf segment", () => {
     const labels = computeTerminalLabels(
       [{ tabID: terminalTabID("a"), title: "", titleNumber: 1, cwd: "\\\\server\\share\\repo" }],
