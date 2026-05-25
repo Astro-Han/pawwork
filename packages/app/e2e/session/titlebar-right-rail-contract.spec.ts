@@ -27,36 +27,44 @@ test.describe("titlebar right rail contract", () => {
     await gotoSession()
 
     const sidebarToggle = page.locator('[data-action="pawwork-sidebar-toggle"]')
+    const rightPanelToggle = page.getByRole("button", { name: "Right utility panel" })
     if ((await sidebarToggle.getAttribute("aria-expanded")) !== "true") {
       await sidebarToggle.click()
     }
+    await expect(sidebarToggle).toHaveAttribute("aria-expanded", "true")
     await openRightPanel(page)
+    await expect(rightPanelToggle).toHaveAttribute("aria-expanded", "true")
     await page.mouse.move(400, 200)
+
+    const backgroundAlpha = (selector: string) =>
+      page.evaluate((target) => {
+        const el = document.querySelector<HTMLElement>(target)
+        if (!el) return null
+        const bg = getComputedStyle(el).backgroundColor
+        const rgba = bg.match(/^rgba\((.+)\)$/)
+        if (!rgba) return bg.startsWith("rgb(") ? 1 : null
+        const parts = rgba[1].split(",").map((part) => part.trim())
+        return Number(parts[3])
+      }, selector)
 
     await expect
       .poll(
-        () =>
-          page.evaluate(() => {
-            const alpha = (selector: string) => {
-              const el = document.querySelector<HTMLElement>(selector)
-              if (!el) return null
-              const bg = getComputedStyle(el).backgroundColor
-              const rgba = bg.match(/^rgba\((.+)\)$/)
-              if (!rgba) return bg.startsWith("rgb(") ? 1 : null
-              const parts = rgba[1].split(",").map((part) => part.trim())
-              return Number(parts[3])
-            }
-            return {
-              sidebar: alpha('[data-action="pawwork-sidebar-toggle"]'),
-              rightPanel: alpha('button[aria-label="Right utility panel"]'),
-            }
-          }),
+        async () => ({
+          sidebar: await backgroundAlpha('[data-action="pawwork-sidebar-toggle"]'),
+          rightPanel: await backgroundAlpha('button[aria-label="Right utility panel"]'),
+        }),
         { timeout: 2_000 },
       )
       .toEqual({
         sidebar: 0,
         rightPanel: 0,
       })
+
+    await sidebarToggle.hover()
+    await expect.poll(() => backgroundAlpha('[data-action="pawwork-sidebar-toggle"]')).toBeGreaterThan(0)
+
+    await rightPanelToggle.hover()
+    await expect.poll(() => backgroundAlpha('button[aria-label="Right utility panel"]')).toBeGreaterThan(0)
   })
 
   test("right utility toggle stays clickable with the full tab set open", async ({

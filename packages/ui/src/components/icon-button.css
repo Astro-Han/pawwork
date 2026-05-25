@@ -78,20 +78,23 @@
 
 /* titlebar-icon: 32×30 non-square, DESIGN.md §346.
    Lives in icon-button.css for historical reasons but is intentionally NOT
-   scoped to `[data-component="icon-button"]` — the four titlebar usages in
-   `titlebar.tsx` + `session-header.tsx` render `<Button variant="ghost">`
-   (data-component="button"), not `<IconButton>`. The class name carries the
-   titlebar sizing + expanded-icon contract; the selector should not narrow it. */
+   scoped to `[data-component="icon-button"]` — the live titlebar toggles render
+   `<Button variant="ghost">` (data-component="button"), not `<IconButton>`.
+   Expanded state is visualized by icon shape only; idle state has no selected
+   chip, while hover/press feedback still comes from the normal ghost button
+   rules. */
 .titlebar-icon {
   width: 32px;
   height: 30px;
   aspect-ratio: auto;
 }
 
-.titlebar-icon[data-variant="ghost"][aria-expanded="true"] {
-  background-color: transparent;
-
+.titlebar-icon[data-variant="ghost"]:is([data-action="pawwork-sidebar-toggle"], [aria-controls="right-panel"])[aria-expanded="true"] {
   [data-slot="icon-svg"] {
     color: var(--icon-strong);
   }
+}
+
+.titlebar-icon[data-variant="ghost"]:is([data-action="pawwork-sidebar-toggle"], [aria-controls="right-panel"])[aria-expanded="true"]:not(:hover):not(:active) {
+  background-color: transparent;
 }

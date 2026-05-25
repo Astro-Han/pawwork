@@ -150,7 +150,10 @@
   }
 
   [data-component="titlebar-shell"][data-shell="desktop"][data-shell-os="macos"]
-    :is([data-component="button"], [data-component="icon-button"]).titlebar-icon[data-variant="ghost"][aria-expanded="true"] {
+    :is([data-component="button"], [data-component="icon-button"]).titlebar-icon[data-variant="ghost"]:is(
+      [data-action="pawwork-sidebar-toggle"],
+      [aria-controls="right-panel"]
+    )[aria-expanded="true"]:not(:hover):not(:active) {
     background-color: transparent;
   }
 
