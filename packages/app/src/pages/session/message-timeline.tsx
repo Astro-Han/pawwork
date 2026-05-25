@@ -38,7 +38,7 @@ import {
   SessionMessageComments,
 } from "@/pages/session/session-message-comments"
 import { buildTurnMessagesByUserID, emptyAssistantMessages } from "@/pages/session/session-messages"
-import { createSessionTurnChanges } from "@/pages/session/session-turn-changes"
+import type { createSessionTurnChanges } from "@/pages/session/session-turn-changes"
 import { createSessionRunning } from "@/pages/session/session-running-state"
 import { useLanguage } from "@/context/language"
 import { useSessionRouteKey } from "@/pages/session/session-layout"
@@ -70,6 +70,7 @@ export function MessageTimeline(props: {
   sessionID: string
   sessionKey: string
   sessionMessages: MessageType[]
+  turnChangeController: ReturnType<typeof createSessionTurnChanges>
   mobileChanges: boolean
   mobileFallback: JSX.Element
   actions?: UserActions
@@ -151,7 +152,6 @@ export function MessageTimeline(props: {
   const sessionID = createMemo(() => props.sessionID)
   const sessionMessages = createMemo(() => props.sessionMessages)
   const turnMessagesByUserID = createMemo(() => buildTurnMessagesByUserID(sessionMessages()))
-  const turnChangeController = createSessionTurnChanges({ sessionID, sessionMessages })
   const webSearchToastSurfaced = new Set<string>()
   const webSearchPartCursor = new Map<string, number>()
   const webSearchPendingParts = new Map<string, Set<string>>()
@@ -321,9 +321,9 @@ export function MessageTimeline(props: {
           showReasoningSummaries={settings.general.showReasoningSummaries()}
           shellToolDefaultOpen={settings.general.shellToolPartsExpanded()}
           editToolDefaultOpen={settings.general.editToolPartsExpanded()}
-          turnChanges={turnChangeController.turnChanges}
+          turnChanges={props.turnChangeController.turnChanges}
           turnChangeActions={{
-            ...turnChangeController.actions,
+            ...props.turnChangeController.actions,
             openFile: (path) => {
               void platform.openPath?.(path)
             },

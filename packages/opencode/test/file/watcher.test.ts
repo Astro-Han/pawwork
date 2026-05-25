@@ -145,6 +145,31 @@ function ready(directory: string) {
 // Tests
 // ---------------------------------------------------------------------------
 
+describe("FileWatcher git metadata filtering", () => {
+  test("keeps review-diff git metadata subscribed", () => {
+    expect(
+      FileWatcher.vcsWatcherIgnoreEntries(["HEAD", "index", "packed-refs", "refs", "objects", "logs", "hooks"]),
+    ).toEqual(["objects", "logs", "hooks"])
+  })
+
+  test("publishes only review-diff git metadata from the vcs directory", () => {
+    const gitDir = path.join("/tmp", "repo", ".git")
+
+    expect(FileWatcher.shouldPublishVcsWatcherPath(path.join(gitDir, "HEAD"), gitDir)).toBe(true)
+    expect(FileWatcher.shouldPublishVcsWatcherPath(path.join(gitDir, "index"), gitDir)).toBe(true)
+    expect(FileWatcher.shouldPublishVcsWatcherPath(path.join(gitDir, "packed-refs"), gitDir)).toBe(true)
+    expect(FileWatcher.shouldPublishVcsWatcherPath(path.join(gitDir, "refs", "heads", "feature"), gitDir)).toBe(true)
+    expect(FileWatcher.shouldPublishVcsWatcherPath(path.join(gitDir, "refs", "remotes", "origin", "dev"), gitDir)).toBe(
+      true,
+    )
+
+    expect(FileWatcher.shouldPublishVcsWatcherPath(path.join(gitDir, "objects", "ab", "hash"), gitDir)).toBe(false)
+    expect(FileWatcher.shouldPublishVcsWatcherPath(path.join(gitDir, "refs", "tags", "v1"), gitDir)).toBe(false)
+    expect(FileWatcher.shouldPublishVcsWatcherPath(path.join(gitDir, "refs", "stash"), gitDir)).toBe(false)
+    expect(FileWatcher.shouldPublishVcsWatcherPath(path.join(gitDir, "MERGE_HEAD"), gitDir)).toBe(false)
+  })
+})
+
 describeWatcher("FileWatcher", () => {
   afterEach(async () => {
     await Instance.disposeAll()
@@ -206,21 +231,50 @@ describeWatcher("FileWatcher", () => {
     })
   })
 
-  test("ignores .git/index changes", async () => {
+  test("publishes .git/index changes", async () => {
     await using tmp = await tmpdir({ git: true })
     const gitIndex = path.join(tmp.path, ".git", "index")
     const edit = path.join(tmp.path, "tracked.txt")
 
     await withWatcher(
       tmp.path,
-      noUpdate(
+      nextUpdate(
         tmp.path,
         (e) => e.file === gitIndex,
         Effect.promise(async () => {
           await fs.writeFile(edit, "a")
           await $`git add .`.cwd(tmp.path).quiet().nothrow()
         }),
-      ),
+      ).pipe(Effect.tap((evt) => Effect.sync(() => expect(evt.event).not.toBe("unlink")))),
+    )
+  })
+
+  test("publishes .git refs/heads changes", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const branchRef = path.join(tmp.path, ".git", "refs", "heads", "watch-ref")
+    const hash = await $`git rev-parse HEAD`.cwd(tmp.path).quiet().text()
+
+    await withWatcher(
+      tmp.path,
+      nextUpdate(
+        tmp.path,
+        (evt) => evt.file === branchRef && evt.event !== "unlink",
+        Effect.promise(() => fs.writeFile(branchRef, hash.trim() + "\n")),
+      ).pipe(Effect.tap((evt) => Effect.sync(() => expect(["add", "change"]).toContain(evt.event)))),
+    )
+  })
+
+  test("publishes .git/packed-refs changes", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const packedRefs = path.join(tmp.path, ".git", "packed-refs")
+
+    await withWatcher(
+      tmp.path,
+      nextUpdate(
+        tmp.path,
+        (evt) => evt.file === packedRefs && evt.event !== "unlink",
+        Effect.promise(() => fs.writeFile(packedRefs, "# pack-refs with: peeled fully-peeled sorted\n")),
+      ).pipe(Effect.tap((evt) => Effect.sync(() => expect(["add", "change"]).toContain(evt.event)))),
     )
   })
 

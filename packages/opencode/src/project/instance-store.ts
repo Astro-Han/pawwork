@@ -15,6 +15,8 @@ import {
   withLifecycleCloseAction,
 } from "@/session/lifecycle-provenance"
 import { currentRequestContext } from "@/server/request-context"
+import fs from "node:fs"
+import path from "node:path"
 
 export interface LoadInput {
   directory: string
@@ -26,6 +28,7 @@ type ContextMismatchReason =
   | "worktree_mismatch"
   | "project_id_mismatch"
   | "project_row_missing"
+  | "project_vcs_changed"
   | "explicit_context_changed"
   | "unknown_context_mismatch"
 
@@ -68,6 +71,16 @@ function contextMismatchReason(ctx: InstanceContext, input: LoadInput): ContextM
   if (worktreeChanged) return "worktree_mismatch"
   if (projectChanged) return "project_id_mismatch"
   return undefined
+}
+
+function hasGitMarker(directory: string) {
+  let current = directory
+  while (true) {
+    if (fs.existsSync(path.join(current, ".git"))) return true
+    const parent = path.dirname(current)
+    if (parent === current) return false
+    current = parent
+  }
 }
 
 export const layer = Layer.effect(
@@ -211,8 +224,20 @@ export const layer = Layer.effect(
               const mismatchReason = contextMismatchReason(exit.value, input)
               if (!mismatchReason) {
                 const row = yield* project.get(exit.value.project.id)
-                if (row) return exit.value
-                return yield* reload(input, "project_row_missing")
+                if (!row) return yield* reload(input, "project_row_missing")
+                if (exit.value.project.vcs !== "git" && hasGitMarker(directory)) {
+                  const next = yield* project.fromDirectory(directory)
+                  if (next.project.vcs === "git")
+                    return yield* reload(
+                      {
+                        directory,
+                        worktree: next.sandbox,
+                        project: next.project,
+                      },
+                      "project_vcs_changed",
+                    )
+                }
+                return exit.value
               }
               return yield* reload(input, mismatchReason)
             }

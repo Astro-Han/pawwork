@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test"
 import { vcsTaskKey } from "./execution-scope"
-import { deriveReviewArtifactFiles, reviewTurnDiffsForSession } from "./use-session-review-state"
+import {
+  deriveReviewArtifactFiles,
+  selectReviewChangeMode,
+  turnChangeDisplayDiffs,
+} from "./use-session-review-state"
 
 const scope = (directory = "/repo", epoch = 1) => ({ serverKey: "sidecar", directory, epoch })
 
@@ -93,29 +97,69 @@ describe("session review state", () => {
     expect(vcsTaskKey(scope("/repo", 3), "unstaged")).not.toBe(vcsTaskKey(scope("/repo", 3), "staged"))
   })
 
-  test("does not reuse aggregate diffs across sessions or execution scopes", () => {
-    const aggregate = {
+  test("builds review turn diffs from the shared turn-change display", () => {
+    const diffs = turnChangeDisplayDiffs({
+      kind: "captured",
       sessionID: "ses_1",
-      scope: scope("/repo", 1),
-      diffs: [{ file: "old-session.ts", patch: "", additions: 1, deletions: 0, status: "added" as const }],
-    }
-    const fallback = [{ file: "current-session.ts", patch: "", additions: 1, deletions: 0, status: "added" as const }]
+      turnID: "msg_user",
+      messageID: "msg_user",
+      files: [
+        {
+          path: "base.txt",
+          openPath: "/repo/base.txt",
+          patch: "@@ -1 +1 @@",
+          status: "modified",
+          additions: 1,
+          deletions: 0,
+          expandable: true,
+          restoreState: "applied",
+        },
+        {
+          path: "undone.txt",
+          patch: "",
+          status: "modified",
+          additions: 1,
+          deletions: 0,
+          expandable: true,
+          restoreState: "undone",
+        },
+      ],
+    })
 
-    expect(
-      reviewTurnDiffsForSession({
-        currentScope: scope("/repo", 1),
-        sessionID: "ses_2",
-        aggregate,
-        turnDiffs: fallback,
-      }),
-    ).toEqual(fallback)
-    expect(
-      reviewTurnDiffsForSession({
-        currentScope: scope("/repo", 2),
-        sessionID: "ses_1",
-        aggregate,
-        turnDiffs: fallback,
-      }),
-    ).toEqual(fallback)
+    expect(diffs).toEqual([
+      {
+        file: "/repo/base.txt",
+        patch: "@@ -1 +1 @@",
+        additions: 1,
+        deletions: 0,
+        status: "modified",
+      },
+    ])
+  })
+
+  test("selecting a VCS review mode forces a reload even when cached", () => {
+    const loads: Array<{ mode: string; force: true }> = []
+    const changes: string[] = []
+
+    selectReviewChangeMode({
+      mode: "branch",
+      setChanges: (mode) => changes.push(mode),
+      wantsReview: () => true,
+      loadVcs: (mode, force) => {
+        loads.push({ mode, force })
+      },
+    })
+
+    selectReviewChangeMode({
+      mode: "turn",
+      setChanges: (mode) => changes.push(mode),
+      wantsReview: () => true,
+      loadVcs: (mode, force) => {
+        loads.push({ mode, force })
+      },
+    })
+
+    expect(changes).toEqual(["branch", "turn"])
+    expect(loads).toEqual([{ mode: "branch", force: true }])
   })
 })

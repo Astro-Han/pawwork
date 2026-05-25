@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
+import { $ } from "bun"
 import { Effect, Exit, Fiber, Layer, ManagedRuntime } from "effect"
 import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
 
@@ -137,6 +138,29 @@ describe("InstanceStore", () => {
       yield* store.load({ directory: dir })
 
       expect(reasons).toContain("project_row_missing")
+    }),
+  )
+
+  it.live("reloads a cached non-git instance when the directory becomes git", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      const store = yield* InstanceStore.Service
+      const disposed: string[] = []
+      const off = registerDisposer(async (directory) => {
+        disposed.push(directory)
+      })
+      yield* Effect.addFinalizer(() => Effect.sync(off))
+
+      const first = yield* store.load({ directory: dir })
+      expect(first.project.vcs).toBeUndefined()
+
+      yield* Effect.promise(() => $`git init --quiet`.cwd(dir).quiet())
+
+      const second = yield* store.load({ directory: dir })
+      expect(second).not.toBe(first)
+      expect(second.project.vcs).toBe("git")
+      expect(second.worktree).toBe(dir)
+      expect(disposed).toEqual([dir])
     }),
   )
 
