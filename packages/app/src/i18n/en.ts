@@ -171,6 +171,8 @@ export const dict = {
   "provider.connect.oauth.auto.confirmationCode": "Confirmation code",
   "provider.connect.toast.connected.title": "{{provider}} connected",
   "provider.connect.toast.connected.description": "{{provider}} models are now available to use.",
+  "provider.connect.toast.connected.deferredDescription":
+    "{{provider}} is connected. Model refresh will finish after the current run.",
 
   "provider.custom.title": "Custom provider",
   "provider.custom.description.prefix": "Configure an OpenAI-compatible provider. See the ",
@@ -211,6 +213,8 @@ export const dict = {
 
   "provider.disconnect.toast.disconnected.title": "{{provider}} disconnected",
   "provider.disconnect.toast.disconnected.description": "{{provider}} models are no longer available.",
+  "provider.disconnect.toast.disconnected.deferredDescription":
+    "{{provider}} is disconnected. Model refresh will finish after the current run.",
 
   "model.tag.free": "Free",
   "model.tag.latest": "Latest",

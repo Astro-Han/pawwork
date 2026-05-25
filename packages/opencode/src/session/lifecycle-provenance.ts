@@ -43,6 +43,10 @@ export type CreateLifecycleCloseActionOptions = {
 let nextActionID = 0
 const activeByDirectory = new Map<string, LifecycleCloseAction[]>()
 const originContext = new AsyncLocalStorage<LifecycleOrigin>()
+const activeRunsByDirectory = new Map<string, number>()
+const idleWaiters = new Set<{ directories: readonly string[]; resolve: () => void }>()
+const closingByDirectory = new Map<string, number>()
+const closeWaiters = new Set<{ directory: string; resolve: (release: () => void) => void }>()
 
 export function directoryKey(directory: string): string {
   const digest = createHash("sha256").update(directory).digest("hex").slice(0, 16)
@@ -124,4 +128,93 @@ export function currentLifecycleOrigin(): LifecycleOrigin | undefined {
 
 export async function withLifecycleOrigin<T>(origin: LifecycleOrigin, fn: () => Promise<T>): Promise<T> {
   return originContext.run({ ...origin }, fn)
+}
+
+function notifyIdleWaiters() {
+  for (const waiter of [...idleWaiters]) {
+    if (hasActiveRuns(waiter.directories)) continue
+    idleWaiters.delete(waiter)
+    waiter.resolve()
+  }
+}
+
+function hasLifecycleClose(directories: readonly string[]): boolean {
+  return directories.some((directory) => (closingByDirectory.get(directory) ?? 0) > 0)
+}
+
+function notifyCloseWaiters() {
+  for (const waiter of [...closeWaiters]) {
+    if (hasLifecycleClose([waiter.directory])) continue
+    closeWaiters.delete(waiter)
+    waiter.resolve(acquireActiveRun(waiter.directory))
+  }
+}
+
+function acquireActiveRun(directory: string): () => void {
+  activeRunsByDirectory.set(directory, (activeRunsByDirectory.get(directory) ?? 0) + 1)
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    const next = (activeRunsByDirectory.get(directory) ?? 1) - 1
+    if (next > 0) activeRunsByDirectory.set(directory, next)
+    else activeRunsByDirectory.delete(directory)
+    notifyIdleWaiters()
+  }
+}
+
+export function trackActiveRun(directory: string): { promise: Promise<() => void>; cancel: () => void } {
+  if (!hasLifecycleClose([directory])) {
+    return { promise: Promise.resolve(acquireActiveRun(directory)), cancel: () => {} }
+  }
+  let settled = false
+  let waiter: { directory: string; resolve: (release: () => void) => void }
+  const promise = new Promise<() => void>((resolve) => {
+    waiter = {
+      directory,
+      resolve: (release: () => void) => {
+        settled = true
+        resolve(release)
+      },
+    }
+    closeWaiters.add(waiter)
+  })
+  return {
+    promise,
+    cancel: () => {
+      if (settled) return
+      settled = true
+      closeWaiters.delete(waiter)
+    },
+  }
+}
+
+export function hasActiveRuns(directories: readonly string[]): boolean {
+  return directories.some((directory) => (activeRunsByDirectory.get(directory) ?? 0) > 0)
+}
+
+export function whenAllRunsIdle(directories: readonly string[]): Promise<void> {
+  const uniqueDirectories = [...new Set(directories)]
+  if (!hasActiveRuns(uniqueDirectories)) return Promise.resolve()
+  return new Promise<void>((resolve) => {
+    idleWaiters.add({ directories: uniqueDirectories, resolve })
+  })
+}
+
+export function beginLifecycleClose(directories: readonly string[]): () => void {
+  const uniqueDirectories = [...new Set(directories)]
+  for (const directory of uniqueDirectories) {
+    closingByDirectory.set(directory, (closingByDirectory.get(directory) ?? 0) + 1)
+  }
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    for (const directory of uniqueDirectories) {
+      const next = (closingByDirectory.get(directory) ?? 1) - 1
+      if (next > 0) closingByDirectory.set(directory, next)
+      else closingByDirectory.delete(directory)
+    }
+    notifyCloseWaiters()
+  }
 }

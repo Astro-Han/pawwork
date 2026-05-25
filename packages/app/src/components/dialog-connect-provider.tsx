@@ -203,13 +203,18 @@ export function DialogConnectProvider(props: { provider: string }) {
       headers: clientActionHeaders({ kind: "settings.provider.connect" }),
       throwOnError: true,
     })
-    await actionClient.global.dispose()
+    const dispose = await actionClient.global.dispose()
     dialog.close()
     showToast({
       variant: "success",
       icon: "circle-check",
       title: language.t("provider.connect.toast.connected.title", { provider: provider().name }),
-      description: language.t("provider.connect.toast.connected.description", { provider: provider().name }),
+      description: language.t(
+        dispose.data?.status === "deferred"
+          ? "provider.connect.toast.connected.deferredDescription"
+          : "provider.connect.toast.connected.description",
+        { provider: provider().name },
+      ),
     })
   }
 

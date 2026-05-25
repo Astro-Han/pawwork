@@ -1161,17 +1161,20 @@ const rawLayer = Layer.effect(
 
     const invalidate = Effect.fn("Config.invalidate")(function* (wait?: boolean, operation = "config.invalidate") {
       yield* invalidateGlobal
-      const task = withLifecycleOrigin({ source: "config", operation, reason: operation }, () => Instance.disposeAll())
+      const emitDisposed = () => {
+        GlobalBus.emit("event", {
+          directory: "global",
+          payload: {
+            type: Event.Disposed.type,
+            properties: {},
+          },
+        })
+      }
+      const task = withLifecycleOrigin({ source: "config", operation, reason: operation }, async () => {
+        const result = await Instance.disposeAll({ onCompleted: emitDisposed })
+        if (wait && result.completed) await result.completed
+      })
         .catch(() => undefined)
-        .finally(() =>
-          GlobalBus.emit("event", {
-            directory: "global",
-            payload: {
-              type: Event.Disposed.type,
-              properties: {},
-            },
-          }),
-        )
       if (wait) yield* Effect.promise(() => task)
       else void task
     })

@@ -11,7 +11,7 @@ import { InstanceStore } from "../../src/project/instance-store"
 import { Project } from "../../src/project/project"
 import { ProjectTable } from "../../src/project/project.sql"
 import { Database, eq } from "../../src/storage/db"
-import { currentLifecycleCloseAction } from "../../src/session/lifecycle-provenance"
+import { currentLifecycleCloseAction, directoryKey } from "../../src/session/lifecycle-provenance"
 import { disposeAllInstances, tmpdir, tmpdirScoped } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 
@@ -250,9 +250,44 @@ describe("InstanceStore", () => {
       await firstRuntime.runPromise(InstanceStore.Service.use((store) => store.load({ directory: first.path })))
       await secondRuntime.runPromise(InstanceStore.Service.use((store) => store.load({ directory: second.path })))
 
-      await Instance.disposeAll()
+      const result = await Instance.disposeAll()
 
       expect(new Set(disposed)).toEqual(new Set([first.path, second.path]))
+      expect(new Set(result.affectedDirectoryKeys)).toEqual(new Set([directoryKey(first.path), directoryKey(second.path)]))
+    } finally {
+      off()
+      await Promise.all([firstRuntime.dispose(), secondRuntime.dispose()])
+    }
+  })
+
+  test("disposeAll runs aggregate onCompleted once after every active store runtime closes", async () => {
+    await using first = await tmpdir()
+    await using second = await tmpdir()
+    const disposed: string[] = []
+    const completions: string[][] = []
+    const off = registerDisposer(async (directory) => {
+      disposed.push(directory)
+    })
+    const layer = Layer.mergeAll(
+      InstanceStore.defaultLayer.pipe(Layer.provide(noopBootstrap)),
+      CrossSpawnSpawner.defaultLayer,
+    )
+    const firstRuntime = ManagedRuntime.make(layer)
+    const secondRuntime = ManagedRuntime.make(layer)
+
+    try {
+      await firstRuntime.runPromise(InstanceStore.Service.use((store) => store.load({ directory: first.path })))
+      await secondRuntime.runPromise(InstanceStore.Service.use((store) => store.load({ directory: second.path })))
+
+      await Instance.disposeAll({
+        onCompleted: () => {
+          completions.push([...disposed])
+        },
+      })
+
+      expect(new Set(disposed)).toEqual(new Set([first.path, second.path]))
+      expect(completions).toHaveLength(1)
+      expect(new Set(completions[0])).toEqual(new Set([first.path, second.path]))
     } finally {
       off()
       await Promise.all([firstRuntime.dispose(), secondRuntime.dispose()])

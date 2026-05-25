@@ -118,12 +118,17 @@ export const SettingsProviders: Component = () => {
     await actionClient.auth
       .remove({ providerID })
       .then(async () => {
-        await actionClient.global.dispose()
+        const dispose = await actionClient.global.dispose()
         showToast({
           variant: "success",
           icon: "circle-check",
           title: language.t("provider.disconnect.toast.disconnected.title", { provider: name }),
-          description: language.t("provider.disconnect.toast.disconnected.description", { provider: name }),
+          description: language.t(
+            dispose.data?.status === "deferred"
+              ? "provider.disconnect.toast.disconnected.deferredDescription"
+              : "provider.disconnect.toast.disconnected.description",
+            { provider: name },
+          ),
         })
       })
       .catch((err: unknown) => {

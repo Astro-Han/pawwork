@@ -21,6 +21,22 @@ const log = Log.create({ service: "server" })
 
 export const GlobalDisposedEvent = BusEvent.define("global.disposed", z.object({}))
 
+const LifecycleCloseResult = z.object({
+  status: z.enum(["completed", "deferred"]),
+  lifecycleActionID: z.string(),
+  affectedDirectoryKeys: z.array(z.string()),
+})
+
+function emitGlobalDisposed() {
+  GlobalBus.emit("event", {
+    directory: "global",
+    payload: {
+      type: GlobalDisposedEvent.type,
+      properties: {},
+    },
+  })
+}
+
 type SsePacket = {
   id?: string
   data: string
@@ -397,22 +413,15 @@ export const GlobalRoutes = lazy(() =>
             description: "Global disposed",
             content: {
               "application/json": {
-                schema: resolver(z.boolean()),
+                schema: resolver(LifecycleCloseResult),
               },
             },
           },
         },
       }),
       async (c) => {
-        await Instance.disposeAll()
-        GlobalBus.emit("event", {
-          directory: "global",
-          payload: {
-            type: GlobalDisposedEvent.type,
-            properties: {},
-          },
-        })
-        return c.json(true)
+        const result = await Instance.disposeAll({ onCompleted: emitGlobalDisposed })
+        return c.json(result)
       },
     )
     .post(

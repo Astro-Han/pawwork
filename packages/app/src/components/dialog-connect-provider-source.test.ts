@@ -34,6 +34,7 @@ describe("dialog-connect-provider source boundary", () => {
     expect(dialogSource).toContain("globalSDK.client.provider.oauth")
     expect(dialogSource).toContain(".authorize(")
     expect(dialogSource).toContain("actionClient.global.dispose")
+    expect(dialogSource).toContain("provider.connect.toast.connected.deferredDescription")
   })
 
   test("tags provider connect lifecycle dispose calls with client action headers", () => {

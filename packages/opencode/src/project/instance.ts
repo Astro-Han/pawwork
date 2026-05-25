@@ -104,6 +104,7 @@ export const Instance = {
     init?: () => Promise<any>
     project?: Project.Info
     worktree?: string
+    mode?: "maintenance" | "force"
   }) {
     if (!!input.worktree !== !!input.project) {
       throw new Error("Instance.reload requires both worktree and project when overriding context")
@@ -114,26 +115,43 @@ export const Instance = {
       directory,
       worktree: input.worktree,
       project: input.project,
+      mode: input.mode,
     })
     directories.add(ctx.directory)
     await context.provide(ctx, () => input.init?.())
     return ctx
   },
-  async dispose() {
+  async dispose(input?: { mode?: "maintenance" | "force"; onCompleted?: () => void | Promise<void> }) {
     const ctx = Instance.current
     const instanceRuntime = await runtime()
-    await instanceRuntime.disposeInstance(ctx)
-    directories.delete(ctx.directory)
+    const onCompleted = async () => {
+      directories.delete(ctx.directory)
+      await input?.onCompleted?.()
+    }
+    const disposed = await instanceRuntime.disposeInstance(ctx, { ...input, onCompleted })
+    if (disposed) directories.delete(ctx.directory)
   },
-  async disposeDirectory(inputDirectory: string) {
+  async disposeDirectory(
+    inputDirectory: string,
+    input?: { mode?: "maintenance" | "force"; onCompleted?: () => void | Promise<void> },
+  ) {
     const directory = Filesystem.resolve(inputDirectory)
     const instanceRuntime = await runtime()
-    await instanceRuntime.disposeDirectory(directory)
-    directories.delete(directory)
+    const onCompleted = async () => {
+      directories.delete(directory)
+      await input?.onCompleted?.()
+    }
+    const disposed = await instanceRuntime.disposeDirectory(directory, { ...input, onCompleted })
+    if (disposed) directories.delete(directory)
   },
-  async disposeAll() {
+  async disposeAll(input?: { mode?: "maintenance" | "force"; onCompleted?: () => void | Promise<void> }) {
     const { disposeAllLoadedInstances } = await import("./instance-store")
-    await disposeAllLoadedInstances()
-    directories.clear()
+    const onCompleted = async () => {
+      directories.clear()
+      await input?.onCompleted?.()
+    }
+    const result = await disposeAllLoadedInstances({ ...input, onCompleted })
+    if (result.status === "completed") directories.clear()
+    return result
   },
 }
