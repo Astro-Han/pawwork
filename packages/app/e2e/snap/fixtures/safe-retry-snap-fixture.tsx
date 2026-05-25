@@ -64,7 +64,7 @@ function SafeRetrySnapFixture() {
             status={{
               type: "retry",
               attempt: 1,
-              message: "网络连接断开，正在自动重试",
+              message: "Network connection dropped, retrying automatically",
               next: Date.now() + 1000,
               presentation: "safe_recovery",
             }}

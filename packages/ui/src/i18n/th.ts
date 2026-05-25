@@ -44,6 +44,7 @@ export const dict = {
   "ui.sessionTurn.retry.attempt": "ครั้งที่ {{attempt}}",
   "ui.sessionTurn.retry.attemptLine": "{{line}} - ครั้งที่ {{attempt}}",
   "ui.sessionTurn.retry.geminiHot": "gemini กำลังใช้งานหนาแน่นมาก",
+  "ui.sessionTurn.retry.safeRecovery": "Network connection dropped, retrying automatically",
   "ui.sessionTurn.notice.safeRetryFailed": "Network connection dropped. Automatic retry did not complete.",
   "ui.sessionTurn.error.freeUsageExceeded": "เกินขีดจำกัดการใช้งานฟรี",
   "ui.sessionTurn.error.addCredits": "เพิ่มเครดิต",

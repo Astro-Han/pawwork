@@ -8,6 +8,7 @@ test("safe recovery retry uses a lightweight status row instead of the error car
   expect(retry).toContain('presentation !== "safe_recovery"')
   expect(retry).toContain('data-slot="session-turn-safe-retry"')
   expect(retry).toContain('data-slot="session-turn-safe-retry-message"')
+  expect(retry).toContain('i18n.t("ui.sessionTurn.retry.safeRecovery")')
   expect(retry).toContain('fallback={')
   expect(retry).toContain('<Card variant="error" class="error-card">')
 })

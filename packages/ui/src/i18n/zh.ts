@@ -77,6 +77,7 @@ export const dict = {
   "ui.sessionTurn.retry.attempt": "第 {{attempt}} 次",
   "ui.sessionTurn.retry.attemptLine": "{{line}} - 第 {{attempt}} 次",
   "ui.sessionTurn.retry.geminiHot": "gemini 当前过载",
+  "ui.sessionTurn.retry.safeRecovery": "网络连接断开，正在自动重试",
   "ui.sessionTurn.notice.safeRetryFailed": "网络连接断开，自动重试未完成",
   "ui.sessionTurn.error.freeUsageExceeded": "免费使用额度已用完",
   "ui.sessionTurn.error.addCredits": "添加积分",
