@@ -91,7 +91,14 @@ export function ShellTab(props: {
   const tabTrigger = (
     <Tabs.Trigger
       value={props.value}
-      class="shrink-0 h-full"
+      // `shrink-0` only — no `h-full`. The class prop here lands on
+      // [data-slot="tabs-trigger-wrapper"] (see ui/tabs.tsx); the sidepanel
+      // variant pins that wrapper to `height: 28px` (tabs.css). A
+      // Tailwind `h-full` utility would override the CSS components-layer
+      // rule and stretch the chip to the slot's full titlebar height
+      // (~44px). The wrapper is centered inside Tabs.List via the list's
+      // `align-items: center`.
+      class="shrink-0"
       classes={{
         // Spacing (gap, padding-inline, border-radius) lives in tabs.css under
         // the sidepanel variant: icon↔label gap `--space-sm` (8), chip-edge

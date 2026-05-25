@@ -446,4 +446,33 @@ test.describe("right-panel tab chip + × contract", () => {
     expect(geometry.triggerPaddingRight).toBe("4px")
     expect(geometry.wrapperBorderRadius).toBe("10px")
   })
+
+  test("chip wrapper height pins to 28px (no stretch under full-height titlebar slot)", async ({
+    page,
+    gotoSession,
+  }) => {
+    // Base [data-component="tabs"] [data-slot="tabs-trigger-wrapper"] sets
+    // `height: 100%` (tabs.css line 46). Previously the sidepanel variant
+    // relied on CSS height-percentage collapsing to auto because Tabs.List
+    // and the Portal wrapper above it had no resolved height. After the
+    // Portal-wrapper fix gave the wrapper a real height: 100% (so Tabs.List
+    // could bound overflow-x for horizontal scroll), that auto-collapse path
+    // vanished and the chip stretched to the full titlebar height (~44px).
+    // The sidepanel variant now explicitly pins wrapper height to 28px —
+    // matching the design comment ("At 28px high this softens the chip
+    // well shy of a full pill") and the pattern other variants use
+    // (compact 26px, pill 30px).
+    await gotoSession()
+    await openRightPanel(page)
+    await openExtraTabs(page)
+    await page.mouse.move(0, 0)
+
+    const wrapperHeight = await page.evaluate(() => {
+      const wrap = document.querySelector<HTMLElement>(
+        '[data-component="tabs"][data-variant="sidepanel"] [data-slot="tabs-trigger-wrapper"][data-value="files"]',
+      )
+      return wrap ? getComputedStyle(wrap).height : null
+    })
+    expect(wrapperHeight).toBe("28px")
+  })
 })

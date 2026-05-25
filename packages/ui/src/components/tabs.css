@@ -406,6 +406,37 @@
        than part of the window chrome. */
     background-color: transparent;
 
+    /* Constrain the Solid <Portal> wrapper div. Portal from solid-js/web
+       (web.js → Portal()) creates `document.createElement('div')` and
+       appendChild's it to the mount target, then renders children into
+       that wrapper. Without an explicit size rule, the wrapper is
+       display:block and content-sized — so Tabs.List's `width: 100%`
+       (base + sidepanel rules below) resolves against the wrapper rather
+       than the slot, and `overflow-x: auto` on the list never has anything
+       to bound. Terminal chips then overflow the slot, which uses
+       `overflow: clip` (base [data-component="tabs"] rule at line 12) and
+       silently cuts them off instead of scrolling.
+
+       Scope is pinned to `[data-shell-slot="tabs-portal"]` — `sidepanel`
+       variant is also worn by `<Tabs variant="sidepanel">` in
+       SessionSidePanel's right-panel body (see session-side-panel.tsx),
+       whose direct `<div>` children are `<Tabs.Content>` panels. A
+       broader `& > div` selector here force-flexed every body content
+       panel and leaked into chip shape / selection visuals downstream.
+       `data-shell-slot="tabs-portal"` is unique to the titlebar slot
+       (titlebar.tsx) and isolates this rule to the portal host only.
+
+       Regression: packages/app/e2e/session/titlebar-right-rail-contract.spec.ts
+       "Solid Portal wrapper fills the slot..." asserts wrapper.width ≈
+       slot.innerWidth AND that body Tabs.Content display ≠ flex (scope
+       guard). */
+    &[data-shell-slot="tabs-portal"] > div {
+      width: 100%;
+      height: 100%;
+      min-width: 0;
+      display: flex;
+    }
+
     [data-slot="tabs-list"] {
       /* Consumer owns the height. The right-panel tab strip portals into the
          titlebar slot, which varies (macOS 40px chrome / Windows 44px), and
@@ -459,6 +490,20 @@
     [data-slot="tabs-trigger-wrapper"] {
       anchor-scope: --tab-leading;
       position: relative;
+      /* Explicit chip height. Base `[data-component="tabs"]
+         [data-slot="tabs-trigger-wrapper"]` (line 46) sets `height: 100%`;
+         in other variants (compact 26px line 172, pill 30px line 359)
+         each variant overrides this to a fixed value. Sidepanel
+         previously relied on CSS height-percentage collapsing to auto
+         because parents up the chain (Tabs.List → Portal wrapper) had no
+         resolved height — when the Portal wrapper later became
+         height:100% (so Tabs.List could bound overflow), that auto-
+         collapse path disappeared and the chip stretched to the full
+         titlebar height (~44px). 28px matches the comment at line ~500
+         ("At 28px high this softens the chip well shy of a full pill").
+         Regression: packages/app/e2e/session/session-tab-chip-contract.spec.ts
+         asserts wrapperHeight === 28px. */
+      height: 28px;
       border-bottom: none;
       border-right: none;
       background-color: transparent;
@@ -495,13 +540,18 @@
        row). Font-weight is intentionally not used as a marker: all sidepanel
        triggers already inherit 500 from `text-h3` (--font-weight-h3) and
        bumping a subset would shift tab widths when selection changes.
-       `min-width` pulls short labels (Status / Files / Review at 2 Chinese
-       chars or 5–6 Latin chars) up to a consistent chip footprint. 72px is
-       sized to comfortably hold a 2-char CJK label + 14px icon + 8px gap +
-       8px padding (~53px natural) with breathing room, while staying tight
-       enough that "上下文" (3 chars) and longer labels extend past it
-       naturally rather than getting an over-padded floor. 72 sits on the
-       4pt grid (DESIGN.md L233). */
+
+       Sizing intentionally relies on content + uniform `padding-inline`
+       only — no `min-width`, no `justify-content: center`. The terminal
+       flatten (2026-05-25) introduced cwd-basename labels that can exceed
+       any reasonable min-width floor (e.g. "pawwork-electron"); with the
+       old `min-width: 72px` + `justify-content: center` rules, short chips
+       centered their content (icon visually mid-chip) while long chips
+       packed their icon against the left edge — and because the close
+       button is anchor-positioned on the leading icon, that asymmetry
+       leaked into the hover × position too. Sizing every chip to its
+       content with uniform padding keeps the × in the same visual slot
+       relative to its chip across the strip. */
     /* Selector includes the wrapper deliberately to reach 4 attrs of
        specificity — base tabs CSS gives closable-wrapper triggers a
        `padding-right: 0` at the same 4-attr count
@@ -512,21 +562,14 @@
       border: 1px solid transparent;
       color: var(--fg-weak);
       background-color: transparent;
-      min-width: 72px;
       /* Authoritative spacing source — see SortableTab comment for why the
          component intentionally does not declare gap / padding-inline
          utilities on its Tailwind class. Internal gap (icon ↔ label) is
-         8px (--space-sm) for readability; chip edge padding is 4px
-         (--space-xs) — tighter than the gap so the chip outline hugs the
-         content without doubling up against the 4px between-chip gap.
-         Both values stay on the 4pt grid (DESIGN.md L233). */
+         8px (--space-sm) for readability; chip edge padding is also 8px
+         (--space-sm) so chips of any width read with the same visual
+         density. Both values stay on the 4pt grid (DESIGN.md L233). */
       gap: var(--space-sm);
-      padding-inline: var(--space-xs);
-      /* Centered content inside the min-width chip. The close button is
-         no longer a flex peer (it's absolutely positioned via anchor()),
-         so center alignment doesn't drift it — × is mathematically pinned
-         to the leading-icon center via CSS anchor positioning. */
-      justify-content: center;
+      padding-inline: var(--space-sm);
       transition:
         color 120ms ease,
         background-color 120ms ease;
