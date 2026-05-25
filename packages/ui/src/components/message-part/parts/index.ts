@@ -1,4 +1,5 @@
 import "./compaction-and-divider"
+import "./notice"
 import "./reasoning"
 import "./text"
 import "./tool"

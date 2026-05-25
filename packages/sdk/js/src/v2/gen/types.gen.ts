@@ -72,6 +72,7 @@ export type SessionStatus =
       attempt: number
       message: string
       next: number
+      presentation?: "safe_recovery"
       classification?: RetryClassification
     }
   | {
@@ -748,6 +749,17 @@ export type ReasoningPart = {
   }
 }
 
+export type NoticePart = {
+  id: string
+  sessionID: string
+  messageID: string
+  type: "notice"
+  kind: "safe_retry_failed"
+  time: {
+    created: number
+  }
+}
+
 export type FilePartSourceText = {
   value: string
   start: number
@@ -961,6 +973,7 @@ export type Part =
   | TextPart
   | SubtaskPart
   | ReasoningPart
+  | NoticePart
   | FilePart
   | ToolPart
   | StepStartPart

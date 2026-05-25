@@ -157,6 +157,26 @@ describe("session.message-v2.toModelMessage", () => {
     expect(await MessageV2.toModelMessages(input, model)).toStrictEqual([])
   })
 
+  test("filters out assistant recovery notice parts", async () => {
+    const messageID = "m-assistant"
+
+    const input: MessageV2.WithParts[] = [
+      {
+        info: assistantInfo(messageID, "m-user"),
+        parts: [
+          {
+            ...basePart(messageID, "p1"),
+            type: "notice",
+            kind: "safe_retry_failed",
+            time: { created: 0 },
+          },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    expect(await MessageV2.toModelMessages(input, model)).toStrictEqual([])
+  })
+
   test("filters out user messages with only empty text parts", async () => {
     const messageID = "m-user"
 

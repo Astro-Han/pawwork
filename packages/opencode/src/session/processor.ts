@@ -1206,6 +1206,7 @@ export const layer: Layer.Layer<
         ctx.shouldBreak = (yield* config.get()).experimental?.continue_loop_on_deny !== true
         let processAttemptID: RunObservability.AttemptID | undefined
         let automaticStreamRetriesUsed = 0
+        let safeRetryNoticeWritten = false
 
         const retryStillAllowed = Effect.fn("SessionProcessor.retryStillAllowed")(function* (stage: string) {
           const lifecycleAction = currentLifecycleCloseAction(ctx.directory)
@@ -1259,6 +1260,23 @@ export const layer: Layer.Layer<
             if (partIDs.has(part.id)) delete ctx.reasoningMap[id]
           }
           delete ctx.reasoningPartIDsByAttempt[String(attemptID)]
+        })
+
+        const writeSafeRetryFailedNotice = Effect.fn("SessionProcessor.writeSafeRetryFailedNotice")(function* (
+          attemptID: RunObservability.AttemptID,
+        ) {
+          ctx.streamError = true
+          yield* removeReasoningForAttempt(attemptID)
+          yield* session.updatePart({
+            id: PartID.ascending(),
+            sessionID: ctx.sessionID,
+            messageID: ctx.assistantMessage.id,
+            type: "notice",
+            kind: "safe_retry_failed",
+            time: { created: Date.now() },
+          } satisfies MessageV2.NoticePart)
+          yield* status.set(ctx.sessionID, { type: "idle" })
+          safeRetryNoticeWritten = true
         })
 
         const runAttempt = Effect.fn("SessionProcessor.runAttempt")(function* () {
@@ -1326,6 +1344,9 @@ export const layer: Layer.Layer<
               watchdog: retrySignal.watchdog,
               retryable: retrySignal.retryable,
             })
+            const reasoningOnlySafeRetry =
+              decision.recommendation === "auto_retry_once" &&
+              decision.reason === "reasoning_only_without_final_text_or_tool_activity"
 
             if (
               attemptID &&
@@ -1341,8 +1362,11 @@ export const layer: Layer.Layer<
                 yield* status.set(ctx.sessionID, {
                   type: "retry",
                   attempt: ctx.attemptCount,
-                  message: retrySignal.message ?? "Retrying interrupted stream",
+                  message: reasoningOnlySafeRetry
+                    ? "Network connection dropped, retrying automatically"
+                    : (retrySignal.message ?? "Retrying interrupted stream"),
                   next,
+                  ...(reasoningOnlySafeRetry ? { presentation: "safe_recovery" as const } : {}),
                 })
                 yield* Effect.sleep(`${SAFE_RECOVERY_AUTO_RETRY_BACKOFF_MS} millis`).pipe(
                   Effect.onInterrupt(() => recordProcessInterrupt(attemptID)),
@@ -1369,6 +1393,16 @@ export const layer: Layer.Layer<
               break
             }
 
+            if (
+              attemptID &&
+              retrySignal.retryable &&
+              reasoningOnlySafeRetry &&
+              automaticStreamRetriesUsed > 0
+            ) {
+              yield* writeSafeRetryFailedNotice(attemptID)
+              break
+            }
+
             yield* halt(result.error, attemptID, {
               recordFailure: false,
               interruptionMessage: recoveryInterruptionMessage(decision),
@@ -1377,7 +1411,7 @@ export const layer: Layer.Layer<
           }
 
           if (ctx.needsCompaction) return "compact"
-          if (ctx.blocked || ctx.assistantMessage.error) return "stop"
+          if (ctx.blocked || ctx.assistantMessage.error || safeRetryNoticeWritten) return "stop"
           return "continue"
         }).pipe(Effect.ensuring(cleanup()))
       })

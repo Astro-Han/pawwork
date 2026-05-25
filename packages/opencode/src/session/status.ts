@@ -16,6 +16,7 @@ export const Info = z
       attempt: z.number(),
       message: z.string(),
       next: z.number(),
+      presentation: z.literal("safe_recovery").optional(),
       // optional: populated when the retry is caused by a classifiable rate-limit error
       classification: RetryClassification.optional(),
     }),

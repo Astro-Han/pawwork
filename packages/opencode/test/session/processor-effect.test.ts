@@ -1488,6 +1488,87 @@ it.live("reasoning-only retry removes failed reasoning before replaying the assi
   ),
 )
 
+it.live("reasoning-only retry writes a notice after the one safe retry is exhausted", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+
+        for (const suffix of ["first", "second"]) {
+          yield* llm.push(
+            raw({
+              head: [
+                {
+                  id: `chatcmpl-reasoning-retry-${suffix}`,
+                  object: "chat.completion.chunk",
+                  choices: [{ delta: { role: "assistant" } }],
+                },
+                {
+                  id: `chatcmpl-reasoning-retry-${suffix}`,
+                  object: "chat.completion.chunk",
+                  choices: [{ delta: { reasoning_content: `${suffix} failed draft` } }],
+                },
+              ],
+              tail: [
+                {
+                  error: {
+                    message: "rate limit",
+                    type: "server_error",
+                    code: "rate_limit",
+                  },
+                },
+              ],
+            }),
+          )
+        }
+        yield* llm.text("third attempt should not run")
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "reasoning retry fails twice")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const value = yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "reasoning retry fails twice" }],
+          tools: {
+            mcp_write: tool({
+              description: "unknown local boundary",
+              inputSchema: z.object({}),
+            }),
+          },
+        })
+
+        const parts = MessageV2.parts(msg.id)
+
+        expect(value).toBe("stop")
+        expect(yield* llm.calls).toBe(2)
+        expect(parts.some((part) => part.type === "reasoning")).toBe(false)
+        expect(parts.some((part) => part.type === "text" && part.text === "third attempt should not run")).toBe(false)
+        expect(parts.some((part) => part.type === "notice" && part.kind === "safe_retry_failed")).toBe(true)
+        expect(handle.message.error).toBeUndefined()
+        expect(handle.message.diagnostics?.run_observability?.recovered_incidents).toHaveLength(1)
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
 it.live("retryable stream error after visible output does not replay the assistant message", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>
