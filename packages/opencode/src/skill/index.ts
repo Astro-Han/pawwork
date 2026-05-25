@@ -56,6 +56,7 @@ export namespace Skill {
   type State = {
     skills: Record<string, Info>
     dirs: Set<string>
+    matches: Set<string>
   }
 
   export interface Interface {
@@ -160,7 +161,14 @@ export namespace Skill {
       }),
     )
 
-    yield* Effect.forEach(matches, (match) => add(state, match, bus), {
+    const uniqueMatches: string[] = []
+    for (const match of matches) {
+      if (state.matches.has(match)) continue
+      state.matches.add(match)
+      uniqueMatches.push(match)
+    }
+
+    yield* Effect.forEach(uniqueMatches, (match) => add(state, match, bus), {
       concurrency: "unbounded",
       discard: true,
     })
@@ -236,7 +244,7 @@ export namespace Skill {
       const fsys = yield* AppFileSystem.Service
       const state = yield* InstanceState.make(
         Effect.fn("Skill.state")(function* (ctx) {
-          const s: State = { skills: {}, dirs: new Set() }
+          const s: State = { skills: {}, dirs: new Set(), matches: new Set() }
           yield* loadSkills(s, config, discovery, bus, fsys, ctx.directory, ctx.worktree)
           return s
         }),
