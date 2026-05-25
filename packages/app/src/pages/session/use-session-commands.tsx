@@ -17,8 +17,9 @@ import { isWorkInFlightStatus } from "@opencode-ai/ui/util/session-status"
 import { findLast } from "@opencode-ai/util/array"
 import { canCloseSessionTab, closeSessionTab } from "@/pages/session/close-session-tab"
 import { createSessionTabs } from "@/pages/session/helpers"
+import { terminalTabValue } from "@/pages/session/right-panel-tabs"
 import { readSessionMessages, readUserMessages } from "@/pages/session/session-messages"
-import { toggleDesktopTerminal } from "@/pages/session/terminal-shell-tab"
+import { createCloseShellTabRouter, toggleDesktopTerminal } from "@/pages/session/terminal-shell-tab"
 import { extractPromptFromParts } from "@/utils/prompt"
 import { UserMessage } from "@opencode-ai/sdk/v2"
 import { useSessionLayout } from "@/pages/session/session-layout"
@@ -155,13 +156,30 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     })
   }
 
+  const closeShellTabRouter = createCloseShellTabRouter({
+    view: {
+      sidePanel: {
+        tab: () => view().sidePanel.tab(),
+        openTab: (tab) => view().sidePanel.openTab(tab),
+        closeTab: (tab) => view().sidePanel.closeTab(tab),
+      },
+    },
+    terminal: {
+      all: () => terminal.all().map((t) => ({ tabID: t.tabID })),
+      close: (id) => terminal.close(id),
+    },
+  })
+
   const closeTab = () => {
     closeSessionTab({
       closableTab,
       closeFileTab: tabs().close,
       sidePanelOpened: view().sidePanel.opened,
       sidePanelTab: view().sidePanel.tab,
-      closeShellTab: view().sidePanel.closeTab,
+      // Route terminal:<id> closes to terminal.close so mod+w doesn't leave
+      // orphan terminals in terminal.all(). Earlier this used
+      // view().sidePanel.closeTab directly, which only shifts focus.
+      closeShellTab: closeShellTabRouter,
     })
   }
 
@@ -185,13 +203,17 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   }
 
   const openTerminal = () => {
-    if (terminal.all().length > 0) terminal.new()
+    // Create a brand new terminal and switch to its outer tab. After flatten,
+    // every terminal is its own right-panel tab; "open" means "make a new one
+    // active". Non-desktop has no right panel — fall back to the legacy
+    // bottom-drawer signal (kept around for callers like command palette).
+    terminal.new()
     if (!isDesktop()) {
       view().terminal.open()
       return
     }
-    view().sidePanel.openTab("terminal")
-    view().terminal.open()
+    const activeId = terminal.active()
+    if (activeId) view().sidePanel.openTab(terminalTabValue(activeId))
   }
 
   const toggleTerminal = () => {
@@ -199,7 +221,11 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       view().terminal.toggle()
       return
     }
-    toggleDesktopTerminal(view(), view().terminal)
+    toggleDesktopTerminal(view(), {
+      active: () => terminal.active(),
+      all: () => terminal.all().map((t) => ({ tabID: t.tabID })),
+      new: () => terminal.new(),
+    })
   }
 
   const chooseModel = () => {

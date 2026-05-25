@@ -422,6 +422,24 @@
          gap off-grid (gap-1 = 0.25rem = 3.25px, not 4). */
       gap: var(--space-xs);
 
+      /* Terminal tabs flatten into this strip (one chip per live terminal,
+         Area B 2026-05-25), so the count grows dynamically. Allow horizontal
+         scroll so the strip can hold N terminals without pushing static tabs
+         off-screen or breaking the titlebar-portal layout. Vertical overflow
+         stays hidden — the strip is exactly titlebar-tall and chips never
+         exceed it. min-width: 0 lets the list shrink in its flex parent
+         instead of forcing the parent wider than the panel. */
+      min-width: 0;
+      overflow-x: auto;
+      overflow-y: hidden;
+      /* Hide the horizontal scrollbar visually; user still drags-to-scroll
+         via wheel + shift on macOS or trackpad horizontal. A visible bar
+         under the titlebar would read as junk chrome on a 44px row. */
+      scrollbar-width: none;
+      &::-webkit-scrollbar {
+        display: none;
+      }
+
       &::after {
         display: none;
       }

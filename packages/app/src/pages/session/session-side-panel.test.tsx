@@ -169,7 +169,7 @@ describe("sortableShellTabIds", () => {
   test("keeps the pinned status tab out of sortable ids", async () => {
     const { sortableShellTabIds } = await import("./session-side-panel")
 
-    expect(sortableShellTabIds(["status", "files", "review", "terminal"])).toEqual(["files", "review", "terminal"])
+    expect(sortableShellTabIds(["status", "files", "review", "context"])).toEqual(["files", "review", "context"])
   })
 })
 
@@ -235,9 +235,13 @@ describe("right-panel inactive-tab gating contract", () => {
     expect(compIdx).toBeGreaterThan(showIdx)
   })
 
-  test("terminal tab body keeps its existing Show when={sidePanelTab() === \"terminal\"} guard", async () => {
+  test("terminal tabs are rendered dynamically (one Tabs.Content per terminal id, gated by active)", async () => {
     const source = await fs.readFile(SOURCE_PATH, "utf8")
-    const block = findTabContentBlock(source, "terminal")
-    expect(block).toContain(`<Show when={sidePanelTab() === "terminal"}>`)
+    // After flatten (Area B 2026-05-25) every terminal is its own outer tab.
+    // There's no single Tabs.Content value="terminal" anymore — instead a
+    // <For each={terminal.all()}> emits one Tabs.Content per live terminal.
+    expect(source).toContain("<For each={terminal.all()}>")
+    expect(source).toContain("terminalTabValue(t.tabID)")
+    expect(source).toContain("<TerminalPanel tab={t}")
   })
 })

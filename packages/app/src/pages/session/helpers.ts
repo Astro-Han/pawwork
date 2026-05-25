@@ -2,7 +2,8 @@ import { batch, createMemo, onCleanup, onMount, type Accessor } from "solid-js"
 import { createStore } from "solid-js/store"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import { same } from "@/utils/same"
-import type { RightPanelTab } from "@/pages/session/right-panel-tabs"
+import type { RightPanelStaticTab, RightPanelTab } from "@/pages/session/right-panel-tabs"
+import { TERMINAL_TAB_PREFIX } from "@/pages/session/right-panel-tabs"
 
 const emptyTabs: string[] = []
 
@@ -218,6 +219,61 @@ export function shouldShowReviewFileOpenButton(activeTab: string | undefined, ha
 /** Returns shell tabs that can be reordered by the user. Status is pinned. */
 export function sortableShellTabIds(tabs: readonly RightPanelTab[]): RightPanelTab[] {
   return tabs.filter((tab) => tab !== "status")
+}
+
+/**
+ * Pure decision: given a drag-over event on the right-panel tab strip, return
+ * the move action to dispatch, or null for no-op.
+ *
+ * The rendered strip is two segments concatenated: [pinned status, ...openStatic
+ * (closable), ...terminalIds]. Drag-reorder is permitted ONLY within the same
+ * segment — cross-segment drag bounces back. Status is pinned (never moved,
+ * never a drop target).
+ *
+ * Indices in the returned action are within that segment's own list:
+ *   - kind:"static"  → index into openStatic which still includes "status" at 0;
+ *                       moveShellTab clamps `to >= 1` to keep status pinned.
+ *   - kind:"terminal" → index into terminalIds (status not present).
+ */
+export type ShellTabReorderPlan =
+  | { kind: "static"; target: RightPanelStaticTab; to: number }
+  | { kind: "terminal"; target: string; to: number }
+
+export function planShellTabReorder(input: {
+  draggableId: string
+  droppableId: string
+  openStatic: readonly RightPanelStaticTab[]
+  terminalIds: readonly string[]
+}): ShellTabReorderPlan | null {
+  const { draggableId, droppableId, openStatic, terminalIds } = input
+  if (draggableId === droppableId) return null
+  if (draggableId === "status" || droppableId === "status") return null
+
+  const fromIsTerminal = draggableId.startsWith(TERMINAL_TAB_PREFIX)
+  const toIsTerminal = droppableId.startsWith(TERMINAL_TAB_PREFIX)
+
+  if (fromIsTerminal !== toIsTerminal) return null
+
+  if (fromIsTerminal) {
+    const fromId = draggableId.slice(TERMINAL_TAB_PREFIX.length)
+    const toId = droppableId.slice(TERMINAL_TAB_PREFIX.length)
+    if (!fromId || !toId) return null
+    const fromIndex = terminalIds.indexOf(fromId)
+    const toIndex = terminalIds.indexOf(toId)
+    if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return null
+    return { kind: "terminal", target: fromId, to: toIndex }
+  }
+
+  // static segment
+  const staticList = openStatic as readonly string[]
+  const fromIndex = staticList.indexOf(draggableId)
+  const toIndex = staticList.indexOf(droppableId)
+  if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return null
+  return {
+    kind: "static",
+    target: draggableId as RightPanelStaticTab,
+    to: toIndex,
+  }
 }
 
 /** Names the file-opening transition that must activate Review before showing file-specific content. */

@@ -24,13 +24,19 @@ describe("right panel tab helpers", () => {
   })
 
   test("keeps new right panel tabs stable", () => {
-    const tabs: RightPanelTab[] = ["status", "files", "review", "terminal"]
+    const tabs: RightPanelTab[] = ["status", "files", "review", "context"]
     expect(tabs.map((tab) => migrateLegacyRightPanelTab(tab))).toEqual(tabs)
+  })
+
+  test("drops legacy 'terminal' static value (terminals now come from terminal.all)", () => {
+    // Pre-refactor 'terminal' was a fixed slot. After flattening, only
+    // dynamic 'terminal:<id>' is valid; the bare value falls back to status.
+    expect(migrateLegacyRightPanelTab("terminal")).toBe("status")
   })
 })
 
 describe("isRightPanelTab", () => {
-  test("accepts all known tabs", () => {
+  test("accepts all static tabs", () => {
     for (const tab of RIGHT_PANEL_TAB_VALUES) expect(isRightPanelTab(tab)).toBe(true)
   })
 
@@ -39,6 +45,25 @@ describe("isRightPanelTab", () => {
     expect(isRightPanelTab(undefined)).toBe(false)
     expect(isRightPanelTab(123)).toBe(false)
     expect(isRightPanelTab(null)).toBe(false)
+  })
+
+  test("rejects bare 'terminal' (post-refactor: only dynamic ids are valid)", () => {
+    expect(isRightPanelTab("terminal")).toBe(false)
+  })
+
+  test("accepts terminal:<non-empty id>", () => {
+    expect(isRightPanelTab("terminal:abc123")).toBe(true)
+    expect(isRightPanelTab("terminal:42")).toBe(true)
+    expect(isRightPanelTab("terminal:t_8f3-xyz")).toBe(true)
+  })
+
+  test("rejects empty terminal id", () => {
+    expect(isRightPanelTab("terminal:")).toBe(false)
+  })
+
+  test("rejects other dynamic prefixes", () => {
+    expect(isRightPanelTab("files:xyz")).toBe(false)
+    expect(isRightPanelTab("review:abc")).toBe(false)
   })
 })
 
