@@ -1,4 +1,4 @@
-import { Show, createEffect, createMemo, createSignal, onCleanup, onMount, type JSX } from "solid-js"
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type JSX } from "solid-js"
 import { createMediaQuery } from "@solid-primitives/media"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
@@ -14,15 +14,17 @@ import { useCommand } from "@/context/command"
 import { useFile, type SelectedLineRange } from "@/context/file"
 import { useLanguage } from "@/context/language"
 import { MAX_RIGHT_PANEL_WIDTH, MIN_RIGHT_PANEL_WIDTH, useLayout } from "@/context/layout"
+import { useTerminal } from "@/context/terminal"
+import type { TerminalTabID } from "@/context/terminal-types"
 import { FilesTab } from "@/pages/session/files-tab"
 import type { FilesTabEntry } from "@/pages/session/files-tab-state"
 import {
   createOpenSessionFileTab,
   createSessionTabs,
   formatRightPanelWidth,
-  getTabReorderIndex,
   makeRightPanelResizeHandler,
   openReviewShellTab,
+  planShellTabReorder,
   shouldShowReviewFileOpenButton,
   sortableShellTabIds,
   type Sizing,
@@ -32,11 +34,20 @@ import { setSessionHandoff } from "@/pages/session/handoff"
 import { RightPanelReviewBody } from "@/pages/session/right-panel-review-body"
 import { RightPanelTabStrip } from "@/pages/session/right-panel-tab-strip"
 import {
+  isDanglingTerminalSelection,
   isRightPanelTab,
+  isRightPanelTerminalTab,
   RIGHT_PANEL_TAB_META,
   RIGHT_PANEL_TAB_VALUES,
+  terminalTabId,
+  terminalTabValue,
   type RightPanelShellIconName,
+  type RightPanelTab,
 } from "@/pages/session/right-panel-tabs"
+import { computeTerminalLabels } from "@/pages/session/terminal-label"
+import { decode64 } from "@/utils/base64"
+import { TerminalPanel } from "@/pages/session/terminal-panel"
+import { createCloseShellTabRouter } from "@/pages/session/terminal-shell-tab"
 import { useSessionLayout } from "@/pages/session/session-layout"
 
 const RIGHT_PANEL_BODY_UNMOUNT_DELAY_MS = 240
@@ -49,7 +60,6 @@ export function SessionSidePanel(props: {
   reviewCount: () => number
   reviewPanel: () => JSX.Element
   files: () => FilesTabEntry[]
-  terminalPanel?: () => JSX.Element
   size: Sizing
 }) {
   const layout = useLayout()
@@ -57,7 +67,8 @@ export function SessionSidePanel(props: {
   const language = useLanguage()
   const command = useCommand()
   const dialog = useDialog()
-  const { layoutRouteKey, tabs, view } = useSessionLayout()
+  const terminal = useTerminal()
+  const { layoutRouteKey, params, tabs, view } = useSessionLayout()
 
   const isDesktop = createMediaQuery("(min-width: 768px)")
 
@@ -112,19 +123,43 @@ export function SessionSidePanel(props: {
   const activeTab = tabState.activeTab
   const activeFileTab = tabState.activeFileTab
   const showSecondaryReviewTabs = createMemo(() => openedTabs().length > 0)
-  const shellTabs = createMemo(() =>
-    view()
+
+  // The terminal subset of shell tabs is derived from terminal.all() — never
+  // persisted in openShellTabs. Labels: cwd basename (session dir) with same-
+  // name dedup; user rename wins. See computeTerminalLabels.
+  const terminalLabels = createMemo(() => {
+    const cwd = decode64(params.dir)
+    return computeTerminalLabels(
+      terminal.all().map((t) => ({ tabID: t.tabID, title: t.title, titleNumber: t.titleNumber, cwd })),
+      { t: language.t },
+    )
+  })
+
+  const shellTabs = createMemo(() => {
+    const staticTabs = view()
       .sidePanel.openTabs()
       .map((value) => {
         const meta = RIGHT_PANEL_TAB_META[value]
         return {
-          value,
+          value: value as RightPanelTab,
           label: language.t(meta.labelKey),
           icon: meta.icon,
           closable: meta.closable,
         }
-      }),
-  )
+      })
+    const labels = terminalLabels()
+    const terms = terminal.all().map((t) => ({
+      value: terminalTabValue(t.tabID),
+      label: labels.get(t.tabID) ?? "",
+      icon: { kind: "icon" as const, name: "terminal" as const },
+      closable: true,
+    }))
+    // Layout: pinned status + closable static (files/review/context in user
+    // order) + terminals. Terminals always trail static; cross-group drag is
+    // a no-op (see planShellTabReorder).
+    return [...staticTabs, ...terms]
+  })
+
   const closableMissingTabs = createMemo(() => {
     const open = new Set(view().sidePanel.openTabs())
     return RIGHT_PANEL_TAB_VALUES.filter((tab) => tab !== "status" && !open.has(tab)).map((value) => {
@@ -137,8 +172,40 @@ export function SessionSidePanel(props: {
 
   const setSidePanelTabValue = (value: string) => {
     if (!isRightPanelTab(value)) return
+    if (isRightPanelTerminalTab(value)) {
+      const id = terminalTabId(value)
+      // Guard against stale tab values: a deeplink or persisted active id may
+      // point at a terminal that no longer exists. Drop the activation
+      // silently rather than calling terminal.open with an unknown id.
+      const exists = terminal.all().some((t) => (t.tabID as string) === id)
+      if (!exists) return
+      terminal.open(id as TerminalTabID)
+    }
     view().sidePanel.openTab(value)
   }
+
+  const closeShellTabValue = createCloseShellTabRouter({ view, terminal: () => terminal })
+
+  // Stale terminal selector guard: persisted sidePanelTab may carry a
+  // `terminal:<id>` whose terminal no longer exists after restart. If we
+  // render that selector, the panel body shows nothing because the matching
+  // <Tabs.Content> isn't in the For loop. Fall back to status when we detect
+  // a dangling reference — but only once terminal persistence has hydrated
+  // (terminal.ready()), since terminal.all() is empty until then and would
+  // otherwise mis-detect a freshly-restored active terminal as dangling and
+  // bounce the user to Status. ready() is reactive, so this re-validates when
+  // the terminal store loads.
+  createEffect(() => {
+    const tab = sidePanelTab()
+    const ids = terminal.all().map((t) => t.tabID as string)
+    if (isDanglingTerminalSelection(tab, terminal.ready(), ids)) {
+      // Correct the selection without forcing the panel open. openTab("status")
+      // ends in this.open() and would pop a panel the user had closed; closeTab
+      // routes the dangling terminal through closeShellTab, which shifts
+      // sidePanelTab to status and leaves the panel's open/closed state alone.
+      view().sidePanel.closeTab(tab)
+    }
+  })
   const showAllFiles = () => {
     if (view().sidePanel.explorer.tab() !== "changes") return
     view().sidePanel.explorer.setTab("all")
@@ -180,20 +247,16 @@ export function SessionSidePanel(props: {
       .querySelector<HTMLElement>('[data-component="desktop-shell"]')
       ?.removeAttribute("data-resizing-right-panel")
   })
+  // Mirror "is a terminal currently visible?" to the legacy view().terminal
+  // signal. Terminal tabs flatten into right-panel tabs (Area B 2026-05-25),
+  // so the legacy boolean is now derived from sidePanelTab rather than a
+  // separate user toggle. Kept alive for callers like session.tsx and
+  // command-palette which still read terminalOpened().
   createEffect(() => {
     if (!isDesktop()) return
-
-    if (!open()) {
-      if (view().terminal.opened()) view().terminal.close()
-      return
-    }
-
-    if (sidePanelTab() === "terminal") {
-      if (!view().terminal.opened()) view().terminal.open()
-      return
-    }
-
-    if (view().terminal.opened()) view().terminal.close()
+    const wantOpen = open() && isRightPanelTerminalTab(sidePanelTab())
+    if (wantOpen && !view().terminal.opened()) view().terminal.open()
+    if (!wantOpen && view().terminal.opened()) view().terminal.close()
   })
 
   createEffect(() => {
@@ -218,14 +281,18 @@ export function SessionSidePanel(props: {
     const { draggable, droppable } = event
     if (!draggable || !droppable) return
 
-    const from = draggable.id.toString()
-    const to = droppable.id.toString()
-    if (!isRightPanelTab(from) || !isRightPanelTab(to)) return
-
-    const currentTabs = view().sidePanel.openTabs()
-    const toIndex = getTabReorderIndex(currentTabs, from, to)
-    if (toIndex === undefined) return
-    view().sidePanel.moveTab(from, toIndex)
+    const plan = planShellTabReorder({
+      draggableId: draggable.id.toString(),
+      droppableId: droppable.id.toString(),
+      openStatic: view().sidePanel.openTabs(),
+      terminalIds: terminal.all().map((t) => t.tabID),
+    })
+    if (!plan) return
+    if (plan.kind === "static") {
+      view().sidePanel.moveTab(plan.target, plan.to)
+    } else {
+      terminal.move(plan.target as TerminalTabID, plan.to)
+    }
   }
 
   const openFilePicker = (onOpenFile?: () => void) => {
@@ -301,9 +368,14 @@ export function SessionSidePanel(props: {
                   tabsPortalMount={tabsPortalMount}
                   shellTabs={shellTabs}
                   activeTab={activeTab}
-                  openShellTabs={() => view().sidePanel.openTabs()}
-                  closeTab={(tab) => view().sidePanel.closeTab(tab)}
-                  openTab={(tab) => view().sidePanel.openTab(tab)}
+                  openShellTabs={() =>
+                    [
+                      ...view().sidePanel.openTabs(),
+                      ...terminal.all().map((t) => terminalTabValue(t.tabID)),
+                    ] as RightPanelTab[]
+                  }
+                  closeTab={closeShellTabValue}
+                  openTab={setSidePanelTabValue}
                   closableMissingTabs={closableMissingTabs}
                   openFilePicker={openFilePicker}
                   showAllFiles={showAllFiles}
@@ -338,16 +410,19 @@ export function SessionSidePanel(props: {
                   />
                 </Tabs.Content>
 
-                <Tabs.Content value="terminal" class="min-h-0 flex-1 overflow-hidden">
-                  <Show when={sidePanelTab() === "terminal"}>
-                    <Show
-                      when={props.terminalPanel}
-                      fallback={<div class="px-4 py-3 text-body text-fg-weak">{language.t("terminal.loading")}</div>}
-                    >
-                      {(renderTerminal) => renderTerminal()()}
-                    </Show>
-                  </Show>
-                </Tabs.Content>
+                <For each={terminal.all()}>
+                  {(t) => {
+                    const value = terminalTabValue(t.tabID)
+                    const active = createMemo(() => sidePanelTab() === value)
+                    return (
+                      <Tabs.Content value={value} class="min-h-0 flex-1 overflow-hidden">
+                        <Show when={active()}>
+                          <TerminalPanel tab={t} active={active} />
+                        </Show>
+                      </Tabs.Content>
+                    )
+                  }}
+                </For>
 
                 <Tabs.Content value="context" class="min-h-0 flex-1 overflow-hidden">
                   <Show when={sidePanelTab() === "context"}>

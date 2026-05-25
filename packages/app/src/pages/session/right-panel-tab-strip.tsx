@@ -1,4 +1,4 @@
-import { For, Match, Show, Switch } from "solid-js"
+import { createMemo, For, Match, Show, Switch } from "solid-js"
 import { Portal } from "solid-js/web"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { Icon } from "@opencode-ai/ui/icon"
@@ -66,6 +66,25 @@ export function RightPanelTabStrip(props: {
 }) {
   const language = useLanguage()
   const command = useCommand()
+  // `<For>` keys by reference identity. The parent's `shellTabs()` returns a
+  // fresh array of fresh objects on every recompute (session-side-panel.tsx:137
+  // builds it via `.map(...)`), so iterating that array directly would cause
+  // every chip to unmount and remount on every change — even ones whose data
+  // didn't change. Each SortableShellTab calls solid-dnd's createSortable,
+  // which registers/removes a `sortableOffset` transformer on its droppable;
+  // the cascade remount thrashes that registry and (in dev build) emits
+  // multiple "Cannot remove from droppable, nonexistent transformer with id:
+  // sortableOffset" warnings per close. Fix: iterate over stable string ids,
+  // look up the chip's data via memo inside the loop. String identity = string
+  // equality, so `<For>` reuses each chip's DOM node across recomputes.
+  // Regression: e2e/session/titlebar-right-rail-contract.spec.ts
+  // "preserves sibling chip DOM identity".
+  const shellTabIds = createMemo(() => props.shellTabs().map((tab) => tab.value))
+  const shellTabsByValue = createMemo(() => {
+    const map = new Map<RightPanelTab, ShellTabDef>()
+    for (const tab of props.shellTabs()) map.set(tab.value, tab)
+    return map
+  })
   return (
     <Show when={props.tabsPortalMount()}>
       {(mount) => (
@@ -79,29 +98,46 @@ export function RightPanelTabStrip(props: {
               alignment with the panel body below. */}
           <Tabs.List class="h-full shrink-0 px-1 py-0 items-center">
             <SortableProvider ids={sortableShellTabIds(props.openShellTabs())}>
-              <For each={props.shellTabs()}>
-                {(tab) => (
-                  <Show
-                    when={tab.value !== "status"}
-                    fallback={
-                      <ShellTab
-                        value={tab.value}
-                        label={tab.label}
-                        closable={tab.closable}
-                        onClose={props.closeTab}
-                        icon={<RightPanelShellIcon icon={tab.icon} active={props.activeTab() === tab.value} />}
-                      />
-                    }
-                  >
-                    <SortableShellTab
-                      value={tab.value}
-                      label={tab.label}
-                      closable={tab.closable}
-                      onClose={props.closeTab}
-                      icon={<RightPanelShellIcon icon={tab.icon} active={props.activeTab() === tab.value} />}
-                    />
-                  </Show>
-                )}
+              <For each={shellTabIds()}>
+                {(id) => {
+                  const tab = createMemo(() => shellTabsByValue().get(id))
+                  return (
+                    <Show when={tab()}>
+                      {(t) => (
+                        <Show
+                          when={t().value !== "status"}
+                          fallback={
+                            <ShellTab
+                              value={t().value}
+                              label={t().label}
+                              closable={t().closable}
+                              onClose={props.closeTab}
+                              icon={
+                                <RightPanelShellIcon
+                                  icon={t().icon}
+                                  active={props.activeTab() === t().value}
+                                />
+                              }
+                            />
+                          }
+                        >
+                          <SortableShellTab
+                            value={t().value}
+                            label={t().label}
+                            closable={t().closable}
+                            onClose={props.closeTab}
+                            icon={
+                              <RightPanelShellIcon
+                                icon={t().icon}
+                                active={props.activeTab() === t().value}
+                              />
+                            }
+                          />
+                        </Show>
+                      )}
+                    </Show>
+                  )
+                }}
               </For>
             </SortableProvider>
             {/* Spacer pushes the `+` button to the rail's right edge so
@@ -122,6 +158,11 @@ export function RightPanelTabStrip(props: {
                     <Icon name="open-file" />
                     <DropdownMenu.ItemLabel>{language.t("command.file.open")}</DropdownMenu.ItemLabel>
                     <span class="ml-auto text-body text-fg-weaker">{command.keybind("file.open")}</span>
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Item onSelect={() => command.trigger("terminal.new")}>
+                    <Icon name="terminal" />
+                    <DropdownMenu.ItemLabel>{language.t("command.terminal.new")}</DropdownMenu.ItemLabel>
+                    <span class="ml-auto text-body text-fg-weaker">{command.keybind("terminal.new")}</span>
                   </DropdownMenu.Item>
                   <Show when={props.closableMissingTabs().length > 0}>
                     <DropdownMenu.Separator />

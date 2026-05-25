@@ -1,7 +1,13 @@
 export const promptSelector = '[data-component="prompt-input"]'
-const desktopTerminalSelector = '#right-panel[aria-hidden="false"] #terminal-panel [data-component="terminal"]'
-const mobileTerminalSelector = '#terminal-panel[aria-hidden="false"] [data-component="terminal"]'
-export const terminalSelector = `${desktopTerminalSelector}, ${mobileTerminalSelector}`
+// Terminal flatten (Area B 2026-05-25): the right-panel terminal lives inside
+// the active `terminal:<id>` Tabs.Content rather than its own `#terminal-panel`
+// container. The body element still carries `data-component="terminal-panel"`,
+// so scope through that. Kobalte hides inactive Tabs.Content via the `hidden`
+// attribute, so this resolves to the currently-active terminal only.
+// Mobile has no right panel; the legacy mobile terminal-panel container was
+// removed alongside the flatten refactor.
+export const terminalSelector =
+  '#right-panel[aria-hidden="false"] [data-component="terminal-panel"] [data-component="terminal"]'
 export const sessionComposerDockSelector = '[data-component="session-prompt-dock"]'
 export const sessionComposerColumnSelector = '[data-component="session-composer-column"]'
 export const sessionTimelineColumnSelector = '[data-component="session-timeline-column"]'

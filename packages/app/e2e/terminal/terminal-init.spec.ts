@@ -1,13 +1,16 @@
 import { test, expect } from "../fixtures"
 import { waitTerminalFocusIdle, waitTerminalReady } from "../actions"
-import { promptSelector, terminalSelector } from "../selectors"
+import { promptSelector, rightPanelTabsScopeSelector, terminalSelector } from "../selectors"
 import { terminalToggleKey } from "../utils"
 
 test("@smoke terminal mounts and can create a second tab", async ({ page, gotoSession }) => {
   await gotoSession()
 
   const terminals = page.locator(terminalSelector)
-  const tabs = page.locator('#terminal-panel [data-slot="tabs-trigger"]')
+  // Each terminal is its own outer right-panel tab post-flatten. Count
+  // terminal triggers (data-key="terminal:<id>") in the right-panel tab strip
+  // instead of the legacy internal `#terminal-panel` tabs.
+  const tabs = page.locator(`${rightPanelTabsScopeSelector} [data-slot="tabs-trigger"][data-key^="terminal:"]`)
   const opened = await terminals.first().isVisible()
 
   if (!opened) {

@@ -18,7 +18,7 @@ import { findLast } from "@opencode-ai/util/array"
 import { canCloseSessionTab, closeSessionTab } from "@/pages/session/close-session-tab"
 import { createSessionTabs } from "@/pages/session/helpers"
 import { readSessionMessages, readUserMessages } from "@/pages/session/session-messages"
-import { toggleDesktopTerminal } from "@/pages/session/terminal-shell-tab"
+import { createCloseShellTabRouter, focusActiveTerminalTab, toggleDesktopTerminal } from "@/pages/session/terminal-shell-tab"
 import { extractPromptFromParts } from "@/utils/prompt"
 import { UserMessage } from "@opencode-ai/sdk/v2"
 import { useSessionLayout } from "@/pages/session/session-layout"
@@ -155,13 +155,18 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     })
   }
 
+  const closeShellTabRouter = createCloseShellTabRouter({ view, terminal: () => terminal })
+
   const closeTab = () => {
     closeSessionTab({
       closableTab,
       closeFileTab: tabs().close,
       sidePanelOpened: view().sidePanel.opened,
       sidePanelTab: view().sidePanel.tab,
-      closeShellTab: view().sidePanel.closeTab,
+      // Route terminal:<id> closes to terminal.close so mod+w doesn't leave
+      // orphan terminals in terminal.all(). Earlier this used
+      // view().sidePanel.closeTab directly, which only shifts focus.
+      closeShellTab: closeShellTabRouter,
     })
   }
 
@@ -184,22 +189,21 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     addSelectionToContext(path, selectionFromLines(range))
   }
 
+  // Both handlers are desktop-only: terminal.new / terminal.toggle are not
+  // registered on narrow layouts (see viewCmds / terminalCmds), so neither
+  // their keybind nor a palette entry can reach here when !isDesktop().
+  // Post-flatten the whole terminal surface lives in the desktop-only right
+  // panel; there is no non-desktop terminal host to drive.
   const openTerminal = () => {
-    if (terminal.all().length > 0) terminal.new()
-    if (!isDesktop()) {
-      view().terminal.open()
-      return
-    }
-    view().sidePanel.openTab("terminal")
-    view().terminal.open()
+    // Create a brand new terminal and switch to its outer tab. After flatten,
+    // every terminal is its own right-panel tab; "open" means "make a new one
+    // active".
+    terminal.new()
+    focusActiveTerminalTab(view().sidePanel, terminal)
   }
 
   const toggleTerminal = () => {
-    if (!isDesktop()) {
-      view().terminal.toggle()
-      return
-    }
-    toggleDesktopTerminal(view(), view().terminal)
+    toggleDesktopTerminal(view(), terminal)
   }
 
   const chooseModel = () => {
@@ -415,13 +419,23 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   ]
 
   const viewCmds = () => [
-    viewCommand({
-      id: "terminal.toggle",
-      title: language.t("command.terminal.toggle"),
-      keybind: "ctrl+`",
-      slash: "terminal",
-      onSelect: toggleTerminal,
-    }),
+    // Terminal is a desktop-only surface after the flatten: the entire right
+    // panel (its only host) is gated by isDesktop. On narrow layouts the
+    // toggle would flip legacy view().terminal state with nothing to render,
+    // so don't register the command or its keybind there at all. Same gate
+    // on terminal.new below. The registration is reactive, so resizing across
+    // 768px re-registers correctly.
+    ...(isDesktop()
+      ? [
+          viewCommand({
+            id: "terminal.toggle",
+            title: language.t("command.terminal.toggle"),
+            keybind: "ctrl+`",
+            slash: "terminal",
+            onSelect: toggleTerminal,
+          }),
+        ]
+      : []),
     viewCommand({
       id: "review.toggle",
       title: language.t("command.review.toggle"),
@@ -449,15 +463,18 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     }),
   ]
 
-  const terminalCmds = () => [
-    terminalCommand({
-      id: "terminal.new",
-      title: language.t("command.terminal.new"),
-      description: language.t("command.terminal.new.description"),
-      keybind: "ctrl+alt+t",
-      onSelect: openTerminal,
-    }),
-  ]
+  const terminalCmds = () =>
+    isDesktop()
+      ? [
+          terminalCommand({
+            id: "terminal.new",
+            title: language.t("command.terminal.new"),
+            description: language.t("command.terminal.new.description"),
+            keybind: "ctrl+alt+t",
+            onSelect: openTerminal,
+          }),
+        ]
+      : []
 
   const messageCmds = () => [
     sessionCommand({

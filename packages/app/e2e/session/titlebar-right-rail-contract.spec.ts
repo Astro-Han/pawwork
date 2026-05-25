@@ -343,30 +343,30 @@ test.describe("titlebar right rail contract", () => {
     await expect(page.getByRole("menu")).toBeVisible({ timeout: 2_000 })
   })
 
-  test('"+" stays clickable even if Tabs.List is forced to fill the slot (collision guard)', async ({
+  test("Solid Portal wrapper fills the slot so Tabs.List can bound overflow scroll", async ({
     page,
     gotoSession,
   }) => {
-    // Fortification test for the same P1 risk: the no-collision guarantee
-    // in production today depends on Kobalte's `Tabs.List` rendering at
-    // content-width. If a future change makes the list fill the slot, the
-    // `+` button would slide to the slot's right edge. The titlebar slot
-    // reserves a 44px right padding to make that case safe; this test
-    // injects the future scenario (`width: 100% !important` on
-    // `[data-slot="tabs-list"]`) and asserts the contract still holds.
+    // Regression guard: <Portal> from solid-js/web creates an intermediate
+    // <div> between the mount target and its children (see
+    // node_modules/solid-js/web/dist/web.js → Portal(): document.createElement('div')
+    // appendChild'd to el). Without an explicit size rule, that wrapper is
+    // display:block and content-sized, so Tabs.List's `width: 100%` (from
+    // tabs.css base + sidepanel variant) resolves against the wrapper rather
+    // than the slot — and `overflow-x: auto` on the list never bounds
+    // anything. Terminal chips then overflow the slot silently (the slot
+    // itself uses `overflow: clip` from the same base rule).
+    //
+    // The fix lives in tabs.css sidepanel variant: `& > div { width: 100%;
+    // height: 100%; min-width: 0; display: flex; }`. This test asserts the
+    // wrapper actually fills the slot's content-box, plus the existing
+    // contract that `+` does not collide with the panel toggle.
+    //
+    // An earlier version of this test injected `width: 100% !important` on
+    // [data-slot="tabs-list"] directly, which bypassed the Portal wrapper
+    // and so passed even when the production bug was live — false coverage.
     await gotoSession()
     await openRightPanel(page)
-
-    // Force the "future" layout: Tabs.List fills the slot.
-    await page.addStyleTag({
-      content: `
-        #pawwork-titlebar-tabs [data-slot="tabs-list"] {
-          width: 100% !important;
-          flex-grow: 1 !important;
-        }
-      `,
-    })
-
     await page.mouse.move(0, 0)
     await expect
       .poll(
@@ -381,9 +381,49 @@ test.describe("titlebar right rail contract", () => {
       )
       .toBe("true")
 
-    // Geometry check: `+` button's right edge must stop before the toggle's
-    // left edge — i.e. the slot's padding-end reserve actually keeps them
-    // apart even with Tabs.List filling the slot.
+    // Wrapper-fills-slot check: Solid's Portal mounts a single <div>
+    // child into `#pawwork-titlebar-tabs`. Its border-box width must equal
+    // the slot's inner content width (slot width minus padding-right reserve
+    // for the toggle). Without this, the list reports content-width and
+    // overflow-x cannot trigger.
+    const layout = await page.evaluate(() => {
+      const slot = document.querySelector<HTMLElement>("#pawwork-titlebar-tabs")
+      const wrapper = slot?.firstElementChild as HTMLElement | null
+      if (!slot || !wrapper) return null
+      const slotRect = slot.getBoundingClientRect()
+      const cs = getComputedStyle(slot)
+      const paddingRight = parseFloat(cs.paddingRight || "0")
+      return {
+        wrapperWidth: wrapper.getBoundingClientRect().width,
+        slotInnerWidth: slotRect.width - paddingRight,
+      }
+    })
+    expect(layout).not.toBeNull()
+    // Allow 1px rounding tolerance.
+    expect(Math.abs(layout!.wrapperWidth - layout!.slotInnerWidth)).toBeLessThan(2)
+
+    // Scope guard: the Portal-wrapper fix must NOT leak into the right-panel
+    // body's <Tabs variant="sidepanel"> host. That host also has
+    // data-component="tabs" + data-variant="sidepanel", but no
+    // data-shell-slot="tabs-portal" — so an earlier wider selector
+    // ([data-variant="sidepanel"] > div) accidentally forced display:flex /
+    // height:100% on every Tabs.Content panel underneath, changing chip
+    // shape and selection visuals as a side effect. This assertion locks
+    // the rule down to the titlebar slot only by verifying the body's
+    // Tabs.Content has its natural (non-flex) display.
+    const bodyContentDisplay = await page.evaluate(() => {
+      const bodyTabs = document.querySelector<HTMLElement>(
+        '[data-component="right-panel-body"] [data-component="tabs"][data-variant="sidepanel"]',
+      )
+      const firstContent = bodyTabs?.querySelector<HTMLElement>('[data-slot="tabs-content"]')
+      return firstContent ? getComputedStyle(firstContent).display : null
+    })
+    expect(bodyContentDisplay).not.toBeNull()
+    expect(bodyContentDisplay).not.toBe("flex")
+
+    // Geometry check (preserved from the previous collision-guard test): the
+    // `+` button's right edge must stop before the toggle's left edge — the
+    // slot's 44px padding-right reserve keeps them apart.
     const geom = await page.evaluate(() => {
       const plus = document.querySelector<HTMLElement>('button[aria-label="Add tab"]')
       const toggle = document.querySelector<HTMLElement>(
@@ -399,13 +439,85 @@ test.describe("titlebar right rail contract", () => {
     expect(geom.plusRight!).toBeLessThan(geom.toggleLeft!)
 
     // Behavioral check: `+` still actually opens its dropdown without
-    // closing the panel — geometry alone could be misleading if some
-    // hit-test layer intercepts.
+    // closing the panel.
     await page.getByRole("button", { name: "Add tab" }).click()
     await expect(
       page.locator('button[aria-label="Right utility panel"]'),
     ).toHaveAttribute("aria-expanded", "true")
     await expect(page.getByRole("menu")).toBeVisible({ timeout: 2_000 })
+  })
+
+  test("closing a chip preserves sibling chip DOM identity (For keys by stable id, not fresh object refs)", async ({
+    page,
+    gotoSession,
+  }) => {
+    // Regression guard: `shellTabs` memo (session-side-panel.tsx:137) returns
+    // a fresh array of fresh objects on every recompute via `.map(...)`.
+    // SolidJS `<For>` (right-panel-tab-strip.tsx:82) keys by reference
+    // identity — fresh refs cause every chip to unmount and remount, not
+    // just the one that changed. Each SortableShellTab's createSortable
+    // (solid-dnd) registers/removes a `sortableOffset` transformer on its
+    // droppable; the all-remount cascade thrashes that registry and (in
+    // dev build) emits multiple "Cannot remove from droppable" warnings.
+    //
+    // The directly observable symptom is DOM node churn: a sibling chip's
+    // <div data-slot="tabs-trigger-wrapper"> element is REPLACED, not
+    // preserved, on every state change. This is build-agnostic — works
+    // regardless of whether the test runner pulls solid-dnd's dev or prod
+    // build. After the fix (For keyed by stable string ids), sibling chip
+    // nodes are the same DOM reference across the close.
+    await gotoSession()
+    await openRightPanel(page)
+    // Open Files and Review so the strip has two sortable sibling chips.
+    await page.locator("main").first().click()
+    await page.keyboard.press(`${modKey}+\\`) // Files
+    await page.keyboard.press(`${modKey}+Shift+R`) // Review
+    await page.mouse.move(0, 0)
+
+    await expect(
+      page.locator('[data-slot="tabs-trigger-wrapper"][data-value="files"]'),
+    ).toBeVisible()
+    await expect(
+      page.locator('[data-slot="tabs-trigger-wrapper"][data-value="review"]'),
+    ).toBeVisible()
+
+    // Stash the Review chip's DOM node before we close Files.
+    await page.evaluate(() => {
+      const review = document.querySelector(
+        '[data-slot="tabs-trigger-wrapper"][data-value="review"]',
+      )
+      ;(window as unknown as { __reviewChipBefore: Element | null }).__reviewChipBefore =
+        review
+    })
+
+    // Close Files via its × button.
+    await page
+      .locator('[data-slot="tabs-trigger-wrapper"][data-value="files"]')
+      .hover()
+    await page
+      .locator(
+        '[data-slot="tabs-trigger-wrapper"][data-value="files"] button[aria-label*="Close"]',
+      )
+      .click()
+
+    // Wait for the close to settle.
+    await expect(
+      page.locator('[data-slot="tabs-trigger-wrapper"][data-value="files"]'),
+    ).toHaveCount(0)
+    await expect(
+      page.locator('[data-slot="tabs-trigger-wrapper"][data-value="review"]'),
+    ).toBeVisible()
+
+    // Assert Review's DOM node is the SAME element (For reused it).
+    const reviewNodePreserved = await page.evaluate(() => {
+      const review = document.querySelector(
+        '[data-slot="tabs-trigger-wrapper"][data-value="review"]',
+      )
+      const before = (window as unknown as { __reviewChipBefore: Element | null })
+        .__reviewChipBefore
+      return review === before
+    })
+    expect(reviewNodePreserved).toBe(true)
   })
 
   test("data-resizing-right-panel attribute does not leak when viewport drops below the desktop breakpoint mid-resize state", async ({

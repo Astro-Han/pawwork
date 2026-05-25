@@ -5,7 +5,6 @@ import type { useLanguage } from "@/context/language"
 import type { createSizing } from "@/pages/session/helpers"
 import { MessageTimeline } from "@/pages/session/message-timeline"
 import { SessionSidePanel } from "@/pages/session/session-side-panel"
-import { TerminalPanel } from "@/pages/session/terminal-panel"
 import { shouldShowSessionOpeningState } from "@/pages/session/session-main-view-state"
 import type { createSessionHistoryWindow } from "@/pages/session/use-session-history-window"
 import type { createSessionReviewState } from "@/pages/session/use-session-review-state"
@@ -193,14 +192,9 @@ export function SessionMainView(props: {
           reviewCount={props.reviewCount}
           reviewPanel={props.reviewPanel}
           files={props.files}
-          terminalPanel={() => <TerminalPanel embedded />}
           size={props.size}
         />
       </div>
-
-      <Show when={!props.isDesktop}>
-        <TerminalPanel />
-      </Show>
     </div>
   )
 }
