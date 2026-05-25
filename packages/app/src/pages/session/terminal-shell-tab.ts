@@ -6,107 +6,108 @@ import {
 } from "@/pages/session/right-panel-tabs"
 import type { TerminalTabID } from "@/context/terminal-types"
 
-type DesktopTerminalView = {
-  sidePanel: {
-    opened: () => boolean
-    tab: () => RightPanelTab
-    openTab: (tab: RightPanelTab) => void
-    close: () => void
-  }
+/**
+ * Minimal slice of the right-panel side-panel API that the desktop terminal
+ * helpers need. Kept structural so the real `view().sidePanel` from layout
+ * context (which has many more members) and small test fakes both satisfy it.
+ */
+type SidePanelSlice = {
+  opened: () => boolean
+  tab: () => RightPanelTab
+  openTab: (tab: RightPanelTab) => void
+  closeTab: (tab: RightPanelTab) => void
+  close: () => void
 }
 
-type DesktopTerminalState = {
-  /** Currently active terminal tab id, or undefined if none. */
+type TerminalSlice = {
   active: () => string | undefined
-  /** All terminal tab ids in order. */
   all: () => { tabID: TerminalTabID }[]
-  /** Create a new terminal; sets it active. */
   new: () => void
+  close: (id: TerminalTabID) => void
+}
+
+/**
+ * After flatten, "show a terminal" always means "activate its outer right-
+ * panel tab". This picks the right terminal id (current active, else first)
+ * and switches sidePanel to it. No-op when there are no terminals — callers
+ * that want auto-creation must invoke `terminal.new()` first themselves so
+ * the intent ("create or focus") stays explicit at the call site.
+ */
+export function focusActiveTerminalTab(
+  sidePanel: Pick<SidePanelSlice, "openTab">,
+  terminal: Pick<TerminalSlice, "active" | "all">,
+) {
+  const id = terminal.active() ?? terminal.all()[0]?.tabID
+  if (!id) return
+  sidePanel.openTab(terminalTabValue(id as string))
 }
 
 /**
  * Toggle the right-panel terminal experience on desktop:
  *   - if a terminal tab is currently active → close the panel,
- *   - else if any terminal exists → switch to the active terminal tab,
+ *   - else if any terminal exists → switch to it,
  *   - else → create a new terminal and switch to it.
  *
  * Terminals flatten into right-panel tabs (Area B 2026-05-25); there is no
  * separate "Terminal" panel surface to toggle anymore.
  *
  * Note: terminal.new() is currently a synchronous batch on the SolidJS store,
- * so reading terminal.active() immediately after returns the new id. If
- * terminal.new becomes async (e.g. backend handshake), the post-new read must
- * become awaited instead — flagged here so the assumption is visible.
+ * so focusActiveTerminalTab reading terminal.active() right after returns the
+ * new id. If terminal.new becomes async (e.g. backend handshake) that read
+ * must become awaited — flagged here so the assumption is visible.
  */
-export function toggleDesktopTerminal(view: DesktopTerminalView, terminal: DesktopTerminalState) {
-  const currentTab = view.sidePanel.tab()
-  const isOnTerminal = view.sidePanel.opened() && isRightPanelTerminalTab(currentTab)
-
-  if (isOnTerminal) {
+export function toggleDesktopTerminal(
+  view: { sidePanel: Pick<SidePanelSlice, "opened" | "tab" | "openTab" | "close"> },
+  terminal: Pick<TerminalSlice, "active" | "all" | "new">,
+) {
+  const onTerminal = view.sidePanel.opened() && isRightPanelTerminalTab(view.sidePanel.tab())
+  if (onTerminal) {
     view.sidePanel.close()
     return
   }
-
-  const activeId = terminal.active()
-  if (activeId) {
-    view.sidePanel.openTab(terminalTabValue(activeId))
-    return
-  }
-
-  const first = terminal.all()[0]
-  if (first) {
-    view.sidePanel.openTab(terminalTabValue(first.tabID))
-    return
-  }
-
-  terminal.new()
-  const newId = terminal.active()
-  if (newId) view.sidePanel.openTab(terminalTabValue(newId))
-}
-
-type ShellCloseRouter = {
-  view: {
-    sidePanel: {
-      tab: () => RightPanelTab
-      openTab: (tab: RightPanelTab) => void
-      closeTab: (tab: RightPanelTab) => void
-    }
-  }
-  terminal: {
-    all: () => { tabID: TerminalTabID }[]
-    close: (id: TerminalTabID) => void
-  }
+  if (terminal.all().length === 0) terminal.new()
+  focusActiveTerminalTab(view.sidePanel, terminal)
 }
 
 /**
  * Return a unified close handler for a shell tab. Routes terminal:<id> closes
- * to terminal.close (and falls focus to a neighbor terminal in render order
- * before fading back to status), and static-tab closes to view.sidePanel.closeTab.
+ * to terminal.close (and shifts focus to the previous terminal in render
+ * order, or back to status if the closed terminal was the first); static-tab
+ * closes go straight to sidePanel.closeTab.
  *
  * Used by both the mouse-driven close on each chip and the keyboard mod+w
- * shortcut so the two paths stay identical — earlier these diverged and
- * mod+w left orphan terminals in terminal.all().
+ * shortcut so the two paths stay identical — earlier they diverged and mod+w
+ * left orphan terminals in terminal.all().
+ *
+ * Deps are passed as accessors so the router survives session-route changes
+ * (view()/terminal context identity can flip when navigating between
+ * sessions, but the router instance is created once per consumer).
  */
-export function createCloseShellTabRouter({ view, terminal }: ShellCloseRouter) {
+export function createCloseShellTabRouter(deps: {
+  view: () => { sidePanel: Pick<SidePanelSlice, "tab" | "openTab" | "closeTab"> }
+  terminal: () => Pick<TerminalSlice, "all" | "close">
+}) {
   return (tab: RightPanelTab) => {
+    const sidePanel = deps.view().sidePanel
     if (!isRightPanelTerminalTab(tab)) {
-      view.sidePanel.closeTab(tab)
+      sidePanel.closeTab(tab)
       return
     }
     const closingId = terminalTabId(tab)
-    const wasActive = view.sidePanel.tab() === tab
-    const ids = terminal.all().map((t) => t.tabID as string)
+    const wasActive = sidePanel.tab() === tab
+    const term = deps.terminal()
+    const ids = term.all().map((t) => t.tabID as string)
     const closingIndex = ids.indexOf(closingId)
-    terminal.close(closingId as TerminalTabID)
+    term.close(closingId as TerminalTabID)
     if (!wasActive) return
     // Fall focus to the previous terminal in render order; if it was the
-    // first (or only) terminal, hand back to status. Matches editor / browser
+    // first (or only) terminal, hand back to status. Matches editor/browser
     // convention "close current → go to previous sibling".
     const nextId = closingIndex > 0 ? ids[closingIndex - 1] : undefined
     if (nextId) {
-      view.sidePanel.openTab(terminalTabValue(nextId))
+      sidePanel.openTab(terminalTabValue(nextId))
     } else {
-      view.sidePanel.closeTab(tab) // shifts active off the dead terminal
+      sidePanel.closeTab(tab) // shifts active off the dead terminal
     }
   }
 }

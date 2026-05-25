@@ -17,9 +17,8 @@ import { isWorkInFlightStatus } from "@opencode-ai/ui/util/session-status"
 import { findLast } from "@opencode-ai/util/array"
 import { canCloseSessionTab, closeSessionTab } from "@/pages/session/close-session-tab"
 import { createSessionTabs } from "@/pages/session/helpers"
-import { terminalTabValue } from "@/pages/session/right-panel-tabs"
 import { readSessionMessages, readUserMessages } from "@/pages/session/session-messages"
-import { createCloseShellTabRouter, toggleDesktopTerminal } from "@/pages/session/terminal-shell-tab"
+import { createCloseShellTabRouter, focusActiveTerminalTab, toggleDesktopTerminal } from "@/pages/session/terminal-shell-tab"
 import { extractPromptFromParts } from "@/utils/prompt"
 import { UserMessage } from "@opencode-ai/sdk/v2"
 import { useSessionLayout } from "@/pages/session/session-layout"
@@ -156,19 +155,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     })
   }
 
-  const closeShellTabRouter = createCloseShellTabRouter({
-    view: {
-      sidePanel: {
-        tab: () => view().sidePanel.tab(),
-        openTab: (tab) => view().sidePanel.openTab(tab),
-        closeTab: (tab) => view().sidePanel.closeTab(tab),
-      },
-    },
-    terminal: {
-      all: () => terminal.all().map((t) => ({ tabID: t.tabID })),
-      close: (id) => terminal.close(id),
-    },
-  })
+  const closeShellTabRouter = createCloseShellTabRouter({ view, terminal: () => terminal })
 
   const closeTab = () => {
     closeSessionTab({
@@ -212,8 +199,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       view().terminal.open()
       return
     }
-    const activeId = terminal.active()
-    if (activeId) view().sidePanel.openTab(terminalTabValue(activeId))
+    focusActiveTerminalTab(view().sidePanel, terminal)
   }
 
   const toggleTerminal = () => {
@@ -221,11 +207,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       view().terminal.toggle()
       return
     }
-    toggleDesktopTerminal(view(), {
-      active: () => terminal.active(),
-      all: () => terminal.all().map((t) => ({ tabID: t.tabID })),
-      new: () => terminal.new(),
-    })
+    toggleDesktopTerminal(view(), terminal)
   }
 
   const chooseModel = () => {

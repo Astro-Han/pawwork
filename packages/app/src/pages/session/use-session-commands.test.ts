@@ -106,17 +106,17 @@ describe("createCloseShellTabRouter", () => {
   }) => {
     const calls: string[] = []
     const router = createCloseShellTabRouter({
-      view: {
+      view: () => ({
         sidePanel: {
           tab: () => opts.activeTab as never,
           openTab: (tab) => calls.push(`openTab:${tab}`),
           closeTab: (tab) => calls.push(`closeTab:${tab}`),
         },
-      },
-      terminal: {
+      }),
+      terminal: () => ({
         all: () => opts.terminals.map((id) => ({ tabID: terminalTabID(id) })),
         close: (id) => calls.push(`terminal.close:${id}`),
-      },
+      }),
     })
     return { router, calls }
   }

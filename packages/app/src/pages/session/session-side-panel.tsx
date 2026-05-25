@@ -183,19 +183,7 @@ export function SessionSidePanel(props: {
     view().sidePanel.openTab(value)
   }
 
-  const closeShellTabValue = createCloseShellTabRouter({
-    view: {
-      sidePanel: {
-        tab: () => view().sidePanel.tab(),
-        openTab: (tab) => view().sidePanel.openTab(tab),
-        closeTab: (tab) => view().sidePanel.closeTab(tab),
-      },
-    },
-    terminal: {
-      all: () => terminal.all().map((t) => ({ tabID: t.tabID })),
-      close: (id) => terminal.close(id),
-    },
-  })
+  const closeShellTabValue = createCloseShellTabRouter({ view, terminal: () => terminal })
 
   // Stale terminal selector guard: persisted sidePanelTab may carry a
   // `terminal:<id>` whose terminal no longer exists after restart. If we
