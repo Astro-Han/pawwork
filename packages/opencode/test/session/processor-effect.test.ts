@@ -1400,6 +1400,94 @@ it.live("disabled unknown tools do not block safe connect-timeout auto retry", (
   ),
 )
 
+it.live("reasoning-only retry removes failed reasoning before replaying the assistant message", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+
+        yield* llm.push(
+          raw({
+            head: [
+              {
+                id: "chatcmpl-reasoning-retry",
+                object: "chat.completion.chunk",
+                choices: [{ delta: { role: "assistant" } }],
+              },
+              {
+                id: "chatcmpl-reasoning-retry",
+                object: "chat.completion.chunk",
+                choices: [{ delta: { reasoning_content: "failed draft" } }],
+              },
+            ],
+            tail: [
+              {
+                error: {
+                  message: "rate limit",
+                  type: "server_error",
+                  code: "rate_limit",
+                },
+              },
+            ],
+          }),
+        )
+        yield* llm.text("after retry")
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "reasoning retry")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const value = yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "reasoning retry" }],
+          tools: {
+            mcp_write: tool({
+              description: "unknown local boundary",
+              inputSchema: z.object({}),
+            }),
+          },
+        })
+
+        const parts = MessageV2.parts(msg.id)
+        const stored = (yield* session.messages({ sessionID: chat.id })).find(
+          (message) => message.info.role === "assistant" && message.info.id === msg.id,
+        )
+
+        expect(value).toBe("continue")
+        expect(yield* llm.calls).toBe(2)
+        expect(parts.some((part) => part.type === "reasoning")).toBe(false)
+        expect(parts.some((part) => part.type === "reasoning" && part.text === "failed draft")).toBe(false)
+        expect(parts.some((part) => part.type === "text" && part.text === "after retry")).toBe(true)
+        expect(stored?.info.role).toBe("assistant")
+        if (stored?.info.role === "assistant") {
+          expect(stored.info.error).toBeUndefined()
+          expect(stored.info.diagnostics?.run_observability?.recovered_incidents?.[0]?.recovery).toMatchObject({
+            recommendation: "auto_retry_once",
+            reason: "reasoning_only_without_final_text_or_tool_activity",
+          })
+        }
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
 it.live("retryable stream error after visible output does not replay the assistant message", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>

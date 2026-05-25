@@ -194,6 +194,7 @@ interface ProcessorContext extends Input {
   needsCompaction: boolean
   currentText: MessageV2.TextPart | undefined
   reasoningMap: Record<string, MessageV2.ReasoningPart>
+  reasoningPartIDsByAttempt: Record<string, Set<PartID>>
   trace: LLMTrace.Recorder
   runTrace: RunObservability.Recorder
   attemptCount: number
@@ -255,6 +256,7 @@ export const layer: Layer.Layer<
         needsCompaction: false,
         currentText: undefined,
         reasoningMap: {},
+        reasoningPartIDsByAttempt: {},
         trace: LLMTrace.createRecorder({
           traceID: input.assistantMessage.id,
           sessionID: input.sessionID,
@@ -760,7 +762,10 @@ export const layer: Layer.Layer<
               time: { start: Date.now() },
               metadata: value.providerMetadata,
             }
-            yield* session.updatePart(ctx.reasoningMap[value.id])
+            const persistedReasoning = yield* session.updatePart(ctx.reasoningMap[value.id])
+            const attemptKey = String(attemptID)
+            ctx.reasoningPartIDsByAttempt[attemptKey] ??= new Set()
+            ctx.reasoningPartIDsByAttempt[attemptKey].add(persistedReasoning.id)
             return
 
           case "reasoning-delta":
@@ -1238,6 +1243,24 @@ export const layer: Layer.Layer<
           return { retryable: true, message: classification.raw }
         }
 
+        const removeReasoningForAttempt = Effect.fn("SessionProcessor.removeReasoningForAttempt")(function* (
+          attemptID: RunObservability.AttemptID,
+        ) {
+          const partIDs = ctx.reasoningPartIDsByAttempt[String(attemptID)]
+          if (!partIDs?.size) return
+          for (const partID of partIDs) {
+            yield* session.removePart({
+              sessionID: ctx.sessionID,
+              messageID: ctx.assistantMessage.id,
+              partID,
+            })
+          }
+          for (const [id, part] of Object.entries(ctx.reasoningMap)) {
+            if (partIDs.has(part.id)) delete ctx.reasoningMap[id]
+          }
+          delete ctx.reasoningPartIDsByAttempt[String(attemptID)]
+        })
+
         const runAttempt = Effect.fn("SessionProcessor.runAttempt")(function* () {
           ctx.currentText = undefined
           ctx.reasoningMap = {}
@@ -1313,6 +1336,7 @@ export const layer: Layer.Layer<
               const beforeRetry = yield* retryStillAllowed("before_backoff")
               if (beforeRetry.allowed) {
                 automaticStreamRetriesUsed += 1
+                yield* removeReasoningForAttempt(attemptID)
                 const next = Date.now() + SAFE_RECOVERY_AUTO_RETRY_BACKOFF_MS
                 yield* status.set(ctx.sessionID, {
                   type: "retry",
