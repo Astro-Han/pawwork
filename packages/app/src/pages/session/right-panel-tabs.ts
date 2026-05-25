@@ -193,6 +193,31 @@ export const toggleShellTab = (
   return { state: openShellTab(state, target), closePanel: false }
 }
 
+/**
+ * Decide whether the deferred selection write scheduled by openTab (see
+ * layout.tsx for the Kobalte race it works around) should still commit when
+ * the microtask runs.
+ *
+ * Skip when:
+ *   - the target chip was closed between sync commit and microtask, or
+ *   - someone else moved sidePanelTab off `baseline` in the meantime (e.g.
+ *     a same-tick openTab(B) ran synchronously and we'd otherwise overwrite
+ *     B with our deferred A).
+ *
+ * Pure on purpose so the Kobalte workaround stays unit-testable without
+ * standing up the full layout context.
+ */
+export const shouldCommitDeferredOpen = (
+  after: ShellTabState,
+  target: RightPanelTab,
+  baseline: RightPanelTab,
+): boolean => {
+  if (isTerminalTab(target)) return false
+  if (!(after.openShellTabs as readonly string[]).includes(target)) return false
+  if (after.sidePanelTab !== baseline) return false
+  return true
+}
+
 export const moveShellTab = (state: ShellTabState, target: RightPanelTab, to: number): ShellTabState => {
   if (target === "status") return state
   // Terminal tab reorder is owned by terminal.move; this helper only reorders

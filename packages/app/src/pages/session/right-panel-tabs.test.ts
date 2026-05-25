@@ -7,6 +7,7 @@ import {
   migrateLegacyRightPanelTab,
   normalizeShellTabs,
   RIGHT_PANEL_TAB_VALUES,
+  shouldCommitDeferredOpen,
   type RightPanelTab,
 } from "./right-panel-tabs"
 
@@ -136,5 +137,46 @@ describe("normalizeShellTabs", () => {
     const once = normalizeShellTabs({ openShellTabs: ["files", "status", "files"], sidePanelTab: "files" })
     const twice = normalizeShellTabs(once)
     expect(twice).toEqual(once)
+  })
+})
+
+describe("shouldCommitDeferredOpen", () => {
+  // Scenario: openTab("files") scheduled a microtask while baseline was "status".
+  // By the time the microtask runs, evaluate whether the deferred selection
+  // write to "files" is still safe.
+
+  test("commits when chip still open and baseline selection unchanged", () => {
+    const after = normalizeShellTabs({ openShellTabs: ["status", "files"], sidePanelTab: "status" })
+    expect(shouldCommitDeferredOpen(after, "files", "status")).toBe(true)
+  })
+
+  test("skips when chip was closed before microtask fired", () => {
+    const after = normalizeShellTabs({ openShellTabs: ["status"], sidePanelTab: "status" })
+    expect(shouldCommitDeferredOpen(after, "files", "status")).toBe(false)
+  })
+
+  test("skips when a same-tick openTab(B) moved selection off baseline", () => {
+    // Sequence: openTab("files") defers, openTab("review") commits sync to
+    // "review". The deferred microtask must not overwrite "review".
+    const after = normalizeShellTabs({
+      openShellTabs: ["status", "files", "review"],
+      sidePanelTab: "review",
+    })
+    expect(shouldCommitDeferredOpen(after, "files", "status")).toBe(false)
+  })
+
+  test("skips when selection moved off baseline to a different open tab", () => {
+    const after = normalizeShellTabs({
+      openShellTabs: ["status", "files", "context"],
+      sidePanelTab: "context",
+    })
+    // Baseline was "status"; by microtask time selection is on "context".
+    // Don't overwrite that with the deferred "files".
+    expect(shouldCommitDeferredOpen(after, "files", "status")).toBe(false)
+  })
+
+  test("never commits for a terminal target (terminal chips skip the defer path entirely)", () => {
+    const after = normalizeShellTabs({ openShellTabs: ["status"], sidePanelTab: "status" })
+    expect(shouldCommitDeferredOpen(after, "terminal:abc" as RightPanelTab, "status")).toBe(false)
   })
 })

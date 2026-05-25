@@ -20,6 +20,7 @@ import {
   moveShellTab,
   normalizeShellTabs,
   openShellTab,
+  shouldCommitDeferredOpen,
   toggleShellTab,
   type RightPanelTab,
   type ShellTabState,
@@ -960,11 +961,15 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
                   openShellTabs: next.openShellTabs,
                   sidePanelTab: current.sidePanelTab,
                 })
+                const baselineSelection = current.sidePanelTab
                 queueMicrotask(() => {
-                  // Re-validate: the chip may have been closed, or selection
-                  // may have moved elsewhere, between sync commit and now.
+                  // Re-validate via the pure decision helper: skip when the
+                  // chip was closed, or when sidePanelTab moved off
+                  // `baselineSelection` (e.g. a same-tick second openTab(B)
+                  // committed synchronously — we mustn't overwrite B with
+                  // the deferred A).
                   const after = shellTabState()
-                  if (!(after.openShellTabs as readonly string[]).includes(tab)) return
+                  if (!shouldCommitDeferredOpen(after, tab, baselineSelection)) return
                   setShellTabState(session, { openShellTabs: after.openShellTabs, sidePanelTab: tab })
                 })
               } else {
