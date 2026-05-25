@@ -44,6 +44,7 @@ import {
   type RightPanelTab,
 } from "@/pages/session/right-panel-tabs"
 import { computeTerminalLabels } from "@/pages/session/terminal-label"
+import { decode64 } from "@/utils/base64"
 import { TerminalPanel } from "@/pages/session/terminal-panel"
 import { createCloseShellTabRouter } from "@/pages/session/terminal-shell-tab"
 import { useSessionLayout } from "@/pages/session/session-layout"
@@ -126,7 +127,7 @@ export function SessionSidePanel(props: {
   // persisted in openShellTabs. Labels: cwd basename (session dir) with same-
   // name dedup; user rename wins. See computeTerminalLabels.
   const terminalLabels = createMemo(() => {
-    const cwd = params.dir
+    const cwd = decode64(params.dir)
     return computeTerminalLabels(
       terminal.all().map((t) => ({ tabID: t.tabID, title: t.title, titleNumber: t.titleNumber, cwd })),
       { t: language.t },
