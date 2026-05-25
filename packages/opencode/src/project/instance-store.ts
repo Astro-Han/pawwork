@@ -9,6 +9,7 @@ import { type InstanceContext } from "./instance-context"
 import { Project } from "./project"
 import { State } from "./state"
 import {
+  beginLifecycleClose,
   createLifecycleCloseAction,
   currentLifecycleOrigin,
   hasActiveRuns,
@@ -61,6 +62,7 @@ export type LifecycleCloseResult = {
   readonly status: "completed" | "deferred"
   readonly lifecycleActionID: string
   readonly affectedDirectoryKeys: readonly string[]
+  readonly completed?: Promise<void>
 }
 
 const disposeLoadedInstances = new Set<(options?: LifecycleCloseOptions) => Promise<LifecycleCloseResult>>()
@@ -187,6 +189,25 @@ export const layer = Layer.effect(
         yield* emitDisposed(ctx)
       })
 
+    const completeLifecycleClose = (options?: LifecycleCloseOptions) =>
+      Effect.promise(() => Promise.resolve(options?.onCompleted?.()))
+
+    const disposeEntryNow = (
+      directory: string,
+      entry: Entry,
+      ctx: InstanceContext,
+      closeAction: LifecycleCloseAction,
+      options?: LifecycleCloseOptions,
+    ) =>
+      Effect.gen(function* () {
+        if (entries.get(directory) !== entry) return false
+        yield* disposeContext(ctx, closeAction)
+        if (entries.get(directory) !== entry) return false
+        entries.delete(directory)
+        yield* completeLifecycleClose(options)
+        return true
+      })
+
     const disposeEntry = (
       directory: string,
       entry: Entry,
@@ -195,23 +216,30 @@ export const layer = Layer.effect(
       options?: LifecycleCloseOptions,
     ) =>
       Effect.gen(function* () {
-        if (entries.get(directory) !== entry) return false
         const closeAction =
           action ??
           createLifecycleCloseAction("instance_dispose", {
             affectedDirectories: [ctx.directory],
             ...lifecycleContext("instance.dispose", "dispose_context"),
           })
-        if ((options?.mode ?? "maintenance") === "maintenance" && hasActiveRuns([ctx.directory])) {
-          void whenAllRunsIdle([ctx.directory]).then(() =>
-            Effect.runPromise(disposeEntry(directory, entry, ctx, closeAction, { mode: "force" })).then(() => undefined),
-          )
+        if ((options?.mode ?? "maintenance") !== "maintenance") {
+          return yield* disposeEntryNow(directory, entry, ctx, closeAction, options)
+        }
+
+        const releaseClose = beginLifecycleClose([ctx.directory])
+        if (hasActiveRuns([ctx.directory])) {
+          const completed = whenAllRunsIdle([ctx.directory])
+            .then(() => Effect.runPromise(disposeEntryNow(directory, entry, ctx, closeAction, options)))
+            .finally(releaseClose)
+            .then(() => undefined)
+          void completed
           return false
         }
-        yield* disposeContext(ctx, closeAction)
-        if (entries.get(directory) !== entry) return false
-        entries.delete(directory)
-        return true
+        try {
+          return yield* disposeEntryNow(directory, entry, ctx, closeAction, options)
+        } finally {
+          releaseClose()
+        }
       })
 
     const reload = (
@@ -224,11 +252,14 @@ export const layer = Layer.effect(
         Effect.gen(function* () {
           validateExplicitContext(input)
           const previous = entries.get(directory)
+          let releaseClose: (() => void) | undefined
           if ((options?.mode ?? "maintenance") === "maintenance" && previous) {
+            releaseClose = beginLifecycleClose([directory])
             const exit = yield* restore(Deferred.await(previous.deferred)).pipe(Effect.exit)
             if (Exit.isSuccess(exit) && hasActiveRuns([exit.value.directory])) {
+              const releaseDeferredClose = releaseClose
               void whenAllRunsIdle([exit.value.directory]).then(() =>
-                Effect.runPromise(reload(input, reason, { mode: "maintenance" })).then(() => undefined),
+                Effect.runPromise(reload(input, reason, { mode: "force" })).finally(releaseDeferredClose).then(() => undefined),
               )
               return exit.value
             }
@@ -250,7 +281,11 @@ export const layer = Layer.effect(
             }
             yield* completeLoad(directory, input, entry)
           }).pipe(Effect.forkIn(scope, { startImmediately: true }))
-          return yield* restore(Deferred.await(entry.deferred))
+          try {
+            return yield* restore(Deferred.await(entry.deferred))
+          } finally {
+            releaseClose?.()
+          }
         }),
       ).pipe(Effect.withSpan("InstanceStore.reload"))
     }
@@ -347,11 +382,16 @@ export const layer = Layer.effect(
     const resultFor = (
       status: LifecycleCloseResult["status"],
       action: LifecycleCloseAction,
-    ): LifecycleCloseResult => ({
-      status,
-      lifecycleActionID: action.actionID,
-      affectedDirectoryKeys: [...action.affectedDirectoryKeys],
-    })
+      completed?: Promise<void>,
+    ): LifecycleCloseResult => {
+      const result: LifecycleCloseResult = {
+        status,
+        lifecycleActionID: action.actionID,
+        affectedDirectoryKeys: [...action.affectedDirectoryKeys],
+      }
+      if (completed) Object.defineProperty(result, "completed", { value: completed, enumerable: false })
+      return result
+    }
 
     const disposeAllOnce = (options?: LifecycleCloseOptions) =>
       Effect.gen(function* () {
@@ -360,12 +400,23 @@ export const layer = Layer.effect(
           affectedDirectories: activeDirectories,
           ...lifecycleContext("instance.disposeAll", "dispose_all"),
         })
-        const close = closeAllEntries(action, options).pipe(
-          Effect.andThen(Effect.promise(() => Promise.resolve(options?.onCompleted?.()))),
-        )
-        if ((options?.mode ?? "maintenance") === "maintenance" && hasActiveRuns(activeDirectories)) {
-          void whenAllRunsIdle(activeDirectories).then(() => Effect.runPromise(close))
-          return resultFor("deferred", action)
+        const entryOptions = { ...options, onCompleted: undefined }
+        const close = closeAllEntries(action, entryOptions).pipe(Effect.andThen(completeLifecycleClose(options)))
+        if ((options?.mode ?? "maintenance") === "maintenance") {
+          const releaseClose = beginLifecycleClose(activeDirectories)
+          if (hasActiveRuns(activeDirectories)) {
+            const completed = whenAllRunsIdle(activeDirectories)
+              .then(() => Effect.runPromise(close))
+              .finally(releaseClose)
+            void completed
+            return resultFor("deferred", action, completed)
+          }
+          try {
+            yield* close
+          } finally {
+            releaseClose()
+          }
+          return resultFor("completed", action)
         }
         yield* close
         return resultFor("completed", action)

@@ -45,6 +45,8 @@ const activeByDirectory = new Map<string, LifecycleCloseAction[]>()
 const originContext = new AsyncLocalStorage<LifecycleOrigin>()
 const activeRunsByDirectory = new Map<string, number>()
 const idleWaiters = new Set<{ directories: readonly string[]; resolve: () => void }>()
+const closingByDirectory = new Map<string, number>()
+const closeWaiters = new Set<{ directory: string; resolve: (release: () => void) => void }>()
 
 export function directoryKey(directory: string): string {
   const digest = createHash("sha256").update(directory).digest("hex").slice(0, 16)
@@ -136,7 +138,19 @@ function notifyIdleWaiters() {
   }
 }
 
-export function trackActiveRun(directory: string): () => void {
+function hasLifecycleClose(directories: readonly string[]): boolean {
+  return directories.some((directory) => (closingByDirectory.get(directory) ?? 0) > 0)
+}
+
+function notifyCloseWaiters() {
+  for (const waiter of [...closeWaiters]) {
+    if (hasLifecycleClose([waiter.directory])) continue
+    closeWaiters.delete(waiter)
+    waiter.resolve(acquireActiveRun(waiter.directory))
+  }
+}
+
+function acquireActiveRun(directory: string): () => void {
   activeRunsByDirectory.set(directory, (activeRunsByDirectory.get(directory) ?? 0) + 1)
   let released = false
   return () => {
@@ -149,6 +163,13 @@ export function trackActiveRun(directory: string): () => void {
   }
 }
 
+export function trackActiveRun(directory: string): Promise<() => void> {
+  if (!hasLifecycleClose([directory])) return Promise.resolve(acquireActiveRun(directory))
+  return new Promise<() => void>((resolve) => {
+    closeWaiters.add({ directory, resolve })
+  })
+}
+
 export function hasActiveRuns(directories: readonly string[]): boolean {
   return directories.some((directory) => (activeRunsByDirectory.get(directory) ?? 0) > 0)
 }
@@ -159,4 +180,22 @@ export function whenAllRunsIdle(directories: readonly string[]): Promise<void> {
   return new Promise<void>((resolve) => {
     idleWaiters.add({ directories: uniqueDirectories, resolve })
   })
+}
+
+export function beginLifecycleClose(directories: readonly string[]): () => void {
+  const uniqueDirectories = [...new Set(directories)]
+  for (const directory of uniqueDirectories) {
+    closingByDirectory.set(directory, (closingByDirectory.get(directory) ?? 0) + 1)
+  }
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    for (const directory of uniqueDirectories) {
+      const next = (closingByDirectory.get(directory) ?? 1) - 1
+      if (next > 0) closingByDirectory.set(directory, next)
+      else closingByDirectory.delete(directory)
+    }
+    notifyCloseWaiters()
+  }
 }

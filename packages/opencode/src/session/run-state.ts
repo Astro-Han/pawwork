@@ -1,6 +1,7 @@
 import { InstanceState } from "@/effect/instance-state"
 import { Runner, type InterruptMeta } from "@/effect/runner"
 import { Deferred, Effect, Layer, Scope, Context } from "effect"
+import { Instance } from "@/project/instance"
 import * as Session from "./session"
 import { MessageV2 } from "./message-v2"
 import { SessionID } from "./schema"
@@ -69,9 +70,9 @@ export const layer = Layer.effect(
       }),
     )
 
-    const protectActiveRun = <A, E>(directory: string, work: Effect.Effect<A, E>) =>
+    const withActiveRun = <A, E>(directory: string, work: Effect.Effect<A, E>) =>
       Effect.acquireUseRelease(
-        Effect.sync(() => trackActiveRun(directory)),
+        Effect.promise(() => trackActiveRun(directory)),
         () => work,
         (release) => Effect.sync(release),
       )
@@ -121,8 +122,13 @@ export const layer = Layer.effect(
       work: Effect.Effect<MessageV2.WithParts>,
       options?: { rejectIfBusy?: boolean },
     ) {
-      const data = yield* InstanceState.get(state)
-      return yield* (yield* runner(sessionID, onInterrupt)).ensureRunning(protectActiveRun(data.directory, work), options)
+      const directory = yield* Effect.sync(() => Instance.directory)
+      return yield* withActiveRun(
+        directory,
+        Effect.gen(function* () {
+          return yield* (yield* runner(sessionID, onInterrupt)).ensureRunning(work, options)
+        }),
+      )
     })
 
     const startShell = Effect.fn("SessionRunState.startShell")(function* (
@@ -131,8 +137,13 @@ export const layer = Layer.effect(
       work: Effect.Effect<MessageV2.WithParts>,
       ready?: Deferred.Deferred<void>,
     ) {
-      const data = yield* InstanceState.get(state)
-      return yield* (yield* runner(sessionID, onInterrupt)).startShell(protectActiveRun(data.directory, work), { ready })
+      const directory = yield* Effect.sync(() => Instance.directory)
+      return yield* withActiveRun(
+        directory,
+        Effect.gen(function* () {
+          return yield* (yield* runner(sessionID, onInterrupt)).startShell(work, { ready })
+        }),
+      )
     })
 
     return Service.of({ assertNotBusy, cancel, ensureRunning, startShell })

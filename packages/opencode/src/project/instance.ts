@@ -121,21 +121,36 @@ export const Instance = {
     await context.provide(ctx, () => input.init?.())
     return ctx
   },
-  async dispose(input?: { mode?: "maintenance" | "force" }) {
+  async dispose(input?: { mode?: "maintenance" | "force"; onCompleted?: () => void | Promise<void> }) {
     const ctx = Instance.current
     const instanceRuntime = await runtime()
-    const disposed = await instanceRuntime.disposeInstance(ctx, input)
+    const onCompleted = async () => {
+      directories.delete(ctx.directory)
+      await input?.onCompleted?.()
+    }
+    const disposed = await instanceRuntime.disposeInstance(ctx, { ...input, onCompleted })
     if (disposed) directories.delete(ctx.directory)
   },
-  async disposeDirectory(inputDirectory: string, input?: { mode?: "maintenance" | "force" }) {
+  async disposeDirectory(
+    inputDirectory: string,
+    input?: { mode?: "maintenance" | "force"; onCompleted?: () => void | Promise<void> },
+  ) {
     const directory = Filesystem.resolve(inputDirectory)
     const instanceRuntime = await runtime()
-    const disposed = await instanceRuntime.disposeDirectory(directory, input)
+    const onCompleted = async () => {
+      directories.delete(directory)
+      await input?.onCompleted?.()
+    }
+    const disposed = await instanceRuntime.disposeDirectory(directory, { ...input, onCompleted })
     if (disposed) directories.delete(directory)
   },
   async disposeAll(input?: { mode?: "maintenance" | "force"; onCompleted?: () => void | Promise<void> }) {
     const { disposeAllLoadedInstances } = await import("./instance-store")
-    const result = await disposeAllLoadedInstances(input)
+    const onCompleted = async () => {
+      directories.clear()
+      await input?.onCompleted?.()
+    }
+    const result = await disposeAllLoadedInstances({ ...input, onCompleted })
     if (result.status === "completed") directories.clear()
     return result
   },

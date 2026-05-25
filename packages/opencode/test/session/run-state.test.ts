@@ -273,7 +273,37 @@ describe("SessionRunState", () => {
       expect(captured).toBeUndefined()
       yield* Deferred.succeed(release, undefined)
       expect(Exit.isSuccess(yield* Fiber.await(fiber))).toBe(true)
+      yield* Effect.sleep("20 millis")
+      expect(Instance.directories()).not.toContain(first)
+      expect(Instance.directories()).not.toContain(second)
     }))
+
+  it.live("cleans directory tracking after deferred disposeDirectory completes", () =>
+    provideTmpdirInstance(
+      (directory) =>
+        Effect.gen(function* () {
+          const run = yield* SessionRunState.Service
+          const release = yield* Deferred.make<void>()
+          const fiber = yield* run
+            .ensureRunning(
+              SessionID.make("ses_dispose_directory_tracking"),
+              () => Effect.succeed({} as never),
+              Deferred.await(release).pipe(Effect.as({} as never)),
+            )
+            .pipe(Effect.forkChild)
+
+          yield* Effect.sleep("10 millis")
+          expect(Instance.directories()).toContain(directory)
+          yield* Effect.promise(() => Instance.disposeDirectory(directory))
+          expect(Instance.directories()).toContain(directory)
+
+          yield* Deferred.succeed(release, undefined)
+          expect(Exit.isSuccess(yield* Fiber.await(fiber))).toBe(true)
+          yield* Effect.sleep("20 millis")
+          expect(Instance.directories()).not.toContain(directory)
+        }),
+      { git: true },
+    ))
 
   it.live("defers instance reload while a run is active", () => {
     let captured: unknown
@@ -302,10 +332,65 @@ describe("SessionRunState", () => {
           expect(captured).toBeUndefined()
           yield* Deferred.succeed(release, undefined)
           expect(Exit.isSuccess(yield* Fiber.await(fiber))).toBe(true)
+          yield* Effect.gen(function* () {
+            const nextRun = yield* SessionRunState.Service
+            let started = false
+            yield* nextRun.ensureRunning(
+              SessionID.make("ses_reload_after_idle"),
+              () => Effect.succeed({} as never),
+              Effect.sync(() => {
+                started = true
+                return {} as never
+              }),
+            )
+            expect(started).toBe(true)
+          }).pipe(provideInstance(directory))
         }),
       { git: true },
     )
   })
+
+  it.live("blocks new runs while a maintenance close is already in progress", () =>
+    provideTmpdirInstance(
+      (directory) =>
+        Effect.gen(function* () {
+          const disposeStarted = yield* Deferred.make<void>()
+          const releaseDispose = yield* Deferred.make<void>()
+          const state = Instance.state(
+            () => ({ ready: true }),
+            async () => {
+              Effect.runPromise(Deferred.succeed(disposeStarted, undefined)).catch(() => undefined)
+              await Effect.runPromise(Deferred.await(releaseDispose))
+            },
+          )
+          state()
+
+          const disposeFiber = yield* Effect.promise(() => Instance.disposeAll()).pipe(Effect.forkChild)
+          yield* Deferred.await(disposeStarted)
+
+          let started = false
+          const runFiber = yield* Effect.gen(function* () {
+            const run = yield* SessionRunState.Service
+            return yield* run.ensureRunning(
+              SessionID.make("ses_close_race"),
+              () => Effect.succeed({} as never),
+              Effect.sync(() => {
+                started = true
+                return "ran" as never
+              }),
+            )
+          }).pipe(provideInstance(directory), Effect.forkChild)
+
+          yield* Effect.sleep("20 millis")
+          expect(started).toBe(false)
+
+          yield* Deferred.succeed(releaseDispose, undefined)
+          expect(Exit.isSuccess(yield* Fiber.await(disposeFiber))).toBe(true)
+          expect(Exit.isSuccess(yield* Fiber.await(runFiber))).toBe(true)
+          expect(started).toBe(true)
+        }),
+      { git: true },
+    ))
 
   it.live("defers Config.update while a run is active", () => {
     let captured: unknown
@@ -341,6 +426,10 @@ describe("SessionRunState", () => {
 
   it.live("defers Config.invalidate while a run is active", () => {
     let captured: unknown
+    const seen: { payload: { type: string } }[] = []
+    const onEvent = (event: { payload: { type: string } }) => {
+      seen.push(event)
+    }
 
     return provideTmpdirInstance(
       () =>
@@ -359,13 +448,19 @@ describe("SessionRunState", () => {
             )
             .pipe(Effect.forkChild)
 
+          yield* Effect.sync(() => GlobalBus.on("event", onEvent))
+          yield* Effect.addFinalizer(() => Effect.sync(() => GlobalBus.off("event", onEvent)))
           yield* Effect.sleep("10 millis")
-          yield* Effect.promise(() => Config.invalidate(true))
+          const invalidateFiber = yield* Effect.promise(() => Config.invalidate(true)).pipe(Effect.forkChild)
 
           yield* Effect.sleep("20 millis")
           expect(captured).toBeUndefined()
+          expect(seen.some((event) => event.payload.type === "global.disposed")).toBe(false)
           yield* Deferred.succeed(release, undefined)
           expect(Exit.isSuccess(yield* Fiber.await(fiber))).toBe(true)
+          expect(Exit.isSuccess(yield* Fiber.await(invalidateFiber))).toBe(true)
+          yield* Effect.sleep("20 millis")
+          expect(seen.some((event) => event.payload.type === "global.disposed")).toBe(true)
         }),
       { git: true },
     )
