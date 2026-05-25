@@ -2412,7 +2412,11 @@ export type GlobalDisposeResponses = {
   /**
    * Global disposed
    */
-  200: boolean
+  200: {
+    status: "completed" | "deferred"
+    lifecycleActionID: string
+    affectedDirectoryKeys: Array<string>
+  }
 }
 
 export type GlobalDisposeResponse = GlobalDisposeResponses[keyof GlobalDisposeResponses]

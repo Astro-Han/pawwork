@@ -43,6 +43,8 @@ export type CreateLifecycleCloseActionOptions = {
 let nextActionID = 0
 const activeByDirectory = new Map<string, LifecycleCloseAction[]>()
 const originContext = new AsyncLocalStorage<LifecycleOrigin>()
+const activeRunsByDirectory = new Map<string, number>()
+const idleWaiters = new Set<{ directories: readonly string[]; resolve: () => void }>()
 
 export function directoryKey(directory: string): string {
   const digest = createHash("sha256").update(directory).digest("hex").slice(0, 16)
@@ -124,4 +126,37 @@ export function currentLifecycleOrigin(): LifecycleOrigin | undefined {
 
 export async function withLifecycleOrigin<T>(origin: LifecycleOrigin, fn: () => Promise<T>): Promise<T> {
   return originContext.run({ ...origin }, fn)
+}
+
+function notifyIdleWaiters() {
+  for (const waiter of [...idleWaiters]) {
+    if (hasActiveRuns(waiter.directories)) continue
+    idleWaiters.delete(waiter)
+    waiter.resolve()
+  }
+}
+
+export function trackActiveRun(directory: string): () => void {
+  activeRunsByDirectory.set(directory, (activeRunsByDirectory.get(directory) ?? 0) + 1)
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    const next = (activeRunsByDirectory.get(directory) ?? 1) - 1
+    if (next > 0) activeRunsByDirectory.set(directory, next)
+    else activeRunsByDirectory.delete(directory)
+    notifyIdleWaiters()
+  }
+}
+
+export function hasActiveRuns(directories: readonly string[]): boolean {
+  return directories.some((directory) => (activeRunsByDirectory.get(directory) ?? 0) > 0)
+}
+
+export function whenAllRunsIdle(directories: readonly string[]): Promise<void> {
+  const uniqueDirectories = [...new Set(directories)]
+  if (!hasActiveRuns(uniqueDirectories)) return Promise.resolve()
+  return new Promise<void>((resolve) => {
+    idleWaiters.add({ directories: uniqueDirectories, resolve })
+  })
 }

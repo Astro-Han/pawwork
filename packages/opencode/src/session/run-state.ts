@@ -5,7 +5,7 @@ import * as Session from "./session"
 import { MessageV2 } from "./message-v2"
 import { SessionID } from "./schema"
 import { SessionStatus } from "./status"
-import { currentLifecycleCloseAction, lifecycleCloseActionMeta } from "./lifecycle-provenance"
+import { currentLifecycleCloseAction, lifecycleCloseActionMeta, trackActiveRun } from "./lifecycle-provenance"
 
 export interface Interface {
   readonly assertNotBusy: (sessionID: SessionID) => Effect.Effect<void>
@@ -65,9 +65,16 @@ export const layer = Layer.effect(
             runners.clear()
           }),
         )
-        return { runners, scope, interruptFallback }
+        return { directory: ctx.directory, runners, scope, interruptFallback }
       }),
     )
+
+    const protectActiveRun = <A, E>(directory: string, work: Effect.Effect<A, E>) =>
+      Effect.acquireUseRelease(
+        Effect.sync(() => trackActiveRun(directory)),
+        () => work,
+        (release) => Effect.sync(release),
+      )
 
     const runner = Effect.fn("SessionRunState.runner")(function* (
       sessionID: SessionID,
@@ -114,7 +121,8 @@ export const layer = Layer.effect(
       work: Effect.Effect<MessageV2.WithParts>,
       options?: { rejectIfBusy?: boolean },
     ) {
-      return yield* (yield* runner(sessionID, onInterrupt)).ensureRunning(work, options)
+      const data = yield* InstanceState.get(state)
+      return yield* (yield* runner(sessionID, onInterrupt)).ensureRunning(protectActiveRun(data.directory, work), options)
     })
 
     const startShell = Effect.fn("SessionRunState.startShell")(function* (
@@ -123,7 +131,8 @@ export const layer = Layer.effect(
       work: Effect.Effect<MessageV2.WithParts>,
       ready?: Deferred.Deferred<void>,
     ) {
-      return yield* (yield* runner(sessionID, onInterrupt)).startShell(work, { ready })
+      const data = yield* InstanceState.get(state)
+      return yield* (yield* runner(sessionID, onInterrupt)).startShell(protectActiveRun(data.directory, work), { ready })
     })
 
     return Service.of({ assertNotBusy, cancel, ensureRunning, startShell })

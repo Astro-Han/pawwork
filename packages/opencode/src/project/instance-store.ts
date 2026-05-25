@@ -11,8 +11,10 @@ import { State } from "./state"
 import {
   createLifecycleCloseAction,
   currentLifecycleOrigin,
+  hasActiveRuns,
   type LifecycleCloseAction,
   withLifecycleCloseAction,
+  whenAllRunsIdle,
 } from "@/session/lifecycle-provenance"
 import { currentRequestContext } from "@/server/request-context"
 
@@ -31,10 +33,14 @@ type ContextMismatchReason =
 
 export interface Interface {
   readonly load: (input: LoadInput) => Effect.Effect<InstanceContext, unknown>
-  readonly reload: (input: LoadInput) => Effect.Effect<InstanceContext, unknown>
-  readonly dispose: (ctx: InstanceContext) => Effect.Effect<void>
-  readonly disposeDirectory: (directory: string) => Effect.Effect<void>
-  readonly disposeAll: () => Effect.Effect<void>
+  readonly reload: (
+    input: LoadInput,
+    reason?: ContextMismatchReason | "reload",
+    options?: LifecycleCloseOptions,
+  ) => Effect.Effect<InstanceContext, unknown>
+  readonly dispose: (ctx: InstanceContext, options?: LifecycleCloseOptions) => Effect.Effect<boolean>
+  readonly disposeDirectory: (directory: string, options?: LifecycleCloseOptions) => Effect.Effect<boolean>
+  readonly disposeAll: (options?: LifecycleCloseOptions) => Effect.Effect<LifecycleCloseResult>
   readonly provide: <A, E, R>(input: LoadInput, effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E | unknown, R>
 }
 
@@ -44,10 +50,32 @@ type Entry = {
   readonly deferred: Deferred.Deferred<InstanceContext, unknown>
 }
 
-const disposeLoadedInstances = new Set<() => Promise<void>>()
+export type LifecycleCloseMode = "maintenance" | "force"
 
-export async function disposeAllLoadedInstances() {
-  await Promise.all([...disposeLoadedInstances].map((dispose) => dispose()))
+export type LifecycleCloseOptions = {
+  readonly mode?: LifecycleCloseMode
+  readonly onCompleted?: () => void | Promise<void>
+}
+
+export type LifecycleCloseResult = {
+  readonly status: "completed" | "deferred"
+  readonly lifecycleActionID: string
+  readonly affectedDirectoryKeys: readonly string[]
+}
+
+const disposeLoadedInstances = new Set<(options?: LifecycleCloseOptions) => Promise<LifecycleCloseResult>>()
+
+export async function disposeAllLoadedInstances(options?: LifecycleCloseOptions): Promise<LifecycleCloseResult> {
+  const results = await Promise.all([...disposeLoadedInstances].map((dispose) => dispose(options)))
+  const deferred = results.find((result) => result.status === "deferred")
+  return (
+    deferred ??
+    results[0] ?? {
+      status: "completed",
+      lifecycleActionID: "lifecycle:instance_dispose_all:empty",
+      affectedDirectoryKeys: [],
+    }
+  )
 }
 
 function hasExplicitContext(input: LoadInput) {
@@ -159,10 +187,28 @@ export const layer = Layer.effect(
         yield* emitDisposed(ctx)
       })
 
-    const disposeEntry = (directory: string, entry: Entry, ctx: InstanceContext, action?: LifecycleCloseAction) =>
+    const disposeEntry = (
+      directory: string,
+      entry: Entry,
+      ctx: InstanceContext,
+      action?: LifecycleCloseAction,
+      options?: LifecycleCloseOptions,
+    ) =>
       Effect.gen(function* () {
         if (entries.get(directory) !== entry) return false
-        yield* disposeContext(ctx, action)
+        const closeAction =
+          action ??
+          createLifecycleCloseAction("instance_dispose", {
+            affectedDirectories: [ctx.directory],
+            ...lifecycleContext("instance.dispose", "dispose_context"),
+          })
+        if ((options?.mode ?? "maintenance") === "maintenance" && hasActiveRuns([ctx.directory])) {
+          void whenAllRunsIdle([ctx.directory]).then(() =>
+            Effect.runPromise(disposeEntry(directory, entry, ctx, closeAction, { mode: "force" })).then(() => undefined),
+          )
+          return false
+        }
+        yield* disposeContext(ctx, closeAction)
         if (entries.get(directory) !== entry) return false
         entries.delete(directory)
         return true
@@ -171,12 +217,22 @@ export const layer = Layer.effect(
     const reload = (
       input: LoadInput,
       reason: ContextMismatchReason | "reload" = "reload",
+      options?: LifecycleCloseOptions,
     ): Effect.Effect<InstanceContext, unknown> => {
       const directory = Filesystem.resolve(input.directory)
       return Effect.uninterruptibleMask((restore) =>
         Effect.gen(function* () {
           validateExplicitContext(input)
           const previous = entries.get(directory)
+          if ((options?.mode ?? "maintenance") === "maintenance" && previous) {
+            const exit = yield* restore(Deferred.await(previous.deferred)).pipe(Effect.exit)
+            if (Exit.isSuccess(exit) && hasActiveRuns([exit.value.directory])) {
+              void whenAllRunsIdle([exit.value.directory]).then(() =>
+                Effect.runPromise(reload(input, reason, { mode: "maintenance" })).then(() => undefined),
+              )
+              return exit.value
+            }
+          }
           const entry: Entry = { deferred: Deferred.makeUnsafe<InstanceContext, unknown>() }
           entries.set(directory, entry)
           yield* Effect.gen(function* () {
@@ -229,16 +285,19 @@ export const layer = Layer.effect(
       ).pipe(Effect.withSpan("InstanceStore.load"))
     }
 
-    const dispose = (ctx: InstanceContext) =>
+    const dispose = (ctx: InstanceContext, options?: LifecycleCloseOptions) =>
       Effect.gen(function* () {
         const directory = Filesystem.resolve(ctx.directory)
         const entry = entries.get(directory)
-        if (!entry) return yield* disposeContext(ctx)
+        if (!entry) {
+          yield* disposeContext(ctx)
+          return true
+        }
 
         const exit = yield* Deferred.await(entry.deferred).pipe(Effect.exit)
-        if (Exit.isFailure(exit)) return yield* removeEntry(directory, entry).pipe(Effect.asVoid)
-        if (exit.value !== ctx) return
-        yield* disposeEntry(
+        if (Exit.isFailure(exit)) return yield* removeEntry(directory, entry)
+        if (exit.value !== ctx) return false
+        return yield* disposeEntry(
           directory,
           entry,
           ctx,
@@ -246,18 +305,19 @@ export const layer = Layer.effect(
             affectedDirectories: [ctx.directory],
             ...lifecycleContext("instance.dispose", "dispose"),
           }),
-        ).pipe(Effect.asVoid)
+          options,
+        )
       })
 
-    const disposeDirectory = (inputDirectory: string) =>
+    const disposeDirectory = (inputDirectory: string, options?: LifecycleCloseOptions) =>
       Effect.gen(function* () {
         const directory = Filesystem.resolve(inputDirectory)
         const entry = entries.get(directory)
-        if (!entry) return
+        if (!entry) return false
 
         const exit = yield* Deferred.await(entry.deferred).pipe(Effect.exit)
-        if (Exit.isFailure(exit)) return yield* removeEntry(directory, entry).pipe(Effect.asVoid)
-        yield* disposeEntry(
+        if (Exit.isFailure(exit)) return yield* removeEntry(directory, entry)
+        return yield* disposeEntry(
           directory,
           entry,
           exit.value,
@@ -265,16 +325,12 @@ export const layer = Layer.effect(
             affectedDirectories: [exit.value.directory],
             ...lifecycleContext("instance.disposeDirectory", "dispose_directory"),
           }),
-        ).pipe(Effect.asVoid)
+          options,
+        )
       })
 
-    const disposeAllOnce = Effect.gen(function* () {
-      const activeDirectories = [...entries.keys()]
-      const action = createLifecycleCloseAction("instance_dispose_all", {
-        affectedDirectories: activeDirectories,
-        ...lifecycleContext("instance.disposeAll", "dispose_all"),
-      })
-      yield* Effect.forEach(
+    const closeAllEntries = (action: LifecycleCloseAction, options?: LifecycleCloseOptions) =>
+      Effect.forEach(
         [...entries.entries()],
         ([directory, entry]) =>
           Effect.gen(function* () {
@@ -283,20 +339,46 @@ export const layer = Layer.effect(
               yield* removeEntry(directory, entry)
               return
             }
-            yield* disposeEntry(directory, entry, exit.value, action)
+            yield* disposeEntry(directory, entry, exit.value, action, options)
           }),
         { discard: true },
       )
+
+    const resultFor = (
+      status: LifecycleCloseResult["status"],
+      action: LifecycleCloseAction,
+    ): LifecycleCloseResult => ({
+      status,
+      lifecycleActionID: action.actionID,
+      affectedDirectoryKeys: [...action.affectedDirectoryKeys],
     })
 
-    const disposeAll = () => disposeAllOnce
+    const disposeAllOnce = (options?: LifecycleCloseOptions) =>
+      Effect.gen(function* () {
+        const activeDirectories = [...entries.keys()]
+        const action = createLifecycleCloseAction("instance_dispose_all", {
+          affectedDirectories: activeDirectories,
+          ...lifecycleContext("instance.disposeAll", "dispose_all"),
+        })
+        const close = closeAllEntries(action, options).pipe(
+          Effect.andThen(Effect.promise(() => Promise.resolve(options?.onCompleted?.()))),
+        )
+        if ((options?.mode ?? "maintenance") === "maintenance" && hasActiveRuns(activeDirectories)) {
+          void whenAllRunsIdle(activeDirectories).then(() => Effect.runPromise(close))
+          return resultFor("deferred", action)
+        }
+        yield* close
+        return resultFor("completed", action)
+      })
 
-    const disposeAllPromise = () => Effect.runPromise(disposeAll())
+    const disposeAll = (options?: LifecycleCloseOptions) => disposeAllOnce(options)
+
+    const disposeAllPromise = (options?: LifecycleCloseOptions) => Effect.runPromise(disposeAll(options))
     yield* Effect.sync(() => {
       disposeLoadedInstances.add(disposeAllPromise)
     })
     yield* Effect.addFinalizer(() =>
-      disposeAll().pipe(
+      disposeAll({ mode: "force" }).pipe(
         Effect.andThen(
           Effect.sync(() => {
             disposeLoadedInstances.delete(disposeAllPromise)

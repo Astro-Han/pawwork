@@ -104,6 +104,7 @@ export const Instance = {
     init?: () => Promise<any>
     project?: Project.Info
     worktree?: string
+    mode?: "maintenance" | "force"
   }) {
     if (!!input.worktree !== !!input.project) {
       throw new Error("Instance.reload requires both worktree and project when overriding context")
@@ -114,26 +115,28 @@ export const Instance = {
       directory,
       worktree: input.worktree,
       project: input.project,
+      mode: input.mode,
     })
     directories.add(ctx.directory)
     await context.provide(ctx, () => input.init?.())
     return ctx
   },
-  async dispose() {
+  async dispose(input?: { mode?: "maintenance" | "force" }) {
     const ctx = Instance.current
     const instanceRuntime = await runtime()
-    await instanceRuntime.disposeInstance(ctx)
-    directories.delete(ctx.directory)
+    const disposed = await instanceRuntime.disposeInstance(ctx, input)
+    if (disposed) directories.delete(ctx.directory)
   },
-  async disposeDirectory(inputDirectory: string) {
+  async disposeDirectory(inputDirectory: string, input?: { mode?: "maintenance" | "force" }) {
     const directory = Filesystem.resolve(inputDirectory)
     const instanceRuntime = await runtime()
-    await instanceRuntime.disposeDirectory(directory)
-    directories.delete(directory)
+    const disposed = await instanceRuntime.disposeDirectory(directory, input)
+    if (disposed) directories.delete(directory)
   },
-  async disposeAll() {
+  async disposeAll(input?: { mode?: "maintenance" | "force"; onCompleted?: () => void | Promise<void> }) {
     const { disposeAllLoadedInstances } = await import("./instance-store")
-    await disposeAllLoadedInstances()
-    directories.clear()
+    const result = await disposeAllLoadedInstances(input)
+    if (result.status === "completed") directories.clear()
+    return result
   },
 }

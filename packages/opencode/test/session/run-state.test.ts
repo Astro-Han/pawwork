@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test"
-import { Effect, Exit, Fiber, Layer } from "effect"
+import { Deferred, Effect, Exit, Fiber, Layer } from "effect"
 import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
 import { Hono } from "hono"
+import { GlobalBus } from "../../src/bus/global"
 import { Config } from "../../src/config"
 import { Global } from "../../src/global"
 import { Instance } from "../../src/project/instance"
@@ -15,7 +16,7 @@ import {
 } from "../../src/session/lifecycle-provenance"
 import { SessionRunState } from "../../src/session/run-state"
 import { SessionID } from "../../src/session/schema"
-import { provideTmpdirInstance, tmpdir } from "../fixture/fixture"
+import { provideInstance, provideTmpdirInstance, tmpdir, tmpdirScoped } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 
 const it = testEffect(Layer.mergeAll(CrossSpawnSpawner.defaultLayer, SessionRunState.defaultLayer))
@@ -87,7 +88,7 @@ describe("SessionRunState", () => {
     expect(action.affectedDirectoryKeys).toHaveLength(1)
   })
 
-  it.live("annotates runner interrupts caused by instance disposal with lifecycle provenance", () => {
+  it.live("annotates runner interrupts caused by force instance disposal with lifecycle provenance", () => {
     let captured:
       | {
           source?: string
@@ -119,7 +120,7 @@ describe("SessionRunState", () => {
             .pipe(Effect.forkChild)
 
           yield* Effect.sleep("10 millis")
-          yield* Effect.promise(() => Instance.dispose())
+          yield* Effect.promise(() => Instance.dispose({ mode: "force" }))
 
           const exit = yield* Fiber.await(fiber)
           expect(Exit.isSuccess(exit)).toBe(true)
@@ -140,11 +141,11 @@ describe("SessionRunState", () => {
     )
   })
 
-  it.live("fans out one disposeAll lifecycle action to multiple in-flight runs", () => {
+  it.live("allows force disposeAll to interrupt multiple in-flight runs", () => {
     const captured = new Map<string, { lifecycleActionID?: string; lifecycleKind?: string } | undefined>()
 
     return provideTmpdirInstance(
-      () =>
+      (directory) =>
         Effect.gen(function* () {
           const run = yield* SessionRunState.Service
           const firstID = SessionID.make("ses_dispose_all_first")
@@ -166,10 +167,11 @@ describe("SessionRunState", () => {
           const secondFiber = yield* start(secondID)
 
           yield* Effect.sleep("10 millis")
-          yield* Effect.promise(() => Instance.disposeAll())
+          const result = yield* Effect.promise(() => Instance.disposeAll({ mode: "force" }))
 
           expect(Exit.isSuccess(yield* Fiber.await(firstFiber))).toBe(true)
           expect(Exit.isSuccess(yield* Fiber.await(secondFiber))).toBe(true)
+          expect(result.status).toBe("completed")
 
           const first = captured.get(firstID)
           const second = captured.get(secondID)
@@ -182,18 +184,19 @@ describe("SessionRunState", () => {
     )
   })
 
-  it.live("annotates global dispose interrupts with request origin", () => {
-    let captured:
-      | {
-          lifecycleKind?: string
-          lifecycleOrigin?: { source: string; operation?: string; reason?: string }
-        }
-      | undefined
+  it.live("defers global dispose while a run is active", () => {
+    let captured: unknown
+    let responseBody: unknown
+    const seen: { payload: { type: string } }[] = []
+    const onEvent = (event: { payload: { type: string } }) => {
+      seen.push(event)
+    }
 
     return provideTmpdirInstance(
-      () =>
+      (directory) =>
         Effect.gen(function* () {
           const run = yield* SessionRunState.Service
+          const release = yield* Deferred.make<void>()
           const fiber = yield* run
             .ensureRunning(
               SessionID.make("ses_global_dispose_origin"),
@@ -202,10 +205,12 @@ describe("SessionRunState", () => {
                   captured = meta
                   return {} as never
                 }),
-              Effect.never,
+              Deferred.await(release).pipe(Effect.as({} as never)),
             )
             .pipe(Effect.forkChild)
 
+          yield* Effect.sync(() => GlobalBus.on("event", onEvent))
+          yield* Effect.addFinalizer(() => Effect.sync(() => GlobalBus.off("event", onEvent)))
           yield* Effect.sleep("10 millis")
           yield* Effect.promise(async () => {
             const app = new Hono().route("/global", GlobalRoutes())
@@ -217,38 +222,99 @@ describe("SessionRunState", () => {
               },
             })
             expect(response.status).toBe(200)
+            responseBody = await response.json()
           })
 
+          yield* Effect.sleep("20 millis")
+          expect(captured).toBeUndefined()
+          expect(seen.some((event) => event.payload.type === "global.disposed")).toBe(false)
+          yield* Deferred.succeed(release, undefined)
           expect(Exit.isSuccess(yield* Fiber.await(fiber))).toBe(true)
-          expect(captured).toMatchObject({
-            lifecycleKind: "instance_dispose_all",
-            lifecycleOrigin: {
-              source: "server_handler",
-              operation: "instance.disposeAll",
-              reason: "global.dispose.button",
-            },
-            lifecycleRequest: {
-              method: "POST",
-              path: "/global/dispose",
-              source: "renderer",
-              client_action: {
-                id: "client-global-dispose",
-                kind: "global.dispose.button",
-              },
-            },
-          })
+          expect(responseBody).toMatchObject({ status: "deferred" })
+          yield* Effect.sleep("20 millis")
+          expect(seen.some((event) => event.payload.type === "global.disposed")).toBe(true)
         }),
       { git: true },
     )
   })
 
-  it.live("annotates Config.update interrupts with config origin", () => {
-    let captured: { lifecycleOrigin?: { source: string; operation?: string; reason?: string } } | undefined
+  it.live("defers disposeAll across all loaded directories when any directory has an active run", () =>
+    Effect.gen(function* () {
+      const first = yield* tmpdirScoped({ git: true })
+      const second = yield* tmpdirScoped({ git: true })
+      const release = yield* Deferred.make<void>()
+      let captured: unknown
+
+      const fiber = yield* Effect.gen(function* () {
+        const run = yield* SessionRunState.Service
+        return yield* run.ensureRunning(
+          SessionID.make("ses_dispose_all_global_scope"),
+          (meta) =>
+            Effect.sync(() => {
+              captured = meta
+              return {} as never
+            }),
+          Deferred.await(release).pipe(Effect.as({} as never)),
+        )
+      }).pipe(provideInstance(first), Effect.forkChild)
+
+      yield* Effect.promise(() =>
+        Instance.provide({
+          directory: second,
+          fn: () => undefined,
+        }),
+      )
+
+      yield* Effect.sleep("10 millis")
+      const result = yield* Effect.promise(() => Instance.disposeAll())
+      expect(result.status).toBe("deferred")
+
+      yield* Effect.sleep("20 millis")
+      expect(captured).toBeUndefined()
+      yield* Deferred.succeed(release, undefined)
+      expect(Exit.isSuccess(yield* Fiber.await(fiber))).toBe(true)
+    }))
+
+  it.live("defers instance reload while a run is active", () => {
+    let captured: unknown
+
+    return provideTmpdirInstance(
+      (directory) =>
+        Effect.gen(function* () {
+          const run = yield* SessionRunState.Service
+          const release = yield* Deferred.make<void>()
+          const fiber = yield* run
+            .ensureRunning(
+              SessionID.make("ses_reload_deferred"),
+              (meta) =>
+                Effect.sync(() => {
+                  captured = meta
+                  return {} as never
+                }),
+              Deferred.await(release).pipe(Effect.as({} as never)),
+            )
+            .pipe(Effect.forkChild)
+
+          yield* Effect.sleep("10 millis")
+          yield* Effect.promise(() => Instance.reload({ directory }))
+
+          yield* Effect.sleep("20 millis")
+          expect(captured).toBeUndefined()
+          yield* Deferred.succeed(release, undefined)
+          expect(Exit.isSuccess(yield* Fiber.await(fiber))).toBe(true)
+        }),
+      { git: true },
+    )
+  })
+
+  it.live("defers Config.update while a run is active", () => {
+    let captured: unknown
 
     return provideTmpdirInstance(
       () =>
         Effect.gen(function* () {
           const run = yield* SessionRunState.Service
+          const release = yield* Deferred.make<void>()
           const fiber = yield* run
             .ensureRunning(
               SessionID.make("ses_config_update_origin"),
@@ -257,31 +323,30 @@ describe("SessionRunState", () => {
                   captured = meta
                   return {} as never
                 }),
-              Effect.never,
+              Deferred.await(release).pipe(Effect.as({} as never)),
             )
             .pipe(Effect.forkChild)
 
           yield* Effect.sleep("10 millis")
           yield* Effect.promise(() => Config.update({ username: "config-update-origin" }))
 
+          yield* Effect.sleep("20 millis")
+          expect(captured).toBeUndefined()
+          yield* Deferred.succeed(release, undefined)
           expect(Exit.isSuccess(yield* Fiber.await(fiber))).toBe(true)
-          expect(captured?.lifecycleOrigin).toMatchObject({
-            source: "config",
-            operation: "config.update",
-            reason: "config.update",
-          })
         }),
       { git: true },
     )
   })
 
-  it.live("annotates Config.invalidate interrupts with config origin", () => {
-    let captured: { lifecycleOrigin?: { source: string; operation?: string; reason?: string } } | undefined
+  it.live("defers Config.invalidate while a run is active", () => {
+    let captured: unknown
 
     return provideTmpdirInstance(
       () =>
         Effect.gen(function* () {
           const run = yield* SessionRunState.Service
+          const release = yield* Deferred.make<void>()
           const fiber = yield* run
             .ensureRunning(
               SessionID.make("ses_config_invalidate_origin"),
@@ -290,31 +355,30 @@ describe("SessionRunState", () => {
                   captured = meta
                   return {} as never
                 }),
-              Effect.never,
+              Deferred.await(release).pipe(Effect.as({} as never)),
             )
             .pipe(Effect.forkChild)
 
           yield* Effect.sleep("10 millis")
           yield* Effect.promise(() => Config.invalidate(true))
 
+          yield* Effect.sleep("20 millis")
+          expect(captured).toBeUndefined()
+          yield* Deferred.succeed(release, undefined)
           expect(Exit.isSuccess(yield* Fiber.await(fiber))).toBe(true)
-          expect(captured?.lifecycleOrigin).toMatchObject({
-            source: "config",
-            operation: "config.invalidate",
-            reason: "config.invalidate",
-          })
         }),
       { git: true },
     )
   })
 
-  it.live("annotates Config.updateGlobal interrupts with config origin", () => {
-    let captured: { lifecycleOrigin?: { source: string; operation?: string; reason?: string } } | undefined
+  it.live("defers Config.updateGlobal invalidation while a run is active", () => {
+    let captured: unknown
 
     return provideTmpdirInstance(
       () =>
         Effect.gen(function* () {
           const run = yield* SessionRunState.Service
+          const release = yield* Deferred.make<void>()
           const fiber = yield* run
             .ensureRunning(
               SessionID.make("ses_config_update_global_origin"),
@@ -323,7 +387,7 @@ describe("SessionRunState", () => {
                   captured = meta
                   return {} as never
                 }),
-              Effect.never,
+              Deferred.await(release).pipe(Effect.as({} as never)),
             )
             .pipe(Effect.forkChild)
 
@@ -339,12 +403,10 @@ describe("SessionRunState", () => {
             }
           })
 
+          yield* Effect.sleep("20 millis")
+          expect(captured).toBeUndefined()
+          yield* Deferred.succeed(release, undefined)
           expect(Exit.isSuccess(yield* Fiber.await(fiber))).toBe(true)
-          expect(captured?.lifecycleOrigin).toMatchObject({
-            source: "config",
-            operation: "config.updateGlobal",
-            reason: "config.updateGlobal",
-          })
         }),
       { git: true },
     )
