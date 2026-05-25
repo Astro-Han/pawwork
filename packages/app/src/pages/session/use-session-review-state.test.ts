@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import { vcsTaskKey } from "./execution-scope"
-import { deriveReviewArtifactFiles, reviewTurnDiffsForSession } from "./use-session-review-state"
+import {
+  buildReviewTurnDiffRequest,
+  deriveReviewArtifactFiles,
+  reviewTurnDiffsForSession,
+  selectReviewChangeMode,
+} from "./use-session-review-state"
 
 const scope = (directory = "/repo", epoch = 1) => ({ serverKey: "sidecar", directory, epoch })
 
@@ -117,5 +122,53 @@ describe("session review state", () => {
         turnDiffs: fallback,
       }),
     ).toEqual(fallback)
+  })
+
+  test("requests review diffs for the latest user turn, not the whole session", () => {
+    expect(
+      buildReviewTurnDiffRequest({
+        sessionID: "ses_1",
+        lastUserMessageID: "msg_latest",
+        scope: scope("/repo", 1),
+      }),
+    ).toEqual({
+      sessionID: "ses_1",
+      messageID: "msg_latest",
+      scope: scope("/repo", 1),
+    })
+
+    expect(
+      buildReviewTurnDiffRequest({
+        sessionID: "ses_1",
+        lastUserMessageID: undefined,
+        scope: scope("/repo", 1),
+      }),
+    ).toBeUndefined()
+  })
+
+  test("selecting a VCS review mode forces a reload even when cached", () => {
+    const loads: Array<{ mode: string; force: true }> = []
+    const changes: string[] = []
+
+    selectReviewChangeMode({
+      mode: "branch",
+      setChanges: (mode) => changes.push(mode),
+      wantsReview: () => true,
+      loadVcs: (mode, force) => {
+        loads.push({ mode, force })
+      },
+    })
+
+    selectReviewChangeMode({
+      mode: "turn",
+      setChanges: (mode) => changes.push(mode),
+      wantsReview: () => true,
+      loadVcs: (mode, force) => {
+        loads.push({ mode, force })
+      },
+    })
+
+    expect(changes).toEqual(["branch", "turn"])
+    expect(loads).toEqual([{ mode: "branch", force: true }])
   })
 })

@@ -174,7 +174,7 @@ export default function Page() {
   const [mobileTab, setMobileTab] = createSignal<"session" | "changes">("session")
   const deferRender = createSessionDeferredRender(timelineSessionKey)
 
-  const turnDiffs = timelineDiffs
+  const turnDiffs = () => []
   const mobileChanges = createMemo(() => !isDesktop() && mobileTab() === "changes")
   const wantsReview = createMemo(() =>
     isDesktop() ? desktopSidePanelOpen() && view().sidePanel.tab() === "review" : mobileChanges(),
@@ -190,6 +190,7 @@ export default function Page() {
     executionScope: currentExecutionScope,
     sessionKey: timelineSessionKey,
     sessionID: timelineSessionID,
+    lastUserMessageID: () => lastUserMessage()?.id,
     sync,
     sdk,
     wantsReview,
