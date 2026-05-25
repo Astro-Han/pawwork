@@ -1,12 +1,13 @@
-import { createSignal, onCleanup, onMount, Show } from "solid-js"
+import { createSignal, createUniqueId, onCleanup, onMount } from "solid-js"
 import type { RetryClassification } from "@opencode-ai/sdk/v2/client"
 import { useI18n } from "../context/i18n"
-import { Card, CardActions, CardDescription, CardTitle } from "./card"
+import { Card, CardActions } from "./card"
 import "./rate-limit-card.css"
 
 export interface RateLimitCardProps {
   classification: Extract<RetryClassification, { kind: "free_quota_exhausted" }>
   onSubscribeClick: () => void
+  onDeepSeekClick: () => void
   onUseOwnModelClick: () => void
 }
 
@@ -51,43 +52,90 @@ export function RateLimitCard(props: RateLimitCardProps) {
     const resetAt = props.classification.resetAt
     return resetAt === undefined ? undefined : formatResetTime(resetAt, now())
   }
+  const resetSubtitle = () => {
+    const f = formatted()
+    if (!f) return i18n.t("ui.rateLimitCard.subtitleNoTime")
+    const key =
+      f.kind === "today" ? "ui.rateLimitCard.subtitleResetToday" : "ui.rateLimitCard.subtitleResetTomorrow"
+    return i18n.t(key, { time: f.time })
+  }
+  // The prerequisite note sits in a separate grid cell, so visual adjacency is
+  // the only thing tying it to its brand link. Screen-reader / keyboard users
+  // would lose the access barrier — the single piece of info this redesign
+  // exists to surface. Bind each note to its link via aria-describedby so the
+  // link's accessible description carries the prerequisite. Unique ids keep
+  // multiple mounted cards from colliding (createUniqueId pattern as in
+  // file-icon.tsx).
+  const subscribeNoteId = `rate-limit-note-${createUniqueId()}`
+  const deepseekNoteId = `rate-limit-note-${createUniqueId()}`
+  // The warning triangle that CardTitle would inject is redundant with the
+  // 2px orange rule on the card's left edge — both encode the same warning
+  // semantic. We drop CardTitle/CardDescription entirely and render a single
+  // headline that folds title + reset onto one line via a middle-dot, then
+  // hand the action ledger a grid of `[primary link, prerequisite note]`
+  // rows so the two recommendations sit on aligned columns. The user picks by
+  // matching their situation to the right-column prerequisite before clicking
+  // the left-column brand link — the prerequisite is read first, not as a
+  // skippable footnote.
   return (
     <Card variant="warning" data-slot="rate-limit-card" data-kind="rate-limit-card">
-      <CardTitle variant="warning">{i18n.t("ui.rateLimitCard.title")}</CardTitle>
-      <CardDescription>
-        <Show when={formatted()} fallback={i18n.t("ui.rateLimitCard.subtitleNoTime")}>
-          {(result) => {
-            const r = result()
-            const key =
-              r.kind === "today" ? "ui.rateLimitCard.subtitleResetToday" : "ui.rateLimitCard.subtitleResetTomorrow"
-            return i18n.t(key, { time: r.time })
-          }}
-        </Show>
-      </CardDescription>
+      <div class="rate-limit-card__head" data-slot="rate-limit-card-head">
+        <span class="rate-limit-card__title">{i18n.t("ui.rateLimitCard.title")}</span>
+        <span class="rate-limit-card__sep" aria-hidden="true">
+          ·
+        </span>
+        <span class="rate-limit-card__reset">{resetSubtitle()}</span>
+      </div>
       <CardActions>
         <a
-          class="rate-limit-card__action rate-limit-card__action--primary"
+          class="rate-limit-card__action"
           href="#"
           data-slot="rate-limit-card-subscribe"
+          aria-describedby={subscribeNoteId}
           onClick={(e) => {
             e.preventDefault()
             props.onSubscribeClick()
           }}
         >
           {i18n.t("ui.rateLimitCard.actionSubscribe")}
-          <span class="rate-limit-card__external" aria-hidden="true">↗</span>
+          <span class="rate-limit-card__external" aria-hidden="true">
+            ↗
+          </span>
         </a>
+        <span class="rate-limit-card__note" id={subscribeNoteId}>
+          {i18n.t("ui.rateLimitCard.noteSubscribe")}
+        </span>
         <a
           class="rate-limit-card__action"
           href="#"
-          data-slot="rate-limit-card-byo"
+          data-slot="rate-limit-card-deepseek"
+          aria-describedby={deepseekNoteId}
           onClick={(e) => {
             e.preventDefault()
-            props.onUseOwnModelClick()
+            props.onDeepSeekClick()
           }}
         >
-          {i18n.t("ui.rateLimitCard.actionBYO")}
+          {i18n.t("ui.rateLimitCard.actionDeepSeek")}
+          <span class="rate-limit-card__external" aria-hidden="true">
+            ↗
+          </span>
         </a>
+        <span class="rate-limit-card__note" id={deepseekNoteId}>
+          {i18n.t("ui.rateLimitCard.noteDeepSeek")}
+        </span>
+        <div class="rate-limit-card__byo-row">
+          <a
+            class="rate-limit-card__byo"
+            href="#"
+            data-slot="rate-limit-card-byo"
+            onClick={(e) => {
+              e.preventDefault()
+              props.onUseOwnModelClick()
+            }}
+          >
+            {i18n.t("ui.rateLimitCard.actionBYO")}
+          </a>
+        </div>
       </CardActions>
     </Card>
   )

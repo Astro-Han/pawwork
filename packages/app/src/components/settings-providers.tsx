@@ -20,6 +20,7 @@ type ProviderItem = ReturnType<ReturnType<typeof useProviders>["connected"]>[num
 const PROVIDER_NOTES = [
   { match: (id: string) => id === "opencode", key: "dialog.provider.opencode.note" },
   { match: (id: string) => id === "opencode-go", key: "dialog.provider.opencodeGo.tagline" },
+  { match: (id: string) => id === "deepseek", key: "dialog.provider.deepseek.tagline" },
   { match: (id: string) => id === "anthropic", key: "dialog.provider.anthropic.note" },
   { match: (id: string) => id.startsWith("github-copilot"), key: "dialog.provider.copilot.note" },
   { match: (id: string) => id === "openai", key: "dialog.provider.openai.note" },
@@ -152,9 +153,7 @@ export const SettingsProviders: Component = () => {
             <Show
               when={connected().length > 0}
               fallback={
-                <div class="py-4 text-body text-fg-weak">
-                  {language.t("settings.providers.connected.empty")}
-                </div>
+                <div class="py-4 text-body text-fg-weak">{language.t("settings.providers.connected.empty")}</div>
               }
             >
               <For each={connected()}>
@@ -208,6 +207,9 @@ export const SettingsProviders: Component = () => {
                       <Show when={item.id === "opencode-go"}>
                         <Tag>{language.t("dialog.provider.tag.recommended")}</Tag>
                       </Show>
+                      <Show when={item.id === "deepseek"}>
+                        <Tag>{language.t("dialog.provider.tag.recommended")}</Tag>
+                      </Show>
                     </div>
                     <Show when={note(item.id)}>
                       {(key) => <span class="text-body text-fg-weak pl-8">{language.t(key())}</span>}
@@ -237,9 +239,7 @@ export const SettingsProviders: Component = () => {
                   <span class="text-h3 text-fg-strong">{language.t("provider.custom.title")}</span>
                   <Tag>{language.t("settings.providers.tag.custom")}</Tag>
                 </div>
-                <span class="text-body text-fg-weak pl-8">
-                  {language.t("settings.providers.custom.description")}
-                </span>
+                <span class="text-body text-fg-weak pl-8">{language.t("settings.providers.custom.description")}</span>
               </div>
               <Button
                 size="large"

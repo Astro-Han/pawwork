@@ -27,6 +27,10 @@ describe("RateLimitCard: data-slot contract", () => {
   test('BYO link has data-slot="rate-limit-card-byo"', () => {
     expect(src).toContain('data-slot="rate-limit-card-byo"')
   })
+
+  test('DeepSeek link has data-slot="rate-limit-card-deepseek"', () => {
+    expect(src).toContain('data-slot="rate-limit-card-deepseek"')
+  })
 })
 
 // ── No-go: no buttons (DESIGN.md L463) ────────────────────────────────────
@@ -75,12 +79,20 @@ describe("RateLimitCard: callback props", () => {
     expect(src).toContain("onUseOwnModelClick")
   })
 
+  test("onDeepSeekClick prop is declared in RateLimitCardProps", () => {
+    expect(src).toContain("onDeepSeekClick")
+  })
+
   test("onSubscribeClick is called on subscribe link click", () => {
     expect(src).toContain("props.onSubscribeClick()")
   })
 
   test("onUseOwnModelClick is called on BYO link click", () => {
     expect(src).toContain("props.onUseOwnModelClick()")
+  })
+
+  test("onDeepSeekClick is called on DeepSeek link click", () => {
+    expect(src).toContain("props.onDeepSeekClick()")
   })
 })
 
@@ -93,15 +105,17 @@ describe("RateLimitCard: callback props", () => {
 // These tests pin the architecture so the same drift cannot reappear.
 
 describe("RateLimitCard: composes Card primitive", () => {
-  test("imports Card / CardTitle / CardDescription / CardActions from ./card", () => {
+  test("imports Card and CardActions from ./card", () => {
+    // CardTitle and CardDescription are intentionally not used: this variant
+    // folds title + reset onto a single inline lockup (see __head selector)
+    // because the warning triangle CardTitle would inject is redundant with
+    // the 2px orange rule on the card's left edge.
     expect(src).toMatch(/from\s+['"]\.\/card['"]/)
     expect(src).toContain("Card")
-    expect(src).toContain("CardTitle")
-    expect(src).toContain("CardDescription")
     expect(src).toContain("CardActions")
   })
 
-  test("renders <Card variant=\"warning\"> so the 2px rule and accent come from the primitive", () => {
+  test('renders <Card variant="warning"> so the 2px rule and accent come from the primitive', () => {
     expect(src).toMatch(/<Card\b[^>]*variant=["']warning["']/)
   })
 
@@ -111,7 +125,7 @@ describe("RateLimitCard: composes Card primitive", () => {
   })
 
   test("does not redefine container styles already owned by Card primitive", () => {
-    // The left rule, title color, and description font live in card.css now.
+    // The left rule and the card-root color/font-size live in card.css now.
     // Catching them here would mean RateLimitCard drifted off the system again.
     expect(css).not.toContain("border-left")
     expect(css).not.toContain("--fg-strong")
@@ -123,16 +137,61 @@ describe("RateLimitCard: composes Card primitive", () => {
 
 describe("RateLimitCard: CSS token contract", () => {
   test("primary action color uses var(--warning)", () => {
-    expect(css).toMatch(/\.rate-limit-card__action--primary[\s\S]*?color:\s*var\(--warning\)/)
+    expect(css).toMatch(/\.rate-limit-card__action[\s\S]*?color:\s*var\(--warning\)/)
   })
 
-  test("secondary action color uses var(--fg-weak), not the undefined --fg-muted", () => {
-    expect(css).toContain("var(--fg-weak)")
+  test("BYO link color uses var(--fg-weak), not the undefined --fg-muted", () => {
+    // The BYO escape hatch is the only non-primary action now; --fg-muted was
+    // the legacy drift token that this contract guards against.
+    expect(css).toMatch(/\.rate-limit-card__byo[\s\S]*?color:\s*var\(--fg-weak\)/)
     expect(css).not.toContain("--fg-muted")
   })
 
-  test("actions row uses an on-grid horizontal gap via --space-* token", () => {
-    expect(css).toMatch(/\[data-slot="card-actions"\][\s\S]*?gap:\s*var\(--space-/)
+  test("actions row uses an on-grid column-gap and row-gap via --space-* tokens", () => {
+    // Ledger grid replaces the original single-axis flex row: column-gap
+    // separates brand link from prerequisite note, row-gap separates the two
+    // recommendation rows. Both must stay on the 4pt token grid.
+    expect(css).toMatch(/\[data-slot="card-actions"\][\s\S]*?column-gap:\s*var\(--space-/)
+    expect(css).toMatch(/\[data-slot="card-actions"\][\s\S]*?row-gap:\s*var\(--space-/)
+  })
+
+  test("note text size is not hard-coded — same body size as the brand link, color-differentiated only", () => {
+    // The note must read as same-level information, not as a skippable
+    // footnote. We rely on color (--fg-base) and weight (body vs emphasis)
+    // for differentiation rather than borrowing a non-token font-size like 12px.
+    // Scope the match to within the .rate-limit-card__note block — the
+    // .rate-limit-card__external block (the small ↗ arrow) DOES set
+    // font-size, but legitimately via --font-size-kbd.
+    expect(css).not.toMatch(/\.rate-limit-card__note\s*\{[^}]*font-size:/)
+  })
+})
+
+// ── Note rows for each recommendation ─────────────────────────────────────
+
+describe("RateLimitCard: prerequisite notes", () => {
+  test("subscribe note key is rendered next to the subscribe link", () => {
+    expect(src).toContain('"ui.rateLimitCard.noteSubscribe"')
+  })
+
+  test("DeepSeek note key is rendered next to the DeepSeek link", () => {
+    expect(src).toContain('"ui.rateLimitCard.noteDeepSeek"')
+  })
+
+  // Visual adjacency alone leaves screen-reader / keyboard users without the
+  // access barrier — the one piece of info this redesign exists to surface.
+  // Each note carries a unique id and the matching link points at it via
+  // aria-describedby, so the link's accessible description includes the
+  // prerequisite. Runtime proof lives in the E2E spec (toHaveAccessibleDescription).
+  test("each note has a unique id wired to its link via aria-describedby", () => {
+    expect(src).toContain("createUniqueId")
+    // Two stable ids generated for the two notes.
+    expect(src).toMatch(/subscribeNoteId\s*=\s*`rate-limit-note-\$\{createUniqueId\(\)\}`/)
+    expect(src).toMatch(/deepseekNoteId\s*=\s*`rate-limit-note-\$\{createUniqueId\(\)\}`/)
+    // Links reference the ids; notes own them.
+    expect(src).toMatch(/data-slot="rate-limit-card-subscribe"[\s\S]*?aria-describedby=\{subscribeNoteId\}/)
+    expect(src).toMatch(/data-slot="rate-limit-card-deepseek"[\s\S]*?aria-describedby=\{deepseekNoteId\}/)
+    expect(src).toMatch(/rate-limit-card__note"\s+id=\{subscribeNoteId\}/)
+    expect(src).toMatch(/rate-limit-card__note"\s+id=\{deepseekNoteId\}/)
   })
 })
 
