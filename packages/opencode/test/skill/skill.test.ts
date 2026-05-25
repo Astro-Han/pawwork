@@ -328,6 +328,7 @@ description: A global skill from ~/.agents/skills for testing.
 })
 
 test("warns when different skill files declare the same name", async () => {
+  await using home = await tmpdir()
   await using tmp = await tmpdir({
     git: true,
     init: async (dir) => {
@@ -350,7 +351,9 @@ description: Duplicate skill name from ${folder}.
 
   const logger = Log.create({ service: "skill" })
   const originalWarn = logger.warn
+  const originalHome = process.env.OPENCODE_TEST_HOME
   const warnings: Array<{ message?: unknown; extra?: Record<string, unknown> }> = []
+  process.env.OPENCODE_TEST_HOME = home.path
   logger.warn = (message, extra) => {
     warnings.push({ message, extra })
   }
@@ -369,6 +372,8 @@ description: Duplicate skill name from ${folder}.
     expect(duplicateWarnings[0]!.extra?.existing).not.toBe(duplicateWarnings[0]!.extra?.duplicate)
   } finally {
     logger.warn = originalWarn
+    if (originalHome === undefined) delete process.env.OPENCODE_TEST_HOME
+    else process.env.OPENCODE_TEST_HOME = originalHome
   }
 })
 
