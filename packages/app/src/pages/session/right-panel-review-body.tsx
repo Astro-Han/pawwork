@@ -8,6 +8,8 @@ import { TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { ConstrainDragYAxis, getDraggableId } from "@/utils/solid-dnd"
 
 import { FileVisual, SortableTab } from "@/components/session"
+import { useCommand } from "@/context/command"
+import { useLanguage } from "@/context/language"
 import { createFileTabListSync } from "@/pages/session/file-tab-scroll"
 import { FileTabContent } from "@/pages/session/file-tabs"
 import { getTabReorderIndex, shouldShowReviewFileOpenButton } from "@/pages/session/helpers"
@@ -35,9 +37,9 @@ export function RightPanelReviewBody(props: {
   }
   pathFromTab: (tab: string) => string | undefined
   reviewTab: () => boolean
-  t: (key: string) => string
-  keybind: (cmdId: string) => string
 }) {
+  const language = useLanguage()
+  const command = useCommand()
   const [store, setStore] = createStore({
     activeDraggable: undefined as string | undefined,
   })
@@ -81,8 +83,8 @@ export function RightPanelReviewBody(props: {
                   <Show when={shouldShowReviewFileOpenButton(props.activeTab(), false)}>
                     <div class="w-full bg-bg-base flex items-center justify-end px-3 py-1.5">
                       <TooltipKeybind
-                        title={props.t("command.file.open")}
-                        keybind={props.keybind("file.open")}
+                        title={language.t("command.file.open")}
+                        keybind={command.keybind("file.open")}
                         class="flex items-center"
                       >
                         <IconButton
@@ -91,7 +93,7 @@ export function RightPanelReviewBody(props: {
                           iconSize="large"
                           class="!rounded-md"
                           onClick={() => props.openFilePicker(props.showAllFiles)}
-                          aria-label={props.t("command.file.open")}
+                          aria-label={language.t("command.file.open")}
                         />
                       </TooltipKeybind>
                     </div>
@@ -107,7 +109,7 @@ export function RightPanelReviewBody(props: {
                   <Show when={props.reviewTab() && props.canReview()}>
                     <Tabs.Trigger value="review">
                       <div class="flex items-center gap-1.5">
-                        <div>{props.t("session.tab.review")}</div>
+                        <div>{language.t("session.tab.review")}</div>
                         <Show when={props.hasReview()}>
                           <div>{props.reviewCount()}</div>
                         </Show>
@@ -121,8 +123,8 @@ export function RightPanelReviewBody(props: {
                   </SortableProvider>
                   <div class="bg-bg-base h-full shrink-0 sticky right-0 z-10 flex items-center justify-center pr-3">
                     <TooltipKeybind
-                      title={props.t("command.file.open")}
-                      keybind={props.keybind("file.open")}
+                      title={language.t("command.file.open")}
+                      keybind={command.keybind("file.open")}
                       class="flex items-center"
                     >
                       <IconButton
@@ -131,7 +133,7 @@ export function RightPanelReviewBody(props: {
                         iconSize="large"
                         class="!rounded-md"
                         onClick={() => props.openFilePicker(props.showAllFiles)}
-                        aria-label={props.t("command.file.open")}
+                        aria-label={language.t("command.file.open")}
                       />
                     </TooltipKeybind>
                   </div>
@@ -149,7 +151,7 @@ export function RightPanelReviewBody(props: {
               <Show when={props.activeTab() === "empty"}>
                 <div class="relative pt-2 flex-1 min-h-0 overflow-hidden">
                   <div class="h-full px-6 pb-42 -mt-4 flex flex-col items-center justify-center text-center">
-                    <div class="text-body text-fg-weak max-w-56">{props.t("session.files.selectToOpen")}</div>
+                    <div class="text-body text-fg-weak max-w-56">{language.t("session.files.selectToOpen")}</div>
                   </div>
                 </div>
               </Show>

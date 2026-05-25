@@ -28,13 +28,6 @@ import {
   type Sizing,
 } from "@/pages/session/helpers"
 
-export {
-  formatRightPanelWidth,
-  makeRightPanelResizeHandler,
-  shouldShowReviewFileOpenButton,
-  sortableShellTabIds,
-  openReviewShellTab,
-}
 import { setSessionHandoff } from "@/pages/session/handoff"
 import { RightPanelReviewBody } from "@/pages/session/right-panel-review-body"
 import { RightPanelTabStrip } from "@/pages/session/right-panel-tab-strip"
@@ -314,8 +307,6 @@ export function SessionSidePanel(props: {
                   closableMissingTabs={closableMissingTabs}
                   openFilePicker={openFilePicker}
                   showAllFiles={showAllFiles}
-                  t={language.t}
-                  keybind={command.keybind}
                 />
 
                 <Tabs.Content value="status" class="min-h-0 flex-1 overflow-hidden">
@@ -344,8 +335,6 @@ export function SessionSidePanel(props: {
                     tabs={{ all: tabs().all, close: tabs().close, move: tabs().move }}
                     pathFromTab={file.pathFromTab}
                     reviewTab={reviewTab}
-                    t={language.t}
-                    keybind={command.keybind}
                   />
                 </Tabs.Content>
 
@@ -372,4 +361,12 @@ export function SessionSidePanel(props: {
       </aside>
     </Show>
   )
+}
+
+export {
+  formatRightPanelWidth,
+  makeRightPanelResizeHandler,
+  shouldShowReviewFileOpenButton,
+  sortableShellTabIds,
+  openReviewShellTab,
 }

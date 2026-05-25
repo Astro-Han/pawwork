@@ -8,6 +8,8 @@ import { SortableProvider } from "@thisbeyond/solid-dnd"
 
 import { SessionContextUsage } from "@/components/session-context-usage"
 import { ShellTab, SortableShellTab } from "@/components/session"
+import { useCommand } from "@/context/command"
+import { useLanguage } from "@/context/language"
 import { sortableShellTabIds } from "@/pages/session/helpers"
 import type { RightPanelShellIconName, RightPanelTab, ShellTabIcon } from "@/pages/session/right-panel-tabs"
 
@@ -61,13 +63,20 @@ export function RightPanelTabStrip(props: {
   }[]
   openFilePicker: (onOpenFile?: () => void) => void
   showAllFiles: () => void
-  t: (key: string) => string
-  keybind: (cmdId: string) => string
 }) {
+  const language = useLanguage()
+  const command = useCommand()
   return (
     <Show when={props.tabsPortalMount()}>
       {(mount) => (
         <Portal mount={mount()}>
+          {/* Tabs.List portals into <Titlebar>'s `pawwork-titlebar-tabs` slot so the
+              tabs visually sit on the window chrome and the panel's body border-left
+              meets the titlebar separator with no gap. Portal keeps Tabs/Sortable/DnD
+              contexts intact via the virtual tree. The slot owns the titlebar height
+              (--shell-titlebar-height, 44px on desktop) and centers this list
+              vertically; no border-b because the titlebar slot owns the bottom-edge
+              alignment with the panel body below. */}
           <Tabs.List class="h-full shrink-0 px-1 py-0 items-center">
             <SortableProvider ids={sortableShellTabIds(props.openShellTabs())}>
               <For each={props.shellTabs()}>
@@ -95,6 +104,9 @@ export function RightPanelTabStrip(props: {
                 )}
               </For>
             </SortableProvider>
+            {/* Spacer pushes the `+` button to the rail's right edge so
+                the chip strip reads left-justified and `+` lives at the
+                end of the rail (matching docs/design/ui_kits/desktop/RightPanel.jsx). */}
             <div class="flex-1" />
             <DropdownMenu gutter={4} placement="bottom-end">
               <DropdownMenu.Trigger
@@ -102,14 +114,14 @@ export function RightPanelTabStrip(props: {
                 icon="plus-small"
                 variant="ghost"
                 class="shrink-0"
-                aria-label={props.t("session.panel.addTab")}
+                aria-label={language.t("session.panel.addTab")}
               />
               <DropdownMenu.Portal>
                 <DropdownMenu.Content>
                   <DropdownMenu.Item onSelect={() => props.openFilePicker(props.showAllFiles)}>
                     <Icon name="open-file" />
-                    <DropdownMenu.ItemLabel>{props.t("command.file.open")}</DropdownMenu.ItemLabel>
-                    <span class="ml-auto text-body text-fg-weaker">{props.keybind("file.open")}</span>
+                    <DropdownMenu.ItemLabel>{language.t("command.file.open")}</DropdownMenu.ItemLabel>
+                    <span class="ml-auto text-body text-fg-weaker">{command.keybind("file.open")}</span>
                   </DropdownMenu.Item>
                   <Show when={props.closableMissingTabs().length > 0}>
                     <DropdownMenu.Separator />
