@@ -169,7 +169,7 @@ export namespace Skill {
     }
 
     yield* Effect.forEach(uniqueMatches, (match) => add(state, match, bus), {
-      concurrency: "unbounded",
+      concurrency: 1,
       discard: true,
     })
   })
