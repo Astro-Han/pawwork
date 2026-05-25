@@ -89,8 +89,18 @@ export const isRightPanelTerminalTab = (value: unknown): value is RightPanelTerm
 /** Extract the terminal id portion of a `terminal:<id>` tab value. */
 export const terminalTabId = (value: RightPanelTerminalTab): string => value.slice(TERMINAL_TAB_PREFIX.length)
 
-/** Build a `terminal:<id>` tab value from a raw id. */
-export const terminalTabValue = (id: string): RightPanelTerminalTab => `${TERMINAL_TAB_PREFIX}${id}` as RightPanelTerminalTab
+/**
+ * Build a `terminal:<id>` tab value from a raw id. The id must be non-empty:
+ * an empty id yields `"terminal:"`, which `isTerminalTab` rejects and which
+ * would silently break the RightPanelTerminalTab invariant downstream. All
+ * current call sites already pass real terminal ids (terminal.all() tab ids,
+ * with `if (!id) return` guards upstream), so this throw never fires in
+ * practice — it fails fast and loud if a future caller regresses.
+ */
+export const terminalTabValue = (id: string): RightPanelTerminalTab => {
+  if (!id) throw new Error("terminalTabValue requires a non-empty terminal id")
+  return `${TERMINAL_TAB_PREFIX}${id}` as RightPanelTerminalTab
+}
 
 // Used when reading legacy persisted state where invalid input should remain unset.
 export const coerceLegacySidePanelTab = (value: unknown): RightPanelTab | undefined => {

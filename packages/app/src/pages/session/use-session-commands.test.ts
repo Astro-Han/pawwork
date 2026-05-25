@@ -140,10 +140,11 @@ describe("createCloseShellTabRouter", () => {
     expect(calls).toEqual(["terminal.close:b", "openTab:terminal:a"])
   })
 
-  test("closing the first terminal (no previous sibling) hands focus back via closeTab → status", () => {
+  test("closing the first terminal falls focus to the next terminal (no previous sibling)", () => {
     const { router, calls } = buildDeps({ activeTab: "terminal:a", terminals: ["a", "b"] })
     router("terminal:a" as never)
-    expect(calls).toEqual(["terminal.close:a", "closeTab:terminal:a"])
+    // No previous sibling → fall to the next terminal rather than ejecting to status.
+    expect(calls).toEqual(["terminal.close:a", "openTab:terminal:b"])
   })
 
   test("closing the only terminal leaves the router to defer to closeTab (status)", () => {

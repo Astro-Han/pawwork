@@ -100,14 +100,18 @@ export function createCloseShellTabRouter(deps: {
     const closingIndex = ids.indexOf(closingId)
     term.close(closingId as TerminalTabID)
     if (!wasActive) return
-    // Fall focus to the previous terminal in render order; if it was the
-    // first (or only) terminal, hand back to status. Matches editor/browser
-    // convention "close current → go to previous sibling".
-    const nextId = closingIndex > 0 ? ids[closingIndex - 1] : undefined
+    // Fall focus to the previous terminal in render order; when the closed one
+    // was the first, fall to the next terminal instead. Only hand back to
+    // status when no sibling terminal remains. Matches editor/browser
+    // convention: closing a tab focuses its previous sibling, or the next one
+    // when there is no previous, and never ejects you from the tab group while
+    // siblings exist. `ids` is the pre-close snapshot, so index ±1 are the
+    // surviving neighbors.
+    const nextId = ids[closingIndex - 1] ?? ids[closingIndex + 1]
     if (nextId) {
       sidePanel.openTab(terminalTabValue(nextId))
     } else {
-      sidePanel.closeTab(tab) // shifts active off the dead terminal
+      sidePanel.closeTab(tab) // no sibling terminals left → shifts active off the dead terminal
     }
   }
 }

@@ -4,10 +4,12 @@ import {
   coerceLegacySidePanelTab,
   defaultRightPanelTab,
   isRightPanelTab,
+  isRightPanelTerminalTab,
   migrateLegacyRightPanelTab,
   normalizeShellTabs,
   RIGHT_PANEL_TAB_VALUES,
   shouldCommitDeferredOpen,
+  terminalTabValue,
   type RightPanelTab,
 } from "./right-panel-tabs"
 
@@ -137,6 +139,20 @@ describe("normalizeShellTabs", () => {
     const once = normalizeShellTabs({ openShellTabs: ["files", "status", "files"], sidePanelTab: "files" })
     const twice = normalizeShellTabs(once)
     expect(twice).toEqual(once)
+  })
+})
+
+describe("terminalTabValue", () => {
+  test("builds a terminal tab value that isRightPanelTerminalTab accepts", () => {
+    const value = terminalTabValue("abc")
+    expect(value).toBe("terminal:abc")
+    expect(isRightPanelTerminalTab(value)).toBe(true)
+  })
+
+  test("throws on an empty id rather than returning the invalid 'terminal:'", () => {
+    expect(() => terminalTabValue("")).toThrow()
+    // The empty form would otherwise be rejected by the type guard.
+    expect(isRightPanelTerminalTab("terminal:")).toBe(false)
   })
 })
 
