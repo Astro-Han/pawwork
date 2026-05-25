@@ -10,7 +10,7 @@ registerPartComponent("notice", function NoticePartDisplay(props) {
   return (
     <Switch>
       <Match when={part().kind === "safe_retry_failed"}>
-        <div data-component="notice-part" data-kind="safe_retry_failed" class="text-text-muted text-sm">
+        <div data-component="notice-part" data-kind="safe_retry_failed" class="text-caption text-fg-weak">
           {i18n.t("ui.sessionTurn.notice.safeRetryFailed")}
         </div>
       </Match>

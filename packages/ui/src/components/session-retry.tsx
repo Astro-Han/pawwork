@@ -110,7 +110,7 @@ export function SessionRetry(props: {
             }
           >
             {(current) => (
-              <div data-slot="session-turn-safe-retry" class="text-text-muted flex items-center gap-2 text-sm">
+              <div data-slot="session-turn-safe-retry" class="flex items-center gap-2 text-caption text-fg-weak">
                 <Spinner class="size-3.5" />
                 <div data-slot="session-turn-safe-retry-message">{current().message}</div>
               </div>
