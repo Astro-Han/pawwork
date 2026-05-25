@@ -24,6 +24,7 @@ import { useSessionLayout } from "@/pages/session/session-layout"
 import { SessionPageComposerRegion } from "@/pages/session/session-composer-region"
 import { SessionMainView } from "@/pages/session/session-main-view"
 import { createSessionRunning, isSessionRunning } from "@/pages/session/session-running-state"
+import { createSessionTurnChanges } from "@/pages/session/session-turn-changes"
 import { useSessionCommands } from "@/pages/session/use-session-commands"
 import { createSessionCommentContext } from "@/pages/session/use-session-comment-context"
 import { useSessionDesktopContext } from "@/pages/session/use-session-desktop-context"
@@ -125,6 +126,7 @@ export default function Page() {
   const timelineHistoryMore = timeline.historyMore
   const timelineHistoryLoading = timeline.historyLoading
   const lastUserMessage = timeline.lastUserMessage
+  const turnChangeController = createSessionTurnChanges({ sessionID: timelineSessionID, sessionMessages: timelineMessages })
   const diagnostics = createSessionPageDiagnostics({
     routeSessionID: () => params.id,
     timelineSessionID,
@@ -190,7 +192,10 @@ export default function Page() {
     executionScope: currentExecutionScope,
     sessionKey: timelineSessionKey,
     sessionID: timelineSessionID,
-    lastUserMessageID: () => lastUserMessage()?.id,
+    latestTurnChange: () => {
+      const id = lastUserMessage()?.id
+      return id ? turnChangeController.turnChanges[id] : undefined
+    },
     sync,
     sdk,
     wantsReview,
@@ -470,6 +475,7 @@ export default function Page() {
       timelineSessionKey={timelineSessionKey()}
       timelineMessagesReady={timelineMessagesReady()}
       timelineMessages={timelineMessages()}
+      turnChangeController={turnChangeController}
       mobileChanges={mobileChanges()}
       mobileFallback={reviewPanel.mobileFallback()}
       actions={actions}

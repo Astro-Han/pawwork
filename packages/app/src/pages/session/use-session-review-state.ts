@@ -4,6 +4,7 @@ import { createStore } from "solid-js/store"
 import type { useSDK } from "@/context/sdk"
 import type { useSync } from "@/context/sync"
 import { deriveArtifactFiles, type SessionArtifactFile } from "@/pages/session/files-tab-state"
+import type { TurnChangeDisplay } from "@/pages/session/session-turn-changes"
 import {
   coerceReviewChangeMode,
   isVcsReviewMode,
@@ -20,15 +21,6 @@ import { aggregateFiles } from "./session-aggregate-files"
 
 type SessionReviewDiff = SnapshotFileDiff | VcsFileDiff
 type SessionAggregateDiffState = { sessionID: string; scope: ExecutionScope; diffs: SnapshotFileDiff[] } | undefined
-
-export function buildReviewTurnDiffRequest(input: {
-  sessionID: string | undefined
-  lastUserMessageID: string | undefined
-  scope: ExecutionScope
-}) {
-  if (!input.sessionID || !input.lastUserMessageID) return
-  return { sessionID: input.sessionID, messageID: input.lastUserMessageID, scope: input.scope }
-}
 
 export function selectReviewChangeMode(input: {
   mode: ReviewChangeMode
@@ -56,6 +48,20 @@ export function reviewTurnDiffsForSession(input: {
     return input.aggregate.diffs.length > 0 ? input.aggregate.diffs : input.turnDiffs
   }
   return input.turnDiffs
+}
+
+export function turnChangeDisplayDiffs(display: TurnChangeDisplay | null | undefined): SnapshotFileDiff[] {
+  if (!display) return []
+  if (display.kind === "empty" || display.kind === "uncaptured") return []
+  return display.files
+    .filter((file) => file.restoreState === "applied")
+    .map((file) => ({
+      file: file.openPath ?? file.path,
+      patch: file.patch ?? "",
+      additions: file.additions ?? 0,
+      deletions: file.deletions ?? 0,
+      status: file.status,
+    }))
 }
 
 export function deriveReviewArtifactFiles(input: {
@@ -89,7 +95,7 @@ export function createSessionReviewState(input: {
   executionScope: () => ExecutionScope
   sessionKey: () => string
   sessionID: () => string | undefined
-  lastUserMessageID: () => string | undefined
+  latestTurnChange: () => TurnChangeDisplay | null | undefined
   sync: ReturnType<typeof useSync>
   sdk: ReturnType<typeof useSDK>
   wantsReview: () => boolean
@@ -97,7 +103,6 @@ export function createSessionReviewState(input: {
   artifactDiffs?: () => SessionReviewDiff[]
 }) {
   const [changes, setChangesSignal] = createSignal<ReviewChangeMode>("turn")
-  const [turnAggregateDiffs, setTurnAggregateDiffs] = createSignal<SessionAggregateDiffState>()
   const [vcs, setVcs] = createStore<{
     diff: Record<VcsReviewMode, SessionReviewDiff[]>
     ready: Record<VcsReviewMode, boolean>
@@ -205,8 +210,8 @@ export function createSessionReviewState(input: {
         turn: reviewTurnDiffsForSession({
           currentScope: input.executionScope(),
           sessionID: input.sessionID(),
-          aggregate: turnAggregateDiffs(),
-          turnDiffs: [],
+          aggregate: undefined,
+          turnDiffs: turnChangeDisplayDiffs(input.latestTurnChange()),
         }),
         vcs: vcs.diff,
       }),
@@ -274,7 +279,6 @@ export function createSessionReviewState(input: {
       input.sessionKey,
       () => {
         setChangesSignal(nextReviewModeForSessionChange())
-        setTurnAggregateDiffs(undefined)
       },
       { defer: true },
     ),
@@ -319,38 +323,6 @@ export function createSessionReviewState(input: {
     if (!id) return
     if (input.sync.data.turn_change_aggregate[id] === undefined) return
     queueArtifactHistoryRefetch()
-  })
-
-  createEffect(() => {
-    const request = buildReviewTurnDiffRequest({
-      sessionID: input.sessionID(),
-      lastUserMessageID: input.lastUserMessageID(),
-      scope: input.executionScope(),
-    })
-    setTurnAggregateDiffs(undefined)
-    if (!request) return
-    if (!input.wantsReview()) return
-    void input.sdk
-      .createClient({ directory: request.scope.directory, throwOnError: true })
-      .session.diff({ sessionID: request.sessionID, messageID: request.messageID })
-      .then((res) => {
-        if (input.sessionID() !== request.sessionID) return
-        if (input.lastUserMessageID() !== request.messageID) return
-        if (!shouldApplyExecutionResult({ requested: request.scope, current: input.executionScope() })) return
-        setTurnAggregateDiffs({ sessionID: request.sessionID, scope: request.scope, diffs: aggregateFiles(res.data) })
-      })
-      .catch((error: unknown) => {
-        if (input.sessionID() !== request.sessionID) return
-        if (input.lastUserMessageID() !== request.messageID) return
-        if (!shouldApplyExecutionResult({ requested: request.scope, current: input.executionScope() })) return
-        console.debug("[session-review] failed to fetch turn diff", {
-          sessionID: request.sessionID,
-          messageID: request.messageID,
-          scope: request.scope,
-          error,
-        })
-        setTurnAggregateDiffs(undefined)
-      })
   })
 
   return {

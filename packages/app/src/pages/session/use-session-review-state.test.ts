@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test"
 import { vcsTaskKey } from "./execution-scope"
 import {
-  buildReviewTurnDiffRequest,
   deriveReviewArtifactFiles,
   reviewTurnDiffsForSession,
   selectReviewChangeMode,
+  turnChangeDisplayDiffs,
 } from "./use-session-review-state"
 
 const scope = (directory = "/repo", epoch = 1) => ({ serverKey: "sidecar", directory, epoch })
@@ -124,26 +124,44 @@ describe("session review state", () => {
     ).toEqual(fallback)
   })
 
-  test("requests review diffs for the latest user turn, not the whole session", () => {
-    expect(
-      buildReviewTurnDiffRequest({
-        sessionID: "ses_1",
-        lastUserMessageID: "msg_latest",
-        scope: scope("/repo", 1),
-      }),
-    ).toEqual({
+  test("builds review turn diffs from the shared turn-change display", () => {
+    const diffs = turnChangeDisplayDiffs({
+      kind: "captured",
       sessionID: "ses_1",
-      messageID: "msg_latest",
-      scope: scope("/repo", 1),
+      turnID: "msg_user",
+      messageID: "msg_user",
+      files: [
+        {
+          path: "base.txt",
+          openPath: "/repo/base.txt",
+          patch: "@@ -1 +1 @@",
+          status: "modified",
+          additions: 1,
+          deletions: 0,
+          expandable: true,
+          restoreState: "applied",
+        },
+        {
+          path: "undone.txt",
+          patch: "",
+          status: "modified",
+          additions: 1,
+          deletions: 0,
+          expandable: true,
+          restoreState: "undone",
+        },
+      ],
     })
 
-    expect(
-      buildReviewTurnDiffRequest({
-        sessionID: "ses_1",
-        lastUserMessageID: undefined,
-        scope: scope("/repo", 1),
-      }),
-    ).toBeUndefined()
+    expect(diffs).toEqual([
+      {
+        file: "/repo/base.txt",
+        patch: "@@ -1 +1 @@",
+        additions: 1,
+        deletions: 0,
+        status: "modified",
+      },
+    ])
   })
 
   test("selecting a VCS review mode forces a reload even when cached", () => {

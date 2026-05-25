@@ -10,6 +10,7 @@ import { shouldShowSessionOpeningState } from "@/pages/session/session-main-view
 import type { createSessionHistoryWindow } from "@/pages/session/use-session-history-window"
 import type { createSessionReviewState } from "@/pages/session/use-session-review-state"
 import type { createSessionScrollDock } from "@/pages/session/use-session-scroll-dock"
+import type { createSessionTurnChanges } from "@/pages/session/session-turn-changes"
 import { TimelineE2EDriverBoundary } from "@/testing/timeline"
 
 type TimelineProps = ComponentProps<typeof MessageTimeline>
@@ -27,6 +28,7 @@ export function SessionMainView(props: {
   timelineSessionKey: string
   timelineMessagesReady: boolean
   timelineMessages: TimelineProps["sessionMessages"]
+  turnChangeController: ReturnType<typeof createSessionTurnChanges>
   mobileChanges: boolean
   mobileFallback: JSX.Element
   actions: TimelineProps["actions"]
@@ -141,6 +143,7 @@ export function SessionMainView(props: {
                   sessionID={props.timelineSessionID ?? ""}
                   sessionKey={props.timelineSessionKey}
                   sessionMessages={props.timelineMessages}
+                  turnChangeController={props.turnChangeController}
                   mobileChanges={props.mobileChanges}
                   mobileFallback={props.mobileFallback}
                   actions={props.actions}
