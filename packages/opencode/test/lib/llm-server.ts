@@ -4,7 +4,7 @@ import { Deferred, Effect, Layer, Context, Stream } from "effect"
 import * as HttpServer from "effect/unstable/http/HttpServer"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 
-export type Usage = { input: number; output: number }
+export type Usage = { input: number; output: number; cacheRead?: number }
 
 type Line = Record<string, unknown>
 
@@ -66,6 +66,7 @@ function tokens(input?: Usage) {
   if (!input) return
   return {
     prompt_tokens: input.input,
+    prompt_tokens_details: { cached_tokens: input.cacheRead ?? null },
     completion_tokens: input.output,
     total_tokens: input.input + input.output,
   }
@@ -160,7 +161,7 @@ function responseCompleted(input: { seq: number; usage?: Usage }) {
       service_tier: null,
       usage: {
         input_tokens: input.usage?.input ?? 0,
-        input_tokens_details: { cached_tokens: null },
+        input_tokens_details: { cached_tokens: input.usage?.cacheRead ?? null },
         output_tokens: input.usage?.output ?? 0,
         output_tokens_details: { reasoning_tokens: null },
       },

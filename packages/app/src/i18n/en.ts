@@ -405,6 +405,7 @@ export const dict = {
   "context.stats.inputTokens": "Input Tokens",
   "context.stats.outputTokens": "Output Tokens",
   "context.stats.reasoningTokens": "Reasoning Tokens",
+  "context.stats.cacheHitRate": "Cache Hit Rate",
   "context.stats.cacheTokens": "Cache Tokens (read/write)",
   "context.stats.userMessages": "User Messages",
   "context.stats.assistantMessages": "Assistant Messages",
