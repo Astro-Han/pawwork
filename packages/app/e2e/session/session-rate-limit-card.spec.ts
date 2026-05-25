@@ -48,6 +48,12 @@ test("rate_limit_blocked renders RateLimitCard, keeps composer unlocked, BYO ope
   await expect(deepseek).toBeVisible()
   await expect(byo).toBeVisible()
 
+  // The prerequisite note is the whole point of the redesign, so it must reach
+  // screen-reader users, not just sighted ones. Each link binds its note via
+  // aria-describedby; assert the resolved accessible description (locale=zh).
+  await expect(subscribe).toHaveAccessibleDescription("需 GitHub 或 Google 登录")
+  await expect(deepseek).toHaveAccessibleDescription("手机号或邮箱即可注册")
+
   await subscribe.click()
   await expect
     .poll(() => events.find((e) => e.name === "rate_limit_card.subscribe_click")?.name)

@@ -176,6 +176,23 @@ describe("RateLimitCard: prerequisite notes", () => {
   test("DeepSeek note key is rendered next to the DeepSeek link", () => {
     expect(src).toContain('"ui.rateLimitCard.noteDeepSeek"')
   })
+
+  // Visual adjacency alone leaves screen-reader / keyboard users without the
+  // access barrier — the one piece of info this redesign exists to surface.
+  // Each note carries a unique id and the matching link points at it via
+  // aria-describedby, so the link's accessible description includes the
+  // prerequisite. Runtime proof lives in the E2E spec (toHaveAccessibleDescription).
+  test("each note has a unique id wired to its link via aria-describedby", () => {
+    expect(src).toContain("createUniqueId")
+    // Two stable ids generated for the two notes.
+    expect(src).toMatch(/subscribeNoteId\s*=\s*`rate-limit-note-\$\{createUniqueId\(\)\}`/)
+    expect(src).toMatch(/deepseekNoteId\s*=\s*`rate-limit-note-\$\{createUniqueId\(\)\}`/)
+    // Links reference the ids; notes own them.
+    expect(src).toMatch(/data-slot="rate-limit-card-subscribe"[\s\S]*?aria-describedby=\{subscribeNoteId\}/)
+    expect(src).toMatch(/data-slot="rate-limit-card-deepseek"[\s\S]*?aria-describedby=\{deepseekNoteId\}/)
+    expect(src).toMatch(/rate-limit-card__note"\s+id=\{subscribeNoteId\}/)
+    expect(src).toMatch(/rate-limit-card__note"\s+id=\{deepseekNoteId\}/)
+  })
 })
 
 // ── Live invalidation at resetAt ───────────────────────────────────────────

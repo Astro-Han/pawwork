@@ -1,4 +1,4 @@
-import { createSignal, onCleanup, onMount } from "solid-js"
+import { createSignal, createUniqueId, onCleanup, onMount } from "solid-js"
 import type { RetryClassification } from "@opencode-ai/sdk/v2/client"
 import { useI18n } from "../context/i18n"
 import { Card, CardActions } from "./card"
@@ -59,6 +59,15 @@ export function RateLimitCard(props: RateLimitCardProps) {
       f.kind === "today" ? "ui.rateLimitCard.subtitleResetToday" : "ui.rateLimitCard.subtitleResetTomorrow"
     return i18n.t(key, { time: f.time })
   }
+  // The prerequisite note sits in a separate grid cell, so visual adjacency is
+  // the only thing tying it to its brand link. Screen-reader / keyboard users
+  // would lose the access barrier — the single piece of info this redesign
+  // exists to surface. Bind each note to its link via aria-describedby so the
+  // link's accessible description carries the prerequisite. Unique ids keep
+  // multiple mounted cards from colliding (createUniqueId pattern as in
+  // file-icon.tsx).
+  const subscribeNoteId = `rate-limit-note-${createUniqueId()}`
+  const deepseekNoteId = `rate-limit-note-${createUniqueId()}`
   // The warning triangle that CardTitle would inject is redundant with the
   // 2px orange rule on the card's left edge — both encode the same warning
   // semantic. We drop CardTitle/CardDescription entirely and render a single
@@ -82,6 +91,7 @@ export function RateLimitCard(props: RateLimitCardProps) {
           class="rate-limit-card__action"
           href="#"
           data-slot="rate-limit-card-subscribe"
+          aria-describedby={subscribeNoteId}
           onClick={(e) => {
             e.preventDefault()
             props.onSubscribeClick()
@@ -92,11 +102,14 @@ export function RateLimitCard(props: RateLimitCardProps) {
             ↗
           </span>
         </a>
-        <span class="rate-limit-card__note">{i18n.t("ui.rateLimitCard.noteSubscribe")}</span>
+        <span class="rate-limit-card__note" id={subscribeNoteId}>
+          {i18n.t("ui.rateLimitCard.noteSubscribe")}
+        </span>
         <a
           class="rate-limit-card__action"
           href="#"
           data-slot="rate-limit-card-deepseek"
+          aria-describedby={deepseekNoteId}
           onClick={(e) => {
             e.preventDefault()
             props.onDeepSeekClick()
@@ -107,7 +120,9 @@ export function RateLimitCard(props: RateLimitCardProps) {
             ↗
           </span>
         </a>
-        <span class="rate-limit-card__note">{i18n.t("ui.rateLimitCard.noteDeepSeek")}</span>
+        <span class="rate-limit-card__note" id={deepseekNoteId}>
+          {i18n.t("ui.rateLimitCard.noteDeepSeek")}
+        </span>
         <div class="rate-limit-card__byo-row">
           <a
             class="rate-limit-card__byo"
