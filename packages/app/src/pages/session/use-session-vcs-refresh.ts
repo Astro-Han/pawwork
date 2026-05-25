@@ -63,6 +63,7 @@ export function isFileWatcherVcsRefreshEvent(event: { type: string; properties?:
     file === ".git/HEAD" ||
     file === ".git/packed-refs" ||
     file.startsWith(".git/refs/heads/") ||
+    file.startsWith(".git/refs/remotes/") ||
     file.startsWith(".git/logs/HEAD") ||
     file.startsWith(".git/worktrees/")
   )

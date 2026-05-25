@@ -4,30 +4,37 @@ import { isFileWatcherVcsRefreshEvent } from "./use-session-vcs-refresh"
 describe("session vcs refresh watcher events", () => {
   test("refreshes for rescan, source updates, and git state updates", () => {
     expect(isFileWatcherVcsRefreshEvent({ type: "file.watcher.rescan", properties: { directory: "/repo" } })).toBe(true)
-    expect(
-      isFileWatcherVcsRefreshEvent({
-        type: "file.watcher.updated",
-        properties: { file: "src/app.ts", event: "change" },
-      }),
-    ).toBe(true)
-    expect(
-      isFileWatcherVcsRefreshEvent({
-        type: "file.watcher.updated",
-        properties: { file: ".git/index", event: "change" },
-      }),
-    ).toBe(true)
-    expect(
-      isFileWatcherVcsRefreshEvent({
-        type: "file.watcher.updated",
-        properties: { file: ".git/refs/heads/feature/test", event: "change" },
-      }),
-    ).toBe(true)
-    expect(
-      isFileWatcherVcsRefreshEvent({
-        type: "file.watcher.updated",
-        properties: { file: ".git/objects/aa/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", event: "change" },
-      }),
-    ).toBe(false)
+
+    for (const file of [
+      "src/app.ts",
+      ".git/index",
+      ".git/HEAD",
+      ".git/packed-refs",
+      ".git/refs/heads/feature/test",
+      ".git/refs/remotes/origin/dev",
+      ".git/logs/HEAD",
+      ".git/worktrees/review-worktree/gitdir",
+      ".git\\refs\\heads\\feature\\test",
+    ]) {
+      expect(isFileWatcherVcsRefreshEvent({ type: "file.watcher.updated", properties: { file, event: "change" } })).toBe(
+        true,
+      )
+    }
+
+    for (const file of [
+      ".git/objects/aa/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      ".git/refs/tags/v1.0.0",
+      ".git/refs/stash",
+      ".git/FETCH_HEAD",
+      ".git/MERGE_HEAD",
+      ".git/REVERT_HEAD",
+      ".git/CHERRY_PICK_HEAD",
+    ]) {
+      expect(isFileWatcherVcsRefreshEvent({ type: "file.watcher.updated", properties: { file, event: "change" } })).toBe(
+        false,
+      )
+    }
+
     expect(isFileWatcherVcsRefreshEvent({ type: "session.updated", properties: {} })).toBe(false)
   })
 })
