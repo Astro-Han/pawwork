@@ -22,7 +22,7 @@ declare const OPENCODE_LIBC: string | undefined
 export namespace FileWatcher {
   const log = Log.create({ service: "file.watcher" })
   const SUBSCRIBE_TIMEOUT_MS = 10_000
-  const RESCAN_DEDUPE_MS = 1_000
+  const RESCAN_QUIET_MS = 1_000
   const VCS_SUBSCRIBE_ENTRIES = new Set(["HEAD", "index", "packed-refs", "refs"])
   const VCS_REFRESH_FILES = new Set(["HEAD", "index", "packed-refs"])
   const VCS_REFRESH_PREFIXES = ["refs/heads/", "refs/remotes/"]
@@ -79,12 +79,12 @@ export namespace FileWatcher {
     publish: (directory: string) => void
     schedule?: (callback: () => void) => (() => void) | void
   }) {
-    type RescanState = { dirty: boolean; cancel?: () => void }
+    type RescanState = { dirty: boolean; needsTrailing: boolean; cancel?: () => void }
     const pending = new Map<string, RescanState>()
     const schedule = (callback: () => void) => {
       const cancel = input.schedule?.(callback)
       if (cancel) return cancel
-      const timer = setTimeout(callback, RESCAN_DEDUPE_MS)
+      const timer = setTimeout(callback, RESCAN_QUIET_MS)
       return () => clearTimeout(timer)
     }
     let disposed = false
@@ -95,8 +95,13 @@ export namespace FileWatcher {
         if (disposed) return
         if (state.dirty) {
           state.dirty = false
-          input.publish(directory)
           arm(directory, state)
+          return
+        }
+        if (state.needsTrailing) {
+          state.needsTrailing = false
+          pending.delete(directory)
+          input.publish(directory)
           return
         }
         pending.delete(directory)
@@ -109,10 +114,11 @@ export namespace FileWatcher {
         const state = pending.get(directory)
         if (state) {
           state.dirty = true
+          state.needsTrailing = true
           return
         }
 
-        const next = { dirty: false }
+        const next = { dirty: false, needsTrailing: false }
         pending.set(directory, next)
         input.publish(directory)
         arm(directory, next)
@@ -181,7 +187,7 @@ export namespace FileWatcher {
                 )
               },
               schedule: (callback) => {
-                const timer = setTimeout(() => Instance.restore(ctx, callback), RESCAN_DEDUPE_MS)
+                const timer = setTimeout(() => Instance.restore(ctx, callback), RESCAN_QUIET_MS)
                 return () => clearTimeout(timer)
               },
             })
