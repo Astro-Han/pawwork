@@ -309,8 +309,8 @@ export function SessionSidePanel(props: {
                   shellTabs={shellTabs}
                   activeTab={activeTab}
                   openShellTabs={() => view().sidePanel.openTabs()}
-                  closeTab={view().sidePanel.closeTab}
-                  openTab={view().sidePanel.openTab}
+                  closeTab={(tab) => view().sidePanel.closeTab(tab)}
+                  openTab={(tab) => view().sidePanel.openTab(tab)}
                   closableMissingTabs={closableMissingTabs}
                   openFilePicker={openFilePicker}
                   showAllFiles={showAllFiles}
