@@ -94,6 +94,7 @@ export async function disposeAllLoadedInstances(options?: LifecycleCloseOptions)
   const completions = results.flatMap((entry) => (entry.completed ? [entry.completed] : []))
   const completed = Promise.all(completions).then(() => completeAggregate())
   if (status === "deferred") {
+    void completed.catch(() => undefined)
     Object.defineProperty(result, "completed", {
       value: completed,
       enumerable: false,
@@ -217,14 +218,15 @@ export const layer = Layer.effect(
       Effect.promise(() => Promise.resolve(options?.onCompleted?.()))
 
     const reportDeferredFailure = (
-      operation: "disposeEntry" | "reload",
-      directory: string,
+      operation: "disposeAll" | "disposeEntry" | "reload",
+      directory: string | undefined,
       action: LifecycleCloseAction,
       error: unknown,
     ) =>
       log.error("deferred lifecycle close failed", {
         operation,
-        directoryKey: directoryKey(directory),
+        directoryKey: directory ? directoryKey(directory) : undefined,
+        lifecycleAffectedDirectoryKeys: [...action.affectedDirectoryKeys],
         lifecycleActionID: action.actionID,
         lifecycleKind: action.kind,
         error,
@@ -452,8 +454,12 @@ export const layer = Layer.effect(
           if (hasActiveRuns(activeDirectories)) {
             const completed = whenAllRunsIdle(activeDirectories)
               .then(() => Effect.runPromise(close))
+              .catch((error) => {
+                reportDeferredFailure("disposeAll", undefined, action, error)
+                throw error
+              })
               .finally(releaseClose)
-            void completed
+            void completed.catch(() => undefined)
             return resultFor("deferred", action, completed)
           }
           try {

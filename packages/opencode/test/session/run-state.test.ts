@@ -279,6 +279,132 @@ describe("SessionRunState", () => {
       expect(Instance.directories()).not.toContain(second)
     }))
 
+  it.live("logs deferred disposeAll failures without emitting completion or leaving lifecycle close active", () =>
+    provideTmpdirInstance(
+      () =>
+        Effect.gen(function* () {
+          const unhandled: unknown[] = []
+          const onUnhandled = (error: unknown) => unhandled.push(error)
+          yield* Effect.addFinalizer(() =>
+            Effect.gen(function* () {
+              process.off("unhandledRejection", onUnhandled)
+              yield* Effect.promise(() => Instance.disposeAll({ mode: "force" }))
+            }),
+          )
+          yield* Effect.sync(() => process.on("unhandledRejection", onUnhandled))
+
+          const run = yield* SessionRunState.Service
+          const release = yield* Deferred.make<void>()
+          const fiber = yield* run
+            .ensureRunning(
+              SessionID.make("ses_deferred_dispose_all_failure"),
+              () => Effect.succeed({} as never),
+              Deferred.await(release).pipe(Effect.as({} as never)),
+            )
+            .pipe(Effect.forkChild)
+
+          yield* Effect.sleep("10 millis")
+          const result = yield* Effect.promise(() =>
+            Instance.disposeAll({
+              onCompleted: () => {
+                throw new Error("disposeAll failed after idle")
+              },
+            }),
+          )
+          expect(result.status).toBe("deferred")
+
+          yield* Deferred.succeed(release, undefined)
+          expect(Exit.isSuccess(yield* Fiber.await(fiber))).toBe(true)
+          const completedExit = yield* Effect.promise(() => result.completed ?? Promise.resolve()).pipe(Effect.exit)
+          expect(Exit.isFailure(completedExit)).toBe(true)
+          yield* Effect.sleep("20 millis")
+          expect(unhandled).toEqual([])
+
+          let started = false
+          yield* run.ensureRunning(
+            SessionID.make("ses_after_deferred_dispose_all_failure"),
+            () => Effect.succeed({} as never),
+            Effect.sync(() => {
+              started = true
+              return {} as never
+            }),
+          )
+          expect(started).toBe(true)
+        }),
+      { git: true },
+    ))
+
+  it.live("logs deferred global dispose failures without unhandled rejection", () =>
+    provideTmpdirInstance(
+      () =>
+        Effect.gen(function* () {
+          const seen: { payload: { type: string } }[] = []
+          const unhandled: unknown[] = []
+          const onEvent = (event: { payload: { type: string } }) => {
+            seen.push(event)
+          }
+          const onUnhandled = (error: unknown) => unhandled.push(error)
+          const originalEmit = GlobalBus.emit.bind(GlobalBus) as (
+            eventName: "event",
+            event: { payload?: { type?: string } },
+          ) => boolean
+          yield* Effect.addFinalizer(() =>
+            Effect.gen(function* () {
+              GlobalBus.emit = originalEmit as typeof GlobalBus.emit
+              GlobalBus.off("event", onEvent)
+              process.off("unhandledRejection", onUnhandled)
+              yield* Effect.promise(() => Instance.disposeAll({ mode: "force" }))
+            }),
+          )
+          yield* Effect.sync(() => {
+            GlobalBus.on("event", onEvent)
+            process.on("unhandledRejection", onUnhandled)
+            GlobalBus.emit = ((eventName: string, event: { payload?: { type?: string } }) => {
+              if (eventName === "event" && event?.payload?.type === "global.disposed") {
+                throw new Error("global dispose failed after idle")
+              }
+              return originalEmit(eventName as "event", event)
+            }) as typeof GlobalBus.emit
+          })
+
+          const run = yield* SessionRunState.Service
+          const release = yield* Deferred.make<void>()
+          const fiber = yield* run
+            .ensureRunning(
+              SessionID.make("ses_deferred_global_dispose_failure"),
+              () => Effect.succeed({} as never),
+              Deferred.await(release).pipe(Effect.as({} as never)),
+            )
+            .pipe(Effect.forkChild)
+
+          yield* Effect.sleep("10 millis")
+          yield* Effect.promise(async () => {
+            const app = new Hono().route("/global", GlobalRoutes())
+            const response = await app.request("/global/dispose", { method: "POST" })
+            expect(response.status).toBe(200)
+            expect(await response.json()).toMatchObject({ status: "deferred" })
+          })
+
+          yield* Deferred.succeed(release, undefined)
+          expect(Exit.isSuccess(yield* Fiber.await(fiber))).toBe(true)
+          yield* Effect.sleep("40 millis")
+          expect(unhandled).toEqual([])
+          expect(seen.some((event) => event.payload.type === "global.disposed")).toBe(false)
+
+          let started = false
+          yield* run.ensureRunning(
+            SessionID.make("ses_after_deferred_global_dispose_failure"),
+            () => Effect.succeed({} as never),
+            Effect.sync(() => {
+              started = true
+              return {} as never
+            }),
+          )
+          expect(started).toBe(true)
+        }),
+      { git: true },
+    ))
+
   it.live("cleans directory tracking after deferred disposeDirectory completes", () =>
     provideTmpdirInstance(
       (directory) =>
