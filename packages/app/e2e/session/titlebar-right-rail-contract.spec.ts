@@ -20,6 +20,45 @@ import { modKey } from "../utils"
 //     selection overlay, 4pt grid pinning)
 
 test.describe("titlebar right rail contract", () => {
+  test("expanded titlebar toggles change icon shape without selected-chip background", async ({
+    page,
+    gotoSession,
+  }) => {
+    await gotoSession()
+
+    const sidebarToggle = page.locator('[data-action="pawwork-sidebar-toggle"]')
+    if ((await sidebarToggle.getAttribute("aria-expanded")) !== "true") {
+      await sidebarToggle.click()
+    }
+    await openRightPanel(page)
+    await page.mouse.move(400, 200)
+
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const alpha = (selector: string) => {
+              const el = document.querySelector<HTMLElement>(selector)
+              if (!el) return null
+              const bg = getComputedStyle(el).backgroundColor
+              const rgba = bg.match(/^rgba\((.+)\)$/)
+              if (!rgba) return bg.startsWith("rgb(") ? 1 : null
+              const parts = rgba[1].split(",").map((part) => part.trim())
+              return Number(parts[3])
+            }
+            return {
+              sidebar: alpha('[data-action="pawwork-sidebar-toggle"]'),
+              rightPanel: alpha('button[aria-label="Right utility panel"]'),
+            }
+          }),
+        { timeout: 2_000 },
+      )
+      .toEqual({
+        sidebar: 0,
+        rightPanel: 0,
+      })
+  })
+
   test("right utility toggle stays clickable with the full tab set open", async ({
     page,
     gotoSession,

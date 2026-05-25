@@ -149,6 +149,11 @@
     background-color: var(--surface-sunken);
   }
 
+  [data-component="titlebar-shell"][data-shell="desktop"][data-shell-os="macos"]
+    :is([data-component="button"], [data-component="icon-button"]).titlebar-icon[data-variant="ghost"][aria-expanded="true"] {
+    background-color: transparent;
+  }
+
   [data-component="desktop-shell-main"][data-shell="desktop"][data-shell-os="macos"] {
     border-top-width: 0;
   }

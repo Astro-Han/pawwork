@@ -80,24 +80,18 @@
    Lives in icon-button.css for historical reasons but is intentionally NOT
    scoped to `[data-component="icon-button"]` — the four titlebar usages in
    `titlebar.tsx` + `session-header.tsx` render `<Button variant="ghost">`
-   (data-component="button"), not `<IconButton>`. Scoping to icon-button
-   silently dropped the `aria-expanded` selected-state chip on the sidebar
-   toggle and Right utility panel toggle. The class name carries the contract;
-   the selector should not narrow it. */
+   (data-component="button"), not `<IconButton>`. The class name carries the
+   titlebar sizing + expanded-icon contract; the selector should not narrow it. */
 .titlebar-icon {
   width: 32px;
   height: 30px;
   aspect-ratio: auto;
 }
 
-.titlebar-icon[aria-expanded="true"] {
-  background-color: var(--surface-base);
+.titlebar-icon[data-variant="ghost"][aria-expanded="true"] {
+  background-color: transparent;
 
   [data-slot="icon-svg"] {
     color: var(--icon-strong);
-  }
-
-  &:hover:not(:disabled) {
-    background-color: var(--surface-base);
   }
 }
