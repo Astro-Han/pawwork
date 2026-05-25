@@ -68,8 +68,13 @@ export type LifecycleCloseResult = {
 const disposeLoadedInstances = new Set<(options?: LifecycleCloseOptions) => Promise<LifecycleCloseResult>>()
 
 export async function disposeAllLoadedInstances(options?: LifecycleCloseOptions): Promise<LifecycleCloseResult> {
-  const results = await Promise.all([...disposeLoadedInstances].map((dispose) => dispose(options)))
+  const storeOptions = options?.onCompleted ? { ...options, onCompleted: undefined } : options
+  const results = await Promise.all([...disposeLoadedInstances].map((dispose) => dispose(storeOptions)))
+  const completeAggregate = async () => {
+    await options?.onCompleted?.()
+  }
   if (results.length === 0) {
+    await completeAggregate()
     return {
       status: "completed",
       lifecycleActionID: "lifecycle:instance_dispose_all:empty",
@@ -83,11 +88,14 @@ export async function disposeAllLoadedInstances(options?: LifecycleCloseOptions)
     affectedDirectoryKeys: [...new Set(results.flatMap((entry) => entry.affectedDirectoryKeys))],
   }
   const completions = results.flatMap((entry) => (entry.completed ? [entry.completed] : []))
-  if (completions.length > 0) {
+  const completed = Promise.all(completions).then(() => completeAggregate())
+  if (status === "deferred") {
     Object.defineProperty(result, "completed", {
-      value: Promise.all(completions).then(() => undefined),
+      value: completed,
       enumerable: false,
     })
+  } else {
+    await completed
   }
   return result
 }

@@ -71,11 +71,14 @@ export const layer = Layer.effect(
     )
 
     const withActiveRun = <A, E>(directory: string, work: Effect.Effect<A, E>) =>
-      Effect.acquireUseRelease(
-        Effect.promise(() => trackActiveRun(directory)),
-        () => work,
-        (release) => Effect.sync(release),
-      )
+      Effect.suspend(() => {
+        const activeRun = trackActiveRun(directory)
+        return Effect.acquireUseRelease(
+          Effect.promise(() => activeRun.promise).pipe(Effect.onInterrupt(() => Effect.sync(activeRun.cancel))),
+          () => work,
+          (release) => Effect.sync(release),
+        )
+      })
 
     const runner = Effect.fn("SessionRunState.runner")(function* (
       sessionID: SessionID,

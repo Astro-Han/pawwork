@@ -163,11 +163,30 @@ function acquireActiveRun(directory: string): () => void {
   }
 }
 
-export function trackActiveRun(directory: string): Promise<() => void> {
-  if (!hasLifecycleClose([directory])) return Promise.resolve(acquireActiveRun(directory))
-  return new Promise<() => void>((resolve) => {
-    closeWaiters.add({ directory, resolve })
+export function trackActiveRun(directory: string): { promise: Promise<() => void>; cancel: () => void } {
+  if (!hasLifecycleClose([directory])) {
+    return { promise: Promise.resolve(acquireActiveRun(directory)), cancel: () => {} }
+  }
+  let settled = false
+  let waiter: { directory: string; resolve: (release: () => void) => void }
+  const promise = new Promise<() => void>((resolve) => {
+    waiter = {
+      directory,
+      resolve: (release: () => void) => {
+        settled = true
+        resolve(release)
+      },
+    }
+    closeWaiters.add(waiter)
   })
+  return {
+    promise,
+    cancel: () => {
+      if (settled) return
+      settled = true
+      closeWaiters.delete(waiter)
+    },
+  }
 }
 
 export function hasActiveRuns(directories: readonly string[]): boolean {

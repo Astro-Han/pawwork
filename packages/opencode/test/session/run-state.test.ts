@@ -392,6 +392,56 @@ describe("SessionRunState", () => {
       { git: true },
     ))
 
+  it.live("does not leave an active-run marker when a run is cancelled while waiting for close", () =>
+    provideTmpdirInstance(
+      (directory) =>
+        Effect.gen(function* () {
+          const disposeStarted = yield* Deferred.make<void>()
+          const releaseDispose = yield* Deferred.make<void>()
+          const state = Instance.state(
+            () => ({ ready: true }),
+            async () => {
+              Effect.runPromise(Deferred.succeed(disposeStarted, undefined)).catch(() => undefined)
+              await Effect.runPromise(Deferred.await(releaseDispose))
+            },
+          )
+          state()
+
+          const disposeFiber = yield* Effect.promise(() => Instance.disposeAll()).pipe(Effect.forkChild)
+          yield* Deferred.await(disposeStarted)
+
+          let started = false
+          const runFiber = yield* Effect.gen(function* () {
+            const run = yield* SessionRunState.Service
+            return yield* run.ensureRunning(
+              SessionID.make("ses_close_wait_cancelled"),
+              () => Effect.succeed({} as never),
+              Effect.sync(() => {
+                started = true
+                return "ran" as never
+              }),
+            )
+          }).pipe(provideInstance(directory), Effect.forkChild)
+
+          yield* Effect.sleep("20 millis")
+          expect(started).toBe(false)
+          yield* Fiber.interrupt(runFiber)
+
+          yield* Deferred.succeed(releaseDispose, undefined)
+          expect(Exit.isSuccess(yield* Fiber.await(disposeFiber))).toBe(true)
+
+          yield* Effect.promise(() =>
+            Instance.provide({
+              directory,
+              fn: () => undefined,
+            }),
+          )
+          const followUp = yield* Effect.promise(() => Instance.disposeAll())
+          expect(followUp.status).toBe("completed")
+        }),
+      { git: true },
+    ))
+
   it.live("defers Config.update while a run is active", () => {
     let captured: unknown
 
