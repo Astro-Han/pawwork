@@ -3,6 +3,7 @@ import { WorkspaceContext } from "@/control-plane/workspace-context"
 import { InstanceRef } from "@/effect/instance-ref"
 import { disposeInstance as runDisposers } from "@/effect/instance-registry"
 import { Filesystem } from "@/util/filesystem"
+import { Log } from "@opencode-ai/core/util/log"
 import { Context, Deferred, Effect, Exit, Layer, Scope } from "effect"
 import { InstanceBootstrap } from "./bootstrap-service"
 import { type InstanceContext } from "./instance-context"
@@ -12,12 +13,15 @@ import {
   beginLifecycleClose,
   createLifecycleCloseAction,
   currentLifecycleOrigin,
+  directoryKey,
   hasActiveRuns,
   type LifecycleCloseAction,
   withLifecycleCloseAction,
   whenAllRunsIdle,
 } from "@/session/lifecycle-provenance"
 import { currentRequestContext } from "@/server/request-context"
+
+const log = Log.create({ service: "instance.store" })
 
 export interface LoadInput {
   directory: string
@@ -212,6 +216,20 @@ export const layer = Layer.effect(
     const completeLifecycleClose = (options?: LifecycleCloseOptions) =>
       Effect.promise(() => Promise.resolve(options?.onCompleted?.()))
 
+    const reportDeferredFailure = (
+      operation: "disposeEntry" | "reload",
+      directory: string,
+      action: LifecycleCloseAction,
+      error: unknown,
+    ) =>
+      log.error("deferred lifecycle close failed", {
+        operation,
+        directoryKey: directoryKey(directory),
+        lifecycleActionID: action.actionID,
+        lifecycleKind: action.kind,
+        error,
+      })
+
     const disposeEntryNow = (
       directory: string,
       entry: Entry,
@@ -250,6 +268,7 @@ export const layer = Layer.effect(
         if (hasActiveRuns([ctx.directory])) {
           const completed = whenAllRunsIdle([ctx.directory])
             .then(() => Effect.runPromise(disposeEntryNow(directory, entry, ctx, closeAction, options)))
+            .catch((error) => reportDeferredFailure("disposeEntry", ctx.directory, closeAction, error))
             .finally(releaseClose)
             .then(() => undefined)
           void completed
@@ -278,9 +297,15 @@ export const layer = Layer.effect(
             const exit = yield* restore(Deferred.await(previous.deferred)).pipe(Effect.exit)
             if (Exit.isSuccess(exit) && hasActiveRuns([exit.value.directory])) {
               const releaseDeferredClose = releaseClose
-              void whenAllRunsIdle([exit.value.directory]).then(() =>
-                Effect.runPromise(reload(input, reason, { mode: "force" })).finally(releaseDeferredClose).then(() => undefined),
-              )
+              const deferredAction = createLifecycleCloseAction("instance_reload", {
+                affectedDirectories: [exit.value.directory],
+                ...lifecycleContext("instance.reload", reason),
+              })
+              void whenAllRunsIdle([exit.value.directory])
+                .then(() => Effect.runPromise(reload(input, reason, { mode: "force" })))
+                .catch((error) => reportDeferredFailure("reload", exit.value.directory, deferredAction, error))
+                .finally(releaseDeferredClose)
+                .then(() => undefined)
               return exit.value
             }
           }

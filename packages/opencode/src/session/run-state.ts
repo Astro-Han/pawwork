@@ -1,7 +1,6 @@
 import { InstanceState } from "@/effect/instance-state"
 import { Runner, type InterruptMeta } from "@/effect/runner"
 import { Deferred, Effect, Layer, Scope, Context } from "effect"
-import { Instance } from "@/project/instance"
 import * as Session from "./session"
 import { MessageV2 } from "./message-v2"
 import { SessionID } from "./schema"
@@ -125,9 +124,9 @@ export const layer = Layer.effect(
       work: Effect.Effect<MessageV2.WithParts>,
       options?: { rejectIfBusy?: boolean },
     ) {
-      const directory = yield* Effect.sync(() => Instance.directory)
+      const data = yield* InstanceState.get(state)
       return yield* withActiveRun(
-        directory,
+        data.directory,
         Effect.gen(function* () {
           return yield* (yield* runner(sessionID, onInterrupt)).ensureRunning(work, options)
         }),
@@ -140,9 +139,9 @@ export const layer = Layer.effect(
       work: Effect.Effect<MessageV2.WithParts>,
       ready?: Deferred.Deferred<void>,
     ) {
-      const directory = yield* Effect.sync(() => Instance.directory)
+      const data = yield* InstanceState.get(state)
       return yield* withActiveRun(
-        directory,
+        data.directory,
         Effect.gen(function* () {
           return yield* (yield* runner(sessionID, onInterrupt)).startShell(work, { ready })
         }),

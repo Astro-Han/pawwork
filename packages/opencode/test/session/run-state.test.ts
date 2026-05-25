@@ -6,6 +6,7 @@ import { GlobalBus } from "../../src/bus/global"
 import { Config } from "../../src/config"
 import { Global } from "../../src/global"
 import { Instance } from "../../src/project/instance"
+import { registerDisposer } from "../../src/effect/instance-registry"
 import { GlobalRoutes } from "../../src/server/instance/global"
 import {
   createLifecycleCloseAction,
@@ -438,6 +439,102 @@ describe("SessionRunState", () => {
           )
           const followUp = yield* Effect.promise(() => Instance.disposeAll())
           expect(followUp.status).toBe("completed")
+        }),
+      { git: true },
+    ))
+
+  it.live("logs deferred disposeDirectory failures without leaving lifecycle close active", () =>
+    provideTmpdirInstance(
+      (directory) =>
+        Effect.gen(function* () {
+          const unhandled: unknown[] = []
+          const onUnhandled = (error: unknown) => unhandled.push(error)
+          const off = registerDisposer(async () => {
+            throw new Error("dispose failed after idle")
+          })
+          yield* Effect.addFinalizer(() =>
+            Effect.sync(() => {
+              off()
+              process.off("unhandledRejection", onUnhandled)
+            }),
+          )
+          yield* Effect.sync(() => process.on("unhandledRejection", onUnhandled))
+
+          const run = yield* SessionRunState.Service
+          const release = yield* Deferred.make<void>()
+          const fiber = yield* run
+            .ensureRunning(
+              SessionID.make("ses_deferred_dispose_failure"),
+              () => Effect.succeed({} as never),
+              Deferred.await(release).pipe(Effect.as({} as never)),
+            )
+            .pipe(Effect.forkChild)
+
+          yield* Effect.sleep("10 millis")
+          yield* Effect.promise(() => Instance.disposeDirectory(directory))
+          yield* Deferred.succeed(release, undefined)
+          expect(Exit.isSuccess(yield* Fiber.await(fiber))).toBe(true)
+          yield* Effect.sleep("20 millis")
+          expect(unhandled).toEqual([])
+
+          let started = false
+          yield* run.ensureRunning(
+            SessionID.make("ses_after_deferred_dispose_failure"),
+            () => Effect.succeed({} as never),
+            Effect.sync(() => {
+              started = true
+              return {} as never
+            }),
+          )
+          expect(started).toBe(true)
+        }),
+      { git: true },
+    ))
+
+  it.live("logs deferred reload failures without leaving lifecycle close active", () =>
+    provideTmpdirInstance(
+      (directory) =>
+        Effect.gen(function* () {
+          const unhandled: unknown[] = []
+          const onUnhandled = (error: unknown) => unhandled.push(error)
+          const off = registerDisposer(async () => {
+            throw new Error("reload close failed after idle")
+          })
+          yield* Effect.addFinalizer(() =>
+            Effect.sync(() => {
+              off()
+              process.off("unhandledRejection", onUnhandled)
+            }),
+          )
+          yield* Effect.sync(() => process.on("unhandledRejection", onUnhandled))
+
+          const run = yield* SessionRunState.Service
+          const release = yield* Deferred.make<void>()
+          const fiber = yield* run
+            .ensureRunning(
+              SessionID.make("ses_deferred_reload_failure"),
+              () => Effect.succeed({} as never),
+              Deferred.await(release).pipe(Effect.as({} as never)),
+            )
+            .pipe(Effect.forkChild)
+
+          yield* Effect.sleep("10 millis")
+          yield* Effect.promise(() => Instance.reload({ directory }))
+          yield* Deferred.succeed(release, undefined)
+          expect(Exit.isSuccess(yield* Fiber.await(fiber))).toBe(true)
+          yield* Effect.sleep("20 millis")
+          expect(unhandled).toEqual([])
+
+          let started = false
+          yield* run.ensureRunning(
+            SessionID.make("ses_after_deferred_reload_failure"),
+            () => Effect.succeed({} as never),
+            Effect.sync(() => {
+              started = true
+              return {} as never
+            }),
+          )
+          expect(started).toBe(true)
         }),
       { git: true },
     ))
