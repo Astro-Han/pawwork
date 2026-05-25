@@ -823,7 +823,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         agent: input.agent,
       })) {
         const schema = ProviderTransform.schema(input.model, EffectZod.toJsonSchema(item.parameters))
-        tools[item.id] = tool({
+        const aiTool = tool({
           description: item.description,
           inputSchema: jsonSchema(schema),
           execute(args, options) {
@@ -889,6 +889,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             )
           },
         })
+        tools[item.id] = item.externalResult ? Object.assign(aiTool, { externalResult: true }) : aiTool
       }
 
       for (const [key, item] of Object.entries(yield* mcp.tools())) {

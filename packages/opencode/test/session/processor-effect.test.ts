@@ -1488,6 +1488,186 @@ it.live("reasoning-only retry removes failed reasoning before replaying the assi
   ),
 )
 
+it.live("reasoning-only failure with an external-result tool does not auto retry", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+
+        yield* llm.push(
+          raw({
+            head: [
+              {
+                id: "chatcmpl-external-boundary",
+                object: "chat.completion.chunk",
+                choices: [{ delta: { role: "assistant" } }],
+              },
+              {
+                id: "chatcmpl-external-boundary",
+                object: "chat.completion.chunk",
+                choices: [{ delta: { reasoning_content: "draft" } }],
+              },
+            ],
+            tail: [
+              {
+                error: {
+                  message: "rate limit",
+                  type: "server_error",
+                  code: "rate_limit",
+                },
+              },
+            ],
+          }),
+        )
+        yield* llm.text("after retry should not run")
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "external boundary retry")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const externalTool = Object.assign(
+          tool({
+            description: "external boundary",
+            inputSchema: z.object({}),
+          }),
+          { externalResult: true },
+        )
+        const value = yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "external boundary retry" }],
+          tools: {
+            question: externalTool,
+          },
+        })
+
+        const stored = (yield* session.messages({ sessionID: chat.id })).find(
+          (message) => message.info.role === "assistant" && message.info.id === msg.id,
+        )
+
+        expect(value).toBe("stop")
+        expect(yield* llm.calls).toBe(1)
+        expect(stored?.info.role).toBe("assistant")
+        if (stored?.info.role === "assistant") {
+          expect(stored.info.diagnostics?.run_observability?.side_effect_boundary_snapshot).toMatchObject({
+            external_boundary_present: true,
+            proof_reason: "external_boundary",
+          })
+          expect(stored.info.diagnostics?.run_observability?.incident?.recovery).toMatchObject({
+            recommendation: "ask_user_before_retry",
+            reason: "side_effect_facts_incomplete",
+          })
+        }
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
+it.live("reasoning-only failure with a provider-executed tool does not auto retry", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+
+        yield* llm.push(
+          raw({
+            head: [
+              {
+                id: "chatcmpl-provider-boundary",
+                object: "chat.completion.chunk",
+                choices: [{ delta: { role: "assistant" } }],
+              },
+              {
+                id: "chatcmpl-provider-boundary",
+                object: "chat.completion.chunk",
+                choices: [{ delta: { reasoning_content: "draft" } }],
+              },
+            ],
+            tail: [
+              {
+                error: {
+                  message: "rate limit",
+                  type: "server_error",
+                  code: "rate_limit",
+                },
+              },
+            ],
+          }),
+        )
+        yield* llm.text("after retry should not run")
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "provider boundary retry")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const value = yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "provider boundary retry" }],
+          tools: {
+            web_search: {
+              type: "provider",
+              id: "openai.web_search",
+              args: {},
+              inputSchema: z.object({}),
+            } as any,
+          },
+        })
+
+        const stored = (yield* session.messages({ sessionID: chat.id })).find(
+          (message) => message.info.role === "assistant" && message.info.id === msg.id,
+        )
+
+        expect(value).toBe("stop")
+        expect(yield* llm.calls).toBe(1)
+        expect(stored?.info.role).toBe("assistant")
+        if (stored?.info.role === "assistant") {
+          expect(stored.info.diagnostics?.run_observability?.side_effect_boundary_snapshot).toMatchObject({
+            provider_executed_capability_present: true,
+            proof_reason: "provider_executed_capability",
+          })
+          expect(stored.info.diagnostics?.run_observability?.incident?.recovery).toMatchObject({
+            recommendation: "ask_user_before_retry",
+            reason: "side_effect_facts_incomplete",
+          })
+        }
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
 it.live("reasoning-only retry writes a notice after the one safe retry is exhausted", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>

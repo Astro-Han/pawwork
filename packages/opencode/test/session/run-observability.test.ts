@@ -1576,6 +1576,74 @@ describe("RunObservability", () => {
     })
   })
 
+  test.each([
+    [
+      "provider-executed capability",
+      {
+        provider_executed_capability_present: true,
+        external_boundary_present: false,
+        proof_reason: "provider_executed_capability" as const,
+      },
+    ],
+    [
+      "external boundary",
+      {
+        provider_executed_capability_present: false,
+        external_boundary_present: true,
+        proof_reason: "external_boundary" as const,
+      },
+    ],
+    [
+      "unknown boundary proof",
+      {
+        provider_executed_capability_present: false,
+        external_boundary_present: false,
+        proof_reason: "unknown" as const,
+      },
+    ],
+  ])("reasoning-only transport failure with %s stays conservative", (_label, boundary) => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make(`run_reasoning_only_${boundary.proof_reason}`),
+      traceID: MessageID.make(`msg_reasoning_only_${boundary.proof_reason}`),
+      sessionID: SessionID.make(`ses_reasoning_only_${boundary.proof_reason}`),
+      messageID: MessageID.make(`msg_reasoning_only_${boundary.proof_reason}`),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordSideEffectBoundarySnapshot({
+      attemptID: attempt.attemptID,
+      at: 12,
+      monotonicMs: 120,
+      snapshot: {
+        exposed_tool_count: 1,
+        unknown_tool_count: 0,
+        unclassified_effect_count: 0,
+        provider_executed_capability_present: boundary.provider_executed_capability_present,
+        external_boundary_present: boundary.external_boundary_present,
+        proof_result: "incomplete",
+        proof_reason: boundary.proof_reason,
+      },
+    })
+    recorder.recordProviderProgress({ attemptID: attempt.attemptID, at: 13, monotonicMs: 130 })
+    recorder.recordVisibleOutput({ attemptID: attempt.attemptID, at: 14, monotonicMs: 140, kind: "reasoning" })
+    const decision = recorder.recordAttemptFailureAndDeriveRecovery({
+      attemptID: attempt.attemptID,
+      at: 15,
+      monotonicMs: 150,
+      error: { name: "TypeError", message: "terminated", cause: { code: "UND_ERR_SOCKET" } },
+      evidence: ["iterator_error"],
+      retryable: true,
+    })
+
+    expect(decision).toMatchObject({
+      recommendation: "ask_user_before_retry",
+      reason: "side_effect_facts_incomplete",
+    })
+  })
+
   test("reasoning-only transport failure without terminal boundary evidence stays conservative", () => {
     const recorder = RunObservability.createRecorder({
       runID: RunObservability.RunID.make("run_reasoning_only_missing_boundary"),
