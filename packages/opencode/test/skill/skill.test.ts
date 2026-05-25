@@ -327,6 +327,51 @@ description: A global skill from ~/.agents/skills for testing.
   }
 })
 
+test("warns when different skill files declare the same name", async () => {
+  await using tmp = await tmpdir({
+    git: true,
+    init: async (dir) => {
+      for (const folder of ["shared-skill-a", "shared-skill-b"]) {
+        const skillDir = path.join(dir, ".agents", "skills", folder)
+        await fs.mkdir(skillDir, { recursive: true })
+        await Bun.write(
+          path.join(skillDir, "SKILL.md"),
+          `---
+name: shared-skill
+description: Duplicate skill name from ${folder}.
+---
+
+# Shared Skill
+`,
+        )
+      }
+    },
+  })
+
+  const logger = Log.create({ service: "skill" })
+  const originalWarn = logger.warn
+  const warnings: Array<{ message?: unknown; extra?: Record<string, unknown> }> = []
+  logger.warn = (message, extra) => {
+    warnings.push({ message, extra })
+  }
+
+  try {
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const skill = await Skill.get("shared-skill")
+        expect(skill).toBeDefined()
+      },
+    })
+
+    const duplicateWarnings = warnings.filter((item) => item.message === "duplicate skill name")
+    expect(duplicateWarnings).toHaveLength(1)
+    expect(duplicateWarnings[0]!.extra?.existing).not.toBe(duplicateWarnings[0]!.extra?.duplicate)
+  } finally {
+    logger.warn = originalWarn
+  }
+})
+
 test("discovers skills from .agents/skills/ only", async () => {
   await using tmp = await tmpdir({
     git: true,
