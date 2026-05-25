@@ -17,10 +17,8 @@ import {
 import { diffs as list } from "@/utils/diffs"
 import { same } from "@/utils/same"
 import { sameExecutionScope, shouldApplyExecutionResult, vcsTaskKey, type ExecutionScope } from "./execution-scope"
-import { aggregateFiles } from "./session-aggregate-files"
 
 type SessionReviewDiff = SnapshotFileDiff | VcsFileDiff
-type SessionAggregateDiffState = { sessionID: string; scope: ExecutionScope; diffs: SnapshotFileDiff[] } | undefined
 
 export function selectReviewChangeMode(input: {
   mode: ReviewChangeMode
@@ -32,22 +30,6 @@ export function selectReviewChangeMode(input: {
   if (!isVcsReviewMode(input.mode)) return
   if (!input.wantsReview()) return
   void input.loadVcs(input.mode, true)
-}
-
-export function reviewTurnDiffsForSession(input: {
-  currentScope: ExecutionScope
-  sessionID: string | undefined
-  aggregate: SessionAggregateDiffState
-  turnDiffs: SessionReviewDiff[]
-}) {
-  if (
-    input.aggregate &&
-    input.aggregate.sessionID === input.sessionID &&
-    sameExecutionScope(input.aggregate.scope, input.currentScope)
-  ) {
-    return input.aggregate.diffs.length > 0 ? input.aggregate.diffs : input.turnDiffs
-  }
-  return input.turnDiffs
 }
 
 export function turnChangeDisplayDiffs(display: TurnChangeDisplay | null | undefined): SnapshotFileDiff[] {
@@ -207,12 +189,7 @@ export function createSessionReviewState(input: {
   const reviewDiffs = createMemo(() =>
     list(
       reviewDiffsForMode(changes(), {
-        turn: reviewTurnDiffsForSession({
-          currentScope: input.executionScope(),
-          sessionID: input.sessionID(),
-          aggregate: undefined,
-          turnDiffs: turnChangeDisplayDiffs(input.latestTurnChange()),
-        }),
+        turn: turnChangeDisplayDiffs(input.latestTurnChange()),
         vcs: vcs.diff,
       }),
     ),
