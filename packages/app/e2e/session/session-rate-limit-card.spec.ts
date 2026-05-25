@@ -56,11 +56,10 @@ test("rate_limit_blocked renders RateLimitCard, keeps composer unlocked, BYO ope
     providerID: "opencode",
   })
 
-  await byo.click()
-  await expect
-    .poll(() => events.find((e) => e.name === "rate_limit_card.byo_click")?.name)
-    .toBe("rate_limit_card.byo_click")
-
+  // Click deepseek BEFORE byo: byo opens the Settings page, which overlays
+  // the conversation thread and removes the card from the actionable layer.
+  // Reversing the order would make the deepseek click race the Settings
+  // mount and intermittently target an obscured locator.
   await deepseek.click()
   await expect
     .poll(() => events.find((e) => e.name === "rate_limit_card.deepseek_click")?.name)
@@ -68,6 +67,11 @@ test("rate_limit_blocked renders RateLimitCard, keeps composer unlocked, BYO ope
   expect(events.find((e) => e.name === "rate_limit_card.deepseek_click")?.payload).toMatchObject({
     providerID: "opencode",
   })
+
+  await byo.click()
+  await expect
+    .poll(() => events.find((e) => e.name === "rate_limit_card.byo_click")?.name)
+    .toBe("rate_limit_card.byo_click")
 
   // BYO click should open Settings; the openSettings("providers") plumbing is
   // covered by the unit tests in Task 9 — here we only assert Settings opens.
