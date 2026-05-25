@@ -10,7 +10,7 @@ import { InstanceStore } from "../../src/project/instance-store"
 import { Project } from "../../src/project/project"
 import { ProjectTable } from "../../src/project/project.sql"
 import { Database, eq } from "../../src/storage/db"
-import { currentLifecycleCloseAction } from "../../src/session/lifecycle-provenance"
+import { currentLifecycleCloseAction, directoryKey } from "../../src/session/lifecycle-provenance"
 import { disposeAllInstances, tmpdir, tmpdirScoped } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 
@@ -226,9 +226,10 @@ describe("InstanceStore", () => {
       await firstRuntime.runPromise(InstanceStore.Service.use((store) => store.load({ directory: first.path })))
       await secondRuntime.runPromise(InstanceStore.Service.use((store) => store.load({ directory: second.path })))
 
-      await Instance.disposeAll()
+      const result = await Instance.disposeAll()
 
       expect(new Set(disposed)).toEqual(new Set([first.path, second.path]))
+      expect(new Set(result.affectedDirectoryKeys)).toEqual(new Set([directoryKey(first.path), directoryKey(second.path)]))
     } finally {
       off()
       await Promise.all([firstRuntime.dispose(), secondRuntime.dispose()])

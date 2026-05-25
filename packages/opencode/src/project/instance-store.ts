@@ -69,15 +69,27 @@ const disposeLoadedInstances = new Set<(options?: LifecycleCloseOptions) => Prom
 
 export async function disposeAllLoadedInstances(options?: LifecycleCloseOptions): Promise<LifecycleCloseResult> {
   const results = await Promise.all([...disposeLoadedInstances].map((dispose) => dispose(options)))
-  const deferred = results.find((result) => result.status === "deferred")
-  return (
-    deferred ??
-    results[0] ?? {
+  if (results.length === 0) {
+    return {
       status: "completed",
       lifecycleActionID: "lifecycle:instance_dispose_all:empty",
       affectedDirectoryKeys: [],
     }
-  )
+  }
+  const status = results.some((result) => result.status === "deferred") ? "deferred" : "completed"
+  const result: LifecycleCloseResult = {
+    status,
+    lifecycleActionID: results[0].lifecycleActionID,
+    affectedDirectoryKeys: [...new Set(results.flatMap((entry) => entry.affectedDirectoryKeys))],
+  }
+  const completions = results.flatMap((entry) => (entry.completed ? [entry.completed] : []))
+  if (completions.length > 0) {
+    Object.defineProperty(result, "completed", {
+      value: Promise.all(completions).then(() => undefined),
+      enumerable: false,
+    })
+  }
+  return result
 }
 
 function hasExplicitContext(input: LoadInput) {
