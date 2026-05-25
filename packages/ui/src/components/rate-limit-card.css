@@ -1,27 +1,82 @@
 [data-component="card"][data-kind="rate-limit-card"] {
-  [data-slot="card-actions"] {
+  /* Card primitive only sets gap when [data-slot="card-title"] is present.
+     This variant drops CardTitle, so the gap is set explicitly here. */
+  gap: var(--space-md);
+
+  /* Headline: title · reset, folded onto one line.
+     Color inherits from the card root, set by the Card primitive in card.css;
+     only the weight is bumped so the title reads as emphasis. */
+  .rate-limit-card__head {
+    font-weight: var(--font-weight-emphasis);
     display: flex;
-    gap: var(--space-lg);
+    align-items: baseline;
+    flex-wrap: wrap;
+  }
+
+  .rate-limit-card__sep {
+    color: var(--fg-weak);
+    font-weight: var(--font-weight-body);
+    margin: 0 var(--space-sm);
+  }
+
+  .rate-limit-card__reset {
+    color: var(--fg-weak);
+    font-weight: var(--font-weight-body);
+  }
+
+  /* Ledger grid: left column = primary brand link, right column = prerequisite.
+     Two rows of recommendations + a third row spanning both columns for the
+     BYO escape hatch. column-gap + row-gap stay on the 4pt grid. */
+  [data-slot="card-actions"] {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    column-gap: var(--space-lg);
+    row-gap: var(--space-sm);
+    align-items: baseline;
   }
 
   .rate-limit-card__action {
-    color: var(--fg-weak);
+    color: var(--warning);
     text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    font-weight: var(--font-weight-emphasis);
   }
 
   .rate-limit-card__action:hover {
     text-decoration: underline;
   }
 
-  .rate-limit-card__action--primary {
-    color: var(--warning);
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-xs);
+  /* Prerequisite note. Body 13px shared with the brand link; differentiated
+     by color (--fg-base vs --warning) and weight (body vs emphasis). No
+     off-token font-size — the note must read as same-level information,
+     not as a skippable footnote. */
+  .rate-limit-card__note {
+    color: var(--fg-base);
+    line-height: var(--line-height-caption);
   }
 
   .rate-limit-card__external {
-    font-size: 11px;
+    font-size: var(--font-size-kbd);
     opacity: 0.8;
+  }
+
+  /* BYO escape hatch. Spans both columns under a hairline separator that
+     marks it as the alternative below the two recommendations. */
+  .rate-limit-card__byo-row {
+    grid-column: 1 / -1;
+    margin-top: var(--space-xs);
+    padding-top: var(--space-sm);
+    border-top: 1px solid var(--border-base);
+  }
+
+  .rate-limit-card__byo {
+    color: var(--fg-weak);
+    text-decoration: none;
+  }
+
+  .rate-limit-card__byo:hover {
+    text-decoration: underline;
   }
 }

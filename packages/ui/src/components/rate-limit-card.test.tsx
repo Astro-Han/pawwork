@@ -105,11 +105,13 @@ describe("RateLimitCard: callback props", () => {
 // These tests pin the architecture so the same drift cannot reappear.
 
 describe("RateLimitCard: composes Card primitive", () => {
-  test("imports Card / CardTitle / CardDescription / CardActions from ./card", () => {
+  test("imports Card and CardActions from ./card", () => {
+    // CardTitle and CardDescription are intentionally not used: this variant
+    // folds title + reset onto a single inline lockup (see __head selector)
+    // because the warning triangle CardTitle would inject is redundant with
+    // the 2px orange rule on the card's left edge.
     expect(src).toMatch(/from\s+['"]\.\/card['"]/)
     expect(src).toContain("Card")
-    expect(src).toContain("CardTitle")
-    expect(src).toContain("CardDescription")
     expect(src).toContain("CardActions")
   })
 
@@ -123,7 +125,7 @@ describe("RateLimitCard: composes Card primitive", () => {
   })
 
   test("does not redefine container styles already owned by Card primitive", () => {
-    // The left rule, title color, and description font live in card.css now.
+    // The left rule and the card-root color/font-size live in card.css now.
     // Catching them here would mean RateLimitCard drifted off the system again.
     expect(css).not.toContain("border-left")
     expect(css).not.toContain("--fg-strong")
@@ -135,16 +137,44 @@ describe("RateLimitCard: composes Card primitive", () => {
 
 describe("RateLimitCard: CSS token contract", () => {
   test("primary action color uses var(--warning)", () => {
-    expect(css).toMatch(/\.rate-limit-card__action--primary[\s\S]*?color:\s*var\(--warning\)/)
+    expect(css).toMatch(/\.rate-limit-card__action[\s\S]*?color:\s*var\(--warning\)/)
   })
 
-  test("secondary action color uses var(--fg-weak), not the undefined --fg-muted", () => {
-    expect(css).toContain("var(--fg-weak)")
+  test("BYO link color uses var(--fg-weak), not the undefined --fg-muted", () => {
+    // The BYO escape hatch is the only non-primary action now; --fg-muted was
+    // the legacy drift token that this contract guards against.
+    expect(css).toMatch(/\.rate-limit-card__byo[\s\S]*?color:\s*var\(--fg-weak\)/)
     expect(css).not.toContain("--fg-muted")
   })
 
-  test("actions row uses an on-grid horizontal gap via --space-* token", () => {
-    expect(css).toMatch(/\[data-slot="card-actions"\][\s\S]*?gap:\s*var\(--space-/)
+  test("actions row uses an on-grid column-gap and row-gap via --space-* tokens", () => {
+    // Ledger grid replaces the original single-axis flex row: column-gap
+    // separates brand link from prerequisite note, row-gap separates the two
+    // recommendation rows. Both must stay on the 4pt token grid.
+    expect(css).toMatch(/\[data-slot="card-actions"\][\s\S]*?column-gap:\s*var\(--space-/)
+    expect(css).toMatch(/\[data-slot="card-actions"\][\s\S]*?row-gap:\s*var\(--space-/)
+  })
+
+  test("note text size is not hard-coded — same body size as the brand link, color-differentiated only", () => {
+    // The note must read as same-level information, not as a skippable
+    // footnote. We rely on color (--fg-base) and weight (body vs emphasis)
+    // for differentiation rather than borrowing a non-token font-size like 12px.
+    // Scope the match to within the .rate-limit-card__note block — the
+    // .rate-limit-card__external block (the small ↗ arrow) DOES set
+    // font-size, but legitimately via --font-size-kbd.
+    expect(css).not.toMatch(/\.rate-limit-card__note\s*\{[^}]*font-size:/)
+  })
+})
+
+// ── Note rows for each recommendation ─────────────────────────────────────
+
+describe("RateLimitCard: prerequisite notes", () => {
+  test("subscribe note key is rendered next to the subscribe link", () => {
+    expect(src).toContain('"ui.rateLimitCard.noteSubscribe"')
+  })
+
+  test("DeepSeek note key is rendered next to the DeepSeek link", () => {
+    expect(src).toContain('"ui.rateLimitCard.noteDeepSeek"')
   })
 })
 

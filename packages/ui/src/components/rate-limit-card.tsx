@@ -1,7 +1,7 @@
-import { createSignal, onCleanup, onMount, Show } from "solid-js"
+import { createSignal, onCleanup, onMount } from "solid-js"
 import type { RetryClassification } from "@opencode-ai/sdk/v2/client"
 import { useI18n } from "../context/i18n"
-import { Card, CardActions, CardDescription, CardTitle } from "./card"
+import { Card, CardActions } from "./card"
 import "./rate-limit-card.css"
 
 export interface RateLimitCardProps {
@@ -52,22 +52,34 @@ export function RateLimitCard(props: RateLimitCardProps) {
     const resetAt = props.classification.resetAt
     return resetAt === undefined ? undefined : formatResetTime(resetAt, now())
   }
+  const resetSubtitle = () => {
+    const f = formatted()
+    if (!f) return i18n.t("ui.rateLimitCard.subtitleNoTime")
+    const key =
+      f.kind === "today" ? "ui.rateLimitCard.subtitleResetToday" : "ui.rateLimitCard.subtitleResetTomorrow"
+    return i18n.t(key, { time: f.time })
+  }
+  // The warning triangle that CardTitle would inject is redundant with the
+  // 2px orange rule on the card's left edge — both encode the same warning
+  // semantic. We drop CardTitle/CardDescription entirely and render a single
+  // headline that folds title + reset onto one line via a middle-dot, then
+  // hand the action ledger a grid of `[primary link, prerequisite note]`
+  // rows so the two recommendations sit on aligned columns. The user picks by
+  // matching their situation to the right-column prerequisite before clicking
+  // the left-column brand link — the prerequisite is read first, not as a
+  // skippable footnote.
   return (
     <Card variant="warning" data-slot="rate-limit-card" data-kind="rate-limit-card">
-      <CardTitle variant="warning">{i18n.t("ui.rateLimitCard.title")}</CardTitle>
-      <CardDescription>
-        <Show when={formatted()} fallback={i18n.t("ui.rateLimitCard.subtitleNoTime")}>
-          {(result) => {
-            const r = result()
-            const key =
-              r.kind === "today" ? "ui.rateLimitCard.subtitleResetToday" : "ui.rateLimitCard.subtitleResetTomorrow"
-            return i18n.t(key, { time: r.time })
-          }}
-        </Show>
-      </CardDescription>
+      <div class="rate-limit-card__head" data-slot="rate-limit-card-head">
+        <span class="rate-limit-card__title">{i18n.t("ui.rateLimitCard.title")}</span>
+        <span class="rate-limit-card__sep" aria-hidden="true">
+          ·
+        </span>
+        <span class="rate-limit-card__reset">{resetSubtitle()}</span>
+      </div>
       <CardActions>
         <a
-          class="rate-limit-card__action rate-limit-card__action--primary"
+          class="rate-limit-card__action"
           href="#"
           data-slot="rate-limit-card-subscribe"
           onClick={(e) => {
@@ -80,8 +92,9 @@ export function RateLimitCard(props: RateLimitCardProps) {
             ↗
           </span>
         </a>
+        <span class="rate-limit-card__note">{i18n.t("ui.rateLimitCard.noteSubscribe")}</span>
         <a
-          class="rate-limit-card__action rate-limit-card__action--primary"
+          class="rate-limit-card__action"
           href="#"
           data-slot="rate-limit-card-deepseek"
           onClick={(e) => {
@@ -94,17 +107,20 @@ export function RateLimitCard(props: RateLimitCardProps) {
             ↗
           </span>
         </a>
-        <a
-          class="rate-limit-card__action"
-          href="#"
-          data-slot="rate-limit-card-byo"
-          onClick={(e) => {
-            e.preventDefault()
-            props.onUseOwnModelClick()
-          }}
-        >
-          {i18n.t("ui.rateLimitCard.actionBYO")}
-        </a>
+        <span class="rate-limit-card__note">{i18n.t("ui.rateLimitCard.noteDeepSeek")}</span>
+        <div class="rate-limit-card__byo-row">
+          <a
+            class="rate-limit-card__byo"
+            href="#"
+            data-slot="rate-limit-card-byo"
+            onClick={(e) => {
+              e.preventDefault()
+              props.onUseOwnModelClick()
+            }}
+          >
+            {i18n.t("ui.rateLimitCard.actionBYO")}
+          </a>
+        </div>
       </CardActions>
     </Card>
   )

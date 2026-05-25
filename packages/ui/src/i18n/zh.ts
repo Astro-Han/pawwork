@@ -244,5 +244,7 @@ export const dict = {
   "ui.rateLimitCard.subtitleNoTime": "稍后重试",
   "ui.rateLimitCard.actionSubscribe": "订阅 OpenCode Go",
   "ui.rateLimitCard.actionDeepSeek": "注册 DeepSeek API",
-  "ui.rateLimitCard.actionBYO": "使用自己的模型",
+  "ui.rateLimitCard.actionBYO": "或使用自己的模型",
+  "ui.rateLimitCard.noteSubscribe": "需 GitHub 或 Google 登录",
+  "ui.rateLimitCard.noteDeepSeek": "手机号或邮箱即可注册",
 } satisfies Partial<Record<Keys, string>>

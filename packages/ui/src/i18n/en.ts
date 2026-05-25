@@ -249,5 +249,7 @@ export const dict: Record<string, string> = {
   "ui.rateLimitCard.subtitleNoTime": "Try again later.",
   "ui.rateLimitCard.actionSubscribe": "Subscribe to OpenCode Go",
   "ui.rateLimitCard.actionDeepSeek": "Sign up for DeepSeek API",
-  "ui.rateLimitCard.actionBYO": "Use your own model",
+  "ui.rateLimitCard.actionBYO": "Or use your own model",
+  "ui.rateLimitCard.noteSubscribe": "Requires GitHub or Google sign-in",
+  "ui.rateLimitCard.noteDeepSeek": "Sign up with phone or email",
 }
