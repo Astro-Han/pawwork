@@ -55,7 +55,7 @@ export function isFileWatcherVcsRefreshEvent(event: { type: string; properties?:
   if (event.type !== "file.watcher.updated") return false
   const props =
     typeof event.properties === "object" && event.properties ? (event.properties as Record<string, unknown>) : undefined
-  const file = typeof props?.file === "string" ? props.file.replaceAll("\\", "/") : undefined
+  const file = normalizeWatcherFilePath(typeof props?.file === "string" ? props.file : undefined)
   if (!file) return false
   if (!file.startsWith(".git/")) return true
   return (
@@ -67,4 +67,12 @@ export function isFileWatcherVcsRefreshEvent(event: { type: string; properties?:
     file.startsWith(".git/logs/HEAD") ||
     file.startsWith(".git/worktrees/")
   )
+}
+
+function normalizeWatcherFilePath(file: string | undefined) {
+  const normalized = file?.replaceAll("\\", "/")
+  if (!normalized) return
+  const gitSegment = normalized.indexOf("/.git/")
+  if (gitSegment === -1) return normalized
+  return normalized.slice(gitSegment + 1)
 }
