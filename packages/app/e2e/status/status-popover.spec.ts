@@ -64,27 +64,29 @@ test("mobile session status button still opens the status popover", async ({ pag
   await expect(statusButton).toHaveAttribute("aria-expanded", "true")
   await expect(popoverBody).toBeVisible()
   await expect(popoverBody.getByRole("tab", { name: /servers/i })).toBeVisible()
+  await page.mouse.move(10, 500, { steps: 5 })
 
-  const expandedStyles = await statusButton.evaluate((el) => {
-    const icon = el.querySelector<HTMLElement>('[data-slot="icon-svg"]')
-    const style = getComputedStyle(el)
-    const probe = document.createElement("div")
-    probe.style.backgroundColor = style.getPropertyValue("--surface-base")
-    probe.style.color = style.getPropertyValue("--icon-strong")
-    document.body.appendChild(probe)
-    const expected = {
-      background: getComputedStyle(probe).backgroundColor,
-      iconColor: getComputedStyle(probe).color,
-    }
-    probe.remove()
-    return {
-      expected,
-      actual: {
-        background: style.backgroundColor,
-        iconColor: icon ? getComputedStyle(icon).color : null,
-      },
-    }
-  })
-  expect(expandedStyles.actual.background).not.toBe("rgba(0, 0, 0, 0)")
-  expect(expandedStyles.actual.iconColor).toBe(expandedStyles.expected.iconColor)
+  const expandedStyles = () =>
+    statusButton.evaluate((el) => {
+      const icon = el.querySelector<HTMLElement>('[data-slot="icon-svg"]')
+      const style = getComputedStyle(el)
+      const probe = document.createElement("div")
+      probe.style.backgroundColor = style.getPropertyValue("--surface-base")
+      probe.style.color = style.getPropertyValue("--icon-strong")
+      document.body.appendChild(probe)
+      const expected = {
+        background: getComputedStyle(probe).backgroundColor,
+        iconColor: getComputedStyle(probe).color,
+      }
+      probe.remove()
+      return {
+        expected,
+        actual: {
+          background: style.backgroundColor,
+          iconColor: icon ? getComputedStyle(icon).color : null,
+        },
+      }
+    })
+  const expectedStyles = (await expandedStyles()).expected
+  await expect.poll(async () => (await expandedStyles()).actual).toEqual(expectedStyles)
 })
