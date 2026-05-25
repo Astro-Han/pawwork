@@ -23,6 +23,9 @@ export namespace FileWatcher {
   const log = Log.create({ service: "file.watcher" })
   const SUBSCRIBE_TIMEOUT_MS = 10_000
   const RESCAN_DEDUPE_MS = 1_000
+  const VCS_SUBSCRIBE_ENTRIES = new Set(["HEAD", "index", "packed-refs", "refs"])
+  const VCS_REFRESH_FILES = new Set(["HEAD", "index", "packed-refs"])
+  const VCS_REFRESH_PREFIXES = ["refs/heads/", "refs/remotes/"]
 
   export const Event = {
     Updated: BusEvent.define(
@@ -124,6 +127,17 @@ export namespace FileWatcher {
     }
   }
 
+  export function vcsWatcherIgnoreEntries(entries: string[]) {
+    return entries.filter((entry) => !VCS_SUBSCRIBE_ENTRIES.has(entry))
+  }
+
+  export function shouldPublishVcsWatcherPath(file: string, vcsDir: string) {
+    const relative = path.relative(vcsDir, file).replaceAll(path.sep, "/")
+    if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return false
+    if (VCS_REFRESH_FILES.has(relative)) return true
+    return VCS_REFRESH_PREFIXES.some((prefix) => relative.startsWith(prefix))
+  }
+
   export interface Interface {
     readonly init: () => Effect.Effect<void>
   }
@@ -172,7 +186,9 @@ export namespace FileWatcher {
               },
             })
             yield* Effect.addFinalizer(() => Effect.sync(() => requestRescan.dispose()))
-            const createCallback = (dir: string): ParcelWatcher.SubscribeCallback => (err, evts) =>
+            const createCallback =
+              (dir: string, shouldPublish = (_file: string) => true): ParcelWatcher.SubscribeCallback =>
+              (err, evts) =>
               Instance.restore(ctx, () => {
                 if (err) {
                   if (isDroppedEventsError(err)) {
@@ -183,14 +199,15 @@ export namespace FileWatcher {
                   return
                 }
                 for (const evt of evts) {
+                  if (!shouldPublish(evt.path)) continue
                   if (evt.type === "create") Bus.publish(Event.Updated, { file: evt.path, event: "add" })
                   if (evt.type === "update") Bus.publish(Event.Updated, { file: evt.path, event: "change" })
                   if (evt.type === "delete") Bus.publish(Event.Updated, { file: evt.path, event: "unlink" })
                 }
               })
 
-            const subscribe = (dir: string, ignore: string[]) => {
-              const pending = w.subscribe(dir, createCallback(dir), { ignore, backend })
+            const subscribe = (dir: string, ignore: string[], shouldPublish?: (file: string) => boolean) => {
+              const pending = w.subscribe(dir, createCallback(dir, shouldPublish), { ignore, backend })
               return Effect.gen(function* () {
                 const sub = yield* Effect.promise(() => pending)
                 subs.push(sub)
@@ -222,10 +239,8 @@ export namespace FileWatcher {
               const vcsDir =
                 result.exitCode === 0 ? path.resolve(ctx.project.worktree, result.text().trim()) : undefined
               if (vcsDir && !cfgIgnores.includes(".git") && !cfgIgnores.includes(vcsDir)) {
-                const ignore = (yield* Effect.promise(() => readdir(vcsDir).catch(() => []))).filter(
-                  (entry) => entry !== "HEAD",
-                )
-                yield* subscribe(vcsDir, ignore)
+                const ignore = vcsWatcherIgnoreEntries(yield* Effect.promise(() => readdir(vcsDir).catch(() => [])))
+                yield* subscribe(vcsDir, ignore, (file) => shouldPublishVcsWatcherPath(file, vcsDir))
               }
             }
           },
