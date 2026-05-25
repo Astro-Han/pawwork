@@ -110,6 +110,54 @@ describe("computeTerminalLabels", () => {
     expect(labels.get(terminalTabID("a"))).toBe("Terminal 2")
   })
 
+  test("windows backslash path basename", () => {
+    const labels = computeTerminalLabels(
+      [{ tabID: terminalTabID("a"), title: "", titleNumber: 1, cwd: "C:\\Users\\yuhan\\pawwork" }],
+      { t },
+    )
+    expect(labels.get(terminalTabID("a"))).toBe("pawwork")
+  })
+
+  test("windows path with trailing backslash", () => {
+    const labels = computeTerminalLabels(
+      [{ tabID: terminalTabID("a"), title: "", titleNumber: 1, cwd: "C:\\repo\\pawwork\\" }],
+      { t },
+    )
+    expect(labels.get(terminalTabID("a"))).toBe("pawwork")
+  })
+
+  test("windows drive root falls back to numbered", () => {
+    const labels = computeTerminalLabels(
+      [{ tabID: terminalTabID("a"), title: "", titleNumber: 4, cwd: "C:\\" }],
+      { t },
+    )
+    expect(labels.get(terminalTabID("a"))).toBe("Terminal 4")
+  })
+
+  test("windows UNC root falls back to numbered", () => {
+    const labels = computeTerminalLabels(
+      [{ tabID: terminalTabID("a"), title: "", titleNumber: 5, cwd: "\\\\server" }],
+      { t },
+    )
+    expect(labels.get(terminalTabID("a"))).toBe("Terminal 5")
+  })
+
+  test("windows UNC share path returns leaf segment", () => {
+    const labels = computeTerminalLabels(
+      [{ tabID: terminalTabID("a"), title: "", titleNumber: 1, cwd: "\\\\server\\share\\repo" }],
+      { t },
+    )
+    expect(labels.get(terminalTabID("a"))).toBe("repo")
+  })
+
+  test("mixed-separator path uses the rightmost separator", () => {
+    const labels = computeTerminalLabels(
+      [{ tabID: terminalTabID("a"), title: "", titleNumber: 1, cwd: "C:/Users\\yuhan/pawwork" }],
+      { t },
+    )
+    expect(labels.get(terminalTabID("a"))).toBe("pawwork")
+  })
+
   test("rename + sibling combo: custom title sits alongside basename dedup", () => {
     const labels = computeTerminalLabels(
       [

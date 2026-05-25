@@ -21,12 +21,24 @@ export const terminalTabLabel = (input: { title?: string; titleNumber?: number; 
   return input.t("terminal.title")
 }
 
-/** Last path segment of a POSIX-style path, ignoring trailing slashes. */
+/**
+ * Last path segment of a cwd, accepting both POSIX (`/`) and Windows (`\`)
+ * separators. PawWork ships on macOS and Windows; session dir comes through
+ * URL params from the platform's native filesystem, so a single regex won't
+ * cover both. Returns empty for drive roots (`C:\`, `/`) and UNC roots
+ * (`\\server\share` collapsed to nothing meaningful) — callers then fall back
+ * to the numbered/generic label.
+ */
 const lastPathSegment = (cwd: string): string => {
-  const trimmed = cwd.replace(/\/+$/u, "")
+  const trimmed = cwd.replace(/[/\\]+$/u, "")
   if (!trimmed) return ""
-  const slash = trimmed.lastIndexOf("/")
-  return slash === -1 ? trimmed : trimmed.slice(slash + 1)
+  // After trimming trailing separators, a bare drive letter ("C:") or UNC
+  // prefix ("\\\\server") has no useful basename — don't return the prefix
+  // itself as the label.
+  if (/^[A-Za-z]:$/u.test(trimmed)) return ""
+  if (/^\\\\[^\\/]+$/u.test(trimmed)) return ""
+  const sep = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"))
+  return sep === -1 ? trimmed : trimmed.slice(sep + 1)
 }
 
 interface TerminalForLabel {
