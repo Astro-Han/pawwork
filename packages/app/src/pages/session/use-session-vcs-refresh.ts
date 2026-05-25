@@ -55,6 +55,15 @@ export function isFileWatcherVcsRefreshEvent(event: { type: string; properties?:
   if (event.type !== "file.watcher.updated") return false
   const props =
     typeof event.properties === "object" && event.properties ? (event.properties as Record<string, unknown>) : undefined
-  const file = typeof props?.file === "string" ? props.file : undefined
-  return !!file && !file.startsWith(".git/")
+  const file = typeof props?.file === "string" ? props.file.replaceAll("\\", "/") : undefined
+  if (!file) return false
+  if (!file.startsWith(".git/")) return true
+  return (
+    file === ".git/index" ||
+    file === ".git/HEAD" ||
+    file === ".git/packed-refs" ||
+    file.startsWith(".git/refs/heads/") ||
+    file.startsWith(".git/logs/HEAD") ||
+    file.startsWith(".git/worktrees/")
+  )
 }
