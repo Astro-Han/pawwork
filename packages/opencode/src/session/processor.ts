@@ -128,19 +128,39 @@ function watchdogPhase(error: unknown): "connect" | "silent_stream" | "unknown" 
 }
 
 function sideEffectBoundarySnapshot(tools: LLM.StreamInput["tools"]): RunObservability.SideEffectBoundarySnapshot {
-  const names = Object.keys(tools ?? {})
+  const entries = Object.entries(tools ?? {})
+  const names = entries.map(([name]) => name)
   const effects = names.map((name) => RunObservability.toolEffect(name))
   const unknownCount = effects.filter((effect) => effect.kind === "unknown").length
   const unclassifiedCount = effects.filter((effect) => !effect.complete).length
+  const providerExecutedCapabilityPresent = entries.some(([, item]) => isRecord(item) && item.type === "provider")
+  const externalBoundaryPresent = entries.some(
+    ([, item]) => isRecord(item) && (item as { externalResult?: unknown }).externalResult === true,
+  )
+  const unknownBoundaryPresent = entries.some(([, item]) => !isRecord(item))
   const incomplete = unknownCount > 0 || unclassifiedCount > 0
+  const proofReason = providerExecutedCapabilityPresent
+    ? "provider_executed_capability"
+    : externalBoundaryPresent
+      ? "external_boundary"
+      : unknownBoundaryPresent
+        ? "unknown"
+        : incomplete
+          ? unknownCount > 0
+            ? "unknown_tool_boundary"
+            : "unclassified_effect"
+          : "all_boundaries_classified"
   return {
     exposed_tool_count: names.length,
     unknown_tool_count: unknownCount,
     unclassified_effect_count: unclassifiedCount,
-    provider_executed_capability_present: false,
-    external_boundary_present: false,
-    proof_result: incomplete ? "incomplete" : "complete",
-    proof_reason: incomplete ? (unknownCount > 0 ? "unknown_tool_boundary" : "unclassified_effect") : "all_boundaries_classified",
+    provider_executed_capability_present: providerExecutedCapabilityPresent,
+    external_boundary_present: externalBoundaryPresent,
+    proof_result:
+      incomplete || providerExecutedCapabilityPresent || externalBoundaryPresent || unknownBoundaryPresent
+        ? "incomplete"
+        : "complete",
+    proof_reason: proofReason,
   }
 }
 
@@ -194,6 +214,7 @@ interface ProcessorContext extends Input {
   needsCompaction: boolean
   currentText: MessageV2.TextPart | undefined
   reasoningMap: Record<string, MessageV2.ReasoningPart>
+  reasoningPartIDsByAttempt: Record<string, Set<PartID>>
   trace: LLMTrace.Recorder
   runTrace: RunObservability.Recorder
   attemptCount: number
@@ -255,6 +276,7 @@ export const layer: Layer.Layer<
         needsCompaction: false,
         currentText: undefined,
         reasoningMap: {},
+        reasoningPartIDsByAttempt: {},
         trace: LLMTrace.createRecorder({
           traceID: input.assistantMessage.id,
           sessionID: input.sessionID,
@@ -760,7 +782,10 @@ export const layer: Layer.Layer<
               time: { start: Date.now() },
               metadata: value.providerMetadata,
             }
-            yield* session.updatePart(ctx.reasoningMap[value.id])
+            const persistedReasoning = yield* session.updatePart(ctx.reasoningMap[value.id])
+            const attemptKey = String(attemptID)
+            ctx.reasoningPartIDsByAttempt[attemptKey] ??= new Set()
+            ctx.reasoningPartIDsByAttempt[attemptKey].add(persistedReasoning.id)
             return
 
           case "reasoning-delta":
@@ -1201,6 +1226,7 @@ export const layer: Layer.Layer<
         ctx.shouldBreak = (yield* config.get()).experimental?.continue_loop_on_deny !== true
         let processAttemptID: RunObservability.AttemptID | undefined
         let automaticStreamRetriesUsed = 0
+        let safeRetryNoticeWritten = false
 
         const retryStillAllowed = Effect.fn("SessionProcessor.retryStillAllowed")(function* (stage: string) {
           const lifecycleAction = currentLifecycleCloseAction(ctx.directory)
@@ -1237,6 +1263,41 @@ export const layer: Layer.Layer<
           }
           return { retryable: true, message: classification.raw }
         }
+
+        const removeReasoningForAttempt = Effect.fn("SessionProcessor.removeReasoningForAttempt")(function* (
+          attemptID: RunObservability.AttemptID,
+        ) {
+          const partIDs = ctx.reasoningPartIDsByAttempt[String(attemptID)]
+          if (!partIDs?.size) return
+          for (const partID of partIDs) {
+            yield* session.removePart({
+              sessionID: ctx.sessionID,
+              messageID: ctx.assistantMessage.id,
+              partID,
+            })
+          }
+          for (const [id, part] of Object.entries(ctx.reasoningMap)) {
+            if (partIDs.has(part.id)) delete ctx.reasoningMap[id]
+          }
+          delete ctx.reasoningPartIDsByAttempt[String(attemptID)]
+        })
+
+        const writeSafeRetryFailedNotice = Effect.fn("SessionProcessor.writeSafeRetryFailedNotice")(function* (
+          attemptID: RunObservability.AttemptID,
+        ) {
+          ctx.streamError = true
+          yield* removeReasoningForAttempt(attemptID)
+          yield* session.updatePart({
+            id: PartID.ascending(),
+            sessionID: ctx.sessionID,
+            messageID: ctx.assistantMessage.id,
+            type: "notice",
+            kind: "safe_retry_failed",
+            time: { created: Date.now() },
+          } satisfies MessageV2.NoticePart)
+          yield* status.set(ctx.sessionID, { type: "idle" })
+          safeRetryNoticeWritten = true
+        })
 
         const runAttempt = Effect.fn("SessionProcessor.runAttempt")(function* () {
           ctx.currentText = undefined
@@ -1301,7 +1362,11 @@ export const layer: Layer.Layer<
               error: result.error,
               evidence: retrySignal.watchdog ? ["watchdog_fired", "iterator_error"] : ["iterator_error"],
               watchdog: retrySignal.watchdog,
+              retryable: retrySignal.retryable,
             })
+            const reasoningOnlySafeRetry =
+              decision.recommendation === "auto_retry_once" &&
+              decision.reason === "reasoning_only_without_final_text_or_tool_activity"
 
             if (
               attemptID &&
@@ -1312,12 +1377,16 @@ export const layer: Layer.Layer<
               const beforeRetry = yield* retryStillAllowed("before_backoff")
               if (beforeRetry.allowed) {
                 automaticStreamRetriesUsed += 1
+                yield* removeReasoningForAttempt(attemptID)
                 const next = Date.now() + SAFE_RECOVERY_AUTO_RETRY_BACKOFF_MS
                 yield* status.set(ctx.sessionID, {
                   type: "retry",
                   attempt: ctx.attemptCount,
-                  message: retrySignal.message ?? "Retrying interrupted stream",
+                  message: reasoningOnlySafeRetry ? "" : (retrySignal.message ?? "Retrying interrupted stream"),
                   next,
+                  ...(reasoningOnlySafeRetry
+                    ? { presentation: "safe_recovery" as const, reason: "network_connection_dropped" as const }
+                    : {}),
                 })
                 yield* Effect.sleep(`${SAFE_RECOVERY_AUTO_RETRY_BACKOFF_MS} millis`).pipe(
                   Effect.onInterrupt(() => recordProcessInterrupt(attemptID)),
@@ -1344,6 +1413,16 @@ export const layer: Layer.Layer<
               break
             }
 
+            if (
+              attemptID &&
+              retrySignal.retryable &&
+              reasoningOnlySafeRetry &&
+              automaticStreamRetriesUsed > 0
+            ) {
+              yield* writeSafeRetryFailedNotice(attemptID)
+              break
+            }
+
             yield* halt(result.error, attemptID, {
               recordFailure: false,
               interruptionMessage: recoveryInterruptionMessage(decision),
@@ -1352,7 +1431,7 @@ export const layer: Layer.Layer<
           }
 
           if (ctx.needsCompaction) return "compact"
-          if (ctx.blocked || ctx.assistantMessage.error) return "stop"
+          if (ctx.blocked || ctx.assistantMessage.error || safeRetryNoticeWritten) return "stop"
           return "continue"
         }).pipe(Effect.ensuring(cleanup()))
       })

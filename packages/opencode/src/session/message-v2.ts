@@ -165,6 +165,17 @@ export const ReasoningPart = PartBase.extend({
 })
 export type ReasoningPart = z.infer<typeof ReasoningPart>
 
+export const NoticePart = PartBase.extend({
+  type: z.literal("notice"),
+  kind: z.literal("safe_retry_failed"),
+  time: z.object({
+    created: z.number(),
+  }),
+}).meta({
+  ref: "NoticePart",
+})
+export type NoticePart = z.infer<typeof NoticePart>
+
 const FilePartSourceBase = z.object({
   text: z
     .object({
@@ -450,6 +461,7 @@ export const Part = z
     TextPart,
     SubtaskPart,
     ReasoningPart,
+    NoticePart,
     FilePart,
     ToolPart,
     StepStartPart,

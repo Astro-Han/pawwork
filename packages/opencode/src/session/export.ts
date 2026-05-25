@@ -830,6 +830,8 @@ export namespace Export {
           text: redact("reasoning", part.id, part.text),
           metadata: dataField("reasoning-metadata", part.id, part.metadata),
         }
+      case "notice":
+        return part
       case "file":
         return filepart(part)
       case "subtask":

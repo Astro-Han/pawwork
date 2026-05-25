@@ -20,7 +20,15 @@ import { cloneRequest, type LifecycleRequest } from "../lifecycle-provenance"
 type AttemptMutable = AttemptSummary & { lastMonotonicMs: number }
 
 type Failure =
-  | { type: "transport"; at: number; monotonicMs: number; error: unknown; evidence: string[]; attemptID?: AttemptID }
+  | {
+      type: "transport"
+      at: number
+      monotonicMs: number
+      error: unknown
+      evidence: string[]
+      attemptID?: AttemptID
+      retryable?: boolean
+    }
   | { type: "setup"; at: number; monotonicMs: number; error: unknown }
   | {
       type: "scope_closed"
@@ -103,10 +111,7 @@ export function createRecorder(input: RecorderInput): Recorder {
       const { cause: _cause, ...nonTerminalEvent } = event
       return { ...nonTerminalEvent, terminal_candidate: false }
     })
-  const deriveCurrentIncident = (
-    completedAt?: number,
-    options?: { includeRecoveredTerminal?: boolean },
-  ) => {
+  const deriveCurrentIncident = (completedAt?: number, options?: { includeRecoveredTerminal?: boolean }) => {
     const incidentLifecycle = lifecycleSummary(lifecycleFailure)
     return RunIncident.derive({
       runID: input.runID,
@@ -116,6 +121,7 @@ export function createRecorder(input: RecorderInput): Recorder {
       parentMessageID: input.parentMessageID,
       createdAt: input.createdAt,
       completedAt,
+      retryable: failure?.type === "transport" ? failure.retryable : undefined,
       evidence: options?.includeRecoveredTerminal ? evidence : terminalEvidence(),
       unsafeSideEffectKinds: unsafeKinds,
       sideEffectFactsComplete,
@@ -136,6 +142,7 @@ export function createRecorder(input: RecorderInput): Recorder {
     monotonicMs: number
     error: unknown
     evidence?: string[]
+    retryable?: boolean
   }) => {
     const error = safeErrorFingerprint(next.error)
     const factsAtFailure = transportFactsAt(next.attemptID, next.monotonicMs)
@@ -146,6 +153,7 @@ export function createRecorder(input: RecorderInput): Recorder {
       error: next.error,
       evidence: next.evidence ?? [],
       attemptID: next.attemptID,
+      retryable: next.retryable,
     }
     appendEvidence({
       monotonic_ms: next.monotonicMs,
@@ -173,6 +181,7 @@ export function createRecorder(input: RecorderInput): Recorder {
     monotonicMs: number
     error: unknown
     phase: "connect" | "silent_stream" | "unknown"
+    retryable?: boolean
   }) => {
     const error = safeErrorFingerprint(next.error)
     failure ??= {
@@ -182,6 +191,7 @@ export function createRecorder(input: RecorderInput): Recorder {
       error: next.error,
       evidence: ["watchdog_fired", "iterator_error"],
       attemptID: next.attemptID,
+      retryable: next.retryable,
     }
     appendEvidence({
       monotonic_ms: next.monotonicMs,
@@ -205,6 +215,8 @@ export function createRecorder(input: RecorderInput): Recorder {
         started_at: next.at,
         provider_progress_seen: false,
         visible_output_seen: false,
+        text_output_started: false,
+        reasoning_output_started: false,
         tool_call_seen: false,
         tool_input_started: false,
         tool_input_completed: false,
@@ -245,6 +257,8 @@ export function createRecorder(input: RecorderInput): Recorder {
       visibleOutputSeen = true
       updateAttempt(next.attemptID, (attempt) => {
         attempt.visible_output_seen = true
+        if (next.kind === "reasoning") attempt.reasoning_output_started = true
+        else attempt.text_output_started = true
         attempt.lastMonotonicMs = Math.max(attempt.lastMonotonicMs, next.monotonicMs)
       })
       appendEvidence({
@@ -584,6 +598,9 @@ export function createRecorder(input: RecorderInput): Recorder {
       const retrySafety = retrySafetyFor({
         classification,
         visibleOutputSeen: terminalAttempt?.visible_output_seen ?? visibleOutputSeen,
+        textOutputStarted:
+          terminalAttempt?.text_output_started ?? incident?.facts.text_output_started ?? false,
+        reasoningOutputStarted: terminalAttempt?.reasoning_output_started ?? incident?.facts.reasoning_output_started ?? false,
         toolExecutionStarted: terminalAttempt?.tool_execution_started ?? toolExecutionStarted,
         unsafeSideEffectStarted: terminalAttempt?.unsafe_side_effect_started ?? unsafeSideEffectStarted,
       })
@@ -773,6 +790,8 @@ export function isProviderProgressEvent(event: { type: string }) {
 function retrySafetyFor(input: {
   classification: Classification
   visibleOutputSeen: boolean
+  textOutputStarted: boolean
+  reasoningOutputStarted: boolean
   toolExecutionStarted: boolean
   unsafeSideEffectStarted: boolean
 }): Summary["retry_safety"] {
@@ -780,7 +799,7 @@ function retrySafetyFor(input: {
   if (input.classification === "success") {
     return { ...base, recommendation: "unknown", confidence: "high", reason: "completed_without_failure" }
   }
-  if (input.visibleOutputSeen) {
+  if (input.textOutputStarted) {
     return { ...base, recommendation: "do_not_auto_retry", confidence: "high", reason: "visible_output_seen" }
   }
   if (input.unsafeSideEffectStarted) {
@@ -790,6 +809,14 @@ function retrySafetyFor(input: {
     return { ...base, recommendation: "ask_user", confidence: "medium", reason: "tool_execution_started" }
   }
   if (input.classification === "external_stream_disconnect") {
+    if (input.reasoningOutputStarted && input.visibleOutputSeen) {
+      return {
+        ...base,
+        recommendation: "candidate_safe_auto_retry",
+        confidence: "medium",
+        reason: "reasoning_only_without_final_text_or_tool_activity",
+      }
+    }
     return {
       ...base,
       recommendation: "candidate_safe_auto_retry",

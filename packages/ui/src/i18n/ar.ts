@@ -43,6 +43,8 @@ export const dict = {
   "ui.sessionTurn.retry.attempt": "المحاولة رقم {{attempt}}",
   "ui.sessionTurn.retry.attemptLine": "{{line}} - المحاولة رقم {{attempt}}",
   "ui.sessionTurn.retry.geminiHot": "gemini مزدحم حاليا",
+  "ui.sessionTurn.retry.safeRecovery": "Network connection dropped, retrying automatically",
+  "ui.sessionTurn.notice.safeRetryFailed": "Network connection dropped. Automatic retry did not complete.",
   "ui.sessionTurn.error.freeUsageExceeded": "تم تجاوز حد الاستخدام المجاني",
   "ui.sessionTurn.error.addCredits": "إضافة رصيد",
 

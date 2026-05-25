@@ -38,6 +38,11 @@ export function SessionRetry(props: {
     if (props.status.type !== "retry") return
     return props.status
   })
+  const safeRecoveryRetry = createMemo(() => {
+    const current = retry()
+    if (current?.presentation !== "safe_recovery") return
+    return current
+  })
   const [seconds, setSeconds] = createSignal(0)
   createEffect(
     on(retry, (current) => {
@@ -82,23 +87,37 @@ export function SessionRetry(props: {
       when={freeQuotaClassification()}
       fallback={
         <Show when={retry() && (props.show ?? true)}>
-          <div data-slot="session-turn-retry">
-            <Card variant="error" class="error-card">
-              <div class="flex items-start gap-2">
-                <Spinner class="size-4 mt-0.5" />
-                <div class="min-w-0">
-                  <Show when={truncated()} fallback={<div data-slot="session-turn-retry-message">{message()}</div>}>
-                    <Tooltip value={retry()?.message ?? ""} placement="top">
-                      <div data-slot="session-turn-retry-message" class="cursor-help truncate">
-                        {message()}
-                      </div>
-                    </Tooltip>
-                  </Show>
-                  <Show when={info()}>{(line) => <div data-slot="session-turn-retry-info">{line()}</div>}</Show>
+          <Show
+            when={safeRecoveryRetry()}
+            fallback={
+              <div data-slot="session-turn-retry">
+                <Card variant="error" class="error-card">
+                  <div class="flex items-start gap-2">
+                    <Spinner class="size-4 mt-0.5" />
+                    <div class="min-w-0">
+                      <Show when={truncated()} fallback={<div data-slot="session-turn-retry-message">{message()}</div>}>
+                        <Tooltip value={retry()?.message ?? ""} placement="top">
+                          <div data-slot="session-turn-retry-message" class="cursor-help truncate">
+                            {message()}
+                          </div>
+                        </Tooltip>
+                      </Show>
+                      <Show when={info()}>{(line) => <div data-slot="session-turn-retry-info">{line()}</div>}</Show>
+                    </div>
+                  </div>
+                </Card>
+              </div>
+            }
+          >
+            {(current) => (
+              <div data-slot="session-turn-safe-retry" class="flex items-center gap-2 text-caption text-fg-weak">
+                <Spinner class="size-3.5" />
+                <div data-slot="session-turn-safe-retry-message">
+                  {i18n.t("ui.sessionTurn.retry.safeRecovery")}
                 </div>
               </div>
-            </Card>
-          </div>
+            )}
+          </Show>
         </Show>
       }
     >

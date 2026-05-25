@@ -35,6 +35,7 @@ export type RetrySafety = {
   reason:
     | "completed_without_failure"
     | "no_visible_output_or_tool_execution"
+    | "reasoning_only_without_final_text_or_tool_activity"
     | "visible_output_seen"
     | "tool_execution_started"
     | "unsafe_side_effect_started"
@@ -88,6 +89,8 @@ export type AttemptSummary = {
   last_tool_completed_at?: number
   provider_progress_seen: boolean
   visible_output_seen: boolean
+  text_output_started: boolean
+  reasoning_output_started: boolean
   tool_call_seen: boolean
   tool_input_started: boolean
   tool_input_completed: boolean
@@ -219,6 +222,7 @@ export type Recorder = {
     error: unknown
     evidence?: string[]
     watchdog?: { phase: "connect" | "silent_stream" | "unknown" }
+    retryable?: boolean
   }): RunIncident.Recovery
   recordAutoRetryAttempted(input: { attemptID: AttemptID; at: number; monotonicMs: number }): void
   recordTransportFailure(input: {
@@ -227,6 +231,7 @@ export type Recorder = {
     monotonicMs: number
     error: unknown
     evidence?: string[]
+    retryable?: boolean
   }): void
   recordSetupFailure(input: { at: number; monotonicMs: number; error: unknown }): void
   recordScopeClosed(input: {

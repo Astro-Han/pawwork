@@ -4,6 +4,11 @@ ci:
           - ".github/workflows/**"
           - ".github/**"
 
+task:
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/workflows/**"
+
 platform:
   - changed-files:
       - any-glob-to-any-file:

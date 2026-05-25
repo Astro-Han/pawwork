@@ -65,6 +65,7 @@ describe("RunObservability", () => {
       error: new Error("LLM stream connection timed out after 120000ms without provider progress"),
       evidence: ["watchdog_fired", "iterator_error"],
       watchdog: { phase: "connect" },
+      retryable: true,
     })
 
     const summary = recorder.finalize({ completedAt: 131, monotonicMs: 231 })
@@ -104,6 +105,7 @@ describe("RunObservability", () => {
       error: new Error("LLM stream connection timed out after 120000ms without provider progress"),
       evidence: ["watchdog_fired", "iterator_error"],
       watchdog: { phase: "connect" },
+      retryable: true,
     })
     recorder.recordAutoRetryAttempted({ attemptID: first.attemptID, at: 13, monotonicMs: 130 })
     const second = recorder.beginAttempt({ attemptIndex: 2, at: 14, monotonicMs: 140 })
@@ -862,6 +864,7 @@ describe("RunObservability", () => {
       error: new Error("LLM stream connection timed out after 120000ms without provider progress"),
       evidence: ["watchdog_fired", "iterator_error"],
       watchdog: { phase: "connect" },
+      retryable: true,
     })
 
     expect(decision).toMatchObject({
@@ -891,6 +894,7 @@ describe("RunObservability", () => {
       at: 22,
       monotonicMs: 220,
       error: { name: "TypeError", message: "terminated", cause: { code: "UND_ERR_SOCKET" } },
+      retryable: true,
     })
 
     const summary = recorder.finalize({ completedAt: 23, monotonicMs: 230 })
@@ -1520,6 +1524,182 @@ describe("RunObservability", () => {
     expect(summary.incident?.phase.stream_phase).toBe("reasoning_generation")
   })
 
+  test("retry safety does not treat reasoning output as final text when terminal attempt is unknown", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_reasoning_unknown_terminal_attempt"),
+      traceID: MessageID.make("msg_reasoning_unknown_terminal_attempt"),
+      sessionID: SessionID.make("ses_reasoning_unknown_terminal_attempt"),
+      messageID: MessageID.make("msg_reasoning_unknown_terminal_attempt"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordProviderProgress({ attemptID: attempt.attemptID, at: 12, monotonicMs: 120 })
+    recorder.recordVisibleOutput({ attemptID: attempt.attemptID, at: 13, monotonicMs: 130, kind: "reasoning" })
+    recorder.recordTransportFailure({
+      at: 14,
+      monotonicMs: 140,
+      error: { name: "TypeError", message: "terminated", cause: { code: "UND_ERR_SOCKET" } },
+    })
+
+    const summary = recorder.finalize({ completedAt: 15, monotonicMs: 150 })
+    expect(summary.retry_safety).toMatchObject({
+      recommendation: "candidate_safe_auto_retry",
+      reason: "reasoning_only_without_final_text_or_tool_activity",
+    })
+  })
+
+  test("reasoning-only transport failure with only local unknown tool boundaries is a safe retry candidate", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_reasoning_only_safe_retry_boundary"),
+      traceID: MessageID.make("msg_reasoning_only_safe_retry_boundary"),
+      sessionID: SessionID.make("ses_reasoning_only_safe_retry_boundary"),
+      messageID: MessageID.make("msg_reasoning_only_safe_retry_boundary"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordSideEffectBoundarySnapshot({
+      attemptID: attempt.attemptID,
+      at: 12,
+      monotonicMs: 120,
+      snapshot: {
+        exposed_tool_count: 1,
+        unknown_tool_count: 1,
+        unclassified_effect_count: 1,
+        provider_executed_capability_present: false,
+        external_boundary_present: false,
+        proof_result: "incomplete",
+        proof_reason: "unknown_tool_boundary",
+      },
+    })
+    recorder.recordProviderProgress({ attemptID: attempt.attemptID, at: 13, monotonicMs: 130 })
+    recorder.recordVisibleOutput({ attemptID: attempt.attemptID, at: 14, monotonicMs: 140, kind: "reasoning" })
+    const decision = recorder.recordAttemptFailureAndDeriveRecovery({
+      attemptID: attempt.attemptID,
+      at: 15,
+      monotonicMs: 150,
+      error: { name: "TypeError", message: "terminated", cause: { code: "UND_ERR_SOCKET" } },
+      evidence: ["iterator_error"],
+      retryable: true,
+    })
+
+    const summary = recorder.finalize({ completedAt: 16, monotonicMs: 160 })
+    expect(decision).toMatchObject({
+      recommendation: "auto_retry_once",
+      reason: "reasoning_only_without_final_text_or_tool_activity",
+    })
+    expect(summary.incident?.recovery).toMatchObject({
+      recommendation: "auto_retry_once",
+      reason: "reasoning_only_without_final_text_or_tool_activity",
+    })
+    expect(summary.retry_safety).toMatchObject({
+      recommendation: "candidate_safe_auto_retry",
+      reason: "reasoning_only_without_final_text_or_tool_activity",
+    })
+  })
+
+  test.each([
+    [
+      "provider-executed capability",
+      {
+        provider_executed_capability_present: true,
+        external_boundary_present: false,
+        proof_reason: "provider_executed_capability" as const,
+      },
+    ],
+    [
+      "external boundary",
+      {
+        provider_executed_capability_present: false,
+        external_boundary_present: true,
+        proof_reason: "external_boundary" as const,
+      },
+    ],
+    [
+      "unknown boundary proof",
+      {
+        provider_executed_capability_present: false,
+        external_boundary_present: false,
+        proof_reason: "unknown" as const,
+      },
+    ],
+  ])("reasoning-only transport failure with %s stays conservative", (_label, boundary) => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make(`run_reasoning_only_${boundary.proof_reason}`),
+      traceID: MessageID.make(`msg_reasoning_only_${boundary.proof_reason}`),
+      sessionID: SessionID.make(`ses_reasoning_only_${boundary.proof_reason}`),
+      messageID: MessageID.make(`msg_reasoning_only_${boundary.proof_reason}`),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordSideEffectBoundarySnapshot({
+      attemptID: attempt.attemptID,
+      at: 12,
+      monotonicMs: 120,
+      snapshot: {
+        exposed_tool_count: 1,
+        unknown_tool_count: 0,
+        unclassified_effect_count: 0,
+        provider_executed_capability_present: boundary.provider_executed_capability_present,
+        external_boundary_present: boundary.external_boundary_present,
+        proof_result: "incomplete",
+        proof_reason: boundary.proof_reason,
+      },
+    })
+    recorder.recordProviderProgress({ attemptID: attempt.attemptID, at: 13, monotonicMs: 130 })
+    recorder.recordVisibleOutput({ attemptID: attempt.attemptID, at: 14, monotonicMs: 140, kind: "reasoning" })
+    const decision = recorder.recordAttemptFailureAndDeriveRecovery({
+      attemptID: attempt.attemptID,
+      at: 15,
+      monotonicMs: 150,
+      error: { name: "TypeError", message: "terminated", cause: { code: "UND_ERR_SOCKET" } },
+      evidence: ["iterator_error"],
+      retryable: true,
+    })
+
+    expect(decision).toMatchObject({
+      recommendation: "ask_user_before_retry",
+      reason: "side_effect_facts_incomplete",
+    })
+  })
+
+  test("reasoning-only transport failure without terminal boundary evidence stays conservative", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_reasoning_only_missing_boundary"),
+      traceID: MessageID.make("msg_reasoning_only_missing_boundary"),
+      sessionID: SessionID.make("ses_reasoning_only_missing_boundary"),
+      messageID: MessageID.make("msg_reasoning_only_missing_boundary"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordProviderProgress({ attemptID: attempt.attemptID, at: 12, monotonicMs: 120 })
+    recorder.recordVisibleOutput({ attemptID: attempt.attemptID, at: 13, monotonicMs: 130, kind: "reasoning" })
+    const decision = recorder.recordAttemptFailureAndDeriveRecovery({
+      attemptID: attempt.attemptID,
+      at: 14,
+      monotonicMs: 140,
+      error: { name: "TypeError", message: "terminated", cause: { code: "UND_ERR_SOCKET" } },
+      evidence: ["iterator_error"],
+      retryable: true,
+    })
+
+    expect(decision).toMatchObject({
+      recommendation: "ask_user_before_retry",
+      reason: "side_effect_facts_incomplete",
+    })
+  })
+
   test("materialized tool recovery keeps unsafe boundary even when a later safe tool materializes", () => {
     const recorder = RunObservability.createRecorder({
       runID: RunObservability.RunID.make("run_unsafe_then_safe_materialized_tool"),
@@ -1678,6 +1858,7 @@ describe("RunObservability", () => {
       at: 21,
       monotonicMs: 210,
       error: { name: "TypeError", message: "terminated", cause: { code: "UND_ERR_SOCKET" } },
+      retryable: true,
     })
 
     const summary = recorder.finalize({ completedAt: 22, monotonicMs: 220 })
@@ -1716,6 +1897,7 @@ describe("RunObservability", () => {
       at: 21,
       monotonicMs: 210,
       error: { name: "TypeError", message: "terminated", cause: { code: "UND_ERR_SOCKET" } },
+      retryable: true,
     })
 
     const summary = recorder.finalize({ completedAt: 22, monotonicMs: 220 })
@@ -1751,6 +1933,7 @@ describe("RunObservability", () => {
       at: 22,
       monotonicMs: 220,
       error: { name: "TypeError", message: "terminated", cause: { code: "UND_ERR_SOCKET" } },
+      retryable: true,
     })
 
     const summary = recorder.finalize({ completedAt: 23, monotonicMs: 230 })

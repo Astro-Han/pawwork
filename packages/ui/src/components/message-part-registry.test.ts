@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url"
 const COMPONENT_DIR = dirname(fileURLToPath(import.meta.url))
 const MESSAGE_PART_DIR = join(COMPONENT_DIR, "message-part")
 
-const expectedParts = ["compaction", "reasoning", "text", "tool"]
+const expectedParts = ["compaction", "notice", "reasoning", "text", "tool"]
 const expectedTools = [
   "read",
   "list",
@@ -87,7 +87,7 @@ test("part and tool side-effect barrels cover every registered renderer", () => 
     expect(source).toContain(`name: "${tool}"`)
   }
 
-  for (const path of ["./compaction-and-divider", "./reasoning", "./text", "./tool"]) {
+  for (const path of ["./compaction-and-divider", "./notice", "./reasoning", "./text", "./tool"]) {
     expect(partsIndex).toContain(`import "${path}"`)
   }
 
