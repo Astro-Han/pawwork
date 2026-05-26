@@ -371,6 +371,51 @@ describe("session timeline scroll anchors", () => {
     expect(scroller.scrollTop).toBe(456)
   })
 
+  test("falls back to the trow anchor when a tool anchor disappears and the message row is re-keyed", () => {
+    const scroller = makeViewport({
+      scrollTop: 400,
+      clientHeight: 400,
+      scrollHeight: 1400,
+      rect: { top: 100, bottom: 500 },
+    })
+    const message = appendMessage(scroller.viewport, "msg_replaced", { top: 180, bottom: 700 })
+    appendTimelineAnchor(message, "trow:stable", { top: 210, bottom: 260 })
+
+    expect(
+      restoreTimelineSafePosition({
+        viewport: scroller.viewport,
+        position: {
+          kind: "reading",
+          anchorMessageID: "msg_placeholder",
+          offsetFromViewportTop: 0,
+          renderedStart: 4,
+          renderedCount: 10,
+          primaryAnchor: {
+            key: "tool:old-key",
+            offsetFromViewportTop: 72,
+            scope: "tool",
+          },
+          fallbackTrowAnchor: {
+            key: "trow:stable",
+            offsetFromViewportTop: 88,
+            scope: "trow",
+          },
+          fallbackMessage: {
+            messageID: "msg_placeholder",
+            offsetFromViewportTop: 24,
+          },
+        },
+      }),
+    ).toEqual({
+      ok: true,
+      restoredTo: expect.objectContaining({
+        kind: "reading",
+        fallbackTrowAnchor: expect.objectContaining({ key: "trow:stable" }),
+      }),
+    })
+    expect(scroller.scrollTop).toBe(422)
+  })
+
   test("restores nearest target only when it is outside the viewport", () => {
     const scroller = makeViewport({
       scrollTop: 100,
