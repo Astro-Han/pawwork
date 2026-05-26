@@ -1,5 +1,4 @@
-import type { RunIncident } from "./run-incident"
-import { RunIncident as RunIncidentPolicy } from "./run-incident"
+import { RunIncident } from "./run-incident"
 import type { RetryClassification } from "./retry-classification"
 
 export type TechnicalRetryability =
@@ -73,7 +72,7 @@ export function buildModelRetryDecision(input: {
     }
   }
 
-  const safety = RunIncidentPolicy.evaluateReplaySafety({
+  const safety = RunIncident.evaluateReplaySafety({
     recovery: input.safetyGateDecision,
     safeRecoveryAttempt: input.safeRecoveryAttempt,
   })

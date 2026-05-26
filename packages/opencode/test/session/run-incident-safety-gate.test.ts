@@ -65,4 +65,25 @@ describe("run incident safety gate", () => {
     })
     expect(decision.attemptKind).toBeUndefined()
   })
+
+  test("blocks replay and requires user confirmation for ambiguous retry safety", () => {
+    for (const recommendation of ["ask_user_before_retry", "offer_resume_with_confirmation"] as const) {
+      const decision = RunIncident.evaluateReplaySafety({
+        recovery: {
+          ...base,
+          recommendation,
+          reason: "tool_call_materialized_without_execution",
+        },
+        safeRecoveryAttempt: 0,
+      })
+
+      expect(decision).toMatchObject({
+        canReplay: false,
+        recoveryMode: "ask_user",
+        blockedReason: "tool_call_materialized_without_execution",
+        presentation: "default",
+      })
+      expect(decision.attemptKind).toBeUndefined()
+    }
+  })
 })
