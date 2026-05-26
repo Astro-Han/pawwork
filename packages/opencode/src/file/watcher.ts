@@ -23,6 +23,7 @@ export namespace FileWatcher {
   const log = Log.create({ service: "file.watcher" })
   const SUBSCRIBE_TIMEOUT_MS = 10_000
   const RESCAN_QUIET_MS = 1_000
+  const WORKSPACE_SUBSCRIBE_ENTRIES = [".worktrees"]
   const VCS_SUBSCRIBE_ENTRIES = new Set(["HEAD", "index", "packed-refs", "refs"])
   const VCS_REFRESH_FILES = new Set(["HEAD", "index", "packed-refs"])
   const VCS_REFRESH_PREFIXES = ["refs/heads/", "refs/remotes/"]
@@ -137,6 +138,12 @@ export namespace FileWatcher {
     return entries.filter((entry) => !VCS_SUBSCRIBE_ENTRIES.has(entry))
   }
 
+  export function workspaceWatcherIgnoreEntries(input: { config: string[]; protected: string[] }) {
+    return [
+      ...new Set([...FileIgnore.PATTERNS, ...WORKSPACE_SUBSCRIBE_ENTRIES, ...input.config, ...input.protected]),
+    ]
+  }
+
   export function shouldPublishVcsWatcherPath(file: string, vcsDir: string) {
     const relative = path.relative(vcsDir, file).replaceAll(path.sep, "/")
     if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return false
@@ -231,11 +238,13 @@ export namespace FileWatcher {
             const cfgIgnores = cfg.watcher?.ignore ?? []
 
             if (yield* Flag.OPENCODE_EXPERIMENTAL_FILEWATCHER) {
-              yield* subscribe(ctx.directory, [
-                ...FileIgnore.PATTERNS,
-                ...cfgIgnores,
-                ...protecteds(ctx.directory),
-              ])
+              yield* subscribe(
+                ctx.directory,
+                workspaceWatcherIgnoreEntries({
+                  config: cfgIgnores,
+                  protected: protecteds(ctx.directory),
+                }),
+              )
             }
 
             if (ctx.project.vcs === "git") {

@@ -146,6 +146,18 @@ function ready(directory: string) {
 // ---------------------------------------------------------------------------
 
 describe("FileWatcher git metadata filtering", () => {
+  test("ignores nested PawWork worktree roots from the workspace watcher", () => {
+    const entries = FileWatcher.workspaceWatcherIgnoreEntries({
+      config: ["custom-cache"],
+      protected: ["/secret"],
+    })
+
+    expect(entries).toContain("node_modules")
+    expect(entries).toContain(".worktrees")
+    expect(entries).toContain("custom-cache")
+    expect(entries).toContain("/secret")
+  })
+
   test("keeps review-diff git metadata subscribed", () => {
     expect(
       FileWatcher.vcsWatcherIgnoreEntries(["HEAD", "index", "packed-refs", "refs", "objects", "logs", "hooks"]),
