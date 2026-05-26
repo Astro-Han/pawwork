@@ -525,14 +525,17 @@ test("changing sound agent selection persists in localStorage", async ({ page, g
   await select.locator('[data-slot="select-select-trigger"]').click()
 
   const items = page.locator('[data-slot="select-select-item"]')
+  // Options render as [None, Notification, Error]; nth(2) selects the Error sound.
   await items.nth(2).click()
 
-  const stored = await page.evaluate((key) => {
-    const raw = localStorage.getItem(key)
-    return raw ? JSON.parse(raw) : null
-  }, settingsKey)
-
-  expect(stored?.sounds?.agent).not.toBe("notify")
+  await expect
+    .poll(async () => {
+      return await page.evaluate((key) => {
+        const raw = localStorage.getItem(key)
+        return raw ? JSON.parse(raw) : null
+      }, settingsKey)
+    })
+    .toMatchObject({ sounds: { agent: "error" } })
 })
 
 test("selecting none disables agent sound", async ({ page, gotoSession }) => {
@@ -616,6 +619,36 @@ test("changing permissions and errors sounds updates localStorage", async ({ pag
 
   expect(stored?.sounds?.permissions).not.toBe(initial?.sounds?.permissions)
   expect(stored?.sounds?.errors).not.toBe(initial?.sounds?.errors)
+})
+
+test("legacy sound ids fall back to current defaults", async ({ page, gotoSession }) => {
+  // Upgrading users have stale ids from the old 45-sound set persisted. withSoundFallback
+  // must map them to the bundled defaults so the dropdown stays populated, not blank/silent.
+  await page.addInitScript((key) => {
+    localStorage.setItem(
+      key,
+      JSON.stringify({
+        sounds: {
+          agentEnabled: true,
+          agent: "staplebops-01",
+          permissionsEnabled: true,
+          permissions: "nope-03",
+          errorsEnabled: true,
+          errors: "yup-02",
+        },
+      }),
+    )
+  }, settingsKey)
+
+  await gotoSession()
+
+  const dialog = await openSettings(page)
+  const valueOf = (selector: string) =>
+    dialog.locator(selector).locator('[data-slot="select-select-trigger-value"]')
+
+  await expect(valueOf(settingsSoundsAgentSelector)).toHaveText("Notification")
+  await expect(valueOf(settingsSoundsPermissionsSelector)).toHaveText("Notification")
+  await expect(valueOf(settingsSoundsErrorsSelector)).toHaveText("Error")
 })
 
 test("toggling updates startup switch updates localStorage", async ({ page, gotoSession }) => {

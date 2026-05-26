@@ -163,7 +163,12 @@ function withSoundFallback(read: () => string | undefined, fallback: string) {
 export const { use: useSettings, provider: SettingsProvider } = createSimpleContext({
   name: "Settings",
   init: () => {
-    const [store, setStore, _, ready] = persisted("settings.v3", createStore<Settings>(defaultSettings))
+    // Clone so the store never mutates the shared defaultSettings constant in
+    // place; the fallback accessors below read defaultSettings.* as their source
+    // of truth, and a stale persisted value reconciled into the store would
+    // otherwise overwrite those defaults (e.g. withSoundFallback would "fall
+    // back" to the very invalid id it was meant to replace).
+    const [store, setStore, _, ready] = persisted("settings.v3", createStore<Settings>(structuredClone(defaultSettings)))
     const [themeID, setThemeID] = createSignal<string | undefined>()
 
     onMount(() => {
