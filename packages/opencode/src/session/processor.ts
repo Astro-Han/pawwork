@@ -137,7 +137,7 @@ function attemptStreamTimeouts(
 ): { connectTimeoutMs?: number } {
   if (streamInput.connectTimeoutMs !== undefined) return {}
   if (!model.capabilities.reasoning) return {}
-  const firstAttemptCanAutoRetry = boundaryAllowsBeforeProgressSafeRetry(boundary)
+  const firstAttemptCanAutoRetry = RunObservability.boundaryAllowsBeforeProgressRetry(boundary)
   if (automaticStreamRetriesUsed === 0 && !firstAttemptCanAutoRetry) {
     return { connectTimeoutMs: ProviderTransform.REASONING_GLOBAL_CONNECT_TIMEOUT_MS }
   }
@@ -149,16 +149,6 @@ function attemptStreamTimeouts(
         ? REASONING_SAFE_RETRY_CONNECT_TIMEOUT_MS
         : REASONING_FIRST_ATTEMPT_CONNECT_TIMEOUT_MS,
   }
-}
-
-function boundaryAllowsBeforeProgressSafeRetry(boundary: RunObservability.SideEffectBoundarySnapshot) {
-  if (boundary.provider_executed_capability_present) return false
-  if (boundary.external_boundary_present) return false
-  return (
-    boundary.proof_reason !== "provider_executed_capability" &&
-    boundary.proof_reason !== "external_boundary" &&
-    boundary.proof_reason !== "unknown"
-  )
 }
 
 function sideEffectBoundarySnapshot(tools: LLM.StreamInput["tools"]): RunObservability.SideEffectBoundarySnapshot {
