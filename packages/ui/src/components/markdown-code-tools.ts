@@ -121,7 +121,9 @@ export function markCodeLinks(root: HTMLDivElement) {
 // the viewport. Only one copy button is ever hovered or focused at a time, so a
 // single element is enough.
 let tooltipEl: HTMLDivElement | null = null
-let activeTooltipButton: HTMLButtonElement | null = null
+// WeakRef so a code block removed from the stream (chat re-render) can still be
+// garbage-collected even while it is the last-hovered button.
+let activeTooltipButton: WeakRef<HTMLButtonElement> | null = null
 
 function getTooltipEl(): HTMLDivElement {
   if (tooltipEl?.isConnected) return tooltipEl
@@ -136,7 +138,7 @@ function getTooltipEl(): HTMLDivElement {
 function showTooltip(button: HTMLButtonElement) {
   const label = button.getAttribute("data-tooltip")
   if (!label) return
-  activeTooltipButton = button
+  activeTooltipButton = new WeakRef(button)
   const tip = getTooltipEl()
   tip.textContent = label
   tip.setAttribute("data-show", "true")
@@ -156,7 +158,9 @@ function showTooltip(button: HTMLButtonElement) {
 }
 
 function hideTooltip(button?: HTMLButtonElement) {
-  if (button && activeTooltipButton !== button) return
+  // Early-out avoids redundant DOM writes on scroll/resize when nothing shows.
+  if (!activeTooltipButton) return
+  if (button && activeTooltipButton.deref() !== button) return
   activeTooltipButton = null
   tooltipEl?.removeAttribute("data-show")
 }
@@ -189,7 +193,7 @@ export function setupCodeCopy(root: HTMLDivElement, getLabels: () => CopyLabels)
       if (existing) clearTimeout(existing)
       const timeout = setTimeout(() => {
         setCopyState(button, getLabels(), false)
-        if (activeTooltipButton === button) {
+        if (activeTooltipButton?.deref() === button) {
           if (button.matches(":hover")) showTooltip(button)
           else hideTooltip(button)
         }
@@ -246,7 +250,8 @@ export function setupCodeCopy(root: HTMLDivElement, getLabels: () => CopyLabels)
     root.removeEventListener("focusout", handleFocusOut)
     window.removeEventListener("scroll", handleReposition, true)
     window.removeEventListener("resize", handleReposition)
-    if (activeTooltipButton && root.contains(activeTooltipButton)) hideTooltip()
+    const activeBtn = activeTooltipButton?.deref()
+    if (activeBtn && root.contains(activeBtn)) hideTooltip()
     for (const timeout of timeouts.values()) {
       clearTimeout(timeout)
     }

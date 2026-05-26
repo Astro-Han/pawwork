@@ -1,3 +1,4 @@
+import { expect } from "@playwright/test"
 import { fileURLToPath } from "node:url"
 import { test } from "../fixtures"
 import { composeGrid, snapOutputPath, type Shot } from "./_compose"
@@ -69,7 +70,11 @@ test("code-copy-tooltip", async ({ page }) => {
   // Tooltip: hovering the button floats the label above it, clear of the box's
   // overflow:hidden clip.
   await button.hover()
-  await page.locator('[data-slot="markdown-copy-tooltip"][data-show="true"]').waitFor({ state: "visible", timeout: 30_000 })
+  const tooltip = page.locator('[data-slot="markdown-copy-tooltip"][data-show="true"]')
+  await tooltip.waitFor({ state: "visible", timeout: 30_000 })
+  // Wait out the 0.15s opacity fade-in so the screenshot isn't captured
+  // mid-transition, which would make the visual snapshot flaky.
+  await expect.poll(() => tooltip.evaluate((el) => getComputedStyle(el).opacity), { timeout: 5_000 }).toBe("1")
   const tooltipShot: Shot = { name: "tooltip", buf: await page.screenshot() }
 
   const out = snapOutputPath("code-copy-tooltip")
