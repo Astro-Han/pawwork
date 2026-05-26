@@ -633,23 +633,30 @@ export const layer: Layer.Layer<
         }
 
         if (!replay) {
-          // Only auto-continue when the turn the compaction interrupted had NOT
-          // finished cleanly. A clean finish (e.g. "stop"/"end_turn") means the
-          // agent itself chose to end the turn, so injecting a synthetic continue
-          // would override that decision and make compaction-turns behave more
-          // eagerly than normal turns. Resume only when the last real turn was
-          // still mid-flight (no finish, or "tool-calls"/"unknown"). Keys on the
-          // turn's finish reason rather than the overflow flag, matching upstream
-          // opencode #27730 — the overflow flag stranded mid-task work that
-          // happened to compact without a provider-side overflow.
-          const lastNonSummaryAssistant = input.messages.findLast(
-            (m) => m.info.role === "assistant" && !m.info.summary,
-          )?.info as MessageV2.Assistant | undefined
-          const shouldAutoContinue =
-            !lastNonSummaryAssistant?.finish ||
-            lastNonSummaryAssistant.finish === "tool-calls" ||
-            lastNonSummaryAssistant.finish === "unknown"
-          if (!shouldAutoContinue) return result
+          // Overflow recovery: the provider rejected the turn mid-flight, so there
+          // is always unfinished work — continue. Natural compaction: only continue
+          // when the interrupted turn had NOT finished cleanly. A clean finish
+          // ("stop"/"end_turn") means the agent itself chose to end the turn, so a
+          // synthetic continue would override that and make compaction-turns more
+          // eager than normal turns. Resume only when the last real turn was still
+          // mid-flight (no finish, "tool-calls", or "unknown"). Keying on the finish
+          // reason rather than the overflow flag matches upstream opencode #27730;
+          // the old overflow gate stranded mid-task work that compacted without a
+          // provider-side overflow.
+          if (!input.overflow) {
+            const lastNonSummaryAssistant = input.messages.findLast(
+              (m) => m.info.role === "assistant" && !m.info.summary,
+            )?.info as MessageV2.Assistant | undefined
+            // A missing turn has nothing to resume; guard `!== undefined` explicitly
+            // so `!lastNonSummaryAssistant?.finish` can't inject a spurious continue
+            // when no assistant turn exists.
+            const shouldAutoContinue =
+              lastNonSummaryAssistant !== undefined &&
+              (!lastNonSummaryAssistant.finish ||
+                lastNonSummaryAssistant.finish === "tool-calls" ||
+                lastNonSummaryAssistant.finish === "unknown")
+            if (!shouldAutoContinue) return result
+          }
           const info = yield* provider.getProvider(userMessage.model.providerID)
           if (
             (yield* plugin.trigger(

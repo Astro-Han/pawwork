@@ -1180,6 +1180,23 @@ describe("session.compaction.process", () => {
       fn: async () => {
         const session = await svc.create({})
         const msg = await user(session.id, "hello")
+        // Mid-task turn so shouldAutoContinue is true; the plugin returning
+        // enabled=false is then what suppresses the continue, not the guard.
+        await svc.updateMessage({
+          id: MessageID.ascending(),
+          role: "assistant",
+          sessionID: session.id,
+          mode: "build",
+          agent: "build",
+          path: { cwd: tmp.path, root: tmp.path },
+          cost: 0,
+          tokens: { output: 0, input: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          modelID: ref.modelID,
+          providerID: ref.providerID,
+          parentID: msg.id,
+          time: { created: Date.now() },
+          finish: "tool-calls",
+        })
         const rt = runtime("continue", autocontinue(false), wide())
         try {
           const msgs = await svc.messages({ sessionID: session.id })
