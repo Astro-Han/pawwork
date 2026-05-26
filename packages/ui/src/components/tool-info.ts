@@ -160,7 +160,7 @@ export function toolInfoForInput(
         title: i18n.t("ui.messagePart.title.write"),
         subtitle: input.filePath ? getFilename(input.filePath) : undefined,
       }
-    case "apply_patch":
+    case "apply_patch": {
       const fileCount = Array.isArray(metadata.files)
         ? metadata.files.length
         : Array.isArray(input.files)
@@ -173,6 +173,7 @@ export function toolInfoForInput(
           ? `${fileCount} ${i18n.t(fileCount > 1 ? "ui.common.file.other" : "ui.common.file.one")}`
           : undefined,
       }
+    }
     case TOOL_TODOWRITE:
       return {
         icon: "checklist",
