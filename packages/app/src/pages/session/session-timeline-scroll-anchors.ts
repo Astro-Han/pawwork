@@ -107,7 +107,20 @@ function findFallbackTrowAnchor(input: {
 }) {
   const message = messageElementForAnchor(input.selected)
   if (!message) return undefined
-  for (const candidate of timelineAnchorElements(message)) {
+  const selectedBlock = input.selected.closest('[data-component="session-turn-trow-block"]')
+  const scopes = selectedBlock instanceof HTMLElement ? [selectedBlock, message] : [message]
+  for (const scope of scopes) {
+    const anchor = findFirstVisibleTrowAnchor({
+      scope,
+      selectedKey: input.selectedKey,
+      viewportRect: input.viewportRect,
+    })
+    if (anchor) return anchor
+  }
+}
+
+function findFirstVisibleTrowAnchor(input: { scope: HTMLElement; selectedKey: string; viewportRect: DOMRect }) {
+  for (const candidate of timelineAnchorElements(input.scope)) {
     const key = candidate.dataset.timelineAnchor
     if (!key || key === input.selectedKey || !key.startsWith("trow:")) continue
     const rect = candidate.getBoundingClientRect()

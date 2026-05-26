@@ -99,6 +99,26 @@ function appendClosedTrowDetails(
   return { details, summary, body, tool }
 }
 
+function appendOpenTrowBlock(
+  parent: HTMLElement,
+  input: {
+    trowKey: string
+    trowRect: RectInput
+    toolKey: string
+    toolRect: RectInput
+  },
+) {
+  const block = document.createElement("div")
+  block.dataset.component = "session-turn-trow-block"
+  const summary = appendTimelineAnchor(block, input.trowKey, input.trowRect)
+  const body = document.createElement("div")
+  body.dataset.slot = "trow-body"
+  const tool = appendTimelineAnchor(body, input.toolKey, input.toolRect)
+  block.appendChild(body)
+  parent.appendChild(block)
+  return { block, summary, body, tool }
+}
+
 describe("session timeline scroll anchors", () => {
   test("collects near-top and near-bottom metrics from explicit geometry", () => {
     const { viewport } = makeViewport({
@@ -198,6 +218,58 @@ describe("session timeline scroll anchors", () => {
       fallbackMessage: {
         messageID: "msg_anchor",
         offsetFromViewportTop: 0,
+      },
+    })
+  })
+
+  test("stores the fallback trow anchor from the selected tool block", () => {
+    const { viewport } = makeViewport({
+      scrollTop: 240,
+      clientHeight: 400,
+      scrollHeight: 1200,
+      rect: { top: 100, bottom: 500 },
+    })
+    const message = appendMessage(viewport, "msg_anchor", { top: 140, bottom: 760 })
+    appendOpenTrowBlock(message, {
+      trowKey: "trow:first",
+      trowRect: { top: 150, bottom: 190 },
+      toolKey: "tool:first",
+      toolRect: { top: 250, bottom: 290 },
+    })
+    appendOpenTrowBlock(message, {
+      trowKey: "trow:second",
+      trowRect: { top: 280, bottom: 320 },
+      toolKey: "tool:second",
+      toolRect: { top: 188, bottom: 236 },
+    })
+
+    expect(
+      sampleTimelineSafePosition({
+        viewport,
+        mode: "reading_history",
+        renderedStart: 4,
+        renderedCount: 10,
+        newestMessageID: "msg_newest",
+      }),
+    ).toEqual({
+      kind: "reading",
+      anchorMessageID: "msg_anchor",
+      offsetFromViewportTop: 88,
+      renderedStart: 4,
+      renderedCount: 10,
+      primaryAnchor: {
+        key: "tool:second",
+        offsetFromViewportTop: 88,
+        scope: "tool",
+      },
+      fallbackTrowAnchor: {
+        key: "trow:second",
+        offsetFromViewportTop: 180,
+        scope: "trow",
+      },
+      fallbackMessage: {
+        messageID: "msg_anchor",
+        offsetFromViewportTop: 40,
       },
     })
   })
