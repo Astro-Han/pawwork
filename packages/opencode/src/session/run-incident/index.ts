@@ -2,6 +2,7 @@ import { deriveIncident as deriveRunIncident, transportCause as providerTranspor
 import { recoveryFor as deriveRecovery } from "./policy"
 import { plainSummary as derivePlainSummary, userSummary as deriveUserSummary } from "./presentation"
 import { sanitizeIncident as sanitizeRunIncident, sanitizeLifecycleRequest } from "./sanitize"
+import { evaluateReplaySafety as deriveReplaySafety } from "./safety-gate"
 import { RUN_INCIDENT_SCHEMA_VERSION as VERSION } from "./types"
 import * as Types from "./types"
 
@@ -31,6 +32,7 @@ export namespace RunIncident {
   export const derive = deriveRunIncident
   export const transportCause = providerTransportCause
   export const recoveryFor = deriveRecovery
+  export const evaluateReplaySafety = deriveReplaySafety
   export const userSummary = deriveUserSummary
   export const plainSummary = derivePlainSummary
   export const sanitize = sanitizeRunIncident

@@ -166,43 +166,6 @@ function retryTimeoutPolicyFor(
   })
 }
 
-function sideEffectBoundarySnapshot(tools: LLM.StreamInput["tools"]): RunObservability.SideEffectBoundarySnapshot {
-  const entries = Object.entries(tools ?? {})
-  const names = entries.map(([name]) => name)
-  const effects = names.map((name) => RunObservability.toolEffect(name))
-  const unknownCount = effects.filter((effect) => effect.kind === "unknown").length
-  const unclassifiedCount = effects.filter((effect) => !effect.complete).length
-  const providerExecutedCapabilityPresent = entries.some(([, item]) => isRecord(item) && item.type === "provider")
-  const externalBoundaryPresent = entries.some(
-    ([, item]) => isRecord(item) && (item as { externalResult?: unknown }).externalResult === true,
-  )
-  const unknownBoundaryPresent = entries.some(([, item]) => !isRecord(item))
-  const incomplete = unknownCount > 0 || unclassifiedCount > 0
-  const proofReason = providerExecutedCapabilityPresent
-    ? "provider_executed_capability"
-    : externalBoundaryPresent
-      ? "external_boundary"
-      : unknownBoundaryPresent
-        ? "unknown"
-        : incomplete
-          ? unknownCount > 0
-            ? "unknown_tool_boundary"
-            : "unclassified_effect"
-          : "all_boundaries_classified"
-  return {
-    exposed_tool_count: names.length,
-    unknown_tool_count: unknownCount,
-    unclassified_effect_count: unclassifiedCount,
-    provider_executed_capability_present: providerExecutedCapabilityPresent,
-    external_boundary_present: externalBoundaryPresent,
-    proof_result:
-      incomplete || providerExecutedCapabilityPresent || externalBoundaryPresent || unknownBoundaryPresent
-        ? "incomplete"
-        : "complete",
-    proof_reason: proofReason,
-  }
-}
-
 function recoveryInterruptionMessage(recovery: NonNullable<RunObservability.Summary["incident"]>["recovery"] | undefined) {
   switch (recovery?.reason) {
     case "visible_output_without_tool_execution":
@@ -1343,7 +1306,7 @@ export const layer: Layer.Layer<
           ctx.reasoningMap = {}
           ctx.attemptCount++
           const activeTools = LLM.resolveTools(streamInput)
-          const boundarySnapshot = sideEffectBoundarySnapshot(activeTools)
+          const boundarySnapshot = RunObservability.sideEffectBoundarySnapshot(activeTools)
           const sessionTimeouts = attemptStreamTimeouts(
             streamInput.model,
             automaticStreamRetriesUsed,
@@ -1426,7 +1389,7 @@ export const layer: Layer.Layer<
                 streamInput.model,
                 automaticStreamRetriesUsed,
                 streamInput,
-                sideEffectBoundarySnapshot(LLM.resolveTools(streamInput)),
+                RunObservability.sideEffectBoundarySnapshot(LLM.resolveTools(streamInput)),
               ),
             })
 
