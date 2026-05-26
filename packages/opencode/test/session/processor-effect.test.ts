@@ -502,6 +502,61 @@ attemptTimeoutIt.live("reasoning first attempt keeps global timeout when active 
   ),
 )
 
+attemptTimeoutIt.live("reasoning first attempt uses fast timeout with unclassified local tool boundary", () =>
+  provideTmpdirInstance(
+    (dir) =>
+      Effect.gen(function* () {
+        capturedAttemptConnectTimeouts.length = 0
+        const { processors, session, provider } = yield* boot()
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "reasoning unclassified local tool timeout policy")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(reasoningRef.providerID, reasoningRef.modelID)
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const value = yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: reasoningRef.providerID, modelID: reasoningRef.modelID },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "reasoning unclassified local tool timeout policy" }],
+          tools: {
+            mcp_write: tool({
+              description: "ordinary local tool with incomplete effect classification",
+              inputSchema: z.object({}),
+            }),
+          },
+        })
+
+        const parts = MessageV2.parts(msg.id)
+        expect(value).toBe("stop")
+        expect(capturedAttemptConnectTimeouts).toEqual([
+          SessionProcessor.REASONING_FIRST_ATTEMPT_CONNECT_TIMEOUT_MS,
+          SessionProcessor.REASONING_SAFE_RETRY_CONNECT_TIMEOUT_MS,
+        ])
+        expect(parts.some((part) => part.type === "notice" && part.kind === "safe_retry_failed")).toBe(true)
+        expect(handle.message.error).toBeUndefined()
+        expect(handle.message.diagnostics?.run_observability?.recovered_incidents?.[0]?.recovery).toMatchObject({
+          recommendation: "auto_retry_once",
+          reason: "no_visible_output_or_tool_execution",
+        })
+      }),
+    { git: true, config: providerCfg("http://localhost:1/v1") },
+  ),
+)
+
 it.live("session.processor keeps late tool execution diagnostics on the bound tool-call attempt", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>
