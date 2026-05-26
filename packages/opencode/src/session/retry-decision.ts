@@ -15,7 +15,11 @@ export type TechnicalRetryability =
 
 export type RetryAttemptKind = "provider_retry" | "safe_recovery_replay"
 export type RecoveryMode = "replay" | "auto_replay_blocked" | "ask_user" | "offer_continue" | "stop"
-export type RetryTimeoutPolicy = "default" | "reasoning_first_attempt" | "reasoning_safe_recovery"
+export type RetryTimeoutPolicy =
+  | "default"
+  | "reasoning_global_protected"
+  | "reasoning_first_attempt"
+  | "reasoning_safe_recovery"
 export type RetryPresentation = "default" | "safe_recovery" | "safe_recovery_failed"
 export type RetryBlockedReason =
   | "technical_not_retryable"
@@ -30,16 +34,28 @@ export type ModelRetryDecision = {
   recoveryMode: RecoveryMode
   blockedReason?: RetryBlockedReason
   attemptKind?: RetryAttemptKind
-  providerRetryAttempt: number
+  modelStreamAttempt: number
   safeRecoveryAttempt: number
   timeoutPolicy: RetryTimeoutPolicy
   presentation: RetryPresentation
 }
 
+export function selectRetryTimeoutPolicy(input: {
+  modelSupportsReasoning: boolean
+  explicitConnectTimeout: boolean
+  beforeProgressAutoRetryAllowed: boolean
+  safeRecoveryAttempt: number
+}): RetryTimeoutPolicy {
+  if (input.explicitConnectTimeout) return "default"
+  if (!input.modelSupportsReasoning) return "default"
+  if (input.safeRecoveryAttempt > 0) return "reasoning_safe_recovery"
+  return input.beforeProgressAutoRetryAllowed ? "reasoning_first_attempt" : "reasoning_global_protected"
+}
+
 export function buildModelRetryDecision(input: {
   technicalRetryability: TechnicalRetryability
   safetyGateDecision: RunIncident.Recovery
-  providerRetryAttempt: number
+  modelStreamAttempt: number
   safeRecoveryAttempt: number
   timeoutPolicy: RetryTimeoutPolicy
 }): ModelRetryDecision {

@@ -12,7 +12,7 @@ import { isOverflow } from "./overflow"
 import { PartID } from "./schema"
 import type { SessionID } from "./schema"
 import { SessionRetry } from "./retry"
-import { buildModelRetryDecision, type RetryTimeoutPolicy } from "./retry-decision"
+import { buildModelRetryDecision, selectRetryTimeoutPolicy, type RetryTimeoutPolicy } from "./retry-decision"
 import { SessionStatus } from "./status"
 import { SessionSummary } from "./summary"
 import { SessionDiagnostics } from "./diagnostics"
@@ -156,10 +156,14 @@ function retryTimeoutPolicyFor(
   model: Provider.Model,
   automaticStreamRetriesUsed: number,
   streamInput: Pick<LLM.StreamInput, "connectTimeoutMs">,
+  boundary: RunObservability.SideEffectBoundarySnapshot,
 ): RetryTimeoutPolicy {
-  if (streamInput.connectTimeoutMs !== undefined) return "default"
-  if (!model.capabilities.reasoning) return "default"
-  return automaticStreamRetriesUsed > 0 ? "reasoning_safe_recovery" : "reasoning_first_attempt"
+  return selectRetryTimeoutPolicy({
+    modelSupportsReasoning: model.capabilities.reasoning,
+    explicitConnectTimeout: streamInput.connectTimeoutMs !== undefined,
+    beforeProgressAutoRetryAllowed: RunObservability.boundaryAllowsBeforeProgressRetry(boundary),
+    safeRecoveryAttempt: automaticStreamRetriesUsed,
+  })
 }
 
 function sideEffectBoundarySnapshot(tools: LLM.StreamInput["tools"]): RunObservability.SideEffectBoundarySnapshot {
@@ -1416,9 +1420,14 @@ export const layer: Layer.Layer<
                     reason: ctx.terminalClassification ? "terminal_classification" : "not_retryable",
                   },
               safetyGateDecision: decision,
-              providerRetryAttempt: ctx.attemptCount,
+              modelStreamAttempt: ctx.attemptCount,
               safeRecoveryAttempt: automaticStreamRetriesUsed,
-              timeoutPolicy: retryTimeoutPolicyFor(streamInput.model, automaticStreamRetriesUsed, streamInput),
+              timeoutPolicy: retryTimeoutPolicyFor(
+                streamInput.model,
+                automaticStreamRetriesUsed,
+                streamInput,
+                sideEffectBoundarySnapshot(LLM.resolveTools(streamInput)),
+              ),
             })
 
             if (attemptID && retryDecision.canRetry && retryDecision.recoveryMode === "replay") {

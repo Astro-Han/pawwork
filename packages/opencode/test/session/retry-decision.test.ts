@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { buildModelRetryDecision } from "../../src/session/retry-decision"
+import { buildModelRetryDecision, selectRetryTimeoutPolicy } from "../../src/session/retry-decision"
 import type { RunIncident } from "../../src/session/run-incident"
 
 const safeReplayGate: RunIncident.Recovery = {
@@ -29,7 +29,7 @@ describe("session.retry-decision", () => {
     const decision = buildModelRetryDecision({
       technicalRetryability: { retryable: true, message: "Connection timed out" },
       safetyGateDecision: safeReplayGate,
-      providerRetryAttempt: 3,
+      modelStreamAttempt: 3,
       safeRecoveryAttempt: 0,
       timeoutPolicy: "reasoning_first_attempt",
     })
@@ -38,7 +38,7 @@ describe("session.retry-decision", () => {
       canRetry: true,
       recoveryMode: "replay",
       attemptKind: "safe_recovery_replay",
-      providerRetryAttempt: 3,
+      modelStreamAttempt: 3,
       safeRecoveryAttempt: 0,
       timeoutPolicy: "reasoning_first_attempt",
       presentation: "safe_recovery",
@@ -52,7 +52,7 @@ describe("session.retry-decision", () => {
     const decision = buildModelRetryDecision({
       technicalRetryability: { retryable: true, message: "Connection timed out" },
       safetyGateDecision: safeReplayGate,
-      providerRetryAttempt: 3,
+      modelStreamAttempt: 3,
       safeRecoveryAttempt: 1,
       timeoutPolicy: "reasoning_safe_recovery",
     })
@@ -61,7 +61,7 @@ describe("session.retry-decision", () => {
       canRetry: false,
       recoveryMode: "auto_replay_blocked",
       attemptKind: "safe_recovery_replay",
-      providerRetryAttempt: 3,
+      modelStreamAttempt: 3,
       safeRecoveryAttempt: 1,
       timeoutPolicy: "reasoning_safe_recovery",
       presentation: "safe_recovery_failed",
@@ -73,7 +73,7 @@ describe("session.retry-decision", () => {
     const decision = buildModelRetryDecision({
       technicalRetryability: { retryable: false, reason: "terminal_classification" },
       safetyGateDecision: safeReplayGate,
-      providerRetryAttempt: 1,
+      modelStreamAttempt: 1,
       safeRecoveryAttempt: 0,
       timeoutPolicy: "default",
     })
@@ -91,7 +91,7 @@ describe("session.retry-decision", () => {
     const decision = buildModelRetryDecision({
       technicalRetryability: { retryable: true, message: "socket closed" },
       safetyGateDecision: visibleOutputGate,
-      providerRetryAttempt: 2,
+      modelStreamAttempt: 2,
       safeRecoveryAttempt: 0,
       timeoutPolicy: "default",
     })
@@ -109,7 +109,7 @@ describe("session.retry-decision", () => {
     const decision = buildModelRetryDecision({
       technicalRetryability: { retryable: true, message: "socket closed" },
       safetyGateDecision: ambiguousToolGate,
-      providerRetryAttempt: 2,
+      modelStreamAttempt: 2,
       safeRecoveryAttempt: 0,
       timeoutPolicy: "default",
     })
@@ -122,5 +122,16 @@ describe("session.retry-decision", () => {
       presentation: "default",
     })
     expect(decision.attemptKind).toBeUndefined()
+  })
+
+  test("marks blocked-boundary reasoning first attempts as global protected timeout", () => {
+    const timeoutPolicy = selectRetryTimeoutPolicy({
+      modelSupportsReasoning: true,
+      explicitConnectTimeout: false,
+      beforeProgressAutoRetryAllowed: false,
+      safeRecoveryAttempt: 0,
+    })
+
+    expect(timeoutPolicy).toBe("reasoning_global_protected")
   })
 })
