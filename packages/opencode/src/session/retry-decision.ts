@@ -1,4 +1,4 @@
-import type { RunIncident } from "./run-incident"
+import { RunIncident } from "./run-incident"
 import type { RetryClassification } from "./retry-classification"
 
 export type TechnicalRetryability =
@@ -72,56 +72,26 @@ export function buildModelRetryDecision(input: {
     }
   }
 
-  const safety = input.safetyGateDecision
-  if (safety.recommendation === "auto_retry_once") {
-    const maxAttempts = safety.auto_retry?.max_attempts ?? 1
-    if (input.safeRecoveryAttempt < maxAttempts) {
-      return {
-        ...input,
-        canRetry: true,
-        recoveryMode: "replay",
-        attemptKind: "safe_recovery_replay",
-        presentation: "safe_recovery",
-      }
-    }
+  const safety = RunIncident.evaluateReplaySafety({
+    recovery: input.safetyGateDecision,
+    safeRecoveryAttempt: input.safeRecoveryAttempt,
+  })
+  if (safety.canReplay) {
     return {
       ...input,
-      canRetry: false,
-      recoveryMode: "auto_replay_blocked",
-      blockedReason: "safe_recovery_budget_exhausted",
+      canRetry: true,
+      recoveryMode: safety.recoveryMode,
       attemptKind: "safe_recovery_replay",
-      presentation: "safe_recovery_failed",
+      presentation: "safe_recovery",
     }
   }
-
-  if (safety.recommendation === "offer_continue") {
-    return {
-      ...input,
-      canRetry: false,
-      recoveryMode: "offer_continue",
-      blockedReason: safety.reason,
-      presentation: "default",
-    }
-  }
-
-  if (
-    safety.recommendation === "ask_user_before_retry" ||
-    safety.recommendation === "offer_resume_with_confirmation"
-  ) {
-    return {
-      ...input,
-      canRetry: false,
-      recoveryMode: "ask_user",
-      blockedReason: safety.reason,
-      presentation: "default",
-    }
-  }
-
+  const blockedSafeRecoveryReplay = safety.recoveryMode === "auto_replay_blocked"
   return {
     ...input,
     canRetry: false,
-    recoveryMode: "stop",
-    blockedReason: safety.reason,
-    presentation: "default",
+    recoveryMode: safety.recoveryMode,
+    blockedReason: safety.blockedReason,
+    attemptKind: blockedSafeRecoveryReplay ? "safe_recovery_replay" : undefined,
+    presentation: blockedSafeRecoveryReplay ? "safe_recovery_failed" : "default",
   }
 }
