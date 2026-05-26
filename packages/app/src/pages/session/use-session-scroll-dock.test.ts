@@ -375,6 +375,50 @@ describe("session scroll dock", () => {
     })
   })
 
+  test("lets interaction override dock shrink preservation using pre-resize metrics", () => {
+    withResizeObserver((triggerResize) => {
+      createRoot((dispose) => {
+        const previousDockHeight = document.documentElement.style.getPropertyValue("--composer-dock-height")
+        const promptDock = makeMeasuredDiv(475)
+        const scroller = makeScroller({ clientHeight: 400, scrollHeight: 1000, scrollTop: 524 })
+        const stickValues: boolean[] = []
+
+        try {
+          const scrollDock = createSessionScrollDock({
+            clearMessageHash: () => undefined,
+            clearActiveMessage: () => undefined,
+            fill: () => undefined,
+            shouldPreserveLatestForLayoutChange: (event) => {
+              expect(event.kind).toBe("dock-resize")
+              if (event.nextDockHeight !== 120) return false
+              expect(event.previousDockHeight).toBe(475)
+              expect(event.metrics.distanceFromBottom).toBe(76)
+              return true
+            },
+            runLayoutTransaction: (event) => {
+              stickValues.push(event.stickToBottom)
+              event.mutate()
+            },
+          })
+
+          scrollDock.setScrollRef(scroller.el)
+          scrollDock.setPromptDockRef(promptDock.el)
+          scrollDock.autoScroll.pause()
+          stickValues.length = 0
+          promptDock.setHeight(120)
+          triggerResize(promptDock.el)
+
+          expect(stickValues).toEqual([true])
+        } finally {
+          dispose()
+          if (previousDockHeight)
+            document.documentElement.style.setProperty("--composer-dock-height", previousDockHeight)
+          else document.documentElement.style.removeProperty("--composer-dock-height")
+        }
+      })
+    })
+  })
+
   test("keeps dock resize bottom-follow recovery inside the active layout transaction", () => {
     withResizeObserver((triggerResize) => {
       createRoot((dispose) => {

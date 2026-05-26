@@ -68,6 +68,14 @@ function appendMessage(viewport: HTMLElement, id: string, rect: RectInput) {
   return message
 }
 
+function appendTimelineAnchor(parent: HTMLElement, key: string, rect: RectInput) {
+  const anchor = document.createElement("div")
+  anchor.dataset.timelineAnchor = key
+  stubRect(anchor, rect)
+  parent.appendChild(anchor)
+  return anchor
+}
+
 describe("session timeline scroll anchors", () => {
   test("collects near-top and near-bottom metrics from explicit geometry", () => {
     const { viewport } = makeViewport({
@@ -131,6 +139,75 @@ describe("session timeline scroll anchors", () => {
       renderedStart: 4,
       renderedCount: 10,
     })
+  })
+
+  test("samples the visible timeline anchor nearest the viewport reading line before the message row", () => {
+    const { viewport } = makeViewport({
+      scrollTop: 260,
+      clientHeight: 400,
+      scrollHeight: 1600,
+      rect: { top: 100, bottom: 500 },
+    })
+    const message = appendMessage(viewport, "msg_anchor", { top: 100, bottom: 900 })
+    appendTimelineAnchor(message, "tool:above", { top: 104, bottom: 140 })
+    appendTimelineAnchor(message, "trow:stable", { top: 188, bottom: 260 })
+    appendTimelineAnchor(message, "tool:below", { top: 360, bottom: 460 })
+
+    expect(
+      sampleTimelineSafePosition({
+        viewport,
+        mode: "reading_history",
+        renderedStart: 4,
+        renderedCount: 10,
+        newestMessageID: "msg_newest",
+      }),
+    ).toEqual({
+      kind: "reading",
+      anchorMessageID: "msg_anchor",
+      offsetFromViewportTop: 88,
+      renderedStart: 4,
+      renderedCount: 10,
+      primaryAnchor: {
+        key: "trow:stable",
+        offsetFromViewportTop: 88,
+        scope: "trow",
+      },
+      fallbackMessage: {
+        messageID: "msg_anchor",
+        offsetFromViewportTop: 0,
+      },
+    })
+  })
+
+  test("ignores hidden or edge-only timeline anchors while sampling reading position", () => {
+    const { viewport } = makeViewport({
+      scrollTop: 260,
+      clientHeight: 400,
+      scrollHeight: 1600,
+      rect: { top: 100, bottom: 500 },
+    })
+    const message = appendMessage(viewport, "msg_anchor", { top: 80, bottom: 900 })
+    appendTimelineAnchor(message, "tool:edge", { top: 499.5, bottom: 500 })
+    appendTimelineAnchor(message, "tool:zero", { top: 220, bottom: 220 })
+    const hidden = appendTimelineAnchor(message, "tool:hidden", { top: 180, bottom: 230 })
+    hidden.hidden = true
+    appendTimelineAnchor(message, "tool:visible", { top: 240, bottom: 300 })
+
+    expect(
+      sampleTimelineSafePosition({
+        viewport,
+        mode: "reading_history",
+        renderedStart: 4,
+        renderedCount: 10,
+        newestMessageID: "msg_newest",
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        kind: "reading",
+        anchorMessageID: "msg_anchor",
+        primaryAnchor: expect.objectContaining({ key: "tool:visible", scope: "tool" }),
+      }),
+    )
   })
 
   test("keeps target message as the sampled anchor while targeting", () => {
@@ -214,6 +291,82 @@ describe("session timeline scroll anchors", () => {
         renderedStart: 4,
         renderedCount: 10,
       },
+    })
+    expect(scroller.scrollTop).toBe(456)
+  })
+
+  test("restores reading position using the primary timeline anchor before the message row", () => {
+    const scroller = makeViewport({
+      scrollTop: 400,
+      clientHeight: 400,
+      scrollHeight: 1400,
+      rect: { top: 100, bottom: 500 },
+    })
+    const message = appendMessage(scroller.viewport, "msg_anchor", { top: 160, bottom: 700 })
+    appendTimelineAnchor(message, "tool:part:1", { top: 220, bottom: 320 })
+
+    expect(
+      restoreTimelineSafePosition({
+        viewport: scroller.viewport,
+        position: {
+          kind: "reading",
+          anchorMessageID: "msg_anchor",
+          offsetFromViewportTop: 0,
+          renderedStart: 4,
+          renderedCount: 10,
+          primaryAnchor: {
+            key: "tool:part:1",
+            offsetFromViewportTop: 72,
+            scope: "tool",
+          },
+          fallbackMessage: {
+            messageID: "msg_anchor",
+            offsetFromViewportTop: 24,
+          },
+        },
+      }),
+    ).toEqual({
+      ok: true,
+      restoredTo: expect.objectContaining({
+        kind: "reading",
+        primaryAnchor: expect.objectContaining({ key: "tool:part:1" }),
+      }),
+    })
+    expect(scroller.scrollTop).toBe(448)
+  })
+
+  test("falls back to the message row when the primary timeline anchor disappeared", () => {
+    const scroller = makeViewport({
+      scrollTop: 400,
+      clientHeight: 400,
+      scrollHeight: 1400,
+      rect: { top: 100, bottom: 500 },
+    })
+    appendMessage(scroller.viewport, "msg_anchor", { top: 180, bottom: 700 })
+
+    expect(
+      restoreTimelineSafePosition({
+        viewport: scroller.viewport,
+        position: {
+          kind: "reading",
+          anchorMessageID: "msg_anchor",
+          offsetFromViewportTop: 0,
+          renderedStart: 4,
+          renderedCount: 10,
+          primaryAnchor: {
+            key: "tool:part:missing",
+            offsetFromViewportTop: 72,
+            scope: "tool",
+          },
+          fallbackMessage: {
+            messageID: "msg_anchor",
+            offsetFromViewportTop: 24,
+          },
+        },
+      }),
+    ).toEqual({
+      ok: true,
+      restoredTo: expect.objectContaining({ kind: "reading" }),
     })
     expect(scroller.scrollTop).toBe(456)
   })

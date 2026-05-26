@@ -22,6 +22,12 @@ export type TimelineSafePosition =
       offsetFromViewportTop: number
       renderedStart: number
       renderedCount: number
+      primaryAnchor?: TimelineReadingAnchor
+      fallbackTrowAnchor?: TimelineReadingAnchor
+      fallbackMessage?: {
+        messageID: string
+        offsetFromViewportTop: number
+      }
     }
   | {
       kind: "target_message"
@@ -30,6 +36,14 @@ export type TimelineSafePosition =
       offsetFromViewportTop?: number
       loadPolicy: "load_until_visible" | "visible_only"
     }
+
+export type TimelineReadingAnchorScope = "tool" | "trow" | "message"
+
+export type TimelineReadingAnchor = {
+  key: string
+  offsetFromViewportTop: number
+  scope: TimelineReadingAnchorScope
+}
 
 export type TimelineScrollReason =
   | "submit_follow_latest"
@@ -40,6 +54,7 @@ export type TimelineScrollReason =
   | "user_upward_navigation"
   | "strong_downward_navigation"
   | "weak_scroll_observed"
+  | "latest_protected_weak_upward_ignored"
   | "scrollbar_drag_started"
   | "scrollbar_drag_preserve_reading"
   | "reading_anchor_preserved"
@@ -154,6 +169,9 @@ export type TimelineScrollDiagnosticData = {
   reason: TimelineScrollReason
   anchor_kind?: TimelineSafePosition["kind"]
   anchor_message_id?: string
+  anchor_scope?: "latest" | TimelineReadingAnchorScope
+  preserve_strategy?: "latest" | "reading" | "target"
+  ignored_intent_reason?: TimelineScrollReason
   submit_origin_mode?: TimelineScrollMode
   near_top?: boolean
   near_bottom?: boolean
@@ -232,6 +250,20 @@ function anchorMessageID(position: TimelineSafePosition | undefined) {
   return position.messageID
 }
 
+function anchorScope(position: TimelineSafePosition | undefined): "latest" | TimelineReadingAnchorScope | undefined {
+  if (!position) return undefined
+  if (position.kind === "latest") return "latest"
+  if (position.kind === "reading") return position.primaryAnchor?.scope ?? "message"
+  return "message"
+}
+
+function preserveStrategy(position: TimelineSafePosition | undefined): "latest" | "reading" | "target" | undefined {
+  if (!position) return undefined
+  if (position.kind === "latest") return "latest"
+  if (position.kind === "reading") return "reading"
+  return "target"
+}
+
 function diagnosticData(input: {
   before: TimelineScrollControllerState
   after: TimelineScrollControllerState
@@ -258,6 +290,9 @@ function diagnosticData(input: {
     reason: input.reason,
     anchor_kind: anchorKind(anchor),
     anchor_message_id: anchorMessageID(anchor),
+    anchor_scope: anchorScope(anchor),
+    preserve_strategy: preserveStrategy(anchor),
+    ignored_intent_reason: input.reason === "latest_protected_weak_upward_ignored" ? input.reason : undefined,
     submit_origin_mode: input.after.submitOriginMode,
     near_top: metrics?.nearTop,
     near_bottom: metrics?.nearBottom,
@@ -291,6 +326,15 @@ function isExplicitTopIntent(intent: TimelineScrollIntent) {
   }
   if (intent.type === "scrollbar_drag_end") return !intent.metrics.nearBottom
   return false
+}
+
+function isWeakUpwardTimelineIntent(intent: TimelineScrollIntent) {
+  return (
+    (intent.type === "wheel_scroll" || intent.type === "touch_scroll") &&
+    intent.direction === "up" &&
+    intent.strength === "weak" &&
+    !intent.nestedScrollable
+  )
 }
 
 function isExplicitBottomIntent(intent: TimelineScrollIntent) {
@@ -416,6 +460,16 @@ export function createSessionTimelineScrollController(
         })
       }
 
+      if (state.mode === "following_latest" && state.latestProtected && isWeakUpwardTimelineIntent(intent)) {
+        return result({
+          before,
+          intent,
+          accepted: true,
+          recovery: noRecovery,
+          reason: "latest_protected_weak_upward_ignored",
+        })
+      }
+
       if (isExplicitTopIntent(intent)) {
         state.mode = "reading_history"
         state.latestProtected = false
@@ -504,7 +558,7 @@ export function createSessionTimelineScrollController(
           state.latestProtected &&
           observation.metrics.nearTop &&
           !observation.metrics.nearBottom &&
-          !(state.lastIntent && isExplicitTopIntent(state.lastIntent))
+          !(state.lastIntent && isExplicitTopIntent(state.lastIntent) && !isWeakUpwardTimelineIntent(state.lastIntent))
         ) {
           return result({
             before,

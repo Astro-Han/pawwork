@@ -1,4 +1,6 @@
 import type {
+  TimelineReadingAnchor,
+  TimelineReadingAnchorScope,
   TimelineSafePosition,
   TimelineScrollMetrics,
   TimelineScrollMode,
@@ -26,6 +28,125 @@ function firstVisibleMessage(viewport: HTMLElement) {
     if (rect.bottom > viewportRect.top && rect.top < viewportRect.bottom) return { el, rect }
   }
   return undefined
+}
+
+const READING_LINE_OFFSET_PX = 100
+const MIN_VISIBLE_ANCHOR_INTERSECTION_PX = 2
+
+function timelineAnchorElements(viewport: HTMLElement) {
+  return Array.from(viewport.querySelectorAll("[data-timeline-anchor]")).filter(
+    (el): el is HTMLElement => el instanceof HTMLElement,
+  )
+}
+
+function timelineAnchorScope(key: string): TimelineReadingAnchorScope {
+  if (key.startsWith("tool:")) return "tool"
+  if (key.startsWith("trow:")) return "trow"
+  return "message"
+}
+
+function isElementHidden(el: HTMLElement) {
+  if (el.hidden) return true
+  const style = el.ownerDocument.defaultView?.getComputedStyle(el)
+  return style?.display === "none" || style?.visibility === "hidden"
+}
+
+function isInsideClosedDetails(el: HTMLElement) {
+  let current: HTMLElement | null = el
+  while (current) {
+    if (current instanceof HTMLDetailsElement && !current.open) return true
+    current = current.parentElement
+  }
+  return false
+}
+
+function visibleIntersectionPx(rect: DOMRect, viewportRect: DOMRect) {
+  return Math.max(0, Math.min(rect.bottom, viewportRect.bottom) - Math.max(rect.top, viewportRect.top))
+}
+
+function isStableVisibleAnchor(el: HTMLElement, rect: DOMRect, viewportRect: DOMRect) {
+  if (!el.dataset.timelineAnchor) return false
+  if (isElementHidden(el)) return false
+  if (isInsideClosedDetails(el)) return false
+  if (rect.width <= 0 || rect.height <= 0) return false
+  return visibleIntersectionPx(rect, viewportRect) >= MIN_VISIBLE_ANCHOR_INTERSECTION_PX
+}
+
+function messageElementForAnchor(el: HTMLElement) {
+  const message = el.closest("[data-message-id]")
+  return message instanceof HTMLElement ? message : undefined
+}
+
+function timelineAnchorByKey(viewport: HTMLElement, key: string) {
+  return timelineAnchorElements(viewport).find((el) => el.dataset.timelineAnchor === key)
+}
+
+function makeReadingAnchor(el: HTMLElement, rect: DOMRect, viewportRect: DOMRect): TimelineReadingAnchor | undefined {
+  const key = el.dataset.timelineAnchor
+  if (!key) return undefined
+  return {
+    key,
+    offsetFromViewportTop: rect.top - viewportRect.top,
+    scope: timelineAnchorScope(key),
+  }
+}
+
+function findFallbackTrowAnchor(input: {
+  viewport: HTMLElement
+  selected: HTMLElement
+  selectedKey: string
+  viewportRect: DOMRect
+}) {
+  const message = messageElementForAnchor(input.selected)
+  if (!message) return undefined
+  for (const candidate of timelineAnchorElements(message)) {
+    const key = candidate.dataset.timelineAnchor
+    if (!key || key === input.selectedKey || !key.startsWith("trow:")) continue
+    const rect = candidate.getBoundingClientRect()
+    if (!isStableVisibleAnchor(candidate, rect, input.viewportRect)) continue
+    const anchor = makeReadingAnchor(candidate, rect, input.viewportRect)
+    if (anchor) return anchor
+  }
+}
+
+function bestVisibleTimelineAnchor(viewport: HTMLElement) {
+  const viewportRect = viewport.getBoundingClientRect()
+  const readingLine = viewportRect.top + READING_LINE_OFFSET_PX
+  const candidates = timelineAnchorElements(viewport)
+    .map((el) => ({ el, rect: el.getBoundingClientRect() }))
+    .filter(({ el, rect }) => isStableVisibleAnchor(el, rect, viewportRect))
+
+  candidates.sort((a, b) => {
+    const aDistance = Math.abs(a.rect.top - readingLine)
+    const bDistance = Math.abs(b.rect.top - readingLine)
+    if (aDistance !== bDistance) return aDistance - bDistance
+    return a.rect.top - b.rect.top
+  })
+
+  const selected = candidates[0]
+  if (!selected) return undefined
+  const primaryAnchor = makeReadingAnchor(selected.el, selected.rect, viewportRect)
+  if (!primaryAnchor) return undefined
+  const message = messageElementForAnchor(selected.el)
+  const messageID = message?.dataset.messageId
+  if (!message || !messageID) return undefined
+  const messageRect = message.getBoundingClientRect()
+  return {
+    primaryAnchor,
+    fallbackTrowAnchor:
+      primaryAnchor.scope === "tool"
+        ? findFallbackTrowAnchor({
+            viewport,
+            selected: selected.el,
+            selectedKey: primaryAnchor.key,
+            viewportRect,
+          })
+        : undefined,
+    fallbackMessage: {
+      messageID,
+      offsetFromViewportTop: messageRect.top - viewportRect.top,
+    },
+  }
 }
 
 const fallbackTimelineScrollCommandSink = createTimelineScrollCommandSink()
@@ -83,6 +204,20 @@ export function sampleTimelineSafePosition(args: {
   if (!visible || !messageID) return { kind: "latest", messageID: args.newestMessageID }
 
   const viewportRect = args.viewport.getBoundingClientRect()
+  const timelineAnchor = bestVisibleTimelineAnchor(args.viewport)
+  if (timelineAnchor) {
+    return {
+      kind: "reading",
+      anchorMessageID: timelineAnchor.fallbackMessage.messageID,
+      offsetFromViewportTop: timelineAnchor.primaryAnchor.offsetFromViewportTop,
+      renderedStart: args.renderedStart,
+      renderedCount: args.renderedCount,
+      primaryAnchor: timelineAnchor.primaryAnchor,
+      fallbackTrowAnchor: timelineAnchor.fallbackTrowAnchor,
+      fallbackMessage: timelineAnchor.fallbackMessage,
+    }
+  }
+
   return {
     kind: "reading",
     anchorMessageID: messageID,
@@ -123,14 +258,34 @@ function restoreReading(
   position: Extract<TimelineSafePosition, { kind: "reading" }>,
   sink: TimelineScrollCommandSink,
 ) {
-  const anchor = messageElementByID(viewport, position.anchorMessageID)
-  if (!anchor) return false
   const viewportRect = viewport.getBoundingClientRect()
+  const timelineAnchors = [position.primaryAnchor, position.fallbackTrowAnchor].filter(
+    (anchor): anchor is TimelineReadingAnchor => !!anchor,
+  )
+
+  for (const timelineAnchor of timelineAnchors) {
+    const anchor = timelineAnchorByKey(viewport, timelineAnchor.key)
+    if (!anchor) continue
+    const anchorRect = anchor.getBoundingClientRect()
+    setTimelineScrollTop({
+      viewport,
+      sink,
+      top: viewport.scrollTop + anchorRect.top - viewportRect.top - timelineAnchor.offsetFromViewportTop,
+      source: "session-timeline-scroll-anchors/restoreReading",
+      reason: "reading-timeline-anchor",
+    })
+    return true
+  }
+
+  const fallbackMessageID = position.fallbackMessage?.messageID ?? position.anchorMessageID
+  const fallbackOffset = position.fallbackMessage?.offsetFromViewportTop ?? position.offsetFromViewportTop
+  const anchor = messageElementByID(viewport, fallbackMessageID)
+  if (!anchor) return false
   const anchorRect = anchor.getBoundingClientRect()
   setTimelineScrollTop({
     viewport,
     sink,
-    top: viewport.scrollTop + anchorRect.top - viewportRect.top - position.offsetFromViewportTop,
+    top: viewport.scrollTop + anchorRect.top - viewportRect.top - fallbackOffset,
     source: "session-timeline-scroll-anchors/restoreReading",
     reason: "reading-anchor",
   })

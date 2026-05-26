@@ -108,6 +108,19 @@ export function createSessionScrollDock(input: {
   }) => void
   onContentResize?: (event: { scrollTop?: number; distanceFromBottom?: number }) => void
   runLayoutTransaction?: (input: SessionLayoutTransactionInput) => void
+  shouldPreserveLatestForLayoutChange?: (event: {
+    kind: "dock-resize" | "content-resize"
+    dockKind?: "composer" | "question" | "permission" | "followup" | "revert" | "prompt"
+    previousDockHeight?: number
+    nextDockHeight?: number
+    metrics: {
+      scrollTop: number
+      scrollHeight: number
+      clientHeight: number
+      distanceFromBottom: number
+      nearBottom: boolean
+    }
+  }) => boolean
   scrollCommandSink?: TimelineScrollCommandSink
 }) {
   const fallbackTimelineScrollCommandSink = createTimelineScrollCommandSink()
@@ -222,6 +235,18 @@ export function createSessionScrollDock(input: {
     scheduleScrollState(el, { recoverBottomLock: false })
   }
 
+  const collectPreLayoutMetrics = (el: HTMLElement) => {
+    const max = Math.max(0, el.scrollHeight - el.clientHeight)
+    const distanceFromBottom = Math.max(0, max - el.scrollTop)
+    return {
+      scrollTop: el.scrollTop,
+      scrollHeight: el.scrollHeight,
+      clientHeight: el.clientHeight,
+      distanceFromBottom,
+      nearBottom: distanceFromBottom <= 2,
+    }
+  }
+
   // A non-matching owner means the active lock belongs to an older session path.
   // Cancel it before it can call followBottom or schedule another scroll sample.
   const restoreBottomIfLocked = (owner?: string) => {
@@ -279,11 +304,14 @@ export function createSessionScrollDock(input: {
       }
 
       if (input.runLayoutTransaction && scroller) {
+        const metrics = collectPreLayoutMetrics(scroller)
+        const stickToBottom =
+          input.shouldPreserveLatestForLayoutChange?.({ kind: "content-resize", metrics }) ?? bottomFollowLockedFor()
         input.runLayoutTransaction({
           kind: "content-resize",
           source: "use-session-scroll-dock/contentObserver",
           reason: "content-resize",
-          stickToBottom: bottomFollowLockedFor(),
+          stickToBottom,
           mutate: () => runContentMutation(scheduleTransactionScrollState),
           restoreLatest: (transactionID) =>
             restoreLatestThroughSink({
@@ -308,13 +336,22 @@ export function createSessionScrollDock(input: {
     const scrollTop = scroller?.scrollTop
     const distanceFromBottom = scroller ? scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop : undefined
     let layoutTransactionHandled = false
-    const stickToBottom = scroller
+    const defaultStickToBottom = scroller
       ? shouldStickToBottomAfterDockResize({
           el: scroller,
           userScrolled: autoScroll.userScrolled(),
           previousDockHeight,
           nextDockHeight: next,
         })
+      : false
+    const stickToBottom = scroller
+      ? (input.shouldPreserveLatestForLayoutChange?.({
+          kind: "dock-resize",
+          dockKind,
+          previousDockHeight,
+          nextDockHeight: next,
+          metrics: collectPreLayoutMetrics(scroller),
+        }) ?? defaultStickToBottom)
       : false
     const runDockMutation = (options: {
       forceScrollToBottom: () => void

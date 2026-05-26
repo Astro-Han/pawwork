@@ -309,7 +309,7 @@ describe("session timeline scroll controller", () => {
     expect(controller.state().latestProtected).toBe(false)
   })
 
-  test("weak upward wheel after submit prevents top-reset restore latest", () => {
+  test("weak upward wheel after submit keeps latest protection during layout settling", () => {
     const { controller } = makeController()
 
     controller.intent({
@@ -329,13 +329,37 @@ describe("session timeline scroll controller", () => {
       safePosition: readingAnchor,
     })
 
-    expect(intentResult.reason).toBe("user_upward_navigation")
-    expect(scrollResult.accepted).toBe(true)
-    expect(scrollResult.recovery).toEqual({ type: "none" })
-    expect(scrollResult.reason).toBe("reading_anchor_preserved")
-    expect(controller.state().mode).toBe("reading_history")
-    expect(controller.state().latestProtected).toBe(false)
-    expect(controller.state().lastSafePosition).toEqual(readingAnchor)
+    expect(intentResult.reason).toBe("latest_protected_weak_upward_ignored")
+    expect(intentResult.recovery).toEqual({ type: "none" })
+    expect(scrollResult.accepted).toBe(false)
+    expect(scrollResult.recovery).toEqual({
+      type: "restore_latest",
+      reason: "submit_restore_latest_after_top_reset",
+    })
+    expect(controller.state().mode).toBe("following_latest")
+    expect(controller.state().latestProtected).toBe(true)
+  })
+
+  test("weak upward touch after submit keeps latest protection", () => {
+    const { controller } = makeController()
+
+    controller.intent({
+      type: "submit",
+      originMode: "following_latest",
+    })
+
+    const result = controller.intent({
+      type: "touch_scroll",
+      source: "timeline",
+      direction: "up",
+      strength: "weak",
+      nestedScrollable: false,
+    })
+
+    expect(result.reason).toBe("latest_protected_weak_upward_ignored")
+    expect(result.recovery).toEqual({ type: "none" })
+    expect(controller.state().mode).toBe("following_latest")
+    expect(controller.state().latestProtected).toBe(true)
   })
 
   test("explicit bottom navigation rejoins latest from reading", () => {

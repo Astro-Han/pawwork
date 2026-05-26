@@ -189,6 +189,16 @@ export function createSessionTimelineInteraction(input: {
   })
 
   let scrollDock!: ReturnType<typeof createSessionScrollDock>
+  const latestProtectionBandPx = 120
+  const isWeakUpwardTimelineIntent = (intent: TimelineScrollIntent) =>
+    (intent.type === "wheel_scroll" || intent.type === "touch_scroll") &&
+    intent.direction === "up" &&
+    intent.strength === "weak" &&
+    !intent.nestedScrollable
+  const isLatestProtected = () => {
+    const state = scrollController.state()
+    return state.mode === "following_latest" && state.latestProtected
+  }
   scrollDock = createSessionScrollDock({
     clearMessageHash: () => clearMessageHash(),
     clearActiveMessage: () => activeMessage?.clearActiveMessage(),
@@ -237,6 +247,13 @@ export function createSessionTimelineInteraction(input: {
         mutate: event.mutate,
         restoreLatest: event.restoreLatest,
       })
+    },
+    shouldPreserveLatestForLayoutChange: (event) => {
+      const state = scrollController.state()
+      if (state.mode === "following_latest") return true
+      if (state.latestProtected) return true
+      if (scrollDock.bottomFollowLocked(lockOwner())) return true
+      return event.metrics.distanceFromBottom <= latestProtectionBandPx
     },
   })
   const autoScroll = scrollDock.autoScroll
@@ -300,6 +317,7 @@ export function createSessionTimelineInteraction(input: {
   }
 
   const shouldCancelBottomFollowLockForIntent = (intent: TimelineScrollIntent) => {
+    if (isLatestProtected() && isWeakUpwardTimelineIntent(intent)) return false
     if (intent.type === "scrollbar_drag_start" || intent.type === "target_message") return true
     if (intent.type === "keyboard_scroll") {
       return intent.key === "ArrowUp" || intent.key === "PageUp" || intent.key === "Home"
