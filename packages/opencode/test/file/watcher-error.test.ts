@@ -14,9 +14,15 @@ describe("FileWatcher error handling", () => {
   test("publishes a trailing rescan after repeated dropped-event errors go quiet", () => {
     const published: string[] = []
     const scheduled: Array<() => void> = []
+    const settled: FileWatcher.RescanIncidentSummary[] = []
+    let now = 100
     const scheduler = FileWatcher.createRescanScheduler({
       publish: (directory) => {
         published.push(directory)
+      },
+      now: () => now,
+      onIncidentSettled: (summary) => {
+        settled.push(summary)
       },
       schedule: (callback) => {
         scheduled.push(callback)
@@ -24,19 +30,33 @@ describe("FileWatcher error handling", () => {
     })
 
     scheduler.request("/repo")
+    now = 150
     scheduler.request("/repo")
 
     expect(published).toEqual(["/repo"])
     expect(scheduled).toHaveLength(1)
 
+    now = 1_150
     scheduled[0]?.()
 
     expect(published).toEqual(["/repo"])
     expect(scheduled).toHaveLength(2)
 
+    now = 2_150
     scheduled[1]?.()
 
     expect(published).toEqual(["/repo", "/repo"])
+    expect(settled).toEqual([
+      {
+        directory: "/repo",
+        request_count: 2,
+        coalesced_count: 1,
+        leading_published: true,
+        trailing_published: true,
+        quiet_ms: 1_000,
+        duration_ms: 2_050,
+      },
+    ])
   })
 
   test("coalesces dropped-event errors that keep arriving at the quiet-window boundary", () => {
