@@ -64,11 +64,16 @@ function visibleIntersectionPx(rect: DOMRect, viewportRect: DOMRect) {
   return Math.max(0, Math.min(rect.bottom, viewportRect.bottom) - Math.max(rect.top, viewportRect.top))
 }
 
-function isStableVisibleAnchor(el: HTMLElement, rect: DOMRect, viewportRect: DOMRect) {
+function isRestorableTimelineAnchor(el: HTMLElement, rect: DOMRect) {
   if (!el.dataset.timelineAnchor) return false
   if (isElementHidden(el)) return false
   if (isInsideClosedDetails(el)) return false
   if (rect.width <= 0 || rect.height <= 0) return false
+  return true
+}
+
+function isStableVisibleAnchor(el: HTMLElement, rect: DOMRect, viewportRect: DOMRect) {
+  if (!isRestorableTimelineAnchor(el, rect)) return false
   return visibleIntersectionPx(rect, viewportRect) >= MIN_VISIBLE_ANCHOR_INTERSECTION_PX
 }
 
@@ -267,7 +272,7 @@ function restoreReading(
     const anchor = timelineAnchorByKey(viewport, timelineAnchor.key)
     if (!anchor) continue
     const anchorRect = anchor.getBoundingClientRect()
-    if (!isStableVisibleAnchor(anchor, anchorRect, viewportRect)) continue
+    if (!isRestorableTimelineAnchor(anchor, anchorRect)) continue
     setTimelineScrollTop({
       viewport,
       sink,

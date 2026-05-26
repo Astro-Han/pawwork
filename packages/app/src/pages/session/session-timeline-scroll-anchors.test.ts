@@ -471,6 +471,49 @@ describe("session timeline scroll anchors", () => {
     expect(scroller.scrollTop).toBe(422)
   })
 
+  test("restores with an offscreen but mounted primary tool anchor after layout shift", () => {
+    const scroller = makeViewport({
+      scrollTop: 400,
+      clientHeight: 400,
+      scrollHeight: 1400,
+      rect: { top: 100, bottom: 500 },
+    })
+    const message = appendMessage(scroller.viewport, "msg_anchor", { top: 180, bottom: 700 })
+    appendTimelineAnchor(message, "tool:shifted-primary", { top: 40, bottom: 80 })
+    appendTimelineAnchor(message, "trow:stable", { top: 210, bottom: 260 })
+
+    expect(
+      restoreTimelineSafePosition({
+        viewport: scroller.viewport,
+        position: {
+          kind: "reading",
+          anchorMessageID: "msg_anchor",
+          offsetFromViewportTop: 0,
+          renderedStart: 4,
+          renderedCount: 10,
+          primaryAnchor: {
+            key: "tool:shifted-primary",
+            offsetFromViewportTop: 72,
+            scope: "tool",
+          },
+          fallbackTrowAnchor: {
+            key: "trow:stable",
+            offsetFromViewportTop: 88,
+            scope: "trow",
+          },
+          fallbackMessage: {
+            messageID: "msg_anchor",
+            offsetFromViewportTop: 24,
+          },
+        },
+      }),
+    ).toEqual({
+      ok: true,
+      restoredTo: expect.objectContaining({ kind: "reading" }),
+    })
+    expect(scroller.scrollTop).toBe(268)
+  })
+
   test("restores nearest target only when it is outside the viewport", () => {
     const scroller = makeViewport({
       scrollTop: 100,
