@@ -228,14 +228,26 @@ export function classifyTimelineScrollGesture(input: {
 
 const noRecovery: TimelineRecovery = { type: "none" }
 
+function cloneSafePosition(position: TimelineSafePosition): TimelineSafePosition {
+  if (position.kind !== "reading") return { ...position }
+  return {
+    ...position,
+    primaryAnchor: position.primaryAnchor ? { ...position.primaryAnchor } : undefined,
+    fallbackTrowAnchor: position.fallbackTrowAnchor ? { ...position.fallbackTrowAnchor } : undefined,
+    fallbackMessage: position.fallbackMessage ? { ...position.fallbackMessage } : undefined,
+  }
+}
+
+function cloneRecovery(recovery: TimelineRecovery): TimelineRecovery {
+  if (recovery.type !== "restore_anchor") return { ...recovery }
+  return { ...recovery, anchor: cloneSafePosition(recovery.anchor) }
+}
+
 function cloneState(state: TimelineScrollControllerState): TimelineScrollControllerState {
   return {
     ...state,
-    lastSafePosition: { ...state.lastSafePosition },
-    pendingRecovery:
-      state.pendingRecovery.type === "restore_anchor"
-        ? { ...state.pendingRecovery, anchor: { ...state.pendingRecovery.anchor } }
-        : { ...state.pendingRecovery },
+    lastSafePosition: cloneSafePosition(state.lastSafePosition),
+    pendingRecovery: cloneRecovery(state.pendingRecovery),
   }
 }
 

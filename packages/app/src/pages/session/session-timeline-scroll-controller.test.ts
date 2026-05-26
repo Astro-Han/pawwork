@@ -162,6 +162,66 @@ describe("session timeline scroll controller", () => {
     expect(controller.state().lastSafePosition).toEqual(readingAnchor)
   })
 
+  test("state snapshots deep-clone nested reading anchors", () => {
+    const { controller } = makeController()
+    const nestedReadingAnchor: TimelineSafePosition = {
+      kind: "reading",
+      anchorMessageID: "msg_anchor",
+      offsetFromViewportTop: 24,
+      renderedStart: 4,
+      renderedCount: 10,
+      primaryAnchor: {
+        key: "tool:stable",
+        offsetFromViewportTop: 72,
+        scope: "tool",
+      },
+      fallbackTrowAnchor: {
+        key: "trow:stable",
+        offsetFromViewportTop: 88,
+        scope: "trow",
+      },
+      fallbackMessage: {
+        messageID: "msg_anchor",
+        offsetFromViewportTop: 24,
+      },
+    }
+
+    controller.intent({
+      type: "wheel_scroll",
+      source: "timeline",
+      direction: "up",
+      strength: "strong",
+      nestedScrollable: false,
+    })
+    controller.observe({
+      type: "scroll_sample",
+      metrics: middleMetrics,
+      safePosition: nestedReadingAnchor,
+    })
+    controller.observe({
+      type: "content_resize",
+      metrics: middleMetrics,
+    })
+
+    const snapshot = controller.state()
+    if (snapshot.lastSafePosition.kind !== "reading") throw new Error("expected reading safe position")
+    snapshot.lastSafePosition.primaryAnchor!.key = "tool:mutated"
+    snapshot.lastSafePosition.fallbackMessage!.messageID = "msg_mutated"
+    if (snapshot.pendingRecovery.type !== "restore_anchor" || snapshot.pendingRecovery.anchor.kind !== "reading") {
+      throw new Error("expected reading pending recovery")
+    }
+    snapshot.pendingRecovery.anchor.fallbackTrowAnchor!.key = "trow:mutated"
+
+    const next = controller.state()
+    if (next.lastSafePosition.kind !== "reading") throw new Error("expected reading safe position")
+    expect(next.lastSafePosition.primaryAnchor?.key).toBe("tool:stable")
+    expect(next.lastSafePosition.fallbackMessage?.messageID).toBe("msg_anchor")
+    if (next.pendingRecovery.type !== "restore_anchor" || next.pendingRecovery.anchor.kind !== "reading") {
+      throw new Error("expected reading pending recovery")
+    }
+    expect(next.pendingRecovery.anchor.fallbackTrowAnchor?.key).toBe("trow:stable")
+  })
+
   test("scrollbar drag after submit leaves latest protection before scroll samples", () => {
     const { controller } = makeController()
 

@@ -267,6 +267,7 @@ function restoreReading(
     const anchor = timelineAnchorByKey(viewport, timelineAnchor.key)
     if (!anchor) continue
     const anchorRect = anchor.getBoundingClientRect()
+    if (!isStableVisibleAnchor(anchor, anchorRect, viewportRect)) continue
     setTimelineScrollTop({
       viewport,
       sink,

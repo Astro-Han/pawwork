@@ -416,6 +416,61 @@ describe("session timeline scroll anchors", () => {
     expect(scroller.scrollTop).toBe(422)
   })
 
+  test.each([
+    ["hidden", (anchor: HTMLElement) => void (anchor.hidden = true)],
+    ["zero-size", (anchor: HTMLElement) => stubRect(anchor, { top: 220, bottom: 220 })],
+    [
+      "inside closed details",
+      (anchor: HTMLElement) => {
+        const details = document.createElement("details")
+        anchor.replaceWith(details)
+        details.appendChild(anchor)
+      },
+    ],
+  ])("skips a %s primary tool anchor and restores with the fallback trow anchor", (_, hidePrimary) => {
+    const scroller = makeViewport({
+      scrollTop: 400,
+      clientHeight: 400,
+      scrollHeight: 1400,
+      rect: { top: 100, bottom: 500 },
+    })
+    const message = appendMessage(scroller.viewport, "msg_anchor", { top: 180, bottom: 700 })
+    const primary = appendTimelineAnchor(message, "tool:hidden-primary", { top: 360, bottom: 420 })
+    appendTimelineAnchor(message, "trow:stable", { top: 210, bottom: 260 })
+    hidePrimary(primary)
+
+    expect(
+      restoreTimelineSafePosition({
+        viewport: scroller.viewport,
+        position: {
+          kind: "reading",
+          anchorMessageID: "msg_anchor",
+          offsetFromViewportTop: 0,
+          renderedStart: 4,
+          renderedCount: 10,
+          primaryAnchor: {
+            key: "tool:hidden-primary",
+            offsetFromViewportTop: 72,
+            scope: "tool",
+          },
+          fallbackTrowAnchor: {
+            key: "trow:stable",
+            offsetFromViewportTop: 88,
+            scope: "trow",
+          },
+          fallbackMessage: {
+            messageID: "msg_anchor",
+            offsetFromViewportTop: 24,
+          },
+        },
+      }),
+    ).toEqual({
+      ok: true,
+      restoredTo: expect.objectContaining({ kind: "reading" }),
+    })
+    expect(scroller.scrollTop).toBe(422)
+  })
+
   test("restores nearest target only when it is outside the viewport", () => {
     const scroller = makeViewport({
       scrollTop: 100,
