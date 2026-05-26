@@ -234,7 +234,8 @@ export const PawworkSidebar = (props: {
   // ignore the keys and let the browser default stand, so non-pinned rows and
   // the list edges are silent no-ops.
   const onPinnedRowKeyDown = (event: KeyboardEvent, session: Session) => {
-    if (!event.altKey) return
+    // Alt and only Alt — Ctrl/Cmd/Shift combos belong to other shortcuts.
+    if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
     if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return
     const visibleIDs = visiblePinnedIDs()
     const index = visibleIDs.indexOf(session.id)
