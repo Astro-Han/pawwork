@@ -46,6 +46,15 @@ type CapturedPageError = {
   detail?: string
 }
 
+type CapturedDiagnosticEvent = {
+  name: string
+  route_session_id?: string
+  visible_session_id?: string
+  timeline_session_id?: string
+  trace_id?: string
+  data?: Record<string, unknown>
+}
+
 function timelineMetrics(page: Page) {
   return page.evaluate(
     ({ scrollViewportSelector, turnListSelector }) => {
@@ -81,6 +90,18 @@ async function scrollTimelineToBottom(page: Page) {
     { scrollViewportSelector, turnListSelector: sessionTurnListSelector },
   )
   expect(found, "session timeline viewport should exist").toBe(true)
+}
+
+async function wheelTimelineUpWeakly(page: Page) {
+  const box = await page.locator(sessionTurnListSelector).evaluate((list, scrollViewportSelector) => {
+    const viewport = list.closest(scrollViewportSelector)
+    if (!(viewport instanceof HTMLElement)) return null
+    const rect = viewport.getBoundingClientRect()
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+  }, scrollViewportSelector)
+  expect(box, "session timeline viewport should exist").not.toBeNull()
+  await page.mouse.move(box!.x, box!.y)
+  await page.mouse.wheel(0, -48)
 }
 
 async function installTimelineScrollProbe(page: Page) {
@@ -206,6 +227,35 @@ async function readPageErrorProbe(page: Page) {
     }
     return win.__opencode_session_page_errors ?? []
   }) as Promise<CapturedPageError[]>
+}
+
+async function installRendererDiagnosticsCapture(page: Page) {
+  await page.addInitScript(() => {
+    const win = window as typeof window & {
+      __pawwork_renderer_diagnostics?: CapturedDiagnosticEvent[]
+      api?: {
+        emitRendererDiagnostic?: (event: CapturedDiagnosticEvent) => Promise<void>
+      }
+    }
+    win.__pawwork_renderer_diagnostics = []
+    const originalEmit = win.api?.emitRendererDiagnostic?.bind(win.api)
+    win.api = {
+      ...(win.api ?? {}),
+      emitRendererDiagnostic: async (event) => {
+        win.__pawwork_renderer_diagnostics?.push(JSON.parse(JSON.stringify(event)))
+        await originalEmit?.(event)
+      },
+    }
+  })
+}
+
+async function readRendererDiagnostics(page: Page) {
+  return page.evaluate(() => {
+    const win = window as typeof window & {
+      __pawwork_renderer_diagnostics?: CapturedDiagnosticEvent[]
+    }
+    return win.__pawwork_renderer_diagnostics ?? []
+  }) as Promise<CapturedDiagnosticEvent[]>
 }
 
 function collectPageErrors(page: Page) {
@@ -521,6 +571,78 @@ test("does not jump to the top after mod-enter submit from an old message hash",
       (sample) => sample.height > sample.client + 100 && sample.top < 20 && sample.distanceFromBottom > 100,
     )
     expect(topJumps).toEqual([])
+  })
+})
+
+test("keeps latest pinned when weak upward wheel lands during answer completion", async ({
+  page,
+  project,
+  assistant,
+}) => {
+  test.setTimeout(120_000)
+
+  await installRendererDiagnosticsCapture(page)
+  await project.open()
+  const sdk = project.sdk
+
+  await withSession(sdk, `e2e latest weak wheel ${Date.now()}`, async (session) => {
+    project.trackSession(session.id)
+    await seedSessionTurns({ sdk, sessionID: session.id, count: 14 })
+
+    await project.gotoSession(session.id)
+    await expect(page.locator(sessionMessageItemSelector)).toHaveCount(INITIAL_SESSION_WINDOW_MESSAGES, {
+      timeout: 30_000,
+    })
+    await scrollTimelineToBottom(page)
+    await expect.poll(async () => (await expectTimelineMetrics(page)).distanceFromBottom).toBeLessThan(20)
+
+    let releaseReply!: () => void
+    const replyReady = new Promise<void>((resolve) => {
+      releaseReply = resolve
+    })
+    const token = `latest_weak_wheel_${Date.now()}`
+    const beforeCalls = await assistant.calls()
+    await assistant.hold(token, replyReady)
+
+    const tallPrompt = [
+      `reply with ${token}`,
+      ...Array.from({ length: 18 }, (_, line) => `extra context line ${line} ${"content ".repeat(10)}`),
+    ]
+      .join(" ")
+      .trim()
+
+    await sendVisiblePrompt({ page, text: tallPrompt, submitKey: `${modKey}+Enter` })
+    await expect.poll(() => assistant.calls(), { timeout: 30_000 }).toBeGreaterThan(beforeCalls)
+
+    const diagnosticCheckpoint = (await readRendererDiagnostics(page)).length
+    await wheelTimelineUpWeakly(page)
+    releaseReply()
+
+    await expect(page.locator(sessionMessageItemSelector).last()).toContainText(token, { timeout: 30_000 })
+    await expect
+      .poll(async () => (await expectTimelineMetrics(page)).distanceFromBottom, { timeout: 30_000 })
+      .toBeLessThan(60)
+
+    const events = (await readRendererDiagnostics(page))
+      .slice(diagnosticCheckpoint)
+      .filter((event) => event.timeline_session_id === session.id)
+    expect(
+      events.some(
+        (event) =>
+          event.name === "session.timeline.scroll_controller" &&
+          event.data?.reason === "latest_protected_weak_upward_ignored" &&
+          event.data?.ignored_intent_reason === "latest_protected_weak_upward_ignored" &&
+          event.data?.mode_after === "following_latest",
+      ),
+    ).toBe(true)
+    expect(
+      events.some(
+        (event) =>
+          event.name === "session.timeline.scroll_controller" &&
+          event.data?.reason === "user_upward_navigation" &&
+          event.data?.mode_after === "reading_history",
+      ),
+    ).toBe(false)
   })
 })
 
