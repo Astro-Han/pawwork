@@ -213,6 +213,7 @@ export function createRecorder(input: RecorderInput): Recorder {
         attempt_id: attemptID,
         attempt_index: next.attemptIndex,
         started_at: next.at,
+        connect_timeout_ms: next.connectTimeoutMs,
         provider_progress_seen: false,
         visible_output_seen: false,
         text_output_started: false,

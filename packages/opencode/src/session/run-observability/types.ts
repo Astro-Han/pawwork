@@ -86,6 +86,7 @@ export type AttemptSummary = {
   attempt_id: AttemptID
   attempt_index: number
   started_at: number
+  connect_timeout_ms?: number
   last_tool_completed_at?: number
   provider_progress_seen: boolean
   visible_output_seen: boolean
@@ -166,6 +167,7 @@ export type BeginAttemptInput = {
   attemptIndex: number
   at: number
   monotonicMs: number
+  connectTimeoutMs?: number
 }
 
 export type Recorder = {
