@@ -237,10 +237,24 @@ export const PawworkSidebar = (props: {
     // Alt and only Alt — Ctrl/Cmd/Shift combos belong to other shortcuts.
     if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
     if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return
+    // The handler sits on the row wrapper, which also wraps the active child row.
+    // Only act when the event originates from THIS row, so focusing a nested child
+    // and pressing Alt+Arrow never reorders the parent.
+    const originID = (event.target as HTMLElement | null)
+      ?.closest?.("[data-session-id]")
+      ?.getAttribute("data-session-id")
+    if (originID !== session.id) return
     const visibleIDs = visiblePinnedIDs()
     const index = visibleIDs.indexOf(session.id)
     if (index === -1) return
+    // This pinned row owns ⌥↑/⌥↓. session.previous/next bind the SAME alt+arrow on
+    // a document-level keydown listener. Solid delegates keydown to document too,
+    // so that listener sits on the same node as ours — stopPropagation alone would
+    // not stop it (it only blocks bubbling to ancestors, not co-located listeners).
+    // stopImmediatePropagation blocks the other document listener, so a reorder —
+    // and an edge no-op — never also navigates to another session.
     event.preventDefault()
+    event.stopImmediatePropagation()
     const direction = event.key === "ArrowUp" ? "up" : "down"
     if (direction === "up" && index === 0) return
     if (direction === "down" && index === visibleIDs.length - 1) return

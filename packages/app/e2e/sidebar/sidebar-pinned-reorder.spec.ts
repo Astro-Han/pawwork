@@ -5,10 +5,11 @@ import { pawworkSidebarSelector } from "../selectors"
 // Keyboard-accessible reorder within the pinned zone. Mouse drag is pointer-only
 // (SortableJS forceFallback, covered by sidebar-drag-pointer.spec.ts); these
 // specs cover the keyboard path: with focus on a pinned row, ⌥↑ / ⌥↓
-// (Alt+Arrow) moves it. The menu no longer carries Move up / Move down — that
-// surface is asserted by session-menu-actions.test.ts.
+// (Alt+Arrow) moves it. Note: session.previous/next bind the SAME alt+arrow
+// globally, so the reorder must claim the event (stopPropagation) and not also
+// navigate — several assertions below pin that down via an unchanged URL.
 
-test("pinned rows reorder via ⌥↑ / ⌥↓ on the focused row", async ({ page, sdk, gotoSession }) => {
+test("pinned rows reorder via ⌥↑ / ⌥↓ without navigating away", async ({ page, sdk, gotoSession }) => {
   const stamp = Date.now()
   const a = await sdk.session.create({ title: `pinned-reorder a ${stamp}` }).then((r) => r.data)
   const b = await sdk.session.create({ title: `pinned-reorder b ${stamp}` }).then((r) => r.data)
@@ -44,6 +45,8 @@ test("pinned rows reorder via ⌥↑ / ⌥↓ on the focused row", async ({ page
 
   expect(await order()).toEqual([b.id, a.id])
 
+  // The active session is `a`; reorder must not navigate away from it.
+  const urlBefore = page.url()
   const focusRow = (id: string) => pinned.locator(`[data-session-id="${id}"] a`).first().focus()
 
   // Move b (top) down → [a, b].
@@ -55,9 +58,12 @@ test("pinned rows reorder via ⌥↑ / ⌥↓ on the focused row", async ({ page
   await focusRow(b.id)
   await page.keyboard.press("Alt+ArrowUp")
   await expect.poll(order).toEqual([b.id, a.id])
+
+  // Critical: reordering claimed the event, so session.previous/next never fired.
+  expect(page.url()).toBe(urlBefore)
 })
 
-test("⌥↑ on the top pinned row and ⌥↓ on the bottom are silent no-ops", async ({ page, sdk, gotoSession }) => {
+test("⌥↑ at the top and ⌥↓ at the bottom are no-ops that never navigate", async ({ page, sdk, gotoSession }) => {
   const stamp = Date.now()
   const a = await sdk.session.create({ title: `pinned-edge a ${stamp}` }).then((r) => r.data)
   const b = await sdk.session.create({ title: `pinned-edge b ${stamp}` }).then((r) => r.data)
@@ -89,16 +95,19 @@ test("⌥↑ on the top pinned row and ⌥↓ on the bottom are silent no-ops", 
     ).filter(Boolean) as string[]
 
   expect(await order()).toEqual([b.id, a.id])
+  const urlBefore = page.url()
 
-  // ⌥↑ on the top row (b) cannot go higher.
+  // ⌥↑ on the top row (b) cannot go higher — and must not navigate.
   await pinned.locator(`[data-session-id="${b.id}"] a`).first().focus()
   await page.keyboard.press("Alt+ArrowUp")
   await expect.poll(order).toEqual([b.id, a.id])
+  expect(page.url()).toBe(urlBefore)
 
-  // ⌥↓ on the bottom row (a) cannot go lower.
+  // ⌥↓ on the bottom row (a) cannot go lower — and must not navigate.
   await pinned.locator(`[data-session-id="${a.id}"] a`).first().focus()
   await page.keyboard.press("Alt+ArrowDown")
   await expect.poll(order).toEqual([b.id, a.id])
+  expect(page.url()).toBe(urlBefore)
 })
 
 test("⌥↑ / ⌥↓ on a non-pinned row neither pins nor reorders it", async ({ page, sdk, gotoSession }) => {
@@ -122,4 +131,49 @@ test("⌥↑ / ⌥↓ on a non-pinned row neither pins nor reorders it", async (
   await expect(
     sidebar.locator(`[data-component="pawwork-sidebar-pinned"] [data-session-id="${session.id}"]`),
   ).toHaveCount(0)
+})
+
+test("Shift+Alt / Mod+Alt + Arrow on a pinned row are left to the global commands", async ({
+  page,
+  sdk,
+  gotoSession,
+}) => {
+  const stamp = Date.now()
+  const a = await sdk.session.create({ title: `pinned-modifier a ${stamp}` }).then((r) => r.data)
+  const b = await sdk.session.create({ title: `pinned-modifier b ${stamp}` }).then((r) => r.data)
+
+  if (!a?.id || !b?.id) throw new Error("missing session ids")
+
+  await gotoSession(a.id)
+  await openSidebar(page)
+
+  const sidebar = page.locator(pawworkSidebarSelector).first()
+
+  const pinViaMenu = async (id: string) => {
+    const row = sidebar.locator(`[data-session-id="${id}"]`).first()
+    await row.hover()
+    await row.locator('[data-action="session-row-menu"]').click()
+    await page.getByRole("menuitem", { name: /^pin session$/i }).click()
+  }
+
+  await pinViaMenu(a.id)
+  await pinViaMenu(b.id)
+
+  const pinned = sidebar.locator('[data-component="pawwork-sidebar-pinned"]')
+  const order = async () =>
+    (
+      await pinned
+        .locator("[data-session-id]")
+        .evaluateAll((nodes) => nodes.map((n) => (n as HTMLElement).dataset.sessionId))
+    ).filter(Boolean) as string[]
+
+  expect(await order()).toEqual([b.id, a.id])
+
+  // The reorder handler accepts plain Alt+Arrow only. Shift+Alt and Mod+Alt are
+  // bound to other global session commands, so they must NOT reorder the pinned
+  // zone — the order stays put regardless of what the global command does.
+  await pinned.locator(`[data-session-id="${b.id}"] a`).first().focus()
+  await page.keyboard.press("Shift+Alt+ArrowDown")
+  await page.keyboard.press("ControlOrMeta+Alt+ArrowDown")
+  expect(await order()).toEqual([b.id, a.id])
 })
