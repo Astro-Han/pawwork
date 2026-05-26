@@ -165,6 +165,29 @@ function hideTooltip(button?: HTMLButtonElement) {
   tooltipEl?.removeAttribute("data-show")
 }
 
+// A fixed tooltip would drift away from its button when the page scrolls or
+// resizes, so we dismiss it. The tooltip is a single shared element, so these
+// global listeners are reference-counted and registered once for the whole app
+// rather than once per Markdown instance.
+let viewportDismissCount = 0
+function dismissOnViewportChange() {
+  hideTooltip()
+}
+function retainViewportDismiss() {
+  if (viewportDismissCount === 0) {
+    window.addEventListener("scroll", dismissOnViewportChange, true)
+    window.addEventListener("resize", dismissOnViewportChange)
+  }
+  viewportDismissCount++
+}
+function releaseViewportDismiss() {
+  viewportDismissCount = Math.max(0, viewportDismissCount - 1)
+  if (viewportDismissCount === 0) {
+    window.removeEventListener("scroll", dismissOnViewportChange, true)
+    window.removeEventListener("resize", dismissOnViewportChange)
+  }
+}
+
 export function setupCodeCopy(root: HTMLDivElement, getLabels: () => CopyLabels) {
   const timeouts = new Map<HTMLButtonElement, ReturnType<typeof setTimeout>>()
 
@@ -194,7 +217,9 @@ export function setupCodeCopy(root: HTMLDivElement, getLabels: () => CopyLabels)
       const timeout = setTimeout(() => {
         setCopyState(button, getLabels(), false)
         if (activeTooltipButton?.deref() === button) {
-          if (button.matches(":hover")) showTooltip(button)
+          // Keep the tooltip while the button is still hovered OR keyboard-
+          // focused; a keyboard copy leaves focus on the button, not hover.
+          if (button.matches(":hover") || document.activeElement === button) showTooltip(button)
           else hideTooltip(button)
         }
         timeouts.delete(button)
@@ -225,22 +250,26 @@ export function setupCodeCopy(root: HTMLDivElement, getLabels: () => CopyLabels)
     const button = buttonFromEvent(event.target)
     if (button instanceof HTMLButtonElement) hideTooltip(button)
   }
-  // A fixed tooltip would drift away from its button once the page scrolls or
-  // resizes; dismissing it is simpler and matches its transient nature.
-  const handleReposition = () => hideTooltip()
-
   const buttons = Array.from(root.querySelectorAll('[data-slot="markdown-copy-button"]'))
   for (const button of buttons) {
     if (button instanceof HTMLButtonElement) updateLabel(button)
   }
+
+  // Markdown updates content via morphdom or innerHTML = "", neither of which
+  // fires a mouse/focus event; watch the subtree so a tooltip whose button was
+  // removed (chat re-render, content cleared) is dismissed, not left on screen.
+  const detachObserver = new MutationObserver(() => {
+    const active = activeTooltipButton?.deref()
+    if (active && !active.isConnected) hideTooltip()
+  })
+  detachObserver.observe(root, { childList: true, subtree: true })
 
   root.addEventListener("click", handleClick)
   root.addEventListener("mouseover", handlePointerOver)
   root.addEventListener("mouseout", handlePointerOut)
   root.addEventListener("focusin", handleFocusIn)
   root.addEventListener("focusout", handleFocusOut)
-  window.addEventListener("scroll", handleReposition, true)
-  window.addEventListener("resize", handleReposition)
+  retainViewportDismiss()
 
   return () => {
     root.removeEventListener("click", handleClick)
@@ -248,8 +277,8 @@ export function setupCodeCopy(root: HTMLDivElement, getLabels: () => CopyLabels)
     root.removeEventListener("mouseout", handlePointerOut)
     root.removeEventListener("focusin", handleFocusIn)
     root.removeEventListener("focusout", handleFocusOut)
-    window.removeEventListener("scroll", handleReposition, true)
-    window.removeEventListener("resize", handleReposition)
+    releaseViewportDismiss()
+    detachObserver.disconnect()
     const activeBtn = activeTooltipButton?.deref()
     if (activeBtn && root.contains(activeBtn)) hideTooltip()
     for (const timeout of timeouts.values()) {
