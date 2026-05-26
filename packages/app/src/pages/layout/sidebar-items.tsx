@@ -1,9 +1,11 @@
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import { Icon } from "@opencode-ai/ui/icon"
+import { Keybind } from "@opencode-ai/ui/keybind"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { A, useParams } from "@solidjs/router"
 import { type Accessor, createMemo, For, type JSX, Show } from "solid-js"
+import { formatKeybind } from "@/context/command"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useNotification } from "@/context/notification"
@@ -38,6 +40,8 @@ export type SessionItemProps = {
   titleContent?: (input: { session: Session; title: Accessor<string> }) => JSX.Element
   actionSlot?: (session: Session) => JSX.Element
   timeText?: (session: Session) => string | undefined
+  /** When true (pinned rows), keyboard focus reveals the ⌥↑ / ⌥↓ reorder caps. */
+  reorderHint?: boolean
 }
 
 const SessionRow = (props: {
@@ -240,6 +244,19 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
               <div data-status-overlay class="absolute inset-y-0 right-0 flex items-center justify-end">
                 <Show when={props.actionSlot}>{props.actionSlot?.(props.session)}</Show>
               </div>
+              {/* keyboard-only reorder hint: pinned rows reveal ⌥↑ / ⌥↓ caps on
+                 keyboard focus. sidebar.css gates visibility off :focus-visible,
+                 so mouse hover never shows it. */}
+              <Show when={props.reorderHint}>
+                <div
+                  data-status-reorder
+                  aria-hidden="true"
+                  class="absolute inset-y-0 right-0 flex items-center justify-end gap-1"
+                >
+                  <Keybind class="rounded-[4px]">{formatKeybind("alt+arrowup", language.t)}</Keybind>
+                  <Keybind class="rounded-[4px]">{formatKeybind("alt+arrowdown", language.t)}</Keybind>
+                </div>
+              </Show>
             </div>
           </Show>
         </div>
@@ -247,7 +264,9 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
       <Show when={currentChild()}>
         {(child) => (
           <div class="w-full">
-            <SessionItem {...props} session={child()} level={(props.level ?? 0) + 1} />
+            {/* Child rows inherit props via spread; force the reorder hint off so
+               nested sessions never show ⌥↑/⌥↓ — only the top-level pinned row reorders. */}
+            <SessionItem {...props} session={child()} level={(props.level ?? 0) + 1} reorderHint={false} />
           </div>
         )}
       </Show>

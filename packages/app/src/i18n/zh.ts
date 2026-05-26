@@ -703,8 +703,6 @@ export const dict = {
   "sidebar.pawwork.all": "全部会话",
   "sidebar.pawwork.pinSession": "置顶会话",
   "sidebar.pawwork.unpinSession": "取消置顶",
-  "sidebar.pawwork.movePinnedUp": "上移",
-  "sidebar.pawwork.movePinnedDown": "下移",
   "sidebar.pawwork.dragToPin": "拖到这里置顶",
   "sidebar.pawwork.sort.byProject": "按项目分组",
   "sidebar.pawwork.sort.byTime": "按时间排序",

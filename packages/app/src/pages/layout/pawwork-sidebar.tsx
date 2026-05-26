@@ -135,7 +135,7 @@ export const PawworkSidebar = (props: {
     visiblePinnedIDs: string[]
     visibleTargetIndex: number
   }) => void
-  /** Menu-driven move up / down within the visible pinned zone. */
+  /** Keyboard-driven move up / down within the visible pinned zone (⌥↑ / ⌥↓ on a pinned row). */
   onMovePinnedSession?: (input: { sessionID: string; direction: "up" | "down"; visiblePinnedIDs: string[] }) => void
   exportSessionAvailable: Accessor<boolean>
   onExportSession: (session: Session) => Promise<void>
@@ -209,35 +209,61 @@ export const PawworkSidebar = (props: {
   const menuLabels = () => ({
     pin: language.t("sidebar.pawwork.pinSession"),
     unpin: language.t("sidebar.pawwork.unpinSession"),
-    moveUp: language.t("sidebar.pawwork.movePinnedUp"),
-    moveDown: language.t("sidebar.pawwork.movePinnedDown"),
     rename: language.t("common.rename"),
     export: language.t("session.export.action.export"),
     delete: language.t("common.delete"),
   })
   const menuActions = (target: Session, onRenameSession: (session: Session) => void) => {
-    // Use rendered pinned order, not the raw pinnedIDs array. Move up / down
-    // visibility tracks visible adjacency, so the action is hidden on the
-    // visually-top or visually-bottom row regardless of un-loaded pinned IDs.
-    const visibleIDs = visiblePinnedIDs()
-    const visibleIndex = visibleIDs.indexOf(target.id)
-    const isVisiblyPinned = visibleIndex !== -1
-    const isPinned = isVisiblyPinned || props.pinnedIDs().includes(target.id)
-    const onMovePinnedSession = props.onMovePinnedSession
+    const isPinned = visiblePinnedIDs().includes(target.id) || props.pinnedIDs().includes(target.id)
     return buildSessionMenuActions({
       session: target,
       pinned: isPinned,
-      pinnedIndex: isVisiblyPinned ? visibleIndex : undefined,
-      pinnedCount: isVisiblyPinned ? visibleIDs.length : undefined,
       exportAvailable: props.exportSessionAvailable(),
       labels: menuLabels(),
       onTogglePinnedSession: props.onTogglePinnedSession,
-      onMovePinnedSession: onMovePinnedSession
-        ? (input) => onMovePinnedSession({ ...input, visiblePinnedIDs: visibleIDs })
-        : undefined,
       onRenameSession,
       onExportSession: props.onExportSession,
       onDeleteSession: props.onDeleteSession,
+    })
+  }
+
+  // Keyboard-accessible reorder for pinned rows: when focus is anywhere inside a
+  // pinned row, ⌥↑ / ⌥↓ (Alt+Arrow) moves it within the pinned zone. This is the
+  // keyboard equivalent of mouse drag — drag is pointer-only and cannot serve
+  // keyboard users on its own. Rows whose id is not in the visible pinned order
+  // ignore the keys and let the browser default stand, so non-pinned rows and
+  // the list edges are silent no-ops.
+  const onPinnedRowKeyDown = (event: KeyboardEvent, session: Session) => {
+    // Alt and only Alt — Ctrl/Cmd/Shift combos belong to other shortcuts.
+    if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return
+    // The handler sits on the row wrapper, which also wraps the active child row
+    // and the "…" menu button. Only the row's main LINK owns ⌥↑/⌥↓ — matching the
+    // keycap hint, which sidebar.css reveals on `a:focus-visible` only. Focus on the
+    // "…" button (not an <a>) or a nested child row's link therefore never reorders.
+    const link = (event.target as HTMLElement | null)?.closest?.("a")
+    const originID = link?.closest?.("[data-session-id]")?.getAttribute("data-session-id")
+    if (!link || originID !== session.id) return
+    const visibleIDs = visiblePinnedIDs()
+    const index = visibleIDs.indexOf(session.id)
+    if (index === -1) return
+    // This pinned row owns ⌥↑/⌥↓. session.previous/next bind the SAME alt+arrow on
+    // a document-level keydown listener. Solid delegates keydown to document too,
+    // so that listener sits on the same node as ours — stopPropagation alone would
+    // not stop it (it only blocks bubbling to ancestors, not co-located listeners).
+    // stopImmediatePropagation blocks the other document listener, so a reorder —
+    // and an edge no-op — never also navigates to another session.
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    const direction = event.key === "ArrowUp" ? "up" : "down"
+    if (direction === "up" && index === 0) return
+    if (direction === "down" && index === visibleIDs.length - 1) return
+    props.onMovePinnedSession?.({ sessionID: session.id, direction, visiblePinnedIDs: visibleIDs })
+    // The row keeps its session id across the move; re-focus its link next frame
+    // so repeated ⌥↑/↓ keep working without Tabbing back into the list.
+    requestAnimationFrame(() => {
+      const row = scrollEl?.querySelector<HTMLElement>(`[data-session-id="${session.id}"]`)
+      row?.querySelector<HTMLElement>("a")?.focus()
     })
   }
   const markSessionSwitchPaint = (session: Session, event: MouseEvent) => {
@@ -302,10 +328,12 @@ export const PawworkSidebar = (props: {
               as="div"
               class="flex flex-col gap-1 pw-drag-row"
               data-pw-drag-session-id={current().session.id}
+              onKeyDown={(event: KeyboardEvent) => onPinnedRowKeyDown(event, current().session)}
             >
               <SessionItem
                 session={current().session}
                 list={navList()}
+                reorderHint={visiblePinnedIDs().includes(current().session.id)}
                 navList={navList}
                 slug={current().slug}
                 showChild
