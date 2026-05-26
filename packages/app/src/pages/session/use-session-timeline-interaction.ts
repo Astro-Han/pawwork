@@ -22,6 +22,7 @@ import { shouldApplyTimelineRecoveryForObservation } from "@/pages/session/timel
 import {
   createSessionTimelineScrollController,
   isWeakUpwardTimelineIntent,
+  shouldPreserveLatestForTimelineLayoutChange,
   type TimelineRecovery,
   type TimelineScrollControllerResult,
   type TimelineScrollIntent,
@@ -190,7 +191,6 @@ export function createSessionTimelineInteraction(input: {
   })
 
   let scrollDock!: ReturnType<typeof createSessionScrollDock>
-  const latestProtectionBandPx = 120
   const isLatestProtected = () => {
     const state = scrollController.state()
     return state.mode === "following_latest" && state.latestProtected
@@ -246,10 +246,11 @@ export function createSessionTimelineInteraction(input: {
     },
     shouldPreserveLatestForLayoutChange: (event) => {
       const state = scrollController.state()
-      if (state.mode === "following_latest") return true
-      if (state.latestProtected) return true
-      if (scrollDock.bottomFollowLocked(lockOwner())) return true
-      return event.metrics.distanceFromBottom <= latestProtectionBandPx
+      return shouldPreserveLatestForTimelineLayoutChange({
+        state,
+        bottomFollowLocked: scrollDock.bottomFollowLocked(lockOwner()),
+        metrics: event.metrics,
+      })
     },
   })
   const autoScroll = scrollDock.autoScroll

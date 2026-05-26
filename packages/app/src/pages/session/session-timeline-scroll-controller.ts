@@ -210,6 +210,7 @@ export type TimelineGestureClassification = {
 
 const STRONG_GESTURE_MIN_PX = 160
 const STRONG_GESTURE_VIEWPORT_RATIO = 0.25
+const LATEST_PROTECTION_BAND_PX = 120
 
 export function classifyTimelineScrollGesture(input: {
   deltaY: number
@@ -338,6 +339,25 @@ function isExplicitTopIntent(intent: TimelineScrollIntent) {
   }
   if (intent.type === "scrollbar_drag_end") return !intent.metrics.nearBottom
   return false
+}
+
+export function isExplicitNonLatestTimelineIntent(intent: TimelineScrollIntent | undefined) {
+  if (!intent) return false
+  if (intent.type === "scrollbar_drag_start") return true
+  return isExplicitTopIntent(intent) && !isWeakUpwardTimelineIntent(intent)
+}
+
+export function shouldPreserveLatestForTimelineLayoutChange(input: {
+  state: TimelineScrollControllerState
+  bottomFollowLocked: boolean
+  metrics: Pick<TimelineScrollMetrics, "distanceFromBottom">
+}) {
+  if (input.state.mode === "following_latest") return true
+  if (input.state.latestProtected) return true
+  if (input.bottomFollowLocked) return true
+  if (isExplicitNonLatestTimelineIntent(input.state.lastIntent)) return false
+  if (input.state.lastSafePosition.kind !== "latest") return false
+  return input.metrics.distanceFromBottom <= LATEST_PROTECTION_BAND_PX
 }
 
 export function isWeakUpwardTimelineIntent(intent: TimelineScrollIntent) {
@@ -570,7 +590,7 @@ export function createSessionTimelineScrollController(
           state.latestProtected &&
           observation.metrics.nearTop &&
           !observation.metrics.nearBottom &&
-          !(state.lastIntent && isExplicitTopIntent(state.lastIntent) && !isWeakUpwardTimelineIntent(state.lastIntent))
+          !isExplicitNonLatestTimelineIntent(state.lastIntent)
         ) {
           return result({
             before,
