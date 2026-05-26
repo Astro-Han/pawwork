@@ -45,6 +45,18 @@ function recoveryForBeforeProgress(overrides: Partial<RunIncident.Facts> = {}, r
   return RunIncident.recoveryFor({ cause: beforeProgressCause, facts, retryable })
 }
 
+function noToolBoundarySnapshot(): RunObservability.SideEffectBoundarySnapshot {
+  return {
+    exposed_tool_count: 0,
+    unknown_tool_count: 0,
+    unclassified_effect_count: 0,
+    provider_executed_capability_present: false,
+    external_boundary_present: false,
+    proof_result: "complete",
+    proof_reason: "all_boundaries_classified",
+  }
+}
+
 describe("RunObservability", () => {
   test("does not treat stream lifecycle events as provider progress", () => {
     expect(RunObservability.isProviderProgressEvent({ type: "start" })).toBe(false)
@@ -100,6 +112,12 @@ describe("RunObservability", () => {
     })
 
     const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordSideEffectBoundarySnapshot({
+      attemptID: attempt.attemptID,
+      at: 12,
+      monotonicMs: 120,
+      snapshot: noToolBoundarySnapshot(),
+    })
     const decision = recorder.recordAttemptFailureAndDeriveRecovery({
       attemptID: attempt.attemptID,
       at: 130,
@@ -899,6 +917,12 @@ describe("RunObservability", () => {
       monotonicStartMs: 200,
     })
     const currentAttempt = current.beginAttempt({ attemptIndex: 1, at: 21, monotonicMs: 210 })
+    current.recordSideEffectBoundarySnapshot({
+      attemptID: currentAttempt.attemptID,
+      at: 21,
+      monotonicMs: 211,
+      snapshot: noToolBoundarySnapshot(),
+    })
     const decision = current.recordAttemptFailureAndDeriveRecovery({
       attemptID: currentAttempt.attemptID,
       at: 22,
@@ -1057,6 +1081,18 @@ describe("RunObservability", () => {
 
   test("before-progress retry stays conservative when the boundary snapshot is missing", () => {
     const decision = recoveryForBeforeProgress({ side_effect_boundary_snapshot: undefined })
+
+    expect(decision).toMatchObject({
+      recommendation: "ask_user_before_retry",
+      reason: "side_effect_facts_incomplete",
+    })
+  })
+
+  test("before-progress retry stays conservative when complete facts lack a boundary snapshot", () => {
+    const decision = recoveryForBeforeProgress({
+      side_effect_facts_complete: true,
+      side_effect_boundary_snapshot: undefined,
+    })
 
     expect(decision).toMatchObject({
       recommendation: "ask_user_before_retry",
@@ -1987,6 +2023,12 @@ describe("RunObservability", () => {
       effect: RunObservability.toolEffect("bash"),
     })
     const second = recorder.beginAttempt({ attemptIndex: 2, at: 20, monotonicMs: 200 })
+    recorder.recordSideEffectBoundarySnapshot({
+      attemptID: second.attemptID,
+      at: 20,
+      monotonicMs: 201,
+      snapshot: noToolBoundarySnapshot(),
+    })
     recorder.recordTransportFailure({
       attemptID: second.attemptID,
       at: 21,
@@ -2026,6 +2068,12 @@ describe("RunObservability", () => {
       effect: RunObservability.toolEffect("read"),
     })
     const second = recorder.beginAttempt({ attemptIndex: 2, at: 20, monotonicMs: 200 })
+    recorder.recordSideEffectBoundarySnapshot({
+      attemptID: second.attemptID,
+      at: 20,
+      monotonicMs: 201,
+      snapshot: noToolBoundarySnapshot(),
+    })
     recorder.recordTransportFailure({
       attemptID: second.attemptID,
       at: 21,

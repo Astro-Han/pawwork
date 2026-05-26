@@ -208,7 +208,7 @@ function boundaryAllowsBeforeProgressRetry(facts: IncidentFacts) {
 
 function beforeProgressBoundaryEvidenceBlocksRetry(facts: IncidentFacts) {
   const snapshot = facts.side_effect_boundary_snapshot
-  if (!snapshot) return false
+  if (!snapshot) return true
   if (snapshot.provider_executed_capability_present !== false) return true
   if (snapshot.external_boundary_present !== false) return true
   return (
