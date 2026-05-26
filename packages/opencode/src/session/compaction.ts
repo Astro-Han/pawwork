@@ -598,7 +598,7 @@ export const layer: Layer.Layer<
         })
       }
 
-      if (result === "continue" && input.auto && input.overflow) {
+      if (result === "continue" && input.auto) {
         if (replay) {
           const original = replay.info
           const replayMsg = yield* session.updateMessage({
@@ -633,6 +633,23 @@ export const layer: Layer.Layer<
         }
 
         if (!replay) {
+          // Only auto-continue when the turn the compaction interrupted had NOT
+          // finished cleanly. A clean finish (e.g. "stop"/"end_turn") means the
+          // agent itself chose to end the turn, so injecting a synthetic continue
+          // would override that decision and make compaction-turns behave more
+          // eagerly than normal turns. Resume only when the last real turn was
+          // still mid-flight (no finish, or "tool-calls"/"unknown"). Keys on the
+          // turn's finish reason rather than the overflow flag, matching upstream
+          // opencode #27730 — the overflow flag stranded mid-task work that
+          // happened to compact without a provider-side overflow.
+          const lastNonSummaryAssistant = input.messages.findLast(
+            (m) => m.info.role === "assistant" && !m.info.summary,
+          )?.info as MessageV2.Assistant | undefined
+          const shouldAutoContinue =
+            !lastNonSummaryAssistant?.finish ||
+            lastNonSummaryAssistant.finish === "tool-calls" ||
+            lastNonSummaryAssistant.finish === "unknown"
+          if (!shouldAutoContinue) return result
           const info = yield* provider.getProvider(userMessage.model.providerID)
           if (
             (yield* plugin.trigger(
