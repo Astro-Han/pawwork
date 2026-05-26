@@ -1,11 +1,17 @@
 import { expect, test } from "bun:test"
-import { readFileSync } from "node:fs"
+import { readdirSync, readFileSync } from "node:fs"
 
 const retry = readFileSync(new URL("./session-retry.tsx", import.meta.url), "utf8")
 const notice = readFileSync(new URL("./message-part/parts/notice.tsx", import.meta.url), "utf8")
 const en = readFileSync(new URL("../i18n/en.ts", import.meta.url), "utf8")
 const zh = readFileSync(new URL("../i18n/zh.ts", import.meta.url), "utf8")
 const zht = readFileSync(new URL("../i18n/zht.ts", import.meta.url), "utf8")
+const i18nDir = new URL("../i18n/", import.meta.url)
+const localeFiles = Object.fromEntries(
+  readdirSync(i18nDir)
+    .filter((file) => file.endsWith(".ts") && !file.endsWith(".test.ts"))
+    .map((file) => [file, readFileSync(new URL(file, i18nDir), "utf8")]),
+)
 
 test("recovery retry uses a lightweight status row instead of the error card", () => {
   expect(retry).toContain('presentation !== "recovery" && current?.presentation !== "safe_recovery"')
@@ -32,4 +38,12 @@ test("recovery copy stays short and non-technical in English and Chinese", () =>
   expect(zh).toContain('"ui.sessionTurn.notice.safeRetryFailed": "恢复失败。你可以稍后再试，或换一个模型。"')
   expect(zht).toContain('"ui.sessionTurn.retry.recovery": "正在恢復…"')
   expect(zht).toContain('"ui.sessionTurn.notice.safeRetryFailed": "恢復失敗。你可以稍後再試，或換一個模型。"')
+})
+
+test("all locale safe retry failure copy uses recovery wording", () => {
+  for (const [path, source] of Object.entries(localeFiles)) {
+    expect(source, path).toContain('"ui.sessionTurn.notice.safeRetryFailed": "')
+    expect(source, path).toMatch(/Recovery failed|恢复失败|恢復失敗/)
+    expect(source, path).not.toContain("Network connection dropped. Automatic retry did not complete.")
+  }
 })

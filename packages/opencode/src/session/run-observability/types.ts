@@ -116,8 +116,10 @@ export type RecoveryDecisionDiagnostics = {
   timeout_policy: "default" | "reasoning_global_protected" | "reasoning_first_attempt" | "reasoning_safe_recovery"
   presentation: "default" | "recovery" | "safe_recovery" | "safe_recovery_failed"
   retry_attempted: boolean
-  provider_progress_seen: boolean
-  outcome: "recovered" | "retrying" | "blocked" | "stopped"
+  failed_attempt_provider_progress_seen: boolean
+  recovery_attempt_id?: AttemptID
+  recovery_attempt_provider_progress_seen: boolean
+  outcome: "recovered" | "retrying" | "blocked" | "failed" | "stopped"
 }
 
 export type Summary = {

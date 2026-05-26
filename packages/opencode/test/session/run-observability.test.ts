@@ -232,8 +232,10 @@ describe("RunObservability", () => {
       presentation: "recovery",
     })
     recorder.recordAutoRetryAttempted({ attemptID: first.attemptID, at: 5, monotonicMs: 140 })
+    const second = recorder.beginAttempt({ attemptIndex: 2, at: 6, monotonicMs: 150 })
+    recorder.recordProviderProgress({ attemptID: second.attemptID, at: 7, monotonicMs: 160 })
 
-    const summary = recorder.finalize({ completedAt: 6, monotonicMs: 150 })
+    const summary = recorder.finalize({ completedAt: 8, monotonicMs: 170 })
 
     expect(summary.recovery_decision).toMatchObject({
       technical_retryable: true,
@@ -246,8 +248,140 @@ describe("RunObservability", () => {
       timeout_policy: "reasoning_first_attempt",
       presentation: "recovery",
       retry_attempted: true,
-      provider_progress_seen: false,
+      failed_attempt_provider_progress_seen: false,
+      recovery_attempt_id: second.attemptID,
+      recovery_attempt_provider_progress_seen: true,
       outcome: "recovered",
+    })
+  })
+
+  test("does not mark replay recovered before the recovery attempt succeeds", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_recovery_decision_failed_attempt"),
+      traceID: MessageID.make("msg_recovery_decision_failed_attempt"),
+      sessionID: SessionID.make("ses_recovery_decision_failed_attempt"),
+      messageID: MessageID.make("msg_recovery_decision_failed_attempt"),
+      providerID: "test",
+      modelID: "test-model",
+      createdAt: 1,
+      monotonicStartMs: 100,
+    })
+    const first = recorder.beginAttempt({ attemptIndex: 1, at: 2, monotonicMs: 110, connectTimeoutMs: 60_000 })
+    recorder.recordSideEffectBoundarySnapshot({
+      attemptID: first.attemptID,
+      at: 2,
+      monotonicMs: 115,
+      snapshot: {
+        exposed_tool_count: 0,
+        unknown_tool_count: 0,
+        unclassified_effect_count: 0,
+        provider_executed_capability_present: false,
+        external_boundary_present: false,
+        proof_result: "complete",
+        proof_reason: "all_boundaries_classified",
+      },
+    })
+    const recovery = recorder.recordAttemptFailureAndDeriveRecovery({
+      attemptID: first.attemptID,
+      at: 3,
+      monotonicMs: 120,
+      error: new Error("LLM stream connection timed out after 60000ms without provider progress"),
+      evidence: ["watchdog_fired", "iterator_error"],
+      watchdog: { phase: "connect" },
+      retryable: true,
+    })
+    recorder.recordRecoveryDecision({
+      attemptID: first.attemptID,
+      at: 4,
+      monotonicMs: 130,
+      technical_retryable: true,
+      safety_gate_decision: recovery,
+      recovery_mode: "replay",
+      attempt_kind: "safe_recovery_replay",
+      model_stream_attempt: 1,
+      safe_recovery_attempt: 0,
+      timeout_policy: "reasoning_first_attempt",
+      presentation: "recovery",
+    })
+    recorder.recordAutoRetryAttempted({ attemptID: first.attemptID, at: 5, monotonicMs: 140 })
+    const second = recorder.beginAttempt({ attemptIndex: 2, at: 6, monotonicMs: 150 })
+    recorder.recordProviderProgress({ attemptID: second.attemptID, at: 7, monotonicMs: 160 })
+    const exhausted = recorder.recordAttemptFailureAndDeriveRecovery({
+      attemptID: second.attemptID,
+      at: 8,
+      monotonicMs: 170,
+      error: new Error("LLM stream connection timed out after 120000ms"),
+      evidence: ["watchdog_fired", "iterator_error"],
+      watchdog: { phase: "silent_stream" },
+      retryable: true,
+    })
+    recorder.recordRecoveryDecision({
+      attemptID: second.attemptID,
+      at: 9,
+      monotonicMs: 180,
+      technical_retryable: true,
+      safety_gate_decision: exhausted,
+      recovery_mode: "auto_replay_blocked",
+      blocked_reason: "safe_recovery_budget_exhausted",
+      attempt_kind: "safe_recovery_replay",
+      model_stream_attempt: 2,
+      safe_recovery_attempt: 1,
+      timeout_policy: "reasoning_safe_recovery",
+      presentation: "safe_recovery_failed",
+    })
+
+    const summary = recorder.finalize({ completedAt: 10, monotonicMs: 190 })
+
+    expect(summary.recovery_decision).toMatchObject({
+      retry_attempted: true,
+      failed_attempt_provider_progress_seen: false,
+      recovery_attempt_id: second.attemptID,
+      recovery_attempt_provider_progress_seen: true,
+      outcome: "failed",
+    })
+  })
+
+  test("marks replay blocked when recovery was allowed but never attempted", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_recovery_decision_not_attempted"),
+      traceID: MessageID.make("msg_recovery_decision_not_attempted"),
+      sessionID: SessionID.make("ses_recovery_decision_not_attempted"),
+      messageID: MessageID.make("msg_recovery_decision_not_attempted"),
+      providerID: "test",
+      modelID: "test-model",
+      createdAt: 1,
+      monotonicStartMs: 100,
+    })
+    const first = recorder.beginAttempt({ attemptIndex: 1, at: 2, monotonicMs: 110 })
+    const recovery = recorder.recordAttemptFailureAndDeriveRecovery({
+      attemptID: first.attemptID,
+      at: 3,
+      monotonicMs: 120,
+      error: new Error("LLM stream connection timed out after 60000ms without provider progress"),
+      evidence: ["watchdog_fired", "iterator_error"],
+      watchdog: { phase: "connect" },
+      retryable: true,
+    })
+    recorder.recordRecoveryDecision({
+      attemptID: first.attemptID,
+      at: 4,
+      monotonicMs: 130,
+      technical_retryable: true,
+      safety_gate_decision: recovery,
+      recovery_mode: "replay",
+      attempt_kind: "safe_recovery_replay",
+      model_stream_attempt: 1,
+      safe_recovery_attempt: 0,
+      timeout_policy: "reasoning_first_attempt",
+      presentation: "recovery",
+    })
+
+    const summary = recorder.finalize({ completedAt: 5, monotonicMs: 140 })
+
+    expect(summary.recovery_decision).toMatchObject({
+      retry_attempted: false,
+      recovery_attempt_provider_progress_seen: false,
+      outcome: "blocked",
     })
   })
 

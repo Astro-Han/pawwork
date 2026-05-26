@@ -113,6 +113,33 @@ export function createRecorder(input: RecorderInput): Recorder {
       const { cause: _cause, ...nonTerminalEvent } = event
       return { ...nonTerminalEvent, terminal_candidate: false }
     })
+  const recoveryAttemptFor = (decision: RecoveryDecisionDiagnostics | undefined) => {
+    if (!decision?.retry_attempted) return undefined
+    return attempts.find((attempt) => attempt.attempt_index > decision.model_stream_attempt)
+  }
+  const recoveryDecisionOutcome = (
+    decision: RecoveryDecisionDiagnostics,
+    classification: Classification,
+    recoveryAttempt: AttemptMutable | undefined,
+  ): RecoveryDecisionDiagnostics["outcome"] => {
+    if (decision.recovery_mode !== "replay") return decision.outcome
+    if (!decision.retry_attempted) return "blocked"
+    if (!recoveryAttempt) return "retrying"
+    return classification === "success" ? "recovered" : "failed"
+  }
+  const finalizedRecoveryDecision = (
+    decision: RecoveryDecisionDiagnostics | undefined,
+    classification: Classification,
+  ): RecoveryDecisionDiagnostics | undefined => {
+    if (!decision) return undefined
+    const recoveryAttempt = recoveryAttemptFor(decision)
+    return {
+      ...decision,
+      recovery_attempt_id: recoveryAttempt?.attempt_id,
+      recovery_attempt_provider_progress_seen: recoveryAttempt?.provider_progress_seen ?? false,
+      outcome: recoveryDecisionOutcome(decision, classification, recoveryAttempt),
+    }
+  }
   const deriveCurrentIncident = (completedAt?: number, options?: { includeRecoveredTerminal?: boolean }) => {
     const incidentLifecycle = lifecycleSummary(lifecycleFailure)
     return RunIncident.derive({
@@ -507,6 +534,10 @@ export function createRecorder(input: RecorderInput): Recorder {
       return deriveCurrentIncident(next.at, { includeRecoveredTerminal: true })?.recovery ?? unknownRecovery()
     },
     recordRecoveryDecision(next) {
+      if (recoveryDecision?.retry_attempted && next.safe_recovery_attempt > recoveryDecision.safe_recovery_attempt) {
+        rememberEvent(next.monotonicMs)
+        return
+      }
       const attempt = getAttempt(next.attemptID)
       recoveryDecision = {
         attempt_id: next.attemptID,
@@ -523,7 +554,8 @@ export function createRecorder(input: RecorderInput): Recorder {
         timeout_policy: next.timeout_policy,
         presentation: next.presentation,
         retry_attempted: false,
-        provider_progress_seen: attempt?.provider_progress_seen ?? providerProgressSeen,
+        failed_attempt_provider_progress_seen: attempt?.provider_progress_seen ?? providerProgressSeen,
+        recovery_attempt_provider_progress_seen: false,
         outcome: next.recovery_mode === "replay" ? "retrying" : next.technical_retryable ? "blocked" : "stopped",
       }
       appendEvidence({
@@ -554,7 +586,7 @@ export function createRecorder(input: RecorderInput): Recorder {
       }
       recoveredAttemptIDs.add(next.attemptID)
       if (recoveryDecision?.attempt_id === next.attemptID) {
-        recoveryDecision = { ...recoveryDecision, retry_attempted: true, outcome: "recovered" }
+        recoveryDecision = { ...recoveryDecision, retry_attempted: true }
       }
       if (failure && "attemptID" in failure && failure.attemptID === next.attemptID) failure = undefined
       rememberEvent(next.monotonicMs)
@@ -646,6 +678,7 @@ export function createRecorder(input: RecorderInput): Recorder {
       const terminalAttemptID = incident
         ? (incident.phase.terminal_attempt_id ?? (failure && "attemptID" in failure ? failure.attemptID : undefined))
         : undefined
+      const finalRecoveryDecision = finalizedRecoveryDecision(recoveryDecision, classification)
       return {
         schema_version: SCHEMA_VERSION,
         run_id: input.runID,
@@ -677,7 +710,7 @@ export function createRecorder(input: RecorderInput): Recorder {
         pending_tool_parts_interrupted: pendingToolPartsInterrupted || undefined,
         incident,
         recovered_incidents: recoveredIncidents.length ? recoveredIncidents : undefined,
-        recovery_decision: recoveryDecision,
+        recovery_decision: finalRecoveryDecision,
         lifecycle,
         missing_provenance: missingProvenance,
         durations_ms: {
