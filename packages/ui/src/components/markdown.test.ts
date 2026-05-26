@@ -305,6 +305,27 @@ describe("markdown code decoration", () => {
       vi.useRealTimers()
     }
   })
+
+  test("hovering the copy button shows a tooltip on document.body and hides on leave", () => {
+    document.body.innerHTML =
+      '<div data-component="markdown-code"><pre><code>echo hi</code></pre><button type="button" data-slot="markdown-copy-button" data-tooltip="Copy to clipboard">Copy</button></div>'
+    const cleanup = setupCodeCopy(document.body as HTMLDivElement, () => ({
+      copy: "Copy to clipboard",
+      copied: "Copied",
+    }))
+    const button = document.querySelector("button")!
+
+    button.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }))
+    const tip = document.querySelector('[data-slot="markdown-copy-tooltip"]')
+    expect(tip).not.toBeNull()
+    expect(tip!.getAttribute("data-show")).toBe("true")
+    expect(tip!.textContent).toBe("Copy to clipboard")
+
+    button.dispatchEvent(new MouseEvent("mouseout", { bubbles: true }))
+    expect(tip!.getAttribute("data-show")).toBeNull()
+
+    cleanup()
+  })
 })
 
 describe("forceOpenAllDetails (streaming UX)", () => {

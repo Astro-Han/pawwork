@@ -39,7 +39,6 @@ function createCopyButton(labels: CopyLabels) {
   const button = document.createElement("button")
   button.type = "button"
   button.setAttribute("data-component", "icon-button")
-  button.setAttribute("data-variant", "secondary")
   button.setAttribute("data-slot", "markdown-copy-button")
   button.setAttribute("aria-label", labels.copy)
   button.setAttribute("data-tooltip", labels.copy)
@@ -115,6 +114,53 @@ export function markCodeLinks(root: HTMLDivElement) {
   }
 }
 
+// Copy-button tooltip. A CSS ::after on the button gets clipped by the message
+// stream's overflow:hidden when a code block sits near the stream's top or
+// right edge. Instead one shared element lives on document.body with fixed
+// positioning, so it escapes every ancestor's clipping and can be clamped into
+// the viewport. Only one copy button is ever hovered or focused at a time, so a
+// single element is enough.
+let tooltipEl: HTMLDivElement | null = null
+let activeTooltipButton: HTMLButtonElement | null = null
+
+function getTooltipEl(): HTMLDivElement {
+  if (tooltipEl?.isConnected) return tooltipEl
+  const el = document.createElement("div")
+  el.setAttribute("data-slot", "markdown-copy-tooltip")
+  el.setAttribute("aria-hidden", "true")
+  document.body.appendChild(el)
+  tooltipEl = el
+  return el
+}
+
+function showTooltip(button: HTMLButtonElement) {
+  const label = button.getAttribute("data-tooltip")
+  if (!label) return
+  activeTooltipButton = button
+  const tip = getTooltipEl()
+  tip.textContent = label
+  tip.setAttribute("data-show", "true")
+  const anchor = button.getBoundingClientRect()
+  const tip_box = tip.getBoundingClientRect()
+  const gap = 4
+  const margin = 4
+  // Prefer above the button; flip below when there isn't room near the top.
+  let top = anchor.top - tip_box.height - gap
+  if (top < margin) top = anchor.bottom + gap
+  // Center on the button, then clamp so neither edge leaves the viewport.
+  let left = anchor.left + anchor.width / 2 - tip_box.width / 2
+  const maxLeft = window.innerWidth - tip_box.width - margin
+  left = Math.max(margin, Math.min(left, maxLeft))
+  tip.style.top = `${Math.round(top)}px`
+  tip.style.left = `${Math.round(left)}px`
+}
+
+function hideTooltip(button?: HTMLButtonElement) {
+  if (button && activeTooltipButton !== button) return
+  activeTooltipButton = null
+  tooltipEl?.removeAttribute("data-show")
+}
+
 export function setupCodeCopy(root: HTMLDivElement, getLabels: () => CopyLabels) {
   const timeouts = new Map<HTMLButtonElement, ReturnType<typeof setTimeout>>()
 
@@ -124,11 +170,11 @@ export function setupCodeCopy(root: HTMLDivElement, getLabels: () => CopyLabels)
     setCopyState(button, labels, copied)
   }
 
-  const handleClick = async (event: MouseEvent) => {
-    const target = event.target
-    if (!(target instanceof Element)) return
+  const buttonFromEvent = (target: EventTarget | null) =>
+    target instanceof Element ? target.closest('[data-slot="markdown-copy-button"]') : null
 
-    const button = target.closest('[data-slot="markdown-copy-button"]')
+  const handleClick = async (event: MouseEvent) => {
+    const button = buttonFromEvent(event.target)
     if (!(button instanceof HTMLButtonElement)) return
     const code = button.closest('[data-component="markdown-code"]')?.querySelector("code")
     const content = code?.textContent ?? ""
@@ -138,10 +184,15 @@ export function setupCodeCopy(root: HTMLDivElement, getLabels: () => CopyLabels)
     try {
       await clipboard.writeText(content)
       setCopyState(button, getLabels(), true)
+      showTooltip(button)
       const existing = timeouts.get(button)
       if (existing) clearTimeout(existing)
       const timeout = setTimeout(() => {
         setCopyState(button, getLabels(), false)
+        if (activeTooltipButton === button) {
+          if (button.matches(":hover")) showTooltip(button)
+          else hideTooltip(button)
+        }
         timeouts.delete(button)
       }, 2000)
       timeouts.set(button, timeout)
@@ -150,15 +201,52 @@ export function setupCodeCopy(root: HTMLDivElement, getLabels: () => CopyLabels)
     }
   }
 
+  const handlePointerOver = (event: MouseEvent) => {
+    const button = buttonFromEvent(event.target)
+    if (button instanceof HTMLButtonElement) showTooltip(button)
+  }
+  const handlePointerOut = (event: MouseEvent) => {
+    const button = buttonFromEvent(event.target)
+    if (!(button instanceof HTMLButtonElement)) return
+    // Moving between the button and its child icon should not dismiss it.
+    const next = event.relatedTarget
+    if (next instanceof Node && button.contains(next)) return
+    hideTooltip(button)
+  }
+  const handleFocusIn = (event: FocusEvent) => {
+    const button = buttonFromEvent(event.target)
+    if (button instanceof HTMLButtonElement) showTooltip(button)
+  }
+  const handleFocusOut = (event: FocusEvent) => {
+    const button = buttonFromEvent(event.target)
+    if (button instanceof HTMLButtonElement) hideTooltip(button)
+  }
+  // A fixed tooltip would drift away from its button once the page scrolls or
+  // resizes; dismissing it is simpler and matches its transient nature.
+  const handleReposition = () => hideTooltip()
+
   const buttons = Array.from(root.querySelectorAll('[data-slot="markdown-copy-button"]'))
   for (const button of buttons) {
     if (button instanceof HTMLButtonElement) updateLabel(button)
   }
 
   root.addEventListener("click", handleClick)
+  root.addEventListener("mouseover", handlePointerOver)
+  root.addEventListener("mouseout", handlePointerOut)
+  root.addEventListener("focusin", handleFocusIn)
+  root.addEventListener("focusout", handleFocusOut)
+  window.addEventListener("scroll", handleReposition, true)
+  window.addEventListener("resize", handleReposition)
 
   return () => {
     root.removeEventListener("click", handleClick)
+    root.removeEventListener("mouseover", handlePointerOver)
+    root.removeEventListener("mouseout", handlePointerOut)
+    root.removeEventListener("focusin", handleFocusIn)
+    root.removeEventListener("focusout", handleFocusOut)
+    window.removeEventListener("scroll", handleReposition, true)
+    window.removeEventListener("resize", handleReposition)
+    if (activeTooltipButton && root.contains(activeTooltipButton)) hideTooltip()
     for (const timeout of timeouts.values()) {
       clearTimeout(timeout)
     }
