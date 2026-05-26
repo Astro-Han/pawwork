@@ -1,4 +1,4 @@
-import { Cause, Deferred, Effect, Layer, Context, Scope } from "effect"
+import { Cause, Deferred, Effect, Layer, Context, Scope, Schedule } from "effect"
 import * as Stream from "effect/Stream"
 import { Bus } from "@/bus"
 import { Config } from "@/config"
@@ -31,7 +31,6 @@ import { currentLifecycleCloseAction, lifecycleCloseActionMeta } from "./lifecyc
 
 const log = Log.create({ service: "session.processor" })
 const TOOL_CLEANUP_TIMEOUT_MS = 1_000
-const SAFE_RECOVERY_AUTO_RETRY_BACKOFF_MS = 1_000
 export const REASONING_FIRST_ATTEMPT_CONNECT_TIMEOUT_MS = 60_000
 export const REASONING_SAFE_RETRY_CONNECT_TIMEOUT_MS = 120_000
 const LOCAL_LIFECYCLE_CLOSE_INTERRUPTION_MESSAGE = "The run was interrupted by a local lifecycle close."
@@ -1301,6 +1300,20 @@ export const layer: Layer.Layer<
           safeRetryNoticeWritten = true
         })
 
+        const safeRecoveryStep = yield* Schedule.toStepWithMetadata(
+          SessionRetry.safeRecoveryPolicy({
+            set: (info) =>
+              status.set(ctx.sessionID, {
+                type: "retry",
+                attempt: info.attempt,
+                message: info.message,
+                next: info.next,
+                presentation: info.presentation,
+                reason: info.reason,
+              }),
+          }),
+        )
+
         const runAttempt = Effect.fn("SessionProcessor.runAttempt")(function* () {
           ctx.currentText = undefined
           ctx.reasoningMap = {}
@@ -1398,22 +1411,15 @@ export const layer: Layer.Layer<
               if (beforeRetry.allowed) {
                 automaticStreamRetriesUsed += 1
                 yield* removeReasoningForAttempt(attemptID)
-                const next = Date.now() + SAFE_RECOVERY_AUTO_RETRY_BACKOFF_MS
-                yield* status.set(ctx.sessionID, {
-                  type: "retry",
-                  attempt: ctx.attemptCount,
-                  message:
-                    retryDecision.presentation === "safe_recovery"
-                      ? ""
-                      : (retrySignal.message ?? "Retrying interrupted stream"),
-                  next,
-                  ...(retryDecision.presentation === "safe_recovery"
-                    ? { presentation: "safe_recovery" as const, reason: "network_connection_dropped" as const }
-                    : {}),
-                })
-                yield* Effect.sleep(`${SAFE_RECOVERY_AUTO_RETRY_BACKOFF_MS} millis`).pipe(
+                const safeRecoveryScheduled = yield* safeRecoveryStep(undefined).pipe(
+                  Effect.as(true),
+                  Effect.catchCause(() => Effect.succeed(false)),
                   Effect.onInterrupt(() => recordProcessInterrupt(attemptID)),
                 )
+                if (!safeRecoveryScheduled) {
+                  yield* writeSafeRetryFailedNotice(attemptID)
+                  break
+                }
                 const afterRetry = yield* retryStillAllowed("after_backoff")
                 if (afterRetry.allowed) {
                   ctx.runTrace.recordAutoRetryAttempted({

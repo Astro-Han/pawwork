@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import type { NamedError } from "@opencode-ai/util/error"
 import { APICallError } from "ai"
 import { setTimeout as sleep } from "node:timers/promises"
-import { Effect, Exit, Schedule } from "effect"
+import { Effect, Exit, Pull, Schedule } from "effect"
 import { SessionRetry } from "../../src/session/retry"
 import { MessageV2 } from "../../src/session/message-v2"
 import { ProviderID } from "../../src/provider/schema"
@@ -125,6 +125,83 @@ describe("session.retry.delay", () => {
           message: "boom",
         })
       },
+    })
+  })
+
+  test("safe recovery policy emits lightweight retry presentation with separate attempt metadata", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const sessionID = SessionID.make("session-safe-recovery-retry-test")
+
+        await Effect.runPromise(
+          Effect.gen(function* () {
+            const step = yield* Schedule.toStepWithMetadata(
+              SessionRetry.safeRecoveryPolicy({
+                set: (info) =>
+                  Effect.promise(() =>
+                    AppRuntime.runPromise(
+                      SessionStatus.Service.use((svc) =>
+                        svc.set(sessionID, {
+                          type: "retry",
+                          attempt: info.attempt,
+                          message: info.message,
+                          next: info.next,
+                          presentation: info.presentation,
+                          reason: info.reason,
+                        }),
+                      ),
+                    ),
+                  ),
+              }),
+            )
+            yield* step(undefined)
+          }),
+        )
+
+        expect(await AppRuntime.runPromise(SessionStatus.Service.use((svc) => svc.get(sessionID)))).toMatchObject({
+          type: "retry",
+          attempt: 1,
+          message: "",
+          presentation: "safe_recovery",
+          reason: "network_connection_dropped",
+        })
+      },
+    })
+  })
+
+  test("safe recovery policy stops after the one replay budget is exhausted", async () => {
+    const statuses: Array<{
+      attempt: number
+      message: string
+      next: number
+      presentation: "safe_recovery"
+      reason: "network_connection_dropped"
+    }> = []
+
+    const exit = await Effect.runPromise(
+      Effect.gen(function* () {
+        const step = yield* Schedule.toStepWithMetadata(
+          SessionRetry.safeRecoveryPolicy({
+            set: (info) => Effect.sync(() => statuses.push(info)),
+          }),
+        )
+        yield* step(undefined)
+        return yield* Effect.exit(step(undefined))
+      }),
+    )
+
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) {
+      expect(Pull.isDoneCause(exit.cause)).toBe(true)
+    }
+    expect(statuses).toHaveLength(1)
+    expect(statuses[0]).toMatchObject({
+      attempt: 1,
+      message: "",
+      presentation: "safe_recovery",
+      reason: "network_connection_dropped",
     })
   })
 
