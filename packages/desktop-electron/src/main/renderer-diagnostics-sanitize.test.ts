@@ -180,6 +180,9 @@ describe("renderer diagnostics sanitizer", () => {
           reason: "submit_restore_latest_after_top_reset",
           anchor_kind: "latest",
           anchor_message_id: "msg_latest",
+          anchor_scope: "latest",
+          preserve_strategy: "latest",
+          ignored_intent_reason: "latest_protected_weak_upward_ignored",
           submit_origin_mode: "following_latest",
           near_top: true,
           near_bottom: false,
@@ -209,6 +212,9 @@ describe("renderer diagnostics sanitizer", () => {
         reason: "submit_restore_latest_after_top_reset",
         anchor_kind: "latest",
         anchor_message_id: "msg_latest",
+        anchor_scope: "latest",
+        preserve_strategy: "latest",
+        ignored_intent_reason: "latest_protected_weak_upward_ignored",
         submit_origin_mode: "following_latest",
         near_top: true,
         near_bottom: false,
@@ -216,6 +222,53 @@ describe("renderer diagnostics sanitizer", () => {
         session_owner: "ses_owner",
         viewport_owner: "viewport_owner",
         coalesced_count: 2,
+      },
+    })
+    expect(JSON.stringify(event)).not.toContain("do not keep me")
+  })
+
+  test("accepts timeline layout transaction diagnostics", () => {
+    const event = sanitizeRendererDiagnosticEvent(
+      {
+        name: "session.timeline.layout_transaction",
+        route_session_id: "ses_route",
+        visible_session_id: "ses_visible",
+        timeline_session_id: "ses_timeline",
+        data: {
+          transaction_id: "timeline-layout-1",
+          transaction_kind: "content-resize",
+          transaction_phase: "settled",
+          transaction_status: "before-paint",
+          mode: "following_latest",
+          source: "use-session-scroll-dock/contentObserver",
+          reason: "content-resize",
+          anchor_kind: "latest",
+          anchor_message_id: "msg_latest",
+          fallback_frames: 0,
+          violation: "anchor_restore_exceeded_fallback_budget",
+          raw_prompt: "do not keep me",
+        },
+      },
+      { appLaunchID: "launch_1", now: () => new Date("2026-05-02T10:30:12.123Z"), windowID: 1 },
+    )
+
+    expect(event).toMatchObject({
+      "event.name": "session.timeline.layout_transaction",
+      route_session_id: "ses_route",
+      visible_session_id: "ses_visible",
+      timeline_session_id: "ses_timeline",
+      data: {
+        transaction_id: "timeline-layout-1",
+        transaction_kind: "content-resize",
+        transaction_phase: "settled",
+        transaction_status: "before-paint",
+        mode: "following_latest",
+        source: "use-session-scroll-dock/contentObserver",
+        reason: "content-resize",
+        anchor_kind: "latest",
+        anchor_message_id: "msg_latest",
+        fallback_frames: 0,
+        violation: "anchor_restore_exceeded_fallback_budget",
       },
     })
     expect(JSON.stringify(event)).not.toContain("do not keep me")

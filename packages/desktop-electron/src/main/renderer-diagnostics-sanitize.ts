@@ -50,6 +50,9 @@ const eventDataFields = {
     "reason",
     "anchor_kind",
     "anchor_message_id",
+    "anchor_scope",
+    "preserve_strategy",
+    "ignored_intent_reason",
     "submit_origin_mode",
     "near_top",
     "near_bottom",
@@ -57,6 +60,19 @@ const eventDataFields = {
     "session_owner",
     "viewport_owner",
     "coalesced_count",
+  ],
+  "session.timeline.layout_transaction": [
+    "transaction_id",
+    "transaction_kind",
+    "transaction_phase",
+    "transaction_status",
+    "mode",
+    "source",
+    "reason",
+    "anchor_kind",
+    "anchor_message_id",
+    "fallback_frames",
+    "violation",
   ],
   "session.scroll.sample": [
     "scroll_top",
@@ -95,6 +111,7 @@ const eventDataFields = {
 
 export const highFrequencyDiagnosticEvents = new Set([
   "session.timeline.scroll_controller",
+  "session.timeline.layout_transaction",
   "session.scroll.sample",
   "renderer.perf.sample",
 ])
