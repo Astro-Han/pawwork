@@ -532,7 +532,7 @@ test("changing sound agent selection persists in localStorage", async ({ page, g
     return raw ? JSON.parse(raw) : null
   }, settingsKey)
 
-  expect(stored?.sounds?.agent).not.toBe("staplebops-01")
+  expect(stored?.sounds?.agent).not.toBe("notify")
 })
 
 test("selecting none disables agent sound", async ({ page, gotoSession }) => {
