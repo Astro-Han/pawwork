@@ -41,7 +41,7 @@ describe("session.retry-decision", () => {
       modelStreamAttempt: 3,
       safeRecoveryAttempt: 0,
       timeoutPolicy: "reasoning_first_attempt",
-      presentation: "safe_recovery",
+      presentation: "recovery",
     })
     expect(decision.blockedReason).toBeUndefined()
     expect(decision.technicalRetryability.retryable).toBe(true)

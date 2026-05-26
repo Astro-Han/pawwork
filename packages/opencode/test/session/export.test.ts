@@ -2104,6 +2104,24 @@ describe("redactPart", () => {
       evidence: ["watchdog_fired", "iterator_error"],
       watchdog: { phase: "connect" },
     })
+    recorder.recordRecoveryDecision({
+      attemptID: first.attemptID,
+      at: 4,
+      monotonicMs: 125,
+      technical_retryable: true,
+      safety_gate_decision: {
+        recommendation: "auto_retry_once",
+        confidence: "high",
+        reason: "no_visible_output_or_tool_execution",
+        safety_scope: "visible_output_and_tool_side_effects",
+      },
+      recovery_mode: "replay",
+      attempt_kind: "safe_recovery_replay",
+      model_stream_attempt: 1,
+      safe_recovery_attempt: 0,
+      timeout_policy: "reasoning_first_attempt",
+      presentation: "recovery",
+    })
     recorder.recordAutoRetryAttempted({ attemptID: first.attemptID, at: 4, monotonicMs: 130 })
     const second = recorder.beginAttempt({ attemptIndex: 2, at: 5, monotonicMs: 140 })
     recorder.recordVisibleOutput({ attemptID: second.attemptID, at: 6, monotonicMs: 150 })
@@ -2146,6 +2164,16 @@ describe("redactPart", () => {
     expect(sanitized.diagnostics.run_observability?.[0]?.recovered_incidents?.[0]?.terminal_cause).toMatchObject({
       category: "watchdog_timeout",
       subcategory: "connect",
+    })
+    expect(sanitized.diagnostics.run_observability?.[0]?.recovery_decision).toMatchObject({
+      technical_retryable: true,
+      safety_gate_recommendation: "auto_retry_once",
+      recovery_mode: "replay",
+      attempt_kind: "safe_recovery_replay",
+      timeout_policy: "reasoning_first_attempt",
+      presentation: "recovery",
+      retry_attempted: true,
+      outcome: "recovered",
     })
     expect(sanitized.diagnostics.run_incidents?.[0]?.terminal_cause).toMatchObject({
       category: "watchdog_timeout",

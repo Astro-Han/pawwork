@@ -37,7 +37,24 @@ describe("SessionStatus.Info schema", () => {
     }
   })
 
-  test("parses safe recovery retry with stable reason", () => {
+  test("parses recovery retry with stable reason", () => {
+    const result = SessionStatus.Info.parse({
+      type: "retry",
+      attempt: 1,
+      message: "",
+      next: 1_000,
+      presentation: "recovery",
+      reason: "network_connection_dropped",
+    })
+    expect(result.type).toBe("retry")
+    if (result.type === "retry") {
+      expect(result.message).toBe("")
+      expect(result.presentation).toBe("recovery")
+      expect(result.reason).toBe("network_connection_dropped")
+    }
+  })
+
+  test("parses legacy safe recovery retry presentation", () => {
     const result = SessionStatus.Info.parse({
       type: "retry",
       attempt: 1,
@@ -48,9 +65,7 @@ describe("SessionStatus.Info schema", () => {
     })
     expect(result.type).toBe("retry")
     if (result.type === "retry") {
-      expect(result.message).toBe("")
       expect(result.presentation).toBe("safe_recovery")
-      expect(result.reason).toBe("network_connection_dropped")
     }
   })
 

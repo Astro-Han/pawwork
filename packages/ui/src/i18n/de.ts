@@ -48,8 +48,9 @@ export const dict = {
   "ui.sessionTurn.retry.attempt": "Versuch #{{attempt}}",
   "ui.sessionTurn.retry.attemptLine": "{{line}} - Versuch #{{attempt}}",
   "ui.sessionTurn.retry.geminiHot": "gemini ist gerade sehr überlastet",
+  "ui.sessionTurn.retry.recovery": "Recovering...",
   "ui.sessionTurn.retry.safeRecovery": "Network connection dropped, retrying automatically",
-  "ui.sessionTurn.notice.safeRetryFailed": "Network connection dropped. Automatic retry did not complete.",
+  "ui.sessionTurn.notice.safeRetryFailed": "Recovery failed. Try again later or switch models.",
   "ui.sessionTurn.error.freeUsageExceeded": "Kostenloses Nutzungslimit überschritten",
   "ui.sessionTurn.error.addCredits": "Guthaben aufladen",
 

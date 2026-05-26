@@ -46,8 +46,9 @@ export const dict: Record<Keys, string> = {
   "ui.sessionTurn.retry.attempt": "forsøk #{{attempt}}",
   "ui.sessionTurn.retry.attemptLine": "{{line}} - forsøk #{{attempt}}",
   "ui.sessionTurn.retry.geminiHot": "gemini er veldig overbelastet nå",
+  "ui.sessionTurn.retry.recovery": "Recovering...",
   "ui.sessionTurn.retry.safeRecovery": "Network connection dropped, retrying automatically",
-  "ui.sessionTurn.notice.safeRetryFailed": "Network connection dropped. Automatic retry did not complete.",
+  "ui.sessionTurn.notice.safeRetryFailed": "Recovery failed. Try again later or switch models.",
   "ui.sessionTurn.error.freeUsageExceeded": "Gratis bruk overskredet",
   "ui.sessionTurn.error.addCredits": "Legg til kreditt",
 

@@ -1405,6 +1405,23 @@ export const layer: Layer.Layer<
                 RunObservability.sideEffectBoundarySnapshot(LLM.resolveTools(streamInput)),
               ),
             })
+            ctx.runTrace.recordRecoveryDecision({
+              attemptID,
+              at: Date.now(),
+              monotonicMs: performance.now(),
+              technical_retryable: retryDecision.technicalRetryability.retryable,
+              technical_retry_blocked_reason: retryDecision.technicalRetryability.retryable
+                ? undefined
+                : retryDecision.technicalRetryability.reason,
+              safety_gate_decision: retryDecision.safetyGateDecision,
+              recovery_mode: retryDecision.recoveryMode,
+              blocked_reason: retryDecision.blockedReason,
+              attempt_kind: retryDecision.attemptKind,
+              model_stream_attempt: retryDecision.modelStreamAttempt,
+              safe_recovery_attempt: retryDecision.safeRecoveryAttempt,
+              timeout_policy: retryDecision.timeoutPolicy,
+              presentation: retryDecision.presentation,
+            })
 
             if (attemptID && retryDecision.canRetry && retryDecision.recoveryMode === "replay") {
               const beforeRetry = yield* retryStillAllowed("before_backoff")

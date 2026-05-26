@@ -77,8 +77,9 @@ export const dict = {
   "ui.sessionTurn.retry.attempt": "第 {{attempt}} 次",
   "ui.sessionTurn.retry.attemptLine": "{{line}} - 第 {{attempt}} 次",
   "ui.sessionTurn.retry.geminiHot": "gemini 当前过载",
-  "ui.sessionTurn.retry.safeRecovery": "模型暂时没有响应，正在重试…",
-  "ui.sessionTurn.notice.safeRetryFailed": "模型暂时没有响应。你可以稍后再试，或换一个模型。",
+  "ui.sessionTurn.retry.recovery": "正在恢复…",
+  "ui.sessionTurn.retry.safeRecovery": "正在恢复…",
+  "ui.sessionTurn.notice.safeRetryFailed": "恢复失败。你可以稍后再试，或换一个模型。",
   "ui.sessionTurn.error.freeUsageExceeded": "免费使用额度已用完",
   "ui.sessionTurn.error.addCredits": "添加积分",
 

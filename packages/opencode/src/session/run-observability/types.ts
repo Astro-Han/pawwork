@@ -101,6 +101,27 @@ export type AttemptSummary = {
   unsafe_side_effect_started: boolean
 }
 
+export type RecoveryDecisionDiagnostics = {
+  attempt_id?: AttemptID
+  technical_retryable: boolean
+  technical_retry_blocked_reason?: "not_retryable" | "terminal_classification"
+  safety_gate_recommendation: RunIncident.Recovery["recommendation"]
+  safety_gate_reason: RunIncident.Recovery["reason"]
+  safety_gate_confidence: RunIncident.Recovery["confidence"]
+  recovery_mode: "replay" | "auto_replay_blocked" | "ask_user" | "offer_continue" | "stop"
+  blocked_reason?: string
+  attempt_kind?: "provider_retry" | "safe_recovery_replay"
+  model_stream_attempt: number
+  safe_recovery_attempt: number
+  timeout_policy: "default" | "reasoning_global_protected" | "reasoning_first_attempt" | "reasoning_safe_recovery"
+  presentation: "default" | "recovery" | "safe_recovery" | "safe_recovery_failed"
+  retry_attempted: boolean
+  failed_attempt_provider_progress_seen: boolean
+  recovery_attempt_id?: AttemptID
+  recovery_attempt_provider_progress_seen: boolean
+  outcome: "recovered" | "retrying" | "blocked" | "failed" | "stopped"
+}
+
 export type Summary = {
   schema_version: typeof SCHEMA_VERSION
   run_id: RunID
@@ -132,6 +153,7 @@ export type Summary = {
   pending_tool_parts_interrupted?: number
   incident?: RunIncident.Summary
   recovered_incidents?: RunIncident.Summary[]
+  recovery_decision?: RecoveryDecisionDiagnostics
   lifecycle?: {
     action_id: string
     kind: LifecycleKind
@@ -226,6 +248,21 @@ export type Recorder = {
     watchdog?: { phase: "connect" | "silent_stream" | "unknown" }
     retryable?: boolean
   }): RunIncident.Recovery
+  recordRecoveryDecision(input: {
+    attemptID?: AttemptID
+    at: number
+    monotonicMs: number
+    technical_retryable: boolean
+    technical_retry_blocked_reason?: "not_retryable" | "terminal_classification"
+    safety_gate_decision: RunIncident.Recovery
+    recovery_mode: RecoveryDecisionDiagnostics["recovery_mode"]
+    blocked_reason?: string
+    attempt_kind?: RecoveryDecisionDiagnostics["attempt_kind"]
+    model_stream_attempt: number
+    safe_recovery_attempt: number
+    timeout_policy: RecoveryDecisionDiagnostics["timeout_policy"]
+    presentation: RecoveryDecisionDiagnostics["presentation"]
+  }): void
   recordAutoRetryAttempted(input: { attemptID: AttemptID; at: number; monotonicMs: number }): void
   recordTransportFailure(input: {
     attemptID?: AttemptID

@@ -40,7 +40,7 @@ export function SessionRetry(props: {
   })
   const safeRecoveryRetry = createMemo(() => {
     const current = retry()
-    if (current?.presentation !== "safe_recovery") return
+    if (current?.presentation !== "recovery" && current?.presentation !== "safe_recovery") return
     return current
   })
   const [seconds, setSeconds] = createSignal(0)
@@ -113,7 +113,7 @@ export function SessionRetry(props: {
               <div data-slot="session-turn-safe-retry" class="flex items-center gap-2 text-caption text-fg-weak">
                 <Spinner class="size-3.5" />
                 <div data-slot="session-turn-safe-retry-message">
-                  {i18n.t("ui.sessionTurn.retry.safeRecovery")}
+                  {i18n.t("ui.sessionTurn.retry.recovery")}
                 </div>
               </div>
             )}

@@ -391,7 +391,7 @@ attemptTimeoutIt.live("reasoning connect watchdog is attempt-scoped for before-p
         expect(retryStatus).toMatchObject({
           type: "retry",
           message: "",
-          presentation: "safe_recovery",
+          presentation: "recovery",
           reason: "network_connection_dropped",
         })
         expect(handle.message.diagnostics?.run_observability?.attempts).toMatchObject([
@@ -1752,7 +1752,7 @@ it.live("reasoning-only retry removes failed reasoning before replaying the assi
         expect(retryStatus).toMatchObject({
           type: "retry",
           message: "",
-          presentation: "safe_recovery",
+          presentation: "recovery",
           reason: "network_connection_dropped",
         })
         expect(parts.some((part) => part.type === "reasoning")).toBe(false)

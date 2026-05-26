@@ -20,7 +20,7 @@ export type RetryTimeoutPolicy =
   | "reasoning_global_protected"
   | "reasoning_first_attempt"
   | "reasoning_safe_recovery"
-export type RetryPresentation = "default" | "safe_recovery" | "safe_recovery_failed"
+export type RetryPresentation = "default" | "recovery" | "safe_recovery_failed"
 export type RetryBlockedReason =
   | "technical_not_retryable"
   | "terminal_classification"
@@ -82,7 +82,7 @@ export function buildModelRetryDecision(input: {
       canRetry: true,
       recoveryMode: safety.recoveryMode,
       attemptKind: "safe_recovery_replay",
-      presentation: "safe_recovery",
+      presentation: "recovery",
     }
   }
   const blockedSafeRecoveryReplay = safety.recoveryMode === "auto_replay_blocked"
