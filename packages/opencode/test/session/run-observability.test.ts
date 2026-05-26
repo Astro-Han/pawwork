@@ -1088,8 +1088,30 @@ describe("RunObservability", () => {
         },
       ],
       [
+        "provider-executed capability with complete facts",
+        {
+          side_effect_facts_complete: true,
+          side_effect_boundary_snapshot: {
+            ...beforeProgressFacts().side_effect_boundary_snapshot!,
+            provider_executed_capability_present: true,
+            proof_reason: "provider_executed_capability",
+          },
+        },
+      ],
+      [
         "external boundary",
         {
+          side_effect_boundary_snapshot: {
+            ...beforeProgressFacts().side_effect_boundary_snapshot!,
+            external_boundary_present: true,
+            proof_reason: "external_boundary",
+          },
+        },
+      ],
+      [
+        "external boundary with complete facts",
+        {
+          side_effect_facts_complete: true,
           side_effect_boundary_snapshot: {
             ...beforeProgressFacts().side_effect_boundary_snapshot!,
             external_boundary_present: true,

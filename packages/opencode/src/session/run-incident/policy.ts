@@ -40,6 +40,14 @@ export function recoveryFor(input: {
       auto_retry: { max_attempts: 1, backoff_ms: 1_000 },
     }
   }
+  if (isBeforeFirstProviderProgressCause(input.cause) && beforeProgressBoundaryEvidenceBlocksRetry(terminalFacts)) {
+    return {
+      ...base,
+      recommendation: "ask_user_before_retry",
+      confidence: "high",
+      reason: "side_effect_facts_incomplete",
+    }
+  }
   if (
     retryableTransport &&
     noToolActivity &&
@@ -192,6 +200,14 @@ function boundaryAllowsBeforeProgressRetry(facts: IncidentFacts) {
     return false
   }
   return true
+}
+
+function beforeProgressBoundaryEvidenceBlocksRetry(facts: IncidentFacts) {
+  const snapshot = facts.side_effect_boundary_snapshot
+  if (!snapshot) return false
+  if (snapshot.provider_executed_capability_present !== false) return true
+  if (snapshot.external_boundary_present !== false) return true
+  return snapshot.proof_reason === "provider_executed_capability" || snapshot.proof_reason === "external_boundary"
 }
 
 function boundaryAllowsReasoningRetry(facts: IncidentFacts) {
