@@ -76,11 +76,32 @@ export namespace FileWatcher {
     return message.includes("Events were dropped") && message.includes("File system must be re-scanned")
   }
 
+  export type WatchScope = "workspace" | "vcs"
+  export type RescanIncidentSummary = {
+    directory: string
+    request_count: number
+    coalesced_count: number
+    leading_published: boolean
+    trailing_published: boolean
+    quiet_ms: number
+    duration_ms: number
+  }
+
   export function createRescanScheduler(input: {
     publish: (directory: string) => void
     schedule?: (callback: () => void) => (() => void) | void
+    now?: () => number
+    onIncidentSettled?: (summary: RescanIncidentSummary) => void
   }) {
-    type RescanState = { dirty: boolean; needsTrailing: boolean; cancel?: () => void }
+    type RescanState = {
+      dirty: boolean
+      needsTrailing: boolean
+      cancel?: () => void
+      startedAt: number
+      requestCount: number
+      leadingPublished: boolean
+      trailingPublished: boolean
+    }
     const pending = new Map<string, RescanState>()
     const schedule = (callback: () => void) => {
       const cancel = input.schedule?.(callback)
@@ -88,7 +109,20 @@ export namespace FileWatcher {
       const timer = setTimeout(callback, RESCAN_QUIET_MS)
       return () => clearTimeout(timer)
     }
+    const now = () => input.now?.() ?? Date.now()
     let disposed = false
+
+    const settle = (directory: string, state: RescanState) => {
+      input.onIncidentSettled?.({
+        directory,
+        request_count: state.requestCount,
+        coalesced_count: Math.max(0, state.requestCount - 1),
+        leading_published: state.leadingPublished,
+        trailing_published: state.trailingPublished,
+        quiet_ms: RESCAN_QUIET_MS,
+        duration_ms: Math.max(0, now() - state.startedAt),
+      })
+    }
 
     const arm = (directory: string, state: RescanState) => {
       state.cancel = schedule(() => {
@@ -101,11 +135,14 @@ export namespace FileWatcher {
         }
         if (state.needsTrailing) {
           state.needsTrailing = false
+          state.trailingPublished = true
           pending.delete(directory)
           input.publish(directory)
+          settle(directory, state)
           return
         }
         pending.delete(directory)
+        settle(directory, state)
       })
     }
 
@@ -116,10 +153,18 @@ export namespace FileWatcher {
         if (state) {
           state.dirty = true
           state.needsTrailing = true
+          state.requestCount++
           return
         }
 
-        const next = { dirty: false, needsTrailing: false }
+        const next: RescanState = {
+          dirty: false,
+          needsTrailing: false,
+          startedAt: now(),
+          requestCount: 1,
+          leadingPublished: true,
+          trailingPublished: false,
+        }
         pending.set(directory, next)
         input.publish(directory)
         arm(directory, next)
@@ -142,6 +187,23 @@ export namespace FileWatcher {
     return [
       ...new Set([...FileIgnore.PATTERNS, ...WORKSPACE_SUBSCRIBE_ENTRIES, ...input.config, ...input.protected]),
     ]
+  }
+
+  export function watcherSubscriptionDiagnostics(input: {
+    directory: string
+    backend: string
+    ignore: string[]
+    scope: WatchScope
+    vcsDir?: string
+  }) {
+    return {
+      dir: input.directory,
+      backend: input.backend,
+      watch_scope: input.scope,
+      ignore_count: input.ignore.length,
+      ignores_worktrees: input.ignore.includes(".worktrees"),
+      ...(input.vcsDir ? { vcs_dir: input.vcsDir } : {}),
+    }
   }
 
   export function shouldPublishVcsWatcherPath(file: string, vcsDir: string) {
@@ -193,6 +255,9 @@ export namespace FileWatcher {
                   log.warn("failed to publish watcher rescan", { dir, error }),
                 )
               },
+              onIncidentSettled: (summary) => {
+                log.warn("watcher rescan incident settled", summary)
+              },
               schedule: (callback) => {
                 const timer = setTimeout(() => Instance.restore(ctx, callback), RESCAN_QUIET_MS)
                 return () => clearTimeout(timer)
@@ -238,12 +303,22 @@ export namespace FileWatcher {
             const cfgIgnores = cfg.watcher?.ignore ?? []
 
             if (yield* Flag.OPENCODE_EXPERIMENTAL_FILEWATCHER) {
+              const ignore = workspaceWatcherIgnoreEntries({
+                config: cfgIgnores,
+                protected: protecteds(ctx.directory),
+              })
+              log.info(
+                "watcher subscription configured",
+                watcherSubscriptionDiagnostics({
+                  directory: ctx.directory,
+                  backend,
+                  ignore,
+                  scope: "workspace",
+                }),
+              )
               yield* subscribe(
                 ctx.directory,
-                workspaceWatcherIgnoreEntries({
-                  config: cfgIgnores,
-                  protected: protecteds(ctx.directory),
-                }),
+                ignore,
               )
             }
 
@@ -255,6 +330,16 @@ export namespace FileWatcher {
                 result.exitCode === 0 ? path.resolve(ctx.project.worktree, result.text().trim()) : undefined
               if (vcsDir && !cfgIgnores.includes(".git") && !cfgIgnores.includes(vcsDir)) {
                 const ignore = vcsWatcherIgnoreEntries(yield* Effect.promise(() => readdir(vcsDir).catch(() => [])))
+                log.info(
+                  "watcher subscription configured",
+                  watcherSubscriptionDiagnostics({
+                    directory: vcsDir,
+                    backend,
+                    ignore,
+                    scope: "vcs",
+                    vcsDir,
+                  }),
+                )
                 yield* subscribe(vcsDir, ignore, (file) => shouldPublishVcsWatcherPath(file, vcsDir))
               }
             }

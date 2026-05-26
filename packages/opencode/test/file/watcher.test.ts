@@ -158,6 +158,23 @@ describe("FileWatcher git metadata filtering", () => {
     expect(entries).toContain("/secret")
   })
 
+  test("summarizes workspace watcher subscription diagnostics", () => {
+    expect(
+      FileWatcher.watcherSubscriptionDiagnostics({
+        directory: "/repo",
+        backend: "fs-events",
+        ignore: [".worktrees", "node_modules"],
+        scope: "workspace",
+      }),
+    ).toEqual({
+      dir: "/repo",
+      backend: "fs-events",
+      watch_scope: "workspace",
+      ignore_count: 2,
+      ignores_worktrees: true,
+    })
+  })
+
   test("keeps review-diff git metadata subscribed", () => {
     expect(
       FileWatcher.vcsWatcherIgnoreEntries(["HEAD", "index", "packed-refs", "refs", "objects", "logs", "hooks"]),
