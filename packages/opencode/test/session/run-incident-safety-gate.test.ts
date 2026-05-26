@@ -21,8 +21,6 @@ describe("run incident safety gate", () => {
     expect(decision).toMatchObject({
       canReplay: true,
       recoveryMode: "replay",
-      attemptKind: "safe_recovery_replay",
-      presentation: "safe_recovery",
     })
     expect(decision.blockedReason).toBeUndefined()
   })
@@ -42,8 +40,6 @@ describe("run incident safety gate", () => {
       canReplay: false,
       recoveryMode: "auto_replay_blocked",
       blockedReason: "safe_recovery_budget_exhausted",
-      attemptKind: "safe_recovery_replay",
-      presentation: "safe_recovery_failed",
     })
   })
 
@@ -61,9 +57,7 @@ describe("run incident safety gate", () => {
       canReplay: false,
       recoveryMode: "offer_continue",
       blockedReason: "visible_output_without_tool_execution",
-      presentation: "default",
     })
-    expect(decision.attemptKind).toBeUndefined()
   })
 
   test("blocks replay and requires user confirmation for ambiguous retry safety", () => {
@@ -81,9 +75,7 @@ describe("run incident safety gate", () => {
         canReplay: false,
         recoveryMode: "ask_user",
         blockedReason: "tool_call_materialized_without_execution",
-        presentation: "default",
       })
-      expect(decision.attemptKind).toBeUndefined()
     }
   })
 })

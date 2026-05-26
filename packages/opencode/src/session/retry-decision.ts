@@ -81,16 +81,17 @@ export function buildModelRetryDecision(input: {
       ...input,
       canRetry: true,
       recoveryMode: safety.recoveryMode,
-      attemptKind: safety.attemptKind,
-      presentation: safety.presentation,
+      attemptKind: "safe_recovery_replay",
+      presentation: "safe_recovery",
     }
   }
+  const blockedSafeRecoveryReplay = safety.recoveryMode === "auto_replay_blocked"
   return {
     ...input,
     canRetry: false,
     recoveryMode: safety.recoveryMode,
     blockedReason: safety.blockedReason,
-    attemptKind: safety.attemptKind,
-    presentation: safety.presentation,
+    attemptKind: blockedSafeRecoveryReplay ? "safe_recovery_replay" : undefined,
+    presentation: blockedSafeRecoveryReplay ? "safe_recovery_failed" : "default",
   }
 }

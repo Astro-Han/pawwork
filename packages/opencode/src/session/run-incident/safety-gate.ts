@@ -4,8 +4,6 @@ export type ReplaySafetyDecision = {
   canReplay: boolean
   recoveryMode: "replay" | "auto_replay_blocked" | "ask_user" | "offer_continue" | "stop"
   blockedReason?: "safe_recovery_budget_exhausted" | RecoveryDecision["reason"]
-  attemptKind?: "safe_recovery_replay"
-  presentation: "default" | "safe_recovery" | "safe_recovery_failed"
 }
 
 export function evaluateReplaySafety(input: {
@@ -20,16 +18,12 @@ export function evaluateReplaySafety(input: {
       return {
         canReplay: true,
         recoveryMode: "replay",
-        attemptKind: "safe_recovery_replay",
-        presentation: "safe_recovery",
       }
     }
     return {
       canReplay: false,
       recoveryMode: "auto_replay_blocked",
       blockedReason: "safe_recovery_budget_exhausted",
-      attemptKind: "safe_recovery_replay",
-      presentation: "safe_recovery_failed",
     }
   }
 
@@ -38,7 +32,6 @@ export function evaluateReplaySafety(input: {
       canReplay: false,
       recoveryMode: "offer_continue",
       blockedReason: safety.reason,
-      presentation: "default",
     }
   }
 
@@ -50,7 +43,6 @@ export function evaluateReplaySafety(input: {
       canReplay: false,
       recoveryMode: "ask_user",
       blockedReason: safety.reason,
-      presentation: "default",
     }
   }
 
@@ -58,6 +50,5 @@ export function evaluateReplaySafety(input: {
     canReplay: false,
     recoveryMode: "stop",
     blockedReason: safety.reason,
-    presentation: "default",
   }
 }
