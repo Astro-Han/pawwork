@@ -21,6 +21,7 @@ import {
 import { shouldApplyTimelineRecoveryForObservation } from "@/pages/session/timeline-layout-recovery-policy"
 import {
   createSessionTimelineScrollController,
+  isWeakUpwardTimelineIntent,
   type TimelineRecovery,
   type TimelineScrollControllerResult,
   type TimelineScrollIntent,
@@ -190,11 +191,6 @@ export function createSessionTimelineInteraction(input: {
 
   let scrollDock!: ReturnType<typeof createSessionScrollDock>
   const latestProtectionBandPx = 120
-  const isWeakUpwardTimelineIntent = (intent: TimelineScrollIntent) =>
-    (intent.type === "wheel_scroll" || intent.type === "touch_scroll") &&
-    intent.direction === "up" &&
-    intent.strength === "weak" &&
-    !intent.nestedScrollable
   const isLatestProtected = () => {
     const state = scrollController.state()
     return state.mode === "following_latest" && state.latestProtected

@@ -340,7 +340,7 @@ function isExplicitTopIntent(intent: TimelineScrollIntent) {
   return false
 }
 
-function isWeakUpwardTimelineIntent(intent: TimelineScrollIntent) {
+export function isWeakUpwardTimelineIntent(intent: TimelineScrollIntent) {
   return (
     (intent.type === "wheel_scroll" || intent.type === "touch_scroll") &&
     intent.direction === "up" &&
