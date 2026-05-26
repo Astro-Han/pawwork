@@ -3,6 +3,48 @@ import { MessageID, SessionID } from "../../src/session/schema"
 import { RunIncident } from "../../src/session/run-incident"
 import { RunObservability } from "../../src/session/run-observability"
 
+const beforeProgressCause = {
+  category: "provider_transport_disconnect",
+  subcategory: "before_first_provider_progress",
+  confidence: "medium",
+} satisfies RunIncident.TerminalCause
+
+function beforeProgressFacts(overrides: Partial<RunIncident.Facts> = {}): RunIncident.Facts {
+  return {
+    provider_progress_seen: false,
+    visible_output_seen: false,
+    text_output_started: false,
+    reasoning_output_started: false,
+    tool_input_started: false,
+    tool_input_completed: false,
+    tool_call_materialized: false,
+    tool_execution_started: false,
+    tool_execution_completed: false,
+    read_only_tool_started: false,
+    unsafe_side_effect_started: false,
+    unsafe_side_effect_kinds: [],
+    side_effect_facts_complete: false,
+    side_effect_boundary_snapshot: {
+      exposed_tool_count: 16,
+      unknown_tool_count: 10,
+      unclassified_effect_count: 10,
+      provider_executed_capability_present: false,
+      external_boundary_present: false,
+      proof_result: "incomplete",
+      proof_reason: "unknown_tool_boundary",
+    },
+    lifecycle_close_seen: false,
+    user_cancel_seen: false,
+    watchdog_fired: false,
+    ...overrides,
+  }
+}
+
+function recoveryForBeforeProgress(overrides: Partial<RunIncident.Facts> = {}, retryable = true) {
+  const facts = beforeProgressFacts(overrides)
+  return RunIncident.recoveryFor({ cause: beforeProgressCause, facts, retryable })
+}
+
 describe("RunObservability", () => {
   test("does not treat stream lifecycle events as provider progress", () => {
     expect(RunObservability.isProviderProgressEvent({ type: "start" })).toBe(false)
@@ -951,7 +993,7 @@ describe("RunObservability", () => {
     expect(summary.incident?.evidence?.map((event) => event.event_type)).toContain("provider_executed_tool_boundary")
   })
 
-  test("unknown request side-effect boundary prevents auto retry before local tool events", () => {
+  test("unknown exposed tools still allow retry before first provider progress when no tool activity occurred", () => {
     const recorder = RunObservability.createRecorder({
       runID: RunObservability.RunID.make("run_unknown_request_boundary"),
       traceID: MessageID.make("msg_unknown_request_boundary"),
@@ -988,6 +1030,7 @@ describe("RunObservability", () => {
         cause: { name: "SocketError", message: "other side closed", code: "UND_ERR_SOCKET" },
       },
       evidence: ["iterator_error"],
+      retryable: true,
     })
 
     const summary = recorder.finalize({ completedAt: 14, monotonicMs: 140 })
@@ -1003,10 +1046,69 @@ describe("RunObservability", () => {
       proof_reason: "unknown_tool_boundary",
     })
     expect(decision).toMatchObject({
+      recommendation: "auto_retry_once",
+      reason: "no_visible_output_or_tool_execution",
+    })
+    expect(summary.incident?.recovery).toMatchObject({
+      recommendation: "auto_retry_once",
+      reason: "no_visible_output_or_tool_execution",
+    })
+  })
+
+  test("before-progress retry stays conservative when the boundary snapshot is missing", () => {
+    const decision = recoveryForBeforeProgress({ side_effect_boundary_snapshot: undefined })
+
+    expect(decision).toMatchObject({
       recommendation: "ask_user_before_retry",
       reason: "side_effect_facts_incomplete",
     })
-    expect(summary.incident?.recovery).toMatchObject({
+  })
+
+  test("before-progress retry fails closed for output, tool activity, or external boundary evidence", () => {
+    const cases: Array<[string, Partial<RunIncident.Facts>]> = [
+      ["visible output", { visible_output_seen: true }],
+      ["text output", { text_output_started: true }],
+      ["reasoning output", { reasoning_output_started: true }],
+      ["tool input started", { tool_input_started: true }],
+      ["tool input completed", { tool_input_completed: true }],
+      ["tool call materialized", { tool_call_materialized: true }],
+      ["tool execution started", { tool_execution_started: true }],
+      ["tool execution completed", { tool_execution_completed: true }],
+      ["read-only tool started", { read_only_tool_started: true }],
+      ["unsafe side effect", { unsafe_side_effect_started: true }],
+      ["pending tool parts", { pending_tool_parts_interrupted: 1 }],
+      [
+        "provider-executed capability",
+        {
+          side_effect_boundary_snapshot: {
+            ...beforeProgressFacts().side_effect_boundary_snapshot!,
+            provider_executed_capability_present: true,
+            proof_reason: "provider_executed_capability",
+          },
+        },
+      ],
+      [
+        "external boundary",
+        {
+          side_effect_boundary_snapshot: {
+            ...beforeProgressFacts().side_effect_boundary_snapshot!,
+            external_boundary_present: true,
+            proof_reason: "external_boundary",
+          },
+        },
+      ],
+    ]
+
+    for (const [name, overrides] of cases) {
+      const decision = recoveryForBeforeProgress(overrides)
+      expect(decision, name).not.toMatchObject({ recommendation: "auto_retry_once" })
+    }
+  })
+
+  test("before-progress retry is denied when the transport error is not retryable", () => {
+    const decision = recoveryForBeforeProgress({}, false)
+
+    expect(decision).toMatchObject({
       recommendation: "ask_user_before_retry",
       reason: "side_effect_facts_incomplete",
     })
