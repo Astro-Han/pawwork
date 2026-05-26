@@ -159,18 +159,22 @@ describe("FileWatcher git metadata filtering", () => {
   })
 
   test("summarizes workspace watcher subscription diagnostics", () => {
-    expect(
-      FileWatcher.watcherSubscriptionDiagnostics({
-        directory: "/repo",
-        backend: "fs-events",
-        ignore: [".worktrees", "node_modules"],
-        scope: "workspace",
-      }),
-    ).toEqual({
+    const subscription = FileWatcher.workspaceWatcherSubscription({
+      directory: "/repo",
+      backend: "fs-events",
+      configIgnores: ["custom-cache"],
+      protectedPaths: ["/secret"],
+    })
+
+    expect(subscription.ignore).toContain("node_modules")
+    expect(subscription.ignore).toContain(".worktrees")
+    expect(subscription.ignore).toContain("custom-cache")
+    expect(subscription.ignore).toContain("/secret")
+    expect(subscription.diagnostics).toEqual({
       dir: "/repo",
       backend: "fs-events",
       watch_scope: "workspace",
-      ignore_count: 2,
+      ignore_count: subscription.ignore.length,
       ignores_worktrees: true,
     })
   })

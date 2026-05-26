@@ -23,7 +23,7 @@ export namespace FileWatcher {
   const log = Log.create({ service: "file.watcher" })
   const SUBSCRIBE_TIMEOUT_MS = 10_000
   const RESCAN_QUIET_MS = 1_000
-  const WORKSPACE_SUBSCRIBE_ENTRIES = [".worktrees"]
+  const WORKSPACE_IGNORE_ENTRIES = [".worktrees"]
   const VCS_SUBSCRIBE_ENTRIES = new Set(["HEAD", "index", "packed-refs", "refs"])
   const VCS_REFRESH_FILES = new Set(["HEAD", "index", "packed-refs"])
   const VCS_REFRESH_PREFIXES = ["refs/heads/", "refs/remotes/"]
@@ -184,9 +184,7 @@ export namespace FileWatcher {
   }
 
   export function workspaceWatcherIgnoreEntries(input: { config: string[]; protected: string[] }) {
-    return [
-      ...new Set([...FileIgnore.PATTERNS, ...WORKSPACE_SUBSCRIBE_ENTRIES, ...input.config, ...input.protected]),
-    ]
+    return [...new Set([...FileIgnore.PATTERNS, ...WORKSPACE_IGNORE_ENTRIES, ...input.config, ...input.protected])]
   }
 
   export function watcherSubscriptionDiagnostics(input: {
@@ -203,6 +201,27 @@ export namespace FileWatcher {
       ignore_count: input.ignore.length,
       ignores_worktrees: input.ignore.includes(".worktrees"),
       ...(input.vcsDir ? { vcs_dir: input.vcsDir } : {}),
+    }
+  }
+
+  export function workspaceWatcherSubscription(input: {
+    directory: string
+    backend: string
+    configIgnores: string[]
+    protectedPaths: string[]
+  }) {
+    const ignore = workspaceWatcherIgnoreEntries({
+      config: input.configIgnores,
+      protected: input.protectedPaths,
+    })
+    return {
+      ignore,
+      diagnostics: watcherSubscriptionDiagnostics({
+        directory: input.directory,
+        backend: input.backend,
+        ignore,
+        scope: "workspace",
+      }),
     }
   }
 
@@ -303,22 +322,16 @@ export namespace FileWatcher {
             const cfgIgnores = cfg.watcher?.ignore ?? []
 
             if (yield* Flag.OPENCODE_EXPERIMENTAL_FILEWATCHER) {
-              const ignore = workspaceWatcherIgnoreEntries({
-                config: cfgIgnores,
-                protected: protecteds(ctx.directory),
+              const workspaceSubscription = workspaceWatcherSubscription({
+                directory: ctx.directory,
+                backend,
+                configIgnores: cfgIgnores,
+                protectedPaths: protecteds(ctx.directory),
               })
-              log.info(
-                "watcher subscription configured",
-                watcherSubscriptionDiagnostics({
-                  directory: ctx.directory,
-                  backend,
-                  ignore,
-                  scope: "workspace",
-                }),
-              )
+              log.info("watcher subscription configured", workspaceSubscription.diagnostics)
               yield* subscribe(
                 ctx.directory,
-                ignore,
+                workspaceSubscription.ignore,
               )
             }
 
