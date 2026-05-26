@@ -5,6 +5,7 @@ const retry = readFileSync(new URL("./session-retry.tsx", import.meta.url), "utf
 const notice = readFileSync(new URL("./message-part/parts/notice.tsx", import.meta.url), "utf8")
 const en = readFileSync(new URL("../i18n/en.ts", import.meta.url), "utf8")
 const zh = readFileSync(new URL("../i18n/zh.ts", import.meta.url), "utf8")
+const zht = readFileSync(new URL("../i18n/zht.ts", import.meta.url), "utf8")
 
 test("safe recovery retry uses a lightweight status row instead of the error card", () => {
   expect(retry).toContain('presentation !== "safe_recovery"')
@@ -29,4 +30,6 @@ test("safe retry copy stays short and non-technical in English and Chinese", () 
   )
   expect(zh).toContain('"ui.sessionTurn.retry.safeRecovery": "模型暂时没有响应，正在重试…"')
   expect(zh).toContain('"ui.sessionTurn.notice.safeRetryFailed": "模型暂时没有响应。你可以稍后再试，或换一个模型。"')
+  expect(zht).toContain('"ui.sessionTurn.retry.safeRecovery": "模型暫時沒有回應，正在重試…"')
+  expect(zht).toContain('"ui.sessionTurn.notice.safeRetryFailed": "模型暫時沒有回應。你可以稍後再試，或換一個模型。"')
 })
