@@ -477,7 +477,7 @@ export function createSessionTimelineScrollController(
           before,
           intent,
           accepted: true,
-          recovery: noRecovery,
+          recovery: { type: "restore_latest", reason: "latest_protected_weak_upward_ignored" },
           reason: "latest_protected_weak_upward_ignored",
         })
       }

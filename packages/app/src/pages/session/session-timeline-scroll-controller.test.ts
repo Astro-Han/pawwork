@@ -390,7 +390,10 @@ describe("session timeline scroll controller", () => {
     })
 
     expect(intentResult.reason).toBe("latest_protected_weak_upward_ignored")
-    expect(intentResult.recovery).toEqual({ type: "none" })
+    expect(intentResult.recovery).toEqual({
+      type: "restore_latest",
+      reason: "latest_protected_weak_upward_ignored",
+    })
     expect(scrollResult.accepted).toBe(false)
     expect(scrollResult.recovery).toEqual({
       type: "restore_latest",
@@ -417,7 +420,10 @@ describe("session timeline scroll controller", () => {
     })
 
     expect(result.reason).toBe("latest_protected_weak_upward_ignored")
-    expect(result.recovery).toEqual({ type: "none" })
+    expect(result.recovery).toEqual({
+      type: "restore_latest",
+      reason: "latest_protected_weak_upward_ignored",
+    })
     expect(controller.state().mode).toBe("following_latest")
     expect(controller.state().latestProtected).toBe(true)
   })

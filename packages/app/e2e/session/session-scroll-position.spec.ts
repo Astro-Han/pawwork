@@ -101,7 +101,7 @@ async function wheelTimelineUpWeakly(page: Page) {
   }, scrollViewportSelector)
   expect(box, "session timeline viewport should exist").not.toBeNull()
   await page.mouse.move(box!.x, box!.y)
-  await page.mouse.wheel(0, -48)
+  await page.mouse.wheel(0, -140)
 }
 
 async function installTimelineScrollProbe(page: Page) {
@@ -615,17 +615,27 @@ test("keeps latest pinned when weak upward wheel lands during answer completion"
     await expect.poll(() => assistant.calls(), { timeout: 30_000 }).toBeGreaterThan(beforeCalls)
 
     const diagnosticCheckpoint = (await readRendererDiagnostics(page)).length
-    await wheelTimelineUpWeakly(page)
-    releaseReply()
+    await installTimelineScrollProbe(page)
+    let samples: TimelineScrollSample[] = []
+    const wheelStartedAt = await page.evaluate(() => performance.now())
+    try {
+      await wheelTimelineUpWeakly(page)
+      releaseReply()
 
-    await expect(page.locator(sessionMessageItemSelector).last()).toContainText(token, { timeout: 30_000 })
-    await expect
-      .poll(async () => (await expectTimelineMetrics(page)).distanceFromBottom, { timeout: 30_000 })
-      .toBeLessThan(60)
+      await expect(page.locator(sessionMessageItemSelector).last()).toContainText(token, { timeout: 30_000 })
+      await expect
+        .poll(async () => (await expectTimelineMetrics(page)).distanceFromBottom, { timeout: 30_000 })
+        .toBeLessThan(60)
+    } finally {
+      samples = await stopTimelineScrollProbe(page)
+    }
 
     const events = (await readRendererDiagnostics(page))
       .slice(diagnosticCheckpoint)
       .filter((event) => event.timeline_session_id === session.id)
+    const relevantSamples = samples.filter((sample) => sample.at >= wheelStartedAt)
+    const transientEscapes = relevantSamples.filter((sample) => sample.distanceFromBottom > 20)
+    expect(transientEscapes).toEqual([])
     expect(
       events.some(
         (event) =>

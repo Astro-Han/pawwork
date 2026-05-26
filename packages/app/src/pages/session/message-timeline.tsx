@@ -84,7 +84,7 @@ export function MessageTimeline(props: {
   onUserScroll: () => void
   onTurnBackfillScroll: () => void
   onAutoScrollInteraction: (event: MouseEvent) => void
-  onTimelineScrollIntent: (intent: TimelineScrollIntent) => void
+  onTimelineScrollIntent: (intent: TimelineScrollIntent) => TimelineScrollControllerResult
   onTimelineScrollObservation: (observation: TimelineScrollObservation) => TimelineScrollControllerResult
   centered: boolean
   setContentRef: (el: HTMLDivElement) => void
@@ -383,7 +383,11 @@ export function MessageTimeline(props: {
               deltaMode: e.deltaMode,
             })
             if (!result) return
-            props.onTimelineScrollIntent(result.intent)
+            const intentResult = props.onTimelineScrollIntent(result.intent)
+            if (intentResult.reason === "latest_protected_weak_upward_ignored") {
+              if (e.cancelable) e.preventDefault()
+              return
+            }
             if (shouldMarkTimelineBoundaryGesture(result.boundary)) props.onMarkScrollGesture(e.currentTarget)
           }}
           onTouchStart={(e) => {
@@ -404,7 +408,11 @@ export function MessageTimeline(props: {
               delta,
             })
             if (!result) return
-            props.onTimelineScrollIntent(result.intent)
+            const intentResult = props.onTimelineScrollIntent(result.intent)
+            if (intentResult.reason === "latest_protected_weak_upward_ignored") {
+              if (e.cancelable) e.preventDefault()
+              return
+            }
             if (shouldMarkTimelineBoundaryGesture(result.boundary)) props.onMarkScrollGesture(e.currentTarget)
           }}
           onTouchEnd={() => {
