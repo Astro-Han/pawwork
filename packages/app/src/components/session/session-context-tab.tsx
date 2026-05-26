@@ -191,9 +191,13 @@ export function SessionContextTab() {
     const c = ctx()
     const value = c?.cacheHitRate
     const raw = `${language.t("context.stats.cacheTokens")}: ${formatter().number(c?.cacheRead)} / ${formatter().number(c?.cacheWrite)}`
+    const hasCacheTokens = !!c && (c.cacheRead > 0 || c.cacheWrite > 0)
     return (
-      <span class={cacheHitRateClass(value)} title={raw}>
-        {formatter().percent(value)}
+      <span class="flex flex-col gap-1" title={raw}>
+        <span class={cacheHitRateClass(value)}>{formatter().percent(value)}</span>
+        <Show when={hasCacheTokens}>
+          <span class="text-body text-fg-weak">{raw}</span>
+        </Show>
       </span>
     )
   })

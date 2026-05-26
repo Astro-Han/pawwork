@@ -326,9 +326,14 @@ function flowParts(parts: Iterable<unknown>) {
     if (part && typeof part === "object" && "usage" in part && part.usage && typeof part.usage === "object") {
       const raw = part.usage as Record<string, unknown>
       if (typeof raw.prompt_tokens === "number" && typeof raw.completion_tokens === "number") {
+        const details =
+          raw.prompt_tokens_details && typeof raw.prompt_tokens_details === "object"
+            ? (raw.prompt_tokens_details as Record<string, unknown>)
+            : undefined
+        const cacheRead = typeof details?.cached_tokens === "number" ? details.cached_tokens : undefined
         out.push({
           type: "usage",
-          usage: { input: raw.prompt_tokens, output: raw.completion_tokens },
+          usage: { input: raw.prompt_tokens, output: raw.completion_tokens, cacheRead },
         })
       }
     }
