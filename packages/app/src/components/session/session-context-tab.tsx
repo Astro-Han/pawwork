@@ -62,6 +62,13 @@ function RawMessageContent(props: { message: Message; getParts: (id: string) => 
   )
 }
 
+function cacheHitRateClass(value: number | null | undefined) {
+  if (value === undefined || value === null) return "text-fg-strong"
+  if (value >= 90) return "text-success-text"
+  if (value >= 50) return "text-warning-text"
+  return "text-error-text"
+}
+
 function RawMessage(props: {
   message: Message
   getParts: (id: string) => Part[]
@@ -180,6 +187,21 @@ export function SessionContextTab() {
     return formatter().number(c.compactThreshold)
   })
 
+  const cacheHitRate = createMemo(() => {
+    const c = ctx()
+    const value = c?.cacheHitRate
+    const raw = `${language.t("context.stats.cacheTokens")}: ${formatter().number(c?.cacheRead)} / ${formatter().number(c?.cacheWrite)}`
+    const hasCacheTokens = !!c && (c.cacheRead > 0 || c.cacheWrite > 0)
+    return (
+      <span class="flex flex-col gap-1" title={raw}>
+        <span class={cacheHitRateClass(value)}>{formatter().percent(value)}</span>
+        <Show when={hasCacheTokens}>
+          <span class="text-body text-fg-weak">{raw}</span>
+        </Show>
+      </span>
+    )
+  })
+
   const breakdown = createMemo(
     on(
       () => [ctx()?.message.id, ctx()?.input, messages().length, systemPrompt()],
@@ -217,10 +239,7 @@ export function SessionContextTab() {
     { label: "context.stats.inputTokens", value: () => formatter().number(ctx()?.input) },
     { label: "context.stats.outputTokens", value: () => formatter().number(ctx()?.output) },
     { label: "context.stats.reasoningTokens", value: () => formatter().number(ctx()?.reasoning) },
-    {
-      label: "context.stats.cacheTokens",
-      value: () => `${formatter().number(ctx()?.cacheRead)} / ${formatter().number(ctx()?.cacheWrite)}`,
-    },
+    { label: "context.stats.cacheHitRate", value: cacheHitRate },
     { label: "context.stats.userMessages", value: () => counts().user.toLocaleString(language.intl()) },
     { label: "context.stats.assistantMessages", value: () => counts().assistant.toLocaleString(language.intl()) },
     { label: "context.stats.totalCost", value: cost },

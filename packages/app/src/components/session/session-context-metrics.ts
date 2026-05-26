@@ -43,6 +43,7 @@ type Context = {
   reasoning: number
   cacheRead: number
   cacheWrite: number
+  cacheHitRate: number | null
   total: number
   usagePercent: number | null
   usage: number | null
@@ -64,6 +65,13 @@ const lastAssistantWithTokens = (messages: Message[]) => {
     if (tokenTotal(msg) <= 0) continue
     return msg
   }
+}
+
+const cacheHitRate = (input: number, read: number, write: number) => {
+  const denominator = input + read + write
+  if (denominator <= 0) return null
+  if (read <= 0) return null
+  return Math.round((read / denominator) * 100)
 }
 
 const build = (messages: Message[] = [], providers: Provider[] = [], config: Config = {}): Metrics => {
@@ -99,6 +107,7 @@ const build = (messages: Message[] = [], providers: Provider[] = [], config: Con
       reasoning: message.tokens.reasoning,
       cacheRead: message.tokens.cache.read,
       cacheWrite: message.tokens.cache.write,
+      cacheHitRate: cacheHitRate(message.tokens.input, message.tokens.cache.read, message.tokens.cache.write),
       total,
       usagePercent: usage.usagePercent,
       usage: usage.usagePercent === null ? null : Math.round(usage.usagePercent),

@@ -9,34 +9,10 @@ export function recoveryFor(input: {
   const base = { safety_scope: "visible_output_and_tool_side_effects" as const }
   const terminalFacts = input.terminalFacts ?? input.facts
   const noToolActivity =
-    !terminalFacts.tool_input_started &&
-    !terminalFacts.tool_call_materialized &&
-    !terminalFacts.tool_execution_started
+    !terminalFacts.tool_input_started && !terminalFacts.tool_call_materialized && !terminalFacts.tool_execution_started
   const retryableTransport =
     input.retryable === true &&
     (input.cause.category === "provider_transport_disconnect" || input.cause.category === "watchdog_timeout")
-  if (noToolActivity && input.facts.user_cancel_seen) {
-    return { ...base, recommendation: "do_not_retry", confidence: "high", reason: "user_cancel" }
-  }
-  if (noToolActivity && input.facts.lifecycle_close_seen) {
-    return { ...base, recommendation: "do_not_retry", confidence: "high", reason: "local_lifecycle_close" }
-  }
-  if (
-    retryableTransport &&
-    noToolActivity &&
-    terminalFacts.reasoning_output_started &&
-    !terminalFacts.text_output_started &&
-    !terminalFacts.unsafe_side_effect_started &&
-    boundaryAllowsReasoningRetry(terminalFacts)
-  ) {
-    return {
-      ...base,
-      recommendation: "auto_retry_once",
-      confidence: "high",
-      reason: "reasoning_only_without_final_text_or_tool_activity",
-      auto_retry: { max_attempts: 1, backoff_ms: 1_000 },
-    }
-  }
   if (input.cause.category === "user_cancel") {
     return { ...base, recommendation: "do_not_retry", confidence: "high", reason: "user_cancel" }
   }
@@ -49,19 +25,43 @@ export function recoveryFor(input: {
     }
   }
   if (
-    retryableTransport &&
-    noToolActivity &&
-    !terminalFacts.visible_output_seen &&
-    !terminalFacts.text_output_started &&
-    !terminalFacts.reasoning_output_started &&
-    !terminalFacts.unsafe_side_effect_started &&
-    boundaryAllowsBeforeProgressRetry(terminalFacts)
+    canAutoRetryBeforeFirstProviderProgress({
+      cause: input.cause,
+      facts: input.facts,
+      terminalFacts,
+      retryableTransport,
+    })
   ) {
     return {
       ...base,
       recommendation: "auto_retry_once",
-      confidence: "medium",
+      confidence: "high",
       reason: "no_visible_output_or_tool_execution",
+      auto_retry: { max_attempts: 1, backoff_ms: 1_000 },
+    }
+  }
+  if (isBeforeFirstProviderProgressCause(input.cause) && beforeProgressBoundaryEvidenceBlocksRetry(terminalFacts)) {
+    return {
+      ...base,
+      recommendation: "ask_user_before_retry",
+      confidence: "high",
+      reason: "side_effect_facts_incomplete",
+    }
+  }
+  if (
+    retryableTransport &&
+    noToolActivity &&
+    !isBeforeFirstProviderProgressCause(input.cause) &&
+    terminalFacts.reasoning_output_started &&
+    !terminalFacts.text_output_started &&
+    !terminalFacts.unsafe_side_effect_started &&
+    boundaryAllowsReasoningRetry(terminalFacts)
+  ) {
+    return {
+      ...base,
+      recommendation: "auto_retry_once",
+      confidence: "high",
+      reason: "reasoning_only_without_final_text_or_tool_activity",
       auto_retry: { max_attempts: 1, backoff_ms: 1_000 },
     }
   }
@@ -137,6 +137,12 @@ export function recoveryFor(input: {
       reason: "visible_output_without_tool_execution",
     }
   }
+  if (input.facts.user_cancel_seen) {
+    return { ...base, recommendation: "do_not_retry", confidence: "high", reason: "user_cancel" }
+  }
+  if (input.facts.lifecycle_close_seen) {
+    return { ...base, recommendation: "do_not_retry", confidence: "high", reason: "local_lifecycle_close" }
+  }
   if (retryableTransport) {
     return {
       ...base,
@@ -149,15 +155,70 @@ export function recoveryFor(input: {
   return { ...base, recommendation: "unknown", confidence: "low", reason: "unknown" }
 }
 
-function boundaryAllowsReasoningRetry(facts: IncidentFacts) {
-  return boundaryAllowsSafeRetry(facts)
+function canAutoRetryBeforeFirstProviderProgress(input: {
+  cause: TerminalCause
+  facts: IncidentFacts
+  terminalFacts: IncidentFacts
+  retryableTransport: boolean
+}) {
+  if (!input.retryableTransport) return false
+  if (input.facts.user_cancel_seen || input.facts.lifecycle_close_seen) return false
+  if (!isBeforeFirstProviderProgressCause(input.cause)) return false
+  if (input.terminalFacts.provider_progress_seen) return false
+  if (!attemptHasNoOutputOrToolActivity(input.terminalFacts)) return false
+  return boundaryAllowsBeforeProgressRetry(input.terminalFacts)
+}
+
+function isBeforeFirstProviderProgressCause(cause: TerminalCause) {
+  if (cause.category === "provider_transport_disconnect") return cause.subcategory === "before_first_provider_progress"
+  if (cause.category === "watchdog_timeout") return cause.subcategory === "connect"
+  return false
+}
+
+function attemptHasNoOutputOrToolActivity(facts: IncidentFacts) {
+  return (
+    !facts.visible_output_seen &&
+    !facts.text_output_started &&
+    !facts.reasoning_output_started &&
+    !facts.tool_input_started &&
+    !facts.tool_input_completed &&
+    !facts.tool_call_materialized &&
+    !facts.tool_execution_started &&
+    !facts.tool_execution_completed &&
+    !facts.read_only_tool_started &&
+    !facts.unsafe_side_effect_started &&
+    (facts.pending_tool_parts_interrupted ?? 0) === 0
+  )
 }
 
 function boundaryAllowsBeforeProgressRetry(facts: IncidentFacts) {
-  return boundaryAllowsSafeRetry(facts)
+  const snapshot = facts.side_effect_boundary_snapshot
+  if (!snapshot) return false
+  if (snapshot.provider_executed_capability_present !== false) return false
+  if (snapshot.external_boundary_present !== false) return false
+  if (
+    snapshot.proof_reason === "provider_executed_capability" ||
+    snapshot.proof_reason === "external_boundary" ||
+    snapshot.proof_reason === "unknown"
+  ) {
+    return false
+  }
+  return true
 }
 
-function boundaryAllowsSafeRetry(facts: IncidentFacts) {
+function beforeProgressBoundaryEvidenceBlocksRetry(facts: IncidentFacts) {
+  const snapshot = facts.side_effect_boundary_snapshot
+  if (!snapshot) return true
+  if (snapshot.provider_executed_capability_present !== false) return true
+  if (snapshot.external_boundary_present !== false) return true
+  return (
+    snapshot.proof_reason === "provider_executed_capability" ||
+    snapshot.proof_reason === "external_boundary" ||
+    snapshot.proof_reason === "unknown"
+  )
+}
+
+function boundaryAllowsReasoningRetry(facts: IncidentFacts) {
   const snapshot = facts.side_effect_boundary_snapshot
   if (!snapshot) return false
   if (snapshot.provider_executed_capability_present) return false

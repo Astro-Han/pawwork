@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, mock, test, vi } from "bun:test"
+import { afterEach, describe, expect, mock, spyOn, test, vi } from "bun:test"
 import {
   forceOpenAllDetails,
   preserveDetailsOpenState,
@@ -303,6 +303,116 @@ describe("markdown code decoration", () => {
       cleanup()
     } finally {
       vi.useRealTimers()
+    }
+  })
+
+  test("hovering the copy button shows a tooltip on document.body and hides on leave", () => {
+    document.body.innerHTML =
+      '<div data-component="markdown-code"><pre><code>echo hi</code></pre><button type="button" data-slot="markdown-copy-button" data-tooltip="Copy to clipboard">Copy</button></div>'
+    const cleanup = setupCodeCopy(document.body as HTMLDivElement, () => ({
+      copy: "Copy to clipboard",
+      copied: "Copied",
+    }))
+    const button = document.querySelector("button")!
+
+    button.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }))
+    const tip = document.querySelector('[data-slot="markdown-copy-tooltip"]')
+    expect(tip).not.toBeNull()
+    expect(tip!.getAttribute("data-show")).toBe("true")
+    expect(tip!.textContent).toBe("Copy to clipboard")
+
+    button.dispatchEvent(new MouseEvent("mouseout", { bubbles: true }))
+    expect(tip!.getAttribute("data-show")).toBeNull()
+
+    cleanup()
+  })
+
+  test("dismisses the tooltip when its code block is removed from the DOM", async () => {
+    document.body.innerHTML =
+      '<div data-component="markdown-code"><pre><code>echo hi</code></pre><button type="button" data-slot="markdown-copy-button" data-tooltip="Copy to clipboard">Copy</button></div>'
+    const cleanup = setupCodeCopy(document.body as HTMLDivElement, () => ({
+      copy: "Copy to clipboard",
+      copied: "Copied",
+    }))
+    const button = document.querySelector("button")!
+
+    button.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }))
+    const tip = document.querySelector('[data-slot="markdown-copy-tooltip"]')!
+    expect(tip.getAttribute("data-show")).toBe("true")
+
+    // Markdown clears/re-renders content without any mouse or focus event;
+    // the MutationObserver must dismiss the now-orphaned tooltip.
+    document.querySelector('[data-component="markdown-code"]')!.remove()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(tip.getAttribute("data-show")).toBeNull()
+    cleanup()
+  })
+
+  test("keyboard copy keeps the tooltip after the reset timer while the button stays focused", async () => {
+    vi.useFakeTimers()
+    try {
+      const writeText = mock(async () => undefined)
+      setClipboard(writeText)
+
+      document.body.innerHTML =
+        '<div data-component="markdown-code"><pre><code>echo hi</code></pre><button type="button" data-slot="markdown-copy-button" data-tooltip="Copy">Copy</button></div>'
+      const cleanup = setupCodeCopy(document.body as HTMLDivElement, () => ({
+        copy: "Copy",
+        copied: "Copied",
+      }))
+      const button = document.querySelector("button")!
+
+      button.focus()
+      button.click()
+      await Promise.resolve()
+      await Promise.resolve()
+
+      const tip = document.querySelector('[data-slot="markdown-copy-tooltip"]')!
+      expect(tip.getAttribute("data-show")).toBe("true")
+      expect(tip.textContent).toBe("Copied")
+
+      vi.advanceTimersByTime(2000)
+
+      // Button is still focused (no hover), so the tooltip stays and the label
+      // reverts to copy instead of disappearing.
+      expect(document.activeElement).toBe(button)
+      expect(tip.getAttribute("data-show")).toBe("true")
+      expect(tip.textContent).toBe("Copy")
+      cleanup()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test("reference-counts the global scroll/resize listeners across instances", () => {
+    const addSpy = spyOn(window, "addEventListener")
+    const removeSpy = spyOn(window, "removeEventListener")
+    try {
+      const countScroll = (spy: typeof addSpy) =>
+        spy.mock.calls.filter((args) => args[0] === "scroll").length
+
+      const root1 = document.createElement("div")
+      const root2 = document.createElement("div")
+      document.body.append(root1, root2)
+      const labels = () => ({ copy: "Copy", copied: "Copied" })
+
+      const addsBefore = countScroll(addSpy)
+      const cleanup1 = setupCodeCopy(root1 as HTMLDivElement, labels)
+      const cleanup2 = setupCodeCopy(root2 as HTMLDivElement, labels)
+      // Two instances, but the global scroll listener is registered only once.
+      expect(countScroll(addSpy) - addsBefore).toBe(1)
+
+      const removesBefore = countScroll(removeSpy)
+      cleanup1()
+      // One instance still holds the ref, so nothing is removed yet.
+      expect(countScroll(removeSpy) - removesBefore).toBe(0)
+      cleanup2()
+      // Last instance gone, the single global listener is removed.
+      expect(countScroll(removeSpy) - removesBefore).toBe(1)
+    } finally {
+      addSpy.mockRestore()
+      removeSpy.mockRestore()
     }
   })
 })
