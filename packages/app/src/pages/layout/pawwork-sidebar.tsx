@@ -237,13 +237,13 @@ export const PawworkSidebar = (props: {
     // Alt and only Alt — Ctrl/Cmd/Shift combos belong to other shortcuts.
     if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
     if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return
-    // The handler sits on the row wrapper, which also wraps the active child row.
-    // Only act when the event originates from THIS row, so focusing a nested child
-    // and pressing Alt+Arrow never reorders the parent.
-    const originID = (event.target as HTMLElement | null)
-      ?.closest?.("[data-session-id]")
-      ?.getAttribute("data-session-id")
-    if (originID !== session.id) return
+    // The handler sits on the row wrapper, which also wraps the active child row
+    // and the "…" menu button. Only the row's main LINK owns ⌥↑/⌥↓ — matching the
+    // keycap hint, which sidebar.css reveals on `a:focus-visible` only. Focus on the
+    // "…" button (not an <a>) or a nested child row's link therefore never reorders.
+    const link = (event.target as HTMLElement | null)?.closest?.("a")
+    const originID = link?.closest?.("[data-session-id]")?.getAttribute("data-session-id")
+    if (!link || originID !== session.id) return
     const visibleIDs = visiblePinnedIDs()
     const index = visibleIDs.indexOf(session.id)
     if (index === -1) return
@@ -259,11 +259,11 @@ export const PawworkSidebar = (props: {
     if (direction === "up" && index === 0) return
     if (direction === "down" && index === visibleIDs.length - 1) return
     props.onMovePinnedSession?.({ sessionID: session.id, direction, visiblePinnedIDs: visibleIDs })
-    // The row keeps its session id across the move; re-focus it next frame so
-    // repeated ⌥↑/↓ keep working without Tabbing back into the list.
+    // The row keeps its session id across the move; re-focus its link next frame
+    // so repeated ⌥↑/↓ keep working without Tabbing back into the list.
     requestAnimationFrame(() => {
       const row = scrollEl?.querySelector<HTMLElement>(`[data-session-id="${session.id}"]`)
-      row?.querySelector<HTMLElement>('a, [data-action="session-row-menu"]')?.focus()
+      row?.querySelector<HTMLElement>("a")?.focus()
     })
   }
   const markSessionSwitchPaint = (session: Session, event: MouseEvent) => {

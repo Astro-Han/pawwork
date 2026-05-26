@@ -177,3 +177,43 @@ test("Shift+Alt / Mod+Alt + Arrow on a pinned row are left to the global command
   await page.keyboard.press("ControlOrMeta+Alt+ArrowDown")
   expect(await order()).toEqual([b.id, a.id])
 })
+
+test("Alt+Arrow while the “…” menu button is focused does not reorder", async ({ page, sdk, gotoSession }) => {
+  const stamp = Date.now()
+  const a = await sdk.session.create({ title: `pinned-menu a ${stamp}` }).then((r) => r.data)
+  const b = await sdk.session.create({ title: `pinned-menu b ${stamp}` }).then((r) => r.data)
+
+  if (!a?.id || !b?.id) throw new Error("missing session ids")
+
+  await gotoSession(a.id)
+  await openSidebar(page)
+
+  const sidebar = page.locator(pawworkSidebarSelector).first()
+
+  const pinViaMenu = async (id: string) => {
+    const row = sidebar.locator(`[data-session-id="${id}"]`).first()
+    await row.hover()
+    await row.locator('[data-action="session-row-menu"]').click()
+    await page.getByRole("menuitem", { name: /^pin session$/i }).click()
+  }
+
+  await pinViaMenu(a.id)
+  await pinViaMenu(b.id)
+
+  const pinned = sidebar.locator('[data-component="pawwork-sidebar-pinned"]')
+  const order = async () =>
+    (
+      await pinned
+        .locator("[data-session-id]")
+        .evaluateAll((nodes) => nodes.map((n) => (n as HTMLElement).dataset.sessionId))
+    ).filter(Boolean) as string[]
+
+  expect(await order()).toEqual([b.id, a.id])
+
+  // Only the row's main link owns ⌥↑/⌥↓ — the keycap hint shows on a:focus-visible
+  // only, so the "…" menu button never displays it. Focusing that button and
+  // pressing Alt+Arrow must be inert: no reorder, no focus jump to the link.
+  await pinned.locator(`[data-session-id="${b.id}"] [data-action="session-row-menu"]`).first().focus()
+  await page.keyboard.press("Alt+ArrowDown")
+  expect(await order()).toEqual([b.id, a.id])
+})
