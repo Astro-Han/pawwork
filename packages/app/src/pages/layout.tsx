@@ -297,13 +297,17 @@ export default function Layout(props: ParentProps) {
       listen: globalSDK.event.listen,
       sessions: (directory) => globalSync.child(directory, { bootstrap: false })[0].session,
     },
-    settings,
+    settings: {
+      notify: {
+        level: settings.notify.level,
+      },
+    },
     permission: {
       autoResponds: (request, directory) => permission.autoResponds(request, directory),
     },
     effects: {
       notify: (title, description, href) => platform.notify(title, description, href),
-      playPermissionSound: playSoundById,
+      playSound: playSoundById,
       setBusy,
       worktreeReady: (directory) => WorktreeState.ready(directory),
       worktreeFailed: (directory, message) => WorktreeState.failed(directory, message),

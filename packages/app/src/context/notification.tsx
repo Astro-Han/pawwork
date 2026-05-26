@@ -233,22 +233,22 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
         if (!session) return
         if (session.parentID) return
 
-        if (settings.sounds.agentEnabled()) {
-          void playSoundById(settings.sounds.agent())
+        const level = settings.notify.level()
+        const visible = viewedInCurrentSession(directory, sessionID)
+        const shouldAlert = level !== "never" && (level === "always" || !visible)
+        if (shouldAlert) {
+          void playSoundById("notify")
+          const href = `/${base64Encode(directory)}/session/${sessionID}`
+          void platform.notify(language.t("notification.session.responseReady.title"), session.title ?? sessionID, href)
         }
 
         append({
           directory,
           time,
-          viewed: viewedInCurrentSession(directory, sessionID),
+          viewed: visible,
           type: "turn-complete",
           session: sessionID,
         })
-
-        const href = `/${base64Encode(directory)}/session/${sessionID}`
-        if (settings.notifications.agent()) {
-          void platform.notify(language.t("notification.session.responseReady.title"), session.title ?? sessionID, href)
-        }
       })
     }
 
@@ -262,10 +262,6 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
         if (meta.disposed) return
         if (session?.parentID) return
 
-        if (settings.sounds.errorsEnabled()) {
-          void playSoundById(settings.sounds.errors())
-        }
-
         const error = "error" in event.properties ? event.properties.error : undefined
         append({
           directory,
@@ -275,11 +271,13 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
           session: sessionID ?? "global",
           error,
         })
-        const description =
-          session?.title ??
-          (typeof error === "string" ? error : language.t("notification.session.error.fallbackDescription"))
-        const href = sessionID ? `/${base64Encode(directory)}/session/${sessionID}` : `/${base64Encode(directory)}`
-        if (settings.notifications.errors()) {
+        const level = settings.notify.level()
+        if (level !== "never") {
+          void playSoundById("error")
+          const description =
+            session?.title ??
+            (typeof error === "string" ? error : language.t("notification.session.error.fallbackDescription"))
+          const href = sessionID ? `/${base64Encode(directory)}/session/${sessionID}` : `/${base64Encode(directory)}`
           void platform.notify(language.t("notification.session.error.title"), description, href)
         }
       })

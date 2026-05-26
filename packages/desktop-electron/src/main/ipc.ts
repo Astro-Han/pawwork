@@ -446,7 +446,7 @@ export function registerIpcHandlers(deps: Deps) {
   })
 
   ipcMain.on("show-notification", (_event: IpcMainEvent, title: string, body?: string) => {
-    new Notification({ title, body }).show()
+    new Notification({ title, body, silent: true }).show()
   })
 
   const flashFrameTimers = new Map<number, ReturnType<typeof setTimeout>>()

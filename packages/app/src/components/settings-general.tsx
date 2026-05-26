@@ -21,9 +21,8 @@ import {
 import { decode64 } from "@/utils/base64"
 import { Link } from "./link"
 import { SettingsList } from "./settings-list"
-import { SettingsNotificationsSection } from "./settings-notifications-section"
 import { SettingsRow } from "./settings-row"
-import { SettingsSoundsSection } from "./settings-sounds-section"
+import { SettingsNotifySection } from "./settings-sounds-section"
 import { SettingsUpdatesSection } from "./settings-updates-section"
 import { SettingsWebSearchRow } from "./settings-web-search-row"
 
@@ -292,9 +291,7 @@ export const SettingsGeneral: Component = () => {
 
         <AppearanceSection />
 
-        <SettingsNotificationsSection />
-
-        <SettingsSoundsSection />
+        <SettingsNotifySection />
 
         {/*<Show when={platform.platform === "desktop" && platform.os === "windows" && platform.getWslEnabled}>
           {(_) => {

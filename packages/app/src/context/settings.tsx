@@ -2,22 +2,8 @@ import { createStore, reconcile } from "solid-js/store"
 import { createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { persisted } from "@/utils/persist"
-import { SOUND_OPTIONS } from "@/utils/sound"
 
-export interface NotificationSettings {
-  agent: boolean
-  permissions: boolean
-  errors: boolean
-}
-
-export interface SoundSettings {
-  agentEnabled: boolean
-  agent: string
-  permissionsEnabled: boolean
-  permissions: string
-  errorsEnabled: boolean
-  errors: string
-}
+export type NotifyLevel = "never" | "unfocused" | "always"
 
 export interface Settings {
   general: {
@@ -48,8 +34,7 @@ export interface Settings {
   permissions: {
     autoApprove: boolean
   }
-  notifications: NotificationSettings
-  sounds: SoundSettings
+  notify: NotifyLevel
 }
 
 export const monoDefault = "System Mono"
@@ -130,35 +115,14 @@ const defaultSettings: Settings = {
   permissions: {
     autoApprove: false,
   },
-  notifications: {
-    agent: true,
-    permissions: true,
-    errors: false,
-  },
-  sounds: {
-    agentEnabled: true,
-    agent: "notify",
-    permissionsEnabled: true,
-    permissions: "notify",
-    errorsEnabled: true,
-    errors: "error",
-  },
+  notify: "unfocused" as NotifyLevel,
 }
 
 function withFallback<T>(read: () => T | undefined, fallback: T) {
   return createMemo(() => read() ?? fallback)
 }
 
-// Sound files were reduced to "notify"/"error"; map any stale persisted id
-// (e.g. the old OpenCode "staplebops-01") back to the current default so
-// existing users don't end up with a silent, unresolvable sound.
-const VALID_SOUND_IDS = new Set<string>(SOUND_OPTIONS.map((option) => option.id))
-function withSoundFallback(read: () => string | undefined, fallback: string) {
-  return createMemo(() => {
-    const value = read()
-    return value && VALID_SOUND_IDS.has(value) ? value : fallback
-  })
-}
+const VALID_NOTIFY_LEVELS = new Set<string>(["never", "unfocused", "always"])
 
 export const { use: useSettings, provider: SettingsProvider } = createSimpleContext({
   name: "Settings",
@@ -192,6 +156,27 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
           font: store.appearance?.sans,
         }),
       )
+    })
+
+    // Migrate old notifications/sounds fields to the new notify tri-state.
+    createEffect(() => {
+      if (!ready()) return
+      const rawStore = store as unknown as Record<string, unknown>
+      if (VALID_NOTIFY_LEVELS.has(rawStore["notify"] as string)) return
+      const sounds = rawStore["sounds"] as Record<string, unknown> | undefined
+      const notifications = rawStore["notifications"] as Record<string, unknown> | undefined
+      const allDisabled =
+        sounds?.agentEnabled === false &&
+        sounds?.permissionsEnabled === false &&
+        sounds?.errorsEnabled === false &&
+        notifications?.agent === false &&
+        notifications?.permissions === false &&
+        notifications?.errors === false
+      const level: NotifyLevel = allDisabled ? "never" : "unfocused"
+      const setRaw = setStore as unknown as (key: string, value: unknown) => void
+      setRaw("notify", level)
+      setRaw("notifications", undefined)
+      setRaw("sounds", undefined)
     })
 
     // PawWork wants followup to always queue: submit during a busy session
@@ -355,47 +340,10 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
           setStore("permissions", "autoApprove", value)
         },
       },
-      notifications: {
-        agent: withFallback(() => store.notifications?.agent, defaultSettings.notifications.agent),
-        setAgent(value: boolean) {
-          setStore("notifications", "agent", value)
-        },
-        permissions: withFallback(() => store.notifications?.permissions, defaultSettings.notifications.permissions),
-        setPermissions(value: boolean) {
-          setStore("notifications", "permissions", value)
-        },
-        errors: withFallback(() => store.notifications?.errors, defaultSettings.notifications.errors),
-        setErrors(value: boolean) {
-          setStore("notifications", "errors", value)
-        },
-      },
-      sounds: {
-        agentEnabled: withFallback(() => store.sounds?.agentEnabled, defaultSettings.sounds.agentEnabled),
-        setAgentEnabled(value: boolean) {
-          setStore("sounds", "agentEnabled", value)
-        },
-        agent: withSoundFallback(() => store.sounds?.agent, defaultSettings.sounds.agent),
-        setAgent(value: string) {
-          setStore("sounds", "agent", value)
-        },
-        permissionsEnabled: withFallback(
-          () => store.sounds?.permissionsEnabled,
-          defaultSettings.sounds.permissionsEnabled,
-        ),
-        setPermissionsEnabled(value: boolean) {
-          setStore("sounds", "permissionsEnabled", value)
-        },
-        permissions: withSoundFallback(() => store.sounds?.permissions, defaultSettings.sounds.permissions),
-        setPermissions(value: string) {
-          setStore("sounds", "permissions", value)
-        },
-        errorsEnabled: withFallback(() => store.sounds?.errorsEnabled, defaultSettings.sounds.errorsEnabled),
-        setErrorsEnabled(value: boolean) {
-          setStore("sounds", "errorsEnabled", value)
-        },
-        errors: withSoundFallback(() => store.sounds?.errors, defaultSettings.sounds.errors),
-        setErrors(value: string) {
-          setStore("sounds", "errors", value)
+      notify: {
+        level: withFallback(() => store.notify, defaultSettings.notify),
+        setLevel(value: NotifyLevel) {
+          setStore("notify", value)
         },
       },
     }

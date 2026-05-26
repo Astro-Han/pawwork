@@ -2,6 +2,7 @@ import { onCleanup, onMount } from "solid-js"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { getFilename } from "@opencode-ai/util/path"
 import type { Event, Part, PermissionRequest, Session } from "@opencode-ai/sdk/v2/client"
+import type { NotifyLevel } from "@/context/settings"
 import { workspaceKey } from "./helpers"
 
 type LayoutSession = Pick<Session, "id" | "parentID" | "title">
@@ -43,13 +44,8 @@ type LayoutSdkEventEffectsInput = {
     sessions: (directory: string) => readonly LayoutSession[]
   }
   settings: {
-    notifications: {
-      agent: () => boolean
-      permissions: () => boolean
-    }
-    sounds: {
-      permissionsEnabled: () => boolean
-      permissions: () => string
+    notify: {
+      level: () => NotifyLevel
     }
   }
   permission: {
@@ -57,7 +53,7 @@ type LayoutSdkEventEffectsInput = {
   }
   effects: {
     notify: (title: string, description?: string, href?: string) => Promise<void> | void
-    playPermissionSound: (soundID: string) => unknown
+    playSound: (soundID: string) => unknown
     setBusy: (directory: string, value: boolean) => void
     worktreeReady: (directory: string) => void
     worktreeFailed: (directory: string, message: string) => void
@@ -202,10 +198,11 @@ export function createSDKNotificationEventHandler(input: LayoutSdkEventEffectsIn
       if (alertedQuestionCalls.has(callKey)) return
       alertedQuestionCalls.add(callKey)
 
-      if (!input.settings.notifications.agent()) return
+      const level = input.settings.notify.level()
+      if (level === "never") return
 
       const visibility = currentRouteVisibility(input, directory, sessionID)
-      if (visibility.visible) return
+      if (level === "unfocused" && visibility.visible) return
 
       const sessions = visibility.sessions ?? input.sdk.sessions(directory)
       const sessionTitle = titleFromSessions(sessions, sessionID, input.copy.t("command.session.new"))
@@ -236,13 +233,13 @@ export function createSDKNotificationEventHandler(input: LayoutSdkEventEffectsIn
     if (shouldThrottlePermissionAlert(lastAlerted, currentTime, cooldownMs)) return
     alertedAtBySession.set(sessionKey, currentTime)
 
-    if (input.settings.sounds.permissionsEnabled()) {
-      void input.effects.playPermissionSound(input.settings.sounds.permissions())
-    }
-    if (!input.settings.notifications.permissions()) return
+    const level = input.settings.notify.level()
+    if (level === "never") return
 
     const visibility = currentRouteVisibility(input, directory, props.sessionID)
-    if (visibility.visible) return
+    if (level === "unfocused" && visibility.visible) return
+
+    void input.effects.playSound("notify")
 
     const sessions = visibility.sessions ?? input.sdk.sessions(directory)
     const sessionTitle = titleFromSessions(sessions, props.sessionID, input.copy.t("command.session.new"))

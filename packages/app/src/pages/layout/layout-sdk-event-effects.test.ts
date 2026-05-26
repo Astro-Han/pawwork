@@ -48,8 +48,7 @@ function permissionAskedEvent(directory: string, sessionID: string): TestEvent {
 
 function createSDKNotificationHarness(input?: {
   currentSessionID?: string
-  agentNotifications?: boolean
-  permissionNotifications?: boolean
+  notifyLevel?: "never" | "unfocused" | "always"
   now?: () => number
 }) {
   let sessionsCalls = 0
@@ -73,13 +72,8 @@ function createSDKNotificationHarness(input?: {
       },
     },
     settings: {
-      notifications: {
-        agent: () => input?.agentNotifications ?? true,
-        permissions: () => input?.permissionNotifications ?? true,
-      },
-      sounds: {
-        permissionsEnabled: () => false,
-        permissions: () => "default",
+      notify: {
+        level: () => input?.notifyLevel ?? "unfocused",
       },
     },
     permission: {
@@ -89,7 +83,7 @@ function createSDKNotificationHarness(input?: {
       notify: (title, description, href) => {
         notifications.push({ title, description, href })
       },
-      playPermissionSound: () => undefined,
+      playSound: () => undefined,
       setBusy: () => undefined,
       worktreeReady: () => undefined,
       worktreeFailed: () => undefined,
@@ -213,7 +207,7 @@ describe("layout sdk event effects", () => {
   })
 
   test("does not look up sessions when question notifications are disabled", () => {
-    const hook = createSDKNotificationHarness({ agentNotifications: false })
+    const hook = createSDKNotificationHarness({ notifyLevel: "never" })
     hook.emit(questionUpdatedEvent("/repo", "ses_other"))
 
     expect(hook.sessionsCalls()).toBe(0)
