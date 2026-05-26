@@ -55,6 +55,38 @@ function latestMarkdownReport(reportRoot) {
   }
 }
 
+function childIsRunning(child) {
+  return child.exitCode === null && child.signalCode === null
+}
+
+async function withTimeout(promise, ms, timeoutValue) {
+  let timeout
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((resolve) => {
+        timeout = setTimeout(() => resolve(timeoutValue), ms)
+      }),
+    ])
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+async function waitForExit(child, ms) {
+  if (!childIsRunning(child)) return
+  await withTimeout(new Promise((resolve) => child.once("exit", resolve)), ms, undefined)
+}
+
+async function closeApp(app) {
+  const child = app.process()
+  const closed = await withTimeout(app.close().then(() => true).catch(() => false), 5_000, false)
+  if (closed || !childIsRunning(child)) return
+
+  child.kill("SIGKILL")
+  await waitForExit(child, 5_000)
+}
+
 const homeDir = mkdtempSync(join(tmpdir(), "pawwork-report-smoke-"))
 const app = await electron.launch({
   executablePath: require("electron/index.js"),
@@ -101,6 +133,6 @@ try {
   assert(summary.markdownHasRendererError, "expected full report to include renderer error details")
   assert(summary.markdownHasReportPayload, "expected full report to include the fenced JSON payload")
 } finally {
-  await app.close().catch(() => undefined)
+  await closeApp(app)
   rmSync(homeDir, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 })
 }

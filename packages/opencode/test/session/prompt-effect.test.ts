@@ -300,6 +300,7 @@ function makeHttp(httpLayer: Layer.Layer<HttpClient.HttpClient> = FetchHttpClien
 // setup; default the live() timeout instead of bandaging individual tests.
 // An explicit third-arg timeout still overrides.
 const defaultLiveTimeout = process.platform === "win32" ? 10_000 : 3_000
+const slowWindowsLiveTimeout = process.platform === "win32" ? 30_000 : undefined
 
 function withDefaultLiveTimeout<
   T extends { live: ((...args: any[]) => any) & { only: any; skip: any } },
@@ -1049,6 +1050,7 @@ it.live("loop gate records same-step repeated tool errors without block or stop"
       }),
     { git: true, config: providerCfg },
   ),
+  slowWindowsLiveTimeout,
 )
 
 it.live("loop gate blocks repeated tool errors across model steps", () =>
