@@ -51,10 +51,13 @@ function isElementHidden(el: HTMLElement) {
   return style?.display === "none" || style?.visibility === "hidden"
 }
 
-function isInsideClosedDetails(el: HTMLElement) {
+function isInsideClosedDetailsBody(el: HTMLElement) {
   let current: HTMLElement | null = el
   while (current) {
-    if (current instanceof HTMLDetailsElement && !current.open) return true
+    const parent = current.parentElement
+    if (parent instanceof HTMLDetailsElement && !parent.open) {
+      return current.tagName.toLowerCase() !== "summary"
+    }
     current = current.parentElement
   }
   return false
@@ -64,16 +67,16 @@ function visibleIntersectionPx(rect: DOMRect, viewportRect: DOMRect) {
   return Math.max(0, Math.min(rect.bottom, viewportRect.bottom) - Math.max(rect.top, viewportRect.top))
 }
 
-function isRestorableTimelineAnchor(el: HTMLElement, rect: DOMRect) {
+function isTimelineAnchorUsableForRestore(el: HTMLElement, rect: DOMRect) {
   if (!el.dataset.timelineAnchor) return false
   if (isElementHidden(el)) return false
-  if (isInsideClosedDetails(el)) return false
+  if (isInsideClosedDetailsBody(el)) return false
   if (rect.width <= 0 || rect.height <= 0) return false
   return true
 }
 
-function isStableVisibleAnchor(el: HTMLElement, rect: DOMRect, viewportRect: DOMRect) {
-  if (!isRestorableTimelineAnchor(el, rect)) return false
+function isTimelineAnchorVisibleForSampling(el: HTMLElement, rect: DOMRect, viewportRect: DOMRect) {
+  if (!isTimelineAnchorUsableForRestore(el, rect)) return false
   return visibleIntersectionPx(rect, viewportRect) >= MIN_VISIBLE_ANCHOR_INTERSECTION_PX
 }
 
@@ -108,7 +111,7 @@ function findFallbackTrowAnchor(input: {
     const key = candidate.dataset.timelineAnchor
     if (!key || key === input.selectedKey || !key.startsWith("trow:")) continue
     const rect = candidate.getBoundingClientRect()
-    if (!isStableVisibleAnchor(candidate, rect, input.viewportRect)) continue
+    if (!isTimelineAnchorVisibleForSampling(candidate, rect, input.viewportRect)) continue
     const anchor = makeReadingAnchor(candidate, rect, input.viewportRect)
     if (anchor) return anchor
   }
@@ -119,7 +122,7 @@ function bestVisibleTimelineAnchor(viewport: HTMLElement) {
   const readingLine = viewportRect.top + READING_LINE_OFFSET_PX
   const candidates = timelineAnchorElements(viewport)
     .map((el) => ({ el, rect: el.getBoundingClientRect() }))
-    .filter(({ el, rect }) => isStableVisibleAnchor(el, rect, viewportRect))
+    .filter(({ el, rect }) => isTimelineAnchorVisibleForSampling(el, rect, viewportRect))
 
   candidates.sort((a, b) => {
     const aDistance = Math.abs(a.rect.top - readingLine)
@@ -272,7 +275,7 @@ function restoreReading(
     const anchor = timelineAnchorByKey(viewport, timelineAnchor.key)
     if (!anchor) continue
     const anchorRect = anchor.getBoundingClientRect()
-    if (!isRestorableTimelineAnchor(anchor, anchorRect)) continue
+    if (!isTimelineAnchorUsableForRestore(anchor, anchorRect)) continue
     setTimelineScrollTop({
       viewport,
       sink,

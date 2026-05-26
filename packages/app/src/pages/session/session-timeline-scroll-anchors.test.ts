@@ -76,6 +76,29 @@ function appendTimelineAnchor(parent: HTMLElement, key: string, rect: RectInput)
   return anchor
 }
 
+function appendClosedTrowDetails(
+  parent: HTMLElement,
+  input: {
+    trowKey: string
+    trowRect: RectInput
+    toolKey: string
+    toolRect: RectInput
+  },
+) {
+  const details = document.createElement("details")
+  const summary = document.createElement("summary")
+  summary.dataset.timelineAnchor = input.trowKey
+  stubRect(summary, input.trowRect)
+
+  const body = document.createElement("div")
+  body.dataset.slot = "trow-body"
+  const tool = appendTimelineAnchor(body, input.toolKey, input.toolRect)
+
+  details.append(summary, body)
+  parent.appendChild(details)
+  return { details, summary, body, tool }
+}
+
 describe("session timeline scroll anchors", () => {
   test("collects near-top and near-bottom metrics from explicit geometry", () => {
     const { viewport } = makeViewport({
@@ -175,6 +198,48 @@ describe("session timeline scroll anchors", () => {
       fallbackMessage: {
         messageID: "msg_anchor",
         offsetFromViewportTop: 0,
+      },
+    })
+  })
+
+  test("samples a visible trow summary anchor inside closed details", () => {
+    const { viewport } = makeViewport({
+      scrollTop: 240,
+      clientHeight: 400,
+      scrollHeight: 1200,
+      rect: { top: 100, bottom: 500 },
+    })
+    const message = appendMessage(viewport, "msg_anchor", { top: 140, bottom: 560 })
+    appendClosedTrowDetails(message, {
+      trowKey: "trow:closed-summary",
+      trowRect: { top: 180, bottom: 228 },
+      toolKey: "tool:closed-body",
+      toolRect: { top: 260, bottom: 340 },
+    })
+
+    expect(
+      sampleTimelineSafePosition({
+        viewport,
+        mode: "reading_history",
+        renderedStart: 4,
+        renderedCount: 10,
+        newestMessageID: "msg_newest",
+      }),
+    ).toEqual({
+      kind: "reading",
+      anchorMessageID: "msg_anchor",
+      offsetFromViewportTop: 80,
+      renderedStart: 4,
+      renderedCount: 10,
+      primaryAnchor: {
+        key: "trow:closed-summary",
+        offsetFromViewportTop: 80,
+        scope: "trow",
+      },
+      fallbackTrowAnchor: undefined,
+      fallbackMessage: {
+        messageID: "msg_anchor",
+        offsetFromViewportTop: 40,
       },
     })
   })
@@ -455,6 +520,53 @@ describe("session timeline scroll anchors", () => {
           },
           fallbackTrowAnchor: {
             key: "trow:stable",
+            offsetFromViewportTop: 88,
+            scope: "trow",
+          },
+          fallbackMessage: {
+            messageID: "msg_anchor",
+            offsetFromViewportTop: 24,
+          },
+        },
+      }),
+    ).toEqual({
+      ok: true,
+      restoredTo: expect.objectContaining({ kind: "reading" }),
+    })
+    expect(scroller.scrollTop).toBe(422)
+  })
+
+  test("restores with a closed details summary trow fallback after the body tool anchor collapses", () => {
+    const scroller = makeViewport({
+      scrollTop: 400,
+      clientHeight: 400,
+      scrollHeight: 1400,
+      rect: { top: 100, bottom: 500 },
+    })
+    const message = appendMessage(scroller.viewport, "msg_anchor", { top: 180, bottom: 700 })
+    appendClosedTrowDetails(message, {
+      trowKey: "trow:closed-summary",
+      trowRect: { top: 210, bottom: 260 },
+      toolKey: "tool:closed-body",
+      toolRect: { top: 360, bottom: 420 },
+    })
+
+    expect(
+      restoreTimelineSafePosition({
+        viewport: scroller.viewport,
+        position: {
+          kind: "reading",
+          anchorMessageID: "msg_anchor",
+          offsetFromViewportTop: 0,
+          renderedStart: 4,
+          renderedCount: 10,
+          primaryAnchor: {
+            key: "tool:closed-body",
+            offsetFromViewportTop: 72,
+            scope: "tool",
+          },
+          fallbackTrowAnchor: {
+            key: "trow:closed-summary",
             offsetFromViewportTop: 88,
             scope: "trow",
           },
