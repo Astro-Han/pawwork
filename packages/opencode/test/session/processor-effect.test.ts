@@ -11,6 +11,7 @@ import { Config } from "../../src/config"
 import { Permission } from "../../src/permission"
 import { Plugin } from "../../src/plugin"
 import { Provider } from "../../src/provider"
+import * as ProviderTransform from "../../src/provider/transform"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { Session } from "../../src/session"
 import { LLM } from "../../src/session/llm"
@@ -437,6 +438,65 @@ attemptTimeoutIt.live("reasoning connect watchdog is attempt-scoped for before-p
           SessionProcessor.REASONING_FIRST_ATTEMPT_CONNECT_TIMEOUT_MS,
           SessionProcessor.REASONING_SAFE_RETRY_CONNECT_TIMEOUT_MS,
         ])
+      }),
+    { git: true, config: providerCfg("http://localhost:1/v1") },
+  ),
+)
+
+attemptTimeoutIt.live("reasoning first attempt keeps global timeout when active tools block safe recovery", () =>
+  provideTmpdirInstance(
+    (dir) =>
+      Effect.gen(function* () {
+        capturedAttemptConnectTimeouts.length = 0
+        const { processors, session, provider } = yield* boot()
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "reasoning external boundary timeout policy")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(reasoningRef.providerID, reasoningRef.modelID)
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+        const externalTool = Object.assign(
+          tool({
+            description: "external boundary",
+            inputSchema: z.object({}),
+          }),
+          { externalResult: true },
+        )
+
+        const value = yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: reasoningRef.providerID, modelID: reasoningRef.modelID },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "reasoning external boundary timeout policy" }],
+          tools: {
+            question: externalTool,
+          },
+        })
+
+        expect(value).toBe("stop")
+        expect(capturedAttemptConnectTimeouts).toEqual([ProviderTransform.REASONING_GLOBAL_CONNECT_TIMEOUT_MS])
+        expect(handle.message.diagnostics?.run_observability?.attempts).toMatchObject([
+          {
+            attempt_index: 1,
+            connect_timeout_ms: ProviderTransform.REASONING_GLOBAL_CONNECT_TIMEOUT_MS,
+          },
+        ])
+        expect(handle.message.diagnostics?.run_observability?.incident?.recovery).toMatchObject({
+          recommendation: "ask_user_before_retry",
+          reason: "side_effect_facts_incomplete",
+        })
       }),
     { git: true, config: providerCfg("http://localhost:1/v1") },
   ),

@@ -133,9 +133,17 @@ function attemptStreamTimeouts(
   model: Provider.Model,
   automaticStreamRetriesUsed: number,
   streamInput: Pick<LLM.StreamInput, "connectTimeoutMs">,
+  boundary: RunObservability.SideEffectBoundarySnapshot,
 ): { connectTimeoutMs?: number } {
   if (streamInput.connectTimeoutMs !== undefined) return {}
   if (!model.capabilities.reasoning) return {}
+  const firstAttemptCanAutoRetry =
+    boundary.proof_result === "complete" &&
+    !boundary.provider_executed_capability_present &&
+    !boundary.external_boundary_present
+  if (automaticStreamRetriesUsed === 0 && !firstAttemptCanAutoRetry) {
+    return { connectTimeoutMs: ProviderTransform.REASONING_GLOBAL_CONNECT_TIMEOUT_MS }
+  }
   // #918: fail fast on the first stalled reasoning-model attempt, then give
   // the one safe retry the pre-existing slow-start protection window.
   return {
@@ -1323,7 +1331,13 @@ export const layer: Layer.Layer<
           ctx.reasoningMap = {}
           ctx.attemptCount++
           const activeTools = LLM.resolveTools(streamInput)
-          const sessionTimeouts = attemptStreamTimeouts(streamInput.model, automaticStreamRetriesUsed, streamInput)
+          const boundarySnapshot = sideEffectBoundarySnapshot(activeTools)
+          const sessionTimeouts = attemptStreamTimeouts(
+            streamInput.model,
+            automaticStreamRetriesUsed,
+            streamInput,
+            boundarySnapshot,
+          )
           const attempt = ctx.runTrace.beginAttempt({
             attemptIndex: ctx.attemptCount,
             at: Date.now(),
@@ -1336,7 +1350,7 @@ export const layer: Layer.Layer<
             attemptID: attempt.attemptID,
             at: Date.now(),
             monotonicMs: performance.now(),
-            snapshot: sideEffectBoundarySnapshot(activeTools),
+            snapshot: boundarySnapshot,
           })
           let stream: Stream.Stream<LLM.Event, unknown>
           try {
