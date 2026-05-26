@@ -5,6 +5,7 @@ import {
   type Classification,
   type Recorder,
   type RecorderInput,
+  type RecoveryDecisionDiagnostics,
   RunID,
   SCHEMA_VERSION,
   type SideEffectBoundarySnapshot,
@@ -71,6 +72,7 @@ export function createRecorder(input: RecorderInput): Recorder {
   const evidence: RunIncident.EvidenceEvent[] = []
   const recoveredAttemptIDs = new Set<AttemptID>()
   const recoveredIncidents: RunIncident.Summary[] = []
+  let recoveryDecision: RecoveryDecisionDiagnostics | undefined
 
   const rememberEvent = (monotonicMs: number) => {
     lastEventMonotonicMs = Math.max(lastEventMonotonicMs, monotonicMs)
@@ -504,6 +506,36 @@ export function createRecorder(input: RecorderInput): Recorder {
       }
       return deriveCurrentIncident(next.at, { includeRecoveredTerminal: true })?.recovery ?? unknownRecovery()
     },
+    recordRecoveryDecision(next) {
+      const attempt = getAttempt(next.attemptID)
+      recoveryDecision = {
+        attempt_id: next.attemptID,
+        technical_retryable: next.technical_retryable,
+        technical_retry_blocked_reason: next.technical_retry_blocked_reason,
+        safety_gate_recommendation: next.safety_gate_decision.recommendation,
+        safety_gate_reason: next.safety_gate_decision.reason,
+        safety_gate_confidence: next.safety_gate_decision.confidence,
+        recovery_mode: next.recovery_mode,
+        blocked_reason: next.blocked_reason,
+        attempt_kind: next.attempt_kind,
+        model_stream_attempt: next.model_stream_attempt,
+        safe_recovery_attempt: next.safe_recovery_attempt,
+        timeout_policy: next.timeout_policy,
+        presentation: next.presentation,
+        retry_attempted: false,
+        provider_progress_seen: attempt?.provider_progress_seen ?? providerProgressSeen,
+        outcome: next.recovery_mode === "replay" ? "retrying" : next.technical_retryable ? "blocked" : "stopped",
+      }
+      appendEvidence({
+        monotonic_ms: next.monotonicMs,
+        source: "recovery",
+        attempt_id: next.attemptID,
+        event_type: "recovery_decision",
+        terminal_candidate: false,
+        confidence: "high",
+      })
+      rememberEvent(next.monotonicMs)
+    },
     recordAutoRetryAttempted(next) {
       appendEvidence({
         monotonic_ms: next.monotonicMs,
@@ -521,6 +553,9 @@ export function createRecorder(input: RecorderInput): Recorder {
         })
       }
       recoveredAttemptIDs.add(next.attemptID)
+      if (recoveryDecision?.attempt_id === next.attemptID) {
+        recoveryDecision = { ...recoveryDecision, retry_attempted: true, outcome: "recovered" }
+      }
       if (failure && "attemptID" in failure && failure.attemptID === next.attemptID) failure = undefined
       rememberEvent(next.monotonicMs)
     },
@@ -642,6 +677,7 @@ export function createRecorder(input: RecorderInput): Recorder {
         pending_tool_parts_interrupted: pendingToolPartsInterrupted || undefined,
         incident,
         recovered_incidents: recoveredIncidents.length ? recoveredIncidents : undefined,
+        recovery_decision: recoveryDecision,
         lifecycle,
         missing_provenance: missingProvenance,
         durations_ms: {

@@ -182,7 +182,7 @@ export function safeRecoveryPolicy(opts: {
     attempt: number
     message: string
     next: number
-    presentation: "safe_recovery"
+    presentation: "recovery"
     reason: "network_connection_dropped"
   }) => Effect.Effect<void>
 }) {
@@ -195,7 +195,7 @@ export function safeRecoveryPolicy(opts: {
           attempt: meta.attempt,
           message: "",
           next: now + SAFE_RECOVERY_REPLAY_DELAY,
-          presentation: "safe_recovery",
+          presentation: "recovery",
           reason: "network_connection_dropped",
         })
         return [meta.attempt, Duration.millis(SAFE_RECOVERY_REPLAY_DELAY)] as [number, Duration.Duration]

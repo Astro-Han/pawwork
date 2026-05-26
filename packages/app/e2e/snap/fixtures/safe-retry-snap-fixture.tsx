@@ -66,7 +66,7 @@ function SafeRetrySnapFixture() {
               attempt: 1,
               message: "",
               next: Date.now() + 1000,
-              presentation: "safe_recovery",
+              presentation: "recovery",
               reason: "network_connection_dropped",
             }}
           />

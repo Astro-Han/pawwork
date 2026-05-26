@@ -164,7 +164,7 @@ describe("session.retry.delay", () => {
           type: "retry",
           attempt: 1,
           message: "",
-          presentation: "safe_recovery",
+          presentation: "recovery",
           reason: "network_connection_dropped",
         })
       },
@@ -176,7 +176,7 @@ describe("session.retry.delay", () => {
       attempt: number
       message: string
       next: number
-      presentation: "safe_recovery"
+      presentation: "recovery"
       reason: "network_connection_dropped"
     }> = []
 
@@ -200,7 +200,7 @@ describe("session.retry.delay", () => {
     expect(statuses[0]).toMatchObject({
       attempt: 1,
       message: "",
-      presentation: "safe_recovery",
+      presentation: "recovery",
       reason: "network_connection_dropped",
     })
   })

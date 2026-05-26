@@ -72,7 +72,7 @@ export type SessionStatus =
       attempt: number
       message: string
       next: number
-      presentation?: "safe_recovery"
+      presentation?: "recovery" | "safe_recovery"
       reason?: "network_connection_dropped"
       classification?: RetryClassification
     }

@@ -42,6 +42,7 @@ export const dict = {
   "ui.sessionTurn.retry.attempt": "forsøg #{{attempt}}",
   "ui.sessionTurn.retry.attemptLine": "{{line}} - forsøg #{{attempt}}",
   "ui.sessionTurn.retry.geminiHot": "gemini er meget overbelastet lige nu",
+  "ui.sessionTurn.retry.recovery": "Recovering...",
   "ui.sessionTurn.retry.safeRecovery": "Network connection dropped, retrying automatically",
   "ui.sessionTurn.notice.safeRetryFailed": "Network connection dropped. Automatic retry did not complete.",
   "ui.sessionTurn.error.freeUsageExceeded": "Gratis forbrug overskredet",

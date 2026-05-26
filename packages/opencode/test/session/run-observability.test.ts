@@ -183,6 +183,74 @@ describe("RunObservability", () => {
     })
   })
 
+  test("records recovery decision diagnostics for automatic replay", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_recovery_decision_diagnostics"),
+      traceID: MessageID.make("msg_recovery_decision_diagnostics"),
+      sessionID: SessionID.make("ses_recovery_decision_diagnostics"),
+      messageID: MessageID.make("msg_recovery_decision_diagnostics"),
+      providerID: "test",
+      modelID: "test-model",
+      createdAt: 1,
+      monotonicStartMs: 100,
+    })
+    const first = recorder.beginAttempt({ attemptIndex: 1, at: 2, monotonicMs: 110, connectTimeoutMs: 60_000 })
+    recorder.recordSideEffectBoundarySnapshot({
+      attemptID: first.attemptID,
+      at: 2,
+      monotonicMs: 115,
+      snapshot: {
+        exposed_tool_count: 0,
+        unknown_tool_count: 0,
+        unclassified_effect_count: 0,
+        provider_executed_capability_present: false,
+        external_boundary_present: false,
+        proof_result: "complete",
+        proof_reason: "all_boundaries_classified",
+      },
+    })
+    const recovery = recorder.recordAttemptFailureAndDeriveRecovery({
+      attemptID: first.attemptID,
+      at: 3,
+      monotonicMs: 120,
+      error: new Error("LLM stream connection timed out after 60000ms without provider progress"),
+      evidence: ["watchdog_fired", "iterator_error"],
+      watchdog: { phase: "connect" },
+      retryable: true,
+    })
+    recorder.recordRecoveryDecision({
+      attemptID: first.attemptID,
+      at: 4,
+      monotonicMs: 130,
+      technical_retryable: true,
+      safety_gate_decision: recovery,
+      recovery_mode: "replay",
+      attempt_kind: "safe_recovery_replay",
+      model_stream_attempt: 1,
+      safe_recovery_attempt: 0,
+      timeout_policy: "reasoning_first_attempt",
+      presentation: "recovery",
+    })
+    recorder.recordAutoRetryAttempted({ attemptID: first.attemptID, at: 5, monotonicMs: 140 })
+
+    const summary = recorder.finalize({ completedAt: 6, monotonicMs: 150 })
+
+    expect(summary.recovery_decision).toMatchObject({
+      technical_retryable: true,
+      safety_gate_recommendation: "auto_retry_once",
+      safety_gate_reason: "no_visible_output_or_tool_execution",
+      recovery_mode: "replay",
+      attempt_kind: "safe_recovery_replay",
+      model_stream_attempt: 1,
+      safe_recovery_attempt: 0,
+      timeout_policy: "reasoning_first_attempt",
+      presentation: "recovery",
+      retry_attempted: true,
+      provider_progress_seen: false,
+      outcome: "recovered",
+    })
+  })
+
   test("classifies completed runs without failure as success", () => {
     const recorder = RunObservability.createRecorder({
       runID: RunObservability.RunID.make("run_success"),
