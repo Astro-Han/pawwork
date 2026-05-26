@@ -1119,6 +1119,16 @@ describe("RunObservability", () => {
           },
         },
       ],
+      [
+        "unknown boundary proof with complete facts",
+        {
+          side_effect_facts_complete: true,
+          side_effect_boundary_snapshot: {
+            ...beforeProgressFacts().side_effect_boundary_snapshot!,
+            proof_reason: "unknown",
+          },
+        },
+      ],
     ]
 
     for (const [name, overrides] of cases) {
