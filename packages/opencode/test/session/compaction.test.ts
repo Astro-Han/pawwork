@@ -1031,6 +1031,72 @@ describe("session.compaction.process", () => {
     })
   })
 
+  test("publishes compacted event after natural auto compaction with a clean finish", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create({})
+        const msg = await user(session.id, "hello")
+        // Clean finish (end_turn): compaction must NOT inject a synthetic
+        // continue, but a successful compaction must still publish Compacted so
+        // external subscribers (status/divider/etc.) observe it.
+        await assistant(session.id, msg.id, tmp.path)
+        const msgs = await svc.messages({ sessionID: session.id })
+        const done = defer()
+        let seen = false
+        const rt = runtime("continue", Plugin.defaultLayer, wide())
+        let unsub: (() => void) | undefined
+        try {
+          unsub = await rt.runPromise(
+            Bus.Service.use((svc) =>
+              svc.subscribeCallback(SessionCompaction.Event.Compacted, (evt) => {
+                if (evt.properties.sessionID !== session.id) return
+                seen = true
+                done.resolve()
+              }),
+            ),
+          )
+
+          const result = await rt.runPromise(
+            SessionCompaction.Service.use((svc) =>
+              svc.process({
+                parentID: msg.id,
+                messages: msgs,
+                sessionID: session.id,
+                auto: true,
+              }),
+            ),
+          )
+
+          await Promise.race([
+            done.promise,
+            wait(500).then(() => {
+              throw new Error("timed out waiting for compacted event")
+            }),
+          ])
+          expect(result).toBe("continue")
+          expect(seen).toBe(true)
+
+          const all = await svc.messages({ sessionID: session.id })
+          expect(
+            all.some(
+              (m) =>
+                m.info.role === "user" &&
+                m.parts.some(
+                  (part) =>
+                    part.type === "text" && part.synthetic && part.text.includes("Continue if you have next steps"),
+                ),
+            ),
+          ).toBe(false)
+        } finally {
+          unsub?.()
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
   test("marks summary message as errored on compact result", async () => {
     await using tmp = await tmpdir()
     await Instance.provide({
@@ -1076,6 +1142,9 @@ describe("session.compaction.process", () => {
       fn: async () => {
         const session = await svc.create({})
         const msg = await user(session.id, "hello")
+        // The interrupted turn finished cleanly (end_turn): the agent chose to
+        // stop, so compaction must not inject a synthetic continue over that.
+        await assistant(session.id, msg.id, tmp.path)
         const rt = runtime("continue", Plugin.defaultLayer, wide())
         try {
           const msgs = await svc.messages({ sessionID: session.id })
@@ -1112,6 +1181,64 @@ describe("session.compaction.process", () => {
     })
   })
 
+  test("injects synthetic continue when auto compaction interrupts a mid-task turn", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create({})
+        const parent = await user(session.id, "do a multi-step task")
+        // The interrupted turn did not finish cleanly: it stopped on a
+        // tool-calls step, so there is unfinished work to resume after compaction.
+        await svc.updateMessage({
+          id: MessageID.ascending(),
+          role: "assistant",
+          sessionID: session.id,
+          mode: "build",
+          agent: "build",
+          path: { cwd: tmp.path, root: tmp.path },
+          cost: 0,
+          tokens: { output: 0, input: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          modelID: ref.modelID,
+          providerID: ref.providerID,
+          parentID: parent.id,
+          time: { created: Date.now() },
+          finish: "tool-calls",
+        })
+        const rt = runtime("continue", Plugin.defaultLayer, wide())
+        try {
+          const msgs = await svc.messages({ sessionID: session.id })
+          const result = await rt.runPromise(
+            SessionCompaction.Service.use((svc) =>
+              svc.process({
+                parentID: parent.id,
+                messages: msgs,
+                sessionID: session.id,
+                auto: true,
+              }),
+            ),
+          )
+
+          const all = await svc.messages({ sessionID: session.id })
+
+          expect(result).toBe("continue")
+          expect(
+            all.some(
+              (msg) =>
+                msg.info.role === "user" &&
+                msg.parts.some(
+                  (part) =>
+                    part.type === "text" && part.synthetic && part.text.includes("Continue if you have next steps"),
+                ),
+            ),
+          ).toBe(true)
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
   test("allows plugins to disable synthetic continue prompt", async () => {
     await using tmp = await tmpdir()
     await Instance.provide({
@@ -1119,6 +1246,23 @@ describe("session.compaction.process", () => {
       fn: async () => {
         const session = await svc.create({})
         const msg = await user(session.id, "hello")
+        // Mid-task turn so shouldAutoContinue is true; the plugin returning
+        // enabled=false is then what suppresses the continue, not the guard.
+        await svc.updateMessage({
+          id: MessageID.ascending(),
+          role: "assistant",
+          sessionID: session.id,
+          mode: "build",
+          agent: "build",
+          path: { cwd: tmp.path, root: tmp.path },
+          cost: 0,
+          tokens: { output: 0, input: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          modelID: ref.modelID,
+          providerID: ref.providerID,
+          parentID: msg.id,
+          time: { created: Date.now() },
+          finish: "tool-calls",
+        })
         const rt = runtime("continue", autocontinue(false), wide())
         try {
           const msgs = await svc.messages({ sessionID: session.id })

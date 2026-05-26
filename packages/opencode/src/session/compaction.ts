@@ -598,7 +598,7 @@ export const layer: Layer.Layer<
         })
       }
 
-      if (result === "continue" && input.auto && input.overflow) {
+      if (result === "continue" && input.auto) {
         if (replay) {
           const original = replay.info
           const replayMsg = yield* session.updateMessage({
@@ -633,54 +633,84 @@ export const layer: Layer.Layer<
         }
 
         if (!replay) {
-          const info = yield* provider.getProvider(userMessage.model.providerID)
-          if (
-            (yield* plugin.trigger(
-              "experimental.compaction.autocontinue",
-              {
-                sessionID: input.sessionID,
-                agent: userMessage.agent,
-                model: yield* provider.getModel(userMessage.model.providerID, userMessage.model.modelID),
-                provider: {
-                  source: info.source,
-                  info,
-                  options: info.options,
+          // Overflow recovery: the provider rejected the turn mid-flight, so there
+          // is always unfinished work — continue. Natural compaction: only continue
+          // when the interrupted turn had NOT finished cleanly. A clean finish
+          // ("stop"/"end_turn") means the agent itself chose to end the turn, so a
+          // synthetic continue would override that and make compaction-turns more
+          // eager than normal turns. Resume only when the last real turn was still
+          // mid-flight (no finish, "tool-calls", or "unknown"). Keying on the finish
+          // reason rather than the overflow flag matches upstream opencode #27730;
+          // the old overflow gate stranded mid-task work that compacted without a
+          // provider-side overflow.
+          let shouldAutoContinue = true
+          if (!input.overflow) {
+            const lastNonSummaryAssistant = input.messages.findLast(
+              (m) => m.info.role === "assistant" && !m.info.summary,
+            )?.info as MessageV2.Assistant | undefined
+            // A missing turn has nothing to resume; guard `!== undefined` explicitly
+            // so `!lastNonSummaryAssistant?.finish` can't inject a spurious continue
+            // when no assistant turn exists.
+            shouldAutoContinue =
+              lastNonSummaryAssistant !== undefined &&
+              (!lastNonSummaryAssistant.finish ||
+                lastNonSummaryAssistant.finish === "tool-calls" ||
+                lastNonSummaryAssistant.finish === "unknown")
+          }
+          // Gate ONLY the synthetic continue on shouldAutoContinue — never the
+          // function exit. A clean finish skips the continue but still falls
+          // through to the shared tail below (error check + Compacted event), so
+          // a successful compaction is always observed by subscribers.
+          if (shouldAutoContinue) {
+            const info = yield* provider.getProvider(userMessage.model.providerID)
+            if (
+              (yield* plugin.trigger(
+                "experimental.compaction.autocontinue",
+                {
+                  sessionID: input.sessionID,
+                  agent: userMessage.agent,
+                  model: yield* provider.getModel(userMessage.model.providerID, userMessage.model.modelID),
+                  provider: {
+                    source: info.source,
+                    info,
+                    options: info.options,
+                  },
+                  message: userMessage,
+                  overflow: input.overflow === true,
                 },
-                message: userMessage,
-                overflow: input.overflow === true,
-              },
-              { enabled: true },
-            )).enabled
-          ) {
-            const continueMsg = yield* session.updateMessage({
-              id: MessageID.ascending(),
-              role: "user",
-              sessionID: input.sessionID,
-              time: { created: Date.now() },
-              agent: userMessage.agent,
-              model: userMessage.model,
-            })
-            const text =
-              (input.overflow
-                ? "The previous request exceeded the provider's size limit due to large media attachments. The conversation was compacted and media files were removed from context. If the user was asking about attached images or files, explain that the attachments were too large to process and suggest they try again with smaller or fewer files.\n\n"
-                : "") +
-              "Continue if you have next steps, or stop and ask for clarification if you are unsure how to proceed."
-            yield* session.updatePart({
-              id: PartID.ascending(),
-              messageID: continueMsg.id,
-              sessionID: input.sessionID,
-              type: "text",
-              // Internal marker for auto-compaction followups so provider plugins
-              // can distinguish them from manual post-compaction user prompts.
-              // This is not a stable plugin contract and may change or disappear.
-              metadata: { compaction_continue: true },
-              synthetic: true,
-              text,
-              time: {
-                start: Date.now(),
-                end: Date.now(),
-              },
-            })
+                { enabled: true },
+              )).enabled
+            ) {
+              const continueMsg = yield* session.updateMessage({
+                id: MessageID.ascending(),
+                role: "user",
+                sessionID: input.sessionID,
+                time: { created: Date.now() },
+                agent: userMessage.agent,
+                model: userMessage.model,
+              })
+              const text =
+                (input.overflow
+                  ? "The previous request exceeded the provider's size limit due to large media attachments. The conversation was compacted and media files were removed from context. If the user was asking about attached images or files, explain that the attachments were too large to process and suggest they try again with smaller or fewer files.\n\n"
+                  : "") +
+                "Continue if you have next steps, or stop and ask for clarification if you are unsure how to proceed."
+              yield* session.updatePart({
+                id: PartID.ascending(),
+                messageID: continueMsg.id,
+                sessionID: input.sessionID,
+                type: "text",
+                // Internal marker for auto-compaction followups so provider plugins
+                // can distinguish them from manual post-compaction user prompts.
+                // This is not a stable plugin contract and may change or disappear.
+                metadata: { compaction_continue: true },
+                synthetic: true,
+                text,
+                time: {
+                  start: Date.now(),
+                  end: Date.now(),
+                },
+              })
+            }
           }
         }
       }

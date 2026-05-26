@@ -530,6 +530,49 @@ it.live("loop compacts a finished assistant turn before exiting when it overflow
   ),
 )
 
+it.live("loop continues a mid-task turn after auto compaction interrupts it", () =>
+  provideTmpdirServer(
+    ({ llm }) =>
+      Effect.gen(function* () {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({ title: "Interrupted mid-task turn" })
+        // The overflowing turn stopped on a tool-calls step (mid-task), so there
+        // is unfinished work the loop must resume after compacting — unlike a
+        // cleanly finished turn, which should compact and wait.
+        const seeded = yield* seed(chat.id, { finish: "tool-calls" })
+        yield* sessions.updateMessage({
+          ...seeded.assistant,
+          tokens: { input: 95_000, output: 1, reasoning: 0, cache: { read: 0, write: 0 } },
+        })
+        yield* llm.text("## Goal\n- Compacted mid-task turn")
+        yield* llm.text("resumed the interrupted work")
+
+        const result = yield* prompt.loop({ sessionID: chat.id })
+        const messages = yield* sessions.messages({ sessionID: chat.id })
+        const compactionPart = messages
+          .flatMap((message) => message.parts)
+          .find((part): part is MessageV2.CompactionPart => part.type === "compaction")
+        const syntheticContinue = messages.find(
+          (message) =>
+            message.info.role === "user" &&
+            message.parts.some(
+              (part) => part.type === "text" && part.synthetic && part.text.includes("Continue if you have next steps"),
+            ),
+        )
+
+        expect(compactionPart).toBeDefined()
+        expect(compactionPart?.overflow).not.toBe(true)
+        // Mid-task interruption: compaction injects the synthetic continue and the
+        // loop resumes (a second LLM call) instead of stopping at the summary.
+        expect(syntheticContinue).toBeDefined()
+        expect(yield* llm.calls).toBeGreaterThanOrEqual(2)
+        expect(result.info.role).toBe("assistant")
+      }),
+    { git: true, config: providerCfg },
+  ),
+)
+
 it.live("finished compaction with retained tail does not compact that tail again", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>
