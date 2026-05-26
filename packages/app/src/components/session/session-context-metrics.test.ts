@@ -68,8 +68,17 @@ describe("getSessionContextMetrics", () => {
     expect(metrics.context?.compactThreshold).toBe(900)
     expect(metrics.context?.usagePercent).toBe(45)
     expect(metrics.context?.usage).toBe(45)
+    expect(metrics.context?.cacheHitRate).toBe(Math.round((25 / (300 + 25 + 25)) * 100))
     expect(metrics.context?.providerLabel).toBe("OpenAI")
     expect(metrics.context?.modelLabel).toBe("GPT-4.1")
+  })
+
+  test("leaves cache hit rate empty when provider reports no cache data", () => {
+    const messages = [assistant("a1", { input: 300, output: 100, reasoning: 0, read: 0, write: 0 }, 0.25)]
+
+    const metrics = getSessionContextMetrics(messages, [{ id: "openai", models: {} }])
+
+    expect(metrics.context?.cacheHitRate).toBeNull()
   })
 
   test("uses input limit and custom compaction reserve for usage metrics", () => {

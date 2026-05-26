@@ -2187,6 +2187,64 @@ it.live("session.processor effect tests execute Responses args-done-only tool ca
   ),
 )
 
+it.live("test LLM server preserves cached input tokens when converting chat chunks to Responses API events", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const previousToken = process.env.GITHUB_COPILOT_TOKEN
+        process.env.GITHUB_COPILOT_TOKEN = "test-copilot-key"
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            if (previousToken === undefined) delete process.env.GITHUB_COPILOT_TOKEN
+            else process.env.GITHUB_COPILOT_TOKEN = previousToken
+          }),
+        )
+        const { processors, session, provider } = yield* boot()
+
+        yield* llm.text("cached response", { usage: { input: 1_000, output: 40, cacheRead: 900 } })
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "responses cache usage")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(copilotResponsesRef.providerID, copilotResponsesRef.modelID)
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: copilotResponsesRef.providerID, modelID: copilotResponsesRef.modelID },
+            tools: {},
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "responses cache usage" }],
+          tools: {},
+        })
+
+        const stored = MessageV2.get({ sessionID: chat.id, messageID: msg.id })
+        const hits = yield* llm.hits
+
+        expect(hits[0]?.url.pathname).toBe("/v1/responses")
+        expect(stored.info.role).toBe("assistant")
+        if (stored.info.role === "assistant") {
+          expect(stored.info.tokens.input).toBe(100)
+          expect(stored.info.tokens.cache.read).toBe(900)
+        }
+      }),
+    { git: true, config: (url) => copilotResponsesProviderCfg(url) },
+  ),
+)
+
 // Question tool aborted on cleanup gets a clearer message than the generic
 // "Tool execution aborted". The LLM reads part.state.error as the tool result
 // and the generic phrasing made models think the user dismissed the question.
