@@ -2,6 +2,7 @@ import { createStore, reconcile } from "solid-js/store"
 import { createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { persisted } from "@/utils/persist"
+import { SOUND_OPTIONS } from "@/utils/sound"
 
 export interface NotificationSettings {
   agent: boolean
@@ -136,11 +137,11 @@ const defaultSettings: Settings = {
   },
   sounds: {
     agentEnabled: true,
-    agent: "staplebops-01",
+    agent: "notify",
     permissionsEnabled: true,
-    permissions: "staplebops-02",
+    permissions: "notify",
     errorsEnabled: true,
-    errors: "nope-03",
+    errors: "error",
   },
 }
 
@@ -148,10 +149,26 @@ function withFallback<T>(read: () => T | undefined, fallback: T) {
   return createMemo(() => read() ?? fallback)
 }
 
+// Sound files were reduced to "notify"/"error"; map any stale persisted id
+// (e.g. the old OpenCode "staplebops-01") back to the current default so
+// existing users don't end up with a silent, unresolvable sound.
+const VALID_SOUND_IDS = new Set<string>(SOUND_OPTIONS.map((option) => option.id))
+function withSoundFallback(read: () => string | undefined, fallback: string) {
+  return createMemo(() => {
+    const value = read()
+    return value && VALID_SOUND_IDS.has(value) ? value : fallback
+  })
+}
+
 export const { use: useSettings, provider: SettingsProvider } = createSimpleContext({
   name: "Settings",
   init: () => {
-    const [store, setStore, _, ready] = persisted("settings.v3", createStore<Settings>(defaultSettings))
+    // Clone so the store never mutates the shared defaultSettings constant in
+    // place; the fallback accessors below read defaultSettings.* as their source
+    // of truth, and a stale persisted value reconciled into the store would
+    // otherwise overwrite those defaults (e.g. withSoundFallback would "fall
+    // back" to the very invalid id it was meant to replace).
+    const [store, setStore, _, ready] = persisted("settings.v3", createStore<Settings>(structuredClone(defaultSettings)))
     const [themeID, setThemeID] = createSignal<string | undefined>()
 
     onMount(() => {
@@ -357,7 +374,7 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         setAgentEnabled(value: boolean) {
           setStore("sounds", "agentEnabled", value)
         },
-        agent: withFallback(() => store.sounds?.agent, defaultSettings.sounds.agent),
+        agent: withSoundFallback(() => store.sounds?.agent, defaultSettings.sounds.agent),
         setAgent(value: string) {
           setStore("sounds", "agent", value)
         },
@@ -368,7 +385,7 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         setPermissionsEnabled(value: boolean) {
           setStore("sounds", "permissionsEnabled", value)
         },
-        permissions: withFallback(() => store.sounds?.permissions, defaultSettings.sounds.permissions),
+        permissions: withSoundFallback(() => store.sounds?.permissions, defaultSettings.sounds.permissions),
         setPermissions(value: string) {
           setStore("sounds", "permissions", value)
         },
@@ -376,7 +393,7 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         setErrorsEnabled(value: boolean) {
           setStore("sounds", "errorsEnabled", value)
         },
-        errors: withFallback(() => store.sounds?.errors, defaultSettings.sounds.errors),
+        errors: withSoundFallback(() => store.sounds?.errors, defaultSettings.sounds.errors),
         setErrors(value: string) {
           setStore("sounds", "errors", value)
         },
