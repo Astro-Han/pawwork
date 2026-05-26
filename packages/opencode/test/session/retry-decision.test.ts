@@ -10,6 +10,20 @@ const safeReplayGate: RunIncident.Recovery = {
   safety_scope: "visible_output_and_tool_side_effects",
 }
 
+const visibleOutputGate: RunIncident.Recovery = {
+  recommendation: "offer_continue",
+  confidence: "high",
+  reason: "visible_output_without_tool_execution",
+  safety_scope: "visible_output_and_tool_side_effects",
+}
+
+const ambiguousToolGate: RunIncident.Recovery = {
+  recommendation: "ask_user_before_retry",
+  confidence: "high",
+  reason: "side_effect_facts_incomplete",
+  safety_scope: "visible_output_and_tool_side_effects",
+}
+
 describe("session.retry-decision", () => {
   test("keeps technical retryability separate from safe recovery replay metadata", () => {
     const decision = buildModelRetryDecision({
@@ -71,5 +85,42 @@ describe("session.retry-decision", () => {
       presentation: "default",
     })
     expect(decision.safetyGateDecision).toBe(safeReplayGate)
+  })
+
+  test("represents continuation offers without treating them as replay", () => {
+    const decision = buildModelRetryDecision({
+      technicalRetryability: { retryable: true, message: "socket closed" },
+      safetyGateDecision: visibleOutputGate,
+      providerRetryAttempt: 2,
+      safeRecoveryAttempt: 0,
+      timeoutPolicy: "default",
+    })
+
+    expect(decision).toMatchObject({
+      canRetry: false,
+      recoveryMode: "offer_continue",
+      blockedReason: "visible_output_without_tool_execution",
+      presentation: "default",
+    })
+    expect(decision.attemptKind).toBeUndefined()
+  })
+
+  test("represents safety-confirmation gates without consuming the replay budget", () => {
+    const decision = buildModelRetryDecision({
+      technicalRetryability: { retryable: true, message: "socket closed" },
+      safetyGateDecision: ambiguousToolGate,
+      providerRetryAttempt: 2,
+      safeRecoveryAttempt: 0,
+      timeoutPolicy: "default",
+    })
+
+    expect(decision).toMatchObject({
+      canRetry: false,
+      recoveryMode: "ask_user",
+      blockedReason: "side_effect_facts_incomplete",
+      safeRecoveryAttempt: 0,
+      presentation: "default",
+    })
+    expect(decision.attemptKind).toBeUndefined()
   })
 })
