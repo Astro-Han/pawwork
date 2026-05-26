@@ -1,7 +1,7 @@
 import { NodeFileSystem } from "@effect/platform-node"
 import { tool } from "ai"
 import { expect } from "bun:test"
-import { Cause, Effect, Exit, Fiber, Layer } from "effect"
+import { Cause, Effect, Exit, Fiber, Layer, Stream } from "effect"
 import path from "path"
 import z from "zod"
 import type { Agent } from "../../src/agent/agent"
@@ -11,6 +11,7 @@ import { Config } from "../../src/config"
 import { Permission } from "../../src/permission"
 import { Plugin } from "../../src/plugin"
 import { Provider } from "../../src/provider"
+import * as ProviderTransform from "../../src/provider/transform"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { Session } from "../../src/session"
 import { LLM } from "../../src/session/llm"
@@ -25,7 +26,7 @@ import { TurnChange } from "../../src/session/turn-change"
 import { Snapshot } from "../../src/snapshot"
 import { Log } from "../../src/util"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
-import { provideTmpdirServer } from "../fixture/fixture"
+import { provideTmpdirInstance, provideTmpdirServer } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 import { raw, reply, TestLLMServer } from "../lib/llm-server"
 
@@ -46,6 +47,11 @@ const ref = {
   modelID: ModelID.make("test-model"),
 }
 
+const reasoningRef = {
+  providerID: ProviderID.make("test"),
+  modelID: ModelID.make("reasoning-model"),
+}
+
 const copilotResponsesRef = {
   providerID: ProviderID.make("github-copilot"),
   modelID: ModelID.make("gpt-5.2"),
@@ -64,6 +70,18 @@ const cfg = {
           name: "Test Model",
           attachment: false,
           reasoning: false,
+          temperature: false,
+          tool_call: true,
+          release_date: "2025-01-01",
+          limit: { context: 100000, output: 10000 },
+          cost: { input: 0, output: 0 },
+          options: {},
+        },
+        "reasoning-model": {
+          id: "reasoning-model",
+          name: "Reasoning Model",
+          attachment: false,
+          reasoning: true,
           temperature: false,
           tool_call: true,
           release_date: "2025-01-01",
@@ -250,18 +268,18 @@ const assistant = Effect.fn("TestSession.assistant")(function* (
 
 const status = SessionStatus.layer.pipe(Layer.provideMerge(Bus.layer))
 const infra = Layer.mergeAll(NodeFileSystem.layer, CrossSpawnSpawner.defaultLayer)
-const deps = Layer.mergeAll(
+const depsWithoutLLM = Layer.mergeAll(
   Session.defaultLayer,
   Snapshot.defaultLayer,
   AgentSvc.defaultLayer,
   Permission.defaultLayer,
   Plugin.defaultLayer,
   Config.defaultLayer,
-  LLM.defaultLayer,
   Provider.defaultLayer,
   TurnChange.defaultLayer,
   status,
 ).pipe(Layer.provideMerge(infra))
+const deps = Layer.mergeAll(depsWithoutLLM, LLM.defaultLayer)
 const env = Layer.mergeAll(
   TestLLMServer.layer,
   SessionProcessor.layer.pipe(Layer.provide(summary), Layer.provideMerge(deps)),
@@ -276,9 +294,268 @@ const boot = Effect.fn("test.boot")(function* () {
   return { processors, session, provider }
 })
 
+function processorEnvWithLLM(llm: LLM.Interface) {
+  const testLLM = Layer.succeed(LLM.Service, LLM.Service.of(llm))
+  const testDeps = Layer.mergeAll(depsWithoutLLM, testLLM)
+  return Layer.mergeAll(
+    testDeps,
+    SessionProcessor.layer.pipe(Layer.provide(summary), Layer.provideMerge(testDeps)),
+  )
+}
+
+const capturedAttemptConnectTimeouts: number[] = []
+const attemptTimeoutIt = testEffect(
+  processorEnvWithLLM({
+    stream(input) {
+      const connectTimeoutMs = input.connectTimeoutMs ?? LLM.CONNECT_STREAM_TIMEOUT_MS
+      const streamTimeoutMs = input.streamTimeoutMs ?? LLM.SILENT_STREAM_TIMEOUT_MS
+      const error = new Error(`LLM stream connection timed out after ${connectTimeoutMs}ms without provider progress`)
+      capturedAttemptConnectTimeouts.push(connectTimeoutMs)
+      input.trace?.beginStream({
+        collectorCreatedAt: Date.now(),
+        monotonicMs: performance.now(),
+        connectTimeoutMs,
+        streamTimeoutMs,
+      })
+      input.trace?.recordWatchdogFired({
+        phase: "connect",
+        firedAt: Date.now(),
+        monotonicMs: performance.now(),
+      })
+      input.trace?.recordStreamFailure({
+        error,
+        boundary: "watchdog",
+        confidence: "high",
+        evidence: ["watchdog_fired", "watchdog_error"],
+        failedAt: Date.now(),
+        monotonicMs: performance.now(),
+      })
+      return Stream.fail(error)
+    },
+  }),
+)
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+attemptTimeoutIt.live("reasoning connect watchdog is attempt-scoped for before-progress safe retry", () =>
+  provideTmpdirInstance(
+    (dir) =>
+      Effect.gen(function* () {
+        capturedAttemptConnectTimeouts.length = 0
+        const { processors, session, provider } = yield* boot()
+        const bus = yield* Bus.Service
+        const retrySeen = defer<SessionStatus.Info>()
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "reasoning connect timeout policy")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(reasoningRef.providerID, reasoningRef.modelID)
+        const off = yield* bus.subscribeCallback(SessionStatus.Event.Status, (evt) => {
+          if (evt.properties.sessionID !== chat.id) return
+          if (evt.properties.status.type === "retry") retrySeen.resolve(evt.properties.status)
+        })
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const value = yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: reasoningRef.providerID, modelID: reasoningRef.modelID },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "reasoning connect timeout policy" }],
+          tools: {},
+        })
+
+        const retryStatus = yield* Effect.promise(() => retrySeen.promise)
+        const parts = MessageV2.parts(msg.id)
+        off()
+
+        expect(value).toBe("stop")
+        expect(capturedAttemptConnectTimeouts).toEqual([
+          SessionProcessor.REASONING_FIRST_ATTEMPT_CONNECT_TIMEOUT_MS,
+          SessionProcessor.REASONING_SAFE_RETRY_CONNECT_TIMEOUT_MS,
+        ])
+        expect(retryStatus).toMatchObject({
+          type: "retry",
+          message: "",
+          presentation: "safe_recovery",
+          reason: "network_connection_dropped",
+        })
+        expect(handle.message.diagnostics?.run_observability?.attempts).toMatchObject([
+          {
+            attempt_index: 1,
+            connect_timeout_ms: SessionProcessor.REASONING_FIRST_ATTEMPT_CONNECT_TIMEOUT_MS,
+          },
+          {
+            attempt_index: 2,
+            connect_timeout_ms: SessionProcessor.REASONING_SAFE_RETRY_CONNECT_TIMEOUT_MS,
+          },
+        ])
+        expect(parts.some((part) => part.type === "notice" && part.kind === "safe_retry_failed")).toBe(true)
+        expect(handle.message.error).toBeUndefined()
+
+        const manualParent = yield* user(chat.id, "manual retry starts fresh")
+        const manualMsg = yield* assistant(chat.id, manualParent.id, path.resolve(dir))
+        const manualHandle = yield* processors.create({
+          assistantMessage: manualMsg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        yield* manualHandle.process({
+          user: {
+            id: manualParent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: manualParent.time,
+            agent: manualParent.agent,
+            model: { providerID: reasoningRef.providerID, modelID: reasoningRef.modelID },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "manual retry starts fresh" }],
+          tools: {},
+        })
+
+        expect(capturedAttemptConnectTimeouts).toEqual([
+          SessionProcessor.REASONING_FIRST_ATTEMPT_CONNECT_TIMEOUT_MS,
+          SessionProcessor.REASONING_SAFE_RETRY_CONNECT_TIMEOUT_MS,
+          SessionProcessor.REASONING_FIRST_ATTEMPT_CONNECT_TIMEOUT_MS,
+          SessionProcessor.REASONING_SAFE_RETRY_CONNECT_TIMEOUT_MS,
+        ])
+      }),
+    { git: true, config: providerCfg("http://localhost:1/v1") },
+  ),
+)
+
+attemptTimeoutIt.live("reasoning first attempt keeps global timeout when active tools block safe recovery", () =>
+  provideTmpdirInstance(
+    (dir) =>
+      Effect.gen(function* () {
+        capturedAttemptConnectTimeouts.length = 0
+        const { processors, session, provider } = yield* boot()
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "reasoning external boundary timeout policy")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(reasoningRef.providerID, reasoningRef.modelID)
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+        const externalTool = Object.assign(
+          tool({
+            description: "external boundary",
+            inputSchema: z.object({}),
+          }),
+          { externalResult: true },
+        )
+
+        const value = yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: reasoningRef.providerID, modelID: reasoningRef.modelID },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "reasoning external boundary timeout policy" }],
+          tools: {
+            question: externalTool,
+          },
+        })
+
+        expect(value).toBe("stop")
+        expect(capturedAttemptConnectTimeouts).toEqual([ProviderTransform.REASONING_GLOBAL_CONNECT_TIMEOUT_MS])
+        expect(handle.message.diagnostics?.run_observability?.attempts).toMatchObject([
+          {
+            attempt_index: 1,
+            connect_timeout_ms: ProviderTransform.REASONING_GLOBAL_CONNECT_TIMEOUT_MS,
+          },
+        ])
+        expect(handle.message.diagnostics?.run_observability?.incident?.recovery).toMatchObject({
+          recommendation: "ask_user_before_retry",
+          reason: "side_effect_facts_incomplete",
+        })
+      }),
+    { git: true, config: providerCfg("http://localhost:1/v1") },
+  ),
+)
+
+attemptTimeoutIt.live("reasoning first attempt uses fast timeout with unclassified local tool boundary", () =>
+  provideTmpdirInstance(
+    (dir) =>
+      Effect.gen(function* () {
+        capturedAttemptConnectTimeouts.length = 0
+        const { processors, session, provider } = yield* boot()
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "reasoning unclassified local tool timeout policy")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(reasoningRef.providerID, reasoningRef.modelID)
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const value = yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: reasoningRef.providerID, modelID: reasoningRef.modelID },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "reasoning unclassified local tool timeout policy" }],
+          tools: {
+            mcp_write: tool({
+              description: "ordinary local tool with incomplete effect classification",
+              inputSchema: z.object({}),
+            }),
+          },
+        })
+
+        const parts = MessageV2.parts(msg.id)
+        expect(value).toBe("stop")
+        expect(capturedAttemptConnectTimeouts).toEqual([
+          SessionProcessor.REASONING_FIRST_ATTEMPT_CONNECT_TIMEOUT_MS,
+          SessionProcessor.REASONING_SAFE_RETRY_CONNECT_TIMEOUT_MS,
+        ])
+        expect(parts.some((part) => part.type === "notice" && part.kind === "safe_retry_failed")).toBe(true)
+        expect(handle.message.error).toBeUndefined()
+        expect(handle.message.diagnostics?.run_observability?.recovered_incidents?.[0]?.recovery).toMatchObject({
+          recommendation: "auto_retry_once",
+          reason: "no_visible_output_or_tool_execution",
+        })
+      }),
+    { git: true, config: providerCfg("http://localhost:1/v1") },
+  ),
+)
 
 it.live("session.processor keeps late tool execution diagnostics on the bound tool-call attempt", () =>
   provideTmpdirServer(
@@ -987,13 +1264,11 @@ it.live("session.processor effect tests retry recognized structured json errors"
   ),
 )
 
-it.live("retryable API errors stop after one safe recovery retry", () =>
+it.live("retryable API errors write a safe retry notice after one recovery retry", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>
       Effect.gen(function* () {
-        const seen = defer<void>()
         const { processors, session, provider } = yield* boot()
-        const bus = yield* Bus.Service
 
         yield* llm.error(503, { error: "temporarily unavailable" })
         yield* llm.error(503, { error: "still unavailable" })
@@ -1003,11 +1278,6 @@ it.live("retryable API errors stop after one safe recovery retry", () =>
         const parent = yield* user(chat.id, "retry api twice")
         const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
         const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
-        const off = yield* bus.subscribeCallback(Session.Event.Error, (evt) => {
-          if (evt.properties.sessionID !== chat.id) return
-          if (!evt.properties.error) return
-          seen.resolve()
-        })
         const handle = yield* processors.create({
           assistantMessage: msg,
           sessionID: chat.id,
@@ -1031,14 +1301,13 @@ it.live("retryable API errors stop after one safe recovery retry", () =>
           tools: {},
         })
 
-        yield* Effect.promise(() => seen.promise)
         const parts = MessageV2.parts(msg.id)
-        off()
 
         expect(value).toBe("stop")
         expect(yield* llm.calls).toBe(2)
         expect(parts.some((part) => part.type === "text" && part.text === "third attempt should not run")).toBe(false)
-        expect(handle.message.error?.name).toBe("APIError")
+        expect(parts.some((part) => part.type === "notice" && part.kind === "safe_retry_failed")).toBe(true)
+        expect(handle.message.error).toBeUndefined()
         expect(handle.message.diagnostics?.run_observability?.attempts).toHaveLength(2)
         expect(handle.message.diagnostics?.run_observability?.recovered_incidents).toHaveLength(1)
       }),
@@ -2397,13 +2666,11 @@ it.live("session.processor effect tests record aborted errors and idle state", (
   ),
 )
 
-it.live("connect timeout writes assistant info.error and flips session_status idle after retry also fails", () =>
+it.live("connect timeout writes a safe retry notice and flips session_status idle after retry also fails", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>
       Effect.gen(function* () {
-        const seen = defer<void>()
         const { processors, session, provider } = yield* boot()
-        const bus = yield* Bus.Service
         const sts = yield* SessionStatus.Service
 
         yield* llm.hang
@@ -2413,13 +2680,6 @@ it.live("connect timeout writes assistant info.error and flips session_status id
         const parent = yield* user(chat.id, "bad model")
         const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
         const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
-        const errs: string[] = []
-        const off = yield* bus.subscribeCallback(Session.Event.Error, (evt) => {
-          if (evt.properties.sessionID !== chat.id) return
-          if (!evt.properties.error) return
-          errs.push(evt.properties.error.name)
-          seen.resolve()
-        })
         const handle = yield* processors.create({
           assistantMessage: msg,
           sessionID: chat.id,
@@ -2445,20 +2705,19 @@ it.live("connect timeout writes assistant info.error and flips session_status id
           streamTimeoutMs: 1_000,
         })
 
-        yield* Effect.promise(() => seen.promise)
         const stored = MessageV2.get({ sessionID: chat.id, messageID: msg.id })
+        const parts = MessageV2.parts(msg.id)
         const state = yield* sts.get(chat.id)
-        off()
 
         expect(result).toBe("stop")
         expect(yield* llm.calls).toBe(2)
-        expect(handle.message.error).toBeTruthy()
+        expect(handle.message.error).toBeUndefined()
+        expect(parts.some((part) => part.type === "notice" && part.kind === "safe_retry_failed")).toBe(true)
         expect(stored.info.role).toBe("assistant")
         if (stored.info.role === "assistant") {
-          expect(stored.info.error).toBeTruthy()
+          expect(stored.info.error).toBeUndefined()
         }
         expect(state).toMatchObject({ type: "idle" })
-        expect(errs.length).toBeGreaterThan(0)
       }),
     { git: true, config: (url) => providerCfg(url) },
   ),

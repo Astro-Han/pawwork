@@ -1085,7 +1085,7 @@ export function variants(model: Provider.Model): Record<string, Record<string, a
   return {}
 }
 
-const REASONING_CONNECT_TIMEOUT_MS = 120_000
+export const REASONING_GLOBAL_CONNECT_TIMEOUT_MS = 120_000
 
 /**
  * Returns watchdog timeout overrides for reasoning-capable models.
@@ -1093,7 +1093,7 @@ const REASONING_CONNECT_TIMEOUT_MS = 120_000
  */
 export function streamTimeouts(model: Provider.Model): { connectTimeoutMs?: number } {
   if (!model.capabilities.reasoning) return {}
-  return { connectTimeoutMs: REASONING_CONNECT_TIMEOUT_MS }
+  return { connectTimeoutMs: REASONING_GLOBAL_CONNECT_TIMEOUT_MS }
 }
 
 export function options(input: {

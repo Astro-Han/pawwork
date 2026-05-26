@@ -4761,6 +4761,7 @@ describe("ProviderTransform.streamTimeouts", () => {
   test("policy floor: reasoning model connect timeout meets minimum ceiling", () => {
     const result = ProviderTransform.streamTimeouts(reasoningModel)
     expect(result.connectTimeoutMs).toBeDefined()
+    expect(result.connectTimeoutMs).toBe(ProviderTransform.REASONING_GLOBAL_CONNECT_TIMEOUT_MS)
     expect(result.connectTimeoutMs!).toBeGreaterThan(LLM.CONNECT_STREAM_TIMEOUT_MS)
     expect(result.connectTimeoutMs!).toBeGreaterThanOrEqual(90_000)
   })

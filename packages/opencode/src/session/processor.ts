@@ -31,6 +31,8 @@ import { currentLifecycleCloseAction, lifecycleCloseActionMeta } from "./lifecyc
 const log = Log.create({ service: "session.processor" })
 const TOOL_CLEANUP_TIMEOUT_MS = 1_000
 const SAFE_RECOVERY_AUTO_RETRY_BACKOFF_MS = 1_000
+export const REASONING_FIRST_ATTEMPT_CONNECT_TIMEOUT_MS = 60_000
+export const REASONING_SAFE_RETRY_CONNECT_TIMEOUT_MS = 120_000
 const LOCAL_LIFECYCLE_CLOSE_INTERRUPTION_MESSAGE = "The run was interrupted by a local lifecycle close."
 
 export type Result = "compact" | "stop" | "continue"
@@ -125,6 +127,28 @@ function watchdogPhase(error: unknown): "connect" | "silent_stream" | "unknown" 
   if (!message.includes("llm stream connection timed out")) return undefined
   if (message.includes("without provider progress")) return "connect"
   return "silent_stream"
+}
+
+function attemptStreamTimeouts(
+  model: Provider.Model,
+  automaticStreamRetriesUsed: number,
+  streamInput: Pick<LLM.StreamInput, "connectTimeoutMs">,
+  boundary: RunObservability.SideEffectBoundarySnapshot,
+): { connectTimeoutMs?: number } {
+  if (streamInput.connectTimeoutMs !== undefined) return {}
+  if (!model.capabilities.reasoning) return {}
+  const firstAttemptCanAutoRetry = RunObservability.boundaryAllowsBeforeProgressRetry(boundary)
+  if (automaticStreamRetriesUsed === 0 && !firstAttemptCanAutoRetry) {
+    return { connectTimeoutMs: ProviderTransform.REASONING_GLOBAL_CONNECT_TIMEOUT_MS }
+  }
+  // #918: fail fast on the first stalled reasoning-model attempt, then give
+  // the one safe retry the pre-existing slow-start protection window.
+  return {
+    connectTimeoutMs:
+      automaticStreamRetriesUsed > 0
+        ? REASONING_SAFE_RETRY_CONNECT_TIMEOUT_MS
+        : REASONING_FIRST_ATTEMPT_CONNECT_TIMEOUT_MS,
+  }
 }
 
 function sideEffectBoundarySnapshot(tools: LLM.StreamInput["tools"]): RunObservability.SideEffectBoundarySnapshot {
@@ -1304,10 +1328,18 @@ export const layer: Layer.Layer<
           ctx.reasoningMap = {}
           ctx.attemptCount++
           const activeTools = LLM.resolveTools(streamInput)
+          const boundarySnapshot = sideEffectBoundarySnapshot(activeTools)
+          const sessionTimeouts = attemptStreamTimeouts(
+            streamInput.model,
+            automaticStreamRetriesUsed,
+            streamInput,
+            boundarySnapshot,
+          )
           const attempt = ctx.runTrace.beginAttempt({
             attemptIndex: ctx.attemptCount,
             at: Date.now(),
             monotonicMs: performance.now(),
+            connectTimeoutMs: sessionTimeouts.connectTimeoutMs ?? streamInput.connectTimeoutMs,
           })
           ctx.currentAttemptID = attempt.attemptID
           processAttemptID = attempt.attemptID
@@ -1315,13 +1347,14 @@ export const layer: Layer.Layer<
             attemptID: attempt.attemptID,
             at: Date.now(),
             monotonicMs: performance.now(),
-            snapshot: sideEffectBoundarySnapshot(activeTools),
+            snapshot: boundarySnapshot,
           })
           let stream: Stream.Stream<LLM.Event, unknown>
           try {
             stream = llm.stream({
               ...ProviderTransform.streamTimeouts(streamInput.model),
               ...streamInput,
+              ...sessionTimeouts,
               tools: activeTools,
               trace: ctx.trace,
             })
@@ -1367,6 +1400,10 @@ export const layer: Layer.Layer<
             const reasoningOnlySafeRetry =
               decision.recommendation === "auto_retry_once" &&
               decision.reason === "reasoning_only_without_final_text_or_tool_activity"
+            const beforeProgressSafeRetry =
+              decision.recommendation === "auto_retry_once" &&
+              decision.reason === "no_visible_output_or_tool_execution"
+            const safeRecoveryRetry = reasoningOnlySafeRetry || beforeProgressSafeRetry
 
             if (
               attemptID &&
@@ -1382,9 +1419,9 @@ export const layer: Layer.Layer<
                 yield* status.set(ctx.sessionID, {
                   type: "retry",
                   attempt: ctx.attemptCount,
-                  message: reasoningOnlySafeRetry ? "" : (retrySignal.message ?? "Retrying interrupted stream"),
+                  message: safeRecoveryRetry ? "" : (retrySignal.message ?? "Retrying interrupted stream"),
                   next,
-                  ...(reasoningOnlySafeRetry
+                  ...(safeRecoveryRetry
                     ? { presentation: "safe_recovery" as const, reason: "network_connection_dropped" as const }
                     : {}),
                 })
@@ -1416,7 +1453,7 @@ export const layer: Layer.Layer<
             if (
               attemptID &&
               retrySignal.retryable &&
-              reasoningOnlySafeRetry &&
+              safeRecoveryRetry &&
               automaticStreamRetriesUsed > 0
             ) {
               yield* writeSafeRetryFailedNotice(attemptID)

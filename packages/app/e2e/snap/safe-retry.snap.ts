@@ -31,12 +31,12 @@ test("safe-retry", async ({ page }) => {
   }, `/@fs/${fixturePath}`)
 
   const running = page.locator('[data-snap="running"]')
-  await expect(running).toContainText("网络连接断开，正在自动重试", { timeout: 30_000 })
+  await expect(running).toContainText("模型暂时没有响应，正在重试…", { timeout: 30_000 })
   await expect(running.locator('[data-slot="session-turn-safe-retry"]')).toBeVisible({ timeout: 30_000 })
   await expect(running.locator(".error-card")).toHaveCount(0)
 
   const notice = page.locator('[data-snap="notice"]')
-  await expect(notice).toContainText("网络连接断开，自动重试未完成", { timeout: 30_000 })
+  await expect(notice).toContainText("模型暂时没有响应。你可以稍后再试，或换一个模型。", { timeout: 30_000 })
   await expect(notice.locator('[data-kind="safe_retry_failed"]')).toBeVisible({ timeout: 30_000 })
 
   const out = snapOutputPath("safe-retry")

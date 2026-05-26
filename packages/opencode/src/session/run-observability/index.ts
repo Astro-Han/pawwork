@@ -4,6 +4,7 @@ import {
   makeRunID as makeRunIdentifier,
   summaryKeyFor as makeSummaryKey,
 } from "./recorder"
+import { allowsBeforeProgressRetry as allowsBeforeProgressBoundaryRetry } from "./boundary"
 import { safeToolName as makeSafeToolName, toolEffect as classifyToolEffect } from "./sanitize"
 import { SCHEMA_VERSION as VERSION, RunID as RunIDSchema, AttemptID as AttemptIDSchema } from "./types"
 import * as Types from "./types"
@@ -18,6 +19,7 @@ export namespace RunObservability {
   export const isProviderProgressEvent = isProviderProgressStreamEvent
   export const safeToolName = makeSafeToolName
   export const toolEffect = classifyToolEffect
+  export const boundaryAllowsBeforeProgressRetry = allowsBeforeProgressBoundaryRetry
 
   export type RunID = Types.RunID
   export type AttemptID = Types.AttemptID
