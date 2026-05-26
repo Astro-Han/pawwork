@@ -103,4 +103,35 @@ describe("contextTrowSummaryText", () => {
     expect(summary).toBe("Edit files 1 file")
     expect(summary).not.toContain("\n")
   })
+
+  test("falls back to legacy apply_patch input files when metadata is missing", () => {
+    const part = tool(
+      "patch",
+      "apply_patch",
+      "completed",
+      {},
+      {
+        files: [{}, {}],
+      },
+      "Success. Updated the following files:\nM one.ts\nM two.ts",
+    )
+
+    expect(contextToolSummaryText(part, i18n("en"))).toBe("Edit files 2 files")
+  })
+
+  test("prefers apply_patch metadata files over legacy input files", () => {
+    const part = tool(
+      "patch",
+      "apply_patch",
+      "completed",
+      {
+        files: [{}],
+      },
+      {
+        files: [{}, {}],
+      },
+    )
+
+    expect(contextToolSummaryText(part, i18n("en"))).toBe("Edit files 1 file")
+  })
 })
