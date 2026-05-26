@@ -3,7 +3,7 @@ import type { ToolPart, ToolState } from "@opencode-ai/sdk/v2"
 import type { UiI18n, UiI18nKey, UiI18nParams } from "../../context/i18n"
 import { dict as en } from "../../i18n/en"
 import { dict as zh } from "../../i18n/zh"
-import { contextTrowSummaryText } from "./context-tool-helpers"
+import { contextToolSummaryText, contextTrowSummaryText } from "./context-tool-helpers"
 
 function resolveTemplate(text: string, params?: UiI18nParams) {
   if (!params) return text
@@ -28,11 +28,13 @@ function tool(
   name: string,
   status: "completed" | "error" = "completed",
   metadata: Record<string, unknown> = {},
+  input: Record<string, unknown> = {},
+  title = "",
 ): ToolPart {
   const state: ToolState =
     status === "error"
-      ? { status, input: {}, error: "boom", time: { start: 0, end: 1 } }
-      : { status, input: {}, output: "", title: "", metadata, time: { start: 0, end: 1 } }
+      ? { status, input, error: "boom", time: { start: 0, end: 1 } }
+      : { status, input, output: "", title, metadata, time: { start: 0, end: 1 } }
 
   return {
     id,
@@ -75,5 +77,30 @@ describe("contextTrowSummaryText", () => {
     const parts = [tool("read", "read"), tool("bash", "bash"), tool("skill", "skill")]
 
     expect(contextTrowSummaryText(parts, 0, i18n("en"))).toBe("Read 1 file, Ran 1 command, Used 1 tool")
+  })
+
+  test("keeps a completed apply_patch tool summary on one line", () => {
+    const part = tool(
+      "patch",
+      "apply_patch",
+      "completed",
+      {
+        files: [
+          {
+            type: "update",
+            filePath: "/repo/packages/app/src/pages/session/session-timeline-scroll-controller.test.ts",
+            relativePath: "packages/app/src/pages/session/session-timeline-scroll-controller.test.ts",
+            patch: "@@ -1 +1 @@\n-old\n+new\n",
+          },
+        ],
+      },
+      {},
+      "Success. Updated the following files:\nM packages/app/src/pages/session/session-timeline-scroll-controller.test.ts",
+    )
+
+    const summary = contextToolSummaryText(part, i18n("en"))
+
+    expect(summary).toBe("Edit files 1 file")
+    expect(summary).not.toContain("\n")
   })
 })

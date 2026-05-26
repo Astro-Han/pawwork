@@ -161,11 +161,16 @@ export function toolInfoForInput(
         subtitle: input.filePath ? getFilename(input.filePath) : undefined,
       }
     case "apply_patch":
+      const fileCount = Array.isArray(metadata.files)
+        ? metadata.files.length
+        : Array.isArray(input.files)
+          ? input.files.length
+          : 0
       return {
         icon: "code-lines",
         title: i18n.t("ui.tool.patch"),
-        subtitle: input.files?.length
-          ? `${input.files.length} ${i18n.t(input.files.length > 1 ? "ui.common.file.other" : "ui.common.file.one")}`
+        subtitle: fileCount
+          ? `${fileCount} ${i18n.t(fileCount > 1 ? "ui.common.file.other" : "ui.common.file.one")}`
           : undefined,
       }
     case TOOL_TODOWRITE:
