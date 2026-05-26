@@ -12,6 +12,7 @@ import { isOverflow } from "./overflow"
 import { PartID } from "./schema"
 import type { SessionID } from "./schema"
 import { SessionRetry } from "./retry"
+import { buildModelRetryDecision, selectRetryTimeoutPolicy, type RetryTimeoutPolicy } from "./retry-decision"
 import { SessionStatus } from "./status"
 import { SessionSummary } from "./summary"
 import { SessionDiagnostics } from "./diagnostics"
@@ -149,6 +150,20 @@ function attemptStreamTimeouts(
         ? REASONING_SAFE_RETRY_CONNECT_TIMEOUT_MS
         : REASONING_FIRST_ATTEMPT_CONNECT_TIMEOUT_MS,
   }
+}
+
+function retryTimeoutPolicyFor(
+  model: Provider.Model,
+  automaticStreamRetriesUsed: number,
+  streamInput: Pick<LLM.StreamInput, "connectTimeoutMs">,
+  boundary: RunObservability.SideEffectBoundarySnapshot,
+): RetryTimeoutPolicy {
+  return selectRetryTimeoutPolicy({
+    modelSupportsReasoning: model.capabilities.reasoning,
+    explicitConnectTimeout: streamInput.connectTimeoutMs !== undefined,
+    beforeProgressAutoRetryAllowed: RunObservability.boundaryAllowsBeforeProgressRetry(boundary),
+    safeRecoveryAttempt: automaticStreamRetriesUsed,
+  })
 }
 
 function sideEffectBoundarySnapshot(tools: LLM.StreamInput["tools"]): RunObservability.SideEffectBoundarySnapshot {
@@ -1397,20 +1412,25 @@ export const layer: Layer.Layer<
               watchdog: retrySignal.watchdog,
               retryable: retrySignal.retryable,
             })
-            const reasoningOnlySafeRetry =
-              decision.recommendation === "auto_retry_once" &&
-              decision.reason === "reasoning_only_without_final_text_or_tool_activity"
-            const beforeProgressSafeRetry =
-              decision.recommendation === "auto_retry_once" &&
-              decision.reason === "no_visible_output_or_tool_execution"
-            const safeRecoveryRetry = reasoningOnlySafeRetry || beforeProgressSafeRetry
+            const retryDecision = buildModelRetryDecision({
+              technicalRetryability: retrySignal.retryable
+                ? { retryable: true, message: retrySignal.message }
+                : {
+                    retryable: false,
+                    reason: ctx.terminalClassification ? "terminal_classification" : "not_retryable",
+                  },
+              safetyGateDecision: decision,
+              modelStreamAttempt: ctx.attemptCount,
+              safeRecoveryAttempt: automaticStreamRetriesUsed,
+              timeoutPolicy: retryTimeoutPolicyFor(
+                streamInput.model,
+                automaticStreamRetriesUsed,
+                streamInput,
+                sideEffectBoundarySnapshot(LLM.resolveTools(streamInput)),
+              ),
+            })
 
-            if (
-              attemptID &&
-              retrySignal.retryable &&
-              decision.recommendation === "auto_retry_once" &&
-              automaticStreamRetriesUsed === 0
-            ) {
+            if (attemptID && retryDecision.canRetry && retryDecision.recoveryMode === "replay") {
               const beforeRetry = yield* retryStillAllowed("before_backoff")
               if (beforeRetry.allowed) {
                 automaticStreamRetriesUsed += 1
@@ -1419,9 +1439,12 @@ export const layer: Layer.Layer<
                 yield* status.set(ctx.sessionID, {
                   type: "retry",
                   attempt: ctx.attemptCount,
-                  message: safeRecoveryRetry ? "" : (retrySignal.message ?? "Retrying interrupted stream"),
+                  message:
+                    retryDecision.presentation === "safe_recovery"
+                      ? ""
+                      : (retrySignal.message ?? "Retrying interrupted stream"),
                   next,
-                  ...(safeRecoveryRetry
+                  ...(retryDecision.presentation === "safe_recovery"
                     ? { presentation: "safe_recovery" as const, reason: "network_connection_dropped" as const }
                     : {}),
                 })
@@ -1452,9 +1475,8 @@ export const layer: Layer.Layer<
 
             if (
               attemptID &&
-              retrySignal.retryable &&
-              safeRecoveryRetry &&
-              automaticStreamRetriesUsed > 0
+              retryDecision.recoveryMode === "auto_replay_blocked" &&
+              retryDecision.presentation === "safe_recovery_failed"
             ) {
               yield* writeSafeRetryFailedNotice(attemptID)
               break
