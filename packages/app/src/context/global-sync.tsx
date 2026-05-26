@@ -26,6 +26,7 @@ import {
   applyGlobalEvent,
   cleanupDroppedSessionCaches,
 } from "./global-sync/event-reducer"
+import { directoryEventTargets } from "./global-sync/event-routing"
 import { createRefreshQueue } from "./global-sync/queue"
 import { clearSessionPrefetchDirectory } from "./global-sync/session-prefetch"
 import { estimateRootSessionTotal, loadRootSessionsWithFallback } from "./global-sync/session-load"
@@ -388,8 +389,42 @@ function createGlobalSync() {
       return
     }
 
-    const existing = children.children[directory]
-    if (!existing) {
+    const targets = directoryEventTargets({
+      directory,
+      event,
+      hasChild: (targetDirectory) => !!children.children[targetDirectory],
+    })
+    let applied = false
+
+    for (const targetDirectory of targets) {
+      const existing = children.children[targetDirectory]
+      if (!existing) continue
+      applied = true
+      children.mark(targetDirectory)
+      const [store, setStore] = existing
+      applyDirectoryEvent({
+        event,
+        directory: targetDirectory,
+        store,
+        setStore,
+        push: queue.push,
+        acceptSessionTodo,
+        clearSessionTodoAuthoritative,
+        todoHydrate,
+        blockerTerminals,
+        vcsCache: children.vcsCache.get(targetDirectory),
+        loadLsp: () => {
+          void sdkFor(targetDirectory)
+            .lsp.status()
+            .then((x) => {
+              setStore("lsp", x.data ?? [])
+              setStore("lsp_ready", true)
+            })
+        },
+      })
+    }
+
+    if (!applied) {
       applyDetachedDirectoryEvent({
         directory,
         event,
@@ -399,28 +434,6 @@ function createGlobalSync() {
       })
       return
     }
-    children.mark(directory)
-    const [store, setStore] = existing
-    applyDirectoryEvent({
-      event,
-      directory,
-      store,
-      setStore,
-      push: queue.push,
-      acceptSessionTodo,
-      clearSessionTodoAuthoritative,
-      todoHydrate,
-      blockerTerminals,
-      vcsCache: children.vcsCache.get(directory),
-      loadLsp: () => {
-        void sdkFor(directory)
-          .lsp.status()
-          .then((x) => {
-            setStore("lsp", x.data ?? [])
-            setStore("lsp_ready", true)
-          })
-      },
-    })
 
     if ((event.type as string) === "lsp.server.install.failed") {
       const properties = (
