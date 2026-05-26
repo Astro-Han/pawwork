@@ -97,6 +97,25 @@
   pointer-events: auto;
 }
 
+/* Pinned-row keyboard reorder hint. Only pinned rows render [data-status-reorder]
+ * (the ⌥↑ / ⌥↓ caps), so :has([data-status-reorder]) is "this is a pinned row".
+ * On keyboard focus the caps replace both the time/status and the "…" button.
+ * Mouse hover has no :focus-visible, so it still shows the "…" button — the hint
+ * stays keyboard-only. The extra :has() raises specificity over the rule above,
+ * so the overlay is forced back to 0 for the focused pinned row. */
+[data-component="pawwork-session-row"] [data-status-reorder] {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-base) ease-out;
+}
+[data-component="pawwork-session-row"]:not([data-switch-paint]):has([data-status-reorder]):has(:focus-visible) [data-status-overlay] {
+  opacity: 0;
+  pointer-events: none;
+}
+[data-component="pawwork-session-row"]:not([data-switch-paint]):has([data-status-reorder]):has(:focus-visible) [data-status-reorder] {
+  opacity: 1;
+}
+
 /* ─────────────────────────────────────────────────────────────────────
  * Sidebar session row drag-and-drop · variant A (DESIGN.md restrained)
  * Decision source: docs/design/scratch/sidebar-drag-variants-compare.html
