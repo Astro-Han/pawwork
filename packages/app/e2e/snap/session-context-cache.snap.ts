@@ -2,6 +2,30 @@ import { test, expect } from "../fixtures"
 import { openRightPanel } from "../actions"
 import { composeGrid, snapOutputPath } from "./_compose"
 
+async function widenRightPanel(page: Parameters<typeof openRightPanel>[0]) {
+  const handle = page.locator('[data-component="right-panel-resize-wrapper"] [data-component="resize-handle"]')
+  const box = await handle.boundingBox()
+  if (!box) throw new Error("right panel resize handle is not visible")
+
+  const startX = box.x + box.width / 2
+  const startY = box.y + box.height / 2
+  await page.mouse.move(startX, startY)
+  await page.mouse.down()
+  await page.mouse.move(startX - 180, startY, { steps: 12 })
+  await page.mouse.up()
+
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const panel = document.getElementById("right-panel")
+          return panel?.getBoundingClientRect().width ?? 0
+        }),
+      { timeout: 2_000 },
+    )
+    .toBeGreaterThanOrEqual(512)
+}
+
 test.use({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 })
 
 test("session-context-cache", async ({ page, llm, project }) => {
@@ -24,8 +48,17 @@ test("session-context-cache", async ({ page, llm, project }) => {
   }
   await expect(page.locator('[data-component="toast"]')).toHaveCount(0)
 
-  const shot = await panel.screenshot({ animations: "disabled" })
+  const defaultShot = await panel.screenshot({ animations: "disabled" })
+  await widenRightPanel(page)
+  const wideShot = await panel.screenshot({ animations: "disabled" })
+
   const out = snapOutputPath("session-context-cache")
-  await composeGrid([{ name: "right-panel context cache", buf: shot }], out)
+  await composeGrid(
+    [
+      { name: "default width", buf: defaultShot },
+      { name: "wide two-column", buf: wideShot },
+    ],
+    out,
+  )
   process.stdout.write(`\n[snap] session-context-cache grid -> ${out}\n\n`)
 })
