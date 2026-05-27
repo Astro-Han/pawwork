@@ -56,14 +56,58 @@ function truncateToolInputString(text: string, maxChars?: number) {
   return `${text.slice(0, sliceLen)}${suffixTemplate(omitted)}`
 }
 
+function serializedToolInputLength(input: unknown) {
+  try {
+    return JSON.stringify(input).length
+  } catch {
+    return String(input).length
+  }
+}
+
+function summarizeToolInput(input: unknown, maxChars: number): unknown {
+  if (maxChars <= 2) return {}
+  const original = (() => {
+    try {
+      return JSON.stringify(input)
+    } catch {
+      return String(input)
+    }
+  })()
+  const marker = "Tool input truncated for compaction"
+  const base = { _truncated: marker }
+  if (serializedToolInputLength(base) <= maxChars) {
+    let preview = ""
+    let summary = { ...base, preview }
+    let budget = maxChars - serializedToolInputLength(summary)
+    if (budget > 0) {
+      preview = original.slice(0, budget)
+      summary = { ...base, preview }
+      while (serializedToolInputLength(summary) > maxChars && preview.length > 0) {
+        preview = preview.slice(0, -1)
+        summary = { ...base, preview }
+      }
+    }
+    return summary
+  }
+  return {}
+}
+
 function truncateToolInput(input: unknown, maxChars?: number): unknown {
   if (maxChars == null) return input
-  if (typeof input === "string") return truncateToolInputString(input, maxChars)
-  if (Array.isArray(input)) return input.map((item) => truncateToolInput(item, maxChars))
-  if (!input || typeof input !== "object") return input
-  return Object.fromEntries(
-    Object.entries(input as Record<string, unknown>).map(([key, value]) => [key, truncateToolInput(value, maxChars)]),
-  )
+  const truncated =
+    typeof input === "string"
+      ? truncateToolInputString(input, maxChars)
+      : Array.isArray(input)
+        ? input.map((item) => truncateToolInput(item, maxChars))
+        : !input || typeof input !== "object"
+          ? input
+          : Object.fromEntries(
+              Object.entries(input as Record<string, unknown>).map(([key, value]) => [
+                key,
+                truncateToolInput(value, maxChars),
+              ]),
+            )
+  return serializedToolInputLength(truncated) <= maxChars ? truncated : summarizeToolInput(truncated, maxChars)
 }
 
 /** Error shape thrown by Bun's fetch() when gzip/br decompression fails mid-stream */

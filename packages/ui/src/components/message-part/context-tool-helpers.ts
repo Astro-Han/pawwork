@@ -4,10 +4,12 @@ import type { UiI18n, UiI18nKey } from "../../context/i18n"
 import { getDirectory } from "./markdown-render"
 import { toolInfoForInput } from "../tool-info"
 
+const TOOL_ERROR_DETAIL_MAX = 120
+
 export function contextToolDetail(part: ToolPart, i18n: UiI18n): string | undefined {
   const info = toolInfoForInput(part.tool, part.state.input ?? {}, toolStateMetadata(part.state), i18n)
   if (info.subtitle) return info.subtitle
-  if (part.state.status === "error") return undefined
+  if (part.state.status === "error") return boundedToolStateError(part.state)
   if ((part.state.status === "running" || part.state.status === "completed") && part.state.title)
     return part.state.title
   const description = part.state.input?.description
@@ -89,6 +91,13 @@ export function toolStateError(state: ToolPart["state"] | undefined): string | u
   } catch {
     return String(err)
   }
+}
+
+function boundedToolStateError(state: ToolPart["state"] | undefined): string | undefined {
+  const error = toolStateError(state)?.replace(/\s+/g, " ").trim()
+  if (!error) return undefined
+  if (error.length <= TOOL_ERROR_DETAIL_MAX) return error
+  return `${error.slice(0, TOOL_ERROR_DETAIL_MAX - 3)}...`
 }
 
 export function contextToolSummary(parts: ToolPart[]) {

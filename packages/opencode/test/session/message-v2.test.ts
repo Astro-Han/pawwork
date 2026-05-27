@@ -939,10 +939,62 @@ describe("session.message-v2.toModelMessage", () => {
     const toolCall = assistant?.content[0] as any
     const toolResult = tool?.content[0] as any
 
-    expect(toolCall.input.questions[0].question.length).toBeLessThanOrEqual(200)
-    expect(toolCall.input.questions[0].question).not.toContain("UNIQUE_LONG_QUESTION_TAIL")
-    expect(toolCall.input.questions[0].question).toContain("Tool input truncated")
+    const serializedInput = JSON.stringify(toolCall.input)
+    expect(serializedInput.length).toBeLessThanOrEqual(200)
+    expect(serializedInput).not.toContain("UNIQUE_LONG_QUESTION_TAIL")
+    expect(serializedInput).toContain("Tool input truncated")
     expect(toolResult.output.value).toContain("SchemaError")
+  })
+
+  test("bounds the entire serialized tool input for compaction replay", async () => {
+    const userID = "m-user"
+    const assistantID = "m-assistant"
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [
+          {
+            ...basePart(userID, "u1"),
+            type: "text",
+            text: "write many todos",
+          },
+        ] as MessageV2.Part[],
+      },
+      {
+        info: assistantInfo(assistantID, userID),
+        parts: [
+          {
+            ...basePart(assistantID, "a1"),
+            type: "tool",
+            callID: "call-todos",
+            tool: "todowrite",
+            state: {
+              status: "completed",
+              input: {
+                todos: Array.from({ length: 100 }, (_, index) => ({
+                  content: `short todo item ${index}`,
+                  status: index % 2 === 0 ? "completed" : "pending",
+                })),
+              },
+              output: "ok",
+              title: "",
+              metadata: {},
+              time: { start: 0, end: 1 },
+            },
+          },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    const [, assistant] = await MessageV2.toModelMessages(input, model, {
+      toolInputMaxChars: 600,
+    })
+    const toolCall = assistant?.content[0] as any
+    const serializedInput = JSON.stringify(toolCall.input)
+
+    expect(serializedInput.length).toBeLessThanOrEqual(600)
+    expect(serializedInput).toContain("Tool input truncated")
+    expect(serializedInput).not.toContain("short todo item 99")
   })
 
   test("converts permission denial diagnostic into model-facing error text", async () => {

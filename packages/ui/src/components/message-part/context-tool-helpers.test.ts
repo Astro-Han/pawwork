@@ -169,6 +169,31 @@ describe("contextTrowSummaryText", () => {
     expect(summary.length).toBeLessThanOrEqual(80)
   })
 
+  test("keeps short generic tool errors in compact summaries", () => {
+    const part = tool("issue", "linear_create_issue", "error", {}, {}, "", "Rate limit exceeded")
+
+    expect(contextToolSummaryText(part, i18n("en"))).toBe("linear_create_issue Rate limit exceeded")
+  })
+
+  test("bounds long generic tool errors in compact summaries", () => {
+    const part = tool(
+      "issue",
+      "linear_create_issue",
+      "error",
+      {},
+      {},
+      "",
+      `Request failed with details ${"sensitive payload ".repeat(20)}UNIQUE_ERROR_TAIL`,
+    )
+
+    const summary = contextToolSummaryText(part, i18n("en"))
+
+    expect(summary).toContain("Request failed with details")
+    expect(summary).not.toContain("UNIQUE_ERROR_TAIL")
+    expect(summary).not.toContain("\n")
+    expect(summary.length).toBeLessThanOrEqual(150)
+  })
+
   test("summarizes todowrite input by localized item count instead of raw content", () => {
     const part = tool(
       "todos",
