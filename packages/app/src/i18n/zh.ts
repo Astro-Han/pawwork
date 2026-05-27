@@ -755,7 +755,7 @@ export const dict = {
   "settings.general.section.display": "显示",
 
   "settings.notify.title": "声音与通知",
-  "settings.notify.description": "控制 PawWork 何时播放提示音和显示系统通知",
+  "settings.notify.description": "控制爪印何时播放提示音和显示系统通知",
   "settings.notify.option.never": "从不",
   "settings.notify.option.unfocused": "仅在未查看时",
   "settings.notify.option.always": "始终",

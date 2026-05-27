@@ -91,11 +91,11 @@ export const SettingsGeneral: Component = () => {
     })),
   )
 
-  const notifyOptions: { id: NotifyLevel; label: string }[] = [
+  const notifyOptions = createMemo((): { id: NotifyLevel; label: string }[] => [
     { id: "never", label: language.t("settings.notify.option.never") },
     { id: "unfocused", label: language.t("settings.notify.option.unfocused") },
     { id: "always", label: language.t("settings.notify.option.always") },
-  ]
+  ])
 
   const mono = () => monoInput(settings.appearance.font())
   const sans = () => sansInput(settings.appearance.uiFont())
@@ -304,8 +304,8 @@ export const SettingsGeneral: Component = () => {
             >
               <Select {...settingsSelectDefaults}
                 data-action="settings-notify-level"
-                options={notifyOptions}
-                current={notifyOptions.find((o) => o.id === settings.notify.level())}
+                options={notifyOptions()}
+                current={notifyOptions().find((o) => o.id === settings.notify.level())}
                 value={(o) => o.id}
                 label={(o) => o.label}
                 onSelect={(option) => option && settings.notify.setLevel(option.id)}

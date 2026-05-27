@@ -1,5 +1,5 @@
 import { createStore, reconcile } from "solid-js/store"
-import { createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js"
+import { createEffect, createMemo, createSignal, onCleanup, onMount, untrack } from "solid-js"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { persisted } from "@/utils/persist"
 
@@ -158,25 +158,26 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
       )
     })
 
-    // Migrate old notifications/sounds fields to the new notify tri-state.
     createEffect(() => {
       if (!ready()) return
-      const rawStore = store as unknown as Record<string, unknown>
-      if (VALID_NOTIFY_LEVELS.has(rawStore["notify"] as string)) return
-      const sounds = rawStore["sounds"] as Record<string, unknown> | undefined
-      const notifications = rawStore["notifications"] as Record<string, unknown> | undefined
-      const allDisabled =
-        sounds?.agentEnabled === false &&
-        sounds?.permissionsEnabled === false &&
-        sounds?.errorsEnabled === false &&
-        notifications?.agent === false &&
-        notifications?.permissions === false &&
-        notifications?.errors === false
-      const level: NotifyLevel = allDisabled ? "never" : "unfocused"
-      const setRaw = setStore as unknown as (key: string, value: unknown) => void
-      setRaw("notify", level)
-      setRaw("notifications", undefined)
-      setRaw("sounds", undefined)
+      untrack(() => {
+        const rawStore = store as unknown as Record<string, unknown>
+        if (VALID_NOTIFY_LEVELS.has(rawStore["notify"] as string)) return
+        const sounds = rawStore["sounds"] as Record<string, unknown> | undefined
+        const notifications = rawStore["notifications"] as Record<string, unknown> | undefined
+        const allDisabled =
+          sounds?.agentEnabled === false &&
+          sounds?.permissionsEnabled === false &&
+          sounds?.errorsEnabled === false &&
+          notifications?.agent === false &&
+          notifications?.permissions === false &&
+          notifications?.errors === false
+        const level: NotifyLevel = allDisabled ? "never" : "unfocused"
+        const setRaw = setStore as unknown as (key: string, value: unknown) => void
+        setRaw("notify", level)
+        setRaw("notifications", undefined)
+        setRaw("sounds", undefined)
+      })
     })
 
     // PawWork wants followup to always queue: submit during a busy session
