@@ -23,7 +23,8 @@ export namespace FileWatcher {
   const log = Log.create({ service: "file.watcher" })
   const SUBSCRIBE_TIMEOUT_MS = 10_000
   const RESCAN_QUIET_MS = 1_000
-  const WORKSPACE_IGNORE_ENTRIES = [".worktrees"]
+  const LOCAL_ARTIFACT_ENTRIES = new Set([".worktrees", ".claude", ".claire", ".superpowers"])
+  const WORKSPACE_IGNORE_ENTRIES = [...LOCAL_ARTIFACT_ENTRIES]
   const VCS_SUBSCRIBE_ENTRIES = new Set(["HEAD", "index", "packed-refs", "refs"])
   const VCS_REFRESH_FILES = new Set(["HEAD", "index", "packed-refs"])
   const VCS_REFRESH_PREFIXES = ["refs/heads/", "refs/remotes/"]
@@ -77,6 +78,24 @@ export namespace FileWatcher {
   }
 
   export type WatchScope = "workspace" | "vcs"
+  export type WatchPlanExcludeReason = "default-ignore" | "local-artifact" | "user-config" | "protected-path"
+  export type WorkspaceWatchPlanEntry = { name: string; type: "directory" | "file" | "other" }
+  export type WorkspaceWatchPlanRoot = {
+    directory: string
+    ignore: string[]
+    reason: "workspace-child"
+  }
+  export type WorkspaceWatchPlanExcluded = {
+    path: string
+    reason: WatchPlanExcludeReason
+  }
+  export type WorkspaceWatchPlan = {
+    roots: WorkspaceWatchPlanRoot[]
+    excluded: WorkspaceWatchPlanExcluded[]
+    rootFiles: string[]
+    rootFilesStrategy: "poll-root-entries"
+    refreshStrategy: "refresh-plan-on-top-level-entry-change"
+  }
   export type RescanIncidentSummary = {
     directory: string
     request_count: number
@@ -185,6 +204,93 @@ export namespace FileWatcher {
 
   export function workspaceWatcherIgnoreEntries(input: { config: string[]; protected: string[] }) {
     return [...new Set([...FileIgnore.PATTERNS, ...WORKSPACE_IGNORE_ENTRIES, ...input.config, ...input.protected])]
+  }
+
+  function hasGlobSyntax(value: string) {
+    return /[*?[\]{}]/.test(value)
+  }
+
+  function normalizePathKey(value: string) {
+    return value.replaceAll("\\", "/").replace(/\/+$/, "")
+  }
+
+  function ignoreReason(input: {
+    entry: string
+    fullPath: string
+    ignore: string[]
+    userConfig?: string[]
+    protectedPaths?: string[]
+  }): WatchPlanExcludeReason | undefined {
+    const entryKey = normalizePathKey(input.entry)
+    if (LOCAL_ARTIFACT_ENTRIES.has(entryKey)) return "local-artifact"
+
+    const protectedSet = new Set(input.protectedPaths?.map((item) => normalizePathKey(item)) ?? [])
+    if (protectedSet.has(normalizePathKey(input.fullPath)) || protectedSet.has(entryKey)) return "protected-path"
+
+    const configSet = new Set(input.userConfig?.map((item) => normalizePathKey(item)) ?? [])
+    if (configSet.has(entryKey) || configSet.has(normalizePathKey(input.fullPath))) return "user-config"
+
+    if (input.ignore.some((item) => !hasGlobSyntax(item) && normalizePathKey(item) === entryKey)) return "default-ignore"
+    return undefined
+  }
+
+  export function subscriptionIgnoreEntries(input: { workspace: string; subscription: string; ignore: string[] }) {
+    return input.ignore.map((entry) => {
+      if (path.isAbsolute(entry)) return entry
+      if (hasGlobSyntax(entry)) return entry
+      return path.resolve(input.workspace, entry)
+    })
+  }
+
+  export function workspaceWatchPlan(input: {
+    directory: string
+    backend: string
+    entries: WorkspaceWatchPlanEntry[]
+    ignore: string[]
+    userConfig?: string[]
+    protectedPaths?: string[]
+  }): WorkspaceWatchPlan {
+    const roots: WorkspaceWatchPlanRoot[] = []
+    const excluded: WorkspaceWatchPlanExcluded[] = []
+    const rootFiles: string[] = []
+
+    for (const entry of input.entries) {
+      const fullPath = path.join(input.directory, entry.name)
+      const reason = ignoreReason({
+        entry: entry.name,
+        fullPath,
+        ignore: input.ignore,
+        userConfig: input.userConfig,
+        protectedPaths: input.protectedPaths,
+      })
+      if (reason) {
+        excluded.push({ path: fullPath, reason })
+        continue
+      }
+
+      if (entry.type === "directory") {
+        roots.push({
+          directory: fullPath,
+          ignore: subscriptionIgnoreEntries({
+            workspace: input.directory,
+            subscription: fullPath,
+            ignore: input.ignore,
+          }),
+          reason: "workspace-child",
+        })
+        continue
+      }
+
+      if (entry.type === "file") rootFiles.push(fullPath)
+    }
+
+    return {
+      roots,
+      excluded,
+      rootFiles,
+      rootFilesStrategy: "poll-root-entries",
+      refreshStrategy: "refresh-plan-on-top-level-entry-change",
+    }
   }
 
   export function watcherSubscriptionDiagnostics(input: {

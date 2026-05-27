@@ -146,6 +146,54 @@ function ready(directory: string) {
 // ---------------------------------------------------------------------------
 
 describe("FileWatcher git metadata filtering", () => {
+  test("builds an explainable macOS workspace watch plan", () => {
+    const repo = path.join("/tmp", "repo")
+    const plan = FileWatcher.workspaceWatchPlan({
+      directory: repo,
+      backend: "fs-events",
+      entries: [
+        { name: ".claude", type: "directory" },
+        { name: ".claire", type: "directory" },
+        { name: ".superpowers", type: "directory" },
+        { name: ".turbo", type: "directory" },
+        { name: ".worktrees", type: "directory" },
+        { name: "node_modules", type: "directory" },
+        { name: "packages", type: "directory" },
+        { name: "src", type: "directory" },
+        { name: "README.md", type: "file" },
+      ],
+      ignore: FileWatcher.workspaceWatcherIgnoreEntries({ config: ["custom-cache"], protected: [] }),
+    })
+
+    expect(plan.rootFilesStrategy).toBe("poll-root-entries")
+    expect(plan.refreshStrategy).toBe("refresh-plan-on-top-level-entry-change")
+    expect(plan.roots.map((root) => path.basename(root.directory)).sort()).toEqual(["packages", "src"])
+    expect(plan.excluded.map((item) => [path.basename(item.path), item.reason]).sort()).toEqual([
+      [".claire", "local-artifact"],
+      [".claude", "local-artifact"],
+      [".superpowers", "local-artifact"],
+      [".turbo", "default-ignore"],
+      [".worktrees", "local-artifact"],
+      ["node_modules", "default-ignore"],
+    ])
+    expect(plan.rootFiles).toEqual([path.join(repo, "README.md")])
+  })
+
+  test("keeps workspace ignore semantics for child subscriptions", () => {
+    const repo = path.join("/tmp", "repo")
+    const child = path.join(repo, "packages")
+    const ignore = FileWatcher.subscriptionIgnoreEntries({
+      workspace: repo,
+      subscription: child,
+      ignore: ["custom-cache", "packages/generated", "**/*.log", path.join(repo, "secret")],
+    })
+
+    expect(ignore).toContain(path.join(repo, "custom-cache"))
+    expect(ignore).toContain(path.join(repo, "packages", "generated"))
+    expect(ignore).toContain("**/*.log")
+    expect(ignore).toContain(path.join(repo, "secret"))
+  })
+
   test("ignores nested PawWork worktree roots from the workspace watcher", () => {
     const entries = FileWatcher.workspaceWatcherIgnoreEntries({
       config: ["custom-cache"],
