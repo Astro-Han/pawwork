@@ -10,13 +10,7 @@ function getFiles() {
   return files
 }
 
-export const SOUND_OPTIONS = [
-  { id: "notify", label: "sound.option.notify" },
-  { id: "error", label: "sound.option.error" },
-] as const
-
-export type SoundOption = (typeof SOUND_OPTIONS)[number]
-export type SoundID = SoundOption["id"]
+export type SoundID = "notify" | "error"
 
 function getLoads() {
   if (loads) return loads

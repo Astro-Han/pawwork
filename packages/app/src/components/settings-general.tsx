@@ -17,15 +17,20 @@ import {
   sansFontFamily,
   sansInput,
   useSettings,
+  type NotifyLevel,
 } from "@/context/settings"
 import { decode64 } from "@/utils/base64"
 import { Link } from "./link"
 import { SettingsList } from "./settings-list"
-import { SettingsNotificationsSection } from "./settings-notifications-section"
 import { SettingsRow } from "./settings-row"
-import { SettingsSoundsSection } from "./settings-sounds-section"
 import { SettingsUpdatesSection } from "./settings-updates-section"
 import { SettingsWebSearchRow } from "./settings-web-search-row"
+
+const settingsSelectDefaults = {
+  variant: "secondary" as const,
+  size: "small" as const,
+  triggerVariant: "settings" as const,
+}
 
 type ThemeOption = {
   id: string
@@ -86,6 +91,12 @@ export const SettingsGeneral: Component = () => {
     })),
   )
 
+  const notifyOptions = createMemo((): { id: NotifyLevel; label: string }[] => [
+    { id: "never", label: language.t("settings.notify.option.never") },
+    { id: "unfocused", label: language.t("settings.notify.option.unfocused") },
+    { id: "always", label: language.t("settings.notify.option.always") },
+  ])
+
   const mono = () => monoInput(settings.appearance.font())
   const sans = () => sansInput(settings.appearance.uiFont())
 
@@ -96,16 +107,13 @@ export const SettingsGeneral: Component = () => {
           title={language.t("settings.general.row.language.title")}
           description={language.t("settings.general.row.language.description")}
         >
-          <Select
+          <Select {...settingsSelectDefaults}
             data-action="settings-language"
             options={languageOptions()}
             current={languageOptions().find((o) => o.value === language.locale())}
             value={(o) => o.value}
             label={(o) => o.label}
             onSelect={(option) => option && language.setLocale(option.value)}
-            variant="secondary"
-            size="small"
-            triggerVariant="settings"
           />
         </SettingsRow>
 
@@ -181,7 +189,7 @@ export const SettingsGeneral: Component = () => {
             title={language.t("settings.general.row.colorScheme.title")}
             description={language.t("settings.general.row.colorScheme.description")}
           >
-            <Select
+            <Select {...settingsSelectDefaults}
               data-action="settings-color-scheme"
               options={colorSchemeOptions()}
               current={colorSchemeOptions().find((o) => o.value === theme.colorScheme())}
@@ -193,9 +201,6 @@ export const SettingsGeneral: Component = () => {
                 theme.previewColorScheme(option.value)
                 return () => theme.cancelPreview()
               }}
-              variant="secondary"
-              size="small"
-              triggerVariant="settings"
             />
           </SettingsRow>
         </Show>
@@ -209,7 +214,7 @@ export const SettingsGeneral: Component = () => {
             </>
           }
         >
-          <Select
+          <Select {...settingsSelectDefaults}
             data-action="settings-theme"
             options={themeOptions()}
             current={themeOptions().find((o) => o.id === theme.themeId())}
@@ -224,9 +229,6 @@ export const SettingsGeneral: Component = () => {
               theme.previewTheme(option.id)
               return () => theme.cancelPreview()
             }}
-            variant="secondary"
-            size="small"
-            triggerVariant="settings"
           />
         </SettingsRow>
 
@@ -292,9 +294,25 @@ export const SettingsGeneral: Component = () => {
 
         <AppearanceSection />
 
-        <SettingsNotificationsSection />
+        <div class="flex flex-col gap-1">
+          <h3 class="text-h3 text-fg-strong pb-2">{language.t("settings.general.section.notify")}</h3>
 
-        <SettingsSoundsSection />
+          <SettingsList>
+            <SettingsRow
+              title={language.t("settings.notify.title")}
+              description={language.t("settings.notify.description")}
+            >
+              <Select {...settingsSelectDefaults}
+                data-action="settings-notify-level"
+                options={notifyOptions()}
+                current={notifyOptions().find((o) => o.id === settings.notify.level())}
+                value={(o) => o.id}
+                label={(o) => o.label}
+                onSelect={(option) => option && settings.notify.setLevel(option.id)}
+              />
+            </SettingsRow>
+          </SettingsList>
+        </div>
 
         {/*<Show when={platform.platform === "desktop" && platform.os === "windows" && platform.getWslEnabled}>
           {(_) => {

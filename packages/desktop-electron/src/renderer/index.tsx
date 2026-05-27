@@ -257,6 +257,7 @@ const createPlatform = (): Platform => {
       try {
         const notification = new Notification(title, {
           body: description ?? "",
+          silent: true,
         })
         notification.onclick = () => {
           void window.api.showWindow()

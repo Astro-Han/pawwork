@@ -861,11 +861,16 @@ export const dict = {
   "settings.desktop.wsl.description": "Run the PawWork server inside WSL on Windows.",
 
   "settings.general.section.appearance": "Appearance",
-  "settings.general.section.notifications": "System notifications",
+  "settings.general.section.notify": "Notifications",
   "settings.general.section.updates": "Updates",
-  "settings.general.section.sounds": "Sound effects",
   "settings.general.section.feed": "Feed",
   "settings.general.section.display": "Display",
+
+  "settings.notify.title": "Sounds & notifications",
+  "settings.notify.description": "Control when PawWork plays sounds and shows system notifications",
+  "settings.notify.option.never": "Never",
+  "settings.notify.option.unfocused": "When not looking",
+  "settings.notify.option.always": "Always",
 
   "settings.general.row.language.title": "Language",
   "settings.general.row.language.description": "Change the display language for PawWork",
@@ -964,25 +969,6 @@ export const dict = {
   "settings.updates.toast.failed.description": "Failed to check for updates.",
   "settings.updates.toast.latest.title": "You're up to date",
   "settings.updates.toast.latest.description": "You're running the latest version of PawWork.",
-  "sound.option.none": "None",
-  "sound.option.notify": "Notification",
-  "sound.option.error": "Error",
-
-  "settings.general.notifications.agent.title": "Agent",
-  "settings.general.notifications.agent.description":
-    "Show system notification when the agent is complete or needs attention",
-  "settings.general.notifications.permissions.title": "Permissions",
-  "settings.general.notifications.permissions.description": "Show system notification when a permission is required",
-  "settings.general.notifications.errors.title": "Errors",
-  "settings.general.notifications.errors.description": "Show system notification when an error occurs",
-
-  "settings.general.sounds.agent.title": "Agent",
-  "settings.general.sounds.agent.description": "Play sound when the agent is complete or needs attention",
-  "settings.general.sounds.permissions.title": "Permissions",
-  "settings.general.sounds.permissions.description": "Play sound when a permission is required",
-  "settings.general.sounds.errors.title": "Errors",
-  "settings.general.sounds.errors.description": "Play sound when an error occurs",
-
   "settings.shortcuts.title": "Keyboard shortcuts",
   "settings.shortcuts.reset.button": "Reset to defaults",
   "settings.shortcuts.reset.toast.title": "Shortcuts reset",
