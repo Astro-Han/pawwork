@@ -30,6 +30,8 @@
 
 [data-picker-content] {
   background-color: var(--surface-raised);
+  /* Tell the nested List its headers sit on the raised surface. */
+  --list-surface: var(--surface-raised);
   border-radius: var(--radius-md);
   padding: 4px;
   box-shadow: var(--ring-base), var(--shadow-floating);
@@ -46,18 +48,16 @@
    Let labels scroll with their group, and add a small gap so the label
    doesn't read as glued to the first item.
 
+   The header surface is handled by --list-surface on [data-picker-content]
+   above; this rule only undoes the sticky positioning and its gradient.
    Selector matches list.css's default header chain
    ([data-component="list"] [data-slot="list-scroll"] [data-slot="list-group"]
    [data-slot="list-header"], specificity 0,4,0) so picker.css — imported
    after list.css — wins on equal specificity. A shorter selector here
-   loses to the default and leaves the header sticky. Background swaps to
-   picker's raised surface (default --surface-base reads darker than the
-   picker body in dark mode), and the 16px ::after stuck-gradient is
-   hidden so it cannot paint over the first item. */
+   loses to the default and leaves the header sticky. */
 [data-picker-content] [data-slot="list-scroll"] [data-slot="list-group"] [data-slot="list-header"] {
   position: static;
   z-index: auto;
-  background: var(--surface-raised);
 
   &::after {
     display: none;

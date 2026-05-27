@@ -25,6 +25,8 @@
 
       border-radius: var(--radius-lg);
       background: var(--surface-raised);
+      /* Tell the nested List its sticky headers sit on the raised surface. */
+      --list-surface: var(--surface-raised);
       background-clip: padding-box;
       box-shadow: var(--shadow-floating);
       border: 1px solid var(--border-base);
@@ -118,7 +120,7 @@
   letter-spacing: 0.5px;
   line-height: 1;
   color: var(--fg-weak);
-  background: var(--surface-raised);
+  /* Background comes from --list-surface set on palette-content (see top). */
 
   &::after {
     display: none;
