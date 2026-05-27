@@ -1145,11 +1145,11 @@ export function fromError(
       const transport = classifyStreamFailure(e)!
       return new APIError(
         {
-          message: (e as Error).message ?? "Connection interrupted",
+          message: (e as Error).message || "Connection interrupted",
           isRetryable: true,
           metadata: {
             code: transport.code,
-            message: (e as Error).message ?? "",
+            message: (e as Error).message || "",
           },
         },
         { cause: e },

@@ -24,7 +24,11 @@ export function classifyStreamFailure(error: unknown): TransportDisconnect | und
 
 function findTransportCodeInCause(cause: unknown, depth = 0): string | undefined {
   if (depth > 4 || !cause || typeof cause !== "object") return undefined
-  const code = (cause as { code?: string }).code
-  if (typeof code === "string" && TRANSPORT_CODES.has(code)) return code
-  return findTransportCodeInCause((cause as { cause?: unknown }).cause, depth + 1)
+  try {
+    const code = (cause as { code?: string }).code
+    if (typeof code === "string" && TRANSPORT_CODES.has(code)) return code
+    return findTransportCodeInCause((cause as { cause?: unknown }).cause, depth + 1)
+  } catch {
+    return undefined
+  }
 }
