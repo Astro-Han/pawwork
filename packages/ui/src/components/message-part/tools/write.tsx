@@ -24,7 +24,7 @@ ToolRegistry.register({
       <div data-component="write-tool">
         <BasicTool
           {...props}
-          icon="code-lines"
+          icon="edit"
           defer
           trigger={
             <div data-component="write-trigger">

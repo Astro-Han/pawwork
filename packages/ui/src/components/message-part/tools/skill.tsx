@@ -14,7 +14,7 @@ ToolRegistry.register({
 
     return (
       <BasicTool
-        icon="brain"
+        icon="skill"
         status={props.status}
         trigger={{ title: i18n.t("ui.tool.skill"), subtitle: skillName() }}
         hideDetails

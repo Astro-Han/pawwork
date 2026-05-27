@@ -58,7 +58,7 @@ ToolRegistry.register({
           <div data-component="apply-patch-tool">
             <BasicTool
               {...props}
-              icon="code-lines"
+              icon="edit"
               defer
               trigger={{
                 title: i18n.t("ui.tool.patch"),
@@ -154,7 +154,7 @@ ToolRegistry.register({
         <div data-component="apply-patch-tool">
           <BasicTool
             {...props}
-            icon="code-lines"
+            icon="edit"
             defer
             trigger={
               <div data-component="edit-trigger">

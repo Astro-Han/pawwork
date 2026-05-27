@@ -47,7 +47,7 @@ describe("toolFamilyIcon", () => {
     // Pin the contract for every tool family `getToolInfo` knows. Updating
     // `getToolInfo` without updating `toolFamilyIcon` causes the trow-block
     // leading icon to drift from the trow body's tool-info icon.
-    expect(toolFamilyIcon("read")).toBe("glasses")
+    expect(toolFamilyIcon("read")).toBe("read-file")
     expect(toolFamilyIcon("list")).toBe("bullet-list")
     expect(toolFamilyIcon("glob")).toBe("magnifying-glass-menu")
     expect(toolFamilyIcon("grep")).toBe("magnifying-glass-menu")
@@ -58,12 +58,12 @@ describe("toolFamilyIcon", () => {
     expect(toolFamilyIcon("task")).toBe("agent")
     expect(toolFamilyIcon("agent")).toBe("agent")
     expect(toolFamilyIcon("bash")).toBe("console")
-    expect(toolFamilyIcon("edit")).toBe("code-lines")
-    expect(toolFamilyIcon("write")).toBe("code-lines")
-    expect(toolFamilyIcon("apply_patch")).toBe("code-lines")
+    expect(toolFamilyIcon("edit")).toBe("edit")
+    expect(toolFamilyIcon("write")).toBe("edit")
+    expect(toolFamilyIcon("apply_patch")).toBe("edit")
     expect(toolFamilyIcon("todowrite")).toBe("checklist")
     expect(toolFamilyIcon("question")).toBe("bubble-5")
-    expect(toolFamilyIcon("skill")).toBe("brain")
+    expect(toolFamilyIcon("skill")).toBe("skill")
   })
 
   test("unknown tool name falls back to the generic mcp icon", () => {
@@ -120,8 +120,8 @@ describe("reduceTrowBlock", () => {
 
   test("leadingIcon is resolved from the first tool's family", () => {
     expect(reduceTrowBlock([tool("a", "bash"), tool("b", "edit")]).leadingIcon).toBe("console")
-    expect(reduceTrowBlock([tool("a", "edit"), tool("b", "bash")]).leadingIcon).toBe("code-lines")
-    expect(reduceTrowBlock([tool("a", "read")]).leadingIcon).toBe("glasses")
+    expect(reduceTrowBlock([tool("a", "edit"), tool("b", "bash")]).leadingIcon).toBe("edit")
+    expect(reduceTrowBlock([tool("a", "read")]).leadingIcon).toBe("read-file")
   })
 })
 

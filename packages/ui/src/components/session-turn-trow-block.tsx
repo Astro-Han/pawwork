@@ -29,7 +29,7 @@ import "./session-turn-trow-block.css"
 export function toolFamilyIcon(tool: string): IconName {
   switch (tool) {
     case "read":
-      return "glasses"
+      return "read-file"
     case "list":
       return "bullet-list"
     case "glob":
@@ -49,13 +49,13 @@ export function toolFamilyIcon(tool: string): IconName {
     case "edit":
     case "write":
     case "apply_patch":
-      return "code-lines"
+      return "edit"
     case "todowrite":
       return "checklist"
     case "question":
       return "bubble-5"
     case "skill":
-      return "brain"
+      return "skill"
     default:
       return "mcp"
   }

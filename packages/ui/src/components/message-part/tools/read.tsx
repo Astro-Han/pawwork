@@ -25,7 +25,7 @@ ToolRegistry.register({
       <>
         <BasicTool
           {...props}
-          icon="glasses"
+          icon="read-file"
           trigger={{
             title: i18n.t("ui.tool.read"),
             subtitle: props.input.filePath ? getFilename(props.input.filePath) : "",
