@@ -38,7 +38,7 @@ const FEEDBACK_SESSION_EXPORT_TIMEOUT_MS = 3_000
 const userDataRoot = CI_SMOKE_HOME ?? app.getPath("appData")
 
 app.setName(app.isPackaged ? APP_NAMES[CHANNEL] : "PawWork Dev")
-app.userAgentFallback = app.userAgentFallback.replace(/PawWork\//g, "opencode/")
+app.userAgentFallback = app.userAgentFallback.replace(/PawWork(?:\s\w+)?\//g, "opencode/")
 if (CI_SMOKE_HOME) {
   app.setPath("appData", CI_SMOKE_HOME)
 }

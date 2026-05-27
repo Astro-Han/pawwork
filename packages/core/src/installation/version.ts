@@ -18,5 +18,5 @@ export const InstallationPluginVersion =
 
 export const InstallationHTTPVersion =
   typeof OPENCODE_HTTP_VERSION === "string" && OPENCODE_HTTP_VERSION.trim()
-    ? OPENCODE_HTTP_VERSION
+    ? OPENCODE_HTTP_VERSION.trim()
     : InstallationVersion

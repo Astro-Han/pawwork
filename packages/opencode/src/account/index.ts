@@ -188,7 +188,7 @@ export namespace Account {
     Effect.gen(function* () {
       const repo = yield* AccountRepo
       const rawHttp = yield* HttpClient.HttpClient
-      const http = HttpClient.mapRequest(rawHttp, HttpClientRequest.setHeader("User-Agent", Installation.HTTP_USER_AGENT))
+      const http = HttpClient.mapRequest(rawHttp, HttpClientRequest.setHeaders(Installation.httpIdentity()))
       const httpRead = withTransientReadRetry(http)
       const httpOk = HttpClient.filterStatusOk(http)
       const httpReadOk = HttpClient.filterStatusOk(httpRead)
