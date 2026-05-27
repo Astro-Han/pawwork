@@ -1,5 +1,6 @@
 import { expect, test, describe } from "bun:test"
 import type { ToolPart, ToolState } from "@opencode-ai/sdk/v2"
+import type { UiI18n } from "../context/i18n"
 import {
   activeTrowTool,
   reduceTrowBlock,
@@ -7,6 +8,7 @@ import {
   trowBlockAnchor,
   toolFamilyIcon,
 } from "./session-turn-trow-block"
+import { buildToolInfo } from "./tool-info"
 
 function tool(
   id: string,
@@ -43,11 +45,11 @@ function tool(
 }
 
 describe("toolFamilyIcon", () => {
-  test("maps the well-known tool families to their getToolInfo icons", () => {
-    // Pin the contract for every tool family `getToolInfo` knows. Updating
-    // `getToolInfo` without updating `toolFamilyIcon` causes the trow-block
-    // leading icon to drift from the trow body's tool-info icon.
-    expect(toolFamilyIcon("read")).toBe("glasses")
+  test("maps the well-known tool families to their shared toolIcon", () => {
+    // `toolFamilyIcon` delegates to `toolIcon` (tool-info.ts), the single
+    // source of truth. Pin the icon for every known family so an accidental
+    // edit to `toolIcon` is caught here.
+    expect(toolFamilyIcon("read")).toBe("read-file")
     expect(toolFamilyIcon("list")).toBe("bullet-list")
     expect(toolFamilyIcon("glob")).toBe("magnifying-glass-menu")
     expect(toolFamilyIcon("grep")).toBe("magnifying-glass-menu")
@@ -58,29 +60,59 @@ describe("toolFamilyIcon", () => {
     expect(toolFamilyIcon("task")).toBe("agent")
     expect(toolFamilyIcon("agent")).toBe("agent")
     expect(toolFamilyIcon("bash")).toBe("console")
-    expect(toolFamilyIcon("edit")).toBe("code-lines")
-    expect(toolFamilyIcon("write")).toBe("code-lines")
-    expect(toolFamilyIcon("apply_patch")).toBe("code-lines")
+    expect(toolFamilyIcon("edit")).toBe("edit")
+    expect(toolFamilyIcon("write")).toBe("edit")
+    expect(toolFamilyIcon("apply_patch")).toBe("edit")
     expect(toolFamilyIcon("todowrite")).toBe("checklist")
     expect(toolFamilyIcon("question")).toBe("bubble-5")
-    expect(toolFamilyIcon("skill")).toBe("brain")
+    expect(toolFamilyIcon("skill")).toBe("skill")
   })
 
   test("unknown tool name falls back to the generic mcp icon", () => {
     expect(toolFamilyIcon("definitely-not-a-tool")).toBe("mcp")
     expect(toolFamilyIcon("")).toBe("mcp")
   })
+
+  test("stays in lock-step with the expanded tool-info icon", () => {
+    // The collapsed trow leading icon and the expanded tool header both flow
+    // through `toolIcon`, so they must resolve to the same icon for every
+    // family. This guards the two surfaces against drifting apart again.
+    const i18n = { t: (k: string) => k, language: () => "en" } as unknown as UiI18n
+    const families = [
+      "read",
+      "list",
+      "glob",
+      "grep",
+      "webfetch",
+      "websearch",
+      "enter-worktree",
+      "exit-worktree",
+      "task",
+      "agent",
+      "bash",
+      "edit",
+      "write",
+      "apply_patch",
+      "todowrite",
+      "question",
+      "skill",
+      "definitely-not-a-tool",
+    ]
+    for (const name of families) {
+      expect(toolFamilyIcon(name)).toBe(buildToolInfo(tool("x", name), i18n).icon)
+    }
+  })
 })
 
 describe("reduceTrowBlock", () => {
-  test("empty parts list yields a safe default (count 0, mcp icon)", () => {
+  test("empty parts list yields a safe default (toolCount 0, mcp icon)", () => {
     const summary = reduceTrowBlock([])
-    expect(summary).toEqual({ count: 0, running: false, failedCount: 0, leadingIcon: "mcp" })
+    expect(summary).toEqual({ toolCount: 0, running: false, failedCount: 0, leadingIcon: "mcp" })
   })
 
-  test("count reflects the number of tools in the block", () => {
+  test("toolCount reflects the number of tools in the block", () => {
     const summary = reduceTrowBlock([tool("a", "bash"), tool("b", "bash"), tool("c", "edit")])
-    expect(summary.count).toBe(3)
+    expect(summary.toolCount).toBe(3)
   })
 
   test("running flag is true when any part is still running", () => {
@@ -120,8 +152,8 @@ describe("reduceTrowBlock", () => {
 
   test("leadingIcon is resolved from the first tool's family", () => {
     expect(reduceTrowBlock([tool("a", "bash"), tool("b", "edit")]).leadingIcon).toBe("console")
-    expect(reduceTrowBlock([tool("a", "edit"), tool("b", "bash")]).leadingIcon).toBe("code-lines")
-    expect(reduceTrowBlock([tool("a", "read")]).leadingIcon).toBe("glasses")
+    expect(reduceTrowBlock([tool("a", "edit"), tool("b", "bash")]).leadingIcon).toBe("edit")
+    expect(reduceTrowBlock([tool("a", "read")]).leadingIcon).toBe("read-file")
   })
 })
 

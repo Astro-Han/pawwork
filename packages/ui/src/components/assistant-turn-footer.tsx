@@ -65,7 +65,7 @@ export function AssistantTurnFooter(props: {
   }
 
   return (
-    <div data-slot="assistant-turn-footer" data-interrupted={interrupted() ? "" : undefined}>
+    <div data-slot="assistant-turn-footer">
       <Tooltip
         value={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copyResponse")}
         placement="top"

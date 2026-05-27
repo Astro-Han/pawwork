@@ -1,6 +1,7 @@
 import { createMemo, Show } from "solid-js"
 import { useI18n } from "../../../context/i18n"
 import { BasicTool } from "../../basic-tool"
+import { toolIcon } from "../../tool-info"
 import { Icon } from "../../icon"
 import { TextShimmer } from "../../text-shimmer"
 import { ToolRegistry } from "../registry"
@@ -25,7 +26,7 @@ ToolRegistry.register({
       <BasicTool
         {...props}
         hideDetails
-        icon="window-cursor"
+        icon={toolIcon("webfetch")}
         trigger={
           <div data-slot="basic-tool-tool-info-structured">
             <div data-slot="basic-tool-tool-info-main">
