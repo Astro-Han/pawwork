@@ -99,15 +99,25 @@ describe("ci smoke helpers", () => {
   })
 
   test("resolveLaunchCommand uses Electron for raw runs and the app executable for packaged runs", () => {
-    const raw = resolveLaunchCommand({ mode: "raw", channel: "dev" })
+    const raw = resolveLaunchCommand(
+      { mode: "raw", channel: "dev" },
+      { electronBinary: () => "/tmp/pawwork-electron/electron" },
+    )
     expect(raw.args).toEqual([resolveMainEntry()])
-    expect(raw.command).toContain("electron")
+    expect(raw.command).toBe("/tmp/pawwork-electron/electron")
 
-    const packaged = resolveLaunchCommand({
-      mode: "packaged",
-      channel: "dev",
-      executablePath: "/tmp/PawWork Dev.app/Contents/MacOS/PawWork Dev",
-    })
+    const packaged = resolveLaunchCommand(
+      {
+        mode: "packaged",
+        channel: "dev",
+        executablePath: "/tmp/PawWork Dev.app/Contents/MacOS/PawWork Dev",
+      },
+      {
+        electronBinary: () => {
+          throw new Error("packaged mode should not resolve electron binary")
+        },
+      },
+    )
     expect(packaged).toEqual({
       command: "/tmp/PawWork Dev.app/Contents/MacOS/PawWork Dev",
       args: [],
