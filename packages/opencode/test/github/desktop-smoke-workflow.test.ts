@@ -64,6 +64,7 @@ describe("desktop smoke workflow", () => {
     expect(installStep?.run).toBe("bun install --frozen-lockfile")
     expect(repairElectronStep?.run).toBe("node node_modules/electron/install.js")
     expect(repairElectronStep?.["working-directory"]).toBe("packages/desktop-electron")
+    expect(repairElectronAfterBuildStep).toBeDefined()
     expect(repairElectronAfterBuildStep?.run).toBe("node node_modules/electron/install.js")
     expect(repairElectronAfterBuildStep?.["working-directory"]).toBe("packages/desktop-electron")
     expect(prepareOfficeCliStep).toBeDefined()
