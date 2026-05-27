@@ -259,7 +259,7 @@ describe("FileWatcher git metadata filtering", () => {
     expect(ignore).toContain(path.join(repo, "secret"))
   })
 
-  test("falls back to root polling when the workspace has too many top-level roots", () => {
+  test("caps child subscriptions when the workspace has too many top-level roots", () => {
     const repo = path.join("/tmp", "repo")
     const entries = Array.from({ length: FileWatcher.MAX_WORKSPACE_WATCH_ROOTS + 1 }, (_, index) => ({
       name: `pkg-${index}`,
@@ -273,8 +273,10 @@ describe("FileWatcher git metadata filtering", () => {
       ignore: FileWatcher.workspaceWatcherIgnoreEntries({ config: [], protected: [] }),
     })
 
-    expect(plan.roots).toEqual([])
-    expect(plan.fallbackStrategy).toBe("root-polling-only")
+    expect(plan.roots).toHaveLength(FileWatcher.MAX_WORKSPACE_WATCH_ROOTS)
+    expect(plan.roots[0]?.directory).toBe(path.join(repo, "pkg-0"))
+    expect(plan.roots.at(-1)?.directory).toBe(path.join(repo, `pkg-${FileWatcher.MAX_WORKSPACE_WATCH_ROOTS - 1}`))
+    expect(plan.fallbackStrategy).toBe("limited-child-watchers")
     expect(plan.rootCount).toBe(FileWatcher.MAX_WORKSPACE_WATCH_ROOTS + 1)
     expect(plan.maxRootCount).toBe(FileWatcher.MAX_WORKSPACE_WATCH_ROOTS)
   })

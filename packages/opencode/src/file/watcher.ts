@@ -25,6 +25,7 @@ export namespace FileWatcher {
   const SUBSCRIBE_TIMEOUT_MS = 10_000
   const RESCAN_QUIET_MS = 1_000
   const ROOT_DISCOVERY_INTERVAL_MS = 500
+  const FALLBACK_RESCAN_INTERVAL_MS = 5_000
   export const MAX_WORKSPACE_WATCH_ROOTS = 128
   const LOCAL_ARTIFACT_ENTRIES = new Set([".worktrees", ".claude", ".claire", ".superpowers"])
   const WORKSPACE_IGNORE_ENTRIES = [...LOCAL_ARTIFACT_ENTRIES]
@@ -111,7 +112,7 @@ export namespace FileWatcher {
     rootFiles: string[]
     rootCount: number
     maxRootCount: number
-    fallbackStrategy?: "root-polling-only"
+    fallbackStrategy?: "limited-child-watchers"
     rootFilesStrategy: "poll-root-entries"
     refreshStrategy: "refresh-plan-on-top-level-entry-change"
   }
@@ -332,10 +333,10 @@ export namespace FileWatcher {
     }
 
     const rootCount = roots.length
-    const fallbackStrategy = rootCount > MAX_WORKSPACE_WATCH_ROOTS ? "root-polling-only" : undefined
+    const fallbackStrategy = rootCount > MAX_WORKSPACE_WATCH_ROOTS ? "limited-child-watchers" : undefined
 
     return {
-      roots: fallbackStrategy ? [] : roots,
+      roots: fallbackStrategy ? roots.slice(0, MAX_WORKSPACE_WATCH_ROOTS) : roots,
       excluded,
       rootFiles,
       rootCount,
@@ -613,7 +614,12 @@ export namespace FileWatcher {
                 let snapshot = yield* Effect.promise(() => rootEntrySnapshot(ctx.directory))
                 const active = new Map<string, ParcelWatcher.AsyncSubscription>()
                 let watchPlanDisposed = false
-                let rootPollingOnly = false
+                let limitedChildWatchers = false
+                let lastFallbackRescan = 0
+                const publishWorkspaceRescan = () =>
+                  Bus.publish(Event.Rescan, { directory: ctx.directory }).catch((error) =>
+                    log.warn("failed to publish watcher rescan", { dir: ctx.directory, error }),
+                  )
                 const applyPlan = Effect.fn("FileWatcher.applyWorkspaceWatchPlan")(function* (
                   planSnapshot: Map<string, RootEntryState>,
                 ) {
@@ -645,17 +651,14 @@ export namespace FileWatcher {
                     })),
                   })
 
-                  if (plan.fallbackStrategy === "root-polling-only") {
-                    if (!rootPollingOnly) {
-                      rootPollingOnly = true
-                      yield* Effect.promise(() =>
-                        Bus.publish(Event.Rescan, { directory: ctx.directory }).catch((error) =>
-                          log.warn("failed to publish watcher rescan", { dir: ctx.directory, error }),
-                        ),
-                      )
+                  if (plan.fallbackStrategy === "limited-child-watchers") {
+                    if (!limitedChildWatchers) {
+                      limitedChildWatchers = true
+                      lastFallbackRescan = Date.now()
+                      yield* Effect.promise(publishWorkspaceRescan)
                     }
                   } else {
-                    rootPollingOnly = false
+                    limitedChildWatchers = false
                   }
 
                   const nextRoots = new Set(plan.roots.map((root) => root.directory))
@@ -727,6 +730,11 @@ export namespace FileWatcher {
                       )
                       .then((next) => {
                         snapshot = next
+                        if (!limitedChildWatchers || watchPlanDisposed) return
+                        const now = Date.now()
+                        if (now - lastFallbackRescan < FALLBACK_RESCAN_INTERVAL_MS) return
+                        lastFallbackRescan = now
+                        return publishWorkspaceRescan()
                       })
                       .catch((error) => log.warn("failed to poll workspace root", { dir: ctx.directory, error }))
                       .finally(() => {
