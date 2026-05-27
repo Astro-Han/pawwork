@@ -28,9 +28,6 @@ export interface Settings {
     sans: string
   }
   keybinds: Record<string, string>
-  permissions: {
-    autoApprove: boolean
-  }
   notify: NotifyLevel
 }
 
@@ -106,9 +103,6 @@ const defaultSettings: Settings = {
     sans: "",
   },
   keybinds: {},
-  permissions: {
-    autoApprove: false,
-  },
   notify: "unfocused" as NotifyLevel,
 }
 
@@ -306,12 +300,6 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         },
         resetAll() {
           setStore("keybinds", reconcile({}))
-        },
-      },
-      permissions: {
-        autoApprove: withFallback(() => store.permissions?.autoApprove, defaultSettings.permissions.autoApprove),
-        setAutoApprove(value: boolean) {
-          setStore("permissions", "autoApprove", value)
         },
       },
       notify: {

@@ -5,9 +5,7 @@ import { Switch } from "@opencode-ai/ui/switch"
 import { TextField } from "@opencode-ai/ui/text-field"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { useTheme, type ColorScheme } from "@opencode-ai/ui/theme/context"
-import { useParams } from "@solidjs/router"
 import { useLanguage } from "@/context/language"
-import { usePermission } from "@/context/permission"
 import { canUseDisplayBackend, usePlatform } from "@/context/platform"
 import {
   monoDefault,
@@ -19,7 +17,6 @@ import {
   useSettings,
   type NotifyLevel,
 } from "@/context/settings"
-import { decode64 } from "@/utils/base64"
 import { Link } from "./link"
 import { SettingsList } from "./settings-list"
 import { SettingsRow } from "./settings-row"
@@ -40,9 +37,7 @@ type ThemeOption = {
 export const SettingsGeneral: Component = () => {
   const theme = useTheme()
   const language = useLanguage()
-  const permission = usePermission()
   const platform = usePlatform()
-  const params = useParams()
   const settings = useSettings()
 
   onMount(() => {
@@ -50,31 +45,6 @@ export const SettingsGeneral: Component = () => {
   })
 
   const linux = createMemo(() => platform.os === "linux" && canUseDisplayBackend(platform))
-  const dir = createMemo(() => decode64(params.dir))
-  const accepting = createMemo(() => {
-    const value = dir()
-    if (!value) return false
-    if (!params.id) return permission.isAutoAcceptingDirectory(value)
-    return permission.isAutoAccepting(params.id, value)
-  })
-
-  const toggleAccept = (checked: boolean) => {
-    const value = dir()
-    if (!value) return
-
-    if (!params.id) {
-      if (permission.isAutoAcceptingDirectory(value) === checked) return
-      permission.toggleAutoAcceptDirectory(value)
-      return
-    }
-
-    if (checked) {
-      permission.enableAutoAccept(params.id, value)
-      return
-    }
-
-    permission.disableAutoAccept(params.id, value)
-  }
 
   const themeOptions = createMemo<ThemeOption[]>(() => theme.ids().map((id) => ({ id, name: theme.name(id) })))
 
@@ -115,15 +85,6 @@ export const SettingsGeneral: Component = () => {
             label={(o) => o.label}
             onSelect={(option) => option && language.setLocale(option.value)}
           />
-        </SettingsRow>
-
-        <SettingsRow
-          title={language.t("command.permissions.autoaccept.enable")}
-          description={language.t("toast.permissions.autoaccept.on.description")}
-        >
-          <div data-action="settings-auto-accept-permissions">
-            <Switch checked={accepting()} disabled={!dir()} onChange={toggleAccept} />
-          </div>
         </SettingsRow>
 
         <SettingsWebSearchRow />
