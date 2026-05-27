@@ -82,11 +82,15 @@ function resolveElectronBinary() {
   return require("electron/index.js") as string
 }
 
-export function resolveLaunchCommand(target: SmokeTarget) {
+type LaunchCommandOptions = {
+  electronBinary?: () => string
+}
+
+export function resolveLaunchCommand(target: SmokeTarget, options: LaunchCommandOptions = {}) {
   if (target.mode === "packaged") {
     return { command: target.executablePath, args: [] as string[] }
   }
-  return { command: resolveElectronBinary(), args: [resolveMainEntry()] }
+  return { command: (options.electronBinary ?? resolveElectronBinary)(), args: [resolveMainEntry()] }
 }
 
 function watchChildLogs(child: ChildProcessWithoutNullStreams) {
