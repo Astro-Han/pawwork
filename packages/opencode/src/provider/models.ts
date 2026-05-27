@@ -200,7 +200,7 @@ function skip(force: boolean) {
 
 const fetchApi = async () => {
   const result = await fetch(`${url()}/api.json`, {
-    headers: { "User-Agent": Installation.USER_AGENT },
+    headers: { "User-Agent": Installation.HTTP_USER_AGENT },
     signal: AbortSignal.timeout(10000),
   })
   return { ok: result.ok, text: await result.text() }

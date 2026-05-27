@@ -392,6 +392,7 @@ const live: Layer.Layer<
         headers: {
           ...(input.model.providerID.startsWith("opencode")
             ? {
+                "User-Agent": Installation.HTTP_USER_AGENT,
                 "x-opencode-project": Instance.project.id,
                 "x-opencode-session": input.sessionID,
                 "x-opencode-request": input.user.id,
@@ -400,7 +401,7 @@ const live: Layer.Layer<
             : {
                 "x-session-affinity": input.sessionID,
                 ...(input.parentSessionID ? { "x-parent-session-id": input.parentSessionID } : {}),
-                "User-Agent": `opencode/${Installation.VERSION}`,
+                "User-Agent": `opencode/${Installation.HTTP_VERSION}`,
               }),
           ...input.model.headers,
           ...headers,
