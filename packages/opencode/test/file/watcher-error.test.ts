@@ -17,8 +17,8 @@ describe("FileWatcher error handling", () => {
     const settled: FileWatcher.RescanIncidentSummary[] = []
     let now = 100
     const scheduler = FileWatcher.createRescanScheduler({
-      publish: (directory) => {
-        published.push(directory)
+      publish: (request) => {
+        published.push(request.directory)
       },
       now: () => now,
       onIncidentSettled: (summary) => {
@@ -63,8 +63,8 @@ describe("FileWatcher error handling", () => {
     const published: string[] = []
     const scheduled: Array<() => void> = []
     const scheduler = FileWatcher.createRescanScheduler({
-      publish: (directory) => {
-        published.push(directory)
+      publish: (request) => {
+        published.push(request.directory)
       },
       schedule: (callback) => {
         scheduled.push(callback)
@@ -88,9 +88,9 @@ describe("FileWatcher error handling", () => {
     const scheduled: Array<() => void> = []
     let scheduler: ReturnType<typeof FileWatcher.createRescanScheduler>
     scheduler = FileWatcher.createRescanScheduler({
-      publish: (directory) => {
-        published.push(directory)
-        if (published.length === 2) scheduler.request(directory)
+      publish: (request) => {
+        published.push(request.directory)
+        if (published.length === 2) scheduler.request(request)
       },
       schedule: (callback) => {
         scheduled.push(callback)
@@ -111,8 +111,8 @@ describe("FileWatcher error handling", () => {
     const published: string[] = []
     const scheduled: Array<() => void> = []
     const scheduler = FileWatcher.createRescanScheduler({
-      publish: (directory) => {
-        published.push(directory)
+      publish: (request) => {
+        published.push(request.directory)
       },
       schedule: (callback) => {
         scheduled.push(callback)
@@ -126,5 +126,26 @@ describe("FileWatcher error handling", () => {
     scheduled[0]?.()
 
     expect(published).toEqual(["/repo"])
+  })
+
+  test("keeps child watcher dropped-event recovery mapped to the workspace root", () => {
+    const published: Array<{ directory: string; subscriptionDirectory?: string }> = []
+    const scheduler = FileWatcher.createRescanScheduler({
+      publish: (request) => {
+        published.push({
+          directory: request.directory,
+          subscriptionDirectory: request.subscriptionDirectory,
+        })
+      },
+      schedule: () => undefined,
+    })
+
+    scheduler.request({
+      directory: "/repo",
+      subscriptionDirectory: "/repo/packages",
+      watchScope: "workspace-child",
+    })
+
+    expect(published).toEqual([{ directory: "/repo", subscriptionDirectory: "/repo/packages" }])
   })
 })

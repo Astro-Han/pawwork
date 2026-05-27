@@ -25,6 +25,7 @@ const watcherConfigLayer = ConfigProvider.layer(
 )
 
 type WatcherEvent = { file: string; event: "add" | "change" | "unlink" }
+type RescanEvent = { directory: string }
 
 /** Run `body` with a live FileWatcher service. */
 function withWatcher<E>(directory: string, body: Effect.Effect<void, E>) {
@@ -79,6 +80,28 @@ function wait(directory: string, check: (evt: WatcherEvent) => boolean) {
   })
 }
 
+function waitRescan(check: (evt: RescanEvent) => boolean) {
+  return Effect.gen(function* () {
+    const deferred = yield* Deferred.make<RescanEvent>()
+    const cleanup = yield* Effect.sync(() => {
+      let done = false
+      const unsub = Bus.subscribe(FileWatcher.Event.Rescan, (evt) => {
+        if (done) return
+        if (!check(evt.properties)) return
+        done = true
+        unsub()
+        Deferred.doneUnsafe(deferred, Effect.succeed(evt.properties))
+      })
+      return () => {
+        if (done) return
+        done = true
+        unsub()
+      }
+    })
+    return { cleanup, deferred }
+  })
+}
+
 function nextUpdate<E>(directory: string, check: (evt: WatcherEvent) => boolean, trigger: Effect.Effect<void, E>) {
   return Effect.acquireUseRelease(
     wait(directory, check),
@@ -86,6 +109,30 @@ function nextUpdate<E>(directory: string, check: (evt: WatcherEvent) => boolean,
       Effect.gen(function* () {
         yield* trigger
         return yield* Deferred.await(deferred).pipe(Effect.timeout("5 seconds"))
+      }),
+    ({ cleanup }) => Effect.sync(cleanup),
+  )
+}
+
+function nextRescan<E>(check: (evt: RescanEvent) => boolean, trigger: Effect.Effect<void, E>) {
+  return Effect.acquireUseRelease(
+    waitRescan(check),
+    ({ deferred }) =>
+      Effect.gen(function* () {
+        yield* trigger
+        return yield* Deferred.await(deferred).pipe(Effect.timeout("5 seconds"))
+      }),
+    ({ cleanup }) => Effect.sync(cleanup),
+  )
+}
+
+function noRescan<E>(check: (evt: RescanEvent) => boolean, trigger: Effect.Effect<void, E>, ms = 500) {
+  return Effect.acquireUseRelease(
+    waitRescan(check),
+    ({ deferred }) =>
+      Effect.gen(function* () {
+        yield* trigger
+        expect(yield* Deferred.await(deferred).pipe(Effect.timeoutOption(`${ms} millis`))).toEqual(Option.none())
       }),
     ({ cleanup }) => Effect.sync(cleanup),
   )
@@ -146,6 +193,207 @@ function ready(directory: string) {
 // ---------------------------------------------------------------------------
 
 describe("FileWatcher git metadata filtering", () => {
+  test("builds an explainable macOS workspace watch plan", () => {
+    const repo = path.join("/tmp", "repo")
+    const plan = FileWatcher.workspaceWatchPlan({
+      directory: repo,
+      backend: "fs-events",
+      entries: [
+        { name: ".claude", type: "directory" },
+        { name: ".claire", type: "directory" },
+        { name: ".superpowers", type: "directory" },
+        { name: ".turbo", type: "directory" },
+        { name: ".worktrees", type: "directory" },
+        { name: "logs", type: "directory" },
+        { name: "local-cache", type: "directory" },
+        { name: "node_modules", type: "directory" },
+        { name: "packages", type: "directory" },
+        { name: "src", type: "directory" },
+        { name: "README.md", type: "file" },
+      ],
+      ignore: FileWatcher.workspaceWatcherIgnoreEntries({ config: ["local-cache/**"], protected: [] }),
+      userConfig: ["local-cache/**"],
+    })
+
+    expect(plan.rootFilesStrategy).toBe("poll-root-entries")
+    expect(plan.refreshStrategy).toBe("refresh-plan-on-top-level-entry-change")
+    expect(plan.roots.map((root) => path.basename(root.directory)).sort()).toEqual(["packages", "src"])
+    expect(plan.excluded.map((item) => [path.basename(item.path), item.reason]).sort()).toEqual([
+      [".claire", "local-artifact"],
+      [".claude", "local-artifact"],
+      [".superpowers", "local-artifact"],
+      [".turbo", "default-ignore"],
+      [".worktrees", "local-artifact"],
+      ["local-cache", "user-config"],
+      ["logs", "default-ignore"],
+      ["node_modules", "default-ignore"],
+    ])
+    expect(plan.rootFiles).toEqual([path.join(repo, "README.md")])
+  })
+
+  test("keeps workspace ignore semantics for child subscriptions", () => {
+    const repo = path.join("/tmp", "repo")
+    const child = path.join(repo, "packages")
+    const ignore = FileWatcher.subscriptionIgnoreEntries({
+      workspace: repo,
+      subscription: child,
+      ignore: [
+        "custom-cache",
+        "packages/generated",
+        "*.md",
+        "logs/**",
+        "packages/generated/**",
+        "packages/*.snap",
+        "**/*.log",
+        path.join(repo, "secret"),
+      ],
+    })
+
+    expect(ignore).toContain(path.join(repo, "custom-cache"))
+    expect(ignore).toContain(path.join(repo, "packages", "generated"))
+    expect(ignore).not.toContain("*.md")
+    expect(ignore).not.toContain("logs/**")
+    expect(ignore).toContain("generated/**")
+    expect(ignore).toContain("*.snap")
+    expect(ignore).toContain("**/*.log")
+    expect(ignore).toContain(path.join(repo, "secret"))
+  })
+
+  test("caps child subscriptions when the workspace has too many top-level roots", () => {
+    const repo = path.join("/tmp", "repo")
+    const entries = Array.from({ length: FileWatcher.MAX_WORKSPACE_WATCH_ROOTS + 1 }, (_, index) => ({
+      name: `pkg-${index}`,
+      type: "directory" as const,
+    }))
+
+    const plan = FileWatcher.workspaceWatchPlan({
+      directory: repo,
+      backend: "fs-events",
+      entries,
+      ignore: FileWatcher.workspaceWatcherIgnoreEntries({ config: [], protected: [] }),
+    })
+
+    expect(plan.roots).toHaveLength(FileWatcher.MAX_WORKSPACE_WATCH_ROOTS)
+    expect(plan.roots[0]?.directory).toBe(path.join(repo, "pkg-0"))
+    expect(plan.roots.at(-1)?.directory).toBe(path.join(repo, `pkg-${FileWatcher.MAX_WORKSPACE_WATCH_ROOTS - 1}`))
+    expect(plan.fallbackStrategy).toBe("limited-child-watchers")
+    expect(plan.rootCount).toBe(FileWatcher.MAX_WORKSPACE_WATCH_ROOTS + 1)
+    expect(plan.maxRootCount).toBe(FileWatcher.MAX_WORKSPACE_WATCH_ROOTS)
+  })
+
+  test("throttles fallback workspace rescans while child subscriptions are capped", () => {
+    const fallback = FileWatcher.createFallbackRescanThrottle({ now: () => 1_000 })
+
+    expect(fallback.enter()).toBe(true)
+    expect(fallback.tick()).toBe(false)
+
+    fallback.now = () => 5_999
+    expect(fallback.tick()).toBe(false)
+
+    fallback.now = () => 6_000
+    expect(fallback.tick()).toBe(true)
+    expect(fallback.tick()).toBe(false)
+
+    fallback.exit()
+    fallback.now = () => 6_001
+    expect(fallback.tick()).toBe(false)
+    expect(fallback.enter()).toBe(true)
+  })
+
+  test("waits for root poll plan refresh before publishing rescan", async () => {
+    const repo = path.join("/tmp", "repo")
+    const prev = new Map()
+    const next = new Map([
+      [
+        "generated",
+        {
+          name: "generated",
+          path: path.join(repo, "generated"),
+          type: "directory" as const,
+          size: 0,
+          mtimeMs: 0,
+        },
+      ],
+    ])
+    let releaseApply!: () => void
+    const applied = new Promise<void>((resolve) => {
+      releaseApply = resolve
+    })
+    let settled = false
+    const updates: WatcherEvent[] = []
+    const rescans: string[] = []
+
+    const running = FileWatcher.runWorkspaceRootPoll({
+      previous: prev,
+      next,
+      workspace: repo,
+      ignore: [],
+      isDisposed: () => false,
+      applyPlan: () => applied,
+      publishUpdate: (event) => {
+        updates.push(event)
+      },
+      publishRescan: (directory) => {
+        rescans.push(directory)
+      },
+    }).then(() => {
+      settled = true
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(settled).toBe(false)
+    expect(rescans).toEqual([])
+
+    releaseApply()
+    await running
+
+    expect(updates).toEqual([{ file: path.join(repo, "generated"), event: "add" }])
+    expect(rescans).toEqual([repo])
+  })
+
+  test("does not publish root poll rescan after disposal", async () => {
+    const repo = path.join("/tmp", "repo")
+    const prev = new Map()
+    const next = new Map([
+      [
+        "generated",
+        {
+          name: "generated",
+          path: path.join(repo, "generated"),
+          type: "directory" as const,
+          size: 0,
+          mtimeMs: 0,
+        },
+      ],
+    ])
+    let disposed = false
+    let releaseApply!: () => void
+    const applied = new Promise<void>((resolve) => {
+      releaseApply = resolve
+    })
+    const rescans: string[] = []
+
+    const running = FileWatcher.runWorkspaceRootPoll({
+      previous: prev,
+      next,
+      workspace: repo,
+      ignore: [],
+      isDisposed: () => disposed,
+      applyPlan: () => applied,
+      publishUpdate: () => {},
+      publishRescan: (directory) => {
+        rescans.push(directory)
+      },
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    disposed = true
+    releaseApply()
+    await running
+
+    expect(rescans).toEqual([])
+  })
+
   test("ignores nested PawWork worktree roots from the workspace watcher", () => {
     const entries = FileWatcher.workspaceWatcherIgnoreEntries({
       config: ["custom-cache"],
@@ -262,6 +510,65 @@ describeWatcher("FileWatcher", () => {
           ),
         ),
     })
+  })
+
+  test("ignores high-churn local artifact roots from workspace updates", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const artifacts = [".worktrees", ".claude", ".claire", ".superpowers", "node_modules", ".turbo"]
+
+    await withWatcher(
+      tmp.path,
+      noUpdate(
+        tmp.path,
+        (evt) => artifacts.some((artifact) => evt.file.startsWith(path.join(tmp.path, artifact) + path.sep)),
+        noRescan(
+          (evt) => evt.directory === tmp.path,
+          Effect.promise(async () => {
+            for (const artifact of artifacts) {
+              const artifactDir = path.join(tmp.path, artifact)
+              await fs.mkdir(artifactDir)
+              await Promise.all(
+                Array.from({ length: 100 }, (_, index) =>
+                  fs.writeFile(path.join(artifactDir, `artifact-${index}.txt`), `first ${index}`),
+                ),
+              )
+              await Promise.all(
+                Array.from({ length: 100 }, (_, index) =>
+                  fs.writeFile(path.join(artifactDir, `artifact-${index}.txt`), `second ${index}`),
+                ),
+              )
+            }
+          }),
+          1_000,
+        ),
+        1_000,
+      ),
+    )
+  })
+
+  test("refreshes the watch plan for new top-level directories", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const dir = path.join(tmp.path, "generated")
+    const first = path.join(dir, "first.txt")
+    const second = path.join(dir, "second.txt")
+
+    await withWatcher(
+      tmp.path,
+      Effect.gen(function* () {
+        yield* nextRescan(
+          (evt) => evt.directory === tmp.path,
+          Effect.promise(async () => {
+            await fs.mkdir(dir)
+            await fs.writeFile(first, "first")
+          }),
+        )
+        yield* nextUpdate(
+          tmp.path,
+          (evt) => evt.file === second && evt.event === "add",
+          Effect.promise(() => fs.writeFile(second, "second")),
+        )
+      }),
+    )
   })
 
   test("publishes .git/index changes", async () => {

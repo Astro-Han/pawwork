@@ -2,7 +2,7 @@ import { Cause, Effect, Layer, Scope, Context } from "effect"
 // @ts-ignore
 import { createWrapper } from "@parcel/watcher/wrapper"
 import type ParcelWatcher from "@parcel/watcher"
-import { readdir } from "fs/promises"
+import { readdir, stat } from "fs/promises"
 import path from "path"
 import z from "zod"
 import { Bus } from "@/bus"
@@ -12,6 +12,7 @@ import { Flag } from "@opencode-ai/core/flag/flag"
 import { Git } from "@/git"
 import { Instance } from "@/project/instance"
 import { lazy } from "@/util/lazy"
+import { Glob } from "@/util/glob"
 import { Config } from "../config/config"
 import { FileIgnore } from "./ignore"
 import { Protected } from "./protected"
@@ -23,7 +24,11 @@ export namespace FileWatcher {
   const log = Log.create({ service: "file.watcher" })
   const SUBSCRIBE_TIMEOUT_MS = 10_000
   const RESCAN_QUIET_MS = 1_000
-  const WORKSPACE_IGNORE_ENTRIES = [".worktrees"]
+  const ROOT_DISCOVERY_INTERVAL_MS = 500
+  const FALLBACK_RESCAN_INTERVAL_MS = 5_000
+  export const MAX_WORKSPACE_WATCH_ROOTS = 128
+  const LOCAL_ARTIFACT_ENTRIES = new Set([".worktrees", ".claude", ".claire", ".superpowers"])
+  const WORKSPACE_IGNORE_ENTRIES = [...LOCAL_ARTIFACT_ENTRIES]
   const VCS_SUBSCRIBE_ENTRIES = new Set(["HEAD", "index", "packed-refs", "refs"])
   const VCS_REFRESH_FILES = new Set(["HEAD", "index", "packed-refs"])
   const VCS_REFRESH_PREFIXES = ["refs/heads/", "refs/remotes/"]
@@ -77,6 +82,40 @@ export namespace FileWatcher {
   }
 
   export type WatchScope = "workspace" | "vcs"
+  type RuntimeWatchScope = WatchScope | "workspace-child" | "root-discovery"
+  export type RootEntryState = {
+    name: string
+    path: string
+    type: WorkspaceWatchPlanEntry["type"]
+    size: number
+    mtimeMs: number
+  }
+  type RescanRequest = {
+    directory: string
+    subscriptionDirectory?: string
+    watchScope?: RuntimeWatchScope
+  }
+  export type WatchPlanExcludeReason = "default-ignore" | "local-artifact" | "user-config" | "protected-path"
+  export type WorkspaceWatchPlanEntry = { name: string; type: "directory" | "file" | "other" }
+  export type WorkspaceWatchPlanRoot = {
+    directory: string
+    ignore: string[]
+    reason: "workspace-child"
+  }
+  export type WorkspaceWatchPlanExcluded = {
+    path: string
+    reason: WatchPlanExcludeReason
+  }
+  export type WorkspaceWatchPlan = {
+    roots: WorkspaceWatchPlanRoot[]
+    excluded: WorkspaceWatchPlanExcluded[]
+    rootFiles: string[]
+    rootCount: number
+    maxRootCount: number
+    fallbackStrategy?: "limited-child-watchers"
+    rootFilesStrategy: "poll-root-entries"
+    refreshStrategy: "refresh-plan-on-top-level-entry-change"
+  }
   export type RescanIncidentSummary = {
     directory: string
     request_count: number
@@ -88,7 +127,7 @@ export namespace FileWatcher {
   }
 
   export function createRescanScheduler(input: {
-    publish: (directory: string) => void
+    publish: (request: RescanRequest) => void
     schedule?: (callback: () => void) => (() => void) | void
     now?: () => number
     onIncidentSettled?: (summary: RescanIncidentSummary) => void
@@ -101,6 +140,7 @@ export namespace FileWatcher {
       requestCount: number
       leadingPublished: boolean
       trailingPublished: boolean
+      request: RescanRequest
     }
     const pending = new Map<string, RescanState>()
     const schedule = (callback: () => void) => {
@@ -137,7 +177,7 @@ export namespace FileWatcher {
           state.needsTrailing = false
           state.trailingPublished = true
           pending.delete(directory)
-          input.publish(directory)
+          input.publish(state.request)
           settle(directory, state)
           return
         }
@@ -147,8 +187,10 @@ export namespace FileWatcher {
     }
 
     return {
-      request(directory: string) {
+      request(inputRequest: string | RescanRequest) {
         if (disposed) return
+        const request = typeof inputRequest === "string" ? { directory: inputRequest } : inputRequest
+        const directory = request.directory
         const state = pending.get(directory)
         if (state) {
           state.dirty = true
@@ -164,9 +206,10 @@ export namespace FileWatcher {
           requestCount: 1,
           leadingPublished: true,
           trailingPublished: false,
+          request,
         }
         pending.set(directory, next)
-        input.publish(directory)
+        input.publish(request)
         arm(directory, next)
       },
       dispose() {
@@ -185,6 +228,236 @@ export namespace FileWatcher {
 
   export function workspaceWatcherIgnoreEntries(input: { config: string[]; protected: string[] }) {
     return [...new Set([...FileIgnore.PATTERNS, ...WORKSPACE_IGNORE_ENTRIES, ...input.config, ...input.protected])]
+  }
+
+  export function createFallbackRescanThrottle(input: { now?: () => number } = {}) {
+    let active = false
+    let lastRescan = 0
+    return {
+      now: input.now ?? (() => Date.now()),
+      enter() {
+        if (active) return false
+        active = true
+        lastRescan = this.now()
+        return true
+      },
+      tick() {
+        if (!active) return false
+        const now = this.now()
+        if (now - lastRescan < FALLBACK_RESCAN_INTERVAL_MS) return false
+        lastRescan = now
+        return true
+      },
+      exit() {
+        active = false
+      },
+    }
+  }
+
+  function hasGlobSyntax(value: string) {
+    return /[*?[\]{}]/.test(value)
+  }
+
+  function normalizePathKey(value: string) {
+    return value.replaceAll("\\", "/").replace(/\/+$/, "")
+  }
+
+  function globTargetsRootEntry(pattern: string, entry: string) {
+    if (!hasGlobSyntax(pattern)) return false
+    return Glob.match(pattern, `${entry}/__pawwork_watch_plan_probe__`)
+  }
+
+  function ignoreReason(input: {
+    entry: string
+    fullPath: string
+    ignore: string[]
+    userConfig?: string[]
+    protectedPaths?: string[]
+  }): WatchPlanExcludeReason | undefined {
+    const entryKey = normalizePathKey(input.entry)
+    if (LOCAL_ARTIFACT_ENTRIES.has(entryKey)) return "local-artifact"
+
+    const protectedSet = new Set(input.protectedPaths?.map((item) => normalizePathKey(item)) ?? [])
+    if (protectedSet.has(normalizePathKey(input.fullPath)) || protectedSet.has(entryKey)) return "protected-path"
+
+    const configSet = new Set(input.userConfig?.map((item) => normalizePathKey(item)) ?? [])
+    if (configSet.has(entryKey) || configSet.has(normalizePathKey(input.fullPath))) return "user-config"
+    if (input.userConfig?.some((item) => globTargetsRootEntry(normalizePathKey(item), entryKey))) return "user-config"
+
+    if (
+      input.ignore.some((item) => {
+        const pattern = normalizePathKey(item)
+        return (!hasGlobSyntax(pattern) && pattern === entryKey) || globTargetsRootEntry(pattern, entryKey)
+      })
+    )
+      return "default-ignore"
+    return undefined
+  }
+
+  function subscriptionGlobIgnoreEntry(input: { workspace: string; subscription: string; pattern: string }) {
+    const pattern = normalizePathKey(input.pattern)
+    if (!hasGlobSyntax(pattern)) return pattern
+    if (pattern.startsWith("**/")) return pattern
+
+    const subscription = normalizePathKey(path.relative(input.workspace, input.subscription))
+    if (!subscription || subscription.startsWith("..") || path.isAbsolute(subscription)) return undefined
+    if (!pattern.includes("/")) return undefined
+    if (!pattern.startsWith(`${subscription}/`)) return undefined
+    return pattern.slice(subscription.length + 1)
+  }
+
+  export function subscriptionIgnoreEntries(input: { workspace: string; subscription: string; ignore: string[] }) {
+    return input.ignore.flatMap((entry) => {
+      if (path.isAbsolute(entry)) return entry
+      if (hasGlobSyntax(entry)) return subscriptionGlobIgnoreEntry({ ...input, pattern: entry }) ?? []
+      return path.resolve(input.workspace, entry)
+    })
+  }
+
+  export function workspaceWatchPlan(input: {
+    directory: string
+    backend: string
+    entries: WorkspaceWatchPlanEntry[]
+    ignore: string[]
+    userConfig?: string[]
+    protectedPaths?: string[]
+  }): WorkspaceWatchPlan {
+    const roots: WorkspaceWatchPlanRoot[] = []
+    const excluded: WorkspaceWatchPlanExcluded[] = []
+    const rootFiles: string[] = []
+
+    for (const entry of input.entries) {
+      const fullPath = path.join(input.directory, entry.name)
+      const reason = ignoreReason({
+        entry: entry.name,
+        fullPath,
+        ignore: input.ignore,
+        userConfig: input.userConfig,
+        protectedPaths: input.protectedPaths,
+      })
+      if (reason) {
+        excluded.push({ path: fullPath, reason })
+        continue
+      }
+
+      if (entry.type === "directory") {
+        roots.push({
+          directory: fullPath,
+          ignore: subscriptionIgnoreEntries({
+            workspace: input.directory,
+            subscription: fullPath,
+            ignore: input.ignore,
+          }),
+          reason: "workspace-child",
+        })
+        continue
+      }
+
+      if (entry.type === "file") rootFiles.push(fullPath)
+    }
+
+    const rootCount = roots.length
+    const fallbackStrategy = rootCount > MAX_WORKSPACE_WATCH_ROOTS ? "limited-child-watchers" : undefined
+
+    return {
+      roots: fallbackStrategy ? roots.slice(0, MAX_WORKSPACE_WATCH_ROOTS) : roots,
+      excluded,
+      rootFiles,
+      rootCount,
+      maxRootCount: MAX_WORKSPACE_WATCH_ROOTS,
+      fallbackStrategy,
+      rootFilesStrategy: "poll-root-entries",
+      refreshStrategy: "refresh-plan-on-top-level-entry-change",
+    }
+  }
+
+  async function rootEntrySnapshot(directory: string) {
+    const entries = new Map<string, RootEntryState>()
+    const items = await readdir(directory, { withFileTypes: true })
+    await Promise.all(
+      items.map(async (item) => {
+        const fullPath = path.join(directory, item.name)
+        const type = item.isDirectory() ? "directory" : item.isFile() ? "file" : "other"
+        const info = type === "file" ? await stat(fullPath).catch(() => undefined) : undefined
+        entries.set(item.name, {
+          name: item.name,
+          path: fullPath,
+          type,
+          size: info?.size ?? 0,
+          mtimeMs: info?.mtimeMs ?? 0,
+        })
+      }),
+    )
+    return entries
+  }
+
+  function watchPlanEntries(snapshot: Map<string, RootEntryState>): WorkspaceWatchPlanEntry[] {
+    return [...snapshot.values()].map((item) => ({ name: item.name, type: item.type }))
+  }
+
+  function rootFileChanged(prev: RootEntryState | undefined, next: RootEntryState | undefined) {
+    if (!prev || !next) return false
+    return prev.type === "file" && next.type === "file" && (prev.size !== next.size || prev.mtimeMs !== next.mtimeMs)
+  }
+
+  function shouldPublishWorkspacePath(file: string, workspace: string, ignore: string[]) {
+    const relative = path.relative(workspace, file)
+    if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return false
+    for (const entry of ignore) {
+      if (!path.isAbsolute(entry) || hasGlobSyntax(entry)) continue
+      const rel = path.relative(entry, file)
+      if (!rel || (!rel.startsWith("..") && !path.isAbsolute(rel))) return false
+    }
+    return !FileIgnore.match(relative, { extra: ignore })
+  }
+
+  export async function runWorkspaceRootPoll(input: {
+    previous: Map<string, RootEntryState>
+    next: Map<string, RootEntryState>
+    workspace: string
+    ignore: string[]
+    isDisposed: () => boolean
+    applyPlan: (next: Map<string, RootEntryState>) => Promise<void>
+    publishUpdate: (event: { file: string; event: "add" | "change" | "unlink" }) => void
+    publishRescan: (directory: string) => void | Promise<void>
+  }) {
+    if (input.isDisposed()) return input.previous
+
+    const nextNames = new Set(input.next.keys())
+    let refreshPlan = false
+
+    for (const [name, value] of input.next) {
+      if (input.isDisposed()) return input.previous
+      const before = input.previous.get(name)
+      const publishable = shouldPublishWorkspacePath(value.path, input.workspace, input.ignore)
+      if (!before) {
+        if (value.type === "file" && publishable) input.publishUpdate({ file: value.path, event: "add" })
+        if (value.type === "directory" && publishable) {
+          refreshPlan = true
+          input.publishUpdate({ file: value.path, event: "add" })
+        }
+        continue
+      }
+      if (rootFileChanged(before, value) && publishable) input.publishUpdate({ file: value.path, event: "change" })
+      if (before.type !== value.type && publishable) refreshPlan = true
+    }
+
+    for (const [name, value] of input.previous) {
+      if (input.isDisposed()) return input.previous
+      if (nextNames.has(name)) continue
+      const publishable = shouldPublishWorkspacePath(value.path, input.workspace, input.ignore)
+      if (value.type === "file" && publishable) input.publishUpdate({ file: value.path, event: "unlink" })
+      if (value.type === "directory" && publishable) {
+        refreshPlan = true
+        input.publishUpdate({ file: value.path, event: "unlink" })
+      }
+    }
+
+    if (!refreshPlan) return input.next
+    await input.applyPlan(input.next)
+    if (input.isDisposed()) return input.previous
+    await input.publishRescan(input.workspace)
+    return input.next
   }
 
   export function watcherSubscriptionDiagnostics(input: {
@@ -262,16 +535,21 @@ export namespace FileWatcher {
 
             log.info("watcher backend", { directory: ctx.directory, platform: process.platform, backend })
 
-            const subs: ParcelWatcher.AsyncSubscription[] = []
+            const subs = new Set<ParcelWatcher.AsyncSubscription>()
             yield* Effect.addFinalizer(() =>
-              Effect.promise(() => Promise.allSettled(subs.map((sub) => sub.unsubscribe()))),
+              Effect.promise(() => Promise.allSettled([...subs].map((sub) => sub.unsubscribe()))),
             )
 
             const requestRescan = createRescanScheduler({
-              publish: (dir) => {
-                log.warn("watcher events dropped, requesting rescan", { dir })
-                Bus.publish(Event.Rescan, { directory: dir }).catch((error) =>
-                  log.warn("failed to publish watcher rescan", { dir, error }),
+              publish: (request) => {
+                log.warn("watcher events dropped, requesting rescan", {
+                  dir: request.directory,
+                  rescan_directory: request.directory,
+                  subscription_dir: request.subscriptionDirectory ?? request.directory,
+                  watch_scope: request.watchScope,
+                })
+                Bus.publish(Event.Rescan, { directory: request.directory }).catch((error) =>
+                  log.warn("failed to publish watcher rescan", { dir: request.directory, error }),
                 )
               },
               onIncidentSettled: (summary) => {
@@ -284,12 +562,24 @@ export namespace FileWatcher {
             })
             yield* Effect.addFinalizer(() => Effect.sync(() => requestRescan.dispose()))
             const createCallback =
-              (dir: string, shouldPublish = (_file: string) => true): ParcelWatcher.SubscribeCallback =>
+              (
+                dir: string,
+                shouldPublish = (_file: string) => true,
+                options?: {
+                  rescanDirectory?: string
+                  watchScope?: RuntimeWatchScope
+                  isDisposed?: () => boolean
+                },
+              ): ParcelWatcher.SubscribeCallback =>
               (err, evts) =>
               Instance.restore(ctx, () => {
                 if (err) {
                   if (isDroppedEventsError(err)) {
-                    requestRescan.request(dir)
+                    requestRescan.request({
+                      directory: options?.rescanDirectory ?? dir,
+                      subscriptionDirectory: dir,
+                      watchScope: options?.watchScope,
+                    })
                     return
                   }
                   log.error("watcher callback error", { err })
@@ -303,17 +593,31 @@ export namespace FileWatcher {
                 }
               })
 
-            const subscribe = (dir: string, ignore: string[], shouldPublish?: (file: string) => boolean) => {
-              const pending = w.subscribe(dir, createCallback(dir, shouldPublish), { ignore, backend })
+            const subscribe = (
+              dir: string,
+              ignore: string[],
+              shouldPublish?: (file: string) => boolean,
+              options?: {
+                rescanDirectory?: string
+                watchScope?: RuntimeWatchScope
+                isDisposed?: () => boolean
+              },
+            ) => {
+              const pending = w.subscribe(dir, createCallback(dir, shouldPublish, options), { ignore, backend })
               return Effect.gen(function* () {
                 const sub = yield* Effect.promise(() => pending)
-                subs.push(sub)
+                if (options?.isDisposed?.()) {
+                  yield* Effect.promise(() => sub.unsubscribe().catch(() => undefined))
+                  return undefined
+                }
+                subs.add(sub)
+                return sub
               }).pipe(
                 Effect.timeout(SUBSCRIBE_TIMEOUT_MS),
                 Effect.catchCause((cause) => {
                   log.error("failed to subscribe", { dir, cause: Cause.pretty(cause) })
                   pending.then((s) => s.unsubscribe()).catch(() => {})
-                  return Effect.void
+                  return Effect.succeed(undefined)
                 }),
               )
             }
@@ -329,10 +633,140 @@ export namespace FileWatcher {
                 protectedPaths: protecteds(ctx.directory),
               })
               log.info("watcher subscription configured", workspaceSubscription.diagnostics)
-              yield* subscribe(
-                ctx.directory,
-                workspaceSubscription.ignore,
-              )
+              if (backend === "fs-events") {
+                let planVersion = 0
+                let snapshot = yield* Effect.promise(() => rootEntrySnapshot(ctx.directory))
+                const active = new Map<string, ParcelWatcher.AsyncSubscription>()
+                let watchPlanDisposed = false
+                const fallbackRescan = createFallbackRescanThrottle()
+                const publishWorkspaceRescan = () =>
+                  Bus.publish(Event.Rescan, { directory: ctx.directory }).catch((error) =>
+                    log.warn("failed to publish watcher rescan", { dir: ctx.directory, error }),
+                  )
+                const applyPlan = Effect.fn("FileWatcher.applyWorkspaceWatchPlan")(function* (
+                  planSnapshot: Map<string, RootEntryState>,
+                ) {
+                  if (watchPlanDisposed) return
+                  const plan = workspaceWatchPlan({
+                    directory: ctx.directory,
+                    backend,
+                    entries: watchPlanEntries(planSnapshot),
+                    ignore: workspaceSubscription.ignore,
+                    userConfig: cfgIgnores,
+                    protectedPaths: protecteds(ctx.directory),
+                  })
+                  planVersion++
+                  log.info("watcher plan configured", {
+                    dir: ctx.directory,
+                    backend,
+                    watch_scope: "workspace",
+                    plan_version: planVersion,
+                    root_count: plan.rootCount,
+                    subscribed_root_count: plan.roots.length,
+                    max_root_count: plan.maxRootCount,
+                    fallback_strategy: plan.fallbackStrategy,
+                    excluded_count: plan.excluded.length,
+                    root_files_strategy: plan.rootFilesStrategy,
+                    refresh_strategy: plan.refreshStrategy,
+                    excluded: plan.excluded.map((item) => ({
+                      path: item.path,
+                      reason: item.reason,
+                    })),
+                  })
+
+                  if (plan.fallbackStrategy === "limited-child-watchers") {
+                    if (fallbackRescan.enter()) yield* Effect.promise(publishWorkspaceRescan)
+                  } else {
+                    fallbackRescan.exit()
+                  }
+
+                  const nextRoots = new Set(plan.roots.map((root) => root.directory))
+                  for (const [dir, sub] of active) {
+                    if (nextRoots.has(dir)) continue
+                    active.delete(dir)
+                    subs.delete(sub)
+                    yield* Effect.promise(() => sub.unsubscribe().catch(() => undefined))
+                    log.info("watcher subscription removed", {
+                      dir,
+                      watch_scope: "workspace-child",
+                      plan_version: planVersion,
+                    })
+                  }
+                  for (const root of plan.roots) {
+                    if (watchPlanDisposed) return
+                    if (active.has(root.directory)) continue
+                    log.info("watcher subscription configured", {
+                      dir: root.directory,
+                      backend,
+                      watch_scope: "workspace-child",
+                      plan_version: planVersion,
+                      ignore_count: root.ignore.length,
+                      rescan_directory: ctx.directory,
+                    })
+                    const sub = yield* subscribe(
+                      root.directory,
+                      root.ignore,
+                      (file) => shouldPublishWorkspacePath(file, ctx.directory, workspaceSubscription.ignore),
+                      {
+                        rescanDirectory: ctx.directory,
+                        watchScope: "workspace-child",
+                        isDisposed: () => watchPlanDisposed,
+                      },
+                    )
+                    if (!sub) continue
+                    if (watchPlanDisposed) {
+                      subs.delete(sub)
+                      yield* Effect.promise(() => sub.unsubscribe().catch(() => undefined))
+                      return
+                    }
+                    active.set(root.directory, sub)
+                  }
+                })
+
+                yield* applyPlan(snapshot)
+                let polling = false
+                const timer = setInterval(() => {
+                  if (polling || watchPlanDisposed) return
+                  polling = true
+                  Instance.restore(ctx, () => {
+                    rootEntrySnapshot(ctx.directory)
+                      .then((next) =>
+                        runWorkspaceRootPoll({
+                          previous: snapshot,
+                          next,
+                          workspace: ctx.directory,
+                          ignore: workspaceSubscription.ignore,
+                          isDisposed: () => watchPlanDisposed,
+                          applyPlan: (planSnapshot) => Effect.runPromise(applyPlan(planSnapshot)),
+                          publishUpdate: (event) => {
+                            Bus.publish(Event.Updated, event)
+                          },
+                          publishRescan: (directory) =>
+                            Bus.publish(Event.Rescan, { directory }).catch((error) =>
+                              log.warn("failed to publish watcher rescan", { dir: directory, error }),
+                            ),
+                        }),
+                      )
+                      .then((next) => {
+                        snapshot = next
+                        if (watchPlanDisposed || !fallbackRescan.tick()) return
+                        return publishWorkspaceRescan()
+                      })
+                      .catch((error) => log.warn("failed to poll workspace root", { dir: ctx.directory, error }))
+                      .finally(() => {
+                        polling = false
+                      })
+                  })
+                }, ROOT_DISCOVERY_INTERVAL_MS)
+                yield* Effect.addFinalizer(() =>
+                  Effect.sync(() => {
+                    watchPlanDisposed = true
+                    clearInterval(timer)
+                  }),
+                )
+              } else {
+                yield* subscribe(ctx.directory, workspaceSubscription.ignore)
+              }
             }
 
             if (ctx.project.vcs === "git") {
