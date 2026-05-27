@@ -27,6 +27,7 @@ const expectedSmokeTests = [
   "packages/app/e2e/settings/settings-memory.spec.ts:@smoke memory settings exposes the raw MEMORY.md controls",
   "packages/app/e2e/settings/settings-shell.spec.ts:@smoke back-to-app button closes the settings shell",
   "packages/app/e2e/settings/settings-shell.spec.ts:@smoke escape closes the settings shell",
+  "packages/app/e2e/settings/settings-shell.spec.ts:@smoke escape with an open select closes the dropdown, not the settings shell",
   "packages/app/e2e/settings/settings-shell.spec.ts:@smoke settings shell shows the migrated nav and switches pages",
   "packages/app/e2e/settings/settings.spec.ts:@smoke PawWork settings opens as a full-pane surface, not a dialog",
   "packages/app/e2e/settings/settings.spec.ts:@smoke new installs start with the PawWork theme",

@@ -156,11 +156,14 @@ export const SettingsContent: Component<{
     target?.focus()
 
     // Escape closes settings via a document capture listener, ahead of the global keybind
-    // that would otherwise consume Escape. If a higher dialog is open inside settings
-    // (e.g. connecting a provider), let it consume Escape first.
+    // that would otherwise consume Escape. Because capture runs before the popover's own
+    // bubble-phase Escape handler, bail while a transient overlay is open so it can consume
+    // Escape first: a dialog (e.g. connecting a provider) or an open Select dropdown. Both
+    // mount their layer only while open. Any future portalled popover in settings must be
+    // added here, or Escape will tear down the whole shell instead of closing the popover.
     const onEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return
-      if (document.querySelector('[data-component="dialog-overlay"]')) return
+      if (document.querySelector('[data-component="dialog-overlay"], [data-component="select-content"]')) return
       event.preventDefault()
       props.onClose()
     }
