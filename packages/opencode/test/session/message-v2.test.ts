@@ -1566,6 +1566,41 @@ describe("session.message-v2.fromError", () => {
 
     expect(result.name).toBe("MessageAbortedError")
   })
+
+  test("classifies UND_ERR_SOCKET TypeError as retryable APIError", () => {
+    const socketCause = Object.assign(new Error("other side closed"), { code: "UND_ERR_SOCKET" })
+    const error = new TypeError("terminated", { cause: socketCause })
+
+    const result = MessageV2.fromError(error, { providerID })
+
+    expect(MessageV2.APIError.isInstance(result)).toBe(true)
+    expect((result as MessageV2.APIError).data.isRetryable).toBe(true)
+    expect((result as MessageV2.APIError).data.message).toInclude("terminated")
+  })
+
+  test("classifies ECONNREFUSED as retryable APIError", () => {
+    const error = Object.assign(new Error("connect ECONNREFUSED"), {
+      code: "ECONNREFUSED",
+      syscall: "connect",
+    })
+
+    const result = MessageV2.fromError(error, { providerID })
+
+    expect(MessageV2.APIError.isInstance(result)).toBe(true)
+    expect((result as MessageV2.APIError).data.isRetryable).toBe(true)
+  })
+
+  test("classifies ETIMEDOUT as retryable APIError", () => {
+    const error = Object.assign(new Error("connect ETIMEDOUT"), {
+      code: "ETIMEDOUT",
+      syscall: "connect",
+    })
+
+    const result = MessageV2.fromError(error, { providerID })
+
+    expect(MessageV2.APIError.isInstance(result)).toBe(true)
+    expect((result as MessageV2.APIError).data.isRetryable).toBe(true)
+  })
 })
 
 describe("session.message-v2.ToolStateError.reason", () => {

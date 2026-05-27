@@ -2103,7 +2103,7 @@ it.live("retryable stream error after visible output does not replay the assista
         expect(textParts.map((part) => part.text)).not.toContain("replayed")
         expect(stored?.info.role).toBe("assistant")
         if (stored?.info.role === "assistant") {
-          expect(stored.info.error?.data.message).toContain("interrupted after output started")
+          expect(stored.info.error?.data.message).toContain("Connection lost during response")
           expect(stored.info.error?.data.message).not.toContain("stream terminated")
           expect(stored.info.diagnostics?.run_observability?.incident?.recovery).toMatchObject({
             recommendation: "offer_continue",
