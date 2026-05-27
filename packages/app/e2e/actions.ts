@@ -222,38 +222,31 @@ export async function closeDialog(page: Page, dialog: Locator) {
 }
 
 export async function closeSettingsPanel(page: Page, panel: Locator) {
-  const isSettingsPage = await panel
-    .evaluate((element) => element instanceof HTMLElement && element.dataset.component === "settings-page")
-    .catch(() => false)
-
-  if (!isSettingsPage) {
+  // Detect settings independently of the passed panel: key on settings-page (only present while
+  // the settings content is mounted). openSettings now returns the shell-content ancestor, which
+  // also exists in the session view and never detaches.
+  const settingsPage = page.locator('[data-component="settings-page"]')
+  if ((await settingsPage.count()) === 0) {
     await closeDialog(page, panel)
     return
   }
 
-  const waitClosed = () =>
-    panel
-      .waitFor({ state: "hidden", timeout: 1500 })
-      .then(() => true)
-      .catch(() =>
-        panel
-          .waitFor({ state: "detached", timeout: 1500 })
-          .then(() => true)
-          .catch(() => false),
-      )
-
-  const closeButton = panel.getByRole("button", { name: /close/i }).first()
-  if ((await closeButton.count()) > 0) {
-    await closeButton.click()
+  // The settings shell has no close button; use Back to app or Escape.
+  const back = page.locator('[data-action="settings-back"]')
+  if ((await back.count()) > 0) {
+    await back.first().click()
   } else {
     await page.keyboard.press("Escape")
   }
 
-  const closed = await waitClosed()
+  const closed = await settingsPage
+    .waitFor({ state: "detached", timeout: 1500 })
+    .then(() => true)
+    .catch(() => false)
   if (closed) return
 
   await page.keyboard.press("Escape")
-  await expect(panel).toBeHidden()
+  await expect(settingsPage).toHaveCount(0)
 }
 
 async function isSidebarClosed(page: Page) {
@@ -368,6 +361,12 @@ export async function openSettings(page: Page) {
 
   const dialog = page.getByRole("dialog")
   const settingsPage = page.locator('[data-component="settings-page"]')
+  // Settings is a shell-slot takeover: the nav lives in the sidebar slot and the content in
+  // the main slot, in two separate DOM subtrees. Return their common ancestor (shell-content)
+  // so callers can query both the nav (getByRole("tab")) and the content. Detection still keys
+  // on settings-page (only rendered while settings is open); the underlying session content is
+  // inert/aria-hidden and so is ignored by getByRole.
+  const settingsSurface = page.locator('[data-component="shell-content"]')
   await page.keyboard.press(`${modKey}+Comma`).catch(() => undefined)
 
   const pageOpened = await settingsPage
@@ -375,7 +374,7 @@ export async function openSettings(page: Page) {
     .then(() => true)
     .catch(() => false)
 
-  if (pageOpened) return settingsPage
+  if (pageOpened) return settingsSurface
 
   const opened = await dialog
     .waitFor({ state: "visible", timeout: 3000 })
@@ -392,7 +391,7 @@ export async function openSettings(page: Page) {
     .then(() => true)
     .catch(() => false)
 
-  if (pageOpenedFromClick) return settingsPage
+  if (pageOpenedFromClick) return settingsSurface
 
   await expect(dialog).toBeVisible()
   return dialog

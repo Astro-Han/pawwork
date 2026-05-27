@@ -44,7 +44,6 @@ import { useLanguage } from "@/context/language"
 import { useSessionRouteKey } from "@/pages/session/session-layout"
 import { usePlatform } from "@/context/platform"
 import { emitRendererDiagnostic } from "@/context/renderer-diagnostics"
-import { useSettings } from "@/context/settings"
 import { useShellSurface } from "@/context/shell-surface"
 import { useSync } from "@/context/sync"
 import { webSearchRecoveryToast } from "./websearch-toasts"
@@ -116,7 +115,6 @@ export function MessageTimeline(props: {
     | undefined
 
   const sync = useSync()
-  const settings = useSettings()
   const language = useLanguage()
   const shellSurface = useShellSurface()
   const { params } = useSessionRouteKey()
@@ -318,8 +316,6 @@ export function MessageTimeline(props: {
           active={active()}
           status={active() ? sessionStatus() : undefined}
           rateLimitCardSlot={(classification) => <RateLimitCardWiring classification={classification} />}
-          shellToolDefaultOpen={settings.general.shellToolPartsExpanded()}
-          editToolDefaultOpen={settings.general.editToolPartsExpanded()}
           turnChanges={props.turnChangeController.turnChanges}
           turnChangeActions={{
             ...props.turnChangeController.actions,

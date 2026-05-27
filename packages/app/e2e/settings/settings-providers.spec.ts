@@ -5,7 +5,7 @@ test("custom provider form can be filled and validates input", async ({ page, go
   await gotoSession()
 
   const settings = await openSettings(page)
-  await settings.getByRole("tab", { name: "Providers" }).click()
+  await settings.getByRole("tab", { name: "Models" }).click()
 
   const customProviderSection = settings.locator('[data-component="custom-provider-section"]')
   await expect(customProviderSection).toBeVisible()
@@ -41,7 +41,7 @@ test("shows volcano engine coding plan as a popular provider with api key connec
   await gotoSession()
 
   const settings = await openSettings(page)
-  await settings.getByRole("tab", { name: "Providers" }).click()
+  await settings.getByRole("tab", { name: "Models" }).click()
 
   const connectedRow = settings.locator('[data-provider-id="volcengine-plan"][data-provider-section="connected"]')
   const row = settings.locator('[data-provider-id="volcengine-plan"][data-provider-section="popular"]')
@@ -68,7 +68,7 @@ test("custom provider form shows validation errors", async ({ page, gotoSession 
   await gotoSession()
 
   const settings = await openSettings(page)
-  await settings.getByRole("tab", { name: "Providers" }).click()
+  await settings.getByRole("tab", { name: "Models" }).click()
 
   const customProviderSection = settings.locator('[data-component="custom-provider-section"]')
   await customProviderSection.getByRole("button", { name: "Connect" }).click()
@@ -94,7 +94,7 @@ test("custom provider form can add and remove models", async ({ page, gotoSessio
   await gotoSession()
 
   const settings = await openSettings(page)
-  await settings.getByRole("tab", { name: "Providers" }).click()
+  await settings.getByRole("tab", { name: "Models" }).click()
 
   const customProviderSection = settings.locator('[data-component="custom-provider-section"]')
   await customProviderSection.getByRole("button", { name: "Connect" }).click()
@@ -130,7 +130,7 @@ test("custom provider form can add and remove headers", async ({ page, gotoSessi
   await gotoSession()
 
   const settings = await openSettings(page)
-  await settings.getByRole("tab", { name: "Providers" }).click()
+  await settings.getByRole("tab", { name: "Models" }).click()
 
   const customProviderSection = settings.locator('[data-component="custom-provider-section"]')
   await customProviderSection.getByRole("button", { name: "Connect" }).click()

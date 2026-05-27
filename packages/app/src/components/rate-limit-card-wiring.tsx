@@ -16,7 +16,7 @@ type ApiWithOpenLink = NonNullable<Window["api"]> & { openLink?: (url: string) =
  * things that cannot live in packages/ui:
  *   - window.api.openLink (Electron preload IPC)
  *   - trackEvent (app-level telemetry hook)
- *   - shellSurface.openSettings("providers")
+ *   - shellSurface.openSettings("models")
  *
  * Passes pre-bound callbacks to the pure presentational RateLimitCard so
  * packages/ui stays framework-agnostic.
@@ -38,7 +38,7 @@ export function RateLimitCardWiring(props: {
       }}
       onUseOwnModelClick={() => {
         trackEvent("rate_limit_card.byo_click", { providerID: props.classification.providerID })
-        shell.openSettings("providers")
+        shell.openSettings("models")
       }}
     />
   )

@@ -303,18 +303,6 @@ test("session-trow", async ({ page }) => {
   expect(singleErrorMetrics.iconTitleTopDelta).toBeLessThanOrEqual(3)
   shots.push(await captureBlock("single-command-error", singleError))
 
-  const singleShellSettingCollapsed = page.locator('[data-snap="single-shell-setting-collapsed"]')
-  await expect(singleShellSettingCollapsed).toContainText("执行命令", { timeout: 30_000 })
-  await expect(singleShellSettingCollapsed).toContainText("respects shell setting", { timeout: 30_000 })
-  await expect(singleShellSettingCollapsed.locator('[data-component="bash-output"]')).toBeHidden({ timeout: 30_000 })
-  shots.push(await captureBlock("single-shell-setting-collapsed", singleShellSettingCollapsed))
-
-  const singleShellSettingExpanded = page.locator('[data-snap="single-shell-setting-expanded"]')
-  await expect(singleShellSettingExpanded).toContainText("执行命令", { timeout: 30_000 })
-  await expect(singleShellSettingExpanded).toContainText("respects shell setting", { timeout: 30_000 })
-  await expect(singleShellSettingExpanded.locator('[data-component="bash-output"]')).toBeVisible({ timeout: 30_000 })
-  shots.push(await captureBlock("single-shell-setting-expanded", singleShellSettingExpanded))
-
   const singleRunning = page.locator('[data-snap="single-command-running"]')
   await expect(singleRunning.locator('[data-component="session-turn-trow-block"][data-single]')).toBeVisible({
     timeout: 30_000,

@@ -6,7 +6,6 @@ export type PerfScenarioName =
   | "long-session-input-lag"
   | "session-streaming-long"
   | "tool-call-expand"
-  | "tool-default-open-heavy-bash"
   | "terminal-side-panel-open"
   | "session-scroll-reading"
   | "session-scroll-reading-long"
@@ -18,7 +17,6 @@ const defaultScenarios = new Set<PerfScenarioName>([
   "long-session-input-lag",
   "session-streaming-long",
   "tool-call-expand",
-  "tool-default-open-heavy-bash",
   "terminal-side-panel-open",
   "session-scroll-reading",
 ])

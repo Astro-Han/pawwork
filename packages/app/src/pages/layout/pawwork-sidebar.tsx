@@ -57,7 +57,7 @@ function ProjectGroupHeader(props: {
             data-collapsed={props.collapsed ? "true" : undefined}
             aria-expanded={!props.collapsed}
             onClick={props.onToggle}
-            class="min-w-0 h-full flex-1 flex items-center gap-2 px-2.5 text-left focus:outline-none"
+            class="min-w-0 h-full flex-1 flex items-center gap-3 px-2.5 text-left focus:outline-none"
           >
             <Icon name={props.collapsed ? "folder" : "folder-open"} class="shrink-0 text-icon-weak" />
             <span class="min-w-0 flex-1 truncate">{props.label}</span>
@@ -461,7 +461,7 @@ export const PawworkSidebar = (props: {
               type="button"
               data-action="pawwork-session-new"
               onClick={props.onNew}
-              class="w-full h-[30px] flex items-center gap-2 px-2.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
+              class="w-full h-[30px] flex items-center gap-3 px-2.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
             >
               <span class="shrink-0 w-4 h-4 flex items-center">
                 <Icon name="new-session" class="text-icon-base" />
@@ -478,7 +478,7 @@ export const PawworkSidebar = (props: {
               type="button"
               data-action="pawwork-session-search"
               onClick={props.onSearch}
-              class="w-full h-[30px] flex items-center gap-2 px-2.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
+              class="w-full h-[30px] flex items-center gap-3 px-2.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
             >
               <span class="shrink-0 w-4 h-4 flex items-center">
                 <Icon name="magnifying-glass" class="text-icon-base" />
@@ -693,7 +693,7 @@ export const PawworkSidebar = (props: {
             data-action="pawwork-open-settings"
             onClick={props.onOpenSettings}
             aria-label={props.settingsLabel()}
-            class="w-full h-[30px] flex items-center gap-2 px-2.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
+            class="w-full h-[30px] flex items-center gap-3 px-2.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
           >
             <span class="shrink-0 w-4 h-4 flex items-center">
               <Icon name="settings-gear" class="text-icon-base" />
