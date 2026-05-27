@@ -25,6 +25,8 @@ describe("desktop smoke workflow", () => {
     const packagedSmokeStep = smokeSteps.find((step) => step.name === "Launch packaged desktop smoke app")
     const buildStep = smokeSteps.find((step) => step.name === "Build desktop app")
     const prepareOfficeCliStep = smokeSteps.find((step) => step.name === "Prepare OfficeCLI")
+    const installStep = smokeSteps.find((step) => step.name === "Install dependencies")
+    const repairElectronStep = smokeSteps.find((step) => step.name === "Repair Electron install")
 
     expect(parsed.name).toBe("desktop-smoke")
     expect(parsed.on?.push).toEqual({ branches: ["dev"] })
@@ -58,7 +60,9 @@ describe("desktop smoke workflow", () => {
 
     expect(smokeCheckoutStep?.with).toEqual({ "persist-credentials": false })
     expect(smokeBunStep?.uses).toBe("oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6")
-    expect(workflow).toContain("bun install --frozen-lockfile")
+    expect(installStep?.run).toBe("bun install --frozen-lockfile")
+    expect(repairElectronStep?.run).toBe("node node_modules/electron/install.js")
+    expect(repairElectronStep?.["working-directory"]).toBe("packages/desktop-electron")
     expect(prepareOfficeCliStep).toBeDefined()
     expect(prepareOfficeCliStep?.run).toBe("bun ./scripts/prepare-officecli.ts --platform darwin --arch arm64")
     expect(prepareOfficeCliStep?.["working-directory"]).toBe("packages/desktop-electron")
@@ -84,6 +88,8 @@ describe("desktop smoke workflow", () => {
     expect(packagedSmokeStep?.run).toContain('bun ./scripts/ci-smoke.ts packaged dev "$EXECUTABLE_PATH"')
     expect(packagedSmokeStep?.["working-directory"]).toBe("packages/desktop-electron")
     expect(buildStep).toBeDefined()
+    expect(smokeSteps.indexOf(repairElectronStep!)).toBeGreaterThan(smokeSteps.indexOf(installStep!))
+    expect(smokeSteps.indexOf(repairElectronStep!)).toBeLessThan(smokeSteps.indexOf(prepareOfficeCliStep!))
     expect(smokeSteps.indexOf(prepareOfficeCliStep!)).toBeGreaterThan(smokeSteps.indexOf(smokeBunStep!))
     expect(smokeSteps.indexOf(prepareOfficeCliStep!)).toBeLessThan(smokeSteps.indexOf(buildStep!))
     expect(smokeSteps.indexOf(runtimeGuardStep!)).toBeGreaterThan(smokeSteps.indexOf(buildStep!))

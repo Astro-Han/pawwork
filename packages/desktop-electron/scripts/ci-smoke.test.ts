@@ -106,11 +106,18 @@ describe("ci smoke helpers", () => {
     expect(raw.args).toEqual([resolveMainEntry()])
     expect(raw.command).toBe("/tmp/pawwork-electron/electron")
 
-    const packaged = resolveLaunchCommand({
-      mode: "packaged",
-      channel: "dev",
-      executablePath: "/tmp/PawWork Dev.app/Contents/MacOS/PawWork Dev",
-    })
+    const packaged = resolveLaunchCommand(
+      {
+        mode: "packaged",
+        channel: "dev",
+        executablePath: "/tmp/PawWork Dev.app/Contents/MacOS/PawWork Dev",
+      },
+      {
+        electronBinary: () => {
+          throw new Error("packaged mode should not resolve electron binary")
+        },
+      },
+    )
     expect(packaged).toEqual({
       command: "/tmp/PawWork Dev.app/Contents/MacOS/PawWork Dev",
       args: [],
