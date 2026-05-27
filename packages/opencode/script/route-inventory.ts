@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { execFileSync } from "node:child_process"
 import { existsSync } from "node:fs"
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -43,6 +43,12 @@ export type RouteInventory = {
   rows: RouteRow[]
 }
 
+export type HonoRouteSourceCoverage = {
+  expected: string[]
+  covered: string[]
+  missing: string[]
+}
+
 type BuildOptions = {
   root?: string
   upstreamRef?: string
@@ -68,6 +74,18 @@ const honoRouteSources = [
   ["packages/opencode/src/server/instance/pty.ts", "/pty"],
   ["packages/opencode/src/server/instance/session.ts", "/session"],
   ["packages/opencode/src/server/instance/workspace.ts", "/experimental/workspace"],
+] as const
+
+const supplementalHonoRouteSources = [
+  "packages/opencode/src/server/ui/index.ts",
+  "packages/opencode/src/server/proxy.ts",
+] as const
+
+const honoRouteModuleSearchRoots = [
+  "packages/opencode/src/server/control",
+  "packages/opencode/src/server/instance",
+  "packages/opencode/src/server/routes",
+  "packages/opencode/src/server/ui",
 ] as const
 
 const specialSurfaces: Array<[RegExp, string]> = [
@@ -173,6 +191,55 @@ function uniqueRoutes(routes: Route[]) {
 
 async function readText(file: string) {
   return readFile(file, "utf8")
+}
+
+async function listTypeScriptFiles(root: string, relative: string): Promise<string[]> {
+  const directory = path.join(root, relative)
+  if (!existsSync(directory)) return []
+  const entries = await readdir(directory, { withFileTypes: true })
+  const files: string[] = []
+  for (const entry of entries) {
+    const child = path.join(relative, entry.name)
+    if (entry.isDirectory()) {
+      files.push(...(await listTypeScriptFiles(root, child)))
+    } else if (entry.isFile() && child.endsWith(".ts")) {
+      files.push(child)
+    }
+  }
+  return files
+}
+
+async function discoverHonoRouteModules(root: string): Promise<string[]> {
+  const candidates = new Set<string>()
+  for (const relative of honoRouteModuleSearchRoots) {
+    for (const file of await listTypeScriptFiles(root, relative)) candidates.add(file)
+  }
+  candidates.add("packages/opencode/src/server/proxy.ts")
+
+  const routeModules: string[] = []
+  const routePattern = /\.(get|post|put|patch|delete|all)\s*\(/g
+  for (const relative of candidates) {
+    const file = path.join(root, relative)
+    if (!existsSync(file)) continue
+    const text = await readText(file)
+    if (/\bnew\s+Hono\s*\(/.test(text) && routePattern.test(text)) {
+      routeModules.push(relative)
+    }
+    routePattern.lastIndex = 0
+  }
+  return routeModules.sort()
+}
+
+export async function getHonoRouteSourceCoverage(rootInput?: string): Promise<HonoRouteSourceCoverage> {
+  const root = repoRoot(rootInput)
+  const expected = await discoverHonoRouteModules(root)
+  const covered = [...honoRouteSources.map(([relative]) => relative), ...supplementalHonoRouteSources].sort()
+  const coveredSet = new Set<string>(covered)
+  return {
+    expected,
+    covered,
+    missing: expected.filter((relative) => !coveredSet.has(relative)),
+  }
 }
 
 async function discoverHonoRoutes(root: string): Promise<Route[]> {
@@ -346,6 +413,10 @@ export async function buildRouteInventory(options: BuildOptions = {}): Promise<R
   const root = repoRoot(options.root)
   const upstreamRef = options.upstreamRef ?? "FETCH_HEAD"
   const requireUpstream = options.requireUpstream ?? false
+  const sourceCoverage = await getHonoRouteSourceCoverage(root)
+  if (sourceCoverage.missing.length > 0) {
+    throw new Error(`Hono route inventory source list is missing: ${sourceCoverage.missing.join(", ")}`)
+  }
   const [hono, openapi, legacySdk, v2Sdk, upstreamHttpApi] = await Promise.all([
     discoverHonoRoutes(root),
     readOpenApiRoutes(root),

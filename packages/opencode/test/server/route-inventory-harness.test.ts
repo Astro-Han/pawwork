@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import {
   buildRouteInventory,
   findWorkspaceRoot,
+  getHonoRouteSourceCoverage,
   parseHttpApiRoutesFromText,
   parseSdkRoutesFromText,
 } from "../../script/route-inventory"
@@ -132,5 +133,11 @@ describe("route inventory harness", () => {
     await expect(buildRouteInventory({ root, upstreamRef: "HEAD", requireUpstream: true })).rejects.toThrow(
       /Unable to read upstream HttpApi route tree/,
     )
+  })
+
+  test("covers every current Hono route implementation module in the inventory source list", async () => {
+    const coverage = await getHonoRouteSourceCoverage(root)
+
+    expect(coverage.missing).toEqual([])
   })
 })
