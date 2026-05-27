@@ -1,5 +1,5 @@
 import { expect, test, describe } from "bun:test"
-import type { Part, TextPart, ToolPart } from "@opencode-ai/sdk/v2"
+import type { Part, ReasoningPart, TextPart, ToolPart } from "@opencode-ai/sdk/v2"
 import { activeWorkingTrowKey, groupParts, partDefaultOpen, renderable } from "./grouping"
 
 function textPart(id: string, text: string): TextPart {
@@ -54,6 +54,17 @@ function toolPart(id: string, tool: string, status: "pending" | "running" | "com
     callID: `call-${id}`,
     tool,
     state: { status: "completed", input: {}, output: "", title: "", metadata: {}, time: { start: 0, end: 1 } },
+  }
+}
+
+function reasoningPart(id: string, text = "thinking through it"): ReasoningPart {
+  return {
+    id,
+    sessionID: "s",
+    messageID: "m",
+    type: "reasoning",
+    text,
+    time: { start: 0, end: 1 },
   }
 }
 
@@ -136,6 +147,45 @@ describe("message-part groupParts", () => {
 
     expect(result).toHaveLength(1)
     expect(result[0].type).toBe("trow")
+  })
+
+  test("a reasoning part folds into a trow group, not a standalone part", () => {
+    const result = groupRenderable([reasoningPart("r1")])
+
+    expect(result).toEqual([
+      {
+        key: "trow:r1",
+        type: "trow",
+        refs: [{ messageID: "m", partID: "r1" }],
+      },
+    ])
+  })
+
+  test("reasoning and adjacent tools share one trow group", () => {
+    const result = groupRenderable([reasoningPart("r1"), toolPart("t1", "bash"), toolPart("t2", "edit")])
+
+    expect(result).toHaveLength(1)
+    expect(result[0]).toEqual({
+      key: "trow:r1",
+      type: "trow",
+      refs: [
+        { messageID: "m", partID: "r1" },
+        { messageID: "m", partID: "t1" },
+        { messageID: "m", partID: "t2" },
+      ],
+    })
+  })
+
+  test("empty reasoning is filtered before grouping", () => {
+    const result = groupRenderable([reasoningPart("r1", "   "), toolPart("t1", "bash")])
+
+    expect(result).toEqual([
+      {
+        key: "trow:t1",
+        type: "trow",
+        refs: [{ messageID: "m", partID: "t1" }],
+      },
+    ])
   })
 })
 
