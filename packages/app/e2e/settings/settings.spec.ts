@@ -40,7 +40,8 @@ test('@smoke PawWork settings opens as a full-pane surface, not a dialog', async
 
   await expect(page.locator('[data-component="settings-page"]')).toBeVisible()
   await expect(page.locator('[data-component="dialog-overlay"]')).toHaveCount(0)
-  // 新壳把标题挪到标题栏（PawworkTitlebar），页面内不再有 h1；壳子 section 带 aria-label 提供无障碍名。
+  // The new shell moves the title into the titlebar (PawworkTitlebar); there is no in-page h1 anymore,
+  // so the shell section carries an aria-label to provide the accessible name.
   await expect(page.getByRole("region", { name: "Settings" })).toBeVisible()
   await expect(page.locator(titlebarCenterSelector)).toContainText("Settings")
 })
@@ -100,8 +101,9 @@ test("unknown theme ids migrate to pawwork and clear cached css", async ({ page,
     })
     .toBe("pawwork")
 
-  // 迁移到 pawwork 后，属于旧主题（dracula）的缓存 CSS 不能再生效：preload 清空、
-  // 运行时 ThemeProvider 写入 pawwork 真实 CSS 覆盖。断言旧假值不再残留即可。
+  // After migrating to pawwork, cached CSS from the old theme (dracula) must no longer apply: the
+  // preload clears it and the runtime ThemeProvider writes the real pawwork CSS over it. Just assert
+  // the old fake values no longer linger.
   await expect
     .poll(async () => {
       return await page.evaluate(() => localStorage.getItem("pawwork-theme-css-light"))
@@ -434,8 +436,9 @@ test("code font and UI font rehydrate after reload", async ({ page, gotoSession 
 })
 
 test("changing notification level persists in localStorage", async ({ page, gotoSession }) => {
-  // #923 把多个通知开关 + 音效选择合并成单个 tri-state（never / unfocused / always）；
-  // 旧的 settings-notifications-* / settings-sounds-* 控件已删，这里测合并后的单控件。
+  // #923 merged the multiple notification toggles + sound selectors into a single tri-state
+  // (never / unfocused / always); the old settings-notifications-* / settings-sounds-* controls were
+  // removed, so this tests the merged single control.
   await gotoSession()
 
   const dialog = await openSettings(page)

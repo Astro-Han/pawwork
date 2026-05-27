@@ -1,7 +1,6 @@
-import { type Component, onCleanup, onMount } from "solid-js"
+import { type Component, For, Match, Switch, onCleanup, onMount } from "solid-js"
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
-import { Tabs } from "@opencode-ai/ui/tabs"
 import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
 import { SettingsGeneral } from "@/components/settings-general"
@@ -9,203 +8,194 @@ import { SettingsKeybinds } from "@/components/settings-keybinds"
 import { SettingsMemory } from "@/components/settings-memory"
 import { SettingsWorktrees } from "@/components/settings-worktrees"
 import { ModelsPage } from "./models"
-// 远程访问 / 集成：页面内容就绪前先不在 nav 露出（点进去只有占位，体验是空的）。
-// 这俩要承接的连接管理目前仍在右侧栏 Connections 可用，功能不丢。文件保留待后续 PR 填充后放出。
-// import { RemotePage } from "./remote"
-// import { IntegrationsPage } from "./integrations"
 
-// 两层 takeover 设置外壳：240 左 nav（扁平 7 项 + 返回应用行 + 版本 foot）+ 右内容。
-// 替换旧 SettingsPage（components/settings-page.tsx）；旧 6 tab（含分开的 providers/models）→ 7 项，providers+models 合并为 models（显示「模型」）。
-// 形态真值 docs/design/preview/settings-shell.{css,js} + settings-{general,ai,int}.html。
+// Settings renders as a shell-slot takeover: the nav goes into the sidebar slot
+// (SettingsNav) and the page into the main slot (SettingsContent). Geometry
+// (width / background / border) is inherited from the shell slots instead of being
+// re-declared, which removes the alignment drift the old standalone overlay had
+// (its fixed 200px nav + surface-raised content diverged from the real sidebar).
+// Remote access / Integrations stay hidden from the nav until their pages are ready;
+// the connection management they will host is still reachable via right-panel Connections.
 export type SettingsTab = "general" | "shortcuts" | "models" | "remote" | "integrations" | "worktrees" | "memory"
 
 const TAB_VALUES: SettingsTab[] = ["general", "shortcuts", "models", "remote", "integrations", "worktrees", "memory"]
 
-function isSettingsTab(value: string): value is SettingsTab {
+export function isSettingsTab(value: string): value is SettingsTab {
   return (TAB_VALUES as string[]).includes(value)
 }
 
-const FOCUSABLE_SELECTOR =
-  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+// Currently 5 visible tabs; remote / integrations omitted until ready (see above).
+const NAV_ITEMS = [
+  { value: "general", icon: "settings-gear", labelKey: "settings.tab.general" },
+  { value: "shortcuts", icon: "keyboard", labelKey: "settings.tab.shortcuts" },
+  { value: "models", icon: "models", labelKey: "settings.tab.models" },
+  { value: "worktrees", icon: "worktree", labelKey: "settings.tab.worktrees" },
+  { value: "memory", icon: "brain", labelKey: "settings.tab.memory" },
+] as const satisfies ReadonlyArray<{ value: SettingsTab; icon: string; labelKey: string }>
 
-function focusablesIn(root: HTMLElement): HTMLElement[] {
-  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
-    (el) => el.offsetParent !== null || el === document.activeElement,
-  )
-}
-
-export const SettingsShell: Component<{
+// Settings nav: fills the sidebar slot as a flat tablist (back-to-app + tabs + version footer).
+// Tab roles/keyboard are hand-rolled (role=tab/tablist + arrow roving) because the nav and the
+// content live in two separate shell slots and cannot share a single Kobalte Tabs root.
+export const SettingsNav: Component<{
   active: SettingsTab
-  directory?: string
   onSelect: (value: SettingsTab) => void
   onClose: () => void
 }> = (props) => {
   const language = useLanguage()
   const platform = usePlatform()
-  let root: HTMLElement | undefined
-  let returnFocus: HTMLElement | undefined
+  let listRef: HTMLDivElement | undefined
 
-  onMount(() => {
-    const active = document.activeElement
-    if (active instanceof HTMLElement && !root?.contains(active)) returnFocus = active
-    if (!root) return
-    const [first] = focusablesIn(root)
-    first?.focus()
+  const focusTab = (value: SettingsTab) => {
+    props.onSelect(value)
+    listRef?.querySelector<HTMLElement>(`[data-tab="${value}"]`)?.focus()
+  }
 
-    // Escape 关闭设置：挂 document 而非靠 section 焦点冒泡（打开瞬间焦点未必落在壳内）。
-    // 设置内若开着更上层 dialog（如连接服务商），让它先吃 Escape，不连带关掉整个设置。
-    const onEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return
-      // 设置内若开着 dialog（连接服务商等），让它先吃 Escape，不连带关设置
-      if (document.querySelector('[data-component="dialog-overlay"]')) return
-      event.preventDefault()
-      props.onClose()
-    }
-    // capture 阶段：抢在全局 keybind/command 消费并 preventDefault 之前收到 Escape
-    document.addEventListener("keydown", onEscape, true)
-    onCleanup(() => document.removeEventListener("keydown", onEscape, true))
-  })
-
-  onCleanup(() => {
-    const target = returnFocus
-    returnFocus = undefined
-    if (!target || !target.isConnected) return
-    target.focus()
-  })
-
-  const handleKeyDown = (event: KeyboardEvent) => {
-    if (event.defaultPrevented || !root) return
-    if (event.key !== "Tab") return
-    const focusables = focusablesIn(root)
-    if (focusables.length === 0) return
-    const first = focusables[0]
-    const last = focusables[focusables.length - 1]
-    const active = document.activeElement as HTMLElement | null
-    const inside = !!active && root.contains(active)
-
-    if (event.shiftKey) {
-      if (!inside || active === first) {
+  const onKeyDown = (event: KeyboardEvent) => {
+    const index = NAV_ITEMS.findIndex((item) => item.value === props.active)
+    if (index === -1) return
+    switch (event.key) {
+      case "ArrowDown":
         event.preventDefault()
-        last.focus()
-      }
-    } else if (!inside || active === last) {
-      event.preventDefault()
-      first.focus()
+        focusTab(NAV_ITEMS[(index + 1) % NAV_ITEMS.length].value)
+        break
+      case "ArrowUp":
+        event.preventDefault()
+        focusTab(NAV_ITEMS[(index - 1 + NAV_ITEMS.length) % NAV_ITEMS.length].value)
+        break
+      case "Home":
+        event.preventDefault()
+        focusTab(NAV_ITEMS[0].value)
+        break
+      case "End":
+        event.preventDefault()
+        focusTab(NAV_ITEMS[NAV_ITEMS.length - 1].value)
+        break
     }
   }
 
   return (
+    <nav
+      data-component="settings-nav"
+      aria-label={language.t("sidebar.settings")}
+      class="flex size-full flex-col justify-between bg-sidebar p-3"
+    >
+      <div class="flex w-full flex-col gap-1.5">
+        <Button
+          data-action="settings-back"
+          variant="ghost"
+          size="small"
+          icon="arrow-left"
+          onClick={props.onClose}
+          class="w-full justify-start"
+          aria-label={language.t("settings.backToApp")}
+        >
+          {language.t("settings.backToApp")}
+        </Button>
+        <div class="my-1 h-px bg-border-weaker" />
+        <div
+          ref={(el) => (listRef = el)}
+          role="tablist"
+          aria-orientation="vertical"
+          aria-label={language.t("sidebar.settings")}
+          class="flex w-full flex-col gap-0.5"
+          onKeyDown={onKeyDown}
+        >
+          <For each={NAV_ITEMS}>
+            {(item) => {
+              const selected = () => props.active === item.value
+              return (
+                <button
+                  type="button"
+                  role="tab"
+                  data-tab={item.value}
+                  data-action={`settings-tab-${item.value}`}
+                  aria-selected={selected()}
+                  aria-controls="settings-panel"
+                  tabindex={selected() ? 0 : -1}
+                  onClick={() => props.onSelect(item.value)}
+                  class="flex h-[30px] w-full items-center gap-3 rounded-md px-2 text-h3 transition-colors"
+                  classList={{
+                    "bg-row-active-overlay text-fg-strong": selected(),
+                    "text-fg-base hover:bg-row-hover-overlay": !selected(),
+                  }}
+                >
+                  <Icon name={item.icon} class={selected() ? "text-icon-strong" : "text-icon-base"} />
+                  {language.t(item.labelKey)}
+                </button>
+              )
+            }}
+          </For>
+        </div>
+      </div>
+
+      <div class="flex flex-col gap-1 px-1 py-1 text-h3 text-fg-weak">
+        <span>{language.t("app.name.desktop")}</span>
+        <span class="text-body">v{platform.version}</span>
+      </div>
+    </nav>
+  )
+}
+
+// Settings content: fills the main slot and swaps page by active tab. Mounting equals
+// entering settings, so it owns Escape-to-close and focus save/restore.
+export const SettingsContent: Component<{
+  active: SettingsTab
+  directory?: string
+  onClose: () => void
+}> = (props) => {
+  const language = useLanguage()
+
+  onMount(() => {
+    // Entering settings: move focus to the selected tab (or the back button); restore
+    // focus to whatever was focused before on exit.
+    const previous = document.activeElement as HTMLElement | null
+    const target =
+      document.querySelector<HTMLElement>('[data-component="settings-nav"] [aria-selected="true"]') ??
+      document.querySelector<HTMLElement>('[data-action="settings-back"]')
+    target?.focus()
+
+    // Escape closes settings via a document capture listener, ahead of the global keybind
+    // that would otherwise consume Escape. If a higher dialog is open inside settings
+    // (e.g. connecting a provider), let it consume Escape first.
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return
+      if (document.querySelector('[data-component="dialog-overlay"]')) return
+      event.preventDefault()
+      props.onClose()
+    }
+    document.addEventListener("keydown", onEscape, true)
+
+    onCleanup(() => {
+      document.removeEventListener("keydown", onEscape, true)
+      if (previous?.isConnected) previous.focus()
+    })
+  })
+
+  return (
     <section
-      ref={(el) => (root = el)}
       data-component="settings-page"
       aria-label={language.t("sidebar.settings")}
-      class="flex size-full min-h-0 bg-bg-base"
-      onKeyDown={handleKeyDown}
+      class="no-scrollbar size-full overflow-y-auto bg-bg-base"
     >
-      <Tabs
-        orientation="vertical"
-        variant="settings"
-        value={props.active}
-        onChange={(value) => {
-          if (!isSettingsTab(value)) return
-          props.onSelect(value)
-        }}
-        class="h-full w-full"
-      >
-        <Tabs.List>
-          <div class="flex h-full w-full flex-col justify-between">
-            <div class="flex w-full flex-col gap-1.5 pt-3">
-              <Button
-                data-action="settings-back"
-                variant="ghost"
-                size="small"
-                icon="arrow-left"
-                onClick={props.onClose}
-                class="w-full justify-start"
-                aria-label={language.t("settings.backToApp")}
-              >
-                {language.t("settings.backToApp")}
-              </Button>
-              <div class="my-1 h-px bg-border-weaker" />
-              <div class="flex w-full flex-col gap-1.5">
-                <Tabs.Trigger value="general">
-                  <Icon name="settings-gear" />
-                  {language.t("settings.tab.general")}
-                </Tabs.Trigger>
-                <Tabs.Trigger value="shortcuts">
-                  <Icon name="keyboard" />
-                  {language.t("settings.tab.shortcuts")}
-                </Tabs.Trigger>
-                <Tabs.Trigger value="models">
-                  <Icon name="models" />
-                  {language.t("settings.tab.models")}
-                </Tabs.Trigger>
-                {/* 远程访问 / 集成页就绪前先不露出（见顶部 import 注释）
-                <Tabs.Trigger value="remote">
-                  <Icon name="remote-control" />
-                  {language.t("settings.tab.remoteAccess")}
-                </Tabs.Trigger>
-                <Tabs.Trigger value="integrations">
-                  <Icon name="plugin" />
-                  {language.t("settings.tab.integrations")}
-                </Tabs.Trigger>
-                */}
-                <Tabs.Trigger value="worktrees">
-                  <Icon name="worktree" />
-                  {language.t("settings.tab.worktrees")}
-                </Tabs.Trigger>
-                <Tabs.Trigger value="memory">
-                  <Icon name="brain" />
-                  {language.t("settings.tab.memory")}
-                </Tabs.Trigger>
-              </div>
-            </div>
-
-            <div class="flex flex-col gap-1 pl-1 py-1 text-h3 text-fg-weak">
-              <span>{language.t("app.name.desktop")}</span>
-              <span class="text-body">v{platform.version}</span>
-            </div>
-          </div>
-        </Tabs.List>
-
-        <Tabs.Content value="general" class="no-scrollbar">
-          <div class="mx-auto w-full max-w-[760px]">
+      <div role="tabpanel" id="settings-panel" class="mx-auto w-full max-w-[760px]">
+        <Switch>
+          <Match when={props.active === "general"}>
             <SettingsGeneral />
-          </div>
-        </Tabs.Content>
-        <Tabs.Content value="shortcuts" class="no-scrollbar">
-          <div class="mx-auto w-full max-w-[760px]">
+          </Match>
+          <Match when={props.active === "shortcuts"}>
             <SettingsKeybinds />
-          </div>
-        </Tabs.Content>
-        <Tabs.Content value="models" class="no-scrollbar">
-          <div class="mx-auto w-full max-w-[760px]">
+          </Match>
+          <Match when={props.active === "models"}>
             <ModelsPage />
-          </div>
-        </Tabs.Content>
-        {/* 远程访问 / 集成页就绪前先不露出（见顶部 import 注释）
-        <Tabs.Content value="remote" class="no-scrollbar">
-          <div class="mx-auto w-full max-w-[760px]">
-            <RemotePage />
-          </div>
-        </Tabs.Content>
-        <Tabs.Content value="integrations" class="no-scrollbar">
-          <div class="mx-auto w-full max-w-[760px]">
-            <IntegrationsPage />
-          </div>
-        </Tabs.Content>
-        */}
-        <Tabs.Content value="worktrees" class="no-scrollbar">
-          <div class="mx-auto w-full max-w-[760px]">
+          </Match>
+          <Match when={props.active === "worktrees"}>
             <SettingsWorktrees />
-          </div>
-        </Tabs.Content>
-        <Tabs.Content value="memory" class="no-scrollbar">
-          <div class="mx-auto w-full max-w-[760px]">
+          </Match>
+          <Match when={props.active === "memory"}>
             <SettingsMemory directory={props.directory} />
-          </div>
-        </Tabs.Content>
-      </Tabs>
+          </Match>
+        </Switch>
+      </div>
     </section>
   )
 }

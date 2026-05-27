@@ -4,9 +4,9 @@ import { composeGrid, snapOutputPath, type Shot } from "./_compose"
 
 test.use({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 })
 
-// 验收 PR1 地基：两层 takeover 外壳 + 240 左 nav（返回应用 + 5 项 + 版本 foot）。
-// nav 当前 5 项：通用/快捷键/模型/工作树/记忆（远程访问、集成页就绪前不露出）。
-// 截 3 张：通用（默认）/ 模型（合并提供商+模型）/ 记忆（演示切到另一类页正常）。
+// Review the PR1 foundation: shell-slot takeover + left nav (back-to-app + 5 tabs + version footer).
+// Currently 5 tabs: General / Shortcuts / Models / Worktrees / Memory (remote access, integrations hidden until ready).
+// Capture 3 shots: General (default) / Models (providers + models merged) / Memory (shows switching to another page works).
 test("settings-shell", async ({ page, project }) => {
   test.setTimeout(180_000)
 

@@ -1,26 +1,34 @@
 import { test, expect } from "../fixtures"
 import { closeSettingsPanel, openSettings } from "../actions"
 
-// PR1 地基行为锁：两层 takeover 壳 + 扁平 nav，平移挂载 6 个现有页（远程/集成就绪前隐藏）。
+// PR1 foundation lock: shell-slot takeover (nav in the sidebar slot, content in the main slot),
+// migrating the existing pages in place (remote / integrations hidden until ready).
 test("settings shell shows the migrated nav and switches pages", async ({ page, gotoSession }) => {
   await gotoSession()
 
   const settings = await openSettings(page)
 
-  // nav 当前 5 项：通用 / 快捷键 / 模型 / 工作树 / 记忆
+  // The nav takes over the sidebar slot rather than painting its own column.
+  await expect(page.locator('[data-component="sidebar-nav-desktop"] [data-component="settings-nav"]')).toBeVisible()
+
+  // On open it lands on General (selected + content shown) without needing a manual click.
+  await expect(settings.getByRole("tab", { name: "General" })).toHaveAttribute("aria-selected", "true")
+  await expect(settings.locator('[data-action="settings-language"]')).toBeVisible()
+
+  // Currently 5 tabs: General / Shortcuts / Models / Worktrees / Memory
   for (const name of ["General", "Shortcuts", "Models", "Worktrees", "Memory"]) {
     await expect(settings.getByRole("tab", { name })).toBeVisible()
   }
-  // 远程访问 / 集成页就绪前不露出
+  // Remote access / Integrations stay hidden until their pages are ready
   await expect(settings.getByRole("tab", { name: "Remote access" })).toHaveCount(0)
   await expect(settings.getByRole("tab", { name: "Integrations" })).toHaveCount(0)
 
-  // 模型页 = 提供商 + 模型 堆叠复用：两块内容都在
+  // Models page = providers + models stacked: both blocks render
   await settings.getByRole("tab", { name: "Models" }).click()
   await expect(settings.locator('[data-component="custom-provider-section"]')).toBeVisible()
   await expect(settings.getByPlaceholder("Search models")).toBeVisible()
 
-  // 切到记忆页：模型页内容消失，证明内容随 nav 切换
+  // Switch to Memory: the models content disappears, proving content follows the nav
   await settings.getByRole("tab", { name: "Memory" }).click()
   await expect(settings.locator('[data-component="custom-provider-section"]')).toHaveCount(0)
 
@@ -30,8 +38,8 @@ test("settings shell shows the migrated nav and switches pages", async ({ page, 
 test("escape closes the settings shell", async ({ page, gotoSession }) => {
   await gotoSession()
 
-  const settings = await openSettings(page)
-  await expect(settings).toBeVisible()
+  await openSettings(page)
+  await expect(page.locator('[data-component="settings-page"]')).toBeVisible()
 
   await page.keyboard.press("Escape")
   await expect(page.locator('[data-component="settings-page"]')).toHaveCount(0)
@@ -41,7 +49,7 @@ test("back-to-app button closes the settings shell", async ({ page, gotoSession 
   await gotoSession()
 
   const settings = await openSettings(page)
-  await expect(settings).toBeVisible()
+  await expect(page.locator('[data-component="settings-page"]')).toBeVisible()
 
   await settings.getByRole("button", { name: "Back to app" }).click()
   await expect(page.locator('[data-component="settings-page"]')).toHaveCount(0)

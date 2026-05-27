@@ -118,7 +118,7 @@ import { type WorkspaceSidebarContext } from "./layout/sidebar-workspace"
 import { PawworkSidebar, type PawworkSidebarSession } from "./layout/pawwork-sidebar"
 import { PawworkTitlebar } from "./layout/pawwork-titlebar"
 import { createDefaultLayoutPageState, createLayoutPagePersistTarget, removePinnedSessionIDs } from "./layout/layout-page-store"
-import { SettingsShell, type SettingsTab } from "@/pages/settings/settings-shell"
+import { SettingsContent, SettingsNav, isSettingsTab, type SettingsTab } from "@/pages/settings/settings-shell"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { sessionTitle } from "@/utils/session-title"
 import { sizingStopEvents } from "@/pages/session/helpers"
@@ -1512,7 +1512,10 @@ export default function Layout(props: ParentProps) {
   }
 
   function openSettingsSurface(tab?: SettingsTab) {
-    setSettingsTab(tab ?? "general")
+    // Guard against callers that forward a DOM event (e.g. an onClick handler)
+    // as the tab argument — only a known tab string selects a page, anything
+    // else falls back to General.
+    setSettingsTab(typeof tab === "string" && isSettingsTab(tab) ? tab : "general")
     setSettingsOpen(true)
   }
 
@@ -2333,7 +2336,7 @@ export default function Layout(props: ParentProps) {
       onNew={() => openPawworkHome(options?.directory)}
       onSearch={() => command.show()}
       onOpenProject={chooseProject}
-      onOpenSettings={openSettings}
+      onOpenSettings={() => openSettings()}
       settingsLabel={() => language.t("sidebar.settings")}
       settingsKeybind={() => command.keybind("settings.open")}
       newSessionKeybind={() => command.keybind("session.new")}
@@ -2375,7 +2378,7 @@ export default function Layout(props: ParentProps) {
             isMacShell(platform)
               ? `calc(var(--shell-titlebar-height, 44px) / ${platform.webviewZoom?.() ?? 1})`
               : "var(--shell-titlebar-height, 44px)",
-          "--sidebar-width": layout.sidebar.opened() ? `${side()}px` : "0px",
+          "--sidebar-width": layout.sidebar.opened() || settingsOpen() ? `${side()}px` : "0px",
           "--right-panel-width": layout.rightPanel.opened() ? `${layout.rightPanel.width()}px` : "0px",
           "--right-panel-divider": layout.rightPanel.opened() ? "var(--border-weaker)" : "transparent",
         }}
@@ -2390,8 +2393,8 @@ export default function Layout(props: ParentProps) {
           <PawworkTitlebar visible={settingsOpen} title={() => language.t("sidebar.settings")} />
           <div class="flex-1 min-h-0 min-w-0 flex">
           <div class="flex-1 min-h-0 relative">
-            <div class="size-full relative overflow-x-hidden">
-              <Show when={layout.sidebar.opened()}>
+            <div data-component="shell-content" class="size-full relative overflow-x-hidden">
+              <Show when={layout.sidebar.opened() || settingsOpen()}>
                 <aside
                   aria-label={language.t("sidebar.nav.projectsAndSessions")}
                   data-component="sidebar-nav-desktop"
@@ -2401,27 +2404,42 @@ export default function Layout(props: ParentProps) {
                     setState("nav", el)
                   }}
                 >
-                  <div class="@container w-full h-full contain-strict">{sidebarContent()}</div>
+                  <div
+                    classList={{ "@container w-full h-full contain-strict": true, invisible: settingsOpen() }}
+                    inert={settingsOpen() ? true : undefined}
+                    aria-hidden={settingsOpen() || undefined}
+                  >
+                    {sidebarContent()}
+                  </div>
+                  {/* Settings takeover: the nav overlays the session sidebar (kept mounted, only inert, so scroll state survives); geometry is inherited from this aside slot. */}
+                  <Show when={settingsOpen()}>
+                    <div class="absolute inset-0 z-10">
+                      <SettingsNav active={settingsTab()} onSelect={setSettingsTab} onClose={closeSettings} />
+                    </div>
+                  </Show>
                 </aside>
 
-                <div
-                  class="absolute inset-y-0 z-30 w-0 overflow-visible"
-                  style={{ left: `${side()}px` }}
-                  onPointerDown={() => setState("sizing", true)}
-                >
-                  <ResizeHandle
-                    direction="horizontal"
-                    size={layout.sidebar.width()}
-                    min={180}
-                    max={typeof window === "undefined" ? 1000 : window.innerWidth * 0.3 + 64}
-                    onResize={(w) => {
-                      setState("sizing", true)
-                      if (sizet !== undefined) clearTimeout(sizet)
-                      sizet = window.setTimeout(() => setState("sizing", false), 120)
-                      layout.sidebar.resize(w)
-                    }}
-                  />
-                </div>
+                {/* Hide the resize handle while settings is open: the sidebar width is not draggable inside settings. */}
+                <Show when={!settingsOpen()}>
+                  <div
+                    class="absolute inset-y-0 z-30 w-0 overflow-visible"
+                    style={{ left: `${side()}px` }}
+                    onPointerDown={() => setState("sizing", true)}
+                  >
+                    <ResizeHandle
+                      direction="horizontal"
+                      size={layout.sidebar.width()}
+                      min={180}
+                      max={typeof window === "undefined" ? 1000 : window.innerWidth * 0.3 + 64}
+                      onResize={(w) => {
+                        setState("sizing", true)
+                        if (sizet !== undefined) clearTimeout(sizet)
+                        sizet = window.setTimeout(() => setState("sizing", false), 120)
+                        layout.sidebar.resize(w)
+                      }}
+                    />
+                  </div>
+                </Show>
               </Show>
 
               <div
@@ -2432,7 +2450,7 @@ export default function Layout(props: ParentProps) {
                     !state.sizing,
                 }}
                 style={{
-                  "--main-left": layout.sidebar.opened() ? `${side()}px` : "0",
+                  "--main-left": layout.sidebar.opened() || settingsOpen() ? `${side()}px` : "0",
                 }}
               >
                 <main
@@ -2446,16 +2464,17 @@ export default function Layout(props: ParentProps) {
                   <div class="relative size-full">
                     <div
                       inert={settingsOpen() ? true : undefined}
-                      aria-hidden={settingsOpen()}
-                      class="size-full"
+                      aria-hidden={settingsOpen() || undefined}
+                      classList={{ "size-full": true, invisible: settingsOpen() }}
                     >
                       <Show when={!autoselecting.loading} fallback={<div class="size-full" />}>
                         {props.children}
                       </Show>
                     </div>
+                    {/* Settings takeover: the content overlays the session page (kept mounted, only inert, so the terminal/right panel are not torn down); geometry is inherited from the main slot. */}
                     <Show when={settingsOpen()}>
-                      <div class="absolute inset-0 z-40">
-                        <SettingsShell active={settingsTab()} onSelect={setSettingsTab} onClose={closeSettings} />
+                      <div class="absolute inset-0 z-10">
+                        <SettingsContent active={settingsTab()} onClose={closeSettings} />
                       </div>
                     </Show>
                   </div>
