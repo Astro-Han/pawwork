@@ -119,7 +119,6 @@ export function SessionTurn(
     assistantMessages?: AssistantMessage[]
     messages?: MessageType[]
     actions?: UserActions
-    showReasoningSummaries?: boolean
     shellToolDefaultOpen?: boolean
     editToolDefaultOpen?: boolean
     turnChanges?: Record<string, TurnChangeDisplay | null | undefined>
@@ -326,8 +325,6 @@ export function SessionTurn(
     if (!hasVisibleTurnChanges(current) || working() || turnInProgress()) return
     return current
   })
-  const showReasoningSummaries = createMemo(() => props.showReasoningSummaries ?? true)
-
   const visibleFooterTarget = createMemo(() => {
     if (working()) return
     return assistantFooterTarget()
@@ -466,7 +463,6 @@ export function SessionTurn(
                     <AssistantParts
                       messages={visibleAssistantMessages()}
                       working={working()}
-                      showReasoningSummaries={showReasoningSummaries()}
                       shellToolDefaultOpen={props.shellToolDefaultOpen}
                       editToolDefaultOpen={props.editToolDefaultOpen}
                     />

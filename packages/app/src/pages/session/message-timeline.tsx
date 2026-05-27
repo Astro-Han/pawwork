@@ -318,7 +318,6 @@ export function MessageTimeline(props: {
           active={active()}
           status={active() ? sessionStatus() : undefined}
           rateLimitCardSlot={(classification) => <RateLimitCardWiring classification={classification} />}
-          showReasoningSummaries={settings.general.showReasoningSummaries()}
           shellToolDefaultOpen={settings.general.shellToolPartsExpanded()}
           editToolDefaultOpen={settings.general.editToolPartsExpanded()}
           turnChanges={props.turnChangeController.turnChanges}

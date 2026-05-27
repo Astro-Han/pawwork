@@ -95,7 +95,7 @@ export function groupParts(parts: { messageID: string; part: PartType }[]) {
   return result
 }
 
-export function renderable(part: PartType, showReasoningSummaries = true) {
+export function renderable(part: PartType) {
   if (part.type === "tool") {
     if (HIDDEN_TOOLS.has(part.tool)) return false
     if (part.tool === TOOL_QUESTION) return part.state.status !== "pending" && part.state.status !== "running"

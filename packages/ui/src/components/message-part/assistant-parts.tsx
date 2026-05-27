@@ -11,7 +11,6 @@ import { Part } from "./message-router"
 export function AssistantParts(props: {
   messages: AssistantMessage[]
   working?: boolean
-  showReasoningSummaries?: boolean
   shellToolDefaultOpen?: boolean
   editToolDefaultOpen?: boolean
 }) {
@@ -33,7 +32,7 @@ export function AssistantParts(props: {
       groupParts(
         props.messages.flatMap((message) =>
           list(data.store.part?.[message.id], emptyParts)
-            .filter((part) => renderable(part, props.showReasoningSummaries ?? true))
+            .filter((part) => renderable(part))
             .map((part) => ({
               messageID: message.id,
               part,

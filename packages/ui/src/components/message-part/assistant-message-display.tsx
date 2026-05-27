@@ -10,7 +10,6 @@ import { Part } from "./message-router"
 export function AssistantMessageDisplay(props: {
   message: AssistantMessage
   parts: PartType[]
-  showReasoningSummaries?: boolean
 }) {
   const i18n = useI18n()
   const emptyTools: ToolPart[] = []
@@ -19,7 +18,7 @@ export function AssistantMessageDisplay(props: {
     () =>
       groupParts(
         props.parts
-          .filter((part) => renderable(part, props.showReasoningSummaries ?? true))
+          .filter((part) => renderable(part))
           .map((part) => ({
             messageID: props.message.id,
             part,
