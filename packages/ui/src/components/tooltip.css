@@ -9,14 +9,15 @@
 }
 
 [data-slot="tooltip-keybind-key"] {
-  /* Plain OS-native glyphs (⇧⌘S), not a keycap — see DESIGN.md Tooltip.
-     Sans, not mono: the monospace cell width crammed the modifier glyphs
-     together, which read as one squished blob. */
+  /* The shortcut is plain OS-native glyphs (⇧⌘S), not a keycap (see DESIGN.md
+     Tooltip). Only two properties are set; size / line-height / color inherit
+     the tooltip's 13px cream text:
+       - sans, never mono (--type-kbd) — the monospace cell width crammed the
+         modifier glyphs into one squished blob;
+       - caption weight (400), one step lighter than the label's 500 emphasis,
+         so the shortcut reads as secondary metadata. */
   font-family: var(--font-family-sans);
-  font-size: 12px;
-  font-weight: var(--font-weight-emphasis);
-  line-height: 1.2;
-  color: var(--bg-cream);
+  font-weight: var(--font-weight-caption);
 }
 
 [data-component="tooltip"] {
