@@ -3,7 +3,7 @@ import { closeSettingsPanel, openSettings } from "../actions"
 
 // PR1 foundation lock: shell-slot takeover (nav in the sidebar slot, content in the main slot),
 // migrating the existing pages in place (remote / integrations hidden until ready).
-test("settings shell shows the migrated nav and switches pages", async ({ page, gotoSession }) => {
+test("@smoke settings shell shows the migrated nav and switches pages", async ({ page, gotoSession }) => {
   await gotoSession()
 
   const settings = await openSettings(page)
@@ -38,7 +38,7 @@ test("settings shell shows the migrated nav and switches pages", async ({ page, 
 // openSettings returns shell-content (the slot ancestor), which also hosts the session view and
 // never detaches. Assert close on settings-page instead: it is only mounted while settings is open,
 // the same signal closeSettingsPanel keys on.
-test("escape closes the settings shell", async ({ page, gotoSession }) => {
+test("@smoke escape closes the settings shell", async ({ page, gotoSession }) => {
   await gotoSession()
 
   await openSettings(page)
@@ -49,7 +49,7 @@ test("escape closes the settings shell", async ({ page, gotoSession }) => {
   await expect(settingsPage).toHaveCount(0)
 })
 
-test("back-to-app button closes the settings shell", async ({ page, gotoSession }) => {
+test("@smoke back-to-app button closes the settings shell", async ({ page, gotoSession }) => {
   await gotoSession()
 
   const settings = await openSettings(page)
