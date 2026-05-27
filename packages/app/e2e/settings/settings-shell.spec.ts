@@ -38,19 +38,19 @@ test("settings shell shows the migrated nav and switches pages", async ({ page, 
 test("escape closes the settings shell", async ({ page, gotoSession }) => {
   await gotoSession()
 
-  await openSettings(page)
-  await expect(page.locator('[data-component="settings-page"]')).toBeVisible()
+  const settings = await openSettings(page)
+  await expect(settings).toBeVisible()
 
   await page.keyboard.press("Escape")
-  await expect(page.locator('[data-component="settings-page"]')).toHaveCount(0)
+  await expect(settings).toBeHidden()
 })
 
 test("back-to-app button closes the settings shell", async ({ page, gotoSession }) => {
   await gotoSession()
 
   const settings = await openSettings(page)
-  await expect(page.locator('[data-component="settings-page"]')).toBeVisible()
+  await expect(settings).toBeVisible()
 
   await settings.getByRole("button", { name: "Back to app" }).click()
-  await expect(page.locator('[data-component="settings-page"]')).toHaveCount(0)
+  await expect(settings).toBeHidden()
 })

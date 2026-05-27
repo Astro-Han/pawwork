@@ -17,9 +17,15 @@ test("settings-shell", async ({ page, project }) => {
 
   const shots: Shot[] = [{ name: "general", buf: await settings.screenshot() }]
 
+  // Wait for each tab's content to render before snapping, instead of a fixed delay.
+  const tabReady = {
+    Models: '[data-component="custom-provider-section"]',
+    Memory: '[data-action="settings-memory-raw"]',
+  } as const
+
   for (const tab of ["Models", "Memory"] as const) {
     await settings.getByRole("tab", { name: tab }).click()
-    await page.waitForTimeout(300)
+    await settings.locator(tabReady[tab]).first().waitFor({ state: "visible", timeout: 30_000 })
     shots.push({ name: tab.toLowerCase(), buf: await settings.screenshot() })
   }
 
