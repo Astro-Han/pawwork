@@ -9,10 +9,13 @@
 }
 
 [data-slot="tooltip-keybind-key"] {
-  font-family: var(--font-family-mono);
-  font-size: var(--font-size-kbd);
-  font-weight: var(--font-weight-kbd);
-  line-height: var(--line-height-kbd);
+  /* Plain OS-native glyphs (⇧⌘S), not a keycap — see DESIGN.md Tooltip.
+     Sans, not mono: the monospace cell width crammed the modifier glyphs
+     together, which read as one squished blob. */
+  font-family: var(--font-family-sans);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.2;
   color: var(--bg-cream);
 }
 
