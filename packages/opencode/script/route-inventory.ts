@@ -46,6 +46,7 @@ export type RouteInventory = {
 type BuildOptions = {
   root?: string
   upstreamRef?: string
+  requireUpstream?: boolean
 }
 
 const HTTP_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"])
@@ -279,14 +280,20 @@ export function parseHttpApiRoutesFromText(text: string, source: string): Route[
   return routes
 }
 
-async function readUpstreamHttpApiRoutes(root: string, ref: string): Promise<Route[]> {
+async function readUpstreamHttpApiRoutes(root: string, ref: string, required: boolean): Promise<Route[]> {
   let files: string[]
   try {
     files = git(root, ["ls-tree", "-r", "--name-only", ref, "packages/opencode/src/server/routes/instance/httpapi"])
       .split("\n")
       .filter((file) => file.endsWith(".ts"))
-  } catch {
+  } catch (error) {
+    if (required) {
+      throw new Error(`Unable to read upstream HttpApi route tree from ${ref}`, { cause: error })
+    }
     return []
+  }
+  if (required && files.length === 0) {
+    throw new Error(`Unable to read upstream HttpApi route tree from ${ref}: no TypeScript route files found`)
   }
 
   const routes: Route[] = []
@@ -299,7 +306,11 @@ async function readUpstreamHttpApiRoutes(root: string, ref: string): Promise<Rou
     }
     routes.push(...parseHttpApiRoutesFromText(text, `${ref}:${file}`))
   }
-  return uniqueRoutes(routes)
+  const unique = uniqueRoutes(routes)
+  if (required && unique.length === 0) {
+    throw new Error(`Unable to read upstream HttpApi route tree from ${ref}: no HttpApi routes parsed`)
+  }
+  return unique
 }
 
 function specialSurfaceFor(method: string, routePath: string) {
@@ -334,12 +345,13 @@ function classify(input: {
 export async function buildRouteInventory(options: BuildOptions = {}): Promise<RouteInventory> {
   const root = repoRoot(options.root)
   const upstreamRef = options.upstreamRef ?? "FETCH_HEAD"
+  const requireUpstream = options.requireUpstream ?? false
   const [hono, openapi, legacySdk, v2Sdk, upstreamHttpApi] = await Promise.all([
     discoverHonoRoutes(root),
     readOpenApiRoutes(root),
     readSdkRoutes(root, "packages/sdk/js/src/gen/sdk.gen.ts"),
     readSdkRoutes(root, "packages/sdk/js/src/v2/gen/sdk.gen.ts"),
-    readUpstreamHttpApiRoutes(root, upstreamRef),
+    readUpstreamHttpApiRoutes(root, upstreamRef, requireUpstream),
   ])
 
   const sets = {
@@ -467,7 +479,8 @@ function mark(value: boolean) {
 
 async function main() {
   const root = repoRoot()
-  const inventory = await buildRouteInventory({ root })
+  git(root, ["fetch", "upstream", "dev"])
+  const inventory = await buildRouteInventory({ root, requireUpstream: true })
   const report = renderRouteInventoryReport(inventory)
   const date = new Date().toISOString().slice(0, 10)
   const out = path.join(root, "docs/research", `${date}-route-inventory.md`)

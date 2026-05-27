@@ -14,7 +14,7 @@ function hasRoute(routes: ReadonlyArray<{ method: string; path: string }>, metho
 
 describe("route inventory harness", () => {
   test("discovers PawWork-owned Hono routes that the checked-in OpenAPI surface can miss", async () => {
-    const inventory = await buildRouteInventory({ root })
+    const inventory = await buildRouteInventory({ root, requireUpstream: false })
 
     expect(hasRoute(inventory.hono.routes, "GET", "/external-result")).toBe(true)
     expect(hasRoute(inventory.hono.routes, "GET", "/memory")).toBe(true)
@@ -28,7 +28,7 @@ describe("route inventory harness", () => {
   })
 
   test("classifies compatibility gaps by source instead of treating every missing SDK route as a server gap", async () => {
-    const inventory = await buildRouteInventory({ root })
+    const inventory = await buildRouteInventory({ root, requireUpstream: false })
 
     const externalResult = inventory.rows.find((row) => row.method === "GET" && row.path === "/external-result")
     expect(externalResult).toMatchObject({
@@ -111,10 +111,26 @@ describe("route inventory harness", () => {
   })
 
   test("distinguishes non-product Hono and v2 SDK routes from Hono-only routes", async () => {
-    const inventory = await buildRouteInventory({ root })
+    const inventory = await buildRouteInventory({ root, requireUpstream: false })
 
     expect(
       inventory.rows.find((row) => row.method === "POST" && row.path === "/permission/__e2e/ask"),
     ).toMatchObject({ hono: true, openapi: false, v2Sdk: true, classification: "hono-v2-sdk" })
+  })
+
+  test("fails when the upstream HttpApi ref is unavailable", async () => {
+    await expect(
+      buildRouteInventory({
+        root,
+        upstreamRef: "refs/heads/route-inventory-missing-upstream",
+        requireUpstream: true,
+      }),
+    ).rejects.toThrow(/Unable to read upstream HttpApi route tree/)
+  })
+
+  test("fails when the upstream ref does not contain the HttpApi route tree", async () => {
+    await expect(buildRouteInventory({ root, upstreamRef: "HEAD", requireUpstream: true })).rejects.toThrow(
+      /Unable to read upstream HttpApi route tree/,
+    )
   })
 })
