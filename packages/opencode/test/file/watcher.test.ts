@@ -281,6 +281,25 @@ describe("FileWatcher git metadata filtering", () => {
     expect(plan.maxRootCount).toBe(FileWatcher.MAX_WORKSPACE_WATCH_ROOTS)
   })
 
+  test("throttles fallback workspace rescans while child subscriptions are capped", () => {
+    const fallback = FileWatcher.createFallbackRescanThrottle({ now: () => 1_000 })
+
+    expect(fallback.enter()).toBe(true)
+    expect(fallback.tick()).toBe(false)
+
+    fallback.now = () => 5_999
+    expect(fallback.tick()).toBe(false)
+
+    fallback.now = () => 6_000
+    expect(fallback.tick()).toBe(true)
+    expect(fallback.tick()).toBe(false)
+
+    fallback.exit()
+    fallback.now = () => 6_001
+    expect(fallback.tick()).toBe(false)
+    expect(fallback.enter()).toBe(true)
+  })
+
   test("waits for root poll plan refresh before publishing rescan", async () => {
     const repo = path.join("/tmp", "repo")
     const prev = new Map()

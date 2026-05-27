@@ -230,6 +230,30 @@ export namespace FileWatcher {
     return [...new Set([...FileIgnore.PATTERNS, ...WORKSPACE_IGNORE_ENTRIES, ...input.config, ...input.protected])]
   }
 
+  export function createFallbackRescanThrottle(input: { now?: () => number } = {}) {
+    let active = false
+    let lastRescan = 0
+    return {
+      now: input.now ?? (() => Date.now()),
+      enter() {
+        if (active) return false
+        active = true
+        lastRescan = this.now()
+        return true
+      },
+      tick() {
+        if (!active) return false
+        const now = this.now()
+        if (now - lastRescan < FALLBACK_RESCAN_INTERVAL_MS) return false
+        lastRescan = now
+        return true
+      },
+      exit() {
+        active = false
+      },
+    }
+  }
+
   function hasGlobSyntax(value: string) {
     return /[*?[\]{}]/.test(value)
   }
@@ -614,8 +638,7 @@ export namespace FileWatcher {
                 let snapshot = yield* Effect.promise(() => rootEntrySnapshot(ctx.directory))
                 const active = new Map<string, ParcelWatcher.AsyncSubscription>()
                 let watchPlanDisposed = false
-                let limitedChildWatchers = false
-                let lastFallbackRescan = 0
+                const fallbackRescan = createFallbackRescanThrottle()
                 const publishWorkspaceRescan = () =>
                   Bus.publish(Event.Rescan, { directory: ctx.directory }).catch((error) =>
                     log.warn("failed to publish watcher rescan", { dir: ctx.directory, error }),
@@ -652,13 +675,9 @@ export namespace FileWatcher {
                   })
 
                   if (plan.fallbackStrategy === "limited-child-watchers") {
-                    if (!limitedChildWatchers) {
-                      limitedChildWatchers = true
-                      lastFallbackRescan = Date.now()
-                      yield* Effect.promise(publishWorkspaceRescan)
-                    }
+                    if (fallbackRescan.enter()) yield* Effect.promise(publishWorkspaceRescan)
                   } else {
-                    limitedChildWatchers = false
+                    fallbackRescan.exit()
                   }
 
                   const nextRoots = new Set(plan.roots.map((root) => root.directory))
@@ -730,10 +749,7 @@ export namespace FileWatcher {
                       )
                       .then((next) => {
                         snapshot = next
-                        if (!limitedChildWatchers || watchPlanDisposed) return
-                        const now = Date.now()
-                        if (now - lastFallbackRescan < FALLBACK_RESCAN_INTERVAL_MS) return
-                        lastFallbackRescan = now
+                        if (watchPlanDisposed || !fallbackRescan.tick()) return
                         return publishWorkspaceRescan()
                       })
                       .catch((error) => log.warn("failed to poll workspace root", { dir: ctx.directory, error }))
