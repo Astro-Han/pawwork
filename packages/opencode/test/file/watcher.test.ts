@@ -259,6 +259,26 @@ describe("FileWatcher git metadata filtering", () => {
     expect(ignore).toContain(path.join(repo, "secret"))
   })
 
+  test("falls back to root polling when the workspace has too many top-level roots", () => {
+    const repo = path.join("/tmp", "repo")
+    const entries = Array.from({ length: FileWatcher.MAX_WORKSPACE_WATCH_ROOTS + 1 }, (_, index) => ({
+      name: `pkg-${index}`,
+      type: "directory" as const,
+    }))
+
+    const plan = FileWatcher.workspaceWatchPlan({
+      directory: repo,
+      backend: "fs-events",
+      entries,
+      ignore: FileWatcher.workspaceWatcherIgnoreEntries({ config: [], protected: [] }),
+    })
+
+    expect(plan.roots).toEqual([])
+    expect(plan.fallbackStrategy).toBe("root-polling-only")
+    expect(plan.rootCount).toBe(FileWatcher.MAX_WORKSPACE_WATCH_ROOTS + 1)
+    expect(plan.maxRootCount).toBe(FileWatcher.MAX_WORKSPACE_WATCH_ROOTS)
+  })
+
   test("waits for root poll plan refresh before publishing rescan", async () => {
     const repo = path.join("/tmp", "repo")
     const prev = new Map()

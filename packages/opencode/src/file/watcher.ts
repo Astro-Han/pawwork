@@ -25,6 +25,7 @@ export namespace FileWatcher {
   const SUBSCRIBE_TIMEOUT_MS = 10_000
   const RESCAN_QUIET_MS = 1_000
   const ROOT_DISCOVERY_INTERVAL_MS = 500
+  export const MAX_WORKSPACE_WATCH_ROOTS = 128
   const LOCAL_ARTIFACT_ENTRIES = new Set([".worktrees", ".claude", ".claire", ".superpowers"])
   const WORKSPACE_IGNORE_ENTRIES = [...LOCAL_ARTIFACT_ENTRIES]
   const VCS_SUBSCRIBE_ENTRIES = new Set(["HEAD", "index", "packed-refs", "refs"])
@@ -108,6 +109,9 @@ export namespace FileWatcher {
     roots: WorkspaceWatchPlanRoot[]
     excluded: WorkspaceWatchPlanExcluded[]
     rootFiles: string[]
+    rootCount: number
+    maxRootCount: number
+    fallbackStrategy?: "root-polling-only"
     rootFilesStrategy: "poll-root-entries"
     refreshStrategy: "refresh-plan-on-top-level-entry-change"
   }
@@ -327,10 +331,16 @@ export namespace FileWatcher {
       if (entry.type === "file") rootFiles.push(fullPath)
     }
 
+    const rootCount = roots.length
+    const fallbackStrategy = rootCount > MAX_WORKSPACE_WATCH_ROOTS ? "root-polling-only" : undefined
+
     return {
-      roots,
+      roots: fallbackStrategy ? [] : roots,
       excluded,
       rootFiles,
+      rootCount,
+      maxRootCount: MAX_WORKSPACE_WATCH_ROOTS,
+      fallbackStrategy,
       rootFilesStrategy: "poll-root-entries",
       refreshStrategy: "refresh-plan-on-top-level-entry-change",
     }
@@ -603,6 +613,7 @@ export namespace FileWatcher {
                 let snapshot = yield* Effect.promise(() => rootEntrySnapshot(ctx.directory))
                 const active = new Map<string, ParcelWatcher.AsyncSubscription>()
                 let watchPlanDisposed = false
+                let rootPollingOnly = false
                 const applyPlan = Effect.fn("FileWatcher.applyWorkspaceWatchPlan")(function* (
                   planSnapshot: Map<string, RootEntryState>,
                 ) {
@@ -621,7 +632,10 @@ export namespace FileWatcher {
                     backend,
                     watch_scope: "workspace",
                     plan_version: planVersion,
-                    root_count: plan.roots.length,
+                    root_count: plan.rootCount,
+                    subscribed_root_count: plan.roots.length,
+                    max_root_count: plan.maxRootCount,
+                    fallback_strategy: plan.fallbackStrategy,
                     excluded_count: plan.excluded.length,
                     root_files_strategy: plan.rootFilesStrategy,
                     refresh_strategy: plan.refreshStrategy,
@@ -630,6 +644,19 @@ export namespace FileWatcher {
                       reason: item.reason,
                     })),
                   })
+
+                  if (plan.fallbackStrategy === "root-polling-only") {
+                    if (!rootPollingOnly) {
+                      rootPollingOnly = true
+                      yield* Effect.promise(() =>
+                        Bus.publish(Event.Rescan, { directory: ctx.directory }).catch((error) =>
+                          log.warn("failed to publish watcher rescan", { dir: ctx.directory, error }),
+                        ),
+                      )
+                    }
+                  } else {
+                    rootPollingOnly = false
+                  }
 
                   const nextRoots = new Set(plan.roots.map((root) => root.directory))
                   for (const [dir, sub] of active) {
