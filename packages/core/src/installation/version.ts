@@ -2,6 +2,7 @@ declare global {
   const OPENCODE_VERSION: string
   const OPENCODE_CHANNEL: string
   const OPENCODE_PLUGIN_VERSION: string | undefined
+  const OPENCODE_HTTP_VERSION: string | undefined
 }
 
 export const InstallationVersion = typeof OPENCODE_VERSION === "string" ? OPENCODE_VERSION : "local"
@@ -14,3 +15,8 @@ if (!InstallationLocal && !DefinedInstallationPluginVersion) {
 }
 export const InstallationPluginVersion =
   DefinedInstallationPluginVersion ?? "latest"
+
+export const InstallationHTTPVersion =
+  typeof OPENCODE_HTTP_VERSION === "string" && OPENCODE_HTTP_VERSION.trim()
+    ? OPENCODE_HTTP_VERSION
+    : InstallationVersion
