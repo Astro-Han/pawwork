@@ -1166,8 +1166,12 @@ it.live("session.processor effect tests reset reasoning state across retries", (
 
         expect(value).toBe("continue")
         expect(yield* llm.calls).toBe(2)
-        expect(reasoning.some((part) => part.text === "two")).toBe(true)
-        expect(reasoning.some((part) => part.text === "onetwo")).toBe(false)
+        // Bun harness cannot produce Node undici's UND_ERR_SOCKET shape; TCP reset
+        // covers the processor retry/replay chain, classifier unit tests cover the rest.
+        const reasoningTexts = reasoning.map((part) => part.text)
+        expect(reasoningTexts).toContain("two")
+        expect(reasoningTexts).not.toContain("one")
+        expect(reasoningTexts).not.toContain("onetwo")
       }),
     { git: true, config: (url) => providerCfg(url) },
   ),
@@ -2103,7 +2107,7 @@ it.live("retryable stream error after visible output does not replay the assista
         expect(textParts.map((part) => part.text)).not.toContain("replayed")
         expect(stored?.info.role).toBe("assistant")
         if (stored?.info.role === "assistant") {
-          expect(stored.info.error?.data.message).toContain("interrupted after output started")
+          expect(stored.info.error?.data.message).toContain("Connection lost during response")
           expect(stored.info.error?.data.message).not.toContain("stream terminated")
           expect(stored.info.diagnostics?.run_observability?.incident?.recovery).toMatchObject({
             recommendation: "offer_continue",

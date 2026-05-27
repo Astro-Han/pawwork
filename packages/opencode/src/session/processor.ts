@@ -167,24 +167,21 @@ function retryTimeoutPolicyFor(
 
 function recoveryInterruptionMessage(recovery: NonNullable<RunObservability.Summary["incident"]>["recovery"] | undefined) {
   switch (recovery?.reason) {
+    case "no_visible_output_or_tool_execution":
+      return "Connection lost. Retry failed — please resend your message."
     case "visible_output_without_tool_execution":
-      return "The response was interrupted after output started. PawWork did not automatically retry to avoid duplicate text."
+      return "Connection lost during response. Please resend to continue."
     case "partial_tool_input_without_execution":
-      return "The connection broke while PawWork was preparing a tool call. The tool did not run."
     case "tool_call_materialized_without_execution":
-      return "A tool call was prepared before the interruption. Recovery needs confirmation before continuing."
+      return "Connection lost during a tool operation. Please resend — the tool did not complete."
     case "tool_execution_started":
-      return "The connection was interrupted after tool execution started. PawWork did not automatically retry."
     case "unsafe_side_effect_started":
-      return "The connection was interrupted after a side effect may have started. PawWork did not automatically retry."
     case "side_effect_facts_incomplete":
-      return "The connection was interrupted, and PawWork could not prove whether external side effects were possible."
+      return "Connection lost. Please check whether the last operation completed before resending."
     case "local_lifecycle_close":
       return LOCAL_LIFECYCLE_CLOSE_INTERRUPTION_MESSAGE
     case "user_cancel":
       return "The run was cancelled by the user."
-    case "no_visible_output_or_tool_execution":
-      return "The provider connection was interrupted before PawWork produced output or ran tools."
     default:
       return undefined
   }

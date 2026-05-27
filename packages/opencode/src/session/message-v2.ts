@@ -18,6 +18,7 @@ import { ModelID, ProviderID } from "@/provider/schema"
 import { Effect } from "effect"
 import { EffectLogger } from "@/effect"
 import { isMedia } from "@/util/media"
+import { classifyStreamFailure } from "./stream-failure-classifier"
 import { LLMTrace } from "./llm-trace"
 import { RunObservability } from "./run-observability"
 export { isMedia } from "@/util/media"
@@ -1140,19 +1141,20 @@ export function fromError(
         },
         { cause: e },
       ).toObject()
-    case (e as SystemError)?.code === "ECONNRESET":
+    case classifyStreamFailure(e) !== undefined: {
+      const transport = classifyStreamFailure(e)!
       return new APIError(
         {
-          message: "Connection reset by server",
+          message: (e as Error).message || "Connection interrupted",
           isRetryable: true,
           metadata: {
-            code: (e as SystemError).code ?? "",
-            syscall: (e as SystemError).syscall ?? "",
-            message: (e as SystemError).message ?? "",
+            code: transport.code,
+            message: (e as Error).message || "",
           },
         },
         { cause: e },
       ).toObject()
+    }
     case e instanceof Error && (e as FetchDecompressionError).code === "ZlibError":
       if (ctx.aborted) {
         return new AbortedError({ message: e.message }, { cause: e }).toObject()
