@@ -25,6 +25,7 @@ const watcherConfigLayer = ConfigProvider.layer(
 )
 
 type WatcherEvent = { file: string; event: "add" | "change" | "unlink" }
+type RescanEvent = { directory: string }
 
 /** Run `body` with a live FileWatcher service. */
 function withWatcher<E>(directory: string, body: Effect.Effect<void, E>) {
@@ -79,6 +80,28 @@ function wait(directory: string, check: (evt: WatcherEvent) => boolean) {
   })
 }
 
+function waitRescan(check: (evt: RescanEvent) => boolean) {
+  return Effect.gen(function* () {
+    const deferred = yield* Deferred.make<RescanEvent>()
+    const cleanup = yield* Effect.sync(() => {
+      let done = false
+      const unsub = Bus.subscribe(FileWatcher.Event.Rescan, (evt) => {
+        if (done) return
+        if (!check(evt.properties)) return
+        done = true
+        unsub()
+        Deferred.doneUnsafe(deferred, Effect.succeed(evt.properties))
+      })
+      return () => {
+        if (done) return
+        done = true
+        unsub()
+      }
+    })
+    return { cleanup, deferred }
+  })
+}
+
 function nextUpdate<E>(directory: string, check: (evt: WatcherEvent) => boolean, trigger: Effect.Effect<void, E>) {
   return Effect.acquireUseRelease(
     wait(directory, check),
@@ -86,6 +109,30 @@ function nextUpdate<E>(directory: string, check: (evt: WatcherEvent) => boolean,
       Effect.gen(function* () {
         yield* trigger
         return yield* Deferred.await(deferred).pipe(Effect.timeout("5 seconds"))
+      }),
+    ({ cleanup }) => Effect.sync(cleanup),
+  )
+}
+
+function nextRescan<E>(check: (evt: RescanEvent) => boolean, trigger: Effect.Effect<void, E>) {
+  return Effect.acquireUseRelease(
+    waitRescan(check),
+    ({ deferred }) =>
+      Effect.gen(function* () {
+        yield* trigger
+        return yield* Deferred.await(deferred).pipe(Effect.timeout("5 seconds"))
+      }),
+    ({ cleanup }) => Effect.sync(cleanup),
+  )
+}
+
+function noRescan<E>(check: (evt: RescanEvent) => boolean, trigger: Effect.Effect<void, E>, ms = 500) {
+  return Effect.acquireUseRelease(
+    waitRescan(check),
+    ({ deferred }) =>
+      Effect.gen(function* () {
+        yield* trigger
+        expect(yield* Deferred.await(deferred).pipe(Effect.timeoutOption(`${ms} millis`))).toEqual(Option.none())
       }),
     ({ cleanup }) => Effect.sync(cleanup),
   )
@@ -310,6 +357,54 @@ describeWatcher("FileWatcher", () => {
           ),
         ),
     })
+  })
+
+  test("ignores local artifact roots from workspace updates", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const artifact = path.join(tmp.path, ".claude")
+    const file = path.join(artifact, "settings.local.json")
+
+    await withWatcher(
+      tmp.path,
+      noUpdate(
+        tmp.path,
+        (evt) => evt.file === file,
+        noRescan(
+          (evt) => evt.directory === tmp.path,
+          Effect.promise(async () => {
+            await fs.mkdir(artifact)
+            await fs.writeFile(file, "{}")
+          }),
+          1_000,
+        ),
+        1_000,
+      ),
+    )
+  })
+
+  test("refreshes the watch plan for new top-level directories", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const dir = path.join(tmp.path, "generated")
+    const first = path.join(dir, "first.txt")
+    const second = path.join(dir, "second.txt")
+
+    await withWatcher(
+      tmp.path,
+      Effect.gen(function* () {
+        yield* nextRescan(
+          (evt) => evt.directory === tmp.path,
+          Effect.promise(async () => {
+            await fs.mkdir(dir)
+            await fs.writeFile(first, "first")
+          }),
+        )
+        yield* nextUpdate(
+          tmp.path,
+          (evt) => evt.file === second && evt.event === "add",
+          Effect.promise(() => fs.writeFile(second, "second")),
+        )
+      }),
+    )
   })
 
   test("publishes .git/index changes", async () => {
