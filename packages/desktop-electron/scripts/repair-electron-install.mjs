@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process"
-import { existsSync, writeFileSync } from "node:fs"
+import { existsSync, rmSync, writeFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { join } from "node:path"
 import process from "node:process"
@@ -22,12 +22,32 @@ export function platformPathForElectron(platform = process.platform) {
   }
 }
 
-export function writeElectronPathFileIfBinaryExists(electronDir, platform = process.platform) {
+export function isElectronInstallComplete(electronDir, platform = process.platform) {
   const platformPath = platformPathForElectron(platform)
   const binaryPath = join(electronDir, "dist", platformPath)
   if (!existsSync(binaryPath)) return false
 
-  writeFileSync(join(electronDir, "path.txt"), platformPath)
+  if (platform === "darwin" || platform === "mas") {
+    return existsSync(
+      join(
+        electronDir,
+        "dist",
+        "Electron.app",
+        "Contents",
+        "Frameworks",
+        "Electron Framework.framework",
+        "Electron Framework",
+      ),
+    )
+  }
+
+  return true
+}
+
+export function writeElectronPathFileIfInstallComplete(electronDir, platform = process.platform) {
+  if (!isElectronInstallComplete(electronDir, platform)) return false
+
+  writeFileSync(join(electronDir, "path.txt"), platformPathForElectron(platform))
   return true
 }
 
@@ -35,11 +55,12 @@ export function repairElectronInstall() {
   const electronDir = join(require.resolve("electron/package.json"), "..")
   const installScript = join(electronDir, "install.js")
 
-  if (!writeElectronPathFileIfBinaryExists(electronDir)) {
+  if (!writeElectronPathFileIfInstallComplete(electronDir)) {
+    rmSync(join(electronDir, "path.txt"), { force: true })
     execFileSync(process.execPath, [installScript], { stdio: "inherit" })
   }
 
-  if (!writeElectronPathFileIfBinaryExists(electronDir)) {
+  if (!writeElectronPathFileIfInstallComplete(electronDir)) {
     throw new Error(`Electron install is still incomplete after repair: ${electronDir}`)
   }
 
