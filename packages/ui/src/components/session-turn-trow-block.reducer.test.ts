@@ -73,14 +73,14 @@ describe("toolFamilyIcon", () => {
 })
 
 describe("reduceTrowBlock", () => {
-  test("empty parts list yields a safe default (count 0, mcp icon)", () => {
+  test("empty parts list yields a safe default (toolCount 0, mcp icon)", () => {
     const summary = reduceTrowBlock([])
-    expect(summary).toEqual({ count: 0, running: false, failedCount: 0, leadingIcon: "mcp" })
+    expect(summary).toEqual({ toolCount: 0, running: false, failedCount: 0, leadingIcon: "mcp" })
   })
 
-  test("count reflects the number of tools in the block", () => {
+  test("toolCount reflects the number of tools in the block", () => {
     const summary = reduceTrowBlock([tool("a", "bash"), tool("b", "bash"), tool("c", "edit")])
-    expect(summary.count).toBe(3)
+    expect(summary.toolCount).toBe(3)
   })
 
   test("running flag is true when any part is still running", () => {

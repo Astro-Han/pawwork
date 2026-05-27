@@ -63,12 +63,6 @@
     }
   }
 
-  [data-component="text-reveal"].session-turn-thinking-heading {
-    flex: 1 1 auto;
-    min-width: 0;
-    color: var(--fg-weaker);
-    font-weight: var(--font-weight-body);
-  }
 
   .error-card {
     color: var(--error-text);

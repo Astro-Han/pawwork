@@ -1,5 +1,5 @@
 import { Dynamic, render } from "solid-js/web"
-import type { ToolPart } from "@opencode-ai/sdk/v2"
+import type { Part, ToolPart } from "@opencode-ai/sdk/v2"
 import { BasicTool } from "@opencode-ai/ui/basic-tool"
 import { DataProvider, I18nProvider } from "@opencode-ai/ui/context"
 import { FileComponentProvider } from "@opencode-ai/ui/context/file"
@@ -16,6 +16,8 @@ import {
   metadataDetailParts,
   mixedRealToolParts,
   questionDetailParts,
+  reasoningOnlyParts,
+  reasoningWithToolsParts,
   runningParts,
   singleErrorParts,
   singleQuietParts,
@@ -32,7 +34,7 @@ function FileStub() {
 }
 
 function AssistantPartsCase(props: {
-  parts: ToolPart[]
+  parts: Part[]
   shellToolDefaultOpen?: boolean
   editToolDefaultOpen?: boolean
 }) {
@@ -240,6 +242,12 @@ function TrowSnapFixture() {
             "metadata-detail-patch",
           ])}
         />
+      </div>
+      <div data-snap="reasoning-only">
+        <AssistantPartsCase parts={reasoningOnlyParts} />
+      </div>
+      <div data-snap="reasoning-with-tools">
+        <AssistantPartsCase parts={reasoningWithToolsParts} />
       </div>
       <div data-snap="single-command-direct">
         <TrowBlock

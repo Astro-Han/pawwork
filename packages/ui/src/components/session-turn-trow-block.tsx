@@ -1,5 +1,5 @@
 import { For, Show, createMemo, createSignal, type JSX } from "solid-js"
-import type { ToolPart } from "@opencode-ai/sdk/v2"
+import type { ReasoningPart, ToolPart } from "@opencode-ai/sdk/v2"
 import { patchFiles } from "./apply-patch-file"
 import { Icon, type IconName } from "./icon"
 import { TextShimmer } from "./text-shimmer"
@@ -61,45 +61,56 @@ export function toolFamilyIcon(tool: string): IconName {
   }
 }
 
+export type TrowPart = ToolPart | ReasoningPart
+
 /**
  * Pure-derived state for a trow-block, computed from the immutable list of
- * `ToolPart`s that the {@link groupParts} grouping produced.
+ * parts that the {@link groupParts} grouping produced.
  */
 export type TrowBlockSummary = {
-  count: number
+  toolCount: number
   running: boolean
   failedCount: number
   leadingIcon: IconName
 }
 
-export function reduceTrowBlock(parts: readonly ToolPart[]): TrowBlockSummary {
-  if (parts.length === 0) {
-    return { count: 0, running: false, failedCount: 0, leadingIcon: "mcp" }
+export function reduceTrowBlock(parts: readonly TrowPart[]): TrowBlockSummary {
+  const tools = parts.filter((p): p is ToolPart => p.type === "tool")
+  if (tools.length === 0) {
+    return { toolCount: 0, running: false, failedCount: 0, leadingIcon: parts.some(p => p.type === "reasoning") ? "thinking" : "mcp" }
   }
   let running = false
   let failedCount = 0
-  for (const part of parts) {
-    if (part.state.status === "running" || part.state.status === "pending") running = true
-    if (part.state.status === "error") failedCount += 1
+  for (const tool of tools) {
+    if (tool.state.status === "running" || tool.state.status === "pending") running = true
+    if (tool.state.status === "error") failedCount += 1
   }
   return {
-    count: parts.length,
+    toolCount: tools.length,
     running,
     failedCount,
-    leadingIcon: toolFamilyIcon(parts[0]!.tool),
+    leadingIcon: toolFamilyIcon(tools[0]!.tool),
   }
 }
 
-export function activeTrowTool(parts: readonly ToolPart[], working = false): ToolPart | undefined {
-  for (let i = parts.length - 1; i >= 0; i--) {
-    const part = parts[i]!
-    if (part.state.status === "running" || part.state.status === "pending") return part
+export function activeTrowTool(parts: readonly TrowPart[], working = false): ToolPart | undefined {
+  const tools = parts.filter((p): p is ToolPart => p.type === "tool")
+  for (let i = tools.length - 1; i >= 0; i--) {
+    const tool = tools[i]!
+    if (tool.state.status === "running" || tool.state.status === "pending") return tool
   }
-  if (!working || parts.length === 0) return undefined
-  return parts[parts.length - 1]
+  if (!working || tools.length === 0) return undefined
+  return tools[tools.length - 1]
 }
 
-export function trowPartHasExpandableBody(part: ToolPart): boolean {
+export function activeReasoning(parts: readonly TrowPart[], working = false): boolean {
+  if (!working) return false
+  const last = parts[parts.length - 1]
+  return last?.type === "reasoning"
+}
+
+export function trowPartHasExpandableBody(part: TrowPart): boolean {
+  if (part.type === "reasoning") return !!part.text?.trim()
   const state = part.state
   if (state.status === "error") return true
   if (state.status !== "completed") return false
@@ -131,7 +142,7 @@ export function trowPartHasExpandableBody(part: ToolPart): boolean {
   }
 }
 
-export function trowBlockAnchor(parts: readonly ToolPart[]): string {
+export function trowBlockAnchor(parts: readonly TrowPart[]): string {
   return `trow:${parts[0]?.id ?? "empty"}`
 }
 
@@ -144,10 +155,12 @@ export interface TrowBlockLabels {
   summaryRunning: (count: number) => string
   /** Caller-resolved completed summary, including any failure tail. */
   summaryCompleted: (parts: readonly ToolPart[], failedCount: number) => string
+  /** Label shown while the model is actively reasoning. */
+  thinking?: string
 }
 
 export interface TrowBlockProps {
-  parts: readonly ToolPart[]
+  parts: readonly TrowPart[]
   /** Default open state — DESIGN.md L468 locks default-collapsed (false). */
   defaultOpen?: boolean
   /** Caller-resolved summary labels. */
@@ -159,6 +172,7 @@ export interface TrowBlockProps {
    * omitted, the block falls back to a minimal "name + status" row.
    */
   renderTool?: (part: ToolPart) => JSX.Element
+  renderReasoning?: (part: ReasoningPart) => JSX.Element
   working?: boolean
   describeTool?: (part: ToolPart) => string | undefined
 }
@@ -180,37 +194,47 @@ export interface TrowBlockProps {
  * the component context-free for unit testing.
  */
 export function TrowBlock(props: TrowBlockProps) {
+  const toolParts = createMemo(() => props.parts.filter((p): p is ToolPart => p.type === "tool"))
   const summary = createMemo(() => reduceTrowBlock(props.parts))
   const activeTool = createMemo(() => activeTrowTool(props.parts, props.working))
+  const isActiveReasoning = createMemo(() => activeReasoning(props.parts, props.working))
   const single = createMemo(() => props.parts.length === 1)
   const [open, setOpen] = createSignal(props.defaultOpen ?? false)
 
   const summaryText = createMemo(() => {
+    const s = summary()
+    // Pure-reasoning block (no tool calls): always show the thinking label.
+    if (s.toolCount === 0) return props.labels.thinking ?? ""
+    if (isActiveReasoning() && props.labels.thinking) return props.labels.thinking
     const active = activeTool()
     const activeLabel = active ? props.describeTool?.(active) : undefined
     if (activeLabel) return activeLabel
-    const s = summary()
-    if (s.running) return props.labels.summaryRunning(s.count)
-    return props.labels.summaryCompleted(props.parts, s.failedCount)
+    if (s.running) return props.labels.summaryRunning(s.toolCount)
+    return props.labels.summaryCompleted(toolParts(), s.failedCount)
   })
   const leadingIcon = createMemo(() => {
+    if (isActiveReasoning()) return "thinking" as IconName
     const active = activeTool()
     return active ? toolFamilyIcon(active.tool) : summary().leadingIcon
   })
 
-  // Suppress the chev when no tool in the group has a visible expanded body.
-  // Some renderers show details from input/metadata instead of state.output.
   const hasExpandableBody = createMemo(() => props.parts.some(trowPartHasExpandableBody))
-  const renderToolItem = (part: ToolPart) => (
-    <Show when={props.renderTool} fallback={renderDefaultToolItem(part)}>
-      <div data-slot="trow-tool">{props.renderTool?.(part)}</div>
-    </Show>
-  )
+  const renderItem = (part: TrowPart) => {
+    if (part.type === "reasoning") {
+      if (!props.renderReasoning) return null
+      return <div data-slot="trow-tool">{props.renderReasoning(part)}</div>
+    }
+    return (
+      <Show when={props.renderTool} fallback={renderDefaultToolItem(part)}>
+        <div data-slot="trow-tool">{props.renderTool?.(part)}</div>
+      </Show>
+    )
+  }
 
   return (
     <div
       data-component="session-turn-trow-block"
-      data-running={!!activeTool() || undefined}
+      data-running={!!(activeTool() || isActiveReasoning()) || undefined}
       data-failed={summary().failedCount > 0 || undefined}
       data-single={single() || undefined}
     >
@@ -234,7 +258,7 @@ export function TrowBlock(props: TrowBlockProps) {
               <Show when={summaryText()}>
                 {(text) => (
                   <span data-slot="trow-summary-text">
-                    <TextShimmer text={text()} active={!!activeTool()} />
+                    <TextShimmer text={text()} active={!!(activeTool() || isActiveReasoning())} />
                   </span>
                 )}
               </Show>
@@ -253,7 +277,7 @@ export function TrowBlock(props: TrowBlockProps) {
                * which captured the parts array at creation time and would
                * not pick up new tool calls landing mid-stream.
                */}
-              <For each={props.parts}>{renderToolItem}</For>
+              <For each={props.parts}>{renderItem}</For>
             </div>
           </details>
         }
@@ -263,7 +287,7 @@ export function TrowBlock(props: TrowBlockProps) {
             <Icon name={leadingIcon()} />
           </span>
           <div data-slot="trow-body">
-            <For each={props.parts}>{renderToolItem}</For>
+            <For each={props.parts}>{renderItem}</For>
           </div>
         </div>
       </Show>

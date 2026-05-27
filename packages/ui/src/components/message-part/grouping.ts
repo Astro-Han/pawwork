@@ -75,7 +75,7 @@ export function groupParts(parts: { messageID: string; part: PartType }[]) {
   }
 
   parts.forEach((item, index) => {
-    if (item.part.type === "tool") {
+    if (item.part.type === "tool" || item.part.type === "reasoning") {
       if (start < 0) start = index
       return
     }
@@ -102,7 +102,8 @@ export function renderable(part: PartType, showReasoningSummaries = true) {
     return true
   }
   if (part.type === "text") return !!part.text?.trim()
-  if (part.type === "reasoning") return showReasoningSummaries && !!part.text?.trim()
+  // Reasoning always renders as a collapsible row; no flag needed
+  if (part.type === "reasoning") return !!part.text?.trim()
   return !!PART_MAPPING[part.type]
 }
 
