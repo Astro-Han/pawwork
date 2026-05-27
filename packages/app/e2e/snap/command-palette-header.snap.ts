@@ -34,12 +34,10 @@ async function assertHeaderMatchesPaletteSurface(page: Page) {
   await expect
     .poll(() =>
       header.evaluate((el) => {
-        const raised = window
-          .getComputedStyle(document.documentElement)
-          .getPropertyValue("--surface-raised")
-          .trim()
+        // Let the browser resolve the token in context instead of copying its
+        // raw value off documentElement.
         const probe = document.createElement("span")
-        probe.style.color = raised
+        probe.style.color = "var(--surface-raised)"
         document.body.appendChild(probe)
         const expectedRgb = window.getComputedStyle(probe).color
         probe.remove()
