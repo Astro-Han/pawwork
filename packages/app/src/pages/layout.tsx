@@ -2474,7 +2474,7 @@ export default function Layout(props: ParentProps) {
                     {/* Settings takeover: the content overlays the session page (kept mounted, only inert, so the terminal/right panel are not torn down); geometry is inherited from the main slot. */}
                     <Show when={settingsOpen()}>
                       <div class="absolute inset-0 z-10">
-                        <SettingsContent active={settingsTab()} onClose={closeSettings} />
+                        <SettingsContent active={settingsTab()} directory={currentDir()} onClose={closeSettings} />
                       </div>
                     </Show>
                   </div>
