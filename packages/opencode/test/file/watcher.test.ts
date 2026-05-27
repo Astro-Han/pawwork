@@ -237,13 +237,120 @@ describe("FileWatcher git metadata filtering", () => {
     const ignore = FileWatcher.subscriptionIgnoreEntries({
       workspace: repo,
       subscription: child,
-      ignore: ["custom-cache", "packages/generated", "**/*.log", path.join(repo, "secret")],
+      ignore: [
+        "custom-cache",
+        "packages/generated",
+        "*.md",
+        "logs/**",
+        "packages/generated/**",
+        "packages/*.snap",
+        "**/*.log",
+        path.join(repo, "secret"),
+      ],
     })
 
     expect(ignore).toContain(path.join(repo, "custom-cache"))
     expect(ignore).toContain(path.join(repo, "packages", "generated"))
+    expect(ignore).not.toContain("*.md")
+    expect(ignore).not.toContain("logs/**")
+    expect(ignore).toContain("generated/**")
+    expect(ignore).toContain("*.snap")
     expect(ignore).toContain("**/*.log")
     expect(ignore).toContain(path.join(repo, "secret"))
+  })
+
+  test("waits for root poll plan refresh before publishing rescan", async () => {
+    const repo = path.join("/tmp", "repo")
+    const prev = new Map()
+    const next = new Map([
+      [
+        "generated",
+        {
+          name: "generated",
+          path: path.join(repo, "generated"),
+          type: "directory" as const,
+          size: 0,
+          mtimeMs: 0,
+        },
+      ],
+    ])
+    let releaseApply!: () => void
+    const applied = new Promise<void>((resolve) => {
+      releaseApply = resolve
+    })
+    let settled = false
+    const updates: WatcherEvent[] = []
+    const rescans: string[] = []
+
+    const running = FileWatcher.runWorkspaceRootPoll({
+      previous: prev,
+      next,
+      workspace: repo,
+      ignore: [],
+      isDisposed: () => false,
+      applyPlan: () => applied,
+      publishUpdate: (event) => {
+        updates.push(event)
+      },
+      publishRescan: (directory) => {
+        rescans.push(directory)
+      },
+    }).then(() => {
+      settled = true
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(settled).toBe(false)
+    expect(rescans).toEqual([])
+
+    releaseApply()
+    await running
+
+    expect(updates).toEqual([{ file: path.join(repo, "generated"), event: "add" }])
+    expect(rescans).toEqual([repo])
+  })
+
+  test("does not publish root poll rescan after disposal", async () => {
+    const repo = path.join("/tmp", "repo")
+    const prev = new Map()
+    const next = new Map([
+      [
+        "generated",
+        {
+          name: "generated",
+          path: path.join(repo, "generated"),
+          type: "directory" as const,
+          size: 0,
+          mtimeMs: 0,
+        },
+      ],
+    ])
+    let disposed = false
+    let releaseApply!: () => void
+    const applied = new Promise<void>((resolve) => {
+      releaseApply = resolve
+    })
+    const rescans: string[] = []
+
+    const running = FileWatcher.runWorkspaceRootPoll({
+      previous: prev,
+      next,
+      workspace: repo,
+      ignore: [],
+      isDisposed: () => disposed,
+      applyPlan: () => applied,
+      publishUpdate: () => {},
+      publishRescan: (directory) => {
+        rescans.push(directory)
+      },
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    disposed = true
+    releaseApply()
+    await running
+
+    expect(rescans).toEqual([])
   })
 
   test("ignores nested PawWork worktree roots from the workspace watcher", () => {

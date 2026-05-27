@@ -81,7 +81,7 @@ export namespace FileWatcher {
 
   export type WatchScope = "workspace" | "vcs"
   type RuntimeWatchScope = WatchScope | "workspace-child" | "root-discovery"
-  type RootEntryState = {
+  export type RootEntryState = {
     name: string
     path: string
     type: WorkspaceWatchPlanEntry["type"]
@@ -265,10 +265,22 @@ export namespace FileWatcher {
     return undefined
   }
 
+  function subscriptionGlobIgnoreEntry(input: { workspace: string; subscription: string; pattern: string }) {
+    const pattern = normalizePathKey(input.pattern)
+    if (!hasGlobSyntax(pattern)) return pattern
+    if (pattern.startsWith("**/")) return pattern
+
+    const subscription = normalizePathKey(path.relative(input.workspace, input.subscription))
+    if (!subscription || subscription.startsWith("..") || path.isAbsolute(subscription)) return undefined
+    if (!pattern.includes("/")) return undefined
+    if (!pattern.startsWith(`${subscription}/`)) return undefined
+    return pattern.slice(subscription.length + 1)
+  }
+
   export function subscriptionIgnoreEntries(input: { workspace: string; subscription: string; ignore: string[] }) {
-    return input.ignore.map((entry) => {
+    return input.ignore.flatMap((entry) => {
       if (path.isAbsolute(entry)) return entry
-      if (hasGlobSyntax(entry)) return entry
+      if (hasGlobSyntax(entry)) return subscriptionGlobIgnoreEntry({ ...input, pattern: entry }) ?? []
       return path.resolve(input.workspace, entry)
     })
   }
@@ -362,6 +374,55 @@ export namespace FileWatcher {
       if (!rel || (!rel.startsWith("..") && !path.isAbsolute(rel))) return false
     }
     return !FileIgnore.match(relative, { extra: ignore })
+  }
+
+  export async function runWorkspaceRootPoll(input: {
+    previous: Map<string, RootEntryState>
+    next: Map<string, RootEntryState>
+    workspace: string
+    ignore: string[]
+    isDisposed: () => boolean
+    applyPlan: (next: Map<string, RootEntryState>) => Promise<void>
+    publishUpdate: (event: { file: string; event: "add" | "change" | "unlink" }) => void
+    publishRescan: (directory: string) => void | Promise<void>
+  }) {
+    if (input.isDisposed()) return input.previous
+
+    const nextNames = new Set(input.next.keys())
+    let refreshPlan = false
+
+    for (const [name, value] of input.next) {
+      if (input.isDisposed()) return input.previous
+      const before = input.previous.get(name)
+      const publishable = shouldPublishWorkspacePath(value.path, input.workspace, input.ignore)
+      if (!before) {
+        if (value.type === "file" && publishable) input.publishUpdate({ file: value.path, event: "add" })
+        if (value.type === "directory" && publishable) {
+          refreshPlan = true
+          input.publishUpdate({ file: value.path, event: "add" })
+        }
+        continue
+      }
+      if (rootFileChanged(before, value) && publishable) input.publishUpdate({ file: value.path, event: "change" })
+      if (before.type !== value.type && publishable) refreshPlan = true
+    }
+
+    for (const [name, value] of input.previous) {
+      if (input.isDisposed()) return input.previous
+      if (nextNames.has(name)) continue
+      const publishable = shouldPublishWorkspacePath(value.path, input.workspace, input.ignore)
+      if (value.type === "file" && publishable) input.publishUpdate({ file: value.path, event: "unlink" })
+      if (value.type === "directory" && publishable) {
+        refreshPlan = true
+        input.publishUpdate({ file: value.path, event: "unlink" })
+      }
+    }
+
+    if (!refreshPlan) return input.next
+    await input.applyPlan(input.next)
+    if (input.isDisposed()) return input.previous
+    await input.publishRescan(input.workspace)
+    return input.next
   }
 
   export function watcherSubscriptionDiagnostics(input: {
@@ -472,6 +533,7 @@ export namespace FileWatcher {
                 options?: {
                   rescanDirectory?: string
                   watchScope?: RuntimeWatchScope
+                  isDisposed?: () => boolean
                 },
               ): ParcelWatcher.SubscribeCallback =>
               (err, evts) =>
@@ -503,11 +565,16 @@ export namespace FileWatcher {
               options?: {
                 rescanDirectory?: string
                 watchScope?: RuntimeWatchScope
+                isDisposed?: () => boolean
               },
             ) => {
               const pending = w.subscribe(dir, createCallback(dir, shouldPublish, options), { ignore, backend })
               return Effect.gen(function* () {
                 const sub = yield* Effect.promise(() => pending)
+                if (options?.isDisposed?.()) {
+                  yield* Effect.promise(() => sub.unsubscribe().catch(() => undefined))
+                  return undefined
+                }
                 subs.add(sub)
                 return sub
               }).pipe(
@@ -535,11 +602,15 @@ export namespace FileWatcher {
                 let planVersion = 0
                 let snapshot = yield* Effect.promise(() => rootEntrySnapshot(ctx.directory))
                 const active = new Map<string, ParcelWatcher.AsyncSubscription>()
-                const applyPlan = Effect.fn("FileWatcher.applyWorkspaceWatchPlan")(function* () {
+                let watchPlanDisposed = false
+                const applyPlan = Effect.fn("FileWatcher.applyWorkspaceWatchPlan")(function* (
+                  planSnapshot: Map<string, RootEntryState>,
+                ) {
+                  if (watchPlanDisposed) return
                   const plan = workspaceWatchPlan({
                     directory: ctx.directory,
                     backend,
-                    entries: watchPlanEntries(snapshot),
+                    entries: watchPlanEntries(planSnapshot),
                     ignore: workspaceSubscription.ignore,
                     userConfig: cfgIgnores,
                     protectedPaths: protecteds(ctx.directory),
@@ -572,8 +643,8 @@ export namespace FileWatcher {
                       plan_version: planVersion,
                     })
                   }
-
                   for (const root of plan.roots) {
+                    if (watchPlanDisposed) return
                     if (active.has(root.directory)) continue
                     log.info("watcher subscription configured", {
                       dir: root.directory,
@@ -590,85 +661,45 @@ export namespace FileWatcher {
                       {
                         rescanDirectory: ctx.directory,
                         watchScope: "workspace-child",
+                        isDisposed: () => watchPlanDisposed,
                       },
                     )
                     if (!sub) continue
+                    if (watchPlanDisposed) {
+                      subs.delete(sub)
+                      yield* Effect.promise(() => sub.unsubscribe().catch(() => undefined))
+                      return
+                    }
                     active.set(root.directory, sub)
                   }
                 })
 
-                yield* applyPlan()
+                yield* applyPlan(snapshot)
                 let polling = false
-                let pollingDisposed = false
                 const timer = setInterval(() => {
-                  if (polling || pollingDisposed) return
+                  if (polling || watchPlanDisposed) return
                   polling = true
                   Instance.restore(ctx, () => {
                     rootEntrySnapshot(ctx.directory)
+                      .then((next) =>
+                        runWorkspaceRootPoll({
+                          previous: snapshot,
+                          next,
+                          workspace: ctx.directory,
+                          ignore: workspaceSubscription.ignore,
+                          isDisposed: () => watchPlanDisposed,
+                          applyPlan: (planSnapshot) => Effect.runPromise(applyPlan(planSnapshot)),
+                          publishUpdate: (event) => {
+                            Bus.publish(Event.Updated, event)
+                          },
+                          publishRescan: (directory) =>
+                            Bus.publish(Event.Rescan, { directory }).catch((error) =>
+                              log.warn("failed to publish watcher rescan", { dir: directory, error }),
+                            ),
+                        }),
+                      )
                       .then((next) => {
-                        if (pollingDisposed) return
-                        const prev = snapshot
                         snapshot = next
-                        const nextNames = new Set(next.keys())
-                        let refreshPlan = false
-
-                        for (const [name, value] of next) {
-                          const before = prev.get(name)
-                          if (!before) {
-                            const publishable = shouldPublishWorkspacePath(
-                              value.path,
-                              ctx.directory,
-                              workspaceSubscription.ignore,
-                            )
-                            if (value.type === "file" && publishable)
-                              Bus.publish(Event.Updated, { file: value.path, event: "add" })
-                            if (value.type === "directory") {
-                              if (publishable) {
-                                refreshPlan = true
-                                Bus.publish(Event.Updated, { file: value.path, event: "add" })
-                              }
-                            }
-                            continue
-                          }
-                          if (
-                            rootFileChanged(before, value) &&
-                            shouldPublishWorkspacePath(value.path, ctx.directory, workspaceSubscription.ignore)
-                          ) {
-                            Bus.publish(Event.Updated, { file: value.path, event: "change" })
-                          }
-                          if (
-                            before.type !== value.type &&
-                            shouldPublishWorkspacePath(value.path, ctx.directory, workspaceSubscription.ignore)
-                          )
-                            refreshPlan = true
-                        }
-
-                        for (const [name, value] of prev) {
-                          if (nextNames.has(name)) continue
-                          const publishable = shouldPublishWorkspacePath(
-                            value.path,
-                            ctx.directory,
-                            workspaceSubscription.ignore,
-                          )
-                          if (value.type === "file" && publishable)
-                            Bus.publish(Event.Updated, { file: value.path, event: "unlink" })
-                          if (value.type === "directory") {
-                            if (publishable) {
-                              refreshPlan = true
-                              Bus.publish(Event.Updated, { file: value.path, event: "unlink" })
-                            }
-                          }
-                        }
-
-                        if (!refreshPlan) return
-                        Effect.runPromise(applyPlan())
-                          .then(() => {
-                            if (pollingDisposed) return
-                            return Bus.publish(Event.Rescan, { directory: ctx.directory }).catch((error) =>
-                              log.warn("failed to publish watcher rescan", { dir: ctx.directory, error }),
-                            )
-                          })
-                          .catch((error) => log.warn("failed to refresh watcher plan", { dir: ctx.directory, error }))
                       })
                       .catch((error) => log.warn("failed to poll workspace root", { dir: ctx.directory, error }))
                       .finally(() => {
@@ -678,7 +709,7 @@ export namespace FileWatcher {
                 }, ROOT_DISCOVERY_INTERVAL_MS)
                 yield* Effect.addFinalizer(() =>
                   Effect.sync(() => {
-                    pollingDisposed = true
+                    watchPlanDisposed = true
                     clearInterval(timer)
                   }),
                 )
