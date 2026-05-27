@@ -4,6 +4,7 @@ import { useData } from "../../../context"
 import { useI18n } from "../../../context/i18n"
 import { BasicTool } from "../../basic-tool"
 import { Icon } from "../../icon"
+import { toolIcon } from "../../tool-info"
 import { relativizeProjectPath } from "../markdown-render"
 import { ToolRegistry } from "../registry"
 
@@ -25,7 +26,7 @@ ToolRegistry.register({
       <>
         <BasicTool
           {...props}
-          icon="glasses"
+          icon={toolIcon("read")}
           trigger={{
             title: i18n.t("ui.tool.read"),
             subtitle: props.input.filePath ? getFilename(props.input.filePath) : "",

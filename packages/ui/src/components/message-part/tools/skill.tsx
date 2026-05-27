@@ -1,6 +1,7 @@
 import { createMemo } from "solid-js"
 import { useI18n } from "../../../context/i18n"
 import { BasicTool } from "../../basic-tool"
+import { toolIcon } from "../../tool-info"
 import { ToolRegistry } from "../registry"
 
 ToolRegistry.register({
@@ -14,7 +15,7 @@ ToolRegistry.register({
 
     return (
       <BasicTool
-        icon="brain"
+        icon={toolIcon("skill")}
         status={props.status}
         trigger={{ title: i18n.t("ui.tool.skill"), subtitle: skillName() }}
         hideDetails

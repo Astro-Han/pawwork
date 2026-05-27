@@ -33,7 +33,9 @@ describe("#642 PR3 typography role semantics", () => {
   test("body-like multi-line contexts use body line-height, not caption line-height", () => {
     const messagePart = read("packages/ui/src/components/message-part.css")
 
-    expect(block(messagePart, '[data-component="reasoning-part"]')).toContain("line-height: var(--line-height-body)")
+    expect(block(messagePart, '[data-component="reasoning-body"] [data-component="markdown"]')).toContain(
+      "line-height: var(--line-height-body)",
+    )
     expect(block(messagePart, '[data-slot="message-part-todo-content"]')).toContain(
       "line-height: var(--line-height-body)",
     )

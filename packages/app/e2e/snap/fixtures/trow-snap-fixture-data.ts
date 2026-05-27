@@ -1,4 +1,4 @@
-import type { AssistantMessage, ToolPart, ToolState } from "@opencode-ai/sdk/v2"
+import type { AssistantMessage, Part, ReasoningPart, ToolPart, ToolState } from "@opencode-ai/sdk/v2"
 import type { UiI18nKey, UiI18nParams } from "@opencode-ai/ui/context"
 import { dict as zh } from "@opencode-ai/ui/i18n/zh"
 import { contextTrowSummaryText } from "@opencode-ai/ui/message-part"
@@ -114,6 +114,34 @@ function realTool(
     },
   }
 }
+
+export function reasoning(id: string, text: string): ReasoningPart {
+  return {
+    id,
+    sessionID: "snap-session",
+    messageID: "snap-message",
+    type: "reasoning",
+    text,
+    time: { start: 0, end: 1 },
+  }
+}
+
+// Pure reasoning, no tools — exercises the single-row path. Must show only
+// one leading icon (the trow summary's), never a second icon on the inner row.
+export const reasoningOnlyParts: Part[] = [
+  reasoning(
+    "reason-solo",
+    "用户想要一个纯思考的折叠行。\n\n**第一步**，确认这是一段思考。\n\n**第二步**，把它折进会话行里。",
+  ),
+]
+
+// Reasoning interleaved with tool calls — exercises the grouped body. The
+// reasoning row sits among the tools as a peer, with no duplicated icon.
+export const reasoningWithToolsParts: Part[] = [
+  reasoning("reason-lead", "先看一下项目结构，再决定从哪里入手。"),
+  tool("reason-list", "list files", "ls -la"),
+  realTool("reason-read", "read", { filePath: "/Users/yuhan/PawWork/titlebar.tsx" }),
+]
 
 export const completedParts = [
   tool("first", "first command", "echo one"),

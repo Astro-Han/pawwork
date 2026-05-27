@@ -5,7 +5,6 @@ export interface MessageProps {
   message: MessageType
   parts: PartType[]
   actions?: UserActions
-  showReasoningSummaries?: boolean
 }
 
 export type SessionAction = (input: { sessionID: string; messageID: string }) => Promise<void> | void

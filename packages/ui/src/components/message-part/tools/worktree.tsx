@@ -1,7 +1,7 @@
 import { createMemo } from "solid-js"
 import { useI18n } from "../../../context/i18n"
 import { BasicTool } from "../../basic-tool"
-import { enterWorktreeSubtitle, exitWorktreeSubtitle } from "../../tool-info"
+import { enterWorktreeSubtitle, exitWorktreeSubtitle, toolIcon } from "../../tool-info"
 import { ToolRegistry } from "../registry"
 
 ToolRegistry.register({
@@ -13,7 +13,7 @@ ToolRegistry.register({
       <BasicTool
         {...props}
         hideDetails
-        icon="worktree"
+        icon={toolIcon("enter-worktree")}
         trigger={{ title: i18n.t("ui.tool.worktree.enter"), subtitle: subtitle() }}
       />
     )
@@ -29,7 +29,7 @@ ToolRegistry.register({
       <BasicTool
         {...props}
         hideDetails
-        icon="worktree"
+        icon={toolIcon("exit-worktree")}
         trigger={{ title: i18n.t("ui.tool.worktree.exit"), subtitle: subtitle() }}
       />
     )

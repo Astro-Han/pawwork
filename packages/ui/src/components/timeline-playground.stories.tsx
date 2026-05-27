@@ -982,27 +982,13 @@ const CSS_CONTROLS: CSSControl[] = [
     group: "Reasoning Part",
     type: "range",
     initial: "14",
-    selector: '[data-component="reasoning-part"] [data-component="markdown"]',
+    selector: '[data-component="reasoning-body"] [data-component="markdown"]',
     property: "font-size",
     min: "10",
     max: "22",
     step: "1",
     unit: "px",
-    source: { file: MP, anchor: '[data-component="reasoning-part"]', prop: "font-size", format: px },
-  },
-  {
-    key: "reasoning-md-margin-top",
-    label: "Reasoning markdown margin-top",
-    group: "Reasoning Part",
-    type: "range",
-    initial: "24",
-    selector: '[data-component="reasoning-part"] [data-component="markdown"]',
-    property: "margin-top",
-    min: "0",
-    max: "60",
-    step: "1",
-    unit: "px",
-    source: { file: MP, anchor: '[data-component="reasoning-part"]', prop: "margin-top", format: px },
+    source: { file: MP, anchor: '[data-component="reasoning-body"] [data-component="markdown"]', prop: "font-size", format: px },
   },
 
   // --- User message ---
@@ -2003,7 +1989,6 @@ function Playground() {
                           messageID={msg.id}
                           messages={state.messages}
                           active={false}
-                          showReasoningSummaries={true}
                           shellToolDefaultOpen={true}
                           editToolDefaultOpen={true}
                           classes={{

@@ -241,6 +241,29 @@ test("session-trow", async ({ page }) => {
   })
   shots.push(await captureBlock("metadata-detail-expanded", metadataDetailExpanded))
 
+  const reasoningOnly = page.locator('[data-snap="reasoning-only"]')
+  await expect(reasoningOnly).toContainText("思考中", { timeout: 30_000 })
+  // Single-row reasoning must carry exactly one leading icon (the trow
+  // summary's) — the inner BasicTool row reuses the tool shell, which never
+  // renders its own icon, so a second icon would mean a regression.
+  await expect(reasoningOnly.locator('[data-slot="trow-summary-icon"]')).toHaveCount(1)
+  shots.push(await captureBlock("reasoning-only", reasoningOnly))
+
+  // Expand the reasoning row: the thinking text must opt back to the sans
+  // body family (the trow scope otherwise forces a mono caption on it).
+  await reasoningOnly.locator('[data-slot="collapsible-trigger"]').first().click()
+  await expect(reasoningOnly.locator('[data-component="reasoning-body"]')).toBeVisible({ timeout: 30_000 })
+  const reasoningFont = await reasoningOnly.evaluate((root) => {
+    const md = root.querySelector<HTMLElement>('[data-component="reasoning-body"] [data-component="markdown"]')
+    return md ? getComputedStyle(md).fontFamily : ""
+  })
+  expect(reasoningFont.toLowerCase()).not.toContain("mono")
+  shots.push(await captureBlock("reasoning-only-expanded", reasoningOnly))
+
+  const reasoningWithTools = page.locator('[data-snap="reasoning-with-tools"]')
+  await expect(reasoningWithTools).toContainText("思考中", { timeout: 30_000 })
+  shots.push(await captureBlock("reasoning-with-tools", reasoningWithTools))
+
   const singleDirect = page.locator('[data-snap="single-command-direct"]')
   await expect(singleDirect.locator('[data-component="session-turn-trow-block"][data-single]')).toBeVisible({
     timeout: 30_000,
