@@ -205,6 +205,8 @@ export function createSDKNotificationEventHandler(input: LayoutSdkEventEffectsIn
       const visibility = currentRouteVisibility(input, directory, sessionID)
       if (level === "unfocused" && visibility.visible) return
 
+      void input.effects.playSound("notify")
+
       const sessions = visibility.sessions ?? input.sdk.sessions(directory)
       const sessionTitle = titleFromSessions(sessions, sessionID, input.copy.t("command.session.new"))
       const projectName = getFilename(directory)

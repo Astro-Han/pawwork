@@ -53,6 +53,7 @@ function createSDKNotificationHarness(input?: {
 }) {
   let sessionsCalls = 0
   const notifications: Array<{ title: string; description?: string; href?: string }> = []
+  const sounds: string[] = []
   const sessions = [
     { id: "ses_root", title: "Root session" },
     { id: "ses_child", parentID: "ses_root", title: "Child session" },
@@ -83,7 +84,7 @@ function createSDKNotificationHarness(input?: {
       notify: (title, description, href) => {
         notifications.push({ title, description, href })
       },
-      playSound: () => undefined,
+      playSound: (id: string) => { sounds.push(id) },
       setBusy: () => undefined,
       worktreeReady: () => undefined,
       worktreeFailed: () => undefined,
@@ -99,6 +100,7 @@ function createSDKNotificationHarness(input?: {
       handler(event)
     },
     notifications,
+    sounds,
     sessionsCalls: () => sessionsCalls,
   }
 }
@@ -237,5 +239,33 @@ describe("layout sdk event effects", () => {
         href: sessionNotificationHref("/repo", "ses_other"),
       },
     ])
+  })
+
+  test("plays notify sound for question alerts", () => {
+    const hook = createSDKNotificationHarness({ currentSessionID: "ses_root" })
+    hook.emit(questionUpdatedEvent("/repo", "ses_other"))
+
+    expect(hook.sounds).toEqual(["notify"])
+  })
+
+  test("does not play sound for question when notify is never", () => {
+    const hook = createSDKNotificationHarness({ notifyLevel: "never" })
+    hook.emit(questionUpdatedEvent("/repo", "ses_other"))
+
+    expect(hook.sounds).toHaveLength(0)
+  })
+
+  test("does not play sound for question on the visible session", () => {
+    const hook = createSDKNotificationHarness({ currentSessionID: "ses_root" })
+    hook.emit(questionUpdatedEvent("/repo", "ses_root"))
+
+    expect(hook.sounds).toHaveLength(0)
+  })
+
+  test("plays notify sound for permission alerts", () => {
+    const hook = createSDKNotificationHarness()
+    hook.emit(permissionAskedEvent("/repo", "ses_other"))
+
+    expect(hook.sounds).toEqual(["notify"])
   })
 })
