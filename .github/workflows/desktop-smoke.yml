@@ -129,7 +129,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Repair Electron install
-        run: node node_modules/electron/install.js
+        run: node ./scripts/repair-electron-install.mjs
         working-directory: packages/desktop-electron
 
       - name: Prepare OfficeCLI
@@ -144,7 +144,7 @@ jobs:
           PAWWORK_FEEDBACK_FORM_URL: https://example.com/pawwork-feedback
 
       - name: Repair Electron install after build
-        run: node node_modules/electron/install.js
+        run: node ./scripts/repair-electron-install.mjs
         working-directory: packages/desktop-electron
 
       - name: Check desktop runtime imports

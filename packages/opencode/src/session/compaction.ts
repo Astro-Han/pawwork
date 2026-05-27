@@ -32,6 +32,7 @@ export const Event = {
 export const PRUNE_MINIMUM = 20_000
 export const PRUNE_PROTECT = 40_000
 const TOOL_OUTPUT_MAX_CHARS = 2_000
+const TOOL_INPUT_MAX_CHARS = 2_000
 const PRUNE_PROTECTED_TOOLS = ["skill"]
 const DEFAULT_TAIL_TURNS = 2
 const MIN_PRESERVE_RECENT_TOKENS = 2_000
@@ -252,6 +253,7 @@ export const layer: Layer.Layer<
       const msgs = yield* MessageV2.toModelMessagesEffect(input.messages, input.model, {
         stripMedia: true,
         toolOutputMaxChars: TOOL_OUTPUT_MAX_CHARS,
+        toolInputMaxChars: TOOL_INPUT_MAX_CHARS,
       })
       return Token.estimate(JSON.stringify(msgs))
     })
@@ -497,6 +499,7 @@ export const layer: Layer.Layer<
           const modelMessages = yield* MessageV2.toModelMessagesEffect(msgs, model, {
             stripMedia: true,
             toolOutputMaxChars: TOOL_OUTPUT_MAX_CHARS,
+            toolInputMaxChars: TOOL_INPUT_MAX_CHARS,
           })
           const processor = yield* processors.create({
             assistantMessage: msg,

@@ -882,6 +882,266 @@ describe("session.message-v2.toModelMessage", () => {
     ])
   })
 
+  test("bounds long tool inputs separately from tool output for compaction replay", async () => {
+    const userID = "m-user"
+    const assistantID = "m-assistant"
+    const longQuestion = `${"Tauri backend Rust, OpenCode server TypeScript. ".repeat(200)}UNIQUE_LONG_QUESTION_TAIL`
+    const error =
+      'The question tool was called with invalid arguments: SchemaError(Missing key at ["questions"][0]["options"][3]["description"]).\nPlease rewrite the input so it satisfies the expected schema.'
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [
+          {
+            ...basePart(userID, "u1"),
+            type: "text",
+            text: "ask a question",
+          },
+        ] as MessageV2.Part[],
+      },
+      {
+        info: assistantInfo(assistantID, userID),
+        parts: [
+          {
+            ...basePart(assistantID, "a1"),
+            type: "tool",
+            callID: "call-question",
+            tool: "question",
+            state: {
+              status: "error",
+              input: {
+                questions: [
+                  {
+                    question: longQuestion,
+                    header: "Runtime",
+                    options: [
+                      { label: "External", description: "Run Node separately" },
+                      { label: "Rust", description: "Rewrite backend" },
+                      { label: "Shell", description: "Spawn child process" },
+                      { label: "Unsure" },
+                    ],
+                  },
+                ],
+              },
+              error,
+              time: { start: 0, end: 1 },
+              metadata: {},
+            },
+          },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    const [, assistant, tool] = await MessageV2.toModelMessages(input, model, {
+      toolInputMaxChars: 200,
+      toolOutputMaxChars: 32,
+    })
+    const toolCall = assistant?.content[0] as any
+    const toolResult = tool?.content[0] as any
+
+    const serializedInput = JSON.stringify(toolCall.input)
+    expect(serializedInput.length).toBeLessThanOrEqual(200)
+    expect(serializedInput).not.toContain("UNIQUE_LONG_QUESTION_TAIL")
+    expect(serializedInput).toContain("Tool input truncated")
+    expect(toolResult.output.value).toContain("SchemaError")
+  })
+
+  test("bounds the entire serialized tool input for compaction replay", async () => {
+    const userID = "m-user"
+    const assistantID = "m-assistant"
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [
+          {
+            ...basePart(userID, "u1"),
+            type: "text",
+            text: "write many todos",
+          },
+        ] as MessageV2.Part[],
+      },
+      {
+        info: assistantInfo(assistantID, userID),
+        parts: [
+          {
+            ...basePart(assistantID, "a1"),
+            type: "tool",
+            callID: "call-todos",
+            tool: "todowrite",
+            state: {
+              status: "completed",
+              input: {
+                todos: Array.from({ length: 100 }, (_, index) => ({
+                  content: `short todo item ${index}`,
+                  status: index % 2 === 0 ? "completed" : "pending",
+                })),
+              },
+              output: "ok",
+              title: "",
+              metadata: {},
+              time: { start: 0, end: 1 },
+            },
+          },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    const [, assistant] = await MessageV2.toModelMessages(input, model, {
+      toolInputMaxChars: 600,
+    })
+    const toolCall = assistant?.content[0] as any
+    const serializedInput = JSON.stringify(toolCall.input)
+
+    expect(serializedInput.length).toBeLessThanOrEqual(600)
+    expect(serializedInput).toContain("Tool input truncated")
+    expect(serializedInput).not.toContain("short todo item 99")
+  })
+
+  test("uses a flat truncation marker for object tool input projections", async () => {
+    const userID = "m-user"
+    const assistantID = "m-assistant"
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [
+          {
+            ...basePart(userID, "u1"),
+            type: "text",
+            text: "run a tool",
+          },
+        ] as MessageV2.Part[],
+      },
+      {
+        info: assistantInfo(assistantID, userID),
+        parts: [
+          {
+            ...basePart(assistantID, "a1"),
+            type: "tool",
+            callID: "call-object",
+            tool: "example",
+            state: {
+              status: "completed",
+              input: {
+                first: "a".repeat(30),
+                second: "b".repeat(30),
+                third: "c".repeat(30),
+              },
+              output: "ok",
+              title: "",
+              metadata: {},
+              time: { start: 0, end: 1 },
+            },
+          },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    const [, assistant] = await MessageV2.toModelMessages(input, model, {
+      toolInputMaxChars: 90,
+    })
+    const toolCall = assistant?.content[0] as any
+
+    expect(typeof toolCall.input._truncated).toBe("string")
+    expect(toolCall.input._truncated).toContain("Tool input truncated")
+  })
+
+  test("uses empty tool input for non-positive projection budgets", async () => {
+    const userID = "m-user"
+    const assistantID = "m-assistant"
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [
+          {
+            ...basePart(userID, "u1"),
+            type: "text",
+            text: "run a tool",
+          },
+        ] as MessageV2.Part[],
+      },
+      {
+        info: assistantInfo(assistantID, userID),
+        parts: [
+          {
+            ...basePart(assistantID, "a1"),
+            type: "tool",
+            callID: "call-zero",
+            tool: "example",
+            state: {
+              status: "completed",
+              input: { value: "kept out" },
+              output: "ok",
+              title: "",
+              metadata: {},
+              time: { start: 0, end: 1 },
+            },
+          },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    const [, assistant] = await MessageV2.toModelMessages(input, model, {
+      toolInputMaxChars: 0,
+    })
+    const toolCall = assistant?.content[0] as any
+
+    expect(toolCall.input).toBe("")
+  })
+
+  test("stops traversing oversized tool input after the projection budget is exhausted", async () => {
+    const userID = "m-user"
+    const assistantID = "m-assistant"
+    let contentAccesses = 0
+    const todos = Array.from({ length: 5_000 }, (_, index) => ({
+      get content() {
+        contentAccesses++
+        return `small todo item ${index}`
+      },
+      status: "pending",
+    }))
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [
+          {
+            ...basePart(userID, "u1"),
+            type: "text",
+            text: "write many todos",
+          },
+        ] as MessageV2.Part[],
+      },
+      {
+        info: assistantInfo(assistantID, userID),
+        parts: [
+          {
+            ...basePart(assistantID, "a1"),
+            type: "tool",
+            callID: "call-todos",
+            tool: "todowrite",
+            state: {
+              status: "completed",
+              input: { todos },
+              output: "ok",
+              title: "",
+              metadata: {},
+              time: { start: 0, end: 1 },
+            },
+          },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    const [, assistant] = await MessageV2.toModelMessages(input, model, {
+      toolInputMaxChars: 600,
+    })
+    const toolCall = assistant?.content[0] as any
+    const serializedInput = JSON.stringify(toolCall.input)
+
+    expect(serializedInput.length).toBeLessThanOrEqual(600)
+    expect(serializedInput).toContain("Tool input truncated")
+    expect(contentAccesses).toBeLessThan(500)
+  })
+
   test("converts permission denial diagnostic into model-facing error text", async () => {
     const userID = "m-user"
     const assistantID = "m-assistant"
