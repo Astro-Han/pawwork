@@ -204,12 +204,15 @@ describe("FileWatcher git metadata filtering", () => {
         { name: ".superpowers", type: "directory" },
         { name: ".turbo", type: "directory" },
         { name: ".worktrees", type: "directory" },
+        { name: "logs", type: "directory" },
+        { name: "local-cache", type: "directory" },
         { name: "node_modules", type: "directory" },
         { name: "packages", type: "directory" },
         { name: "src", type: "directory" },
         { name: "README.md", type: "file" },
       ],
-      ignore: FileWatcher.workspaceWatcherIgnoreEntries({ config: ["custom-cache"], protected: [] }),
+      ignore: FileWatcher.workspaceWatcherIgnoreEntries({ config: ["local-cache/**"], protected: [] }),
+      userConfig: ["local-cache/**"],
     })
 
     expect(plan.rootFilesStrategy).toBe("poll-root-entries")
@@ -221,6 +224,8 @@ describe("FileWatcher git metadata filtering", () => {
       [".superpowers", "local-artifact"],
       [".turbo", "default-ignore"],
       [".worktrees", "local-artifact"],
+      ["local-cache", "user-config"],
+      ["logs", "default-ignore"],
       ["node_modules", "default-ignore"],
     ])
     expect(plan.rootFiles).toEqual([path.join(repo, "README.md")])

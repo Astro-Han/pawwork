@@ -12,6 +12,7 @@ import { Flag } from "@opencode-ai/core/flag/flag"
 import { Git } from "@/git"
 import { Instance } from "@/project/instance"
 import { lazy } from "@/util/lazy"
+import { Glob } from "@/util/glob"
 import { Config } from "../config/config"
 import { FileIgnore } from "./ignore"
 import { Protected } from "./protected"
@@ -232,6 +233,11 @@ export namespace FileWatcher {
     return value.replaceAll("\\", "/").replace(/\/+$/, "")
   }
 
+  function globTargetsRootEntry(pattern: string, entry: string) {
+    if (!hasGlobSyntax(pattern)) return false
+    return Glob.match(pattern, `${entry}/__pawwork_watch_plan_probe__`)
+  }
+
   function ignoreReason(input: {
     entry: string
     fullPath: string
@@ -247,8 +253,15 @@ export namespace FileWatcher {
 
     const configSet = new Set(input.userConfig?.map((item) => normalizePathKey(item)) ?? [])
     if (configSet.has(entryKey) || configSet.has(normalizePathKey(input.fullPath))) return "user-config"
+    if (input.userConfig?.some((item) => globTargetsRootEntry(normalizePathKey(item), entryKey))) return "user-config"
 
-    if (input.ignore.some((item) => !hasGlobSyntax(item) && normalizePathKey(item) === entryKey)) return "default-ignore"
+    if (
+      input.ignore.some((item) => {
+        const pattern = normalizePathKey(item)
+        return (!hasGlobSyntax(pattern) && pattern === entryKey) || globTargetsRootEntry(pattern, entryKey)
+      })
+    )
+      return "default-ignore"
     return undefined
   }
 
@@ -313,18 +326,21 @@ export namespace FileWatcher {
 
   async function rootEntrySnapshot(directory: string) {
     const entries = new Map<string, RootEntryState>()
-    for (const item of await readdir(directory, { withFileTypes: true }).catch(() => [])) {
-      const fullPath = path.join(directory, item.name)
-      const type = item.isDirectory() ? "directory" : item.isFile() ? "file" : "other"
-      const info = await stat(fullPath).catch(() => undefined)
-      entries.set(item.name, {
-        name: item.name,
-        path: fullPath,
-        type,
-        size: info?.size ?? 0,
-        mtimeMs: info?.mtimeMs ?? 0,
-      })
-    }
+    const items = await readdir(directory, { withFileTypes: true })
+    await Promise.all(
+      items.map(async (item) => {
+        const fullPath = path.join(directory, item.name)
+        const type = item.isDirectory() ? "directory" : item.isFile() ? "file" : "other"
+        const info = type === "file" ? await stat(fullPath).catch(() => undefined) : undefined
+        entries.set(item.name, {
+          name: item.name,
+          path: fullPath,
+          type,
+          size: info?.size ?? 0,
+          mtimeMs: info?.mtimeMs ?? 0,
+        })
+      }),
+    )
     return entries
   }
 
@@ -423,9 +439,9 @@ export namespace FileWatcher {
 
             log.info("watcher backend", { directory: ctx.directory, platform: process.platform, backend })
 
-            const subs: ParcelWatcher.AsyncSubscription[] = []
+            const subs = new Set<ParcelWatcher.AsyncSubscription>()
             yield* Effect.addFinalizer(() =>
-              Effect.promise(() => Promise.allSettled(subs.map((sub) => sub.unsubscribe()))),
+              Effect.promise(() => Promise.allSettled([...subs].map((sub) => sub.unsubscribe()))),
             )
 
             const requestRescan = createRescanScheduler({
@@ -492,7 +508,7 @@ export namespace FileWatcher {
               const pending = w.subscribe(dir, createCallback(dir, shouldPublish, options), { ignore, backend })
               return Effect.gen(function* () {
                 const sub = yield* Effect.promise(() => pending)
-                subs.push(sub)
+                subs.add(sub)
                 return sub
               }).pipe(
                 Effect.timeout(SUBSCRIBE_TIMEOUT_MS),
@@ -548,6 +564,7 @@ export namespace FileWatcher {
                   for (const [dir, sub] of active) {
                     if (nextRoots.has(dir)) continue
                     active.delete(dir)
+                    subs.delete(sub)
                     yield* Effect.promise(() => sub.unsubscribe().catch(() => undefined))
                     log.info("watcher subscription removed", {
                       dir,
@@ -581,7 +598,11 @@ export namespace FileWatcher {
                 })
 
                 yield* applyPlan()
+                let polling = false
+                let pollingDisposed = false
                 const timer = setInterval(() => {
+                  if (polling || pollingDisposed) return
+                  polling = true
                   Instance.restore(ctx, () => {
                     rootEntrySnapshot(ctx.directory)
                       .then((next) => {
@@ -648,10 +669,14 @@ export namespace FileWatcher {
                           .catch((error) => log.warn("failed to refresh watcher plan", { dir: ctx.directory, error }))
                       })
                       .catch((error) => log.warn("failed to poll workspace root", { dir: ctx.directory, error }))
+                      .finally(() => {
+                        polling = false
+                      })
                   })
                 }, ROOT_DISCOVERY_INTERVAL_MS)
                 yield* Effect.addFinalizer(() =>
                   Effect.sync(() => {
+                    pollingDisposed = true
                     clearInterval(timer)
                   }),
                 )
