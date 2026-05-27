@@ -2283,6 +2283,12 @@ export type VcsFileStatus = {
   status: "added" | "deleted" | "modified"
 }
 
+export type VcsDiffRawFailure = {
+  error: "vcs_diff_raw_failed"
+  reason: "too-large"
+  message: string
+}
+
 export type VcsApplyFailure = {
   error: "vcs_apply_failed"
   reason: "non-git" | "not-clean"
@@ -5935,6 +5941,15 @@ export type VcsDiffRawData = {
   }
   url: "/vcs/diff/raw"
 }
+
+export type VcsDiffRawErrors = {
+  /**
+   * Raw VCS diff failure
+   */
+  413: VcsDiffRawFailure
+}
+
+export type VcsDiffRawError = VcsDiffRawErrors[keyof VcsDiffRawErrors]
 
 export type VcsDiffRawResponses = {
   /**

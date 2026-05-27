@@ -57,6 +57,7 @@ export namespace Git {
   export interface PatchOptions {
     readonly context?: number
     readonly maxOutputBytes?: number
+    readonly binary?: boolean
   }
 
   export interface Result {
@@ -97,6 +98,7 @@ export namespace Git {
     readonly statsHead: (cwd: string, ref: string) => Effect.Effect<Stat[]>
     readonly patch: (cwd: string, ref: string, file: string, options?: PatchOptions) => Effect.Effect<Patch>
     readonly patchAll: (cwd: string, ref: string, options?: PatchOptions) => Effect.Effect<Patch>
+    readonly patchStagedAll: (cwd: string, options?: PatchOptions) => Effect.Effect<Patch>
     readonly patchUnstaged: (cwd: string, file: string, options?: PatchOptions) => Effect.Effect<Patch>
     readonly patchStaged: (cwd: string, file: string, options?: PatchOptions) => Effect.Effect<Patch>
     readonly patchHead: (cwd: string, ref: string, file: string, options?: PatchOptions) => Effect.Effect<Patch>
@@ -434,9 +436,11 @@ export namespace Git {
         return { text: result.truncated ? "" : result.text(), truncated: result.truncated } satisfies Patch
       })
 
+      const binary = (options?: PatchOptions) => (options?.binary ? ["--binary"] : [])
+
       const patch = Effect.fn("Git.patch")(function* (cwd: string, ref: string, file: string, options?: PatchOptions) {
         return yield* patchResult(
-          ["diff", "--patch", "--no-ext-diff", "--no-renames", `--unified=${options?.context ?? 3}`, ref, "--", file],
+          ["diff", "--patch", ...binary(options), "--no-ext-diff", "--no-renames", `--unified=${options?.context ?? 3}`, ref, "--", file],
           cwd,
           options,
         )
@@ -444,7 +448,15 @@ export namespace Git {
 
       const patchAll = Effect.fn("Git.patchAll")(function* (cwd: string, ref: string, options?: PatchOptions) {
         return yield* patchResult(
-          ["diff", "--patch", "--no-ext-diff", "--no-renames", `--unified=${options?.context ?? 3}`, ref, "--", "."],
+          ["diff", "--patch", ...binary(options), "--no-ext-diff", "--no-renames", `--unified=${options?.context ?? 3}`, ref, "--", "."],
+          cwd,
+          options,
+        )
+      })
+
+      const patchStagedAll = Effect.fn("Git.patchStagedAll")(function* (cwd: string, options?: PatchOptions) {
+        return yield* patchResult(
+          ["diff", "--cached", "--patch", ...binary(options), "--no-ext-diff", "--no-renames", `--unified=${options?.context ?? 3}`, "--", "."],
           cwd,
           options,
         )
@@ -452,7 +464,7 @@ export namespace Git {
 
       const patchUnstaged = Effect.fn("Git.patchUnstaged")(function* (cwd: string, file: string, options?: PatchOptions) {
         return yield* patchResult(
-          ["diff", "--patch", "--no-ext-diff", "--no-renames", `--unified=${options?.context ?? 3}`, "--", file],
+          ["diff", "--patch", ...binary(options), "--no-ext-diff", "--no-renames", `--unified=${options?.context ?? 3}`, "--", file],
           cwd,
           options,
         )
@@ -464,6 +476,7 @@ export namespace Git {
             "diff",
             "--cached",
             "--patch",
+            ...binary(options),
             "--no-ext-diff",
             "--no-renames",
             `--unified=${options?.context ?? 3}`,
@@ -477,7 +490,7 @@ export namespace Git {
 
       const patchHead = Effect.fn("Git.patchHead")(function* (cwd: string, ref: string, file: string, options?: PatchOptions) {
         return yield* patchResult(
-          ["diff", "--patch", "--no-ext-diff", "--no-renames", `--unified=${options?.context ?? 3}`, ref, "HEAD", "--", file],
+          ["diff", "--patch", ...binary(options), "--no-ext-diff", "--no-renames", `--unified=${options?.context ?? 3}`, ref, "HEAD", "--", file],
           cwd,
           options,
         )
@@ -485,7 +498,18 @@ export namespace Git {
 
       const patchUntracked = Effect.fn("Git.patchUntracked")(function* (cwd: string, file: string, options?: PatchOptions) {
         return yield* patchResult(
-          ["diff", "--no-index", "--patch", "--no-ext-diff", "--no-renames", `--unified=${options?.context ?? 3}`, "--", "/dev/null", file],
+          [
+            "diff",
+            "--no-index",
+            "--patch",
+            ...binary(options),
+            "--no-ext-diff",
+            "--no-renames",
+            `--unified=${options?.context ?? 3}`,
+            "--",
+            "/dev/null",
+            file,
+          ],
           cwd,
           options,
         )
@@ -536,6 +560,7 @@ export namespace Git {
         statsHead,
         patch,
         patchAll,
+        patchStagedAll,
         patchUnstaged,
         patchStaged,
         patchHead,

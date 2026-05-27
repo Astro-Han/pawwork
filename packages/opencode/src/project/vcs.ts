@@ -52,6 +52,19 @@ export namespace Vcs {
     return result.text || emptyPatch(item.file)
   })
 
+  const rawPatch = Effect.fnUntraced(function* (batch: PatchBatch, patch: Effect.Effect<Git.Patch>) {
+    const result = yield* patch
+    if (result.truncated) {
+      return yield* Effect.fail(new RawDiffError("Raw VCS diff exceeds the 10 MB output limit", "too-large"))
+    }
+    const size = Buffer.byteLength(result.text)
+    if (batch.total + size > MAX_TOTAL_PATCH_BYTES) {
+      return yield* Effect.fail(new RawDiffError("Raw VCS diff exceeds the 10 MB output limit", "too-large"))
+    }
+    batch.total += size
+    return result.text
+  })
+
   const staged = Effect.fnUntraced(function* (git: Git.Interface, cwd: string) {
     const [list, stats] = yield* Effect.all([git.diffStaged(cwd), git.statsStaged(cwd)], { concurrency: 2 })
     const statMap = nums(stats)
@@ -203,6 +216,27 @@ export namespace Vcs {
     })
   export type ApplyError = z.infer<typeof ApplyError>
 
+  export const DiffRawError = z
+    .object({
+      error: z.literal("vcs_diff_raw_failed"),
+      reason: z.literal("too-large"),
+      message: z.string(),
+    })
+    .meta({
+      ref: "VcsDiffRawFailure",
+    })
+  export type DiffRawError = z.infer<typeof DiffRawError>
+
+  export class RawDiffError extends Error {
+    constructor(
+      message: string,
+      readonly reason: DiffRawError["reason"],
+    ) {
+      super(message)
+      this.name = "VcsRawDiffError"
+    }
+  }
+
   export class PatchApplyError extends Error {
     constructor(
       message: string,
@@ -219,7 +253,7 @@ export namespace Vcs {
     readonly defaultBranch: () => Effect.Effect<string | undefined>
     readonly status: () => Effect.Effect<FileStatus[]>
     readonly diff: (mode: Mode) => Effect.Effect<FileDiff[]>
-    readonly diffRaw: () => Effect.Effect<string>
+    readonly diffRaw: () => Effect.Effect<string, RawDiffError>
     readonly apply: (input: ApplyInput) => Effect.Effect<ApplyResult, PatchApplyError>
   }
 
@@ -326,10 +360,21 @@ export namespace Vcs {
           const [hasHead, status] = yield* Effect.all([git.hasHead(Instance.directory), git.status(Instance.directory)], {
             concurrency: 2,
           })
-          const tracked = hasHead ? (yield* git.patchAll(Instance.directory, "HEAD")).text : ""
+          const batch: PatchBatch = { total: 0, capped: false }
+          const tracked = yield* rawPatch(
+            batch,
+            hasHead
+              ? git.patchAll(Instance.directory, "HEAD", { binary: true, maxOutputBytes: MAX_TOTAL_PATCH_BYTES })
+              : git.patchStagedAll(Instance.directory, { binary: true, maxOutputBytes: MAX_TOTAL_PATCH_BYTES }),
+          )
           const untracked = yield* Effect.forEach(
             status.filter((item) => item.code === "??"),
-            (item) => git.patchUntracked(Instance.directory, item.file).pipe(Effect.map((patch) => patch.text)),
+            (item) =>
+              rawPatch(
+                batch,
+                git.patchUntracked(Instance.directory, item.file, { binary: true, maxOutputBytes: MAX_TOTAL_PATCH_BYTES }),
+              ),
+            { concurrency: 1 },
           )
           return [tracked, ...untracked].filter(Boolean).join("\n")
         }),

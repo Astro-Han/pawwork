@@ -210,11 +210,31 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
               },
             },
           },
+          413: {
+            description: "Raw VCS diff failure",
+            content: {
+              "application/json": {
+                schema: resolver(Vcs.DiffRawError),
+              },
+            },
+          },
         },
       }),
       async (c) => {
-        c.header("content-type", "text/plain; charset=UTF-8")
-        return c.text(await Vcs.diffRaw())
+        try {
+          c.header("content-type", "text/plain; charset=UTF-8")
+          return c.text(await Vcs.diffRaw())
+        } catch (error) {
+          if (error instanceof Vcs.RawDiffError) {
+            const body = {
+              error: "vcs_diff_raw_failed",
+              reason: error.reason,
+              message: error.message,
+            } satisfies Vcs.DiffRawError
+            return c.json(body, 413)
+          }
+          throw error
+        }
       },
     )
     .post(

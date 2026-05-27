@@ -182,6 +182,7 @@ import type {
   ToolListResponses,
   VcsApplyErrors,
   VcsApplyResponses,
+  VcsDiffRawErrors,
   VcsDiffRawResponses,
   VcsDiffResponses,
   VcsGetResponses,
@@ -4089,7 +4090,7 @@ export class Vcs extends HeyApiClient {
         },
       ],
     )
-    return (options?.client ?? this.client).get<VcsDiffRawResponses, unknown, ThrowOnError>({
+    return (options?.client ?? this.client).get<VcsDiffRawResponses, VcsDiffRawErrors, ThrowOnError>({
       url: "/vcs/diff/raw",
       ...options,
       ...params,
