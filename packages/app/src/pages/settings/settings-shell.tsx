@@ -14,17 +14,18 @@ import { ModelsPage } from "./models"
 // (width / background / border) is inherited from the shell slots instead of being
 // re-declared, which removes the alignment drift the old standalone overlay had
 // (its fixed 200px nav + surface-raised content diverged from the real sidebar).
-// Remote access / Integrations stay hidden from the nav until their pages are ready;
-// the connection management they will host is still reachable via right-panel Connections.
-export type SettingsTab = "general" | "shortcuts" | "models" | "remote" | "integrations" | "worktrees" | "memory"
+// Remote access / Integrations are not part of this surface yet: their pages have no content
+// branch, so they are intentionally absent from both the type and TAB_VALUES. They come back —
+// type, TAB_VALUES, NAV_ITEMS and a content Match together — when their pages land. The
+// connection management they will host is still reachable via right-panel Connections.
+export type SettingsTab = "general" | "shortcuts" | "models" | "worktrees" | "memory"
 
-const TAB_VALUES: SettingsTab[] = ["general", "shortcuts", "models", "remote", "integrations", "worktrees", "memory"]
+const TAB_VALUES: SettingsTab[] = ["general", "shortcuts", "models", "worktrees", "memory"]
 
 export function isSettingsTab(value: string): value is SettingsTab {
   return (TAB_VALUES as string[]).includes(value)
 }
 
-// Currently 5 visible tabs; remote / integrations omitted until ready (see above).
 const NAV_ITEMS = [
   { value: "general", icon: "settings-gear", labelKey: "settings.tab.general" },
   { value: "shortcuts", icon: "keyboard", labelKey: "settings.tab.shortcuts" },
