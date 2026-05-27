@@ -119,12 +119,6 @@
     user-select: none;
   }
 
-  [data-slot="assistant-turn-footer"][data-interrupted] {
-    width: 100%;
-    justify-content: flex-end;
-    gap: 12px;
-  }
-
   [data-slot="session-turn-message-container"]:hover [data-slot="assistant-turn-footer"],
   [data-slot="session-turn-message-container"]:focus-within [data-slot="assistant-turn-footer"] {
     opacity: 1;

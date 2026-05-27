@@ -262,9 +262,6 @@ export function SessionTurn(
     if (!messages.length) return false
     return messages.some((item) => typeof item.time.completed !== "number")
   })
-  const interrupted = createMemo(() =>
-    visibleAssistantMessages().some((m) => m.error?.name === "MessageAbortedError"),
-  )
   const status = createMemo(() => {
     if (props.status !== undefined) return props.status
     if (typeof props.active === "boolean" && !props.active) return idle
@@ -294,7 +291,6 @@ export function SessionTurn(
   })
   const divider = createMemo(() => {
     if (compactionDivider()) return compactionLabel() ?? ""
-    if (interrupted()) return i18n.t("ui.message.interrupted")
     return ""
   })
   const error = createMemo(
