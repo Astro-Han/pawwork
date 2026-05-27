@@ -512,21 +512,32 @@ describeWatcher("FileWatcher", () => {
     })
   })
 
-  test("ignores local artifact roots from workspace updates", async () => {
+  test("ignores high-churn local artifact roots from workspace updates", async () => {
     await using tmp = await tmpdir({ git: true })
-    const artifact = path.join(tmp.path, ".claude")
-    const file = path.join(artifact, "settings.local.json")
+    const artifacts = [".worktrees", ".claude", ".claire", ".superpowers", "node_modules", ".turbo"]
 
     await withWatcher(
       tmp.path,
       noUpdate(
         tmp.path,
-        (evt) => evt.file === file,
+        (evt) => artifacts.some((artifact) => evt.file.startsWith(path.join(tmp.path, artifact) + path.sep)),
         noRescan(
           (evt) => evt.directory === tmp.path,
           Effect.promise(async () => {
-            await fs.mkdir(artifact)
-            await fs.writeFile(file, "{}")
+            for (const artifact of artifacts) {
+              const artifactDir = path.join(tmp.path, artifact)
+              await fs.mkdir(artifactDir)
+              await Promise.all(
+                Array.from({ length: 100 }, (_, index) =>
+                  fs.writeFile(path.join(artifactDir, `artifact-${index}.txt`), `first ${index}`),
+                ),
+              )
+              await Promise.all(
+                Array.from({ length: 100 }, (_, index) =>
+                  fs.writeFile(path.join(artifactDir, `artifact-${index}.txt`), `second ${index}`),
+                ),
+              )
+            }
           }),
           1_000,
         ),
