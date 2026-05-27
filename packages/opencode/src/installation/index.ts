@@ -8,7 +8,11 @@ import z from "zod"
 import { BusEvent } from "@/bus/bus-event"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { Log } from "@opencode-ai/core/util/log"
-import { InstallationChannel as channel, InstallationVersion as version } from "@opencode-ai/core/installation/version"
+import {
+  InstallationChannel as channel,
+  InstallationVersion as version,
+  InstallationHTTPVersion,
+} from "@opencode-ai/core/installation/version"
 
 import semver from "semver"
 
@@ -57,7 +61,16 @@ export namespace Installation {
 
   export const VERSION = version
   export const CHANNEL = channel
+  export const HTTP_VERSION = InstallationHTTPVersion
   export const USER_AGENT = `opencode/${CHANNEL}/${VERSION}/${Flag.OPENCODE_CLIENT}`
+  export const HTTP_USER_AGENT = `opencode/latest/${HTTP_VERSION}/${Flag.OPENCODE_CLIENT}`
+
+  export function httpIdentity(): Record<string, string> {
+    return {
+      "User-Agent": HTTP_USER_AGENT,
+      "x-opencode-client": Flag.OPENCODE_CLIENT,
+    }
+  }
 
   export function isPreview() {
     return CHANNEL !== "latest"

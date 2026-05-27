@@ -47,6 +47,12 @@ const VERSION = await (async () => {
   return `${major}.${minor}.${patch + 1}`
 })()
 
+const UPSTREAM_VERSION_PATH = path.resolve(import.meta.dir, "../../../UPSTREAM_VERSION")
+const HTTP_VERSION = await Bun.file(UPSTREAM_VERSION_PATH)
+  .text()
+  .then((x) => x.trim())
+  .catch(() => VERSION)
+
 const bot = ["actions-user", "opencode", "opencode-agent[bot]"]
 const teamPath = path.resolve(import.meta.dir, "../../../.github/TEAM_MEMBERS")
 const team = [
@@ -63,6 +69,9 @@ export const Script = {
   },
   get version() {
     return VERSION
+  },
+  get httpVersion() {
+    return HTTP_VERSION
   },
   get preview() {
     return IS_PREVIEW

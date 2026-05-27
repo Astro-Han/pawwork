@@ -8,6 +8,7 @@ import {
 } from "effect/unstable/http"
 
 import { withTransientReadRetry } from "@/util/effect-http-client"
+import { Installation } from "@/installation"
 import { AccountRepo, type AccountRow } from "./repo"
 import { normalizeServerUrl } from "./url"
 import {
@@ -186,7 +187,8 @@ export namespace Account {
     Service,
     Effect.gen(function* () {
       const repo = yield* AccountRepo
-      const http = yield* HttpClient.HttpClient
+      const rawHttp = yield* HttpClient.HttpClient
+      const http = HttpClient.mapRequest(rawHttp, HttpClientRequest.setHeaders(Installation.httpIdentity()))
       const httpRead = withTransientReadRetry(http)
       const httpOk = HttpClient.filterStatusOk(http)
       const httpReadOk = HttpClient.filterStatusOk(httpRead)
