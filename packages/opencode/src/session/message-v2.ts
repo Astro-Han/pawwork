@@ -80,19 +80,20 @@ function appendToolInputMarkerToArray(items: unknown[], maxChars: number): unkno
 }
 
 function appendToolInputMarkerToObject(input: Record<string, unknown>, maxChars: number): Record<string, unknown> {
-  const marker = toolInputTruncatedMarker(maxChars)
+  const marker = toolInputTruncatedMarker(maxChars) as Record<string, unknown>
   const output = { ...input }
   const keys = Object.keys(output)
-  while (keys.length > 0 && serializedToolInputLength({ ...output, _truncated: marker }) > maxChars) {
+  while (keys.length > 0 && serializedToolInputLength({ ...output, ...marker }) > maxChars) {
     const key = keys.pop()
     if (key) delete output[key]
   }
-  const withMarker = { ...output, _truncated: marker }
+  const withMarker = { ...output, ...marker }
   return serializedToolInputLength(withMarker) <= maxChars ? withMarker : output
 }
 
 function truncateToolInput(input: unknown, maxChars?: number): unknown {
   if (maxChars == null) return input
+  if (maxChars <= 0) return ""
   if (typeof input === "string") {
     const truncated = truncateToolInputString(input, maxChars)
     return serializedToolInputLength(truncated) <= maxChars ? truncated : toolInputTruncatedMarker(maxChars)

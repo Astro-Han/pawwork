@@ -997,6 +997,97 @@ describe("session.message-v2.toModelMessage", () => {
     expect(serializedInput).not.toContain("short todo item 99")
   })
 
+  test("uses a flat truncation marker for object tool input projections", async () => {
+    const userID = "m-user"
+    const assistantID = "m-assistant"
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [
+          {
+            ...basePart(userID, "u1"),
+            type: "text",
+            text: "run a tool",
+          },
+        ] as MessageV2.Part[],
+      },
+      {
+        info: assistantInfo(assistantID, userID),
+        parts: [
+          {
+            ...basePart(assistantID, "a1"),
+            type: "tool",
+            callID: "call-object",
+            tool: "example",
+            state: {
+              status: "completed",
+              input: {
+                first: "a".repeat(30),
+                second: "b".repeat(30),
+                third: "c".repeat(30),
+              },
+              output: "ok",
+              title: "",
+              metadata: {},
+              time: { start: 0, end: 1 },
+            },
+          },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    const [, assistant] = await MessageV2.toModelMessages(input, model, {
+      toolInputMaxChars: 90,
+    })
+    const toolCall = assistant?.content[0] as any
+
+    expect(typeof toolCall.input._truncated).toBe("string")
+    expect(toolCall.input._truncated).toContain("Tool input truncated")
+  })
+
+  test("uses empty tool input for non-positive projection budgets", async () => {
+    const userID = "m-user"
+    const assistantID = "m-assistant"
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [
+          {
+            ...basePart(userID, "u1"),
+            type: "text",
+            text: "run a tool",
+          },
+        ] as MessageV2.Part[],
+      },
+      {
+        info: assistantInfo(assistantID, userID),
+        parts: [
+          {
+            ...basePart(assistantID, "a1"),
+            type: "tool",
+            callID: "call-zero",
+            tool: "example",
+            state: {
+              status: "completed",
+              input: { value: "kept out" },
+              output: "ok",
+              title: "",
+              metadata: {},
+              time: { start: 0, end: 1 },
+            },
+          },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    const [, assistant] = await MessageV2.toModelMessages(input, model, {
+      toolInputMaxChars: 0,
+    })
+    const toolCall = assistant?.content[0] as any
+
+    expect(toolCall.input).toBe("")
+  })
+
   test("stops traversing oversized tool input after the projection budget is exhausted", async () => {
     const userID = "m-user"
     const assistantID = "m-assistant"
