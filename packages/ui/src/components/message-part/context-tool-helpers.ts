@@ -7,7 +7,7 @@ import { toolInfoForInput } from "../tool-info"
 export function contextToolDetail(part: ToolPart, i18n: UiI18n): string | undefined {
   const info = toolInfoForInput(part.tool, part.state.input ?? {}, toolStateMetadata(part.state), i18n)
   if (info.subtitle) return info.subtitle
-  if (part.state.status === "error") return toolStateError(part.state)
+  if (part.state.status === "error") return undefined
   if ((part.state.status === "running" || part.state.status === "completed") && part.state.title)
     return part.state.title
   const description = part.state.input?.description

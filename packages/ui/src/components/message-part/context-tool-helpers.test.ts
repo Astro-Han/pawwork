@@ -30,10 +30,11 @@ function tool(
   metadata: Record<string, unknown> = {},
   input: Record<string, unknown> = {},
   title = "",
+  error = "boom",
 ): ToolPart {
   const state: ToolState =
     status === "error"
-      ? { status, input, error: "boom", time: { start: 0, end: 1 } }
+      ? { status, input, error, time: { start: 0, end: 1 } }
       : { status, input, output: "", title, metadata, time: { start: 0, end: 1 } }
 
   return {
@@ -133,5 +134,59 @@ describe("contextTrowSummaryText", () => {
     )
 
     expect(contextToolSummaryText(part, i18n("en"))).toBe("Edit files 1 file")
+  })
+
+  test("keeps failed question summaries bounded instead of exposing raw schema errors", () => {
+    const schemaError =
+      'The question tool was called with invalid arguments: SchemaError(Missing key at ["questions"][0]["options"][3]["description"]).\nPlease rewrite the input so it satisfies the expected schema.'
+    const part = tool(
+      "question",
+      "question",
+      "error",
+      {},
+      {
+        questions: [
+          {
+            question: "Tauri backend Rust, OpenCode server TypeScript. ".repeat(20),
+            options: [
+              { label: "External", description: "Run Node separately" },
+              { label: "Rust", description: "Rewrite backend" },
+              { label: "Shell", description: "Spawn child process" },
+              { label: "Unsure" },
+            ],
+          },
+        ],
+      },
+      "",
+      schemaError,
+    )
+
+    const summary = contextToolSummaryText(part, i18n("en"))
+
+    expect(summary).toBe("Questions 1 question")
+    expect(summary).not.toContain("SchemaError")
+    expect(summary).not.toContain("\n")
+    expect(summary.length).toBeLessThanOrEqual(80)
+  })
+
+  test("summarizes todowrite input by item count instead of raw content", () => {
+    const part = tool(
+      "todos",
+      "todowrite",
+      "completed",
+      {},
+      {
+        todos: [
+          { content: "Investigate tool input projection boundaries", status: "completed" },
+          { content: "Add regression tests for compaction replay", status: "pending" },
+        ],
+      },
+    )
+
+    const summary = contextToolSummaryText(part, i18n("en"))
+
+    expect(summary).toBe("To-dos 2 todos")
+    expect(summary).not.toContain("Investigate tool input projection boundaries")
+    expect(summary.length).toBeLessThanOrEqual(80)
   })
 })
