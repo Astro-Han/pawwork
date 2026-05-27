@@ -195,7 +195,12 @@
         justify-content: space-between;
         align-items: center;
         align-self: stretch;
-        background: var(--surface-base);
+        /* Sticky headers need an opaque backdrop matching the surface the list
+           sits on. List defaults to the page canvas (--surface-base); popover
+           consumers (picker, command palette) sit on --surface-raised and set
+           --list-surface on their container so the header tracks them without
+           a per-consumer specificity fight. */
+        background: var(--list-surface, var(--surface-base));
         position: sticky;
         top: 0;
 
@@ -215,7 +220,7 @@
           left: 0;
           right: 0;
           height: 16px;
-          background: linear-gradient(to bottom, var(--surface-base), transparent);
+          background: linear-gradient(to bottom, var(--list-surface, var(--surface-base)), transparent);
           pointer-events: none;
           opacity: 0;
           transition: opacity 0.15s ease;
