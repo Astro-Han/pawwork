@@ -217,6 +217,7 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
     }
 
     const viewedInCurrentSession = (directory: string, sessionID?: string) => {
+      if (typeof document !== "undefined" && !document.hasFocus()) return false
       const activeDirectory = currentDirectory()
       const activeSession = currentSession()
       if (!activeDirectory) return false

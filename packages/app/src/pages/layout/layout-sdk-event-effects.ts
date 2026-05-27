@@ -128,6 +128,7 @@ function currentRouteVisibility(
   directory: string,
   sessionID: string,
 ): { visible: boolean; sessions?: readonly LayoutSession[] } {
+  if (typeof document !== "undefined" && !document.hasFocus()) return { visible: false }
   const currentSessionID = input.route.currentSessionID()
   if (!currentSessionID) return { visible: false }
 
