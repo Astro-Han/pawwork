@@ -606,6 +606,7 @@ export namespace FileWatcher {
                   Instance.restore(ctx, () => {
                     rootEntrySnapshot(ctx.directory)
                       .then((next) => {
+                        if (pollingDisposed) return
                         const prev = snapshot
                         snapshot = next
                         const nextNames = new Set(next.keys())
@@ -661,11 +662,12 @@ export namespace FileWatcher {
 
                         if (!refreshPlan) return
                         Effect.runPromise(applyPlan())
-                          .then(() =>
-                            Bus.publish(Event.Rescan, { directory: ctx.directory }).catch((error) =>
+                          .then(() => {
+                            if (pollingDisposed) return
+                            return Bus.publish(Event.Rescan, { directory: ctx.directory }).catch((error) =>
                               log.warn("failed to publish watcher rescan", { dir: ctx.directory, error }),
-                            ),
-                          )
+                            )
+                          })
                           .catch((error) => log.warn("failed to refresh watcher plan", { dir: ctx.directory, error }))
                       })
                       .catch((error) => log.warn("failed to poll workspace root", { dir: ctx.directory, error }))
