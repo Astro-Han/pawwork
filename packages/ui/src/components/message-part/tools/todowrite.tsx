@@ -2,6 +2,7 @@ import { createMemo, For, Show } from "solid-js"
 import type { Todo } from "@opencode-ai/sdk/v2"
 import { useI18n } from "../../../context/i18n"
 import { BasicTool } from "../../basic-tool"
+import { toolIcon } from "../../tool-info"
 import { TodoStatusMarker } from "../../todo-status-marker"
 import { ToolRegistry } from "../registry"
 
@@ -29,7 +30,7 @@ ToolRegistry.register({
       <BasicTool
         {...props}
         defaultOpen
-        icon="checklist"
+        icon={toolIcon("todowrite")}
         trigger={{
           title: i18n.t("ui.tool.todos"),
           subtitle: subtitle(),

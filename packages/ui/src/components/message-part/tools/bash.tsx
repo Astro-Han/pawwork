@@ -2,6 +2,7 @@ import { createMemo, createSignal, onMount, Show } from "solid-js"
 import { animate } from "motion"
 import { useI18n } from "../../../context/i18n"
 import { BasicTool } from "../../basic-tool"
+import { toolIcon } from "../../tool-info"
 import { IconButton } from "../../icon-button"
 import { TextShimmer } from "../../text-shimmer"
 import { Tooltip } from "../../tooltip"
@@ -69,7 +70,7 @@ ToolRegistry.register({
     return (
       <BasicTool
         {...props}
-        icon="console"
+        icon={toolIcon("bash")}
         defer
         trigger={
           <div data-slot="basic-tool-tool-info-structured">

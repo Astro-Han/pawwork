@@ -3,10 +3,11 @@ import type { ReasoningPart, ToolPart } from "@opencode-ai/sdk/v2"
 import { patchFiles } from "./apply-patch-file"
 import { Icon, type IconName } from "./icon"
 import { TextShimmer } from "./text-shimmer"
+import { toolIcon } from "./tool-info"
 import "./session-turn-trow-block.css"
 
 // ============================================================================
-// Pure reducer + tool-family icon map
+// Pure reducer + trow-block leading icon
 // ============================================================================
 //
 // Kept at the top of this file as named exports so the reducer can be unit
@@ -14,51 +15,17 @@ import "./session-turn-trow-block.css"
 // The Solid component below is a thin presentational shell that consumes
 // these helpers — the testable logic lives here.
 //
-// The tool-family icon map is intentionally a subset of message-part.tsx's
-// `getToolInfo()` switch — the trow-block leading icon only needs the icon
-// name (no i18n title / subtitle), so we duplicate the mapping rather than
-// pulling the whole i18n-coupled helper. When `getToolInfo()` adds a new
-// tool kind, `toolFamilyIcon()` should be updated in lock-step; the unit
-// test below pins the contract for the well-known tool families.
+// `toolFamilyIcon()` delegates to `toolIcon()` in tool-info.ts, the single
+// source of truth shared with the expanded tool header (`toolInfoForInput`)
+// and the individual tool components — so the collapsed and expanded views
+// of a tool can never show different icons.
 
 /**
- * Resolves a tool's family icon for the trow-block summary row.
- * Returns `mcp` (the generic MCP icon) for any unknown tool name —
- * matches `getToolInfo()`'s default branch.
+ * Resolves a tool's leading icon for the trow-block summary row, via the
+ * shared {@link toolIcon} source of truth. Returns `mcp` for unknown tools.
  */
 export function toolFamilyIcon(tool: string): IconName {
-  switch (tool) {
-    case "read":
-      return "read-file"
-    case "list":
-      return "bullet-list"
-    case "glob":
-    case "grep":
-      return "magnifying-glass-menu"
-    case "webfetch":
-    case "websearch":
-      return "window-cursor"
-    case "enter-worktree":
-    case "exit-worktree":
-      return "worktree"
-    case "task":
-    case "agent":
-      return "agent"
-    case "bash":
-      return "console"
-    case "edit":
-    case "write":
-    case "apply_patch":
-      return "edit"
-    case "todowrite":
-      return "checklist"
-    case "question":
-      return "bubble-5"
-    case "skill":
-      return "skill"
-    default:
-      return "mcp"
-  }
+  return toolIcon(tool)
 }
 
 export type TrowPart = ToolPart | ReasoningPart

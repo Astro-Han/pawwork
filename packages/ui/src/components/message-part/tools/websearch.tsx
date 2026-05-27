@@ -1,6 +1,7 @@
 import { createMemo, For, Show } from "solid-js"
 import { useI18n } from "../../../context/i18n"
 import { BasicTool } from "../../basic-tool"
+import { toolIcon } from "../../tool-info"
 import { urls } from "../session-link"
 import { ToolRegistry } from "../registry"
 
@@ -43,7 +44,7 @@ ToolRegistry.register({
     return (
       <BasicTool
         {...props}
-        icon="window-cursor"
+        icon={toolIcon("websearch")}
         trigger={{
           title: i18n.t("ui.tool.websearch"),
           subtitle: query(),

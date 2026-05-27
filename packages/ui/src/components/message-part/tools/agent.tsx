@@ -3,6 +3,7 @@ import { useLocation } from "@solidjs/router"
 import { useData } from "../../../context"
 import { useI18n } from "../../../context/i18n"
 import { BasicTool } from "../../basic-tool"
+import { toolIcon } from "../../tool-info"
 import { Icon } from "../../icon"
 import { Spinner } from "../../spinner"
 import { TextShimmer } from "../../text-shimmer"
@@ -78,7 +79,7 @@ const renderAgentToolPart: ToolComponent = (props) => {
 
   return (
     <BasicTool
-      icon="agent"
+      icon={toolIcon("agent")}
       status={props.status}
       trigger={trigger()}
       hideDetails

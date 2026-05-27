@@ -5,6 +5,7 @@ import { getFilename } from "@opencode-ai/core/util/path"
 import { useFileComponent } from "../../../context/file"
 import { useI18n } from "../../../context/i18n"
 import { BasicTool } from "../../basic-tool"
+import { toolIcon } from "../../tool-info"
 import { TextShimmer } from "../../text-shimmer"
 import { getDirectory } from "../markdown-render"
 import { ToolRegistry } from "../registry"
@@ -24,7 +25,7 @@ ToolRegistry.register({
       <div data-component="write-tool">
         <BasicTool
           {...props}
-          icon="edit"
+          icon={toolIcon("write")}
           defer
           trigger={
             <div data-component="write-trigger">

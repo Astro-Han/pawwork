@@ -1,5 +1,6 @@
 import { expect, test, describe } from "bun:test"
 import type { ToolPart, ToolState } from "@opencode-ai/sdk/v2"
+import type { UiI18n } from "../context/i18n"
 import {
   activeTrowTool,
   reduceTrowBlock,
@@ -7,6 +8,7 @@ import {
   trowBlockAnchor,
   toolFamilyIcon,
 } from "./session-turn-trow-block"
+import { buildToolInfo } from "./tool-info"
 
 function tool(
   id: string,
@@ -43,10 +45,10 @@ function tool(
 }
 
 describe("toolFamilyIcon", () => {
-  test("maps the well-known tool families to their getToolInfo icons", () => {
-    // Pin the contract for every tool family `getToolInfo` knows. Updating
-    // `getToolInfo` without updating `toolFamilyIcon` causes the trow-block
-    // leading icon to drift from the trow body's tool-info icon.
+  test("maps the well-known tool families to their shared toolIcon", () => {
+    // `toolFamilyIcon` delegates to `toolIcon` (tool-info.ts), the single
+    // source of truth. Pin the icon for every known family so an accidental
+    // edit to `toolIcon` is caught here.
     expect(toolFamilyIcon("read")).toBe("read-file")
     expect(toolFamilyIcon("list")).toBe("bullet-list")
     expect(toolFamilyIcon("glob")).toBe("magnifying-glass-menu")
@@ -69,6 +71,36 @@ describe("toolFamilyIcon", () => {
   test("unknown tool name falls back to the generic mcp icon", () => {
     expect(toolFamilyIcon("definitely-not-a-tool")).toBe("mcp")
     expect(toolFamilyIcon("")).toBe("mcp")
+  })
+
+  test("stays in lock-step with the expanded tool-info icon", () => {
+    // The collapsed trow leading icon and the expanded tool header both flow
+    // through `toolIcon`, so they must resolve to the same icon for every
+    // family. This guards the two surfaces against drifting apart again.
+    const i18n = { t: (k: string) => k, language: () => "en" } as unknown as UiI18n
+    const families = [
+      "read",
+      "list",
+      "glob",
+      "grep",
+      "webfetch",
+      "websearch",
+      "enter-worktree",
+      "exit-worktree",
+      "task",
+      "agent",
+      "bash",
+      "edit",
+      "write",
+      "apply_patch",
+      "todowrite",
+      "question",
+      "skill",
+      "definitely-not-a-tool",
+    ]
+    for (const name of families) {
+      expect(toolFamilyIcon(name)).toBe(buildToolInfo(tool("x", name), i18n).icon)
+    }
   })
 })
 
