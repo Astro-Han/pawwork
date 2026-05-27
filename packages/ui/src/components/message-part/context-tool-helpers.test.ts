@@ -169,7 +169,7 @@ describe("contextTrowSummaryText", () => {
     expect(summary.length).toBeLessThanOrEqual(80)
   })
 
-  test("summarizes todowrite input by item count instead of raw content", () => {
+  test("summarizes todowrite input by localized item count instead of raw content", () => {
     const part = tool(
       "todos",
       "todowrite",
@@ -183,9 +183,9 @@ describe("contextTrowSummaryText", () => {
       },
     )
 
-    const summary = contextToolSummaryText(part, i18n("en"))
+    const summary = contextToolSummaryText(part, i18n("zh"))
 
-    expect(summary).toBe("To-dos 2 todos")
+    expect(summary).toBe("待办 2 个待办")
     expect(summary).not.toContain("Investigate tool input projection boundaries")
     expect(summary.length).toBeLessThanOrEqual(80)
   })

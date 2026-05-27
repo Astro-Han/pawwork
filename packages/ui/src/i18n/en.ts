@@ -204,6 +204,8 @@ export const dict: Record<string, string> = {
 
   "ui.common.file.one": "file",
   "ui.common.file.other": "files",
+  "ui.common.todo.one": "todo",
+  "ui.common.todo.other": "todos",
   "ui.common.question.one": "question",
   "ui.common.question.other": "questions",
 

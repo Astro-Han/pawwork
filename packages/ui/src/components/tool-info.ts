@@ -224,7 +224,9 @@ export function toolInfoForInput(
       return {
         icon,
         title: i18n.t("ui.tool.todos"),
-        subtitle: todoCount ? `${todoCount} ${todoCount === 1 ? "todo" : "todos"}` : undefined,
+        subtitle: todoCount
+          ? `${todoCount} ${i18n.t(todoCount > 1 ? "ui.common.todo.other" : "ui.common.todo.one")}`
+          : undefined,
       }
     }
     case TOOL_QUESTION: {
