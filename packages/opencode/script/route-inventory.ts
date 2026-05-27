@@ -116,6 +116,22 @@ const explicitlyDeferred = [
 
 function repoRoot(input?: string) {
   if (input) return path.resolve(input)
+  return findWorkspaceRoot(import.meta.url)
+}
+
+export function findWorkspaceRoot(start: string) {
+  let dir = start.startsWith("file:") ? path.dirname(fileURLToPath(start)) : path.resolve(start)
+  if (existsSync(dir) && !path.extname(dir)) {
+    dir = path.resolve(dir)
+  } else {
+    dir = path.dirname(dir)
+  }
+  while (dir !== path.dirname(dir)) {
+    if (existsSync(path.join(dir, "bun.lock")) && existsSync(path.join(dir, "packages/opencode/package.json"))) {
+      return dir
+    }
+    dir = path.dirname(dir)
+  }
   return path.resolve(fileURLToPath(new URL("../../..", import.meta.url)))
 }
 
@@ -172,6 +188,7 @@ async function discoverHonoRoutes(root: string): Promise<Route[]> {
       routes.push({ method, path: joinRoute(prefix, routePath), source: relative })
     }
   }
+  // These runtime routes are wired through UI/proxy setup instead of ordinary route modules.
   routes.push({ method: "ALL", path: "/*", source: "packages/opencode/src/server/ui/index.ts" })
   routes.push({ method: "GET", path: "/__workspace_ws", source: "packages/opencode/src/server/proxy.ts" })
   return uniqueRoutes(routes)
@@ -191,14 +208,21 @@ async function readOpenApiRoutes(root: string): Promise<Route[]> {
   return uniqueRoutes(routes)
 }
 
-async function readSdkRoutes(root: string, relative: string): Promise<Route[]> {
-  const text = await readText(path.join(root, relative))
+export function parseSdkRoutesFromText(text: string, source: string): Route[] {
   const routes: Route[] = []
-  const routePattern = /\.(get|post|put|patch|delete)(?:\.sse)?<[^>]*>\(\{\s*\n\s*url:\s*"([^"]+)"/g
+  const routePattern = /\.(get|post|put|patch|delete)(?:\.sse)?<[^>]*>\(\{\s*url:\s*(["'`])([^"'`]+)\2/g
   for (const match of text.matchAll(routePattern)) {
-    routes.push({ method: match[1]!.toUpperCase(), path: normalizePath(match[2]!), source: relative })
+    routes.push({ method: match[1]!.toUpperCase(), path: normalizePath(match[3]!), source })
   }
   return uniqueRoutes(routes)
+}
+
+async function readSdkRoutes(root: string, relative: string): Promise<Route[]> {
+  try {
+    return parseSdkRoutesFromText(await readText(path.join(root, relative)), relative)
+  } catch {
+    return []
+  }
 }
 
 function git(root: string, args: string[]) {
@@ -222,13 +246,19 @@ export function parseHttpApiRoutesFromText(text: string, source: string): Route[
   const pathValues = new Map<string, string>()
 
   for (const objectMatch of text.matchAll(/export\s+const\s+(\w*Paths)\s*=\s*\{([\s\S]*?)\}\s+as\s+const/g)) {
+    const objectName = objectMatch[1]!
     const body = objectMatch[2]!
     for (const entry of body.matchAll(/(\w+):\s*(["'`])([^"'`]+)\2/g)) {
-      pathValues.set(entry[1]!, resolveTemplatePath(entry[3]!, constants))
+      const value = resolveTemplatePath(entry[3]!, constants)
+      pathValues.set(`${objectName}.${entry[1]!}`, value)
+      pathValues.set(entry[1]!, value)
     }
     for (const entry of body.matchAll(/(\w+):\s*(\w+)\s*(?:,|\n)/g)) {
       const value = constants.get(entry[2]!)
-      if (value) pathValues.set(entry[1]!, value)
+      if (value) {
+        pathValues.set(`${objectName}.${entry[1]!}`, value)
+        pathValues.set(entry[1]!, value)
+      }
     }
   }
 
@@ -242,7 +272,7 @@ export function parseHttpApiRoutesFromText(text: string, source: string): Route[
     if (literal) routePath = resolveTemplatePath(literal[2]!, constants)
     else {
       const key = pathExpr.split(".").pop()
-      if (key) routePath = pathValues.get(key)
+      routePath = pathValues.get(pathExpr) ?? (key ? pathValues.get(key) : undefined)
     }
     if (routePath) routes.push({ method, path: normalizePath(routePath), source })
   }
@@ -293,6 +323,7 @@ function classify(input: {
   }
   if (pawworkOwned.has(key) && input.hono) return "pawwork-owned"
   if (input.hono && input.openapi && input.v2Sdk) return input.legacySdk ? "all-public-surfaces" : "openapi-v2-sdk"
+  if (input.hono && input.v2Sdk && !input.openapi) return "hono-v2-sdk"
   if (input.hono && !input.openapi) return "hono-only"
   if (!input.hono && input.upstreamHttpApi) return "onlyHttpApi"
   if (input.openapi && !input.hono) return "openapi-only"
@@ -350,9 +381,16 @@ export async function buildRouteInventory(options: BuildOptions = {}): Promise<R
     upstreamCommit = undefined
   }
 
+  let pawworkCommit = "unknown"
+  try {
+    pawworkCommit = git(root, ["rev-parse", "HEAD"])
+  } catch {
+    pawworkCommit = "unknown"
+  }
+
   return {
     baseline: {
-      pawworkCommit: git(root, ["rev-parse", "HEAD"]),
+      pawworkCommit,
       upstreamCommit,
     },
     counts: {

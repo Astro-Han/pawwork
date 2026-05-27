@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test"
-import { buildRouteInventory, parseHttpApiRoutesFromText } from "../../script/route-inventory"
+import {
+  buildRouteInventory,
+  findWorkspaceRoot,
+  parseHttpApiRoutesFromText,
+  parseSdkRoutesFromText,
+} from "../../script/route-inventory"
 
-const root = new URL("../../../..", import.meta.url).pathname
+const root = findWorkspaceRoot(import.meta.url)
 
 function hasRoute(routes: ReadonlyArray<{ method: string; path: string }>, method: string, path: string) {
   return routes.some((route) => route.method === method && route.path === path)
@@ -62,5 +67,54 @@ describe("route inventory harness", () => {
       path: "/session/:sessionID/message/:messageID",
       source: "fixture.ts",
     })
+  })
+
+  test("qualifies upstream HttpApi path object keys when names collide", () => {
+    const routes = parseHttpApiRoutesFromText(
+      `
+      const sessionRoot = "/session"
+      const providerRoot = "/provider"
+      export const SessionPaths = {
+        list: sessionRoot,
+      } as const
+      export const ProviderPaths = {
+        list: providerRoot,
+      } as const
+
+      HttpApiEndpoint.get("sessions", SessionPaths.list, {})
+      HttpApiEndpoint.get("providers", ProviderPaths.list, {})
+      `,
+      "fixture.ts",
+    )
+
+    expect(routes).toContainEqual({ method: "GET", path: "/session", source: "fixture.ts" })
+    expect(routes).toContainEqual({ method: "GET", path: "/provider", source: "fixture.ts" })
+  })
+
+  test("parses SDK route calls across formatting styles", () => {
+    const routes = parseSdkRoutesFromText(
+      `
+      client.get<Response>({ url: "/config" })
+      client.post<Response, Error>({
+        url: '/session/{id}/message',
+      })
+      client.delete<Response>({
+        url: \`/pty/{id}\`,
+      })
+      `,
+      "fixture.ts",
+    )
+
+    expect(routes).toContainEqual({ method: "GET", path: "/config", source: "fixture.ts" })
+    expect(routes).toContainEqual({ method: "POST", path: "/session/:sessionID/message", source: "fixture.ts" })
+    expect(routes).toContainEqual({ method: "DELETE", path: "/pty/:ptyID", source: "fixture.ts" })
+  })
+
+  test("distinguishes non-product Hono and v2 SDK routes from Hono-only routes", async () => {
+    const inventory = await buildRouteInventory({ root })
+
+    expect(
+      inventory.rows.find((row) => row.method === "POST" && row.path === "/permission/__e2e/ask"),
+    ).toMatchObject({ hono: true, openapi: false, v2Sdk: true, classification: "hono-v2-sdk" })
   })
 })
