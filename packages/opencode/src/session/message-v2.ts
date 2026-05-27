@@ -64,50 +64,63 @@ function serializedToolInputLength(input: unknown) {
   }
 }
 
-function summarizeToolInput(input: unknown, maxChars: number): unknown {
-  if (maxChars <= 2) return {}
-  const original = (() => {
-    try {
-      return JSON.stringify(input)
-    } catch {
-      return String(input)
-    }
-  })()
-  const marker = "Tool input truncated for compaction"
-  const base = { _truncated: marker }
-  if (serializedToolInputLength(base) <= maxChars) {
-    let preview = ""
-    let summary = { ...base, preview }
-    let budget = maxChars - serializedToolInputLength(summary)
-    if (budget > 0) {
-      preview = original.slice(0, budget)
-      summary = { ...base, preview }
-      while (serializedToolInputLength(summary) > maxChars && preview.length > 0) {
-        preview = preview.slice(0, -1)
-        summary = { ...base, preview }
-      }
-    }
-    return summary
+function toolInputTruncatedMarker(maxChars: number): unknown {
+  const marker = { _truncated: "Tool input truncated for compaction" }
+  return serializedToolInputLength(marker) <= maxChars ? marker : {}
+}
+
+function appendToolInputMarkerToArray(items: unknown[], maxChars: number): unknown[] {
+  const marker = toolInputTruncatedMarker(maxChars)
+  const output = [...items]
+  while (output.length > 0 && serializedToolInputLength([...output, marker]) > maxChars) {
+    output.pop()
   }
-  return {}
+  const withMarker = [...output, marker]
+  return serializedToolInputLength(withMarker) <= maxChars ? withMarker : output
+}
+
+function appendToolInputMarkerToObject(input: Record<string, unknown>, maxChars: number): Record<string, unknown> {
+  const marker = toolInputTruncatedMarker(maxChars)
+  const output = { ...input }
+  const keys = Object.keys(output)
+  while (keys.length > 0 && serializedToolInputLength({ ...output, _truncated: marker }) > maxChars) {
+    const key = keys.pop()
+    if (key) delete output[key]
+  }
+  const withMarker = { ...output, _truncated: marker }
+  return serializedToolInputLength(withMarker) <= maxChars ? withMarker : output
 }
 
 function truncateToolInput(input: unknown, maxChars?: number): unknown {
   if (maxChars == null) return input
-  const truncated =
-    typeof input === "string"
-      ? truncateToolInputString(input, maxChars)
-      : Array.isArray(input)
-        ? input.map((item) => truncateToolInput(item, maxChars))
-        : !input || typeof input !== "object"
-          ? input
-          : Object.fromEntries(
-              Object.entries(input as Record<string, unknown>).map(([key, value]) => [
-                key,
-                truncateToolInput(value, maxChars),
-              ]),
-            )
-  return serializedToolInputLength(truncated) <= maxChars ? truncated : summarizeToolInput(truncated, maxChars)
+  if (typeof input === "string") {
+    const truncated = truncateToolInputString(input, maxChars)
+    return serializedToolInputLength(truncated) <= maxChars ? truncated : toolInputTruncatedMarker(maxChars)
+  }
+  if (!input || typeof input !== "object") {
+    return serializedToolInputLength(input) <= maxChars ? input : toolInputTruncatedMarker(maxChars)
+  }
+  if (Array.isArray(input)) {
+    const output: unknown[] = []
+    for (const item of input) {
+      const projected = truncateToolInput(item, maxChars)
+      const next = [...output, projected]
+      if (serializedToolInputLength(next) > maxChars) return appendToolInputMarkerToArray(output, maxChars)
+      output.push(projected)
+    }
+    return output
+  }
+
+  const output: Record<string, unknown> = {}
+  const record = input as Record<string, unknown>
+  for (const key in record) {
+    if (!Object.prototype.propertyIsEnumerable.call(record, key)) continue
+    const projected = truncateToolInput(record[key], maxChars)
+    const next = { ...output, [key]: projected }
+    if (serializedToolInputLength(next) > maxChars) return appendToolInputMarkerToObject(output, maxChars)
+    output[key] = projected
+  }
+  return output
 }
 
 /** Error shape thrown by Bun's fetch() when gzip/br decompression fails mid-stream */

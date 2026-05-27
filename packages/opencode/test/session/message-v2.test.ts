@@ -997,6 +997,60 @@ describe("session.message-v2.toModelMessage", () => {
     expect(serializedInput).not.toContain("short todo item 99")
   })
 
+  test("stops traversing oversized tool input after the projection budget is exhausted", async () => {
+    const userID = "m-user"
+    const assistantID = "m-assistant"
+    let contentAccesses = 0
+    const todos = Array.from({ length: 5_000 }, (_, index) => ({
+      get content() {
+        contentAccesses++
+        return `small todo item ${index}`
+      },
+      status: "pending",
+    }))
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [
+          {
+            ...basePart(userID, "u1"),
+            type: "text",
+            text: "write many todos",
+          },
+        ] as MessageV2.Part[],
+      },
+      {
+        info: assistantInfo(assistantID, userID),
+        parts: [
+          {
+            ...basePart(assistantID, "a1"),
+            type: "tool",
+            callID: "call-todos",
+            tool: "todowrite",
+            state: {
+              status: "completed",
+              input: { todos },
+              output: "ok",
+              title: "",
+              metadata: {},
+              time: { start: 0, end: 1 },
+            },
+          },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    const [, assistant] = await MessageV2.toModelMessages(input, model, {
+      toolInputMaxChars: 600,
+    })
+    const toolCall = assistant?.content[0] as any
+    const serializedInput = JSON.stringify(toolCall.input)
+
+    expect(serializedInput.length).toBeLessThanOrEqual(600)
+    expect(serializedInput).toContain("Tool input truncated")
+    expect(contentAccesses).toBeLessThan(500)
+  })
+
   test("converts permission denial diagnostic into model-facing error text", async () => {
     const userID = "m-user"
     const assistantID = "m-assistant"
