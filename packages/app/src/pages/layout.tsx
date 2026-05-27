@@ -118,7 +118,7 @@ import { type WorkspaceSidebarContext } from "./layout/sidebar-workspace"
 import { PawworkSidebar, type PawworkSidebarSession } from "./layout/pawwork-sidebar"
 import { PawworkTitlebar } from "./layout/pawwork-titlebar"
 import { createDefaultLayoutPageState, createLayoutPagePersistTarget, removePinnedSessionIDs } from "./layout/layout-page-store"
-import { SettingsPage, type SettingsPageTab } from "@/components/settings-page"
+import { SettingsShell, type SettingsTab } from "@/pages/settings/settings-shell"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { sessionTitle } from "@/utils/session-title"
 import { sizingStopEvents } from "@/pages/session/helpers"
@@ -135,7 +135,7 @@ export default function Layout(props: ParentProps) {
   let dialogRun = 0
   let dialogDead = false
   const [settingsOpen, setSettingsOpen] = createSignal(false)
-  const [settingsTab, setSettingsTab] = createSignal<SettingsPageTab>("general")
+  const [settingsTab, setSettingsTab] = createSignal<SettingsTab>("general")
 
   const params = useParams()
   const location = useLocation()
@@ -1511,12 +1511,12 @@ export default function Layout(props: ParentProps) {
       })
   }
 
-  function openSettingsSurface(tab?: SettingsPageTab) {
+  function openSettingsSurface(tab?: SettingsTab) {
     setSettingsTab(tab ?? "general")
     setSettingsOpen(true)
   }
 
-  function openSettings(tab?: SettingsPageTab) {
+  function openSettings(tab?: SettingsTab) {
     shellNavigation.openSettings(tab)
   }
 
@@ -2455,7 +2455,7 @@ export default function Layout(props: ParentProps) {
                     </div>
                     <Show when={settingsOpen()}>
                       <div class="absolute inset-0 z-40">
-                        <SettingsPage active={settingsTab()} onSelect={setSettingsTab} onClose={closeSettings} />
+                        <SettingsShell active={settingsTab()} onSelect={setSettingsTab} onClose={closeSettings} />
                       </div>
                     </Show>
                   </div>

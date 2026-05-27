@@ -1,12 +1,12 @@
 import { createContext, useContext, type Accessor } from "solid-js"
 import type { Session } from "@opencode-ai/sdk/v2/client"
-import type { SettingsPageTab } from "../components/settings-page"
+import type { SettingsTab } from "../pages/settings/settings-shell"
 
 export type ShellSurfaceContextValue = {
   settingsOpen: Accessor<boolean>
   openNewSession: (directory?: string) => void
   openSession: (session: Session | undefined) => void
-  openSettings: (tab?: SettingsPageTab) => void
+  openSettings: (tab?: SettingsTab) => void
   closeSettings: () => void
 }
 

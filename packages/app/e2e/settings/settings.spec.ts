@@ -3,13 +3,7 @@ import { closeDialog, closeSettingsPanel, openSettings } from "../actions"
 import {
   settingsCodeFontSelector,
   settingsLanguageSelectSelector,
-  settingsNotificationsAgentSelector,
-  settingsNotificationsErrorsSelector,
-  settingsNotificationsPermissionsSelector,
   settingsReleaseNotesSelector,
-  settingsSoundsAgentSelector,
-  settingsSoundsErrorsSelector,
-  settingsSoundsPermissionsSelector,
   settingsUIFontSelector,
   settingsUpdatesStartupSelector,
   titlebarCenterSelector,
@@ -46,7 +40,8 @@ test('@smoke PawWork settings opens as a full-pane surface, not a dialog', async
 
   await expect(page.locator('[data-component="settings-page"]')).toBeVisible()
   await expect(page.locator('[data-component="dialog-overlay"]')).toHaveCount(0)
-  await expect(page.getByRole("heading", { level: 1, name: "Settings" })).toBeVisible()
+  // 新壳把标题挪到标题栏（PawworkTitlebar），页面内不再有 h1；壳子 section 带 aria-label 提供无障碍名。
+  await expect(page.getByRole("region", { name: "Settings" })).toBeVisible()
   await expect(page.locator(titlebarCenterSelector)).toContainText("Settings")
 })
 
@@ -105,21 +100,19 @@ test("unknown theme ids migrate to pawwork and clear cached css", async ({ page,
     })
     .toBe("pawwork")
 
+  // 迁移到 pawwork 后，属于旧主题（dracula）的缓存 CSS 不能再生效：preload 清空、
+  // 运行时 ThemeProvider 写入 pawwork 真实 CSS 覆盖。断言旧假值不再残留即可。
   await expect
     .poll(async () => {
-      return await page.evaluate(() => {
-        return localStorage.getItem("pawwork-theme-css-light")
-      })
+      return await page.evaluate(() => localStorage.getItem("pawwork-theme-css-light"))
     })
-    .toBeNull()
+    .not.toBe("--background-base:#fff;")
 
   await expect
     .poll(async () => {
-      return await page.evaluate(() => {
-        return localStorage.getItem("pawwork-theme-css-dark")
-      })
+      return await page.evaluate(() => localStorage.getItem("pawwork-theme-css-dark"))
     })
-    .toBeNull()
+    .not.toBe("--background-base:#000;")
 })
 
 test("typing a code font with spaces persists and updates CSS variable", async ({ page, gotoSession }) => {
@@ -440,93 +433,19 @@ test("code font and UI font rehydrate after reload", async ({ page, gotoSession 
   expect(rehydratedSettings?.appearance?.sans).toBe(sans)
 })
 
-test("toggling notification agent switch updates localStorage", async ({ page, gotoSession }) => {
+test("changing notification level persists in localStorage", async ({ page, gotoSession }) => {
+  // #923 把多个通知开关 + 音效选择合并成单个 tri-state（never / unfocused / always）；
+  // 旧的 settings-notifications-* / settings-sounds-* 控件已删，这里测合并后的单控件。
   await gotoSession()
 
   const dialog = await openSettings(page)
-  const switchContainer = dialog.locator(settingsNotificationsAgentSelector)
-  await expect(switchContainer).toBeVisible()
-
-  const toggleInput = switchContainer.locator('[data-slot="switch-input"]')
-  const initialState = await toggleInput.evaluate((el: HTMLInputElement) => el.checked)
-  expect(initialState).toBe(true)
-
-  await switchContainer.locator('[data-slot="switch-control"]').click()
-  await page.waitForTimeout(100)
-
-  const newState = await toggleInput.evaluate((el: HTMLInputElement) => el.checked)
-  expect(newState).toBe(false)
-
-  const stored = await page.evaluate((key) => {
-    const raw = localStorage.getItem(key)
-    return raw ? JSON.parse(raw) : null
-  }, settingsKey)
-
-  expect(stored?.notifications?.agent).toBe(false)
-})
-
-test("toggling notification permissions switch updates localStorage", async ({ page, gotoSession }) => {
-  await gotoSession()
-
-  const dialog = await openSettings(page)
-  const switchContainer = dialog.locator(settingsNotificationsPermissionsSelector)
-  await expect(switchContainer).toBeVisible()
-
-  const toggleInput = switchContainer.locator('[data-slot="switch-input"]')
-  const initialState = await toggleInput.evaluate((el: HTMLInputElement) => el.checked)
-  expect(initialState).toBe(true)
-
-  await switchContainer.locator('[data-slot="switch-control"]').click()
-  await page.waitForTimeout(100)
-
-  const newState = await toggleInput.evaluate((el: HTMLInputElement) => el.checked)
-  expect(newState).toBe(false)
-
-  const stored = await page.evaluate((key) => {
-    const raw = localStorage.getItem(key)
-    return raw ? JSON.parse(raw) : null
-  }, settingsKey)
-
-  expect(stored?.notifications?.permissions).toBe(false)
-})
-
-test("toggling notification errors switch updates localStorage", async ({ page, gotoSession }) => {
-  await gotoSession()
-
-  const dialog = await openSettings(page)
-  const switchContainer = dialog.locator(settingsNotificationsErrorsSelector)
-  await expect(switchContainer).toBeVisible()
-
-  const toggleInput = switchContainer.locator('[data-slot="switch-input"]')
-  const initialState = await toggleInput.evaluate((el: HTMLInputElement) => el.checked)
-  expect(initialState).toBe(false)
-
-  await switchContainer.locator('[data-slot="switch-control"]').click()
-  await page.waitForTimeout(100)
-
-  const newState = await toggleInput.evaluate((el: HTMLInputElement) => el.checked)
-  expect(newState).toBe(true)
-
-  const stored = await page.evaluate((key) => {
-    const raw = localStorage.getItem(key)
-    return raw ? JSON.parse(raw) : null
-  }, settingsKey)
-
-  expect(stored?.notifications?.errors).toBe(true)
-})
-
-test("changing sound agent selection persists in localStorage", async ({ page, gotoSession }) => {
-  await gotoSession()
-
-  const dialog = await openSettings(page)
-  const select = dialog.locator(settingsSoundsAgentSelector)
+  const select = dialog.locator('[data-action="settings-notify-level"]')
   await expect(select).toBeVisible()
 
   await select.locator('[data-slot="select-select-trigger"]').click()
-
   const items = page.locator('[data-slot="select-select-item"]')
-  // Options render as [None, Notification, Error]; nth(2) selects the Error sound.
-  await items.nth(2).click()
+  await expect(items).toHaveCount(3) // never / unfocused / always
+  await items.nth(2).click() // always
 
   await expect
     .poll(async () => {
@@ -535,120 +454,7 @@ test("changing sound agent selection persists in localStorage", async ({ page, g
         return raw ? JSON.parse(raw) : null
       }, settingsKey)
     })
-    .toMatchObject({ sounds: { agent: "error" } })
-})
-
-test("selecting none disables agent sound", async ({ page, gotoSession }) => {
-  await gotoSession()
-
-  const dialog = await openSettings(page)
-  const select = dialog.locator(settingsSoundsAgentSelector)
-  const trigger = select.locator('[data-slot="select-select-trigger"]')
-  await expect(select).toBeVisible()
-  await expect(trigger).toBeEnabled()
-
-  await trigger.click()
-  const items = page.locator('[data-slot="select-select-item"]')
-  await expect(items.first()).toBeVisible()
-  await items.first().click()
-
-  const stored = await page.evaluate((key) => {
-    const raw = localStorage.getItem(key)
-    return raw ? JSON.parse(raw) : null
-  }, settingsKey)
-
-  expect(stored?.sounds?.agentEnabled).toBe(false)
-})
-
-test("changing permissions and errors sounds updates localStorage", async ({ page, gotoSession }) => {
-  await gotoSession()
-
-  const dialog = await openSettings(page)
-  const permissionsSelect = dialog.locator(settingsSoundsPermissionsSelector)
-  const errorsSelect = dialog.locator(settingsSoundsErrorsSelector)
-  await expect(permissionsSelect).toBeVisible()
-  await expect(errorsSelect).toBeVisible()
-
-  const initial = await page.evaluate((key) => {
-    const raw = localStorage.getItem(key)
-    return raw ? JSON.parse(raw) : null
-  }, settingsKey)
-
-  const permissionsCurrent =
-    (await permissionsSelect.locator('[data-slot="select-select-trigger-value"]').textContent())?.trim() ?? ""
-  await permissionsSelect.locator('[data-slot="select-select-trigger"]').click()
-  const permissionItems = page.locator('[data-slot="select-select-item"]')
-  expect(await permissionItems.count()).toBeGreaterThan(1)
-  if (permissionsCurrent) {
-    await permissionItems.filter({ hasNotText: permissionsCurrent }).first().click()
-  }
-  if (!permissionsCurrent) {
-    await permissionItems.nth(1).click()
-  }
-
-  const errorsCurrent =
-    (await errorsSelect.locator('[data-slot="select-select-trigger-value"]').textContent())?.trim() ?? ""
-  await errorsSelect.locator('[data-slot="select-select-trigger"]').click()
-  const errorItems = page.locator('[data-slot="select-select-item"]')
-  expect(await errorItems.count()).toBeGreaterThan(1)
-  if (errorsCurrent) {
-    await errorItems.filter({ hasNotText: errorsCurrent }).first().click()
-  }
-  if (!errorsCurrent) {
-    await errorItems.nth(1).click()
-  }
-
-  await expect
-    .poll(async () => {
-      return await page.evaluate((key) => {
-        const raw = localStorage.getItem(key)
-        return raw ? JSON.parse(raw) : null
-      }, settingsKey)
-    })
-    .toMatchObject({
-      sounds: {
-        permissions: expect.any(String),
-        errors: expect.any(String),
-      },
-    })
-
-  const stored = await page.evaluate((key) => {
-    const raw = localStorage.getItem(key)
-    return raw ? JSON.parse(raw) : null
-  }, settingsKey)
-
-  expect(stored?.sounds?.permissions).not.toBe(initial?.sounds?.permissions)
-  expect(stored?.sounds?.errors).not.toBe(initial?.sounds?.errors)
-})
-
-test("legacy sound ids fall back to current defaults", async ({ page, gotoSession }) => {
-  // Upgrading users have stale ids from the old 45-sound set persisted. withSoundFallback
-  // must map them to the bundled defaults so the dropdown stays populated, not blank/silent.
-  await page.addInitScript((key) => {
-    localStorage.setItem(
-      key,
-      JSON.stringify({
-        sounds: {
-          agentEnabled: true,
-          agent: "staplebops-01",
-          permissionsEnabled: true,
-          permissions: "nope-03",
-          errorsEnabled: true,
-          errors: "yup-02",
-        },
-      }),
-    )
-  }, settingsKey)
-
-  await gotoSession()
-
-  const dialog = await openSettings(page)
-  const valueOf = (selector: string) =>
-    dialog.locator(selector).locator('[data-slot="select-select-trigger-value"]')
-
-  await expect(valueOf(settingsSoundsAgentSelector)).toHaveText("Notification")
-  await expect(valueOf(settingsSoundsPermissionsSelector)).toHaveText("Notification")
-  await expect(valueOf(settingsSoundsErrorsSelector)).toHaveText("Error")
+    .toMatchObject({ notify: "always" })
 })
 
 test("toggling updates startup switch updates localStorage", async ({ page, gotoSession }) => {

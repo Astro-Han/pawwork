@@ -719,7 +719,13 @@ export const dict = {
 
   "settings.tab.general": "通用",
   "settings.tab.shortcuts": "快捷键",
+  "settings.tab.models": "模型",
+  "settings.tab.remoteAccess": "远程访问",
+  "settings.tab.integrations": "集成",
   "settings.tab.memory": "记忆",
+  "settings.backToApp": "返回应用",
+  "settings.remote.placeholder": "远程访问设置即将在此处提供。",
+  "settings.integrations.placeholder": "集成设置即将在此处提供。",
   "settings.memory.title": "记忆",
   "settings.memory.description": "查看爪印记住了什么，并编辑原始 MEMORY.md 文件。",
   "settings.memory.enabled.title": "启用记忆",
