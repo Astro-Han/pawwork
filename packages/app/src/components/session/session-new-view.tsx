@@ -4,8 +4,8 @@ import { useLanguage } from "@/context/language"
 // Lazy-loaded so the module + its reactive setup (4 contexts, createEffect with
 // prompt.dirty + sessionCount tracking, For-loop chip render) doesn't run on
 // the home's cold paint path. perf-probe-baseline showed +183ms frame_gap_max
-// on homepage-cold and +267ms on tool-default-open-heavy-bash (both go through
-// project.open() → home first) when this was mounted eagerly.
+// on homepage-cold (which goes through project.open() → home first) when this
+// was mounted eagerly.
 const HomeSuggestionList = lazy(() =>
   import("@/components/home/home-suggestion-list").then((module) => ({ default: module.HomeSuggestionList })),
 )

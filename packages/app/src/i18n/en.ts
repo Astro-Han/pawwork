@@ -894,12 +894,6 @@ export const dict = {
   "settings.general.row.followup.description": "Choose whether follow-up prompts steer immediately or wait in a queue",
   "settings.general.row.followup.option.queue": "Queue",
   "settings.general.row.followup.option.steer": "Steer",
-  "settings.general.row.shellToolPartsExpanded.title": "Expand shell tool parts",
-  "settings.general.row.shellToolPartsExpanded.description":
-    "Show shell tool parts expanded by default in the timeline",
-  "settings.general.row.editToolPartsExpanded.title": "Expand edit tool parts",
-  "settings.general.row.editToolPartsExpanded.description":
-    "Show edit, write, and patch tool parts expanded by default in the timeline",
   "settings.general.row.lsp.title": "Language Server Protocol (LSP)",
   "settings.general.row.lsp.description": "Detect type errors and symbol references when editing code",
   "settings.general.webSearch.title": "Web search",

@@ -24,7 +24,6 @@ import {
   singleResultParts,
   singleRunningParts,
   snapAssistantMessage,
-  tool,
   toolOutputParts,
   zhI18n,
 } from "./trow-snap-fixture-data"
@@ -33,21 +32,13 @@ function FileStub() {
   return <div style={{ padding: "8px", color: "var(--fg-weak)", "font-size": "12px" }}>File viewer stub</div>
 }
 
-function AssistantPartsCase(props: {
-  parts: Part[]
-  shellToolDefaultOpen?: boolean
-  editToolDefaultOpen?: boolean
-}) {
+function AssistantPartsCase(props: { parts: Part[] }) {
   return (
     <DataProvider
       data={{ ...fixtureData, part: { [snapAssistantMessage.id]: props.parts } }}
       directory="/Users/yuhan/PawWork"
     >
-      <AssistantParts
-        messages={[snapAssistantMessage]}
-        shellToolDefaultOpen={props.shellToolDefaultOpen}
-        editToolDefaultOpen={props.editToolDefaultOpen}
-      />
+      <AssistantParts messages={[snapAssistantMessage]} />
     </DataProvider>
   )
 }
@@ -267,18 +258,6 @@ function TrowSnapFixture() {
       </div>
       <div data-snap="single-command-error">
         <AssistantPartsCase parts={singleErrorParts} />
-      </div>
-      <div data-snap="single-shell-setting-collapsed">
-        <AssistantPartsCase
-          parts={[tool("single-shell-setting-collapsed", "respects shell setting", "echo hidden")]}
-          shellToolDefaultOpen={false}
-        />
-      </div>
-      <div data-snap="single-shell-setting-expanded">
-        <AssistantPartsCase
-          parts={[tool("single-shell-setting-expanded", "respects shell setting", "echo shown")]}
-          shellToolDefaultOpen
-        />
       </div>
       <div data-snap="single-command-running">
         <TrowBlock

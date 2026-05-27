@@ -119,8 +119,6 @@ export function SessionTurn(
     assistantMessages?: AssistantMessage[]
     messages?: MessageType[]
     actions?: UserActions
-    shellToolDefaultOpen?: boolean
-    editToolDefaultOpen?: boolean
     turnChanges?: Record<string, TurnChangeDisplay | null | undefined>
     turnChangeActions?: TurnChangeActions
     active?: boolean
@@ -460,12 +458,7 @@ export function SessionTurn(
                       if (assistantHidden()) blurActiveElementInside(assistantContent())
                     }}
                   >
-                    <AssistantParts
-                      messages={visibleAssistantMessages()}
-                      working={working()}
-                      shellToolDefaultOpen={props.shellToolDefaultOpen}
-                      editToolDefaultOpen={props.editToolDefaultOpen}
-                    />
+                    <AssistantParts messages={visibleAssistantMessages()} working={working()} />
                   </div>
                 </Show>
                 <Show when={showThinking()}>

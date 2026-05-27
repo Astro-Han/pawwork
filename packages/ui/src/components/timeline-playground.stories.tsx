@@ -1989,8 +1989,6 @@ function Playground() {
                           messageID={msg.id}
                           messages={state.messages}
                           active={false}
-                          shellToolDefaultOpen={true}
-                          editToolDefaultOpen={true}
                           classes={{
                             root: "min-w-0 w-full relative",
                             content: "flex flex-col justify-between !overflow-visible",
