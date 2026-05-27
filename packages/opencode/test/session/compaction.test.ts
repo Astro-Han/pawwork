@@ -901,7 +901,34 @@ describe("session.compaction.process", () => {
       fn: async () => {
         const session = await svc.create()
         const first = await user(session.id, "first request")
-        await assistant(session.id, first.id, tmp.path)
+        const firstAssistant = await assistant(session.id, first.id, tmp.path)
+        const longQuestion = `${"Tauri backend Rust, OpenCode server TypeScript. ".repeat(200)}UNIQUE_COMPACTION_INPUT_TAIL`
+        await svc.updatePart({
+          id: PartID.ascending(),
+          messageID: firstAssistant.id,
+          sessionID: session.id,
+          type: "tool",
+          callID: "call-question",
+          tool: "question",
+          state: {
+            status: "error",
+            input: {
+              questions: [
+                {
+                  question: longQuestion,
+                  header: "Runtime",
+                  options: [
+                    { label: "External", description: "Run Node separately" },
+                    { label: "Rust", description: "Rewrite backend" },
+                  ],
+                },
+              ],
+            },
+            error: "invalid question",
+            time: { start: 0, end: 1 },
+            metadata: {},
+          },
+        })
         const second = await user(session.id, "second request")
         await assistant(session.id, second.id, tmp.path)
         const compact = await user(session.id, "compact now")
@@ -948,6 +975,9 @@ describe("session.compaction.process", () => {
         expect(compactPart?.tail_start_id).toBe(second.id)
         expect(inputText(captured?.messages)).toContain("first request")
         expect(inputText(captured?.messages)).not.toContain("second request")
+        const capturedPayload = JSON.stringify(captured?.messages)
+        expect(capturedPayload).toContain("Tool input truncated")
+        expect(capturedPayload).not.toContain("UNIQUE_COMPACTION_INPUT_TAIL")
       },
     })
   })

@@ -882,6 +882,69 @@ describe("session.message-v2.toModelMessage", () => {
     ])
   })
 
+  test("bounds long tool inputs separately from tool output for compaction replay", async () => {
+    const userID = "m-user"
+    const assistantID = "m-assistant"
+    const longQuestion = `${"Tauri backend Rust, OpenCode server TypeScript. ".repeat(200)}UNIQUE_LONG_QUESTION_TAIL`
+    const error =
+      'The question tool was called with invalid arguments: SchemaError(Missing key at ["questions"][0]["options"][3]["description"]).\nPlease rewrite the input so it satisfies the expected schema.'
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [
+          {
+            ...basePart(userID, "u1"),
+            type: "text",
+            text: "ask a question",
+          },
+        ] as MessageV2.Part[],
+      },
+      {
+        info: assistantInfo(assistantID, userID),
+        parts: [
+          {
+            ...basePart(assistantID, "a1"),
+            type: "tool",
+            callID: "call-question",
+            tool: "question",
+            state: {
+              status: "error",
+              input: {
+                questions: [
+                  {
+                    question: longQuestion,
+                    header: "Runtime",
+                    options: [
+                      { label: "External", description: "Run Node separately" },
+                      { label: "Rust", description: "Rewrite backend" },
+                      { label: "Shell", description: "Spawn child process" },
+                      { label: "Unsure" },
+                    ],
+                  },
+                ],
+              },
+              error,
+              time: { start: 0, end: 1 },
+              metadata: {},
+            },
+          },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    const [, assistant, tool] = await MessageV2.toModelMessages(input, model, {
+      toolInputMaxChars: 200,
+      toolOutputMaxChars: 32,
+    })
+    const toolCall = assistant?.content[0] as any
+    const toolResult = tool?.content[0] as any
+
+    expect(toolCall.input.questions[0].question.length).toBeLessThanOrEqual(200)
+    expect(toolCall.input.questions[0].question).not.toContain("UNIQUE_LONG_QUESTION_TAIL")
+    expect(toolCall.input.questions[0].question).toContain("Tool input truncated")
+    expect(toolResult.output.value).toContain("SchemaError")
+  })
+
   test("converts permission denial diagnostic into model-facing error text", async () => {
     const userID = "m-user"
     const assistantID = "m-assistant"
