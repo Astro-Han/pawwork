@@ -2283,6 +2283,12 @@ export type VcsFileStatus = {
   status: "added" | "deleted" | "modified"
 }
 
+export type VcsApplyFailure = {
+  error: "vcs_apply_failed"
+  reason: "non-git" | "not-clean"
+  message: string
+}
+
 export type Command = {
   name: string
   description?: string
@@ -5953,9 +5959,9 @@ export type VcsApplyData = {
 
 export type VcsApplyErrors = {
   /**
-   * Bad request
+   * VCS patch apply failure
    */
-  400: BadRequestError
+  400: VcsApplyFailure
 }
 
 export type VcsApplyError = VcsApplyErrors[keyof VcsApplyErrors]

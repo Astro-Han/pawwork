@@ -13,6 +13,31 @@ afterEach(async () => {
 })
 
 describe("VCS routes", () => {
+  test("documents apply failure reasons in OpenAPI", async () => {
+    const spec = await Server.openapi()
+    const response = spec.paths?.["/vcs/apply"]?.post?.responses?.["400"]
+    if (!response || "$ref" in response) throw new Error("expected inline apply failure response")
+    const schema = response.content?.["application/json"]?.schema
+
+    expect(schema).toEqual({
+      $ref: "#/components/schemas/VcsApplyFailure",
+    })
+    expect(spec.components?.schemas?.VcsApplyFailure).toMatchObject({
+      properties: {
+        error: {
+          const: "vcs_apply_failed",
+        },
+        reason: {
+          enum: ["non-git", "not-clean"],
+        },
+        message: {
+          type: "string",
+        },
+      },
+      required: ["error", "reason", "message"],
+    })
+  })
+
   test("returns working tree status summaries", async () => {
     await using tmp = await tmpdir({ git: true })
     await fs.writeFile(path.join(tmp.path, "tracked.txt"), "original\n", "utf-8")

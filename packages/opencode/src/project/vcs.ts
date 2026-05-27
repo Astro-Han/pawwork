@@ -192,10 +192,21 @@ export namespace Vcs {
   })
   export type ApplyResult = z.infer<typeof ApplyResult>
 
+  export const ApplyError = z
+    .object({
+      error: z.literal("vcs_apply_failed"),
+      reason: z.enum(["non-git", "not-clean"]),
+      message: z.string(),
+    })
+    .meta({
+      ref: "VcsApplyFailure",
+    })
+  export type ApplyError = z.infer<typeof ApplyError>
+
   export class PatchApplyError extends Error {
     constructor(
       message: string,
-      readonly reason: "non-git" | "not-clean",
+      readonly reason: ApplyError["reason"],
     ) {
       super(message)
       this.name = "VcsPatchApplyError"

@@ -27,7 +27,6 @@ import { EventRoutes } from "./event"
 import { MemoryRoutes } from "./memory"
 import { WorkspaceRouterMiddleware } from "./middleware"
 import { AppRuntime } from "@/effect/app-runtime"
-import { errors } from "../error"
 
 export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
   new Hono()
@@ -233,7 +232,14 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
               },
             },
           },
-          ...errors(400),
+          400: {
+            description: "VCS patch apply failure",
+            content: {
+              "application/json": {
+                schema: resolver(Vcs.ApplyError),
+              },
+            },
+          },
         },
       }),
       validator("json", Vcs.ApplyInput),
@@ -242,7 +248,12 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
           return c.json(await Vcs.apply(c.req.valid("json")))
         } catch (error) {
           if (error instanceof Vcs.PatchApplyError) {
-            return c.json({ error: "vcs_apply_failed", reason: error.reason, message: error.message }, 400)
+            const body = {
+              error: "vcs_apply_failed",
+              reason: error.reason,
+              message: error.message,
+            } satisfies Vcs.ApplyError
+            return c.json(body, 400)
           }
           throw error
         }
