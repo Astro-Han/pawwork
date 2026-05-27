@@ -1,8 +1,9 @@
 import { type Component } from "solid-js"
 import { useLanguage } from "@/context/language"
 
-// 远程访问页。PR1 body 占位：保证菜单点了不空、整体可上线。
-// 后续迁入远程服务器连接 / 管理（原 Connections 的服务器部分 + Manage Servers）真功能。
+// Remote access page. PR1 body is a placeholder so the nav entry is not empty and the whole thing ships.
+// Later it gains the real remote-server connect / manage feature (the server part of the old Connections
+// + Manage Servers).
 export const RemotePage: Component = () => {
   const language = useLanguage()
   return (
