@@ -14,7 +14,7 @@
      together, which read as one squished blob. */
   font-family: var(--font-family-sans);
   font-size: 12px;
-  font-weight: 500;
+  font-weight: var(--font-weight-emphasis);
   line-height: 1.2;
   color: var(--bg-cream);
 }
