@@ -18,13 +18,6 @@ export type EventGlobalDisposed = {
   }
 }
 
-export type EventServerInstanceDisposed = {
-  type: "server.instance.disposed"
-  properties: {
-    directory: string
-  }
-}
-
 export type EventInstallationUpdated = {
   type: "installation.updated"
   properties: {
@@ -36,6 +29,13 @@ export type EventInstallationUpdateAvailable = {
   type: "installation.update-available"
   properties: {
     version: string
+  }
+}
+
+export type EventServerInstanceDisposed = {
+  type: "server.instance.disposed"
+  properties: {
+    directory: string
   }
 }
 
@@ -1087,9 +1087,9 @@ export type EventSessionDeleted = {
 export type Event =
   | EventServerConnected
   | EventGlobalDisposed
-  | EventServerInstanceDisposed
   | EventInstallationUpdated
   | EventInstallationUpdateAvailable
+  | EventServerInstanceDisposed
   | EventLspClientDiagnostics
   | EventSessionStatus
   | EventSessionIdle
@@ -2274,6 +2274,13 @@ export type VcsFileDiff = {
   additions: number
   deletions: number
   status?: "added" | "deleted" | "modified"
+}
+
+export type VcsFileStatus = {
+  file: string
+  additions: number
+  deletions: number
+  status: "added" | "deleted" | "modified"
 }
 
 export type Command = {
@@ -5893,6 +5900,76 @@ export type VcsDiffResponses = {
 }
 
 export type VcsDiffResponse = VcsDiffResponses[keyof VcsDiffResponses]
+
+export type VcsStatusData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/vcs/status"
+}
+
+export type VcsStatusResponses = {
+  /**
+   * VCS status
+   */
+  200: Array<VcsFileStatus>
+}
+
+export type VcsStatusResponse = VcsStatusResponses[keyof VcsStatusResponses]
+
+export type VcsDiffRawData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/vcs/diff/raw"
+}
+
+export type VcsDiffRawResponses = {
+  /**
+   * Raw VCS diff
+   */
+  200: string
+}
+
+export type VcsDiffRawResponse = VcsDiffRawResponses[keyof VcsDiffRawResponses]
+
+export type VcsApplyData = {
+  body?: {
+    patch: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/vcs/apply"
+}
+
+export type VcsApplyErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type VcsApplyError = VcsApplyErrors[keyof VcsApplyErrors]
+
+export type VcsApplyResponses = {
+  /**
+   * Patch apply result
+   */
+  200: {
+    applied: boolean
+  }
+}
+
+export type VcsApplyResponse = VcsApplyResponses[keyof VcsApplyResponses]
 
 export type CommandListData = {
   body?: never

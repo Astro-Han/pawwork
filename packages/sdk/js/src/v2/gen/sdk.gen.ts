@@ -180,8 +180,12 @@ import type {
   ToolIdsResponses,
   ToolListErrors,
   ToolListResponses,
+  VcsApplyErrors,
+  VcsApplyResponses,
+  VcsDiffRawResponses,
   VcsDiffResponses,
   VcsGetResponses,
+  VcsStatusResponses,
   WorktreeCreateErrors,
   WorktreeCreateInput,
   WorktreeCreateResponses,
@@ -4029,6 +4033,103 @@ export class Vcs extends HeyApiClient {
       url: "/vcs/diff",
       ...options,
       ...params,
+    })
+  }
+
+  /**
+   * Get VCS status
+   *
+   * Retrieve working tree file status summaries for the current project.
+   */
+  public status<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<VcsStatusResponses, unknown, ThrowOnError>({
+      url: "/vcs/status",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get raw VCS diff
+   *
+   * Retrieve the current git diff as raw patch text.
+   */
+  public diffRaw<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<VcsDiffRawResponses, unknown, ThrowOnError>({
+      url: "/vcs/diff/raw",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Apply VCS patch
+   *
+   * Apply a git patch to the current project.
+   */
+  public apply<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      patch?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "patch" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<VcsApplyResponses, VcsApplyErrors, ThrowOnError>({
+      url: "/vcs/apply",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 }

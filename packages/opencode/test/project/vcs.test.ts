@@ -134,6 +134,27 @@ describe("Vcs diff", () => {
     await Instance.disposeAll()
   })
 
+  test("status() returns tracked, staged, and untracked file summaries", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await fs.writeFile(path.join(tmp.path, "tracked.txt"), "original\n", "utf-8")
+    await $`git add tracked.txt`.cwd(tmp.path).quiet()
+    await $`git commit --no-gpg-sign -m "add file"`.cwd(tmp.path).quiet()
+
+    await fs.writeFile(path.join(tmp.path, "tracked.txt"), "changed\n", "utf-8")
+    await fs.writeFile(path.join(tmp.path, "staged.txt"), "staged\n", "utf-8")
+    await $`git add staged.txt`.cwd(tmp.path).quiet()
+    await fs.writeFile(path.join(tmp.path, "untracked.txt"), "untracked\n", "utf-8")
+
+    await withVcsOnly(tmp.path, async () => {
+      const status = await Vcs.status()
+      expect(status).toEqual([
+        { file: "staged.txt", additions: 1, deletions: 0, status: "added" },
+        { file: "tracked.txt", additions: 1, deletions: 1, status: "modified" },
+        { file: "untracked.txt", additions: 1, deletions: 0, status: "added" },
+      ])
+    })
+  })
+
   test("defaultBranch() falls back to main", async () => {
     await using tmp = await tmpdir({ git: true })
     await $`git branch -M main`.cwd(tmp.path).quiet()
@@ -190,6 +211,83 @@ describe("Vcs diff", () => {
       expect(diff.find((item) => item.file === "tracked.txt")?.patch).toContain("diff --git")
       expect(diff.find((item) => item.file === "untracked.txt")?.patch).toContain("+untracked")
       expect(diff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "staged.txt" })]))
+    })
+  })
+
+  test("diffRaw() returns a patch with tracked and untracked changes", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await fs.writeFile(path.join(tmp.path, "tracked.txt"), "original\n", "utf-8")
+    await $`git add tracked.txt`.cwd(tmp.path).quiet()
+    await $`git commit --no-gpg-sign -m "add file"`.cwd(tmp.path).quiet()
+
+    await fs.writeFile(path.join(tmp.path, "tracked.txt"), "changed\n", "utf-8")
+    await fs.writeFile(path.join(tmp.path, "untracked.txt"), "new\n", "utf-8")
+
+    await withVcsOnly(tmp.path, async () => {
+      const patch = await Vcs.diffRaw()
+      expect(patch).toContain("diff --git a/tracked.txt b/tracked.txt")
+      expect(patch).toContain("-original")
+      expect(patch).toContain("+changed")
+      expect(patch).toContain("diff --git a/untracked.txt b/untracked.txt")
+      expect(patch).toContain("+new")
+    })
+  })
+
+  test("apply() applies a valid patch", async () => {
+    await using source = await tmpdir({ git: true })
+    await fs.writeFile(path.join(source.path, "tracked.txt"), "original\n", "utf-8")
+    await $`git add tracked.txt`.cwd(source.path).quiet()
+    await $`git commit --no-gpg-sign -m "add file"`.cwd(source.path).quiet()
+    await fs.writeFile(path.join(source.path, "tracked.txt"), "changed\n", "utf-8")
+
+    let patch = ""
+    await withVcsOnly(source.path, async () => {
+      patch = await Vcs.diffRaw()
+    })
+
+    await using target = await tmpdir({ git: true })
+    await fs.writeFile(path.join(target.path, "tracked.txt"), "original\n", "utf-8")
+    await $`git add tracked.txt`.cwd(target.path).quiet()
+    await $`git commit --no-gpg-sign -m "add file"`.cwd(target.path).quiet()
+
+    await withVcsOnly(target.path, async () => {
+      await expect(Vcs.apply({ patch })).resolves.toEqual({ applied: true })
+      await expect(fs.readFile(path.join(target.path, "tracked.txt"), "utf-8")).resolves.toBe("changed\n")
+    })
+  })
+
+  test("apply() rejects non-git directories", async () => {
+    await using tmp = await tmpdir()
+
+    await withVcsOnly(tmp.path, async () => {
+      await expect(Vcs.apply({ patch: "diff --git a/file.txt b/file.txt\n" })).rejects.toMatchObject({
+        reason: "non-git",
+      })
+    })
+  })
+
+  test("apply() rejects patches that do not apply cleanly", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await fs.writeFile(path.join(tmp.path, "tracked.txt"), "different\n", "utf-8")
+    await $`git add tracked.txt`.cwd(tmp.path).quiet()
+    await $`git commit --no-gpg-sign -m "add file"`.cwd(tmp.path).quiet()
+
+    const patch = [
+      "diff --git a/tracked.txt b/tracked.txt",
+      "index 5626abf..21fb1ec 100644",
+      "--- a/tracked.txt",
+      "+++ b/tracked.txt",
+      "@@ -1 +1 @@",
+      "-original",
+      "+changed",
+      "",
+    ].join("\n")
+
+    await withVcsOnly(tmp.path, async () => {
+      await expect(Vcs.apply({ patch })).rejects.toMatchObject({
+        reason: "not-clean",
+      })
+      await expect(fs.readFile(path.join(tmp.path, "tracked.txt"), "utf-8")).resolves.toBe("different\n")
     })
   })
 

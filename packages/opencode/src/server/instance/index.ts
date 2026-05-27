@@ -27,6 +27,7 @@ import { EventRoutes } from "./event"
 import { MemoryRoutes } from "./memory"
 import { WorkspaceRouterMiddleware } from "./middleware"
 import { AppRuntime } from "@/effect/app-runtime"
+import { errors } from "../error"
 
 export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
   new Hono()
@@ -172,6 +173,79 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
       ),
       async (c) => {
         return c.json(await Vcs.diff(c.req.valid("query").mode))
+      },
+    )
+    .get(
+      "/vcs/status",
+      describeRoute({
+        summary: "Get VCS status",
+        description: "Retrieve working tree file status summaries for the current project.",
+        operationId: "vcs.status",
+        responses: {
+          200: {
+            description: "VCS status",
+            content: {
+              "application/json": {
+                schema: resolver(Vcs.FileStatus.array()),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        return c.json(await Vcs.status())
+      },
+    )
+    .get(
+      "/vcs/diff/raw",
+      describeRoute({
+        summary: "Get raw VCS diff",
+        description: "Retrieve the current git diff as raw patch text.",
+        operationId: "vcs.diffRaw",
+        responses: {
+          200: {
+            description: "Raw VCS diff",
+            content: {
+              "text/plain": {
+                schema: resolver(z.string()),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        c.header("content-type", "text/plain; charset=UTF-8")
+        return c.text(await Vcs.diffRaw())
+      },
+    )
+    .post(
+      "/vcs/apply",
+      describeRoute({
+        summary: "Apply VCS patch",
+        description: "Apply a git patch to the current project.",
+        operationId: "vcs.apply",
+        responses: {
+          200: {
+            description: "Patch apply result",
+            content: {
+              "application/json": {
+                schema: resolver(Vcs.ApplyResult),
+              },
+            },
+          },
+          ...errors(400),
+        },
+      }),
+      validator("json", Vcs.ApplyInput),
+      async (c) => {
+        try {
+          return c.json(await Vcs.apply(c.req.valid("json")))
+        } catch (error) {
+          if (error instanceof Vcs.PatchApplyError) {
+            return c.json({ error: "vcs_apply_failed", reason: error.reason, message: error.message }, 400)
+          }
+          throw error
+        }
       },
     )
     .get(

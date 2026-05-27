@@ -170,11 +170,46 @@ export namespace Vcs {
     })
   export type FileDiff = z.infer<typeof FileDiff>
 
+  export const FileStatus = z
+    .object({
+      file: z.string(),
+      additions: z.number(),
+      deletions: z.number(),
+      status: z.enum(["added", "deleted", "modified"]),
+    })
+    .meta({
+      ref: "VcsFileStatus",
+    })
+  export type FileStatus = z.infer<typeof FileStatus>
+
+  export const ApplyInput = z.object({
+    patch: z.string(),
+  })
+  export type ApplyInput = z.infer<typeof ApplyInput>
+
+  export const ApplyResult = z.object({
+    applied: z.boolean(),
+  })
+  export type ApplyResult = z.infer<typeof ApplyResult>
+
+  export class PatchApplyError extends Error {
+    constructor(
+      message: string,
+      readonly reason: "non-git" | "not-clean",
+    ) {
+      super(message)
+      this.name = "VcsPatchApplyError"
+    }
+  }
+
   export interface Interface {
     readonly init: () => Effect.Effect<void>
     readonly branch: () => Effect.Effect<string | undefined>
     readonly defaultBranch: () => Effect.Effect<string | undefined>
+    readonly status: () => Effect.Effect<FileStatus[]>
     readonly diff: (mode: Mode) => Effect.Effect<FileDiff[]>
+    readonly diffRaw: () => Effect.Effect<string>
+    readonly apply: (input: ApplyInput) => Effect.Effect<ApplyResult, PatchApplyError>
   }
 
   interface State {
@@ -234,6 +269,30 @@ export namespace Vcs {
         defaultBranch: Effect.fn("Vcs.defaultBranch")(function* () {
           return yield* InstanceState.use(state, (x) => x.root?.name)
         }),
+        status: Effect.fn("Vcs.status")(function* () {
+          if (Instance.project.vcs !== "git") return []
+          const ref = (yield* git.hasHead(Instance.directory)) ? "HEAD" : undefined
+          const [list, stats] = yield* Effect.all(
+            [git.status(Instance.directory), ref ? git.stats(Instance.directory, ref) : Effect.succeed([])],
+            { concurrency: 2 },
+          )
+          const statMap = nums(stats)
+          return yield* Effect.forEach(
+            list.toSorted((a, b) => a.file.localeCompare(b.file)),
+            (item) =>
+              Effect.gen(function* () {
+                const stat =
+                  statMap.get(item.file) ??
+                  (item.status === "added" ? yield* git.statUntracked(Instance.directory, item.file) : undefined)
+                return {
+                  file: item.file,
+                  additions: stat?.additions ?? 0,
+                  deletions: stat?.deletions ?? 0,
+                  status: item.status,
+                } satisfies FileStatus
+              }),
+          )
+        }),
         diff: Effect.fn("Vcs.diff")(function* (mode: Mode) {
           const value = yield* InstanceState.get(state)
           if (Instance.project.vcs !== "git") return []
@@ -250,6 +309,28 @@ export namespace Vcs {
           const ref = yield* git.mergeBase(Instance.directory, value.root.ref)
           if (!ref) return []
           return yield* branchHead(git, Instance.directory, ref)
+        }),
+        diffRaw: Effect.fn("Vcs.diffRaw")(function* () {
+          if (Instance.project.vcs !== "git") return ""
+          const [hasHead, status] = yield* Effect.all([git.hasHead(Instance.directory), git.status(Instance.directory)], {
+            concurrency: 2,
+          })
+          const tracked = hasHead ? (yield* git.patchAll(Instance.directory, "HEAD")).text : ""
+          const untracked = yield* Effect.forEach(
+            status.filter((item) => item.code === "??"),
+            (item) => git.patchUntracked(Instance.directory, item.file).pipe(Effect.map((patch) => patch.text)),
+          )
+          return [tracked, ...untracked].filter(Boolean).join("\n")
+        }),
+        apply: Effect.fn("Vcs.apply")(function* (input: ApplyInput) {
+          if (Instance.project.vcs !== "git") {
+            return yield* Effect.fail(new PatchApplyError("Patch can't be applied because the project is not git-based", "non-git"))
+          }
+          const applied = yield* git.applyPatch(Instance.directory, input.patch)
+          if (applied.exitCode !== 0) {
+            return yield* Effect.fail(new PatchApplyError("Patch can't be applied", "not-clean"))
+          }
+          return { applied: true }
         }),
       })
     }),
@@ -271,7 +352,19 @@ export namespace Vcs {
     return runPromise((svc) => svc.defaultBranch())
   }
 
+  export async function status() {
+    return runPromise((svc) => svc.status())
+  }
+
   export async function diff(mode: Mode) {
     return runPromise((svc) => svc.diff(mode))
+  }
+
+  export async function diffRaw() {
+    return runPromise((svc) => svc.diffRaw())
+  }
+
+  export async function apply(input: ApplyInput) {
+    return runPromise((svc) => svc.apply(input))
   }
 }

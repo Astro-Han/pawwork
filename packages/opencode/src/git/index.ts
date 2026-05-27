@@ -73,6 +73,7 @@ export namespace Git {
     readonly cwd: string
     readonly env?: Record<string, string>
     readonly maxOutputBytes?: number
+    readonly stdin?: ChildProcess.CommandInput
   }
 
   export interface Interface {
@@ -95,11 +96,13 @@ export namespace Git {
     readonly statsStaged: (cwd: string) => Effect.Effect<Stat[]>
     readonly statsHead: (cwd: string, ref: string) => Effect.Effect<Stat[]>
     readonly patch: (cwd: string, ref: string, file: string, options?: PatchOptions) => Effect.Effect<Patch>
+    readonly patchAll: (cwd: string, ref: string, options?: PatchOptions) => Effect.Effect<Patch>
     readonly patchUnstaged: (cwd: string, file: string, options?: PatchOptions) => Effect.Effect<Patch>
     readonly patchStaged: (cwd: string, file: string, options?: PatchOptions) => Effect.Effect<Patch>
     readonly patchHead: (cwd: string, ref: string, file: string, options?: PatchOptions) => Effect.Effect<Patch>
     readonly patchUntracked: (cwd: string, file: string, options?: PatchOptions) => Effect.Effect<Patch>
     readonly statUntracked: (cwd: string, file: string) => Effect.Effect<Stat | undefined>
+    readonly applyPatch: (cwd: string, patch: string) => Effect.Effect<Result>
   }
 
   const kind = (code: string): Kind => {
@@ -116,6 +119,8 @@ export namespace Git {
     Service,
     Effect.gen(function* () {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+      const encoder = new TextEncoder()
+      const stdin = (text: string) => Stream.make(encoder.encode(text))
 
       const run = Effect.fn("Git.run")(
         function* (args: string[], opts: Options) {
@@ -123,7 +128,7 @@ export namespace Git {
             cwd: opts.cwd,
             env: opts.env,
             extendEnv: true,
-            stdin: "ignore",
+            stdin: opts.stdin ?? "ignore",
             stdout: "pipe",
             stderr: "pipe",
           })
@@ -437,6 +442,14 @@ export namespace Git {
         )
       })
 
+      const patchAll = Effect.fn("Git.patchAll")(function* (cwd: string, ref: string, options?: PatchOptions) {
+        return yield* patchResult(
+          ["diff", "--patch", "--no-ext-diff", "--no-renames", `--unified=${options?.context ?? 3}`, ref, "--", "."],
+          cwd,
+          options,
+        )
+      })
+
       const patchUnstaged = Effect.fn("Git.patchUnstaged")(function* (cwd: string, file: string, options?: PatchOptions) {
         return yield* patchResult(
           ["diff", "--patch", "--no-ext-diff", "--no-renames", `--unified=${options?.context ?? 3}`, "--", file],
@@ -498,6 +511,10 @@ export namespace Git {
         } satisfies Stat
       })
 
+      const applyPatch = Effect.fn("Git.applyPatch")(function* (cwd: string, patch: string) {
+        return yield* run(["apply", "-"], { cwd, stdin: stdin(patch) })
+      })
+
       return Service.of({
         run,
         branch,
@@ -518,11 +535,13 @@ export namespace Git {
         statsStaged,
         statsHead,
         patch,
+        patchAll,
         patchUnstaged,
         patchStaged,
         patchHead,
         patchUntracked,
         statUntracked,
+        applyPatch,
       })
     }),
   )
