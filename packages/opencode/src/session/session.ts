@@ -972,11 +972,64 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
         .pipe(Effect.orElseSucceed((): Snapshot.FileDiff[] => []))
     })
 
+    const terminalizeStaleExternalResultQuestions = Effect.fn("Session.terminalizeStaleExternalResultQuestions")(
+      function* (messages: MessageV2.WithParts[]) {
+        const now = Date.now()
+        const next: MessageV2.WithParts[] = []
+        for (const message of messages) {
+          let changed = false
+          const parts: MessageV2.Part[] = []
+          for (const part of message.parts) {
+            if (
+              part.type !== "tool" ||
+              part.tool !== "question" ||
+              part.state.status !== "running" ||
+              part.state.metadata?.externalResultReady !== true
+            ) {
+              parts.push(part)
+              continue
+            }
+
+            const lookup = ExternalResult.lookup({
+              sessionID: part.sessionID,
+              messageID: part.messageID,
+              callID: part.callID,
+            })
+            if (lookup.state !== "not_found") {
+              parts.push(part)
+              continue
+            }
+
+            changed = true
+            parts.push(
+              yield* updatePart({
+                ...part,
+                state: {
+                  status: "error",
+                  input: part.state.input,
+                  error: "Question cancelled before the user answered it.",
+                  reason: "shutdown",
+                  metadata: {
+                    ...part.state.metadata,
+                    interrupted: true,
+                    stale_external_result: true,
+                  },
+                  time: { start: part.state.time.start, end: now },
+                },
+              }),
+            )
+          }
+          next.push(changed ? { ...message, parts } : message)
+        }
+        return next
+      },
+    )
+
     const messages = Effect.fn("Session.messages")(function* (input: { sessionID: SessionID; limit?: number }) {
-      if (input.limit) {
-        return MessageV2.page({ sessionID: input.sessionID, limit: input.limit }).items
-      }
-      return Array.from(MessageV2.stream(input.sessionID)).reverse()
+      const items = input.limit
+        ? MessageV2.page({ sessionID: input.sessionID, limit: input.limit }).items
+        : Array.from(MessageV2.stream(input.sessionID)).reverse()
+      return yield* terminalizeStaleExternalResultQuestions(items)
     })
 
     const removeMessage = Effect.fn("Session.removeMessage")(function* (input: {

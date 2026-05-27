@@ -8,6 +8,7 @@ import { Log } from "@opencode-ai/core/util/log"
 import { Instance } from "../../src/project/instance"
 import { MessageV2 } from "../../src/session/message-v2"
 import { MessageID, PartID } from "../../src/session/schema"
+import { ExternalResult } from "../../src/tool/external-result"
 import { tmpdir } from "../fixture/fixture"
 import { Database, eq } from "../../src/storage/db"
 import { MessageTable, SessionTable } from "../../src/session/session.sql"
@@ -734,6 +735,95 @@ describe("step-finish token propagation via Bus event", () => {
 })
 
 describe("Session", () => {
+  test("messages terminalizes stale running external-result questions", async () => {
+    await using tmp = await tmpdir({ git: true })
+    ExternalResult.__resetForTests()
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await SessionNs.create({})
+        const userID = MessageID.ascending()
+        await SessionNs.updateMessage({
+          id: userID,
+          sessionID: session.id,
+          role: "user",
+          time: { created: Date.now() },
+          agent: "user",
+          model: { providerID: "test", modelID: "test" },
+          tools: {},
+          mode: "",
+        } as unknown as MessageV2.Info)
+
+        const assistantID = MessageID.ascending()
+        await SessionNs.updateMessage({
+          id: assistantID,
+          sessionID: session.id,
+          role: "assistant",
+          parentID: userID,
+          time: { created: Date.now() },
+          agent: "build",
+          mode: "build",
+          path: { cwd: tmp.path, root: tmp.path },
+          cost: 0,
+          tokens: {
+            total: 0,
+            input: 0,
+            output: 0,
+            reasoning: 0,
+            cache: { read: 0, write: 0 },
+          },
+          modelID: "test",
+          providerID: "test",
+        } as unknown as MessageV2.Info)
+
+        const partID = PartID.ascending()
+        await SessionNs.updatePart({
+          id: partID,
+          sessionID: session.id,
+          messageID: assistantID,
+          type: "tool",
+          tool: "question",
+          callID: "call_stale_question",
+          state: {
+            status: "running",
+            input: {
+              questions: [
+                {
+                  question: "Continue?",
+                  options: [{ label: "Yes" }, { label: "No" }],
+                },
+              ],
+            },
+            raw: "",
+            time: { start: Date.now() },
+            metadata: { externalResultReady: true },
+          },
+        } as unknown as MessageV2.Part)
+
+        const messages = await SessionNs.messages({ sessionID: session.id })
+        const part = messages.flatMap((msg) => msg.parts).find((item) => item.id === partID)
+        expect(part?.type).toBe("tool")
+        if (part?.type !== "tool") throw new Error("expected tool part")
+        expect(part.state.status).toBe("error")
+        if (part.state.status !== "error") throw new Error("expected error state")
+        expect(part.state.metadata?.interrupted).toBe(true)
+        expect(part.state.metadata?.stale_external_result).toBe(true)
+
+        const persisted = MessageV2.get({ sessionID: session.id, messageID: assistantID }).parts.find(
+          (item) => item.id === partID,
+        )
+        expect(persisted?.type).toBe("tool")
+        if (persisted?.type !== "tool") throw new Error("expected persisted tool part")
+        expect(persisted.state.status).toBe("error")
+
+        await SessionNs.remove(session.id)
+      },
+    })
+
+    ExternalResult.__resetForTests()
+  })
+
   test("remove works without an instance", async () => {
     await using tmp = await tmpdir({ git: true })
 
