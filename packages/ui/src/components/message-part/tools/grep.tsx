@@ -1,6 +1,7 @@
 import { Show } from "solid-js"
 import { useI18n } from "../../../context/i18n"
 import { BasicTool } from "../../basic-tool"
+import { toolIcon } from "../../tool-info"
 import { getDirectory, MessageMarkdown } from "../markdown-render"
 import { ToolRegistry } from "../registry"
 
@@ -14,7 +15,7 @@ ToolRegistry.register({
     return (
       <BasicTool
         {...props}
-        icon="magnifying-glass-menu"
+        icon={toolIcon("grep")}
         trigger={{
           title: i18n.t("ui.tool.grep"),
           subtitle: getDirectory(props.input.path || "/"),

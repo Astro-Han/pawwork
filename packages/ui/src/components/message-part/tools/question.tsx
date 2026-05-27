@@ -1,6 +1,7 @@
 import { createMemo, For, Show } from "solid-js"
 import { useI18n } from "../../../context/i18n"
 import { BasicTool } from "../../basic-tool"
+import { toolIcon } from "../../tool-info"
 import { ToolRegistry } from "../registry"
 
 // QuestionInfo / QuestionAnswer used to live in @opencode-ai/sdk/v2 when the
@@ -35,7 +36,7 @@ ToolRegistry.register({
       <BasicTool
         {...props}
         defaultOpen={props.defaultOpen ?? completed()}
-        icon="bubble-5"
+        icon={toolIcon("question")}
         trigger={{
           title: i18n.t("ui.tool.questions"),
           subtitle: subtitle(),

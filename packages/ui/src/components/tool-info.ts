@@ -17,6 +17,50 @@ export type ToolInfo = {
   subtitle?: string
 }
 
+/**
+ * Single source of truth for a tool's icon.
+ *
+ * Every tool surface resolves its icon through here so they never drift:
+ * the trow-block leading icon (`toolFamilyIcon` delegates to this), the
+ * expanded tool header ({@link toolInfoForInput} returns it), and each
+ * individual tool component (read/edit/write/apply-patch/skill passes
+ * `toolIcon("…")` to BasicTool). Returns `mcp` for any unknown tool.
+ */
+export function toolIcon(tool: string): IconProps["name"] {
+  switch (tool) {
+    case "read":
+      return "read-file"
+    case "list":
+      return "bullet-list"
+    case "glob":
+    case "grep":
+      return "magnifying-glass-menu"
+    case TOOL_WEBFETCH:
+    case TOOL_WEBSEARCH:
+      return "window-cursor"
+    case "enter-worktree":
+    case "exit-worktree":
+      return "worktree"
+    case TOOL_AGENT_LEGACY:
+    case TOOL_AGENT:
+      return "agent"
+    case "bash":
+      return "console"
+    case "edit":
+    case "write":
+    case "apply_patch":
+      return "edit"
+    case TOOL_TODOWRITE:
+      return "checklist"
+    case TOOL_QUESTION:
+      return "bubble-5"
+    case "skill":
+      return "skill"
+    default:
+      return "mcp"
+  }
+}
+
 function pickString(value: unknown): string | undefined {
   return typeof value === "string" && value ? value : undefined
 }
@@ -79,53 +123,54 @@ export function toolInfoForInput(
   i18n: UiI18n,
   options: { unknownSubtitle?: string } = {},
 ): ToolInfo {
+  const icon = toolIcon(tool)
   switch (tool) {
     case "read":
       return {
-        icon: "glasses",
+        icon,
         title: i18n.t("ui.tool.read"),
         subtitle: input.filePath ? getFilename(input.filePath) : undefined,
       }
     case "list":
       return {
-        icon: "bullet-list",
+        icon,
         title: i18n.t("ui.tool.list"),
         subtitle: input.path ? getFilename(input.path) : undefined,
       }
     case "glob":
       return {
-        icon: "magnifying-glass-menu",
+        icon,
         title: i18n.t("ui.tool.glob"),
         subtitle: input.pattern,
       }
     case "grep":
       return {
-        icon: "magnifying-glass-menu",
+        icon,
         title: i18n.t("ui.tool.grep"),
         subtitle: input.pattern,
       }
     case TOOL_WEBFETCH:
       return {
-        icon: "window-cursor",
+        icon,
         title: i18n.t("ui.tool.webfetch"),
         subtitle: input.url,
       }
     case TOOL_WEBSEARCH:
       return {
-        icon: "window-cursor",
+        icon,
         title: i18n.t("ui.tool.websearch"),
         subtitle: input.query,
       }
     case "enter-worktree": {
       return {
-        icon: "worktree",
+        icon,
         title: i18n.t("ui.tool.worktree.enter"),
         subtitle: enterWorktreeSubtitle(input, metadata, i18n),
       }
     }
     case "exit-worktree": {
       return {
-        icon: "worktree",
+        icon,
         title: i18n.t("ui.tool.worktree.exit"),
         subtitle: exitWorktreeSubtitle(metadata, i18n),
       }
@@ -137,26 +182,26 @@ export function toolInfoForInput(
           ? input.subagent_type[0]!.toUpperCase() + input.subagent_type.slice(1)
           : undefined
       return {
-        icon: "agent",
+        icon,
         title: agentTitle(i18n, type),
         subtitle: input.description,
       }
     }
     case "bash":
       return {
-        icon: "console",
+        icon,
         title: i18n.t("ui.tool.shell"),
         subtitle: input.description,
       }
     case "edit":
       return {
-        icon: "code-lines",
+        icon,
         title: i18n.t("ui.messagePart.title.edit"),
         subtitle: input.filePath ? getFilename(input.filePath) : undefined,
       }
     case "write":
       return {
-        icon: "code-lines",
+        icon,
         title: i18n.t("ui.messagePart.title.write"),
         subtitle: input.filePath ? getFilename(input.filePath) : undefined,
       }
@@ -167,7 +212,7 @@ export function toolInfoForInput(
           ? input.files.length
           : 0
       return {
-        icon: "code-lines",
+        icon,
         title: i18n.t("ui.tool.patch"),
         subtitle: fileCount
           ? `${fileCount} ${i18n.t(fileCount > 1 ? "ui.common.file.other" : "ui.common.file.one")}`
@@ -176,22 +221,22 @@ export function toolInfoForInput(
     }
     case TOOL_TODOWRITE:
       return {
-        icon: "checklist",
+        icon,
         title: i18n.t("ui.tool.todos"),
       }
     case TOOL_QUESTION:
       return {
-        icon: "bubble-5",
+        icon,
         title: i18n.t("ui.tool.questions"),
       }
     case "skill":
       return {
-        icon: "brain",
+        icon,
         title: input.name || i18n.t("ui.tool.skill"),
       }
     default:
       return {
-        icon: "mcp",
+        icon,
         title: tool,
         subtitle: options.unknownSubtitle,
       }

@@ -5,6 +5,7 @@ import { useFileComponent } from "../../../context/file"
 import { useI18n } from "../../../context/i18n"
 import { Accordion } from "../../accordion"
 import { BasicTool } from "../../basic-tool"
+import { toolIcon } from "../../tool-info"
 import { createBoundedStateMap } from "../../persisted-state-map"
 import { DiffChanges } from "../../diff-changes"
 import { FileIcon } from "../../file-icon"
@@ -58,7 +59,7 @@ ToolRegistry.register({
           <div data-component="apply-patch-tool">
             <BasicTool
               {...props}
-              icon="code-lines"
+              icon={toolIcon("apply_patch")}
               defer
               trigger={{
                 title: i18n.t("ui.tool.patch"),
@@ -154,7 +155,7 @@ ToolRegistry.register({
         <div data-component="apply-patch-tool">
           <BasicTool
             {...props}
-            icon="code-lines"
+            icon={toolIcon("apply_patch")}
             defer
             trigger={
               <div data-component="edit-trigger">

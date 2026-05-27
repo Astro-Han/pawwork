@@ -297,40 +297,38 @@
   }
 }
 
-[data-component="reasoning-part"] {
-  width: 100%;
-  color: var(--fg-base);
+/* Reasoning body — the thinking text inside the BasicTool collapsible.
+ * The trow-result-body scope forces a mono caption family on everything
+ * it wraps; reasoning is natural-language prose, so opt its markdown back
+ * to the sans body family at fg-weak (one tier quieter than agent prose). */
+[data-component="reasoning-body"] [data-component="markdown"] {
+  font-family: var(--font-family-sans);
+  font-style: normal;
+  font-size: var(--font-size-body);
   line-height: var(--line-height-body);
+  color: var(--fg-weak);
 
-  [data-component="markdown"] {
-    margin-top: 16px;
-    font-style: normal;
-    font-size: var(--font-size-body);
-    line-height: var(--line-height-body);
+  strong,
+  b {
     color: var(--fg-weak);
+  }
 
-    strong,
-    b {
-      color: var(--fg-weak);
-    }
+  p:has(strong) {
+    margin-top: 24px;
+    margin-bottom: 0;
 
-    p:has(strong) {
-      margin-top: 24px;
-      margin-bottom: 0;
-
-      &:first-child {
-        margin-top: 0;
-      }
+    &:first-child {
+      margin-top: 0;
     }
   }
 }
 
-[data-color-scheme="dark"] [data-component="reasoning-part"] [data-component="markdown"] :not(pre) > code {
+[data-color-scheme="dark"] [data-component="reasoning-body"] [data-component="markdown"] :not(pre) > code {
   opacity: 0.6;
 }
 
 @media (prefers-color-scheme: dark) {
-  :root:not([data-color-scheme="light"]) [data-component="reasoning-part"] [data-component="markdown"] :not(pre) > code {
+  :root:not([data-color-scheme="light"]) [data-component="reasoning-body"] [data-component="markdown"] :not(pre) > code {
     opacity: 0.6;
   }
 }
@@ -723,7 +721,7 @@
 
 [data-component="user-message"] [data-slot="user-message-text"],
 [data-component="text-part"],
-[data-component="reasoning-part"],
+[data-component="reasoning-body"],
 [data-component="tool-output"],
 [data-component="bash-output"],
 [data-component="edit-content"],

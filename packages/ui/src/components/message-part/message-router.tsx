@@ -15,7 +15,6 @@ export function Message(props: MessageProps) {
         <AssistantMessageDisplay
           message={props.message as AssistantMessage}
           parts={props.parts}
-          showReasoningSummaries={props.showReasoningSummaries}
         />
       </Show>
     </>
