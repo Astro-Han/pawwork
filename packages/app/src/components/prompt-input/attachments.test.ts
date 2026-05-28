@@ -40,8 +40,18 @@ mock.module("@/context/language", () => ({
 }))
 
 mock.module("@/context/prompt", () => ({
+  DEFAULT_PROMPT: [{ type: "text", content: "", start: 0, end: 0 }],
   isStructurallyEmpty: (parts: unknown[], contextItems: unknown[], imageAttachments: unknown[]) =>
-    parts.length === 0 && contextItems.length === 0 && imageAttachments.length === 0,
+    (parts.length === 0 ||
+      (parts.length === 1 &&
+        typeof parts[0] === "object" &&
+        parts[0] !== null &&
+        "type" in parts[0] &&
+        parts[0].type === "text" &&
+        "content" in parts[0] &&
+        parts[0].content === "")) &&
+    contextItems.length === 0 &&
+    imageAttachments.length === 0,
   usePrompt: () => ({
     current: () => promptParts,
     cursor: () => 0,
