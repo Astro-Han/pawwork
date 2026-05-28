@@ -88,10 +88,6 @@ beforeAll(async () => {
       ascending: (prefix: string) => `${prefix}_queued`,
     },
   }))
-  mock.module("@/components/prompt-input/submit", () => ({
-    sendFollowupDraft: (input: unknown) => sendFollowupDraftImpl(input),
-  }))
-
   const mod = await import("./use-session-followups")
   followupPreviewText = mod.followupPreviewText
   shouldAutoSendFollowup = mod.shouldAutoSendFollowup
@@ -328,6 +324,7 @@ describe("session followups", () => {
             fail: () => undefined,
             resumeScroll: () => undefined,
             attachmentLabel: () => "Attachment",
+            sendFollowup: ((input: unknown) => sendFollowupDraftImpl(input)) as never,
           })
           return null
         },
@@ -404,6 +401,7 @@ describe("session followups", () => {
             fail: () => undefined,
             resumeScroll: () => undefined,
             attachmentLabel: () => "Attachment",
+            sendFollowup: ((input: unknown) => sendFollowupDraftImpl(input)) as never,
           })
           return null
         },
