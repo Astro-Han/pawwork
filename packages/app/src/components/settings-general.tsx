@@ -76,18 +76,6 @@ export const SettingsGeneral: Component = () => {
         </SettingsRow>
 
         <SettingsWebSearchRow />
-
-        <SettingsRow
-          title={language.t("settings.general.row.lsp.title")}
-          description={language.t("settings.general.row.lsp.description")}
-        >
-          <div data-action="settings-lsp-enabled">
-            <Switch
-              checked={settings.general.lspEnabled()}
-              onChange={(checked) => settings.general.setLspEnabled(checked)}
-            />
-          </div>
-        </SettingsRow>
       </SettingsList>
     </div>
   )

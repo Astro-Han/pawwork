@@ -1,4 +1,5 @@
 import { test, expect } from "../fixtures"
+import { openSettings } from "../actions"
 import { promptSelector, sessionComposerDockSelector } from "../selectors"
 
 test("@smoke home renders hero composer with updated welcome heading", async ({ page, project }) => {
@@ -125,15 +126,13 @@ test("home model chip keeps the single-row controls visible", async ({ page, pro
   }
 })
 
-test("@smoke project home status panel can open the server picker dialog", async ({ page, project }) => {
+test("@smoke settings integrations can open the server picker dialog", async ({ page, project }) => {
   await project.open()
 
-  const statusPanel = page.getByRole("complementary", { name: "Right utility panel" })
-  if (!(await statusPanel.isVisible())) {
-    await page.getByRole("button", { name: "Right utility panel" }).click()
-  }
-  await expect(statusPanel).toBeVisible()
-  await statusPanel.getByRole("button", { name: "Manage servers" }).click()
+  const settings = await openSettings(page)
+  await settings.getByRole("tab", { name: "Integrations" }).click()
+  await settings.locator('[data-component="settings-integrations"]').waitFor({ state: "visible" })
+  await settings.getByRole("button", { name: "Manage servers" }).click()
 
   const dialog = page.getByRole("dialog")
   await expect(dialog).toBeVisible()

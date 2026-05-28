@@ -699,8 +699,6 @@ export const dict = {
   "status.summary.progress.empty": "No todos yet.",
   "status.summary.sources": "Sources",
   "status.summary.sources.empty": "No sources used yet.",
-  "status.connections.title": "Connections",
-  "status.connections.empty": "None configured.",
   "status.connections.state.disabled": "disabled",
   "status.connections.state.failed": "failed",
   "status.connections.state.needs_auth": "needs auth",
@@ -835,7 +833,19 @@ export const dict = {
   "settings.tab.memory": "Memory",
   "settings.backToApp": "Back to app",
   "settings.remote.placeholder": "Remote access settings will live here.",
-  "settings.integrations.placeholder": "Integrations settings will live here.",
+  "settings.integrations.description":
+    "Servers PawWork connects to, plus MCP, language servers, and plugins available to your sessions.",
+  "settings.integrations.empty": "None configured.",
+  "connectionHealth.toast.server.title": "Server unreachable",
+  "connectionHealth.toast.server.description":
+    "{{count}} configured server failed its health check. Open Integrations to see which one.",
+  "connectionHealth.toast.mcp.title": "MCP connection failed",
+  "connectionHealth.toast.mcp.description":
+    "{{count}} MCP server reported a failure. Open Integrations to see which one.",
+  "connectionHealth.toast.lsp.title": "Language server failed",
+  "connectionHealth.toast.lsp.description":
+    "{{count}} language server stopped responding. Open Integrations to see which one.",
+  "connectionHealth.toast.action.view": "Open Integrations",
   "settings.memory.title": "Memory",
   "settings.memory.description": "Review what PawWork remembers and edit the raw MEMORY.md file.",
   "settings.memory.enabled.title": "Enable memory",

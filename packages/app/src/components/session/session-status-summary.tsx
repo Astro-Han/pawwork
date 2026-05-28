@@ -76,8 +76,7 @@ export function SessionStatusSummary(props: {
 
   // No outer wrapper — Section components attach directly to SessionStatusPanel's
   // scroll container, so the first:border-t-0 selector correctly drops the leading
-  // hairline regardless of whether SessionStatusSummary's siblings (e.g.
-  // SessionStatusConnections below) come first or last in the DOM.
+  // hairline regardless of how SessionStatusSummary is placed inside.
   return (
     <>
       <Show when={snapshot().phase !== "pending"}>
