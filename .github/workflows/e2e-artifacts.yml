@@ -139,14 +139,10 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
-      # Avoid Playwright's browser download path here; on this runner it can
-      # hang after reaching 100%. Use the GitHub-hosted Chrome install instead.
-      - name: Install Playwright system dependencies
+      - name: Install Playwright browsers
         timeout-minutes: 10
         working-directory: packages/app
-        run: |
-          bunx playwright install-deps chromium
-          google-chrome --version
+        run: bunx playwright install --with-deps chromium
 
       - name: Run e2e
         id: run_e2e
@@ -155,8 +151,6 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           E2E_SUITE: ${{ inputs.suite || '' }}
           PLAYWRIGHT_JUNIT_OUTPUT: e2e/junit-linux.xml
-          PLAYWRIGHT_BROWSER_CHANNEL: chrome
-          PLAYWRIGHT_VIDEO: "off"
         run: |
           if [ "$EVENT_NAME" = "pull_request" ] || [ "$E2E_SUITE" = "smoke" ]; then
             bun --cwd packages/app test:e2e:local:smoke

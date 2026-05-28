@@ -8,10 +8,8 @@ const command = process.env.PLAYWRIGHT_WEB_COMMAND ?? `bun run dev -- --host 0.0
 const skipWebServer = process.env.PLAYWRIGHT_SKIP_WEB_SERVER === "1"
 const reuse = !process.env.CI
 const workers = Number(process.env.PLAYWRIGHT_WORKERS ?? (process.env.CI ? 5 : 0)) || undefined
-const browserChannel = process.env.PLAYWRIGHT_BROWSER_CHANNEL
 const reporter = [["html", { outputFolder: "e2e/playwright-report", open: "never" }], ["line"]] as const
 const trace = process.env.PAWWORK_PERF_TRACE === "1" ? "on" : "on-first-retry"
-const video = process.env.PLAYWRIGHT_VIDEO === "off" ? "off" : "retain-on-failure"
 
 if (process.env.PLAYWRIGHT_JUNIT_OUTPUT) {
   reporter.push(["junit", { outputFile: process.env.PLAYWRIGHT_JUNIT_OUTPUT }])
@@ -54,12 +52,12 @@ export default defineConfig({
     baseURL,
     trace,
     screenshot: "only-on-failure",
-    video,
+    video: "retain-on-failure",
   },
   projects: [
     {
       name: "chromium",
-      use: { ...devices["Desktop Chrome"], ...(browserChannel ? { channel: browserChannel } : {}) },
+      use: { ...devices["Desktop Chrome"] },
     },
   ],
 })
