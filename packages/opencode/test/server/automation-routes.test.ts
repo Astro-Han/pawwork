@@ -32,6 +32,7 @@ async function json(app: Hono, input: string, init?: RequestInit) {
 }
 
 type RecurringCreateInput = Extract<Automation.CreateInput, { kind: "recurring" }>
+type OneshotCreateInput = Extract<Automation.CreateInput, { kind: "oneshot" }>
 
 function recurringInput(projectID: ProjectID, overrides: Partial<RecurringCreateInput> = {}): RecurringCreateInput {
   return {
@@ -43,6 +44,19 @@ function recurringInput(projectID: ProjectID, overrides: Partial<RecurringCreate
     timezone: "Asia/Shanghai",
     rhythm: { kind: "interval", everyMs: 60_000 },
     stop: { kind: "count", count: 3 },
+    ...overrides,
+  }
+}
+
+function oneshotInput(projectID: ProjectID, overrides: Partial<OneshotCreateInput> = {}): OneshotCreateInput {
+  return {
+    kind: "oneshot",
+    title: "One-time repo brief",
+    prompt: "Summarize repo changes once.",
+    context: "fresh",
+    where: { projectID },
+    timezone: "Asia/Shanghai",
+    fireAt: 1_800_000_000_000,
     ...overrides,
   }
 }
@@ -144,6 +158,51 @@ describe("automation routes", () => {
         createdAt: 100,
         updatedAt: 200,
       })
+    })
+  })
+
+  test("rejects update fields that do not apply to the existing automation kind", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const recurring = await json(app, "/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(recurringInput(projectID)),
+      })
+      const recurringResponse = await app.request(`/automation/${recurring.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ fireAt: 1_800_000_000_000 }),
+      })
+      const recurringBody = await recurringResponse.json()
+
+      expect(recurringResponse.status).toBe(422)
+      expect(recurringBody).toEqual({
+        error: "invalid_automation",
+        details: [{ field: "fireAt", message: "unsupported_for_recurring_automation" }],
+      })
+      expect(Automation.get(recurring.id).revision).toBe(1)
+
+      const oneshot = await json(app, "/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(oneshotInput(projectID)),
+      })
+      const oneshotResponse = await app.request(`/automation/${oneshot.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ rhythm: { kind: "interval", everyMs: 60_000 }, stop: { kind: "never" } }),
+      })
+      const oneshotBody = await oneshotResponse.json()
+
+      expect(oneshotResponse.status).toBe(422)
+      expect(oneshotBody).toEqual({
+        error: "invalid_automation",
+        details: [
+          { field: "rhythm", message: "unsupported_for_oneshot_automation" },
+          { field: "stop", message: "unsupported_for_oneshot_automation" },
+        ],
+      })
+      expect(Automation.get(oneshot.id).revision).toBe(1)
     })
   })
 

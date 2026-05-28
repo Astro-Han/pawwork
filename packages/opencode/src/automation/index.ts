@@ -181,6 +181,19 @@ export namespace Automation {
     return details
   }
 
+  export function validateUpdateInput(previous: Definition, patch: UpdateInput) {
+    const details: { field: string; message: string }[] = []
+    if (previous.kind === "recurring" && Object.hasOwn(patch, "fireAt")) {
+      details.push({ field: "fireAt", message: "unsupported_for_recurring_automation" })
+    }
+    if (previous.kind === "oneshot") {
+      for (const field of ["rhythm", "stop"] as const) {
+        if (Object.hasOwn(patch, field)) details.push({ field, message: "unsupported_for_oneshot_automation" })
+      }
+    }
+    return details
+  }
+
   export function create(input: CreateInput, options?: { now?: number }): Definition {
     const details = validateCreateInput(input)
     if (details.length) throw new ValidationError(details)
@@ -228,6 +241,8 @@ export namespace Automation {
 
   export function update(id: string, patch: UpdateInput, options?: { now?: number }): Definition {
     const previous = get(id)
+    const updateDetails = validateUpdateInput(previous, patch)
+    if (updateDetails.length) throw new ValidationError(updateDetails)
     const next = Definition.parse({
       ...previous,
       ...patch,
