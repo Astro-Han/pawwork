@@ -9,6 +9,11 @@ function validationError(error: ValidationError) {
   return Automation.ValidationErrorResponse.parse({ error: "invalid_automation", details: error.details })
 }
 
+async function publishIfChanged(previous: Automation.Definition, definition: Automation.Definition) {
+  if (definition.revision === previous.revision) return
+  await Automation.publishDefinitionUpdated(definition)
+}
+
 function validationIssuePath(issue: unknown) {
   const path = typeof issue === "object" && issue !== null && "path" in issue ? issue.path : undefined
   if (!Array.isArray(path)) return ""
@@ -141,8 +146,10 @@ export const AutomationRoutes = (): Hono =>
       validator("json", Automation.UpdateInput, automationBodyValidationHook),
       async (c) => {
         try {
-          const definition = Automation.update(c.req.valid("param").automationID, c.req.valid("json"))
-          await Automation.publishDefinitionUpdated(definition)
+          const automationID = c.req.valid("param").automationID
+          const previous = Automation.get(automationID)
+          const definition = Automation.update(automationID, c.req.valid("json"))
+          await publishIfChanged(previous, definition)
           return c.json(definition)
         } catch (error) {
           if (error instanceof ValidationError) return c.json(validationError(error), 422)
@@ -166,8 +173,10 @@ export const AutomationRoutes = (): Hono =>
       }),
       validator("param", z.object({ automationID: AutomationID.Definition.zod })),
       async (c) => {
-        const definition = Automation.update(c.req.valid("param").automationID, { paused: true })
-        await Automation.publishDefinitionUpdated(definition)
+        const automationID = c.req.valid("param").automationID
+        const previous = Automation.get(automationID)
+        const definition = Automation.update(automationID, { paused: true })
+        await publishIfChanged(previous, definition)
         return c.json(definition)
       },
     )
@@ -187,8 +196,10 @@ export const AutomationRoutes = (): Hono =>
       }),
       validator("param", z.object({ automationID: AutomationID.Definition.zod })),
       async (c) => {
-        const definition = Automation.update(c.req.valid("param").automationID, { paused: false })
-        await Automation.publishDefinitionUpdated(definition)
+        const automationID = c.req.valid("param").automationID
+        const previous = Automation.get(automationID)
+        const definition = Automation.update(automationID, { paused: false })
+        await publishIfChanged(previous, definition)
         return c.json(definition)
       },
     )

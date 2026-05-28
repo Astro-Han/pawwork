@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { Hono } from "hono"
 import { Log } from "@opencode-ai/core/util/log"
 import { Automation, AutomationID } from "../../src/automation"
+import { Bus } from "../../src/bus"
 import { Instance } from "../../src/project/instance"
 import { ProjectID } from "../../src/project/schema"
 import { ErrorMiddleware } from "../../src/server/middleware"
@@ -217,6 +218,64 @@ describe("automation routes", () => {
         createdAt: 100,
         updatedAt: 200,
       })
+    })
+  })
+
+  test("no-op update returns the current definition without revising or publishing", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const created = await json(app, "/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(recurringInput(projectID)),
+      })
+      const revisions: number[] = []
+      const unsubscribe = Bus.subscribe(Automation.Event.DefinitionUpdated, (event) => {
+        revisions.push(event.properties.revision)
+      })
+
+      const empty = await json(app, `/automation/${created.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      })
+      const samePaused = await json(app, `/automation/${created.id}/resume`, { method: "POST" })
+
+      await Bun.sleep(10)
+      unsubscribe()
+
+      expect(empty.revision).toBe(1)
+      expect(empty.updatedAt).toBe(created.updatedAt)
+      expect(samePaused.revision).toBe(1)
+      expect(samePaused.updatedAt).toBe(created.updatedAt)
+      expect(revisions).toEqual([])
+    })
+  })
+
+  test("pause and resume only revise when paused state changes", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const created = await json(app, "/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(recurringInput(projectID)),
+      })
+      const revisions: number[] = []
+      const unsubscribe = Bus.subscribe(Automation.Event.DefinitionUpdated, (event) => {
+        revisions.push(event.properties.revision)
+      })
+
+      const paused = await json(app, `/automation/${created.id}/pause`, { method: "POST" })
+      const pausedAgain = await json(app, `/automation/${created.id}/pause`, { method: "POST" })
+      const resumed = await json(app, `/automation/${created.id}/resume`, { method: "POST" })
+      const resumedAgain = await json(app, `/automation/${created.id}/resume`, { method: "POST" })
+
+      await Bun.sleep(10)
+      unsubscribe()
+
+      expect(paused).toMatchObject({ revision: 2, paused: true })
+      expect(pausedAgain).toMatchObject({ revision: 2, paused: true })
+      expect(resumed).toMatchObject({ revision: 3, paused: false })
+      expect(resumedAgain).toMatchObject({ revision: 3, paused: false })
+      expect(revisions).toEqual([2, 3])
     })
   })
 

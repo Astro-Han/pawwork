@@ -379,10 +379,30 @@ export namespace Automation {
     return definition
   }
 
+  function isSameValue(left: unknown, right: unknown): boolean {
+    if (Object.is(left, right)) return true
+    if (Array.isArray(left) || Array.isArray(right)) {
+      if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false
+      return left.every((item, index) => isSameValue(item, right[index]))
+    }
+    if (typeof left === "object" && left && typeof right === "object" && right) {
+      const leftKeys = Object.keys(left)
+      const rightKeys = Object.keys(right)
+      if (leftKeys.length !== rightKeys.length) return false
+      return leftKeys.every((key) => Object.hasOwn(right, key) && isSameValue((left as any)[key], (right as any)[key]))
+    }
+    return false
+  }
+
+  function hasChanges(previous: Definition, patch: UpdateInput) {
+    return Object.entries(patch).some(([field, value]) => !isSameValue(previous[field as keyof Definition], value))
+  }
+
   export function update(id: string, patch: UpdateInput, options?: { now?: number }): Definition {
     const previous = get(id)
     const updateDetails = validateUpdateInput(previous, patch)
     if (updateDetails.length) throw new ValidationError(updateDetails)
+    if (!hasChanges(previous, patch)) return previous
     const next = Definition.parse({
       ...previous,
       ...patch,
