@@ -55,15 +55,27 @@ const dispose = render(() => createComponent(SessionOpeningSkeleton, {
   visible: true,
   transitioning: true,
   openingLabel: "Opening session...",
+  messages: [
+    { id: "msg_1", role: "user" },
+    { id: "msg_2", role: "assistant" },
+    { id: "msg_3", role: "assistant" },
+  ],
 }), root)
 
 const state = root.querySelector('[data-component="session-opening-state"]')
 assert(state, "opening skeleton should render a status root")
 assert(state.getAttribute("role") === "status", "opening skeleton should expose status semantics")
 assert(state.getAttribute("data-state") === "skeleton", "opening state should use skeleton mode")
-assert(state.querySelectorAll('[data-component="session-opening-skeleton-turn"]').length === 4, "skeleton should mirror a multi-turn timeline")
-assert(state.querySelectorAll('[data-side="user"]').length === 2, "skeleton should include user-shaped rows")
-assert(state.querySelectorAll('[data-side="assistant"]').length === 2, "skeleton should include assistant-shaped rows")
+assert(state.querySelectorAll('[data-component="user-message"]').length === 1, "skeleton should reuse real user-message shell for user rows")
+assert(state.querySelectorAll('[data-component="assistant-message"]').length === 2, "skeleton should reuse real assistant-message shell for assistant rows")
+assert(
+  state.querySelector('[data-component="user-message"] [data-slot="user-message-body"] [data-slot="user-message-text"]'),
+  "user-message skeleton should nest body > text so real CSS drives bubble geometry",
+)
+assert(
+  state.querySelectorAll('[data-slot="skeleton-line"]').length > 0,
+  "skeleton should mark its grey placeholder lines with data-slot=skeleton-line",
+)
 assert(state.querySelector("button") === null, "opening skeleton should not show retry/action buttons")
 assert(state.querySelector(".animate-spin") === null, "opening skeleton should not show a spinner")
 assert(state.textContent.includes("Opening session..."), "opening label should remain available to assistive tech")
