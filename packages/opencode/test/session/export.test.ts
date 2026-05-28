@@ -14,6 +14,7 @@ import { Config } from "../../src/config"
 import { TOOL_FAILURE_HINTS } from "../../src/session/tool-failure"
 import { LLMTrace } from "../../src/session/llm-trace"
 import { RunObservability } from "../../src/session/run-observability"
+import { RunLifecycle } from "../../src/session/run-lifecycle"
 
 const projectRoot = path.join(__dirname, "../..")
 void Log.init({ print: false })
@@ -1713,6 +1714,104 @@ describe("redactPart", () => {
         ? sanitized.session.messages[0].info.diagnostics?.llm_trace?.stream?.provider?.safe_headers
         : undefined,
     ).toEqual({ "x-request-id": "req_123" })
+  })
+
+  test("sanitizeSnapshot redacts run lifecycle diagnostics in top-level and session tree copies", () => {
+    const lifecycleEvent: RunLifecycle.Event = {
+      schema_version: 1,
+      type: "run_wait_started",
+      session_id: SessionID.make("ses_lifecycle_sensitive"),
+      message_id: MessageID.make("msg_lifecycle_sensitive"),
+      at: 1,
+      reason: "lifecycle_close /Users/alice/private-project token-secret",
+      lifecycle: {
+        action_id: "lifecycle:instance_dispose_all:test",
+        kind: "instance_dispose_all",
+        initiated_at: 1,
+        initiated_monotonic_ms: 2,
+        affected_directory_keys: ["dir:safehashed"],
+        origin: {
+          source: "server_handler",
+          operation: "instance.disposeAll /Users/alice/private-project",
+          reason: "reload because token-secret was present",
+        },
+        request: {
+          method: "POST",
+          path: "/global/dispose?cwd=/Users/alice/private-project&token=secret",
+          source: "renderer",
+          directory_key: "dir:safehashed",
+          workspace_id: "workspace-secret",
+          client_action: {
+            id: "client-action-secret",
+            kind: "global.dispose.secret",
+            route_session_id: "ses_route_secret",
+            visible_session_id: "ses_visible_secret",
+          },
+        },
+      },
+    }
+
+    const fakeSnapshot: Export.Snapshot = {
+      schema_version: 1,
+      format: "pawwork-session-export",
+      exported_at: 1,
+      root_session_id: SessionID.make("ses_lifecycle_sensitive"),
+      runtime_context: {
+        app_version: "test",
+        runtime_namespace: "pawwork",
+        platform: process.platform,
+        os_version: "test",
+        locale: "en-US",
+        timezone: "UTC",
+        instruction_sources: [],
+        model_refs: {},
+        stats: { session_count: 1, message_count: 1, part_count: 0, omitted_attachment_count: 0 },
+      },
+      diagnostics: { run_lifecycle_schema_version: 1, run_lifecycle: [lifecycleEvent] },
+      session: {
+        info: {
+          id: SessionID.make("ses_lifecycle_sensitive"),
+          version: "0.0.0",
+          time: { created: 1, updated: 1 },
+          title: "x",
+          directory: "/tmp/project",
+        } as SessionNs.Info,
+        had_cloud_share: false,
+        diffs: [],
+        messages: [
+          {
+            info: {
+              id: MessageID.make("msg_lifecycle_sensitive"),
+              role: "user",
+              sessionID: SessionID.make("ses_lifecycle_sensitive"),
+              time: { created: 1 },
+              agent: "build",
+              model: { providerID: "test", modelID: "model" },
+              diagnostics: { run_lifecycle: [lifecycleEvent] },
+            } as MessageV2.User,
+            parts: [],
+          },
+        ],
+        children: [],
+      },
+    }
+
+    const sanitized = Export.sanitizeSnapshot(fakeSnapshot)
+    const serialized = JSON.stringify(sanitized)
+    expect(serialized).not.toContain("/Users/alice")
+    expect(serialized).not.toContain("token-secret")
+    expect(serialized).not.toContain("workspace-secret")
+    expect(serialized).not.toContain("client-action-secret")
+    expect(serialized).not.toContain("ses_route_secret")
+    expect(serialized).not.toContain("ses_visible_secret")
+    expect(sanitized.diagnostics.run_lifecycle?.[0]?.lifecycle?.affected_directory_keys).toEqual(["dir:safehashed"])
+    expect(sanitized.diagnostics.run_lifecycle?.[0]?.lifecycle?.origin?.source).toBe("server_handler")
+    expect(sanitized.diagnostics.run_lifecycle?.[0]?.lifecycle?.request?.method).toBe("POST")
+    expect(
+      sanitized.session.messages[0].info.role === "user"
+        ? sanitized.session.messages[0].info.diagnostics?.run_lifecycle?.[0]?.lifecycle?.request?.directory_key
+        : undefined,
+    ).toBe("dir:safehashed")
   })
 
   test("sanitizeSnapshot preserves safe run observability error fingerprints", () => {

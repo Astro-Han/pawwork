@@ -1004,6 +1004,12 @@ export namespace Export {
             ? {
                 ...msg.info,
                 system: msg.info.system === undefined ? undefined : redact("system", msg.info.id, msg.info.system),
+                diagnostics: !msg.info.diagnostics
+                  ? msg.info.diagnostics
+                  : {
+                      ...msg.info.diagnostics,
+                      run_lifecycle: msg.info.diagnostics.run_lifecycle?.map(sanitizeRunLifecycle),
+                    },
                 summary: messageSummary(
                   !msg.info.summary
                     ? msg.info.summary
@@ -1039,6 +1045,7 @@ export namespace Export {
                       run_observability: msg.info.diagnostics.run_observability
                         ? sanitizeRunObservability(msg.info.diagnostics.run_observability)
                         : undefined,
+                      run_lifecycle: msg.info.diagnostics.run_lifecycle?.map(sanitizeRunLifecycle),
                     },
               },
         parts: msg.parts.map(partFn),
@@ -1119,6 +1126,7 @@ export namespace Export {
       })),
       llm_traces: diagnostics.llm_traces?.map(sanitizeLLMTrace),
       run_observability: diagnostics.run_observability?.map(sanitizeRunObservability),
+      run_lifecycle: diagnostics.run_lifecycle?.map(sanitizeRunLifecycle),
       run_incident_schema_version:
         diagnostics.run_incident_schema_version ?? (hasRunIncident ? RunIncident.SCHEMA_VERSION : undefined),
       run_incidents: sanitizedIncidents,
@@ -1132,6 +1140,70 @@ export namespace Export {
       incident: summary.incident ? RunIncident.sanitize(summary.incident) : undefined,
       recovered_incidents: summary.recovered_incidents?.map(RunIncident.sanitize),
       error: summary.error,
+    }
+  }
+
+  function sanitizeRunLifecycle(event: RunLifecycle.Event): RunLifecycle.Event {
+    const id = event.message_id ?? event.assistant_message_id ?? event.session_id
+    const lifecycle = event.lifecycle
+    return {
+      ...event,
+      reason: event.reason === undefined ? undefined : redact("run-lifecycle-reason", id, event.reason),
+      lifecycle: lifecycle
+        ? {
+            ...lifecycle,
+            origin: lifecycle.origin
+              ? {
+                  source: lifecycle.origin.source,
+                  operation:
+                    lifecycle.origin.operation === undefined
+                      ? undefined
+                      : redact("run-lifecycle-origin-operation", id, lifecycle.origin.operation),
+                  reason:
+                    lifecycle.origin.reason === undefined
+                      ? undefined
+                      : redact("run-lifecycle-origin-reason", id, lifecycle.origin.reason),
+                }
+              : undefined,
+            request: lifecycle.request
+              ? {
+                  method: lifecycle.request.method,
+                  source: lifecycle.request.source,
+                  path: redact("run-lifecycle-request-path", id, lifecycle.request.path),
+                  directory_key: lifecycle.request.directory_key,
+                  workspace_id:
+                    lifecycle.request.workspace_id === undefined
+                      ? undefined
+                      : redact("run-lifecycle-request-workspace", id, lifecycle.request.workspace_id),
+                  client_action: lifecycle.request.client_action
+                    ? {
+                        id: redact("run-lifecycle-client-action-id", id, lifecycle.request.client_action.id),
+                        kind:
+                          lifecycle.request.client_action.kind === undefined
+                            ? undefined
+                            : redact("run-lifecycle-client-action-kind", id, lifecycle.request.client_action.kind),
+                        route_session_id:
+                          lifecycle.request.client_action.route_session_id === undefined
+                            ? undefined
+                            : redact(
+                                "run-lifecycle-client-action-route-session",
+                                id,
+                                lifecycle.request.client_action.route_session_id,
+                              ),
+                        visible_session_id:
+                          lifecycle.request.client_action.visible_session_id === undefined
+                            ? undefined
+                            : redact(
+                                "run-lifecycle-client-action-visible-session",
+                                id,
+                                lifecycle.request.client_action.visible_session_id,
+                              ),
+                      }
+                    : undefined,
+                }
+              : undefined,
+          }
+        : undefined,
     }
   }
 
