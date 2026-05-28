@@ -47,6 +47,12 @@ export const snapAssistantMessage = {
   tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
 } as AssistantMessage
 
+export const snapStreamingAssistantMessage = {
+  ...snapAssistantMessage,
+  id: "snap-streaming-message",
+  time: { created: 0 },
+} as AssistantMessage
+
 export function tool(
   id: string,
   description: string,
@@ -133,6 +139,16 @@ export const reasoningOnlyParts: Part[] = [
     "reason-solo",
     "用户想要一个纯思考的折叠行。\n\n**第一步**，确认这是一段思考。\n\n**第二步**，把它折进会话行里。",
   ),
+]
+
+export const runningReasoningParts: Part[] = [
+  {
+    ...reasoning(
+      "reason-running",
+      "正在分析用户的问题，并且这段思考还在流式更新。\n\n展开后应该能看到这段实时内容。",
+    ),
+    messageID: snapStreamingAssistantMessage.id,
+  },
 ]
 
 // Reasoning interleaved with tool calls — exercises the grouped body. The
