@@ -123,11 +123,16 @@ export function createSessionTimelineData(input: {
     aggregateFileCount(routeAggregate(), routeInfo()?.revert ? routeInfo()?.summary : undefined),
   )
   const routeHasSessionReview = createMemo(() => routeSessionCount() > 0)
-  // Route readiness is raw cache state. The timeline controller decides when to preserve the mounted view.
+  // Route readiness gates display of the target timeline. A message array without
+  // session info is a partially hydrated route and should stay in opening state.
   const routeMessagesReady = createMemo(() => {
     const id = input.routeSessionID()
     if (!id) return true
-    return input.sync.data.message[id] !== undefined
+    return currentSessionCacheReady({
+      sessionID: id,
+      sessionInfo: routeInfo(),
+      rawMessages: input.sync.data.message[id],
+    })
   })
 
   createEffect(() => {

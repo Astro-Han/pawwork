@@ -36,7 +36,7 @@ describe("promptKeyActionReady", () => {
     ).toBe(false)
   })
 
-  test("blocks non-stop keys while submit is blocked", () => {
+  test("allows local navigation while submit is blocked", () => {
     expect(
       promptKeyActionReady({
         key: "ArrowUp",
@@ -45,7 +45,19 @@ describe("promptKeyActionReady", () => {
         actionReady: false,
         abortReady: true,
       }),
-    ).toBe(false)
+    ).toBe(true)
+  })
+
+  test("allows local text input while submit is blocked", () => {
+    expect(
+      promptKeyActionReady({
+        key: "a",
+        working: false,
+        stopping: false,
+        actionReady: false,
+        abortReady: true,
+      }),
+    ).toBe(true)
   })
 })
 

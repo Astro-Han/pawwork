@@ -8,7 +8,7 @@ export function promptKeyActionReady(input: {
   if (input.key === "Escape" && input.working) return input.abortReady
   if (input.key === "Enter" && input.stopping) return input.abortReady
   if (input.key === "Enter" || input.key === "Escape") return input.actionReady
-  return input.actionReady
+  return true
 }
 
 export function promptSendDisabled(input: {

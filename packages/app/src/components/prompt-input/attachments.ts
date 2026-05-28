@@ -73,6 +73,7 @@ type PromptAttachmentsInput = {
   imageAttachments?: () => readonly ImageAttachmentPart[]
   composing?: () => boolean
   sync?: ReturnType<typeof useSync>
+  externalReady?: () => boolean
 }
 
 export function createPromptAttachments(input: PromptAttachmentsInput) {
@@ -320,6 +321,7 @@ export function createPromptAttachments(input: PromptAttachmentsInput) {
 
   const handleGlobalDragOver = (event: DragEvent) => {
     if (input.isDialogActive()) return
+    if (input.externalReady && !input.externalReady()) return
 
     event.preventDefault()
     const hasFiles = event.dataTransfer?.types.includes("Files")
@@ -340,6 +342,7 @@ export function createPromptAttachments(input: PromptAttachmentsInput) {
 
   const handleGlobalDrop = async (event: DragEvent) => {
     if (input.isDialogActive()) return
+    if (input.externalReady && !input.externalReady()) return
 
     event.preventDefault()
     input.setDraggingType(null)

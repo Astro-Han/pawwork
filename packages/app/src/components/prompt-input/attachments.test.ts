@@ -40,6 +40,8 @@ mock.module("@/context/language", () => ({
 }))
 
 mock.module("@/context/prompt", () => ({
+  isStructurallyEmpty: (parts: unknown[], contextItems: unknown[], imageAttachments: unknown[]) =>
+    parts.length === 0 && contextItems.length === 0 && imageAttachments.length === 0,
   usePrompt: () => ({
     current: () => promptParts,
     cursor: () => 0,

@@ -162,8 +162,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       )
     }
 
-    if (!actionReady()) return language.t("prompt.loading")
-
     return (
       <div class="flex items-center gap-2">
         <span>{language.t("prompt.action.send")}</span>
@@ -196,13 +194,11 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   )
 
   const placeholder = createMemo(() =>
-    actionReady()
-      ? promptPlaceholder({
-          mode: store.mode,
-          commentCount: commentCount(),
-          t: (key) => language.t(key as Parameters<typeof language.t>[0]),
-        })
-      : language.t("prompt.loading"),
+    promptPlaceholder({
+      mode: store.mode,
+      commentCount: commentCount(),
+      t: (key) => language.t(key as Parameters<typeof language.t>[0]),
+    }),
   )
 
   const pick = () => {
@@ -385,6 +381,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     imageAttachments,
     composing,
     sync,
+    externalReady: actionReady,
   })
 
   const accepting = createMemo(() => {
@@ -472,7 +469,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         classList={{
           "group/prompt-input @container/composer": true,
           "border-fg-base border-dashed": store.draggingType !== null,
-          "opacity-75": !actionReady(),
           [props.class ?? ""]: !!props.class,
         }}
       >
@@ -529,8 +525,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               role="textbox"
               aria-multiline="true"
               aria-label={placeholder()}
-              aria-disabled={!actionReady()}
-              contenteditable={actionReady() ? "true" : "false"}
+              contenteditable="true"
               autocapitalize={store.mode === "normal" ? "sentences" : "off"}
               autocorrect={store.mode === "normal" ? "on" : "off"}
               spellcheck={store.mode === "normal"}
@@ -540,7 +535,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               onInput={handleInput}
               onCopy={handleCopy}
               onPaste={(event) => {
-                if (!actionReady()) {
+                const hasFiles = Array.from(event.clipboardData?.items ?? []).some((item) => item.kind === "file")
+                if (!actionReady() && hasFiles) {
                   event.preventDefault()
                   return
                 }
@@ -556,7 +552,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 "[&_[data-type=file]]:text-syntax-property": true,
                 "[&_[data-type=agent]]:text-syntax-type": true,
                 "font-mono!": store.mode === "shell",
-                "cursor-wait text-fg-weak": !actionReady(),
               }}
               style={{ "padding-bottom": space }}
             />
