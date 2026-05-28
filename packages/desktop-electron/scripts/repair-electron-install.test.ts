@@ -60,6 +60,44 @@ describe("repair Electron install", () => {
     expect(readFileSync(join(electronDir, "path.txt"), "utf8")).toBe(platformPath)
   })
 
+  test("accepts the versioned macOS Electron framework binary path", () => {
+    const electronDir = mkdtempSync(join(tmpdir(), "pawwork-electron-install-"))
+    const platformPath = platformPathForElectron("darwin")
+    mkdirSync(join(electronDir, "dist", "Electron.app", "Contents", "MacOS"), { recursive: true })
+    mkdirSync(
+      join(
+        electronDir,
+        "dist",
+        "Electron.app",
+        "Contents",
+        "Frameworks",
+        "Electron Framework.framework",
+        "Versions",
+        "A",
+      ),
+      { recursive: true },
+    )
+    writeFileSync(join(electronDir, "dist", platformPath), "")
+    writeFileSync(
+      join(
+        electronDir,
+        "dist",
+        "Electron.app",
+        "Contents",
+        "Frameworks",
+        "Electron Framework.framework",
+        "Versions",
+        "A",
+        "Electron Framework",
+      ),
+      "",
+    )
+
+    expect(isElectronInstallComplete(electronDir, "darwin")).toBe(true)
+    expect(writeElectronPathFileIfInstallComplete(electronDir, "darwin")).toBe(true)
+    expect(readFileSync(join(electronDir, "path.txt"), "utf8")).toBe(platformPath)
+  })
+
   test("clears an incomplete Electron dist before reinstalling", () => {
     const electronDir = mkdtempSync(join(tmpdir(), "pawwork-electron-install-"))
     const platformPath = platformPathForElectron("darwin")

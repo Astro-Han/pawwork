@@ -28,17 +28,18 @@ export function isElectronInstallComplete(electronDir, platform = process.platfo
   if (!existsSync(binaryPath)) return false
 
   if (platform === "darwin" || platform === "mas") {
-    return existsSync(
-      join(
-        electronDir,
-        "dist",
-        "Electron.app",
-        "Contents",
-        "Frameworks",
-        "Electron Framework.framework",
-        "Electron Framework",
-      ),
+    const frameworkDir = join(
+      electronDir,
+      "dist",
+      "Electron.app",
+      "Contents",
+      "Frameworks",
+      "Electron Framework.framework",
     )
+    return [
+      join(frameworkDir, "Electron Framework"),
+      join(frameworkDir, "Versions", "A", "Electron Framework"),
+    ].some((candidate) => existsSync(candidate))
   }
 
   return true
