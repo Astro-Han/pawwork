@@ -112,4 +112,39 @@ describe("repair Electron install", () => {
     expect(attempts).toEqual([false, true])
     expect(isElectronInstallComplete(electronDir, "darwin")).toBe(true)
   })
+
+  test("retries without the Electron artifact cache when the first reinstall fails", () => {
+    const electronDir = mkdtempSync(join(tmpdir(), "pawwork-electron-install-"))
+    const platformPath = platformPathForElectron("darwin")
+    const attempts: boolean[] = []
+
+    repairElectronInstallAt(electronDir, {
+      platform: "darwin",
+      runInstall(_installScript, options) {
+        attempts.push(options.forceNoCache)
+        if (!options.forceNoCache) throw new Error("cached artifact unavailable")
+
+        mkdirSync(join(electronDir, "dist", "Electron.app", "Contents", "MacOS"), { recursive: true })
+        mkdirSync(join(electronDir, "dist", "Electron.app", "Contents", "Frameworks", "Electron Framework.framework"), {
+          recursive: true,
+        })
+        writeFileSync(join(electronDir, "dist", platformPath), "")
+        writeFileSync(
+          join(
+            electronDir,
+            "dist",
+            "Electron.app",
+            "Contents",
+            "Frameworks",
+            "Electron Framework.framework",
+            "Electron Framework",
+          ),
+          "",
+        )
+      },
+    })
+
+    expect(attempts).toEqual([false, true])
+    expect(isElectronInstallComplete(electronDir, "darwin")).toBe(true)
+  })
 })

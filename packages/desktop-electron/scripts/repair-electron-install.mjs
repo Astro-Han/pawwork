@@ -71,7 +71,11 @@ export function repairElectronInstallAt(
 
   if (!writeElectronPathFileIfInstallComplete(electronDir, platform)) {
     resetElectronInstall(electronDir)
-    install(installScript, { forceNoCache: false })
+    try {
+      install(installScript, { forceNoCache: false })
+    } catch {
+      // Fall through to the forced no-cache retry below.
+    }
   }
 
   if (!writeElectronPathFileIfInstallComplete(electronDir, platform)) {
