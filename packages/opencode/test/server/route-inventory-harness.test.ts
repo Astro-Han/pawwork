@@ -3,6 +3,7 @@ import {
   buildRouteInventory,
   findWorkspaceRoot,
   getHonoRouteSourceCoverage,
+  getMissingHonoRouteSources,
   parseHttpApiRoutesFromText,
   parseSdkRoutesFromText,
 } from "../../script/route-inventory"
@@ -139,5 +140,14 @@ describe("route inventory harness", () => {
     const coverage = await getHonoRouteSourceCoverage(root)
 
     expect(coverage.missing).toEqual([])
+  })
+
+  test("matches discovered Hono route modules when Windows uses backslash separators", () => {
+    expect(
+      getMissingHonoRouteSources([
+        "packages\\opencode\\src\\server\\control\\index.ts",
+        "packages\\opencode\\src\\server\\proxy.ts",
+      ]),
+    ).toEqual([])
   })
 })
