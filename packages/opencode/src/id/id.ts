@@ -18,36 +18,44 @@ export namespace Identifier {
     workspace: "wrk",
   } as const
 
+  type Prefix = keyof typeof prefixes
+
+  function prefixOf(id: string): Prefix | undefined {
+    let result: Prefix | undefined
+    for (const [key, value] of Object.entries(prefixes) as [Prefix, string][]) {
+      if (!id.startsWith(value + "_")) continue
+      if (!result || value.length > prefixes[result].length) result = key
+    }
+    return result
+  }
+
+  export function schema(prefix: Prefix) {
+    return z.string().refine((id) => prefixOf(id) === prefix, {
+      message: `ID must use ${prefixes[prefix]} prefix`,
+    })
+  }
+
   const LENGTH = 26
-  const TIME_HEX_LENGTH = 12
-
-  function pattern(prefix: keyof typeof prefixes) {
-    return new RegExp(`^${prefixes[prefix]}_[0-9a-f]{${TIME_HEX_LENGTH}}[0-9A-Za-z]{${LENGTH - TIME_HEX_LENGTH}}$`)
-  }
-
-  export function schema(prefix: keyof typeof prefixes) {
-    return z.string().regex(pattern(prefix))
-  }
 
   // State for monotonic ID generation
   let lastTimestamp = 0
   let counter = 0
 
-  export function ascending(prefix: keyof typeof prefixes, given?: string) {
+  export function ascending(prefix: Prefix, given?: string) {
     return generateID(prefix, false, given)
   }
 
-  export function descending(prefix: keyof typeof prefixes, given?: string) {
+  export function descending(prefix: Prefix, given?: string) {
     return generateID(prefix, true, given)
   }
 
-  function generateID(prefix: keyof typeof prefixes, descending: boolean, given?: string): string {
+  function generateID(prefix: Prefix, descending: boolean, given?: string): string {
     if (!given) {
       return create(prefix, descending)
     }
 
-    if (!pattern(prefix).test(given)) {
-      throw new Error(`ID ${given} does not match ${prefixes[prefix]} ID format`)
+    if (prefixOf(given) !== prefix) {
+      throw new Error(`ID ${given} does not use ${prefixes[prefix]} prefix`)
     }
     return given
   }
@@ -62,7 +70,7 @@ export namespace Identifier {
     return result
   }
 
-  export function create(prefix: keyof typeof prefixes, descending: boolean, timestamp?: number): string {
+  export function create(prefix: Prefix, descending: boolean, timestamp?: number): string {
     const currentTimestamp = timestamp ?? Date.now()
 
     if (currentTimestamp !== lastTimestamp) {
