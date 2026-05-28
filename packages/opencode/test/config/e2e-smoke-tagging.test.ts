@@ -8,7 +8,7 @@ const expectedSmokeTests = [
   "packages/app/e2e/app/home.spec.ts:@smoke home composer submits a slash-prefixed prompt via the fallback path",
   "packages/app/e2e/app/home.spec.ts:@smoke home hero prompt starts a session",
   "packages/app/e2e/app/home.spec.ts:@smoke home renders hero composer with updated welcome heading",
-  "packages/app/e2e/app/home.spec.ts:@smoke project home status panel can open the server picker dialog",
+  "packages/app/e2e/app/home.spec.ts:@smoke settings integrations can open the server picker dialog",
   "packages/app/e2e/app/navigation.spec.ts:@smoke project route redirects to /session",
   "packages/app/e2e/app/root-redirect.spec.ts:@smoke root route falls back to backend project when local store is empty",
   "packages/app/e2e/app/session.spec.ts:@smoke session composer matches home structure without docktray or agent control",
