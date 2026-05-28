@@ -185,6 +185,13 @@ describe("pr priority triage helper", () => {
   })
 
   test("plans release bump-only type labels without overriding author-selected types", () => {
+    expect(planPullRequestLabels(["packages/desktop-electron/package.json"], ["platform"])).toEqual({
+      suggestedPriority: "P2",
+      desiredPriority: "P2",
+      addLabels: ["P2", "task"],
+      removeLabels: [],
+    })
+
     expect(planPullRequestLabels(["packages/desktop-electron/package.json", "bun.lock"], ["platform"])).toEqual({
       suggestedPriority: "P2",
       desiredPriority: "P2",
@@ -194,6 +201,18 @@ describe("pr priority triage helper", () => {
 
     expect(
       planPullRequestLabels(["packages/desktop-electron/package.json", "bun.lock"], ["enhancement", "platform", "P2"]),
+    ).toEqual({
+      suggestedPriority: "P2",
+      desiredPriority: "P2",
+      addLabels: [],
+      removeLabels: [],
+    })
+
+    expect(
+      planPullRequestLabels(["packages/desktop-electron/package.json", "packages/desktop-electron/README.md"], [
+        "platform",
+        "P2",
+      ]),
     ).toEqual({
       suggestedPriority: "P2",
       desiredPriority: "P2",

@@ -1,7 +1,9 @@
+import { POLICY } from "./label-policy-check.js"
+
 export const TRIAGE_MARKER = "<!-- pawwork-pr-priority-triage-v1 -->"
 
 export const PRIORITY_LABELS = ["P0", "P1", "P2", "P3"]
-export const TYPE_LABELS = ["bug", "enhancement", "task", "documentation"]
+export const TYPE_LABELS = POLICY.types
 
 const LOW_RISK_GLOBS = [
   "docs/**",
