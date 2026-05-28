@@ -570,6 +570,29 @@ describe("automation routes", () => {
     })
   })
 
+  test("schemas reject nested automation contract drift fields", () => {
+    return withAutomationApp(async ({ projectID }) => {
+      const where = { projectID, unexpected: true } as Record<string, unknown>
+      const rhythm = { kind: "interval", everyMs: 60_000, unexpected: true } as Record<string, unknown>
+      const stop = { kind: "count", count: 3, unexpected: true } as Record<string, unknown>
+
+      expect(() => Automation.CreateInput.parse({ ...recurringInput(projectID), where })).toThrow()
+      expect(() => Automation.CreateInput.parse({ ...recurringInput(projectID), rhythm })).toThrow()
+      expect(() => Automation.CreateInput.parse({ ...recurringInput(projectID), stop })).toThrow()
+      expect(() =>
+        Automation.Run.parse(
+          run({
+            state: "failed",
+            sessionID: SessionID.descending(),
+            startedAt: 1,
+            completedAt: 2,
+            error: { code: "execution_failed", message: "failed", unexpected: true },
+          }),
+        ),
+      ).toThrow()
+    })
+  })
+
   test("schemas freeze run state consistency", () => {
     const runSessionID = SessionID.descending()
     const permissionBlocker = {

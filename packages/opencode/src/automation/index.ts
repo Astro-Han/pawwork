@@ -29,27 +29,32 @@ export namespace Automation {
   export const RunID = AutomationID.Run.zod
 
   export const Context = z.enum(["continue", "fresh"])
-  export const Where = z.object({ projectID: ProjectID.zod, worktree: z.string().min(1).optional() }).meta({
-    ref: "AutomationWhere",
-  })
+  export const Where = z
+    .object({ projectID: ProjectID.zod, worktree: z.string().min(1).optional() })
+    .strict()
+    .meta({
+      ref: "AutomationWhere",
+    })
   export const ValidationErrorDetail = z
     .object({ field: z.string(), message: z.string() })
+    .strict()
     .meta({ ref: "AutomationValidationErrorDetail" })
   export type ValidationErrorDetail = z.infer<typeof ValidationErrorDetail>
   export const ValidationErrorResponse = z
     .object({ error: z.literal("invalid_automation"), details: z.array(ValidationErrorDetail) })
+    .strict()
     .meta({ ref: "AutomationValidationError" })
   export const Stop = z
     .discriminatedUnion("kind", [
-      z.object({ kind: z.literal("count"), count: z.number().int().positive() }),
-      z.object({ kind: z.literal("condition"), condition: z.string().min(1).max(MAX_CONDITION_CHARS, `condition_too_long_${MAX_CONDITION_CHARS}`) }),
-      z.object({ kind: z.literal("never") }),
+      z.object({ kind: z.literal("count"), count: z.number().int().positive() }).strict(),
+      z.object({ kind: z.literal("condition"), condition: z.string().min(1).max(MAX_CONDITION_CHARS, `condition_too_long_${MAX_CONDITION_CHARS}`) }).strict(),
+      z.object({ kind: z.literal("never") }).strict(),
     ])
     .meta({ ref: "AutomationStop" })
   export const Rhythm = z
     .discriminatedUnion("kind", [
-      z.object({ kind: z.literal("interval"), everyMs: z.number().int().min(MIN_INTERVAL_MS, `interval_below_minimum_${MIN_INTERVAL_MS}ms`) }),
-      z.object({ kind: z.literal("cron"), expression: z.string().min(1) }),
+      z.object({ kind: z.literal("interval"), everyMs: z.number().int().min(MIN_INTERVAL_MS, `interval_below_minimum_${MIN_INTERVAL_MS}ms`) }).strict(),
+      z.object({ kind: z.literal("cron"), expression: z.string().min(1) }).strict(),
     ])
     .meta({ ref: "AutomationRhythm" })
 
@@ -136,6 +141,7 @@ export namespace Automation {
       code: z.enum(["needs_user_input", "execution_failed", "step_cap", "loop_gate"]),
       message: z.string(),
     })
+    .strict()
     .meta({ ref: "AutomationRunError" })
   const CommonRun = {
     id: RunID,
@@ -213,9 +219,10 @@ export namespace Automation {
     .meta({ ref: "AutomationRun" })
   export type Run = z.infer<typeof Run>
 
-  export const ListResponse = z.object({ items: z.array(Definition) }).meta({ ref: "AutomationListResponse" })
+  export const ListResponse = z.object({ items: z.array(Definition) }).strict().meta({ ref: "AutomationListResponse" })
   export const RunsResponse = z
     .object({ items: z.array(Run), nextCursor: RunID.nullable() })
+    .strict()
     .meta({ ref: "AutomationRunsResponse" })
 
   export const Event = {

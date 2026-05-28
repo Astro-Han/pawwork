@@ -25,6 +25,14 @@ describe("MessageID ordering", () => {
     expect(Identifier.timestamp(runID)).toBe(timestamp)
   })
 
+  test.each([
+    ["missing separator", "msg"],
+    ["short timestamp", "msg_abc"],
+    ["non-hex timestamp", "msg_zzzzzzzzzzzz"],
+  ])("timestamp rejects malformed IDs: %s", (_name, id) => {
+    expect(() => Identifier.timestamp(id)).toThrow("ID timestamp must be a 12-character hex string")
+  })
+
   test("automation definition and run id schemas do not overlap", () => {
     const runID = AutomationID.Run.ascending()
 

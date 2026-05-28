@@ -94,7 +94,13 @@ export namespace Identifier {
   /** Extract timestamp from an ascending ID. Does not work with descending IDs. */
   export function timestamp(id: string): number {
     const separator = id.lastIndexOf("_")
+    if (separator === -1) {
+      throw new Error("ID timestamp must be a 12-character hex string")
+    }
     const hex = id.slice(separator + 1, separator + 13)
+    if (!/^[0-9a-f]{12}$/i.test(hex)) {
+      throw new Error("ID timestamp must be a 12-character hex string")
+    }
     const encoded = BigInt("0x" + hex)
     return Number(encoded / BigInt(0x1000))
   }
