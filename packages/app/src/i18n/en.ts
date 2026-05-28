@@ -884,8 +884,6 @@ export const dict = {
   "settings.general.row.appearance.description": "Customise how PawWork looks on your device",
   "settings.general.row.colorScheme.title": "Color scheme",
   "settings.general.row.colorScheme.description": "Choose whether PawWork follows the system, light, or dark theme",
-  "settings.general.row.theme.title": "Theme",
-  "settings.general.row.theme.description": "Customise how PawWork is themed.",
   "settings.general.row.font.title": "Code Font",
   "settings.general.row.font.description": "Customise the font used in code blocks and terminals",
   "settings.general.row.uiFont.title": "UI Font",

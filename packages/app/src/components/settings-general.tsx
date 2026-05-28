@@ -1,4 +1,4 @@
-import { Component, Show, createMemo, createResource, onMount } from "solid-js"
+import { Component, Show, createMemo, createResource } from "solid-js"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Select } from "@opencode-ai/ui/select"
 import { Switch } from "@opencode-ai/ui/switch"
@@ -17,7 +17,6 @@ import {
   useSettings,
   type NotifyLevel,
 } from "@/context/settings"
-import { Link } from "./link"
 import { SettingsList } from "./settings-list"
 import { SettingsRow } from "./settings-row"
 import { SettingsUpdatesSection } from "./settings-updates-section"
@@ -29,24 +28,13 @@ const settingsSelectDefaults = {
   triggerVariant: "settings" as const,
 }
 
-type ThemeOption = {
-  id: string
-  name: string
-}
-
 export const SettingsGeneral: Component = () => {
   const theme = useTheme()
   const language = useLanguage()
   const platform = usePlatform()
   const settings = useSettings()
 
-  onMount(() => {
-    void theme.loadThemes()
-  })
-
   const linux = createMemo(() => platform.os === "linux" && canUseDisplayBackend(platform))
-
-  const themeOptions = createMemo<ThemeOption[]>(() => theme.ids().map((id) => ({ id, name: theme.name(id) })))
 
   const colorSchemeOptions = createMemo((): { value: ColorScheme; label: string }[] => [
     { value: "system", label: language.t("theme.scheme.system") },
@@ -129,33 +117,6 @@ export const SettingsGeneral: Component = () => {
             />
           </SettingsRow>
         </Show>
-
-        <SettingsRow
-          title={language.t("settings.general.row.theme.title")}
-          description={
-            <>
-              {language.t("settings.general.row.theme.description")}{" "}
-              <Link href="https://github.com/Astro-Han/pawwork#readme">{language.t("common.learnMore")}</Link>
-            </>
-          }
-        >
-          <Select {...settingsSelectDefaults}
-            data-action="settings-theme"
-            options={themeOptions()}
-            current={themeOptions().find((o) => o.id === theme.themeId())}
-            value={(o) => o.id}
-            label={(o) => o.name}
-            onSelect={(option) => {
-              if (!option) return
-              theme.setTheme(option.id)
-            }}
-            onHighlight={(option) => {
-              if (!option) return
-              theme.previewTheme(option.id)
-              return () => theme.cancelPreview()
-            }}
-          />
-        </SettingsRow>
 
         <SettingsRow
           title={language.t("settings.general.row.uiFont.title")}

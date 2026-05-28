@@ -771,8 +771,6 @@ export const dict = {
   "settings.general.row.appearance.description": "自定义应用在你的设备上的外观",
   "settings.general.row.colorScheme.title": "配色方案",
   "settings.general.row.colorScheme.description": "选择跟随系统、浅色或深色主题",
-  "settings.general.row.theme.title": "主题",
-  "settings.general.row.theme.description": "自定义应用主题。",
   "settings.general.row.font.title": "代码字体",
   "settings.general.row.font.description": "自定义代码块和终端使用的字体",
   "settings.general.row.uiFont.title": "界面字体",
