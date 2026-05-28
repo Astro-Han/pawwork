@@ -120,6 +120,36 @@ describe("VCS routes", () => {
     expect(patch).toContain("+first")
   })
 
+  test("round-trips staged then modified files before the first commit", async () => {
+    await using source = await tmpdir()
+    await $`git init`.cwd(source.path).quiet()
+    await fs.writeFile(path.join(source.path, "first.txt"), "staged\n", "utf-8")
+    await $`git add first.txt`.cwd(source.path).quiet()
+    await fs.writeFile(path.join(source.path, "first.txt"), "final\n", "utf-8")
+
+    const diff = await Server.Default().app.request("/vcs/diff/raw", {
+      headers: {
+        "x-opencode-directory": source.path,
+      },
+    })
+    expect(diff.status).toBe(200)
+    const patch = await diff.text()
+
+    await using target = await tmpdir()
+    await $`git init`.cwd(target.path).quiet()
+    const applied = await Server.Default().app.request("/vcs/apply", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-opencode-directory": target.path,
+      },
+      body: JSON.stringify({ patch }),
+    })
+
+    expect(applied.status).toBe(200)
+    await expect(fs.readFile(path.join(target.path, "first.txt"), "utf-8")).resolves.toBe("final\n")
+  })
+
   test(
     "rejects raw tracked diffs beyond the patch budget",
     async () => {

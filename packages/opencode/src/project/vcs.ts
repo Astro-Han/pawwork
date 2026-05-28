@@ -376,7 +376,18 @@ export namespace Vcs {
               ),
             { concurrency: 1 },
           )
-          return [tracked, ...untracked].filter(Boolean).join("\n")
+          const initialWorktree = hasHead
+            ? []
+            : yield* Effect.forEach(
+                status.filter((item) => item.code !== "??" && item.code[1] !== " "),
+                (item) =>
+                  rawPatch(
+                    batch,
+                    git.patchUnstaged(Instance.directory, item.file, { binary: true, maxOutputBytes: MAX_TOTAL_PATCH_BYTES }),
+                  ),
+                { concurrency: 1 },
+              )
+          return [tracked, ...initialWorktree, ...untracked].filter(Boolean).join("\n")
         }),
         apply: Effect.fn("Vcs.apply")(function* (input: ApplyInput) {
           if (Instance.project.vcs !== "git") {
