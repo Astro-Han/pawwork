@@ -7,7 +7,6 @@ const Where = Schema.Struct({
   worktree: Schema.optional(Schema.NonEmptyString),
 })
 
-const SessionIDString = Schema.String.check(Schema.isPattern(/^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/))
 const Timezone = Schema.NonEmptyString.check(
   Schema.makeFilter((timezone: string) => (Automation.isValidTimezone(timezone) ? undefined : "invalid_timezone")),
 )
@@ -26,7 +25,6 @@ const Common = {
   context: Schema.Union([Schema.Literal("continue"), Schema.Literal("fresh")]),
   where: Where,
   timezone: Timezone,
-  sourceSessionID: Schema.optional(SessionIDString),
 }
 
 const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
@@ -89,11 +87,9 @@ export function createAutomateDefinition(): Tool.DefWithoutID<typeof AutomatePar
             if (Object.hasOwn(params as object, "automationSessionID")) {
               throw new ValidationError([{ field: "automationSessionID", message: "unsupported_automation_field" }])
             }
-            const parsed = Automation.CreateInput.parse({
-              ...params,
-              sourceSessionID: ctx.sessionID,
-            })
-            return Automation.create(parsed)
+            const { sourceSessionID: _ignoredSourceSessionID, ...input } = params as typeof params & { sourceSessionID?: unknown }
+            const parsed = Automation.CreateInput.parse(input)
+            return Automation.create(parsed, { sourceSessionID: ctx.sessionID })
           },
           catch: readableAutomationError,
         })

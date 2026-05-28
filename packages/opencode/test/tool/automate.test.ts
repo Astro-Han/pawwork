@@ -111,34 +111,8 @@ describe("automate tool", () => {
   })
 
   test.each([
-    ["sourceSessionID", { sourceSessionID: "not-a-session-id" }],
-  ])("rejects invalid session ids before execute reaches the Zod create parser: %s", (_name, override) => {
-    const decode = Schema.decodeUnknownSync(AutomateParameters)
-    let error: unknown
-    try {
-      decode({
-        kind: "recurring",
-        title: "Daily repo brief",
-        prompt: "Summarize repo changes.",
-        context: "fresh",
-        where: { projectID: "project" },
-        timezone: "UTC",
-        rhythm: { kind: "interval", everyMs: 60_000 },
-        stop: { kind: "never" },
-        ...override,
-      })
-    } catch (caught) {
-      error = caught
-    }
-
-    expect(error).toBeDefined()
-    expect(formatAutomateValidationError(error)).toContain("Invalid automate input")
-  })
-
-  test.each([
     ["invalid timezone", { timezone: "Not/AZone" }],
     ["invalid cron expression", { rhythm: { kind: "cron", expression: "not cron" } }],
-    ["bare session prefix", { sourceSessionID: "ses" }],
   ])("rejects semantic validation before execute reaches the Zod create parser: %s", (_name, override) => {
     const decode = Schema.decodeUnknownSync(AutomateParameters)
     let error: unknown
@@ -261,6 +235,7 @@ describe("automate tool", () => {
         const tool = createAutomateDefinition()
         const sourceSessionID = SessionID.descending()
         const spoofedSessionID = SessionID.descending()
+        const spoofedSource = { sourceSessionID: spoofedSessionID } as Record<string, unknown>
         const result = await Effect.runPromise(
           tool.execute(
             {
@@ -270,7 +245,7 @@ describe("automate tool", () => {
               context: "fresh",
               where: { projectID: Instance.project.id },
               timezone: "Asia/Shanghai",
-              sourceSessionID: spoofedSessionID,
+              ...spoofedSource,
               rhythm: { kind: "interval", everyMs: 60_000 },
               stop: { kind: "never" },
             },

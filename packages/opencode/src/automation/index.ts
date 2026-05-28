@@ -64,7 +64,6 @@ export namespace Automation {
     context: Context,
     where: Where,
     timezone: z.string().min(1),
-    sourceSessionID: SessionID.zod.optional(),
   }
 
   export const CreateInput = z
@@ -83,7 +82,6 @@ export namespace Automation {
       context: Context.optional(),
       where: Where.optional(),
       timezone: z.string().min(1).optional(),
-      sourceSessionID: SessionID.zod.optional(),
       fireAt: z.number().int().nonnegative().optional(),
       rhythm: Rhythm.optional(),
       stop: Stop.optional(),
@@ -244,7 +242,6 @@ export namespace Automation {
     "context",
     "where",
     "timezone",
-    "sourceSessionID",
   ])
   const ONESHOT_CREATE_FIELDS = new Set([...COMMON_CREATE_FIELDS, "fireAt"])
   const RECURRING_CREATE_FIELDS = new Set([...COMMON_CREATE_FIELDS, "rhythm", "stop"])
@@ -255,7 +252,6 @@ export namespace Automation {
     "context",
     "where",
     "timezone",
-    "sourceSessionID",
     "fireAt",
     "rhythm",
     "stop",
@@ -331,13 +327,14 @@ export namespace Automation {
     return details
   }
 
-  export function validateCreateInput(input: CreateInput | Definition, projectID = Instance.project.id) {
+  export function validateCreateInput(input: CreateInput | Definition, projectID = Instance.project.id, now?: number) {
     const details: ValidationErrorDetail[] = []
     const isDefinition = Object.hasOwn(input, "id")
     if (!isDefinition) {
       if (input.kind === "oneshot") {
         if (Object.hasOwn(input, "rhythm")) addDetail(details, "rhythm", "unsupported_for_oneshot_automation")
         if (Object.hasOwn(input, "stop")) addDetail(details, "stop", "unsupported_for_oneshot_automation")
+        if (now !== undefined && input.fireAt <= now) addDetail(details, "fireAt", "fireAt_must_be_future")
         rejectUnknownFields(input, ONESHOT_CREATE_FIELDS, details)
       } else {
         if (Object.hasOwn(input, "fireAt")) addDetail(details, "fireAt", "unsupported_for_recurring_automation")
@@ -352,7 +349,7 @@ export namespace Automation {
     return details
   }
 
-  export function validateUpdateInput(previous: Definition, patch: UpdateInput) {
+  export function validateUpdateInput(previous: Definition, patch: UpdateInput, now?: number) {
     const details: ValidationErrorDetail[] = []
     if (previous.kind === "recurring" && Object.hasOwn(patch, "fireAt")) {
       addDetail(details, "fireAt", "unsupported_for_recurring_automation")
@@ -360,6 +357,9 @@ export namespace Automation {
     if (previous.kind === "oneshot") {
       for (const field of ["rhythm", "stop"] as const) {
         if (Object.hasOwn(patch, field)) addDetail(details, field, "unsupported_for_oneshot_automation")
+      }
+      if (patch.fireAt !== undefined && now !== undefined && patch.fireAt <= now) {
+        addDetail(details, "fireAt", "fireAt_must_be_future")
       }
     }
     rejectUnknownFields(patch, UPDATE_FIELDS, details)
@@ -372,10 +372,10 @@ export namespace Automation {
     return details
   }
 
-  export function create(input: CreateInput, options?: { now?: number }): Definition {
-    const details = validateCreateInput(input)
-    if (details.length) throw new ValidationError(details)
+  export function create(input: CreateInput, options?: { now?: number; sourceSessionID?: SessionID }): Definition {
     const now = options?.now ?? Date.now()
+    const details = validateCreateInput(input, Instance.project.id, now)
+    if (details.length) throw new ValidationError(details)
     const base = {
       id: AutomationID.Definition.ascending(),
       title: input.title,
@@ -388,7 +388,7 @@ export namespace Automation {
       updatedAt: now,
       timezone: input.timezone,
       normalizationWarnings: [],
-      ...(input.sourceSessionID ? { sourceSessionID: input.sourceSessionID } : {}),
+      ...(options?.sourceSessionID ? { sourceSessionID: options.sourceSessionID } : {}),
     }
     const definition: Definition =
       input.kind === "oneshot"
@@ -437,14 +437,15 @@ export namespace Automation {
 
   export function update(id: string, patch: UpdateInput, options?: { now?: number }): Definition {
     const previous = get(id)
-    const updateDetails = validateUpdateInput(previous, patch)
+    const now = options?.now ?? Date.now()
+    const updateDetails = validateUpdateInput(previous, patch, now)
     if (updateDetails.length) throw new ValidationError(updateDetails)
     if (!hasChanges(previous, patch)) return previous
     const next = Definition.parse({
       ...previous,
       ...patch,
       revision: previous.revision + 1,
-      updatedAt: options?.now ?? Date.now(),
+      updatedAt: now,
     })
     const details = validateCreateInput(next)
     if (details.length) throw new ValidationError(details)

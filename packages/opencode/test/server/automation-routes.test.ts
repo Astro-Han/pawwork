@@ -186,6 +186,16 @@ describe("automation routes", () => {
           [{ field: "automationSessionID", message: "unsupported_automation_field" }],
         ],
         [
+          "externally supplied source session",
+          { ...recurringInput(projectID), sourceSessionID: SessionID.descending() },
+          [{ field: "sourceSessionID", message: "unsupported_automation_field" }],
+        ],
+        [
+          "oneshot fireAt in the past",
+          oneshotInput(projectID, { fireAt: 1 }),
+          [{ field: "fireAt", message: "fireAt_must_be_future" }],
+        ],
+        [
           "oneshot recurring knobs",
           { ...oneshotInput(projectID), rhythm: { kind: "interval", everyMs: 60_000 }, stop: { kind: "never" } },
           [
@@ -272,6 +282,41 @@ describe("automation routes", () => {
         details: [{ field: "automationSessionID", message: "unsupported_automation_field" }],
       })
       expect(Automation.get(created.id)).not.toHaveProperty("automationSessionID")
+
+      const sourceResponse = await app.request(`/automation/${created.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sourceSessionID: SessionID.descending() }),
+      })
+
+      expect(sourceResponse.status).toBe(422)
+      expect(await sourceResponse.json()).toEqual({
+        error: "invalid_automation",
+        details: [{ field: "sourceSessionID", message: "unsupported_automation_field" }],
+      })
+      expect(Automation.get(created.id)).not.toHaveProperty("sourceSessionID")
+    })
+  })
+
+  test("rejects updating a oneshot fireAt into the past without revising", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const created = await json(app, "/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(oneshotInput(projectID)),
+      })
+      const response = await app.request(`/automation/${created.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ fireAt: 1 }),
+      })
+
+      expect(response.status).toBe(422)
+      expect(await response.json()).toEqual({
+        error: "invalid_automation",
+        details: [{ field: "fireAt", message: "fireAt_must_be_future" }],
+      })
+      expect(Automation.get(created.id).revision).toBe(1)
     })
   })
 

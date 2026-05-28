@@ -2397,7 +2397,6 @@ export type AutomationCreateInput =
       context: "continue" | "fresh"
       where: AutomationWhere
       timezone: string
-      sourceSessionID?: string
       fireAt: number
     }
   | {
@@ -2407,7 +2406,6 @@ export type AutomationCreateInput =
       context: "continue" | "fresh"
       where: AutomationWhere
       timezone: string
-      sourceSessionID?: string
       rhythm: AutomationRhythm
       stop: AutomationStop
     }
@@ -2419,7 +2417,6 @@ export type AutomationUpdateInput = {
   context?: "continue" | "fresh"
   where?: AutomationWhere
   timezone?: string
-  sourceSessionID?: string
   fireAt?: number
   rhythm?: AutomationRhythm
   stop?: AutomationStop
