@@ -37,7 +37,8 @@ const applyPatchTooLarge = () =>
   }) satisfies Vcs.ApplyError
 
 const applyJsonEnvelopeBytes = Buffer.byteLength(JSON.stringify({ patch: "" }))
-const applyJsonBodyMaxBytes = Vcs.MAX_APPLY_PATCH_BYTES + applyJsonEnvelopeBytes
+const maxJsonStringEscapeRatio = 6
+const applyJsonBodyMaxBytes = Vcs.MAX_APPLY_PATCH_BYTES * maxJsonStringEscapeRatio + applyJsonEnvelopeBytes
 
 async function applyPatchBodyLimit(c: Context, next: Next) {
   const contentLength = c.req.header("content-length")
