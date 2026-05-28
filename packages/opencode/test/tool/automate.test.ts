@@ -59,6 +59,7 @@ describe("automate tool", () => {
     ["negative fireAt", { kind: "oneshot", fireAt: -1 }],
     ["fractional fireAt", { kind: "oneshot", fireAt: 1.5 }],
     ["zero interval", { kind: "recurring", rhythm: { kind: "interval", everyMs: 0 }, stop: { kind: "never" } }],
+    ["interval below floor", { kind: "recurring", rhythm: { kind: "interval", everyMs: 29_999 }, stop: { kind: "never" } }],
     ["fractional interval", { kind: "recurring", rhythm: { kind: "interval", everyMs: 1.5 }, stop: { kind: "never" } }],
     ["zero count", { kind: "recurring", rhythm: { kind: "interval", everyMs: 60_000 }, stop: { kind: "count", count: 0 } }],
     ["fractional count", { kind: "recurring", rhythm: { kind: "interval", everyMs: 60_000 }, stop: { kind: "count", count: 1.5 } }],

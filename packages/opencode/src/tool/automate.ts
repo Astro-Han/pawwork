@@ -29,6 +29,7 @@ const Common = {
 
 const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
 const PositiveInt = Schema.Int.check(Schema.isGreaterThan(0))
+const IntervalMs = Schema.Int.check(Schema.isGreaterThanOrEqualTo(Automation.MIN_INTERVAL_MS))
 
 const Stop = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("count"), count: PositiveInt }),
@@ -37,7 +38,7 @@ const Stop = Schema.Union([
 ])
 
 const Rhythm = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("interval"), everyMs: PositiveInt }),
+  Schema.Struct({ kind: Schema.Literal("interval"), everyMs: IntervalMs }),
   Schema.Struct({ kind: Schema.Literal("cron"), expression: CronExpression }),
 ])
 

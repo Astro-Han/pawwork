@@ -68,6 +68,7 @@ function run(overrides: Record<string, unknown> = {}) {
   return {
     id: AutomationID.Run.ascending(),
     automationID: AutomationID.Definition.ascending(),
+    revision: 1,
     definitionRevision: 1,
     state: "scheduled",
     triggeredAt: 1,
@@ -158,6 +159,11 @@ describe("automation routes", () => {
           "invalid timezone",
           recurringInput(projectID, { timezone: "Mars/Olympus" }),
           [{ field: "timezone", message: "invalid_timezone" }],
+        ],
+        [
+          "interval below floor",
+          recurringInput(projectID, { rhythm: { kind: "interval", everyMs: 29_999 } }),
+          [{ field: "rhythm.everyMs", message: "interval_below_minimum_30000ms" }],
         ],
         [
           "oneshot recurring knobs",
@@ -387,6 +393,7 @@ describe("automation routes", () => {
       expect(response.status).toBe(200)
       expect(run).toMatchObject({
         automationID: created.id,
+        revision: 1,
         definitionRevision: 1,
         state: "scheduled",
       })
@@ -411,7 +418,7 @@ describe("automation routes", () => {
 
       expect(updated.revision).toBe(2)
       expect(run.definitionRevision).toBe(2)
-      expect(run).not.toHaveProperty("revision")
+      expect(run.revision).toBe(1)
     })
   })
 
@@ -460,6 +467,7 @@ describe("automation routes", () => {
       Automation.Run.parse({
         id: AutomationID.Run.ascending(),
         automationID: AutomationID.Definition.ascending(),
+        revision: 1,
         definitionRevision: 1,
         state: "failed",
         triggeredAt: 1,
@@ -467,8 +475,7 @@ describe("automation routes", () => {
         completedAt: 2,
         sessionID: runSessionID,
         result: null,
-        error: null,
-        stopReason: "step_cap",
+        error: { code: "step_cap", message: "Stopped after reaching the automation step cap." },
         cost: null,
       }),
     ).not.toThrow()
@@ -477,8 +484,9 @@ describe("automation routes", () => {
       Automation.Run.parse({
         id: AutomationID.Run.ascending(),
         automationID: AutomationID.Definition.ascending(),
+        revision: 1,
         definitionRevision: 1,
-        state: "expired",
+        state: "stopped",
         triggeredAt: 1,
         startedAt: null,
         completedAt: 2,
@@ -494,8 +502,9 @@ describe("automation routes", () => {
       Automation.Run.parse({
         id: AutomationID.Run.ascending(),
         automationID: AutomationID.Definition.ascending(),
+        revision: 1,
         definitionRevision: 1,
-        state: "expired",
+        state: "stopped",
         triggeredAt: 1,
         startedAt: null,
         completedAt: 2,
@@ -512,12 +521,10 @@ describe("automation routes", () => {
     const runSessionID = SessionID.descending()
     const permissionBlocker = {
       kind: "permission" as const,
-      sessionID: runSessionID,
       requestID: PermissionID.ascending(),
     }
     const questionBlocker = {
       kind: "question" as const,
-      sessionID: runSessionID,
       callID: "call_123",
     }
     const error = { code: "execution_failed" as const, message: "failed" }
@@ -535,12 +542,10 @@ describe("automation routes", () => {
     ).not.toThrow()
     expect(() => Automation.Run.parse(run({ state: "failed", sessionID: runSessionID, startedAt: 1, completedAt: 2, error }))).not.toThrow()
     expect(() =>
-      Automation.Run.parse(
-        run({ state: "skipped", completedAt: 2, skipReason: "previous_run_awaiting_input" }),
-      ),
+      Automation.Run.parse(run({ state: "stopped", completedAt: 2, stopReason: "previous_run_awaiting_input" })),
     ).not.toThrow()
     expect(() =>
-      Automation.Run.parse(run({ state: "expired", completedAt: 2, stopReason: "blocker_lost" })),
+      Automation.Run.parse(run({ state: "stopped", completedAt: 2, stopReason: "missed_schedule" })),
     ).not.toThrow()
 
     expect(() => Automation.Run.parse(run({ state: "awaiting_input", startedAt: 1 }))).toThrow()
@@ -548,20 +553,11 @@ describe("automation routes", () => {
     expect(() => Automation.Run.parse(run({ state: "awaiting_input", sessionID: null, startedAt: 1, blocker: permissionBlocker }))).toThrow()
     expect(() => Automation.Run.parse(run({ state: "succeeded", sessionID: null, startedAt: 1, completedAt: 2, result: "done" }))).toThrow()
     expect(() => Automation.Run.parse(run({ state: "failed", sessionID: null, startedAt: 1, completedAt: 2, error }))).toThrow()
-    expect(() =>
-      Automation.Run.parse(
-        run({
-          state: "awaiting_input",
-          sessionID: runSessionID,
-          startedAt: 1,
-          blocker: { ...permissionBlocker, sessionID: SessionID.descending() },
-        }),
-      ),
-    ).toThrow()
     expect(() => Automation.Run.parse(run({ state: "running", sessionID: runSessionID, startedAt: 0, triggeredAt: 1 }))).toThrow()
     expect(() => Automation.Run.parse(run({ state: "succeeded", sessionID: runSessionID, startedAt: 2, completedAt: 1 }))).toThrow()
-    expect(() => Automation.Run.parse(run({ state: "awaiting_input", startedAt: 1, blocker: { kind: "permission", sessionID: SessionID.descending() } }))).toThrow()
-    expect(() => Automation.Run.parse(run({ state: "awaiting_input", startedAt: 1, blocker: { kind: "question", sessionID: SessionID.descending() } }))).toThrow()
+    expect(() => Automation.Run.parse(run({ state: "stopped", completedAt: 0, triggeredAt: 1, stopReason: "cancelled" }))).toThrow()
+    expect(() => Automation.Run.parse(run({ state: "awaiting_input", sessionID: runSessionID, startedAt: 1, blocker: { kind: "permission", sessionID: SessionID.descending(), requestID: PermissionID.ascending() } }))).toThrow()
+    expect(() => Automation.Run.parse(run({ state: "awaiting_input", sessionID: runSessionID, startedAt: 1, blocker: { kind: "question", sessionID: SessionID.descending(), callID: "call_123" } }))).toThrow()
     expect(() => Automation.Run.parse(run({ state: "running", startedAt: 1, blocker: permissionBlocker }))).toThrow()
     expect(() => Automation.Run.parse(run({ state: "running" }))).toThrow()
     expect(() => Automation.Run.parse(run({ state: "running", startedAt: 1, completedAt: 2 }))).toThrow()
@@ -570,8 +566,13 @@ describe("automation routes", () => {
     expect(() => Automation.Run.parse(run({ state: "succeeded", startedAt: 1, completedAt: 2, error }))).toThrow()
     expect(() => Automation.Run.parse(run({ state: "scheduled", completedAt: 2 }))).toThrow()
     expect(() => Automation.Run.parse(run({ state: "scheduled", result: "done" }))).toThrow()
-    expect(() => Automation.Run.parse(run({ state: "skipped", completedAt: 2 }))).toThrow()
+    expect(() => Automation.Run.parse(run({ state: "skipped", completedAt: 2, skipReason: "previous_run_awaiting_input" }))).toThrow()
+    expect(() => Automation.Run.parse(run({ state: "expired", completedAt: 2, stopReason: "blocker_lost" }))).toThrow()
+    expect(() => Automation.Run.parse(run({ state: "stopped", completedAt: 2 }))).toThrow()
+    expect(() => Automation.Run.parse(run({ state: "stopped", completedAt: 2, stopReason: "step_cap" }))).toThrow()
     expect(() => Automation.Run.parse(run({ state: "failed", startedAt: 1, completedAt: null, error }))).toThrow()
     expect(() => Automation.Run.parse(run({ state: "failed", startedAt: 1, completedAt: 2 }))).toThrow()
+    expect(() => Automation.Run.parse(run({ state: "failed", sessionID: runSessionID, startedAt: 1, completedAt: 2, error, stopReason: "loop_gate" }))).toThrow()
+    expect(() => Automation.Run.parse(run({ state: "failed", sessionID: runSessionID, startedAt: 1, completedAt: 2, error: { code: "unsupported_where_worktree", message: "bad" } }))).toThrow()
   })
 })

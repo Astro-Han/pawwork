@@ -29,11 +29,11 @@ export const automationDefinitionDeletedFixture = Automation.Tombstone.parse({
 export const automationRunFixture = Automation.Run.parse({
   id: "automation_run_000000000002abcdefghijklmn",
   automationID: automationDefinitionFixture.id,
+  revision: 1,
   definitionRevision: automationDefinitionFixture.revision,
   state: "awaiting_input",
   blocker: {
     kind: "permission",
-    sessionID: "ses_000000000003abcdefghijklmn",
     requestID: "per_000000000004abcdefghijklmn",
   },
   triggeredAt: 1_800_000_060_000,

@@ -20,6 +20,8 @@ export const AutomationID = {
 }
 
 export namespace Automation {
+  export const MIN_INTERVAL_MS = 30_000
+
   export const DefinitionID = AutomationID.Definition.zod
   export const RunID = AutomationID.Run.zod
 
@@ -43,7 +45,7 @@ export namespace Automation {
     .meta({ ref: "AutomationStop" })
   export const Rhythm = z
     .discriminatedUnion("kind", [
-      z.object({ kind: z.literal("interval"), everyMs: z.number().int().positive() }),
+      z.object({ kind: z.literal("interval"), everyMs: z.number().int().min(MIN_INTERVAL_MS, `interval_below_minimum_${MIN_INTERVAL_MS}ms`) }),
       z.object({ kind: z.literal("cron"), expression: z.string().min(1) }),
     ])
     .meta({ ref: "AutomationRhythm" })
@@ -123,19 +125,20 @@ export namespace Automation {
 
   export const Blocker = z
     .discriminatedUnion("kind", [
-      z.object({ kind: z.literal("permission"), sessionID: SessionID.zod, requestID: PermissionID.zod }).strict(),
-      z.object({ kind: z.literal("question"), sessionID: SessionID.zod, callID: z.string().min(1) }).strict(),
+      z.object({ kind: z.literal("permission"), requestID: PermissionID.zod }).strict(),
+      z.object({ kind: z.literal("question"), callID: z.string().min(1) }).strict(),
     ])
     .meta({ ref: "AutomationRunBlocker" })
   export const Error = z
     .object({
-      code: z.enum(["needs_user_input", "execution_failed", "unsupported_where_worktree"]),
+      code: z.enum(["needs_user_input", "execution_failed", "step_cap", "loop_gate"]),
       message: z.string(),
     })
     .meta({ ref: "AutomationRunError" })
   const CommonRun = {
     id: RunID,
     automationID: DefinitionID,
+    revision: z.number().int().positive(),
     definitionRevision: z.number().int().positive(),
     triggeredAt: z.number().int().nonnegative(),
     cost: z.number().nonnegative().nullable(),
@@ -178,28 +181,17 @@ export namespace Automation {
         ...RunningRun,
         state: z.literal("failed"),
         completedAt: z.number().int().nonnegative(),
-        error: Error.nullable(),
-        stopReason: z.enum(["step_cap", "loop_gate"]).optional(),
+        error: Error,
       }).strict(),
       z.object({
         ...CommonRun,
-        state: z.literal("skipped"),
+        state: z.literal("stopped"),
         sessionID: SessionID.zod.nullable(),
         startedAt: z.number().int().nonnegative().nullable(),
         completedAt: z.number().int().nonnegative(),
         result: z.null(),
         error: z.null(),
-        skipReason: z.enum(["previous_run_awaiting_input"]),
-      }).strict(),
-      z.object({
-        ...CommonRun,
-        state: z.literal("expired"),
-        sessionID: SessionID.zod.nullable(),
-        startedAt: z.number().int().nonnegative().nullable(),
-        completedAt: z.number().int().nonnegative(),
-        result: z.null(),
-        error: z.null(),
-        stopReason: z.enum(["cancelled", "expired", "blocker_lost"]),
+        stopReason: z.enum(["previous_run_awaiting_input", "missed_schedule", "cancelled", "expired", "blocker_lost"]),
       }).strict(),
     ])
     .superRefine((run, ctx) => {
@@ -209,11 +201,11 @@ export namespace Automation {
       if (run.completedAt !== null && run.startedAt !== null && run.completedAt < run.startedAt) {
         ctx.addIssue({ code: "custom", path: ["completedAt"], message: "completedAt must be greater than or equal to startedAt" })
       }
-      if (run.state === "awaiting_input" && run.blocker.sessionID !== run.sessionID) {
-        ctx.addIssue({ code: "custom", path: ["blocker", "sessionID"], message: "blocker sessionID must match run sessionID" })
+      if (run.completedAt !== null && run.completedAt < run.triggeredAt) {
+        ctx.addIssue({ code: "custom", path: ["completedAt"], message: "completedAt must be greater than or equal to triggeredAt" })
       }
-      if (run.state === "failed" && !run.error && !run.stopReason) {
-        ctx.addIssue({ code: "custom", path: ["error"], message: "failed requires error or stopReason" })
+      if (run.state === "stopped" && ((run.sessionID === null) !== (run.startedAt === null))) {
+        ctx.addIssue({ code: "custom", path: ["sessionID"], message: "stopped requires sessionID and startedAt to be both present or both null" })
       }
     })
     .meta({ ref: "AutomationRun" })
@@ -467,6 +459,7 @@ export namespace Automation {
     const run = Run.parse({
       id: AutomationID.Run.ascending(),
       automationID: id,
+      revision: 1,
       definitionRevision: definition.revision,
       state: "scheduled",
       triggeredAt: options?.now ?? Date.now(),

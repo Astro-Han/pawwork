@@ -440,17 +440,15 @@ export type EventAutomationDefinitionDeleted = {
 export type AutomationRunBlocker =
   | {
       kind: "permission"
-      sessionID: string
       requestID: string
     }
   | {
       kind: "question"
-      sessionID: string
       callID: string
     }
 
 export type AutomationRunError = {
-  code: "needs_user_input" | "execution_failed" | "unsupported_where_worktree"
+  code: "needs_user_input" | "execution_failed" | "step_cap" | "loop_gate"
   message: string
 }
 
@@ -458,6 +456,7 @@ export type AutomationRun =
   | {
       id: string
       automationID: string
+      revision: number
       definitionRevision: number
       triggeredAt: number
       cost: number | null
@@ -471,6 +470,7 @@ export type AutomationRun =
   | {
       id: string
       automationID: string
+      revision: number
       definitionRevision: number
       triggeredAt: number
       cost: number | null
@@ -484,6 +484,7 @@ export type AutomationRun =
   | {
       id: string
       automationID: string
+      revision: number
       definitionRevision: number
       triggeredAt: number
       cost: number | null
@@ -498,6 +499,7 @@ export type AutomationRun =
   | {
       id: string
       automationID: string
+      revision: number
       definitionRevision: number
       triggeredAt: number
       cost: number | null
@@ -511,6 +513,7 @@ export type AutomationRun =
   | {
       id: string
       automationID: string
+      revision: number
       definitionRevision: number
       triggeredAt: number
       cost: number | null
@@ -518,37 +521,23 @@ export type AutomationRun =
       startedAt: number
       completedAt: number
       result: null
-      error: AutomationRunError | null
+      error: AutomationRunError
       state: "failed"
-      stopReason?: "step_cap" | "loop_gate"
     }
   | {
       id: string
       automationID: string
+      revision: number
       definitionRevision: number
       triggeredAt: number
       cost: number | null
-      state: "skipped"
+      state: "stopped"
       sessionID: string | null
       startedAt: number | null
       completedAt: number
       result: null
       error: null
-      skipReason: "previous_run_awaiting_input"
-    }
-  | {
-      id: string
-      automationID: string
-      definitionRevision: number
-      triggeredAt: number
-      cost: number | null
-      state: "expired"
-      sessionID: string | null
-      startedAt: number | null
-      completedAt: number
-      result: null
-      error: null
-      stopReason: "cancelled" | "expired" | "blocker_lost"
+      stopReason: "previous_run_awaiting_input" | "missed_schedule" | "cancelled" | "expired" | "blocker_lost"
     }
 
 export type EventAutomationRunUpdated = {

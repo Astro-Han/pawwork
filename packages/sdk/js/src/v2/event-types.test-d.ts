@@ -58,11 +58,11 @@ const _automationRunUpdated: EventAutomationRunUpdated = {
   properties: {
     id: "automation_run_000000000002abcdefghijklmn",
     automationID: "automation_000000000001abcdefghijklmn",
+    revision: 1,
     definitionRevision: 2,
     state: "awaiting_input",
     blocker: {
       kind: "permission",
-      sessionID: "ses_000000000003abcdefghijklmn",
       requestID: "per_000000000004abcdefghijklmn",
     },
     triggeredAt: 1800000060000,
@@ -79,6 +79,7 @@ const _automationRunUpdated: EventAutomationRunUpdated = {
 const _invalidRunningRun: AutomationRun = {
   id: "automation_run_000000000002abcdefghijklmn",
   automationID: "automation_000000000001abcdefghijklmn",
+  revision: 1,
   definitionRevision: 2,
   state: "running",
   triggeredAt: 1800000060000,
@@ -93,12 +94,12 @@ const _invalidRunningRun: AutomationRun = {
 const _invalidPermissionBlockerRun: AutomationRun = {
   id: "automation_run_000000000002abcdefghijklmn",
   automationID: "automation_000000000001abcdefghijklmn",
+  revision: 1,
   definitionRevision: 2,
   state: "awaiting_input",
   // @ts-expect-error permission blockers require requestID.
   blocker: {
     kind: "permission",
-    sessionID: "ses_000000000003abcdefghijklmn",
   },
   triggeredAt: 1800000060000,
   startedAt: 1800000061000,
@@ -113,6 +114,7 @@ const _invalidPermissionBlockerRun: AutomationRun = {
 const _invalidRunningSessionRun: AutomationRun = {
   id: "automation_run_000000000002abcdefghijklmn",
   automationID: "automation_000000000001abcdefghijklmn",
+  revision: 1,
   definitionRevision: 2,
   state: "running",
   triggeredAt: 1800000060000,
@@ -122,4 +124,65 @@ const _invalidRunningSessionRun: AutomationRun = {
   result: null,
   error: null,
   cost: null,
+}
+
+const _scheduledRun: AutomationRun = {
+  id: "automation_run_000000000002abcdefghijklmn",
+  automationID: "automation_000000000001abcdefghijklmn",
+  revision: 1,
+  definitionRevision: 2,
+  triggeredAt: 1800000060000,
+  cost: null,
+  state: "scheduled",
+  sessionID: null,
+  startedAt: null,
+  completedAt: null,
+  result: null,
+  error: null,
+}
+
+const _succeededRun: AutomationRun = {
+  id: "automation_run_000000000002abcdefghijklmn",
+  automationID: "automation_000000000001abcdefghijklmn",
+  revision: 2,
+  definitionRevision: 2,
+  triggeredAt: 1800000060000,
+  cost: 0.01,
+  sessionID: "ses_000000000003abcdefghijklmn",
+  startedAt: 1800000061000,
+  completedAt: 1800000062000,
+  state: "succeeded",
+  result: "done",
+  error: null,
+}
+
+const _failedRun: AutomationRun = {
+  id: "automation_run_000000000002abcdefghijklmn",
+  automationID: "automation_000000000001abcdefghijklmn",
+  revision: 2,
+  definitionRevision: 2,
+  triggeredAt: 1800000060000,
+  cost: 0.01,
+  sessionID: "ses_000000000003abcdefghijklmn",
+  startedAt: 1800000061000,
+  completedAt: 1800000062000,
+  state: "failed",
+  result: null,
+  error: { code: "step_cap", message: "Stopped after reaching the automation step cap." },
+}
+
+const _stoppedRun: AutomationRun = {
+  id: "automation_run_000000000002abcdefghijklmn",
+  automationID: "automation_000000000001abcdefghijklmn",
+  revision: 2,
+  definitionRevision: 2,
+  triggeredAt: 1800000060000,
+  cost: null,
+  state: "stopped",
+  sessionID: null,
+  startedAt: null,
+  completedAt: 1800000062000,
+  result: null,
+  error: null,
+  stopReason: "missed_schedule",
 }
