@@ -5,6 +5,7 @@ import { Server } from "../../src/server/server"
 import { Session as SessionNs } from "../../src/session"
 import { MessageV2 } from "../../src/session/message-v2"
 import { MessageID, PartID, type SessionID } from "../../src/session/schema"
+import { ExternalResult } from "../../src/tool/external-result"
 import { Log } from "../../src/util"
 import { tmpdir } from "../fixture/fixture"
 
@@ -31,6 +32,7 @@ const svc = {
 }
 
 afterEach(async () => {
+  ExternalResult.__resetForTests()
   await Instance.disposeAll()
 })
 
@@ -72,7 +74,161 @@ async function fill(sessionID: SessionID, count: number, time = (i: number) => D
   return ids
 }
 
+async function createRunningQuestionSession(directory: string, input?: { externalResultReady?: boolean }) {
+  const session = await svc.create({})
+  const userID = MessageID.ascending()
+  await svc.updateMessage({
+    id: userID,
+    sessionID: session.id,
+    role: "user",
+    time: { created: Date.now() },
+    agent: "user",
+    model: { providerID: "test", modelID: "test" },
+    tools: {},
+    mode: "",
+  } as unknown as MessageV2.Info)
+
+  const assistantID = MessageID.ascending()
+  await svc.updateMessage({
+    id: assistantID,
+    sessionID: session.id,
+    role: "assistant",
+    parentID: userID,
+    time: { created: Date.now() },
+    agent: "build",
+    mode: "build",
+    path: { cwd: directory, root: directory },
+    cost: 0,
+    tokens: {
+      total: 0,
+      input: 0,
+      output: 0,
+      reasoning: 0,
+      cache: { read: 0, write: 0 },
+    },
+    modelID: "test",
+    providerID: "test",
+  } as unknown as MessageV2.Info)
+
+  const partID = PartID.ascending()
+  const callID = "call_stale_question"
+  await svc.updatePart({
+    id: partID,
+    sessionID: session.id,
+    messageID: assistantID,
+    type: "tool",
+    tool: "question",
+    callID,
+    state: {
+      status: "running",
+      input: {
+        questions: [
+          {
+            question: "Continue?",
+            options: [{ label: "Yes" }, { label: "No" }],
+          },
+        ],
+      },
+      raw: "",
+      time: { start: Date.now() },
+      metadata: { externalResultReady: input?.externalResultReady ?? true },
+    },
+  } as unknown as MessageV2.Part)
+
+  return { session, assistantID, partID, callID }
+}
+
+function expectToolPart(part: MessageV2.Part | undefined) {
+  expect(part?.type).toBe("tool")
+  if (part?.type !== "tool") throw new Error("expected tool part")
+  return part
+}
+
 describe("session messages endpoint", () => {
+  test("terminalizes stale running external-result questions in paginated responses", async () => {
+    await using tmp = await tmpdir({ git: true })
+    ExternalResult.__resetForTests()
+    await withoutWatcher(() =>
+      Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const { session, assistantID, partID } = await createRunningQuestionSession(tmp.path)
+          const app = Server.Default().app
+
+          const res = await app.request(`/session/${session.id}/message?limit=2`)
+          expect(res.status).toBe(200)
+          const body = (await res.json()) as MessageV2.WithParts[]
+          const part = expectToolPart(body.flatMap((msg) => msg.parts).find((item) => item.id === partID))
+          expect(part.state.status).toBe("error")
+          if (part.state.status !== "error") throw new Error("expected error state")
+          expect(part.state.metadata?.interrupted).toBe(true)
+          expect(part.state.metadata?.stale_external_result).toBe(true)
+
+          const persisted = expectToolPart(
+            MessageV2.get({ sessionID: session.id, messageID: assistantID }).parts.find(
+              (item) => item.id === partID,
+            ),
+          )
+          expect(persisted.state.status).toBe("error")
+
+          await svc.remove(session.id)
+        },
+      }),
+    )
+  })
+
+  test("preserves live pending external-result questions in paginated responses", async () => {
+    await using tmp = await tmpdir({ git: true })
+    ExternalResult.__resetForTests()
+    await withoutWatcher(() =>
+      Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const { session, assistantID, partID, callID } = await createRunningQuestionSession(tmp.path)
+          await Effect.runPromise(
+            ExternalResult.register({
+              sessionID: session.id,
+              messageID: assistantID,
+              callID,
+              inputSnapshot: { questions: ["q1"] },
+            }),
+          )
+          const app = Server.Default().app
+
+          const res = await app.request(`/session/${session.id}/message?limit=2`)
+          expect(res.status).toBe(200)
+          const body = (await res.json()) as MessageV2.WithParts[]
+          const part = expectToolPart(body.flatMap((msg) => msg.parts).find((item) => item.id === partID))
+          expect(part.state.status).toBe("running")
+
+          await svc.remove(session.id)
+        },
+      }),
+    )
+  })
+
+  test("preserves unready external-result questions in paginated responses", async () => {
+    await using tmp = await tmpdir({ git: true })
+    ExternalResult.__resetForTests()
+    await withoutWatcher(() =>
+      Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const { session, partID } = await createRunningQuestionSession(tmp.path, { externalResultReady: false })
+          const app = Server.Default().app
+
+          const res = await app.request(`/session/${session.id}/message?limit=2`)
+          expect(res.status).toBe(200)
+          const body = (await res.json()) as MessageV2.WithParts[]
+          const part = expectToolPart(body.flatMap((msg) => msg.parts).find((item) => item.id === partID))
+          expect(part.state.status).toBe("running")
+
+          await svc.remove(session.id)
+        },
+      }),
+    )
+  })
+
   test("returns cursor headers for older pages", async () => {
     await using tmp = await tmpdir({ git: true })
     await withoutWatcher(() =>
