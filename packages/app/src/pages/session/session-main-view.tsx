@@ -54,8 +54,6 @@ export function SessionMainView(props: {
   layoutTransactionActive: TimelineProps["layoutTransactionActive"]
   layoutTransactionID: TimelineProps["layoutTransactionID"]
   layoutTransactionKind: TimelineProps["layoutTransactionKind"]
-  onRetryOpenSession: () => void
-  onOpenNewSession: () => void
   composerSession: JSX.Element
   composerHome: (ctx: { onModeChange: (mode: "normal" | "shell") => void }) => JSX.Element
   canReview: () => boolean
