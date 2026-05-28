@@ -24,4 +24,12 @@ describe("MessageID ordering", () => {
 
     expect(Identifier.timestamp(runID)).toBe(timestamp)
   })
+
+  test("automation definition and run id schemas do not overlap", () => {
+    const runID = AutomationID.Run.ascending()
+
+    expect(AutomationID.Run.zod.safeParse(runID).success).toBe(true)
+    expect(AutomationID.Definition.zod.safeParse(runID).success).toBe(false)
+    expect(() => AutomationID.Definition.ascending(runID)).toThrow()
+  })
 })

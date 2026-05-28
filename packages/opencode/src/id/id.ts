@@ -18,11 +18,16 @@ export namespace Identifier {
     workspace: "wrk",
   } as const
 
-  export function schema(prefix: keyof typeof prefixes) {
-    return z.string().startsWith(prefixes[prefix])
+  const LENGTH = 26
+  const TIME_HEX_LENGTH = 12
+
+  function pattern(prefix: keyof typeof prefixes) {
+    return new RegExp(`^${prefixes[prefix]}_[0-9a-f]{${TIME_HEX_LENGTH}}[0-9A-Za-z]{${LENGTH - TIME_HEX_LENGTH}}$`)
   }
 
-  const LENGTH = 26
+  export function schema(prefix: keyof typeof prefixes) {
+    return z.string().regex(pattern(prefix))
+  }
 
   // State for monotonic ID generation
   let lastTimestamp = 0
@@ -41,8 +46,8 @@ export namespace Identifier {
       return create(prefix, descending)
     }
 
-    if (!given.startsWith(prefixes[prefix])) {
-      throw new Error(`ID ${given} does not start with ${prefixes[prefix]}`)
+    if (!pattern(prefix).test(given)) {
+      throw new Error(`ID ${given} does not match ${prefixes[prefix]} ID format`)
     }
     return given
   }

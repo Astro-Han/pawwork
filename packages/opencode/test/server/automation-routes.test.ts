@@ -365,7 +365,10 @@ describe("automation routes", () => {
       })
 
       await json(app, `/automation/${created.id}/run`, { method: "POST" })
-      const page = await json(app, `/automation/${created.id}/runs?limit=1&cursor=automation_run_missing`)
+      const page = await json(
+        app,
+        `/automation/${created.id}/runs?limit=1&cursor=${encodeURIComponent(AutomationID.Run.ascending())}`,
+      )
 
       expect(page).toEqual({ items: [], nextCursor: null })
     })
