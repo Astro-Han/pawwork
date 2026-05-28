@@ -108,3 +108,18 @@ const _invalidPermissionBlockerRun: AutomationRun = {
   error: null,
   cost: null,
 }
+
+// @ts-expect-error running runs require a concrete sessionID.
+const _invalidRunningSessionRun: AutomationRun = {
+  id: "automation_run_000000000002abcdefghijklmn",
+  automationID: "automation_000000000001abcdefghijklmn",
+  definitionRevision: 2,
+  state: "running",
+  triggeredAt: 1800000060000,
+  startedAt: 1800000061000,
+  completedAt: null,
+  sessionID: null,
+  result: null,
+  error: null,
+  cost: null,
+}

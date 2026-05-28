@@ -460,9 +460,9 @@ export type AutomationRun =
       automationID: string
       definitionRevision: number
       triggeredAt: number
-      sessionID: string | null
       cost: number | null
       state: "scheduled"
+      sessionID: string | null
       startedAt: null
       completedAt: null
       result: null
@@ -473,53 +473,53 @@ export type AutomationRun =
       automationID: string
       definitionRevision: number
       triggeredAt: number
-      sessionID: string | null
       cost: number | null
-      state: "running"
+      sessionID: string
       startedAt: number
       completedAt: null
       result: null
       error: null
+      state: "running"
     }
   | {
       id: string
       automationID: string
       definitionRevision: number
       triggeredAt: number
-      sessionID: string | null
       cost: number | null
+      sessionID: string
+      startedAt: number
+      completedAt: null
+      result: null
+      error: null
       state: "awaiting_input"
       blocker: AutomationRunBlocker
-      startedAt: number
-      completedAt: null
-      result: null
-      error: null
     }
   | {
       id: string
       automationID: string
       definitionRevision: number
       triggeredAt: number
-      sessionID: string | null
       cost: number | null
-      state: "succeeded"
+      sessionID: string
       startedAt: number
       completedAt: number
       result: string | null
       error: null
+      state: "succeeded"
     }
   | {
       id: string
       automationID: string
       definitionRevision: number
       triggeredAt: number
-      sessionID: string | null
       cost: number | null
-      state: "failed"
+      sessionID: string
       startedAt: number
       completedAt: number
       result: null
       error: AutomationRunError | null
+      state: "failed"
       stopReason?: "step_cap" | "loop_gate"
     }
   | {
@@ -527,9 +527,9 @@ export type AutomationRun =
       automationID: string
       definitionRevision: number
       triggeredAt: number
-      sessionID: string | null
       cost: number | null
       state: "skipped"
+      sessionID: string | null
       startedAt: number | null
       completedAt: number
       result: null
@@ -541,9 +541,9 @@ export type AutomationRun =
       automationID: string
       definitionRevision: number
       triggeredAt: number
-      sessionID: string | null
       cost: number | null
       state: "expired"
+      sessionID: string | null
       startedAt: number | null
       completedAt: number
       result: null

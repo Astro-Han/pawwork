@@ -455,6 +455,7 @@ describe("automation routes", () => {
   })
 
   test("schemas freeze terminal reason state mapping", () => {
+    const runSessionID = SessionID.descending()
     expect(() =>
       Automation.Run.parse({
         id: AutomationID.Run.ascending(),
@@ -464,7 +465,7 @@ describe("automation routes", () => {
         triggeredAt: 1,
         startedAt: 1,
         completedAt: 2,
-        sessionID: null,
+        sessionID: runSessionID,
         result: null,
         error: null,
         stopReason: "step_cap",
@@ -508,24 +509,31 @@ describe("automation routes", () => {
   })
 
   test("schemas freeze run state consistency", () => {
+    const runSessionID = SessionID.descending()
     const permissionBlocker = {
       kind: "permission" as const,
-      sessionID: SessionID.descending(),
+      sessionID: runSessionID,
       requestID: PermissionID.ascending(),
     }
     const questionBlocker = {
       kind: "question" as const,
-      sessionID: SessionID.descending(),
+      sessionID: runSessionID,
       callID: "call_123",
     }
     const error = { code: "execution_failed" as const, message: "failed" }
 
     expect(() => Automation.Run.parse(run({ state: "scheduled" }))).not.toThrow()
-    expect(() => Automation.Run.parse(run({ state: "running", startedAt: 1 }))).not.toThrow()
-    expect(() => Automation.Run.parse(run({ state: "awaiting_input", startedAt: 1, blocker: permissionBlocker }))).not.toThrow()
-    expect(() => Automation.Run.parse(run({ state: "awaiting_input", startedAt: 1, blocker: questionBlocker }))).not.toThrow()
-    expect(() => Automation.Run.parse(run({ state: "succeeded", startedAt: 1, completedAt: 2, result: "done" }))).not.toThrow()
-    expect(() => Automation.Run.parse(run({ state: "failed", startedAt: 1, completedAt: 2, error }))).not.toThrow()
+    expect(() => Automation.Run.parse(run({ state: "running", sessionID: runSessionID, startedAt: 1 }))).not.toThrow()
+    expect(() =>
+      Automation.Run.parse(run({ state: "awaiting_input", sessionID: runSessionID, startedAt: 1, blocker: permissionBlocker })),
+    ).not.toThrow()
+    expect(() =>
+      Automation.Run.parse(run({ state: "awaiting_input", sessionID: runSessionID, startedAt: 1, blocker: questionBlocker })),
+    ).not.toThrow()
+    expect(() =>
+      Automation.Run.parse(run({ state: "succeeded", sessionID: runSessionID, startedAt: 1, completedAt: 2, result: "done" })),
+    ).not.toThrow()
+    expect(() => Automation.Run.parse(run({ state: "failed", sessionID: runSessionID, startedAt: 1, completedAt: 2, error }))).not.toThrow()
     expect(() =>
       Automation.Run.parse(
         run({ state: "skipped", completedAt: 2, skipReason: "previous_run_awaiting_input" }),
@@ -536,6 +544,22 @@ describe("automation routes", () => {
     ).not.toThrow()
 
     expect(() => Automation.Run.parse(run({ state: "awaiting_input", startedAt: 1 }))).toThrow()
+    expect(() => Automation.Run.parse(run({ state: "running", sessionID: null, startedAt: 1 }))).toThrow()
+    expect(() => Automation.Run.parse(run({ state: "awaiting_input", sessionID: null, startedAt: 1, blocker: permissionBlocker }))).toThrow()
+    expect(() => Automation.Run.parse(run({ state: "succeeded", sessionID: null, startedAt: 1, completedAt: 2, result: "done" }))).toThrow()
+    expect(() => Automation.Run.parse(run({ state: "failed", sessionID: null, startedAt: 1, completedAt: 2, error }))).toThrow()
+    expect(() =>
+      Automation.Run.parse(
+        run({
+          state: "awaiting_input",
+          sessionID: runSessionID,
+          startedAt: 1,
+          blocker: { ...permissionBlocker, sessionID: SessionID.descending() },
+        }),
+      ),
+    ).toThrow()
+    expect(() => Automation.Run.parse(run({ state: "running", sessionID: runSessionID, startedAt: 0, triggeredAt: 1 }))).toThrow()
+    expect(() => Automation.Run.parse(run({ state: "succeeded", sessionID: runSessionID, startedAt: 2, completedAt: 1 }))).toThrow()
     expect(() => Automation.Run.parse(run({ state: "awaiting_input", startedAt: 1, blocker: { kind: "permission", sessionID: SessionID.descending() } }))).toThrow()
     expect(() => Automation.Run.parse(run({ state: "awaiting_input", startedAt: 1, blocker: { kind: "question", sessionID: SessionID.descending() } }))).toThrow()
     expect(() => Automation.Run.parse(run({ state: "running", startedAt: 1, blocker: permissionBlocker }))).toThrow()

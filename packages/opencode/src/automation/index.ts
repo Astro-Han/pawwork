@@ -138,56 +138,53 @@ export namespace Automation {
     automationID: DefinitionID,
     definitionRevision: z.number().int().positive(),
     triggeredAt: z.number().int().nonnegative(),
-    sessionID: SessionID.zod.nullable(),
     cost: z.number().nonnegative().nullable(),
+  }
+  const RunningRun = {
+    ...CommonRun,
+    sessionID: SessionID.zod,
+    startedAt: z.number().int().nonnegative(),
+    completedAt: z.null(),
+    result: z.null(),
+    error: z.null(),
   }
   export const Run = z
     .discriminatedUnion("state", [
       z.object({
         ...CommonRun,
         state: z.literal("scheduled"),
+        sessionID: SessionID.zod.nullable(),
         startedAt: z.null(),
         completedAt: z.null(),
         result: z.null(),
         error: z.null(),
       }).strict(),
       z.object({
-        ...CommonRun,
+        ...RunningRun,
         state: z.literal("running"),
-        startedAt: z.number().int().nonnegative(),
-        completedAt: z.null(),
-        result: z.null(),
-        error: z.null(),
       }).strict(),
       z.object({
-        ...CommonRun,
+        ...RunningRun,
         state: z.literal("awaiting_input"),
         blocker: Blocker,
-        startedAt: z.number().int().nonnegative(),
-        completedAt: z.null(),
-        result: z.null(),
-        error: z.null(),
       }).strict(),
       z.object({
-        ...CommonRun,
+        ...RunningRun,
         state: z.literal("succeeded"),
-        startedAt: z.number().int().nonnegative(),
         completedAt: z.number().int().nonnegative(),
         result: z.string().nullable(),
-        error: z.null(),
       }).strict(),
       z.object({
-        ...CommonRun,
+        ...RunningRun,
         state: z.literal("failed"),
-        startedAt: z.number().int().nonnegative(),
         completedAt: z.number().int().nonnegative(),
-        result: z.null(),
         error: Error.nullable(),
         stopReason: z.enum(["step_cap", "loop_gate"]).optional(),
       }).strict(),
       z.object({
         ...CommonRun,
         state: z.literal("skipped"),
+        sessionID: SessionID.zod.nullable(),
         startedAt: z.number().int().nonnegative().nullable(),
         completedAt: z.number().int().nonnegative(),
         result: z.null(),
@@ -197,6 +194,7 @@ export namespace Automation {
       z.object({
         ...CommonRun,
         state: z.literal("expired"),
+        sessionID: SessionID.zod.nullable(),
         startedAt: z.number().int().nonnegative().nullable(),
         completedAt: z.number().int().nonnegative(),
         result: z.null(),
@@ -205,6 +203,15 @@ export namespace Automation {
       }).strict(),
     ])
     .superRefine((run, ctx) => {
+      if (run.startedAt !== null && run.startedAt < run.triggeredAt) {
+        ctx.addIssue({ code: "custom", path: ["startedAt"], message: "startedAt must be greater than or equal to triggeredAt" })
+      }
+      if (run.completedAt !== null && run.startedAt !== null && run.completedAt < run.startedAt) {
+        ctx.addIssue({ code: "custom", path: ["completedAt"], message: "completedAt must be greater than or equal to startedAt" })
+      }
+      if (run.state === "awaiting_input" && run.blocker.sessionID !== run.sessionID) {
+        ctx.addIssue({ code: "custom", path: ["blocker", "sessionID"], message: "blocker sessionID must match run sessionID" })
+      }
       if (run.state === "failed" && !run.error && !run.stopReason) {
         ctx.addIssue({ code: "custom", path: ["error"], message: "failed requires error or stopReason" })
       }
