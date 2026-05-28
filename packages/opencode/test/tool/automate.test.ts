@@ -106,6 +106,32 @@ describe("automate tool", () => {
     expect(formatAutomateValidationError(error)).toContain("Invalid automate input")
   })
 
+  test.each([
+    ["sourceSessionID", { sourceSessionID: "not-a-session-id" }],
+    ["automationSessionID", { automationSessionID: "not-a-session-id" }],
+  ])("rejects invalid session ids before execute reaches the Zod create parser: %s", (_name, override) => {
+    const decode = Schema.decodeUnknownSync(AutomateParameters)
+    let error: unknown
+    try {
+      decode({
+        kind: "recurring",
+        title: "Daily repo brief",
+        prompt: "Summarize repo changes.",
+        context: "fresh",
+        where: { projectID: "project" },
+        timezone: "UTC",
+        rhythm: { kind: "interval", everyMs: 60_000 },
+        stop: { kind: "never" },
+        ...override,
+      })
+    } catch (caught) {
+      error = caught
+    }
+
+    expect(error).toBeDefined()
+    expect(formatAutomateValidationError(error)).toContain("Invalid automate input")
+  })
+
   test("echoes the resolved definition through the automation create path", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({

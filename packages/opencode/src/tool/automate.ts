@@ -7,14 +7,16 @@ const Where = Schema.Struct({
   worktree: Schema.optional(Schema.NonEmptyString),
 })
 
+const SessionIDString = Schema.String.check(Schema.isStartsWith("ses"))
+
 const Common = {
   title: Schema.NonEmptyString,
   prompt: Schema.NonEmptyString,
   context: Schema.Union([Schema.Literal("continue"), Schema.Literal("fresh")]),
   where: Where,
   timezone: Schema.NonEmptyString,
-  sourceSessionID: Schema.optional(Schema.String),
-  automationSessionID: Schema.optional(Schema.String),
+  sourceSessionID: Schema.optional(SessionIDString),
+  automationSessionID: Schema.optional(SessionIDString),
 }
 
 const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
