@@ -134,7 +134,7 @@ jobs:
         with:
           path: ${{ github.workspace }}/.playwright-browsers
           key: playwright-${{ runner.os }}-${{ hashFiles('packages/app/package.json', 'bun.lock') }}
-          restore-keys: |
+          restore-keys: |-
             playwright-${{ runner.os }}-
 
       - run: bun install --frozen-lockfile
