@@ -1,8 +1,9 @@
 import { $ } from "bun"
-import { afterEach, describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, spyOn, test } from "bun:test"
 import fs from "fs/promises"
 import path from "path"
 import { Instance } from "../../src/project/instance"
+import { Vcs } from "../../src/project/vcs"
 import { Server } from "../../src/server/server"
 import { resetDatabase } from "../fixture/db"
 import { tmpdir } from "../fixture/fixture"
@@ -367,6 +368,33 @@ describe("VCS routes", () => {
       reason: "too-large",
       message: "Patch exceeds the 10 MB input limit",
     })
+  })
+
+  test("rejects oversized apply request bodies before JSON validation", async () => {
+    await using tmp = await tmpdir()
+    const apply = spyOn(Vcs, "apply")
+
+    try {
+      const response = await Server.Default().app.request("/vcs/apply", {
+        method: "POST",
+        headers: {
+          "content-length": "10000013",
+          "content-type": "application/json",
+          "x-opencode-directory": tmp.path,
+        },
+        body: JSON.stringify({ patch: "" }),
+      })
+
+      expect(response.status).toBe(413)
+      expect(apply).not.toHaveBeenCalled()
+      expect(await response.json()).toEqual({
+        error: "vcs_apply_failed",
+        reason: "too-large",
+        message: "Patch exceeds the 10 MB input limit",
+      })
+    } finally {
+      apply.mockRestore()
+    }
   })
 
   test("applies a patch and reports apply failures", async () => {

@@ -1,5 +1,6 @@
 import { describeRoute, resolver, validator } from "hono-openapi"
 import { Hono } from "hono"
+import type { Context, Next } from "hono"
 import type { UpgradeWebSocket } from "hono/ws"
 import fs from "fs/promises"
 import z from "zod"
@@ -27,6 +28,52 @@ import { EventRoutes } from "./event"
 import { MemoryRoutes } from "./memory"
 import { WorkspaceRouterMiddleware } from "./middleware"
 import { AppRuntime } from "@/effect/app-runtime"
+
+const applyPatchTooLarge = () =>
+  ({
+    error: "vcs_apply_failed",
+    reason: "too-large",
+    message: "Patch exceeds the 10 MB input limit",
+  }) satisfies Vcs.ApplyError
+
+const applyJsonEnvelopeBytes = Buffer.byteLength(JSON.stringify({ patch: "" }))
+const applyJsonBodyMaxBytes = Vcs.MAX_APPLY_PATCH_BYTES + applyJsonEnvelopeBytes
+
+async function applyPatchBodyLimit(c: Context, next: Next) {
+  const contentLength = c.req.header("content-length")
+  if (contentLength && Number.parseInt(contentLength, 10) > applyJsonBodyMaxBytes) {
+    return c.json(applyPatchTooLarge(), 413)
+  }
+
+  const body = c.req.raw.body
+  if (!body) return next()
+
+  const reader = body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > applyJsonBodyMaxBytes) {
+      await reader.cancel().catch(() => undefined)
+      return c.json(applyPatchTooLarge(), 413)
+    }
+    chunks.push(value)
+  }
+
+  const bytes = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  c.req.raw = new Request(c.req.raw, {
+    body: bytes,
+    duplex: "half",
+  } as RequestInit & { duplex: "half" })
+  return next()
+}
 
 export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
   new Hono()
@@ -270,17 +317,21 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
           },
         },
       }),
+      applyPatchBodyLimit,
       validator("json", Vcs.ApplyInput),
       async (c) => {
         try {
           return c.json(await Vcs.apply(c.req.valid("json")))
         } catch (error) {
           if (error instanceof Vcs.PatchApplyError) {
-            const body = {
-              error: "vcs_apply_failed",
-              reason: error.reason,
-              message: error.message,
-            } satisfies Vcs.ApplyError
+            const body =
+              error.reason === "too-large"
+                ? applyPatchTooLarge()
+                : ({
+                    error: "vcs_apply_failed",
+                    reason: error.reason,
+                    message: error.message,
+                  } satisfies Vcs.ApplyError)
             return c.json(body, error.reason === "too-large" ? 413 : 400)
           }
           throw error

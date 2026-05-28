@@ -16,6 +16,7 @@ export namespace Vcs {
   // A single useful patch may consume the whole budget; later files then fall back to empty patches.
   const MAX_PATCH_BYTES = 10_000_000
   const MAX_TOTAL_PATCH_BYTES = 10_000_000
+  export const MAX_APPLY_PATCH_BYTES = MAX_TOTAL_PATCH_BYTES
 
   const emptyPatch = (file: string) => formatPatch(structuredPatch(file, file, "", "", "", "", { context: 0 }))
 
@@ -396,7 +397,7 @@ export namespace Vcs {
           return patch
         }),
         apply: Effect.fn("Vcs.apply")(function* (input: ApplyInput) {
-          if (Buffer.byteLength(input.patch) > MAX_TOTAL_PATCH_BYTES) {
+          if (Buffer.byteLength(input.patch) > MAX_APPLY_PATCH_BYTES) {
             return yield* Effect.fail(new PatchApplyError("Patch exceeds the 10 MB input limit", "too-large"))
           }
           if (Instance.project.vcs !== "git") {
