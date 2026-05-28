@@ -156,6 +156,7 @@ jobs:
           E2E_SUITE: ${{ inputs.suite || '' }}
           PLAYWRIGHT_JUNIT_OUTPUT: e2e/junit-linux.xml
           PLAYWRIGHT_BROWSER_CHANNEL: chrome
+          PLAYWRIGHT_VIDEO: "off"
         run: |
           if [ "$EVENT_NAME" = "pull_request" ] || [ "$E2E_SUITE" = "smoke" ]; then
             bun --cwd packages/app test:e2e:local:smoke

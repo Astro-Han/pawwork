@@ -71,6 +71,7 @@ describe("e2e artifacts workflow", () => {
     expect(installBrowsersStep?.run).toContain("bunx playwright install-deps chromium")
     expect(installBrowsersStep?.run).not.toContain("playwright install chromium")
     expect(runStep?.env?.PLAYWRIGHT_BROWSER_CHANNEL).toBe("chrome")
+    expect(runStep?.env?.PLAYWRIGHT_VIDEO).toBe("off")
     expect(runStep?.run).toContain("bun --cwd packages/app test:e2e:local:smoke")
     expect(runStep?.["continue-on-error"]).not.toBe(true)
     expect(warnStep?.if).toBe("failure()")
