@@ -2291,7 +2291,7 @@ export type VcsDiffRawFailure = {
 
 export type VcsApplyFailure = {
   error: "vcs_apply_failed"
-  reason: "non-git" | "not-clean" | "too-large"
+  reason: "non-git" | "not-clean" | "too-large" | "invalid-input"
   message: string
 }
 

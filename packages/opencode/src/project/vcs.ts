@@ -209,7 +209,7 @@ export namespace Vcs {
   export const ApplyError = z
     .object({
       error: z.literal("vcs_apply_failed"),
-      reason: z.enum(["non-git", "not-clean", "too-large"]),
+      reason: z.enum(["non-git", "not-clean", "too-large", "invalid-input"]),
       message: z.string(),
     })
     .meta({

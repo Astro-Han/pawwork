@@ -36,7 +36,15 @@ const applyPatchTooLarge = () =>
     message: "Patch exceeds the 10 MB input limit",
   }) satisfies Vcs.ApplyError
 
+const applyPatchInvalidInput = () =>
+  ({
+    error: "vcs_apply_failed",
+    reason: "invalid-input",
+    message: "Patch request body must be valid JSON with a string patch",
+  }) satisfies Vcs.ApplyError
+
 const applyJsonEnvelopeBytes = Buffer.byteLength(JSON.stringify({ patch: "" }))
+// A JSON string can encode one decoded byte as six ASCII bytes (for example "\u000a").
 const maxJsonStringEscapeRatio = 6
 const applyJsonBodyMaxBytes = Vcs.MAX_APPLY_PATCH_BYTES * maxJsonStringEscapeRatio + applyJsonEnvelopeBytes
 
@@ -47,7 +55,10 @@ async function applyPatchBodyLimit(c: Context, next: Next) {
   }
 
   const body = c.req.raw.body
-  if (!body) return next()
+  if (!body) {
+    if (c.req.header("content-type")?.includes("json")) return c.json(applyPatchInvalidInput(), 400)
+    return next()
+  }
 
   const reader = body.getReader()
   const chunks: Uint8Array[] = []
@@ -73,6 +84,15 @@ async function applyPatchBodyLimit(c: Context, next: Next) {
     body: bytes,
     duplex: "half",
   } as RequestInit & { duplex: "half" })
+
+  const contentType = c.req.header("content-type")
+  if (contentType?.includes("json")) {
+    try {
+      JSON.parse(new TextDecoder().decode(bytes))
+    } catch {
+      return c.json(applyPatchInvalidInput(), 400)
+    }
+  }
   return next()
 }
 
@@ -319,7 +339,9 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
         },
       }),
       applyPatchBodyLimit,
-      validator("json", Vcs.ApplyInput),
+      validator("json", Vcs.ApplyInput, (result, c) => {
+        if (!result.success) return c.json(applyPatchInvalidInput(), 400)
+      }),
       async (c) => {
         try {
           return c.json(await Vcs.apply(c.req.valid("json")))

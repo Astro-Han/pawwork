@@ -41,7 +41,7 @@ describe("VCS routes", () => {
           const: "vcs_apply_failed",
         },
         reason: {
-          enum: ["non-git", "not-clean", "too-large"],
+          enum: ["non-git", "not-clean", "too-large", "invalid-input"],
         },
         message: {
           type: "string",
@@ -49,6 +49,46 @@ describe("VCS routes", () => {
       },
       required: ["error", "reason", "message"],
     })
+  })
+
+  test("returns typed apply failures for invalid apply request bodies", async () => {
+    await using tmp = await tmpdir()
+    const cases = [
+      {
+        name: "missing patch",
+        body: JSON.stringify({}),
+      },
+      {
+        name: "non-string patch",
+        body: JSON.stringify({ patch: 1 }),
+      },
+      {
+        name: "invalid JSON",
+        body: "{",
+      },
+      {
+        name: "empty JSON body",
+        body: undefined,
+      },
+    ]
+
+    for (const item of cases) {
+      const response = await Server.Default().app.request("/vcs/apply", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-opencode-directory": tmp.path,
+        },
+        body: item.body,
+      })
+
+      expect(response.status, item.name).toBe(400)
+      expect(await response.json(), item.name).toEqual({
+        error: "vcs_apply_failed",
+        reason: "invalid-input",
+        message: "Patch request body must be valid JSON with a string patch",
+      })
+    }
   })
 
   test("documents raw diff size failures in OpenAPI", async () => {
