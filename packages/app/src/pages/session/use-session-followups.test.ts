@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/solid-query"
 import { createRoot, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
 import type { FollowupDraft } from "@/components/prompt-input/submit"
+import { normalize, readPersistedAsync, readPersistedSync } from "@/utils/persist-read"
 import type {
   canSendFollowupItem as CanSendFollowupItem,
   createSessionFollowups as CreateSessionFollowups,
@@ -48,6 +49,9 @@ beforeAll(async () => {
   }))
   mock.module("@/utils/persist", () => ({
     PersistTesting: {
+      normalize,
+      readPersistedAsync,
+      readPersistedSync,
       workspaceStorage: (dir: string) => `pawwork.workspace.${dir.length}.dat`,
     },
     Persist: {
