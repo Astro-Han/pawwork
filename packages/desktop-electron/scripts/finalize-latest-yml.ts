@@ -115,7 +115,9 @@ function shellErrorText(error: unknown) {
 function isMissingAssetError(message: string) {
   // `gh release download` does not expose an asset-missing exit code, so keep this
   // narrow and let generic 404/release/repo/auth failures propagate.
-  return /no assets to download|no matches found|could not find any assets|release not found/i.test(message)
+  return /no assets to download|no matches found|no assets match|could not find any assets|release not found/i.test(
+    message,
+  )
 }
 
 function assertSameVersion(source: string, filename: string, data: LatestYml | undefined) {
