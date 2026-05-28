@@ -180,6 +180,11 @@ describe("activeTrowTool", () => {
 })
 
 describe("trowPartHasExpandableBody", () => {
+  test("keeps the chevron for live tools so running details can be opened", () => {
+    expect(trowPartHasExpandableBody(tool("running", "bash", "running"))).toBe(true)
+    expect(trowPartHasExpandableBody(tool("pending", "grep", "pending"))).toBe(true)
+  })
+
   test("keeps the chevron for completed output and errors", () => {
     expect(trowPartHasExpandableBody(tool("output", "bash", "completed", { output: "done" }))).toBe(true)
     expect(trowPartHasExpandableBody(tool("error", "bash", "error"))).toBe(true)

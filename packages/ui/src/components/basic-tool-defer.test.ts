@@ -123,6 +123,22 @@ test("deferred tools reset details when closed", async () => {
   tool.dispose()
 })
 
+test("running tools stay collapsed by default but can expand existing details", async () => {
+  const { mountBasicTool } = await loadFixture()
+  const tool = mountBasicTool({ defaultOpen: false, defer: true, status: "running" })
+
+  expect(tool.details()).toBeNull()
+
+  tool.trigger()?.click()
+  await Promise.resolve()
+  flushAnimationFrames()
+  await Promise.resolve()
+
+  expect(tool.details()?.textContent).toBe("details")
+
+  tool.dispose()
+})
+
 test("non-deferred default-open tools keep the previous immediate details behavior", () => {
   expect(basicToolInitialReady({ defaultOpen: true })).toBe(true)
   expect(basicToolInitialReady({ defaultOpen: true, defer: false })).toBe(true)
