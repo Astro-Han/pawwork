@@ -249,8 +249,8 @@ describe("FileWatcher git metadata filtering", () => {
       ],
     })
 
-    expect(ignore).toContain(path.join(repo, "custom-cache"))
-    expect(ignore).toContain(path.join(repo, "packages", "generated"))
+    expect(ignore).toContain(path.resolve(repo, "custom-cache"))
+    expect(ignore).toContain(path.resolve(repo, "packages", "generated"))
     expect(ignore).not.toContain("*.md")
     expect(ignore).not.toContain("logs/**")
     expect(ignore).toContain("generated/**")

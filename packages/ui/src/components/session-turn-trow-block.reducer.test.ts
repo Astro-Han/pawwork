@@ -1,5 +1,5 @@
 import { expect, test, describe } from "bun:test"
-import type { ToolPart, ToolState } from "@opencode-ai/sdk/v2"
+import type { ReasoningPart, ToolPart, ToolState } from "@opencode-ai/sdk/v2"
 import type { UiI18n } from "../context/i18n"
 import {
   activeTrowTool,
@@ -41,6 +41,17 @@ function tool(
     callID: `call-${id}`,
     tool: name,
     state,
+  }
+}
+
+function reasoning(id: string, text = "thinking through the next step"): ReasoningPart {
+  return {
+    id,
+    sessionID: "s",
+    messageID: "m",
+    type: "reasoning",
+    text,
+    time: { start: 0 },
   }
 }
 
@@ -180,6 +191,15 @@ describe("activeTrowTool", () => {
 })
 
 describe("trowPartHasExpandableBody", () => {
+  test("keeps the chevron for live reasoning so thinking details can be opened", () => {
+    expect(trowPartHasExpandableBody(reasoning("reasoning-running"))).toBe(true)
+  })
+
+  test("keeps the chevron for live tools so running details can be opened", () => {
+    expect(trowPartHasExpandableBody(tool("running", "bash", "running"))).toBe(true)
+    expect(trowPartHasExpandableBody(tool("pending", "grep", "pending"))).toBe(true)
+  })
+
   test("keeps the chevron for completed output and errors", () => {
     expect(trowPartHasExpandableBody(tool("output", "bash", "completed", { output: "done" }))).toBe(true)
     expect(trowPartHasExpandableBody(tool("error", "bash", "error"))).toBe(true)

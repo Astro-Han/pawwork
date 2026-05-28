@@ -2,10 +2,8 @@ import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
 import { createPortableDraftOwner } from "./portable-draft"
 import { createPinnedDraftOwner } from "./pinned-draft"
 
-// Submit module pulls in router/sdk/etc.; mock the bare minimum so a pure-function
-// import does not blow up on solid-js server-side guards.
-let detectSubmitOwnership: typeof import("./submit").detectSubmitOwnership
-type SubmitOwnership = import("./submit").SubmitOwnership
+let detectSubmitOwnership: any
+type SubmitOwnership = any
 
 beforeAll(async () => {
   mock.module("@solidjs/router", () => ({
