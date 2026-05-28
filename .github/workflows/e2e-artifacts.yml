@@ -133,16 +133,16 @@ jobs:
       - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
         with:
           path: ${{ github.workspace }}/.playwright-browsers
-          key: playwright-${{ runner.os }}-${{ hashFiles('packages/app/package.json') }}
+          key: playwright-${{ runner.os }}-${{ hashFiles('packages/app/package.json', 'bun.lock') }}
           restore-keys: |-
             playwright-${{ runner.os }}-
 
       - run: bun install --frozen-lockfile
 
       - name: Install Playwright browsers
-        timeout-minutes: 20
+        timeout-minutes: 10
         working-directory: packages/app
-        run: ./node_modules/.bin/playwright install --with-deps chromium
+        run: bunx playwright install --with-deps chromium
 
       - name: Run e2e
         id: run_e2e
