@@ -68,7 +68,7 @@ describe("e2e artifacts workflow", () => {
       "playwright-${{ runner.os }}-${{ hashFiles('packages/app/package.json') }}",
     )
     expect(playwrightCacheStep?.with?.["restore-keys"]).toBe("playwright-${{ runner.os }}-")
-    expect(installBrowsersStep?.["timeout-minutes"]).toBe(10)
+    expect(installBrowsersStep?.["timeout-minutes"]).toBe(20)
     expect(installBrowsersStep?.run).toBe("bunx playwright install --with-deps --only-shell chromium")
     expect(runStep?.run).toContain("bun --cwd packages/app test:e2e:local:smoke")
     expect(runStep?.["continue-on-error"]).not.toBe(true)
