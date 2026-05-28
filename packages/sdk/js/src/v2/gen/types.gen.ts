@@ -437,34 +437,119 @@ export type EventAutomationDefinitionDeleted = {
   properties: AutomationDefinitionTombstone
 }
 
-export type AutomationRunBlocker = {
-  kind: "permission" | "question"
-  sessionID: string
-  requestID?: string
-  callID?: string
-}
+export type AutomationRunBlocker =
+  | {
+      kind: "permission"
+      sessionID: string
+      requestID: string
+    }
+  | {
+      kind: "question"
+      sessionID: string
+      callID: string
+    }
 
 export type AutomationRunError = {
   code: "needs_user_input" | "execution_failed" | "unsupported_where_worktree"
   message: string
 }
 
-export type AutomationRun = {
-  id: string
-  automationID: string
-  revision: number
-  state: "scheduled" | "running" | "awaiting_input" | "succeeded" | "failed" | "skipped" | "expired"
-  blocker?: AutomationRunBlocker
-  triggeredAt: number
-  startedAt: number | null
-  completedAt: number | null
-  sessionID: string | null
-  result: string | null
-  error: AutomationRunError | null
-  skipReason?: "previous_run_awaiting_input"
-  stopReason?: "step_cap" | "loop_gate" | "cancelled" | "expired" | "blocker_lost"
-  cost: number | null
-}
+export type AutomationRun =
+  | {
+      id: string
+      automationID: string
+      definitionRevision: number
+      triggeredAt: number
+      sessionID: string | null
+      cost: number | null
+      state: "scheduled"
+      startedAt: null
+      completedAt: null
+      result: null
+      error: null
+    }
+  | {
+      id: string
+      automationID: string
+      definitionRevision: number
+      triggeredAt: number
+      sessionID: string | null
+      cost: number | null
+      state: "running"
+      startedAt: number
+      completedAt: null
+      result: null
+      error: null
+    }
+  | {
+      id: string
+      automationID: string
+      definitionRevision: number
+      triggeredAt: number
+      sessionID: string | null
+      cost: number | null
+      state: "awaiting_input"
+      blocker: AutomationRunBlocker
+      startedAt: number
+      completedAt: null
+      result: null
+      error: null
+    }
+  | {
+      id: string
+      automationID: string
+      definitionRevision: number
+      triggeredAt: number
+      sessionID: string | null
+      cost: number | null
+      state: "succeeded"
+      startedAt: number
+      completedAt: number
+      result: string | null
+      error: null
+    }
+  | {
+      id: string
+      automationID: string
+      definitionRevision: number
+      triggeredAt: number
+      sessionID: string | null
+      cost: number | null
+      state: "failed"
+      startedAt: number
+      completedAt: number
+      result: null
+      error: AutomationRunError | null
+      stopReason?: "step_cap" | "loop_gate"
+    }
+  | {
+      id: string
+      automationID: string
+      definitionRevision: number
+      triggeredAt: number
+      sessionID: string | null
+      cost: number | null
+      state: "skipped"
+      startedAt: number | null
+      completedAt: number
+      result: null
+      error: null
+      skipReason: "previous_run_awaiting_input"
+    }
+  | {
+      id: string
+      automationID: string
+      definitionRevision: number
+      triggeredAt: number
+      sessionID: string | null
+      cost: number | null
+      state: "expired"
+      startedAt: number | null
+      completedAt: number
+      result: null
+      error: null
+      stopReason: "cancelled" | "expired" | "blocker_lost"
+    }
 
 export type EventAutomationRunUpdated = {
   type: "automation.run.updated"

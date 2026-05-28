@@ -85,7 +85,7 @@ export function createAutomateDefinition(): Tool.DefWithoutID<typeof AutomatePar
           try: () => {
             const parsed = Automation.CreateInput.parse({
               ...params,
-              sourceSessionID: params.sourceSessionID ?? ctx.sessionID,
+              sourceSessionID: ctx.sessionID,
             })
             return Automation.create(parsed)
           },

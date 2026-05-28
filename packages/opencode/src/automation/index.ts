@@ -4,6 +4,7 @@ import { Bus } from "@/bus"
 import { Identifier } from "@/id/id"
 import { Instance } from "@/project/instance"
 import { ProjectID } from "@/project/schema"
+import { PermissionID } from "@/permission/schema"
 import { SessionID } from "@/session/schema"
 import { NotFoundError } from "@/storage/db"
 
@@ -121,12 +122,10 @@ export namespace Automation {
   export type Tombstone = z.infer<typeof Tombstone>
 
   export const Blocker = z
-    .object({
-      kind: z.enum(["permission", "question"]),
-      sessionID: SessionID.zod,
-      requestID: z.string().optional(),
-      callID: z.string().optional(),
-    })
+    .discriminatedUnion("kind", [
+      z.object({ kind: z.literal("permission"), sessionID: SessionID.zod, requestID: PermissionID.zod }).strict(),
+      z.object({ kind: z.literal("question"), sessionID: SessionID.zod, callID: z.string().min(1) }).strict(),
+    ])
     .meta({ ref: "AutomationRunBlocker" })
   export const Error = z
     .object({
@@ -134,47 +133,80 @@ export namespace Automation {
       message: z.string(),
     })
     .meta({ ref: "AutomationRunError" })
+  const CommonRun = {
+    id: RunID,
+    automationID: DefinitionID,
+    definitionRevision: z.number().int().positive(),
+    triggeredAt: z.number().int().nonnegative(),
+    sessionID: SessionID.zod.nullable(),
+    cost: z.number().nonnegative().nullable(),
+  }
   export const Run = z
-    .object({
-      id: RunID,
-      automationID: DefinitionID,
-      revision: z.number().int().positive(),
-      state: z.enum(["scheduled", "running", "awaiting_input", "succeeded", "failed", "skipped", "expired"]),
-      blocker: Blocker.optional(),
-      triggeredAt: z.number().int().nonnegative(),
-      startedAt: z.number().int().nonnegative().nullable(),
-      completedAt: z.number().int().nonnegative().nullable(),
-      sessionID: SessionID.zod.nullable(),
-      result: z.string().nullable(),
-      error: Error.nullable(),
-      skipReason: z.enum(["previous_run_awaiting_input"]).optional(),
-      stopReason: z.enum(["step_cap", "loop_gate", "cancelled", "expired", "blocker_lost"]).optional(),
-      cost: z.number().nonnegative().nullable(),
-    })
+    .discriminatedUnion("state", [
+      z.object({
+        ...CommonRun,
+        state: z.literal("scheduled"),
+        startedAt: z.null(),
+        completedAt: z.null(),
+        result: z.null(),
+        error: z.null(),
+      }).strict(),
+      z.object({
+        ...CommonRun,
+        state: z.literal("running"),
+        startedAt: z.number().int().nonnegative(),
+        completedAt: z.null(),
+        result: z.null(),
+        error: z.null(),
+      }).strict(),
+      z.object({
+        ...CommonRun,
+        state: z.literal("awaiting_input"),
+        blocker: Blocker,
+        startedAt: z.number().int().nonnegative(),
+        completedAt: z.null(),
+        result: z.null(),
+        error: z.null(),
+      }).strict(),
+      z.object({
+        ...CommonRun,
+        state: z.literal("succeeded"),
+        startedAt: z.number().int().nonnegative(),
+        completedAt: z.number().int().nonnegative(),
+        result: z.string().nullable(),
+        error: z.null(),
+      }).strict(),
+      z.object({
+        ...CommonRun,
+        state: z.literal("failed"),
+        startedAt: z.number().int().nonnegative(),
+        completedAt: z.number().int().nonnegative(),
+        result: z.null(),
+        error: Error.nullable(),
+        stopReason: z.enum(["step_cap", "loop_gate"]).optional(),
+      }).strict(),
+      z.object({
+        ...CommonRun,
+        state: z.literal("skipped"),
+        startedAt: z.number().int().nonnegative().nullable(),
+        completedAt: z.number().int().nonnegative(),
+        result: z.null(),
+        error: z.null(),
+        skipReason: z.enum(["previous_run_awaiting_input"]),
+      }).strict(),
+      z.object({
+        ...CommonRun,
+        state: z.literal("expired"),
+        startedAt: z.number().int().nonnegative().nullable(),
+        completedAt: z.number().int().nonnegative(),
+        result: z.null(),
+        error: z.null(),
+        stopReason: z.enum(["cancelled", "expired", "blocker_lost"]),
+      }).strict(),
+    ])
     .superRefine((run, ctx) => {
-      const isTerminal = ["succeeded", "failed", "skipped", "expired"].includes(run.state)
-      if (run.state === "awaiting_input" && !run.blocker) {
-        ctx.addIssue({ code: "custom", path: ["blocker"], message: "awaiting_input requires blocker" })
-      }
-      if (run.state !== "awaiting_input" && run.blocker) {
-        ctx.addIssue({ code: "custom", path: ["blocker"], message: "blocker requires awaiting_input state" })
-      }
-      if (run.state === "skipped" && !run.skipReason) {
-        ctx.addIssue({ code: "custom", path: ["skipReason"], message: "skipped requires skipReason" })
-      }
-      if (isTerminal && run.completedAt === null) {
-        ctx.addIssue({ code: "custom", path: ["completedAt"], message: `${run.state} requires completedAt` })
-      }
       if (run.state === "failed" && !run.error && !run.stopReason) {
         ctx.addIssue({ code: "custom", path: ["error"], message: "failed requires error or stopReason" })
-      }
-      if (run.stopReason) {
-        if (["step_cap", "loop_gate"].includes(run.stopReason) && run.state !== "failed") {
-          ctx.addIssue({ code: "custom", path: ["state"], message: `${run.stopReason} requires failed state` })
-        }
-        if (["cancelled", "expired", "blocker_lost"].includes(run.stopReason) && run.state !== "expired") {
-          ctx.addIssue({ code: "custom", path: ["state"], message: `${run.stopReason} requires expired state` })
-        }
       }
     })
     .meta({ ref: "AutomationRun" })
@@ -423,12 +455,12 @@ export namespace Automation {
   }
 
   export function runNow(id: string, options?: { now?: number }): Run {
-    get(id)
+    const definition = get(id)
     const current = state().runs.get(id) ?? []
     const run = Run.parse({
       id: AutomationID.Run.ascending(),
       automationID: id,
-      revision: current.length + 1,
+      definitionRevision: definition.revision,
       state: "scheduled",
       triggeredAt: options?.now ?? Date.now(),
       startedAt: null,

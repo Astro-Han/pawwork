@@ -250,4 +250,42 @@ describe("automate tool", () => {
       },
     })
   })
+
+  test("binds sourceSessionID to the current tool context even when input tries to spoof it", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const tool = createAutomateDefinition()
+        const sourceSessionID = SessionID.descending()
+        const spoofedSessionID = SessionID.descending()
+        const result = await Effect.runPromise(
+          tool.execute(
+            {
+              kind: "recurring",
+              title: "Daily repo brief",
+              prompt: "Summarize repo changes.",
+              context: "fresh",
+              where: { projectID: Instance.project.id },
+              timezone: "Asia/Shanghai",
+              sourceSessionID: spoofedSessionID,
+              rhythm: { kind: "interval", everyMs: 60_000 },
+              stop: { kind: "never" },
+            },
+            {
+              sessionID: sourceSessionID,
+              messageID: MessageID.ascending(),
+              agent: "build",
+              abort: new AbortController().signal,
+              messages: [],
+              metadata: () => Effect.void,
+              ask: () => Effect.void,
+            },
+          ),
+        )
+
+        expect(result.metadata.automationDefinition.sourceSessionID).toBe(sourceSessionID)
+      },
+    })
+  })
 })

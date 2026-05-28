@@ -7,6 +7,7 @@ import { Instance } from "../../src/project/instance"
 import { ProjectID } from "../../src/project/schema"
 import { ErrorMiddleware } from "../../src/server/middleware"
 import { AutomationRoutes } from "../../src/server/instance/automation"
+import { PermissionID } from "../../src/permission/schema"
 import { SessionID } from "../../src/session/schema"
 import { tmpdir } from "../fixture/fixture"
 
@@ -63,11 +64,11 @@ function oneshotInput(projectID: ProjectID, overrides: Partial<OneshotCreateInpu
   }
 }
 
-function run(overrides: Partial<Automation.Run> = {}) {
+function run(overrides: Record<string, unknown> = {}) {
   return {
     id: AutomationID.Run.ascending(),
     automationID: AutomationID.Definition.ascending(),
-    revision: 1,
+    definitionRevision: 1,
     state: "scheduled",
     triggeredAt: 1,
     startedAt: null,
@@ -77,7 +78,7 @@ function run(overrides: Partial<Automation.Run> = {}) {
     error: null,
     cost: null,
     ...overrides,
-  } satisfies Automation.Run
+  }
 }
 
 describe("automation routes", () => {
@@ -386,11 +387,31 @@ describe("automation routes", () => {
       expect(response.status).toBe(200)
       expect(run).toMatchObject({
         automationID: created.id,
-        revision: 1,
+        definitionRevision: 1,
         state: "scheduled",
       })
       expect(run.id).toMatch(/^automation_run_/)
       expect(run.sessionID).toBeNull()
+    })
+  })
+
+  test("runNow records the automation definition revision used for the run", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const created = await json(app, "/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(recurringInput(projectID)),
+      })
+      const updated = await json(app, `/automation/${created.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title: "Updated brief" }),
+      })
+      const run = await json(app, `/automation/${created.id}/run`, { method: "POST" })
+
+      expect(updated.revision).toBe(2)
+      expect(run.definitionRevision).toBe(2)
+      expect(run).not.toHaveProperty("revision")
     })
   })
 
@@ -438,10 +459,10 @@ describe("automation routes", () => {
       Automation.Run.parse({
         id: AutomationID.Run.ascending(),
         automationID: AutomationID.Definition.ascending(),
-        revision: 1,
+        definitionRevision: 1,
         state: "failed",
         triggeredAt: 1,
-        startedAt: null,
+        startedAt: 1,
         completedAt: 2,
         sessionID: null,
         result: null,
@@ -455,7 +476,7 @@ describe("automation routes", () => {
       Automation.Run.parse({
         id: AutomationID.Run.ascending(),
         automationID: AutomationID.Definition.ascending(),
-        revision: 1,
+        definitionRevision: 1,
         state: "expired",
         triggeredAt: 1,
         startedAt: null,
@@ -472,7 +493,7 @@ describe("automation routes", () => {
       Automation.Run.parse({
         id: AutomationID.Run.ascending(),
         automationID: AutomationID.Definition.ascending(),
-        revision: 1,
+        definitionRevision: 1,
         state: "expired",
         triggeredAt: 1,
         startedAt: null,
@@ -487,12 +508,22 @@ describe("automation routes", () => {
   })
 
   test("schemas freeze run state consistency", () => {
-    const blocker = { kind: "permission" as const, sessionID: SessionID.descending() }
+    const permissionBlocker = {
+      kind: "permission" as const,
+      sessionID: SessionID.descending(),
+      requestID: PermissionID.ascending(),
+    }
+    const questionBlocker = {
+      kind: "question" as const,
+      sessionID: SessionID.descending(),
+      callID: "call_123",
+    }
     const error = { code: "execution_failed" as const, message: "failed" }
 
     expect(() => Automation.Run.parse(run({ state: "scheduled" }))).not.toThrow()
     expect(() => Automation.Run.parse(run({ state: "running", startedAt: 1 }))).not.toThrow()
-    expect(() => Automation.Run.parse(run({ state: "awaiting_input", startedAt: 1, blocker }))).not.toThrow()
+    expect(() => Automation.Run.parse(run({ state: "awaiting_input", startedAt: 1, blocker: permissionBlocker }))).not.toThrow()
+    expect(() => Automation.Run.parse(run({ state: "awaiting_input", startedAt: 1, blocker: questionBlocker }))).not.toThrow()
     expect(() => Automation.Run.parse(run({ state: "succeeded", startedAt: 1, completedAt: 2, result: "done" }))).not.toThrow()
     expect(() => Automation.Run.parse(run({ state: "failed", startedAt: 1, completedAt: 2, error }))).not.toThrow()
     expect(() =>
@@ -505,7 +536,16 @@ describe("automation routes", () => {
     ).not.toThrow()
 
     expect(() => Automation.Run.parse(run({ state: "awaiting_input", startedAt: 1 }))).toThrow()
-    expect(() => Automation.Run.parse(run({ state: "running", startedAt: 1, blocker }))).toThrow()
+    expect(() => Automation.Run.parse(run({ state: "awaiting_input", startedAt: 1, blocker: { kind: "permission", sessionID: SessionID.descending() } }))).toThrow()
+    expect(() => Automation.Run.parse(run({ state: "awaiting_input", startedAt: 1, blocker: { kind: "question", sessionID: SessionID.descending() } }))).toThrow()
+    expect(() => Automation.Run.parse(run({ state: "running", startedAt: 1, blocker: permissionBlocker }))).toThrow()
+    expect(() => Automation.Run.parse(run({ state: "running" }))).toThrow()
+    expect(() => Automation.Run.parse(run({ state: "running", startedAt: 1, completedAt: 2 }))).toThrow()
+    expect(() => Automation.Run.parse(run({ state: "running", startedAt: 1, error }))).toThrow()
+    expect(() => Automation.Run.parse(run({ state: "succeeded", completedAt: 2, result: "done" }))).toThrow()
+    expect(() => Automation.Run.parse(run({ state: "succeeded", startedAt: 1, completedAt: 2, error }))).toThrow()
+    expect(() => Automation.Run.parse(run({ state: "scheduled", completedAt: 2 }))).toThrow()
+    expect(() => Automation.Run.parse(run({ state: "scheduled", result: "done" }))).toThrow()
     expect(() => Automation.Run.parse(run({ state: "skipped", completedAt: 2 }))).toThrow()
     expect(() => Automation.Run.parse(run({ state: "failed", startedAt: 1, completedAt: null, error }))).toThrow()
     expect(() => Automation.Run.parse(run({ state: "failed", startedAt: 1, completedAt: 2 }))).toThrow()

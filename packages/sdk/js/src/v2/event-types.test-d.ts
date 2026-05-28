@@ -1,4 +1,5 @@
 import type {
+  AutomationRun,
   Event,
   EventAutomationDefinitionDeleted,
   EventAutomationDefinitionUpdated,
@@ -57,7 +58,7 @@ const _automationRunUpdated: EventAutomationRunUpdated = {
   properties: {
     id: "automation_run_000000000002abcdefghijklmn",
     automationID: "automation_000000000001abcdefghijklmn",
-    revision: 1,
+    definitionRevision: 2,
     state: "awaiting_input",
     blocker: {
       kind: "permission",
@@ -72,4 +73,38 @@ const _automationRunUpdated: EventAutomationRunUpdated = {
     error: null,
     cost: null,
   },
+}
+
+// @ts-expect-error running runs cannot carry a completedAt timestamp.
+const _invalidRunningRun: AutomationRun = {
+  id: "automation_run_000000000002abcdefghijklmn",
+  automationID: "automation_000000000001abcdefghijklmn",
+  definitionRevision: 2,
+  state: "running",
+  triggeredAt: 1800000060000,
+  startedAt: 1800000061000,
+  completedAt: 1800000062000,
+  sessionID: "ses_000000000003abcdefghijklmn",
+  result: null,
+  error: null,
+  cost: null,
+}
+
+const _invalidPermissionBlockerRun: AutomationRun = {
+  id: "automation_run_000000000002abcdefghijklmn",
+  automationID: "automation_000000000001abcdefghijklmn",
+  definitionRevision: 2,
+  state: "awaiting_input",
+  // @ts-expect-error permission blockers require requestID.
+  blocker: {
+    kind: "permission",
+    sessionID: "ses_000000000003abcdefghijklmn",
+  },
+  triggeredAt: 1800000060000,
+  startedAt: 1800000061000,
+  completedAt: null,
+  sessionID: "ses_000000000003abcdefghijklmn",
+  result: null,
+  error: null,
+  cost: null,
 }
