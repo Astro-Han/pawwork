@@ -20,7 +20,8 @@ describe("e2e artifacts workflow", () => {
     const checkoutStep = steps.find((step) => step.uses?.startsWith("actions/checkout@"))
     const bunStep = steps.find((step) => step.uses?.startsWith("oven-sh/setup-bun@"))
     const playwrightCacheStep = steps.find(
-      (step) => step.uses?.startsWith("actions/cache@") && step.with?.path === "${{ github.workspace }}/.playwright-browsers",
+      (step) =>
+        step.uses?.startsWith("actions/cache@") && step.with?.path === "${{ github.workspace }}/.playwright-browsers",
     )
     const installBrowsersStep = steps.find((step) => step.name === "Install Playwright browsers")
     const runStep = steps.find((step) => step.name === "Run e2e")
@@ -64,11 +65,11 @@ describe("e2e artifacts workflow", () => {
     expect(checkoutStep?.with).toEqual({ "persist-credentials": false })
     expect(bunStep?.uses).toBe("oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6")
     expect(playwrightCacheStep?.with?.key).toBe(
-      "playwright-${{ runner.os }}-${{ hashFiles('packages/app/package.json', 'bun.lock') }}",
+      "playwright-${{ runner.os }}-${{ hashFiles('packages/app/package.json') }}",
     )
     expect(playwrightCacheStep?.with?.["restore-keys"]).toBe("playwright-${{ runner.os }}-")
     expect(installBrowsersStep?.["timeout-minutes"]).toBe(10)
-    expect(installBrowsersStep?.run).toBe("bunx playwright install --with-deps chromium")
+    expect(installBrowsersStep?.run).toBe("bunx playwright install --with-deps --only-shell chromium")
     expect(runStep?.run).toContain("bun --cwd packages/app test:e2e:local:smoke")
     expect(runStep?.["continue-on-error"]).not.toBe(true)
     expect(warnStep?.if).toBe("failure()")
@@ -85,8 +86,8 @@ describe("e2e artifacts workflow", () => {
     expect(checkJob?.["runs-on"]).toBe("ubuntu-latest")
     expect(validateStep?.env?.DOCS_ONLY).toBe("${{ needs.changes.outputs.docs_only }}")
     expect(validateStep?.env?.E2E_RESULT).toBe("${{ needs.e2e-artifacts.result }}")
-    expect(validateStep?.run).toContain("if [ \"$DOCS_ONLY\" = \"true\" ]")
-    expect(validateStep?.run).toContain("if [ \"$E2E_RESULT\" != \"success\" ]")
+    expect(validateStep?.run).toContain('if [ "$DOCS_ONLY" = "true" ]')
+    expect(validateStep?.run).toContain('if [ "$E2E_RESULT" != "success" ]')
     expect(workflow).not.toContain("pull_request_target:")
     expect(workflow).not.toMatch(/\/Users\/[^/]+\//)
     expect(workflow).not.toMatch(/\/home\/[^/]+\//)
