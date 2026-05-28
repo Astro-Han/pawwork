@@ -73,7 +73,7 @@ export function SessionMainView(props: {
       routeReady: props.routeReady,
       timelineSessionID: props.timelineSessionID,
     })
-  const [openingSkeletonMounted, setOpeningSkeletonMounted] = createSignal(false)
+  const [openingSkeletonMounted, setOpeningSkeletonMounted] = createSignal(showSessionOpeningState())
   const [openingSkeletonVisible, setOpeningSkeletonVisible] = createSignal(false)
   let openingShowTimer: ReturnType<typeof setTimeout> | undefined
   let openingHideTimer: ReturnType<typeof setTimeout> | undefined
