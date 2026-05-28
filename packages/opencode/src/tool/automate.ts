@@ -60,9 +60,9 @@ export function createAutomateDefinition(): Tool.DefWithoutID<typeof AutomatePar
       "Create an Automation definition for later execution. The automation is not executed by this tool; it only stores the definition and echoes the resolved contract.",
     parameters: AutomateParameters,
     formatValidationError: formatAutomateValidationError,
-    execute: (params) =>
+    execute: (params, ctx) =>
       Effect.gen(function* () {
-        const parsed = Automation.CreateInput.parse(params)
+        const parsed = Automation.CreateInput.parse({ ...params, sourceSessionID: params.sourceSessionID ?? ctx.sessionID })
         const definition = Automation.create(parsed)
         yield* Effect.promise(() => Automation.publishDefinitionUpdated(definition))
         return {

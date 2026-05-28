@@ -112,6 +112,7 @@ describe("automate tool", () => {
       directory: tmp.path,
       fn: async () => {
         const tool = createAutomateDefinition()
+        const sourceSessionID = SessionID.descending()
         const result = await Effect.runPromise(
           tool.execute(
             {
@@ -125,7 +126,7 @@ describe("automate tool", () => {
               stop: { kind: "never" },
             },
             {
-              sessionID: SessionID.descending(),
+              sessionID: sourceSessionID,
               messageID: MessageID.ascending(),
               agent: "build",
               abort: new AbortController().signal,
@@ -143,6 +144,7 @@ describe("automate tool", () => {
           revision: 1,
           paused: false,
           where: { projectID: Instance.project.id },
+          sourceSessionID,
         })
         expect(Automation.list()).toHaveLength(1)
       },
