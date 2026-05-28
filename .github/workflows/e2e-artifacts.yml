@@ -142,7 +142,7 @@ jobs:
       - name: Install Playwright browsers
         timeout-minutes: 20
         working-directory: packages/app
-        run: bunx playwright install --with-deps --only-shell chromium
+        run: ./node_modules/.bin/playwright install --with-deps chromium
 
       - name: Run e2e
         id: run_e2e
