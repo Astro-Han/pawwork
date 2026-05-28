@@ -140,7 +140,7 @@ jobs:
       - run: bun install --frozen-lockfile
 
       - name: Install Playwright browsers
-        timeout-minutes: 5
+        timeout-minutes: 10
         working-directory: packages/app
         run: bunx playwright install --with-deps chromium
 
