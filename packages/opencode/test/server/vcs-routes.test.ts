@@ -392,6 +392,61 @@ describe("VCS routes", () => {
     })
   })
 
+  test("applies root-relative patches from subdirectory requests", async () => {
+    await using source = await tmpdir({ git: true })
+    await fs.mkdir(path.join(source.path, "sub"))
+    await fs.writeFile(path.join(source.path, "outside.txt"), "outside\n", "utf-8")
+    await fs.writeFile(path.join(source.path, "sub", "inside.txt"), "inside\n", "utf-8")
+    const sourcePatch = await Server.Default().app.request("/vcs/diff/raw", {
+      headers: {
+        "x-opencode-directory": source.path,
+      },
+    })
+    const patch = await sourcePatch.text()
+
+    await using target = await tmpdir({ git: true })
+    await fs.mkdir(path.join(target.path, "sub"))
+    const applied = await Server.Default().app.request("/vcs/apply", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-opencode-directory": path.join(target.path, "sub"),
+      },
+      body: JSON.stringify({ patch }),
+    })
+
+    expect(applied.status).toBe(200)
+    expect(await applied.json()).toEqual({ applied: true })
+    await expect(fs.readFile(path.join(target.path, "outside.txt"), "utf-8")).resolves.toBe("outside\n")
+    await expect(fs.readFile(path.join(target.path, "sub", "inside.txt"), "utf-8")).resolves.toBe("inside\n")
+  })
+
+  test("applies root-only patches from subdirectory requests", async () => {
+    await using source = await tmpdir({ git: true })
+    await fs.writeFile(path.join(source.path, "outside.txt"), "outside\n", "utf-8")
+    const sourcePatch = await Server.Default().app.request("/vcs/diff/raw", {
+      headers: {
+        "x-opencode-directory": source.path,
+      },
+    })
+    const patch = await sourcePatch.text()
+
+    await using target = await tmpdir({ git: true })
+    await fs.mkdir(path.join(target.path, "sub"))
+    const applied = await Server.Default().app.request("/vcs/apply", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-opencode-directory": path.join(target.path, "sub"),
+      },
+      body: JSON.stringify({ patch }),
+    })
+
+    expect(applied.status).toBe(200)
+    expect(await applied.json()).toEqual({ applied: true })
+    await expect(fs.readFile(path.join(target.path, "outside.txt"), "utf-8")).resolves.toBe("outside\n")
+  })
+
   test("round-trips binary file changes through raw diff and apply", async () => {
     const original = Buffer.from([0, 1, 2, 3, 4, 5, 6, 7])
     const changed = Buffer.from([0, 1, 2, 9, 10, 11, 12, 13])

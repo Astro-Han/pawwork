@@ -399,7 +399,7 @@ export namespace Vcs {
           if (Instance.project.vcs !== "git") {
             return yield* Effect.fail(new PatchApplyError("Patch can't be applied because the project is not git-based", "non-git"))
           }
-          const applied = yield* git.applyPatch(Instance.directory, input.patch)
+          const applied = yield* git.applyPatch(Instance.worktree ?? Instance.directory, input.patch)
           if (applied.exitCode !== 0) {
             return yield* Effect.fail(new PatchApplyError("Patch can't be applied", "not-clean"))
           }
