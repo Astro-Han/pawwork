@@ -26,7 +26,6 @@ describe("desktop smoke workflow", () => {
     const buildStep = smokeSteps.find((step) => step.name === "Build desktop app")
     const prepareOfficeCliStep = smokeSteps.find((step) => step.name === "Prepare OfficeCLI")
     const installStep = smokeSteps.find((step) => step.name === "Install dependencies")
-    const resetElectronCacheStep = smokeSteps.find((step) => step.name === "Reset Electron artifact cache")
     const repairElectronStep = smokeSteps.find((step) => step.name === "Repair Electron install")
     const repairElectronAfterBuildStep = smokeSteps.find((step) => step.name === "Repair Electron install after build")
 
@@ -62,7 +61,6 @@ describe("desktop smoke workflow", () => {
 
     expect(smokeCheckoutStep?.with).toEqual({ "persist-credentials": false })
     expect(smokeBunStep?.uses).toBe("oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6")
-    expect(resetElectronCacheStep?.run).toBe("rm -rf ~/Library/Caches/electron")
     expect(installStep?.run).toBe("bun install --frozen-lockfile")
     expect(repairElectronStep?.run).toBe("node ./scripts/repair-electron-install.mjs")
     expect(repairElectronStep?.["working-directory"]).toBe("packages/desktop-electron")
@@ -94,7 +92,6 @@ describe("desktop smoke workflow", () => {
     expect(packagedSmokeStep?.run).toContain('bun ./scripts/ci-smoke.ts packaged dev "$EXECUTABLE_PATH"')
     expect(packagedSmokeStep?.["working-directory"]).toBe("packages/desktop-electron")
     expect(buildStep).toBeDefined()
-    expect(smokeSteps.indexOf(resetElectronCacheStep!)).toBeLessThan(smokeSteps.indexOf(installStep!))
     expect(smokeSteps.indexOf(repairElectronStep!)).toBeGreaterThan(smokeSteps.indexOf(installStep!))
     expect(smokeSteps.indexOf(repairElectronStep!)).toBeLessThan(smokeSteps.indexOf(prepareOfficeCliStep!))
     expect(smokeSteps.indexOf(prepareOfficeCliStep!)).toBeGreaterThan(smokeSteps.indexOf(smokeBunStep!))
