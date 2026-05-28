@@ -1,6 +1,5 @@
 import { describeRoute, resolver, validator } from "hono-openapi"
 import { Hono } from "hono"
-import type { Context, Next } from "hono"
 import type { UpgradeWebSocket } from "hono/ws"
 import fs from "fs/promises"
 import z from "zod"
@@ -28,6 +27,7 @@ import { EventRoutes } from "./event"
 import { MemoryRoutes } from "./memory"
 import { WorkspaceRouterMiddleware } from "./middleware"
 import { AppRuntime } from "@/effect/app-runtime"
+import { jsonBodyLimit } from "./json-body-limit"
 
 const applyPatchTooLarge = () =>
   ({
@@ -48,53 +48,11 @@ const applyJsonEnvelopeBytes = Buffer.byteLength(JSON.stringify({ patch: "" }))
 const maxJsonStringEscapeRatio = 6
 const applyJsonBodyMaxBytes = Vcs.MAX_APPLY_PATCH_BYTES * maxJsonStringEscapeRatio + applyJsonEnvelopeBytes
 
-async function applyPatchBodyLimit(c: Context, next: Next) {
-  const contentLength = c.req.header("content-length")
-  if (contentLength && Number.parseInt(contentLength, 10) > applyJsonBodyMaxBytes) {
-    return c.json(applyPatchTooLarge(), 413)
-  }
-
-  const body = c.req.raw.body
-  if (!body) {
-    if (c.req.header("content-type")?.includes("json")) return c.json(applyPatchInvalidInput(), 400)
-    return next()
-  }
-
-  const reader = body.getReader()
-  const chunks: Uint8Array[] = []
-  let total = 0
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    total += value.byteLength
-    if (total > applyJsonBodyMaxBytes) {
-      await reader.cancel().catch(() => undefined)
-      return c.json(applyPatchTooLarge(), 413)
-    }
-    chunks.push(value)
-  }
-
-  const bytes = new Uint8Array(total)
-  let offset = 0
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  c.req.raw = new Request(c.req.raw, {
-    body: bytes,
-    duplex: "half",
-  } as RequestInit & { duplex: "half" })
-
-  const contentType = c.req.header("content-type")
-  if (contentType?.includes("json")) {
-    try {
-      JSON.parse(new TextDecoder().decode(bytes))
-    } catch {
-      return c.json(applyPatchInvalidInput(), 400)
-    }
-  }
-  return next()
-}
+const applyPatchBodyLimit = jsonBodyLimit({
+  maxBytes: applyJsonBodyMaxBytes,
+  tooLarge: (c) => c.json(applyPatchTooLarge(), 413),
+  invalidJson: (c) => c.json(applyPatchInvalidInput(), 400),
+})
 
 export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
   new Hono()
