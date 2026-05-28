@@ -1,11 +1,58 @@
 import { Hono } from "hono"
+import type { Context } from "hono"
 import { describeRoute, resolver, validator } from "hono-openapi"
 import z from "zod"
 import { Automation, AutomationID, ValidationError } from "@/automation"
 import { errors } from "../error"
 
 function validationError(error: ValidationError) {
-  return { error: "invalid_automation", details: error.details }
+  return Automation.ValidationErrorResponse.parse({ error: "invalid_automation", details: error.details })
+}
+
+function validationIssuePath(issue: unknown) {
+  const path = typeof issue === "object" && issue !== null && "path" in issue ? issue.path : undefined
+  if (!Array.isArray(path)) return ""
+  return path.map((part) => String(part)).join(".")
+}
+
+function validationDetailsFromIssues(issues: readonly unknown[], data: unknown): Automation.ValidationErrorDetail[] {
+  const kind =
+    typeof data === "object" && data !== null && "kind" in data && typeof data.kind === "string" ? data.kind : undefined
+  return issues.flatMap((issue) => {
+    if (typeof issue === "object" && issue !== null && "code" in issue && issue.code === "unrecognized_keys") {
+      const keys = "keys" in issue && Array.isArray(issue.keys) ? issue.keys : []
+      return keys.map((key) => {
+        const field = String(key)
+        if (kind === "oneshot" && (field === "rhythm" || field === "stop")) {
+          return { field, message: "unsupported_for_oneshot_automation" }
+        }
+        if (kind === "recurring" && field === "fireAt") {
+          return { field, message: "unsupported_for_recurring_automation" }
+        }
+        return { field, message: "unsupported_automation_field" }
+      })
+    }
+    const field = validationIssuePath(issue)
+    const message =
+      typeof issue === "object" && issue !== null && "message" in issue && typeof issue.message === "string"
+        ? issue.message
+        : "invalid_automation_field"
+    return [{ field, message }]
+  })
+}
+
+function automationBodyValidationHook(
+  result: { success: true } | { success: false; error: readonly unknown[]; data: unknown },
+  c: Context,
+) {
+  if (result.success) return
+  return c.json(
+    Automation.ValidationErrorResponse.parse({
+      error: "invalid_automation",
+      details: validationDetailsFromIssues(result.error, result.data),
+    }),
+    422,
+  )
 }
 
 export const AutomationRoutes = (): Hono =>
@@ -36,11 +83,14 @@ export const AutomationRoutes = (): Hono =>
             description: "Created automation definition",
             content: { "application/json": { schema: resolver(Automation.Definition) } },
           },
-          422: { description: "Automation validation failed" },
+          422: {
+            description: "Automation validation failed",
+            content: { "application/json": { schema: resolver(Automation.ValidationErrorResponse) } },
+          },
           ...errors(400),
         },
       }),
-      validator("json", Automation.CreateInput),
+      validator("json", Automation.CreateInput, automationBodyValidationHook),
       async (c) => {
         try {
           const definition = Automation.create(c.req.valid("json"))
@@ -80,12 +130,15 @@ export const AutomationRoutes = (): Hono =>
             description: "Updated automation definition",
             content: { "application/json": { schema: resolver(Automation.Definition) } },
           },
-          422: { description: "Automation validation failed" },
+          422: {
+            description: "Automation validation failed",
+            content: { "application/json": { schema: resolver(Automation.ValidationErrorResponse) } },
+          },
           ...errors(400, 404),
         },
       }),
       validator("param", z.object({ automationID: AutomationID.Definition.zod })),
-      validator("json", Automation.UpdateInput),
+      validator("json", Automation.UpdateInput, automationBodyValidationHook),
       async (c) => {
         try {
           const definition = Automation.update(c.req.valid("param").automationID, c.req.valid("json"))

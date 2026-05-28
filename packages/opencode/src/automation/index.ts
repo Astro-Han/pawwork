@@ -26,6 +26,13 @@ export namespace Automation {
   export const Where = z.object({ projectID: ProjectID.zod, worktree: z.string().min(1).optional() }).meta({
     ref: "AutomationWhere",
   })
+  export const ValidationErrorDetail = z
+    .object({ field: z.string(), message: z.string() })
+    .meta({ ref: "AutomationValidationErrorDetail" })
+  export type ValidationErrorDetail = z.infer<typeof ValidationErrorDetail>
+  export const ValidationErrorResponse = z
+    .object({ error: z.literal("invalid_automation"), details: z.array(ValidationErrorDetail) })
+    .meta({ ref: "AutomationValidationError" })
   export const Stop = z
     .discriminatedUnion("kind", [
       z.object({ kind: z.literal("count"), count: z.number().int().positive() }),
@@ -52,8 +59,8 @@ export namespace Automation {
 
   export const CreateInput = z
     .discriminatedUnion("kind", [
-      z.object({ kind: z.literal("oneshot"), ...CommonCreate, fireAt: z.number().int().nonnegative() }),
-      z.object({ kind: z.literal("recurring"), ...CommonCreate, rhythm: Rhythm, stop: Stop }),
+      z.object({ kind: z.literal("oneshot"), ...CommonCreate, fireAt: z.number().int().nonnegative() }).strict(),
+      z.object({ kind: z.literal("recurring"), ...CommonCreate, rhythm: Rhythm, stop: Stop }).strict(),
     ])
     .meta({ ref: "AutomationCreateInput" })
   export type CreateInput = z.infer<typeof CreateInput>
@@ -72,6 +79,7 @@ export namespace Automation {
       rhythm: Rhythm.optional(),
       stop: Stop.optional(),
     })
+    .strict()
     .meta({ ref: "AutomationUpdateInput" })
   export type UpdateInput = z.infer<typeof UpdateInput>
 
@@ -172,24 +180,139 @@ export namespace Automation {
   }
   const state = Instance.state<State>(() => ({ definitions: new Map(), runs: new Map() }))
 
-  export function validateCreateInput(input: CreateInput | Definition, projectID = Instance.project.id) {
-    const details: { field: string; message: string }[] = []
-    if (input.where.projectID !== projectID) {
-      details.push({ field: "where.projectID", message: "Automation must target the current project." })
+  const COMMON_CREATE_FIELDS = new Set([
+    "kind",
+    "title",
+    "prompt",
+    "context",
+    "where",
+    "timezone",
+    "sourceSessionID",
+    "automationSessionID",
+  ])
+  const ONESHOT_CREATE_FIELDS = new Set([...COMMON_CREATE_FIELDS, "fireAt"])
+  const RECURRING_CREATE_FIELDS = new Set([...COMMON_CREATE_FIELDS, "rhythm", "stop"])
+  const UPDATE_FIELDS = new Set([
+    "title",
+    "prompt",
+    "paused",
+    "context",
+    "where",
+    "timezone",
+    "sourceSessionID",
+    "automationSessionID",
+    "fireAt",
+    "rhythm",
+    "stop",
+  ])
+
+  function addDetail(details: ValidationErrorDetail[], field: string, message: string) {
+    details.push({ field, message })
+  }
+
+  function rejectUnknownFields(
+    input: Record<string, unknown>,
+    allowed: Set<string>,
+    details: ValidationErrorDetail[],
+  ) {
+    for (const field of Object.keys(input)) {
+      if (allowed.has(field)) continue
+      if (details.some((detail) => detail.field === field)) continue
+      addDetail(details, field, "unsupported_automation_field")
     }
-    if (input.where.worktree) details.push({ field: "where.worktree", message: "unsupported_where_worktree" })
+  }
+
+  function isValidTimezone(timezone: string) {
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: timezone }).format(0)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  function isValidCronInteger(input: string, min: number, max: number) {
+    if (!/^\d+$/.test(input)) return false
+    const value = Number(input)
+    return value >= min && value <= max
+  }
+
+  function isValidCronField(input: string, min: number, max: number) {
+    if (!input) return false
+    return input.split(",").every((item) => {
+      const [base, step, extra] = item.split("/")
+      if (extra !== undefined) return false
+      if (step !== undefined && !isValidCronInteger(step, 1, max)) return false
+      if (base === "*") return true
+      const range = base.split("-")
+      if (range.length === 2) {
+        const [start, end] = range
+        if (!isValidCronInteger(start, min, max) || !isValidCronInteger(end, min, max)) return false
+        return Number(start) <= Number(end)
+      }
+      if (range.length !== 1) return false
+      return isValidCronInteger(base, min, max)
+    })
+  }
+
+  function isValidCronExpression(expression: string) {
+    const fields = expression.trim().split(/\s+/)
+    if (fields.length !== 5) return false
+    return (
+      isValidCronField(fields[0], 0, 59) &&
+      isValidCronField(fields[1], 0, 23) &&
+      isValidCronField(fields[2], 1, 31) &&
+      isValidCronField(fields[3], 1, 12) &&
+      isValidCronField(fields[4], 0, 7)
+    )
+  }
+
+  function validateScheduleFields(input: CreateInput | Definition) {
+    const details: ValidationErrorDetail[] = []
+    if (!isValidTimezone(input.timezone)) addDetail(details, "timezone", "invalid_timezone")
+    if (input.kind === "recurring" && input.rhythm.kind === "cron" && !isValidCronExpression(input.rhythm.expression)) {
+      addDetail(details, "rhythm.expression", "invalid_cron_expression")
+    }
+    return details
+  }
+
+  export function validateCreateInput(input: CreateInput | Definition, projectID = Instance.project.id) {
+    const details: ValidationErrorDetail[] = []
+    const isDefinition = Object.hasOwn(input, "id")
+    if (!isDefinition) {
+      if (input.kind === "oneshot") {
+        if (Object.hasOwn(input, "rhythm")) addDetail(details, "rhythm", "unsupported_for_oneshot_automation")
+        if (Object.hasOwn(input, "stop")) addDetail(details, "stop", "unsupported_for_oneshot_automation")
+        rejectUnknownFields(input, ONESHOT_CREATE_FIELDS, details)
+      } else {
+        if (Object.hasOwn(input, "fireAt")) addDetail(details, "fireAt", "unsupported_for_recurring_automation")
+        rejectUnknownFields(input, RECURRING_CREATE_FIELDS, details)
+      }
+    }
+    if (input.where.projectID !== projectID) {
+      addDetail(details, "where.projectID", "Automation must target the current project.")
+    }
+    if (input.where.worktree) addDetail(details, "where.worktree", "unsupported_where_worktree")
+    details.push(...validateScheduleFields(input))
     return details
   }
 
   export function validateUpdateInput(previous: Definition, patch: UpdateInput) {
-    const details: { field: string; message: string }[] = []
+    const details: ValidationErrorDetail[] = []
     if (previous.kind === "recurring" && Object.hasOwn(patch, "fireAt")) {
-      details.push({ field: "fireAt", message: "unsupported_for_recurring_automation" })
+      addDetail(details, "fireAt", "unsupported_for_recurring_automation")
     }
     if (previous.kind === "oneshot") {
       for (const field of ["rhythm", "stop"] as const) {
-        if (Object.hasOwn(patch, field)) details.push({ field, message: "unsupported_for_oneshot_automation" })
+        if (Object.hasOwn(patch, field)) addDetail(details, field, "unsupported_for_oneshot_automation")
       }
+    }
+    rejectUnknownFields(patch, UPDATE_FIELDS, details)
+    if (patch.timezone !== undefined && !isValidTimezone(patch.timezone)) {
+      addDetail(details, "timezone", "invalid_timezone")
+    }
+    if (patch.rhythm?.kind === "cron" && !isValidCronExpression(patch.rhythm.expression)) {
+      addDetail(details, "rhythm.expression", "invalid_cron_expression")
     }
     return details
   }

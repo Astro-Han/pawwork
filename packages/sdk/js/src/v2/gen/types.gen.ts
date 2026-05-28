@@ -2305,6 +2305,16 @@ export type AutomationListResponse = {
   items: Array<AutomationDefinition>
 }
 
+export type AutomationValidationErrorDetail = {
+  field: string
+  message: string
+}
+
+export type AutomationValidationError = {
+  error: "invalid_automation"
+  details: Array<AutomationValidationErrorDetail>
+}
+
 export type AutomationCreateInput =
   | {
       kind: "oneshot"
@@ -5618,7 +5628,7 @@ export type AutomationCreateErrors = {
   /**
    * Automation validation failed
    */
-  422: unknown
+  422: AutomationValidationError
 }
 
 export type AutomationCreateError = AutomationCreateErrors[keyof AutomationCreateErrors]
@@ -5716,7 +5726,7 @@ export type AutomationUpdateErrors = {
   /**
    * Automation validation failed
    */
-  422: unknown
+  422: AutomationValidationError
 }
 
 export type AutomationUpdateError = AutomationUpdateErrors[keyof AutomationUpdateErrors]

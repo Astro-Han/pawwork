@@ -126,6 +126,47 @@ describe("automation routes", () => {
     })
   })
 
+  test("rejects invalid semantic fields with the automation validation error shape", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const cases = [
+        [
+          "invalid cron",
+          recurringInput(projectID, { rhythm: { kind: "cron", expression: "not a cron" } }),
+          [{ field: "rhythm.expression", message: "invalid_cron_expression" }],
+        ],
+        [
+          "invalid timezone",
+          recurringInput(projectID, { timezone: "Mars/Olympus" }),
+          [{ field: "timezone", message: "invalid_timezone" }],
+        ],
+        [
+          "oneshot recurring knobs",
+          { ...oneshotInput(projectID), rhythm: { kind: "interval", everyMs: 60_000 }, stop: { kind: "never" } },
+          [
+            { field: "rhythm", message: "unsupported_for_oneshot_automation" },
+            { field: "stop", message: "unsupported_for_oneshot_automation" },
+          ],
+        ],
+        [
+          "unknown create knob",
+          { ...recurringInput(projectID), retryPolicy: { attempts: 3 } },
+          [{ field: "retryPolicy", message: "unsupported_automation_field" }],
+        ],
+      ] as const
+
+      for (const [_name, input, details] of cases) {
+        const response = await app.request("/automation", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(input),
+        })
+
+        expect(response.status).toBe(422)
+        expect(await response.json()).toEqual({ error: "invalid_automation", details })
+      }
+    })
+  })
+
   test("lists definitions and returns a tombstone when deleting", async () => {
     await withAutomationApp(async ({ app, projectID }) => {
       const created = await json(app, "/automation", {
@@ -204,6 +245,54 @@ describe("automation routes", () => {
       })
       expect(Automation.get(oneshot.id).revision).toBe(1)
     })
+  })
+
+  test("rejects update-only validation failures without revising the definition", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const recurring = await json(app, "/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(recurringInput(projectID)),
+      })
+
+      const unknownResponse = await app.request(`/automation/${recurring.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ retryPolicy: { attempts: 3 } }),
+      })
+
+      expect(unknownResponse.status).toBe(422)
+      expect(await unknownResponse.json()).toEqual({
+        error: "invalid_automation",
+        details: [{ field: "retryPolicy", message: "unsupported_automation_field" }],
+      })
+      expect(Automation.get(recurring.id).revision).toBe(1)
+
+      const timezoneResponse = await app.request(`/automation/${recurring.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ timezone: "Mars/Olympus" }),
+      })
+
+      expect(timezoneResponse.status).toBe(422)
+      expect(await timezoneResponse.json()).toEqual({
+        error: "invalid_automation",
+        details: [{ field: "timezone", message: "invalid_timezone" }],
+      })
+      expect(Automation.get(recurring.id).revision).toBe(1)
+    })
+  })
+
+  test("openapi exposes typed automation validation errors", async () => {
+    const { Server } = await import("../../src/server/server")
+    const spec = await Server.openapi()
+    const paths = spec.paths as Record<string, any>
+    const create422 = paths["/automation"].post.responses["422"].content["application/json"].schema
+    const update422 = paths["/automation/{automationID}"].put.responses["422"].content["application/json"].schema
+
+    expect(create422).toEqual({ $ref: "#/components/schemas/AutomationValidationError" })
+    expect(update422).toEqual({ $ref: "#/components/schemas/AutomationValidationError" })
+    expect(spec.components?.schemas).toHaveProperty("AutomationValidationError")
   })
 
   test("runNow is a contract stub before PR2 execution", async () => {
