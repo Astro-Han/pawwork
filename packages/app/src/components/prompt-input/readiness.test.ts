@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test"
-import { promptKeyActionReady, promptSendDisabled, shouldActivateShellModeFromBang } from "./readiness"
+import {
+  promptKeyActionReady,
+  promptSendDisabled,
+  shouldActivateShellModeFromBang,
+  shouldExitShellModeOnBackspace,
+} from "./readiness"
 
 describe("promptKeyActionReady", () => {
   test("allows keyboard stop when submit is blocked but abort is ready", () => {
@@ -107,6 +112,68 @@ describe("shouldActivateShellModeFromBang", () => {
   test("ignores the bang shortcut when already in shell mode", () => {
     expect(
       shouldActivateShellModeFromBang({ cursorPosition: 0, mode: "shell", actionReady: true }),
+    ).toBe(false)
+  })
+})
+
+describe("shouldExitShellModeOnBackspace", () => {
+  test("exits shell mode when caret is at the start of an empty shell prompt and action is ready", () => {
+    expect(
+      shouldExitShellModeOnBackspace({
+        mode: "shell",
+        collapsed: true,
+        cursorPosition: 0,
+        textLength: 0,
+        actionReady: true,
+      }),
+    ).toBe(true)
+  })
+
+  test("ignores backspace exit while the prompt is not action-ready", () => {
+    expect(
+      shouldExitShellModeOnBackspace({
+        mode: "shell",
+        collapsed: true,
+        cursorPosition: 0,
+        textLength: 0,
+        actionReady: false,
+      }),
+    ).toBe(false)
+  })
+
+  test("ignores backspace exit while in normal mode", () => {
+    expect(
+      shouldExitShellModeOnBackspace({
+        mode: "normal",
+        collapsed: true,
+        cursorPosition: 0,
+        textLength: 0,
+        actionReady: true,
+      }),
+    ).toBe(false)
+  })
+
+  test("ignores backspace exit when the prompt is not empty", () => {
+    expect(
+      shouldExitShellModeOnBackspace({
+        mode: "shell",
+        collapsed: true,
+        cursorPosition: 0,
+        textLength: 3,
+        actionReady: true,
+      }),
+    ).toBe(false)
+  })
+
+  test("ignores backspace exit when the selection is not collapsed", () => {
+    expect(
+      shouldExitShellModeOnBackspace({
+        mode: "shell",
+        collapsed: false,
+        cursorPosition: 0,
+        textLength: 0,
+        actionReady: true,
+      }),
     ).toBe(false)
   })
 })
