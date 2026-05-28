@@ -190,6 +190,8 @@ export const dict = {
 
   "ui.common.file.one": "个文件",
   "ui.common.file.other": "个文件",
+  "ui.common.todo.one": "个待办",
+  "ui.common.todo.other": "个待办",
   "ui.common.question.one": "个问题",
   "ui.common.question.other": "个问题",
 

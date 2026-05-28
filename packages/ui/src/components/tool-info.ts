@@ -219,16 +219,26 @@ export function toolInfoForInput(
           : undefined,
       }
     }
-    case TOOL_TODOWRITE:
+    case TOOL_TODOWRITE: {
+      const todoCount = Array.isArray(input.todos) ? input.todos.length : 0
       return {
         icon,
         title: i18n.t("ui.tool.todos"),
+        subtitle: todoCount
+          ? `${todoCount} ${i18n.t(todoCount > 1 ? "ui.common.todo.other" : "ui.common.todo.one")}`
+          : undefined,
       }
-    case TOOL_QUESTION:
+    }
+    case TOOL_QUESTION: {
+      const count = Array.isArray(input.questions) ? input.questions.length : 0
       return {
         icon,
         title: i18n.t("ui.tool.questions"),
+        subtitle: count
+          ? `${count} ${i18n.t(count > 1 ? "ui.common.question.other" : "ui.common.question.one")}`
+          : undefined,
       }
+    }
     case "skill":
       return {
         icon,

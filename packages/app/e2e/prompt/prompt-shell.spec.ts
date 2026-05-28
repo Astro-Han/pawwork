@@ -1,8 +1,9 @@
 import type { ToolPart } from "@opencode-ai/sdk/v2/client"
 import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures"
-import { closeSettingsPanel, openSettings, withSession } from "../actions"
+import { withSession } from "../actions"
 import { promptModelSelector, promptSelector, promptVariantSelector } from "../selectors"
+import { modKey } from "../utils"
 
 const isBash = (part: unknown): part is ToolPart => {
   if (!part || typeof part !== "object") return false
@@ -33,15 +34,10 @@ test("shell mode runs a command in the project directory", async ({ page, projec
   await withSession(project.sdk, `e2e shell ${Date.now()}`, async (session) => {
     project.trackSession(session.id)
     await project.gotoSession(session.id)
-    const dialog = await openSettings(page)
-    const toggle = dialog.locator('[data-action="settings-auto-accept-permissions"]').first()
-    const input = toggle.locator('[data-slot="switch-input"]').first()
-    await expect(toggle).toBeVisible()
-    if ((await input.getAttribute("aria-checked")) !== "true") {
-      await toggle.locator('[data-slot="switch-control"]').click()
-      await expect(input).toHaveAttribute("aria-checked", "true")
-    }
-    await closeSettingsPanel(page, dialog)
+    // Enable auto-accept via its command keybind so the shell command runs
+    // without a permission prompt. Modified keybinds fire even while the
+    // composer input is focused.
+    await page.keyboard.press(`${modKey}+Shift+A`)
     await project.shell(cmd)
 
     await expect

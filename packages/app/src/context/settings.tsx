@@ -15,8 +15,6 @@ export interface Settings {
     showSearch: boolean
     showStatus: boolean
     showTerminal: boolean
-    shellToolPartsExpanded: boolean
-    editToolPartsExpanded: boolean
     lspEnabled: boolean
     webSearchEnabled: boolean
     homeSuggestionsDismissed: string[]
@@ -30,9 +28,6 @@ export interface Settings {
     sans: string
   }
   keybinds: Record<string, string>
-  permissions: {
-    autoApprove: boolean
-  }
   notify: NotifyLevel
 }
 
@@ -95,8 +90,6 @@ const defaultSettings: Settings = {
     showSearch: false,
     showStatus: false,
     showTerminal: false,
-    shellToolPartsExpanded: false,
-    editToolPartsExpanded: false,
     lspEnabled: false,
     webSearchEnabled: true,
     homeSuggestionsDismissed: [],
@@ -110,9 +103,6 @@ const defaultSettings: Settings = {
     sans: "",
   },
   keybinds: {},
-  permissions: {
-    autoApprove: false,
-  },
   notify: "unfocused" as NotifyLevel,
 }
 
@@ -257,20 +247,6 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         setShowTerminal(value: boolean) {
           setStore("general", "showTerminal", value)
         },
-        shellToolPartsExpanded: withFallback(
-          () => store.general?.shellToolPartsExpanded,
-          defaultSettings.general.shellToolPartsExpanded,
-        ),
-        setShellToolPartsExpanded(value: boolean) {
-          setStore("general", "shellToolPartsExpanded", value)
-        },
-        editToolPartsExpanded: withFallback(
-          () => store.general?.editToolPartsExpanded,
-          defaultSettings.general.editToolPartsExpanded,
-        ),
-        setEditToolPartsExpanded(value: boolean) {
-          setStore("general", "editToolPartsExpanded", value)
-        },
         lspEnabled: withFallback(() => store.general?.lspEnabled, defaultSettings.general.lspEnabled),
         setLspEnabled(value: boolean) {
           // The createEffect above mirrors this change to the Electron main
@@ -324,12 +300,6 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         },
         resetAll() {
           setStore("keybinds", reconcile({}))
-        },
-      },
-      permissions: {
-        autoApprove: withFallback(() => store.permissions?.autoApprove, defaultSettings.permissions.autoApprove),
-        setAutoApprove(value: boolean) {
-          setStore("permissions", "autoApprove", value)
         },
       },
       notify: {

@@ -4,8 +4,6 @@ import { test, expect } from "../fixtures"
 import {
   cleanupSession,
   clearSessionDockSeed,
-  closeSettingsPanel,
-  openSettings,
   openRightPanel,
   rightPanelTabList,
   seedSessionQuestion,
@@ -203,17 +201,6 @@ async function clearPermissionDock(page: any, label: RegExp) {
   await dock.getByRole("button", { name: label }).click()
 }
 
-async function setAutoAccept(page: any, enabled: boolean) {
-  const dialog = await openSettings(page)
-  const toggle = dialog.locator('[data-action="settings-auto-accept-permissions"]').first()
-  const input = toggle.locator('[data-slot="switch-input"]').first()
-  await expect(toggle).toBeVisible()
-  const checked = (await input.getAttribute("aria-checked")) === "true"
-  if (checked !== enabled) await toggle.locator('[data-slot="switch-control"]').click()
-  await expect(input).toHaveAttribute("aria-checked", enabled ? "true" : "false")
-  await closeSettingsPanel(page, dialog)
-}
-
 async function expectQuestionBlocked(page: any) {
   await expect(page.locator(questionDockSelector)).toBeVisible()
   await expect(page.locator(promptSelector)).toHaveCount(0)
@@ -392,13 +379,6 @@ test("default dock shows prompt input", async ({ page, project }) => {
     },
     { trackSession: project.trackSession },
   )
-})
-
-test("auto-accept toggle works before first submit", async ({ page, project }) => {
-  await project.open()
-
-  await setAutoAccept(page, true)
-  await setAutoAccept(page, false)
 })
 
 test("blocked question flow unblocks after submit", async ({ page, llm, project }) => {
@@ -667,7 +647,6 @@ test("blocked permission flow supports allow once", async ({ page, project }) =>
     "e2e composer dock permission once",
     async (session) => {
       await project.gotoSession(session.id)
-      await setAutoAccept(page, false)
       await withMockPermission(
         page,
         {
@@ -700,7 +679,6 @@ test("blocked permission flow supports reject", async ({ page, project }) => {
     "e2e composer dock permission reject",
     async (session) => {
       await project.gotoSession(session.id)
-      await setAutoAccept(page, false)
       await withMockPermission(
         page,
         {
@@ -732,7 +710,6 @@ test("blocked permission flow supports allow always", async ({ page, project }) 
     "e2e composer dock permission always",
     async (session) => {
       await project.gotoSession(session.id)
-      await setAutoAccept(page, false)
       await withMockPermission(
         page,
         {
@@ -879,7 +856,6 @@ test("child session permission request blocks parent dock and supports allow onc
     "e2e composer dock child permission parent",
     async (session) => {
       await project.gotoSession(session.id)
-      await setAutoAccept(page, false)
 
       const child = await project.sdk.session
         .create({

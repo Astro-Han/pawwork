@@ -45,6 +45,85 @@ function truncateToolOutput(text: string, maxChars?: number) {
   return `${text.slice(0, sliceLen)}${suffixTemplate(omitted)}`
 }
 
+function truncateToolInputString(text: string, maxChars?: number) {
+  if (maxChars == null || text.length <= maxChars) return text
+  if (maxChars <= 0) return ""
+  const suffixTemplate = (n: number) => `\n[Tool input truncated for compaction: omitted ${n} chars]`
+  const reserve = suffixTemplate(text.length).length
+  if (reserve >= maxChars) return text.slice(0, maxChars)
+  const sliceLen = Math.max(0, maxChars - reserve)
+  const omitted = text.length - sliceLen
+  return `${text.slice(0, sliceLen)}${suffixTemplate(omitted)}`
+}
+
+function serializedToolInputLength(input: unknown) {
+  try {
+    return JSON.stringify(input).length
+  } catch {
+    return String(input).length
+  }
+}
+
+function toolInputTruncatedMarker(maxChars: number): unknown {
+  const marker = { _truncated: "Tool input truncated for compaction" }
+  return serializedToolInputLength(marker) <= maxChars ? marker : {}
+}
+
+function appendToolInputMarkerToArray(items: unknown[], maxChars: number): unknown[] {
+  const marker = toolInputTruncatedMarker(maxChars)
+  const output = [...items]
+  while (output.length > 0 && serializedToolInputLength([...output, marker]) > maxChars) {
+    output.pop()
+  }
+  const withMarker = [...output, marker]
+  return serializedToolInputLength(withMarker) <= maxChars ? withMarker : output
+}
+
+function appendToolInputMarkerToObject(input: Record<string, unknown>, maxChars: number): Record<string, unknown> {
+  const marker = toolInputTruncatedMarker(maxChars) as Record<string, unknown>
+  const output = { ...input }
+  const keys = Object.keys(output)
+  while (keys.length > 0 && serializedToolInputLength({ ...output, ...marker }) > maxChars) {
+    const key = keys.pop()
+    if (key) delete output[key]
+  }
+  const withMarker = { ...output, ...marker }
+  return serializedToolInputLength(withMarker) <= maxChars ? withMarker : output
+}
+
+function truncateToolInput(input: unknown, maxChars?: number): unknown {
+  if (maxChars == null) return input
+  if (maxChars <= 0) return ""
+  if (typeof input === "string") {
+    const truncated = truncateToolInputString(input, maxChars)
+    return serializedToolInputLength(truncated) <= maxChars ? truncated : toolInputTruncatedMarker(maxChars)
+  }
+  if (!input || typeof input !== "object") {
+    return serializedToolInputLength(input) <= maxChars ? input : toolInputTruncatedMarker(maxChars)
+  }
+  if (Array.isArray(input)) {
+    const output: unknown[] = []
+    for (const item of input) {
+      const projected = truncateToolInput(item, maxChars)
+      const next = [...output, projected]
+      if (serializedToolInputLength(next) > maxChars) return appendToolInputMarkerToArray(output, maxChars)
+      output.push(projected)
+    }
+    return output
+  }
+
+  const output: Record<string, unknown> = {}
+  const record = input as Record<string, unknown>
+  for (const key in record) {
+    if (!Object.prototype.propertyIsEnumerable.call(record, key)) continue
+    const projected = truncateToolInput(record[key], maxChars)
+    const next = { ...output, [key]: projected }
+    if (serializedToolInputLength(next) > maxChars) return appendToolInputMarkerToObject(output, maxChars)
+    output[key] = projected
+  }
+  return output
+}
+
 /** Error shape thrown by Bun's fetch() when gzip/br decompression fails mid-stream */
 interface FetchDecompressionError extends Error {
   code: "ZlibError"
@@ -695,7 +774,7 @@ function providerMeta(metadata: Record<string, any> | undefined) {
 export const toModelMessagesEffect = Effect.fnUntraced(function* (
   input: WithParts[],
   model: Provider.Model,
-  options?: { stripMedia?: boolean; toolOutputMaxChars?: number },
+  options?: { stripMedia?: boolean; toolOutputMaxChars?: number; toolInputMaxChars?: number },
 ) {
   const result: UIMessage[] = []
   const toolNames = new Set<string>()
@@ -866,7 +945,7 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
               type: ("tool-" + part.tool) as `tool-${string}`,
               state: "output-available",
               toolCallId: part.callID,
-              input: part.state.input,
+              input: truncateToolInput(part.state.input, options?.toolInputMaxChars),
               output,
               ...(part.metadata?.providerExecuted ? { providerExecuted: true } : {}),
               ...(differentModel ? {} : { callProviderMetadata: providerMeta(part.metadata) }),
@@ -887,7 +966,7 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
                 type: ("tool-" + part.tool) as `tool-${string}`,
                 state: "output-available",
                 toolCallId: part.callID,
-                input: part.state.input,
+                input: truncateToolInput(part.state.input, options?.toolInputMaxChars),
                 output,
                 ...(part.metadata?.providerExecuted ? { providerExecuted: true } : {}),
                 ...(differentModel ? {} : { callProviderMetadata: providerMeta(part.metadata) }),
@@ -897,7 +976,7 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
                 type: ("tool-" + part.tool) as `tool-${string}`,
                 state: "output-error",
                 toolCallId: part.callID,
-                input: part.state.input,
+                input: truncateToolInput(part.state.input, options?.toolInputMaxChars),
                 errorText: formatToolFailureForModel(part.state.error, part.state.metadata?.diagnostics?.failure),
                 ...(part.metadata?.providerExecuted ? { providerExecuted: true } : {}),
                 ...(differentModel ? {} : { callProviderMetadata: providerMeta(part.metadata) }),
@@ -911,7 +990,7 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
               type: ("tool-" + part.tool) as `tool-${string}`,
               state: "output-error",
               toolCallId: part.callID,
-              input: part.state.input,
+              input: truncateToolInput(part.state.input, options?.toolInputMaxChars),
               errorText: "[Tool execution was interrupted]",
               ...(part.metadata?.providerExecuted ? { providerExecuted: true } : {}),
               ...(differentModel ? {} : { callProviderMetadata: providerMeta(part.metadata) }),
@@ -976,7 +1055,7 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
 export function toModelMessages(
   input: WithParts[],
   model: Provider.Model,
-  options?: { stripMedia?: boolean; toolOutputMaxChars?: number },
+  options?: { stripMedia?: boolean; toolOutputMaxChars?: number; toolInputMaxChars?: number },
 ): Promise<ModelMessage[]> {
   return Effect.runPromise(toModelMessagesEffect(input, model, options).pipe(Effect.provide(EffectLogger.layer)))
 }

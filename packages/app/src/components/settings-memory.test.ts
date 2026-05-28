@@ -3,11 +3,13 @@ import { readFileSync } from "node:fs"
 
 describe("memory settings source contract", () => {
   test("registers the Memory settings tab", () => {
-    const page = readFileSync("src/components/settings-page.tsx", "utf8")
+    // settings-shell.tsx replaces the old settings-page.tsx as where tabs are registered; read the new
+    // shell, otherwise this asserts against deleted dead code.
+    const shell = readFileSync("src/pages/settings/settings-shell.tsx", "utf8")
 
-    expect(page).toContain('"memory"')
-    expect(page).toContain("SettingsMemory")
-    expect(page).toContain("settings.tab.memory")
+    expect(shell).toContain('"memory"')
+    expect(shell).toContain("SettingsMemory")
+    expect(shell).toContain("settings.tab.memory")
   })
 
   test("keeps the v1 raw controls", () => {

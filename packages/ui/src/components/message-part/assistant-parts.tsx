@@ -11,8 +11,6 @@ import { Part } from "./message-router"
 export function AssistantParts(props: {
   messages: AssistantMessage[]
   working?: boolean
-  shellToolDefaultOpen?: boolean
-  editToolDefaultOpen?: boolean
 }) {
   const data = useData()
   const i18n = useI18n()
@@ -66,8 +64,7 @@ export function AssistantParts(props: {
                 )
                 const toolParts = createMemo(() => parts().filter((p): p is ToolPart => p.type === "tool"))
                 const singleTool = createMemo(() => toolParts().length === 1 && parts().length === 1)
-                const defaultOpenForTool = (tool: ToolPart) =>
-                  partDefaultOpen(tool, props.shellToolDefaultOpen, props.editToolDefaultOpen) ?? singleTool()
+                const defaultOpenForTool = (tool: ToolPart) => partDefaultOpen(tool) ?? singleTool()
                 const renderTool = (tool: ToolPart) => {
                   const message = msgs().get(tool.messageID)
                   if (!message) return null
@@ -136,11 +133,7 @@ export function AssistantParts(props: {
                       <Part
                         part={stableItem()!}
                         message={stableMessage()!}
-                        defaultOpen={partDefaultOpen(
-                          stableItem()!,
-                          props.shellToolDefaultOpen,
-                          props.editToolDefaultOpen,
-                        )}
+                        defaultOpen={partDefaultOpen(stableItem()!)}
                         stateKey={`tool:${stableItem()!.id}`}
                       />
                     </Show>
