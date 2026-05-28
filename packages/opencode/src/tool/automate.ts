@@ -22,13 +22,13 @@ const PositiveInt = Schema.Int.check(Schema.isGreaterThan(0))
 
 const Stop = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("count"), count: PositiveInt }),
-  Schema.Struct({ kind: Schema.Literal("condition"), condition: Schema.String }),
+  Schema.Struct({ kind: Schema.Literal("condition"), condition: Schema.NonEmptyString }),
   Schema.Struct({ kind: Schema.Literal("never") }),
 ])
 
 const Rhythm = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("interval"), everyMs: PositiveInt }),
-  Schema.Struct({ kind: Schema.Literal("cron"), expression: Schema.String }),
+  Schema.Struct({ kind: Schema.Literal("cron"), expression: Schema.NonEmptyString }),
 ])
 
 export const AutomateParameters = Schema.Union([

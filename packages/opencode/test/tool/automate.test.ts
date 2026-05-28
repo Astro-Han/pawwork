@@ -82,6 +82,30 @@ describe("automate tool", () => {
     expect(formatAutomateValidationError(error)).toContain("Invalid automate input")
   })
 
+  test.each([
+    ["empty cron expression", { rhythm: { kind: "cron", expression: "" }, stop: { kind: "never" } }],
+    ["empty stop condition", { rhythm: { kind: "interval", everyMs: 60_000 }, stop: { kind: "condition", condition: "" } }],
+  ])("rejects empty nested strings before execute reaches the Zod create parser: %s", (_name, override) => {
+    const decode = Schema.decodeUnknownSync(AutomateParameters)
+    let error: unknown
+    try {
+      decode({
+        kind: "recurring",
+        title: "Daily repo brief",
+        prompt: "Summarize repo changes.",
+        context: "fresh",
+        where: { projectID: "project" },
+        timezone: "UTC",
+        ...override,
+      })
+    } catch (caught) {
+      error = caught
+    }
+
+    expect(error).toBeDefined()
+    expect(formatAutomateValidationError(error)).toContain("Invalid automate input")
+  })
+
   test("echoes the resolved definition through the automation create path", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
