@@ -26,6 +26,15 @@ let followupDraftMatchesScope: typeof FollowupDraftMatchesScope
 const sendFollowupCalls: unknown[] = []
 let sendFollowupDraftImpl: (input: unknown) => Promise<boolean>
 
+function workspaceStorage(dir: string) {
+  let hash = 0x811c9dc5
+  for (let index = 0; index < dir.length; index++) {
+    hash ^= dir.charCodeAt(index)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return `pawwork.workspace.${(hash >>> 0).toString(36)}.dat`
+}
+
 const draft = (input: Pick<FollowupDraft, "prompt" | "context">): FollowupDraft => ({
   sessionID: "ses_1",
   sessionDirectory: "/repo",
@@ -52,24 +61,24 @@ beforeAll(async () => {
       normalize,
       readPersistedAsync,
       readPersistedSync,
-      workspaceStorage: (dir: string) => `pawwork.workspace.${dir.length}.dat`,
+      workspaceStorage,
     },
     Persist: {
       global: (key: string, legacy?: string[]) => ({ key, legacy }),
       workspace: (dir: string, key: string, legacy?: string[]) => ({
-        storage: `pawwork.workspace.${dir.length}.dat`,
+        storage: workspaceStorage(dir),
         key: `workspace:${key}`,
         legacy,
       }),
       session: (dir: string, session: string, key: string, legacy?: string[]) => ({
-        storage: `pawwork.workspace.${dir.length}.dat`,
+        storage: workspaceStorage(dir),
         key: `session:${session}:${key}`,
         legacy,
       }),
       scoped: (dir: string, session: string | undefined, key: string, legacy?: string[]) =>
         session
-          ? { storage: `pawwork.workspace.${dir.length}.dat`, key: `session:${session}:${key}`, legacy }
-          : { storage: `pawwork.workspace.${dir.length}.dat`, key: `workspace:${key}`, legacy },
+          ? { storage: workspaceStorage(dir), key: `session:${session}:${key}`, legacy }
+          : { storage: workspaceStorage(dir), key: `workspace:${key}`, legacy },
     },
     persisted: (_target: unknown, store: unknown) => store,
   }))

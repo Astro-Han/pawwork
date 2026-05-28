@@ -8,6 +8,7 @@ let isStructurallyEmpty: typeof import("./prompt").isStructurallyEmpty
 
 beforeAll(async () => {
   mock.module("@solidjs/router", () => ({
+    useNavigate: () => () => undefined,
     useParams: () => ({}),
   }))
   mock.module("@opencode-ai/ui/context", () => ({
@@ -182,4 +183,3 @@ describe("isStructurallyEmpty", () => {
     expect(isStructurallyEmpty(DEFAULT_PROMPT, [], [image])).toBe(false)
   })
 })
-
