@@ -25,6 +25,31 @@ let followupDraftMatchesScope: typeof FollowupDraftMatchesScope
 const sendFollowupCalls: unknown[] = []
 let sendFollowupDraftImpl: (input: unknown) => Promise<boolean>
 
+function workspaceStorage(dir: string) {
+  const head = (dir.slice(0, 12) || "workspace").replace(/[^a-zA-Z0-9._-]/g, "-")
+  let sum = 0
+  for (let index = 0; index < dir.length; index++) {
+    sum = (sum + dir.charCodeAt(index) * (index + 1)) >>> 0
+  }
+  return `pawwork.workspace.${head}.${sum.toString(36)}.dat`
+}
+
+const PersistMock = {
+  global: (key: string, legacy?: string[]) => ({ storage: "pawwork.global.dat", key, legacy }),
+  workspace: (dir: string, key: string, legacy?: string[]) => ({
+    storage: workspaceStorage(dir),
+    key: `workspace:${key}`,
+    legacy,
+  }),
+  session: (dir: string, session: string, key: string, legacy?: string[]) => ({
+    storage: workspaceStorage(dir),
+    key: `session:${session}:${key}`,
+    legacy,
+  }),
+  scoped: (dir: string, session: string | undefined, key: string, legacy?: string[]) =>
+    session ? PersistMock.session(dir, session, key, legacy) : PersistMock.workspace(dir, key, legacy),
+}
+
 const draft = (input: Pick<FollowupDraft, "prompt" | "context">): FollowupDraft => ({
   sessionID: "ses_1",
   sessionDirectory: "/repo",
@@ -47,8 +72,9 @@ beforeAll(async () => {
     usePlatform: () => ({ platform: "web" }),
   }))
   mock.module("@/utils/persist", () => ({
-    Persist: {
-      global: (key: string, legacy?: string[]) => ({ key, legacy }),
+    Persist: PersistMock,
+    PersistTesting: {
+      workspaceStorage,
     },
     persisted: (_target: unknown, store: unknown) => store,
   }))
