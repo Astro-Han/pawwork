@@ -1,5 +1,6 @@
 import { useSpring } from "@opencode-ai/ui/motion-spring"
 import { isWorkInFlightStatus } from "@opencode-ai/ui/util/session-status"
+import { useNavigate, useParams } from "@solidjs/router"
 import { createEffect, on, Component, For, Show, createMemo, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLocal } from "@/context/local"
@@ -392,6 +393,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     if (!id) return permission.isAutoAcceptingDirectory(sdk.directory)
     return permission.isAutoAccepting(id, sdk.directory)
   })
+  const navigate = useNavigate()
+  const routeParams = useParams()
 
   const { abort, handleSubmit } = createPromptSubmit({
     sessionID: activeSessionID,
@@ -419,6 +422,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     onQueue: props.onQueue,
     onAbort: props.onAbort,
     onSubmit: props.onSubmit,
+    navigate,
+    routeParams: () => routeParams,
   })
 
   createEffect(() => {

@@ -7,9 +7,10 @@ import {
   currentSessionSubmitReady,
   sessionStatusKnown,
 } from "./session-action-readiness"
-import type { followupCommandText as FollowupCommandText, FollowupDraft } from "@/components/prompt-input/submit"
 
-let followupCommandText: typeof FollowupCommandText
+type FollowupDraft = any
+
+let followupCommandText: any
 
 const slashDraft = { text: "/release now" }
 const normalDraft = { text: "continue" }

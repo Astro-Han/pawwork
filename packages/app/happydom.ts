@@ -1,25 +1,6 @@
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
-import { mock } from "bun:test"
 
 GlobalRegistrator.register()
-
-const passthrough = (props: { children?: unknown }) => props.children
-
-mock.module("@solidjs/router", () => ({
-  A: passthrough,
-  HashRouter: passthrough,
-  MemoryRouter: passthrough,
-  Navigate: () => undefined,
-  Route: passthrough,
-  Router: passthrough,
-  StaticRouter: passthrough,
-  useHref: () => "",
-  useIsRouting: () => false,
-  useLocation: () => ({ hash: "", pathname: "/", query: {}, search: "", state: undefined }),
-  useNavigate: () => () => undefined,
-  useParams: () => ({}),
-  useSearchParams: () => [{}, () => undefined],
-}))
 
 const originalGetContext = HTMLCanvasElement.prototype.getContext
 // @ts-expect-error - we're overriding with a simplified mock

@@ -2,7 +2,6 @@ import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
 import { QueryClient, QueryClientProvider } from "@tanstack/solid-query"
 import { createRoot, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
-import type { FollowupDraft } from "@/components/prompt-input/submit"
 import type {
   canSendFollowupItem as CanSendFollowupItem,
   createSessionFollowups as CreateSessionFollowups,
@@ -24,6 +23,8 @@ let scopedFollowupDraft: typeof ScopedFollowupDraft
 let followupDraftMatchesScope: typeof FollowupDraftMatchesScope
 const sendFollowupCalls: unknown[] = []
 let sendFollowupDraftImpl: (input: unknown) => Promise<boolean>
+
+type FollowupDraft = any
 
 function workspaceStorage(dir: string) {
   const head = (dir.slice(0, 12) || "workspace").replace(/[^a-zA-Z0-9._-]/g, "-")
@@ -85,7 +86,7 @@ beforeAll(async () => {
   }))
   mock.module("@/components/prompt-input/submit", () => ({
     followupCommandText: (item: FollowupDraft) =>
-      item.prompt.map((part) => ("content" in part ? part.content : "")).join(""),
+      item.prompt.map((part: any) => ("content" in part ? part.content : "")).join(""),
     sendFollowupDraft: (input: unknown) => sendFollowupDraftImpl(input),
   }))
 
