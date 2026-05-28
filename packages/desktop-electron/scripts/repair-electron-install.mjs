@@ -62,7 +62,7 @@ export function repairElectronInstallAt(
 ) {
   const install =
     runInstall ??
-    ((script, options) => {
+    ((script, options = {}) => {
       execFileSync(process.execPath, [script], {
         stdio: "inherit",
         env: options.forceNoCache ? { ...process.env, force_no_cache: "true" } : process.env,
