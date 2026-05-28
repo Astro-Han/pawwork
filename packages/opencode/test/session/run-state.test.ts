@@ -10,9 +10,11 @@ import { registerDisposer } from "../../src/effect/instance-registry"
 import { GlobalRoutes } from "../../src/server/instance/global"
 import {
   createLifecycleCloseAction,
+  beginLifecycleClose,
   currentLifecycleCloseAction,
   directoryKey,
   lifecycleCloseActionMeta,
+  whenAllRunsIdle,
   withLifecycleCloseAction,
 } from "../../src/session/lifecycle-provenance"
 import { SessionRunState } from "../../src/session/run-state"
@@ -23,6 +25,12 @@ import { testEffect } from "../lib/effect"
 const it = testEffect(Layer.mergeAll(CrossSpawnSpawner.defaultLayer, SessionRunState.defaultLayer))
 
 describe("SessionRunState", () => {
+  const expectDirectoryIdle = (directory: string) =>
+    Effect.gen(function* () {
+      const idle = yield* Effect.promise(() => whenAllRunsIdle([directory])).pipe(Effect.timeout("100 millis"), Effect.exit)
+      expect(Exit.isSuccess(idle)).toBe(true)
+    })
+
   test("keeps overlapping lifecycle actions isolated per directory", async () => {
     const directory = "/tmp/pawwork-lifecycle-overlap"
     const first = createLifecycleCloseAction("instance_reload")
@@ -137,6 +145,186 @@ describe("SessionRunState", () => {
           expect(captured?.lifecycleAffectedDirectoryKeys).toEqual([directoryKey(directory)])
           expect(captured?.lifecycleOrigin).toMatchObject({ source: "runtime", operation: "instance.dispose" })
           expect(typeof captured?.recordedAt).toBe("number")
+        }),
+      { git: true },
+    )
+  })
+
+  it.live("reports lifecycle close waits before starting work", () => {
+    return provideTmpdirInstance(
+      (directory) =>
+        Effect.gen(function* () {
+          const run = yield* SessionRunState.Service
+          const releaseClose = beginLifecycleClose([directory])
+          const events: Array<{ type: string; reason?: string; duration_ms?: number }> = []
+
+          const fiber = yield* run.ensureRunning(
+            SessionID.make("ses_run_state_wait_observability"),
+            () => Effect.sync(() => ({}) as never),
+            Effect.sync(() => {
+              events.push({ type: "work_started" })
+              return {} as never
+            }),
+            {
+              runLifecycle: {
+                onWaitStarted: (event) =>
+                  Effect.sync(() => {
+                    events.push({ type: "run_wait_started", reason: event.reason })
+                  }),
+                onWaitEnded: (event) =>
+                  Effect.sync(() => {
+                    events.push({ type: "run_wait_ended", reason: event.reason, duration_ms: event.duration_ms })
+                  }),
+              },
+            },
+          ).pipe(Effect.forkChild)
+
+          try {
+            yield* Effect.sleep("10 millis")
+            expect(events).toEqual([{ type: "run_wait_started", reason: "lifecycle_close" }])
+
+            releaseClose()
+            const exit = yield* Fiber.await(fiber)
+            expect(Exit.isSuccess(exit)).toBe(true)
+            expect(events[1]).toMatchObject({ type: "run_wait_ended", reason: "lifecycle_close" })
+            expect(events[1]?.duration_ms).toBeGreaterThanOrEqual(0)
+            expect(events[2]).toEqual({ type: "work_started" })
+          } finally {
+            releaseClose()
+          }
+        }),
+      { git: true },
+    )
+  })
+
+  it.live("ignores lifecycle wait observer failures without leaking active runs", () => {
+    return provideTmpdirInstance(
+      (directory) =>
+        Effect.gen(function* () {
+          const run = yield* SessionRunState.Service
+          const releaseClose = beginLifecycleClose([directory])
+          const events: string[] = []
+
+          const fiber = yield* run
+            .ensureRunning(
+              SessionID.make("ses_run_state_wait_observer_failure"),
+              () => Effect.sync(() => ({}) as never),
+              Effect.sync(() => {
+                events.push("work_started")
+                return {} as never
+              }),
+              {
+                runLifecycle: {
+                  onWaitStarted: () => Effect.fail(new Error("observer failed")),
+                },
+              },
+            )
+            .pipe(Effect.forkChild)
+
+          yield* Effect.sleep("10 millis")
+          releaseClose()
+          const exit = yield* Fiber.await(fiber)
+          expect(Exit.isSuccess(exit)).toBe(true)
+          expect(events).toEqual(["work_started"])
+          yield* expectDirectoryIdle(directory)
+        }),
+      { git: true },
+    )
+  })
+
+  it.live("cancels pending lifecycle wait after wait-start diagnostics", () => {
+    return provideTmpdirInstance(
+      (directory) =>
+        Effect.gen(function* () {
+          const run = yield* SessionRunState.Service
+          const releaseClose = beginLifecycleClose([directory])
+          const started = yield* Deferred.make<void>()
+
+          const fiber = yield* run
+            .ensureRunning(
+              SessionID.make("ses_run_state_wait_start_interrupt"),
+              () => Effect.sync(() => ({}) as never),
+              Effect.sync(() => ({}) as never),
+              {
+                runLifecycle: {
+                  onWaitStarted: () => Deferred.succeed(started, undefined),
+                },
+              },
+            )
+            .pipe(Effect.forkChild)
+
+          yield* Deferred.await(started)
+          yield* Fiber.interrupt(fiber)
+          releaseClose()
+          yield* expectDirectoryIdle(directory)
+        }),
+      { git: true },
+    )
+  })
+
+  it.live("ignores lifecycle wait-end observer failures without leaking active runs", () => {
+    return provideTmpdirInstance(
+      (directory) =>
+        Effect.gen(function* () {
+          const run = yield* SessionRunState.Service
+          const releaseClose = beginLifecycleClose([directory])
+
+          const fiber = yield* run
+            .ensureRunning(
+              SessionID.make("ses_run_state_wait_end_observer_failure"),
+              () => Effect.sync(() => ({}) as never),
+              Effect.sync(() => ({}) as never),
+              {
+                runLifecycle: {
+                  onWaitEnded: () => Effect.fail(new Error("observer failed")),
+                },
+              },
+            )
+            .pipe(Effect.forkChild)
+
+          releaseClose()
+          const exit = yield* Fiber.await(fiber)
+          expect(Exit.isSuccess(exit)).toBe(true)
+          yield* expectDirectoryIdle(directory)
+        }),
+      { git: true },
+    )
+  })
+
+  it.live("ignores interrupted wait-end diagnostics without leaking active runs", () => {
+    return provideTmpdirInstance(
+      (directory) =>
+        Effect.gen(function* () {
+          const run = yield* SessionRunState.Service
+          const releaseClose = beginLifecycleClose([directory])
+          const followUpEvents: string[] = []
+
+          const fiber = yield* run
+            .ensureRunning(
+              SessionID.make("ses_run_state_wait_end_interrupt"),
+              () => Effect.sync(() => ({}) as never),
+              Effect.sync(() => ({}) as never),
+              {
+                runLifecycle: {
+                  onWaitEnded: () => Effect.interrupt,
+                },
+              },
+            )
+            .pipe(Effect.forkChild)
+
+          releaseClose()
+          const exit = yield* Fiber.await(fiber)
+          expect(Exit.isSuccess(exit)).toBe(true)
+          yield* expectDirectoryIdle(directory)
+          yield* run.ensureRunning(
+            SessionID.make("ses_run_state_wait_end_interrupt_followup"),
+            () => Effect.sync(() => ({}) as never),
+            Effect.sync(() => {
+              followUpEvents.push("follow_up_started")
+              return {} as never
+            }),
+          )
+          expect(followUpEvents).toEqual(["follow_up_started"])
         }),
       { git: true },
     )

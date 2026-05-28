@@ -21,6 +21,7 @@ import { isMedia } from "@/util/media"
 import { classifyStreamFailure } from "./stream-failure-classifier"
 import { LLMTrace } from "./llm-trace"
 import { RunObservability } from "./run-observability"
+import { RunLifecycle } from "./run-lifecycle"
 export { isMedia } from "@/util/media"
 
 function truncateToolOutput(text: string, maxChars?: number) {
@@ -531,6 +532,11 @@ export const User = Base.extend({
   system: z.string().optional(),
   tools: z.record(z.string(), z.boolean()).optional(),
   replay: z.boolean().optional(),
+  diagnostics: z
+    .object({
+      run_lifecycle: z.array(RunLifecycle.Event).optional(),
+    })
+    .optional(),
 }).meta({
   ref: "UserMessage",
 })
@@ -604,6 +610,7 @@ export const Assistant = Base.extend({
     .object({
       llm_trace: LLMTrace.Summary.optional(),
       run_observability: z.any().optional(),
+      run_lifecycle: z.array(RunLifecycle.Event).optional(),
       abort: z
         .object({
           source: z.string().optional(),

@@ -32,6 +32,7 @@ import {
 } from "../../src/session/prompt"
 import { SessionRevert } from "../../src/session/revert"
 import { SessionRunState } from "../../src/session/run-state"
+import { beginLifecycleClose } from "../../src/session/lifecycle-provenance"
 import { SubagentRun } from "../../src/session/subagent-run"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { SessionStatus } from "../../src/session/status"
@@ -685,6 +686,64 @@ it.live("loop calls LLM and returns assistant message", () =>
       expect(parts.some((p) => p.type === "text" && p.text === "world")).toBe(true)
       expect(yield* llm.hits).toHaveLength(1)
     }),
+    { git: true, config: providerCfg },
+  ),
+)
+
+it.live("prompt records lifecycle wait diagnostics on the queued user message", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({
+          title: "Lifecycle wait diagnostics",
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        })
+        const releaseClose = beginLifecycleClose([dir])
+        const fiber = yield* prompt
+          .prompt({
+            sessionID: chat.id,
+            agent: "build",
+            parts: [{ type: "text", text: "hello" }],
+          })
+          .pipe(Effect.forkChild)
+
+        try {
+          let user: MessageV2.WithParts | undefined
+          const deadline = Date.now() + 1000
+          while (Date.now() < deadline) {
+            const pending = yield* sessions.messages({ sessionID: chat.id })
+            user = pending.find((message) => message.info.role === "user")
+            if (user) break
+            yield* Effect.sleep("5 millis")
+          }
+          expect(user?.info.role).toBe("user")
+          if (user?.info.role === "user") {
+            expect(user.info.diagnostics?.run_lifecycle?.map((event) => event.type)).toEqual([
+              "user_message_saved",
+              "run_wait_started",
+            ])
+          }
+
+          yield* llm.text("world")
+          releaseClose()
+          expect(Exit.isSuccess(yield* Fiber.await(fiber))).toBe(true)
+
+          const final = yield* sessions.messages({ sessionID: chat.id })
+          const recorded = final.find((message) => message.info.role === "user")
+          expect(recorded?.info.role).toBe("user")
+          if (recorded?.info.role === "user") {
+            expect(recorded.info.diagnostics?.run_lifecycle?.map((event) => event.type)).toEqual([
+              "user_message_saved",
+              "run_wait_started",
+              "run_wait_ended",
+            ])
+          }
+        } finally {
+          releaseClose()
+        }
+      }),
     { git: true, config: providerCfg },
   ),
 )

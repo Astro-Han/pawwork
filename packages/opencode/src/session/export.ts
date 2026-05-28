@@ -28,6 +28,7 @@ import { LLMTrace } from "./llm-trace"
 import { safeErrorFingerprint, safeProviderCorrelation } from "./llm-trace/stream-diagnostics"
 import { RunObservability } from "./run-observability"
 import { RunIncident } from "./run-incident"
+import { RunLifecycle } from "./run-lifecycle"
 
 export function getRuntimeNamespace(): "pawwork" | "opencode" {
   return Runtime.isPawWork() ? "pawwork" : "opencode"
@@ -159,6 +160,8 @@ export namespace Export {
       llm_traces?: LLMTrace.Summary[]
       run_observability_schema_version?: typeof RunObservability.SCHEMA_VERSION
       run_observability?: RunObservability.Summary[]
+      run_lifecycle_schema_version?: typeof RunLifecycle.SCHEMA_VERSION
+      run_lifecycle?: RunLifecycle.Event[]
       run_incident_schema_version?: typeof RunIncident.SCHEMA_VERSION
       run_incidents?: RunIncident.Summary[]
       incident_chains?: RunIncident.ExportIncidentChain[]
@@ -214,6 +217,8 @@ export namespace Export {
     llm_traces?: LLMTrace.Summary[]
     run_observability_schema_version?: typeof RunObservability.SCHEMA_VERSION
     run_observability?: RunObservability.Summary[]
+    run_lifecycle_schema_version?: typeof RunLifecycle.SCHEMA_VERSION
+    run_lifecycle?: RunLifecycle.Event[]
     run_incident_schema_version?: typeof RunIncident.SCHEMA_VERSION
     run_incidents?: RunIncident.Summary[]
     incident_chains?: RunIncident.ExportIncidentChain[]
@@ -302,6 +307,7 @@ export namespace Export {
     walk(node)
     const llm_traces = collectLLMTraces(node)
     const run_observability = collectRunObservability(node)
+    const run_lifecycle = collectRunLifecycle(node)
     const run_incidents = collectRunIncidents(node)
     const incident_chains = run_incidents.map(RunIncident.toExportChain)
     const aborts = collectAbortDiagnostics(node)
@@ -312,6 +318,7 @@ export namespace Export {
       ...(run_observability.length
         ? { run_observability_schema_version: RunObservability.SCHEMA_VERSION, run_observability }
         : {}),
+      ...(run_lifecycle.length ? { run_lifecycle_schema_version: RunLifecycle.SCHEMA_VERSION, run_lifecycle } : {}),
       ...(run_incidents.length ? { run_incident_schema_version: RunIncident.SCHEMA_VERSION, run_incidents } : {}),
       ...(incident_chains.length ? { incident_chains } : {}),
       ...(aborts.length ? { aborts } : {}),
@@ -350,6 +357,26 @@ export namespace Export {
     return traces.sort((a, b) => {
       if (a.session_id !== b.session_id) return a.session_id.localeCompare(b.session_id)
       return a.message_id.localeCompare(b.message_id)
+    })
+  }
+
+  function collectRunLifecycle(node: Tree) {
+    const events: RunLifecycle.Event[] = []
+    const walk = (t: Tree) => {
+      for (const message of t.messages ?? []) {
+        const lifecycle = message.info.diagnostics?.run_lifecycle
+        if (lifecycle) events.push(...lifecycle)
+      }
+      for (const child of t.children ?? []) walk(child)
+    }
+    walk(node)
+    return events.sort((a, b) => {
+      if (a.session_id !== b.session_id) return a.session_id.localeCompare(b.session_id)
+      const messageA = a.message_id ?? a.assistant_message_id ?? ""
+      const messageB = b.message_id ?? b.assistant_message_id ?? ""
+      if (messageA !== messageB) return messageA.localeCompare(messageB)
+      if (a.at !== b.at) return a.at - b.at
+      return a.type.localeCompare(b.type)
     })
   }
 
@@ -977,6 +1004,12 @@ export namespace Export {
             ? {
                 ...msg.info,
                 system: msg.info.system === undefined ? undefined : redact("system", msg.info.id, msg.info.system),
+                diagnostics: !msg.info.diagnostics
+                  ? msg.info.diagnostics
+                  : {
+                      ...msg.info.diagnostics,
+                      run_lifecycle: msg.info.diagnostics.run_lifecycle?.map(sanitizeRunLifecycle),
+                    },
                 summary: messageSummary(
                   !msg.info.summary
                     ? msg.info.summary
@@ -1012,6 +1045,7 @@ export namespace Export {
                       run_observability: msg.info.diagnostics.run_observability
                         ? sanitizeRunObservability(msg.info.diagnostics.run_observability)
                         : undefined,
+                      run_lifecycle: msg.info.diagnostics.run_lifecycle?.map(sanitizeRunLifecycle),
                     },
               },
         parts: msg.parts.map(partFn),
@@ -1092,6 +1126,7 @@ export namespace Export {
       })),
       llm_traces: diagnostics.llm_traces?.map(sanitizeLLMTrace),
       run_observability: diagnostics.run_observability?.map(sanitizeRunObservability),
+      run_lifecycle: diagnostics.run_lifecycle?.map(sanitizeRunLifecycle),
       run_incident_schema_version:
         diagnostics.run_incident_schema_version ?? (hasRunIncident ? RunIncident.SCHEMA_VERSION : undefined),
       run_incidents: sanitizedIncidents,
@@ -1105,6 +1140,70 @@ export namespace Export {
       incident: summary.incident ? RunIncident.sanitize(summary.incident) : undefined,
       recovered_incidents: summary.recovered_incidents?.map(RunIncident.sanitize),
       error: summary.error,
+    }
+  }
+
+  function sanitizeRunLifecycle(event: RunLifecycle.Event): RunLifecycle.Event {
+    const id = event.message_id ?? event.assistant_message_id ?? event.session_id
+    const lifecycle = event.lifecycle
+    return {
+      ...event,
+      reason: event.reason === undefined ? undefined : redact("run-lifecycle-reason", id, event.reason),
+      lifecycle: lifecycle
+        ? {
+            ...lifecycle,
+            origin: lifecycle.origin
+              ? {
+                  source: lifecycle.origin.source,
+                  operation:
+                    lifecycle.origin.operation === undefined
+                      ? undefined
+                      : redact("run-lifecycle-origin-operation", id, lifecycle.origin.operation),
+                  reason:
+                    lifecycle.origin.reason === undefined
+                      ? undefined
+                      : redact("run-lifecycle-origin-reason", id, lifecycle.origin.reason),
+                }
+              : undefined,
+            request: lifecycle.request
+              ? {
+                  method: lifecycle.request.method,
+                  source: lifecycle.request.source,
+                  path: redact("run-lifecycle-request-path", id, lifecycle.request.path),
+                  directory_key: lifecycle.request.directory_key,
+                  workspace_id:
+                    lifecycle.request.workspace_id === undefined
+                      ? undefined
+                      : redact("run-lifecycle-request-workspace", id, lifecycle.request.workspace_id),
+                  client_action: lifecycle.request.client_action
+                    ? {
+                        id: redact("run-lifecycle-client-action-id", id, lifecycle.request.client_action.id),
+                        kind:
+                          lifecycle.request.client_action.kind === undefined
+                            ? undefined
+                            : redact("run-lifecycle-client-action-kind", id, lifecycle.request.client_action.kind),
+                        route_session_id:
+                          lifecycle.request.client_action.route_session_id === undefined
+                            ? undefined
+                            : redact(
+                                "run-lifecycle-client-action-route-session",
+                                id,
+                                lifecycle.request.client_action.route_session_id,
+                              ),
+                        visible_session_id:
+                          lifecycle.request.client_action.visible_session_id === undefined
+                            ? undefined
+                            : redact(
+                                "run-lifecycle-client-action-visible-session",
+                                id,
+                                lifecycle.request.client_action.visible_session_id,
+                              ),
+                      }
+                    : undefined,
+                }
+              : undefined,
+          }
+        : undefined,
     }
   }
 

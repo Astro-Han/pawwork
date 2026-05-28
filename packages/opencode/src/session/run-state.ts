@@ -1,11 +1,17 @@
 import { InstanceState } from "@/effect/instance-state"
 import { Runner, type InterruptMeta } from "@/effect/runner"
-import { Deferred, Effect, Layer, Scope, Context } from "effect"
+import { Cause, Deferred, Effect, Layer, Scope, Context } from "effect"
 import * as Session from "./session"
 import { MessageV2 } from "./message-v2"
 import { SessionID } from "./schema"
 import { SessionStatus } from "./status"
 import { currentLifecycleCloseAction, lifecycleCloseActionMeta, trackActiveRun } from "./lifecycle-provenance"
+import { RunLifecycle } from "./run-lifecycle"
+
+type RunLifecycleObserver = {
+  onWaitStarted?: (event: RunLifecycle.Event) => Effect.Effect<void, unknown>
+  onWaitEnded?: (event: RunLifecycle.Event) => Effect.Effect<void, unknown>
+}
 
 export interface Interface {
   readonly assertNotBusy: (sessionID: SessionID) => Effect.Effect<void>
@@ -14,7 +20,7 @@ export interface Interface {
     sessionID: SessionID,
     onInterrupt: (meta?: InterruptMeta) => Effect.Effect<MessageV2.WithParts>,
     work: Effect.Effect<MessageV2.WithParts>,
-    options?: { rejectIfBusy?: boolean },
+    options?: { rejectIfBusy?: boolean; runLifecycle?: RunLifecycleObserver },
   ) => Effect.Effect<MessageV2.WithParts>
   readonly startShell: (
     sessionID: SessionID,
@@ -69,13 +75,79 @@ export const layer = Layer.effect(
       }),
     )
 
-    const withActiveRun = <A, E>(directory: string, work: Effect.Effect<A, E>) =>
+    const withActiveRun = <A, E>(
+      directory: string,
+      sessionID: SessionID,
+      work: Effect.Effect<A, E>,
+      observer?: RunLifecycleObserver,
+    ) =>
       Effect.suspend(() => {
         const activeRun = trackActiveRun(directory)
-        return Effect.acquireUseRelease(
-          Effect.promise(() => activeRun.promise).pipe(Effect.onInterrupt(() => Effect.sync(activeRun.cancel))),
-          () => work,
-          (release) => Effect.sync(release),
+        let acquiredRelease: (() => void) | undefined
+        const releaseAcquired = () => {
+          const release = acquiredRelease
+          acquiredRelease = undefined
+          release?.()
+        }
+        const cleanupAcquire = Effect.sync(() => {
+          activeRun.cancel()
+          releaseAcquired()
+        })
+        const notify = (
+          fn: ((event: RunLifecycle.Event) => Effect.Effect<void, unknown>) | undefined,
+          event: RunLifecycle.Event,
+        ) =>
+          fn?.(event).pipe(
+            Effect.catchCause((cause) => (Cause.hasInterruptsOnly(cause) ? Effect.interrupt : Effect.void)),
+          ) ?? Effect.void
+        const waitForActiveRun = Effect.callback<() => void>((resume) => {
+          activeRun.promise.then(
+            (release) => {
+              acquiredRelease = release
+              resume(Effect.succeed(release))
+            },
+            () => resume(Effect.interrupt),
+          )
+          return cleanupAcquire
+        })
+        const acquire = Effect.gen(function* () {
+          if (activeRun.wait && observer?.onWaitStarted) {
+            yield* notify(observer.onWaitStarted, {
+              schema_version: RunLifecycle.SCHEMA_VERSION,
+              type: "run_wait_started",
+              session_id: sessionID,
+              at: activeRun.wait.startedAt,
+              reason: activeRun.wait.reason,
+              lifecycle: activeRun.wait.lifecycle ? RunLifecycle.lifecycleFromMeta(activeRun.wait.lifecycle) : undefined,
+            })
+          }
+          yield* waitForActiveRun
+          return acquiredRelease!
+        }).pipe(
+          Effect.interruptible,
+          Effect.onInterrupt(() => cleanupAcquire),
+        )
+        const runWork = Effect.gen(function* () {
+          if (activeRun.wait && observer?.onWaitEnded) {
+            const endedAt = Date.now()
+            yield* notify(observer.onWaitEnded, {
+              schema_version: RunLifecycle.SCHEMA_VERSION,
+              type: "run_wait_ended",
+              session_id: sessionID,
+              at: endedAt,
+              duration_ms: Math.max(0, performance.now() - activeRun.wait.startedMonotonicMs),
+              reason: activeRun.wait.reason,
+              lifecycle: activeRun.wait.lifecycle ? RunLifecycle.lifecycleFromMeta(activeRun.wait.lifecycle) : undefined,
+            })
+          }
+          return yield* work
+        })
+        return Effect.uninterruptibleMask((restore) =>
+          Effect.gen(function* () {
+            const release = yield* restore(acquire)
+            acquiredRelease = undefined
+            return yield* restore(runWork).pipe(Effect.ensuring(Effect.sync(release)))
+          }),
         )
       })
 
@@ -122,14 +194,18 @@ export const layer = Layer.effect(
       sessionID: SessionID,
       onInterrupt: (meta?: InterruptMeta) => Effect.Effect<MessageV2.WithParts>,
       work: Effect.Effect<MessageV2.WithParts>,
-      options?: { rejectIfBusy?: boolean },
+      options?: { rejectIfBusy?: boolean; runLifecycle?: RunLifecycleObserver },
     ) {
       const data = yield* InstanceState.get(state)
+      const runnerOptions =
+        options?.rejectIfBusy === undefined ? undefined : { rejectIfBusy: options.rejectIfBusy }
       return yield* withActiveRun(
         data.directory,
+        sessionID,
         Effect.gen(function* () {
-          return yield* (yield* runner(sessionID, onInterrupt)).ensureRunning(work, options)
+          return yield* (yield* runner(sessionID, onInterrupt)).ensureRunning(work, runnerOptions)
         }),
+        options?.runLifecycle,
       )
     })
 
@@ -142,6 +218,7 @@ export const layer = Layer.effect(
       const data = yield* InstanceState.get(state)
       return yield* withActiveRun(
         data.directory,
+        sessionID,
         Effect.gen(function* () {
           return yield* (yield* runner(sessionID, onInterrupt)).startShell(work, { ready })
         }),
