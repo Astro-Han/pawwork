@@ -162,6 +162,24 @@ jobs:
             find "$PW_DIAG_DIR" -maxdepth 3 -ls 2>&1 || true
           } > "$PW_DIAG_DIR/directories.log" 2>&1
 
+      - name: Trim large diagnostics
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          {
+            echo "strace tail snapshots"
+            for file in "$PW_DIAG_DIR"/pw-strace*; do
+              [ -f "$file" ] || continue
+              echo
+              echo "### $(basename "$file")"
+              tail -n 120 "$file"
+            done
+          } > "$PW_DIAG_DIR/strace-tail.log" 2>&1
+          rm -f "$PW_DIAG_DIR/chromium-linux.zip"
+          rm -rf "$PW_DIAG_DIR/manual-unzip"
+          rm -f "$PW_DIAG_DIR"/pw-strace*
+
       - name: Summarize probes
         if: always()
         shell: bash
@@ -187,6 +205,7 @@ jobs:
               manual-curl-unzip.log \
               tmp-path-install-debug.log \
               strace-install-debug.log \
+              strace-tail.log \
               directories.log; do
               echo
               echo "#### $file"
