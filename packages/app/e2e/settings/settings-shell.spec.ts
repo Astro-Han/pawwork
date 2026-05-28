@@ -15,13 +15,12 @@ test("@smoke settings shell shows the migrated nav and switches pages", async ({
   await expect(settings.getByRole("tab", { name: "General" })).toHaveAttribute("aria-selected", "true")
   await expect(settings.locator('[data-action="settings-language"]')).toBeVisible()
 
-  // Currently 5 tabs: General / Shortcuts / Models / Worktrees / Memory
-  for (const name of ["General", "Shortcuts", "Models", "Worktrees", "Memory"]) {
+  // Currently 6 tabs: General / Shortcuts / Models / Integrations / Worktrees / Memory
+  for (const name of ["General", "Shortcuts", "Models", "Integrations", "Worktrees", "Memory"]) {
     await expect(settings.getByRole("tab", { name })).toBeVisible()
   }
-  // Remote access / Integrations stay hidden until their pages are ready
+  // Remote access stays hidden until its page is ready
   await expect(settings.getByRole("tab", { name: "Remote access" })).toHaveCount(0)
-  await expect(settings.getByRole("tab", { name: "Integrations" })).toHaveCount(0)
 
   // Models page = providers + models stacked: both blocks render
   await settings.getByRole("tab", { name: "Models" }).click()
