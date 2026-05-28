@@ -256,7 +256,7 @@ describe("FileWatcher git metadata filtering", () => {
     expect(ignore).toContain("generated/**")
     expect(ignore).toContain("*.snap")
     expect(ignore).toContain("**/*.log")
-    expect(ignore).toContain(path.resolve(repo, "secret"))
+    expect(ignore).toContain(path.join(repo, "secret"))
   })
 
   test("caps child subscriptions when the workspace has too many top-level roots", () => {
