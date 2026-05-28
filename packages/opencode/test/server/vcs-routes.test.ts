@@ -13,6 +13,15 @@ afterEach(async () => {
 })
 
 describe("VCS routes", () => {
+  const measureUntrackedPatch = async (cwd: string, file: string) => {
+    const text =
+      await $`git diff --no-index --patch --binary --no-ext-diff --no-renames --unified=${2_147_483_647} -- /dev/null ${file}`
+        .cwd(cwd)
+        .nothrow()
+        .text()
+    return Buffer.byteLength(text)
+  }
+
   test("documents apply failure reasons in OpenAPI", async () => {
     const spec = await Server.openapi()
     const response = spec.paths?.["/vcs/apply"]?.post?.responses?.["400"]
@@ -84,6 +93,23 @@ describe("VCS routes", () => {
     ])
   })
 
+  test("returns subdirectory untracked files in status summaries", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await fs.mkdir(path.join(tmp.path, "sub"))
+    await fs.writeFile(path.join(tmp.path, "sub", "untracked.txt"), "one\ntwo\n", "utf-8")
+
+    const response = await Server.Default().app.request("/vcs/status", {
+      headers: {
+        "x-opencode-directory": path.join(tmp.path, "sub"),
+      },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual([
+      { file: "sub/untracked.txt", additions: 2, deletions: 0, status: "added" },
+    ])
+  })
+
   test("returns raw patch text", async () => {
     await using tmp = await tmpdir({ git: true })
     await fs.writeFile(path.join(tmp.path, "tracked.txt"), "original\n", "utf-8")
@@ -150,6 +176,66 @@ describe("VCS routes", () => {
     await expect(fs.readFile(path.join(target.path, "first.txt"), "utf-8")).resolves.toBe("final\n")
   })
 
+  test("round-trips subdirectory untracked files through raw diff and apply", async () => {
+    await using source = await tmpdir({ git: true })
+    await fs.mkdir(path.join(source.path, "sub"))
+    await fs.writeFile(path.join(source.path, "sub", "untracked.txt"), "new\n", "utf-8")
+
+    const diff = await Server.Default().app.request("/vcs/diff/raw", {
+      headers: {
+        "x-opencode-directory": path.join(source.path, "sub"),
+      },
+    })
+    expect(diff.status).toBe(200)
+    const patch = await diff.text()
+    expect(patch).toContain("diff --git a/sub/untracked.txt b/sub/untracked.txt")
+
+    await using target = await tmpdir()
+    await $`git init`.cwd(target.path).quiet()
+    const applied = await Server.Default().app.request("/vcs/apply", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-opencode-directory": target.path,
+      },
+      body: JSON.stringify({ patch }),
+    })
+
+    expect(applied.status).toBe(200)
+    await expect(fs.readFile(path.join(target.path, "sub", "untracked.txt"), "utf-8")).resolves.toBe("new\n")
+  })
+
+  test("round-trips subdirectory staged then modified files before the first commit", async () => {
+    await using source = await tmpdir()
+    await $`git init`.cwd(source.path).quiet()
+    await fs.mkdir(path.join(source.path, "sub"))
+    await fs.writeFile(path.join(source.path, "sub", "first.txt"), "staged\n", "utf-8")
+    await $`git add sub/first.txt`.cwd(source.path).quiet()
+    await fs.writeFile(path.join(source.path, "sub", "first.txt"), "final\n", "utf-8")
+
+    const diff = await Server.Default().app.request("/vcs/diff/raw", {
+      headers: {
+        "x-opencode-directory": path.join(source.path, "sub"),
+      },
+    })
+    expect(diff.status).toBe(200)
+    const patch = await diff.text()
+
+    await using target = await tmpdir()
+    await $`git init`.cwd(target.path).quiet()
+    const applied = await Server.Default().app.request("/vcs/apply", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-opencode-directory": target.path,
+      },
+      body: JSON.stringify({ patch }),
+    })
+
+    expect(applied.status).toBe(200)
+    await expect(fs.readFile(path.join(target.path, "sub", "first.txt"), "utf-8")).resolves.toBe("final\n")
+  })
+
   test(
     "rejects raw tracked diffs beyond the patch budget",
     async () => {
@@ -203,6 +289,45 @@ describe("VCS routes", () => {
       await using tmp = await tmpdir({ git: true })
       await fs.writeFile(path.join(tmp.path, "one.txt"), `${"x".repeat(5_100_000)}\n`, "utf-8")
       await fs.writeFile(path.join(tmp.path, "two.txt"), `${"y".repeat(5_100_000)}\n`, "utf-8")
+
+      const response = await Server.Default().app.request("/vcs/diff/raw", {
+        headers: {
+          "x-opencode-directory": tmp.path,
+        },
+      })
+
+      expect(response.status).toBe(413)
+      expect(await response.json()).toEqual({
+        error: "vcs_diff_raw_failed",
+        reason: "too-large",
+        message: "Raw VCS diff exceeds the 10 MB output limit",
+      })
+    },
+    20_000,
+  )
+
+  test(
+    "rejects raw diffs when patch separators exceed the combined budget",
+    async () => {
+      const maxPatchBytes = 10_000_000
+      await using tmp = await tmpdir({ git: true })
+      const first = "first.txt"
+      const second = "second.txt"
+
+      await fs.writeFile(path.join(tmp.path, first), "x\n", "utf-8")
+      await fs.writeFile(path.join(tmp.path, second), "y\n", "utf-8")
+      const firstOverhead = (await measureUntrackedPatch(tmp.path, first)) - Buffer.byteLength("x\n")
+      const secondOverhead = (await measureUntrackedPatch(tmp.path, second)) - Buffer.byteLength("y\n")
+
+      const firstPatchBytes = 5_000_000
+      const firstContentBytes = firstPatchBytes - firstOverhead
+      const secondContentBytes = maxPatchBytes - firstPatchBytes - secondOverhead
+      await fs.writeFile(path.join(tmp.path, first), `${"x".repeat(firstContentBytes - 1)}\n`, "utf-8")
+      await fs.writeFile(path.join(tmp.path, second), `${"y".repeat(secondContentBytes - 1)}\n`, "utf-8")
+
+      expect((await measureUntrackedPatch(tmp.path, first)) + (await measureUntrackedPatch(tmp.path, second))).toBe(
+        maxPatchBytes,
+      )
 
       const response = await Server.Default().app.request("/vcs/diff/raw", {
         headers: {

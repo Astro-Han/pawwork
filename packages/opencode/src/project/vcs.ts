@@ -316,9 +316,10 @@ export namespace Vcs {
         }),
         status: Effect.fn("Vcs.status")(function* () {
           if (Instance.project.vcs !== "git") return []
-          const ref = (yield* git.hasHead(Instance.directory)) ? "HEAD" : undefined
+          const worktree = Instance.worktree ?? Instance.directory
+          const ref = (yield* git.hasHead(worktree)) ? "HEAD" : undefined
           const [list, stats] = yield* Effect.all(
-            [git.status(Instance.directory), ref ? git.stats(Instance.directory, ref) : Effect.succeed([])],
+            [git.status(worktree), ref ? git.stats(worktree, ref) : Effect.succeed([])],
             { concurrency: 2 },
           )
           const statMap = nums(stats)
@@ -328,7 +329,7 @@ export namespace Vcs {
               Effect.gen(function* () {
                 const stat =
                   statMap.get(item.file) ??
-                  (item.status === "added" ? yield* git.statUntracked(Instance.directory, item.file) : undefined)
+                  (item.status === "added" ? yield* git.statUntracked(worktree, item.file) : undefined)
                 return {
                   file: item.file,
                   additions: stat?.additions ?? 0,
@@ -357,22 +358,23 @@ export namespace Vcs {
         }),
         diffRaw: Effect.fn("Vcs.diffRaw")(function* () {
           if (Instance.project.vcs !== "git") return ""
-          const [hasHead, status] = yield* Effect.all([git.hasHead(Instance.directory), git.status(Instance.directory)], {
+          const worktree = Instance.worktree ?? Instance.directory
+          const [hasHead, status] = yield* Effect.all([git.hasHead(worktree), git.status(worktree)], {
             concurrency: 2,
           })
           const batch: PatchBatch = { total: 0, capped: false }
           const tracked = yield* rawPatch(
             batch,
             hasHead
-              ? git.patchAll(Instance.directory, "HEAD", { binary: true, maxOutputBytes: MAX_TOTAL_PATCH_BYTES })
-              : git.patchStagedAll(Instance.directory, { binary: true, maxOutputBytes: MAX_TOTAL_PATCH_BYTES }),
+              ? git.patchAll(worktree, "HEAD", { binary: true, maxOutputBytes: MAX_TOTAL_PATCH_BYTES })
+              : git.patchStagedAll(worktree, { binary: true, maxOutputBytes: MAX_TOTAL_PATCH_BYTES }),
           )
           const untracked = yield* Effect.forEach(
             status.filter((item) => item.code === "??"),
             (item) =>
               rawPatch(
                 batch,
-                git.patchUntracked(Instance.directory, item.file, { binary: true, maxOutputBytes: MAX_TOTAL_PATCH_BYTES }),
+                git.patchUntracked(worktree, item.file, { binary: true, maxOutputBytes: MAX_TOTAL_PATCH_BYTES }),
               ),
             { concurrency: 1 },
           )
@@ -383,11 +385,15 @@ export namespace Vcs {
                 (item) =>
                   rawPatch(
                     batch,
-                    git.patchUnstaged(Instance.directory, item.file, { binary: true, maxOutputBytes: MAX_TOTAL_PATCH_BYTES }),
+                    git.patchUnstaged(worktree, item.file, { binary: true, maxOutputBytes: MAX_TOTAL_PATCH_BYTES }),
                   ),
                 { concurrency: 1 },
               )
-          return [tracked, ...initialWorktree, ...untracked].filter(Boolean).join("\n")
+          const patch = [tracked, ...initialWorktree, ...untracked].filter(Boolean).join("\n")
+          if (Buffer.byteLength(patch) > MAX_TOTAL_PATCH_BYTES) {
+            return yield* Effect.fail(new RawDiffError("Raw VCS diff exceeds the 10 MB output limit", "too-large"))
+          }
+          return patch
         }),
         apply: Effect.fn("Vcs.apply")(function* (input: ApplyInput) {
           if (Instance.project.vcs !== "git") {
