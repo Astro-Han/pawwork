@@ -17,14 +17,17 @@ const Common = {
   automationSessionID: Schema.optional(Schema.String),
 }
 
+const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
+const PositiveInt = Schema.Int.check(Schema.isGreaterThan(0))
+
 const Stop = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("count"), count: Schema.Number }),
+  Schema.Struct({ kind: Schema.Literal("count"), count: PositiveInt }),
   Schema.Struct({ kind: Schema.Literal("condition"), condition: Schema.String }),
   Schema.Struct({ kind: Schema.Literal("never") }),
 ])
 
 const Rhythm = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("interval"), everyMs: Schema.Number }),
+  Schema.Struct({ kind: Schema.Literal("interval"), everyMs: PositiveInt }),
   Schema.Struct({ kind: Schema.Literal("cron"), expression: Schema.String }),
 ])
 
@@ -32,7 +35,7 @@ export const AutomateParameters = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("oneshot"),
     ...Common,
-    fireAt: Schema.Number,
+    fireAt: NonNegativeInt,
   }),
   Schema.Struct({
     kind: Schema.Literal("recurring"),

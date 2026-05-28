@@ -55,6 +55,33 @@ describe("automate tool", () => {
     expect(formatAutomateValidationError(error)).toContain("Invalid automate input")
   })
 
+  test.each([
+    ["negative fireAt", { kind: "oneshot", fireAt: -1 }],
+    ["fractional fireAt", { kind: "oneshot", fireAt: 1.5 }],
+    ["zero interval", { kind: "recurring", rhythm: { kind: "interval", everyMs: 0 }, stop: { kind: "never" } }],
+    ["fractional interval", { kind: "recurring", rhythm: { kind: "interval", everyMs: 1.5 }, stop: { kind: "never" } }],
+    ["zero count", { kind: "recurring", rhythm: { kind: "interval", everyMs: 60_000 }, stop: { kind: "count", count: 0 } }],
+    ["fractional count", { kind: "recurring", rhythm: { kind: "interval", everyMs: 60_000 }, stop: { kind: "count", count: 1.5 } }],
+  ])("rejects invalid numeric fields before execute reaches the Zod create parser: %s", (_name, override) => {
+    const decode = Schema.decodeUnknownSync(AutomateParameters)
+    const base = {
+      title: "Daily repo brief",
+      prompt: "Summarize repo changes.",
+      context: "fresh",
+      where: { projectID: "project" },
+      timezone: "UTC",
+    }
+    let error: unknown
+    try {
+      decode({ ...base, ...override })
+    } catch (caught) {
+      error = caught
+    }
+
+    expect(error).toBeDefined()
+    expect(formatAutomateValidationError(error)).toContain("Invalid automate input")
+  })
+
   test("echoes the resolved definition through the automation create path", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
