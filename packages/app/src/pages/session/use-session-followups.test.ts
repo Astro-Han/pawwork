@@ -2,6 +2,7 @@ import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
 import { QueryClient, QueryClientProvider } from "@tanstack/solid-query"
 import { createRoot, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
+import { normalize, readPersistedAsync, readPersistedSync } from "@/utils/persist-read"
 import type {
   canSendFollowupItem as CanSendFollowupItem,
   createSessionFollowups as CreateSessionFollowups,
@@ -75,6 +76,9 @@ beforeAll(async () => {
   mock.module("@/utils/persist", () => ({
     Persist: PersistMock,
     PersistTesting: {
+      normalize,
+      readPersistedAsync,
+      readPersistedSync,
       workspaceStorage,
     },
     persisted: (_target: unknown, store: unknown) => store,
