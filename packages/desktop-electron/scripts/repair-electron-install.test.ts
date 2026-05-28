@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
+  electronInstallEnv,
   isElectronInstallComplete,
   platformPathForElectron,
   repairElectronInstall,
@@ -68,5 +69,17 @@ describe("repair Electron install", () => {
     })
 
     expect(readFileSync(join(electronDir, "path.txt"), "utf8")).toBe(platformPath)
+  })
+
+  test("does not let skip-download environment leak into repair installs", () => {
+    const env = electronInstallEnv({
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1",
+      force_no_cache: "false",
+      PATH: "/bin",
+    })
+
+    expect(env.ELECTRON_SKIP_BINARY_DOWNLOAD).toBeUndefined()
+    expect(env.force_no_cache).toBe("true")
+    expect(env.PATH).toBe("/bin")
   })
 })

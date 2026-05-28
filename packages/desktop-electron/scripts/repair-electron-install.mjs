@@ -51,11 +51,18 @@ export function writeElectronPathFileIfInstallComplete(electronDir, platform = p
   return true
 }
 
+export function electronInstallEnv(env = process.env) {
+  const next = { ...env, force_no_cache: "true" }
+  delete next.ELECTRON_SKIP_BINARY_DOWNLOAD
+  return next
+}
+
 export function repairElectronInstall(options = {}) {
   const platform = options.platform ?? process.platform
   const electronDir = options.electronDir ?? join(require.resolve("electron/package.json"), "..")
   const installScript = join(electronDir, "install.js")
-  const runInstall = options.runInstall ?? (() => execFileSync(process.execPath, [installScript], { stdio: "inherit" }))
+  const runInstall =
+    options.runInstall ?? (() => execFileSync(process.execPath, [installScript], { env: electronInstallEnv(), stdio: "inherit" }))
 
   if (!writeElectronPathFileIfInstallComplete(electronDir, platform)) {
     rmSync(join(electronDir, "path.txt"), { force: true })
