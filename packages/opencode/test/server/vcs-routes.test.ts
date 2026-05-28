@@ -24,20 +24,23 @@ describe("VCS routes", () => {
 
   test("documents apply failure reasons in OpenAPI", async () => {
     const spec = await Server.openapi()
-    const response = spec.paths?.["/vcs/apply"]?.post?.responses?.["400"]
-    if (!response || "$ref" in response) throw new Error("expected inline apply failure response")
-    const schema = response.content?.["application/json"]?.schema
+    const badRequest = spec.paths?.["/vcs/apply"]?.post?.responses?.["400"]
+    const tooLarge = spec.paths?.["/vcs/apply"]?.post?.responses?.["413"]
+    if (!badRequest || "$ref" in badRequest) throw new Error("expected inline apply failure response")
+    if (!tooLarge || "$ref" in tooLarge) throw new Error("expected inline apply size failure response")
+    const schema = badRequest.content?.["application/json"]?.schema
 
     expect(schema).toEqual({
       $ref: "#/components/schemas/VcsApplyFailure",
     })
+    expect(tooLarge.content?.["application/json"]?.schema).toEqual(schema)
     expect(spec.components?.schemas?.VcsApplyFailure).toMatchObject({
       properties: {
         error: {
           const: "vcs_apply_failed",
         },
         reason: {
-          enum: ["non-git", "not-clean"],
+          enum: ["non-git", "not-clean", "too-large"],
         },
         message: {
           type: "string",
@@ -252,6 +255,7 @@ describe("VCS routes", () => {
       })
 
       expect(response.status).toBe(413)
+      expect(response.headers.get("content-type")).toContain("application/json")
       expect(await response.json()).toEqual({
         error: "vcs_diff_raw_failed",
         reason: "too-large",
@@ -344,6 +348,26 @@ describe("VCS routes", () => {
     },
     20_000,
   )
+
+  test("rejects oversized apply patches before git apply", async () => {
+    await using tmp = await tmpdir()
+
+    const response = await Server.Default().app.request("/vcs/apply", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-opencode-directory": tmp.path,
+      },
+      body: JSON.stringify({ patch: "x".repeat(10_000_001) }),
+    })
+
+    expect(response.status).toBe(413)
+    expect(await response.json()).toEqual({
+      error: "vcs_apply_failed",
+      reason: "too-large",
+      message: "Patch exceeds the 10 MB input limit",
+    })
+  })
 
   test("applies a patch and reports apply failures", async () => {
     await using source = await tmpdir({ git: true })

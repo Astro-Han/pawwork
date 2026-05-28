@@ -2291,7 +2291,7 @@ export type VcsDiffRawFailure = {
 
 export type VcsApplyFailure = {
   error: "vcs_apply_failed"
-  reason: "non-git" | "not-clean"
+  reason: "non-git" | "not-clean" | "too-large"
   message: string
 }
 
@@ -5977,6 +5977,10 @@ export type VcsApplyErrors = {
    * VCS patch apply failure
    */
   400: VcsApplyFailure
+  /**
+   * VCS patch apply failure
+   */
+  413: VcsApplyFailure
 }
 
 export type VcsApplyError = VcsApplyErrors[keyof VcsApplyErrors]

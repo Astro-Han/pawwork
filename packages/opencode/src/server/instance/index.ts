@@ -260,6 +260,14 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
               },
             },
           },
+          413: {
+            description: "VCS patch apply failure",
+            content: {
+              "application/json": {
+                schema: resolver(Vcs.ApplyError),
+              },
+            },
+          },
         },
       }),
       validator("json", Vcs.ApplyInput),
@@ -273,7 +281,7 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
               reason: error.reason,
               message: error.message,
             } satisfies Vcs.ApplyError
-            return c.json(body, 400)
+            return c.json(body, error.reason === "too-large" ? 413 : 400)
           }
           throw error
         }

@@ -208,7 +208,7 @@ export namespace Vcs {
   export const ApplyError = z
     .object({
       error: z.literal("vcs_apply_failed"),
-      reason: z.enum(["non-git", "not-clean"]),
+      reason: z.enum(["non-git", "not-clean", "too-large"]),
       message: z.string(),
     })
     .meta({
@@ -396,6 +396,9 @@ export namespace Vcs {
           return patch
         }),
         apply: Effect.fn("Vcs.apply")(function* (input: ApplyInput) {
+          if (Buffer.byteLength(input.patch) > MAX_TOTAL_PATCH_BYTES) {
+            return yield* Effect.fail(new PatchApplyError("Patch exceeds the 10 MB input limit", "too-large"))
+          }
           if (Instance.project.vcs !== "git") {
             return yield* Effect.fail(new PatchApplyError("Patch can't be applied because the project is not git-based", "non-git"))
           }
