@@ -1,0 +1,206 @@
+# Temporary diagnostic workflow for Playwright browser install hangs on
+# GitHub-hosted Ubuntu runners. This is intentionally not a required check.
+name: playwright-install-diagnostics
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [dev]
+    paths:
+      - ".github/workflows/playwright-install-diagnostics.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers
+      PW_DIAG_DIR: /tmp/playwright-install-diagnostics
+      CHROMIUM_ZIP_URL: https://cdn.playwright.dev/dbazure/download/playwright/builds/chromium/1200/chromium-linux.zip
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # actions/setup-node@v6.4.0
+        with:
+          node-version: "24"
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.13"
+
+      - run: bun install --frozen-lockfile
+
+      - name: Record runner environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$PW_DIAG_DIR"
+          {
+            date -u
+            echo "node=$(node --version)"
+            echo "bun=$(bun --version)"
+            echo "playwright=$(bun --cwd packages/app playwright --version)"
+            echo "chrome=$(google-chrome --version || true)"
+            echo "chromium=$(chromium --version || true)"
+            echo "PLAYWRIGHT_BROWSERS_PATH=$PLAYWRIGHT_BROWSERS_PATH"
+            echo
+            df -h
+            echo
+            df -i
+            echo
+            mount
+          } > "$PW_DIAG_DIR/environment.log" 2>&1
+
+      - name: Install strace
+        shell: bash
+        run: sudo apt-get update && sudo apt-get install -y strace
+
+      - name: Probe original Playwright install with debug logs
+        id: original_install
+        timeout-minutes: 5
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          mkdir -p "$PW_DIAG_DIR"
+          rm -rf "$PLAYWRIGHT_BROWSERS_PATH"
+          {
+            echo "command: DEBUG=pw:install bunx playwright install --with-deps chromium"
+            echo "started: $(date -u)"
+            cd packages/app
+            DEBUG=pw:install timeout --kill-after=10s 240s bunx playwright install --with-deps chromium
+            code=$?
+            echo "finished: $(date -u)"
+            echo "exit_code=$code"
+            exit "$code"
+          } > "$PW_DIAG_DIR/original-install-debug.log" 2>&1
+
+      - name: Probe manual curl and unzip
+        id: manual_zip
+        timeout-minutes: 5
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          mkdir -p "$PW_DIAG_DIR/manual-unzip"
+          {
+            echo "url=$CHROMIUM_ZIP_URL"
+            echo "started: $(date -u)"
+            curl -fL --retry 2 --connect-timeout 30 -o "$PW_DIAG_DIR/chromium-linux.zip" "$CHROMIUM_ZIP_URL"
+            curl_code=$?
+            echo "curl_exit_code=$curl_code"
+            if [ "$curl_code" -eq 0 ]; then
+              unzip -q "$PW_DIAG_DIR/chromium-linux.zip" -d "$PW_DIAG_DIR/manual-unzip"
+              unzip_code=$?
+              echo "unzip_exit_code=$unzip_code"
+              du -sh "$PW_DIAG_DIR/manual-unzip"
+              find "$PW_DIAG_DIR/manual-unzip" -maxdepth 3 -type f | head -n 80
+              exit "$unzip_code"
+            fi
+            exit "$curl_code"
+          } > "$PW_DIAG_DIR/manual-curl-unzip.log" 2>&1
+
+      - name: Probe Playwright install under tmp browser path
+        id: tmp_path_install
+        timeout-minutes: 5
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          mkdir -p "$PW_DIAG_DIR"
+          rm -rf /tmp/pw-browsers
+          {
+            echo "command: PLAYWRIGHT_BROWSERS_PATH=/tmp/pw-browsers DEBUG=pw:install bunx playwright install chromium"
+            echo "started: $(date -u)"
+            cd packages/app
+            PLAYWRIGHT_BROWSERS_PATH=/tmp/pw-browsers DEBUG=pw:install timeout --kill-after=10s 240s bunx playwright install chromium
+            code=$?
+            echo "finished: $(date -u)"
+            echo "exit_code=$code"
+            exit "$code"
+          } > "$PW_DIAG_DIR/tmp-path-install-debug.log" 2>&1
+
+      - name: Probe Playwright install under strace
+        id: strace_install
+        timeout-minutes: 5
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          mkdir -p "$PW_DIAG_DIR"
+          rm -rf "$PLAYWRIGHT_BROWSERS_PATH"
+          {
+            echo "command: strace -ff bunx playwright install chromium"
+            echo "started: $(date -u)"
+            cd packages/app
+            DEBUG=pw:install timeout --kill-after=10s 240s strace -ff -tt -o "$PW_DIAG_DIR/pw-strace" bunx playwright install chromium
+            code=$?
+            echo "finished: $(date -u)"
+            echo "exit_code=$code"
+            exit "$code"
+          } > "$PW_DIAG_DIR/strace-install-debug.log" 2>&1
+
+      - name: Record install directories
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          mkdir -p "$PW_DIAG_DIR"
+          {
+            echo "workspace browser path"
+            find "$PLAYWRIGHT_BROWSERS_PATH" -maxdepth 4 -ls 2>&1 || true
+            echo
+            echo "tmp browser path"
+            find /tmp/pw-browsers -maxdepth 4 -ls 2>&1 || true
+            echo
+            echo "diagnostic dir"
+            find "$PW_DIAG_DIR" -maxdepth 3 -ls 2>&1 || true
+          } > "$PW_DIAG_DIR/directories.log" 2>&1
+
+      - name: Summarize probes
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          {
+            echo "## Playwright install diagnostics"
+            echo
+            echo "| Probe | Outcome |"
+            echo "| --- | --- |"
+            for file in \
+              original-install-debug.log \
+              manual-curl-unzip.log \
+              tmp-path-install-debug.log \
+              strace-install-debug.log; do
+              status="$(grep -E 'exit_code=|curl_exit_code=|unzip_exit_code=' "$PW_DIAG_DIR/$file" | tail -n 2 | tr '\n' ' ' || true)"
+              echo "| $file | ${status:-no status line} |"
+            done
+            echo
+            echo "### Last lines"
+            for file in \
+              original-install-debug.log \
+              manual-curl-unzip.log \
+              tmp-path-install-debug.log \
+              strace-install-debug.log \
+              directories.log; do
+              echo
+              echo "#### $file"
+              echo '```'
+              tail -n 60 "$PW_DIAG_DIR/$file" || true
+              echo '```'
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # actions/upload-artifact@v7
+        with:
+          name: playwright-install-diagnostics-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 7
+          path: /tmp/playwright-install-diagnostics
