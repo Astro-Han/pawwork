@@ -175,6 +175,21 @@ describe("automation routes", () => {
     })
   })
 
+  test("runs return an empty page for an unknown cursor", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const created = await json(app, "/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(recurringInput(projectID)),
+      })
+
+      await json(app, `/automation/${created.id}/run`, { method: "POST" })
+      const page = await json(app, `/automation/${created.id}/runs?limit=1&cursor=automation_run_missing`)
+
+      expect(page).toEqual({ items: [], nextCursor: null })
+    })
+  })
+
   test("schemas freeze terminal reason state mapping", () => {
     expect(() =>
       Automation.Run.parse({

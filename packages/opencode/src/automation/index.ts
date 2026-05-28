@@ -266,7 +266,8 @@ export namespace Automation {
     get(input.automationID)
     const limit = Math.min(Math.max(input.limit ?? 50, 1), 100)
     const all = state().runs.get(input.automationID) ?? []
-    const start = input.cursor ? all.findIndex((run) => run.id === input.cursor) + 1 : 0
+    const cursorIndex = input.cursor ? all.findIndex((run) => run.id === input.cursor) : -1
+    const start = input.cursor ? (cursorIndex === -1 ? all.length : cursorIndex + 1) : 0
     const items = all.slice(start, start + limit)
     return { items, nextCursor: start + limit < all.length ? items.at(-1)?.id ?? null : null }
   }
