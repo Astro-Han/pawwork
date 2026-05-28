@@ -1,16 +1,15 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
+import type { Prompt } from "@/context/prompt"
+import type {
+  createPromptSubmit as createPromptSubmitType,
+  sendFollowupDraft as sendFollowupDraftType,
+} from "./submit"
 
-type Prompt = Array<any>
-type PromptSubmitInputForTest = {
-  navigate?: (path: string) => void
-  routeParams?: () => { dir?: string; id?: string }
-  promptLength: (value: Prompt) => number
-  onQueue?: (draft: any) => void
-  [key: string]: any
-}
+type PromptSubmitInput = Parameters<typeof createPromptSubmitType>[0]
+type PromptSubmit = ReturnType<typeof createPromptSubmitType>
 
-let createPromptSubmit: (input: PromptSubmitInputForTest) => any
-let sendFollowupDraft: any
+let createPromptSubmit: (input: PromptSubmitInput) => PromptSubmit
+let sendFollowupDraft: typeof sendFollowupDraftType
 
 const createdClients: string[] = []
 const createdSessions: string[] = []
@@ -174,7 +173,7 @@ beforeAll(async () => {
         directory: "/repo/main",
         client: rootClient,
         url: "http://localhost:4096",
-        createClient(opts: any) {
+        createClient(opts: { directory: string }) {
           return clientFor(opts.directory)
         },
       }
@@ -252,7 +251,7 @@ beforeAll(async () => {
   }))
 
   const mod = await import("./submit")
-  createPromptSubmit = mod.createPromptSubmit as unknown as typeof createPromptSubmit
+  createPromptSubmit = mod.createPromptSubmit
   sendFollowupDraft = mod.sendFollowupDraft
 })
 
