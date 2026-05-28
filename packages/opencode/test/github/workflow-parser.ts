@@ -10,6 +10,7 @@ export type WorkflowStep = {
   name?: string
   run?: string
   shell?: string
+  "timeout-minutes"?: number
   uses?: string
   with?: Record<string, unknown>
   env?: Record<string, string>
