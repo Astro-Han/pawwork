@@ -86,6 +86,9 @@ describe("automate tool", () => {
   test.each([
     ["empty cron expression", { rhythm: { kind: "cron", expression: "" }, stop: { kind: "never" } }],
     ["empty stop condition", { rhythm: { kind: "interval", everyMs: 60_000 }, stop: { kind: "condition", condition: "" } }],
+    ["title above replay-safe limit", { title: "x".repeat(161) }],
+    ["prompt above replay-safe limit", { prompt: "x".repeat(20_001) }],
+    ["condition above replay-safe limit", { rhythm: { kind: "interval", everyMs: 60_000 }, stop: { kind: "condition", condition: "x".repeat(4_001) } }],
   ])("rejects empty nested strings before execute reaches the Zod create parser: %s", (_name, override) => {
     const decode = Schema.decodeUnknownSync(AutomateParameters)
     let error: unknown
@@ -109,7 +112,6 @@ describe("automate tool", () => {
 
   test.each([
     ["sourceSessionID", { sourceSessionID: "not-a-session-id" }],
-    ["automationSessionID", { automationSessionID: "not-a-session-id" }],
   ])("rejects invalid session ids before execute reaches the Zod create parser: %s", (_name, override) => {
     const decode = Schema.decodeUnknownSync(AutomateParameters)
     let error: unknown
@@ -137,7 +139,6 @@ describe("automate tool", () => {
     ["invalid timezone", { timezone: "Not/AZone" }],
     ["invalid cron expression", { rhythm: { kind: "cron", expression: "not cron" } }],
     ["bare session prefix", { sourceSessionID: "ses" }],
-    ["malformed session id", { automationSessionID: "ses_bad" }],
   ])("rejects semantic validation before execute reaches the Zod create parser: %s", (_name, override) => {
     const decode = Schema.decodeUnknownSync(AutomateParameters)
     let error: unknown
@@ -286,6 +287,49 @@ describe("automate tool", () => {
         )
 
         expect(result.metadata.automationDefinition.sourceSessionID).toBe(sourceSessionID)
+      },
+    })
+  })
+
+  test("rejects externally supplied automationSessionID through the create path", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const tool = createAutomateDefinition()
+        let error: unknown
+        const spoofedSession = { automationSessionID: SessionID.descending() } as Record<string, unknown>
+        try {
+          await Effect.runPromise(
+            tool.execute(
+              {
+                kind: "recurring",
+                title: "Daily repo brief",
+                prompt: "Summarize repo changes.",
+                context: "fresh",
+                where: { projectID: Instance.project.id },
+                timezone: "Asia/Shanghai",
+                ...spoofedSession,
+                rhythm: { kind: "interval", everyMs: 60_000 },
+                stop: { kind: "never" },
+              },
+              {
+                sessionID: SessionID.descending(),
+                messageID: MessageID.ascending(),
+                agent: "build",
+                abort: new AbortController().signal,
+                messages: [],
+                metadata: () => Effect.void,
+                ask: () => Effect.void,
+              },
+            ),
+          )
+        } catch (caught) {
+          error = caught
+        }
+
+        expect(error).toBeInstanceOf(Error)
+        expect(String(error)).toContain("automationSessionID: unsupported_automation_field")
       },
     })
   })

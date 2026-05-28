@@ -21,6 +21,9 @@ export const AutomationID = {
 
 export namespace Automation {
   export const MIN_INTERVAL_MS = 30_000
+  export const MAX_TITLE_CHARS = 160
+  export const MAX_PROMPT_CHARS = 20_000
+  export const MAX_CONDITION_CHARS = 4_000
 
   export const DefinitionID = AutomationID.Definition.zod
   export const RunID = AutomationID.Run.zod
@@ -39,7 +42,7 @@ export namespace Automation {
   export const Stop = z
     .discriminatedUnion("kind", [
       z.object({ kind: z.literal("count"), count: z.number().int().positive() }),
-      z.object({ kind: z.literal("condition"), condition: z.string().min(1) }),
+      z.object({ kind: z.literal("condition"), condition: z.string().min(1).max(MAX_CONDITION_CHARS, `condition_too_long_${MAX_CONDITION_CHARS}`) }),
       z.object({ kind: z.literal("never") }),
     ])
     .meta({ ref: "AutomationStop" })
@@ -51,13 +54,12 @@ export namespace Automation {
     .meta({ ref: "AutomationRhythm" })
 
   const CommonCreate = {
-    title: z.string().min(1),
-    prompt: z.string().min(1),
+    title: z.string().min(1).max(MAX_TITLE_CHARS, `title_too_long_${MAX_TITLE_CHARS}`),
+    prompt: z.string().min(1).max(MAX_PROMPT_CHARS, `prompt_too_long_${MAX_PROMPT_CHARS}`),
     context: Context,
     where: Where,
     timezone: z.string().min(1),
     sourceSessionID: SessionID.zod.optional(),
-    automationSessionID: SessionID.zod.optional(),
   }
 
   export const CreateInput = z
@@ -70,14 +72,13 @@ export namespace Automation {
 
   export const UpdateInput = z
     .object({
-      title: z.string().min(1).optional(),
-      prompt: z.string().min(1).optional(),
+      title: z.string().min(1).max(MAX_TITLE_CHARS, `title_too_long_${MAX_TITLE_CHARS}`).optional(),
+      prompt: z.string().min(1).max(MAX_PROMPT_CHARS, `prompt_too_long_${MAX_PROMPT_CHARS}`).optional(),
       paused: z.boolean().optional(),
       context: Context.optional(),
       where: Where.optional(),
       timezone: z.string().min(1).optional(),
       sourceSessionID: SessionID.zod.optional(),
-      automationSessionID: SessionID.zod.optional(),
       fireAt: z.number().int().nonnegative().optional(),
       rhythm: Rhythm.optional(),
       stop: Stop.optional(),
@@ -88,8 +89,8 @@ export namespace Automation {
 
   const CommonDefinition = {
     id: DefinitionID,
-    title: z.string(),
-    prompt: z.string(),
+    title: z.string().max(MAX_TITLE_CHARS, `title_too_long_${MAX_TITLE_CHARS}`),
+    prompt: z.string().max(MAX_PROMPT_CHARS, `prompt_too_long_${MAX_PROMPT_CHARS}`),
     revision: z.number().int().positive(),
     paused: z.boolean(),
     context: Context,
@@ -104,7 +105,7 @@ export namespace Automation {
 
   export const Definition = z
     .discriminatedUnion("kind", [
-      z.object({ kind: z.literal("oneshot"), ...CommonDefinition, fireAt: z.number().int().nonnegative() }),
+      z.object({ kind: z.literal("oneshot"), ...CommonDefinition, fireAt: z.number().int().nonnegative() }).strict(),
       z.object({
         kind: z.literal("recurring"),
         ...CommonDefinition,
@@ -113,13 +114,14 @@ export namespace Automation {
         nextFireAt: z.number().int().nonnegative().nullable(),
         nextFires: z.array(z.number().int().nonnegative()),
         failureStreak: z.number().int().nonnegative(),
-      }),
+      }).strict(),
     ])
     .meta({ ref: "AutomationDefinition" })
   export type Definition = z.infer<typeof Definition>
 
   export const Tombstone = z
     .object({ id: DefinitionID, deleted: z.literal(true), revision: z.number().int().positive() })
+    .strict()
     .meta({ ref: "AutomationDefinitionTombstone" })
   export type Tombstone = z.infer<typeof Tombstone>
 
@@ -236,7 +238,6 @@ export namespace Automation {
     "where",
     "timezone",
     "sourceSessionID",
-    "automationSessionID",
   ])
   const ONESHOT_CREATE_FIELDS = new Set([...COMMON_CREATE_FIELDS, "fireAt"])
   const RECURRING_CREATE_FIELDS = new Set([...COMMON_CREATE_FIELDS, "rhythm", "stop"])
@@ -248,7 +249,6 @@ export namespace Automation {
     "where",
     "timezone",
     "sourceSessionID",
-    "automationSessionID",
     "fireAt",
     "rhythm",
     "stop",
@@ -382,7 +382,6 @@ export namespace Automation {
       timezone: input.timezone,
       normalizationWarnings: [],
       ...(input.sourceSessionID ? { sourceSessionID: input.sourceSessionID } : {}),
-      ...(input.automationSessionID ? { automationSessionID: input.automationSessionID } : {}),
     }
     const definition: Definition =
       input.kind === "oneshot"

@@ -166,6 +166,26 @@ describe("automation routes", () => {
           [{ field: "rhythm.everyMs", message: "interval_below_minimum_30000ms" }],
         ],
         [
+          "title above replay-safe limit",
+          recurringInput(projectID, { title: "x".repeat(161) }),
+          [{ field: "title", message: "title_too_long_160" }],
+        ],
+        [
+          "prompt above replay-safe limit",
+          recurringInput(projectID, { prompt: "x".repeat(20_001) }),
+          [{ field: "prompt", message: "prompt_too_long_20000" }],
+        ],
+        [
+          "condition above replay-safe limit",
+          recurringInput(projectID, { stop: { kind: "condition", condition: "x".repeat(4_001) } }),
+          [{ field: "stop.condition", message: "condition_too_long_4000" }],
+        ],
+        [
+          "externally supplied automation session",
+          { ...recurringInput(projectID), automationSessionID: SessionID.descending() },
+          [{ field: "automationSessionID", message: "unsupported_automation_field" }],
+        ],
+        [
           "oneshot recurring knobs",
           { ...oneshotInput(projectID), rhythm: { kind: "interval", everyMs: 60_000 }, stop: { kind: "never" } },
           [
@@ -225,6 +245,28 @@ describe("automation routes", () => {
         createdAt: 100,
         updatedAt: 200,
       })
+    })
+  })
+
+  test("rejects externally supplied automation session on update", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const created = await json(app, "/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(recurringInput(projectID)),
+      })
+      const response = await app.request(`/automation/${created.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ automationSessionID: SessionID.descending() }),
+      })
+
+      expect(response.status).toBe(422)
+      expect(await response.json()).toEqual({
+        error: "invalid_automation",
+        details: [{ field: "automationSessionID", message: "unsupported_automation_field" }],
+      })
+      expect(Automation.get(created.id)).not.toHaveProperty("automationSessionID")
     })
   })
 
@@ -515,6 +557,17 @@ describe("automation routes", () => {
         cost: null,
       }),
     ).toThrow()
+  })
+
+  test("schemas reject definition and tombstone contract drift fields", () => {
+    return withAutomationApp(async ({ projectID }) => {
+      const recurring = Automation.create(recurringInput(projectID))
+      const oneshot = Automation.create(oneshotInput(projectID))
+
+      expect(() => Automation.Definition.parse({ ...recurring, unexpected: true })).toThrow()
+      expect(() => Automation.Definition.parse({ ...oneshot, unexpected: true })).toThrow()
+      expect(() => Automation.Tombstone.parse({ id: recurring.id, deleted: true, revision: 2, unexpected: true })).toThrow()
+    })
   })
 
   test("schemas freeze run state consistency", () => {

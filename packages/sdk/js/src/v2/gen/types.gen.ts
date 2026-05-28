@@ -2398,7 +2398,6 @@ export type AutomationCreateInput =
       where: AutomationWhere
       timezone: string
       sourceSessionID?: string
-      automationSessionID?: string
       fireAt: number
     }
   | {
@@ -2409,7 +2408,6 @@ export type AutomationCreateInput =
       where: AutomationWhere
       timezone: string
       sourceSessionID?: string
-      automationSessionID?: string
       rhythm: AutomationRhythm
       stop: AutomationStop
     }
@@ -2422,7 +2420,6 @@ export type AutomationUpdateInput = {
   where?: AutomationWhere
   timezone?: string
   sourceSessionID?: string
-  automationSessionID?: string
   fireAt?: number
   rhythm?: AutomationRhythm
   stop?: AutomationStop

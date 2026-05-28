@@ -16,15 +16,17 @@ const CronExpression = Schema.NonEmptyString.check(
     Automation.isValidCronExpression(expression) ? undefined : "invalid_cron_expression",
   ),
 )
+const Title = Schema.NonEmptyString.check(Schema.isMaxLength(Automation.MAX_TITLE_CHARS))
+const Prompt = Schema.NonEmptyString.check(Schema.isMaxLength(Automation.MAX_PROMPT_CHARS))
+const Condition = Schema.NonEmptyString.check(Schema.isMaxLength(Automation.MAX_CONDITION_CHARS))
 
 const Common = {
-  title: Schema.NonEmptyString,
-  prompt: Schema.NonEmptyString,
+  title: Title,
+  prompt: Prompt,
   context: Schema.Union([Schema.Literal("continue"), Schema.Literal("fresh")]),
   where: Where,
   timezone: Timezone,
   sourceSessionID: Schema.optional(SessionIDString),
-  automationSessionID: Schema.optional(SessionIDString),
 }
 
 const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
@@ -33,7 +35,7 @@ const IntervalMs = Schema.Int.check(Schema.isGreaterThanOrEqualTo(Automation.MIN
 
 const Stop = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("count"), count: PositiveInt }),
-  Schema.Struct({ kind: Schema.Literal("condition"), condition: Schema.NonEmptyString }),
+  Schema.Struct({ kind: Schema.Literal("condition"), condition: Condition }),
   Schema.Struct({ kind: Schema.Literal("never") }),
 ])
 
@@ -84,6 +86,9 @@ export function createAutomateDefinition(): Tool.DefWithoutID<typeof AutomatePar
       Effect.gen(function* () {
         const definition = yield* Effect.try({
           try: () => {
+            if (Object.hasOwn(params as object, "automationSessionID")) {
+              throw new ValidationError([{ field: "automationSessionID", message: "unsupported_automation_field" }])
+            }
             const parsed = Automation.CreateInput.parse({
               ...params,
               sourceSessionID: ctx.sessionID,
