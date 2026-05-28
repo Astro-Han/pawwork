@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test"
+import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
+  downloadElectronArtifact,
   electronInstallEnv,
   isElectronInstallComplete,
   platformPathForElectron,
@@ -209,6 +211,51 @@ describe("repair Electron install", () => {
     })
 
     expect(attempts).toEqual([false, true])
+    expect(isElectronInstallComplete(electronDir, "darwin")).toBe(true)
+  })
+
+  test("can repair from a directly downloaded Electron artifact", async () => {
+    const electronDir = mkdtempSync(join(tmpdir(), "pawwork-electron-install-"))
+    const zipContents = "electron zip fixture"
+    const platformPath = platformPathForElectron("darwin")
+
+    mkdirSync(join(electronDir, "dist", "stale"), { recursive: true })
+    writeFileSync(join(electronDir, "package.json"), JSON.stringify({ version: "40.8.0" }))
+    const checksum = createHash("sha256").update(zipContents).digest("hex")
+    writeFileSync(
+      join(electronDir, "checksums.json"),
+      JSON.stringify({ "electron-v40.8.0-darwin-arm64.zip": checksum }),
+    )
+
+    await downloadElectronArtifact({
+      electronDir,
+      platform: "darwin",
+      arch: "arm64",
+      async download(_url, destination) {
+        await Bun.write(destination, zipContents)
+      },
+      async extractZip(targetElectronDir) {
+        mkdirSync(join(targetElectronDir, "dist", "Electron.app", "Contents", "MacOS"), { recursive: true })
+        mkdirSync(join(targetElectronDir, "dist", "Electron.app", "Contents", "Frameworks", "Electron Framework.framework"), {
+          recursive: true,
+        })
+        writeFileSync(join(targetElectronDir, "dist", platformPath), "")
+        writeFileSync(
+          join(
+            targetElectronDir,
+            "dist",
+            "Electron.app",
+            "Contents",
+            "Frameworks",
+            "Electron Framework.framework",
+            "Electron Framework",
+          ),
+          "",
+        )
+      },
+    })
+
+    expect(existsSync(join(electronDir, "dist", "stale"))).toBe(false)
     expect(isElectronInstallComplete(electronDir, "darwin")).toBe(true)
   })
 })
