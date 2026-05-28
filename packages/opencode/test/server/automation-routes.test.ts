@@ -3,6 +3,7 @@ import { Hono } from "hono"
 import { Log } from "@opencode-ai/core/util/log"
 import { Automation, AutomationID } from "../../src/automation"
 import { Instance } from "../../src/project/instance"
+import { ProjectID } from "../../src/project/schema"
 import { ErrorMiddleware } from "../../src/server/middleware"
 import { AutomationRoutes } from "../../src/server/instance/automation"
 import { tmpdir } from "../fixture/fixture"
@@ -13,7 +14,7 @@ afterEach(async () => {
   await Instance.disposeAll()
 })
 
-async function withAutomationApp<T>(fn: (input: { app: Hono; projectID: string }) => Promise<T>) {
+async function withAutomationApp<T>(fn: (input: { app: Hono; projectID: ProjectID }) => Promise<T>) {
   await using tmp = await tmpdir({ git: true })
   return Instance.provide({
     directory: tmp.path,
@@ -25,7 +26,14 @@ async function withAutomationApp<T>(fn: (input: { app: Hono; projectID: string }
   })
 }
 
-function recurringInput(projectID: string, overrides: Partial<Automation.CreateInput> = {}): Automation.CreateInput {
+async function json(app: Hono, input: string, init?: RequestInit) {
+  const response = await app.request(input, init)
+  return response.json()
+}
+
+type RecurringCreateInput = Extract<Automation.CreateInput, { kind: "recurring" }>
+
+function recurringInput(projectID: ProjectID, overrides: Partial<RecurringCreateInput> = {}): RecurringCreateInput {
   return {
     kind: "recurring",
     title: "Daily repo brief",
@@ -76,7 +84,7 @@ describe("automation routes", () => {
       const response = await app.request("/automation", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(recurringInput("other-project")),
+        body: JSON.stringify(recurringInput(ProjectID.zod.parse("other-project"))),
       })
       const body = await response.json()
 
@@ -106,35 +114,31 @@ describe("automation routes", () => {
 
   test("lists definitions and returns a tombstone when deleting", async () => {
     await withAutomationApp(async ({ app, projectID }) => {
-      const created = await app
-        .request("/automation", {
+      const created = await json(app, "/automation", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify(recurringInput(projectID)),
         })
-        .then((response) => response.json())
 
-      const listed = await app.request("/automation").then((response) => response.json())
+      const listed = await json(app, "/automation")
       expect(listed.items).toHaveLength(1)
       expect(listed.items[0].id).toBe(created.id)
 
-      const deleted = await app.request(`/automation/${created.id}`, { method: "DELETE" }).then((response) => response.json())
+      const deleted = await json(app, `/automation/${created.id}`, { method: "DELETE" })
       expect(deleted).toEqual({ id: created.id, deleted: true, revision: 2 })
 
-      const afterDelete = await app.request("/automation").then((response) => response.json())
+      const afterDelete = await json(app, "/automation")
       expect(afterDelete.items).toEqual([])
     })
   })
 
   test("runNow is a contract stub before PR2 execution", async () => {
     await withAutomationApp(async ({ app, projectID }) => {
-      const created = await app
-        .request("/automation", {
+      const created = await json(app, "/automation", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify(recurringInput(projectID)),
         })
-        .then((response) => response.json())
 
       const response = await app.request(`/automation/${created.id}/run`, { method: "POST" })
       const run = await response.json()
@@ -152,24 +156,20 @@ describe("automation routes", () => {
 
   test("runs are listed newest first with cursor pagination", async () => {
     await withAutomationApp(async ({ app, projectID }) => {
-      const created = await app
-        .request("/automation", {
+      const created = await json(app, "/automation", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify(recurringInput(projectID)),
         })
-        .then((response) => response.json())
 
-      const first = await app.request(`/automation/${created.id}/run`, { method: "POST" }).then((response) => response.json())
-      const second = await app.request(`/automation/${created.id}/run`, { method: "POST" }).then((response) => response.json())
+      const first = await json(app, `/automation/${created.id}/run`, { method: "POST" })
+      const second = await json(app, `/automation/${created.id}/run`, { method: "POST" })
 
-      const page1 = await app.request(`/automation/${created.id}/runs?limit=1`).then((response) => response.json())
+      const page1 = await json(app, `/automation/${created.id}/runs?limit=1`)
       expect(page1.items.map((run: Automation.Run) => run.id)).toEqual([second.id])
       expect(page1.nextCursor).toBe(second.id)
 
-      const page2 = await app
-        .request(`/automation/${created.id}/runs?limit=1&cursor=${encodeURIComponent(page1.nextCursor)}`)
-        .then((response) => response.json())
+      const page2 = await json(app, `/automation/${created.id}/runs?limit=1&cursor=${encodeURIComponent(page1.nextCursor)}`)
       expect(page2.items.map((run: Automation.Run) => run.id)).toEqual([first.id])
       expect(page2.nextCursor).toBeNull()
     })

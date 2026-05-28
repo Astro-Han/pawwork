@@ -10,7 +10,7 @@ const Where = Schema.Struct({
 const Common = {
   title: Schema.String,
   prompt: Schema.String,
-  context: Schema.Literal("continue", "fresh"),
+  context: Schema.Union([Schema.Literal("continue"), Schema.Literal("fresh")]),
   where: Where,
   timezone: Schema.String,
   sourceSessionID: Schema.optional(Schema.String),
