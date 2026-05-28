@@ -51,23 +51,47 @@ export function writeElectronPathFileIfInstallComplete(electronDir, platform = p
   return true
 }
 
-export function electronInstallEnv(env = process.env) {
-  const next = { ...env, force_no_cache: "true" }
-  delete next.ELECTRON_SKIP_BINARY_DOWNLOAD
-  return next
+function resetElectronInstall(electronDir) {
+  rmSync(join(electronDir, "path.txt"), { force: true })
+  rmSync(join(electronDir, "dist"), { recursive: true, force: true })
 }
 
-export function repairElectronInstall(options = {}) {
-  const platform = options.platform ?? process.platform
-  const electronDir = options.electronDir ?? join(require.resolve("electron/package.json"), "..")
-  const installScript = join(electronDir, "install.js")
-  const runInstall =
-    options.runInstall ?? (() => execFileSync(process.execPath, [installScript], { env: electronInstallEnv(), stdio: "inherit" }))
+export function electronInstallEnv({ forceNoCache = false } = {}) {
+  const env = { ...process.env }
+  delete env.ELECTRON_SKIP_BINARY_DOWNLOAD
+
+  if (forceNoCache) {
+    env.force_no_cache = "true"
+  }
+
+  return env
+}
+
+export function repairElectronInstallAt(
+  electronDir,
+  { installScript = join(electronDir, "install.js"), platform = process.platform, runInstall } = {},
+) {
+  const install =
+    runInstall ??
+    ((script, options = {}) => {
+      execFileSync(process.execPath, [script], {
+        stdio: "inherit",
+        env: electronInstallEnv(options),
+      })
+    })
 
   if (!writeElectronPathFileIfInstallComplete(electronDir, platform)) {
-    rmSync(join(electronDir, "path.txt"), { force: true })
-    rmSync(join(electronDir, "dist"), { force: true, recursive: true })
-    runInstall(installScript)
+    resetElectronInstall(electronDir)
+    try {
+      install(installScript, { forceNoCache: false })
+    } catch {
+      // Fall through to the forced no-cache retry below.
+    }
+  }
+
+  if (!writeElectronPathFileIfInstallComplete(electronDir, platform)) {
+    resetElectronInstall(electronDir)
+    install(installScript, { forceNoCache: true })
   }
 
   if (!writeElectronPathFileIfInstallComplete(electronDir, platform)) {
@@ -75,6 +99,11 @@ export function repairElectronInstall(options = {}) {
   }
 
   console.log(`Electron install ready: ${join(electronDir, "dist", platformPathForElectron(platform))}`)
+}
+
+export function repairElectronInstall() {
+  const electronDir = join(require.resolve("electron/package.json"), "..")
+  repairElectronInstallAt(electronDir)
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

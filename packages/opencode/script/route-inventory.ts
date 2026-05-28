@@ -166,6 +166,10 @@ function normalizePath(value: string) {
   return canonicalizeParams(pathOnly === "" ? "/" : pathOnly)
 }
 
+function normalizeRouteSourcePath(value: string) {
+  return value.replace(/\\/g, "/")
+}
+
 function canonicalizeParams(routePath: string) {
   return routePath
     .replace(/^\/auth\/:id\b/, "/auth/:providerID")
@@ -203,7 +207,7 @@ async function listTypeScriptFiles(root: string, relative: string): Promise<stri
     if (entry.isDirectory()) {
       files.push(...(await listTypeScriptFiles(root, child)))
     } else if (entry.isFile() && child.endsWith(".ts")) {
-      files.push(child)
+      files.push(normalizeRouteSourcePath(child))
     }
   }
   return files
@@ -230,15 +234,24 @@ async function discoverHonoRouteModules(root: string): Promise<string[]> {
   return routeModules.sort()
 }
 
+export function getMissingHonoRouteSources(expected: string[]): string[] {
+  const covered = [...honoRouteSources.map(([relative]) => relative), ...supplementalHonoRouteSources].map(
+    normalizeRouteSourcePath,
+  )
+  const coveredSet = new Set<string>(covered)
+  return expected.map(normalizeRouteSourcePath).filter((relative) => !coveredSet.has(relative))
+}
+
 export async function getHonoRouteSourceCoverage(rootInput?: string): Promise<HonoRouteSourceCoverage> {
   const root = repoRoot(rootInput)
   const expected = await discoverHonoRouteModules(root)
-  const covered = [...honoRouteSources.map(([relative]) => relative), ...supplementalHonoRouteSources].sort()
-  const coveredSet = new Set<string>(covered)
+  const covered = [...honoRouteSources.map(([relative]) => relative), ...supplementalHonoRouteSources]
+    .map(normalizeRouteSourcePath)
+    .sort()
   return {
     expected,
     covered,
-    missing: expected.filter((relative) => !coveredSet.has(relative)),
+    missing: getMissingHonoRouteSources(expected),
   }
 }
 
