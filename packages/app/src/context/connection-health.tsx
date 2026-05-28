@@ -148,41 +148,35 @@ export const { use: useConnectionHealth, provider: ConnectionHealthProvider } = 
     )
 
     // ── MCP: react to status field in the per-directory child store ─────
-    createEffect(
-      on(
-        () => {
-          const store = childStore()
-          return store ? Object.entries(store.mcp ?? {}) : []
-        },
-        (entries) => {
-          const bad = new Set<string>()
-          for (const [name, m] of entries) {
-            const status = m?.status
-            if (status === "failed" || status === "needs_auth" || status === "needs_client_registration") {
-              bad.add(name)
-            }
+    // Plain createEffect (not on(...)) so SolidJS auto-tracks every nested
+    // .status read inside the loop. Wrapping with on(() => Object.entries(...))
+    // only tracks the keys array — silently misses connected → failed flips
+    // when the key set is unchanged.
+    createEffect(() => {
+      const store = childStore()
+      const bad = new Set<string>()
+      if (store) {
+        for (const [name, m] of Object.entries(store.mcp ?? {})) {
+          const status = m?.status
+          if (status === "failed" || status === "needs_auth" || status === "needs_client_registration") {
+            bad.add(name)
           }
-          reconcileCategory("mcp", bad)
-        },
-      ),
-    )
+        }
+      }
+      reconcileCategory("mcp", bad)
+    })
 
-    // ── LSP: same, on the child store's lsp array ───────────────────────
-    createEffect(
-      on(
-        () => {
-          const store = childStore()
-          return store?.lsp ?? []
-        },
-        (items) => {
-          const bad = new Set<string>()
-          for (const item of items) {
-            if (item.status === "error") bad.add(item.id || item.name || "")
-          }
-          reconcileCategory("lsp", bad)
-        },
-      ),
-    )
+    // ── LSP: same shape, reading item.status directly in the body ───────
+    createEffect(() => {
+      const store = childStore()
+      const bad = new Set<string>()
+      if (store) {
+        for (const item of store.lsp ?? []) {
+          if (item.status === "error") bad.add(item.id || item.name || "")
+        }
+      }
+      reconcileCategory("lsp", bad)
+    })
 
     return {
       serverHealth,
