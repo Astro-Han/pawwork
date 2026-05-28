@@ -2,7 +2,6 @@ import type { Message, Session } from "@opencode-ai/sdk/v2/client"
 import { showToast } from "@opencode-ai/ui/toast"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { Binary } from "@opencode-ai/util/binary"
-import { useNavigate, useParams } from "@solidjs/router"
 import { batch, type Accessor } from "solid-js"
 import type { FileSelection } from "@/context/file"
 import { useGlobalSync } from "@/context/global-sync"
@@ -10,7 +9,7 @@ import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { useLocal } from "@/context/local"
 import { usePermission } from "@/context/permission"
-import { type ContextItem, type ImageAttachmentPart, type Prompt, usePrompt } from "@/context/prompt"
+import { type ImageAttachmentPart, type Prompt, usePrompt } from "@/context/prompt"
 import { emitRendererDiagnostic, sessionAbortDiagnosticEvent } from "@/context/renderer-diagnostics"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
@@ -27,6 +26,7 @@ import { type PromptRouteScope, promptScopeForSession } from "@/pages/session/pr
 import { type PortableDraftOwner, usePortableDraft } from "./portable-draft"
 import { type PinnedDraftOwner, usePinnedDraft } from "./pinned-draft"
 import type { ResolvedMention } from "./mention-metadata"
+import { followupCommandText, type FollowupDraft } from "./followup-draft"
 
 /**
  * Submit ownership identifies which draft owner a given submit attempt operates on.
@@ -76,17 +76,6 @@ type PendingPrompt = {
 const pending = new Map<string, PendingPrompt>()
 type AbortSource = Extract<RendererAbortSource, "ctrlG" | "emptyEnter" | "escape" | "stopButton">
 
-export type FollowupDraft = {
-  sessionID: string
-  sessionDirectory: string
-  prompt: Prompt
-  context: (ContextItem & { key: string })[]
-  agent: string
-  model: { providerID: string; modelID: string }
-  locale?: string
-  variant?: string
-}
-
 type FollowupSendInput = {
   client: ReturnType<typeof useSDK>["client"]
   globalSync: ReturnType<typeof useGlobalSync>
@@ -95,12 +84,6 @@ type FollowupSendInput = {
   messageID?: string
   optimisticBusy?: boolean
   before?: () => Promise<boolean> | boolean
-}
-
-const draftText = (prompt: Prompt) => prompt.map((part) => ("content" in part ? part.content : "")).join("")
-
-export function followupCommandText(draft: FollowupDraft) {
-  return draftText(draft.prompt)
 }
 
 const draftImages = (prompt: Prompt) => prompt.filter((part): part is ImageAttachmentPart => part.type === "image")
@@ -295,6 +278,8 @@ type PromptSubmitInput = {
   onQueue?: (draft: FollowupDraft) => void
   onAbort?: () => void
   onSubmit?: () => void
+  navigate?: (path: string) => void
+  routeParams?: Accessor<{ dir?: string; id?: string }>
 }
 
 type CommentItem = {
@@ -308,7 +293,7 @@ type CommentItem = {
 }
 
 export function createPromptSubmit(input: PromptSubmitInput) {
-  const navigate = useNavigate()
+  const navigate = input.navigate ?? (() => undefined)
   const sdk = useSDK()
   const sync = useSync()
   const globalSync = useGlobalSync()
@@ -317,10 +302,10 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   const prompt = usePrompt()
   const layout = useLayout()
   const language = useLanguage()
-  const params = useParams()
+  const params: Accessor<{ dir?: string; id?: string }> = input.routeParams ?? (() => ({}))
   const portable = usePortableDraft()
   const pinned = usePinnedDraft()
-  const sessionID = input.sessionID ?? (() => params.id)
+  const sessionID = input.sessionID ?? (() => params().id)
   const isNewSession = input.isNewSession ?? (() => !sessionID())
   const actionReady = input.actionReady ?? (() => true)
   const abortReady = input.abortReady ?? actionReady
@@ -469,13 +454,14 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     // observe an EMPTY new-session store and a "session route" verdict, which
     // breaks ownership detection (Bug 1) and the comment-restore path.
     const submittedContext = prompt.context.items().slice()
-    const submittedIsHomepage = !params.id
+    const routeParams = params()
+    const submittedIsHomepage = !routeParams.id
 
     const projectDirectory = sdk.directory
     // Capture the source scope before any await so navigate() cannot change params.id under us
     const sourcePromptScope: PromptRouteScope = {
-      dir: params.dir ?? base64Encode(projectDirectory),
-      id: params.id,
+      dir: routeParams.dir ?? base64Encode(projectDirectory),
+      id: routeParams.id,
     }
 
     // Capture submit ownership BEFORE any await. Reading pinned.current() and
@@ -586,7 +572,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     }
 
     const promptScope = promptScopeForSession({
-      routeDir: params.dir,
+      routeDir: params().dir,
       routeDirectory: projectDirectory,
       targetDirectory: sessionDirectory,
       sessionID: session.id,

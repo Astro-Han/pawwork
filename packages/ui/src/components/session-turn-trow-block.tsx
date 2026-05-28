@@ -80,6 +80,7 @@ export function trowPartHasExpandableBody(part: TrowPart): boolean {
   if (part.type === "reasoning") return !!part.text?.trim()
   const state = part.state
   if (state.status === "error") return true
+  if (state.status === "pending" || state.status === "running") return true
   if (state.status !== "completed") return false
   if (state.output) return true
 

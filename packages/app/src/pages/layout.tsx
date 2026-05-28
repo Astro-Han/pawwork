@@ -173,7 +173,6 @@ export default function Layout(props: ParentProps) {
       dir: globalSync.peek(dir, { bootstrap: false })[0].path.directory || dir,
     }
   })
-  const availableThemeEntries = createMemo(() => theme.ids().map((id) => [id, theme.themes()[id]] as const))
   const colorSchemeOrder: ColorScheme[] = ["system", "light", "dark"]
   const colorSchemeKey: Record<ColorScheme, "theme.scheme.system" | "theme.scheme.light" | "theme.scheme.dark"> = {
     system: "theme.scheme.system",
@@ -234,19 +233,6 @@ export default function Layout(props: ParentProps) {
   const closeEditor = editor.closeEditor
   const setEditor = editor.setEditor
   const InlineEditor = editor.InlineEditor
-
-  function cycleTheme(direction = 1) {
-    const ids = availableThemeEntries().map(([id]) => id)
-    if (ids.length === 0) return
-    const currentIndex = ids.indexOf(theme.themeId())
-    const nextIndex = currentIndex === -1 ? 0 : (currentIndex + direction + ids.length) % ids.length
-    const nextThemeId = ids[nextIndex]
-    theme.setTheme(nextThemeId)
-    showToast({
-      title: language.t("toast.theme.title"),
-      description: theme.name(nextThemeId),
-    })
-  }
 
   function cycleColorScheme(direction = 1) {
     const current = theme.colorScheme()
@@ -1416,32 +1402,6 @@ export default function Layout(props: ParentProps) {
         },
       },
     ]
-
-    // Only surface theme-switching commands when more than one theme ships.
-    // Phase 1 bundles only the pawwork theme, so cycling and per-theme set
-    // commands are no-ops that would clutter the command palette.
-    if (availableThemeEntries().length > 1) {
-      commands.push({
-        id: "theme.cycle",
-        title: language.t("command.theme.cycle"),
-        category: language.t("command.category.theme"),
-        keybind: "mod+shift+t",
-        onSelect: () => cycleTheme(1),
-      })
-
-      for (const [id] of availableThemeEntries()) {
-        commands.push({
-          id: `theme.set.${id}`,
-          title: language.t("command.theme.set", { theme: theme.name(id) }),
-          category: language.t("command.category.theme"),
-          onSelect: () => theme.commitPreview(),
-          onHighlight: () => {
-            theme.previewTheme(id)
-            return () => theme.cancelPreview()
-          },
-        })
-      }
-    }
 
     // Only register color-scheme commands when the current theme actually
     // supports switching. The bundled pawwork theme forces light for Phase 1.

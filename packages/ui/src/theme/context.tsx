@@ -48,9 +48,6 @@ function knownThemes() {
   return known
 }
 
-const names: Record<string, string> = {
-  pawwork: "PawWork",
-}
 const pawworkTheme = pawworkThemeJson as DesktopTheme
 
 function read(key: string) {
@@ -153,7 +150,6 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
       themeId,
       colorScheme,
       mode,
-      previewThemeId: null as string | null,
       previewScheme: null as ColorScheme | null,
     })
 
@@ -185,21 +181,10 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
       props.onThemeApplied?.(theme, mode)
     }
 
-    const ids = () => {
-      const extra = Object.keys(store.themes)
-        .filter((id) => !knownThemes().has(id))
-        .sort()
-      const all = themeIDs()
-      if (extra.length === 0) return all
-      return [...all, ...extra]
-    }
-
-    const loadThemes = () => Promise.all(themeIDs().map(load)).then(() => store.themes)
-
     const onStorage = (e: StorageEvent) => {
       if (e.key === storageKeys.themeId && e.newValue) {
         const next = e.newValue
-        if (!knownThemes().has(next) && !store.themes[next]) return
+        if (!knownThemes().has(next)) return
         setStore("themeId", next)
         void load(next).then((theme) => {
           if (!theme || store.themeId !== next) return
@@ -248,19 +233,6 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
       applyTheme(theme, store.themeId, store.mode)
     })
 
-    const setTheme = (id: string) => {
-      if (!knownThemes().has(id) && !store.themes[id]) {
-        console.warn(`Theme "${id}" not found`)
-        return
-      }
-      setStore("themeId", id)
-      void load(id).then((theme) => {
-        if (!theme || store.themeId !== id) return
-        cacheThemeVariants(theme, id, storageKeys)
-        write(storageKeys.themeId, id)
-      })
-    }
-
     const setColorScheme = (scheme: ColorScheme) => {
       setStore("colorScheme", scheme)
       write(storageKeys.colorScheme, scheme)
@@ -271,45 +243,26 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
       themeId: () => store.themeId,
       colorScheme: () => store.colorScheme,
       mode: () => store.mode,
-      ids,
-      name: (id: string) => store.themes[id]?.name ?? names[id] ?? id,
-      loadThemes,
-      themes: () => store.themes,
+      currentTheme: () => store.themes[store.themeId],
       canSwitchColorScheme: () => true,
-      setTheme,
       setColorScheme,
-      registerTheme: (theme: DesktopTheme) => setStore("themes", theme.id, theme),
-      previewTheme: (id: string) => {
-        if (!knownThemes().has(id) && !store.themes[id]) return
-        setStore("previewThemeId", id)
-        void load(id).then((theme) => {
-          if (!theme || store.previewThemeId !== id) return
-          const mode = store.previewScheme ? resolveMode(id, store.previewScheme) : store.mode
-          applyTheme(theme, id, mode)
-        })
-      },
       previewColorScheme: (scheme: ColorScheme) => {
         setStore("previewScheme", scheme)
-        const id = store.previewThemeId ?? store.themeId
+        const id = store.themeId
         void load(id).then((theme) => {
           if (!theme) return
-          if ((store.previewThemeId ?? store.themeId) !== id) return
+          if (store.themeId !== id) return
           if (store.previewScheme !== scheme) return
           applyTheme(theme, id, resolveMode(id, scheme))
         })
       },
       commitPreview: () => {
-        if (store.previewThemeId) {
-          setTheme(store.previewThemeId)
-        }
         if (store.previewScheme) {
           setColorScheme(store.previewScheme)
         }
-        setStore("previewThemeId", null)
         setStore("previewScheme", null)
       },
       cancelPreview: () => {
-        setStore("previewThemeId", null)
         setStore("previewScheme", null)
         void load(store.themeId).then((theme) => {
           if (!theme) return
