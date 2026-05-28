@@ -1,6 +1,7 @@
 export const TRIAGE_MARKER = "<!-- pawwork-pr-priority-triage-v1 -->"
 
 export const PRIORITY_LABELS = ["P0", "P1", "P2", "P3"]
+export const TYPE_LABELS = ["bug", "enhancement", "task", "documentation"]
 
 const LOW_RISK_GLOBS = [
   "docs/**",
@@ -11,6 +12,8 @@ const LOW_RISK_GLOBS = [
 ]
 
 const USER_PATH_GLOBS = ["packages/app/src/**", "packages/desktop-electron/src/**"]
+const RELEASE_BUMP_GLOBS = ["packages/desktop-electron/package.json", "bun.lock"]
+const RELEASE_BUMP_REQUIRED_PATH = "packages/desktop-electron/package.json"
 
 function escapeRegex(value) {
   return value.replace(/[.+^${}()|[\]\\]/g, "\\$&")
@@ -112,5 +115,40 @@ export function planPriorityLabels(paths, labels = []) {
     desiredPriority,
     addLabels: labelSet.has(desiredPriority) ? [] : [desiredPriority],
     removeLabels: existingPriorities.filter((label) => label !== desiredPriority),
+  }
+}
+
+export function classifyPullRequestType(paths) {
+  const normalized = paths.map((path) => path.replace(/\\/g, "/"))
+
+  if (
+    normalized.length > 0 &&
+    normalized.includes(RELEASE_BUMP_REQUIRED_PATH) &&
+    normalized.every((path) => matchesAny(path, RELEASE_BUMP_GLOBS))
+  ) {
+    return "task"
+  }
+
+  return undefined
+}
+
+/**
+ * @param {string[]} paths
+ * @param {string[]} labels
+ */
+export function planPullRequestLabels(paths, labels = []) {
+  const priorityPlan = planPriorityLabels(paths, labels)
+  const labelSet = new Set(labels)
+  const existingTypes = TYPE_LABELS.filter((label) => labelSet.has(label))
+  const inferredType = existingTypes.length === 0 ? classifyPullRequestType(paths) : undefined
+  const addLabels = [...priorityPlan.addLabels]
+
+  if (inferredType && !labelSet.has(inferredType)) {
+    addLabels.push(inferredType)
+  }
+
+  return {
+    ...priorityPlan,
+    addLabels,
   }
 }
