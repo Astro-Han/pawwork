@@ -1,6 +1,7 @@
 import { expect, mock, test } from "bun:test"
 
 mock.module("@solidjs/router", () => ({
+  useNavigate: () => () => undefined,
   useParams: () => ({}),
 }))
 

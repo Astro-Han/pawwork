@@ -47,8 +47,25 @@ beforeAll(async () => {
     usePlatform: () => ({ platform: "web" }),
   }))
   mock.module("@/utils/persist", () => ({
+    PersistTesting: {
+      workspaceStorage: (dir: string) => `pawwork.workspace.${dir.length}.dat`,
+    },
     Persist: {
       global: (key: string, legacy?: string[]) => ({ key, legacy }),
+      workspace: (dir: string, key: string, legacy?: string[]) => ({
+        storage: `pawwork.workspace.${dir.length}.dat`,
+        key: `workspace:${key}`,
+        legacy,
+      }),
+      session: (dir: string, session: string, key: string, legacy?: string[]) => ({
+        storage: `pawwork.workspace.${dir.length}.dat`,
+        key: `session:${session}:${key}`,
+        legacy,
+      }),
+      scoped: (dir: string, session: string | undefined, key: string, legacy?: string[]) =>
+        session
+          ? { storage: `pawwork.workspace.${dir.length}.dat`, key: `session:${session}:${key}`, legacy }
+          : { storage: `pawwork.workspace.${dir.length}.dat`, key: `workspace:${key}`, legacy },
     },
     persisted: (_target: unknown, store: unknown) => store,
   }))
