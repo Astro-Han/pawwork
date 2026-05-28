@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process"
-import { existsSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { createRequire } from "node:module"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 import process from "node:process"
 
@@ -56,12 +57,16 @@ function resetElectronInstall(electronDir) {
   rmSync(join(electronDir, "dist"), { recursive: true, force: true })
 }
 
-export function electronInstallEnv({ forceNoCache = false } = {}) {
+export function electronInstallEnv({ cacheRoot, forceNoCache = false } = {}) {
   const env = { ...process.env }
   delete env.ELECTRON_SKIP_BINARY_DOWNLOAD
 
   if (forceNoCache) {
     env.force_no_cache = "true"
+  }
+
+  if (cacheRoot) {
+    env.electron_config_cache = cacheRoot
   }
 
   return env
@@ -91,7 +96,10 @@ export function repairElectronInstallAt(
 
   if (!writeElectronPathFileIfInstallComplete(electronDir, platform)) {
     resetElectronInstall(electronDir)
-    install(installScript, { forceNoCache: true })
+    install(installScript, {
+      cacheRoot: mkdtempSync(join(tmpdir(), "pawwork-electron-cache-")),
+      forceNoCache: true,
+    })
   }
 
   if (!writeElectronPathFileIfInstallComplete(electronDir, platform)) {
