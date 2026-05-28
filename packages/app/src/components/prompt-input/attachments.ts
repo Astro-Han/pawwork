@@ -73,6 +73,7 @@ type PromptAttachmentsInput = {
   imageAttachments?: () => readonly ImageAttachmentPart[]
   composing?: () => boolean
   sync?: ReturnType<typeof useSync>
+  externalReady?: () => boolean
 }
 
 export function createPromptAttachments(input: PromptAttachmentsInput) {
@@ -270,6 +271,10 @@ export function createPromptAttachments(input: PromptAttachmentsInput) {
 
     // Desktop: Browser clipboard has no images and no text, try platform's native clipboard for images
     if (input.readClipboardImage && !plainText) {
+      // Same readiness gate as the synchronous onPaste check: a screenshot
+      // paste reaches here without showing up as a `file` clipboard item, so
+      // the upstream check can't see it.
+      if (input.externalReady && !input.externalReady()) return
       const file = await input.readClipboardImage()
       if (file) {
         await addAttachment(file)
@@ -320,6 +325,7 @@ export function createPromptAttachments(input: PromptAttachmentsInput) {
 
   const handleGlobalDragOver = (event: DragEvent) => {
     if (input.isDialogActive()) return
+    if (input.externalReady && !input.externalReady()) return
 
     event.preventDefault()
     const hasFiles = event.dataTransfer?.types.includes("Files")
@@ -340,6 +346,13 @@ export function createPromptAttachments(input: PromptAttachmentsInput) {
 
   const handleGlobalDrop = async (event: DragEvent) => {
     if (input.isDialogActive()) return
+    if (input.externalReady && !input.externalReady()) {
+      // Cancel the native drop so Electron doesn't open the file or navigate
+      // away from the app while the session is still opening.
+      event.preventDefault()
+      input.setDraggingType(null)
+      return
+    }
 
     event.preventDefault()
     input.setDraggingType(null)
@@ -375,5 +388,6 @@ export function createPromptAttachments(input: PromptAttachmentsInput) {
     addPickedPaths,
     removeAttachment,
     handlePaste,
+    handleGlobalDrop,
   }
 }

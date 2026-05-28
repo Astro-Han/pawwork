@@ -40,6 +40,18 @@ mock.module("@/context/language", () => ({
 }))
 
 mock.module("@/context/prompt", () => ({
+  DEFAULT_PROMPT: [{ type: "text", content: "", start: 0, end: 0 }],
+  isStructurallyEmpty: (parts: unknown[], contextItems: unknown[], imageAttachments: unknown[]) =>
+    (parts.length === 0 ||
+      (parts.length === 1 &&
+        typeof parts[0] === "object" &&
+        parts[0] !== null &&
+        "type" in parts[0] &&
+        parts[0].type === "text" &&
+        "content" in parts[0] &&
+        parts[0].content === "")) &&
+    contextItems.length === 0 &&
+    imageAttachments.length === 0,
   usePrompt: () => ({
     current: () => promptParts,
     cursor: () => 0,
@@ -283,6 +295,64 @@ describe("createPromptAttachments", () => {
       },
     ])
     expect(toasts).toHaveLength(0)
+  })
+
+  test("handleGlobalDrop cancels native drop before bailing when externalReady is false", async () => {
+    const attachments = createPromptAttachments({
+      editor: () => ({}) as HTMLDivElement,
+      isDialogActive: () => false,
+      setDraggingType: () => undefined,
+      focusEditor: () => undefined,
+      addPart: () => true,
+      model: () => ({ capabilities: { input: { image: true } } }),
+      openModelSelector: () => undefined,
+      externalReady: () => false,
+    })
+
+    let prevented = false
+    const fakeEvent = {
+      preventDefault: () => {
+        prevented = true
+      },
+      dataTransfer: { files: [], getData: () => "" },
+    } as unknown as DragEvent
+
+    await attachments.handleGlobalDrop(fakeEvent)
+
+    expect(prevented).toBe(true)
+    expect(promptParts).toHaveLength(0)
+  })
+
+  test("handlePaste skips native clipboard image when externalReady is false", async () => {
+    let readCalls = 0
+    const attachments = createPromptAttachments({
+      editor: () => ({}) as HTMLDivElement,
+      isDialogActive: () => false,
+      setDraggingType: () => undefined,
+      focusEditor: () => undefined,
+      addPart: () => true,
+      model: () => ({ capabilities: { input: { image: true } } }),
+      openModelSelector: () => undefined,
+      externalReady: () => false,
+      readClipboardImage: async () => {
+        readCalls++
+        return new File(["image"], "screenshot.png", { type: "image/png" })
+      },
+    })
+
+    const fakeEvent = {
+      preventDefault: () => undefined,
+      stopPropagation: () => undefined,
+      clipboardData: {
+        items: [],
+        getData: () => "",
+      },
+    } as unknown as ClipboardEvent
+
+    await attachments.handlePaste(fakeEvent)
+
+    expect(readCalls).toBe(0)
+    expect(promptParts).toHaveLength(0)
   })
 
   test("reports direct attachment read failures in dropped file batches", async () => {

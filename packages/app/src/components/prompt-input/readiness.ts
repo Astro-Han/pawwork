@@ -8,7 +8,31 @@ export function promptKeyActionReady(input: {
   if (input.key === "Escape" && input.working) return input.abortReady
   if (input.key === "Enter" && input.stopping) return input.abortReady
   if (input.key === "Enter" || input.key === "Escape") return input.actionReady
-  return input.actionReady
+  return true
+}
+
+export function shouldActivateShellModeFromBang(input: {
+  cursorPosition: number
+  mode: "normal" | "shell"
+  actionReady: boolean
+}) {
+  return input.actionReady && input.mode === "normal" && input.cursorPosition === 0
+}
+
+export function shouldExitShellModeOnBackspace(input: {
+  mode: "normal" | "shell"
+  collapsed: boolean
+  cursorPosition: number
+  textLength: number
+  actionReady: boolean
+}) {
+  return (
+    input.actionReady &&
+    input.mode === "shell" &&
+    input.collapsed &&
+    input.cursorPosition === 0 &&
+    input.textLength === 0
+  )
 }
 
 export function promptSendDisabled(input: {

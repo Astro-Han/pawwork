@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test"
+import { createRoot } from "solid-js"
 import type { Message, SessionDiffResponse } from "@opencode-ai/sdk/v2/client"
 import {
   aggregateFileCount,
   aggregateFiles,
+  createSessionTimelineData,
   currentDirectoryProviderUsable,
   currentSessionActionReady,
   currentSessionCacheReady,
@@ -57,6 +59,49 @@ describe("session change aggregate readers", () => {
       { file: "a.ts", patch: "", additions: 0, deletions: 0, status: "modified" },
     ])
     expect(aggregateFileCount(aggregate)).toBe(1)
+  })
+})
+
+describe("createSessionTimelineData route readiness", () => {
+  test("keeps a target route not ready until session info and message cache are both present", () => {
+    createRoot((dispose) => {
+      const sync = {
+        data: {
+          message: { ses_target: [] },
+          provider: { all: [] },
+          provider_ready: true,
+          session_status: {},
+          session_status_state: "ready",
+          turn_change_aggregate: { ses_target: { kind: "empty", sessionID: "ses_target" } },
+        },
+        session: {
+          get: () => undefined,
+          diff: () => Promise.resolve(),
+          history: {
+            more: () => false,
+            loading: () => false,
+          },
+        },
+      } as never
+      const local = {
+        session: {
+          ready: () => true,
+          reset: () => undefined,
+        },
+      } as never
+
+      const timeline = createSessionTimelineData({
+        serverKey: () => "sidecar",
+        directory: () => "/repo",
+        routeSessionID: () => "ses_target",
+        sync,
+        local,
+      })
+
+      expect(timeline.routeMessagesReady()).toBe(false)
+      expect(timeline.transitioning()).toBe(true)
+      dispose()
+    })
   })
 })
 

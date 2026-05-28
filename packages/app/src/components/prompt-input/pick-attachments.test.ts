@@ -135,4 +135,25 @@ describe("pickAttachments", () => {
     expect(result).toBe(false)
     expect(error).toHaveBeenCalled()
   })
+
+  test("skips addPickedPaths when readiness flips during the picker dialog", async () => {
+    let ready = true
+    let called = false
+
+    const result = await pickAttachments({
+      openFilePickerDialog: async () => {
+        ready = false
+        return "/tmp/report.docx"
+      },
+      addPickedPaths: async () => {
+        called = true
+        return true
+      },
+      fallbackInputClick: () => {},
+      isReady: () => ready,
+    })
+
+    expect(result).toBe(false)
+    expect(called).toBe(false)
+  })
 })

@@ -1,9 +1,10 @@
-import { Match, Show, Switch, type ComponentProps, type JSX } from "solid-js"
+import { createEffect, createSignal, Match, onCleanup, Show, Switch, type ComponentProps, type JSX } from "solid-js"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { NewSessionView, SessionHeader } from "@/components/session"
 import type { useLanguage } from "@/context/language"
 import type { createSizing } from "@/pages/session/helpers"
 import { MessageTimeline } from "@/pages/session/message-timeline"
+import { SessionOpeningSkeleton } from "@/pages/session/session-opening-skeleton"
 import { SessionSidePanel } from "@/pages/session/session-side-panel"
 import { shouldShowSessionOpeningState } from "@/pages/session/session-main-view-state"
 import type { createSessionHistoryWindow } from "@/pages/session/use-session-history-window"
@@ -13,6 +14,8 @@ import type { createSessionTurnChanges } from "@/pages/session/session-turn-chan
 import { TimelineE2EDriverBoundary } from "@/testing/timeline"
 
 type TimelineProps = ComponentProps<typeof MessageTimeline>
+const OPENING_SKELETON_DELAY_MS = 100
+const OPENING_CROSSFADE_MS = 120
 
 export function SessionMainView(props: {
   activeSessionID?: string
@@ -51,8 +54,6 @@ export function SessionMainView(props: {
   layoutTransactionActive: TimelineProps["layoutTransactionActive"]
   layoutTransactionID: TimelineProps["layoutTransactionID"]
   layoutTransactionKind: TimelineProps["layoutTransactionKind"]
-  onRetryOpenSession: () => void
-  onOpenNewSession: () => void
   composerSession: JSX.Element
   composerHome: (ctx: { onModeChange: (mode: "normal" | "shell") => void }) => JSX.Element
   canReview: () => boolean
@@ -70,6 +71,37 @@ export function SessionMainView(props: {
       routeReady: props.routeReady,
       timelineSessionID: props.timelineSessionID,
     })
+  const [openingSkeletonMounted, setOpeningSkeletonMounted] = createSignal(showSessionOpeningState())
+  const [openingSkeletonVisible, setOpeningSkeletonVisible] = createSignal(false)
+  let openingShowTimer: ReturnType<typeof setTimeout> | undefined
+  let openingHideTimer: ReturnType<typeof setTimeout> | undefined
+
+  createEffect(() => {
+    const opening = showSessionOpeningState()
+    if (openingShowTimer) clearTimeout(openingShowTimer)
+    if (openingHideTimer) clearTimeout(openingHideTimer)
+
+    if (opening) {
+      setOpeningSkeletonMounted(true)
+      setOpeningSkeletonVisible(false)
+      openingShowTimer = setTimeout(() => {
+        setOpeningSkeletonVisible(true)
+        openingShowTimer = undefined
+      }, OPENING_SKELETON_DELAY_MS)
+      return
+    }
+
+    setOpeningSkeletonVisible(false)
+    openingHideTimer = setTimeout(() => {
+      setOpeningSkeletonMounted(false)
+      openingHideTimer = undefined
+    }, OPENING_CROSSFADE_MS)
+  })
+
+  onCleanup(() => {
+    if (openingShowTimer) clearTimeout(openingShowTimer)
+    if (openingHideTimer) clearTimeout(openingHideTimer)
+  })
 
   return (
     <div class="relative size-full overflow-hidden flex flex-col">
@@ -105,37 +137,10 @@ export function SessionMainView(props: {
         </Show>
 
         <div class="@container relative min-w-[24rem] flex flex-col min-h-0 h-full flex-1">
-          <div class="flex-1 min-h-0 overflow-hidden">
+          <div class="relative flex-1 min-h-0 overflow-hidden">
             <Switch>
               <Match when={showSessionOpeningState()}>
-                <div
-                  class="size-full flex items-center justify-center px-6 text-center"
-                  role="status"
-                  data-component="session-opening-state"
-                  data-transitioning={props.transitioning ? "true" : "false"}
-                >
-                  <div class="flex flex-col items-center gap-2">
-                    <div class="size-8 rounded-full border border-border-weak border-t-brand-primary animate-spin" />
-                    <div class="text-h3 text-fg-strong">{props.language.t("session.opening")}</div>
-                    <div class="text-caption text-fg-weak">{props.language.t("session.messages.loading")}</div>
-                    <div class="mt-2 flex items-center justify-center gap-2">
-                      <button
-                        type="button"
-                        class="rounded-md border border-border-weak px-3 py-1 text-body text-fg-base transition-colors hover:bg-surface-raised focus:outline-none focus-visible:bg-surface-raised"
-                        onClick={props.onRetryOpenSession}
-                      >
-                        {props.language.t("common.retry")}
-                      </button>
-                      <button
-                        type="button"
-                        class="rounded-md border border-border-weak px-3 py-1 text-body text-fg-base transition-colors hover:bg-surface-raised focus:outline-none focus-visible:bg-surface-raised"
-                        onClick={props.onOpenNewSession}
-                      >
-                        {props.language.t("command.session.new")}
-                      </button>
-                    </div>
-                  </div>
-                </div>
+                <div class="flex-1 min-h-0" />
               </Match>
               <Match when={props.activeSessionID && props.timelineSessionID ? props.timelineSessionID : undefined}>
                 <MessageTimeline
@@ -181,8 +186,17 @@ export function SessionMainView(props: {
                 <div class="flex-1 min-h-0" />
               </Match>
             </Switch>
+            <Show when={openingSkeletonMounted()}>
+              <SessionOpeningSkeleton
+                visible={openingSkeletonVisible()}
+                transitioning={props.transitioning}
+                openingLabel={props.language.t("session.opening")}
+                messages={props.timelineMessages}
+                overlay
+              />
+            </Show>
           </div>
-          <Show when={props.activeSessionID && !showSessionOpeningState()}>{props.composerSession}</Show>
+          <Show when={props.activeSessionID}>{props.composerSession}</Show>
         </div>
 
         <SessionSidePanel

@@ -7,7 +7,11 @@ import type { SetStoreFunction } from "solid-js/store"
 import type { ContentPart, TextPart, usePrompt } from "@/context/prompt"
 import { canNavigateHistoryAtCursor } from "./history"
 import { getCursorPosition } from "./editor-dom"
-import { promptKeyActionReady } from "./readiness"
+import {
+  promptKeyActionReady,
+  shouldActivateShellModeFromBang,
+  shouldExitShellModeOnBackspace,
+} from "./readiness"
 import type { PromptStore } from "./store-types"
 import { computeCommandBackspaceResult } from "./command-backspace"
 
@@ -126,9 +130,15 @@ export function createPromptKeydownHandler(deps: PromptKeydownDeps): (event: Key
       }
     }
 
-    if (event.key === "!" && store.mode === "normal") {
+    if (event.key === "!") {
       const cursorPosition = getCursorPosition(editorRef())
-      if (cursorPosition === 0) {
+      if (
+        shouldActivateShellModeFromBang({
+          cursorPosition,
+          mode: store.mode,
+          actionReady: actionReady(),
+        })
+      ) {
         setStore("mode", "shell")
         setStore("popover", null)
         event.preventDefault()
@@ -166,9 +176,17 @@ export function createPromptKeydownHandler(deps: PromptKeydownDeps): (event: Key
       }
     }
 
-    if (store.mode === "shell") {
+    if (store.mode === "shell" && event.key === "Backspace") {
       const { collapsed, cursorPosition, textLength } = getCaretState()
-      if (event.key === "Backspace" && collapsed && cursorPosition === 0 && textLength === 0) {
+      if (
+        shouldExitShellModeOnBackspace({
+          mode: store.mode,
+          collapsed,
+          cursorPosition,
+          textLength,
+          actionReady: actionReady(),
+        })
+      ) {
         setStore("mode", "normal")
         event.preventDefault()
         return

@@ -7,6 +7,37 @@
   gap: 12px;
 }
 
+/* Opening skeleton placeholder line.
+ * Lives next to user-message / assistant-message because the skeleton reuses
+ * those shells (see session-opening-skeleton.tsx); putting the styles here
+ * keeps geometry and palette aligned when the real bubble CSS changes. */
+[data-slot="skeleton-line"] {
+  height: 0.85em;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.10);
+}
+
+[data-slot="skeleton-line"][data-shape="user"] + [data-slot="skeleton-line"][data-shape="user"] {
+  margin-top: 6px;
+}
+
+/* assistant-message uses gap:12px between real prose parts; the skeleton's
+ * single-paragraph placeholder reads tighter, so collapse to 6px while in
+ * skeleton mode. */
+[data-component="assistant-message"]:has(> [data-slot="skeleton-line"]) {
+  gap: 6px;
+}
+
+[data-color-scheme="dark"] [data-slot="skeleton-line"] {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-color-scheme="light"]) [data-slot="skeleton-line"] {
+    background: rgba(255, 255, 255, 0.12);
+  }
+}
+
 [data-component="user-message"] {
   font-family: var(--font-family-sans);
   font-size: var(--font-size-body);

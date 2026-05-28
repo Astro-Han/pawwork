@@ -6,6 +6,7 @@ export async function pickAttachments(input: {
   openFilePickerDialog?: Platform["openFilePickerDialog"]
   addPickedPaths: (paths: string[]) => Promise<boolean>
   fallbackInputClick: () => void
+  isReady?: () => boolean
 }) {
   if (!input.openFilePickerDialog) {
     input.fallbackInputClick()
@@ -21,6 +22,10 @@ export async function pickAttachments(input: {
     return false
   }
   if (!result) return false
+
+  // Readiness can flip while the native dialog is open. Re-check before
+  // mutating the prompt so opening sessions don't accept stale picks.
+  if (input.isReady && !input.isReady()) return false
 
   const paths = (Array.isArray(result) ? result : [result]).filter((path) => path.length > 0)
   if (paths.length === 0) return false
