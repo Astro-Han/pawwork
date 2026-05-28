@@ -139,26 +139,14 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
-      # The browser download intermittently hangs at 100% on the runner,
-      # so retry it with a short per-attempt timeout instead of a single
-      # long wait. System deps are installed once up front. (#979)
-      - name: Install Playwright browsers
-        timeout-minutes: 15
+      # Avoid Playwright's browser download path here; on this runner it can
+      # hang after reaching 100%. Use the GitHub-hosted Chrome install instead.
+      - name: Install Playwright system dependencies
+        timeout-minutes: 10
         working-directory: packages/app
         run: |
           bunx playwright install-deps chromium
-          for attempt in 1 2 3 4; do
-            echo "::group::Install chromium (attempt $attempt)"
-            if timeout --kill-after=10 180 bunx playwright install chromium; then
-              echo "::endgroup::"
-              exit 0
-            fi
-            echo "::endgroup::"
-            echo "::warning::Playwright chromium install attempt $attempt failed or timed out; retrying"
-            sleep 5
-          done
-          echo "::error::Playwright chromium install failed after 4 attempts"
-          exit 1
+          google-chrome --version
 
       - name: Run e2e
         id: run_e2e
@@ -167,6 +155,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           E2E_SUITE: ${{ inputs.suite || '' }}
           PLAYWRIGHT_JUNIT_OUTPUT: e2e/junit-linux.xml
+          PLAYWRIGHT_BROWSER_CHANNEL: chrome
         run: |
           if [ "$EVENT_NAME" = "pull_request" ] || [ "$E2E_SUITE" = "smoke" ]; then
             bun --cwd packages/app test:e2e:local:smoke
