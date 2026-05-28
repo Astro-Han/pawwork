@@ -7,14 +7,22 @@ const Where = Schema.Struct({
   worktree: Schema.optional(Schema.NonEmptyString),
 })
 
-const SessionIDString = Schema.String.check(Schema.isStartsWith("ses"))
+const SessionIDString = Schema.String.check(Schema.isPattern(/^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/))
+const Timezone = Schema.NonEmptyString.check(
+  Schema.makeFilter((timezone: string) => (Automation.isValidTimezone(timezone) ? undefined : "invalid_timezone")),
+)
+const CronExpression = Schema.NonEmptyString.check(
+  Schema.makeFilter((expression: string) =>
+    Automation.isValidCronExpression(expression) ? undefined : "invalid_cron_expression",
+  ),
+)
 
 const Common = {
   title: Schema.NonEmptyString,
   prompt: Schema.NonEmptyString,
   context: Schema.Union([Schema.Literal("continue"), Schema.Literal("fresh")]),
   where: Where,
-  timezone: Schema.NonEmptyString,
+  timezone: Timezone,
   sourceSessionID: Schema.optional(SessionIDString),
   automationSessionID: Schema.optional(SessionIDString),
 }
@@ -30,7 +38,7 @@ const Stop = Schema.Union([
 
 const Rhythm = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("interval"), everyMs: PositiveInt }),
-  Schema.Struct({ kind: Schema.Literal("cron"), expression: Schema.NonEmptyString }),
+  Schema.Struct({ kind: Schema.Literal("cron"), expression: CronExpression }),
 ])
 
 export const AutomateParameters = Schema.Union([

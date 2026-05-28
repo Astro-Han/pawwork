@@ -239,7 +239,7 @@ export namespace Automation {
     }
   }
 
-  function isValidTimezone(timezone: string) {
+  export function isValidTimezone(timezone: string) {
     try {
       new Intl.DateTimeFormat("en-US", { timeZone: timezone }).format(0)
       return true
@@ -272,7 +272,7 @@ export namespace Automation {
     })
   }
 
-  function isValidCronExpression(expression: string) {
+  export function isValidCronExpression(expression: string) {
     const fields = expression.trim().split(/\s+/)
     if (fields.length !== 5) return false
     return (
