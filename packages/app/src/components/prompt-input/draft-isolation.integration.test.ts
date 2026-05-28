@@ -15,7 +15,7 @@ import { createPinnedDraftOwner } from "./pinned-draft"
 import { buildRequestParts } from "./build-request-parts"
 import { captureCommentMentions } from "./mention-metadata"
 
-let detectSubmitOwnership: typeof import("./submit").detectSubmitOwnership
+let detectSubmitOwnership: any
 
 beforeAll(async () => {
   // submit.ts pulls in router/sdk/etc. at module scope; mock bare minimum.

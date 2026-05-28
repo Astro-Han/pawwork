@@ -66,7 +66,7 @@ export function BasicTool(props: BasicToolProps) {
   const ready = () => state.ready
   const pending = () => props.status === "pending" || props.status === "running"
   const hasDetails = () => {
-    if (props.hideDetails || props.locked || pending()) return false
+    if (props.hideDetails || props.locked) return false
     if (props.defer) return true
     return !!props.children
   }
@@ -156,7 +156,6 @@ export function BasicTool(props: BasicToolProps) {
   })
 
   const handleOpenChange = (value: boolean) => {
-    if (pending()) return
     if (props.locked && !value) return
     setState("open", value)
     if (props.stateKey) basicToolOpenState.set(props.stateKey, value)

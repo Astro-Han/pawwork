@@ -4,6 +4,7 @@ import { validateLabelPolicy } from "../../../../.github/scripts/label-policy-ch
 import {
   buildPriorityReview,
   classifyPriority,
+  planPullRequestLabels,
   planPriorityLabels,
   TRIAGE_MARKER,
 } from "../../../../.github/scripts/pr-priority-triage.js"
@@ -38,7 +39,9 @@ describe("pr triage workflow", () => {
   test("defines labeler routing for repo areas and workflow policy labels", () => {
     const config = readWorkflow(labelerConfigPath)
     expect(config).toContain("ci:")
-    expect(config).toContain("task:")
+    expect(config).not.toContain("task:")
+    expect(config).not.toContain("bug:")
+    expect(config).not.toContain("enhancement:")
     expect(config).not.toContain("P3:")
     expect(config).toContain("platform:")
     expect(config).toContain("app:")
@@ -53,11 +56,11 @@ describe("pr triage workflow", () => {
     expect(config).not.toContain("**/*.md")
   })
 
-  test("labels workflow PRs with type and routing while priority triage owns priority", () => {
+  test("labels workflow PRs with routing while scripts own priority and selected type inference", () => {
     const labels = labelerLabelsForGlob(".github/workflows/**")
 
-    expect(new Set(labels)).toEqual(new Set(["ci", "task"]))
-    expect(validateLabelPolicy({ itemType: "pull_request", labels: [...labels, "P3"] }).ok).toBe(true)
+    expect(new Set(labels)).toEqual(new Set(["ci"]))
+    expect(validateLabelPolicy({ itemType: "pull_request", labels: [...labels, "P3"] }).ok).toBe(false)
   })
 
   test("pins pr-triage workflow contract: labeler, priority, and policy run serially", () => {
@@ -70,7 +73,7 @@ describe("pr triage workflow", () => {
 
     expect(triageParsed.name).toBe("pr-triage")
     expect(triageParsed.on?.pull_request_target).toEqual({
-      types: ["opened", "synchronize", "reopened"],
+      types: ["opened", "synchronize", "reopened", "labeled", "unlabeled"],
       branches: ["dev"],
     })
     expect(triageParsed.permissions).toEqual({
@@ -100,7 +103,7 @@ describe("pr triage workflow", () => {
     expect(triageWorkflow).toContain("github.rest.issues.addLabels")
     expect(triageWorkflow).toContain("github.rest.issues.removeLabel")
     expect(triageWorkflow).not.toContain("github.rest.issues.setLabels")
-    expect(triageWorkflow).toContain("planPriorityLabels")
+    expect(triageWorkflow).toContain("planPullRequestLabels")
     expect(triageWorkflow).toContain("validateLabelPolicy")
     expect(triageWorkflow).toContain("github.rest.pulls.listReviews")
     expect(triageWorkflow).toContain("pathToFileURL")
@@ -178,6 +181,50 @@ describe("pr priority triage helper", () => {
       desiredPriority: "P2",
       addLabels: [],
       removeLabels: ["P3"],
+    })
+  })
+
+  test("plans release bump-only type labels without overriding author-selected types", () => {
+    expect(planPullRequestLabels(["packages/desktop-electron/package.json"], ["platform"])).toEqual({
+      suggestedPriority: "P2",
+      desiredPriority: "P2",
+      addLabels: ["P2", "task"],
+      removeLabels: [],
+    })
+
+    expect(planPullRequestLabels(["packages/desktop-electron/package.json", "bun.lock"], ["platform"])).toEqual({
+      suggestedPriority: "P2",
+      desiredPriority: "P2",
+      addLabels: ["P2", "task"],
+      removeLabels: [],
+    })
+
+    expect(
+      planPullRequestLabels(["packages/desktop-electron/package.json", "bun.lock"], ["enhancement", "platform", "P2"]),
+    ).toEqual({
+      suggestedPriority: "P2",
+      desiredPriority: "P2",
+      addLabels: [],
+      removeLabels: [],
+    })
+
+    expect(
+      planPullRequestLabels(["packages/desktop-electron/package.json", "packages/desktop-electron/README.md"], [
+        "platform",
+        "P2",
+      ]),
+    ).toEqual({
+      suggestedPriority: "P2",
+      desiredPriority: "P2",
+      addLabels: [],
+      removeLabels: [],
+    })
+
+    expect(planPullRequestLabels([".github/workflows/pr-triage.yml"], ["ci", "P3"])).toEqual({
+      suggestedPriority: "P3",
+      desiredPriority: "P3",
+      addLabels: [],
+      removeLabels: [],
     })
   })
 

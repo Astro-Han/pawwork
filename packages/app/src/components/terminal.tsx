@@ -244,7 +244,7 @@ export const Terminal = (props: TerminalProps) => {
   const getTerminalColors = (): TerminalColors => {
     const mode = theme.mode() === "dark" ? "dark" : "light"
     const fallback = DEFAULT_TERMINAL_COLORS[mode]
-    const currentTheme = theme.themes()[theme.themeId()]
+    const currentTheme = theme.currentTheme()
     if (!currentTheme) return fallback
     const variant = mode === "dark" ? currentTheme.dark : currentTheme.light
     if (!variant?.seeds && !variant?.palette) return fallback

@@ -12,7 +12,7 @@ import { SessionQuestionDock } from "@/pages/session/composer/session-question-d
 import { SessionFollowupDock } from "@/pages/session/composer/session-followup-dock"
 import { SessionRevertDock } from "@/pages/session/composer/session-revert-dock"
 import type { SessionComposerState } from "@/pages/session/composer/session-composer-state"
-import type { FollowupDraft } from "@/components/prompt-input/submit"
+import type { FollowupDraft } from "@/components/prompt-input/followup-draft"
 
 export function SessionComposerRegion(props: {
   state: SessionComposerState

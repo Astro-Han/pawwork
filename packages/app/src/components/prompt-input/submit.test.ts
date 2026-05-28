@@ -1,8 +1,15 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
 import type { Prompt } from "@/context/prompt"
+import type {
+  createPromptSubmit as createPromptSubmitType,
+  sendFollowupDraft as sendFollowupDraftType,
+} from "./submit"
 
-let createPromptSubmit: typeof import("./submit").createPromptSubmit
-let sendFollowupDraft: typeof import("./submit").sendFollowupDraft
+type PromptSubmitInput = Parameters<typeof createPromptSubmitType>[0]
+type PromptSubmit = ReturnType<typeof createPromptSubmitType>
+
+let createPromptSubmit: (input: PromptSubmitInput) => PromptSubmit
+let sendFollowupDraft: typeof sendFollowupDraftType
 
 const createdClients: string[] = []
 const createdSessions: string[] = []
@@ -166,7 +173,7 @@ beforeAll(async () => {
         directory: "/repo/main",
         client: rootClient,
         url: "http://localhost:4096",
-        createClient(opts: any) {
+        createClient(opts: { directory: string }) {
           return clientFor(opts.directory)
         },
       }
@@ -281,6 +288,8 @@ describe("prompt submit worktree selection", () => {
     params = { id: "session-route" }
     const aborts: string[] = []
     const submit = createPromptSubmit({
+      navigate: (path) => navigateImpl(path),
+      routeParams: () => params,
       sessionID: () => "session-visible",
       isNewSession: () => false,
       info: () => ({ id: "session-visible" }),
@@ -313,6 +322,8 @@ describe("prompt submit worktree selection", () => {
     const aborts: string[] = []
     const submits: string[] = []
     const submit = createPromptSubmit({
+      navigate: (path) => navigateImpl(path),
+      routeParams: () => params,
       sessionID: () => "session-visible",
       isNewSession: () => false,
       info: () => ({ id: "session-visible" }),
@@ -349,6 +360,8 @@ describe("prompt submit worktree selection", () => {
     commandDefinitions.push({ name: "summarize" })
     promptValue = [{ type: "text", content: "/summarize this", start: 0, end: 15 }]
     const submit = createPromptSubmit({
+      navigate: (path) => navigateImpl(path),
+      routeParams: () => params,
       sessionID: () => "session-existing",
       isNewSession: () => false,
       info: () => ({ id: "session-existing" }),
@@ -378,6 +391,8 @@ describe("prompt submit worktree selection", () => {
     commandsReady = false
     promptValue = [{ type: "text", content: "/bin/ls", start: 0, end: 7 }]
     const submit = createPromptSubmit({
+      navigate: (path) => navigateImpl(path),
+      routeParams: () => params,
       sessionID: () => "session-existing",
       isNewSession: () => false,
       info: () => ({ id: "session-existing" }),
@@ -407,6 +422,8 @@ describe("prompt submit worktree selection", () => {
     const aborts: string[] = []
     const submits: string[] = []
     const submit = createPromptSubmit({
+      navigate: (path) => navigateImpl(path),
+      routeParams: () => params,
       sessionID: () => "session-visible",
       isNewSession: () => false,
       info: () => ({ id: "session-visible" }),
@@ -440,6 +457,8 @@ describe("prompt submit worktree selection", () => {
     params = { id: "session-visible" }
     promptValue = [{ type: "text", content: "", start: 0, end: 0 }]
     const submit = createPromptSubmit({
+      navigate: (path) => navigateImpl(path),
+      routeParams: () => params,
       sessionID: () => "session-visible",
       isNewSession: () => false,
       info: () => ({ id: "session-visible" }),
@@ -465,6 +484,8 @@ describe("prompt submit worktree selection", () => {
 
   test("reads the latest worktree accessor value per submit", async () => {
     const submit = createPromptSubmit({
+      navigate: (path) => navigateImpl(path),
+      routeParams: () => params,
       info: () => undefined,
       imageAttachments: () => [],
       commentCount: () => 0,
@@ -502,6 +523,8 @@ describe("prompt submit worktree selection", () => {
 
   test("applies auto-accept to newly created sessions", async () => {
     const submit = createPromptSubmit({
+      navigate: (path) => navigateImpl(path),
+      routeParams: () => params,
       info: () => undefined,
       imageAttachments: () => [],
       commentCount: () => 0,
@@ -532,6 +555,8 @@ describe("prompt submit worktree selection", () => {
     variant = "high"
 
     const submit = createPromptSubmit({
+      navigate: (path) => navigateImpl(path),
+      routeParams: () => params,
       info: () => ({ id: "session-1" }),
       imageAttachments: () => [],
       commentCount: () => 0,
@@ -565,6 +590,8 @@ describe("prompt submit worktree selection", () => {
     params = { id: "session-route" }
 
     const submit = createPromptSubmit({
+      navigate: (path) => navigateImpl(path),
+      routeParams: () => params,
       sessionID: () => "session-visible",
       isNewSession: () => false,
       info: () => ({ id: "session-visible" }),
@@ -592,6 +619,8 @@ describe("prompt submit worktree selection", () => {
 
   test("seeds new sessions before optimistic prompts are added", async () => {
     const submit = createPromptSubmit({
+      navigate: (path) => navigateImpl(path),
+      routeParams: () => params,
       info: () => undefined,
       imageAttachments: () => [],
       commentCount: () => 0,
@@ -624,6 +653,8 @@ describe("prompt submit worktree selection", () => {
     promptValue = [{ type: "text", content: "run tests", start: 0, end: 9 }]
     promptAsyncFailure = new Error("send failed")
     const submit = createPromptSubmit({
+      navigate: (path) => navigateImpl(path),
+      routeParams: () => params,
       info: () => undefined,
       imageAttachments: () => [],
       commentCount: () => 0,
@@ -653,6 +684,8 @@ describe("prompt submit worktree selection", () => {
     currentIntl = "pt-BR"
 
     const submit = createPromptSubmit({
+      navigate: (path) => navigateImpl(path),
+      routeParams: () => params,
       info: () => ({ id: "session-existing" }),
       imageAttachments: () => [],
       commentCount: () => 0,
@@ -680,6 +713,8 @@ describe("prompt submit worktree selection", () => {
     const queued: Array<Record<string, unknown>> = []
 
     const submit = createPromptSubmit({
+      navigate: (path) => navigateImpl(path),
+      routeParams: () => params,
       info: () => ({ id: "session-existing" }),
       imageAttachments: () => [],
       commentCount: () => 0,
@@ -709,6 +744,8 @@ describe("prompt submit worktree selection", () => {
     promptValue = [{ type: "text", content: "/summarize this", start: 0, end: 15 }]
 
     const submit = createPromptSubmit({
+      navigate: (path) => navigateImpl(path),
+      routeParams: () => params,
       info: () => ({ id: "session-existing" }),
       imageAttachments: () => [],
       commentCount: () => 0,
@@ -770,6 +807,8 @@ describe("prompt submit worktree selection", () => {
     }
 
     const submit = createPromptSubmit({
+      navigate: (path) => navigateImpl(path),
+      routeParams: () => params,
       info: () => undefined,
       imageAttachments: () => [],
       commentCount: () => 0,
@@ -807,6 +846,8 @@ describe("Path D — marked TextPart routes through session.command", () => {
     }]
 
     const submit = createPromptSubmit({
+      navigate: (path) => navigateImpl(path),
+      routeParams: () => params,
       info: () => ({ id: "session-existing" }),
       imageAttachments: () => [],
       commentCount: () => 0,
@@ -840,6 +881,8 @@ describe("Path D — marked TextPart routes through session.command", () => {
     ]
 
     const submit = createPromptSubmit({
+      navigate: (path) => navigateImpl(path),
+      routeParams: () => params,
       info: () => ({ id: "session-existing" }),
       imageAttachments: () => [],
       commentCount: () => 0,
@@ -874,6 +917,8 @@ describe("Path D — marked TextPart routes through session.command", () => {
     }]
 
     const submit = createPromptSubmit({
+      navigate: (path) => navigateImpl(path),
+      routeParams: () => params,
       info: () => ({ id: "session-existing" }),
       imageAttachments: () => [],
       commentCount: () => 0,
@@ -910,6 +955,8 @@ describe("Legacy fallback boundary (no marked TextPart)", () => {
     ]
 
     const submit = createPromptSubmit({
+      navigate: (path) => navigateImpl(path),
+      routeParams: () => params,
       info: () => ({ id: "session-existing" }),
       imageAttachments: () => [],
       commentCount: () => 0,
@@ -941,6 +988,8 @@ describe("Legacy fallback boundary (no marked TextPart)", () => {
     ]
 
     const submit = createPromptSubmit({
+      navigate: (path) => navigateImpl(path),
+      routeParams: () => params,
       info: () => ({ id: "session-existing" }),
       imageAttachments: () => [],
       commentCount: () => 0,

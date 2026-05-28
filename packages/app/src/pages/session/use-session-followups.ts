@@ -1,8 +1,8 @@
 import { createEffect, createMemo, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useMutation } from "@tanstack/solid-query"
-import type { FollowupDraft } from "@/components/prompt-input/submit"
-import { followupCommandText, sendFollowupDraft } from "@/components/prompt-input/submit"
+import { followupCommandText, type FollowupDraft } from "@/components/prompt-input/followup-draft"
+import { sendFollowupDraft } from "@/components/prompt-input/submit"
 import type { useGlobalSync } from "@/context/global-sync"
 import type { useSDK } from "@/context/sdk"
 import type { useSettings } from "@/context/settings"
@@ -104,6 +104,7 @@ export function createSessionFollowups(input: {
   fail: (err: unknown) => void
   resumeScroll: () => void
   attachmentLabel: () => string
+  sendFollowup?: typeof sendFollowupDraft
 }) {
   const [followup, setFollowup] = persisted(
     Persist.global("session-followup.v2", ["followup.v2"]),
@@ -145,6 +146,7 @@ export function createSessionFollowups(input: {
   }
 
   const [pendingFollowups, setPendingFollowups] = createSignal<Record<string, string | undefined>>({})
+  const sendFollowupDraftForInput = input.sendFollowup ?? sendFollowupDraft
   const markFollowupPending = (key: string, id: string) => {
     setPendingFollowups((current) => ({ ...current, [key]: id }))
   }
@@ -169,7 +171,7 @@ export function createSessionFollowups(input: {
 
         const directory = input.directory()
         const draft = followupDraftForDirectory(item, directory)
-        const ok = await sendFollowupDraft({
+        const ok = await sendFollowupDraftForInput({
           client: input.client(),
           sync: input.sync,
           globalSync: input.globalSync,
