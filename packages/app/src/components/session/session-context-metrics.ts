@@ -71,7 +71,7 @@ const cacheHitRate = (input: number, read: number, write: number) => {
   const denominator = input + read + write
   if (denominator <= 0) return null
   if (read <= 0) return null
-  return Math.round((read / denominator) * 100)
+  return Math.round((read / denominator) * 1000) / 10
 }
 
 const build = (messages: Message[] = [], providers: Provider[] = [], config: Config = {}): Metrics => {

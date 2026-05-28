@@ -39,7 +39,7 @@ test("session-context-cache", async ({ page, llm, project }) => {
   await page.getByRole("tab", { name: "Context" }).click()
 
   await expect(panel.getByText("Cache Hit Rate")).toBeVisible()
-  await expect(panel.getByText("90%")).toBeVisible()
+  await expect(panel.getByText("90.0%")).toBeVisible()
   await expect(panel.getByText("Cache Tokens (read/write): 900 / 0")).toBeVisible()
 
   const toastCloseButtons = page.locator('[data-component="toast"] [data-slot="toast-close-button"]')
