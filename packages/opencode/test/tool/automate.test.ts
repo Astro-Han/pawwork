@@ -160,6 +160,52 @@ describe("automate tool", () => {
     expect(formatAutomateValidationError(error)).toContain("Invalid automate input")
   })
 
+  test.each([
+    ["wrong project", () => ({ projectID: "other-project" }), "where.projectID"],
+    ["worktree placement", (projectID: string) => ({ projectID, worktree: "feature" }), "where.worktree"],
+  ])("reports execute-time automation validation as model-readable input errors: %s", async (_name, where, field) => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const tool = createAutomateDefinition()
+        const sourceSessionID = SessionID.descending()
+        let error: unknown
+        try {
+          await Effect.runPromise(
+            tool.execute(
+              {
+                kind: "recurring",
+                title: "Daily repo brief",
+                prompt: "Summarize repo changes.",
+                context: "fresh",
+                where: where(Instance.project.id),
+                timezone: "UTC",
+                rhythm: { kind: "interval", everyMs: 60_000 },
+                stop: { kind: "never" },
+              },
+              {
+                sessionID: sourceSessionID,
+                messageID: MessageID.ascending(),
+                agent: "build",
+                abort: new AbortController().signal,
+                messages: [],
+                metadata: () => Effect.void,
+                ask: () => Effect.void,
+              },
+            ),
+          )
+        } catch (caught) {
+          error = caught
+        }
+
+        expect(String(error)).toContain("Invalid automate input")
+        expect(String(error)).toContain(field)
+        expect(Automation.list()).toHaveLength(0)
+      },
+    })
+  })
+
   test("echoes the resolved definition through the automation create path", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({

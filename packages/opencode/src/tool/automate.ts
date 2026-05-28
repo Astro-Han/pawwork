@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect"
-import { Automation } from "@/automation"
+import { Automation, ValidationError } from "@/automation"
 import * as Tool from "./tool"
 
 const Where = Schema.Struct({
@@ -56,12 +56,21 @@ export const AutomateParameters = Schema.Union([
 ])
 
 export function formatAutomateValidationError(error: unknown) {
+  const detail =
+    error instanceof ValidationError
+      ? error.details.map((item) => `${item.field}: ${item.message}`).join("\n")
+      : String(error)
   return [
     "Invalid automate input.",
     "Expected shape: oneshot { kind, title, prompt, context, where, timezone, fireAt } or recurring { kind, title, prompt, context, where, timezone, rhythm, stop }.",
     "Example: { kind: \"recurring\", title: \"Daily repo brief\", prompt: \"Summarize repo changes.\", context: \"fresh\", where: { projectID: \"current-project\" }, timezone: \"UTC\", rhythm: { kind: \"interval\", everyMs: 3600000 }, stop: { kind: \"never\" } }.",
-    String(error),
+    detail,
   ].join("\n")
+}
+
+function readableAutomationError(error: unknown) {
+  if (error instanceof ValidationError) return new Error(formatAutomateValidationError(error), { cause: error })
+  return error
 }
 
 export function createAutomateDefinition(): Tool.DefWithoutID<typeof AutomateParameters, { automationDefinition: Automation.Definition }> {
@@ -72,8 +81,16 @@ export function createAutomateDefinition(): Tool.DefWithoutID<typeof AutomatePar
     formatValidationError: formatAutomateValidationError,
     execute: (params, ctx) =>
       Effect.gen(function* () {
-        const parsed = Automation.CreateInput.parse({ ...params, sourceSessionID: params.sourceSessionID ?? ctx.sessionID })
-        const definition = Automation.create(parsed)
+        const definition = yield* Effect.try({
+          try: () => {
+            const parsed = Automation.CreateInput.parse({
+              ...params,
+              sourceSessionID: params.sourceSessionID ?? ctx.sessionID,
+            })
+            return Automation.create(parsed)
+          },
+          catch: readableAutomationError,
+        })
         yield* Effect.promise(() => Automation.publishDefinitionUpdated(definition))
         return {
           title: "Automation created",
