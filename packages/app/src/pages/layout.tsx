@@ -52,6 +52,7 @@ import { Binary } from "@opencode-ai/util/binary"
 import { retry } from "@opencode-ai/util/retry"
 import { playSoundById } from "@/utils/sound"
 import { setNavigate } from "@/utils/notification-click"
+import { setOpenSettings } from "@/utils/settings-navigation"
 import { Worktree as WorktreeState } from "@/utils/worktree"
 import { setSessionHandoff } from "@/pages/session/handoff"
 import { usePinnedDraft } from "@/components/prompt-input/pinned-draft"
@@ -157,6 +158,7 @@ export default function Layout(props: ParentProps) {
     closeSettings()
     navigate(href)
   })
+  setOpenSettings((tab) => openSettings(tab))
   const providers = useProviders()
   const dialog = useDialog()
   const command = useCommand()

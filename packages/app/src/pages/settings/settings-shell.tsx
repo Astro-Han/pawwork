@@ -7,6 +7,7 @@ import { SettingsGeneral } from "@/components/settings-general"
 import { SettingsKeybinds } from "@/components/settings-keybinds"
 import { SettingsMemory } from "@/components/settings-memory"
 import { SettingsWorktrees } from "@/components/settings-worktrees"
+import { IntegrationsPage } from "./integrations"
 import { ModelsPage } from "./models"
 
 // Settings renders as a shell-slot takeover: the nav goes into the sidebar slot
@@ -14,13 +15,12 @@ import { ModelsPage } from "./models"
 // (width / background / border) is inherited from the shell slots instead of being
 // re-declared, which removes the alignment drift the old standalone overlay had
 // (its fixed 200px nav + surface-raised content diverged from the real sidebar).
-// Remote access / Integrations are not part of this surface yet: their pages have no content
-// branch, so they are intentionally absent from both the type and TAB_VALUES. They come back —
-// type, TAB_VALUES, NAV_ITEMS and a content Match together — when their pages land. The
-// connection management they will host is still reachable via right-panel Connections.
-export type SettingsTab = "general" | "shortcuts" | "models" | "worktrees" | "memory"
+// Remote access is not part of this surface yet: its page has no content branch, so it is
+// intentionally absent from both the type and TAB_VALUES. It comes back — type, TAB_VALUES,
+// NAV_ITEMS and a content Match together — when its page lands.
+export type SettingsTab = "general" | "shortcuts" | "models" | "integrations" | "worktrees" | "memory"
 
-const TAB_VALUES: SettingsTab[] = ["general", "shortcuts", "models", "worktrees", "memory"]
+const TAB_VALUES: SettingsTab[] = ["general", "shortcuts", "models", "integrations", "worktrees", "memory"]
 
 export function isSettingsTab(value: string): value is SettingsTab {
   return (TAB_VALUES as string[]).includes(value)
@@ -30,6 +30,7 @@ const NAV_ITEMS = [
   { value: "general", icon: "settings-gear", labelKey: "settings.tab.general" },
   { value: "shortcuts", icon: "keyboard", labelKey: "settings.tab.shortcuts" },
   { value: "models", icon: "models", labelKey: "settings.tab.models" },
+  { value: "integrations", icon: "link", labelKey: "settings.tab.integrations" },
   { value: "worktrees", icon: "worktree", labelKey: "settings.tab.worktrees" },
   { value: "memory", icon: "brain", labelKey: "settings.tab.memory" },
 ] as const satisfies ReadonlyArray<{ value: SettingsTab; icon: string; labelKey: string }>
@@ -191,6 +192,9 @@ export const SettingsContent: Component<{
           </Match>
           <Match when={props.active === "models"}>
             <ModelsPage />
+          </Match>
+          <Match when={props.active === "integrations"}>
+            <IntegrationsPage directory={props.directory} />
           </Match>
           <Match when={props.active === "worktrees"}>
             <SettingsWorktrees />

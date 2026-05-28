@@ -4,9 +4,10 @@ import { composeGrid, snapOutputPath, type Shot } from "./_compose"
 
 test.use({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 })
 
-// Review the PR1 foundation: shell-slot takeover + left nav (back-to-app + 5 tabs + version footer).
-// Currently 5 tabs: General / Shortcuts / Models / Worktrees / Memory (remote access, integrations hidden until ready).
-// Capture 3 shots: General (default) / Models (providers + models merged) / Memory (shows switching to another page works).
+// Review the shell-slot takeover + left nav (back-to-app + 6 tabs + version footer).
+// Currently 6 tabs: General / Shortcuts / Models / Integrations / Worktrees / Memory
+// (remote access still hidden until ready).
+// Capture 4 shots: General (default) / Models / Integrations / Memory.
 test("settings-shell", async ({ page, project }) => {
   test.setTimeout(180_000)
 
@@ -20,10 +21,11 @@ test("settings-shell", async ({ page, project }) => {
   // Wait for each tab's content to render before snapping, instead of a fixed delay.
   const tabReady = {
     Models: '[data-component="custom-provider-section"]',
+    Integrations: '[data-component="settings-integrations"]',
     Memory: '[data-action="settings-memory-raw"]',
   } as const
 
-  for (const tab of ["Models", "Memory"] as const) {
+  for (const tab of ["Models", "Integrations", "Memory"] as const) {
     await settings.getByRole("tab", { name: tab }).click()
     await settings.locator(tabReady[tab]).first().waitFor({ state: "visible", timeout: 30_000 })
     shots.push({ name: tab.toLowerCase(), buf: await settings.screenshot() })

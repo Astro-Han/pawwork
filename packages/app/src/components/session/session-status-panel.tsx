@@ -4,9 +4,12 @@ import type { Part } from "@opencode-ai/sdk/v2"
 import { useGlobalSync } from "@/context/global-sync"
 import { useSync } from "@/context/sync"
 import { SessionStatusSummary } from "./session-status-summary"
-import { SessionStatusConnections } from "./session-status-connections"
 
-export function SessionStatusPanel(props: { shown: Accessor<boolean> }) {
+// `shown` is kept on the props contract: callers still gate this tab and the
+// summary stays a cheap reactive read, so there is nothing here to pause when
+// the tab is hidden. Connection health moved to Settings.Integrations +
+// the global ConnectionHealth toast monitor (closes #862).
+export function SessionStatusPanel(_props: { shown: Accessor<boolean> }) {
   const params = useParams()
   const globalSync = useGlobalSync()
   const sync = useSync()
@@ -32,7 +35,6 @@ export function SessionStatusPanel(props: { shown: Accessor<boolean> }) {
         isPending={isPending}
         parts={parts}
       />
-      <SessionStatusConnections shown={props.shown} />
     </div>
   )
 }

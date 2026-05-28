@@ -32,6 +32,7 @@ import { CommentsProvider } from "@/context/comments"
 import { FileProvider } from "@/context/file"
 import { GlobalSDKProvider } from "@/context/global-sdk"
 import { GlobalSyncProvider, useGlobalSync } from "@/context/global-sync"
+import { ConnectionHealthProvider } from "@/context/connection-health"
 import { HighlightsProvider } from "@/context/highlights"
 import { LanguageProvider, type Locale, useLanguage } from "@/context/language"
 import { LayoutProvider, useLayout } from "@/context/layout"
@@ -134,7 +135,9 @@ function AppShellProviders(props: ParentProps) {
             <ModelsProvider>
               <CommandProvider>
                 <HighlightsProvider>
-                  <Layout>{props.children}</Layout>
+                  <ConnectionHealthProvider>
+                    <Layout>{props.children}</Layout>
+                  </ConnectionHealthProvider>
                 </HighlightsProvider>
               </CommandProvider>
             </ModelsProvider>
