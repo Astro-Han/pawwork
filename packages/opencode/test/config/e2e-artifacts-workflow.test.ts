@@ -67,8 +67,10 @@ describe("e2e artifacts workflow", () => {
       "playwright-${{ runner.os }}-${{ hashFiles('packages/app/package.json', 'bun.lock') }}",
     )
     expect(playwrightCacheStep?.with?.["restore-keys"]).toBe("playwright-${{ runner.os }}-")
-    expect(installBrowsersStep?.["timeout-minutes"]).toBe(10)
-    expect(installBrowsersStep?.run).toBe("bunx playwright install --with-deps chromium")
+    expect(installBrowsersStep?.["timeout-minutes"]).toBe(15)
+    expect(installBrowsersStep?.run).toContain("bunx playwright install-deps chromium")
+    expect(installBrowsersStep?.run).toContain("timeout --kill-after=10 180 bunx playwright install chromium")
+    expect(installBrowsersStep?.run).toContain("attempt")
     expect(runStep?.run).toContain("bun --cwd packages/app test:e2e:local:smoke")
     expect(runStep?.["continue-on-error"]).not.toBe(true)
     expect(warnStep?.if).toBe("failure()")
