@@ -4,15 +4,15 @@ import * as Tool from "./tool"
 
 const Where = Schema.Struct({
   projectID: Schema.String,
-  worktree: Schema.optional(Schema.String),
+  worktree: Schema.optional(Schema.NonEmptyString),
 })
 
 const Common = {
-  title: Schema.String,
-  prompt: Schema.String,
+  title: Schema.NonEmptyString,
+  prompt: Schema.NonEmptyString,
   context: Schema.Union([Schema.Literal("continue"), Schema.Literal("fresh")]),
   where: Where,
-  timezone: Schema.String,
+  timezone: Schema.NonEmptyString,
   sourceSessionID: Schema.optional(Schema.String),
   automationSessionID: Schema.optional(Schema.String),
 }
