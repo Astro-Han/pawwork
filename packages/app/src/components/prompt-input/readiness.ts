@@ -11,6 +11,14 @@ export function promptKeyActionReady(input: {
   return true
 }
 
+export function shouldActivateShellModeFromBang(input: {
+  cursorPosition: number
+  mode: "normal" | "shell"
+  actionReady: boolean
+}) {
+  return input.actionReady && input.mode === "normal" && input.cursorPosition === 0
+}
+
 export function promptSendDisabled(input: {
   stopping: boolean
   actionReady: boolean
