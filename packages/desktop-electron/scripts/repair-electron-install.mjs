@@ -51,20 +51,23 @@ export function writeElectronPathFileIfInstallComplete(electronDir, platform = p
   return true
 }
 
-export function repairElectronInstall() {
-  const electronDir = join(require.resolve("electron/package.json"), "..")
+export function repairElectronInstall(options = {}) {
+  const platform = options.platform ?? process.platform
+  const electronDir = options.electronDir ?? join(require.resolve("electron/package.json"), "..")
   const installScript = join(electronDir, "install.js")
+  const runInstall = options.runInstall ?? (() => execFileSync(process.execPath, [installScript], { stdio: "inherit" }))
 
-  if (!writeElectronPathFileIfInstallComplete(electronDir)) {
+  if (!writeElectronPathFileIfInstallComplete(electronDir, platform)) {
     rmSync(join(electronDir, "path.txt"), { force: true })
-    execFileSync(process.execPath, [installScript], { stdio: "inherit" })
+    rmSync(join(electronDir, "dist"), { force: true, recursive: true })
+    runInstall(installScript)
   }
 
-  if (!writeElectronPathFileIfInstallComplete(electronDir)) {
+  if (!writeElectronPathFileIfInstallComplete(electronDir, platform)) {
     throw new Error(`Electron install is still incomplete after repair: ${electronDir}`)
   }
 
-  console.log(`Electron install ready: ${join(electronDir, "dist", platformPathForElectron())}`)
+  console.log(`Electron install ready: ${join(electronDir, "dist", platformPathForElectron(platform))}`)
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

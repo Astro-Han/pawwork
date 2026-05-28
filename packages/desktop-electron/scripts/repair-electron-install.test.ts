@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
   isElectronInstallComplete,
   platformPathForElectron,
+  repairElectronInstall,
   writeElectronPathFileIfInstallComplete,
 } from "./repair-electron-install.mjs"
 
@@ -38,6 +39,34 @@ describe("repair Electron install", () => {
 
     expect(isElectronInstallComplete(electronDir, "darwin")).toBe(true)
     expect(writeElectronPathFileIfInstallComplete(electronDir, "darwin")).toBe(true)
+    expect(readFileSync(join(electronDir, "path.txt"), "utf8")).toBe(platformPath)
+  })
+
+  test("removes a partial Electron dist before reinstalling", () => {
+    const electronDir = mkdtempSync(join(tmpdir(), "pawwork-electron-install-"))
+    const platformPath = platformPathForElectron("darwin")
+    const staleFile = join(electronDir, "dist", "stale")
+    mkdirSync(join(electronDir, "dist", "Electron.app", "Contents", "MacOS"), { recursive: true })
+    writeFileSync(join(electronDir, "dist", platformPath), "")
+    writeFileSync(staleFile, "")
+
+    repairElectronInstall({
+      electronDir,
+      platform: "darwin",
+      runInstall: () => {
+        expect(existsSync(staleFile)).toBe(false)
+        mkdirSync(join(electronDir, "dist", "Electron.app", "Contents", "MacOS"), { recursive: true })
+        mkdirSync(join(electronDir, "dist", "Electron.app", "Contents", "Frameworks", "Electron Framework.framework"), {
+          recursive: true,
+        })
+        writeFileSync(join(electronDir, "dist", platformPath), "")
+        writeFileSync(
+          join(electronDir, "dist", "Electron.app", "Contents", "Frameworks", "Electron Framework.framework", "Electron Framework"),
+          "",
+        )
+      },
+    })
+
     expect(readFileSync(join(electronDir, "path.txt"), "utf8")).toBe(platformPath)
   })
 })
