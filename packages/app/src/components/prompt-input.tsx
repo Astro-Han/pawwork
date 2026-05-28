@@ -208,6 +208,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       openFilePickerDialog: canUseNativeFilePicker(platform) ? openFilePickerDialog : undefined,
       addPickedPaths,
       fallbackInputClick: () => fileInputRef?.click(),
+      isReady: actionReady,
     })
   }
 
@@ -585,7 +586,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             class="hidden"
             onChange={(e) => {
               const list = e.currentTarget.files
-              if (list) void addAttachments(Array.from(list))
+              if (list && actionReady()) void addAttachments(Array.from(list))
               e.currentTarget.value = ""
             }}
           />
