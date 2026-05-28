@@ -264,14 +264,14 @@ describe("repair Electron install", () => {
       JSON.stringify({ "electron-v40.8.0-darwin-arm64.zip": checksum }),
     )
 
-    await downloadElectronArtifact({
+    downloadElectronArtifact({
       electronDir,
       platform: "darwin",
       arch: "arm64",
-      async download(_url, destination) {
-        await Bun.write(destination, zipContents)
+      download(_url, destination) {
+        writeFileSync(destination, zipContents)
       },
-      async extractZip(targetElectronDir) {
+      extractZip(targetElectronDir) {
         mkdirSync(join(targetElectronDir, "dist", "Electron.app", "Contents", "MacOS"), { recursive: true })
         mkdirSync(join(targetElectronDir, "dist", "Electron.app", "Contents", "Frameworks", "Electron Framework.framework"), {
           recursive: true,

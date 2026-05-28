@@ -1,12 +1,10 @@
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { createWriteStream, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
-import { get } from "node:https"
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import process from "node:process"
-import { fileURLToPath } from "node:url"
 
 const require = createRequire(import.meta.url)
 
@@ -73,39 +71,8 @@ function electronArtifactUrl({ version, platform, arch }) {
   })}`
 }
 
-function downloadFile(url, destination, redirects = 0) {
-  return new Promise((resolve, reject) => {
-    const request = get(url, (response) => {
-      const location = response.headers.location
-      if (
-        response.statusCode !== undefined &&
-        response.statusCode >= 300 &&
-        response.statusCode < 400 &&
-        location !== undefined
-      ) {
-        response.resume()
-        if (redirects >= 5) {
-          reject(new Error(`Too many redirects while downloading Electron artifact: ${url}`))
-          return
-        }
-        downloadFile(new URL(location, url).toString(), destination, redirects + 1).then(resolve, reject)
-        return
-      }
-
-      if (response.statusCode !== 200) {
-        response.resume()
-        reject(new Error(`Failed to download Electron artifact (${response.statusCode}): ${url}`))
-        return
-      }
-
-      const file = createWriteStream(destination)
-      response.pipe(file)
-      file.on("finish", () => file.close(resolve))
-      file.on("error", reject)
-    })
-
-    request.on("error", reject)
-  })
+function downloadFile(url, destination) {
+  execFileSync("curl", ["-fL", "--retry", "3", "--retry-delay", "2", "-o", destination, url], { stdio: "inherit" })
 }
 
 function verifyElectronZipChecksum(electronDir, zipPath, fileName) {
@@ -122,12 +89,10 @@ function verifyElectronZipChecksum(electronDir, zipPath, fileName) {
 }
 
 function extractElectronZip(electronDir, zipPath) {
-  const electronRequire = createRequire(join(electronDir, "install.js"))
-  const extract = electronRequire("extract-zip")
-  return extract(zipPath, { dir: join(electronDir, "dist") })
+  execFileSync("unzip", ["-q", zipPath, "-d", join(electronDir, "dist")], { stdio: "inherit" })
 }
 
-export async function downloadElectronArtifact({
+export function downloadElectronArtifact({
   electronDir,
   platform,
   arch,
@@ -140,10 +105,10 @@ export async function downloadElectronArtifact({
   const zipPath = join(scratchDir, fileName)
 
   try {
-    await download(electronArtifactUrl({ version, platform, arch }), zipPath)
+    download(electronArtifactUrl({ version, platform, arch }), zipPath)
     verifyElectronZipChecksum(electronDir, zipPath, fileName)
     resetElectronInstall(electronDir)
-    await extractZip(electronDir, zipPath)
+    extractZip(electronDir, zipPath)
   } finally {
     rmSync(scratchDir, { recursive: true, force: true })
   }
@@ -207,9 +172,7 @@ export function repairElectronInstallAt(
   }
 
   if (!writeElectronPathFileIfInstallComplete(electronDir, platform)) {
-    execFileSync(process.execPath, [fileURLToPath(import.meta.url), "--download-artifact", electronDir, platform, arch], {
-      stdio: "inherit",
-    })
+    downloadElectronArtifact({ electronDir, platform, arch })
   }
 
   if (!writeElectronPathFileIfInstallComplete(electronDir, platform)) {
@@ -225,10 +188,5 @@ export function repairElectronInstall() {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  if (process.argv[2] === "--download-artifact") {
-    const [, , , electronDir, platform, arch] = process.argv
-    await downloadElectronArtifact({ electronDir, platform, arch })
-  } else {
-    repairElectronInstall()
-  }
+  repairElectronInstall()
 }
