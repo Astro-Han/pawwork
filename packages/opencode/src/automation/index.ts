@@ -226,9 +226,14 @@ export namespace Automation {
     return definition
   }
 
-  export function update(id: string, patch: UpdateInput): Definition {
+  export function update(id: string, patch: UpdateInput, options?: { now?: number }): Definition {
     const previous = get(id)
-    const next = Definition.parse({ ...previous, ...patch, revision: previous.revision + 1, updatedAt: Date.now() })
+    const next = Definition.parse({
+      ...previous,
+      ...patch,
+      revision: previous.revision + 1,
+      updatedAt: options?.now ?? Date.now(),
+    })
     const details = validateCreateInput(next)
     if (details.length) throw new ValidationError(details)
     state().definitions.set(id, next)

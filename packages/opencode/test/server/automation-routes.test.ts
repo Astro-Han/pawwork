@@ -132,6 +132,21 @@ describe("automation routes", () => {
     })
   })
 
+  test("update accepts a deterministic timestamp", async () => {
+    await withAutomationApp(async ({ projectID }) => {
+      const definition = Automation.create(recurringInput(projectID), { now: 100 })
+      const updated = Automation.update(definition.id, { title: "Updated brief" }, { now: 200 })
+
+      expect(updated).toMatchObject({
+        id: definition.id,
+        title: "Updated brief",
+        revision: 2,
+        createdAt: 100,
+        updatedAt: 200,
+      })
+    })
+  })
+
   test("runNow is a contract stub before PR2 execution", async () => {
     await withAutomationApp(async ({ app, projectID }) => {
       const created = await json(app, "/automation", {
