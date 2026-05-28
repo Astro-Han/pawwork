@@ -131,6 +131,43 @@ describe("repair Electron install", () => {
     expect(isElectronInstallComplete(electronDir, "darwin")).toBe(true)
   })
 
+  test("retries with an isolated Electron cache when reinstall stays incomplete", () => {
+    const electronDir = mkdtempSync(join(tmpdir(), "pawwork-electron-install-"))
+    const platformPath = platformPathForElectron("darwin")
+    const attempts: Array<{ cacheRoot?: string; forceNoCache?: boolean }> = []
+
+    repairElectronInstallAt(electronDir, {
+      platform: "darwin",
+      runInstall(_installScript, options) {
+        attempts.push(options)
+        mkdirSync(join(electronDir, "dist", "Electron.app", "Contents", "MacOS"), { recursive: true })
+        writeFileSync(join(electronDir, "dist", platformPath), "")
+
+        if (options.forceNoCache) {
+          expect(options.cacheRoot).toContain("pawwork-electron-cache-")
+          mkdirSync(join(electronDir, "dist", "Electron.app", "Contents", "Frameworks", "Electron Framework.framework"), {
+            recursive: true,
+          })
+          writeFileSync(
+            join(
+              electronDir,
+              "dist",
+              "Electron.app",
+              "Contents",
+              "Frameworks",
+              "Electron Framework.framework",
+              "Electron Framework",
+            ),
+            "",
+          )
+        }
+      },
+    })
+
+    expect(attempts.map((attempt) => attempt.forceNoCache)).toEqual([false, true])
+    expect(isElectronInstallComplete(electronDir, "darwin")).toBe(true)
+  })
+
   test("retries without the Electron artifact cache when the first reinstall fails", () => {
     const electronDir = mkdtempSync(join(tmpdir(), "pawwork-electron-install-"))
     const platformPath = platformPathForElectron("darwin")
