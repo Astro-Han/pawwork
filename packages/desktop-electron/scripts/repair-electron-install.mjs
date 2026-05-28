@@ -74,6 +74,7 @@ export function extractElectronZipFromCache(cacheRoot, electronDir) {
   if (!zipPath) return false
 
   resetElectronInstall(electronDir)
+  console.warn(`Extracting Electron artifact from isolated cache: ${zipPath}`)
   execFileSync("unzip", ["-q", "-o", zipPath, "-d", join(electronDir, "dist")], { stdio: "inherit" })
   return true
 }
