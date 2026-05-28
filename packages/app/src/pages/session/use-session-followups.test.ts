@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
 import { QueryClient, QueryClientProvider } from "@tanstack/solid-query"
 import { createRoot, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
@@ -27,12 +27,13 @@ const sendFollowupCalls: unknown[] = []
 let sendFollowupDraftImpl: (input: unknown) => Promise<boolean>
 
 function workspaceStorage(dir: string) {
+  const head = (dir.slice(0, 12) || "workspace").replace(/[^a-zA-Z0-9._-]/g, "-")
   let hash = 0x811c9dc5
   for (let index = 0; index < dir.length; index++) {
     hash ^= dir.charCodeAt(index)
     hash = Math.imul(hash, 0x01000193)
   }
-  return `pawwork.workspace.${(hash >>> 0).toString(36)}.dat`
+  return `pawwork.workspace.${head}.${(hash >>> 0).toString(36)}.dat`
 }
 
 const draft = (input: Pick<FollowupDraft, "prompt" | "context">): FollowupDraft => ({
@@ -102,6 +103,10 @@ beforeAll(async () => {
   followupStoreKey = mod.followupStoreKey
   scopedFollowupDraft = mod.scopedFollowupDraft
   followupDraftMatchesScope = mod.followupDraftMatchesScope
+})
+
+afterAll(() => {
+  mock.restore()
 })
 
 function deferred<T>() {
