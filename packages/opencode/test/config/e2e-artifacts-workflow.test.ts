@@ -19,6 +19,9 @@ describe("e2e artifacts workflow", () => {
     const filterStep = changesSteps.find((step) => step.id === "filter")
     const checkoutStep = steps.find((step) => step.uses?.startsWith("actions/checkout@"))
     const bunStep = steps.find((step) => step.uses?.startsWith("oven-sh/setup-bun@"))
+    const playwrightCacheStep = steps.find(
+      (step) => step.uses?.startsWith("actions/cache@") && step.with?.path === "${{ github.workspace }}/.playwright-browsers",
+    )
     const installBrowsersStep = steps.find((step) => step.name === "Install Playwright browsers")
     const runStep = steps.find((step) => step.name === "Run e2e")
     const warnStep = steps.find((step) => step.name === "Warn on E2E failure")
@@ -60,6 +63,11 @@ describe("e2e artifacts workflow", () => {
     expect(checkoutStep?.uses).toBe("actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd")
     expect(checkoutStep?.with).toEqual({ "persist-credentials": false })
     expect(bunStep?.uses).toBe("oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6")
+    expect(playwrightCacheStep?.with?.key).toBe(
+      "playwright-${{ runner.os }}-${{ hashFiles('packages/app/package.json', 'bun.lock') }}",
+    )
+    expect(playwrightCacheStep?.with?.["restore-keys"]).toBe("playwright-${{ runner.os }}-\n")
+    expect(installBrowsersStep?.["timeout-minutes"]).toBe(5)
     expect(installBrowsersStep?.run).toBe("bunx playwright install --with-deps chromium")
     expect(runStep?.run).toContain("bun --cwd packages/app test:e2e:local:smoke")
     expect(runStep?.["continue-on-error"]).not.toBe(true)

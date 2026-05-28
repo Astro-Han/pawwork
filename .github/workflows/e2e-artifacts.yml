@@ -134,10 +134,13 @@ jobs:
         with:
           path: ${{ github.workspace }}/.playwright-browsers
           key: playwright-${{ runner.os }}-${{ hashFiles('packages/app/package.json', 'bun.lock') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
 
       - run: bun install --frozen-lockfile
 
       - name: Install Playwright browsers
+        timeout-minutes: 5
         working-directory: packages/app
         run: bunx playwright install --with-deps chromium
 
