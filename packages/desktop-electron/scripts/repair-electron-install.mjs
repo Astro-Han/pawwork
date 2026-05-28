@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -114,6 +114,28 @@ export function downloadElectronArtifact({
   }
 }
 
+function findZipFile(root) {
+  for (const entry of readdirSync(root)) {
+    const entryPath = join(root, entry)
+    const stats = statSync(entryPath)
+    if (stats.isDirectory()) {
+      const zipPath = findZipFile(entryPath)
+      if (zipPath) return zipPath
+    }
+    if (stats.isFile() && entryPath.endsWith(".zip")) return entryPath
+  }
+}
+
+export function extractElectronZipFromCache(cacheRoot, electronDir) {
+  const zipPath = findZipFile(cacheRoot)
+  if (!zipPath) return false
+
+  resetElectronInstall(electronDir)
+  console.warn(`Extracting Electron artifact from isolated cache: ${zipPath}`)
+  execFileSync("unzip", ["-q", "-o", zipPath, "-d", join(electronDir, "dist")], { stdio: "inherit" })
+  return true
+}
+
 export function electronInstallEnv({
   cacheRoot,
   forceNoCache = false,
@@ -143,6 +165,8 @@ export function repairElectronInstallAt(
     platform = process.platform,
     arch = process.arch,
     runInstall,
+    createCacheRoot = () => mkdtempSync(join(tmpdir(), "pawwork-electron-cache-")),
+    extractFromCache = extractElectronZipFromCache,
   } = {},
 ) {
   const install =
@@ -165,10 +189,15 @@ export function repairElectronInstallAt(
 
   if (!writeElectronPathFileIfInstallComplete(electronDir, platform)) {
     resetElectronInstall(electronDir)
+    const cacheRoot = createCacheRoot()
     install(installScript, {
-      cacheRoot: mkdtempSync(join(tmpdir(), "pawwork-electron-cache-")),
+      cacheRoot,
       forceNoCache: true,
     })
+
+    if (!writeElectronPathFileIfInstallComplete(electronDir, platform)) {
+      extractFromCache(cacheRoot, electronDir)
+    }
   }
 
   if (!writeElectronPathFileIfInstallComplete(electronDir, platform)) {

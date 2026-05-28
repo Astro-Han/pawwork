@@ -295,4 +295,46 @@ describe("repair Electron install", () => {
     expect(existsSync(join(electronDir, "dist", "stale"))).toBe(false)
     expect(isElectronInstallComplete(electronDir, "darwin")).toBe(true)
   })
+
+  test("extracts from the isolated cache when the no-cache reinstall stays incomplete", () => {
+    const electronDir = mkdtempSync(join(tmpdir(), "pawwork-electron-install-"))
+    const platformPath = platformPathForElectron("darwin")
+    const cacheRoot = mkdtempSync(join(tmpdir(), "pawwork-electron-cache-"))
+    const extractedFrom: string[] = []
+
+    repairElectronInstallAt(electronDir, {
+      platform: "darwin",
+      createCacheRoot() {
+        return cacheRoot
+      },
+      runInstall(_installScript, options) {
+        expect(options.cacheRoot).toBe(options.forceNoCache ? cacheRoot : undefined)
+        mkdirSync(join(electronDir, "dist", "Electron.app", "Contents", "MacOS"), { recursive: true })
+        writeFileSync(join(electronDir, "dist", platformPath), "")
+      },
+      extractFromCache(cacheRootAttempt) {
+        extractedFrom.push(cacheRootAttempt)
+        mkdirSync(join(electronDir, "dist", "Electron.app", "Contents", "MacOS"), { recursive: true })
+        mkdirSync(join(electronDir, "dist", "Electron.app", "Contents", "Frameworks", "Electron Framework.framework"), {
+          recursive: true,
+        })
+        writeFileSync(join(electronDir, "dist", platformPath), "")
+        writeFileSync(
+          join(
+            electronDir,
+            "dist",
+            "Electron.app",
+            "Contents",
+            "Frameworks",
+            "Electron Framework.framework",
+            "Electron Framework",
+          ),
+          "",
+        )
+      },
+    })
+
+    expect(extractedFrom).toEqual([cacheRoot])
+    expect(isElectronInstallComplete(electronDir, "darwin")).toBe(true)
+  })
 })
