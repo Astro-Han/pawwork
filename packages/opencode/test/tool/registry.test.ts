@@ -40,6 +40,20 @@ describe("tool.registry", () => {
     })
   })
 
+  test("keeps automate hidden until the manageability UI slice", async () => {
+    await using tmp = await tmpdir()
+
+    await withMockedConfigInstall(async () => {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const ids = await ToolRegistry.ids()
+          expect(ids).not.toContain("automate")
+        },
+      })
+    })
+  })
+
   test("keeps trash removal contract across prompt and package surfaces", async () => {
     const bashDescription = await Bun.file(new URL("../../src/tool/bash.txt", import.meta.url)).text()
     expect(bashDescription).not.toContain("trash tool")
