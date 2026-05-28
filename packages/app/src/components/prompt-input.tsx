@@ -1,5 +1,6 @@
 import { useSpring } from "@opencode-ai/ui/motion-spring"
 import { isWorkInFlightStatus } from "@opencode-ai/ui/util/session-status"
+import { useNavigate, useParams } from "@solidjs/router"
 import { createEffect, on, Component, For, Show, createMemo, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLocal } from "@/context/local"
@@ -38,7 +39,8 @@ import { pickAttachments } from "./prompt-input/pick-attachments"
 import { ACCEPTED_FILE_TYPES } from "./prompt-input/files"
 import { promptLength } from "./prompt-input/history"
 import type { PromptStore } from "./prompt-input/store-types"
-import { createPromptSubmit, type FollowupDraft } from "./prompt-input/submit"
+import type { FollowupDraft } from "./prompt-input/followup-draft"
+import { createPromptSubmit } from "./prompt-input/submit"
 import { PromptPopover } from "./prompt-input/slash-popover"
 import { PromptContextItems } from "./prompt-input/context-items"
 import { PromptImageAttachments } from "./prompt-input/image-attachments"
@@ -392,6 +394,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     if (!id) return permission.isAutoAcceptingDirectory(sdk.directory)
     return permission.isAutoAccepting(id, sdk.directory)
   })
+  const navigate = useNavigate()
+  const routeParams = useParams()
 
   const { abort, handleSubmit } = createPromptSubmit({
     sessionID: activeSessionID,
@@ -419,6 +423,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     onQueue: props.onQueue,
     onAbort: props.onAbort,
     onSubmit: props.onSubmit,
+    navigate,
+    routeParams: () => routeParams,
   })
 
   createEffect(() => {

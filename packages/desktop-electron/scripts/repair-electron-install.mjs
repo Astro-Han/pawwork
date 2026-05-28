@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process"
-import { existsSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { createHash } from "node:crypto"
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -29,17 +30,18 @@ export function isElectronInstallComplete(electronDir, platform = process.platfo
   if (!existsSync(binaryPath)) return false
 
   if (platform === "darwin" || platform === "mas") {
-    return existsSync(
-      join(
-        electronDir,
-        "dist",
-        "Electron.app",
-        "Contents",
-        "Frameworks",
-        "Electron Framework.framework",
-        "Electron Framework",
-      ),
+    const frameworkDir = join(
+      electronDir,
+      "dist",
+      "Electron.app",
+      "Contents",
+      "Frameworks",
+      "Electron Framework.framework",
     )
+    return [
+      join(frameworkDir, "Electron Framework"),
+      join(frameworkDir, "Versions", "A", "Electron Framework"),
+    ].some((candidate) => existsSync(candidate))
   }
 
   return true
@@ -55,6 +57,61 @@ export function writeElectronPathFileIfInstallComplete(electronDir, platform = p
 function resetElectronInstall(electronDir) {
   rmSync(join(electronDir, "path.txt"), { force: true })
   rmSync(join(electronDir, "dist"), { recursive: true, force: true })
+}
+
+function electronArtifactName({ version, platform, arch }) {
+  return `electron-v${version}-${platform}-${arch}.zip`
+}
+
+function electronArtifactUrl({ version, platform, arch }) {
+  return `https://github.com/electron/electron/releases/download/v${version}/${electronArtifactName({
+    version,
+    platform,
+    arch,
+  })}`
+}
+
+function downloadFile(url, destination) {
+  execFileSync("curl", ["-fL", "--retry", "3", "--retry-delay", "2", "-o", destination, url], { stdio: "inherit" })
+}
+
+function verifyElectronZipChecksum(electronDir, zipPath, fileName) {
+  const checksums = JSON.parse(readFileSync(join(electronDir, "checksums.json"), "utf8"))
+  const expected = checksums[fileName]
+  if (typeof expected !== "string") {
+    throw new Error(`Missing Electron checksum for artifact: ${fileName}`)
+  }
+
+  const actual = createHash("sha256").update(readFileSync(zipPath)).digest("hex")
+  if (actual !== expected) {
+    throw new Error(`Electron checksum mismatch for ${fileName}: expected ${expected}, got ${actual}`)
+  }
+}
+
+function extractElectronZip(electronDir, zipPath) {
+  execFileSync("unzip", ["-q", zipPath, "-d", join(electronDir, "dist")], { stdio: "inherit" })
+}
+
+export function downloadElectronArtifact({
+  electronDir,
+  platform,
+  arch,
+  download = downloadFile,
+  extractZip = extractElectronZip,
+}) {
+  const { version } = JSON.parse(readFileSync(join(electronDir, "package.json"), "utf8"))
+  const fileName = electronArtifactName({ version, platform, arch })
+  const scratchDir = mkdtempSync(join(tmpdir(), "pawwork-electron-artifact-"))
+  const zipPath = join(scratchDir, fileName)
+
+  try {
+    download(electronArtifactUrl({ version, platform, arch }), zipPath)
+    verifyElectronZipChecksum(electronDir, zipPath, fileName)
+    resetElectronInstall(electronDir)
+    extractZip(electronDir, zipPath)
+  } finally {
+    rmSync(scratchDir, { recursive: true, force: true })
+  }
 }
 
 function findZipFile(root) {
@@ -79,9 +136,16 @@ export function extractElectronZipFromCache(cacheRoot, electronDir) {
   return true
 }
 
-export function electronInstallEnv({ cacheRoot, forceNoCache = false } = {}) {
+export function electronInstallEnv({
+  cacheRoot,
+  forceNoCache = false,
+  platform = process.platform,
+  arch = process.arch,
+} = {}) {
   const env = { ...process.env }
   delete env.ELECTRON_SKIP_BINARY_DOWNLOAD
+  env.npm_config_platform = platform
+  env.npm_config_arch = arch
 
   if (forceNoCache) {
     env.force_no_cache = "true"
@@ -99,6 +163,7 @@ export function repairElectronInstallAt(
   {
     installScript = join(electronDir, "install.js"),
     platform = process.platform,
+    arch = process.arch,
     runInstall,
     createCacheRoot = () => mkdtempSync(join(tmpdir(), "pawwork-electron-cache-")),
     extractFromCache = extractElectronZipFromCache,
@@ -109,7 +174,7 @@ export function repairElectronInstallAt(
     ((script, options = {}) => {
       execFileSync(process.execPath, [script], {
         stdio: "inherit",
-        env: electronInstallEnv(options),
+        env: electronInstallEnv({ ...options, platform, arch }),
       })
     })
 
@@ -133,6 +198,10 @@ export function repairElectronInstallAt(
     if (!writeElectronPathFileIfInstallComplete(electronDir, platform)) {
       extractFromCache(cacheRoot, electronDir)
     }
+  }
+
+  if (!writeElectronPathFileIfInstallComplete(electronDir, platform)) {
+    downloadElectronArtifact({ electronDir, platform, arch })
   }
 
   if (!writeElectronPathFileIfInstallComplete(electronDir, platform)) {
