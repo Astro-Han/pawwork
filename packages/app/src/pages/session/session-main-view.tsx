@@ -193,6 +193,7 @@ export function SessionMainView(props: {
                 visible={openingSkeletonVisible()}
                 transitioning={props.transitioning}
                 openingLabel={props.language.t("session.opening")}
+                messages={props.timelineMessages}
                 overlay
               />
             </Show>
