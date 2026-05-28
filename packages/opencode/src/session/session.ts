@@ -338,6 +338,11 @@ export const SetRevertInput = z.object({
   summary: Info.shape.summary,
 })
 export const MessagesInput = z.object({ sessionID: SessionID.zod, limit: z.number().optional() })
+export const MessagesPageInput = z.object({
+  sessionID: SessionID.zod,
+  limit: z.number(),
+  before: z.string().optional(),
+})
 const AbsoluteDirectory = z
   .string()
   .min(1, "Expected an absolute directory path")
@@ -524,6 +529,11 @@ export interface Interface {
   readonly findActiveWorktreeBinding: (directory: string) => Effect.Effect<Info | undefined>
   readonly diff: (sessionID: SessionID) => Effect.Effect<Snapshot.FileDiff[]>
   readonly messages: (input: { sessionID: SessionID; limit?: number }) => Effect.Effect<MessageV2.WithParts[]>
+  readonly messagesPage: (input: {
+    sessionID: SessionID
+    limit: number
+    before?: string
+  }) => Effect.Effect<ReturnType<typeof MessageV2.page>>
   readonly children: (parentID: SessionID) => Effect.Effect<Info[]>
   readonly remove: (sessionID: SessionID) => Effect.Effect<void>
   readonly updateMessage: <T extends MessageV2.Info>(msg: T) => Effect.Effect<T>
@@ -1032,6 +1042,20 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
       return yield* terminalizeStaleExternalResultQuestions(items)
     })
 
+    const messagesPage = Effect.fn("Session.messagesPage")(function* (input: {
+      sessionID: SessionID
+      limit: number
+      before?: string
+    }) {
+      const page = MessageV2.page({
+        sessionID: input.sessionID,
+        limit: input.limit,
+        before: input.before,
+      })
+      const items = yield* terminalizeStaleExternalResultQuestions(page.items)
+      return { ...page, items }
+    })
+
     const removeMessage = Effect.fn("Session.removeMessage")(function* (input: {
       sessionID: SessionID
       messageID: MessageID
@@ -1096,6 +1120,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
       findActiveWorktreeBinding,
       diff,
       messages,
+      messagesPage,
       children,
       remove,
       updateMessage,
@@ -1125,6 +1150,7 @@ export const setTitle = fn(SetTitleInput, (input) => runPromise((svc) => svc.set
 export const setArchived = fn(SetArchivedInput, (input) => runPromise((svc) => svc.setArchived(input)))
 export const setPermission = fn(SetPermissionInput, (input) => runPromise((svc) => svc.setPermission(input)))
 export const messages = fn(MessagesInput, (input) => runPromise((svc) => svc.messages(input)))
+export const messagesPage = fn(MessagesPageInput, (input) => runPromise((svc) => svc.messagesPage(input)))
 export const removePart = fn(RemovePartInput, (input) => runPromise((svc) => svc.removePart(input)))
 export const updateMessage = fn(MessageV2.Info, (input) => runPromise((svc) => svc.updateMessage(input)))
 export const updatePart = fn(MessageV2.Part, (input) => runPromise((svc) => svc.updatePart(input)))

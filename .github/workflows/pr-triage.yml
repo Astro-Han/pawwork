@@ -2,7 +2,7 @@ name: pr-triage
 
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
     branches: [dev]
 
 concurrency:
@@ -41,7 +41,7 @@ jobs:
             const policy = await import(
               pathToFileURL(path.join(process.env.GITHUB_WORKSPACE, ".github/scripts/label-policy-check.js")).href,
             )
-            const { buildPriorityReview, planPriorityLabels, TRIAGE_MARKER } = triage
+            const { buildPriorityReview, planPullRequestLabels, TRIAGE_MARKER } = triage
             const pull_number = Number(process.env.PR_NUMBER)
             const owner = context.repo.owner
             const repo = context.repo.repo
@@ -60,7 +60,7 @@ jobs:
               issue_number: pull_number,
               per_page: 100,
             })
-            const labelPlan = planPriorityLabels(paths, currentLabels.map((label) => label.name))
+            const labelPlan = planPullRequestLabels(paths, currentLabels.map((label) => label.name))
 
             if (labelPlan.addLabels.length > 0) {
               await github.rest.issues.addLabels({

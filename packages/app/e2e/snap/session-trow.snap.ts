@@ -260,6 +260,17 @@ test("session-trow", async ({ page }) => {
   expect(reasoningFont.toLowerCase()).not.toContain("mono")
   shots.push(await captureBlock("reasoning-only-expanded", reasoningOnly))
 
+  const runningReasoning = page.locator('[data-snap="running-reasoning"]')
+  await expect(runningReasoning).toContainText("思考中", { timeout: 30_000 })
+  await expect(runningReasoning.locator('[data-component="session-turn-trow-block"][data-running]')).toBeVisible({
+    timeout: 30_000,
+  })
+  await expect(runningReasoning.locator('[data-component="reasoning-body"]')).toBeHidden({ timeout: 30_000 })
+  await runningReasoning.locator('[data-slot="collapsible-trigger"]').first().click()
+  await expect(runningReasoning.locator('[data-component="reasoning-body"]')).toBeVisible({ timeout: 30_000 })
+  await expect(runningReasoning).toContainText("这段思考还在流式更新", { timeout: 30_000 })
+  shots.push(await captureBlock("running-reasoning-expanded", runningReasoning))
+
   const reasoningWithTools = page.locator('[data-snap="reasoning-with-tools"]')
   await expect(reasoningWithTools).toContainText("思考中", { timeout: 30_000 })
   shots.push(await captureBlock("reasoning-with-tools", reasoningWithTools))

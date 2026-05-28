@@ -17,6 +17,7 @@ import {
   mixedRealToolParts,
   questionDetailParts,
   reasoningOnlyParts,
+  runningReasoningParts,
   reasoningWithToolsParts,
   runningParts,
   singleErrorParts,
@@ -24,6 +25,7 @@ import {
   singleResultParts,
   singleRunningParts,
   snapAssistantMessage,
+  snapStreamingAssistantMessage,
   toolOutputParts,
   zhI18n,
 } from "./trow-snap-fixture-data"
@@ -32,13 +34,14 @@ function FileStub() {
   return <div style={{ padding: "8px", color: "var(--fg-weak)", "font-size": "12px" }}>File viewer stub</div>
 }
 
-function AssistantPartsCase(props: { parts: Part[] }) {
+function AssistantPartsCase(props: { parts: Part[]; message?: typeof snapAssistantMessage; working?: boolean }) {
+  const message = () => props.message ?? snapAssistantMessage
   return (
     <DataProvider
-      data={{ ...fixtureData, part: { [snapAssistantMessage.id]: props.parts } }}
+      data={{ ...fixtureData, part: { [message().id]: props.parts } }}
       directory="/Users/yuhan/PawWork"
     >
-      <AssistantParts messages={[snapAssistantMessage]} />
+      <AssistantParts messages={[message()]} working={props.working} />
     </DataProvider>
   )
 }
@@ -236,6 +239,9 @@ function TrowSnapFixture() {
       </div>
       <div data-snap="reasoning-only">
         <AssistantPartsCase parts={reasoningOnlyParts} />
+      </div>
+      <div data-snap="running-reasoning">
+        <AssistantPartsCase parts={runningReasoningParts} message={snapStreamingAssistantMessage} working />
       </div>
       <div data-snap="reasoning-with-tools">
         <AssistantPartsCase parts={reasoningWithToolsParts} />

@@ -2,8 +2,10 @@ import { test, expect, settingsKey } from "../fixtures"
 import { closeDialog, closeSettingsPanel, openSettings } from "../actions"
 import {
   settingsCodeFontSelector,
+  settingsColorSchemeSelector,
   settingsLanguageSelectSelector,
   settingsReleaseNotesSelector,
+  settingsThemeSelector,
   settingsUIFontSelector,
   settingsUpdatesStartupSelector,
   titlebarCenterSelector,
@@ -71,15 +73,13 @@ test("changing language updates settings labels", async ({ page, gotoSession }) 
   await expect(heading).toHaveText("General")
 })
 
-test.skip("changing color scheme persists in localStorage", async () => {
-  // Phase-1 ships a single pawwork theme that is locked to light mode, so the
-  // color-scheme select cannot exercise dark ↔ light switching. Revisit when a
-  // real dark palette or a second theme lands.
-})
+test("appearance settings keep color scheme but do not show a single-theme selector", async ({ page, gotoSession }) => {
+  await gotoSession()
 
-test.skip("changing theme persists in localStorage", async () => {
-  // Phase-1 only bundles the pawwork theme; the theme select has a single entry
-  // and cannot exercise switching. Revisit once a second theme is added.
+  const dialog = await openSettings(page)
+
+  await expect(dialog.locator(settingsColorSchemeSelector)).toBeVisible()
+  await expect(dialog.locator(settingsThemeSelector)).toHaveCount(0)
 })
 
 test("unknown theme ids migrate to pawwork and clear cached css", async ({ page, gotoSession }) => {

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "b
 import { QueryClient, QueryClientProvider } from "@tanstack/solid-query"
 import { createRoot, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
-import type { FollowupDraft } from "@/components/prompt-input/submit"
+import type { FollowupDraft } from "@/components/prompt-input/followup-draft"
 import { normalize, readPersistedAsync, readPersistedSync } from "@/utils/persist-read"
 import type {
   canSendFollowupItem as CanSendFollowupItem,
@@ -36,6 +36,22 @@ function workspaceStorage(dir: string) {
   return `pawwork.workspace.${head}.${(hash >>> 0).toString(36)}.dat`
 }
 
+const PersistMock = {
+  global: (key: string, legacy?: string[]) => ({ storage: "pawwork.global.dat", key, legacy }),
+  workspace: (dir: string, key: string, legacy?: string[]) => ({
+    storage: workspaceStorage(dir),
+    key: `workspace:${key}`,
+    legacy,
+  }),
+  session: (dir: string, session: string, key: string, legacy?: string[]) => ({
+    storage: workspaceStorage(dir),
+    key: `session:${session}:${key}`,
+    legacy,
+  }),
+  scoped: (dir: string, session: string | undefined, key: string, legacy?: string[]) =>
+    session ? PersistMock.session(dir, session, key, legacy) : PersistMock.workspace(dir, key, legacy),
+}
+
 const draft = (input: Pick<FollowupDraft, "prompt" | "context">): FollowupDraft => ({
   sessionID: "ses_1",
   sessionDirectory: "/repo",
@@ -58,42 +74,21 @@ beforeAll(async () => {
     usePlatform: () => ({ platform: "web" }),
   }))
   mock.module("@/utils/persist", () => ({
+    Persist: PersistMock,
     PersistTesting: {
       normalize,
       readPersistedAsync,
       readPersistedSync,
       workspaceStorage,
     },
-    Persist: {
-      global: (key: string, legacy?: string[]) => ({ key, legacy }),
-      workspace: (dir: string, key: string, legacy?: string[]) => ({
-        storage: workspaceStorage(dir),
-        key: `workspace:${key}`,
-        legacy,
-      }),
-      session: (dir: string, session: string, key: string, legacy?: string[]) => ({
-        storage: workspaceStorage(dir),
-        key: `session:${session}:${key}`,
-        legacy,
-      }),
-      scoped: (dir: string, session: string | undefined, key: string, legacy?: string[]) =>
-        session
-          ? { storage: workspaceStorage(dir), key: `session:${session}:${key}`, legacy }
-          : { storage: workspaceStorage(dir), key: `workspace:${key}`, legacy },
-    },
     persisted: (_target: unknown, store: unknown) => store,
+    removePersisted: () => undefined,
   }))
   mock.module("@/utils/id", () => ({
     Identifier: {
       ascending: (prefix: string) => `${prefix}_queued`,
     },
   }))
-  mock.module("@/components/prompt-input/submit", () => ({
-    followupCommandText: (item: FollowupDraft) =>
-      item.prompt.map((part) => ("content" in part ? part.content : "")).join(""),
-    sendFollowupDraft: (input: unknown) => sendFollowupDraftImpl(input),
-  }))
-
   const mod = await import("./use-session-followups")
   followupPreviewText = mod.followupPreviewText
   shouldAutoSendFollowup = mod.shouldAutoSendFollowup
@@ -334,6 +329,7 @@ describe("session followups", () => {
             fail: () => undefined,
             resumeScroll: () => undefined,
             attachmentLabel: () => "Attachment",
+            sendFollowup: ((input: unknown) => sendFollowupDraftImpl(input)) as never,
           })
           return null
         },
@@ -410,6 +406,7 @@ describe("session followups", () => {
             fail: () => undefined,
             resumeScroll: () => undefined,
             attachmentLabel: () => "Attachment",
+            sendFollowup: ((input: unknown) => sendFollowupDraftImpl(input)) as never,
           })
           return null
         },

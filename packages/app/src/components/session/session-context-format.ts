@@ -7,10 +7,14 @@ export function createSessionContextFormatter(locale: string) {
       if (value === null) return "—"
       return value.toLocaleString(locale)
     },
-    percent(value: number | null | undefined) {
+    percent(value: number | null | undefined, fractionDigits?: number) {
       if (value === undefined) return "—"
       if (value === null) return "—"
-      return value.toLocaleString(locale) + "%"
+      const options =
+        fractionDigits === undefined
+          ? undefined
+          : { minimumFractionDigits: fractionDigits, maximumFractionDigits: fractionDigits }
+      return value.toLocaleString(locale, options) + "%"
     },
     time(value: number | undefined) {
       if (!value) return "—"
