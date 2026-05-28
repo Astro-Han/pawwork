@@ -16,25 +16,8 @@
  * No app server / opencode backend required: the spec only uses
  * `page.setContent` to evaluate SVG geometry in chromium.
  */
-import { readFileSync } from "node:fs"
-import { dirname, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
-import { test, expect } from "@playwright/test"
-
-const here = dirname(fileURLToPath(import.meta.url))
-const iconRegistry = resolve(here, "../../ui/src/components/icon.tsx")
-
-function loadIcons(): Record<string, string> {
-  const src = readFileSync(iconRegistry, "utf8")
-  const startIdx = src.indexOf("export const icons = {")
-  if (startIdx < 0) throw new Error("icon registry export not found")
-  const body = src.slice(startIdx)
-  const out: Record<string, string> = {}
-  const re = /"([\w-]+)":\s*`([\s\S]*?)`,/g
-  let m: RegExpExecArray | null
-  while ((m = re.exec(body))) out[m[1]] = m[2]
-  return out
-}
+import { icons } from "@opencode-ai/ui/icon"
+import { test, expect } from "./fixtures"
 
 // 1-unit margin is the design contract noted at the top of icon.tsx; we lock
 // the harder 0-20 bound so the test fails only on real clipping, not on
@@ -44,7 +27,6 @@ const VIEWBOX_HIGH = 20
 const EPSILON = 0.05
 
 test("@smoke every chrome icon fits inside the 0..20 viewBox", async ({ page }) => {
-  const icons = loadIcons()
   const names = Object.keys(icons)
   expect(names.length, "icon registry should expose at least one glyph").toBeGreaterThan(0)
 

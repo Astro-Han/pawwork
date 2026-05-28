@@ -15,22 +15,9 @@
  * Static-data snap: no app shell, no opencode backend. The test mounts a
  * self-contained HTML stage via `page.setContent` and screenshots a locator.
  */
-import { readFileSync } from "node:fs"
-import { dirname, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
-import { test } from "@playwright/test"
+import { icons } from "@opencode-ai/ui/icon"
+import { test } from "../fixtures"
 import { composeGrid, snapOutputPath, type Shot } from "./_compose"
-
-const here = dirname(fileURLToPath(import.meta.url))
-const iconRegistry = resolve(here, "../../../ui/src/components/icon.tsx")
-
-function readGlyph(name: string): string {
-  const src = readFileSync(iconRegistry, "utf8")
-  const re = new RegExp(`"${name}":\\s*\`([\\s\\S]*?)\`,`)
-  const m = src.match(re)
-  if (!m) throw new Error(`icon "${name}" not found in registry`)
-  return m[1]
-}
 
 // Pre-fix transform — captured here for the historical comparison; do NOT
 // mirror future icon.tsx changes here. This is the "before" state that the
@@ -44,10 +31,10 @@ function withTransform(glyph: string, transform: string): string {
 test.use({ viewport: { width: 920, height: 380 }, deviceScaleFactor: 2 })
 
 test("snap: icon viewBox fit (read-file before/after, skill/thinking reference)", async ({ page }) => {
-  const readFileNow = readGlyph("read-file")
+  const readFileNow = icons["read-file"]
   const readFileBefore = withTransform(readFileNow, READ_FILE_BEFORE_TRANSFORM)
-  const skill = readGlyph("skill")
-  const thinking = readGlyph("thinking")
+  const skill = icons["skill"]
+  const thinking = icons["thinking"]
 
   const cell = (label: string, inner: string, badge?: string) => `
     <div class="cell">
