@@ -24,10 +24,11 @@ function validationDetailsFromIssues(issues: readonly unknown[], data: unknown):
   const kind =
     typeof data === "object" && data !== null && "kind" in data && typeof data.kind === "string" ? data.kind : undefined
   return issues.flatMap((issue) => {
+    const path = validationIssuePath(issue)
     if (typeof issue === "object" && issue !== null && "code" in issue && issue.code === "unrecognized_keys") {
       const keys = "keys" in issue && Array.isArray(issue.keys) ? issue.keys : []
       return keys.map((key) => {
-        const field = String(key)
+        const field = path ? `${path}.${String(key)}` : String(key)
         if (kind === "oneshot" && (field === "rhythm" || field === "stop")) {
           return { field, message: "unsupported_for_oneshot_automation" }
         }
@@ -37,7 +38,7 @@ function validationDetailsFromIssues(issues: readonly unknown[], data: unknown):
         return { field, message: "unsupported_automation_field" }
       })
     }
-    const field = validationIssuePath(issue)
+    const field = path
     const message =
       typeof issue === "object" && issue !== null && "message" in issue && typeof issue.message === "string"
         ? issue.message

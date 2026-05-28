@@ -198,6 +198,11 @@ describe("automation routes", () => {
           { ...recurringInput(projectID), retryPolicy: { attempts: 3 } },
           [{ field: "retryPolicy", message: "unsupported_automation_field" }],
         ],
+        [
+          "unknown nested create knob",
+          { ...recurringInput(projectID), where: { projectID, unexpected: true } },
+          [{ field: "where.unexpected", message: "unsupported_automation_field" }],
+        ],
       ] as const
 
       for (const [_name, input, details] of cases) {
@@ -566,6 +571,9 @@ describe("automation routes", () => {
 
       expect(() => Automation.Definition.parse({ ...recurring, unexpected: true })).toThrow()
       expect(() => Automation.Definition.parse({ ...oneshot, unexpected: true })).toThrow()
+      expect(() => Automation.Definition.parse({ ...recurring, title: "" })).toThrow()
+      expect(() => Automation.Definition.parse({ ...recurring, prompt: "" })).toThrow()
+      expect(() => Automation.Definition.parse({ ...recurring, timezone: "" })).toThrow()
       expect(() => Automation.Tombstone.parse({ id: recurring.id, deleted: true, revision: 2, unexpected: true })).toThrow()
     })
   })

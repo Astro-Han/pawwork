@@ -94,15 +94,15 @@ export namespace Automation {
 
   const CommonDefinition = {
     id: DefinitionID,
-    title: z.string().max(MAX_TITLE_CHARS, `title_too_long_${MAX_TITLE_CHARS}`),
-    prompt: z.string().max(MAX_PROMPT_CHARS, `prompt_too_long_${MAX_PROMPT_CHARS}`),
+    title: z.string().min(1).max(MAX_TITLE_CHARS, `title_too_long_${MAX_TITLE_CHARS}`),
+    prompt: z.string().min(1).max(MAX_PROMPT_CHARS, `prompt_too_long_${MAX_PROMPT_CHARS}`),
     revision: z.number().int().positive(),
     paused: z.boolean(),
     context: Context,
     where: Where,
     createdAt: z.number().int().nonnegative(),
     updatedAt: z.number().int().nonnegative(),
-    timezone: z.string(),
+    timezone: z.string().min(1),
     sourceSessionID: SessionID.zod.optional(),
     automationSessionID: SessionID.zod.optional(),
     normalizationWarnings: z.array(z.string()),
