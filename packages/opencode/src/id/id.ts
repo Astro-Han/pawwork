@@ -8,6 +8,8 @@ export namespace Identifier {
     message: "msg",
     permission: "per",
     question: "que",
+    automation: "automation",
+    automation_run: "automation_run",
     todo: "todo",
     user: "usr",
     part: "prt",
