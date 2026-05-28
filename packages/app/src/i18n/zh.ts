@@ -44,8 +44,6 @@ export const dict = {
 
   "command.palette": "命令面板",
 
-  "command.theme.cycle": "切换主题",
-  "command.theme.set": "使用主题：{{theme}}",
   "command.theme.scheme.cycle": "切换配色方案",
   "command.theme.scheme.set": "使用配色方案：{{scheme}}",
 
@@ -439,7 +437,6 @@ export const dict = {
 
   "toast.language.title": "语言",
   "toast.language.description": "已切换到{{language}}",
-  "toast.theme.title": "主题已切换",
   "toast.scheme.title": "颜色方案",
   "toast.workspace.enabled.title": "工作区已启用",
   "toast.workspace.enabled.description": "侧边栏现在显示多个工作树",

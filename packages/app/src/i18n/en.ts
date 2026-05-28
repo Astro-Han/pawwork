@@ -37,8 +37,6 @@ export const dict = {
 
   "command.palette": "Command palette",
 
-  "command.theme.cycle": "Cycle theme",
-  "command.theme.set": "Use theme: {{theme}}",
   "command.theme.scheme.cycle": "Cycle color scheme",
   "command.theme.scheme.set": "Use color scheme: {{scheme}}",
 
@@ -443,7 +441,6 @@ export const dict = {
   "toast.language.title": "Language",
   "toast.language.description": "Switched to {{language}}",
 
-  "toast.theme.title": "Theme switched",
   "toast.scheme.title": "Color scheme",
 
   "toast.workspace.enabled.title": "Workspaces enabled",
