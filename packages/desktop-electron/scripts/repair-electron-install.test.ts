@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
+  electronInstallEnv,
   isElectronInstallComplete,
   platformPathForElectron,
   repairElectronInstallAt,
@@ -12,6 +13,23 @@ import {
 describe("repair Electron install", () => {
   test("uses the macOS Electron executable path", () => {
     expect(platformPathForElectron("darwin")).toBe("Electron.app/Contents/MacOS/Electron")
+  })
+
+  test("does not let skip-download leak into repair installs", () => {
+    const previous = process.env.ELECTRON_SKIP_BINARY_DOWNLOAD
+    process.env.ELECTRON_SKIP_BINARY_DOWNLOAD = "1"
+
+    try {
+      const env = electronInstallEnv({ forceNoCache: true })
+      expect(env.ELECTRON_SKIP_BINARY_DOWNLOAD).toBeUndefined()
+      expect(env.force_no_cache).toBe("true")
+    } finally {
+      if (previous === undefined) {
+        delete process.env.ELECTRON_SKIP_BINARY_DOWNLOAD
+      } else {
+        process.env.ELECTRON_SKIP_BINARY_DOWNLOAD = previous
+      }
+    }
   })
 
   test("does not treat a macOS install as complete when the framework is missing", () => {
