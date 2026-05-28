@@ -163,9 +163,27 @@ function acquireActiveRun(directory: string): () => void {
   }
 }
 
-export function trackActiveRun(directory: string): { promise: Promise<() => void>; cancel: () => void } {
+export type ActiveRunLifecycleWait = {
+  reason: "lifecycle_close"
+  startedAt: number
+  startedMonotonicMs: number
+  lifecycle?: ReturnType<typeof lifecycleCloseActionMeta>
+}
+
+export function trackActiveRun(directory: string): {
+  promise: Promise<() => void>
+  cancel: () => void
+  wait?: ActiveRunLifecycleWait
+} {
   if (!hasLifecycleClose([directory])) {
     return { promise: Promise.resolve(acquireActiveRun(directory)), cancel: () => {} }
+  }
+  const action = currentLifecycleCloseAction(directory)
+  const wait: ActiveRunLifecycleWait = {
+    reason: "lifecycle_close",
+    startedAt: Date.now(),
+    startedMonotonicMs: performance.now(),
+    lifecycle: action ? lifecycleCloseActionMeta(action) : undefined,
   }
   let settled = false
   let waiter: { directory: string; resolve: (release: () => void) => void }
@@ -181,6 +199,7 @@ export function trackActiveRun(directory: string): { promise: Promise<() => void
   })
   return {
     promise,
+    wait,
     cancel: () => {
       if (settled) return
       settled = true

@@ -10,6 +10,7 @@ import { registerDisposer } from "../../src/effect/instance-registry"
 import { GlobalRoutes } from "../../src/server/instance/global"
 import {
   createLifecycleCloseAction,
+  beginLifecycleClose,
   currentLifecycleCloseAction,
   directoryKey,
   lifecycleCloseActionMeta,
@@ -137,6 +138,53 @@ describe("SessionRunState", () => {
           expect(captured?.lifecycleAffectedDirectoryKeys).toEqual([directoryKey(directory)])
           expect(captured?.lifecycleOrigin).toMatchObject({ source: "runtime", operation: "instance.dispose" })
           expect(typeof captured?.recordedAt).toBe("number")
+        }),
+      { git: true },
+    )
+  })
+
+  it.live("reports lifecycle close waits before starting work", () => {
+    return provideTmpdirInstance(
+      (directory) =>
+        Effect.gen(function* () {
+          const run = yield* SessionRunState.Service
+          const releaseClose = beginLifecycleClose([directory])
+          const events: Array<{ type: string; reason?: string; duration_ms?: number }> = []
+
+          const fiber = yield* run.ensureRunning(
+            SessionID.make("ses_run_state_wait_observability"),
+            () => Effect.sync(() => ({}) as never),
+            Effect.sync(() => {
+              events.push({ type: "work_started" })
+              return {} as never
+            }),
+            {
+              runLifecycle: {
+                onWaitStarted: (event) =>
+                  Effect.sync(() => {
+                    events.push({ type: "run_wait_started", reason: event.reason })
+                  }),
+                onWaitEnded: (event) =>
+                  Effect.sync(() => {
+                    events.push({ type: "run_wait_ended", reason: event.reason, duration_ms: event.duration_ms })
+                  }),
+              },
+            },
+          ).pipe(Effect.forkChild)
+
+          try {
+            yield* Effect.sleep("10 millis")
+            expect(events).toEqual([{ type: "run_wait_started", reason: "lifecycle_close" }])
+
+            releaseClose()
+            const exit = yield* Fiber.await(fiber)
+            expect(Exit.isSuccess(exit)).toBe(true)
+            expect(events[1]).toMatchObject({ type: "run_wait_ended", reason: "lifecycle_close" })
+            expect(events[1]?.duration_ms).toBeGreaterThanOrEqual(0)
+            expect(events[2]).toEqual({ type: "work_started" })
+          } finally {
+            releaseClose()
+          }
         }),
       { git: true },
     )

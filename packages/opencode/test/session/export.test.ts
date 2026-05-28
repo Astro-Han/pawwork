@@ -767,6 +767,61 @@ describe("Export.session", () => {
     })
   })
 
+  test("collects run lifecycle diagnostics from user messages", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const root = await SessionNs.create({ title: "run lifecycle" })
+        const userID = MessageID.make("msg_run_lifecycle_user")
+        const events = [
+          {
+            schema_version: 1,
+            type: "user_message_saved",
+            session_id: root.id,
+            message_id: userID,
+            at: 10,
+          },
+          {
+            schema_version: 1,
+            type: "run_wait_started",
+            session_id: root.id,
+            message_id: userID,
+            at: 20,
+            reason: "lifecycle_close",
+            lifecycle: {
+              action_id: "lifecycle:instance_dispose_all:test",
+              kind: "instance_dispose_all",
+              initiated_at: 5,
+              affected_directory_keys: ["dir:test"],
+              origin: {
+                source: "server_handler",
+                operation: "instance.disposeAll",
+                reason: "test",
+              },
+            },
+          },
+        ]
+        try {
+          await SessionNs.updateMessage({
+            id: userID,
+            sessionID: root.id,
+            role: "user",
+            time: { created: 10 },
+            agent: "build",
+            model: { providerID: "test", modelID: "test-model" },
+            diagnostics: { run_lifecycle: events },
+          } as MessageV2.User)
+
+          const result = await AppRuntime.runPromise(Export.session(root.id))
+          expect((result.diagnostics as any).run_lifecycle_schema_version).toBe(1)
+          expect((result.diagnostics as any).run_lifecycle).toEqual(events)
+        } finally {
+          await SessionNs.remove(root.id)
+        }
+      },
+    })
+  })
+
   test("collects abort and title generation diagnostics from assistant messages", async () => {
     await Instance.provide({
       directory: projectRoot,

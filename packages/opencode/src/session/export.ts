@@ -28,6 +28,7 @@ import { LLMTrace } from "./llm-trace"
 import { safeErrorFingerprint, safeProviderCorrelation } from "./llm-trace/stream-diagnostics"
 import { RunObservability } from "./run-observability"
 import { RunIncident } from "./run-incident"
+import { RunLifecycle } from "./run-lifecycle"
 
 export function getRuntimeNamespace(): "pawwork" | "opencode" {
   return Runtime.isPawWork() ? "pawwork" : "opencode"
@@ -159,6 +160,8 @@ export namespace Export {
       llm_traces?: LLMTrace.Summary[]
       run_observability_schema_version?: typeof RunObservability.SCHEMA_VERSION
       run_observability?: RunObservability.Summary[]
+      run_lifecycle_schema_version?: typeof RunLifecycle.SCHEMA_VERSION
+      run_lifecycle?: RunLifecycle.Event[]
       run_incident_schema_version?: typeof RunIncident.SCHEMA_VERSION
       run_incidents?: RunIncident.Summary[]
       incident_chains?: RunIncident.ExportIncidentChain[]
@@ -214,6 +217,8 @@ export namespace Export {
     llm_traces?: LLMTrace.Summary[]
     run_observability_schema_version?: typeof RunObservability.SCHEMA_VERSION
     run_observability?: RunObservability.Summary[]
+    run_lifecycle_schema_version?: typeof RunLifecycle.SCHEMA_VERSION
+    run_lifecycle?: RunLifecycle.Event[]
     run_incident_schema_version?: typeof RunIncident.SCHEMA_VERSION
     run_incidents?: RunIncident.Summary[]
     incident_chains?: RunIncident.ExportIncidentChain[]
@@ -302,6 +307,7 @@ export namespace Export {
     walk(node)
     const llm_traces = collectLLMTraces(node)
     const run_observability = collectRunObservability(node)
+    const run_lifecycle = collectRunLifecycle(node)
     const run_incidents = collectRunIncidents(node)
     const incident_chains = run_incidents.map(RunIncident.toExportChain)
     const aborts = collectAbortDiagnostics(node)
@@ -312,6 +318,7 @@ export namespace Export {
       ...(run_observability.length
         ? { run_observability_schema_version: RunObservability.SCHEMA_VERSION, run_observability }
         : {}),
+      ...(run_lifecycle.length ? { run_lifecycle_schema_version: RunLifecycle.SCHEMA_VERSION, run_lifecycle } : {}),
       ...(run_incidents.length ? { run_incident_schema_version: RunIncident.SCHEMA_VERSION, run_incidents } : {}),
       ...(incident_chains.length ? { incident_chains } : {}),
       ...(aborts.length ? { aborts } : {}),
@@ -350,6 +357,26 @@ export namespace Export {
     return traces.sort((a, b) => {
       if (a.session_id !== b.session_id) return a.session_id.localeCompare(b.session_id)
       return a.message_id.localeCompare(b.message_id)
+    })
+  }
+
+  function collectRunLifecycle(node: Tree) {
+    const events: RunLifecycle.Event[] = []
+    const walk = (t: Tree) => {
+      for (const message of t.messages ?? []) {
+        const lifecycle = message.info.diagnostics?.run_lifecycle
+        if (lifecycle) events.push(...lifecycle)
+      }
+      for (const child of t.children ?? []) walk(child)
+    }
+    walk(node)
+    return events.sort((a, b) => {
+      if (a.session_id !== b.session_id) return a.session_id.localeCompare(b.session_id)
+      const messageA = a.message_id ?? a.assistant_message_id ?? ""
+      const messageB = b.message_id ?? b.assistant_message_id ?? ""
+      if (messageA !== messageB) return messageA.localeCompare(messageB)
+      if (a.at !== b.at) return a.at - b.at
+      return a.type.localeCompare(b.type)
     })
   }
 

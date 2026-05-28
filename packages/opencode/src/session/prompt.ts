@@ -56,6 +56,7 @@ import { EffectLogger } from "@/effect"
 import { InstanceState } from "@/effect"
 import { AgentTool, type AgentPromptOps } from "@/tool/agent"
 import { SessionRunState } from "./run-state"
+import { RunLifecycle } from "./run-lifecycle"
 import { EffectBridge } from "@/effect"
 import { attachWith, makeRuntime } from "@/effect/run-service"
 import { Instance } from "@/project/instance"
@@ -1447,11 +1448,13 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           : undefined
       const variant = input.variant ?? (ag.variant && full?.variants?.[ag.variant] ? ag.variant : undefined)
 
+      const createdAt = Date.now()
+      const messageID = input.messageID ?? MessageID.ascending()
       const info: MessageV2.User = {
-        id: input.messageID ?? MessageID.ascending(),
+        id: messageID,
         role: "user",
         sessionID: input.sessionID,
-        time: { created: Date.now() },
+        time: { created: createdAt },
         tools: input.tools,
         agent: ag.name,
         model: {
@@ -1462,6 +1465,17 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         locale: input.locale,
         system: input.system,
         format: input.format,
+        diagnostics: {
+          run_lifecycle: [
+            {
+              schema_version: RunLifecycle.SCHEMA_VERSION,
+              type: "user_message_saved",
+              session_id: input.sessionID,
+              message_id: messageID,
+              at: createdAt,
+            },
+          ],
+        },
       }
 
       yield* Effect.addFinalizer(() => instruction.clear(info.id))
@@ -1831,9 +1845,28 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         }
 
         if (input.noReply === true) return message
-        return yield* loop({ sessionID: input.sessionID })
+        return yield* loop({ sessionID: input.sessionID, traceMessageID: message.info.id })
       },
     )
+
+    const appendRunLifecycleEvent = Effect.fn("SessionPrompt.appendRunLifecycleEvent")(function* (
+      sessionID: SessionID,
+      messageID: MessageID,
+      event: RunLifecycle.Event,
+    ) {
+      const found = yield* sessions.findMessage(sessionID, (message) => message.info.id === messageID)
+      if (Option.isNone(found)) return
+      const info = found.value.info
+      if (info.role !== "user") return
+      const diagnostics = info.diagnostics ?? {}
+      yield* sessions.updateMessage({
+        ...info,
+        diagnostics: {
+          ...diagnostics,
+          run_lifecycle: [...(diagnostics.run_lifecycle ?? []), { ...event, message_id: messageID }],
+        },
+      })
+    })
 
     const lastAssistant = Effect.fnUntraced(function* (sessionID: SessionID) {
       const match = yield* sessions.findMessage(sessionID, (m) => m.info.role !== "user")
@@ -2413,8 +2446,17 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       // `true`. UI callers handle the resulting `Session.BusyError` (mapped
       // to HTTP 400 by middleware) by queuing the compact action through the
       // followup machinery and auto-retrying after the session idles.
+      const runLifecycle = input.traceMessageID
+        ? {
+            onWaitStarted: (event: RunLifecycle.Event) =>
+              appendRunLifecycleEvent(input.sessionID, input.traceMessageID!, event),
+            onWaitEnded: (event: RunLifecycle.Event) =>
+              appendRunLifecycleEvent(input.sessionID, input.traceMessageID!, event),
+          }
+        : undefined
       return yield* state.ensureRunning(input.sessionID, onInterrupt, work, {
         rejectIfBusy: input.prelude !== undefined,
+        runLifecycle,
       })
     })
 
@@ -2702,6 +2744,7 @@ export async function cancel(sessionID: SessionID, options?: { source?: string }
 
 export const LoopInput = z.object({
   sessionID: SessionID.zod,
+  traceMessageID: MessageID.zod.optional(),
   // Optional setup that must run inside the Runner's fiber — keeps the
   // cancel-during-setup signal alive (see loop() above).
   prelude: z
