@@ -152,12 +152,29 @@ export namespace Automation {
       cost: z.number().nonnegative().nullable(),
     })
     .superRefine((run, ctx) => {
-      if (!run.stopReason) return
-      if (["step_cap", "loop_gate"].includes(run.stopReason) && run.state !== "failed") {
-        ctx.addIssue({ code: "custom", path: ["state"], message: `${run.stopReason} requires failed state` })
+      const isTerminal = ["succeeded", "failed", "skipped", "expired"].includes(run.state)
+      if (run.state === "awaiting_input" && !run.blocker) {
+        ctx.addIssue({ code: "custom", path: ["blocker"], message: "awaiting_input requires blocker" })
       }
-      if (["cancelled", "expired", "blocker_lost"].includes(run.stopReason) && run.state !== "expired") {
-        ctx.addIssue({ code: "custom", path: ["state"], message: `${run.stopReason} requires expired state` })
+      if (run.state !== "awaiting_input" && run.blocker) {
+        ctx.addIssue({ code: "custom", path: ["blocker"], message: "blocker requires awaiting_input state" })
+      }
+      if (run.state === "skipped" && !run.skipReason) {
+        ctx.addIssue({ code: "custom", path: ["skipReason"], message: "skipped requires skipReason" })
+      }
+      if (isTerminal && run.completedAt === null) {
+        ctx.addIssue({ code: "custom", path: ["completedAt"], message: `${run.state} requires completedAt` })
+      }
+      if (run.state === "failed" && !run.error && !run.stopReason) {
+        ctx.addIssue({ code: "custom", path: ["error"], message: "failed requires error or stopReason" })
+      }
+      if (run.stopReason) {
+        if (["step_cap", "loop_gate"].includes(run.stopReason) && run.state !== "failed") {
+          ctx.addIssue({ code: "custom", path: ["state"], message: `${run.stopReason} requires failed state` })
+        }
+        if (["cancelled", "expired", "blocker_lost"].includes(run.stopReason) && run.state !== "expired") {
+          ctx.addIssue({ code: "custom", path: ["state"], message: `${run.stopReason} requires expired state` })
+        }
       }
     })
     .meta({ ref: "AutomationRun" })

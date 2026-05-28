@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { AutomationID } from "../../src/automation"
 import { Identifier } from "../../src/id/id"
 import { MessageID } from "../../src/session/schema"
 
@@ -15,5 +16,12 @@ describe("MessageID ordering", () => {
     const newer = Identifier.create("message", true, 1_700_000_000_001)
 
     expect(older > newer).toBe(true)
+  })
+
+  test("timestamp supports identifiers whose prefix contains underscores", () => {
+    const timestamp = 1_700_000_000
+    const runID = AutomationID.Run.ascending(Identifier.create("automation_run", false, timestamp))
+
+    expect(Identifier.timestamp(runID)).toBe(timestamp)
   })
 })
