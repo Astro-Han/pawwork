@@ -32,6 +32,13 @@ describe("repair Electron install", () => {
     }
   })
 
+  test("pins install platform and arch to the repair target", () => {
+    const env = electronInstallEnv({ platform: "darwin", arch: "arm64" })
+
+    expect(env.npm_config_platform).toBe("darwin")
+    expect(env.npm_config_arch).toBe("arm64")
+  })
+
   test("does not treat a macOS install as complete when the framework is missing", () => {
     const electronDir = mkdtempSync(join(tmpdir(), "pawwork-electron-install-"))
     const platformPath = platformPathForElectron("darwin")
@@ -107,6 +114,7 @@ describe("repair Electron install", () => {
 
     repairElectronInstallAt(electronDir, {
       platform: "darwin",
+      arch: "arm64",
       runInstall() {
         expect(existsSync(join(electronDir, "dist"))).toBe(false)
         mkdirSync(join(electronDir, "dist", "Electron.app", "Contents", "MacOS"), { recursive: true })

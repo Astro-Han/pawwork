@@ -57,9 +57,11 @@ function resetElectronInstall(electronDir) {
   rmSync(join(electronDir, "dist"), { recursive: true, force: true })
 }
 
-export function electronInstallEnv({ forceNoCache = false } = {}) {
+export function electronInstallEnv({ forceNoCache = false, platform = process.platform, arch = process.arch } = {}) {
   const env = { ...process.env }
   delete env.ELECTRON_SKIP_BINARY_DOWNLOAD
+  env.npm_config_platform = platform
+  env.npm_config_arch = arch
 
   if (forceNoCache) {
     env.force_no_cache = "true"
@@ -70,14 +72,14 @@ export function electronInstallEnv({ forceNoCache = false } = {}) {
 
 export function repairElectronInstallAt(
   electronDir,
-  { installScript = join(electronDir, "install.js"), platform = process.platform, runInstall } = {},
+  { installScript = join(electronDir, "install.js"), platform = process.platform, arch = process.arch, runInstall } = {},
 ) {
   const install =
     runInstall ??
     ((script, options = {}) => {
       execFileSync(process.execPath, [script], {
         stdio: "inherit",
-        env: electronInstallEnv(options),
+        env: electronInstallEnv({ ...options, platform, arch }),
       })
     })
 
