@@ -22,7 +22,7 @@ describe("e2e artifacts workflow", () => {
     const playwrightCacheStep = steps.find(
       (step) => step.uses?.startsWith("actions/cache@") && step.with?.path === "${{ github.workspace }}/.playwright-browsers",
     )
-    const installBrowsersStep = steps.find((step) => step.name === "Install Playwright browsers")
+    const installBrowsersStep = steps.find((step) => step.name === "Install Playwright system dependencies")
     const runStep = steps.find((step) => step.name === "Run e2e")
     const warnStep = steps.find((step) => step.name === "Warn on E2E failure")
     const uploadStep = steps.find((step) => step.name === "Upload e2e artifacts")
@@ -68,7 +68,10 @@ describe("e2e artifacts workflow", () => {
     )
     expect(playwrightCacheStep?.with?.["restore-keys"]).toBe("playwright-${{ runner.os }}-")
     expect(installBrowsersStep?.["timeout-minutes"]).toBe(10)
-    expect(installBrowsersStep?.run).toBe("bunx playwright install --with-deps chromium")
+    expect(installBrowsersStep?.run).toContain("bunx playwright install-deps chromium")
+    expect(installBrowsersStep?.run).not.toContain("playwright install chromium")
+    expect(runStep?.env?.PLAYWRIGHT_BROWSER_CHANNEL).toBe("chrome")
+    expect(runStep?.env?.PLAYWRIGHT_VIDEO).toBe("off")
     expect(runStep?.run).toContain("bun --cwd packages/app test:e2e:local:smoke")
     expect(runStep?.["continue-on-error"]).not.toBe(true)
     expect(warnStep?.if).toBe("failure()")
