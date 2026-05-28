@@ -68,7 +68,7 @@ describe("getSessionContextMetrics", () => {
     expect(metrics.context?.compactThreshold).toBe(900)
     expect(metrics.context?.usagePercent).toBe(45)
     expect(metrics.context?.usage).toBe(45)
-    expect(metrics.context?.cacheHitRate).toBe(Math.round((25 / (300 + 25 + 25)) * 100))
+    expect(metrics.context?.cacheHitRate).toBe(7.1)
     expect(metrics.context?.providerLabel).toBe("OpenAI")
     expect(metrics.context?.modelLabel).toBe("GPT-4.1")
   })

@@ -149,7 +149,12 @@ export async function downloadElectronArtifact({
   }
 }
 
-export function electronInstallEnv({ forceNoCache = false, platform = process.platform, arch = process.arch } = {}) {
+export function electronInstallEnv({
+  cacheRoot,
+  forceNoCache = false,
+  platform = process.platform,
+  arch = process.arch,
+} = {}) {
   const env = { ...process.env }
   delete env.ELECTRON_SKIP_BINARY_DOWNLOAD
   env.npm_config_platform = platform
@@ -157,6 +162,10 @@ export function electronInstallEnv({ forceNoCache = false, platform = process.pl
 
   if (forceNoCache) {
     env.force_no_cache = "true"
+  }
+
+  if (cacheRoot) {
+    env.electron_config_cache = cacheRoot
   }
 
   return env
@@ -191,7 +200,10 @@ export function repairElectronInstallAt(
 
   if (!writeElectronPathFileIfInstallComplete(electronDir, platform)) {
     resetElectronInstall(electronDir)
-    install(installScript, { forceNoCache: true })
+    install(installScript, {
+      cacheRoot: mkdtempSync(join(tmpdir(), "pawwork-electron-cache-")),
+      forceNoCache: true,
+    })
   }
 
   if (!writeElectronPathFileIfInstallComplete(electronDir, platform)) {
