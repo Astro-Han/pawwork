@@ -103,15 +103,18 @@ async function writeLocalizedMacDisplayName(resourcesDir: string, channel: Chann
 
 const getBase = (): Configuration => ({
   artifactName: "pawwork-${os}-${arch}-${version}.${ext}",
-  // electron-builder reads .git/config for repository info, which fails on
-  // CI runners with persist-credentials: false. Set explicitly to avoid
-  // "Cannot detect repository by .git/config" on Windows.
-  repository: { owner: "Astro-Han", repo: "pawwork" },
+
   directories: {
     output: "dist",
     buildResources: "resources",
   },
   files: ["out/**/*", "resources/**/*"],
+  // electron-builder reads .git/config for repository info, which fails on
+  // CI runners with persist-credentials: false. Set explicitly via
+  // extraMetadata to avoid "Cannot detect repository by .git/config".
+  extraMetadata: {
+    repository: { type: "git", url: "https://github.com/Astro-Han/pawwork" },
+  },
   extraResources: [
     ...nativeWatcherFileSets(),
     {
