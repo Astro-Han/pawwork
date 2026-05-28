@@ -85,8 +85,6 @@ beforeAll(async () => {
     },
   }))
   mock.module("@/components/prompt-input/submit", () => ({
-    followupCommandText: (item: FollowupDraft) =>
-      item.prompt.map((part: any) => ("content" in part ? part.content : "")).join(""),
     sendFollowupDraft: (input: unknown) => sendFollowupDraftImpl(input),
   }))
 

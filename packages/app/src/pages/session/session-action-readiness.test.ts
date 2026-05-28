@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, mock, test } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import {
   canSendFollowupDraft,
   canSubmitPrompt,
@@ -7,10 +7,9 @@ import {
   currentSessionSubmitReady,
   sessionStatusKnown,
 } from "./session-action-readiness"
+import { followupCommandText } from "@/components/prompt-input/followup-draft"
 
 type FollowupDraft = any
-
-let followupCommandText: any
 
 const slashDraft = { text: "/release now" }
 const normalDraft = { text: "continue" }
@@ -26,16 +25,6 @@ const queuedDraft = (input: { prompt: FollowupDraft["prompt"] }): FollowupDraft 
 })
 
 describe("session action readiness", () => {
-  beforeAll(async () => {
-    mock.module("@solidjs/router", () => ({
-      useNavigate: () => () => undefined,
-      useParams: () => ({}),
-    }))
-
-    const mod = await import("@/components/prompt-input/submit")
-    followupCommandText = mod.followupCommandText
-  })
-
   test("direct slash submit waits for command hydration", () => {
     expect(canSubmitPrompt({ mode: "normal", text: "/release", submitReady: true, commandsReady: false })).toBe(false)
     expect(canSubmitPrompt({ mode: "normal", text: " /release", submitReady: true, commandsReady: false })).toBe(true)

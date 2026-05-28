@@ -9,7 +9,7 @@ import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { useLocal } from "@/context/local"
 import { usePermission } from "@/context/permission"
-import { type ContextItem, type ImageAttachmentPart, type Prompt, usePrompt } from "@/context/prompt"
+import { type ImageAttachmentPart, type Prompt, usePrompt } from "@/context/prompt"
 import { emitRendererDiagnostic, sessionAbortDiagnosticEvent } from "@/context/renderer-diagnostics"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
@@ -26,6 +26,7 @@ import { type PromptRouteScope, promptScopeForSession } from "@/pages/session/pr
 import { type PortableDraftOwner, usePortableDraft } from "./portable-draft"
 import { type PinnedDraftOwner, usePinnedDraft } from "./pinned-draft"
 import type { ResolvedMention } from "./mention-metadata"
+import { followupCommandText, type FollowupDraft } from "./followup-draft"
 
 /**
  * Submit ownership identifies which draft owner a given submit attempt operates on.
@@ -75,17 +76,6 @@ type PendingPrompt = {
 const pending = new Map<string, PendingPrompt>()
 type AbortSource = Extract<RendererAbortSource, "ctrlG" | "emptyEnter" | "escape" | "stopButton">
 
-export type FollowupDraft = {
-  sessionID: string
-  sessionDirectory: string
-  prompt: Prompt
-  context: (ContextItem & { key: string })[]
-  agent: string
-  model: { providerID: string; modelID: string }
-  locale?: string
-  variant?: string
-}
-
 type FollowupSendInput = {
   client: ReturnType<typeof useSDK>["client"]
   globalSync: ReturnType<typeof useGlobalSync>
@@ -94,12 +84,6 @@ type FollowupSendInput = {
   messageID?: string
   optimisticBusy?: boolean
   before?: () => Promise<boolean> | boolean
-}
-
-const draftText = (prompt: Prompt) => prompt.map((part) => ("content" in part ? part.content : "")).join("")
-
-export function followupCommandText(draft: FollowupDraft) {
-  return draftText(draft.prompt)
 }
 
 const draftImages = (prompt: Prompt) => prompt.filter((part): part is ImageAttachmentPart => part.type === "image")
