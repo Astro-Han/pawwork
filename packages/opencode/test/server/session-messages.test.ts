@@ -74,14 +74,15 @@ async function fill(sessionID: SessionID, count: number, time = (i: number) => D
   return ids
 }
 
-async function createRunningQuestionSession(directory: string, input?: { externalResultReady?: boolean }) {
+async function createRunningQuestionSession(directory: string, input?: { externalResultReady?: boolean; time?: number }) {
   const session = await svc.create({})
   const userID = MessageID.ascending()
+  const time = input?.time ?? Date.now()
   await svc.updateMessage({
     id: userID,
     sessionID: session.id,
     role: "user",
-    time: { created: Date.now() },
+    time: { created: time },
     agent: "user",
     model: { providerID: "test", modelID: "test" },
     tools: {},
@@ -94,7 +95,7 @@ async function createRunningQuestionSession(directory: string, input?: { externa
     sessionID: session.id,
     role: "assistant",
     parentID: userID,
-    time: { created: Date.now() },
+    time: { created: time + 1 },
     agent: "build",
     mode: "build",
     path: { cwd: directory, root: directory },
@@ -130,7 +131,7 @@ async function createRunningQuestionSession(directory: string, input?: { externa
         ],
       },
       raw: "",
-      time: { start: Date.now() },
+      time: { start: time + 2 },
       metadata: { externalResultReady: input?.externalResultReady ?? true },
     },
   } as unknown as MessageV2.Part)
@@ -158,6 +159,47 @@ describe("session messages endpoint", () => {
           const res = await app.request(`/session/${session.id}/message?limit=2`)
           expect(res.status).toBe(200)
           const body = (await res.json()) as MessageV2.WithParts[]
+          const part = expectToolPart(body.flatMap((msg) => msg.parts).find((item) => item.id === partID))
+          expect(part.state.status).toBe("error")
+          if (part.state.status !== "error") throw new Error("expected error state")
+          expect(part.state.metadata?.interrupted).toBe(true)
+          expect(part.state.metadata?.stale_external_result).toBe(true)
+
+          const persisted = expectToolPart(
+            MessageV2.get({ sessionID: session.id, messageID: assistantID }).parts.find(
+              (item) => item.id === partID,
+            ),
+          )
+          expect(persisted.state.status).toBe("error")
+
+          await svc.remove(session.id)
+        },
+      }),
+    )
+  })
+
+  test("terminalizes stale running external-result questions when fetched from an older cursor page", async () => {
+    await using tmp = await tmpdir({ git: true })
+    ExternalResult.__resetForTests()
+    await withoutWatcher(() =>
+      Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const time = Date.now()
+          const { session, assistantID, partID } = await createRunningQuestionSession(tmp.path, { time })
+          await fill(session.id, 3, (i) => time + 10 + i)
+          const app = Server.Default().app
+
+          const latest = await app.request(`/session/${session.id}/message?limit=2`)
+          expect(latest.status).toBe(200)
+          const cursor = latest.headers.get("x-next-cursor")
+          expect(cursor).toBeTruthy()
+
+          const older = await app.request(
+            `/session/${session.id}/message?limit=2&before=${encodeURIComponent(cursor!)}`,
+          )
+          expect(older.status).toBe(200)
+          const body = (await older.json()) as MessageV2.WithParts[]
           const part = expectToolPart(body.flatMap((msg) => msg.parts).find((item) => item.id === partID))
           expect(part.state.status).toBe("error")
           if (part.state.status !== "error") throw new Error("expected error state")
