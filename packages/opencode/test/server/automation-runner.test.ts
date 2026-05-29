@@ -66,29 +66,36 @@ describe("automation runNow execution", () => {
     })
   })
 
-  test("keeps one active writer per automation", async () => {
+  test("keeps one active writer per project", async () => {
     await withAutomation(async (projectID) => {
-      const definition = Automation.create(input(projectID))
+      const first = Automation.create(input(projectID, { title: "First automation" }))
+      const second = Automation.create(input(projectID, { title: "Second automation" }))
       let release!: () => void
       const held = new Promise<void>((resolve) => {
         release = resolve
       })
+      let entered = 0
 
-      Automation.runNowExecuting(definition.id, {
+      Automation.runNowExecuting(first.id, {
         executor: async () => {
+          entered++
           await held
           return { sessionID: SessionID.descending(), result: "first", cost: 0 }
         },
       })
-      Automation.runNowExecuting(definition.id, {
-        executor: async () => ({ sessionID: SessionID.descending(), result: "second", cost: 0 }),
+      Automation.runNowExecuting(second.id, {
+        executor: async () => {
+          entered++
+          return { sessionID: SessionID.descending(), result: "second", cost: 0 }
+        },
       })
 
-      const stopped = await waitForRun(definition.id, "stopped")
+      const stopped = await waitForRun(second.id, "stopped")
       if (stopped.state !== "stopped") throw new Error("expected stopped run")
       expect(stopped.stopReason).toBe("previous_run_awaiting_input")
+      expect(entered).toBe(1)
       release()
-      const succeeded = await waitForRun(definition.id, "succeeded")
+      const succeeded = await waitForRun(first.id, "succeeded")
       expect(succeeded.result).toBe("first")
     })
   })
@@ -158,7 +165,7 @@ describe("automation runNow execution", () => {
 
       Automation.runNowExecuting(definition.id, {
         executor: async () => {
-          Automation.update(definition.id, { title: "Updated repo brief" })
+          Automation.update(definition.id, { title: "Updated repo brief", prompt: "Use the latest prompt." })
           return { sessionID, result: "done", cost: 0 }
         },
       })
@@ -167,12 +174,45 @@ describe("automation runNow execution", () => {
       unsubscribe()
       const updated = Automation.get(definition.id)
       expect(updated.title).toBe("Updated repo brief")
+      expect(updated.prompt).toBe("Use the latest prompt.")
       expect(updated.automationSessionID).toBe(sessionID)
       expect(definitionEvents.at(-1)).toMatchObject({
         id: definition.id,
         title: "Updated repo brief",
+        prompt: "Use the latest prompt.",
         automationSessionID: sessionID,
       })
+    })
+  })
+
+  test("does not revive a continue automation deleted during execution", async () => {
+    await withAutomation(async (projectID) => {
+      const definition = Automation.create(input(projectID, { context: "continue" }))
+      const definitionEvents: Automation.Definition[] = []
+      const terminalRun = new Promise<Automation.Run>((resolve) => {
+        const unsubscribe = Bus.subscribe(Automation.Event.RunUpdated, (event) => {
+          const run = event.properties
+          if (run.automationID !== definition.id) return
+          if (run.state !== "succeeded" && run.state !== "failed" && run.state !== "stopped") return
+          unsubscribe()
+          resolve(run)
+        })
+      })
+      const unsubscribeDefinition = Bus.subscribe(Automation.Event.DefinitionUpdated, (event) => {
+        definitionEvents.push(event.properties)
+      })
+
+      Automation.runNowExecuting(definition.id, {
+        executor: async () => {
+          Automation.remove(definition.id)
+          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+        },
+      })
+
+      await terminalRun
+      unsubscribeDefinition()
+      expect(() => Automation.get(definition.id)).toThrow()
+      expect(definitionEvents).toHaveLength(0)
     })
   })
 

@@ -233,9 +233,9 @@ export namespace Automation {
   type State = {
     definitions: Map<string, Definition>
     runs: Map<string, Run[]>
-    activeRuns: Set<string>
+    activeWriters: Set<string>
   }
-  const state = Instance.state<State>(() => ({ definitions: new Map(), runs: new Map(), activeRuns: new Set() }))
+  const state = Instance.state<State>(() => ({ definitions: new Map(), runs: new Map(), activeWriters: new Set() }))
 
   export type RunExecutor = (input: {
     definition: Definition
@@ -425,6 +425,10 @@ export namespace Automation {
     return definition
   }
 
+  function getOptional(id: string): Definition | undefined {
+    return state().definitions.get(id)
+  }
+
   function isSameValue(left: unknown, right: unknown): boolean {
     if (Object.is(left, right)) return true
     if (Array.isArray(left) || Array.isArray(right)) {
@@ -563,7 +567,9 @@ export namespace Automation {
 
   async function executeRun(initial: Run, executor: RunExecutor, attendance: AutomationRunAttendance) {
     const data = state()
-    if (data.activeRuns.has(initial.automationID)) {
+    const definition = get(initial.automationID)
+    const writerKey = definition.where.worktree ?? definition.where.projectID
+    if (data.activeWriters.has(writerKey)) {
       const stopped = reviseRun(initial, {
         state: "stopped",
         completedAt: Date.now(),
@@ -572,18 +578,17 @@ export namespace Automation {
       await publishRunUpdated(stopped)
       return
     }
-    data.activeRuns.add(initial.automationID)
+    data.activeWriters.add(writerKey)
     const controller = new AbortController()
     let current = initial
     try {
-      const definition = get(initial.automationID)
       const prepared = await executor({ definition, run: initial, attendance, signal: controller.signal })
       const latest = state().runs.get(initial.automationID)?.find((item) => item.id === initial.id) ?? initial
       const running = latest.state === "scheduled" ? markRunStarted(latest, prepared.sessionID) : latest
       current = running
       await publishRunUpdated(running)
-      const latestDefinition = get(initial.automationID)
-      if (latestDefinition.context === "continue") {
+      const latestDefinition = getOptional(initial.automationID)
+      if (latestDefinition?.context === "continue") {
         const updatedDefinition = setDefinitionAutomationSession(latestDefinition, prepared.sessionID)
         if (updatedDefinition !== latestDefinition) await publishDefinitionUpdated(updatedDefinition)
       }
@@ -618,7 +623,7 @@ export namespace Automation {
       })
       await publishRunUpdated(failed)
     } finally {
-      data.activeRuns.delete(initial.automationID)
+      data.activeWriters.delete(writerKey)
     }
   }
 
