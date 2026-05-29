@@ -1,6 +1,7 @@
 import { Context, Effect, Layer } from "effect"
 import { Automation } from "."
 import { Instance } from "@/project/instance"
+import { NotFoundError } from "@/storage/db"
 import { sessionPromptExecutor } from "./runner"
 
 export namespace AutomationScheduler {
@@ -15,7 +16,7 @@ export namespace AutomationScheduler {
     stop(): void
     reschedule(definition: Automation.Definition): void
     cancel(automationID: string): void
-    nextFireAt(definition: Automation.Definition, from?: number): number | null
+    computeNextFireAt(definition: Automation.Definition, from?: number): number | null
   }
 
   export interface Options {
@@ -37,9 +38,12 @@ export namespace AutomationScheduler {
   export const layer = (options?: Options) => Layer.effect(Service, Effect.sync(() => Service.of(make(options))))
   export const defaultLayer = layer()
 
-  export function nextFireAt(definition: Automation.Definition, from: number): number | null {
+  export function computeNextFireAt(definition: Automation.Definition, from: number): number | null {
     if (definition.paused) return null
-    if (definition.kind === "oneshot") return definition.fireAt
+    if (definition.kind === "oneshot") {
+      if (Automation.hasRunTriggeredAtOrAfter(definition.id, definition.fireAt)) return null
+      return definition.fireAt
+    }
     if (definition.rhythm.kind !== "interval") return null
     return from + definition.rhythm.everyMs
   }
@@ -64,20 +68,28 @@ export namespace AutomationScheduler {
         void Automation.publishRunUpdated(stopped)
         return
       }
-      Automation.runNowExecuting(automationID, {
-        executor: async (input) => {
-          try {
-            return await executor(input)
-          } finally {
-            const latest = Automation.get(input.definition.id)
-            if (latest.kind === "recurring" && latest.rhythm.kind === "interval" && !latest.paused) {
-              schedule(latest, clock.now() + latest.rhythm.everyMs)
+      try {
+        Automation.runNowExecuting(automationID, {
+          executor: async (input) => {
+            try {
+              return await executor(input)
+            } finally {
+              try {
+                const latest = Automation.get(input.definition.id)
+                if (latest.kind === "recurring" && latest.rhythm.kind === "interval" && !latest.paused) {
+                  schedule(latest, clock.now() + latest.rhythm.everyMs)
+                }
+              } catch (error) {
+                if (!NotFoundError.isInstance(error)) throw error
+              }
             }
-          }
-        },
-        attendance: "unattended",
-        now: triggeredAt,
-      })
+          },
+          attendance: "unattended",
+          now: triggeredAt,
+        })
+      } catch (error) {
+        if (!NotFoundError.isInstance(error)) throw error
+      }
     }
 
     const schedule = (definition: Automation.Definition, fireAt: number) => {
@@ -98,13 +110,15 @@ export namespace AutomationScheduler {
     }
 
     const reschedule = (definition: Automation.Definition) => {
-      const next = nextFireAt(definition, clock.now())
+      const next = computeNextFireAt(definition, clock.now())
       if (next === null) {
         cancel(definition.id)
         return
       }
       schedule(definition, next)
     }
+
+    for (const definition of Automation.list()) reschedule(definition)
 
     return {
       stop() {
@@ -113,8 +127,8 @@ export namespace AutomationScheduler {
       },
       reschedule,
       cancel,
-      nextFireAt(definition, from = clock.now()) {
-        return nextFireAt(definition, from)
+      computeNextFireAt(definition, from = clock.now()) {
+        return computeNextFireAt(definition, from)
       },
     }
   }

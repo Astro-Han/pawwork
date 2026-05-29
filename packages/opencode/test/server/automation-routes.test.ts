@@ -92,7 +92,7 @@ describe("automation routes", () => {
         stop: () => undefined,
         reschedule: (definition) => rescheduled.push({ id: definition.id, paused: definition.paused }),
         cancel: (automationID) => cancelled.push(automationID),
-        nextFireAt: () => null,
+        computeNextFireAt: () => null,
       })
 
       const created = await json(app, "/automation", {

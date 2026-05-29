@@ -595,6 +595,10 @@ export namespace Automation {
     )
   }
 
+  export function hasRunTriggeredAtOrAfter(automationID: string, triggeredAt: number): boolean {
+    return (state().runs.get(automationID) ?? []).some((run) => run.triggeredAt >= triggeredAt)
+  }
+
   export function recordStoppedRun(
     automationID: string,
     stopReason: Extract<Run, { state: "stopped" }>["stopReason"],

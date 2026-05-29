@@ -125,6 +125,72 @@ describe("automation scheduler", () => {
     })
   })
 
+  test("schedules existing automations when the scheduler starts", async () => {
+    await withAutomation(async (projectID) => {
+      const clock = new FakeClock(0)
+      const calls: number[] = []
+      Automation.create(oneshotInput(projectID, 1_000), { now: 0 })
+
+      const scheduler = AutomationScheduler.make({
+        clock,
+        executor: async () => {
+          calls.push(clock.now())
+          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+        },
+      })
+
+      clock.advance(1_000)
+      expect(calls).toEqual([1_000])
+      scheduler.stop()
+    })
+  })
+
+  test("does not reschedule a one-shot automation after its fire time has run", async () => {
+    await withAutomation(async (projectID) => {
+      const clock = new FakeClock(0)
+      const calls: number[] = []
+      const scheduler = AutomationScheduler.make({
+        clock,
+        executor: async () => {
+          calls.push(clock.now())
+          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+        },
+      })
+      const definition = Automation.create(oneshotInput(projectID, 1_000), { now: 0 })
+
+      scheduler.reschedule(definition)
+      clock.advance(1_000)
+      await waitForRunStates(definition.id, ["succeeded"])
+      scheduler.reschedule(definition)
+      clock.advance(0)
+
+      expect(calls).toEqual([1_000])
+      scheduler.stop()
+    })
+  })
+
+  test("ignores deleted automations when a stale timer fires", async () => {
+    await withAutomation(async (projectID) => {
+      const clock = new FakeClock(0)
+      const calls: number[] = []
+      const scheduler = AutomationScheduler.make({
+        clock,
+        executor: async () => {
+          calls.push(clock.now())
+          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+        },
+      })
+      const definition = Automation.create(oneshotInput(projectID, 1_000), { now: 0 })
+
+      scheduler.reschedule(definition)
+      Automation.remove(definition.id)
+      expect(() => clock.advance(1_000)).not.toThrow()
+
+      expect(calls).toEqual([])
+      scheduler.stop()
+    })
+  })
+
   test("anchors interval automation after completion and never overlaps", async () => {
     await withAutomation(async (projectID) => {
       const clock = new FakeClock(0)
