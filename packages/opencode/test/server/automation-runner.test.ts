@@ -447,13 +447,17 @@ describe("automation runNow execution", () => {
           })
 
           Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
-          const result = await Promise.race([
-            removed.promise,
-            new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error("timed out waiting for running run")), 1_000),
-            ),
-          ])
-          unsubscribe()
+          let result: ReturnType<typeof Automation.remove>
+          try {
+            result = await Promise.race([
+              removed.promise,
+              new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error("timed out waiting for running run")), 1_000),
+              ),
+            ])
+          } finally {
+            unsubscribe()
+          }
 
           expect(result.stoppedRun).toMatchObject({ state: "stopped", stopReason: "cancelled" })
           await Bun.sleep(50)
