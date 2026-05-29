@@ -778,8 +778,8 @@ export function addTokens(acc: CumulativeTokens | undefined, next: CumulativeTok
     output: (acc?.output ?? 0) + next.output,
     reasoning: (acc?.reasoning ?? 0) + next.reasoning,
     cache: {
-      read: (acc?.cache.read ?? 0) + next.cache.read,
-      write: (acc?.cache.write ?? 0) + next.cache.write,
+      read: (acc?.cache?.read ?? 0) + next.cache.read,
+      write: (acc?.cache?.write ?? 0) + next.cache.write,
     },
   }
 }
