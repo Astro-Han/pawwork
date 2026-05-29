@@ -80,6 +80,18 @@ describe("electron builder app-update config", () => {
     expect(createConfig("prod").artifactName).toBe("pawwork-${os}-${arch}-${version}.${ext}")
   })
 
+  test("packaged repository metadata follows the release channel", () => {
+    expect(createConfig("dev").extraMetadata).toMatchObject({
+      repository: { type: "git", url: "https://github.com/Astro-Han/pawwork" },
+    })
+    expect(createConfig("prod").extraMetadata).toMatchObject({
+      repository: { type: "git", url: "https://github.com/Astro-Han/pawwork" },
+    })
+    expect(createConfig("beta").extraMetadata).toMatchObject({
+      repository: { type: "git", url: "https://github.com/Astro-Han/pawwork-beta" },
+    })
+  })
+
   test("packages third-party notices into app resources", () => {
     const config = createConfig("prod")
     expect(config.extraResources).toEqual(
