@@ -72,21 +72,23 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
       limit: limit.toLocaleString(language.intl()),
     })
   }
+  const contextUsedLabel = createMemo(() => {
+    const ctx = context()
+    return ctx ? contextUsedText(ctx) : undefined
+  })
 
   const tooltipValue = () => (
     <div>
-      <Show when={context()}>
-        {(ctx) => (
-          <>
-            <div class="flex items-center gap-2">
-              <span>{language.t("context.usage.title")}</span>
-            </div>
-            <div class="flex items-center gap-2">
-              <span>{contextUsedText(ctx())}</span>
-            </div>
-            <Show when={compactStatus()}>{(status) => <div>{status()}</div>}</Show>
-          </>
-        )}
+      <Show when={contextUsedLabel()}>
+        <div class="flex items-center gap-2">
+          <span>{language.t("context.usage.title")}</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span>{contextUsedLabel()}</span>
+        </div>
+        <Show when={compactStatus()}>
+          <div>{compactStatus()}</div>
+        </Show>
       </Show>
       <div class="flex items-center gap-2">
         <span>{cost()}</span>

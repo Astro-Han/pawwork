@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test"
+import * as fs from "node:fs/promises"
+import * as path from "node:path"
 import { contextUsageRingPercent, contextUsageTone } from "./session-context-usage-state"
+
+const SOURCE_PATH = path.join(__dirname, "session-context-usage.tsx")
 
 describe("session context usage indicator helpers", () => {
   test("uses normal tone for unknown usage and usage below warning", () => {
@@ -18,5 +22,14 @@ describe("session context usage indicator helpers", () => {
     expect(contextUsageRingPercent(-1)).toBe(0)
     expect(contextUsageRingPercent(42.5)).toBe(42.5)
     expect(contextUsageRingPercent(120)).toBe(100)
+  })
+})
+
+describe("SessionContextUsage render contract", () => {
+  test("does not pass volatile context accessors through non-keyed Show children", async () => {
+    const source = await fs.readFile(SOURCE_PATH, "utf8")
+
+    expect(source).not.toContain("<Show when={context()}>")
+    expect(source).not.toContain("<Show when={compactStatus()}>{(status)")
   })
 })
