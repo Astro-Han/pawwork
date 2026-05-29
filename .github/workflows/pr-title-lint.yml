@@ -1,10 +1,8 @@
 # Advisory check: lint PR titles against Conventional Commits. Catches
 # drift early so PR titles read consistently in listings and serve as a
-# well-formed subject when a PR is squash-merged (this repo normally
-# uses merge commits, so the PR title is not the commit subject on
-# `dev`, but the convention still matters for review hygiene). Not
-# required in the `dev` ruleset -- failures flag the PR but do not
-# block merge. Draft PRs with `WIP:` prefix are skipped. (#68)
+# well-formed subject when a PR is squash-merged. Not required in the
+# `dev` ruleset -- failures flag the PR but do not block merge. Draft
+# PRs with `WIP:` prefix are skipped. (#68)
 name: pr-title-lint
 
 on:
