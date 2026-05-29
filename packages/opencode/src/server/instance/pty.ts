@@ -1,9 +1,11 @@
 import { Hono, type MiddlewareHandler } from "hono"
 import { describeRoute, validator, resolver } from "hono-openapi"
+import { HTTPException } from "hono/http-exception"
 import type { UpgradeWebSocket } from "hono/ws"
 import z from "zod"
 import { Pty } from "@/pty"
 import { PtyID } from "@/pty/schema"
+import { ConnectToken, PtyTicket } from "@/pty/ticket"
 import { NotFoundError } from "../../storage/db"
 import { errors } from "../error"
 
@@ -11,6 +13,19 @@ export function assertPtyConnectTarget(info: unknown) {
   if (!info) {
     throw new NotFoundError({ message: "PTY session not found" })
   }
+}
+
+function assertPtyConnectTicket(input: { ptyID: PtyID; ticket?: string }) {
+  if (!input.ticket) return
+  if (PtyTicket.consume({ ptyID: input.ptyID, ticket: input.ticket })) return
+  throw new HTTPException(401, { message: "Invalid PTY connect ticket" })
+}
+
+const PtyConnectQuery = z.object({ cursor: z.string().optional(), ticket: z.string().optional() })
+type PtyConnectQuery = z.infer<typeof PtyConnectQuery>
+type PtyConnectRequest = {
+  valid(target: "param"): { ptyID: PtyID }
+  valid(target: "query"): PtyConnectQuery
 }
 
 export function PtyRoutes(upgradeWebSocket: UpgradeWebSocket) {
@@ -145,6 +160,31 @@ export function PtyRoutes(upgradeWebSocket: UpgradeWebSocket) {
         return c.json(true)
       },
     )
+    .post(
+      "/:ptyID/connect-token",
+      describeRoute({
+        summary: "Create PTY WebSocket token",
+        description: "Create a short-lived ticket for opening a PTY WebSocket connection.",
+        operationId: "pty.connectToken",
+        responses: {
+          200: {
+            description: "WebSocket connect token",
+            content: {
+              "application/json": {
+                schema: resolver(ConnectToken),
+              },
+            },
+          },
+          ...errors(404),
+        },
+      }),
+      validator("param", z.object({ ptyID: PtyID.zod })),
+      async (c) => {
+        const id = c.req.valid("param").ptyID
+        assertPtyConnectTarget(await Pty.get(id))
+        return c.json(PtyTicket.issue({ ptyID: id }))
+      },
+    )
     .get(
       "/:ptyID/connect",
       describeRoute({
@@ -164,10 +204,14 @@ export function PtyRoutes(upgradeWebSocket: UpgradeWebSocket) {
         },
       }),
       validator("param", z.object({ ptyID: PtyID.zod })),
+      validator("query", PtyConnectQuery),
       upgradeWebSocket(async (c) => {
-        const id = PtyID.zod.parse(c.req.param("ptyID"))
+        const request = c.req as unknown as PtyConnectRequest
+        const id = request.valid("param").ptyID
+        const query = request.valid("query")
+        assertPtyConnectTicket({ ptyID: id, ticket: query.ticket })
         const cursor = (() => {
-          const value = c.req.query("cursor")
+          const value = query.cursor
           if (!value) return
           const parsed = Number(value)
           if (!Number.isSafeInteger(parsed) || parsed < -1) return

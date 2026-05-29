@@ -13,6 +13,7 @@ import { Option, Redacted } from "effect"
 import { ServerAuth } from "./auth"
 
 const log = Log.create({ service: "server" })
+const PTY_CONNECT_PATH = /^\/pty\/[^/]+\/connect$/
 
 export const ErrorMiddleware: ErrorHandler = (err, c) => {
   if (err instanceof NamedError) {
@@ -54,6 +55,8 @@ export const AuthMiddleware: MiddlewareHandler = async (c, next) => {
 
   const password = Flag.OPENCODE_SERVER_PASSWORD
   if (!password) return next()
+
+  if (c.req.method === "GET" && PTY_CONNECT_PATH.test(c.req.path) && c.req.query("ticket")) return next()
 
   const queryToken = c.req.query("auth_token")
   const authHeader = c.req.header("authorization")
