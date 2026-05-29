@@ -471,7 +471,7 @@ describe("automation routes", () => {
     expect(spec.components?.schemas).toHaveProperty("AutomationValidationError")
   })
 
-  test("runNow is a contract stub before PR2 execution", async () => {
+  test("runNow returns the queued run before background execution updates it", async () => {
     await withAutomationApp(async ({ app, projectID }) => {
       const created = await json(app, "/automation", {
           method: "POST",
