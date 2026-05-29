@@ -33,10 +33,10 @@ export const AutomationRunContext = {
   service: AutomationRunContextService,
   current: AutomationRunContextService,
   attended(input: Pick<AutomationRunContext, "block" | "clear" | "stepCap">): AutomationRunContext {
-    return { attendance: "attended", ...input }
+    return { ...input, attendance: "attended" }
   },
   unattended(input: Pick<AutomationRunContext, "block" | "clear" | "stepCap">): AutomationRunContext {
-    return { attendance: "unattended", ...input }
+    return { ...input, attendance: "unattended" }
   },
   permissionOnPending(
     context: AutomationRunContext | undefined,

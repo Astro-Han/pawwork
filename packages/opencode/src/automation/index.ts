@@ -484,6 +484,8 @@ export namespace Automation {
       ...patch,
       revision: run.revision + 1,
     }
+    if (next.state !== "awaiting_input") delete (next as Record<string, unknown>).blocker
+    if (next.state !== "stopped") delete (next as Record<string, unknown>).stopReason
     for (const [key, value] of Object.entries(next)) {
       if (value === undefined) delete (next as Record<string, unknown>)[key]
     }
@@ -580,7 +582,11 @@ export namespace Automation {
       const running = latest.state === "scheduled" ? markRunStarted(latest, prepared.sessionID) : latest
       current = running
       await publishRunUpdated(running)
-      if (definition.context === "continue") setDefinitionAutomationSession(definition, prepared.sessionID)
+      const latestDefinition = get(initial.automationID)
+      if (latestDefinition.context === "continue") {
+        const updatedDefinition = setDefinitionAutomationSession(latestDefinition, prepared.sessionID)
+        if (updatedDefinition !== latestDefinition) await publishDefinitionUpdated(updatedDefinition)
+      }
       const succeeded = reviseRun(running, {
         state: "succeeded",
         completedAt: Date.now(),

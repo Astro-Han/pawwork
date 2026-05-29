@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test"
+import { Effect } from "effect"
 import { Automation } from "../../src/automation"
+import { Bus } from "../../src/bus"
 import { Instance } from "../../src/project/instance"
 import { ProjectID } from "../../src/project/schema"
 import { SessionID } from "../../src/session/schema"
-import { AutomationStepCapError } from "../../src/automation/run-context"
+import { AutomationRunContext, AutomationStepCapError } from "../../src/automation/run-context"
 import { tmpdir } from "../fixture/fixture"
 
 afterEach(async () => {
@@ -18,7 +20,7 @@ async function withAutomation<T>(fn: (projectID: ProjectID) => Promise<T>) {
   })
 }
 
-function input(projectID: ProjectID): Automation.CreateInput {
+function input(projectID: ProjectID, overrides: Partial<Extract<Automation.CreateInput, { kind: "recurring" }>> = {}): Automation.CreateInput {
   return {
     kind: "recurring",
     title: "Repo brief",
@@ -28,6 +30,7 @@ function input(projectID: ProjectID): Automation.CreateInput {
     timezone: "Asia/Shanghai",
     rhythm: { kind: "interval", everyMs: 60_000 },
     stop: { kind: "count", count: 3 },
+    ...overrides,
   }
 }
 
@@ -104,7 +107,86 @@ describe("automation runNow execution", () => {
       })
       expect(cleared.state).toBe("running")
       expect(cleared).not.toHaveProperty("blocker")
+      expect(Automation.clearRunBlocker(cleared)).toBe(cleared)
     })
+  })
+
+  test("drops state-specific fields when a run transitions out of that state", async () => {
+    await withAutomation(async (projectID) => {
+      const definition = Automation.create(input(projectID))
+
+      Automation.runNowExecuting(definition.id, {
+        executor: async ({ run }) => {
+          const started = Automation.markRunStarted(run, SessionID.descending(), { now: run.triggeredAt })
+          Automation.markRunBlocked(started, { kind: "question", callID: "call_1" })
+          throw new Error("boom")
+        },
+      })
+
+      const failed = await waitForRun(definition.id, "failed")
+      expect(failed).not.toHaveProperty("blocker")
+
+      let release!: () => void
+      const held = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      Automation.runNowExecuting(definition.id, {
+        executor: async () => {
+          await held
+          return { sessionID: SessionID.descending(), result: "first", cost: 0 }
+        },
+      })
+      Automation.runNowExecuting(definition.id, {
+        executor: async () => ({ sessionID: SessionID.descending(), result: "second", cost: 0 }),
+      })
+      const stopped = await waitForRun(definition.id, "stopped")
+      if (stopped.completedAt === null) throw new Error("expected stopped run to have completedAt")
+      const restarted = Automation.markRunStarted(stopped, SessionID.descending(), { now: stopped.completedAt })
+      expect(restarted).not.toHaveProperty("stopReason")
+      release()
+    })
+  })
+
+  test("publishes continue-session definition updates from the latest definition", async () => {
+    await withAutomation(async (projectID) => {
+      const definition = Automation.create(input(projectID, { context: "continue" }))
+      const sessionID = SessionID.descending()
+      const definitionEvents: Automation.Definition[] = []
+      const unsubscribe = Bus.subscribe(Automation.Event.DefinitionUpdated, (event) => {
+        definitionEvents.push(event.properties)
+      })
+
+      Automation.runNowExecuting(definition.id, {
+        executor: async () => {
+          Automation.update(definition.id, { title: "Updated repo brief" })
+          return { sessionID, result: "done", cost: 0 }
+        },
+      })
+
+      await waitForRun(definition.id, "succeeded")
+      unsubscribe()
+      const updated = Automation.get(definition.id)
+      expect(updated.title).toBe("Updated repo brief")
+      expect(updated.automationSessionID).toBe(sessionID)
+      expect(definitionEvents.at(-1)).toMatchObject({
+        id: definition.id,
+        title: "Updated repo brief",
+        automationSessionID: sessionID,
+      })
+    })
+  })
+
+  test("unattended context construction overrides any existing attendance tag", async () => {
+    const handlers = {
+      stepCap: 50,
+      block: () => Effect.void,
+      clear: () => Effect.void,
+    }
+    const attended = AutomationRunContext.attended(handlers)
+    const unattended = AutomationRunContext.unattended(attended)
+
+    expect(attended.attendance).toBe("attended")
+    expect(unattended.attendance).toBe("unattended")
   })
 
   test("records hard step-cap failures with the frozen stop code", async () => {

@@ -230,7 +230,7 @@ export const AutomationRoutes = (): Hono =>
       "/:automationID/run",
       describeRoute({
         summary: "Run automation now",
-        description: "Create a scheduled automation run record. Execution lands in a later PR.",
+        description: "Create a scheduled automation run record and start execution in the background.",
         operationId: "automation.runNow",
         responses: {
           200: {
