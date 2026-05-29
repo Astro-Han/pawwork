@@ -21,11 +21,10 @@ describe("perf probe baseline workflow", () => {
 
     expect(parsed.name).toBe("perf-probe-baseline")
     expect(parsed.permissions).toEqual({ contents: "read" })
-    expect(cacheSteps.map((step) => step.uses)).toEqual([pinned.cacheRestore, pinned.cacheRestore])
-    expect(cacheSteps.map((step) => step.with?.path)).toEqual([
-      "~/.bun/install/cache",
-      "${{ github.workspace }}/.playwright-browsers",
-    ])
+    expect(cacheSteps.map((step) => step.uses)).toEqual([pinned.cacheRestore])
+    expect(cacheSteps.map((step) => step.with?.path)).toEqual(["~/.bun/install/cache"])
+    expect(parsed.env).not.toHaveProperty("PLAYWRIGHT_BROWSERS_PATH")
+    expect(workflow).not.toContain(".playwright-browsers")
     expect(workflow).not.toContain("issues: write")
     expect(workflow).not.toContain("pull-requests: write")
     expect(workflow).not.toContain("actions/github-script")
