@@ -8,7 +8,7 @@ import { AsyncQueue } from "../../util/queue"
 
 const log = Log.create({ service: "server" })
 
-export const EventRoutes = () =>
+export const EventRoutes = (options: { heartbeatMs?: number } = {}) =>
   new Hono().get(
     "/event",
     describeRoute({
@@ -50,7 +50,7 @@ export const EventRoutes = () =>
               properties: {},
             }),
           )
-        }, 10_000)
+        }, options.heartbeatMs ?? 10_000)
 
         const stop = () => {
           if (done) return

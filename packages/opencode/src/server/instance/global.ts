@@ -44,6 +44,11 @@ type SsePacket = {
 }
 
 export type GlobalEventReplayPacket = SsePacket
+export type GlobalRoutesOptions = {
+  replayBridge?: ReturnType<typeof createGlobalEventReplayBridge>
+  syncSubscribe?: (q: AsyncQueue<string | null>) => () => void
+  heartbeatMs?: number
+}
 
 function packetForEnvelope(envelope: GlobalEventEnvelope): SsePacket {
   return {
@@ -150,7 +155,7 @@ GlobalBus.on("event", (event) => {
   globalEventReplay.append(event as GlobalEventEnvelope)
 })
 
-async function streamEvents(c: Context, subscribe: (q: AsyncQueue<string | null>) => () => void) {
+async function streamEvents(c: Context, subscribe: (q: AsyncQueue<string | null>) => () => void, heartbeatMs = 10_000) {
   return streamSSE(c, async (stream) => {
     const q = new AsyncQueue<string | null>()
     let done = false
@@ -174,7 +179,7 @@ async function streamEvents(c: Context, subscribe: (q: AsyncQueue<string | null>
           },
         }),
       )
-    }, 10_000)
+    }, heartbeatMs)
 
     const stop = () => {
       if (done) return
@@ -203,6 +208,7 @@ async function streamEvents(c: Context, subscribe: (q: AsyncQueue<string | null>
 export async function streamGlobalEvents(
   c: Context,
   bridge: ReturnType<typeof createGlobalEventReplayBridge> = globalEventReplay,
+  heartbeatMs = 10_000,
 ) {
   const lastEventID = c.req.header("Last-Event-ID") ?? c.req.header("last-event-id") ?? undefined
 
@@ -224,7 +230,7 @@ export async function streamGlobalEvents(
           },
         }),
       })
-    }, 10_000)
+    }, heartbeatMs)
 
     const stop = () => {
       if (done) return
@@ -249,8 +255,26 @@ export async function streamGlobalEvents(
   })
 }
 
-export const GlobalRoutes = lazy(() =>
-  new Hono()
+export function createGlobalRoutes(options: GlobalRoutesOptions = {}) {
+  const replayBridge = options.replayBridge ?? globalEventReplay
+  const syncSubscribe =
+    options.syncSubscribe ??
+    ((q: AsyncQueue<string | null>) => {
+      return SyncEvent.subscribeAll(({ def, event }) => {
+        // TODO: don't pass def, just pass the type (and it should
+        // be versioned)
+        q.push(
+          JSON.stringify({
+            payload: {
+              ...event,
+              type: SyncEvent.versionedType(def.type, def.version),
+            },
+          }),
+        )
+      })
+    })
+
+  return new Hono()
     .use((c, next) => withRequestContext(requestContextFromHono(c, {}), () => next()))
     .get(
       "/health",
@@ -307,7 +331,7 @@ export const GlobalRoutes = lazy(() =>
         c.header("X-Accel-Buffering", "no")
         c.header("X-Content-Type-Options", "nosniff")
 
-        return streamGlobalEvents(c)
+        return streamGlobalEvents(c, replayBridge, options.heartbeatMs)
       },
     )
     .get(
@@ -340,20 +364,7 @@ export const GlobalRoutes = lazy(() =>
         c.header("Cache-Control", "no-cache, no-transform")
         c.header("X-Accel-Buffering", "no")
         c.header("X-Content-Type-Options", "nosniff")
-        return streamEvents(c, (q) => {
-          return SyncEvent.subscribeAll(({ def, event }) => {
-            // TODO: don't pass def, just pass the type (and it should
-            // be versioned)
-            q.push(
-              JSON.stringify({
-                payload: {
-                  ...event,
-                  type: SyncEvent.versionedType(def.type, def.version),
-                },
-              }),
-            )
-          })
-        })
+        return streamEvents(c, syncSubscribe, options.heartbeatMs)
       },
     )
     .get(
@@ -496,5 +507,7 @@ export const GlobalRoutes = lazy(() =>
         })
         return c.json({ success: true, version: target })
       },
-    ),
-)
+    )
+}
+
+export const GlobalRoutes = lazy(() => createGlobalRoutes())
