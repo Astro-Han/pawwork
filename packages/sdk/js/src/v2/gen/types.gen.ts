@@ -18,13 +18,6 @@ export type EventGlobalDisposed = {
   }
 }
 
-export type EventServerInstanceDisposed = {
-  type: "server.instance.disposed"
-  properties: {
-    directory: string
-  }
-}
-
 export type EventInstallationUpdated = {
   type: "installation.updated"
   properties: {
@@ -36,6 +29,13 @@ export type EventInstallationUpdateAvailable = {
   type: "installation.update-available"
   properties: {
     version: string
+  }
+}
+
+export type EventServerInstanceDisposed = {
+  type: "server.instance.disposed"
+  properties: {
+    directory: string
   }
 }
 
@@ -351,6 +351,198 @@ export type EventWorktreeFailed = {
   properties: {
     message: string
   }
+}
+
+export type AutomationWhere = {
+  projectID: string
+  worktree?: string
+}
+
+export type AutomationRhythm =
+  | {
+      kind: "interval"
+      everyMs: number
+    }
+  | {
+      kind: "cron"
+      expression: string
+    }
+
+export type AutomationStop =
+  | {
+      kind: "count"
+      count: number
+    }
+  | {
+      kind: "condition"
+      condition: string
+    }
+  | {
+      kind: "never"
+    }
+
+export type AutomationDefinition =
+  | {
+      kind: "oneshot"
+      id: string
+      title: string
+      prompt: string
+      revision: number
+      paused: boolean
+      context: "continue" | "fresh"
+      where: AutomationWhere
+      createdAt: number
+      updatedAt: number
+      timezone: string
+      sourceSessionID?: string
+      automationSessionID?: string
+      normalizationWarnings: Array<string>
+      fireAt: number
+    }
+  | {
+      kind: "recurring"
+      id: string
+      title: string
+      prompt: string
+      revision: number
+      paused: boolean
+      context: "continue" | "fresh"
+      where: AutomationWhere
+      createdAt: number
+      updatedAt: number
+      timezone: string
+      sourceSessionID?: string
+      automationSessionID?: string
+      normalizationWarnings: Array<string>
+      rhythm: AutomationRhythm
+      stop: AutomationStop
+      nextFireAt: number | null
+      nextFires: Array<number>
+      failureStreak: number
+    }
+
+export type EventAutomationDefinitionUpdated = {
+  type: "automation.definition.updated"
+  properties: AutomationDefinition
+}
+
+export type AutomationDefinitionTombstone = {
+  id: string
+  deleted: true
+  revision: number
+}
+
+export type EventAutomationDefinitionDeleted = {
+  type: "automation.definition.deleted"
+  properties: AutomationDefinitionTombstone
+}
+
+export type AutomationRunBlocker =
+  | {
+      kind: "permission"
+      requestID: string
+    }
+  | {
+      kind: "question"
+      callID: string
+    }
+
+export type AutomationRunError = {
+  code: "needs_user_input" | "execution_failed" | "step_cap" | "loop_gate"
+  message: string
+}
+
+export type AutomationRun =
+  | {
+      id: string
+      automationID: string
+      revision: number
+      definitionRevision: number
+      triggeredAt: number
+      cost: number | null
+      state: "scheduled"
+      sessionID: string | null
+      startedAt: null
+      completedAt: null
+      result: null
+      error: null
+    }
+  | {
+      id: string
+      automationID: string
+      revision: number
+      definitionRevision: number
+      triggeredAt: number
+      cost: number | null
+      sessionID: string
+      startedAt: number
+      completedAt: null
+      result: null
+      error: null
+      state: "running"
+    }
+  | {
+      id: string
+      automationID: string
+      revision: number
+      definitionRevision: number
+      triggeredAt: number
+      cost: number | null
+      sessionID: string
+      startedAt: number
+      completedAt: null
+      result: null
+      error: null
+      state: "awaiting_input"
+      blocker: AutomationRunBlocker
+    }
+  | {
+      id: string
+      automationID: string
+      revision: number
+      definitionRevision: number
+      triggeredAt: number
+      cost: number | null
+      sessionID: string
+      startedAt: number
+      completedAt: number
+      result: string | null
+      error: null
+      state: "succeeded"
+    }
+  | {
+      id: string
+      automationID: string
+      revision: number
+      definitionRevision: number
+      triggeredAt: number
+      cost: number | null
+      sessionID: string
+      startedAt: number
+      completedAt: number
+      result: null
+      error: AutomationRunError
+      state: "failed"
+    }
+  | {
+      id: string
+      automationID: string
+      revision: number
+      definitionRevision: number
+      triggeredAt: number
+      cost: number | null
+      state: "stopped"
+      sessionID: string | null
+      startedAt: number | null
+      completedAt: number
+      result: null
+      error: null
+      stopReason: "previous_run_awaiting_input" | "missed_schedule" | "cancelled" | "expired" | "blocker_lost"
+    }
+
+export type EventAutomationRunUpdated = {
+  type: "automation.run.updated"
+  properties: AutomationRun
 }
 
 export type EventMcpToolsChanged = {
@@ -1087,9 +1279,9 @@ export type EventSessionDeleted = {
 export type Event =
   | EventServerConnected
   | EventGlobalDisposed
-  | EventServerInstanceDisposed
   | EventInstallationUpdated
   | EventInstallationUpdateAvailable
+  | EventServerInstanceDisposed
   | EventLspClientDiagnostics
   | EventSessionStatus
   | EventSessionIdle
@@ -1109,6 +1301,9 @@ export type Event =
   | EventSessionCompacted
   | EventWorktreeReady
   | EventWorktreeFailed
+  | EventAutomationDefinitionUpdated
+  | EventAutomationDefinitionDeleted
+  | EventAutomationRunUpdated
   | EventMcpToolsChanged
   | EventMcpBrowserOpenFailed
   | EventCommandExecuted
@@ -2178,6 +2373,58 @@ export type MemoryRawInput = {
 
 export type MemoryDisabledInput = {
   disabled: boolean
+}
+
+export type AutomationListResponse = {
+  items: Array<AutomationDefinition>
+}
+
+export type AutomationValidationErrorDetail = {
+  field: string
+  message: string
+}
+
+export type AutomationValidationError = {
+  error: "invalid_automation"
+  details: Array<AutomationValidationErrorDetail>
+}
+
+export type AutomationCreateInput =
+  | {
+      kind: "oneshot"
+      title: string
+      prompt: string
+      context: "continue" | "fresh"
+      where: AutomationWhere
+      timezone: string
+      fireAt: number
+    }
+  | {
+      kind: "recurring"
+      title: string
+      prompt: string
+      context: "continue" | "fresh"
+      where: AutomationWhere
+      timezone: string
+      rhythm: AutomationRhythm
+      stop: AutomationStop
+    }
+
+export type AutomationUpdateInput = {
+  title?: string
+  prompt?: string
+  paused?: boolean
+  context?: "continue" | "fresh"
+  where?: AutomationWhere
+  timezone?: string
+  fireAt?: number
+  rhythm?: AutomationRhythm
+  stop?: AutomationStop
+}
+
+export type AutomationRunsResponse = {
+  items: Array<AutomationRun>
+  nextCursor: string | null
 }
 
 export type Symbol = {
@@ -5411,6 +5658,281 @@ export type MemoryDeleteEntryResponses = {
 }
 
 export type MemoryDeleteEntryResponse = MemoryDeleteEntryResponses[keyof MemoryDeleteEntryResponses]
+
+export type AutomationListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/automation"
+}
+
+export type AutomationListResponses = {
+  /**
+   * Automation definitions
+   */
+  200: AutomationListResponse
+}
+
+export type AutomationListResponse2 = AutomationListResponses[keyof AutomationListResponses]
+
+export type AutomationCreateData = {
+  body?: AutomationCreateInput
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/automation"
+}
+
+export type AutomationCreateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Automation validation failed
+   */
+  422: AutomationValidationError
+}
+
+export type AutomationCreateError = AutomationCreateErrors[keyof AutomationCreateErrors]
+
+export type AutomationCreateResponses = {
+  /**
+   * Created automation definition
+   */
+  200: AutomationDefinition
+}
+
+export type AutomationCreateResponse = AutomationCreateResponses[keyof AutomationCreateResponses]
+
+export type AutomationDeleteData = {
+  body?: never
+  path: {
+    automationID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/automation/{automationID}"
+}
+
+export type AutomationDeleteErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type AutomationDeleteError = AutomationDeleteErrors[keyof AutomationDeleteErrors]
+
+export type AutomationDeleteResponses = {
+  /**
+   * Automation deletion tombstone
+   */
+  200: AutomationDefinitionTombstone
+}
+
+export type AutomationDeleteResponse = AutomationDeleteResponses[keyof AutomationDeleteResponses]
+
+export type AutomationGetData = {
+  body?: never
+  path: {
+    automationID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/automation/{automationID}"
+}
+
+export type AutomationGetErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type AutomationGetError = AutomationGetErrors[keyof AutomationGetErrors]
+
+export type AutomationGetResponses = {
+  /**
+   * Automation definition
+   */
+  200: AutomationDefinition
+}
+
+export type AutomationGetResponse = AutomationGetResponses[keyof AutomationGetResponses]
+
+export type AutomationUpdateData = {
+  body?: AutomationUpdateInput
+  path: {
+    automationID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/automation/{automationID}"
+}
+
+export type AutomationUpdateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+  /**
+   * Automation validation failed
+   */
+  422: AutomationValidationError
+}
+
+export type AutomationUpdateError = AutomationUpdateErrors[keyof AutomationUpdateErrors]
+
+export type AutomationUpdateResponses = {
+  /**
+   * Updated automation definition
+   */
+  200: AutomationDefinition
+}
+
+export type AutomationUpdateResponse = AutomationUpdateResponses[keyof AutomationUpdateResponses]
+
+export type AutomationPauseData = {
+  body?: never
+  path: {
+    automationID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/automation/{automationID}/pause"
+}
+
+export type AutomationPauseErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type AutomationPauseError = AutomationPauseErrors[keyof AutomationPauseErrors]
+
+export type AutomationPauseResponses = {
+  /**
+   * Paused automation definition
+   */
+  200: AutomationDefinition
+}
+
+export type AutomationPauseResponse = AutomationPauseResponses[keyof AutomationPauseResponses]
+
+export type AutomationResumeData = {
+  body?: never
+  path: {
+    automationID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/automation/{automationID}/resume"
+}
+
+export type AutomationResumeErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type AutomationResumeError = AutomationResumeErrors[keyof AutomationResumeErrors]
+
+export type AutomationResumeResponses = {
+  /**
+   * Resumed automation definition
+   */
+  200: AutomationDefinition
+}
+
+export type AutomationResumeResponse = AutomationResumeResponses[keyof AutomationResumeResponses]
+
+export type AutomationRunNowData = {
+  body?: never
+  path: {
+    automationID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/automation/{automationID}/run"
+}
+
+export type AutomationRunNowErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type AutomationRunNowError = AutomationRunNowErrors[keyof AutomationRunNowErrors]
+
+export type AutomationRunNowResponses = {
+  /**
+   * Automation run
+   */
+  200: AutomationRun
+}
+
+export type AutomationRunNowResponse = AutomationRunNowResponses[keyof AutomationRunNowResponses]
+
+export type AutomationRunsData = {
+  body?: never
+  path: {
+    automationID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    limit?: number
+    cursor?: string
+  }
+  url: "/automation/{automationID}/runs"
+}
+
+export type AutomationRunsErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type AutomationRunsError = AutomationRunsErrors[keyof AutomationRunsErrors]
+
+export type AutomationRunsResponses = {
+  /**
+   * Automation runs
+   */
+  200: AutomationRunsResponse
+}
+
+export type AutomationRunsResponse2 = AutomationRunsResponses[keyof AutomationRunsResponses]
 
 export type FindTextData = {
   body?: never

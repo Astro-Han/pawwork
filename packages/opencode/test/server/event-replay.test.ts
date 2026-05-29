@@ -34,7 +34,7 @@ describe("parseReplayCursor", () => {
 })
 
 describe("isReplayableGlobalEvent", () => {
-  test("allows permission, session state, and todo events", () => {
+  test("allows permission, session state, todo, and automation events", () => {
     expect(isReplayableGlobalEvent(event("permission.asked"))).toBe(true)
     expect(isReplayableGlobalEvent(event("permission.replied"))).toBe(true)
     expect(isReplayableGlobalEvent(event("session.created"))).toBe(true)
@@ -42,6 +42,9 @@ describe("isReplayableGlobalEvent", () => {
     expect(isReplayableGlobalEvent(event("session.deleted"))).toBe(true)
     expect(isReplayableGlobalEvent(event("session.status"))).toBe(true)
     expect(isReplayableGlobalEvent(event("todo.updated"))).toBe(true)
+    expect(isReplayableGlobalEvent(event("automation.definition.updated"))).toBe(true)
+    expect(isReplayableGlobalEvent(event("automation.definition.deleted"))).toBe(true)
+    expect(isReplayableGlobalEvent(event("automation.run.updated"))).toBe(true)
     expect(isReplayableGlobalEvent(event("server.instance.disposed"))).toBe(true)
   })
 

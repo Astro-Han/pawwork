@@ -13,6 +13,25 @@ import type {
   AuthRemoveResponses,
   AuthSetErrors,
   AuthSetResponses,
+  AutomationCreateErrors,
+  AutomationCreateInput,
+  AutomationCreateResponses,
+  AutomationDeleteErrors,
+  AutomationDeleteResponses,
+  AutomationGetErrors,
+  AutomationGetResponses,
+  AutomationListResponses,
+  AutomationPauseErrors,
+  AutomationPauseResponses,
+  AutomationResumeErrors,
+  AutomationResumeResponses,
+  AutomationRunNowErrors,
+  AutomationRunNowResponses,
+  AutomationRunsErrors,
+  AutomationRunsResponses,
+  AutomationUpdateErrors,
+  AutomationUpdateInput,
+  AutomationUpdateResponses,
   CommandListResponses,
   Config as Config3,
   ConfigGetResponses,
@@ -3396,6 +3415,310 @@ export class Memory extends HeyApiClient {
   }
 }
 
+export class Automation extends HeyApiClient {
+  /**
+   * List automations
+   *
+   * List automation definitions for the current project.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<AutomationListResponses, unknown, ThrowOnError>({
+      url: "/automation",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Create automation
+   *
+   * Create an automation definition without executing it.
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      automationCreateInput?: AutomationCreateInput
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "automationCreateInput", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<AutomationCreateResponses, AutomationCreateErrors, ThrowOnError>({
+      url: "/automation",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Delete automation
+   *
+   * Delete an automation definition and return a tombstone.
+   */
+  public delete<ThrowOnError extends boolean = false>(
+    parameters: {
+      automationID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "automationID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<AutomationDeleteResponses, AutomationDeleteErrors, ThrowOnError>({
+      url: "/automation/{automationID}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get automation
+   *
+   * Get one automation definition.
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      automationID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "automationID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<AutomationGetResponses, AutomationGetErrors, ThrowOnError>({
+      url: "/automation/{automationID}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Update automation
+   *
+   * Update an automation definition.
+   */
+  public update<ThrowOnError extends boolean = false>(
+    parameters: {
+      automationID: string
+      directory?: string
+      workspace?: string
+      automationUpdateInput?: AutomationUpdateInput
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "automationID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "automationUpdateInput", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<AutomationUpdateResponses, AutomationUpdateErrors, ThrowOnError>({
+      url: "/automation/{automationID}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Pause automation
+   *
+   * Pause an automation definition.
+   */
+  public pause<ThrowOnError extends boolean = false>(
+    parameters: {
+      automationID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "automationID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<AutomationPauseResponses, AutomationPauseErrors, ThrowOnError>({
+      url: "/automation/{automationID}/pause",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Resume automation
+   *
+   * Resume a paused automation definition.
+   */
+  public resume<ThrowOnError extends boolean = false>(
+    parameters: {
+      automationID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "automationID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<AutomationResumeResponses, AutomationResumeErrors, ThrowOnError>({
+      url: "/automation/{automationID}/resume",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Run automation now
+   *
+   * Create a scheduled automation run record. Execution lands in a later PR.
+   */
+  public runNow<ThrowOnError extends boolean = false>(
+    parameters: {
+      automationID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "automationID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<AutomationRunNowResponses, AutomationRunNowErrors, ThrowOnError>({
+      url: "/automation/{automationID}/run",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * List automation runs
+   *
+   * List automation runs newest first.
+   */
+  public runs<ThrowOnError extends boolean = false>(
+    parameters: {
+      automationID: string
+      directory?: string
+      workspace?: string
+      limit?: number
+      cursor?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "automationID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "limit" },
+            { in: "query", key: "cursor" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<AutomationRunsResponses, AutomationRunsErrors, ThrowOnError>({
+      url: "/automation/{automationID}/runs",
+      ...options,
+      ...params,
+    })
+  }
+}
+
 export class Find extends HeyApiClient {
   /**
    * Find text
@@ -4300,6 +4623,11 @@ export class OpencodeClient extends HeyApiClient {
   private _memory?: Memory
   get memory(): Memory {
     return (this._memory ??= new Memory({ client: this.client }))
+  }
+
+  private _automation?: Automation
+  get automation(): Automation {
+    return (this._automation ??= new Automation({ client: this.client }))
   }
 
   private _find?: Find

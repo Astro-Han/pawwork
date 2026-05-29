@@ -31,6 +31,7 @@ import { WebSearchAuth } from "./websearch-auth"
 import { ApplyPatchTool } from "./apply_patch"
 import { EnterWorktreeTool } from "./enter-worktree"
 import { ExitWorktreeTool } from "./exit-worktree"
+import { AutomateTool } from "./automate"
 import { Permission } from "../permission"
 import { Glob } from "../util/glob"
 import path from "path"
@@ -140,6 +141,7 @@ export namespace ToolRegistry {
       const skilltool = yield* SkillTool
       const enterWorktree = yield* EnterWorktreeTool
       const exitWorktree = yield* ExitWorktreeTool
+      const automate = yield* AutomateTool
 
       const state = yield* InstanceState.make<State>(
         Effect.fn("ToolRegistry.state")(function* (ctx) {
@@ -275,6 +277,7 @@ export namespace ToolRegistry {
             plan: Tool.init(plan),
             enterWorktree: Tool.init(enterWorktree),
             exitWorktree: Tool.init(exitWorktree),
+            automate: Tool.init(automate),
           })
 
           return {
@@ -298,6 +301,7 @@ export namespace ToolRegistry {
               tool.patch,
               ...(lspEnabled ? [tool.lsp] : []),
               ...(Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE && Flag.OPENCODE_CLIENT === "cli" ? [tool.plan] : []),
+              ...(Env.get("OPENCODE_ENABLE_AUTOMATE_TOOL") === "true" ? [tool.automate] : []),
               tool.enterWorktree,
               tool.exitWorktree,
             ],

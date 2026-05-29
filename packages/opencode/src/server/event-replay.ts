@@ -44,6 +44,9 @@ const REPLAYABLE_EVENT_TYPES = new Set([
   "session.deleted",
   "session.status",
   "todo.updated",
+  "automation.definition.updated",
+  "automation.definition.deleted",
+  "automation.run.updated",
   "server.instance.disposed",
 ])
 
