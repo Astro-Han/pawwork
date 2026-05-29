@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test"
 import * as fs from "node:fs/promises"
-import * as path from "node:path"
+import { fileURLToPath } from "node:url"
 import { contextUsageRingPercent, contextUsageTone } from "./session-context-usage-state"
 
-const SOURCE_PATH = path.join(__dirname, "session-context-usage.tsx")
+const SOURCE_PATH = fileURLToPath(new URL("session-context-usage.tsx", import.meta.url))
 
 describe("session context usage indicator helpers", () => {
   test("uses normal tone for unknown usage and usage below warning", () => {
