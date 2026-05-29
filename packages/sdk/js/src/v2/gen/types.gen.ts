@@ -721,6 +721,16 @@ export type AssistantMessage = {
       write: number
     }
   }
+  tokensCumulative?: {
+    total?: number
+    input: number
+    output: number
+    reasoning: number
+    cache: {
+      read: number
+      write: number
+    }
+  }
   structured?: unknown
   variant?: string
   finish?: string

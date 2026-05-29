@@ -603,6 +603,22 @@ export const Assistant = Base.extend({
       write: z.number(),
     }),
   }),
+  // Per-step token usage summed across the whole assistant message. `tokens` keeps only the
+  // last step's snapshot (the current context-window state); this field accumulates every step
+  // so callers can report a turn-level cache hit rate instead of just the final step. Optional
+  // because pre-existing messages predate it — readers backfill it from step-finish parts.
+  tokensCumulative: z
+    .object({
+      total: z.number().optional(),
+      input: z.number(),
+      output: z.number(),
+      reasoning: z.number(),
+      cache: z.object({
+        read: z.number(),
+        write: z.number(),
+      }),
+    })
+    .optional(),
   structured: z.any().optional(),
   variant: z.string().optional(),
   finish: z.string().optional(),
@@ -746,6 +762,42 @@ const part = (row: typeof PartTable.$inferSelect) =>
 const older = (row: Cursor) =>
   or(lt(MessageTable.time_created, row.time), and(eq(MessageTable.time_created, row.time), lt(MessageTable.id, row.id)))
 
+type CumulativeTokens = {
+  total?: number
+  input: number
+  output: number
+  reasoning: number
+  cache: { read: number; write: number }
+}
+
+export function addTokens(acc: CumulativeTokens | undefined, next: CumulativeTokens): CumulativeTokens {
+  const total = acc?.total === undefined && next.total === undefined ? undefined : (acc?.total ?? 0) + (next.total ?? 0)
+  return {
+    total,
+    input: (acc?.input ?? 0) + next.input,
+    output: (acc?.output ?? 0) + next.output,
+    reasoning: (acc?.reasoning ?? 0) + next.reasoning,
+    cache: {
+      read: (acc?.cache.read ?? 0) + next.cache.read,
+      write: (acc?.cache.write ?? 0) + next.cache.write,
+    },
+  }
+}
+
+// Older assistant messages predate `tokensCumulative`; rebuild it from their step-finish parts so
+// turn-level cache metrics stay correct on existing sessions without re-running the model. Messages
+// produced after the field shipped already carry a live value and skip this.
+function backfillCumulative(info: Info, parts: Part[]): Info {
+  if (info.role !== "assistant" || info.tokensCumulative) return info
+  let cumulative: CumulativeTokens | undefined
+  for (const part of parts) {
+    if (part.type !== "step-finish") continue
+    cumulative = addTokens(cumulative, part.tokens)
+  }
+  if (!cumulative) return info
+  return { ...info, tokensCumulative: cumulative }
+}
+
 function hydrate(rows: (typeof MessageTable.$inferSelect)[]) {
   const ids = rows.map((row) => row.id)
   const partByMessage = new Map<string, Part[]>()
@@ -766,10 +818,10 @@ function hydrate(rows: (typeof MessageTable.$inferSelect)[]) {
     }
   }
 
-  return rows.map((row) => ({
-    info: info(row),
-    parts: partByMessage.get(row.id) ?? [],
-  }))
+  return rows.map((row) => {
+    const parts = partByMessage.get(row.id) ?? []
+    return { info: backfillCumulative(info(row), parts), parts }
+  })
 }
 
 function providerMeta(metadata: Record<string, any> | undefined) {
@@ -1142,9 +1194,10 @@ export function get(input: { sessionID: SessionID; messageID: MessageID }): With
       .get(),
   )
   if (!row) throw new NotFoundError({ message: `Message not found: ${input.messageID}` })
+  const messageParts = parts(input.messageID)
   return {
-    info: info(row),
-    parts: parts(input.messageID),
+    info: backfillCumulative(info(row), messageParts),
+    parts: messageParts,
   }
 }
 

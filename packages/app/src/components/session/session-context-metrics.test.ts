@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { Message } from "@opencode-ai/sdk/v2/client"
-import { getSessionContextMetrics } from "./session-context-metrics"
+import { getRecentTurnCache, getSessionContextMetrics } from "./session-context-metrics"
 
 const assistant = (
   id: string,
@@ -38,6 +38,28 @@ const user = (id: string) => {
   } as unknown as Message
 }
 
+const turnAssistant = (
+  id: string,
+  parentID: string,
+  cumulative?: { input: number; read: number; write: number },
+  opts?: { summary?: boolean },
+) => {
+  return {
+    id,
+    role: "assistant",
+    parentID,
+    summary: opts?.summary,
+    providerID: "openai",
+    modelID: "gpt-4.1",
+    cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    tokensCumulative: cumulative
+      ? { input: cumulative.input, output: 0, reasoning: 0, cache: { read: cumulative.read, write: cumulative.write } }
+      : undefined,
+    time: { created: 1 },
+  } as unknown as Message
+}
+
 describe("getSessionContextMetrics", () => {
   test("computes totals and usage from latest assistant with tokens", () => {
     const messages = [
@@ -68,17 +90,8 @@ describe("getSessionContextMetrics", () => {
     expect(metrics.context?.compactThreshold).toBe(900)
     expect(metrics.context?.usagePercent).toBe(45)
     expect(metrics.context?.usage).toBe(45)
-    expect(metrics.context?.cacheHitRate).toBe(7.1)
     expect(metrics.context?.providerLabel).toBe("OpenAI")
     expect(metrics.context?.modelLabel).toBe("GPT-4.1")
-  })
-
-  test("leaves cache hit rate empty when provider reports no cache data", () => {
-    const messages = [assistant("a1", { input: 300, output: 100, reasoning: 0, read: 0, write: 0 }, 0.25)]
-
-    const metrics = getSessionContextMetrics(messages, [{ id: "openai", models: {} }])
-
-    expect(metrics.context?.cacheHitRate).toBeNull()
   })
 
   test("uses input limit and custom compaction reserve for usage metrics", () => {
@@ -197,5 +210,78 @@ describe("getSessionContextMetrics", () => {
 
     expect(metrics.totalCost).toBe(0)
     expect(metrics.context).toBeUndefined()
+  })
+})
+
+describe("getRecentTurnCache", () => {
+  test("reads the cumulative token tally of the turn", () => {
+    const messages = [user("1"), turnAssistant("2", "1", { input: 150, read: 200, write: 210 })]
+
+    // 200 / (150 + 200 + 210) = 200 / 560 = 35.7%
+    expect(getRecentTurnCache(messages)).toEqual({ input: 150, read: 200, write: 210, hitRate: 35.7 })
+  })
+
+  test("aggregates across multiple assistant messages under the same user turn", () => {
+    const messages = [
+      user("1"),
+      turnAssistant("2", "1", { input: 100, read: 0, write: 500 }),
+      turnAssistant("3", "1", { input: 20, read: 480, write: 10 }),
+    ]
+
+    // 480 / (120 + 480 + 510) = 480 / 1110 = 43.2%
+    expect(getRecentTurnCache(messages)).toEqual({ input: 120, read: 480, write: 510, hitRate: 43.2 })
+  })
+
+  test("shows 0.0% on a cold-start turn that only writes cache", () => {
+    const messages = [user("1"), turnAssistant("2", "1", { input: 300, read: 0, write: 1000 })]
+
+    expect(getRecentTurnCache(messages)?.hitRate).toBe(0)
+  })
+
+  test("returns null when the turn has no cache activity", () => {
+    const messages = [user("1"), turnAssistant("2", "1", { input: 300, read: 0, write: 0 })]
+
+    expect(getRecentTurnCache(messages)).toBeNull()
+  })
+
+  test("aggregates only the most recent turn", () => {
+    const messages = [
+      user("1"),
+      turnAssistant("2", "1", { input: 1000, read: 0, write: 0 }),
+      user("3"),
+      turnAssistant("4", "3", { input: 10, read: 90, write: 10 }),
+    ]
+
+    // 90 / (10 + 90 + 10) = 90 / 110 = 81.8%
+    expect(getRecentTurnCache(messages)).toEqual({ input: 10, read: 90, write: 10, hitRate: 81.8 })
+  })
+
+  test("skips a compaction summary message so it does not mask the user's latest turn", () => {
+    const messages = [
+      user("1"),
+      turnAssistant("2", "1", { input: 10, read: 90, write: 10 }),
+      user("c"),
+      turnAssistant("s", "c", { input: 5, read: 1000, write: 0 }, { summary: true }),
+    ]
+
+    // the summary turn is the newest but is skipped; the user's real "1" turn wins
+    expect(getRecentTurnCache(messages)).toEqual({ input: 10, read: 90, write: 10, hitRate: 81.8 })
+  })
+
+  test("ignores reverted turns when picking the recent turn", () => {
+    const messages = [
+      user("1"),
+      turnAssistant("2", "1", { input: 10, read: 90, write: 10 }),
+      user("3"),
+      turnAssistant("4", "3", { input: 5, read: 0, write: 500 }),
+    ]
+
+    // revert points at "3": only the "1" turn stays visible
+    expect(getRecentTurnCache(messages, "3")).toEqual({ input: 10, read: 90, write: 10, hitRate: 81.8 })
+  })
+
+  test("returns null when there is no assistant turn yet", () => {
+    expect(getRecentTurnCache([user("1")])).toBeNull()
+    expect(getRecentTurnCache([])).toBeNull()
   })
 })
