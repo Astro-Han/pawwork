@@ -465,6 +465,37 @@ describe("automation scheduler", () => {
     })
   })
 
+  test("cancels a pending recurring timer when manual completion reaches count limit", async () => {
+    await withAutomation(async (projectID) => {
+      const clock = new FakeClock(0)
+      const scheduledStarts: number[] = []
+      const scheduler = AutomationScheduler.make({
+        clock,
+        executor: async () => {
+          scheduledStarts.push(clock.now())
+          return { sessionID: SessionID.descending(), result: "scheduled", cost: 0 }
+        },
+      })
+      const definition = Automation.create(
+        recurringInput(projectID, 60_000, { stop: { kind: "count", count: 1 } }),
+        { now: 0 },
+      )
+
+      scheduler.reschedule(definition)
+      Automation.runNowExecuting(definition.id, {
+        now: 30_000,
+        executor: async () => ({ sessionID: SessionID.descending(), result: "manual", cost: 0 }),
+      })
+      await waitForRunStates(definition.id, ["succeeded"])
+
+      await clock.advance(60_000)
+
+      expect(scheduledStarts).toEqual([])
+      expect(Automation.runs({ automationID: definition.id }).items).toHaveLength(1)
+      scheduler.stop()
+    })
+  })
+
   test("stops scheduling recurring automation after count limit above default page size", async () => {
     await withAutomation(async (projectID) => {
       const clock = new FakeClock(0)

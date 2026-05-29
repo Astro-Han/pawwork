@@ -118,14 +118,26 @@ export namespace AutomationScheduler {
         const latest = Automation.get(automationID)
         if (latest.kind === "recurring" && latest.rhythm.kind === "interval" && !latest.paused && canScheduleRecurring(latest)) {
           schedule(latest, clock.now() + latest.rhythm.everyMs)
+        } else {
+          cancel(automationID)
         }
       } catch (error) {
+        cancel(automationID)
         if (!NotFoundError.isInstance(error)) throw error
       }
     }
 
     const fire = (automationID: string, triggeredAt: number) => {
       tasks.delete(automationID)
+      try {
+        const latest = Automation.get(automationID)
+        if (latest.paused) return
+        if (latest.kind === "oneshot" && latest.fireAt !== triggeredAt) return
+        if (latest.kind === "recurring" && (latest.rhythm.kind !== "interval" || !canScheduleRecurring(latest))) return
+      } catch (error) {
+        if (!NotFoundError.isInstance(error)) throw error
+        return
+      }
       if (Automation.hasActiveRun(automationID)) {
         const stopped = Automation.recordStoppedRun(automationID, "previous_run_awaiting_input", { now: triggeredAt })
         void Automation.publishRunUpdated(stopped)
