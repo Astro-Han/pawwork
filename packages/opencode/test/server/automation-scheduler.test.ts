@@ -11,7 +11,7 @@ afterEach(async () => {
 })
 
 class FakeClock implements AutomationScheduler.Clock {
-  private timers = new Map<number, { at: number; callback: () => void }>()
+  private sleepers = new Map<number, { at: number; resolve: () => void }>()
   private nextID = 1
 
   constructor(private current: number) {}
@@ -20,25 +20,42 @@ class FakeClock implements AutomationScheduler.Clock {
     return this.current
   }
 
-  setTimer(delayMs: number, callback: () => void) {
-    const id = this.nextID++
-    this.timers.set(id, { at: this.current + Math.max(0, delayMs), callback })
-    return () => {
-      this.timers.delete(id)
-    }
+  sleep(delayMs: number, signal: AbortSignal) {
+    return new Promise<void>((resolve) => {
+      if (signal.aborted) {
+        resolve()
+        return
+      }
+      const id = this.nextID++
+      this.sleepers.set(id, { at: this.current + Math.max(0, delayMs), resolve })
+      signal.addEventListener(
+        "abort",
+        () => {
+          this.sleepers.delete(id)
+          resolve()
+        },
+        { once: true },
+      )
+    })
   }
 
-  advance(ms: number) {
+  async flush() {
+    await Bun.sleep(0)
+  }
+
+  async advance(ms: number) {
+    await this.flush()
     const target = this.current + ms
     while (true) {
-      const next = [...this.timers.entries()]
-        .filter(([, timer]) => timer.at <= target)
+      const next = [...this.sleepers.entries()]
+        .filter(([, sleeper]) => sleeper.at <= target)
         .sort((left, right) => left[1].at - right[1].at || left[0] - right[0])[0]
       if (!next) break
-      const [id, timer] = next
-      this.timers.delete(id)
-      this.current = timer.at
-      timer.callback()
+      const [id, sleeper] = next
+      this.sleepers.delete(id)
+      this.current = sleeper.at
+      sleeper.resolve()
+      await this.flush()
     }
     this.current = target
   }
@@ -110,16 +127,16 @@ describe("automation scheduler", () => {
       const definition = Automation.create(oneshotInput(projectID, 1_000), { now: 0 })
 
       scheduler.reschedule(definition)
-      clock.advance(999)
+      await clock.advance(999)
       expect(Automation.runs({ automationID: definition.id }).items).toHaveLength(0)
 
-      clock.advance(1)
+      await clock.advance(1)
       const runs = await waitForRunStates(definition.id, ["succeeded"])
 
       expect(runs).toHaveLength(1)
       expect(runs[0].triggeredAt).toBe(1_000)
       expect(attendance).toEqual(["unattended"])
-      clock.advance(10_000)
+      await clock.advance(10_000)
       expect(Automation.runs({ automationID: definition.id }).items).toHaveLength(1)
       scheduler.stop()
     })
@@ -139,7 +156,7 @@ describe("automation scheduler", () => {
         },
       })
 
-      clock.advance(1_000)
+      await clock.advance(1_000)
       expect(calls).toEqual([1_000])
       scheduler.stop()
     })
@@ -159,10 +176,10 @@ describe("automation scheduler", () => {
       const definition = Automation.create(oneshotInput(projectID, 1_000), { now: 0 })
 
       scheduler.reschedule(definition)
-      clock.advance(1_000)
+      await clock.advance(1_000)
       await waitForRunStates(definition.id, ["succeeded"])
       scheduler.reschedule(definition)
-      clock.advance(0)
+      await clock.advance(0)
 
       expect(calls).toEqual([1_000])
       scheduler.stop()
@@ -183,7 +200,7 @@ describe("automation scheduler", () => {
       const definition = Automation.create(oneshotInput(projectID, 1_000), { now: 0 })
 
       scheduler.reschedule(definition)
-      clock.advance(1_000)
+      await clock.advance(1_000)
       await waitForRunStates(definition.id, ["succeeded"])
 
       const renamed = Automation.update(definition.id, { title: "Updated one-shot" }, { now: 2_000 })
@@ -192,7 +209,7 @@ describe("automation scheduler", () => {
       scheduler.reschedule(paused)
       const resumed = Automation.update(definition.id, { paused: false }, { now: 4_000 })
       scheduler.reschedule(resumed)
-      clock.advance(0)
+      await clock.advance(0)
 
       expect(calls).toEqual([1_000])
       expect(Automation.runs({ automationID: definition.id }).items).toHaveLength(1)
@@ -215,7 +232,7 @@ describe("automation scheduler", () => {
 
       scheduler.reschedule(definition)
       Automation.remove(definition.id)
-      expect(() => clock.advance(1_000)).not.toThrow()
+      await expect(clock.advance(1_000)).resolves.toBeUndefined()
 
       expect(calls).toEqual([])
       scheduler.stop()
@@ -242,12 +259,12 @@ describe("automation scheduler", () => {
       await waitForRunStates(definition.id, ["scheduled"])
 
       scheduler.reschedule(definition)
-      clock.advance(60_000)
+      await clock.advance(60_000)
       await waitForRunStates(definition.id, ["stopped", "scheduled"])
 
       releaseManual.resolve({ sessionID: SessionID.descending(), result: "manual", cost: 0 })
       await waitForRunStates(definition.id, ["stopped", "succeeded"])
-      clock.advance(60_000)
+      await clock.advance(60_000)
       await waitForRunStates(definition.id, ["succeeded", "stopped", "succeeded"])
 
       expect(schedulerStarts).toEqual([120_000])
@@ -271,18 +288,18 @@ describe("automation scheduler", () => {
       const definition = Automation.create(recurringInput(projectID, 60_000), { now: 0 })
 
       scheduler.reschedule(definition)
-      clock.advance(60_000)
+      await clock.advance(60_000)
       expect(starts).toEqual([60_000])
 
-      clock.advance(60_000)
+      await clock.advance(60_000)
       expect(starts).toEqual([60_000])
 
       releaseFirst.resolve()
       await waitForRunStates(definition.id, ["succeeded"])
-      clock.advance(59_999)
+      await clock.advance(59_999)
       expect(starts).toEqual([60_000])
 
-      clock.advance(1)
+      await clock.advance(1)
       await waitForRunStates(definition.id, ["succeeded", "succeeded"])
       expect(starts).toEqual([60_000, 180_000])
       scheduler.stop()
@@ -305,7 +322,7 @@ describe("automation scheduler", () => {
       Automation.markRunStarted(active, SessionID.descending(), { now: 0 })
 
       scheduler.reschedule(definition)
-      clock.advance(1_000)
+      await clock.advance(1_000)
       const runs = await waitForRunStates(definition.id, ["stopped", "running"])
 
       expect(calls).toEqual([])
@@ -334,10 +351,10 @@ describe("automation scheduler", () => {
       const definition = Automation.create(oneshotInput(projectID, fireAt), { now: 0 })
 
       scheduler.reschedule(definition)
-      clock.advance(2_147_483_647)
+      await clock.advance(2_147_483_647)
       expect(calls).toEqual([])
 
-      clock.advance(fireAt - 2_147_483_647)
+      await clock.advance(fireAt - 2_147_483_647)
       await waitForRunStates(definition.id, ["succeeded"])
 
       expect(calls).toEqual([fireAt])
