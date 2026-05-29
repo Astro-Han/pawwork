@@ -3,6 +3,7 @@ import type { Context } from "hono"
 import { describeRoute, resolver, validator } from "hono-openapi"
 import z from "zod"
 import { Automation, AutomationID, ValidationError } from "@/automation"
+import { sessionPromptExecutor } from "@/automation/runner"
 import { errors } from "../error"
 
 function validationError(error: ValidationError) {
@@ -241,7 +242,9 @@ export const AutomationRoutes = (): Hono =>
       }),
       validator("param", z.object({ automationID: AutomationID.Definition.zod })),
       async (c) => {
-        const run = Automation.runNow(c.req.valid("param").automationID)
+        const run = Automation.runNowExecuting(c.req.valid("param").automationID, {
+          executor: sessionPromptExecutor,
+        })
         await Automation.publishRunUpdated(run)
         return c.json(run)
       },

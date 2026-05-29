@@ -7,6 +7,7 @@ import { ProjectID } from "@/project/schema"
 import { PermissionID } from "@/permission/schema"
 import { SessionID } from "@/session/schema"
 import { NotFoundError } from "@/storage/db"
+import type { AutomationRunAttendance, AutomationRunBlocker } from "./run-context"
 
 export const AutomationID = {
   Definition: {
@@ -232,8 +233,16 @@ export namespace Automation {
   type State = {
     definitions: Map<string, Definition>
     runs: Map<string, Run[]>
+    activeRuns: Set<string>
   }
-  const state = Instance.state<State>(() => ({ definitions: new Map(), runs: new Map() }))
+  const state = Instance.state<State>(() => ({ definitions: new Map(), runs: new Map(), activeRuns: new Set() }))
+
+  export type RunExecutor = (input: {
+    definition: Definition
+    run: Run
+    attendance: AutomationRunAttendance
+    signal: AbortSignal
+  }) => Promise<{ sessionID: SessionID; result: string | null; cost?: number | null }>
 
   const COMMON_CREATE_FIELDS = new Set([
     "kind",
@@ -460,6 +469,66 @@ export namespace Automation {
     return { id: previous.id, deleted: true, revision: previous.revision + 1 }
   }
 
+  function replaceRun(run: Run) {
+    const current = state().runs.get(run.automationID) ?? []
+    state().runs.set(
+      run.automationID,
+      current.map((item) => (item.id === run.id ? run : item)),
+    )
+    return run
+  }
+
+  function reviseRun(run: Run, patch: Record<string, unknown>): Run {
+    const next = {
+      ...run,
+      ...patch,
+      revision: run.revision + 1,
+    }
+    for (const [key, value] of Object.entries(next)) {
+      if (value === undefined) delete (next as Record<string, unknown>)[key]
+    }
+    return replaceRun(Run.parse(next))
+  }
+
+  export function markRunStarted(run: Run, sessionID: SessionID, options?: { now?: number }): Run {
+    return reviseRun(run, {
+      state: "running",
+      sessionID,
+      startedAt: options?.now ?? Date.now(),
+      completedAt: null,
+      result: null,
+      error: null,
+    })
+  }
+
+  function setDefinitionAutomationSession(definition: Definition, sessionID: SessionID) {
+    if (definition.automationSessionID === sessionID) return definition
+    const next = Definition.parse({
+      ...definition,
+      automationSessionID: sessionID,
+      revision: definition.revision + 1,
+      updatedAt: Date.now(),
+    })
+    state().definitions.set(definition.id, next)
+    return next
+  }
+
+  export function markRunBlocked(run: Run, blocker: AutomationRunBlocker): Run {
+    if (run.state !== "running" && run.state !== "awaiting_input") return run
+    return reviseRun(run, {
+      state: "awaiting_input",
+      blocker,
+    })
+  }
+
+  export function clearRunBlocker(run: Run): Run {
+    if (run.state !== "awaiting_input") return run
+    return reviseRun(run, {
+      state: "running",
+      blocker: undefined,
+    })
+  }
+
   export function runNow(id: string, options?: { now?: number }): Run {
     const definition = get(id)
     const current = state().runs.get(id) ?? []
@@ -479,6 +548,72 @@ export namespace Automation {
     })
     state().runs.set(id, [run, ...current])
     return run
+  }
+
+  export function runNowExecuting(
+    id: string,
+    options: { executor: RunExecutor; attendance?: AutomationRunAttendance; now?: number },
+  ): Run {
+    const initial = runNow(id, { now: options.now })
+    void executeRun(initial, options.executor, options.attendance ?? "attended")
+    return initial
+  }
+
+  async function executeRun(initial: Run, executor: RunExecutor, attendance: AutomationRunAttendance) {
+    const data = state()
+    if (data.activeRuns.has(initial.automationID)) {
+      const stopped = reviseRun(initial, {
+        state: "stopped",
+        completedAt: Date.now(),
+        stopReason: "previous_run_awaiting_input",
+      })
+      await publishRunUpdated(stopped)
+      return
+    }
+    data.activeRuns.add(initial.automationID)
+    const controller = new AbortController()
+    let current = initial
+    try {
+      const definition = get(initial.automationID)
+      const prepared = await executor({ definition, run: initial, attendance, signal: controller.signal })
+      const latest = state().runs.get(initial.automationID)?.find((item) => item.id === initial.id) ?? initial
+      const running = latest.state === "scheduled" ? markRunStarted(latest, prepared.sessionID) : latest
+      current = running
+      await publishRunUpdated(running)
+      if (definition.context === "continue") setDefinitionAutomationSession(definition, prepared.sessionID)
+      const succeeded = reviseRun(running, {
+        state: "succeeded",
+        completedAt: Date.now(),
+        result: prepared.result,
+        error: null,
+        cost: prepared.cost ?? null,
+      })
+      current = succeeded
+      await publishRunUpdated(succeeded)
+    } catch (error) {
+      current = state().runs.get(initial.automationID)?.find((item) => item.id === initial.id) ?? current
+      if (current.state === "scheduled") {
+        const stopped = reviseRun(current, {
+          state: "stopped",
+          completedAt: Date.now(),
+          stopReason: "cancelled",
+        })
+        await publishRunUpdated(stopped)
+        return
+      }
+      const isStepCap = error instanceof globalThis.Error && error.name === "AutomationStepCapError"
+      const failed = reviseRun(current, {
+        state: "failed",
+        completedAt: Date.now(),
+        error: {
+          code: isStepCap ? "step_cap" : "execution_failed",
+          message: error instanceof globalThis.Error ? error.message : String(error),
+        },
+      })
+      await publishRunUpdated(failed)
+    } finally {
+      data.activeRuns.delete(initial.automationID)
+    }
   }
 
   export function runs(input: { automationID: string; limit?: number; cursor?: string }) {
