@@ -234,8 +234,14 @@ export namespace Automation {
     definitions: Map<string, Definition>
     runs: Map<string, Run[]>
     activeWriters: Set<string>
+    activeRuns: Map<string, { writerKey: string; controller: AbortController }>
   }
-  const state = Instance.state<State>(() => ({ definitions: new Map(), runs: new Map(), activeWriters: new Set() }))
+  const state = Instance.state<State>(() => ({
+    definitions: new Map(),
+    runs: new Map(),
+    activeWriters: new Set(),
+    activeRuns: new Map(),
+  }))
 
   export type RunExecutor = (input: {
     definition: Definition
@@ -466,11 +472,12 @@ export namespace Automation {
     return next
   }
 
-  export function remove(id: string): Tombstone {
+  export function remove(id: string): { tombstone: Tombstone; stoppedRun?: Run } {
     const previous = get(id)
+    const stoppedRun = stopActiveRun(id)
     state().definitions.delete(id)
-    state().runs.delete(id)
-    return { id: previous.id, deleted: true, revision: previous.revision + 1 }
+    if (!stoppedRun) state().runs.delete(id)
+    return { tombstone: { id: previous.id, deleted: true, revision: previous.revision + 1 }, stoppedRun }
   }
 
   function replaceRun(run: Run) {
@@ -494,6 +501,27 @@ export namespace Automation {
       if (value === undefined) delete (next as Record<string, unknown>)[key]
     }
     return replaceRun(Run.parse(next))
+  }
+
+  function stopRun(run: Run, stopReason: Extract<Run, { state: "stopped" }>["stopReason"]): Run {
+    if (run.state === "stopped" || run.state === "succeeded" || run.state === "failed") return run
+    return reviseRun(run, {
+      state: "stopped",
+      completedAt: Date.now(),
+      result: null,
+      error: null,
+      stopReason,
+    })
+  }
+
+  function stopActiveRun(automationID: string) {
+    const active = state().activeRuns.get(automationID)
+    if (!active) return undefined
+    active.controller.abort()
+    const current = state().runs.get(automationID)?.find((run) => (
+      run.state === "scheduled" || run.state === "running" || run.state === "awaiting_input"
+    ))
+    return current ? stopRun(current, "cancelled") : undefined
   }
 
   export function markRunStarted(run: Run, sessionID: SessionID, options?: { now?: number }): Run {
@@ -580,10 +608,17 @@ export namespace Automation {
     }
     data.activeWriters.add(writerKey)
     const controller = new AbortController()
+    data.activeRuns.set(initial.automationID, { writerKey, controller })
     let current = initial
     try {
       const prepared = await executor({ definition, run: initial, attendance, signal: controller.signal })
       const latest = state().runs.get(initial.automationID)?.find((item) => item.id === initial.id) ?? initial
+      if (controller.signal.aborted) {
+        const stopped = stopRun(latest, "cancelled")
+        current = stopped
+        if (stopped !== latest) await publishRunUpdated(stopped)
+        return
+      }
       const running = latest.state === "scheduled" ? markRunStarted(latest, prepared.sessionID) : latest
       current = running
       await publishRunUpdated(running)
@@ -603,6 +638,11 @@ export namespace Automation {
       await publishRunUpdated(succeeded)
     } catch (error) {
       current = state().runs.get(initial.automationID)?.find((item) => item.id === initial.id) ?? current
+      if (controller.signal.aborted) {
+        const stopped = stopRun(current, "cancelled")
+        if (stopped !== current) await publishRunUpdated(stopped)
+        return
+      }
       if (current.state === "scheduled") {
         const stopped = reviseRun(current, {
           state: "stopped",
@@ -623,6 +663,7 @@ export namespace Automation {
       })
       await publishRunUpdated(failed)
     } finally {
+      data.activeRuns.delete(initial.automationID)
       data.activeWriters.delete(writerKey)
     }
   }

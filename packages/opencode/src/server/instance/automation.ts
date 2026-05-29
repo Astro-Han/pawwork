@@ -221,9 +221,10 @@ export const AutomationRoutes = (): Hono =>
       }),
       validator("param", z.object({ automationID: AutomationID.Definition.zod })),
       async (c) => {
-        const tombstone = Automation.remove(c.req.valid("param").automationID)
-        await Automation.publishDefinitionDeleted(tombstone)
-        return c.json(tombstone)
+        const removed = Automation.remove(c.req.valid("param").automationID)
+        if (removed.stoppedRun) await Automation.publishRunUpdated(removed.stoppedRun)
+        await Automation.publishDefinitionDeleted(removed.tombstone)
+        return c.json(removed.tombstone)
       },
     )
     .post(

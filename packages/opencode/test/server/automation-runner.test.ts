@@ -189,30 +189,58 @@ describe("automation runNow execution", () => {
     await withAutomation(async (projectID) => {
       const definition = Automation.create(input(projectID, { context: "continue" }))
       const definitionEvents: Automation.Definition[] = []
-      const terminalRun = new Promise<Automation.Run>((resolve) => {
-        const unsubscribe = Bus.subscribe(Automation.Event.RunUpdated, (event) => {
-          const run = event.properties
-          if (run.automationID !== definition.id) return
-          if (run.state !== "succeeded" && run.state !== "failed" && run.state !== "stopped") return
-          unsubscribe()
-          resolve(run)
-        })
-      })
       const unsubscribeDefinition = Bus.subscribe(Automation.Event.DefinitionUpdated, (event) => {
         definitionEvents.push(event.properties)
       })
+      let removed!: ReturnType<typeof Automation.remove>
 
       Automation.runNowExecuting(definition.id, {
         executor: async () => {
-          Automation.remove(definition.id)
+          removed = Automation.remove(definition.id)
           return { sessionID: SessionID.descending(), result: "done", cost: 0 }
         },
       })
 
-      await terminalRun
+      await Bun.sleep(20)
       unsubscribeDefinition()
+      expect(removed.stoppedRun).toMatchObject({ state: "stopped", stopReason: "cancelled" })
       expect(() => Automation.get(definition.id)).toThrow()
       expect(definitionEvents).toHaveLength(0)
+    })
+  })
+
+  test("aborts an active run when its automation is deleted", async () => {
+    await withAutomation(async (projectID) => {
+      const definition = Automation.create(input(projectID))
+      const sessionID = SessionID.descending()
+      let sawAbort = false
+      const started = Promise.withResolvers<void>()
+      const release = Promise.withResolvers<void>()
+
+      Automation.runNowExecuting(definition.id, {
+        executor: async ({ run, signal }) => {
+          Automation.markRunStarted(run, sessionID, { now: run.triggeredAt })
+          signal.addEventListener("abort", () => {
+            sawAbort = true
+            release.resolve()
+          })
+          started.resolve()
+          await release.promise
+          return { sessionID, result: "should not succeed", cost: 0 }
+        },
+      })
+
+      await started.promise
+      const removed = Automation.remove(definition.id)
+
+      expect(sawAbort).toBe(true)
+      expect(removed.stoppedRun).toMatchObject({
+        state: "stopped",
+        sessionID,
+        stopReason: "cancelled",
+      })
+      await Bun.sleep(20)
+      expect(removed.stoppedRun).not.toMatchObject({ state: "succeeded" })
     })
   })
 
