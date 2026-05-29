@@ -33,5 +33,4 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Run Bun audit
-        continue-on-error: true
         run: bun audit --audit-level=high
