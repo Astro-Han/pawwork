@@ -101,6 +101,7 @@ export const AutomationRoutes = (): Hono =>
       validator("json", Automation.CreateInput, automationBodyValidationHook),
       async (c) => {
         try {
+          AutomationScheduler.current()
           const definition = Automation.create(c.req.valid("json"))
           await Automation.publishDefinitionUpdated(definition)
           return c.json(definition)
@@ -150,6 +151,7 @@ export const AutomationRoutes = (): Hono =>
       async (c) => {
         try {
           const automationID = c.req.valid("param").automationID
+          AutomationScheduler.current()
           const previous = Automation.get(automationID)
           const definition = Automation.update(automationID, c.req.valid("json"))
           await publishIfChanged(previous, definition)
@@ -177,6 +179,7 @@ export const AutomationRoutes = (): Hono =>
       validator("param", z.object({ automationID: AutomationID.Definition.zod })),
       async (c) => {
         const automationID = c.req.valid("param").automationID
+        AutomationScheduler.current()
         const previous = Automation.get(automationID)
         const definition = Automation.update(automationID, { paused: true })
         await publishIfChanged(previous, definition)
@@ -200,6 +203,7 @@ export const AutomationRoutes = (): Hono =>
       validator("param", z.object({ automationID: AutomationID.Definition.zod })),
       async (c) => {
         const automationID = c.req.valid("param").automationID
+        AutomationScheduler.current()
         const previous = Automation.get(automationID)
         const definition = Automation.update(automationID, { paused: false })
         await publishIfChanged(previous, definition)
