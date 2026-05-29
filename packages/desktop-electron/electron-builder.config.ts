@@ -101,13 +101,21 @@ async function writeLocalizedMacDisplayName(resourcesDir: string, channel: Chann
   }
 }
 
-const getBase = (): Configuration => ({
+const repositoryUrl = (channel: Channel) => `https://github.com/Astro-Han/${getPublishConfig(channel)?.repo ?? "pawwork"}`
+
+const getBase = (channel: Channel): Configuration => ({
   artifactName: "pawwork-${os}-${arch}-${version}.${ext}",
   directories: {
     output: "dist",
     buildResources: "resources",
   },
   files: ["out/**/*", "resources/**/*"],
+  // electron-builder reads .git/config for repository info, which fails on
+  // CI runners with persist-credentials: false. Set explicitly via
+  // extraMetadata to avoid "Cannot detect repository by .git/config".
+  extraMetadata: {
+    repository: { type: "git", url: repositoryUrl(channel) },
+  },
   extraResources: [
     ...nativeWatcherFileSets(),
     {
@@ -175,7 +183,7 @@ const getBase = (): Configuration => ({
 })
 
 export function createConfig(channel: Channel = currentChannel(), baseOverrides: Partial<Configuration> = {}) {
-  const base = { ...getBase(), ...baseOverrides }
+  const base = { ...getBase(channel), ...baseOverrides }
   const publish = getPublishConfig(channel)
 
   const withAppUpdateConfig = (configuration: Configuration): Configuration => ({
