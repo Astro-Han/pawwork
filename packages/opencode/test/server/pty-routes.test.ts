@@ -5,7 +5,9 @@ import { Log } from "@opencode-ai/core/util/log"
 import { assertPtyConnectTarget, PtyRoutes } from "../../src/server/instance/pty"
 import { ErrorMiddleware } from "../../src/server/middleware"
 import { NotFoundError } from "../../src/storage/db"
+import { Pty } from "../../src/pty"
 import { PtyID } from "../../src/pty/schema"
+import { PtyTicket } from "../../src/pty/ticket"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 
@@ -44,6 +46,98 @@ describe("pty routes", () => {
 
         expect(response.status).toBe(404)
         expect(body.name).toBe("NotFoundError")
+      },
+    })
+  })
+
+  test("issues a connect token for an existing PTY", async () => {
+    if (process.platform === "win32") return
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const info = await Pty.create({
+          command: "/bin/sh",
+          args: ["-c", "trap 'exit 0' TERM; while :; do sleep 1; done"],
+          title: "ticket",
+        })
+        try {
+          const app = new Hono().route("/pty", PtyRoutes(testUpgradeWebSocket))
+          app.onError(ErrorMiddleware)
+
+          const response = await app.request(`/pty/${info.id}/connect-token`, { method: "POST" })
+          const body = await response.json()
+
+          expect(response.status).toBe(200)
+          expect(body.ticket).toBeString()
+          expect(body.expires_in).toBe(60)
+          expect(PtyTicket.consume({ ptyID: info.id, ticket: body.ticket })).toBe(true)
+        } finally {
+          await Pty.remove(info.id)
+        }
+      },
+    })
+  })
+
+  test("rejects invalid connect tickets before checking PTY existence", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const app = new Hono().route("/pty", PtyRoutes(testUpgradeWebSocket))
+        app.onError(ErrorMiddleware)
+
+        const response = await app.request(`/pty/${PtyID.ascending()}/connect?ticket=missing`)
+
+        expect(response.status).toBe(401)
+      },
+    })
+  })
+
+  test("accepts a valid connect ticket once", async () => {
+    if (process.platform === "win32") return
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const info = await Pty.create({
+          command: "/bin/sh",
+          args: ["-c", "trap 'exit 0' TERM; while :; do sleep 1; done"],
+          title: "ticket-connect",
+        })
+        try {
+          const app = new Hono().route("/pty", PtyRoutes(testUpgradeWebSocket))
+          app.onError(ErrorMiddleware)
+          const issued = PtyTicket.issue({ ptyID: info.id })
+
+          const first = await app.request(`/pty/${info.id}/connect?ticket=${encodeURIComponent(issued.ticket)}`)
+          const second = await app.request(`/pty/${info.id}/connect?ticket=${encodeURIComponent(issued.ticket)}`)
+
+          expect(first.status).toBe(200)
+          expect(await first.text()).toBe("upgraded")
+          expect(second.status).toBe(401)
+        } finally {
+          await Pty.remove(info.id)
+        }
+      },
+    })
+  })
+
+  test("consumes a valid ticket before reporting a deleted PTY target", async () => {
+    const ptyID = PtyID.ascending()
+    const issued = PtyTicket.issue({ ptyID })
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const app = new Hono().route("/pty", PtyRoutes(testUpgradeWebSocket))
+        app.onError(ErrorMiddleware)
+
+        const missing = await app.request(`/pty/${ptyID}/connect?ticket=${encodeURIComponent(issued.ticket)}`)
+        const replay = await app.request(`/pty/${ptyID}/connect?ticket=${encodeURIComponent(issued.ticket)}`)
+
+        expect(missing.status).toBe(404)
+        expect(replay.status).toBe(401)
       },
     })
   })
