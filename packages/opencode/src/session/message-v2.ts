@@ -787,7 +787,7 @@ export function addTokens(acc: CumulativeTokens | undefined, next: CumulativeTok
 // Older assistant messages predate `tokensCumulative`; rebuild it from their step-finish parts so
 // turn-level cache metrics stay correct on existing sessions without re-running the model. Messages
 // produced after the field shipped already carry a live value and skip this.
-function backfillCumulative(info: Info, parts: Part[]): Info {
+export function backfillCumulative(info: Info, parts: Part[]): Info {
   if (info.role !== "assistant" || info.tokensCumulative) return info
   let cumulative: CumulativeTokens | undefined
   for (const part of parts) {
