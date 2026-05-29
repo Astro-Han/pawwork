@@ -4,6 +4,7 @@ import {
   contextUsageUsedTokens,
   deriveContextUsage,
 } from "@opencode-ai/util/context-usage"
+import { buildTurnMessagesByUserID } from "@/pages/session/session-messages"
 
 type Provider = {
   id: string
@@ -41,12 +42,16 @@ type Context = {
   input: number
   output: number
   reasoning: number
-  cacheRead: number
-  cacheWrite: number
-  cacheHitRate: number | null
   total: number
   usagePercent: number | null
   usage: number | null
+}
+
+type RecentTurnCache = {
+  input: number
+  read: number
+  write: number
+  hitRate: number | null
 }
 
 type Metrics = {
@@ -68,9 +73,12 @@ const lastAssistantWithTokens = (messages: Message[]) => {
 }
 
 const cacheHitRate = (input: number, read: number, write: number) => {
+  // No read and no write means the provider reported no cache activity at all — show nothing.
+  // A write-only turn (cold start) keeps read at 0 and still resolves to 0.0%, so the
+  // first expensive turn is not hidden behind an empty cell.
+  if (read + write <= 0) return null
   const denominator = input + read + write
   if (denominator <= 0) return null
-  if (read <= 0) return null
   return Math.round((read / denominator) * 1000) / 10
 }
 
@@ -105,9 +113,6 @@ const build = (messages: Message[] = [], providers: Provider[] = [], config: Con
       input: message.tokens.input,
       output: message.tokens.output,
       reasoning: message.tokens.reasoning,
-      cacheRead: message.tokens.cache.read,
-      cacheWrite: message.tokens.cache.write,
-      cacheHitRate: cacheHitRate(message.tokens.input, message.tokens.cache.read, message.tokens.cache.write),
       total,
       usagePercent: usage.usagePercent,
       usage: usage.usagePercent === null ? null : Math.round(usage.usagePercent),
@@ -117,4 +122,40 @@ const build = (messages: Message[] = [], providers: Provider[] = [], config: Con
 
 export function getSessionContextMetrics(messages: Message[] = [], providers: Provider[] = [], config: Config = {}) {
   return build(messages, providers, config)
+}
+
+// Cache hit rate is a per-turn flow metric, not a window-state snapshot, so it is computed
+// separately from the context block above. We sum tokensCumulative (per-step totals the backend
+// accumulates) across every assistant message of the most recent turn, grouped by parentID — the
+// user message that triggered them. message.tokens only keeps the last step's snapshot, which
+// hides the cold-start step's writes; tokensCumulative is the whole turn. Compaction summary
+// messages are skipped so an auto-compaction never masquerades as the user's latest turn, and
+// reverted turns are excluded so a rolled-back session does not report a turn the user no longer sees.
+export function getRecentTurnCache(messages: Message[] = [], revertID?: string): RecentTurnCache | null {
+  const visible = revertID ? messages.filter((message) => message.id < revertID) : messages
+  const turns = buildTurnMessagesByUserID(visible)
+
+  let recentTurnID: string | undefined
+  for (let i = visible.length - 1; i >= 0; i--) {
+    const message = visible[i]
+    if (message.role !== "assistant" || message.summary || !message.parentID || !turns.has(message.parentID)) continue
+    recentTurnID = message.parentID
+    break
+  }
+  if (!recentTurnID) return null
+
+  let input = 0
+  let read = 0
+  let write = 0
+  for (const assistant of turns.get(recentTurnID) ?? []) {
+    if (assistant.summary) continue
+    const tokens = assistant.tokensCumulative
+    if (!tokens) continue
+    input += tokens.input
+    read += tokens.cache.read
+    write += tokens.cache.write
+  }
+  if (read + write <= 0) return null
+
+  return { input, read, write, hitRate: cacheHitRate(input, read, write) }
 }
