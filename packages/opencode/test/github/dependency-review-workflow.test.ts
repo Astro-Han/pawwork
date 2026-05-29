@@ -59,6 +59,7 @@ describe("dependency review workflow", () => {
     expect(setupBun?.uses).toBe(pinned.setupBun)
     expect(setupBun?.with).toEqual({ "bun-version": "1.3.14" })
     expect(install?.run).toBe("bun install --frozen-lockfile")
+    expect(audit?.["continue-on-error"]).toBe(true)
     expect(audit?.run).toBe("bun audit --audit-level=high")
   })
 })
