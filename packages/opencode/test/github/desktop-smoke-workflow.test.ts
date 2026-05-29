@@ -16,6 +16,9 @@ describe("desktop smoke workflow", () => {
     const changesSteps = changes?.steps ?? []
     const smokeSteps = smoke?.steps ?? []
     const changesCheckoutStep = changesSteps.find((step) => step.uses?.startsWith("actions/checkout@"))
+    const docsPathsStep = changesSteps.find((step) => step.id === "docs-paths")
+    const codePathsStep = changesSteps.find((step) => step.id === "code-paths")
+    const filterStep = changesSteps.find((step) => step.id === "filter")
     const smokeCheckoutStep = smokeSteps.find((step) => step.uses?.startsWith("actions/checkout@"))
     const smokeBunStep = smokeSteps.find((step) => step.uses?.startsWith("oven-sh/setup-bun@"))
     const appSmokeStep = smokeSteps.find((step) => step.name === "Launch desktop smoke app")
@@ -38,18 +41,27 @@ describe("desktop smoke workflow", () => {
     expect(parsed.concurrency?.group).toContain("github.run_id")
     expect(parsed.concurrency?.group).toContain("github.event.pull_request.number || github.ref")
     expect(parsed.concurrency?.["cancel-in-progress"]).toBe("${{ github.ref != 'refs/heads/dev' }}")
-    expect(parsed.permissions).toEqual({ contents: "read" })
+    expect(parsed.permissions).toEqual({ contents: "read", "pull-requests": "read" })
     expect(Object.keys(jobs).sort()).toEqual(["changes", "check", "smoke-macos-arm64"])
     expect(changesCheckoutStep?.uses).toBe("actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd")
     expect(smokeCheckoutStep?.uses).toBe("actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd")
 
     expect(changes?.outputs).toEqual({ docs_only: "${{ steps.filter.outputs.docs_only }}" })
-    expect(changesSteps.find((step) => step.id === "filter")?.run).toContain(".github/ISSUE_TEMPLATE/*")
-    expect(changesSteps.find((step) => step.id === "filter")?.run).toContain(".github/pull_request_template.md")
+    expect(docsPathsStep?.uses).toBe("dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d")
+    expect(docsPathsStep?.with?.filters).toContain("docs:")
+    expect(docsPathsStep?.with?.filters).toContain("'docs/**'")
+    expect(codePathsStep?.uses).toBe("dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d")
+    expect(codePathsStep?.with?.["predicate-quantifier"]).toBe("every")
+    expect(codePathsStep?.with?.filters).toContain("'!docs/**'")
+    expect(codePathsStep?.with?.filters).not.toContain("*.md")
+    expect(filterStep?.if).toBe("always()")
+    expect(filterStep?.env?.DOCS_CHANGED).toBe("${{ steps.docs-paths.outputs.docs }}")
+    expect(filterStep?.env?.CODE_CHANGED).toBe("${{ steps.code-paths.outputs.code }}")
     expect(changesCheckoutStep?.with).toEqual({
       "fetch-depth": 0,
       "persist-credentials": false,
     })
+    expect(changesCheckoutStep?.if).toBe("github.event_name == 'push'")
     expect(smoke?.needs).toBe("changes")
     expect(smoke?.if).toBe("needs.changes.outputs.docs_only != 'true'")
     expect(smoke?.["runs-on"]).toBe("macos-14")

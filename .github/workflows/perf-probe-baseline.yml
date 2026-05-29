@@ -19,8 +19,6 @@ on:
 
 permissions:
   contents: read
-  issues: write
-  pull-requests: write
 
 env:
   PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers
@@ -31,6 +29,7 @@ jobs:
     timeout-minutes: 30
     env:
       PERF_ARTIFACT_DIR: ${{ github.workspace }}/perf-artifacts
+      PLAYWRIGHT_VIDEO: "off"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6
         with:
@@ -38,29 +37,83 @@ jobs:
           path: head
           persist-credentials: false
 
+      - name: Fetch pull request base
+        if: github.event_name == 'pull_request'
+        working-directory: head
+        run: git fetch --no-tags origin "${{ github.event.pull_request.base.ref }}:refs/remotes/origin/${{ github.event.pull_request.base.ref }}"
+
+      - name: Compute SHA range
+        id: compute-range
+        working-directory: head
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_SHA: ${{ github.sha }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          skipped=false
+          base_sha=""
+          head_sha=""
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            base_sha="$(git merge-base "origin/$PR_BASE_REF" "$PR_HEAD_SHA")"
+            head_sha="$PR_HEAD_SHA"
+          elif [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$REF_NAME" != "dev" ]; then
+            git fetch --no-tags origin dev:refs/remotes/origin/dev
+            base_sha="$(git merge-base origin/dev HEAD)"
+            head_sha="$HEAD_SHA"
+          else
+            skipped=true
+          fi
+
+          {
+            echo "base_sha=$base_sha"
+            echo "head_sha=$head_sha"
+            echo "skipped=$skipped"
+          } >> "$GITHUB_OUTPUT"
+
+          if [ "$skipped" != "true" ]; then
+            {
+              echo "BASE_SHA=$base_sha"
+              echo "HEAD_SHA=$head_sha"
+            } >> "$GITHUB_ENV"
+          fi
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6
+        if: steps.compute-range.outputs.skipped != 'true' && env.BASE_SHA != ''
         with:
           fetch-depth: 0
           path: base
           persist-credentials: false
-          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          ref: ${{ steps.compute-range.outputs.base_sha }}
+
+      - name: Skip perf probe without a comparable base
+        if: steps.compute-range.outputs.skipped == 'true' || env.BASE_SHA == ''
+        run: echo "No comparable base SHA for this perf probe run; skipping baseline comparison."
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # actions/setup-node@v6.4.0
+        if: steps.compute-range.outputs.skipped != 'true'
         with:
           node-version: "24"
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # oven-sh/setup-bun@v2
+        if: steps.compute-range.outputs.skipped != 'true'
         with:
           bun-version: "1.3.13"
 
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
+      - uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
+        if: steps.compute-range.outputs.skipped != 'true'
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('head/bun.lock', 'base/bun.lock') }}
           restore-keys: |
             bun-${{ runner.os }}-
 
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
+      - uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
+        if: steps.compute-range.outputs.skipped != 'true'
         with:
           path: ${{ github.workspace }}/.playwright-browsers
           key: playwright-${{ runner.os }}-${{ hashFiles('head/packages/app/package.json', 'head/bun.lock', 'base/packages/app/package.json', 'base/bun.lock') }}
@@ -68,30 +121,36 @@ jobs:
             playwright-${{ runner.os }}-
 
       - name: Install head dependencies
+        if: steps.compute-range.outputs.skipped != 'true'
         working-directory: head
         run: bun install --frozen-lockfile
 
       - name: Install base dependencies
+        if: steps.compute-range.outputs.skipped != 'true'
         working-directory: base
         run: bun install --frozen-lockfile
 
-      - name: Install Playwright browsers
+      - name: Install Playwright system dependencies
+        if: steps.compute-range.outputs.skipped != 'true'
+        timeout-minutes: 10
         working-directory: head/packages/app
-        run: bunx playwright install --with-deps chromium
+        run: |
+          bunx playwright install-deps chromium
+          google-chrome --version
 
       - name: Sync perf harness into base checkout
+        if: steps.compute-range.outputs.skipped != 'true'
         run: |
           rsync -a --delete head/packages/app/e2e/perf/ base/packages/app/e2e/perf/
           cp head/packages/app/playwright.config.ts base/packages/app/playwright.config.ts
           cp head/packages/app/src/testing/perf-metrics.ts base/packages/app/src/testing/perf-metrics.ts
 
       - name: Detect low-end perf scope
+        if: steps.compute-range.outputs.skipped != 'true'
         id: low_end_scope
         working-directory: head
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-          HEAD_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
 
@@ -136,43 +195,52 @@ jobs:
           echo "run_low_end=$run_low_end" >> "$GITHUB_OUTPUT"
 
       - name: Run perf probe baseline (base)
+        if: steps.compute-range.outputs.skipped != 'true'
         env:
           CI: "true"
           PAWWORK_PERF_BRANCH: base
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-base.json
+          PLAYWRIGHT_BROWSER_CHANNEL: chrome
         run: bun --cwd base/packages/app test:e2e:local:perf
 
       - name: Run perf probe baseline (head)
+        if: steps.compute-range.outputs.skipped != 'true'
         env:
           CI: "true"
           PAWWORK_PERF_BRANCH: head
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-head.json
+          PLAYWRIGHT_BROWSER_CHANNEL: chrome
         run: bun --cwd head/packages/app test:e2e:local:perf
 
       - name: Run runtime CLS gate (head)
+        if: steps.compute-range.outputs.skipped != 'true'
         env:
           CI: "true"
+          PLAYWRIGHT_BROWSER_CHANNEL: chrome
         run: bun --cwd head/packages/app test:e2e:local:runtime-cls
 
       - name: Run low-end perf probe baseline (base)
-        if: steps.low_end_scope.outputs.run_low_end == 'true'
+        if: steps.compute-range.outputs.skipped != 'true' && steps.low_end_scope.outputs.run_low_end == 'true'
         env:
           CI: "true"
           PAWWORK_PERF_BRANCH: base
           PAWWORK_PERF_PROFILE: low-end
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-base-low-end.json
+          PLAYWRIGHT_BROWSER_CHANNEL: chrome
         run: bun --cwd base/packages/app test:e2e:local:perf
 
       - name: Run low-end perf probe baseline (head)
-        if: steps.low_end_scope.outputs.run_low_end == 'true'
+        if: steps.compute-range.outputs.skipped != 'true' && steps.low_end_scope.outputs.run_low_end == 'true'
         env:
           CI: "true"
           PAWWORK_PERF_BRANCH: head
           PAWWORK_PERF_PROFILE: low-end
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-head-low-end.json
+          PLAYWRIGHT_BROWSER_CHANNEL: chrome
         run: bun --cwd head/packages/app test:e2e:local:perf
 
       - name: Merge perf profile artifacts (base)
+        if: steps.compute-range.outputs.skipped != 'true'
         run: >
           bun head/packages/app/script/merge-perf-artifacts.ts
           --required "${PERF_ARTIFACT_DIR}/perf-base.json"
@@ -180,6 +248,7 @@ jobs:
           --output "${PERF_ARTIFACT_DIR}/perf-base-combined.json"
 
       - name: Merge perf profile artifacts (head)
+        if: steps.compute-range.outputs.skipped != 'true'
         run: >
           bun head/packages/app/script/merge-perf-artifacts.ts
           --required "${PERF_ARTIFACT_DIR}/perf-head.json"
@@ -188,6 +257,7 @@ jobs:
 
       - name: Compare base and head perf baselines
         id: compare
+        if: steps.compute-range.outputs.skipped != 'true'
         continue-on-error: true
         run: >
           bun head/packages/app/script/compare-perf.ts
@@ -197,41 +267,45 @@ jobs:
           --comment-output "${PERF_ARTIFACT_DIR}/perf-comment.md"
 
       - name: Confirm perf regression (base)
-        if: steps.compare.outcome == 'failure'
+        if: steps.compute-range.outputs.skipped != 'true' && steps.compare.outcome == 'failure'
         env:
           CI: "true"
           PAWWORK_PERF_BRANCH: base
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-base-confirm.json
+          PLAYWRIGHT_BROWSER_CHANNEL: chrome
         run: bun --cwd base/packages/app test:e2e:local:perf
 
       - name: Confirm perf regression (head)
-        if: steps.compare.outcome == 'failure'
+        if: steps.compute-range.outputs.skipped != 'true' && steps.compare.outcome == 'failure'
         env:
           CI: "true"
           PAWWORK_PERF_BRANCH: head
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-head-confirm.json
+          PLAYWRIGHT_BROWSER_CHANNEL: chrome
         run: bun --cwd head/packages/app test:e2e:local:perf
 
       - name: Confirm low-end perf regression (base)
-        if: steps.compare.outcome == 'failure' && steps.low_end_scope.outputs.run_low_end == 'true'
+        if: steps.compute-range.outputs.skipped != 'true' && steps.compare.outcome == 'failure' && steps.low_end_scope.outputs.run_low_end == 'true'
         env:
           CI: "true"
           PAWWORK_PERF_BRANCH: base
           PAWWORK_PERF_PROFILE: low-end
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-base-low-end-confirm.json
+          PLAYWRIGHT_BROWSER_CHANNEL: chrome
         run: bun --cwd base/packages/app test:e2e:local:perf
 
       - name: Confirm low-end perf regression (head)
-        if: steps.compare.outcome == 'failure' && steps.low_end_scope.outputs.run_low_end == 'true'
+        if: steps.compute-range.outputs.skipped != 'true' && steps.compare.outcome == 'failure' && steps.low_end_scope.outputs.run_low_end == 'true'
         env:
           CI: "true"
           PAWWORK_PERF_BRANCH: head
           PAWWORK_PERF_PROFILE: low-end
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-head-low-end-confirm.json
+          PLAYWRIGHT_BROWSER_CHANNEL: chrome
         run: bun --cwd head/packages/app test:e2e:local:perf
 
       - name: Merge confirmed perf profile artifacts (base)
-        if: steps.compare.outcome == 'failure'
+        if: steps.compute-range.outputs.skipped != 'true' && steps.compare.outcome == 'failure'
         run: >
           bun head/packages/app/script/merge-perf-artifacts.ts
           --required "${PERF_ARTIFACT_DIR}/perf-base-confirm.json"
@@ -239,7 +313,7 @@ jobs:
           --output "${PERF_ARTIFACT_DIR}/perf-base-confirm-combined.json"
 
       - name: Merge confirmed perf profile artifacts (head)
-        if: steps.compare.outcome == 'failure'
+        if: steps.compute-range.outputs.skipped != 'true' && steps.compare.outcome == 'failure'
         run: >
           bun head/packages/app/script/merge-perf-artifacts.ts
           --required "${PERF_ARTIFACT_DIR}/perf-head-confirm.json"
@@ -248,7 +322,7 @@ jobs:
 
       - name: Compare confirmed perf baselines
         id: compare_confirmed
-        if: steps.compare.outcome == 'failure'
+        if: steps.compute-range.outputs.skipped != 'true' && steps.compare.outcome == 'failure'
         continue-on-error: true
         run: >
           bun head/packages/app/script/compare-perf.ts
@@ -257,74 +331,35 @@ jobs:
           --output "${PERF_ARTIFACT_DIR}/perf-compare-confirm.json"
           --comment-output "${PERF_ARTIFACT_DIR}/perf-comment.md"
 
-      - name: Comment perf deltas on pull request
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # actions/github-script@v9.0.0
-        env:
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        with:
-          script: |
-            const fs = require("node:fs")
-            const marker = "<!-- pawwork-perf-probe-baseline -->"
-            const body = fs.readFileSync(`${process.env.GITHUB_WORKSPACE}/perf-artifacts/perf-comment.md`, "utf8")
-            const pull_number = Number(process.env.PR_NUMBER)
-            const owner = context.repo.owner
-            const repo = context.repo.repo
-
-            const comments = await github.paginate(github.rest.issues.listComments, {
-              owner,
-              repo,
-              issue_number: pull_number,
-              per_page: 100,
-            })
-            const existing = comments.find((comment) => typeof comment.body === "string" && comment.body.includes(marker))
-
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner,
-                repo,
-                comment_id: existing.id,
-                body,
-              })
-              core.info(`Updated perf delta comment ${existing.id}`)
-              return
-            }
-
-            await github.rest.issues.createComment({
-              owner,
-              repo,
-              issue_number: pull_number,
-              body,
-            })
-            core.info("Created perf delta comment")
-
       - name: Resolve failing scenarios for trace capture
         id: failing_scenarios
-        if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure'
+        if: steps.compute-range.outputs.skipped != 'true' && steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure'
         run: bun head/packages/app/script/list-failing-scenarios.ts "${PERF_ARTIFACT_DIR}/perf-compare-confirm.json"
 
       - name: Capture perf diagnostic trace (base)
-        if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure' && steps.failing_scenarios.outputs.default != ''
+        if: steps.compute-range.outputs.skipped != 'true' && steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure' && steps.failing_scenarios.outputs.default != ''
         env:
           CI: "true"
           PAWWORK_PERF_BRANCH: base
           PAWWORK_PERF_SCENARIOS: ${{ steps.failing_scenarios.outputs.default }}
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-base-trace.json
           PAWWORK_PERF_TRACE: "1"
+          PLAYWRIGHT_BROWSER_CHANNEL: chrome
         run: bun --cwd base/packages/app test:e2e:local:perf
 
       - name: Capture perf diagnostic trace (head)
-        if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure' && steps.failing_scenarios.outputs.default != ''
+        if: steps.compute-range.outputs.skipped != 'true' && steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure' && steps.failing_scenarios.outputs.default != ''
         env:
           CI: "true"
           PAWWORK_PERF_BRANCH: head
           PAWWORK_PERF_SCENARIOS: ${{ steps.failing_scenarios.outputs.default }}
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-head-trace.json
           PAWWORK_PERF_TRACE: "1"
+          PLAYWRIGHT_BROWSER_CHANNEL: chrome
         run: bun --cwd head/packages/app test:e2e:local:perf
 
       - name: Capture low-end perf diagnostic trace (base)
-        if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure' && steps.low_end_scope.outputs.run_low_end == 'true' && steps.failing_scenarios.outputs.low_end != ''
+        if: steps.compute-range.outputs.skipped != 'true' && steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure' && steps.low_end_scope.outputs.run_low_end == 'true' && steps.failing_scenarios.outputs.low_end != ''
         env:
           CI: "true"
           PAWWORK_PERF_BRANCH: base
@@ -332,10 +367,11 @@ jobs:
           PAWWORK_PERF_SCENARIOS: ${{ steps.failing_scenarios.outputs.low_end }}
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-base-low-end-trace.json
           PAWWORK_PERF_TRACE: "1"
+          PLAYWRIGHT_BROWSER_CHANNEL: chrome
         run: bun --cwd base/packages/app test:e2e:local:perf
 
       - name: Capture low-end perf diagnostic trace (head)
-        if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure' && steps.low_end_scope.outputs.run_low_end == 'true' && steps.failing_scenarios.outputs.low_end != ''
+        if: steps.compute-range.outputs.skipped != 'true' && steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure' && steps.low_end_scope.outputs.run_low_end == 'true' && steps.failing_scenarios.outputs.low_end != ''
         env:
           CI: "true"
           PAWWORK_PERF_BRANCH: head
@@ -343,6 +379,7 @@ jobs:
           PAWWORK_PERF_SCENARIOS: ${{ steps.failing_scenarios.outputs.low_end }}
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-head-low-end-trace.json
           PAWWORK_PERF_TRACE: "1"
+          PLAYWRIGHT_BROWSER_CHANNEL: chrome
         run: bun --cwd head/packages/app test:e2e:local:perf
 
       - name: Upload perf trace artifact
