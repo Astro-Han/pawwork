@@ -471,7 +471,17 @@ describe("automation routes", () => {
     expect(spec.components?.schemas).toHaveProperty("AutomationValidationError")
   })
 
-  test("runNow is a contract stub before PR2 execution", async () => {
+  test("openapi describes delete active-run stop side effect", async () => {
+    const { Server } = await import("../../src/server/server")
+    const spec = await Server.openapi()
+    const paths = spec.paths as Record<string, any>
+    const description = paths["/automation/{automationID}"].delete.description
+
+    expect(description).toContain("If a run is active")
+    expect(description).toContain("publish the stopped run")
+  })
+
+  test("runNow returns the queued run before background execution updates it", async () => {
     await withAutomationApp(async ({ app, projectID }) => {
       const created = await json(app, "/automation", {
           method: "POST",

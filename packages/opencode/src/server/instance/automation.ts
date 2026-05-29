@@ -3,6 +3,7 @@ import type { Context } from "hono"
 import { describeRoute, resolver, validator } from "hono-openapi"
 import z from "zod"
 import { Automation, AutomationID, ValidationError } from "@/automation"
+import { sessionPromptExecutor } from "@/automation/runner"
 import { errors } from "../error"
 
 function validationError(error: ValidationError) {
@@ -208,7 +209,8 @@ export const AutomationRoutes = (): Hono =>
       "/:automationID",
       describeRoute({
         summary: "Delete automation",
-        description: "Delete an automation definition and return a tombstone.",
+        description:
+          "Delete an automation definition and return a tombstone. If a run is active, stop it and publish the stopped run before publishing the tombstone.",
         operationId: "automation.delete",
         responses: {
           200: {
@@ -220,16 +222,17 @@ export const AutomationRoutes = (): Hono =>
       }),
       validator("param", z.object({ automationID: AutomationID.Definition.zod })),
       async (c) => {
-        const tombstone = Automation.remove(c.req.valid("param").automationID)
-        await Automation.publishDefinitionDeleted(tombstone)
-        return c.json(tombstone)
+        const removed = Automation.remove(c.req.valid("param").automationID)
+        if (removed.stoppedRun) await Automation.publishRunUpdated(removed.stoppedRun)
+        await Automation.publishDefinitionDeleted(removed.tombstone)
+        return c.json(removed.tombstone)
       },
     )
     .post(
       "/:automationID/run",
       describeRoute({
         summary: "Run automation now",
-        description: "Create a scheduled automation run record. Execution lands in a later PR.",
+        description: "Create a queued automation run, start execution in the background, and return the queued run immediately.",
         operationId: "automation.runNow",
         responses: {
           200: {
@@ -241,7 +244,9 @@ export const AutomationRoutes = (): Hono =>
       }),
       validator("param", z.object({ automationID: AutomationID.Definition.zod })),
       async (c) => {
-        const run = Automation.runNow(c.req.valid("param").automationID)
+        const run = Automation.runNowExecuting(c.req.valid("param").automationID, {
+          executor: sessionPromptExecutor,
+        })
         await Automation.publishRunUpdated(run)
         return c.json(run)
       },

@@ -62,6 +62,7 @@ import { attachWith, makeRuntime } from "@/effect/run-service"
 import { Instance } from "@/project/instance"
 import { MemoryFile } from "@/memory/memory"
 import { MemoryService } from "@/memory/service"
+import { AutomationRunContext, AutomationStepCapError } from "@/automation/run-context"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -84,6 +85,10 @@ export type TitleGenerationState = "not_started" | "in_flight" | "completed_befo
 type TitleGenerationProgress = {
   startedAt: number
   completedAt?: number
+}
+
+type PromptRuntimeOptions = {
+  abortSignal?: AbortSignal
 }
 
 export function titleGenerationStateAtAbort(
@@ -265,8 +270,8 @@ function modelCanReadMedia(model: Provider.Model, kind: MediaInputKind) {
 
 export interface Interface {
   readonly cancel: (sessionID: SessionID, options?: { source?: string }) => Effect.Effect<boolean>
-  readonly prompt: (input: PromptInput) => Effect.Effect<MessageV2.WithParts>
-  readonly loop: (input: z.infer<typeof LoopInput>) => Effect.Effect<MessageV2.WithParts>
+  readonly prompt: (input: PromptInput, options?: PromptRuntimeOptions) => Effect.Effect<MessageV2.WithParts>
+  readonly loop: (input: z.infer<typeof LoopInput>, options?: PromptRuntimeOptions) => Effect.Effect<MessageV2.WithParts>
   readonly shell: (input: ShellInput) => Effect.Effect<MessageV2.WithParts>
   readonly command: (input: CommandInput) => Effect.Effect<MessageV2.WithParts>
   readonly resolvePromptParts: (template: string) => Effect.Effect<PromptInput["parts"]>
@@ -302,6 +307,9 @@ export const layer = Layer.effect(
     const llm = yield* LLM.Service
     const runner = Effect.fn("SessionPrompt.runner")(function* () {
       return yield* EffectBridge.make()
+    })
+    const throwIfAborted = Effect.fn("SessionPrompt.throwIfAborted")(function* (options?: PromptRuntimeOptions) {
+      options?.abortSignal?.throwIfAborted()
     })
     // Tracks subagent sessions whose runner.onInterrupt fired during the most recent prompt run.
     // Reset at the start of each prompt() call; written when loop()'s onInterrupt arg fires; read
@@ -676,6 +684,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       const run = yield* runner()
       const promptOps = yield* ops()
       const effectContext = yield* Effect.context()
+      const automation = yield* AutomationRunContext.current
       const runInSessionContext = <A>(effect: Effect.Effect<A, any, any>): Effect.Effect<A> =>
         Effect.gen(function* () {
           const session = yield* sessions.get(input.session.id)
@@ -739,13 +748,20 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               sessionID: input.session.id,
               tool: { messageID: input.processor.message.id, callID: options.toolCallId },
               ruleset: Permission.merge(input.agent.permission, input.session.permission ?? []),
+              onPending: AutomationRunContext.permissionOnPending(automation),
             })
-            .pipe(Effect.orDie),
+            .pipe(Effect.ensuring(automation ? automation.clear() : Effect.void), Effect.orDie),
         externalResult: ({ inputSnapshot, decoder }) =>
           Effect.gen(function* () {
+            if (automation?.attendance === "unattended") {
+              return yield* Effect.fail(new ExternalResult.Error({ reason: "aborted" }))
+            }
             const sessionID = input.session.id
             const messageID = input.processor.message.id
             const callID = options.toolCallId
+            if (automation) {
+              yield* automation.block({ kind: "question", callID })
+            }
             const deferred = yield* ExternalResult.register({
               sessionID,
               messageID,
@@ -814,6 +830,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               return result as Tool.ExternalResultOutcome
             } finally {
               if (signal) signal.removeEventListener("abort", abortHandler)
+              if (automation) yield* automation.clear()
             }
           }),
       })
@@ -1827,27 +1844,29 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       return { info, parts }
     }, Effect.scoped)
 
-    const prompt: (input: PromptInput) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.prompt")(
-      function* (input: PromptInput) {
-        interruptedSessions.delete(input.sessionID)
-        const session = yield* sessions.get(input.sessionID)
-        yield* revert.cleanup(session)
-        const message = yield* createUserMessage(input)
-        yield* sessions.touch(input.sessionID)
+    const prompt: (input: PromptInput, options?: PromptRuntimeOptions) => Effect.Effect<MessageV2.WithParts> = Effect.fn(
+      "SessionPrompt.prompt",
+    )(function* (input: PromptInput, options?: PromptRuntimeOptions) {
+      yield* throwIfAborted(options)
+      interruptedSessions.delete(input.sessionID)
+      const session = yield* sessions.get(input.sessionID)
+      yield* revert.cleanup(session)
+      const message = yield* createUserMessage(input)
+      yield* sessions.touch(input.sessionID)
 
-        const permissions: Permission.Ruleset = []
-        for (const [t, enabled] of Object.entries(input.tools ?? {})) {
-          permissions.push({ permission: t, action: enabled ? "allow" : "deny", pattern: "*" })
-        }
-        if (permissions.length > 0) {
-          session.permission = permissions
-          yield* sessions.setPermission({ sessionID: session.id, permission: permissions })
-        }
+      const permissions: Permission.Ruleset = []
+      for (const [t, enabled] of Object.entries(input.tools ?? {})) {
+        permissions.push({ permission: t, action: enabled ? "allow" : "deny", pattern: "*" })
+      }
+      if (permissions.length > 0) {
+        session.permission = permissions
+        yield* sessions.setPermission({ sessionID: session.id, permission: permissions })
+      }
 
-        if (input.noReply === true) return message
-        return yield* loop({ sessionID: input.sessionID, traceMessageID: message.info.id })
-      },
-    )
+      yield* throwIfAborted(options)
+      if (input.noReply === true) return message
+      return yield* loop({ sessionID: input.sessionID, traceMessageID: message.info.id }, options)
+    })
 
     const appendRunLifecycleEvent = Effect.fn("SessionPrompt.appendRunLifecycleEvent")(function* (
       sessionID: SessionID,
@@ -1939,6 +1958,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     const runLoop: (sessionID: SessionID) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.run")(
       function* (sessionID: SessionID) {
         const ctx = yield* InstanceState.context
+        const automation = yield* AutomationRunContext.current
         const slog = elog.with({ sessionID })
         let structured: unknown | undefined
         let step = 0
@@ -2054,6 +2074,10 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             throw error
           }
           const maxSteps = agent.steps ?? Infinity
+          const automationHardStepCap = automation?.stepCap ?? 50
+          if (automation && step > automationHardStepCap) {
+            throw new AutomationStepCapError(automationHardStepCap)
+          }
           const isLastStep = step >= maxSteps
           msgs = yield* insertReminders({ messages: msgs, agent, session })
           const diagnostics = SessionDiagnostics.consumeReminders({ messages: msgs, parentID: lastUser.id })
@@ -2254,9 +2278,12 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       },
     )
 
-    const loop: (input: z.infer<typeof LoopInput>) => Effect.Effect<MessageV2.WithParts> = Effect.fn(
+    const loop: (
+      input: z.infer<typeof LoopInput>,
+      options?: PromptRuntimeOptions,
+    ) => Effect.Effect<MessageV2.WithParts> = Effect.fn(
       "SessionPrompt.loop",
-    )(function* (input: z.infer<typeof LoopInput>) {
+    )(function* (input: z.infer<typeof LoopInput>, options?: PromptRuntimeOptions) {
       const onInterrupt = (meta?: {
         source?: string
         reason?: string
@@ -2394,6 +2421,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           return assistant
         })
       const work = Effect.gen(function* () {
+        yield* throwIfAborted(options)
         // Two reasons busy goes first. (1) The compaction part event must
         // not race ahead of `session.status: busy` — the divider's
         // "no summary + not working" branch would otherwise flash the
@@ -2454,6 +2482,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               appendRunLifecycleEvent(input.sessionID, input.traceMessageID!, event),
           }
         : undefined
+      yield* throwIfAborted(options)
       return yield* state.ensureRunning(input.sessionID, onInterrupt, work, {
         rejectIfBusy: input.prelude !== undefined,
         runLifecycle,
@@ -2732,6 +2761,18 @@ export type PromptInput = z.infer<typeof PromptInput>
 
 export async function prompt(input: PromptInput) {
   return runPromise((svc) => svc.prompt(PromptInput.parse(input)))
+}
+
+export async function promptWithAutomationContext(
+  input: PromptInput,
+  context: import("@/automation/run-context").AutomationRunContext,
+  options?: PromptRuntimeOptions,
+) {
+  return runPromise((svc) =>
+    svc
+      .prompt(PromptInput.parse(input), options)
+      .pipe(Effect.provideService(AutomationRunContext.service, context)),
+  )
 }
 
 export async function resolvePromptParts(template: string) {
