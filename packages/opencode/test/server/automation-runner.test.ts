@@ -14,7 +14,7 @@ afterEach(async () => {
 
 async function withAutomation<T>(fn: (projectID: ProjectID) => Promise<T>) {
   await using tmp = await tmpdir({ git: true })
-  return Instance.provide({
+  return await Instance.provide({
     directory: tmp.path,
     fn: () => fn(Instance.project.id),
   })
