@@ -117,8 +117,12 @@ export namespace Permission {
     message: z.string().optional(),
   })
 
+  export type AskOptions = z.infer<typeof AskInput> & {
+    onPending?: (request: Request) => Effect.Effect<void>
+  }
+
   export interface Interface {
-    readonly ask: (input: z.infer<typeof AskInput>) => Effect.Effect<void, Error>
+    readonly ask: (input: AskOptions) => Effect.Effect<void, Error>
     readonly reply: (input: z.infer<typeof ReplyInput>) => Effect.Effect<void>
     readonly clearSession: (
       sessionID: SessionID,
@@ -171,9 +175,9 @@ export namespace Permission {
         }),
       )
 
-      const ask = Effect.fn("Permission.ask")(function* (input: z.infer<typeof AskInput>) {
+      const ask = Effect.fn("Permission.ask")(function* (input: AskOptions) {
         const { approved, pending } = yield* InstanceState.get(state)
-        const { ruleset, ...request } = input
+        const { ruleset, onPending, ...request } = input
         let needsAsk = false
         const denied: Array<{ pattern: string; rule: Rule }> = []
 
@@ -222,6 +226,7 @@ export namespace Permission {
 
         const deferred = yield* Deferred.make<void, RejectedError | CorrectedError>()
         pending.set(id, { info, deferred })
+        if (onPending) yield* onPending(info)
         yield* bus.publish(Event.Asked, info)
         return yield* Effect.ensuring(
           Deferred.await(deferred),

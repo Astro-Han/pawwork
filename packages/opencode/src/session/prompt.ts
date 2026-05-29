@@ -62,6 +62,7 @@ import { attachWith, makeRuntime } from "@/effect/run-service"
 import { Instance } from "@/project/instance"
 import { MemoryFile } from "@/memory/memory"
 import { MemoryService } from "@/memory/service"
+import { AutomationRunContext, AutomationStepCapError } from "@/automation/run-context"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -676,6 +677,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       const run = yield* runner()
       const promptOps = yield* ops()
       const effectContext = yield* Effect.context()
+      const automation = yield* AutomationRunContext.current
       const runInSessionContext = <A>(effect: Effect.Effect<A, any, any>): Effect.Effect<A> =>
         Effect.gen(function* () {
           const session = yield* sessions.get(input.session.id)
@@ -739,13 +741,20 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               sessionID: input.session.id,
               tool: { messageID: input.processor.message.id, callID: options.toolCallId },
               ruleset: Permission.merge(input.agent.permission, input.session.permission ?? []),
+              onPending: AutomationRunContext.permissionOnPending(automation),
             })
-            .pipe(Effect.orDie),
+            .pipe(Effect.ensuring(automation ? automation.clear() : Effect.void), Effect.orDie),
         externalResult: ({ inputSnapshot, decoder }) =>
           Effect.gen(function* () {
+            if (automation?.attendance === "unattended") {
+              return yield* Effect.fail(new ExternalResult.Error({ reason: "aborted" }))
+            }
             const sessionID = input.session.id
             const messageID = input.processor.message.id
             const callID = options.toolCallId
+            if (automation) {
+              yield* automation.block({ kind: "question", callID })
+            }
             const deferred = yield* ExternalResult.register({
               sessionID,
               messageID,
@@ -814,6 +823,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               return result as Tool.ExternalResultOutcome
             } finally {
               if (signal) signal.removeEventListener("abort", abortHandler)
+              if (automation) yield* automation.clear()
             }
           }),
       })
@@ -1939,6 +1949,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     const runLoop: (sessionID: SessionID) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.run")(
       function* (sessionID: SessionID) {
         const ctx = yield* InstanceState.context
+        const automation = yield* AutomationRunContext.current
         const slog = elog.with({ sessionID })
         let structured: unknown | undefined
         let step = 0
@@ -2054,6 +2065,10 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             throw error
           }
           const maxSteps = agent.steps ?? Infinity
+          const automationHardStepCap = automation?.stepCap ?? 50
+          if (automation && step > automationHardStepCap) {
+            throw new AutomationStepCapError(automationHardStepCap)
+          }
           const isLastStep = step >= maxSteps
           msgs = yield* insertReminders({ messages: msgs, agent, session })
           const diagnostics = SessionDiagnostics.consumeReminders({ messages: msgs, parentID: lastUser.id })
@@ -2732,6 +2747,17 @@ export type PromptInput = z.infer<typeof PromptInput>
 
 export async function prompt(input: PromptInput) {
   return runPromise((svc) => svc.prompt(PromptInput.parse(input)))
+}
+
+export async function promptWithAutomationContext(
+  input: PromptInput,
+  context: import("@/automation/run-context").AutomationRunContext,
+) {
+  return runPromise((svc) =>
+    svc
+      .prompt(PromptInput.parse(input))
+      .pipe(Effect.provideService(AutomationRunContext.service, context)),
+  )
 }
 
 export async function resolvePromptParts(template: string) {
