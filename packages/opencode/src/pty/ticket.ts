@@ -36,6 +36,7 @@ export class PtyTicketStore {
   }
 
   issue(input: { ptyID: PtyID }): ConnectToken {
+    this.cleanupExpired()
     const ticket = this.random()
     this.tickets.set(ticket, {
       ptyID: input.ptyID,
@@ -50,13 +51,17 @@ export class PtyTicketStore {
   consume(input: { ptyID: PtyID; ticket: string }) {
     const record = this.tickets.get(input.ticket)
     if (!record) return false
-    if (record.expiresAt <= this.now()) {
-      this.tickets.delete(input.ticket)
-      return false
-    }
-    if (record.ptyID !== input.ptyID) return false
     this.tickets.delete(input.ticket)
+    if (record.expiresAt <= this.now()) return false
+    if (record.ptyID !== input.ptyID) return false
     return true
+  }
+
+  private cleanupExpired() {
+    const now = this.now()
+    for (const [ticket, record] of this.tickets) {
+      if (record.expiresAt <= now) this.tickets.delete(ticket)
+    }
   }
 }
 

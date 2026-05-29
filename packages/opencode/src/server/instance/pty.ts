@@ -21,6 +21,13 @@ function assertPtyConnectTicket(input: { ptyID: PtyID; ticket?: string }) {
   throw new HTTPException(401, { message: "Invalid PTY connect ticket" })
 }
 
+const PtyConnectQuery = z.object({ cursor: z.string().optional(), ticket: z.string().optional() })
+type PtyConnectQuery = z.infer<typeof PtyConnectQuery>
+type PtyConnectRequest = {
+  valid(target: "param"): { ptyID: PtyID }
+  valid(target: "query"): PtyConnectQuery
+}
+
 export function PtyRoutes(upgradeWebSocket: UpgradeWebSocket) {
   return new Hono()
     .get(
@@ -197,12 +204,14 @@ export function PtyRoutes(upgradeWebSocket: UpgradeWebSocket) {
         },
       }),
       validator("param", z.object({ ptyID: PtyID.zod })),
-      validator("query", z.object({ cursor: z.string().optional(), ticket: z.string().optional() })),
+      validator("query", PtyConnectQuery),
       upgradeWebSocket(async (c) => {
-        const id = PtyID.zod.parse(c.req.param("ptyID"))
-        assertPtyConnectTicket({ ptyID: id, ticket: c.req.query("ticket") })
+        const request = c.req as unknown as PtyConnectRequest
+        const id = request.valid("param").ptyID
+        const query = request.valid("query")
+        assertPtyConnectTicket({ ptyID: id, ticket: query.ticket })
         const cursor = (() => {
-          const value = c.req.query("cursor")
+          const value = query.cursor
           if (!value) return
           const parsed = Number(value)
           if (!Number.isSafeInteger(parsed) || parsed < -1) return

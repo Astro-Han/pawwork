@@ -12,7 +12,7 @@ describe("PtyTicketStore", () => {
 
     expect(issued).toEqual({ ticket: "ticket-1", expires_in: 60 })
     expect(store.consume({ ptyID: otherPtyID, ticket: issued.ticket })).toBe(false)
-    expect(store.consume({ ptyID, ticket: issued.ticket })).toBe(true)
+    expect(store.consume({ ptyID, ticket: issued.ticket })).toBe(false)
     expect(store.consume({ ptyID, ticket: issued.ticket })).toBe(false)
   })
 
@@ -25,5 +25,24 @@ describe("PtyTicketStore", () => {
     now = 1_101
 
     expect(store.consume({ ptyID, ticket: issued.ticket })).toBe(false)
+  })
+
+  test("cleans expired tickets when issuing a new ticket", () => {
+    let now = 1_000
+    let next = 0
+    const store = new PtyTicketStore({
+      ttlMs: 100,
+      now: () => now,
+      random: () => `ticket-${++next}`,
+    })
+    const ptyID = PtyID.ascending()
+    const tickets = (store as unknown as { tickets: Map<string, unknown> }).tickets
+
+    store.issue({ ptyID })
+    store.issue({ ptyID })
+    now = 1_101
+    store.issue({ ptyID })
+
+    expect(tickets.size).toBe(1)
   })
 })

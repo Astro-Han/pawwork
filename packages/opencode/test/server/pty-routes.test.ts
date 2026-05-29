@@ -124,6 +124,36 @@ describe("pty routes", () => {
     })
   })
 
+  test("consumes a valid ticket when it is presented for the wrong PTY", async () => {
+    if (process.platform === "win32") return
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const info = await Pty.create({
+          command: "/bin/sh",
+          args: ["-c", "trap 'exit 0' TERM; while :; do sleep 1; done"],
+          title: "ticket-wrong-pty",
+        })
+        try {
+          const app = new Hono().route("/pty", PtyRoutes(testUpgradeWebSocket))
+          app.onError(ErrorMiddleware)
+          const issued = PtyTicket.issue({ ptyID: info.id })
+
+          const wrong = await app.request(
+            `/pty/${PtyID.ascending()}/connect?ticket=${encodeURIComponent(issued.ticket)}`,
+          )
+          const replay = await app.request(`/pty/${info.id}/connect?ticket=${encodeURIComponent(issued.ticket)}`)
+
+          expect(wrong.status).toBe(401)
+          expect(replay.status).toBe(401)
+        } finally {
+          await Pty.remove(info.id)
+        }
+      },
+    })
+  })
+
   test("consumes a valid ticket before reporting a deleted PTY target", async () => {
     const ptyID = PtyID.ascending()
     const issued = PtyTicket.issue({ ptyID })
