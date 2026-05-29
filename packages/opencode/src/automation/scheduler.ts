@@ -1,5 +1,6 @@
 import { Context, Effect, Fiber, Layer } from "effect"
 import { Automation } from "."
+import { Bus } from "@/bus"
 import { Instance } from "@/project/instance"
 import { NotFoundError } from "@/storage/db"
 import { sessionPromptExecutor } from "./runner"
@@ -125,13 +126,7 @@ export namespace AutomationScheduler {
       }
       try {
         Automation.runNowExecuting(automationID, {
-          executor: async (input) => {
-            try {
-              return await executor(input)
-            } finally {
-              scheduleNextInterval(input.definition.id)
-            }
-          },
+          executor,
           attendance: "unattended",
           now: triggeredAt,
         })
@@ -165,11 +160,19 @@ export namespace AutomationScheduler {
       schedule(definition, next)
     }
 
+    const unsubscribeRunUpdates = Bus.subscribe(Automation.Event.RunUpdated, (event) => {
+      if (!running) return
+      const run = event.properties
+      if (run.state === "scheduled" || run.state === "running" || run.state === "awaiting_input") return
+      scheduleNextInterval(run.automationID)
+    })
+
     for (const definition of Automation.list()) reschedule(definition)
 
     return {
       stop() {
         running = false
+        unsubscribeRunUpdates()
         for (const automationID of [...tasks.keys()]) cancel(automationID)
       },
       reschedule,

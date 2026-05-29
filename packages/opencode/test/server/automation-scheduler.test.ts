@@ -272,6 +272,46 @@ describe("automation scheduler", () => {
     })
   })
 
+  test("anchors recurring schedule after a long manual run completes", async () => {
+    await withAutomation(async (projectID) => {
+      const clock = new FakeClock(0)
+      const releaseManual = deferred<{ sessionID: SessionID; result: string | null; cost?: number | null }>()
+      const schedulerStarts: number[] = []
+      const definition = Automation.create(recurringInput(projectID, 60_000), { now: 0 })
+      const scheduler = AutomationScheduler.make({
+        clock,
+        executor: async () => {
+          schedulerStarts.push(clock.now())
+          return { sessionID: SessionID.descending(), result: "scheduled", cost: 0 }
+        },
+      })
+      Automation.runNowExecuting(definition.id, {
+        now: 0,
+        executor: async () => releaseManual.promise,
+      })
+      await waitForRunStates(definition.id, ["scheduled"])
+
+      scheduler.reschedule(definition)
+      await clock.advance(60_000)
+      await waitForRunStates(definition.id, ["stopped", "scheduled"])
+
+      await clock.advance(59_000)
+      releaseManual.resolve({ sessionID: SessionID.descending(), result: "manual", cost: 0 })
+      await waitForRunStates(definition.id, ["stopped", "succeeded"])
+
+      await clock.advance(999)
+      expect(schedulerStarts).toEqual([])
+
+      await clock.advance(59_000)
+      expect(schedulerStarts).toEqual([])
+
+      await clock.advance(1)
+      await waitForRunStates(definition.id, ["succeeded", "stopped", "succeeded"])
+      expect(schedulerStarts).toEqual([179_000])
+      scheduler.stop()
+    })
+  })
+
   test("anchors interval automation after completion and never overlaps", async () => {
     await withAutomation(async (projectID) => {
       const clock = new FakeClock(0)
