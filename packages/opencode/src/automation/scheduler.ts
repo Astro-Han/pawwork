@@ -1,7 +1,7 @@
 import { Context, Effect, Fiber, Layer } from "effect"
 import { Automation } from "."
 import { Bus } from "@/bus"
-import { Instance } from "@/project/instance"
+import { Instance, type InstanceContext } from "@/project/instance"
 import { NotFoundError } from "@/storage/db"
 import { sessionPromptExecutor } from "./runner"
 
@@ -220,9 +220,23 @@ export namespace AutomationScheduler {
     }
   }
 
-  const owner = Instance.state<{ scheduler: Interface }>(
-    () => ({ scheduler: make() }),
-    async (state) => state.scheduler.stop(),
+  type OwnerState = {
+    context: InstanceContext
+    scheduler: Interface
+  }
+
+  const owners = new Map<string, OwnerState>()
+  const owner = Instance.state<OwnerState>(
+    () => {
+      const context = Instance.current
+      const state = { context, scheduler: make() }
+      owners.set(context.directory, state)
+      return state
+    },
+    async (state) => {
+      owners.delete(state.context.directory)
+      Instance.restore(state.context, () => state.scheduler.stop())
+    },
   )
 
   export function current(): Interface {
@@ -235,5 +249,22 @@ export namespace AutomationScheduler {
     previous.stop()
     state.scheduler = scheduler
     return previous
+  }
+
+  export function stopCurrent(): void {
+    const state = owner()
+    Instance.restore(state.context, () => state.scheduler.stop())
+  }
+
+  export function stopDirectory(directory: string): void {
+    const state = owners.get(directory)
+    if (!state) return
+    Instance.restore(state.context, () => state.scheduler.stop())
+  }
+
+  export function stopAll(): void {
+    for (const state of owners.values()) {
+      Instance.restore(state.context, () => state.scheduler.stop())
+    }
   }
 }

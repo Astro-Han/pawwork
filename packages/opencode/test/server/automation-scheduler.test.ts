@@ -4,6 +4,7 @@ import { Automation } from "../../src/automation"
 import { AutomationScheduler } from "../../src/automation/scheduler"
 import { Instance } from "../../src/project/instance"
 import { ProjectID } from "../../src/project/schema"
+import { trackActiveRun } from "../../src/session/lifecycle-provenance"
 import { MessageID, SessionID } from "../../src/session/schema"
 import { createAutomateDefinition } from "../../src/tool/automate"
 import { tmpdir } from "../fixture/fixture"
@@ -357,6 +358,62 @@ describe("automation scheduler", () => {
         sessionID,
         stopReason: "cancelled",
       })
+    })
+  })
+
+  test("stops an active scheduled run when the instance is disposed", async () => {
+    await withAutomation(async (projectID) => {
+      const clock = new FakeClock(0)
+      const releaseRun = deferred<{ sessionID: SessionID; result: string | null; cost?: number | null }>()
+      let runSignal: AbortSignal | undefined
+      const scheduler = AutomationScheduler.make({
+        clock,
+        executor: async (input) => {
+          runSignal = input.signal
+          return releaseRun.promise
+        },
+      })
+      AutomationScheduler.install(scheduler)
+      const definition = Automation.create(recurringInput(projectID, 60_000), { now: 0 })
+
+      scheduler.reschedule(definition)
+      await clock.advance(60_000)
+      expect(runSignal?.aborted).toBe(false)
+
+      await Instance.dispose({ mode: "force" })
+
+      expect(runSignal?.aborted).toBe(true)
+      releaseRun.resolve({ sessionID: SessionID.descending(), result: "done", cost: 0 })
+    })
+  })
+
+  test("stops an active scheduled run before maintenance dispose waits for other active runs", async () => {
+    await withAutomation(async (projectID) => {
+      const clock = new FakeClock(0)
+      const releaseRun = deferred<{ sessionID: SessionID; result: string | null; cost?: number | null }>()
+      let runSignal: AbortSignal | undefined
+      const scheduler = AutomationScheduler.make({
+        clock,
+        executor: async (input) => {
+          runSignal = input.signal
+          return releaseRun.promise
+        },
+      })
+      AutomationScheduler.install(scheduler)
+      const definition = Automation.create(recurringInput(projectID, 60_000), { now: 0 })
+      const unrelatedActiveRun = trackActiveRun(Instance.directory)
+      const releaseUnrelatedRun = await unrelatedActiveRun.promise
+
+      scheduler.reschedule(definition)
+      await clock.advance(60_000)
+      expect(runSignal?.aborted).toBe(false)
+
+      await Instance.dispose()
+
+      expect(runSignal?.aborted).toBe(true)
+      releaseRun.resolve({ sessionID: SessionID.descending(), result: "done", cost: 0 })
+      releaseUnrelatedRun()
+      await Bun.sleep(0)
     })
   })
 

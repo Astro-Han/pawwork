@@ -11,6 +11,10 @@ async function runtime() {
   return (await import("./instance-runtime")).InstanceRuntime
 }
 
+async function scheduler() {
+  return (await import("@/automation/scheduler")).AutomationScheduler
+}
+
 export const Instance = {
   async provide<R>(input: {
     directory: string
@@ -123,6 +127,7 @@ export const Instance = {
   },
   async dispose(input?: { mode?: "maintenance" | "force"; onCompleted?: () => void | Promise<void> }) {
     const ctx = Instance.current
+    await (await scheduler()).stopCurrent()
     const instanceRuntime = await runtime()
     const onCompleted = async () => {
       directories.delete(ctx.directory)
@@ -136,6 +141,7 @@ export const Instance = {
     input?: { mode?: "maintenance" | "force"; onCompleted?: () => void | Promise<void> },
   ) {
     const directory = Filesystem.resolve(inputDirectory)
+    await (await scheduler()).stopDirectory(directory)
     const instanceRuntime = await runtime()
     const onCompleted = async () => {
       directories.delete(directory)
@@ -146,6 +152,7 @@ export const Instance = {
   },
   async disposeAll(input?: { mode?: "maintenance" | "force"; onCompleted?: () => void | Promise<void> }) {
     const { disposeAllLoadedInstances } = await import("./instance-store")
+    await (await scheduler()).stopAll()
     const onCompleted = async () => {
       directories.clear()
       await input?.onCompleted?.()
