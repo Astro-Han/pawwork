@@ -1,5 +1,6 @@
 import { Context, Effect, Layer } from "effect"
 import { Automation } from "."
+import { Instance } from "@/project/instance"
 import { sessionPromptExecutor } from "./runner"
 
 export namespace AutomationScheduler {
@@ -116,5 +117,22 @@ export namespace AutomationScheduler {
         return nextFireAt(definition, from)
       },
     }
+  }
+
+  const owner = Instance.state<{ scheduler: Interface }>(
+    () => ({ scheduler: make() }),
+    async (state) => state.scheduler.stop(),
+  )
+
+  export function current(): Interface {
+    return owner().scheduler
+  }
+
+  export function install(scheduler: Interface): Interface {
+    const state = owner()
+    const previous = state.scheduler
+    previous.stop()
+    state.scheduler = scheduler
+    return previous
   }
 }

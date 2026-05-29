@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { Hono } from "hono"
 import { Log } from "@opencode-ai/core/util/log"
 import { Automation, AutomationID } from "../../src/automation"
+import { AutomationScheduler } from "../../src/automation/scheduler"
 import { Bus } from "../../src/bus"
 import { Instance } from "../../src/project/instance"
 import { ProjectID } from "../../src/project/schema"
@@ -83,6 +84,44 @@ function run(overrides: Record<string, unknown> = {}) {
 }
 
 describe("automation routes", () => {
+  test("reschedules and cancels timers when definitions change", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const rescheduled: Array<{ id: string; paused: boolean }> = []
+      const cancelled: string[] = []
+      AutomationScheduler.install({
+        stop: () => undefined,
+        reschedule: (definition) => rescheduled.push({ id: definition.id, paused: definition.paused }),
+        cancel: (automationID) => cancelled.push(automationID),
+        nextFireAt: () => null,
+      })
+
+      const created = await json(app, "/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(recurringInput(projectID)),
+      })
+      await json(app, `/automation/${created.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title: "Updated brief" }),
+      })
+      await json(app, `/automation/${created.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      })
+      await json(app, `/automation/${created.id}/pause`, { method: "POST" })
+      await json(app, `/automation/${created.id}`, { method: "DELETE" })
+
+      expect(rescheduled).toEqual([
+        { id: created.id, paused: false },
+        { id: created.id, paused: false },
+        { id: created.id, paused: true },
+      ])
+      expect(cancelled).toEqual([created.id])
+    })
+  })
+
   test("create echoes the resolved definition with revision and normalization warnings", async () => {
     await withAutomationApp(async ({ app, projectID }) => {
       const response = await app.request("/automation", {

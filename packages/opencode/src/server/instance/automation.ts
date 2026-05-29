@@ -4,6 +4,7 @@ import { describeRoute, resolver, validator } from "hono-openapi"
 import z from "zod"
 import { Automation, AutomationID, ValidationError } from "@/automation"
 import { sessionPromptExecutor } from "@/automation/runner"
+import { AutomationScheduler } from "@/automation/scheduler"
 import { errors } from "../error"
 
 function validationError(error: ValidationError) {
@@ -13,6 +14,7 @@ function validationError(error: ValidationError) {
 async function publishIfChanged(previous: Automation.Definition, definition: Automation.Definition) {
   if (definition.revision === previous.revision) return
   await Automation.publishDefinitionUpdated(definition)
+  AutomationScheduler.current().reschedule(definition)
 }
 
 function validationIssuePath(issue: unknown) {
@@ -102,6 +104,7 @@ export const AutomationRoutes = (): Hono =>
         try {
           const definition = Automation.create(c.req.valid("json"))
           await Automation.publishDefinitionUpdated(definition)
+          AutomationScheduler.current().reschedule(definition)
           return c.json(definition)
         } catch (error) {
           if (error instanceof ValidationError) return c.json(validationError(error), 422)
@@ -223,6 +226,7 @@ export const AutomationRoutes = (): Hono =>
       validator("param", z.object({ automationID: AutomationID.Definition.zod })),
       async (c) => {
         const removed = Automation.remove(c.req.valid("param").automationID)
+        AutomationScheduler.current().cancel(removed.tombstone.id)
         if (removed.stoppedRun) await Automation.publishRunUpdated(removed.stoppedRun)
         await Automation.publishDefinitionDeleted(removed.tombstone)
         return c.json(removed.tombstone)
