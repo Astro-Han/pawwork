@@ -2,66 +2,118 @@ import { describe, expect, test } from "bun:test"
 import { runBrowserCheck } from "@/testing/browser-subprocess"
 import { contextUsageRingPercent, contextUsageTone } from "./session-context-usage-state"
 
-const showAccessorBehaviorCheck = String.raw`
+const sessionContextUsageBehaviorCheck = String.raw`
+import { mock } from "bun:test"
 import { batch, createComponent, createSignal } from "solid-js"
 import { render } from "solid-js/web"
-import { Show } from "solid-js"
 
 const assert = (condition, message) => {
   if (!condition) throw new Error(message)
 }
 
-const unsafeRoot = document.createElement("div")
-let staleAccessor
-let clearContext
-const disposeUnsafe = render(
-  () => {
-    const [context, setContext] = createSignal({ label: "Context usage" })
-    clearContext = () => batch(() => setContext(undefined))
-    return createComponent(Show, {
-      get when() {
-        return context()
-      },
-      children: (current) => {
-        staleAccessor = current
-        return document.createTextNode(current().label)
-      },
-    })
+globalThis.React = {
+  createElement(type, props, ...children) {
+    if (typeof type === "function") return type({ ...(props ?? {}), children })
+    return children
   },
-  unsafeRoot,
-)
-
-assert(staleAccessor().label === "Context usage", "callback-form Show accessor should expose the current context first")
-clearContext()
-let staleError
-try {
-  staleAccessor()
-} catch (error) {
-  staleError = error
 }
-assert(String(staleError) === "Stale read from <Show>.", "callback-form Show accessor should throw after the when value disappears")
-disposeUnsafe()
 
-const safeRoot = document.createElement("div")
-let clearContextUsedLabel
-const disposeSafe = render(
-  () => {
-    const [contextUsedLabel, setContextUsedLabel] = createSignal("Context usage")
-    clearContextUsedLabel = () => batch(() => setContextUsedLabel(undefined))
-    return createComponent(Show, {
-      get when() {
-        return contextUsedLabel()
+const [messageList, setMessageList] = createSignal([])
+
+mock.module("@opencode-ai/ui/tooltip", () => ({
+  Tooltip: (props) => [props.value, props.children],
+}))
+mock.module("@opencode-ai/ui/progress-circle", () => ({
+  ProgressCircle: () => document.createTextNode("progress"),
+}))
+mock.module("@opencode-ai/ui/button", () => ({
+  Button: (props) => props.children,
+}))
+mock.module("@/context/sync", () => ({
+  useSync: () => ({
+    data: {
+      get message() {
+        return { session_a: messageList() }
       },
-      get children() {
-        return document.createTextNode(contextUsedLabel() ?? "")
+      config: {
+        compaction: {
+          auto: true,
+          reserved: 1000,
+        },
       },
-    })
+    },
+  }),
+}))
+mock.module("@/context/language", () => ({
+  useLanguage: () => ({
+    intl: () => "en-US",
+    t: (key, values) => (values ? key + JSON.stringify(values) : key),
+  }),
+}))
+mock.module("@/hooks/use-providers", () => ({
+  useProviders: () => ({
+    all: () => [
+      {
+        id: "provider",
+        name: "Provider",
+        models: {
+          model: {
+            name: "Model",
+            limit: {
+              context: 10000,
+              input: 10000,
+              output: 1000,
+            },
+          },
+        },
+      },
+    ],
+  }),
+}))
+mock.module("@/pages/session/session-layout", () => ({
+  useSessionLayout: () => ({
+    params: { id: "session_a" },
+    view: () => ({
+      sidePanel: {
+        toggleTab: () => undefined,
+      },
+    }),
+  }),
+}))
+
+const { SessionContextUsage } = await import("./src/components/session-context-usage.tsx")
+
+setMessageList([
+  {
+    id: "msg_a",
+    role: "assistant",
+    providerID: "provider",
+    modelID: "model",
+    cost: 0.25,
+    tokens: {
+      total: 2100,
+      input: 2000,
+      output: 100,
+      reasoning: 0,
+      cache: {
+        read: 0,
+        write: 0,
+      },
+    },
+    time: {
+      created: 1,
+    },
   },
-  safeRoot,
-)
+])
 
-clearContextUsedLabel()
-disposeSafe()
+const root = document.createElement("div")
+const dispose = render(() => createComponent(SessionContextUsage, {}), root)
+
+assert(root.textContent.includes("context.usage.title"), "context usage details should render before metrics disappear")
+batch(() => setMessageList([]))
+assert(root.textContent.includes("context.usage.cost"), "cost row should remain visible without context metrics")
+
+dispose()
 `
 
 describe("session context usage indicator helpers", () => {
@@ -84,8 +136,8 @@ describe("session context usage indicator helpers", () => {
   })
 })
 
-describe("Solid Show context usage behavior", () => {
-  test("avoids stale callback accessors when context metrics disappear", () => {
-    runBrowserCheck(showAccessorBehaviorCheck)
+describe("SessionContextUsage render behavior", () => {
+  test("does not read stale Show accessors when context metrics disappear", () => {
+    runBrowserCheck(sessionContextUsageBehaviorCheck)
   })
 })
