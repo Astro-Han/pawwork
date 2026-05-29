@@ -641,6 +641,40 @@ describe("automation scheduler", () => {
     })
   })
 
+  test("does not re-anchor recurring schedule after a manual writer conflict stop", async () => {
+    await withAutomation(async (projectID) => {
+      const clock = new FakeClock(0)
+      const releaseBlocker = deferred<{ sessionID: SessionID; result: string | null; cost?: number | null }>()
+      const scheduler = AutomationScheduler.make({
+        clock,
+        executor: async () => ({ sessionID: SessionID.descending(), result: "scheduled", cost: 0 }),
+      })
+      const blocker = Automation.create(oneshotInput(projectID, 10_000_000), { now: 0 })
+      const definition = Automation.create(recurringInput(projectID, 60_000), { now: 0 })
+
+      Automation.runNowExecuting(blocker.id, {
+        now: 0,
+        executor: async () => releaseBlocker.promise,
+      })
+      await waitForRunStates(blocker.id, ["scheduled"])
+      scheduler.reschedule(definition)
+
+      await clock.advance(30_000)
+      Automation.runNowExecuting(definition.id, {
+        now: 30_000,
+        executor: async () => ({ sessionID: SessionID.descending(), result: "manual", cost: 0 }),
+      })
+      await waitForRunStates(definition.id, ["stopped"])
+
+      await clock.advance(30_000)
+
+      const runs = await waitForRunStates(definition.id, ["stopped", "stopped"])
+      expect(runs[0].triggeredAt).toBe(60_000)
+      releaseBlocker.resolve({ sessionID: SessionID.descending(), result: "blocker done", cost: 0 })
+      scheduler.stop()
+    })
+  })
+
   test("records a stopped run instead of overlapping an active automation", async () => {
     await withAutomation(async (projectID) => {
       const clock = new FakeClock(0)

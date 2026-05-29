@@ -104,6 +104,7 @@ export namespace AutomationScheduler {
     const runtime = options.runtime ?? liveRuntime
     const tasks = new Map<string, Task>()
     const ownedRuns = new Map<string, string>()
+    const schedulerStoppedRuns = new Set<string>()
     let running = true
 
     const cancel = (automationID: string) => {
@@ -140,6 +141,7 @@ export namespace AutomationScheduler {
       }
       if (Automation.hasActiveRun(automationID)) {
         const stopped = Automation.recordStoppedRun(automationID, "previous_run_awaiting_input", { now: triggeredAt })
+        schedulerStoppedRuns.add(stopped.id)
         void Automation.publishRunUpdated(stopped)
         scheduleNextInterval(automationID)
         return
@@ -185,7 +187,9 @@ export namespace AutomationScheduler {
       if (!running) return
       const run = event.properties
       if (run.state === "scheduled" || run.state === "running" || run.state === "awaiting_input") return
-      ownedRuns.delete(run.id)
+      const wasOwned = ownedRuns.delete(run.id)
+      const wasSchedulerStopped = schedulerStoppedRuns.delete(run.id)
+      if (run.state === "stopped" && !wasOwned && !wasSchedulerStopped) return
       scheduleNextInterval(run.automationID)
     })
     const unsubscribeDefinitionUpdates = Bus.subscribe(Automation.Event.DefinitionUpdated, (event) => {
