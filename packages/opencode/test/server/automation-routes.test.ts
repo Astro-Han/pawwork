@@ -35,6 +35,16 @@ async function json(app: Hono, input: string, init?: RequestInit) {
   return response.json()
 }
 
+async function waitForRunCount(automationID: string, count: number) {
+  const deadline = Date.now() + 2_000
+  while (Date.now() < deadline) {
+    const items = Automation.runs({ automationID, limit: 100 }).items
+    if (items.length >= count) return items
+    await Bun.sleep(5)
+  }
+  throw new Error(`Timed out waiting for automation run count: ${count}`)
+}
+
 type RecurringCreateInput = Extract<Automation.CreateInput, { kind: "recurring" }>
 type OneshotCreateInput = Extract<Automation.CreateInput, { kind: "oneshot" }>
 
@@ -145,6 +155,20 @@ describe("automation routes", () => {
       expect(body.updatedAt).toBe(body.createdAt)
       expect(body.nextFireAt).toBeNull()
       expect(body.nextFires).toEqual([])
+    })
+  })
+
+  test("create lazily starts the scheduler before publishing definition updates", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const created = await json(app, "/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(oneshotInput(projectID, { fireAt: Date.now() + 20 })),
+      })
+
+      const runs = await waitForRunCount(created.id, 1)
+
+      expect(runs[0]?.automationID).toBe(created.id)
     })
   })
 
