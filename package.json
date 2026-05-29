@@ -4,7 +4,7 @@
   "description": "Desktop AI workstation for knowledge workers",
   "private": true,
   "type": "module",
-  "packageManager": "bun@1.3.13",
+  "packageManager": "bun@1.3.14",
   "scripts": {
     "dev": "bun run dev:desktop",
     "dev:desktop": "bun --cwd packages/desktop-electron dev",
