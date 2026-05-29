@@ -176,6 +176,14 @@ export namespace AutomationScheduler {
       ownedRuns.delete(run.id)
       scheduleNextInterval(run.automationID)
     })
+    const unsubscribeDefinitionUpdates = Bus.subscribe(Automation.Event.DefinitionUpdated, (event) => {
+      if (!running) return
+      reschedule(event.properties)
+    })
+    const unsubscribeDefinitionDeletes = Bus.subscribe(Automation.Event.DefinitionDeleted, (event) => {
+      if (!running) return
+      cancel(event.properties.id)
+    })
 
     for (const definition of Automation.list()) reschedule(definition)
 
@@ -183,6 +191,8 @@ export namespace AutomationScheduler {
       stop() {
         running = false
         unsubscribeRunUpdates()
+        unsubscribeDefinitionUpdates()
+        unsubscribeDefinitionDeletes()
         for (const runID of [...ownedRuns.keys()]) {
           const stopped = Automation.stopRunByID(runID, "cancelled", { now: clock.now() })
           ownedRuns.delete(runID)

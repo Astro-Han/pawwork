@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test"
+import { Effect } from "effect"
 import { Automation } from "../../src/automation"
 import { AutomationScheduler } from "../../src/automation/scheduler"
 import { Instance } from "../../src/project/instance"
 import { ProjectID } from "../../src/project/schema"
-import { SessionID } from "../../src/session/schema"
+import { MessageID, SessionID } from "../../src/session/schema"
+import { createAutomateDefinition } from "../../src/tool/automate"
 import { tmpdir } from "../fixture/fixture"
 
 afterEach(async () => {
@@ -171,6 +173,40 @@ describe("automation scheduler", () => {
 
       await clock.advance(1_000)
       expect(calls).toEqual([1_000])
+      scheduler.stop()
+    })
+  })
+
+  test("schedules recurring automations created through the automate tool", async () => {
+    await withAutomation(async (projectID) => {
+      const clock = new FakeClock(0)
+      const scheduler = AutomationScheduler.make({
+        clock,
+        executor: async () => ({ sessionID: SessionID.descending(), result: "done", cost: 0 }),
+      })
+      const tool = createAutomateDefinition()
+
+      const result = await Effect.runPromise(
+        tool.execute(
+          recurringInput(projectID, 60_000),
+          {
+            sessionID: SessionID.descending(),
+            messageID: MessageID.ascending(),
+            agent: "build",
+            abort: new AbortController().signal,
+            messages: [],
+            metadata: () => Effect.void,
+            ask: () => Effect.void,
+          },
+        ),
+      )
+
+      const definition = result.metadata.automationDefinition
+      await clock.advance(60_000)
+      const runs = await waitForRunStates(definition.id, ["succeeded"])
+
+      expect(runs).toHaveLength(1)
+      expect(runs[0].triggeredAt).toBe(60_000)
       scheduler.stop()
     })
   })
