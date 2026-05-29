@@ -1309,6 +1309,20 @@
               "pattern": "^pty.*"
             },
             "required": true
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "ticket",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "summary": "Connect to PTY session",
@@ -6792,6 +6806,66 @@
           {
             "lang": "js",
             "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.formatter.status({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/pty/{ptyID}/connect-token": {
+      "post": {
+        "operationId": "pty.connectToken",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "ptyID",
+            "schema": {
+              "type": "string",
+              "pattern": "^pty.*"
+            },
+            "required": true
+          }
+        ],
+        "summary": "Create PTY WebSocket token",
+        "description": "Create a short-lived ticket for opening a PTY WebSocket connection.",
+        "responses": {
+          "200": {
+            "description": "WebSocket connect token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PtyConnectToken"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.pty.connectToken({\n  ...\n})"
           }
         ]
       }
@@ -14186,6 +14260,23 @@
           "name",
           "extensions",
           "enabled"
+        ]
+      },
+      "PtyConnectToken": {
+        "type": "object",
+        "properties": {
+          "ticket": {
+            "type": "string"
+          },
+          "expires_in": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "ticket",
+          "expires_in"
         ]
       }
     }

@@ -9,6 +9,7 @@ import { Pty } from "../../src/pty"
 import { PtyID } from "../../src/pty/schema"
 import { PtyTicket } from "../../src/pty/ticket"
 import { Instance } from "../../src/project/instance"
+import { Server } from "../../src/server/server"
 import { tmpdir } from "../fixture/fixture"
 
 void Log.init({ print: false })
@@ -140,6 +141,21 @@ describe("pty routes", () => {
         expect(replay.status).toBe(401)
       },
     })
+  })
+
+  test("openapi documents connect tokens and websocket query parameters", async () => {
+    const spec = await Server.openapi()
+    const tokenResponse = spec.paths?.["/pty/{ptyID}/connect-token"]?.post?.responses?.["200"] as
+      | { content?: unknown }
+      | undefined
+
+    expect(tokenResponse?.content).toBeTruthy()
+
+    const parameters = spec.paths?.["/pty/{ptyID}/connect"]?.get?.parameters ?? []
+    const names = parameters.map((parameter) => ("name" in parameter ? parameter.name : undefined))
+
+    expect(names).toContain("cursor")
+    expect(names).toContain("ticket")
   })
 
   test("maps missing update targets as not found", async () => {

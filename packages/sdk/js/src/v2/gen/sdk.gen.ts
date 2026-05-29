@@ -122,6 +122,8 @@ import type {
   ProviderOauthCallbackResponses,
   PtyConnectErrors,
   PtyConnectResponses,
+  PtyConnectTokenErrors,
+  PtyConnectTokenResponses,
   PtyCreateErrors,
   PtyCreateResponses,
   PtyGetErrors,
@@ -1225,11 +1227,11 @@ export class Pty extends HeyApiClient {
   }
 
   /**
-   * Connect to PTY session
+   * Create PTY WebSocket token
    *
-   * Establish a WebSocket connection to interact with a pseudo-terminal (PTY) session in real-time.
+   * Create a short-lived ticket for opening a PTY WebSocket connection.
    */
-  public connect<ThrowOnError extends boolean = false>(
+  public connectToken<ThrowOnError extends boolean = false>(
     parameters: {
       ptyID: string
       directory?: string
@@ -1245,6 +1247,42 @@ export class Pty extends HeyApiClient {
             { in: "path", key: "ptyID" },
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<PtyConnectTokenResponses, PtyConnectTokenErrors, ThrowOnError>({
+      url: "/pty/{ptyID}/connect-token",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Connect to PTY session
+   *
+   * Establish a WebSocket connection to interact with a pseudo-terminal (PTY) session in real-time.
+   */
+  public connect<ThrowOnError extends boolean = false>(
+    parameters: {
+      ptyID: string
+      directory?: string
+      workspace?: string
+      cursor?: string
+      ticket?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "ptyID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "cursor" },
+            { in: "query", key: "ticket" },
           ],
         },
       ],

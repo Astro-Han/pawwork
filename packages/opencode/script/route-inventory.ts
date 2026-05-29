@@ -93,6 +93,7 @@ const specialSurfaces: Array<[RegExp, string]> = [
   [/^GET \/global\/(?:sync-)?event$/, "SSE/event"],
   [/^GET \/event$/, "SSE/event"],
   [/^GET \/pty\/:ptyID\/connect$/, "PTY websocket"],
+  [/^POST \/pty\/:ptyID\/connect-token$/, "PTY websocket"],
   [/^GET \/__workspace_ws$/, "workspace websocket proxy"],
   [/^ALL \/\*$/, "UI static route"],
   [/^GET \/doc$/, "OpenAPI source"],
