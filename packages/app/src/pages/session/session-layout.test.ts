@@ -6,6 +6,7 @@ let sessionRouteLayoutKey: typeof import("./session-layout").sessionRouteLayoutK
 
 beforeAll(async () => {
   mock.module("@solidjs/router", () => ({
+    useNavigate: () => () => undefined,
     useParams: () => ({}),
   }))
   const mod = await import("./session-layout")

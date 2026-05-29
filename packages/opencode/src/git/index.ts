@@ -57,6 +57,7 @@ export namespace Git {
   export interface PatchOptions {
     readonly context?: number
     readonly maxOutputBytes?: number
+    readonly binary?: boolean
   }
 
   export interface Result {
@@ -73,6 +74,7 @@ export namespace Git {
     readonly cwd: string
     readonly env?: Record<string, string>
     readonly maxOutputBytes?: number
+    readonly stdin?: ChildProcess.CommandInput
   }
 
   export interface Interface {
@@ -95,11 +97,14 @@ export namespace Git {
     readonly statsStaged: (cwd: string) => Effect.Effect<Stat[]>
     readonly statsHead: (cwd: string, ref: string) => Effect.Effect<Stat[]>
     readonly patch: (cwd: string, ref: string, file: string, options?: PatchOptions) => Effect.Effect<Patch>
+    readonly patchAll: (cwd: string, ref: string, options?: PatchOptions) => Effect.Effect<Patch>
+    readonly patchStagedAll: (cwd: string, options?: PatchOptions) => Effect.Effect<Patch>
     readonly patchUnstaged: (cwd: string, file: string, options?: PatchOptions) => Effect.Effect<Patch>
     readonly patchStaged: (cwd: string, file: string, options?: PatchOptions) => Effect.Effect<Patch>
     readonly patchHead: (cwd: string, ref: string, file: string, options?: PatchOptions) => Effect.Effect<Patch>
     readonly patchUntracked: (cwd: string, file: string, options?: PatchOptions) => Effect.Effect<Patch>
     readonly statUntracked: (cwd: string, file: string) => Effect.Effect<Stat | undefined>
+    readonly applyPatch: (cwd: string, patch: string) => Effect.Effect<Result>
   }
 
   const kind = (code: string): Kind => {
@@ -116,6 +121,8 @@ export namespace Git {
     Service,
     Effect.gen(function* () {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+      const encoder = new TextEncoder()
+      const stdin = (text: string) => Stream.make(encoder.encode(text))
 
       const run = Effect.fn("Git.run")(
         function* (args: string[], opts: Options) {
@@ -123,7 +130,7 @@ export namespace Git {
             cwd: opts.cwd,
             env: opts.env,
             extendEnv: true,
-            stdin: "ignore",
+            stdin: opts.stdin ?? "ignore",
             stdout: "pipe",
             stderr: "pipe",
           })
@@ -429,9 +436,27 @@ export namespace Git {
         return { text: result.truncated ? "" : result.text(), truncated: result.truncated } satisfies Patch
       })
 
+      const binary = (options?: PatchOptions) => (options?.binary ? ["--binary"] : [])
+
       const patch = Effect.fn("Git.patch")(function* (cwd: string, ref: string, file: string, options?: PatchOptions) {
         return yield* patchResult(
-          ["diff", "--patch", "--no-ext-diff", "--no-renames", `--unified=${options?.context ?? 3}`, ref, "--", file],
+          ["diff", "--patch", ...binary(options), "--no-ext-diff", "--no-renames", `--unified=${options?.context ?? 3}`, ref, "--", file],
+          cwd,
+          options,
+        )
+      })
+
+      const patchAll = Effect.fn("Git.patchAll")(function* (cwd: string, ref: string, options?: PatchOptions) {
+        return yield* patchResult(
+          ["diff", "--patch", ...binary(options), "--no-ext-diff", "--no-renames", `--unified=${options?.context ?? 3}`, ref, "--", "."],
+          cwd,
+          options,
+        )
+      })
+
+      const patchStagedAll = Effect.fn("Git.patchStagedAll")(function* (cwd: string, options?: PatchOptions) {
+        return yield* patchResult(
+          ["diff", "--cached", "--patch", ...binary(options), "--no-ext-diff", "--no-renames", `--unified=${options?.context ?? 3}`, "--", "."],
           cwd,
           options,
         )
@@ -439,7 +464,7 @@ export namespace Git {
 
       const patchUnstaged = Effect.fn("Git.patchUnstaged")(function* (cwd: string, file: string, options?: PatchOptions) {
         return yield* patchResult(
-          ["diff", "--patch", "--no-ext-diff", "--no-renames", `--unified=${options?.context ?? 3}`, "--", file],
+          ["diff", "--patch", ...binary(options), "--no-ext-diff", "--no-renames", `--unified=${options?.context ?? 3}`, "--", file],
           cwd,
           options,
         )
@@ -451,6 +476,7 @@ export namespace Git {
             "diff",
             "--cached",
             "--patch",
+            ...binary(options),
             "--no-ext-diff",
             "--no-renames",
             `--unified=${options?.context ?? 3}`,
@@ -464,7 +490,7 @@ export namespace Git {
 
       const patchHead = Effect.fn("Git.patchHead")(function* (cwd: string, ref: string, file: string, options?: PatchOptions) {
         return yield* patchResult(
-          ["diff", "--patch", "--no-ext-diff", "--no-renames", `--unified=${options?.context ?? 3}`, ref, "HEAD", "--", file],
+          ["diff", "--patch", ...binary(options), "--no-ext-diff", "--no-renames", `--unified=${options?.context ?? 3}`, ref, "HEAD", "--", file],
           cwd,
           options,
         )
@@ -472,7 +498,18 @@ export namespace Git {
 
       const patchUntracked = Effect.fn("Git.patchUntracked")(function* (cwd: string, file: string, options?: PatchOptions) {
         return yield* patchResult(
-          ["diff", "--no-index", "--patch", "--no-ext-diff", "--no-renames", `--unified=${options?.context ?? 3}`, "--", "/dev/null", file],
+          [
+            "diff",
+            "--no-index",
+            "--patch",
+            ...binary(options),
+            "--no-ext-diff",
+            "--no-renames",
+            `--unified=${options?.context ?? 3}`,
+            "--",
+            "/dev/null",
+            file,
+          ],
           cwd,
           options,
         )
@@ -498,6 +535,10 @@ export namespace Git {
         } satisfies Stat
       })
 
+      const applyPatch = Effect.fn("Git.applyPatch")(function* (cwd: string, patch: string) {
+        return yield* run(["apply", "-"], { cwd, stdin: stdin(patch) })
+      })
+
       return Service.of({
         run,
         branch,
@@ -518,11 +559,14 @@ export namespace Git {
         statsStaged,
         statsHead,
         patch,
+        patchAll,
+        patchStagedAll,
         patchUnstaged,
         patchStaged,
         patchHead,
         patchUntracked,
         statUntracked,
+        applyPatch,
       })
     }),
   )

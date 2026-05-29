@@ -1,7 +1,8 @@
-import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
 import { QueryClient, QueryClientProvider } from "@tanstack/solid-query"
 import { createRoot, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
+import type { FollowupDraft } from "@/components/prompt-input/followup-draft"
 import { normalize, readPersistedAsync, readPersistedSync } from "@/utils/persist-read"
 import type {
   canSendFollowupItem as CanSendFollowupItem,
@@ -25,15 +26,14 @@ let followupDraftMatchesScope: typeof FollowupDraftMatchesScope
 const sendFollowupCalls: unknown[] = []
 let sendFollowupDraftImpl: (input: unknown) => Promise<boolean>
 
-type FollowupDraft = any
-
 function workspaceStorage(dir: string) {
   const head = (dir.slice(0, 12) || "workspace").replace(/[^a-zA-Z0-9._-]/g, "-")
-  let sum = 0
+  let hash = 0x811c9dc5
   for (let index = 0; index < dir.length; index++) {
-    sum = (sum + dir.charCodeAt(index) * (index + 1)) >>> 0
+    hash ^= dir.charCodeAt(index)
+    hash = Math.imul(hash, 0x01000193)
   }
-  return `pawwork.workspace.${head}.${sum.toString(36)}.dat`
+  return `pawwork.workspace.${head}.${(hash >>> 0).toString(36)}.dat`
 }
 
 const PersistMock = {
@@ -82,6 +82,7 @@ beforeAll(async () => {
       workspaceStorage,
     },
     persisted: (_target: unknown, store: unknown) => store,
+    removePersisted: () => undefined,
   }))
   mock.module("@/utils/id", () => ({
     Identifier: {
@@ -97,6 +98,10 @@ beforeAll(async () => {
   followupStoreKey = mod.followupStoreKey
   scopedFollowupDraft = mod.scopedFollowupDraft
   followupDraftMatchesScope = mod.followupDraftMatchesScope
+})
+
+afterAll(() => {
+  mock.restore()
 })
 
 function deferred<T>() {

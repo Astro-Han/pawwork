@@ -28,6 +28,32 @@ import { MemoryRoutes } from "./memory"
 import { AutomationRoutes } from "./automation"
 import { WorkspaceRouterMiddleware } from "./middleware"
 import { AppRuntime } from "@/effect/app-runtime"
+import { jsonBodyLimit } from "./json-body-limit"
+
+const applyPatchTooLarge = () =>
+  ({
+    error: "vcs_apply_failed",
+    reason: "too-large",
+    message: "Patch exceeds the 10 MB input limit",
+  }) satisfies Vcs.ApplyError
+
+const applyPatchInvalidInput = () =>
+  ({
+    error: "vcs_apply_failed",
+    reason: "invalid-input",
+    message: "Patch request body must be valid JSON with a string patch",
+  }) satisfies Vcs.ApplyError
+
+const applyJsonEnvelopeBytes = Buffer.byteLength(JSON.stringify({ patch: "" }))
+// A JSON string can encode one decoded byte as six ASCII bytes (for example "\u000a").
+const maxJsonStringEscapeRatio = 6
+const applyJsonBodyMaxBytes = Vcs.MAX_APPLY_PATCH_BYTES * maxJsonStringEscapeRatio + applyJsonEnvelopeBytes
+
+const applyPatchBodyLimit = jsonBodyLimit({
+  maxBytes: applyJsonBodyMaxBytes,
+  tooLarge: (c) => c.json(applyPatchTooLarge(), 413),
+  invalidJson: (c) => c.json(applyPatchInvalidInput(), 400),
+})
 
 export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
   new Hono()
@@ -174,6 +200,125 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
       ),
       async (c) => {
         return c.json(await Vcs.diff(c.req.valid("query").mode))
+      },
+    )
+    .get(
+      "/vcs/status",
+      describeRoute({
+        summary: "Get VCS status",
+        description: "Retrieve working tree file status summaries for the current project.",
+        operationId: "vcs.status",
+        responses: {
+          200: {
+            description: "VCS status",
+            content: {
+              "application/json": {
+                schema: resolver(Vcs.FileStatus.array()),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        return c.json(await Vcs.status())
+      },
+    )
+    .get(
+      "/vcs/diff/raw",
+      describeRoute({
+        summary: "Get raw VCS diff",
+        description: "Retrieve the current git diff as raw patch text.",
+        operationId: "vcs.diffRaw",
+        responses: {
+          200: {
+            description: "Raw VCS diff",
+            content: {
+              "text/plain": {
+                schema: resolver(z.string()),
+              },
+            },
+          },
+          413: {
+            description: "Raw VCS diff failure",
+            content: {
+              "application/json": {
+                schema: resolver(Vcs.DiffRawError),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        try {
+          c.header("content-type", "text/plain; charset=UTF-8")
+          return c.text(await Vcs.diffRaw())
+        } catch (error) {
+          if (error instanceof Vcs.RawDiffError) {
+            const body = {
+              error: "vcs_diff_raw_failed",
+              reason: error.reason,
+              message: error.message,
+            } satisfies Vcs.DiffRawError
+            return c.json(body, 413)
+          }
+          throw error
+        }
+      },
+    )
+    .post(
+      "/vcs/apply",
+      describeRoute({
+        summary: "Apply VCS patch",
+        description: "Apply a git patch to the current project.",
+        operationId: "vcs.apply",
+        responses: {
+          200: {
+            description: "Patch apply result",
+            content: {
+              "application/json": {
+                schema: resolver(Vcs.ApplyResult),
+              },
+            },
+          },
+          400: {
+            description: "VCS patch apply failure",
+            content: {
+              "application/json": {
+                schema: resolver(Vcs.ApplyError),
+              },
+            },
+          },
+          413: {
+            description: "VCS patch apply failure",
+            content: {
+              "application/json": {
+                schema: resolver(Vcs.ApplyError),
+              },
+            },
+          },
+        },
+      }),
+      applyPatchBodyLimit,
+      validator("json", Vcs.ApplyInput, (result, c) => {
+        if (!result.success) return c.json(applyPatchInvalidInput(), 400)
+      }),
+      async (c) => {
+        try {
+          return c.json(await Vcs.apply(c.req.valid("json")))
+        } catch (error) {
+          if (error instanceof Vcs.PatchApplyError) {
+            const body =
+              error.reason === "too-large"
+                ? applyPatchTooLarge()
+                : ({
+                    error: "vcs_apply_failed",
+                    reason: error.reason,
+                    message: error.message,
+                  } satisfies Vcs.ApplyError)
+            return c.json(body, error.reason === "too-large" ? 413 : 400)
+          }
+          throw error
+        }
       },
     )
     .get(

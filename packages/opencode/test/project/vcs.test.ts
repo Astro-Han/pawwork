@@ -1,13 +1,15 @@
 import { $ } from "bun"
 import { afterEach, describe, expect, test } from "bun:test"
+import { Effect } from "effect"
 import fs from "fs/promises"
 import path from "path"
-import { tmpdir } from "../fixture/fixture"
+import { provideInstance, tmpdir } from "../fixture/fixture"
 import { AppRuntime } from "../../src/effect/app-runtime"
 import { FileWatcher } from "../../src/file/watcher"
 import { Instance } from "../../src/project/instance"
 import { GlobalBus } from "../../src/bus/global"
 import { Vcs } from "../../src/project/vcs"
+import { testEffect } from "../lib/effect"
 
 // Skip in CI — native @parcel/watcher binding needed
 const describeVcs = FileWatcher.hasNativeBinding() && !process.env.CI ? describe : describe.skip
@@ -29,17 +31,25 @@ async function withVcs(directory: string, body: () => Promise<void>) {
 }
 
 function withVcsOnly(directory: string, body: () => Promise<void>) {
-  return Instance.provide({
-    directory,
-    fn: async () => {
-      Vcs.init()
-      await body()
-    },
-  })
+  return provideInstance(directory)(
+    Effect.gen(function* () {
+      const vcs = yield* Vcs.Service
+      yield* vcs.init()
+      yield* Effect.promise(body)
+    }),
+  )
 }
 
 type BranchEvent = { directory?: string; payload: { type: string; properties: { branch?: string } } }
 const weird = process.platform === "win32" ? "space file.txt" : "tab\tfile.txt"
+const vcsIt = testEffect(Vcs.defaultLayer)
+
+type TmpdirOptions = Parameters<typeof tmpdir>[0]
+const scopedTmpdir = (options?: TmpdirOptions) =>
+  Effect.acquireRelease(
+    Effect.promise(() => tmpdir(options)),
+    (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+  )
 
 /** Wait for a Vcs.Event.BranchUpdated event on GlobalBus, with retry polling as fallback */
 function nextBranchUpdate(directory: string, timeout = 10_000) {
@@ -134,153 +144,301 @@ describe("Vcs diff", () => {
     await Instance.disposeAll()
   })
 
-  test("defaultBranch() falls back to main", async () => {
-    await using tmp = await tmpdir({ git: true })
-    await $`git branch -M main`.cwd(tmp.path).quiet()
+  vcsIt.live("status() returns tracked, staged, and untracked file summaries", () =>
+    Effect.gen(function* () {
+      const tmp = yield* scopedTmpdir({ git: true })
+      yield* Effect.promise(async () => {
+        await fs.writeFile(path.join(tmp.path, "tracked.txt"), "original\n", "utf-8")
+        await $`git add tracked.txt`.cwd(tmp.path).quiet()
+        await $`git commit --no-gpg-sign -m "add file"`.cwd(tmp.path).quiet()
+        await fs.writeFile(path.join(tmp.path, "tracked.txt"), "changed\n", "utf-8")
+        await fs.writeFile(path.join(tmp.path, "staged.txt"), "staged\n", "utf-8")
+        await $`git add staged.txt`.cwd(tmp.path).quiet()
+        await fs.writeFile(path.join(tmp.path, "untracked.txt"), "untracked\n", "utf-8")
+      })
 
-    await withVcsOnly(tmp.path, async () => {
-      const branch = await Vcs.defaultBranch()
-      expect(branch).toBe("main")
-    })
-  })
+      yield* withVcsOnly(tmp.path, async () => {
+        const status = await Vcs.status()
+        expect(status).toEqual([
+          { file: "staged.txt", additions: 1, deletions: 0, status: "added" },
+          { file: "tracked.txt", additions: 1, deletions: 1, status: "modified" },
+          { file: "untracked.txt", additions: 1, deletions: 0, status: "added" },
+        ])
+      })
+    }),
+  )
 
-  test("defaultBranch() uses init.defaultBranch when available", async () => {
-    await using tmp = await tmpdir({ git: true })
-    await $`git branch -M trunk`.cwd(tmp.path).quiet()
-    await $`git config init.defaultBranch trunk`.cwd(tmp.path).quiet()
+  vcsIt.live("defaultBranch() falls back to main", () =>
+    Effect.gen(function* () {
+      const tmp = yield* scopedTmpdir({ git: true })
+      yield* Effect.promise(async () => {
+        await $`git branch -M main`.cwd(tmp.path).quiet()
+      })
 
-    await withVcsOnly(tmp.path, async () => {
-      const branch = await Vcs.defaultBranch()
-      expect(branch).toBe("trunk")
-    })
-  })
+      yield* withVcsOnly(tmp.path, async () => {
+        const branch = await Vcs.defaultBranch()
+        expect(branch).toBe("main")
+      })
+    }),
+  )
 
-  test("detects current branch from the active worktree", async () => {
-    await using tmp = await tmpdir({ git: true })
-    await using wt = await tmpdir()
-    await $`git branch -M main`.cwd(tmp.path).quiet()
-    const dir = path.join(wt.path, "feature")
-    await $`git worktree add -b feature/test ${dir} HEAD`.cwd(tmp.path).quiet()
+  vcsIt.live("defaultBranch() uses init.defaultBranch when available", () =>
+    Effect.gen(function* () {
+      const tmp = yield* scopedTmpdir({ git: true })
+      yield* Effect.promise(async () => {
+        await $`git branch -M trunk`.cwd(tmp.path).quiet()
+        await $`git config init.defaultBranch trunk`.cwd(tmp.path).quiet()
+      })
 
-    await withVcsOnly(dir, async () => {
-      const [branch, base] = await Promise.all([Vcs.branch(), Vcs.defaultBranch()])
-      expect(branch).toBe("feature/test")
-      expect(base).toBe("main")
-    })
-  })
+      yield* withVcsOnly(tmp.path, async () => {
+        const branch = await Vcs.defaultBranch()
+        expect(branch).toBe("trunk")
+      })
+    }),
+  )
 
-  test("diff('unstaged') returns unstaged and untracked changes only", async () => {
-    await using tmp = await tmpdir({ git: true })
-    await fs.writeFile(path.join(tmp.path, "tracked.txt"), "original\n", "utf-8")
-    await $`git add tracked.txt`.cwd(tmp.path).quiet()
-    await $`git commit --no-gpg-sign -m "add file"`.cwd(tmp.path).quiet()
-    await fs.writeFile(path.join(tmp.path, "tracked.txt"), "changed\n", "utf-8")
-    await fs.writeFile(path.join(tmp.path, "staged.txt"), "staged\n", "utf-8")
-    await $`git add staged.txt`.cwd(tmp.path).quiet()
-    await fs.writeFile(path.join(tmp.path, "untracked.txt"), "untracked\n", "utf-8")
+  vcsIt.live("detects current branch from the active worktree", () =>
+    Effect.gen(function* () {
+      const tmp = yield* scopedTmpdir({ git: true })
+      const wt = yield* scopedTmpdir()
+      const dir = path.join(wt.path, "feature")
+      yield* Effect.promise(async () => {
+        await $`git branch -M main`.cwd(tmp.path).quiet()
+        await $`git worktree add -b feature/test ${dir} HEAD`.cwd(tmp.path).quiet()
+      })
 
-    await withVcsOnly(tmp.path, async () => {
-      const diff = await Vcs.diff("unstaged")
-      expect(diff).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ file: "tracked.txt", status: "modified" }),
-          expect.objectContaining({ file: "untracked.txt", status: "added" }),
-        ]),
-      )
-      expect(diff.find((item) => item.file === "tracked.txt")?.patch).toContain("diff --git")
-      expect(diff.find((item) => item.file === "untracked.txt")?.patch).toContain("+untracked")
-      expect(diff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "staged.txt" })]))
-    })
-  })
+      yield* withVcsOnly(dir, async () => {
+        const [branch, base] = await Promise.all([Vcs.branch(), Vcs.defaultBranch()])
+        expect(branch).toBe("feature/test")
+        expect(base).toBe("main")
+      })
+    }),
+  )
 
-  test("diff('unstaged') handles special filenames", async () => {
-    await using tmp = await tmpdir({ git: true })
-    await fs.writeFile(path.join(tmp.path, weird), "hello\n", "utf-8")
+  vcsIt.live("diff('unstaged') returns unstaged and untracked changes only", () =>
+    Effect.gen(function* () {
+      const tmp = yield* scopedTmpdir({ git: true })
+      yield* Effect.promise(async () => {
+        await fs.writeFile(path.join(tmp.path, "tracked.txt"), "original\n", "utf-8")
+        await $`git add tracked.txt`.cwd(tmp.path).quiet()
+        await $`git commit --no-gpg-sign -m "add file"`.cwd(tmp.path).quiet()
+        await fs.writeFile(path.join(tmp.path, "tracked.txt"), "changed\n", "utf-8")
+        await fs.writeFile(path.join(tmp.path, "staged.txt"), "staged\n", "utf-8")
+        await $`git add staged.txt`.cwd(tmp.path).quiet()
+        await fs.writeFile(path.join(tmp.path, "untracked.txt"), "untracked\n", "utf-8")
+      })
 
-    await withVcsOnly(tmp.path, async () => {
-      const diff = await Vcs.diff("unstaged")
-      expect(diff).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            file: weird,
-            status: "added",
-          }),
-        ]),
-      )
-    })
-  })
+      yield* withVcsOnly(tmp.path, async () => {
+        const diff = await Vcs.diff("unstaged")
+        expect(diff).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ file: "tracked.txt", status: "modified" }),
+            expect.objectContaining({ file: "untracked.txt", status: "added" }),
+          ]),
+        )
+        expect(diff.find((item) => item.file === "tracked.txt")?.patch).toContain("diff --git")
+        expect(diff.find((item) => item.file === "untracked.txt")?.patch).toContain("+untracked")
+        expect(diff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "staged.txt" })]))
+      })
+    }),
+  )
 
-  test("diff('staged') returns staged changes only", async () => {
-    await using tmp = await tmpdir({ git: true })
-    await fs.writeFile(path.join(tmp.path, "tracked.txt"), "original\n", "utf-8")
-    await $`git add tracked.txt`.cwd(tmp.path).quiet()
-    await $`git commit --no-gpg-sign -m "add file"`.cwd(tmp.path).quiet()
+  vcsIt.live("diffRaw() returns a patch with tracked and untracked changes", () =>
+    Effect.gen(function* () {
+      const tmp = yield* scopedTmpdir({ git: true })
+      yield* Effect.promise(async () => {
+        await fs.writeFile(path.join(tmp.path, "tracked.txt"), "original\n", "utf-8")
+        await $`git add tracked.txt`.cwd(tmp.path).quiet()
+        await $`git commit --no-gpg-sign -m "add file"`.cwd(tmp.path).quiet()
+        await fs.writeFile(path.join(tmp.path, "tracked.txt"), "changed\n", "utf-8")
+        await fs.writeFile(path.join(tmp.path, "untracked.txt"), "new\n", "utf-8")
+      })
 
-    await fs.writeFile(path.join(tmp.path, "staged.txt"), "staged\n", "utf-8")
-    await $`git add staged.txt`.cwd(tmp.path).quiet()
-    await fs.writeFile(path.join(tmp.path, "unstaged.txt"), "unstaged\n", "utf-8")
+      yield* withVcsOnly(tmp.path, async () => {
+        const patch = await Vcs.diffRaw()
+        expect(patch).toContain("diff --git a/tracked.txt b/tracked.txt")
+        expect(patch).toContain("-original")
+        expect(patch).toContain("+changed")
+        expect(patch).toContain("diff --git a/untracked.txt b/untracked.txt")
+        expect(patch).toContain("+new")
+      })
+    }),
+  )
 
-    await withVcsOnly(tmp.path, async () => {
-      const diff = await Vcs.diff("staged")
-      expect(diff).toEqual(expect.arrayContaining([expect.objectContaining({ file: "staged.txt", status: "added" })]))
-      expect(diff.find((item) => item.file === "staged.txt")?.patch).toContain("+staged")
-      expect(diff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "unstaged.txt" })]))
-    })
-  })
+  vcsIt.live("apply() applies a valid patch", () =>
+    Effect.gen(function* () {
+      const source = yield* scopedTmpdir({ git: true })
+      yield* Effect.promise(async () => {
+        await fs.writeFile(path.join(source.path, "tracked.txt"), "original\n", "utf-8")
+        await $`git add tracked.txt`.cwd(source.path).quiet()
+        await $`git commit --no-gpg-sign -m "add file"`.cwd(source.path).quiet()
+        await fs.writeFile(path.join(source.path, "tracked.txt"), "changed\n", "utf-8")
+      })
 
-  test("diff('staged') returns staged files before the first commit", async () => {
-    await using tmp = await tmpdir()
-    await $`git init`.cwd(tmp.path).quiet()
-    await fs.writeFile(path.join(tmp.path, "first.txt"), "first\n", "utf-8")
-    await $`git add first.txt`.cwd(tmp.path).quiet()
+      let patch = ""
+      yield* withVcsOnly(source.path, async () => {
+        patch = await Vcs.diffRaw()
+      })
 
-    await withVcsOnly(tmp.path, async () => {
-      const diff = await Vcs.diff("staged")
-      expect(diff).toEqual(expect.arrayContaining([expect.objectContaining({ file: "first.txt", status: "added" })]))
-    })
-  })
+      const target = yield* scopedTmpdir({ git: true })
+      yield* Effect.promise(async () => {
+        await fs.writeFile(path.join(target.path, "tracked.txt"), "original\n", "utf-8")
+        await $`git add tracked.txt`.cwd(target.path).quiet()
+        await $`git commit --no-gpg-sign -m "add file"`.cwd(target.path).quiet()
+      })
 
-  test("diff('branch') returns committed branch changes without staged, unstaged, or untracked files", async () => {
-    await using tmp = await tmpdir({ git: true })
-    await $`git branch -M main`.cwd(tmp.path).quiet()
-    await $`git checkout -b feature/test`.cwd(tmp.path).quiet()
-    await fs.writeFile(path.join(tmp.path, "branch.txt"), "branch\n", "utf-8")
-    await $`git add branch.txt`.cwd(tmp.path).quiet()
-    await $`git commit --no-gpg-sign -m "branch file"`.cwd(tmp.path).quiet()
+      yield* withVcsOnly(target.path, async () => {
+        await expect(Vcs.apply({ patch })).resolves.toEqual({ applied: true })
+        await expect(fs.readFile(path.join(target.path, "tracked.txt"), "utf-8")).resolves.toBe("changed\n")
+      })
+    }),
+  )
 
-    await fs.writeFile(path.join(tmp.path, "staged.txt"), "staged\n", "utf-8")
-    await $`git add staged.txt`.cwd(tmp.path).quiet()
-    await fs.writeFile(path.join(tmp.path, "unstaged.txt"), "unstaged\n", "utf-8")
-    await fs.writeFile(path.join(tmp.path, "untracked.txt"), "untracked\n", "utf-8")
+  vcsIt.live("apply() rejects non-git directories", () =>
+    Effect.gen(function* () {
+      const tmp = yield* scopedTmpdir()
 
-    await withVcsOnly(tmp.path, async () => {
-      const diff = await Vcs.diff("branch")
-      expect(diff).toEqual(expect.arrayContaining([expect.objectContaining({ file: "branch.txt", status: "added" })]))
-      expect(diff.find((item) => item.file === "branch.txt")?.patch).toContain("+branch")
-      expect(diff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "staged.txt" })]))
-      expect(diff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "unstaged.txt" })]))
-      expect(diff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "untracked.txt" })]))
-    })
-  })
+      yield* withVcsOnly(tmp.path, async () => {
+        await expect(Vcs.apply({ patch: "diff --git a/file.txt b/file.txt\n" })).rejects.toMatchObject({
+          reason: "non-git",
+        })
+      })
+    }),
+  )
 
-  test("diff('branch') returns changes against default branch", async () => {
-    await using tmp = await tmpdir({ git: true })
-    await $`git branch -M main`.cwd(tmp.path).quiet()
-    await $`git checkout -b feature/test`.cwd(tmp.path).quiet()
-    await fs.writeFile(path.join(tmp.path, "branch.txt"), "hello\n", "utf-8")
-    await $`git add .`.cwd(tmp.path).quiet()
-    await $`git commit --no-gpg-sign -m "branch file"`.cwd(tmp.path).quiet()
+  vcsIt.live("apply() rejects patches that do not apply cleanly", () =>
+    Effect.gen(function* () {
+      const tmp = yield* scopedTmpdir({ git: true })
+      yield* Effect.promise(async () => {
+        await fs.writeFile(path.join(tmp.path, "tracked.txt"), "different\n", "utf-8")
+        await $`git add tracked.txt`.cwd(tmp.path).quiet()
+        await $`git commit --no-gpg-sign -m "add file"`.cwd(tmp.path).quiet()
+      })
 
-    await withVcsOnly(tmp.path, async () => {
-      const diff = await Vcs.diff("branch")
-      expect(diff).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            file: "branch.txt",
-            status: "added",
-          }),
-        ]),
-      )
-    })
-  })
+      const patch = [
+        "diff --git a/tracked.txt b/tracked.txt",
+        "index 5626abf..21fb1ec 100644",
+        "--- a/tracked.txt",
+        "+++ b/tracked.txt",
+        "@@ -1 +1 @@",
+        "-original",
+        "+changed",
+        "",
+      ].join("\n")
+
+      yield* withVcsOnly(tmp.path, async () => {
+        await expect(Vcs.apply({ patch })).rejects.toMatchObject({
+          reason: "not-clean",
+        })
+        await expect(fs.readFile(path.join(tmp.path, "tracked.txt"), "utf-8")).resolves.toBe("different\n")
+      })
+    }),
+  )
+
+  vcsIt.live("diff('unstaged') handles special filenames", () =>
+    Effect.gen(function* () {
+      const tmp = yield* scopedTmpdir({ git: true })
+      yield* Effect.promise(() => fs.writeFile(path.join(tmp.path, weird), "hello\n", "utf-8"))
+
+      yield* withVcsOnly(tmp.path, async () => {
+        const diff = await Vcs.diff("unstaged")
+        expect(diff).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              file: weird,
+              status: "added",
+            }),
+          ]),
+        )
+      })
+    }),
+  )
+
+  vcsIt.live("diff('staged') returns staged changes only", () =>
+    Effect.gen(function* () {
+      const tmp = yield* scopedTmpdir({ git: true })
+      yield* Effect.promise(async () => {
+        await fs.writeFile(path.join(tmp.path, "tracked.txt"), "original\n", "utf-8")
+        await $`git add tracked.txt`.cwd(tmp.path).quiet()
+        await $`git commit --no-gpg-sign -m "add file"`.cwd(tmp.path).quiet()
+        await fs.writeFile(path.join(tmp.path, "staged.txt"), "staged\n", "utf-8")
+        await $`git add staged.txt`.cwd(tmp.path).quiet()
+        await fs.writeFile(path.join(tmp.path, "unstaged.txt"), "unstaged\n", "utf-8")
+      })
+
+      yield* withVcsOnly(tmp.path, async () => {
+        const diff = await Vcs.diff("staged")
+        expect(diff).toEqual(expect.arrayContaining([expect.objectContaining({ file: "staged.txt", status: "added" })]))
+        expect(diff.find((item) => item.file === "staged.txt")?.patch).toContain("+staged")
+        expect(diff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "unstaged.txt" })]))
+      })
+    }),
+  )
+
+  vcsIt.live("diff('staged') returns staged files before the first commit", () =>
+    Effect.gen(function* () {
+      const tmp = yield* scopedTmpdir()
+      yield* Effect.promise(async () => {
+        await $`git init`.cwd(tmp.path).quiet()
+        await fs.writeFile(path.join(tmp.path, "first.txt"), "first\n", "utf-8")
+        await $`git add first.txt`.cwd(tmp.path).quiet()
+      })
+
+      yield* withVcsOnly(tmp.path, async () => {
+        const diff = await Vcs.diff("staged")
+        expect(diff).toEqual(expect.arrayContaining([expect.objectContaining({ file: "first.txt", status: "added" })]))
+      })
+    }),
+  )
+
+  vcsIt.live("diff('branch') returns committed branch changes without staged, unstaged, or untracked files", () =>
+    Effect.gen(function* () {
+      const tmp = yield* scopedTmpdir({ git: true })
+      yield* Effect.promise(async () => {
+        await $`git branch -M main`.cwd(tmp.path).quiet()
+        await $`git checkout -b feature/test`.cwd(tmp.path).quiet()
+        await fs.writeFile(path.join(tmp.path, "branch.txt"), "branch\n", "utf-8")
+        await $`git add branch.txt`.cwd(tmp.path).quiet()
+        await $`git commit --no-gpg-sign -m "branch file"`.cwd(tmp.path).quiet()
+        await fs.writeFile(path.join(tmp.path, "staged.txt"), "staged\n", "utf-8")
+        await $`git add staged.txt`.cwd(tmp.path).quiet()
+        await fs.writeFile(path.join(tmp.path, "unstaged.txt"), "unstaged\n", "utf-8")
+        await fs.writeFile(path.join(tmp.path, "untracked.txt"), "untracked\n", "utf-8")
+      })
+
+      yield* withVcsOnly(tmp.path, async () => {
+        const diff = await Vcs.diff("branch")
+        expect(diff).toEqual(expect.arrayContaining([expect.objectContaining({ file: "branch.txt", status: "added" })]))
+        expect(diff.find((item) => item.file === "branch.txt")?.patch).toContain("+branch")
+        expect(diff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "staged.txt" })]))
+        expect(diff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "unstaged.txt" })]))
+        expect(diff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "untracked.txt" })]))
+      })
+    }),
+  )
+
+  vcsIt.live("diff('branch') returns changes against default branch", () =>
+    Effect.gen(function* () {
+      const tmp = yield* scopedTmpdir({ git: true })
+      yield* Effect.promise(async () => {
+        await $`git branch -M main`.cwd(tmp.path).quiet()
+        await $`git checkout -b feature/test`.cwd(tmp.path).quiet()
+        await fs.writeFile(path.join(tmp.path, "branch.txt"), "hello\n", "utf-8")
+        await $`git add .`.cwd(tmp.path).quiet()
+        await $`git commit --no-gpg-sign -m "branch file"`.cwd(tmp.path).quiet()
+      })
+
+      yield* withVcsOnly(tmp.path, async () => {
+        const diff = await Vcs.diff("branch")
+        expect(diff).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              file: "branch.txt",
+              status: "added",
+            }),
+          ]),
+        )
+      })
+    }),
+  )
 })

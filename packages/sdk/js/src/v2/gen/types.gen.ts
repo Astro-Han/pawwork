@@ -2523,6 +2523,25 @@ export type VcsFileDiff = {
   status?: "added" | "deleted" | "modified"
 }
 
+export type VcsFileStatus = {
+  file: string
+  additions: number
+  deletions: number
+  status: "added" | "deleted" | "modified"
+}
+
+export type VcsDiffRawFailure = {
+  error: "vcs_diff_raw_failed"
+  reason: "too-large"
+  message: string
+}
+
+export type VcsApplyFailure = {
+  error: "vcs_apply_failed"
+  reason: "non-git" | "not-clean" | "too-large" | "invalid-input"
+  message: string
+}
+
 export type Command = {
   name: string
   description?: string
@@ -6415,6 +6434,89 @@ export type VcsDiffResponses = {
 }
 
 export type VcsDiffResponse = VcsDiffResponses[keyof VcsDiffResponses]
+
+export type VcsStatusData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/vcs/status"
+}
+
+export type VcsStatusResponses = {
+  /**
+   * VCS status
+   */
+  200: Array<VcsFileStatus>
+}
+
+export type VcsStatusResponse = VcsStatusResponses[keyof VcsStatusResponses]
+
+export type VcsDiffRawData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/vcs/diff/raw"
+}
+
+export type VcsDiffRawErrors = {
+  /**
+   * Raw VCS diff failure
+   */
+  413: VcsDiffRawFailure
+}
+
+export type VcsDiffRawError = VcsDiffRawErrors[keyof VcsDiffRawErrors]
+
+export type VcsDiffRawResponses = {
+  /**
+   * Raw VCS diff
+   */
+  200: string
+}
+
+export type VcsDiffRawResponse = VcsDiffRawResponses[keyof VcsDiffRawResponses]
+
+export type VcsApplyData = {
+  body?: {
+    patch: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/vcs/apply"
+}
+
+export type VcsApplyErrors = {
+  /**
+   * VCS patch apply failure
+   */
+  400: VcsApplyFailure
+  /**
+   * VCS patch apply failure
+   */
+  413: VcsApplyFailure
+}
+
+export type VcsApplyError = VcsApplyErrors[keyof VcsApplyErrors]
+
+export type VcsApplyResponses = {
+  /**
+   * Patch apply result
+   */
+  200: {
+    applied: boolean
+  }
+}
+
+export type VcsApplyResponse = VcsApplyResponses[keyof VcsApplyResponses]
 
 export type CommandListData = {
   body?: never

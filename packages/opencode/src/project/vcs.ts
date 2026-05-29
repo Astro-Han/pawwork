@@ -16,6 +16,7 @@ export namespace Vcs {
   // A single useful patch may consume the whole budget; later files then fall back to empty patches.
   const MAX_PATCH_BYTES = 10_000_000
   const MAX_TOTAL_PATCH_BYTES = 10_000_000
+  export const MAX_APPLY_PATCH_BYTES = MAX_TOTAL_PATCH_BYTES
 
   const emptyPatch = (file: string) => formatPatch(structuredPatch(file, file, "", "", "", "", { context: 0 }))
 
@@ -50,6 +51,19 @@ export namespace Vcs {
     }
     batch.total += size
     return result.text || emptyPatch(item.file)
+  })
+
+  const rawPatch = Effect.fnUntraced(function* (batch: PatchBatch, patch: Effect.Effect<Git.Patch>) {
+    const result = yield* patch
+    if (result.truncated) {
+      return yield* Effect.fail(new RawDiffError("Raw VCS diff exceeds the 10 MB output limit", "too-large"))
+    }
+    const size = Buffer.byteLength(result.text)
+    if (batch.total + size > MAX_TOTAL_PATCH_BYTES) {
+      return yield* Effect.fail(new RawDiffError("Raw VCS diff exceeds the 10 MB output limit", "too-large"))
+    }
+    batch.total += size
+    return result.text
   })
 
   const staged = Effect.fnUntraced(function* (git: Git.Interface, cwd: string) {
@@ -170,11 +184,78 @@ export namespace Vcs {
     })
   export type FileDiff = z.infer<typeof FileDiff>
 
+  export const FileStatus = z
+    .object({
+      file: z.string(),
+      additions: z.number(),
+      deletions: z.number(),
+      status: z.enum(["added", "deleted", "modified"]),
+    })
+    .meta({
+      ref: "VcsFileStatus",
+    })
+  export type FileStatus = z.infer<typeof FileStatus>
+
+  export const ApplyInput = z.object({
+    patch: z.string(),
+  })
+  export type ApplyInput = z.infer<typeof ApplyInput>
+
+  export const ApplyResult = z.object({
+    applied: z.boolean(),
+  })
+  export type ApplyResult = z.infer<typeof ApplyResult>
+
+  export const ApplyError = z
+    .object({
+      error: z.literal("vcs_apply_failed"),
+      reason: z.enum(["non-git", "not-clean", "too-large", "invalid-input"]),
+      message: z.string(),
+    })
+    .meta({
+      ref: "VcsApplyFailure",
+    })
+  export type ApplyError = z.infer<typeof ApplyError>
+
+  export const DiffRawError = z
+    .object({
+      error: z.literal("vcs_diff_raw_failed"),
+      reason: z.literal("too-large"),
+      message: z.string(),
+    })
+    .meta({
+      ref: "VcsDiffRawFailure",
+    })
+  export type DiffRawError = z.infer<typeof DiffRawError>
+
+  export class RawDiffError extends Error {
+    constructor(
+      message: string,
+      readonly reason: DiffRawError["reason"],
+    ) {
+      super(message)
+      this.name = "VcsRawDiffError"
+    }
+  }
+
+  export class PatchApplyError extends Error {
+    constructor(
+      message: string,
+      readonly reason: ApplyError["reason"],
+    ) {
+      super(message)
+      this.name = "VcsPatchApplyError"
+    }
+  }
+
   export interface Interface {
     readonly init: () => Effect.Effect<void>
     readonly branch: () => Effect.Effect<string | undefined>
     readonly defaultBranch: () => Effect.Effect<string | undefined>
+    readonly status: () => Effect.Effect<FileStatus[]>
     readonly diff: (mode: Mode) => Effect.Effect<FileDiff[]>
+    readonly diffRaw: () => Effect.Effect<string, RawDiffError>
+    readonly apply: (input: ApplyInput) => Effect.Effect<ApplyResult, PatchApplyError>
   }
 
   interface State {
@@ -234,6 +315,31 @@ export namespace Vcs {
         defaultBranch: Effect.fn("Vcs.defaultBranch")(function* () {
           return yield* InstanceState.use(state, (x) => x.root?.name)
         }),
+        status: Effect.fn("Vcs.status")(function* () {
+          if (Instance.project.vcs !== "git") return []
+          const worktree = Instance.worktree ?? Instance.directory
+          const ref = (yield* git.hasHead(worktree)) ? "HEAD" : undefined
+          const [list, stats] = yield* Effect.all(
+            [git.status(worktree), ref ? git.stats(worktree, ref) : Effect.succeed([])],
+            { concurrency: 2 },
+          )
+          const statMap = nums(stats)
+          return yield* Effect.forEach(
+            list.toSorted((a, b) => a.file.localeCompare(b.file)),
+            (item) =>
+              Effect.gen(function* () {
+                const stat =
+                  statMap.get(item.file) ??
+                  (item.status === "added" ? yield* git.statUntracked(worktree, item.file) : undefined)
+                return {
+                  file: item.file,
+                  additions: stat?.additions ?? 0,
+                  deletions: stat?.deletions ?? 0,
+                  status: item.status,
+                } satisfies FileStatus
+              }),
+          )
+        }),
         diff: Effect.fn("Vcs.diff")(function* (mode: Mode) {
           const value = yield* InstanceState.get(state)
           if (Instance.project.vcs !== "git") return []
@@ -250,6 +356,58 @@ export namespace Vcs {
           const ref = yield* git.mergeBase(Instance.directory, value.root.ref)
           if (!ref) return []
           return yield* branchHead(git, Instance.directory, ref)
+        }),
+        diffRaw: Effect.fn("Vcs.diffRaw")(function* () {
+          if (Instance.project.vcs !== "git") return ""
+          const worktree = Instance.worktree ?? Instance.directory
+          const [hasHead, status] = yield* Effect.all([git.hasHead(worktree), git.status(worktree)], {
+            concurrency: 2,
+          })
+          const batch: PatchBatch = { total: 0, capped: false }
+          const tracked = yield* rawPatch(
+            batch,
+            hasHead
+              ? git.patchAll(worktree, "HEAD", { binary: true, maxOutputBytes: MAX_TOTAL_PATCH_BYTES })
+              : git.patchStagedAll(worktree, { binary: true, maxOutputBytes: MAX_TOTAL_PATCH_BYTES }),
+          )
+          const untracked = yield* Effect.forEach(
+            status.filter((item) => item.code === "??"),
+            (item) =>
+              rawPatch(
+                batch,
+                git.patchUntracked(worktree, item.file, { binary: true, maxOutputBytes: MAX_TOTAL_PATCH_BYTES }),
+              ),
+            { concurrency: 1 },
+          )
+          const initialWorktree = hasHead
+            ? []
+            : yield* Effect.forEach(
+                status.filter((item) => item.code !== "??" && item.code[1] !== " "),
+                (item) =>
+                  rawPatch(
+                    batch,
+                    git.patchUnstaged(worktree, item.file, { binary: true, maxOutputBytes: MAX_TOTAL_PATCH_BYTES }),
+                  ),
+                { concurrency: 1 },
+              )
+          const patch = [tracked, ...initialWorktree, ...untracked].filter(Boolean).join("\n")
+          if (Buffer.byteLength(patch) > MAX_TOTAL_PATCH_BYTES) {
+            return yield* Effect.fail(new RawDiffError("Raw VCS diff exceeds the 10 MB output limit", "too-large"))
+          }
+          return patch
+        }),
+        apply: Effect.fn("Vcs.apply")(function* (input: ApplyInput) {
+          if (Buffer.byteLength(input.patch) > MAX_APPLY_PATCH_BYTES) {
+            return yield* Effect.fail(new PatchApplyError("Patch exceeds the 10 MB input limit", "too-large"))
+          }
+          if (Instance.project.vcs !== "git") {
+            return yield* Effect.fail(new PatchApplyError("Patch can't be applied because the project is not git-based", "non-git"))
+          }
+          const applied = yield* git.applyPatch(Instance.worktree ?? Instance.directory, input.patch)
+          if (applied.exitCode !== 0) {
+            return yield* Effect.fail(new PatchApplyError("Patch can't be applied", "not-clean"))
+          }
+          return { applied: true }
         }),
       })
     }),
@@ -271,7 +429,19 @@ export namespace Vcs {
     return runPromise((svc) => svc.defaultBranch())
   }
 
+  export async function status() {
+    return runPromise((svc) => svc.status())
+  }
+
   export async function diff(mode: Mode) {
     return runPromise((svc) => svc.diff(mode))
+  }
+
+  export async function diffRaw() {
+    return runPromise((svc) => svc.diffRaw())
+  }
+
+  export async function apply(input: ApplyInput) {
+    return runPromise((svc) => svc.apply(input))
   }
 }
