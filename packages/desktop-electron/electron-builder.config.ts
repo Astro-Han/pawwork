@@ -108,6 +108,12 @@ const getBase = (): Configuration => ({
     buildResources: "resources",
   },
   files: ["out/**/*", "resources/**/*"],
+  // electron-builder reads .git/config for repository info, which fails on
+  // CI runners with persist-credentials: false. Set explicitly via
+  // extraMetadata to avoid "Cannot detect repository by .git/config".
+  extraMetadata: {
+    repository: { type: "git", url: "https://github.com/Astro-Han/pawwork" },
+  },
   extraResources: [
     ...nativeWatcherFileSets(),
     {
