@@ -25,6 +25,7 @@ export type WorkflowJob = {
       shell?: string
     }
   }
+  env?: Record<string, string>
   if?: string
   name?: string
   needs?: string | string[]
