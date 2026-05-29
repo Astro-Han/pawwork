@@ -103,6 +103,15 @@ const app = (upgrade: UpgradeWebSocket) =>
   )
 
 const log = Log.Default.clone().tag("service", "server-proxy")
+const SENSITIVE_QUERY_KEYS = new Set(["auth_token", "ticket"])
+
+export function redactProxyURL(input: string | URL) {
+  const url = new URL(input)
+  for (const key of SENSITIVE_QUERY_KEYS) {
+    if (url.searchParams.has(key)) url.searchParams.set(key, "REDACTED")
+  }
+  return url.toString()
+}
 
 function isLegacyTarget(value: unknown): value is Extract<Target, { type: "remote" }> {
   return Boolean(value && typeof value === "object" && "type" in value && (value as { type?: unknown }).type === "remote")
@@ -222,8 +231,8 @@ export function websocket(
     next.set(key, value)
   }
   log.info("proxy websocket", {
-    request: req.url,
-    target: String(target),
+    request: redactProxyURL(req.url),
+    target: redactProxyURL(target),
   })
   return app(upgrade).fetch(
     new Request(proxy, {
