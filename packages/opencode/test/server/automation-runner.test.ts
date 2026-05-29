@@ -276,6 +276,10 @@ describe("automation runNow execution", () => {
       let sawAbort = false
       const started = Promise.withResolvers<void>()
       const release = Promise.withResolvers<void>()
+      const runEvents: Automation.Run[] = []
+      const unsubscribeRun = Bus.subscribe(Automation.Event.RunUpdated, (event) => {
+        if (event.properties.automationID === definition.id) runEvents.push(event.properties)
+      })
 
       Automation.runNowExecuting(definition.id, {
         executor: async ({ run, signal }) => {
@@ -300,7 +304,8 @@ describe("automation runNow execution", () => {
         stopReason: "cancelled",
       })
       await Bun.sleep(20)
-      expect(removed.stoppedRun).not.toMatchObject({ state: "succeeded" })
+      unsubscribeRun()
+      expect(runEvents.some((event) => event.state === "succeeded")).toBe(false)
     })
   })
 

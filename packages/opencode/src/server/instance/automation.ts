@@ -209,7 +209,8 @@ export const AutomationRoutes = (): Hono =>
       "/:automationID",
       describeRoute({
         summary: "Delete automation",
-        description: "Delete an automation definition and return a tombstone.",
+        description:
+          "Delete an automation definition and return a tombstone. If a run is active, stop it and publish the stopped run before publishing the tombstone.",
         operationId: "automation.delete",
         responses: {
           200: {
