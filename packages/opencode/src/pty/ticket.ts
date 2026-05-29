@@ -2,6 +2,7 @@ import z from "zod"
 import type { PtyID } from "./schema"
 
 const DEFAULT_TTL_MS = 60_000
+const DEFAULT_MAX_TICKETS = 1024
 
 export const ConnectToken = z
   .object({
@@ -19,24 +20,28 @@ type TicketRecord = {
 
 type StoreOptions = {
   ttlMs?: number
+  maxTickets?: number
   now?: () => number
   random?: () => string
 }
 
 export class PtyTicketStore {
   private readonly ttlMs: number
+  private readonly maxTickets: number
   private readonly now: () => number
   private readonly random: () => string
   private readonly tickets = new Map<string, TicketRecord>()
 
   constructor(options: StoreOptions = {}) {
     this.ttlMs = options.ttlMs ?? DEFAULT_TTL_MS
+    this.maxTickets = Math.max(1, options.maxTickets ?? DEFAULT_MAX_TICKETS)
     this.now = options.now ?? Date.now
     this.random = options.random ?? (() => crypto.randomUUID())
   }
 
   issue(input: { ptyID: PtyID }): ConnectToken {
     this.cleanupExpired()
+    this.trimToCapacity()
     const ticket = this.random()
     this.tickets.set(ticket, {
       ptyID: input.ptyID,
@@ -61,6 +66,14 @@ export class PtyTicketStore {
     const now = this.now()
     for (const [ticket, record] of this.tickets) {
       if (record.expiresAt <= now) this.tickets.delete(ticket)
+    }
+  }
+
+  private trimToCapacity() {
+    while (this.tickets.size >= this.maxTickets) {
+      const oldest = this.tickets.keys().next().value
+      if (!oldest) return
+      this.tickets.delete(oldest)
     }
   }
 }

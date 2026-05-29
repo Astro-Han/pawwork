@@ -45,4 +45,22 @@ describe("PtyTicketStore", () => {
 
     expect(tickets.size).toBe(1)
   })
+
+  test("evicts the oldest unused ticket when capacity is reached", () => {
+    let next = 0
+    const store = new PtyTicketStore({
+      maxTickets: 2,
+      now: () => 1_000,
+      random: () => `ticket-${++next}`,
+    })
+    const ptyID = PtyID.ascending()
+
+    const first = store.issue({ ptyID })
+    const second = store.issue({ ptyID })
+    const third = store.issue({ ptyID })
+
+    expect(store.consume({ ptyID, ticket: first.ticket })).toBe(false)
+    expect(store.consume({ ptyID, ticket: second.ticket })).toBe(true)
+    expect(store.consume({ ptyID, ticket: third.ticket })).toBe(true)
+  })
 })
