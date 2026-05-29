@@ -7,6 +7,7 @@ import { sessionPromptExecutor } from "./runner"
 
 export namespace AutomationScheduler {
   const MAX_TIMER_DELAY_MS = 2_147_483_647
+  const MISSED_SCHEDULE_GRACE_MS = 1_000
 
   export interface Clock {
     now(): number
@@ -23,6 +24,7 @@ export namespace AutomationScheduler {
 
   export interface Interface {
     stop(): void
+    stopOwnedRuns(): void
     reschedule(definition: Automation.Definition): void
     cancel(automationID: string): void
     computeNextFireAt(definition: Automation.Definition, from?: number): number | null
@@ -130,11 +132,19 @@ export namespace AutomationScheduler {
 
     const fire = (automationID: string, triggeredAt: number) => {
       tasks.delete(automationID)
+      const firedAt = clock.now()
       try {
         const latest = Automation.get(automationID)
         if (latest.paused) return
         if (latest.kind === "oneshot" && latest.fireAt !== triggeredAt) return
         if (latest.kind === "recurring" && (latest.rhythm.kind !== "interval" || !canScheduleRecurring(latest))) return
+        if (firedAt - triggeredAt > MISSED_SCHEDULE_GRACE_MS) {
+          const stopped = Automation.recordStoppedRun(automationID, "missed_schedule", { now: firedAt, triggeredAt })
+          schedulerStoppedRuns.add(stopped.id)
+          void Automation.publishRunUpdated(stopped)
+          if (latest.kind === "recurring") scheduleNextInterval(automationID)
+          return
+        }
       } catch (error) {
         if (!NotFoundError.isInstance(error)) throw error
         return
@@ -203,19 +213,24 @@ export namespace AutomationScheduler {
 
     for (const definition of Automation.list()) reschedule(definition)
 
+    const stopOwnedRuns = () => {
+      for (const runID of [...ownedRuns.keys()]) {
+        const stopped = Automation.stopRunByID(runID, "cancelled", { now: clock.now() })
+        ownedRuns.delete(runID)
+        if (stopped) void Automation.publishRunUpdated(stopped)
+      }
+    }
+
     return {
       stop() {
         running = false
         unsubscribeRunUpdates()
         unsubscribeDefinitionUpdates()
         unsubscribeDefinitionDeletes()
-        for (const runID of [...ownedRuns.keys()]) {
-          const stopped = Automation.stopRunByID(runID, "cancelled", { now: clock.now() })
-          ownedRuns.delete(runID)
-          if (stopped) void Automation.publishRunUpdated(stopped)
-        }
+        stopOwnedRuns()
         for (const automationID of [...tasks.keys()]) cancel(automationID)
       },
+      stopOwnedRuns,
       reschedule,
       cancel,
       computeNextFireAt(definition, from = clock.now()) {
@@ -255,20 +270,20 @@ export namespace AutomationScheduler {
     return previous
   }
 
-  export function stopCurrent(): void {
+  export function stopCurrentOwnedRuns(): void {
     const state = owner()
-    Instance.restore(state.context, () => state.scheduler.stop())
+    Instance.restore(state.context, () => state.scheduler.stopOwnedRuns())
   }
 
-  export function stopDirectory(directory: string): void {
+  export function stopDirectoryOwnedRuns(directory: string): void {
     const state = owners.get(directory)
     if (!state) return
-    Instance.restore(state.context, () => state.scheduler.stop())
+    Instance.restore(state.context, () => state.scheduler.stopOwnedRuns())
   }
 
-  export function stopAll(): void {
+  export function stopAllOwnedRuns(): void {
     for (const state of owners.values()) {
-      Instance.restore(state.context, () => state.scheduler.stop())
+      Instance.restore(state.context, () => state.scheduler.stopOwnedRuns())
     }
   }
 }

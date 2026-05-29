@@ -14,7 +14,6 @@ function validationError(error: ValidationError) {
 async function publishIfChanged(previous: Automation.Definition, definition: Automation.Definition) {
   if (definition.revision === previous.revision) return
   await Automation.publishDefinitionUpdated(definition)
-  AutomationScheduler.current().reschedule(definition)
 }
 
 function validationIssuePath(issue: unknown) {
@@ -104,7 +103,6 @@ export const AutomationRoutes = (): Hono =>
         try {
           const definition = Automation.create(c.req.valid("json"))
           await Automation.publishDefinitionUpdated(definition)
-          AutomationScheduler.current().reschedule(definition)
           return c.json(definition)
         } catch (error) {
           if (error instanceof ValidationError) return c.json(validationError(error), 422)

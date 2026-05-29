@@ -127,7 +127,7 @@ export const Instance = {
   },
   async dispose(input?: { mode?: "maintenance" | "force"; onCompleted?: () => void | Promise<void> }) {
     const ctx = Instance.current
-    await (await scheduler()).stopCurrent()
+    if ((input?.mode ?? "maintenance") === "maintenance") await (await scheduler()).stopCurrentOwnedRuns()
     const instanceRuntime = await runtime()
     const onCompleted = async () => {
       directories.delete(ctx.directory)
@@ -141,7 +141,7 @@ export const Instance = {
     input?: { mode?: "maintenance" | "force"; onCompleted?: () => void | Promise<void> },
   ) {
     const directory = Filesystem.resolve(inputDirectory)
-    await (await scheduler()).stopDirectory(directory)
+    if ((input?.mode ?? "maintenance") === "maintenance") await (await scheduler()).stopDirectoryOwnedRuns(directory)
     const instanceRuntime = await runtime()
     const onCompleted = async () => {
       directories.delete(directory)
@@ -152,7 +152,7 @@ export const Instance = {
   },
   async disposeAll(input?: { mode?: "maintenance" | "force"; onCompleted?: () => void | Promise<void> }) {
     const { disposeAllLoadedInstances } = await import("./instance-store")
-    await (await scheduler()).stopAll()
+    if ((input?.mode ?? "maintenance") === "maintenance") await (await scheduler()).stopAllOwnedRuns()
     const onCompleted = async () => {
       directories.clear()
       await input?.onCompleted?.()

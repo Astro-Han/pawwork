@@ -84,13 +84,13 @@ function run(overrides: Record<string, unknown> = {}) {
 }
 
 describe("automation routes", () => {
-  test("reschedules and cancels timers when definitions change", async () => {
+  test("route deletion cancels timers before publishing the tombstone", async () => {
     await withAutomationApp(async ({ app, projectID }) => {
-      const rescheduled: Array<{ id: string; paused: boolean }> = []
       const cancelled: string[] = []
       AutomationScheduler.install({
         stop: () => undefined,
-        reschedule: (definition) => rescheduled.push({ id: definition.id, paused: definition.paused }),
+        stopOwnedRuns: () => undefined,
+        reschedule: () => undefined,
         cancel: (automationID) => cancelled.push(automationID),
         computeNextFireAt: () => null,
       })
@@ -113,11 +113,6 @@ describe("automation routes", () => {
       await json(app, `/automation/${created.id}/pause`, { method: "POST" })
       await json(app, `/automation/${created.id}`, { method: "DELETE" })
 
-      expect(rescheduled).toEqual([
-        { id: created.id, paused: false },
-        { id: created.id, paused: false },
-        { id: created.id, paused: true },
-      ])
       expect(cancelled).toEqual([created.id])
     })
   })

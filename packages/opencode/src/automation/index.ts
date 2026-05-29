@@ -622,9 +622,9 @@ export namespace Automation {
   export function recordStoppedRun(
     automationID: string,
     stopReason: Extract<Run, { state: "stopped" }>["stopReason"],
-    options?: { now?: number },
+    options?: { now?: number; triggeredAt?: number },
   ): Run {
-    const run = runNow(automationID, options)
+    const run = runNow(automationID, { now: options?.triggeredAt ?? options?.now })
     return stopRun(run, stopReason, options)
   }
 

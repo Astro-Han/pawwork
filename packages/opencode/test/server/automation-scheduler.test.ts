@@ -64,6 +64,34 @@ class FakeClock implements AutomationScheduler.Clock {
   }
 }
 
+class OversleepClock implements AutomationScheduler.Clock {
+  private current: number
+
+  constructor(
+    start: number,
+    private readonly oversleptAt: number,
+  ) {
+    this.current = start
+  }
+
+  now() {
+    return this.current
+  }
+
+  sleep(_delayMs: number, signal: AbortSignal) {
+    return new Promise<void>((resolve) => {
+      if (signal.aborted) {
+        resolve()
+        return
+      }
+      queueMicrotask(() => {
+        this.current = this.oversleptAt
+        resolve()
+      })
+    })
+  }
+}
+
 async function withAutomation<T>(fn: (projectID: ProjectID) => Promise<T>) {
   await using tmp = await tmpdir({ git: true })
   return Instance.provide({
@@ -412,6 +440,14 @@ describe("automation scheduler", () => {
 
       expect(runSignal?.aborted).toBe(true)
       releaseRun.resolve({ sessionID: SessionID.descending(), result: "done", cost: 0 })
+
+      const nextDefinition = Automation.create(recurringInput(projectID, 60_000, { title: "Next recurring" }), {
+        now: 60_000,
+      })
+      scheduler.reschedule(nextDefinition)
+      await clock.advance(60_000)
+      await waitForRunStates(nextDefinition.id, ["succeeded"])
+
       releaseUnrelatedRun()
       await Bun.sleep(0)
     })
@@ -727,6 +763,33 @@ describe("automation scheduler", () => {
       await waitForRunStates(definition.id, ["succeeded"])
 
       expect(calls).toEqual([fireAt])
+      scheduler.stop()
+    })
+  })
+
+  test("records missed schedules instead of catching up after an overslept timer", async () => {
+    await withAutomation(async (projectID) => {
+      const clock = new OversleepClock(0, 120_000)
+      const calls: number[] = []
+      const scheduler = AutomationScheduler.make({
+        clock,
+        executor: async () => {
+          calls.push(clock.now())
+          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+        },
+      })
+      const definition = Automation.create(oneshotInput(projectID, 60_000), { now: 0 })
+
+      scheduler.reschedule(definition)
+      const runs = await waitForRunCount(definition.id, 1)
+
+      expect(calls).toEqual([])
+      expect(runs[0]).toMatchObject({
+        state: "stopped",
+        stopReason: "missed_schedule",
+        triggeredAt: 60_000,
+        completedAt: 120_000,
+      })
       scheduler.stop()
     })
   })
