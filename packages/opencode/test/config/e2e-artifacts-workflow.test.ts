@@ -15,7 +15,7 @@ describe("e2e artifacts workflow", () => {
     const changesSteps = changes?.steps ?? []
     const steps = job?.steps ?? []
     const checkSteps = checkJob?.steps ?? []
-    const changesCheckoutStep = changesSteps.find((step) => step.uses?.startsWith("actions/checkout@"))
+    const pathsStep = changesSteps.find((step) => step.id === "paths")
     const filterStep = changesSteps.find((step) => step.id === "filter")
     const checkoutStep = steps.find((step) => step.uses?.startsWith("actions/checkout@"))
     const bunStep = steps.find((step) => step.uses?.startsWith("oven-sh/setup-bun@"))
@@ -44,18 +44,21 @@ describe("e2e artifacts workflow", () => {
     expect(workflow).toContain(
       "group: e2e-artifacts-${{ github.event.pull_request.number || github.ref }}-${{ inputs.suite || 'pr-smoke' }}",
     )
-    expect(parsed.permissions).toEqual({ contents: "read" })
+    expect(parsed.permissions).toEqual({ contents: "read", "pull-requests": "read" })
     expect(Object.keys(parsed.jobs ?? {}).sort()).toEqual(["changes", "check", "e2e-artifacts"])
     expect(changes?.outputs).toEqual({ docs_only: "${{ steps.filter.outputs.docs_only }}" })
-    expect(changesCheckoutStep?.with).toEqual({
-      "fetch-depth": 0,
-      "persist-credentials": false,
-    })
+    expect(changesSteps.find((step) => step.uses?.startsWith("actions/checkout@"))).toBeUndefined()
+    expect(pathsStep?.uses).toBe("dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d")
+    expect(pathsStep?.if).toBe("github.event_name == 'pull_request' || github.event_name == 'push'")
+    expect(pathsStep?.["continue-on-error"]).toBe(true)
+    expect(pathsStep?.with?.["predicate-quantifier"]).toBe("every")
+    expect(pathsStep?.with?.filters).toContain("'!docs/**'")
+    expect(pathsStep?.with?.filters).not.toContain("*.md")
+    expect(filterStep?.if).toBe("always()")
     expect(filterStep?.env?.EVENT_NAME).toBe("${{ github.event_name }}")
-    expect(filterStep?.run).toContain(".github/ISSUE_TEMPLATE/*")
-    expect(filterStep?.run).toContain(".github/pull_request_template.md")
-    expect(filterStep?.run).toContain("git diff --name-status --find-renames --find-copies")
-    expect(filterStep?.run).toContain("R*|C*)")
+    expect(filterStep?.env?.CODE_CHANGED).toBe("${{ steps.paths.outputs.code }}")
+    expect(filterStep?.run).toContain("docs_only=false")
+    expect(filterStep?.run).toContain("docs_only=$docs_only")
     expect(job?.needs).toBe("changes")
     expect(job?.if).toBe("needs.changes.outputs.docs_only != 'true'")
     expect(job?.["runs-on"]).toBe("ubuntu-latest")

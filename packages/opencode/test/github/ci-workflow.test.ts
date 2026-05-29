@@ -12,6 +12,7 @@ const opencodeTestRoot = path.join(repoRoot, "packages", "opencode", "test")
 
 const pinned = {
   checkout: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
+  pathsFilter: "dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d",
   setupNode: "actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
   setupBun: "oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6",
   cache: "actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae",
@@ -182,7 +183,7 @@ describe("ci workflow", () => {
     const parsed = parseWorkflow(ciWorkflowPath)
 
     expect(parsed.name).toBe("ci")
-    expect(parsed.permissions).toEqual({ contents: "read" })
+    expect(parsed.permissions).toEqual({ contents: "read", "pull-requests": "read" })
 
     const linuxUnitJobNames = linuxUnitJobs.map((job) => job.jobName)
 
@@ -231,22 +232,35 @@ describe("ci workflow", () => {
     expect(parsed.concurrency?.["cancel-in-progress"]).toBe(true)
   })
 
-  test("preserves the docs-only change detection contract", () => {
+  test("preserves the docs-only change detection contract with paths-filter", () => {
     const parsed = parseWorkflow(ciWorkflowPath)
     const changes = parsed.jobs?.changes
+    const checkout = steps("changes").find((step) => step.uses?.startsWith("actions/checkout@"))
+    const paths = steps("changes").find((step) => step.id === "paths")
     const filter = steps("changes").find((step) => step.id === "filter")
 
     expect(changes?.outputs?.docs_only).toBe("${{ steps.filter.outputs.docs_only }}")
+    expect(checkout?.if).toBe("github.event_name == 'push'")
+    expect(checkout?.with?.["fetch-depth"]).toBe(0)
+    expect(paths?.uses).toBe(pinned.pathsFilter)
+    expect(paths?.if).toBe("github.event_name == 'pull_request' || github.event_name == 'push'")
+    expect(paths?.["continue-on-error"]).toBe(true)
+    expect(paths?.with?.["predicate-quantifier"]).toBe("every")
+    expect(paths?.with?.filters).toContain("code:")
+    expect(paths?.with?.filters).toContain("'**'")
+    expect(paths?.with?.filters).toContain("'!docs/**'")
+    expect(paths?.with?.filters).toContain("'!packages/**/README.md'")
+    expect(paths?.with?.filters).not.toContain("*.md")
+    expect(filter?.if).toBe("always()")
     expect(filter?.env?.EVENT_NAME).toBe("${{ github.event_name }}")
-    expect(filter?.env?.BASE_SHA).toBe("${{ github.event.pull_request.base.sha || github.event.before }}")
-    expect(filter?.env?.HEAD_SHA).toBe("${{ github.sha }}")
-    expect(filter?.run).toContain("workflow_dispatch")
+    expect(filter?.env?.BEFORE_SHA).toBe("${{ github.event.before }}")
+    expect(filter?.env?.PATHS_OUTCOME).toBe("${{ steps.paths.outcome }}")
+    expect(filter?.env?.CODE_CHANGED).toBe("${{ steps.paths.outputs.code }}")
+    expect(filter?.run).toContain('"$EVENT_NAME" != "pull_request"')
+    expect(filter?.run).toContain('"$EVENT_NAME" != "push"')
     expect(filter?.run).toContain("docs_only=false")
-    expect(filter?.run).toContain(".github/ISSUE_TEMPLATE/*")
-    expect(filter?.run).toContain(".github/pull_request_template.md")
-    expect(filter?.run).toContain("git diff --name-status --find-renames --find-copies")
-    expect(filter?.run).toContain("R*|C*)")
-    expect(filter?.run).toContain("if ! is_docs_path \"$path1\" || ! is_docs_path \"$path2\"; then")
+    expect(filter?.run).toContain("PATHS_OUTCOME")
+    expect(filter?.run).toContain("CODE_CHANGED")
     expect(filter?.run).toContain("echo \"docs_only=$docs_only\" >> \"$GITHUB_OUTPUT\"")
   })
 
@@ -273,6 +287,8 @@ describe("ci workflow", () => {
     const check = parsed.jobs?.check
     const checkNeeds = Array.isArray(check?.needs) ? check.needs : []
     const inventory = stepByName(frontendArchitectureJobName, "frontend inventory")
+    const fetchBase = stepByName(frontendArchitectureJobName, "Fetch pull request base")
+    const computeRange = stepByName(frontendArchitectureJobName, "Compute SHA range")
     const ratchet = stepByName(frontendArchitectureJobName, "LOC ratchet warnings")
 
     expect(job?.needs).toBe("changes")
@@ -283,6 +299,13 @@ describe("ci workflow", () => {
     expect(job?.permissions).toBeUndefined()
     expect(checkoutStep(frontendArchitectureJobName)?.uses).toBe(pinned.checkout)
     expect(checkoutStep(frontendArchitectureJobName)?.with?.["fetch-depth"]).toBe(0)
+    expect(fetchBase?.if).toBe("github.event_name == 'pull_request'")
+    expect(fetchBase?.run).toContain("refs/remotes/origin/${{ github.event.pull_request.base.ref }}")
+    expect(computeRange?.id).toBe("compute-range")
+    expect(computeRange?.run).toContain("git merge-base")
+    expect(computeRange?.run).toContain("BASE_SHA=")
+    expect(computeRange?.run).toContain("HEAD_SHA=")
+    expect(computeRange?.run).toContain("skipped=true")
     expect(steps(frontendArchitectureJobName).find((step) => step.uses?.startsWith("actions/setup-node@"))?.uses).toBe(
       pinned.setupNode,
     )
@@ -294,8 +317,8 @@ describe("ci workflow", () => {
     ])
     expect(inventory?.run).toContain("node script/frontend-inventory.mjs --format json")
     expect(inventory?.run).toContain(".artifacts/frontend-architecture/frontend-inventory.json")
-    expect(ratchet?.env?.BASE_SHA).toBe("${{ github.event.pull_request.base.sha || github.event.before }}")
-    expect(ratchet?.env?.HEAD_SHA).toBe("${{ github.sha }}")
+    expect(ratchet?.if).toBe("steps.compute-range.outputs.skipped != 'true'")
+    expect(ratchet?.env).toBeUndefined()
     expect(ratchet?.run).toBe("node script/frontend-inventory.mjs --check-baseline --base \"$BASE_SHA\" --head \"$HEAD_SHA\"")
     expect(checkNeeds).toContain(frontendArchitectureJobName)
   })
