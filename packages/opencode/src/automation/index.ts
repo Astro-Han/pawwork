@@ -503,11 +503,15 @@ export namespace Automation {
     return replaceRun(Run.parse(next))
   }
 
-  function stopRun(run: Run, stopReason: Extract<Run, { state: "stopped" }>["stopReason"]): Run {
+  function stopRun(
+    run: Run,
+    stopReason: Extract<Run, { state: "stopped" }>["stopReason"],
+    options?: { now?: number },
+  ): Run {
     if (run.state === "stopped" || run.state === "succeeded" || run.state === "failed") return run
     return reviseRun(run, {
       state: "stopped",
-      completedAt: Date.now(),
+      completedAt: options?.now ?? Date.now(),
       result: null,
       error: null,
       stopReason,
@@ -582,6 +586,22 @@ export namespace Automation {
     })
     state().runs.set(id, [run, ...current])
     return run
+  }
+
+  export function hasActiveRun(automationID: string): boolean {
+    if (state().activeRuns.has(automationID)) return true
+    return (state().runs.get(automationID) ?? []).some(
+      (run) => run.state === "scheduled" || run.state === "running" || run.state === "awaiting_input",
+    )
+  }
+
+  export function recordStoppedRun(
+    automationID: string,
+    stopReason: Extract<Run, { state: "stopped" }>["stopReason"],
+    options?: { now?: number },
+  ): Run {
+    const run = runNow(automationID, options)
+    return stopRun(run, stopReason, options)
   }
 
   export function runNowExecuting(

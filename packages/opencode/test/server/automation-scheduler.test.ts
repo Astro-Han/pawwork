@@ -158,4 +158,60 @@ describe("automation scheduler", () => {
       scheduler.stop()
     })
   })
+
+  test("records a stopped run instead of overlapping an active automation", async () => {
+    await withAutomation(async (projectID) => {
+      const clock = new FakeClock(0)
+      const calls: number[] = []
+      const scheduler = AutomationScheduler.make({
+        clock,
+        executor: async () => {
+          calls.push(clock.now())
+          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+        },
+      })
+      const definition = Automation.create(oneshotInput(projectID, 1_000), { now: 0 })
+      const active = Automation.runNow(definition.id, { now: 0 })
+      Automation.markRunStarted(active, SessionID.descending(), { now: 0 })
+
+      scheduler.reschedule(definition)
+      clock.advance(1_000)
+      const runs = await waitForRunStates(definition.id, ["stopped", "running"])
+
+      expect(calls).toEqual([])
+      expect(runs[0]).toMatchObject({
+        state: "stopped",
+        stopReason: "previous_run_awaiting_input",
+        triggeredAt: 1_000,
+        completedAt: 1_000,
+      })
+      scheduler.stop()
+    })
+  })
+
+  test("does not fire long one-shot timers before the target time", async () => {
+    await withAutomation(async (projectID) => {
+      const clock = new FakeClock(0)
+      const calls: number[] = []
+      const scheduler = AutomationScheduler.make({
+        clock,
+        executor: async () => {
+          calls.push(clock.now())
+          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+        },
+      })
+      const fireAt = 3_000_000_000
+      const definition = Automation.create(oneshotInput(projectID, fireAt), { now: 0 })
+
+      scheduler.reschedule(definition)
+      clock.advance(2_147_483_647)
+      expect(calls).toEqual([])
+
+      clock.advance(fireAt - 2_147_483_647)
+      await waitForRunStates(definition.id, ["succeeded"])
+
+      expect(calls).toEqual([fireAt])
+      scheduler.stop()
+    })
+  })
 })

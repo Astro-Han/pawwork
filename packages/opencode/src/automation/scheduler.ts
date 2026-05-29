@@ -58,6 +58,11 @@ export namespace AutomationScheduler {
 
     const fire = (automationID: string, triggeredAt: number) => {
       timers.delete(automationID)
+      if (Automation.hasActiveRun(automationID)) {
+        const stopped = Automation.recordStoppedRun(automationID, "previous_run_awaiting_input", { now: triggeredAt })
+        void Automation.publishRunUpdated(stopped)
+        return
+      }
       Automation.runNowExecuting(automationID, {
         executor: async (input) => {
           try {
