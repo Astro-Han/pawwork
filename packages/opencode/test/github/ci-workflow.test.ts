@@ -161,6 +161,20 @@ function isWindowsOpencodeShard(item: Record<string, unknown>): item is { comman
   return item.uses_turbo === false && typeof item.package === "string" && typeof item.command === "string"
 }
 
+function deriveDocsOnlyChange(input: {
+  eventName: "pull_request" | "push" | "workflow_dispatch"
+  beforeSha?: string
+  docsOutcome?: "success" | "failure" | "skipped"
+  codeOutcome?: "success" | "failure" | "skipped"
+  docsChanged?: boolean
+  codeChanged?: boolean
+}) {
+  if (input.eventName !== "pull_request" && input.eventName !== "push") return false
+  if (input.eventName === "push" && (!input.beforeSha || /^0+$/.test(input.beforeSha))) return false
+  if (input.docsOutcome !== "success" || input.codeOutcome !== "success") return false
+  return input.docsChanged === true && input.codeChanged !== true
+}
+
 describe("ci workflow", () => {
   test("keeps packages/ui as a first-class Turbo CI test target", () => {
     const turbo = JSON.parse(readFileSync(turboJsonPath, "utf8")) as {
@@ -236,32 +250,114 @@ describe("ci workflow", () => {
     const parsed = parseWorkflow(ciWorkflowPath)
     const changes = parsed.jobs?.changes
     const checkout = steps("changes").find((step) => step.uses?.startsWith("actions/checkout@"))
-    const paths = steps("changes").find((step) => step.id === "paths")
+    const docsPaths = steps("changes").find((step) => step.id === "docs-paths")
+    const codePaths = steps("changes").find((step) => step.id === "code-paths")
     const filter = steps("changes").find((step) => step.id === "filter")
 
     expect(changes?.outputs?.docs_only).toBe("${{ steps.filter.outputs.docs_only }}")
     expect(checkout?.if).toBe("github.event_name == 'push'")
     expect(checkout?.with?.["fetch-depth"]).toBe(0)
-    expect(paths?.uses).toBe(pinned.pathsFilter)
-    expect(paths?.if).toBe("github.event_name == 'pull_request' || github.event_name == 'push'")
-    expect(paths?.["continue-on-error"]).toBe(true)
-    expect(paths?.with?.["predicate-quantifier"]).toBe("every")
-    expect(paths?.with?.filters).toContain("code:")
-    expect(paths?.with?.filters).toContain("'**'")
-    expect(paths?.with?.filters).toContain("'!docs/**'")
-    expect(paths?.with?.filters).toContain("'!packages/**/README.md'")
-    expect(paths?.with?.filters).not.toContain("*.md")
+    expect(docsPaths?.uses).toBe(pinned.pathsFilter)
+    expect(docsPaths?.if).toBe("github.event_name == 'pull_request' || github.event_name == 'push'")
+    expect(docsPaths?.["continue-on-error"]).toBe(true)
+    expect(docsPaths?.with?.["predicate-quantifier"]).toBeUndefined()
+    expect(docsPaths?.with?.filters).toContain("docs:")
+    expect(docsPaths?.with?.filters).toContain("'docs/**'")
+    expect(docsPaths?.with?.filters).toContain("'packages/**/README.md'")
+    expect(codePaths?.uses).toBe(pinned.pathsFilter)
+    expect(codePaths?.if).toBe("github.event_name == 'pull_request' || github.event_name == 'push'")
+    expect(codePaths?.["continue-on-error"]).toBe(true)
+    expect(codePaths?.with?.["predicate-quantifier"]).toBe("every")
+    expect(codePaths?.with?.filters).toContain("code:")
+    expect(codePaths?.with?.filters).toContain("'**'")
+    expect(codePaths?.with?.filters).toContain("'!docs/**'")
+    expect(codePaths?.with?.filters).toContain("'!packages/**/README.md'")
+    expect(codePaths?.with?.filters).not.toContain("*.md")
     expect(filter?.if).toBe("always()")
     expect(filter?.env?.EVENT_NAME).toBe("${{ github.event_name }}")
     expect(filter?.env?.BEFORE_SHA).toBe("${{ github.event.before }}")
-    expect(filter?.env?.PATHS_OUTCOME).toBe("${{ steps.paths.outcome }}")
-    expect(filter?.env?.CODE_CHANGED).toBe("${{ steps.paths.outputs.code }}")
+    expect(filter?.env?.DOCS_OUTCOME).toBe("${{ steps.docs-paths.outcome }}")
+    expect(filter?.env?.CODE_OUTCOME).toBe("${{ steps.code-paths.outcome }}")
+    expect(filter?.env?.DOCS_CHANGED).toBe("${{ steps.docs-paths.outputs.docs }}")
+    expect(filter?.env?.CODE_CHANGED).toBe("${{ steps.code-paths.outputs.code }}")
     expect(filter?.run).toContain('"$EVENT_NAME" != "pull_request"')
     expect(filter?.run).toContain('"$EVENT_NAME" != "push"')
     expect(filter?.run).toContain("docs_only=false")
-    expect(filter?.run).toContain("PATHS_OUTCOME")
+    expect(filter?.run).toContain("DOCS_OUTCOME")
+    expect(filter?.run).toContain("CODE_OUTCOME")
+    expect(filter?.run).toContain("DOCS_CHANGED")
     expect(filter?.run).toContain("CODE_CHANGED")
     expect(filter?.run).toContain("echo \"docs_only=$docs_only\" >> \"$GITHUB_OUTPUT\"")
+  })
+
+  test("documents docs-only truth table for the paths-filter wrapper", () => {
+    const validBeforeSha = "1234567890123456789012345678901234567890"
+
+    expect(
+      deriveDocsOnlyChange({
+        eventName: "pull_request",
+        docsOutcome: "success",
+        codeOutcome: "success",
+        docsChanged: true,
+        codeChanged: false,
+      }),
+    ).toBe(true)
+    expect(
+      deriveDocsOnlyChange({
+        eventName: "pull_request",
+        docsOutcome: "success",
+        codeOutcome: "success",
+        docsChanged: true,
+        codeChanged: true,
+      }),
+    ).toBe(false)
+    expect(
+      deriveDocsOnlyChange({
+        eventName: "pull_request",
+        docsOutcome: "success",
+        codeOutcome: "success",
+        docsChanged: false,
+        codeChanged: true,
+      }),
+    ).toBe(false)
+    expect(
+      deriveDocsOnlyChange({
+        eventName: "pull_request",
+        docsOutcome: "success",
+        codeOutcome: "success",
+        docsChanged: false,
+        codeChanged: false,
+      }),
+    ).toBe(false)
+    expect(
+      deriveDocsOnlyChange({
+        eventName: "pull_request",
+        docsOutcome: "failure",
+        codeOutcome: "success",
+        docsChanged: true,
+        codeChanged: false,
+      }),
+    ).toBe(false)
+    expect(
+      deriveDocsOnlyChange({
+        eventName: "push",
+        beforeSha: validBeforeSha,
+        docsOutcome: "success",
+        codeOutcome: "success",
+        docsChanged: true,
+        codeChanged: false,
+      }),
+    ).toBe(true)
+    expect(
+      deriveDocsOnlyChange({
+        eventName: "push",
+        beforeSha: "0000000000000000000000000000000000000000",
+        docsOutcome: "success",
+        codeOutcome: "success",
+        docsChanged: true,
+        codeChanged: false,
+      }),
+    ).toBe(false)
   })
 
   test("keeps lint as an advisory non-blocking product-code signal", () => {

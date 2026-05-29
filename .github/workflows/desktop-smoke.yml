@@ -27,7 +27,27 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - id: paths
+      - id: docs-paths
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        continue-on-error: true
+        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # dorny/paths-filter@v4.0.1
+        with:
+          filters: |
+            docs:
+              - 'README.md'
+              - 'README_CN.md'
+              - 'AGENTS.md'
+              - 'CONTRIBUTING.md'
+              - 'SECURITY.md'
+              - 'LICENSE'
+              - 'docs/**'
+              - 'assets/readme/**'
+              - '.github/ISSUE_TEMPLATE/**'
+              - '.github/pull_request_template.md'
+              - 'packages/**/README.md'
+              - 'packages/opencode/specs/**'
+
+      - id: code-paths
         if: github.event_name == 'pull_request' || github.event_name == 'push'
         continue-on-error: true
         uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # dorny/paths-filter@v4.0.1
@@ -54,8 +74,10 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           BEFORE_SHA: ${{ github.event.before }}
-          PATHS_OUTCOME: ${{ steps.paths.outcome }}
-          CODE_CHANGED: ${{ steps.paths.outputs.code }}
+          DOCS_OUTCOME: ${{ steps.docs-paths.outcome }}
+          CODE_OUTCOME: ${{ steps.code-paths.outcome }}
+          DOCS_CHANGED: ${{ steps.docs-paths.outputs.docs }}
+          CODE_CHANGED: ${{ steps.code-paths.outputs.code }}
         run: |
           set -euo pipefail
 
@@ -71,12 +93,12 @@ jobs:
             exit 0
           fi
 
-          if [ "$PATHS_OUTCOME" != "success" ]; then
+          if [ "$DOCS_OUTCOME" != "success" ] || [ "$CODE_OUTCOME" != "success" ]; then
             echo "docs_only=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          if [ "$CODE_CHANGED" != "true" ]; then
+          if [ "$DOCS_CHANGED" = "true" ] && [ "$CODE_CHANGED" != "true" ]; then
             docs_only=true
           fi
 

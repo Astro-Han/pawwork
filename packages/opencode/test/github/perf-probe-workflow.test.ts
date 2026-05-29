@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test"
 import path from "node:path"
+import { fileURLToPath } from "node:url"
 import { parseWorkflow, readWorkflow } from "./workflow-parser"
 
-const repoRoot = path.join(import.meta.dir, "../../../..")
+const repoRoot = fileURLToPath(new URL("../../../..", import.meta.url))
 const workflowPath = path.join(repoRoot, ".github", "workflows", "perf-probe-baseline.yml")
 
 const pinned = {
