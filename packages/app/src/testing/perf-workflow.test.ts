@@ -25,6 +25,7 @@ describe("perf workflow contract", () => {
     expect(workflow).toContain("bunx playwright install-deps chromium")
     expect(workflow).toContain("google-chrome --version")
     expect(workflow).toContain("PLAYWRIGHT_BROWSER_CHANNEL: chrome")
+    expect(workflow).toContain('PLAYWRIGHT_VIDEO: "off"')
     expect(workflow).not.toContain("playwright install --with-deps chromium")
     expect(workflow).toContain("actions/cache/restore@")
     expect(workflow).toContain("restore-keys: |\n            playwright-${{ runner.os }}-")

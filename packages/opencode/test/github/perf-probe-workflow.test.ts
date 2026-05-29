@@ -35,7 +35,8 @@ describe("perf probe baseline workflow", () => {
   test("uses system Chrome instead of downloading Playwright browsers", () => {
     const workflow = readWorkflow(workflowPath)
     const parsed = parseWorkflow(workflowPath)
-    const steps = parsed.jobs?.["perf-probe-baseline"]?.steps ?? []
+    const job = parsed.jobs?.["perf-probe-baseline"]
+    const steps = job?.steps ?? []
     const installBrowsers = steps.find((step) => step.name === "Install Playwright system dependencies")
     const perfSteps = steps.filter((step) => step.run?.includes("test:e2e:local:perf"))
     const runtimeClsStep = steps.find((step) => step.name === "Run runtime CLS gate (head)")
@@ -46,6 +47,7 @@ describe("perf probe baseline workflow", () => {
     expect(installBrowsers?.run).toContain("google-chrome --version")
     expect(installBrowsers?.run).not.toContain("playwright install --with-deps chromium")
     expect(workflow).not.toContain("Install Playwright browsers")
+    expect(job?.env?.PLAYWRIGHT_VIDEO).toBe("off")
 
     for (const step of perfSteps) {
       expect(step.env?.PLAYWRIGHT_BROWSER_CHANNEL).toBe("chrome")

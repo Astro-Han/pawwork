@@ -29,6 +29,7 @@ jobs:
     timeout-minutes: 30
     env:
       PERF_ARTIFACT_DIR: ${{ github.workspace }}/perf-artifacts
+      PLAYWRIGHT_VIDEO: "off"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6
         with:
