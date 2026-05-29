@@ -92,14 +92,9 @@ export namespace AutomationScheduler {
     return from + definition.rhythm.everyMs
   }
 
-  function completedRunCount(automationID: string) {
-    const runs = Automation.runs({ automationID }).items
-    return runs.filter((run) => run.state === "succeeded" || run.state === "failed").length
-  }
-
   function canScheduleRecurring(definition: Extract<Automation.Definition, { kind: "recurring" }>) {
     if (definition.stop.kind === "never") return true
-    if (definition.stop.kind === "count") return completedRunCount(definition.id) < definition.stop.count
+    if (definition.stop.kind === "count") return Automation.completedRunCount(definition.id) < definition.stop.count
     return false
   }
 

@@ -613,6 +613,12 @@ export namespace Automation {
     return (state().runs.get(automationID) ?? []).some((run) => run.triggeredAt >= triggeredAt)
   }
 
+  export function completedRunCount(automationID: string): number {
+    get(automationID)
+    const runs = state().runs.get(automationID) ?? []
+    return runs.filter((run) => run.state === "succeeded" || run.state === "failed").length
+  }
+
   export function recordStoppedRun(
     automationID: string,
     stopReason: Extract<Run, { state: "stopped" }>["stopReason"],

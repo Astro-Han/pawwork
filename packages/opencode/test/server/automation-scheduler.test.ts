@@ -115,6 +115,16 @@ async function waitForRunStates(automationID: string, states: Automation.Run["st
   throw new Error(`Timed out waiting for automation run states: ${states.join(", ")}`)
 }
 
+async function waitForRunCount(automationID: string, count: number) {
+  const deadline = Date.now() + 1_000
+  while (Date.now() < deadline) {
+    const items = Automation.runs({ automationID, limit: 100 }).items
+    if (items.length >= count) return items
+    await Bun.sleep(5)
+  }
+  throw new Error(`Timed out waiting for automation run count: ${count}`)
+}
+
 describe("automation scheduler", () => {
   test("fires a one-shot automation once with unattended execution", async () => {
     await withAutomation(async (projectID) => {
@@ -415,6 +425,35 @@ describe("automation scheduler", () => {
 
       expect(starts).toEqual([60_000, 120_000, 180_000])
       expect(Automation.runs({ automationID: definition.id }).items).toHaveLength(3)
+      scheduler.stop()
+    })
+  })
+
+  test("stops scheduling recurring automation after count limit above default page size", async () => {
+    await withAutomation(async (projectID) => {
+      const clock = new FakeClock(0)
+      const starts: number[] = []
+      const scheduler = AutomationScheduler.make({
+        clock,
+        executor: async () => {
+          starts.push(clock.now())
+          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+        },
+      })
+      const definition = Automation.create(
+        recurringInput(projectID, 60_000, { stop: { kind: "count", count: 51 } }),
+        { now: 0 },
+      )
+
+      scheduler.reschedule(definition)
+      for (let runCount = 1; runCount <= 51; runCount++) {
+        await clock.advance(60_000)
+        await waitForRunCount(definition.id, runCount)
+      }
+      await clock.advance(60_000)
+
+      expect(starts).toHaveLength(51)
+      expect(Automation.runs({ automationID: definition.id, limit: 100 }).items).toHaveLength(51)
       scheduler.stop()
     })
   })
