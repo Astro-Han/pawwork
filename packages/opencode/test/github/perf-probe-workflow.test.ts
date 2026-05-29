@@ -32,6 +32,27 @@ describe("perf probe baseline workflow", () => {
     expect(workflow).not.toContain("github.rest.issues")
   })
 
+  test("uses system Chrome instead of downloading Playwright browsers", () => {
+    const workflow = readWorkflow(workflowPath)
+    const parsed = parseWorkflow(workflowPath)
+    const steps = parsed.jobs?.["perf-probe-baseline"]?.steps ?? []
+    const installBrowsers = steps.find((step) => step.name === "Install Playwright system dependencies")
+    const perfSteps = steps.filter((step) => step.run?.includes("test:e2e:local:perf"))
+    const runtimeClsStep = steps.find((step) => step.name === "Run runtime CLS gate (head)")
+
+    expect(installBrowsers?.["timeout-minutes"]).toBe(10)
+    expect(installBrowsers?.["working-directory"]).toBe("head/packages/app")
+    expect(installBrowsers?.run).toContain("bunx playwright install-deps chromium")
+    expect(installBrowsers?.run).toContain("google-chrome --version")
+    expect(installBrowsers?.run).not.toContain("playwright install --with-deps chromium")
+    expect(workflow).not.toContain("Install Playwright browsers")
+
+    for (const step of perfSteps) {
+      expect(step.env?.PLAYWRIGHT_BROWSER_CHANNEL).toBe("chrome")
+    }
+    expect(runtimeClsStep?.env?.PLAYWRIGHT_BROWSER_CHANNEL).toBe("chrome")
+  })
+
   test("checks out base at the computed merge-base and skips base-only steps when the range is unavailable", () => {
     const parsed = parseWorkflow(workflowPath)
     const steps = parsed.jobs?.["perf-probe-baseline"]?.steps ?? []

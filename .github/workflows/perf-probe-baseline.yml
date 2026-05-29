@@ -129,10 +129,13 @@ jobs:
         working-directory: base
         run: bun install --frozen-lockfile
 
-      - name: Install Playwright browsers
+      - name: Install Playwright system dependencies
         if: steps.compute-range.outputs.skipped != 'true'
+        timeout-minutes: 10
         working-directory: head/packages/app
-        run: bunx playwright install --with-deps chromium
+        run: |
+          bunx playwright install-deps chromium
+          google-chrome --version
 
       - name: Sync perf harness into base checkout
         if: steps.compute-range.outputs.skipped != 'true'
@@ -196,6 +199,7 @@ jobs:
           CI: "true"
           PAWWORK_PERF_BRANCH: base
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-base.json
+          PLAYWRIGHT_BROWSER_CHANNEL: chrome
         run: bun --cwd base/packages/app test:e2e:local:perf
 
       - name: Run perf probe baseline (head)
@@ -204,12 +208,14 @@ jobs:
           CI: "true"
           PAWWORK_PERF_BRANCH: head
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-head.json
+          PLAYWRIGHT_BROWSER_CHANNEL: chrome
         run: bun --cwd head/packages/app test:e2e:local:perf
 
       - name: Run runtime CLS gate (head)
         if: steps.compute-range.outputs.skipped != 'true'
         env:
           CI: "true"
+          PLAYWRIGHT_BROWSER_CHANNEL: chrome
         run: bun --cwd head/packages/app test:e2e:local:runtime-cls
 
       - name: Run low-end perf probe baseline (base)
@@ -219,6 +225,7 @@ jobs:
           PAWWORK_PERF_BRANCH: base
           PAWWORK_PERF_PROFILE: low-end
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-base-low-end.json
+          PLAYWRIGHT_BROWSER_CHANNEL: chrome
         run: bun --cwd base/packages/app test:e2e:local:perf
 
       - name: Run low-end perf probe baseline (head)
@@ -228,6 +235,7 @@ jobs:
           PAWWORK_PERF_BRANCH: head
           PAWWORK_PERF_PROFILE: low-end
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-head-low-end.json
+          PLAYWRIGHT_BROWSER_CHANNEL: chrome
         run: bun --cwd head/packages/app test:e2e:local:perf
 
       - name: Merge perf profile artifacts (base)
@@ -263,6 +271,7 @@ jobs:
           CI: "true"
           PAWWORK_PERF_BRANCH: base
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-base-confirm.json
+          PLAYWRIGHT_BROWSER_CHANNEL: chrome
         run: bun --cwd base/packages/app test:e2e:local:perf
 
       - name: Confirm perf regression (head)
@@ -271,6 +280,7 @@ jobs:
           CI: "true"
           PAWWORK_PERF_BRANCH: head
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-head-confirm.json
+          PLAYWRIGHT_BROWSER_CHANNEL: chrome
         run: bun --cwd head/packages/app test:e2e:local:perf
 
       - name: Confirm low-end perf regression (base)
@@ -280,6 +290,7 @@ jobs:
           PAWWORK_PERF_BRANCH: base
           PAWWORK_PERF_PROFILE: low-end
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-base-low-end-confirm.json
+          PLAYWRIGHT_BROWSER_CHANNEL: chrome
         run: bun --cwd base/packages/app test:e2e:local:perf
 
       - name: Confirm low-end perf regression (head)
@@ -289,6 +300,7 @@ jobs:
           PAWWORK_PERF_BRANCH: head
           PAWWORK_PERF_PROFILE: low-end
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-head-low-end-confirm.json
+          PLAYWRIGHT_BROWSER_CHANNEL: chrome
         run: bun --cwd head/packages/app test:e2e:local:perf
 
       - name: Merge confirmed perf profile artifacts (base)
@@ -331,6 +343,7 @@ jobs:
           PAWWORK_PERF_SCENARIOS: ${{ steps.failing_scenarios.outputs.default }}
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-base-trace.json
           PAWWORK_PERF_TRACE: "1"
+          PLAYWRIGHT_BROWSER_CHANNEL: chrome
         run: bun --cwd base/packages/app test:e2e:local:perf
 
       - name: Capture perf diagnostic trace (head)
@@ -341,6 +354,7 @@ jobs:
           PAWWORK_PERF_SCENARIOS: ${{ steps.failing_scenarios.outputs.default }}
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-head-trace.json
           PAWWORK_PERF_TRACE: "1"
+          PLAYWRIGHT_BROWSER_CHANNEL: chrome
         run: bun --cwd head/packages/app test:e2e:local:perf
 
       - name: Capture low-end perf diagnostic trace (base)
@@ -352,6 +366,7 @@ jobs:
           PAWWORK_PERF_SCENARIOS: ${{ steps.failing_scenarios.outputs.low_end }}
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-base-low-end-trace.json
           PAWWORK_PERF_TRACE: "1"
+          PLAYWRIGHT_BROWSER_CHANNEL: chrome
         run: bun --cwd base/packages/app test:e2e:local:perf
 
       - name: Capture low-end perf diagnostic trace (head)
@@ -363,6 +378,7 @@ jobs:
           PAWWORK_PERF_SCENARIOS: ${{ steps.failing_scenarios.outputs.low_end }}
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-head-low-end-trace.json
           PAWWORK_PERF_TRACE: "1"
+          PLAYWRIGHT_BROWSER_CHANNEL: chrome
         run: bun --cwd head/packages/app test:e2e:local:perf
 
       - name: Upload perf trace artifact
