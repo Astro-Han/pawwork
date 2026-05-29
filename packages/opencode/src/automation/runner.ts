@@ -42,6 +42,7 @@ export const sessionPromptExecutor: Automation.RunExecutor = async ({ definition
         parts: [{ type: "text", text: definition.prompt }],
       },
       scoped,
+      { abortSignal: signal },
     )
     signal.throwIfAborted()
     return {

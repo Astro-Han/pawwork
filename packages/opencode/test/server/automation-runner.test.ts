@@ -366,6 +366,81 @@ describe("automation runNow execution", () => {
     }
   })
 
+  test("deleting after run start but before prompt runner is busy does not call the provider", async () => {
+    let providerCalls = 0
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const url = new URL(req.url)
+        if (!url.pathname.endsWith("/chat/completions")) return new Response("not found", { status: 404 })
+        providerCalls++
+        return new Response(hangingChat(() => undefined), {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        })
+      },
+    })
+
+    try {
+      await using tmp = await tmpdir({
+        git: true,
+        init: async (dir) => {
+          await Bun.write(
+            path.join(dir, "opencode.json"),
+            JSON.stringify({
+              $schema: "https://opencode.ai/config.json",
+              enabled_providers: ["alibaba"],
+              provider: {
+                alibaba: {
+                  options: {
+                    apiKey: "test-key",
+                    baseURL: `${server.url.origin}/v1`,
+                  },
+                },
+              },
+              agent: {
+                build: {
+                  model: "alibaba/qwen-plus",
+                },
+              },
+            }),
+          )
+        },
+      })
+
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const definition = Automation.create(input(Instance.project.id, { title: "Cancel before runner busy" }))
+          const removed = Promise.withResolvers<ReturnType<typeof Automation.remove>>()
+          const unsubscribe = Bus.subscribe(Automation.Event.RunUpdated, (event) => {
+            if (event.properties.automationID !== definition.id || event.properties.state !== "running") return
+            removed.resolve(Automation.remove(definition.id))
+          })
+
+          Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
+          const result = await Promise.race([
+            removed.promise,
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error("timed out waiting for running run")), 1_000),
+            ),
+          ])
+          unsubscribe()
+
+          expect(result.stoppedRun).toMatchObject({ state: "stopped", stopReason: "cancelled" })
+          await Bun.sleep(50)
+          expect(providerCalls).toBe(0)
+          if (result.stoppedRun?.sessionID) {
+            const messages = await Session.messages({ sessionID: result.stoppedRun.sessionID })
+            expect(messages.some((message) => message.info.role === "assistant")).toBe(false)
+          }
+        },
+      })
+    } finally {
+      void server.stop(true)
+    }
+  })
+
   test("unattended context construction overrides any existing attendance tag", async () => {
     const handlers = {
       stepCap: 50,
