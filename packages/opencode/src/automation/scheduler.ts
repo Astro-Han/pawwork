@@ -87,8 +87,20 @@ export namespace AutomationScheduler {
       if (Automation.hasRunTriggeredAtOrAfter(definition.id, definition.fireAt)) return null
       return definition.fireAt
     }
+    if (!canScheduleRecurring(definition)) return null
     if (definition.rhythm.kind !== "interval") return null
     return from + definition.rhythm.everyMs
+  }
+
+  function completedRunCount(automationID: string) {
+    const runs = Automation.runs({ automationID }).items
+    return runs.filter((run) => run.state === "succeeded" || run.state === "failed").length
+  }
+
+  function canScheduleRecurring(definition: Extract<Automation.Definition, { kind: "recurring" }>) {
+    if (definition.stop.kind === "never") return true
+    if (definition.stop.kind === "count") return completedRunCount(definition.id) < definition.stop.count
+    return false
   }
 
   export function make(options: Options = {}): Interface {
@@ -96,6 +108,7 @@ export namespace AutomationScheduler {
     const executor = options.executor ?? sessionPromptExecutor
     const runtime = options.runtime ?? liveRuntime
     const tasks = new Map<string, Task>()
+    const ownedRuns = new Map<string, string>()
     let running = true
 
     const cancel = (automationID: string) => {
@@ -108,7 +121,7 @@ export namespace AutomationScheduler {
     const scheduleNextInterval = (automationID: string) => {
       try {
         const latest = Automation.get(automationID)
-        if (latest.kind === "recurring" && latest.rhythm.kind === "interval" && !latest.paused) {
+        if (latest.kind === "recurring" && latest.rhythm.kind === "interval" && !latest.paused && canScheduleRecurring(latest)) {
           schedule(latest, clock.now() + latest.rhythm.everyMs)
         }
       } catch (error) {
@@ -125,11 +138,12 @@ export namespace AutomationScheduler {
         return
       }
       try {
-        Automation.runNowExecuting(automationID, {
+        const run = Automation.runNowExecuting(automationID, {
           executor,
           attendance: "unattended",
           now: triggeredAt,
         })
+        ownedRuns.set(run.id, automationID)
       } catch (error) {
         if (!NotFoundError.isInstance(error)) throw error
       }
@@ -164,6 +178,7 @@ export namespace AutomationScheduler {
       if (!running) return
       const run = event.properties
       if (run.state === "scheduled" || run.state === "running" || run.state === "awaiting_input") return
+      ownedRuns.delete(run.id)
       scheduleNextInterval(run.automationID)
     })
 
@@ -173,6 +188,11 @@ export namespace AutomationScheduler {
       stop() {
         running = false
         unsubscribeRunUpdates()
+        for (const runID of [...ownedRuns.keys()]) {
+          const stopped = Automation.stopRunByID(runID, "cancelled", { now: clock.now() })
+          ownedRuns.delete(runID)
+          if (stopped) void Automation.publishRunUpdated(stopped)
+        }
         for (const automationID of [...tasks.keys()]) cancel(automationID)
       },
       reschedule,

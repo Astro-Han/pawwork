@@ -81,7 +81,9 @@ function oneshotInput(projectID: ProjectID, fireAt: number): Automation.CreateIn
   }
 }
 
-function recurringInput(projectID: ProjectID, everyMs: number): Automation.CreateInput {
+type RecurringInput = Extract<Automation.CreateInput, { kind: "recurring" }>
+
+function recurringInput(projectID: ProjectID, everyMs: number, overrides: Partial<RecurringInput> = {}): RecurringInput {
   return {
     kind: "recurring",
     title: "Repo brief",
@@ -91,6 +93,7 @@ function recurringInput(projectID: ProjectID, everyMs: number): Automation.Creat
     timezone: "Asia/Shanghai",
     rhythm: { kind: "interval", everyMs },
     stop: { kind: "never" },
+    ...overrides,
   }
 }
 
@@ -272,6 +275,45 @@ describe("automation scheduler", () => {
     })
   })
 
+  test("stops an active scheduled run when scheduler stops", async () => {
+    await withAutomation(async (projectID) => {
+      const clock = new FakeClock(0)
+      const sessionID = SessionID.descending()
+      const started = deferred<void>()
+      const aborted = deferred<void>()
+      let sawAbort = false
+      const scheduler = AutomationScheduler.make({
+        clock,
+        executor: async ({ run, signal }) => {
+          const running = Automation.markRunStarted(run, sessionID, { now: clock.now() })
+          await Automation.publishRunUpdated(running)
+          signal.addEventListener("abort", () => {
+            sawAbort = true
+            aborted.resolve()
+          })
+          started.resolve()
+          await aborted.promise
+          return { sessionID, result: "should not complete", cost: 0 }
+        },
+      })
+      const definition = Automation.create(oneshotInput(projectID, 1_000), { now: 0 })
+
+      scheduler.reschedule(definition)
+      await clock.advance(1_000)
+      await started.promise
+
+      scheduler.stop()
+      const runs = await waitForRunStates(definition.id, ["stopped"])
+
+      expect(sawAbort).toBe(true)
+      expect(runs[0]).toMatchObject({
+        state: "stopped",
+        sessionID,
+        stopReason: "cancelled",
+      })
+    })
+  })
+
   test("anchors recurring schedule after a long manual run completes", async () => {
     await withAutomation(async (projectID) => {
       const clock = new FakeClock(0)
@@ -342,6 +384,96 @@ describe("automation scheduler", () => {
       await clock.advance(1)
       await waitForRunStates(definition.id, ["succeeded", "succeeded"])
       expect(starts).toEqual([60_000, 180_000])
+      scheduler.stop()
+    })
+  })
+
+  test("stops scheduling recurring automation after count limit", async () => {
+    await withAutomation(async (projectID) => {
+      const clock = new FakeClock(0)
+      const starts: number[] = []
+      const scheduler = AutomationScheduler.make({
+        clock,
+        executor: async () => {
+          starts.push(clock.now())
+          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+        },
+      })
+      const definition = Automation.create(
+        recurringInput(projectID, 60_000, { stop: { kind: "count", count: 3 } }),
+        { now: 0 },
+      )
+
+      scheduler.reschedule(definition)
+      await clock.advance(60_000)
+      await waitForRunStates(definition.id, ["succeeded"])
+      await clock.advance(60_000)
+      await waitForRunStates(definition.id, ["succeeded", "succeeded"])
+      await clock.advance(60_000)
+      await waitForRunStates(definition.id, ["succeeded", "succeeded", "succeeded"])
+      await clock.advance(60_000)
+
+      expect(starts).toEqual([60_000, 120_000, 180_000])
+      expect(Automation.runs({ automationID: definition.id }).items).toHaveLength(3)
+      scheduler.stop()
+    })
+  })
+
+  test("does not schedule recurring condition stops without an evaluator", async () => {
+    await withAutomation(async (projectID) => {
+      const clock = new FakeClock(0)
+      const starts: number[] = []
+      const scheduler = AutomationScheduler.make({
+        clock,
+        executor: async () => {
+          starts.push(clock.now())
+          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+        },
+      })
+      const definition = Automation.create(
+        recurringInput(projectID, 60_000, { stop: { kind: "condition", condition: "repo is ready" } }),
+        { now: 0 },
+      )
+
+      scheduler.reschedule(definition)
+      await clock.advance(60_000)
+
+      expect(starts).toEqual([])
+      expect(Automation.runs({ automationID: definition.id }).items).toHaveLength(0)
+      scheduler.stop()
+    })
+  })
+
+  test("keeps recurring automation scheduled after another automation holds the project writer", async () => {
+    await withAutomation(async (projectID) => {
+      const clock = new FakeClock(0)
+      const releaseWriter = deferred<{ sessionID: SessionID; result: string | null; cost?: number | null }>()
+      const starts: number[] = []
+      const blocker = Automation.create(oneshotInput(projectID, 10_000_000), { now: 0 })
+      Automation.runNowExecuting(blocker.id, {
+        now: 0,
+        executor: async () => releaseWriter.promise,
+      })
+      await waitForRunStates(blocker.id, ["scheduled"])
+      const scheduler = AutomationScheduler.make({
+        clock,
+        executor: async () => {
+          starts.push(clock.now())
+          return { sessionID: SessionID.descending(), result: "scheduled", cost: 0 }
+        },
+      })
+      const definition = Automation.create(recurringInput(projectID, 60_000), { now: 0 })
+
+      scheduler.reschedule(definition)
+      await clock.advance(60_000)
+      await waitForRunStates(definition.id, ["stopped"])
+
+      releaseWriter.resolve({ sessionID: SessionID.descending(), result: "manual", cost: 0 })
+      await waitForRunStates(blocker.id, ["succeeded"])
+      await clock.advance(60_000)
+      await waitForRunStates(definition.id, ["succeeded", "stopped"])
+
+      expect(starts).toEqual([120_000])
       scheduler.stop()
     })
   })

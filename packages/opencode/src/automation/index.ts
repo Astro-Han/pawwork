@@ -234,7 +234,7 @@ export namespace Automation {
     definitions: Map<string, Definition>
     runs: Map<string, Run[]>
     activeWriters: Set<string>
-    activeRuns: Map<string, { writerKey: string; controller: AbortController }>
+    activeRuns: Map<string, { writerKey: string; controller: AbortController; runID: string }>
   }
   const state = Instance.state<State>(() => ({
     definitions: new Map(),
@@ -522,10 +522,24 @@ export namespace Automation {
     const active = state().activeRuns.get(automationID)
     if (!active) return undefined
     active.controller.abort()
-    const current = state().runs.get(automationID)?.find((run) => (
-      run.state === "scheduled" || run.state === "running" || run.state === "awaiting_input"
-    ))
+    const current = state().runs.get(automationID)?.find((run) => run.id === active.runID)
     return current ? stopRun(current, "cancelled") : undefined
+  }
+
+  export function stopRunByID(
+    runID: string,
+    stopReason: Extract<Run, { state: "stopped" }>["stopReason"],
+    options?: { now?: number },
+  ): Run | undefined {
+    for (const runs of state().runs.values()) {
+      const run = runs.find((item) => item.id === runID)
+      if (!run) continue
+      const active = state().activeRuns.get(run.automationID)
+      if (active?.runID === runID) active.controller.abort()
+      const stopped = stopRun(run, stopReason, options)
+      return stopped === run ? undefined : stopped
+    }
+    return undefined
   }
 
   export function markRunStarted(run: Run, sessionID: SessionID, options?: { now?: number }): Run {
@@ -632,7 +646,7 @@ export namespace Automation {
     }
     data.activeWriters.add(writerKey)
     const controller = new AbortController()
-    data.activeRuns.set(initial.automationID, { writerKey, controller })
+    data.activeRuns.set(initial.automationID, { writerKey, controller, runID: initial.id })
     let current = initial
     try {
       const prepared = await executor({ definition, run: initial, attendance, signal: controller.signal })
@@ -687,8 +701,11 @@ export namespace Automation {
       })
       await publishRunUpdated(failed)
     } finally {
-      data.activeRuns.delete(initial.automationID)
-      data.activeWriters.delete(writerKey)
+      const active = data.activeRuns.get(initial.automationID)
+      if (active?.runID === initial.id) {
+        data.activeRuns.delete(initial.automationID)
+        data.activeWriters.delete(writerKey)
+      }
     }
   }
 
