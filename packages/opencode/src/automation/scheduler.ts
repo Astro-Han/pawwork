@@ -61,11 +61,23 @@ export namespace AutomationScheduler {
       timers.delete(automationID)
     }
 
+    const scheduleNextInterval = (automationID: string) => {
+      try {
+        const latest = Automation.get(automationID)
+        if (latest.kind === "recurring" && latest.rhythm.kind === "interval" && !latest.paused) {
+          schedule(latest, clock.now() + latest.rhythm.everyMs)
+        }
+      } catch (error) {
+        if (!NotFoundError.isInstance(error)) throw error
+      }
+    }
+
     const fire = (automationID: string, triggeredAt: number) => {
       timers.delete(automationID)
       if (Automation.hasActiveRun(automationID)) {
         const stopped = Automation.recordStoppedRun(automationID, "previous_run_awaiting_input", { now: triggeredAt })
         void Automation.publishRunUpdated(stopped)
+        scheduleNextInterval(automationID)
         return
       }
       try {
@@ -74,14 +86,7 @@ export namespace AutomationScheduler {
             try {
               return await executor(input)
             } finally {
-              try {
-                const latest = Automation.get(input.definition.id)
-                if (latest.kind === "recurring" && latest.rhythm.kind === "interval" && !latest.paused) {
-                  schedule(latest, clock.now() + latest.rhythm.everyMs)
-                }
-              } catch (error) {
-                if (!NotFoundError.isInstance(error)) throw error
-              }
+              scheduleNextInterval(input.definition.id)
             }
           },
           attendance: "unattended",
