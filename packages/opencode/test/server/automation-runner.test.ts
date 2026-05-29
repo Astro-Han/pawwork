@@ -1,9 +1,12 @@
+import path from "path"
 import { afterEach, describe, expect, test } from "bun:test"
 import { Effect } from "effect"
 import { Automation } from "../../src/automation"
+import { sessionPromptExecutor } from "../../src/automation/runner"
 import { Bus } from "../../src/bus"
 import { Instance } from "../../src/project/instance"
 import { ProjectID } from "../../src/project/schema"
+import { Session } from "../../src/session"
 import { SessionID } from "../../src/session/schema"
 import { AutomationRunContext, AutomationStepCapError } from "../../src/automation/run-context"
 import { tmpdir } from "../fixture/fixture"
@@ -42,6 +45,63 @@ async function waitForRun(automationID: string, state: Automation.Run["state"]) 
     await Bun.sleep(10)
   }
   throw new Error(`Timed out waiting for ${state}`)
+}
+
+function defer<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  const promise = new Promise<T>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+
+function hangingChat(ready: () => void) {
+  const encoder = new TextEncoder()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const first = `data: ${JSON.stringify({
+    id: "chatcmpl-1",
+    object: "chat.completion.chunk",
+    choices: [{ delta: { role: "assistant" } }],
+  })}\n\n`
+  const rest =
+    [
+      `data: ${JSON.stringify({
+        id: "chatcmpl-1",
+        object: "chat.completion.chunk",
+        choices: [{ delta: { content: "late" } }],
+      })}`,
+      `data: ${JSON.stringify({
+        id: "chatcmpl-1",
+        object: "chat.completion.chunk",
+        choices: [{ delta: {}, finish_reason: "stop" }],
+      })}`,
+      "data: [DONE]",
+    ].join("\n\n") + "\n\n"
+
+  return new ReadableStream<Uint8Array>({
+    start(ctrl) {
+      ctrl.enqueue(encoder.encode(first))
+      ready()
+      timer = setTimeout(() => {
+        ctrl.enqueue(encoder.encode(rest))
+        ctrl.close()
+      }, 10_000)
+    },
+    cancel() {
+      if (timer) clearTimeout(timer)
+    },
+  })
+}
+
+async function waitForAbortedAssistant(sessionID: SessionID) {
+  const deadline = Date.now() + 1_000
+  while (Date.now() < deadline) {
+    const messages = await Session.messages({ sessionID })
+    const assistant = messages.findLast((message) => message.info.role === "assistant")
+    if (assistant?.info.role === "assistant" && assistant.info.error?.name === "MessageAbortedError") return assistant
+    await Bun.sleep(10)
+  }
+  throw new Error("Timed out waiting for aborted assistant message")
 }
 
 describe("automation runNow execution", () => {
@@ -242,6 +302,68 @@ describe("automation runNow execution", () => {
       await Bun.sleep(20)
       expect(removed.stoppedRun).not.toMatchObject({ state: "succeeded" })
     })
+  })
+
+  test("deleting an active automation cancels the real session prompt", async () => {
+    const ready = defer<void>()
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const url = new URL(req.url)
+        if (!url.pathname.endsWith("/chat/completions")) return new Response("not found", { status: 404 })
+        return new Response(hangingChat(() => ready.resolve()), {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        })
+      },
+    })
+
+    try {
+      await using tmp = await tmpdir({
+        git: true,
+        init: async (dir) => {
+          await Bun.write(
+            path.join(dir, "opencode.json"),
+            JSON.stringify({
+              $schema: "https://opencode.ai/config.json",
+              enabled_providers: ["alibaba"],
+              provider: {
+                alibaba: {
+                  options: {
+                    apiKey: "test-key",
+                    baseURL: `${server.url.origin}/v1`,
+                  },
+                },
+              },
+              agent: {
+                build: {
+                  model: "alibaba/qwen-plus",
+                },
+              },
+            }),
+          )
+        },
+      })
+
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const definition = Automation.create(input(Instance.project.id, { title: "Cancel real prompt" }))
+
+          Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
+          await ready.promise
+
+          const removed = Automation.remove(definition.id)
+          const stoppedRun = removed.stoppedRun
+          expect(stoppedRun).toMatchObject({ state: "stopped", stopReason: "cancelled" })
+          if (!stoppedRun?.sessionID) throw new Error("expected stopped run to keep its sessionID")
+
+          await waitForAbortedAssistant(stoppedRun.sessionID)
+        },
+      })
+    } finally {
+      void server.stop(true)
+    }
   })
 
   test("unattended context construction overrides any existing attendance tag", async () => {
