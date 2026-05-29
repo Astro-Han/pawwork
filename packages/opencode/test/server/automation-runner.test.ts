@@ -126,6 +126,29 @@ describe("automation runNow execution", () => {
     })
   })
 
+  test("does not publish duplicate running events when the executor already started the run", async () => {
+    await withAutomation(async (projectID) => {
+      const definition = Automation.create(input(projectID))
+      const sessionID = SessionID.descending()
+      const runEvents: Automation.Run[] = []
+      const unsubscribeRun = Bus.subscribe(Automation.Event.RunUpdated, (event) => {
+        if (event.properties.automationID === definition.id) runEvents.push(event.properties)
+      })
+
+      Automation.runNowExecuting(definition.id, {
+        executor: async ({ run }) => {
+          const started = Automation.markRunStarted(run, sessionID, { now: run.triggeredAt })
+          await Automation.publishRunUpdated(started)
+          return { sessionID, result: "done", cost: 0 }
+        },
+      })
+
+      await waitForRun(definition.id, "succeeded")
+      unsubscribeRun()
+      expect(runEvents.map((event) => event.state)).toEqual(["running", "succeeded"])
+    })
+  })
+
   test("keeps one active writer per project", async () => {
     await withAutomation(async (projectID) => {
       const first = Automation.create(input(projectID, { title: "First automation" }))

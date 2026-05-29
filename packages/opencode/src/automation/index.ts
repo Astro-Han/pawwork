@@ -621,7 +621,7 @@ export namespace Automation {
       }
       const running = latest.state === "scheduled" ? markRunStarted(latest, prepared.sessionID) : latest
       current = running
-      await publishRunUpdated(running)
+      if (running !== latest) await publishRunUpdated(running)
       const latestDefinition = getOptional(initial.automationID)
       if (latestDefinition?.context === "continue") {
         const updatedDefinition = setDefinitionAutomationSession(latestDefinition, prepared.sessionID)
