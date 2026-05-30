@@ -97,26 +97,45 @@ describe("release workflow", () => {
       const setupNodeStep = steps.find(
         (step) => step.uses === "actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
       )
+      const installDependenciesStep = steps.find((step) => step.name === "Install dependencies")
+      const importCertificateStep = steps.find((step) => step.name === "Import code signing certificate")
       const signedArtifactStep = steps.find((step) => step.name === "Upload signed app artifact")
       const nonMacArtifactStep = steps.find((step) => step.name === "Upload packaged app artifact")
       const buildElectronAppStep = steps.find((step) => step.name === "Build Electron app")
       const runtimeImportGuardStep = steps.find((step) => step.name === "Check desktop runtime imports")
       const setupAppleApiKeyStep = steps.find((step) => step.name === "Setup Apple API Key")
+      const deleteAppleApiKeyAfterSubmitStep = steps.find(
+        (step) => step.name === "Delete Apple API Key after submit",
+      )
+      const deleteAppleApiKeyAfterFinalizeStep = steps.find(
+        (step) => step.name === "Delete Apple API Key after finalize",
+      )
       const packageAppStep = steps.find((step) => step.name === "Package app")
       const packageVersionStep = steps.find((step) => step.id === "package_version")
       const downloadExistingMetadataStep = steps.find((step) => step.name === "Download existing updater metadata")
       const collectLatestYmlStep = steps.find((step) => step.name === "Collect updater metadata")
       const finalizeLatestYmlStep = steps.find((step) => step.name === "Finalize updater metadata")
       const packageNotarizedStep = steps.find((step) => step.name === "Package notarized artifacts")
+      const submitNotarizationStep = steps.find((step) => step.name === "Submit notarization")
+      const finalizeNotarizationStep = steps.find((step) => step.name === "Finalize notarization")
       const validateSelectedTargetStep = steps.find((step) => step.name === "Validate selected target")
       const smokeSignedAppStep = steps.find((step) => step.name === "Smoke signed macOS app")
       const packageSignedAppStep = steps.find((step) => step.name === "Package signed app")
 
       expect(parsed.name).toBe("release")
       expect(parsed.permissions).toEqual({
-        actions: "read",
-        contents: "write",
+        contents: "read",
       })
+      expect(selectBuildTarget?.permissions).toBeUndefined()
+      expect(createSnapshotTag?.permissions).toEqual({ contents: "write" })
+      expect(buildElectron?.permissions).toEqual({ actions: "read", contents: "write" })
+      expect(cleanupSnapshotTag?.permissions).toEqual({ contents: "write" })
+      expect(
+        Object.entries(parsed.jobs ?? {})
+          .filter(([, job]) => job.permissions?.contents === "write")
+          .map(([jobName]) => jobName)
+          .sort(),
+      ).toEqual(["build-electron", "cleanup-snapshot-tag", "create-snapshot-tag"])
       expect(parsed.concurrency?.group).toBe(
         "${{ github.workflow }}-${{ inputs.source_ref || github.ref_name }}-${{ inputs.phase || 'submit' }}-${{ inputs.channel || 'dev' }}-${{ inputs.target || 'macos' }}",
       )
@@ -147,6 +166,13 @@ describe("release workflow", () => {
         ref: "${{ inputs.source_sha }}",
       })
       expect(setupNodeStep?.with).toEqual({ "node-version": "24" })
+      expect(importCertificateStep).toBeDefined()
+      expect(importCertificateStep?.if).toBe("runner.os == 'macOS'")
+      expect(steps.indexOf(importCertificateStep!)).toBeGreaterThan(steps.indexOf(installDependenciesStep!))
+      expect(steps.indexOf(importCertificateStep!)).toBeGreaterThan(steps.indexOf(buildElectronAppStep!))
+      expect(steps.indexOf(importCertificateStep!)).toBeGreaterThan(steps.indexOf(runtimeImportGuardStep!))
+      expect(steps.indexOf(importCertificateStep!)).toBeLessThan(steps.indexOf(packageSignedAppStep!))
+      expect(steps.indexOf(importCertificateStep!)).toBeLessThan(steps.indexOf(packageNotarizedStep!))
       expect(signedArtifactStep?.uses).toBe("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a")
       expect(nonMacArtifactStep?.uses).toBe("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a")
       expect(nonMacArtifactStep?.if).toBe("${{ runner.os == 'Windows' && inputs.phase != 'finalize' }}")
@@ -168,6 +194,22 @@ describe("release workflow", () => {
       expect(runtimeImportGuardStep?.["working-directory"]).toBe("packages/desktop-electron")
       expect(steps.indexOf(runtimeImportGuardStep!)).toBeGreaterThan(steps.indexOf(buildElectronAppStep!))
       expect(steps.indexOf(runtimeImportGuardStep!)).toBeLessThan(steps.indexOf(setupAppleApiKeyStep!))
+      expect(setupAppleApiKeyStep?.if).toBe("runner.os == 'macOS'")
+      expect(steps.indexOf(setupAppleApiKeyStep!)).toBeLessThan(steps.indexOf(submitNotarizationStep!))
+      expect(steps.indexOf(setupAppleApiKeyStep!)).toBeLessThan(steps.indexOf(finalizeNotarizationStep!))
+      expect(deleteAppleApiKeyAfterSubmitStep?.if).toBe(
+        "always() && runner.os == 'macOS' && inputs.phase == 'submit'",
+      )
+      expect(deleteAppleApiKeyAfterSubmitStep?.run).toBe('rm -f "${{ runner.temp }}/apple-api-key.p8"')
+      expect(steps.indexOf(deleteAppleApiKeyAfterSubmitStep!)).toBe(steps.indexOf(submitNotarizationStep!) + 1)
+      expect(deleteAppleApiKeyAfterFinalizeStep?.if).toBe(
+        "always() && runner.os == 'macOS' && (inputs.phase == 'finalize' || inputs.phase == 'full')",
+      )
+      expect(deleteAppleApiKeyAfterFinalizeStep?.run).toBe('rm -f "${{ runner.temp }}/apple-api-key.p8"')
+      expect(steps.indexOf(deleteAppleApiKeyAfterFinalizeStep!)).toBe(
+        steps.indexOf(finalizeNotarizationStep!) + 1,
+      )
+      expect(deleteAppleApiKeyAfterSubmitStep?.if).not.toContain("full")
       expect(packageAppStep?.shell).toBe("bash")
       expect(packageAppStep?.env).toEqual({
         OPENCODE_CHANNEL: "${{ inputs.channel || 'dev' }}",
