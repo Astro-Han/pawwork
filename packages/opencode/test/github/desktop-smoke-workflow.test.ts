@@ -25,8 +25,11 @@ describe("desktop smoke workflow", () => {
     const packageStep = smokeSteps.find((step) => step.name === "Package desktop app")
     const smokeStep = smokeSteps.find((step) => step.name === "Smoke check app bundle")
     const runtimeGuardStep = smokeSteps.find((step) => step.name === "Check desktop runtime imports")
+    const desktopCdpPortStep = smokeSteps.find((step) => step.name === "Allocate desktop smoke CDP port")
     const packagedSmokeStep = smokeSteps.find((step) => step.name === "Launch packaged desktop smoke app")
+    const packagedCdpPortStep = smokeSteps.find((step) => step.name === "Allocate packaged smoke CDP port")
     const buildStep = smokeSteps.find((step) => step.name === "Build desktop app")
+    const reportSmokeStep = smokeSteps.find((step) => step.name === "Report problem smoke")
     const prepareOfficeCliStep = smokeSteps.find((step) => step.name === "Prepare OfficeCLI")
     const installStep = smokeSteps.find((step) => step.name === "Install dependencies")
     const repairElectronStep = smokeSteps.find((step) => step.name === "Repair Electron install")
@@ -84,6 +87,12 @@ describe("desktop smoke workflow", () => {
     expect(prepareOfficeCliStep?.["working-directory"]).toBe("packages/desktop-electron")
     expect(workflow).toContain("bun run build")
     expect(appSmokeStep?.run).toBe("bun run smoke:ci")
+    expect(desktopCdpPortStep?.id).toBe("desktop-smoke-cdp-port")
+    expect(desktopCdpPortStep?.run).toContain("server.listen(0, \"127.0.0.1\"")
+    expect(desktopCdpPortStep?.run).toContain("appendFileSync(process.env.GITHUB_OUTPUT")
+    expect(appSmokeStep?.env).toEqual({
+      PAWWORK_CI_SMOKE_CDP_PORT: "${{ steps.desktop-smoke-cdp-port.outputs.port }}",
+    })
     expect(workflow).toContain("Launch desktop smoke app")
     expect(workflow).toContain("bun run smoke:ci")
     expect(packageStep?.run).toContain(
@@ -101,8 +110,15 @@ describe("desktop smoke workflow", () => {
     expect(packagedSmokeStep?.run).toContain(
       'EXECUTABLE_PATH="dist/mac-arm64/PawWork Dev.app/Contents/MacOS/PawWork Dev"',
     )
+    expect(packagedCdpPortStep?.id).toBe("packaged-smoke-cdp-port")
+    expect(packagedCdpPortStep?.run).toContain("server.listen(0, \"127.0.0.1\"")
+    expect(packagedCdpPortStep?.run).toContain("appendFileSync(process.env.GITHUB_OUTPUT")
     expect(packagedSmokeStep?.run).toContain('bun ./scripts/ci-smoke.ts packaged dev "$EXECUTABLE_PATH"')
+    expect(packagedSmokeStep?.env).toEqual({
+      PAWWORK_CI_SMOKE_CDP_PORT: "${{ steps.packaged-smoke-cdp-port.outputs.port }}",
+    })
     expect(packagedSmokeStep?.["working-directory"]).toBe("packages/desktop-electron")
+    expect(reportSmokeStep?.env).not.toHaveProperty("PAWWORK_CI_SMOKE_CDP_PORT")
     expect(buildStep).toBeDefined()
     expect(smokeSteps.indexOf(repairElectronStep!)).toBeGreaterThan(smokeSteps.indexOf(installStep!))
     expect(smokeSteps.indexOf(repairElectronStep!)).toBeLessThan(smokeSteps.indexOf(prepareOfficeCliStep!))
@@ -112,6 +128,8 @@ describe("desktop smoke workflow", () => {
     expect(smokeSteps.indexOf(repairElectronAfterBuildStep!)).toBeLessThan(smokeSteps.indexOf(appSmokeStep!))
     expect(smokeSteps.indexOf(runtimeGuardStep!)).toBeGreaterThan(smokeSteps.indexOf(buildStep!))
     expect(smokeSteps.indexOf(runtimeGuardStep!)).toBeLessThan(smokeSteps.indexOf(appSmokeStep!))
+    expect(smokeSteps.indexOf(desktopCdpPortStep!)).toBe(smokeSteps.indexOf(appSmokeStep!) - 1)
+    expect(smokeSteps.indexOf(packagedCdpPortStep!)).toBe(smokeSteps.indexOf(packagedSmokeStep!) - 1)
     expect(smokeSteps.indexOf(packagedSmokeStep!)).toBeGreaterThan(smokeSteps.indexOf(smokeStep!))
 
     expect(smokeStep?.run).toContain("Expected app bundle at")
@@ -129,6 +147,7 @@ describe("desktop smoke workflow", () => {
 
     expect(workflow).toContain("smoke-macos-arm64.result")
     expect(workflow).toContain("Docs-only change, desktop smoke skipped.")
+    expect(workflow).not.toContain("GITHUB_ENV")
     expect(workflow).not.toContain("codesign --verify --deep --verbose=2")
     expect(workflow).not.toContain("codesign --verify --deep --strict --verbose=2")
     expect(workflow).not.toContain("pull_request_target")

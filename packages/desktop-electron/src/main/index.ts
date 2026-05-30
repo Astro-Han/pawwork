@@ -52,6 +52,7 @@ const { autoUpdater } = pkg
 
 import type { DesktopContext, InitStep, ServerReadyData, SqliteMigrationProgress, WslConfig } from "../preload/types"
 import { checkAppExists, resolveAppPath, wslPath } from "./apps"
+import { ciSmokeCdpSwitches } from "./ci-smoke-cdp"
 import { CHANNEL, FEEDBACK_FORM_URL, UPDATER_ENABLED } from "./constants"
 import { normalizeDesktopContextPayload, syncWindowTitleForDesktopContext } from "./desktop-context-window"
 import { createDesktopContextStore } from "./desktop-context-store"
@@ -328,6 +329,9 @@ setupApp()
 function setupApp() {
   ensureLoopbackNoProxy()
   app.commandLine.appendSwitch("proxy-bypass-list", "<-loopback>")
+  for (const [name, value] of ciSmokeCdpSwitches(process.env)) {
+    app.commandLine.appendSwitch(name, value)
+  }
   registerRendererScheme()
 
   // CI smoke should not fail just because a local desktop instance already holds
