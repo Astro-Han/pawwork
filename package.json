@@ -72,7 +72,6 @@
     }
   },
   "devDependencies": {
-    "@actions/artifact": "5.0.1",
     "@tsconfig/bun": "catalog:",
     "@types/mime-types": "3.0.1",
     "@typescript/native-preview": "catalog:",
