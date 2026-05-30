@@ -48,6 +48,16 @@ export namespace AutomationScheduler {
     definition: Automation.Definition
   }
 
+  type CronSchedule = {
+    minutes: Set<number>
+    hours: Set<number>
+    days: Set<number>
+    months: Set<number>
+    weekdays: Set<number>
+    dayRestricted: boolean
+    weekdayRestricted: boolean
+  }
+
   export const liveClock: Clock = {
     now: () => Date.now(),
     sleep: (delayMs, signal) =>
@@ -113,7 +123,7 @@ export namespace AutomationScheduler {
       const step = stepRaw === undefined ? 1 : Number(stepRaw)
       const range = base === "*" ? [min, max] : base.split("-").map(Number)
       const start = range[0]
-      const end = range.length === 1 ? range[0] : range[1]
+      const end = base === "*" || (range.length === 1 && stepRaw !== undefined) ? max : range.length === 1 ? range[0] : range[1]
       for (let value = start; value <= end; value += step) {
         values.add(options?.sundayAlias && value === 7 ? 0 : value)
       }
@@ -121,28 +131,39 @@ export namespace AutomationScheduler {
     return values
   }
 
-  function cronMatches(definition: Extract<Automation.Definition, { kind: "recurring" }>, time: DateTime) {
-    if (definition.rhythm.kind !== "cron") return false
-    const [minuteField, hourField, dayField, monthField, weekdayField] = definition.rhythm.expression.trim().split(/\s+/)
-    const minutes = cronValues(minuteField, 0, 59)
-    const hours = cronValues(hourField, 0, 23)
-    const days = cronValues(dayField, 1, 31)
-    const months = cronValues(monthField, 1, 12)
-    const weekdays = cronValues(weekdayField, 0, 7, { sundayAlias: true })
+  function parseCronSchedule(expression: string): CronSchedule {
+    const [minuteField, hourField, dayField, monthField, weekdayField] = expression.trim().split(/\s+/)
+    return {
+      minutes: cronValues(minuteField, 0, 59),
+      hours: cronValues(hourField, 0, 23),
+      days: cronValues(dayField, 1, 31),
+      months: cronValues(monthField, 1, 12),
+      weekdays: cronValues(weekdayField, 0, 7, { sundayAlias: true }),
+      dayRestricted: dayField !== "*",
+      weekdayRestricted: weekdayField !== "*",
+    }
+  }
+
+  function cronMatches(schedule: CronSchedule, time: DateTime) {
     const weekday = time.weekday === 7 ? 0 : time.weekday
+    const dayMatches = schedule.days.has(time.day)
+    const weekdayMatches = schedule.weekdays.has(weekday)
+    const calendarMatches =
+      schedule.dayRestricted && schedule.weekdayRestricted ? dayMatches || weekdayMatches : dayMatches && weekdayMatches
     return (
-      minutes.has(time.minute) &&
-      hours.has(time.hour) &&
-      days.has(time.day) &&
-      months.has(time.month) &&
-      weekdays.has(weekday)
+      schedule.minutes.has(time.minute) &&
+      schedule.hours.has(time.hour) &&
+      schedule.months.has(time.month) &&
+      calendarMatches
     )
   }
 
   function computeNextCronFireAt(definition: Extract<Automation.Definition, { kind: "recurring" }>, from: number) {
+    if (definition.rhythm.kind !== "cron") return null
+    const schedule = parseCronSchedule(definition.rhythm.expression)
     let cursor = DateTime.fromMillis(from, { zone: definition.timezone }).plus({ minutes: 1 }).startOf("minute")
     for (let attempts = 0; attempts < 527_040; attempts++) {
-      if (cronMatches(definition, cursor)) return cursor.toMillis()
+      if (cronMatches(schedule, cursor)) return cursor.toMillis()
       cursor = cursor.plus({ minutes: 1 })
     }
     return null
@@ -158,7 +179,11 @@ export namespace AutomationScheduler {
     if (left.kind !== right.kind || left.paused !== right.paused) return false
     if (left.kind === "oneshot" && right.kind === "oneshot") return left.fireAt === right.fireAt
     if (left.kind === "recurring" && right.kind === "recurring") {
-      return JSON.stringify(left.rhythm) === JSON.stringify(right.rhythm) && JSON.stringify(left.stop) === JSON.stringify(right.stop)
+      return (
+        left.timezone === right.timezone &&
+        JSON.stringify(left.rhythm) === JSON.stringify(right.rhythm) &&
+        JSON.stringify(left.stop) === JSON.stringify(right.stop)
+      )
     }
     return false
   }

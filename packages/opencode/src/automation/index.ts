@@ -679,7 +679,7 @@ export namespace Automation {
 
   export function hasActiveRun(automationID: string): boolean {
     if (state().activeRuns.has(automationID)) return true
-    return runs({ automationID, limit: 100 }).items.some(
+    return allRuns(automationID).some(
       (run) => run.state === "scheduled" || run.state === "running" || run.state === "awaiting_input",
     )
   }
@@ -712,12 +712,11 @@ export namespace Automation {
   }
 
   export function hasRunTriggeredAtOrAfter(automationID: string, triggeredAt: number): boolean {
-    return runs({ automationID, limit: 100 }).items.some((run) => run.triggeredAt >= triggeredAt)
+    return allRuns(automationID).some((run) => run.triggeredAt >= triggeredAt)
   }
 
   export function completedRunCount(automationID: string): number {
-    get(automationID)
-    return runs({ automationID, limit: 100 }).items.filter((run) => run.state === "succeeded" || run.state === "failed").length
+    return allRuns(automationID).filter((run) => run.state === "succeeded" || run.state === "failed").length
   }
 
   export function reconcileInterruptedRuns(options?: { now?: number }): Run[] {
@@ -735,6 +734,8 @@ export namespace Automation {
         for (const row of rows) {
           const run = Run.parse(row.data)
           if (!isActiveRun(run)) continue
+          const active = state().activeRuns.get(run.automationID)
+          if (active?.runID === run.id) continue
           const nextData: Record<string, unknown> = {
             ...run,
             revision: run.revision + 1,
@@ -855,24 +856,33 @@ export namespace Automation {
   }
 
   export function runs(input: { automationID: string; limit?: number; cursor?: string }) {
-    get(input.automationID)
     const limit = Math.min(Math.max(input.limit ?? 50, 1), 100)
-    const projectID = Instance.project.id
-    const ownerDirectory = Instance.directory
-    const all = Database.use((db) =>
-      db
-        .select()
-        .from(AutomationRunTable)
-        .where(eq(AutomationRunTable.automation_id, input.automationID))
-        .orderBy(desc(AutomationRunTable.triggered_at), desc(AutomationRunTable.id))
-        .all()
-        .filter((row) => row.project_id === projectID && row.owner_directory === ownerDirectory)
-        .map((row) => Run.parse(row.data)),
-    )
+    const all = allRuns(input.automationID)
     const cursorIndex = input.cursor ? all.findIndex((run) => run.id === input.cursor) : -1
     const start = input.cursor ? (cursorIndex === -1 ? all.length : cursorIndex + 1) : 0
     const items = all.slice(start, start + limit)
     return { items, nextCursor: start + limit < all.length ? items.at(-1)?.id ?? null : null }
+  }
+
+  function allRuns(automationID: string) {
+    get(automationID)
+    const projectID = Instance.project.id
+    const ownerDirectory = Instance.directory
+    return Database.use((db) =>
+      db
+        .select()
+        .from(AutomationRunTable)
+        .where(
+          and(
+            eq(AutomationRunTable.automation_id, automationID),
+            eq(AutomationRunTable.project_id, projectID),
+            eq(AutomationRunTable.owner_directory, ownerDirectory),
+          ),
+        )
+        .orderBy(desc(AutomationRunTable.triggered_at), desc(AutomationRunTable.id))
+        .all()
+        .map((row) => Run.parse(row.data)),
+    )
   }
 
   export const publishDefinitionUpdated = (definition: Definition) => Bus.publish(Event.DefinitionUpdated, definition)

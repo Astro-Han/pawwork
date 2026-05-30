@@ -176,10 +176,21 @@ async function waitForRunStates(automationID: string, states: Automation.Run["st
   throw new Error(`Timed out waiting for automation run states: ${states.join(", ")}`)
 }
 
+function allRuns(automationID: string) {
+  const items: Automation.Run[] = []
+  let cursor: string | undefined
+  while (true) {
+    const page = Automation.runs({ automationID, limit: 100, cursor })
+    items.push(...page.items)
+    if (!page.nextCursor) return items
+    cursor = page.nextCursor
+  }
+}
+
 async function waitForRunCount(automationID: string, count: number) {
-  const deadline = Date.now() + 1_000
+  const deadline = Date.now() + 3_000
   while (Date.now() < deadline) {
-    const items = Automation.runs({ automationID, limit: 100 }).items
+    const items = allRuns(automationID)
     if (items.length >= count) return items
     await Bun.sleep(5)
   }
@@ -280,6 +291,63 @@ describe("automation scheduler", () => {
       const next = scheduler.computeNextFireAt(definition, Date.UTC(2026, 4, 30, 8, 30))
 
       expect(next).toBe(Date.UTC(2026, 4, 30, 9, 0))
+      scheduler.stop()
+    })
+  })
+
+  test("computes cron day-of-month and day-of-week as standard crontab OR semantics", async () => {
+    await withAutomation(async (projectID) => {
+      const scheduler = AutomationScheduler.make()
+      const definition = Automation.create(cronInput(projectID, "0 9 1 * 1"), {
+        now: Date.UTC(2026, 5, 2, 8, 0),
+      })
+
+      const next = scheduler.computeNextFireAt(definition, Date.UTC(2026, 5, 2, 8, 0))
+
+      expect(next).toBe(Date.UTC(2026, 5, 8, 9, 0))
+      scheduler.stop()
+    })
+  })
+
+  test("computes cron single-value step expressions from the single-value start", async () => {
+    await withAutomation(async (projectID) => {
+      const scheduler = AutomationScheduler.make()
+      const definition = Automation.create(cronInput(projectID, "5/15 9 * * *"), {
+        now: Date.UTC(2026, 4, 30, 9, 0),
+      })
+
+      const next = scheduler.computeNextFireAt(definition, Date.UTC(2026, 4, 30, 9, 0))
+
+      expect(next).toBe(Date.UTC(2026, 4, 30, 9, 5))
+      scheduler.stop()
+    })
+  })
+
+  test("reschedules pending cron timers when timezone changes", async () => {
+    await withAutomation(async (projectID) => {
+      const clock = new FakeClock(Date.UTC(2024, 4, 30, 8, 30))
+      const starts: number[] = []
+      const scheduler = AutomationScheduler.make({
+        clock,
+        executor: async () => {
+          starts.push(clock.now())
+          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+        },
+      })
+      const definition = Automation.create(cronInput(projectID, "0 9 * * *"), {
+        now: Date.UTC(2024, 4, 30, 8, 30),
+      })
+
+      scheduler.reschedule(definition)
+      const updated = Automation.update(definition.id, { timezone: "America/New_York" }, { now: clock.now() })
+      scheduler.reschedule(updated)
+
+      await clock.advance(30 * 60_000)
+      expect(starts).toEqual([])
+
+      await clock.advance(4 * 60 * 60_000)
+      await waitForRunStates(definition.id, ["succeeded"])
+      expect(starts).toEqual([Date.UTC(2024, 4, 30, 13, 0)])
       scheduler.stop()
     })
   })
@@ -743,7 +811,7 @@ describe("automation scheduler", () => {
     })
   })
 
-  test("stops scheduling recurring automation after count limit above default page size", async () => {
+  test("stops scheduling recurring automation after count limit above page size", async () => {
     await withAutomation(async (projectID) => {
       const clock = new FakeClock(0)
       const starts: number[] = []
@@ -755,19 +823,19 @@ describe("automation scheduler", () => {
         },
       })
       const definition = Automation.create(
-        recurringInput(projectID, 60_000, { stop: { kind: "count", count: 51 } }),
+        recurringInput(projectID, 60_000, { stop: { kind: "count", count: 101 } }),
         { now: 0 },
       )
 
       scheduler.reschedule(definition)
-      for (let runCount = 1; runCount <= 51; runCount++) {
+      for (let runCount = 1; runCount <= 101; runCount++) {
         await clock.advance(60_000)
         await waitForRunCount(definition.id, runCount)
       }
       await clock.advance(60_000)
 
-      expect(starts).toHaveLength(51)
-      expect(Automation.runs({ automationID: definition.id, limit: 100 }).items).toHaveLength(51)
+      expect(starts).toHaveLength(101)
+      expect(allRuns(definition.id)).toHaveLength(101)
       scheduler.stop()
     })
   })

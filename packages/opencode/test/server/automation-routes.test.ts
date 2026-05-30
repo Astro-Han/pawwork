@@ -45,6 +45,24 @@ async function waitForRunCount(automationID: string, count: number) {
   throw new Error(`Timed out waiting for automation run count: ${count}`)
 }
 
+async function waitForRunState(automationID: string, state: Automation.Run["state"]) {
+  const deadline = Date.now() + 2_000
+  while (Date.now() < deadline) {
+    const run = Automation.runs({ automationID }).items[0]
+    if (run?.state === state) return run
+    await Bun.sleep(5)
+  }
+  throw new Error(`Timed out waiting for automation run state: ${state}`)
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  const promise = new Promise<T>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+
 type RecurringCreateInput = Extract<Automation.CreateInput, { kind: "recurring" }>
 type OneshotCreateInput = Extract<Automation.CreateInput, { kind: "oneshot" }>
 
@@ -151,6 +169,33 @@ describe("automation routes", () => {
           completedAt: 400,
         })
       },
+    })
+  })
+
+  test("does not reconcile a run that is active in the current process", async () => {
+    await withAutomationApp(async ({ projectID }) => {
+      const release = deferred<void>()
+      const entered = deferred<void>()
+      const definition = Automation.create(recurringInput(projectID), { now: 100 })
+      const initial = Automation.runNowExecuting(definition.id, {
+        now: 200,
+        executor: async () => {
+          entered.resolve()
+          await release.promise
+          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+        },
+      })
+
+      await entered.promise
+      expect(Automation.reconcileInterruptedRuns({ now: 300 })).toEqual([])
+      expect(Automation.runs({ automationID: definition.id }).items[0]).toMatchObject({
+        id: initial.id,
+        state: "scheduled",
+      })
+
+      release.resolve()
+      const run = await waitForRunState(definition.id, "succeeded")
+      expect(run).toMatchObject({ id: initial.id, state: "succeeded" })
     })
   })
 
