@@ -755,6 +755,12 @@ export namespace Worktree {
           throw new ResetFailedError({ message: `Worktree reset left local changes:\n${status.text.trim()}` })
         }
 
+        const registered = yield* lookupByDirectory(directory)
+        const branch = entry.branch?.replace(/^refs\/heads\//, "")
+        if (registered && branch && registered.branch !== branch) {
+          yield* upsertRegistry(Info.parse({ ...registered, branch }))
+        }
+
         yield* runStartScripts(worktreePath, { projectID: Instance.project.id }).pipe(
           Effect.catchCause((cause) => Effect.sync(() => log.error("worktree start task failed", { cause }))),
         )

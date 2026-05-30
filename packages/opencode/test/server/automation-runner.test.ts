@@ -1,5 +1,6 @@
 import path from "path"
 import fs from "fs/promises"
+import { $ } from "bun"
 import { afterEach, describe, expect, test } from "bun:test"
 import { Effect } from "effect"
 import { Automation } from "../../src/automation"
@@ -13,6 +14,7 @@ import { Session } from "../../src/session"
 import { SessionID } from "../../src/session/schema"
 import { AutomationRunContext, AutomationStepCapError } from "../../src/automation/run-context"
 import { Flock } from "../../src/util/flock"
+import { Worktree } from "../../src/worktree"
 import { tmpdir } from "../fixture/fixture"
 
 afterEach(async () => {
@@ -635,10 +637,17 @@ describe("automation runNow execution", () => {
 
           await Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
           await waitForRun(definition.id, "succeeded")
+          const worktree = await Worktree.lookupBySlug("daily-brief")
+          if (!worktree) throw new Error("expected worktree placement")
+          await $`git checkout -b manual-automation-branch`.cwd(worktree.directory).quiet()
           await Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
 
           await waitForRunCount(definition.id, 2)
           await waitForSucceededRunCount(definition.id, 2)
+          const latest = Automation.runs({ automationID: definition.id }).items[0]
+          if (!latest?.sessionID) throw new Error("expected latest run session")
+          const session = await Session.get(latest.sessionID)
+          expect(session.executionContext.activeWorktree?.branch).toBe("manual-automation-branch")
         },
       })
     } finally {

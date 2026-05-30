@@ -223,6 +223,21 @@ describe("Worktree", () => {
         await Worktree.remove({ directory: info.directory })
       })
     })
+
+    test("refreshes registry branch metadata from the attached worktree", async () => {
+      await using tmp = await tmpdir({ git: true })
+
+      await withInstance(tmp.path, async () => {
+        const info = await Worktree.createReady({ name: "reset-branch-metadata" })
+        await $`git checkout -b manual-reset-branch`.cwd(info.directory).quiet()
+
+        await Worktree.reset({ directory: info.directory })
+
+        const refreshed = await Worktree.lookupBySlug("reset-branch-metadata")
+        expect(refreshed?.branch).toBe("manual-reset-branch")
+        await Worktree.remove({ directory: info.directory })
+      })
+    })
   })
 
   describe("registry source", () => {

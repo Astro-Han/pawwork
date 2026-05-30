@@ -21,7 +21,7 @@ async function prepareWorktreePlacement(definition: Automation.Definition) {
   if (existing) {
     await releaseAutomationWorktreeBindings(existing.directory)
     await Worktree.reset({ directory: existing.directory })
-    return existing
+    return (await Worktree.lookupBySlug(placement)) ?? existing
   }
   return Worktree.createReady({ name: placement, exactName: true })
 }
