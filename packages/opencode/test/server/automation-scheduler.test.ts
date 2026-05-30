@@ -92,6 +92,26 @@ class OversleepClock implements AutomationScheduler.Clock {
   }
 }
 
+class ManualRuntime implements AutomationScheduler.TaskRuntime {
+  private queued: Array<{ run: (signal: AbortSignal) => Effect.Effect<void>; controller: AbortController }> = []
+
+  fork(run: (signal: AbortSignal) => Effect.Effect<void>): AutomationScheduler.Task {
+    const controller = new AbortController()
+    this.queued.push({ run, controller })
+    return {
+      interrupt() {
+        controller.abort()
+      },
+    }
+  }
+
+  start(index: number) {
+    const queued = this.queued[index]
+    if (!queued) throw new Error(`Missing queued task: ${index}`)
+    Effect.runFork(queued.run(queued.controller.signal))
+  }
+}
+
 async function withAutomation<T>(fn: (projectID: ProjectID) => Promise<T>) {
   await using tmp = await tmpdir({ git: true })
   return Instance.provide({
@@ -543,6 +563,34 @@ describe("automation scheduler", () => {
     })
   })
 
+  test("keeps the next recurring fire when non-schedule fields change", async () => {
+    await withAutomation(async (projectID) => {
+      const clock = new FakeClock(0)
+      const starts: number[] = []
+      const scheduler = AutomationScheduler.make({
+        clock,
+        executor: async () => {
+          starts.push(clock.now())
+          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+        },
+      })
+      const definition = Automation.create(recurringInput(projectID, 60_000), { now: 0 })
+
+      scheduler.reschedule(definition)
+      await clock.advance(60_000)
+      await waitForRunStates(definition.id, ["succeeded"])
+
+      await clock.advance(59_999)
+      const updated = Automation.update(definition.id, { title: "Updated title" }, { now: 119_999 })
+      await Automation.publishDefinitionUpdated(updated)
+      await clock.advance(1)
+      await waitForRunStates(definition.id, ["succeeded", "succeeded"])
+
+      expect(starts).toEqual([60_000, 120_000])
+      scheduler.stop()
+    })
+  })
+
   test("stops scheduling recurring automation after count limit", async () => {
     await withAutomation(async (projectID) => {
       const clock = new FakeClock(0)
@@ -779,6 +827,38 @@ describe("automation scheduler", () => {
       await waitForRunStates(definition.id, ["succeeded"])
 
       expect(calls).toEqual([fireAt])
+      scheduler.stop()
+    })
+  })
+
+  test("ignores an aborted stale recurring task after reschedule", async () => {
+    await withAutomation(async (projectID) => {
+      const clock = new FakeClock(0)
+      const runtime = new ManualRuntime()
+      const calls: number[] = []
+      const scheduler = AutomationScheduler.make({
+        clock,
+        runtime,
+        executor: async () => {
+          calls.push(clock.now())
+          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+        },
+      })
+      const definition = Automation.create(recurringInput(projectID, 30_000), { now: 0 })
+
+      scheduler.reschedule(definition)
+      await clock.advance(30_000)
+      const updated = Automation.update(definition.id, { rhythm: { kind: "interval", everyMs: 40_000 } }, { now: 30_000 })
+      scheduler.reschedule(updated)
+
+      runtime.start(0)
+      await clock.flush()
+      expect(calls).toEqual([])
+
+      runtime.start(1)
+      await clock.advance(40_000)
+      await waitForRunStates(definition.id, ["succeeded"])
+      expect(calls).toEqual([70_000])
       scheduler.stop()
     })
   })

@@ -36,6 +36,13 @@ export namespace AutomationScheduler {
     runtime?: TaskRuntime
   }
 
+  type ScheduledTask = {
+    task: Task
+    fireAt: number
+    token: symbol
+    definition: Automation.Definition
+  }
+
   export const liveClock: Clock = {
     now: () => Date.now(),
     sleep: (delayMs, signal) =>
@@ -100,20 +107,29 @@ export namespace AutomationScheduler {
     return false
   }
 
+  function isSameSchedule(left: Automation.Definition, right: Automation.Definition) {
+    if (left.kind !== right.kind || left.paused !== right.paused) return false
+    if (left.kind === "oneshot" && right.kind === "oneshot") return left.fireAt === right.fireAt
+    if (left.kind === "recurring" && right.kind === "recurring") {
+      return JSON.stringify(left.rhythm) === JSON.stringify(right.rhythm) && JSON.stringify(left.stop) === JSON.stringify(right.stop)
+    }
+    return false
+  }
+
   export function make(options: Options = {}): Interface {
     const clock = options.clock ?? liveClock
     const executor = options.executor ?? sessionPromptExecutor
     const runtime = options.runtime ?? liveRuntime
-    const tasks = new Map<string, Task>()
+    const tasks = new Map<string, ScheduledTask>()
     const ownedRuns = new Map<string, string>()
     const schedulerStoppedRuns = new Set<string>()
     let running = true
 
     const cancel = (automationID: string) => {
-      const task = tasks.get(automationID)
-      if (!task) return
+      const entry = tasks.get(automationID)
+      if (!entry) return
       tasks.delete(automationID)
-      task.interrupt()
+      entry.task.interrupt()
     }
 
     const scheduleNextInterval = (automationID: string) => {
@@ -168,21 +184,39 @@ export namespace AutomationScheduler {
       }
     }
 
-    const waitUntil = (automationID: string, fireAt: number, signal: AbortSignal): Effect.Effect<void> =>
+    const isCurrentTask = (automationID: string, fireAt: number, token: symbol, signal: AbortSignal) => {
+      const current = tasks.get(automationID)
+      return !signal.aborted && running && current?.token === token && current.fireAt === fireAt
+    }
+
+    const waitUntil = (automationID: string, fireAt: number, token: symbol, signal: AbortSignal): Effect.Effect<void> =>
       Effect.gen(function* () {
         while (clock.now() < fireAt) {
           const delayMs = Math.max(0, fireAt - clock.now())
           yield* Effect.promise(() => clock.sleep(Math.min(delayMs, MAX_TIMER_DELAY_MS), signal))
-          if (signal.aborted || !running || !tasks.has(automationID)) return
+          if (!isCurrentTask(automationID, fireAt, token, signal)) return
         }
-        if (!running || !tasks.has(automationID)) return
+        if (!isCurrentTask(automationID, fireAt, token, signal)) return
         fire(automationID, fireAt)
       })
 
     const schedule = (definition: Automation.Definition, fireAt: number) => {
       cancel(definition.id)
       if (!running || definition.paused) return
-      tasks.set(definition.id, runtime.fork((signal) => waitUntil(definition.id, fireAt, signal)))
+      const token = Symbol(definition.id)
+      tasks.set(definition.id, {
+        task: runtime.fork((signal) => waitUntil(definition.id, fireAt, token, signal)),
+        fireAt,
+        token,
+        definition,
+      })
+    }
+
+    const preservePendingSchedule = (definition: Automation.Definition) => {
+      const current = tasks.get(definition.id)
+      if (!current || current.fireAt <= clock.now() || !isSameSchedule(current.definition, definition)) return false
+      current.definition = definition
+      return true
     }
 
     const reschedule = (definition: Automation.Definition) => {
@@ -191,6 +225,7 @@ export namespace AutomationScheduler {
         cancel(definition.id)
         return
       }
+      if (preservePendingSchedule(definition)) return
       schedule(definition, next)
     }
 
