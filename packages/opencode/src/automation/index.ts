@@ -552,7 +552,7 @@ export namespace Automation {
 
   function writeRun(run: Run) {
     const definition = getOptional(run.automationID)
-    if (!definition) return
+    if (!definition) throw new NotFoundError({ message: `Automation not found: ${run.automationID}` })
     const now = Date.now()
     Database.use((db) =>
       db
@@ -629,7 +629,7 @@ export namespace Automation {
     return Database.transaction(
       (db) => {
         const row = db.select().from(AutomationRunTable).where(eq(AutomationRunTable.id, previous.id)).get()
-        if (!row || row.project_id !== Instance.project.id || row.owner_directory !== Instance.directory) return next
+        if (!row || row.project_id !== Instance.project.id || row.owner_directory !== Instance.directory) return previous
         const current = Run.parse(row.data)
         if (current.revision !== previous.revision) return current
         const now = Date.now()
@@ -1031,7 +1031,8 @@ export namespace Automation {
       data.activeWriters.add(writerKey)
       data.activeRuns.set(initial.automationID, { writerKey, controller, runID: initial.id })
       const prepared = await executor({ definition, run: initial, attendance, signal: controller.signal })
-      const latest = getRun(initial.id) ?? initial
+      const latest = getRun(initial.id)
+      if (!latest) return
       if (controller.signal.aborted) {
         const stopped = stopRun(latest, "cancelled")
         current = stopped
@@ -1056,7 +1057,9 @@ export namespace Automation {
       current = succeeded
       await publishRunUpdated(succeeded)
     } catch (error) {
-      current = getRun(initial.id) ?? current
+      const latest = getRun(initial.id)
+      if (!latest) return
+      current = latest
       if (controller.signal.aborted) {
         const stopped = stopRun(current, "cancelled")
         if (stopped !== current) await publishRunUpdated(stopped)

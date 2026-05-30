@@ -3,7 +3,9 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { Effect } from "effect"
 import { Automation } from "../../src/automation"
 import { sessionPromptExecutor } from "../../src/automation/runner"
+import { AutomationRunTable } from "../../src/automation/automation.sql"
 import { Bus } from "../../src/bus"
+import { Database, eq } from "../../src/storage/db"
 import { Instance } from "../../src/project/instance"
 import { ProjectID } from "../../src/project/schema"
 import { Session } from "../../src/session"
@@ -302,6 +304,31 @@ describe("automation runNow execution", () => {
         revision: 2,
         stopReason: "cancelled",
       })
+    })
+  })
+
+  test("does not publish execution updates after the durable run row disappears", async () => {
+    await withAutomation(async (projectID) => {
+      const definition = Automation.create(input(projectID))
+      const runEvents: Automation.Run[] = []
+      const executorFinished = defer<void>()
+      const unsubscribeRun = Bus.subscribe(Automation.Event.RunUpdated, (event) => {
+        if (event.properties.automationID === definition.id) runEvents.push(event.properties)
+      })
+
+      await Automation.runNowExecuting(definition.id, {
+        executor: async ({ run }) => {
+          Database.use((db) => db.delete(AutomationRunTable).where(eq(AutomationRunTable.id, run.id)).run())
+          executorFinished.resolve()
+          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+        },
+      })
+      await executorFinished.promise
+      await Bun.sleep(50)
+      unsubscribeRun()
+
+      expect(runEvents).toEqual([])
+      expect(Automation.runs({ automationID: definition.id }).items).toEqual([])
     })
   })
 
