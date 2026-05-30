@@ -259,6 +259,24 @@ describe("automation runNow execution", () => {
     })
   })
 
+  test("does not let stale active snapshots overwrite terminal runs", async () => {
+    await withAutomation(async (projectID) => {
+      const definition = Automation.create(input(projectID))
+      const scheduled = Automation.runNow(definition.id, { now: 100 })
+      const stopped = Automation.stopRunByID(scheduled.id, "cancelled", { now: 200 })
+
+      expect(stopped).toMatchObject({ state: "stopped", revision: 2 })
+      const staleStarted = Automation.markRunStarted(scheduled, SessionID.descending(), { now: 300 })
+
+      expect(staleStarted).toMatchObject({ state: "stopped", revision: 2, stopReason: "cancelled" })
+      expect(Automation.runs({ automationID: definition.id }).items[0]).toMatchObject({
+        state: "stopped",
+        revision: 2,
+        stopReason: "cancelled",
+      })
+    })
+  })
+
   test("publishes continue-session definition updates from the latest definition", async () => {
     await withAutomation(async (projectID) => {
       const definition = Automation.create(input(projectID, { context: "continue" }))

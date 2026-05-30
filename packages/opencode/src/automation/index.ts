@@ -47,6 +47,10 @@ export namespace Automation {
     .object({ error: z.literal("invalid_automation"), details: z.array(ValidationErrorDetail) })
     .strict()
     .meta({ ref: "AutomationValidationError" })
+  export const ConflictErrorResponse = z
+    .object({ error: z.literal("automation_conflict"), message: z.string() })
+    .strict()
+    .meta({ ref: "AutomationConflictError" })
   export const Stop = z
     .discriminatedUnion("kind", [
       z.object({ kind: z.literal("count"), count: z.number().int().positive() }).strict(),
@@ -509,16 +513,36 @@ export namespace Automation {
           time_updated: definition.updatedAt,
           data: definition,
         })
-        .onConflictDoUpdate({
-          target: AutomationDefinitionTable.id,
-          set: {
-            project_id: definition.where.projectID,
-            owner_directory: Instance.directory,
-            time_updated: definition.updatedAt,
-            data: definition,
-          },
-        })
         .run(),
+    )
+  }
+
+  function replaceDefinition(previous: Definition, next: Definition) {
+    return Database.transaction(
+      (db) => {
+        const row = db.select().from(AutomationDefinitionTable).where(eq(AutomationDefinitionTable.id, previous.id)).get()
+        if (!row || row.project_id !== previous.where.projectID || row.owner_directory !== Instance.directory) {
+          throw new NotFoundError({ message: `Automation not found: ${previous.id}` })
+        }
+        const current = Definition.parse(row.data)
+        if (current.revision !== previous.revision) throw new ConflictError(previous.id)
+        db.update(AutomationDefinitionTable)
+          .set({
+            project_id: next.where.projectID,
+            owner_directory: Instance.directory,
+            time_updated: next.updatedAt,
+            data: next,
+          })
+          .where(
+            and(
+              eq(AutomationDefinitionTable.id, previous.id),
+              sql`json_extract(${AutomationDefinitionTable.data}, '$.revision') = ${previous.revision}`,
+            ),
+          )
+          .run()
+        return next
+      },
+      { behavior: "immediate" },
     )
   }
 
@@ -538,17 +562,6 @@ export namespace Automation {
           data: run,
           time_created: now,
           time_updated: now,
-        })
-        .onConflictDoUpdate({
-          target: AutomationRunTable.id,
-          set: {
-            automation_id: run.automationID,
-            project_id: definition.where.projectID,
-            owner_directory: Instance.directory,
-            triggered_at: run.triggeredAt,
-            data: run,
-            time_updated: now,
-          },
         })
         .run(),
     )
@@ -596,8 +609,7 @@ export namespace Automation {
     })
     const details = validateCreateInput(next)
     if (details.length) throw new ValidationError(details)
-    writeDefinition(next)
-    return next
+    return replaceDefinition(previous, next)
   }
 
   export function remove(id: string): { tombstone: Tombstone; stoppedRun?: Run } {
@@ -607,9 +619,34 @@ export namespace Automation {
     return { tombstone: { id: previous.id, deleted: true, revision: previous.revision + 1 }, stoppedRun }
   }
 
-  function replaceRun(run: Run) {
-    writeRun(run)
-    return run
+  function replaceRun(previous: Run, next: Run) {
+    return Database.transaction(
+      (db) => {
+        const row = db.select().from(AutomationRunTable).where(eq(AutomationRunTable.id, previous.id)).get()
+        if (!row || row.project_id !== Instance.project.id || row.owner_directory !== Instance.directory) return next
+        const current = Run.parse(row.data)
+        if (current.revision !== previous.revision) return current
+        const now = Date.now()
+        db.update(AutomationRunTable)
+          .set({
+            automation_id: next.automationID,
+            project_id: row.project_id,
+            owner_directory: row.owner_directory,
+            triggered_at: next.triggeredAt,
+            data: next,
+            time_updated: now,
+          })
+          .where(
+            and(
+              eq(AutomationRunTable.id, previous.id),
+              sql`json_extract(${AutomationRunTable.data}, '$.revision') = ${previous.revision}`,
+            ),
+          )
+          .run()
+        return next
+      },
+      { behavior: "immediate" },
+    )
   }
 
   function reviseRun(run: Run, patch: Record<string, unknown>): Run {
@@ -623,7 +660,7 @@ export namespace Automation {
     for (const [key, value] of Object.entries(next)) {
       if (value === undefined) delete (next as Record<string, unknown>)[key]
     }
-    return replaceRun(Run.parse(next))
+    return replaceRun(run, Run.parse(next))
   }
 
   function stopRun(
@@ -674,15 +711,24 @@ export namespace Automation {
   }
 
   function setDefinitionAutomationSession(definition: Definition, sessionID: SessionID) {
-    if (definition.automationSessionID === sessionID) return definition
-    const next = Definition.parse({
-      ...definition,
-      automationSessionID: sessionID,
-      revision: definition.revision + 1,
-      updatedAt: Date.now(),
-    })
-    writeDefinition(next)
-    return next
+    let current = definition
+    if (current.automationSessionID === sessionID) return current
+    const buildNext = (source: Definition) =>
+      Definition.parse({
+        ...source,
+        automationSessionID: sessionID,
+        revision: source.revision + 1,
+        updatedAt: Date.now(),
+      })
+    try {
+      return replaceDefinition(current, buildNext(current))
+    } catch (error) {
+      if (!(error instanceof ConflictError)) throw error
+      const latest = getOptional(definition.id)
+      if (!latest || latest.context !== "continue" || latest.automationSessionID === sessionID) return latest ?? definition
+      current = latest
+      return replaceDefinition(current, buildNext(current))
+    }
   }
 
   export function markRunBlocked(run: Run, blocker: AutomationRunBlocker): Run {
@@ -1075,5 +1121,12 @@ export class ValidationError extends Error {
   constructor(readonly details: { field: string; message: string }[]) {
     super("Invalid automation")
     this.name = "AutomationValidationError"
+  }
+}
+
+export class ConflictError extends Error {
+  constructor(readonly id: string) {
+    super(`Automation changed while updating: ${id}`)
+    this.name = "AutomationConflictError"
   }
 }
