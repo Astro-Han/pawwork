@@ -31,7 +31,7 @@ export const createClient = (config: Config = {}): Client => {
 
   const interceptors = createInterceptors<Request, Response, unknown, ResolvedRequestOptions>()
 
-  const beforeRequest = async <
+  const resolveRequestOptions = <
     TData = unknown,
     TResponseStyle extends "data" | "fields" = "fields",
     ThrowOnError extends boolean = boolean,
@@ -39,14 +39,25 @@ export const createClient = (config: Config = {}): Client => {
   >(
     options: RequestOptions<TData, TResponseStyle, ThrowOnError, Url>,
   ) => {
-    const opts = {
+    return {
       ..._config,
       ...options,
       fetch: options.fetch ?? _config.fetch ?? globalThis.fetch,
       headers: mergeHeaders(_config.headers, options.headers),
       serializedBody: undefined as string | undefined,
-    }
+    } as RequestOptions<TData, TResponseStyle, ThrowOnError, Url> &
+      ResolvedRequestOptions<TResponseStyle, ThrowOnError, Url>
+  }
 
+  const prepareRequest = async <
+    TData = unknown,
+    TResponseStyle extends "data" | "fields" = "fields",
+    ThrowOnError extends boolean = boolean,
+    Url extends string = string,
+  >(
+    opts: RequestOptions<TData, TResponseStyle, ThrowOnError, Url> &
+      ResolvedRequestOptions<TResponseStyle, ThrowOnError, Url>,
+  ) => {
     if (opts.security) {
       await setAuthParams(opts)
     }
@@ -70,15 +81,26 @@ export const createClient = (config: Config = {}): Client => {
     return { opts: resolvedOpts, url }
   }
 
+  const beforeRequest = async <
+    TData = unknown,
+    TResponseStyle extends "data" | "fields" = "fields",
+    ThrowOnError extends boolean = boolean,
+    Url extends string = string,
+  >(
+    options: RequestOptions<TData, TResponseStyle, ThrowOnError, Url>,
+  ) => prepareRequest(resolveRequestOptions(options))
+
   const request: Client["request"] = async (options) => {
     const throwOnError = options.throwOnError ?? _config.throwOnError
     const responseStyle = options.responseStyle ?? _config.responseStyle
 
     let request: Request | undefined
     let response: Response | undefined
+    let resolvedOptions = resolveRequestOptions(options)
 
     try {
-      const { opts, url } = await beforeRequest(options)
+      const { opts, url } = await prepareRequest(resolvedOptions)
+      resolvedOptions = opts
       const requestInit: ReqInit = {
         redirect: "follow",
         ...opts,
@@ -198,7 +220,7 @@ export const createClient = (config: Config = {}): Client => {
 
       for (const fn of interceptors.error.fns) {
         if (fn) {
-          finalError = await fn(finalError, response, request, options as ResolvedRequestOptions)
+          finalError = await fn(finalError, response, request, resolvedOptions)
         }
       }
 
