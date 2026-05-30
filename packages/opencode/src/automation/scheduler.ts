@@ -181,6 +181,17 @@ export namespace AutomationScheduler {
     return null
   }
 
+  function computePreviousCronFireAt(definition: Extract<Automation.Definition, { kind: "recurring" }>, from: number, until: number) {
+    if (definition.rhythm.kind !== "cron" || until < from) return null
+    const schedule = parseCronSchedule(definition.rhythm.expression)
+    let cursor = DateTime.fromMillis(until, { zone: definition.timezone }).startOf("minute")
+    for (let attempts = 0; attempts < CRON_LOOKAHEAD_MINUTES && cursor.toMillis() >= from; attempts++) {
+      if (cronMatches(schedule, cursor)) return cursor.toMillis()
+      cursor = cursor.minus({ minutes: 1 })
+    }
+    return null
+  }
+
   function canScheduleRecurring(definition: Extract<Automation.Definition, { kind: "recurring" }>) {
     if (definition.stop.kind === "never") return true
     if (definition.stop.kind === "count") return Automation.completedRunCount(definition.id) < definition.stop.count
@@ -343,6 +354,15 @@ export namespace AutomationScheduler {
       const cached = unschedulable.get(definition.id)
       if (cached && isSameSchedule(cached, definition)) return
       unschedulable.delete(definition.id)
+      if (definition.kind === "recurring" && definition.rhythm.kind === "cron") {
+        const firstScheduled = computeNextCronFireAt(definition, definition.createdAt)
+        const missed = firstScheduled === null ? null : computePreviousCronFireAt(definition, firstScheduled, clock.now())
+        if (missed !== null && !Automation.hasRunTriggeredAtOrAfter(definition.id, missed)) {
+          const stopped = Automation.recordStoppedRun(definition.id, "missed_schedule", { now: clock.now(), triggeredAt: missed })
+          schedulerStoppedRuns.add(stopped.id)
+          void Automation.publishRunUpdated(stopped)
+        }
+      }
       const next = computeNextFireAt(definition, clock.now())
       if (next === null) {
         cancel(definition.id)
