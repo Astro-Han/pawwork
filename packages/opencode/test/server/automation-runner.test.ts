@@ -183,6 +183,28 @@ describe("automation runNow execution", () => {
     })
   })
 
+  test("blocks a run when durable storage already has an active run for the project", async () => {
+    await withAutomation(async (projectID) => {
+      const first = Automation.create(input(projectID, { title: "First automation" }))
+      const second = Automation.create(input(projectID, { title: "Second automation" }))
+      Automation.runNow(first.id, { now: 100 })
+      let entered = false
+
+      Automation.runNowExecuting(second.id, {
+        now: 200,
+        executor: async () => {
+          entered = true
+          return { sessionID: SessionID.descending(), result: "second", cost: 0 }
+        },
+      })
+
+      const stopped = await waitForRun(second.id, "stopped")
+      if (stopped.state !== "stopped") throw new Error("expected stopped run")
+      expect(stopped.stopReason).toBe("previous_run_awaiting_input")
+      expect(entered).toBe(false)
+    })
+  })
+
   test("records and clears blocker state on the run ledger", async () => {
     await withAutomation(async (projectID) => {
       const definition = Automation.create(input(projectID))

@@ -8,6 +8,7 @@ import { trackActiveRun } from "../../src/session/lifecycle-provenance"
 import { MessageID, SessionID } from "../../src/session/schema"
 import { createAutomateDefinition } from "../../src/tool/automate"
 import { tmpdir } from "../fixture/fixture"
+import { Flock } from "../../src/util/flock"
 
 afterEach(async () => {
   await Instance.disposeAll()
@@ -148,6 +149,15 @@ function recurringInput(projectID: ProjectID, everyMs: number, overrides: Partia
   }
 }
 
+function cronInput(projectID: ProjectID, expression: string, overrides: Partial<RecurringInput> = {}): RecurringInput {
+  return recurringInput(projectID, 60_000, {
+    rhythm: { kind: "cron", expression },
+    timezone: "UTC",
+    stop: { kind: "never" },
+    ...overrides,
+  })
+}
+
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void
   const promise = new Promise<T>((done) => {
@@ -256,6 +266,46 @@ describe("automation scheduler", () => {
 
       expect(runs).toHaveLength(1)
       expect(runs[0].triggeredAt).toBe(60_000)
+      scheduler.stop()
+    })
+  })
+
+  test("computes cron next fires on wall-clock time instead of interval completion time", async () => {
+    await withAutomation(async (projectID) => {
+      const scheduler = AutomationScheduler.make()
+      const definition = Automation.create(cronInput(projectID, "0 9 * * *"), {
+        now: Date.UTC(2026, 4, 30, 8, 30),
+      })
+
+      const next = scheduler.computeNextFireAt(definition, Date.UTC(2026, 4, 30, 8, 30))
+
+      expect(next).toBe(Date.UTC(2026, 4, 30, 9, 0))
+      scheduler.stop()
+    })
+  })
+
+  test("does not run timers while another owner holds the durable scheduler lock", async () => {
+    await withAutomation(async (projectID) => {
+      const key = `automation-scheduler-test-${Date.now()}-${Math.random()}`
+      await using lease = await Flock.acquire(key)
+      const clock = new FakeClock(0)
+      const calls: number[] = []
+      const scheduler = AutomationScheduler.make({
+        clock,
+        ownerKey: key,
+        ownerRetryMs: 60_000,
+        executor: async () => {
+          calls.push(clock.now())
+          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+        },
+      })
+      const definition = Automation.create(oneshotInput(projectID, 1_000), { now: 0 })
+
+      scheduler.reschedule(definition)
+      await clock.advance(1_000)
+
+      expect(calls).toEqual([])
+      expect(Automation.runs({ automationID: definition.id }).items).toEqual([])
       scheduler.stop()
     })
   })

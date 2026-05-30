@@ -6,7 +6,7 @@ import { Instance } from "@/project/instance"
 import { ProjectID } from "@/project/schema"
 import { PermissionID } from "@/permission/schema"
 import { SessionID } from "@/session/schema"
-import { Database, desc, eq, NotFoundError } from "@/storage/db"
+import { and, Database, desc, eq, NotFoundError } from "@/storage/db"
 import type { AutomationRunAttendance, AutomationRunBlocker } from "./run-context"
 import { AutomationDefinitionTable, AutomationRunTable } from "./automation.sql"
 
@@ -684,6 +684,33 @@ export namespace Automation {
     )
   }
 
+  function isActiveRun(run: Run) {
+    return run.state === "scheduled" || run.state === "running" || run.state === "awaiting_input"
+  }
+
+  function hasDurableActiveWriter(run: Run, writerKey: string) {
+    const definition = get(run.automationID)
+    const projectID = definition.where.projectID
+    const ownerDirectory = Instance.directory
+    return Database.transaction(
+      (db) =>
+        db
+          .select()
+          .from(AutomationRunTable)
+          .where(and(eq(AutomationRunTable.project_id, projectID), eq(AutomationRunTable.owner_directory, ownerDirectory)))
+          .all()
+          .some((row) => {
+            if (row.id === run.id) return false
+            const item = Run.parse(row.data)
+            if (!isActiveRun(item)) return false
+            const itemDefinition = getOptional(item.automationID)
+            const itemWriterKey = itemDefinition?.where.worktree ?? itemDefinition?.where.projectID
+            return itemWriterKey === writerKey
+          }),
+      { behavior: "immediate" },
+    )
+  }
+
   export function hasRunTriggeredAtOrAfter(automationID: string, triggeredAt: number): boolean {
     return runs({ automationID, limit: 100 }).items.some((run) => run.triggeredAt >= triggeredAt)
   }
@@ -691,6 +718,44 @@ export namespace Automation {
   export function completedRunCount(automationID: string): number {
     get(automationID)
     return runs({ automationID, limit: 100 }).items.filter((run) => run.state === "succeeded" || run.state === "failed").length
+  }
+
+  export function reconcileInterruptedRuns(options?: { now?: number }): Run[] {
+    const projectID = Instance.project.id
+    const ownerDirectory = Instance.directory
+    const now = options?.now ?? Date.now()
+    return Database.transaction(
+      (db) => {
+        const rows = db
+          .select()
+          .from(AutomationRunTable)
+          .where(and(eq(AutomationRunTable.project_id, projectID), eq(AutomationRunTable.owner_directory, ownerDirectory)))
+          .all()
+        const stopped: Run[] = []
+        for (const row of rows) {
+          const run = Run.parse(row.data)
+          if (!isActiveRun(run)) continue
+          const nextData: Record<string, unknown> = {
+            ...run,
+            revision: run.revision + 1,
+            state: "stopped",
+            completedAt: now,
+            result: null,
+            error: null,
+            stopReason: run.state === "awaiting_input" ? "blocker_lost" : "expired",
+          }
+          delete nextData.blocker
+          const next = Run.parse(nextData)
+          db.update(AutomationRunTable)
+            .set({ data: next, time_updated: now })
+            .where(eq(AutomationRunTable.id, next.id))
+            .run()
+          stopped.push(next)
+        }
+        return stopped
+      },
+      { behavior: "immediate" },
+    )
   }
 
   export function recordStoppedRun(
@@ -715,7 +780,7 @@ export namespace Automation {
     const data = state()
     const definition = get(initial.automationID)
     const writerKey = definition.where.worktree ?? definition.where.projectID
-    if (data.activeWriters.has(writerKey)) {
+    if (data.activeWriters.has(writerKey) || hasDurableActiveWriter(initial, writerKey)) {
       const stopped = reviseRun(initial, {
         state: "stopped",
         completedAt: Date.now(),

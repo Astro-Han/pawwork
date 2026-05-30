@@ -114,11 +114,46 @@ describe("automation routes", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
+        if (!automationID) throw new Error("expected automationID")
         expect(Automation.list().map((item) => item.id)).toEqual([automationID])
-        expect(Automation.runs({ automationID: automationID! }).items.map((item) => item.triggeredAt)).toEqual([200])
+        expect(Automation.runs({ automationID }).items.map((item) => item.triggeredAt)).toEqual([200])
       },
     })
   })
+
+  test("reconciles persisted active runs with stopped reasons after restart", async () => {
+    await using tmp = await tmpdir({ git: true })
+    let automationID: string | undefined
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const definition = Automation.create(recurringInput(Instance.project.id), { now: 100 })
+        const scheduled = Automation.runNow(definition.id, { now: 200 })
+        const running = Automation.markRunStarted(scheduled, SessionID.descending(), { now: 300 })
+        Automation.markRunBlocked(running, { kind: "question", callID: "call_1" })
+        automationID = definition.id
+      },
+    })
+
+    await Instance.disposeAll()
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        if (!automationID) throw new Error("expected automationID")
+        const reconciled = Automation.reconcileInterruptedRuns({ now: 400 })
+        expect(reconciled).toHaveLength(1)
+        expect(reconciled[0]).toMatchObject({ state: "stopped", stopReason: "blocker_lost", completedAt: 400 })
+        expect(Automation.runs({ automationID }).items[0]).toMatchObject({
+          state: "stopped",
+          stopReason: "blocker_lost",
+          completedAt: 400,
+        })
+      },
+    })
+  })
+
 
   test("route deletion cancels timers before publishing the tombstone", async () => {
     await withAutomationApp(async ({ app, projectID }) => {
