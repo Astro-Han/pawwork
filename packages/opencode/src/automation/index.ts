@@ -318,6 +318,44 @@ export namespace Automation {
     })
   }
 
+  function cronFieldValues(field: string, min: number, max: number) {
+    const values = new Set<number>()
+    for (const item of field.split(",")) {
+      const [base, stepRaw] = item.split("/")
+      const step = stepRaw === undefined ? 1 : Number(stepRaw)
+      const range = base === "*" ? [min, max] : base.split("-").map(Number)
+      const start = range[0]
+      const end = base === "*" || (range.length === 1 && stepRaw !== undefined) ? max : range.length === 1 ? range[0] : range[1]
+      for (let value = start; value <= end; value += step) values.add(value)
+    }
+    return values
+  }
+
+  function hasPossibleCronDayMonth(dayField: string, monthField: string) {
+    const maxDays = new Map([
+      [1, 31],
+      [2, 29],
+      [3, 31],
+      [4, 30],
+      [5, 31],
+      [6, 30],
+      [7, 31],
+      [8, 31],
+      [9, 30],
+      [10, 31],
+      [11, 30],
+      [12, 31],
+    ])
+    for (const month of cronFieldValues(monthField, 1, 12)) {
+      const maxDay = maxDays.get(month)
+      if (maxDay === undefined) continue
+      for (const day of cronFieldValues(dayField, 1, 31)) {
+        if (day <= maxDay) return true
+      }
+    }
+    return false
+  }
+
   export function isValidCronExpression(expression: string) {
     const fields = expression.trim().split(/\s+/)
     if (fields.length !== 5) return false
@@ -326,7 +364,8 @@ export namespace Automation {
       isValidCronField(fields[1], 0, 23) &&
       isValidCronField(fields[2], 1, 31) &&
       isValidCronField(fields[3], 1, 12) &&
-      isValidCronField(fields[4], 0, 7)
+      isValidCronField(fields[4], 0, 7) &&
+      (fields[4] !== "*" || hasPossibleCronDayMonth(fields[2], fields[3]))
     )
   }
 

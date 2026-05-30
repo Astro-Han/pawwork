@@ -200,6 +200,7 @@ export namespace AutomationScheduler {
     const ownerRetryMs = options.ownerRetryMs ?? 5_000
     const ownerRescanMs = options.ownerRescanMs ?? 5_000
     const tasks = new Map<string, ScheduledTask>()
+    const unschedulable = new Map<string, Automation.Definition>()
     const ownedRuns = new Map<string, string>()
     const schedulerStoppedRuns = new Set<string>()
     let ownsTimers = !ownerKey
@@ -210,6 +211,7 @@ export namespace AutomationScheduler {
     let running = true
 
     const cancel = (automationID: string) => {
+      unschedulable.delete(automationID)
       const entry = tasks.get(automationID)
       if (!entry) return
       tasks.delete(automationID)
@@ -308,6 +310,9 @@ export namespace AutomationScheduler {
       return true
     }
 
+    const isStableCronSchedule = (definition: Automation.Definition) =>
+      definition.kind === "recurring" && definition.rhythm.kind === "cron" && definition.stop.kind === "never"
+
     const hasSchedulerOwnedActiveRun = (automationID: string) => {
       for (const ownedAutomationID of ownedRuns.values()) {
         if (ownedAutomationID === automationID) return true
@@ -317,9 +322,14 @@ export namespace AutomationScheduler {
 
     const reschedule = (definition: Automation.Definition) => {
       if (!ownsTimers) return
+      if (isStableCronSchedule(definition) && preservePendingSchedule(definition)) return
+      const cached = unschedulable.get(definition.id)
+      if (cached && isSameSchedule(cached, definition)) return
+      unschedulable.delete(definition.id)
       const next = computeNextFireAt(definition, clock.now())
       if (next === null) {
         cancel(definition.id)
+        if (isStableCronSchedule(definition)) unschedulable.set(definition.id, definition)
         return
       }
       if (preservePendingSchedule(definition)) return

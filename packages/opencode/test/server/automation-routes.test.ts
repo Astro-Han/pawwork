@@ -370,6 +370,11 @@ describe("automation routes", () => {
           [{ field: "rhythm.expression", message: "invalid_cron_expression" }],
         ],
         [
+          "impossible cron date without weekday fallback",
+          recurringInput(projectID, { rhythm: { kind: "cron", expression: "0 0 31 2 *" } }),
+          [{ field: "rhythm.expression", message: "invalid_cron_expression" }],
+        ],
+        [
           "invalid timezone",
           recurringInput(projectID, { timezone: "Mars/Olympus" }),
           [{ field: "timezone", message: "invalid_timezone" }],

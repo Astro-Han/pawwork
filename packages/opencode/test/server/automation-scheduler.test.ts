@@ -309,6 +309,20 @@ describe("automation scheduler", () => {
     })
   })
 
+  test("allows restricted weekdays to provide a fallback for impossible month days", async () => {
+    await withAutomation(async (projectID) => {
+      const scheduler = AutomationScheduler.make()
+      const definition = Automation.create(cronInput(projectID, "0 9 31 2 1"), {
+        now: Date.UTC(2026, 1, 1, 8, 0),
+      })
+
+      const next = scheduler.computeNextFireAt(definition, Date.UTC(2026, 1, 1, 8, 0))
+
+      expect(next).toBe(Date.UTC(2026, 1, 2, 9, 0))
+      scheduler.stop()
+    })
+  })
+
   test("computes cron single-value step expressions from the single-value start", async () => {
     await withAutomation(async (projectID) => {
       const scheduler = AutomationScheduler.make()
