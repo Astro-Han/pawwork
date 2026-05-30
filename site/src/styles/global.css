@@ -571,3 +571,29 @@ footer {
     margin-bottom: 8px;
   }
 }
+
+/* Phones: tighten the header so brand, GitHub, language and theme controls
+   all fit on one row down to ~320px. The secondary "What it does" anchor is
+   dropped (the section is just below) and the brand shrinks slightly. */
+@media (max-width: 600px) {
+  .in {
+    padding: 0 18px;
+  }
+  .bar {
+    padding: 18px 0;
+  }
+  .mark {
+    gap: 9px;
+    font-size: 17px;
+  }
+  .mark img {
+    width: 28px;
+    height: 28px;
+  }
+  .nav {
+    gap: 10px;
+  }
+  .nav a.lk {
+    display: none;
+  }
+}
