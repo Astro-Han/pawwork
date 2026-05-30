@@ -39,9 +39,11 @@ jobs:
       - run: bun run build
         working-directory: site
 
-      # Deploy only on push to dev / manual trigger; PRs run build-check only
-      - uses: cloudflare/wrangler-action@da0993054ca88fcab66e0b3f30f55ff1a93f81f0 # v3
-        if: github.event_name != 'pull_request'
+      # Deploy only when on dev (push to dev or manual dispatch from dev). PRs and
+      # manual runs from other branches stop after the build-check steps above, so
+      # the fixed --branch=dev below can never publish non-dev content.
+      - uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3
+        if: github.ref == 'refs/heads/dev'
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
