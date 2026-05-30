@@ -2440,6 +2440,11 @@ export type AutomationCreateInput =
       stop: AutomationStop
     }
 
+export type AutomationConflictError = {
+  error: "automation_conflict"
+  message: string
+}
+
 export type AutomationUpdateInput = {
   title?: string
   prompt?: string
@@ -2450,6 +2455,11 @@ export type AutomationUpdateInput = {
   fireAt?: number
   rhythm?: AutomationRhythm
   stop?: AutomationStop
+}
+
+export type AutomationActiveRunStillRunningError = {
+  error: "active_run_still_running"
+  runID: string
 }
 
 export type AutomationRunsResponse = {
@@ -5808,6 +5818,10 @@ export type AutomationDeleteErrors = {
    * Not found
    */
   404: NotFoundError
+  /**
+   * Automation has a live run owned by another process
+   */
+  409: AutomationActiveRunStillRunningError
 }
 
 export type AutomationDeleteError = AutomationDeleteErrors[keyof AutomationDeleteErrors]
@@ -5873,6 +5887,10 @@ export type AutomationUpdateErrors = {
    */
   404: NotFoundError
   /**
+   * Automation update conflict
+   */
+  409: AutomationConflictError
+  /**
    * Automation validation failed
    */
   422: AutomationValidationError
@@ -5906,6 +5924,10 @@ export type AutomationPauseErrors = {
    * Not found
    */
   404: NotFoundError
+  /**
+   * Automation update conflict
+   */
+  409: AutomationConflictError
 }
 
 export type AutomationPauseError = AutomationPauseErrors[keyof AutomationPauseErrors]
@@ -5936,6 +5958,10 @@ export type AutomationResumeErrors = {
    * Not found
    */
   404: NotFoundError
+  /**
+   * Automation update conflict
+   */
+  409: AutomationConflictError
 }
 
 export type AutomationResumeError = AutomationResumeErrors[keyof AutomationResumeErrors]

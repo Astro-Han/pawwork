@@ -3535,7 +3535,7 @@ export class Automation extends HeyApiClient {
   /**
    * Delete automation
    *
-   * Delete an automation definition and return a tombstone. If a run is active, stop it and publish the stopped run before publishing the tombstone.
+   * Delete an automation definition and return a tombstone. If a run is active in this process, stop it and publish the stopped run before publishing the tombstone. If a live run is owned by another process, return 409 without deleting.
    */
   public delete<ThrowOnError extends boolean = false>(
     parameters: {

@@ -6,8 +6,10 @@ import { Instance } from "@/project/instance"
 import { ProjectID } from "@/project/schema"
 import { PermissionID } from "@/permission/schema"
 import { SessionID } from "@/session/schema"
-import { NotFoundError } from "@/storage/db"
+import { and, Database, desc, eq, gte, inArray, lt, NotFoundError, or, sql } from "@/storage/db"
+import { Flock } from "@/util/flock"
 import type { AutomationRunAttendance, AutomationRunBlocker } from "./run-context"
+import { AutomationDefinitionTable, AutomationRunTable } from "./automation.sql"
 
 export const AutomationID = {
   Definition: {
@@ -45,6 +47,14 @@ export namespace Automation {
     .object({ error: z.literal("invalid_automation"), details: z.array(ValidationErrorDetail) })
     .strict()
     .meta({ ref: "AutomationValidationError" })
+  export const ConflictErrorResponse = z
+    .object({ error: z.literal("automation_conflict"), message: z.string() })
+    .strict()
+    .meta({ ref: "AutomationConflictError" })
+  export const ActiveRunStillRunningErrorResponse = z
+    .object({ error: z.literal("active_run_still_running"), runID: RunID })
+    .strict()
+    .meta({ ref: "AutomationActiveRunStillRunningError" })
   export const Stop = z
     .discriminatedUnion("kind", [
       z.object({ kind: z.literal("count"), count: z.number().int().positive() }).strict(),
@@ -231,14 +241,10 @@ export namespace Automation {
   }
 
   type State = {
-    definitions: Map<string, Definition>
-    runs: Map<string, Run[]>
     activeWriters: Set<string>
     activeRuns: Map<string, { writerKey: string; controller: AbortController; runID: string }>
   }
   const state = Instance.state<State>(() => ({
-    definitions: new Map(),
-    runs: new Map(),
     activeWriters: new Set(),
     activeRuns: new Map(),
   }))
@@ -321,6 +327,44 @@ export namespace Automation {
     })
   }
 
+  function cronFieldValues(field: string, min: number, max: number) {
+    const values = new Set<number>()
+    for (const item of field.split(",")) {
+      const [base, stepRaw] = item.split("/")
+      const step = stepRaw === undefined ? 1 : Number(stepRaw)
+      const range = base === "*" ? [min, max] : base.split("-").map(Number)
+      const start = range[0]
+      const end = base === "*" || (range.length === 1 && stepRaw !== undefined) ? max : range.length === 1 ? range[0] : range[1]
+      for (let value = start; value <= end; value += step) values.add(value)
+    }
+    return values
+  }
+
+  function hasPossibleCronDayMonth(dayField: string, monthField: string) {
+    const maxDays = new Map([
+      [1, 31],
+      [2, 29],
+      [3, 31],
+      [4, 30],
+      [5, 31],
+      [6, 30],
+      [7, 31],
+      [8, 31],
+      [9, 30],
+      [10, 31],
+      [11, 30],
+      [12, 31],
+    ])
+    for (const month of cronFieldValues(monthField, 1, 12)) {
+      const maxDay = maxDays.get(month)
+      if (maxDay === undefined) continue
+      for (const day of cronFieldValues(dayField, 1, 31)) {
+        if (day <= maxDay) return true
+      }
+    }
+    return false
+  }
+
   export function isValidCronExpression(expression: string) {
     const fields = expression.trim().split(/\s+/)
     if (fields.length !== 5) return false
@@ -329,7 +373,8 @@ export namespace Automation {
       isValidCronField(fields[1], 0, 23) &&
       isValidCronField(fields[2], 1, 31) &&
       isValidCronField(fields[3], 1, 12) &&
-      isValidCronField(fields[4], 0, 7)
+      isValidCronField(fields[4], 0, 7) &&
+      (fields[4] !== "*" || hasPossibleCronDayMonth(fields[2], fields[3]))
     )
   }
 
@@ -417,22 +462,122 @@ export namespace Automation {
             nextFires: [],
             failureStreak: 0,
           }
-    state().definitions.set(definition.id, definition)
+    writeDefinition(definition)
     return definition
   }
 
   export function list(): Definition[] {
-    return [...state().definitions.values()].sort((a, b) => b.updatedAt - a.updatedAt || b.id.localeCompare(a.id))
+    const projectID = Instance.project.id
+    const ownerDirectory = Instance.directory
+    return Database.use((db) =>
+      db
+        .select()
+        .from(AutomationDefinitionTable)
+        .where(
+          and(
+            eq(AutomationDefinitionTable.project_id, projectID),
+            eq(AutomationDefinitionTable.owner_directory, ownerDirectory),
+          ),
+        )
+        .orderBy(desc(AutomationDefinitionTable.time_updated), desc(AutomationDefinitionTable.id))
+        .all()
+        .map((row) => Definition.parse(row.data)),
+    )
   }
 
   export function get(id: string): Definition {
-    const definition = state().definitions.get(id)
+    const definition = getOptional(id)
     if (!definition) throw new NotFoundError({ message: `Automation not found: ${id}` })
     return definition
   }
 
   function getOptional(id: string): Definition | undefined {
-    return state().definitions.get(id)
+    const projectID = Instance.project.id
+    const row = Database.use((db) =>
+      db
+        .select()
+        .from(AutomationDefinitionTable)
+        .where(eq(AutomationDefinitionTable.id, id))
+        .get(),
+    )
+    if (!row || row.project_id !== projectID) return undefined
+    if (row.owner_directory !== Instance.directory) return undefined
+    return Definition.parse(row.data)
+  }
+
+  function writeDefinition(definition: Definition) {
+    Database.use((db) =>
+      db
+        .insert(AutomationDefinitionTable)
+        .values({
+          id: definition.id,
+          project_id: definition.where.projectID,
+          owner_directory: Instance.directory,
+          time_created: definition.createdAt,
+          time_updated: definition.updatedAt,
+          data: definition,
+        })
+        .run(),
+    )
+  }
+
+  function replaceDefinition(previous: Definition, next: Definition) {
+    return Database.transaction(
+      (db) => {
+        const row = db.select().from(AutomationDefinitionTable).where(eq(AutomationDefinitionTable.id, previous.id)).get()
+        if (!row || row.project_id !== previous.where.projectID || row.owner_directory !== Instance.directory) {
+          throw new NotFoundError({ message: `Automation not found: ${previous.id}` })
+        }
+        const current = Definition.parse(row.data)
+        if (current.revision !== previous.revision) throw new ConflictError(previous.id)
+        db.update(AutomationDefinitionTable)
+          .set({
+            project_id: next.where.projectID,
+            owner_directory: Instance.directory,
+            time_updated: next.updatedAt,
+            data: next,
+          })
+          .where(
+            and(
+              eq(AutomationDefinitionTable.id, previous.id),
+              sql`json_extract(${AutomationDefinitionTable.data}, '$.revision') = ${previous.revision}`,
+            ),
+          )
+          .run()
+        return next
+      },
+      { behavior: "immediate" },
+    )
+  }
+
+  function writeRun(run: Run) {
+    const definition = getOptional(run.automationID)
+    if (!definition) throw new NotFoundError({ message: `Automation not found: ${run.automationID}` })
+    const now = Date.now()
+    Database.use((db) =>
+      db
+        .insert(AutomationRunTable)
+        .values({
+          id: run.id,
+          automation_id: run.automationID,
+          project_id: definition.where.projectID,
+          owner_directory: Instance.directory,
+          triggered_at: run.triggeredAt,
+          data: run,
+          time_created: now,
+          time_updated: now,
+        })
+        .run(),
+    )
+  }
+
+  function getRun(runID: string): Run | undefined {
+    const projectID = Instance.project.id
+    const row = Database.use((db) =>
+      db.select().from(AutomationRunTable).where(eq(AutomationRunTable.id, runID)).get(),
+    )
+    if (!row || row.project_id !== projectID || row.owner_directory !== Instance.directory) return undefined
+    return Run.parse(row.data)
   }
 
   function isSameValue(left: unknown, right: unknown): boolean {
@@ -468,25 +613,46 @@ export namespace Automation {
     })
     const details = validateCreateInput(next)
     if (details.length) throw new ValidationError(details)
-    state().definitions.set(id, next)
-    return next
+    return replaceDefinition(previous, next)
   }
 
-  export function remove(id: string): { tombstone: Tombstone; stoppedRun?: Run } {
+  export async function remove(id: string): Promise<{ tombstone: Tombstone; stoppedRun?: Run }> {
     const previous = get(id)
     const stoppedRun = stopActiveRun(id)
-    state().definitions.delete(id)
-    if (!stoppedRun) state().runs.delete(id)
+    const liveRun = await getLiveActiveRun(id)
+    if (liveRun) throw new ActiveRunStillRunningError(liveRun.id)
+    Database.use((db) => db.delete(AutomationDefinitionTable).where(eq(AutomationDefinitionTable.id, id)).run())
     return { tombstone: { id: previous.id, deleted: true, revision: previous.revision + 1 }, stoppedRun }
   }
 
-  function replaceRun(run: Run) {
-    const current = state().runs.get(run.automationID) ?? []
-    state().runs.set(
-      run.automationID,
-      current.map((item) => (item.id === run.id ? run : item)),
+  function replaceRun(previous: Run, next: Run) {
+    return Database.transaction(
+      (db) => {
+        const row = db.select().from(AutomationRunTable).where(eq(AutomationRunTable.id, previous.id)).get()
+        if (!row || row.project_id !== Instance.project.id || row.owner_directory !== Instance.directory) return previous
+        const current = Run.parse(row.data)
+        if (current.revision !== previous.revision) return current
+        const now = Date.now()
+        db.update(AutomationRunTable)
+          .set({
+            automation_id: next.automationID,
+            project_id: row.project_id,
+            owner_directory: row.owner_directory,
+            triggered_at: next.triggeredAt,
+            data: next,
+            time_updated: now,
+          })
+          .where(
+            and(
+              eq(AutomationRunTable.id, previous.id),
+              sql`json_extract(${AutomationRunTable.data}, '$.revision') = ${previous.revision}`,
+            ),
+          )
+          .run()
+        return next
+      },
+      { behavior: "immediate" },
     )
-    return run
   }
 
   function reviseRun(run: Run, patch: Record<string, unknown>): Run {
@@ -500,7 +666,7 @@ export namespace Automation {
     for (const [key, value] of Object.entries(next)) {
       if (value === undefined) delete (next as Record<string, unknown>)[key]
     }
-    return replaceRun(Run.parse(next))
+    return replaceRun(run, Run.parse(next))
   }
 
   function stopRun(
@@ -522,8 +688,33 @@ export namespace Automation {
     const active = state().activeRuns.get(automationID)
     if (!active) return undefined
     active.controller.abort()
-    const current = state().runs.get(automationID)?.find((run) => run.id === active.runID)
+    const current = getRun(active.runID)
     return current ? stopRun(current, "cancelled") : undefined
+  }
+
+  async function getLiveActiveRun(automationID: string) {
+    get(automationID)
+    const projectID = Instance.project.id
+    const ownerDirectory = Instance.directory
+    const rows = Database.use((db) =>
+      db
+        .select()
+        .from(AutomationRunTable)
+        .where(
+          and(
+            eq(AutomationRunTable.automation_id, automationID),
+            eq(AutomationRunTable.project_id, projectID),
+            eq(AutomationRunTable.owner_directory, ownerDirectory),
+            sql`json_extract(${AutomationRunTable.data}, '$.state') in ('scheduled', 'running', 'awaiting_input')`,
+          ),
+        )
+        .all(),
+    )
+    for (const row of rows) {
+      const run = Run.parse(row.data)
+      if (!isActiveRun(run)) continue
+      if (await hasLiveRunLease(run.id)) return run
+    }
   }
 
   export function stopRunByID(
@@ -531,15 +722,12 @@ export namespace Automation {
     stopReason: Extract<Run, { state: "stopped" }>["stopReason"],
     options?: { now?: number },
   ): Run | undefined {
-    for (const runs of state().runs.values()) {
-      const run = runs.find((item) => item.id === runID)
-      if (!run) continue
-      const active = state().activeRuns.get(run.automationID)
-      if (active?.runID === runID) active.controller.abort()
-      const stopped = stopRun(run, stopReason, options)
-      return stopped === run ? undefined : stopped
-    }
-    return undefined
+    const run = getRun(runID)
+    if (!run) return undefined
+    const active = state().activeRuns.get(run.automationID)
+    if (active?.runID === runID) active.controller.abort()
+    const stopped = stopRun(run, stopReason, options)
+    return stopped === run ? undefined : stopped
   }
 
   export function markRunStarted(run: Run, sessionID: SessionID, options?: { now?: number }): Run {
@@ -554,15 +742,26 @@ export namespace Automation {
   }
 
   function setDefinitionAutomationSession(definition: Definition, sessionID: SessionID) {
-    if (definition.automationSessionID === sessionID) return definition
-    const next = Definition.parse({
-      ...definition,
-      automationSessionID: sessionID,
-      revision: definition.revision + 1,
-      updatedAt: Date.now(),
-    })
-    state().definitions.set(definition.id, next)
-    return next
+    let current = definition
+    if (current.automationSessionID === sessionID) return current
+    const buildNext = (source: Definition) =>
+      Definition.parse({
+        ...source,
+        automationSessionID: sessionID,
+        revision: source.revision + 1,
+        updatedAt: Date.now(),
+      })
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        return replaceDefinition(current, buildNext(current))
+      } catch (error) {
+        if (!(error instanceof ConflictError)) throw error
+        const latest = getOptional(definition.id)
+        if (!latest || latest.context !== "continue" || latest.automationSessionID === sessionID) return latest ?? definition
+        current = latest
+      }
+    }
+    return current
   }
 
   export function markRunBlocked(run: Run, blocker: AutomationRunBlocker): Run {
@@ -581,11 +780,10 @@ export namespace Automation {
     })
   }
 
-  export function runNow(id: string, options?: { now?: number }): Run {
+  export function runNow(id: string, options?: { now?: number; runID?: string }): Run {
     const definition = get(id)
-    const current = state().runs.get(id) ?? []
     const run = Run.parse({
-      id: AutomationID.Run.ascending(),
+      id: options?.runID ?? AutomationID.Run.ascending(),
       automationID: id,
       revision: 1,
       definitionRevision: definition.revision,
@@ -598,25 +796,193 @@ export namespace Automation {
       error: null,
       cost: null,
     })
-    state().runs.set(id, [run, ...current])
+    writeRun(run)
     return run
   }
 
   export function hasActiveRun(automationID: string): boolean {
     if (state().activeRuns.has(automationID)) return true
-    return (state().runs.get(automationID) ?? []).some(
-      (run) => run.state === "scheduled" || run.state === "running" || run.state === "awaiting_input",
+    get(automationID)
+    const projectID = Instance.project.id
+    const ownerDirectory = Instance.directory
+    return Boolean(
+      Database.use((db) =>
+        db
+          .select({ id: AutomationRunTable.id })
+          .from(AutomationRunTable)
+          .where(
+            and(
+              eq(AutomationRunTable.automation_id, automationID),
+              eq(AutomationRunTable.project_id, projectID),
+              eq(AutomationRunTable.owner_directory, ownerDirectory),
+              sql`json_extract(${AutomationRunTable.data}, '$.state') in ('scheduled', 'running', 'awaiting_input')`,
+            ),
+          )
+          .limit(1)
+          .get(),
+      ),
+    )
+  }
+
+  function isActiveRun(run: Run) {
+    return run.state === "scheduled" || run.state === "running" || run.state === "awaiting_input"
+  }
+
+  function runLeaseKey(runID: string) {
+    return `automation-run:${Instance.directory}:${runID}`
+  }
+
+  async function hasLiveRunLease(runID: string) {
+    const lease = await Flock.tryAcquire(runLeaseKey(runID))
+    if (!lease) return true
+    await lease.release().catch(() => undefined)
+    return false
+  }
+
+  function hasDurableActiveWriter(run: Run, writerKey: string) {
+    const definition = get(run.automationID)
+    const projectID = definition.where.projectID
+    const ownerDirectory = Instance.directory
+    return Database.transaction(
+      (db) => {
+        const rows = db
+          .select()
+          .from(AutomationRunTable)
+          .where(
+            and(
+              eq(AutomationRunTable.project_id, projectID),
+              eq(AutomationRunTable.owner_directory, ownerDirectory),
+              sql`json_extract(${AutomationRunTable.data}, '$.state') in ('scheduled', 'running', 'awaiting_input')`,
+            ),
+          )
+          .all()
+        const automationIDs = [...new Set(rows.map((row) => row.automation_id))]
+        const definitions = automationIDs.length
+          ? db
+              .select()
+              .from(AutomationDefinitionTable)
+              .where(
+                and(
+                  eq(AutomationDefinitionTable.project_id, projectID),
+                  eq(AutomationDefinitionTable.owner_directory, ownerDirectory),
+                  inArray(AutomationDefinitionTable.id, automationIDs),
+                ),
+              )
+              .all()
+          : []
+        const writerKeys = new Map(
+          definitions.map((row) => {
+            const item = Definition.parse(row.data)
+            return [item.id, item.where.worktree ?? item.where.projectID]
+          }),
+        )
+        return rows.some((row) => {
+          if (row.id === run.id) return false
+          const item = Run.parse(row.data)
+          if (!isActiveRun(item)) return false
+          return writerKeys.get(item.automationID) === writerKey
+        })
+      },
+      { behavior: "immediate" },
     )
   }
 
   export function hasRunTriggeredAtOrAfter(automationID: string, triggeredAt: number): boolean {
-    return (state().runs.get(automationID) ?? []).some((run) => run.triggeredAt >= triggeredAt)
+    get(automationID)
+    const projectID = Instance.project.id
+    const ownerDirectory = Instance.directory
+    return Boolean(
+      Database.use((db) =>
+        db
+          .select({ id: AutomationRunTable.id })
+          .from(AutomationRunTable)
+          .where(
+            and(
+              eq(AutomationRunTable.automation_id, automationID),
+              eq(AutomationRunTable.project_id, projectID),
+              eq(AutomationRunTable.owner_directory, ownerDirectory),
+              gte(AutomationRunTable.triggered_at, triggeredAt),
+            ),
+          )
+          .limit(1)
+          .get(),
+      ),
+    )
   }
 
   export function completedRunCount(automationID: string): number {
     get(automationID)
-    const runs = state().runs.get(automationID) ?? []
-    return runs.filter((run) => run.state === "succeeded" || run.state === "failed").length
+    const projectID = Instance.project.id
+    const ownerDirectory = Instance.directory
+    const row = Database.use((db) =>
+      db
+        .select({ count: sql<number>`count(*)` })
+        .from(AutomationRunTable)
+        .where(
+          and(
+            eq(AutomationRunTable.automation_id, automationID),
+            eq(AutomationRunTable.project_id, projectID),
+            eq(AutomationRunTable.owner_directory, ownerDirectory),
+            sql`json_extract(${AutomationRunTable.data}, '$.state') in ('succeeded', 'failed')`,
+          ),
+        )
+        .get(),
+    )
+    return Number(row?.count ?? 0)
+  }
+
+  export async function reconcileInterruptedRuns(options?: { now?: number }): Promise<Run[]> {
+    const projectID = Instance.project.id
+    const ownerDirectory = Instance.directory
+    const now = options?.now ?? Date.now()
+    const rows = Database.use((db) =>
+      db
+        .select()
+        .from(AutomationRunTable)
+        .where(
+          and(
+            eq(AutomationRunTable.project_id, projectID),
+            eq(AutomationRunTable.owner_directory, ownerDirectory),
+            sql`json_extract(${AutomationRunTable.data}, '$.state') in ('scheduled', 'running', 'awaiting_input')`,
+          ),
+        )
+        .all(),
+    )
+    const stopped: Run[] = []
+    for (const row of rows) {
+      const run = Run.parse(row.data)
+      if (!isActiveRun(run)) continue
+      const active = state().activeRuns.get(run.automationID)
+      if (active?.runID === run.id) continue
+      if (await hasLiveRunLease(run.id)) continue
+      const next = Database.transaction(
+        (db) => {
+          const currentRow = db.select().from(AutomationRunTable).where(eq(AutomationRunTable.id, run.id)).get()
+          if (!currentRow) return
+          const current = Run.parse(currentRow.data)
+          if (!isActiveRun(current)) return
+          const nextData: Record<string, unknown> = {
+            ...current,
+            revision: current.revision + 1,
+            state: "stopped",
+            completedAt: now,
+            result: null,
+            error: null,
+            stopReason: current.state === "awaiting_input" ? "blocker_lost" : "expired",
+          }
+          delete nextData.blocker
+          const next = Run.parse(nextData)
+          db.update(AutomationRunTable)
+            .set({ data: next, time_updated: now })
+            .where(eq(AutomationRunTable.id, next.id))
+            .run()
+          return next
+        },
+        { behavior: "immediate" },
+      )
+      if (next) stopped.push(next)
+    }
+    return stopped
   }
 
   export function recordStoppedRun(
@@ -628,35 +994,45 @@ export namespace Automation {
     return stopRun(run, stopReason, options)
   }
 
-  export function runNowExecuting(
+  export async function runNowExecuting(
     id: string,
     options: { executor: RunExecutor; attendance?: AutomationRunAttendance; now?: number },
-  ): Run {
-    const initial = runNow(id, { now: options.now })
-    void executeRun(initial, options.executor, options.attendance ?? "attended")
-    return initial
+  ): Promise<Run> {
+    const runID = AutomationID.Run.ascending()
+    const lease = await Flock.acquire(runLeaseKey(runID))
+    try {
+      const initial = runNow(id, { now: options.now, runID })
+      queueMicrotask(() => void executeRun(initial, options.executor, options.attendance ?? "attended", lease))
+      return initial
+    } catch (error) {
+      await lease.release().catch(() => undefined)
+      throw error
+    }
   }
 
-  async function executeRun(initial: Run, executor: RunExecutor, attendance: AutomationRunAttendance) {
+  async function executeRun(initial: Run, executor: RunExecutor, attendance: AutomationRunAttendance, lease: Flock.Lease) {
     const data = state()
-    const definition = get(initial.automationID)
-    const writerKey = definition.where.worktree ?? definition.where.projectID
-    if (data.activeWriters.has(writerKey)) {
-      const stopped = reviseRun(initial, {
-        state: "stopped",
-        completedAt: Date.now(),
-        stopReason: "previous_run_awaiting_input",
-      })
-      await publishRunUpdated(stopped)
-      return
-    }
-    data.activeWriters.add(writerKey)
     const controller = new AbortController()
-    data.activeRuns.set(initial.automationID, { writerKey, controller, runID: initial.id })
+    let writerKey: string | undefined
     let current = initial
     try {
+      const definition = get(initial.automationID)
+      writerKey = definition.where.worktree ?? definition.where.projectID
+      for (const run of await reconcileInterruptedRuns()) await publishRunUpdated(run)
+      if (data.activeWriters.has(writerKey) || hasDurableActiveWriter(initial, writerKey)) {
+        const stopped = reviseRun(initial, {
+          state: "stopped",
+          completedAt: Date.now(),
+          stopReason: "previous_run_awaiting_input",
+        })
+        await publishRunUpdated(stopped)
+        return
+      }
+      data.activeWriters.add(writerKey)
+      data.activeRuns.set(initial.automationID, { writerKey, controller, runID: initial.id })
       const prepared = await executor({ definition, run: initial, attendance, signal: controller.signal })
-      const latest = state().runs.get(initial.automationID)?.find((item) => item.id === initial.id) ?? initial
+      const latest = getRun(initial.id)
+      if (!latest) return
       if (controller.signal.aborted) {
         const stopped = stopRun(latest, "cancelled")
         current = stopped
@@ -681,7 +1057,9 @@ export namespace Automation {
       current = succeeded
       await publishRunUpdated(succeeded)
     } catch (error) {
-      current = state().runs.get(initial.automationID)?.find((item) => item.id === initial.id) ?? current
+      const latest = getRun(initial.id)
+      if (!latest) return
+      current = latest
       if (controller.signal.aborted) {
         const stopped = stopRun(current, "cancelled")
         if (stopped !== current) await publishRunUpdated(stopped)
@@ -708,21 +1086,46 @@ export namespace Automation {
       await publishRunUpdated(failed)
     } finally {
       const active = data.activeRuns.get(initial.automationID)
-      if (active?.runID === initial.id) {
+      if (writerKey && active?.runID === initial.id) {
         data.activeRuns.delete(initial.automationID)
         data.activeWriters.delete(writerKey)
       }
+      await lease.release().catch(() => undefined)
     }
   }
 
   export function runs(input: { automationID: string; limit?: number; cursor?: string }) {
-    get(input.automationID)
     const limit = Math.min(Math.max(input.limit ?? 50, 1), 100)
-    const all = state().runs.get(input.automationID) ?? []
-    const cursorIndex = input.cursor ? all.findIndex((run) => run.id === input.cursor) : -1
-    const start = input.cursor ? (cursorIndex === -1 ? all.length : cursorIndex + 1) : 0
-    const items = all.slice(start, start + limit)
-    return { items, nextCursor: start + limit < all.length ? items.at(-1)?.id ?? null : null }
+    get(input.automationID)
+    const projectID = Instance.project.id
+    const ownerDirectory = Instance.directory
+    const cursorRun = input.cursor ? getRun(input.cursor) : undefined
+    if (input.cursor && (!cursorRun || cursorRun.automationID !== input.automationID)) return { items: [], nextCursor: null }
+    const cursorPredicate = cursorRun
+      ? or(
+          lt(AutomationRunTable.triggered_at, cursorRun.triggeredAt),
+          and(eq(AutomationRunTable.triggered_at, cursorRun.triggeredAt), lt(AutomationRunTable.id, cursorRun.id)),
+        )
+      : undefined
+    const page = Database.use((db) =>
+      db
+        .select()
+        .from(AutomationRunTable)
+        .where(
+          and(
+            eq(AutomationRunTable.automation_id, input.automationID),
+            eq(AutomationRunTable.project_id, projectID),
+            eq(AutomationRunTable.owner_directory, ownerDirectory),
+            cursorPredicate,
+          ),
+        )
+        .orderBy(desc(AutomationRunTable.triggered_at), desc(AutomationRunTable.id))
+        .limit(limit + 1)
+        .all()
+        .map((row) => Run.parse(row.data)),
+    )
+    const items = page.slice(0, limit)
+    return { items, nextCursor: page.length > limit ? items.at(-1)?.id ?? null : null }
   }
 
   export const publishDefinitionUpdated = (definition: Definition) => Bus.publish(Event.DefinitionUpdated, definition)
@@ -734,5 +1137,19 @@ export class ValidationError extends Error {
   constructor(readonly details: { field: string; message: string }[]) {
     super("Invalid automation")
     this.name = "AutomationValidationError"
+  }
+}
+
+export class ConflictError extends Error {
+  constructor(readonly id: string) {
+    super(`Automation changed while updating: ${id}`)
+    this.name = "AutomationConflictError"
+  }
+}
+
+export class ActiveRunStillRunningError extends Error {
+  constructor(readonly runID: string) {
+    super(`Automation run is still running: ${runID}`)
+    this.name = "AutomationActiveRunStillRunningError"
   }
 }

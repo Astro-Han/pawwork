@@ -8,6 +8,7 @@ import { trackActiveRun } from "../../src/session/lifecycle-provenance"
 import { MessageID, SessionID } from "../../src/session/schema"
 import { createAutomateDefinition } from "../../src/tool/automate"
 import { tmpdir } from "../fixture/fixture"
+import { Flock } from "../../src/util/flock"
 
 afterEach(async () => {
   await Instance.disposeAll()
@@ -61,6 +62,10 @@ class FakeClock implements AutomationScheduler.Clock {
       await this.flush()
     }
     this.current = target
+  }
+
+  jumpTo(current: number) {
+    this.current = current
   }
 }
 
@@ -148,6 +153,15 @@ function recurringInput(projectID: ProjectID, everyMs: number, overrides: Partia
   }
 }
 
+function cronInput(projectID: ProjectID, expression: string, overrides: Partial<RecurringInput> = {}): RecurringInput {
+  return recurringInput(projectID, 60_000, {
+    rhythm: { kind: "cron", expression },
+    timezone: "UTC",
+    stop: { kind: "never" },
+    ...overrides,
+  })
+}
+
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void
   const promise = new Promise<T>((done) => {
@@ -157,23 +171,55 @@ function deferred<T>() {
 }
 
 async function waitForRunStates(automationID: string, states: Automation.Run["state"][]) {
-  const deadline = Date.now() + 1_000
+  const deadline = Date.now() + 3_000
+  let latest: Automation.Run[] = []
   while (Date.now() < deadline) {
     const items = Automation.runs({ automationID }).items
+    latest = items
     if (items.length >= states.length && states.every((state, index) => items[index]?.state === state)) return items
     await Bun.sleep(5)
   }
-  throw new Error(`Timed out waiting for automation run states: ${states.join(", ")}`)
+  throw new Error(`Timed out waiting for automation run states: ${states.join(", ")}; latest=${JSON.stringify(latest)}`)
+}
+
+function allRuns(automationID: string) {
+  const items: Automation.Run[] = []
+  let cursor: string | undefined
+  while (true) {
+    const page = Automation.runs({ automationID, limit: 100, cursor })
+    items.push(...page.items)
+    if (!page.nextCursor) return items
+    cursor = page.nextCursor
+  }
 }
 
 async function waitForRunCount(automationID: string, count: number) {
-  const deadline = Date.now() + 1_000
+  const deadline = Date.now() + 3_000
   while (Date.now() < deadline) {
-    const items = Automation.runs({ automationID, limit: 100 }).items
+    const items = allRuns(automationID)
     if (items.length >= count) return items
     await Bun.sleep(5)
   }
   throw new Error(`Timed out waiting for automation run count: ${count}`)
+}
+
+async function waitForStarts(starts: unknown[], count: number) {
+  const deadline = Date.now() + 3_000
+  while (Date.now() < deadline) {
+    if (starts.length >= count) return
+    await Bun.sleep(5)
+  }
+  throw new Error(`Timed out waiting for scheduler starts: ${count}`)
+}
+
+async function waitForSignal(input: () => AbortSignal | undefined) {
+  const deadline = Date.now() + 3_000
+  while (Date.now() < deadline) {
+    const signal = input()
+    if (signal) return signal
+    await Bun.sleep(5)
+  }
+  throw new Error("Timed out waiting for run signal")
 }
 
 describe("automation scheduler", () => {
@@ -221,6 +267,7 @@ describe("automation scheduler", () => {
       })
 
       await clock.advance(1_000)
+      await waitForStarts(calls, 1)
       expect(calls).toEqual([1_000])
       scheduler.stop()
     })
@@ -256,6 +303,217 @@ describe("automation scheduler", () => {
 
       expect(runs).toHaveLength(1)
       expect(runs[0].triggeredAt).toBe(60_000)
+      scheduler.stop()
+    })
+  })
+
+  test("computes cron next fires on wall-clock time instead of interval completion time", async () => {
+    await withAutomation(async (projectID) => {
+      const scheduler = AutomationScheduler.make()
+      const definition = Automation.create(cronInput(projectID, "0 9 * * *"), {
+        now: Date.UTC(2026, 4, 30, 8, 30),
+      })
+
+      const next = scheduler.computeNextFireAt(definition, Date.UTC(2026, 4, 30, 8, 30))
+
+      expect(next).toBe(Date.UTC(2026, 4, 30, 9, 0))
+      scheduler.stop()
+    })
+  })
+
+  test("computes cron day-of-month and day-of-week as standard crontab OR semantics", async () => {
+    await withAutomation(async (projectID) => {
+      const scheduler = AutomationScheduler.make()
+      const definition = Automation.create(cronInput(projectID, "0 9 1 * 1"), {
+        now: Date.UTC(2026, 5, 2, 8, 0),
+      })
+
+      const next = scheduler.computeNextFireAt(definition, Date.UTC(2026, 5, 2, 8, 0))
+
+      expect(next).toBe(Date.UTC(2026, 5, 8, 9, 0))
+      scheduler.stop()
+    })
+  })
+
+  test("allows restricted weekdays to provide a fallback for impossible month days", async () => {
+    await withAutomation(async (projectID) => {
+      const scheduler = AutomationScheduler.make()
+      const definition = Automation.create(cronInput(projectID, "0 9 31 2 1"), {
+        now: Date.UTC(2026, 1, 1, 8, 0),
+      })
+
+      const next = scheduler.computeNextFireAt(definition, Date.UTC(2026, 1, 1, 8, 0))
+
+      expect(next).toBe(Date.UTC(2026, 1, 2, 9, 0))
+      scheduler.stop()
+    })
+  })
+
+  test("computes cron single-value step expressions from the single-value start", async () => {
+    await withAutomation(async (projectID) => {
+      const scheduler = AutomationScheduler.make()
+      const definition = Automation.create(cronInput(projectID, "5/15 9 * * *"), {
+        now: Date.UTC(2026, 4, 30, 9, 0),
+      })
+
+      const next = scheduler.computeNextFireAt(definition, Date.UTC(2026, 4, 30, 9, 0))
+
+      expect(next).toBe(Date.UTC(2026, 4, 30, 9, 5))
+      scheduler.stop()
+    })
+  })
+
+  test("computes cron next fires across a leap-year cycle", async () => {
+    await withAutomation(async (projectID) => {
+      const scheduler = AutomationScheduler.make()
+      const definition = Automation.create(cronInput(projectID, "0 0 29 2 *"), {
+        now: Date.UTC(2026, 2, 1, 0, 0),
+      })
+
+      const next = scheduler.computeNextFireAt(definition, Date.UTC(2026, 2, 1, 0, 0))
+
+      expect(next).toBe(Date.UTC(2028, 1, 29, 0, 0))
+      scheduler.stop()
+    })
+  })
+
+  test("reschedules pending cron timers when timezone changes", async () => {
+    await withAutomation(async (projectID) => {
+      const clock = new FakeClock(Date.UTC(2024, 4, 30, 8, 30))
+      const starts: number[] = []
+      const scheduler = AutomationScheduler.make({
+        clock,
+        executor: async () => {
+          starts.push(clock.now())
+          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+        },
+      })
+      const definition = Automation.create(cronInput(projectID, "0 9 * * *"), {
+        now: Date.UTC(2024, 4, 30, 8, 30),
+      })
+
+      scheduler.reschedule(definition)
+      const updated = Automation.update(definition.id, { timezone: "America/New_York" }, { now: clock.now() })
+      scheduler.reschedule(updated)
+
+      await clock.advance(30 * 60_000)
+      expect(starts).toEqual([])
+
+      await clock.advance(4 * 60 * 60_000)
+      await waitForRunStates(definition.id, ["succeeded"])
+      expect(starts).toEqual([Date.UTC(2024, 4, 30, 13, 0)])
+      scheduler.stop()
+    })
+  })
+
+  test("records a missed cron fire after scheduler downtime", async () => {
+    await withAutomation(async (projectID) => {
+      const createdAt = Date.UTC(2026, 4, 30, 8, 30)
+      const missedAt = Date.UTC(2026, 4, 30, 9, 0)
+      const resumedAt = Date.UTC(2026, 4, 30, 9, 5)
+      const clock = new FakeClock(createdAt)
+      const starts: number[] = []
+      const definition = Automation.create(cronInput(projectID, "0 9 * * *"), { now: createdAt })
+
+      clock.jumpTo(resumedAt)
+      const scheduler = AutomationScheduler.make({
+        clock,
+        executor: async () => {
+          starts.push(clock.now())
+          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+        },
+      })
+      const runs = await waitForRunCount(definition.id, 1)
+
+      expect(starts).toEqual([])
+      expect(runs[0]).toMatchObject({
+        state: "stopped",
+        stopReason: "missed_schedule",
+        triggeredAt: missedAt,
+        completedAt: resumedAt,
+      })
+      scheduler.stop()
+    })
+  })
+
+  test("does not record missed cron fires after count stop is reached", async () => {
+    await withAutomation(async (projectID) => {
+      const createdAt = Date.UTC(2026, 4, 30, 8, 30)
+      const firstFire = Date.UTC(2026, 4, 30, 9, 0)
+      const afterSecondFire = Date.UTC(2026, 4, 31, 9, 5)
+      const clock = new FakeClock(createdAt)
+      const starts: number[] = []
+      const scheduler = AutomationScheduler.make({
+        clock,
+        executor: async () => {
+          starts.push(clock.now())
+          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+        },
+      })
+      const definition = Automation.create(cronInput(projectID, "0 9 * * *", { stop: { kind: "count", count: 1 } }), {
+        now: createdAt,
+      })
+
+      scheduler.reschedule(definition)
+      await clock.advance(firstFire - createdAt)
+      await waitForRunStates(definition.id, ["succeeded"])
+
+      clock.jumpTo(afterSecondFire)
+      scheduler.reschedule(definition)
+      await clock.advance(0)
+
+      expect(starts).toEqual([firstFire])
+      expect(Automation.runs({ automationID: definition.id }).items).toHaveLength(1)
+      scheduler.stop()
+    })
+  })
+
+  test("does not cancel a due cron fire during owner rescan", async () => {
+    await withAutomation(async (projectID) => {
+      const clock = new FakeClock(0)
+      const starts: number[] = []
+      const scheduler = AutomationScheduler.make({
+        clock,
+        executor: async () => {
+          starts.push(clock.now())
+          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+        },
+      })
+      const definition = Automation.create(cronInput(projectID, "* * * * *"), { now: 0 })
+
+      scheduler.reschedule(definition)
+      clock.jumpTo(60_000)
+      scheduler.reschedule(definition)
+      await clock.advance(0)
+      await waitForRunStates(definition.id, ["succeeded"])
+
+      expect(starts).toEqual([60_000])
+      scheduler.stop()
+    })
+  })
+
+  test("does not run timers while another owner holds the durable scheduler lock", async () => {
+    await withAutomation(async (projectID) => {
+      const key = `automation-scheduler-test-${Date.now()}-${Math.random()}`
+      await using lease = await Flock.acquire(key)
+      const clock = new FakeClock(0)
+      const calls: number[] = []
+      const scheduler = AutomationScheduler.make({
+        clock,
+        ownerKey: key,
+        ownerRetryMs: 60_000,
+        executor: async () => {
+          calls.push(clock.now())
+          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+        },
+      })
+      const definition = Automation.create(oneshotInput(projectID, 1_000), { now: 0 })
+
+      scheduler.reschedule(definition)
+      await clock.advance(1_000)
+
+      expect(calls).toEqual([])
+      expect(Automation.runs({ automationID: definition.id }).items).toEqual([])
       scheduler.stop()
     })
   })
@@ -329,7 +587,7 @@ describe("automation scheduler", () => {
       const definition = Automation.create(oneshotInput(projectID, 1_000), { now: 0 })
 
       scheduler.reschedule(definition)
-      Automation.remove(definition.id)
+      await Automation.remove(definition.id)
       await expect(clock.advance(1_000)).resolves.toBeUndefined()
 
       expect(calls).toEqual([])
@@ -350,7 +608,7 @@ describe("automation scheduler", () => {
           return { sessionID: SessionID.descending(), result: "scheduled", cost: 0 }
         },
       })
-      Automation.runNowExecuting(definition.id, {
+      await Automation.runNowExecuting(definition.id, {
         now: 0,
         executor: async () => releaseManual.promise,
       })
@@ -426,7 +684,8 @@ describe("automation scheduler", () => {
 
       scheduler.reschedule(definition)
       await clock.advance(60_000)
-      expect(runSignal?.aborted).toBe(false)
+      await waitForRunStates(definition.id, ["scheduled"])
+      expect((await waitForSignal(() => runSignal)).aborted).toBe(false)
 
       await Instance.dispose({ mode: "force" })
 
@@ -454,7 +713,8 @@ describe("automation scheduler", () => {
 
       scheduler.reschedule(definition)
       await clock.advance(60_000)
-      expect(runSignal?.aborted).toBe(false)
+      await waitForRunStates(definition.id, ["scheduled"])
+      expect((await waitForSignal(() => runSignal)).aborted).toBe(false)
 
       await Instance.dispose()
 
@@ -480,6 +740,7 @@ describe("automation scheduler", () => {
         stopOwnedRuns: () => {
           throw new Error("pre-stop failed")
         },
+        settleOwner: async () => undefined,
         reschedule: () => undefined,
         cancel: () => undefined,
         computeNextFireAt: () => null,
@@ -502,7 +763,7 @@ describe("automation scheduler", () => {
           return { sessionID: SessionID.descending(), result: "scheduled", cost: 0 }
         },
       })
-      Automation.runNowExecuting(definition.id, {
+      await Automation.runNowExecuting(definition.id, {
         now: 0,
         executor: async () => releaseManual.promise,
       })
@@ -546,6 +807,7 @@ describe("automation scheduler", () => {
 
       scheduler.reschedule(definition)
       await clock.advance(60_000)
+      await waitForStarts(starts, 1)
       expect(starts).toEqual([60_000])
 
       await clock.advance(60_000)
@@ -608,6 +870,7 @@ describe("automation scheduler", () => {
 
       scheduler.reschedule(definition)
       await clock.advance(30_000)
+      await waitForStarts(starts, 1)
       expect(starts).toEqual([30_000])
 
       await clock.advance(10_000)
@@ -679,7 +942,7 @@ describe("automation scheduler", () => {
       )
 
       scheduler.reschedule(definition)
-      Automation.runNowExecuting(definition.id, {
+      await Automation.runNowExecuting(definition.id, {
         now: 30_000,
         executor: async () => ({ sessionID: SessionID.descending(), result: "manual", cost: 0 }),
       })
@@ -693,7 +956,7 @@ describe("automation scheduler", () => {
     })
   })
 
-  test("stops scheduling recurring automation after count limit above default page size", async () => {
+  test("stops scheduling recurring automation after count limit above page size", async () => {
     await withAutomation(async (projectID) => {
       const clock = new FakeClock(0)
       const starts: number[] = []
@@ -705,19 +968,20 @@ describe("automation scheduler", () => {
         },
       })
       const definition = Automation.create(
-        recurringInput(projectID, 60_000, { stop: { kind: "count", count: 51 } }),
+        recurringInput(projectID, 60_000, { stop: { kind: "count", count: 101 } }),
         { now: 0 },
       )
 
       scheduler.reschedule(definition)
-      for (let runCount = 1; runCount <= 51; runCount++) {
+      for (let runCount = 1; runCount <= 101; runCount++) {
         await clock.advance(60_000)
+        await waitForStarts(starts, runCount)
         await waitForRunCount(definition.id, runCount)
       }
       await clock.advance(60_000)
 
-      expect(starts).toHaveLength(51)
-      expect(Automation.runs({ automationID: definition.id, limit: 100 }).items).toHaveLength(51)
+      expect(starts).toHaveLength(101)
+      expect(allRuns(definition.id)).toHaveLength(101)
       scheduler.stop()
     })
   })
@@ -751,13 +1015,17 @@ describe("automation scheduler", () => {
     await withAutomation(async (projectID) => {
       const clock = new FakeClock(0)
       const releaseWriter = deferred<{ sessionID: SessionID; result: string | null; cost?: number | null }>()
+      const writerEntered = deferred<void>()
       const starts: number[] = []
       const blocker = Automation.create(oneshotInput(projectID, 10_000_000), { now: 0 })
-      Automation.runNowExecuting(blocker.id, {
+      await Automation.runNowExecuting(blocker.id, {
         now: 0,
-        executor: async () => releaseWriter.promise,
+        executor: async () => {
+          writerEntered.resolve()
+          return releaseWriter.promise
+        },
       })
-      await waitForRunStates(blocker.id, ["scheduled"])
+      await writerEntered.promise
       const scheduler = AutomationScheduler.make({
         clock,
         executor: async () => {
@@ -785,6 +1053,7 @@ describe("automation scheduler", () => {
     await withAutomation(async (projectID) => {
       const clock = new FakeClock(0)
       const releaseBlocker = deferred<{ sessionID: SessionID; result: string | null; cost?: number | null }>()
+      const blockerEntered = deferred<void>()
       const scheduler = AutomationScheduler.make({
         clock,
         executor: async () => ({ sessionID: SessionID.descending(), result: "scheduled", cost: 0 }),
@@ -792,15 +1061,18 @@ describe("automation scheduler", () => {
       const blocker = Automation.create(oneshotInput(projectID, 10_000_000), { now: 0 })
       const definition = Automation.create(recurringInput(projectID, 60_000), { now: 0 })
 
-      Automation.runNowExecuting(blocker.id, {
+      await Automation.runNowExecuting(blocker.id, {
         now: 0,
-        executor: async () => releaseBlocker.promise,
+        executor: async () => {
+          blockerEntered.resolve()
+          return releaseBlocker.promise
+        },
       })
-      await waitForRunStates(blocker.id, ["scheduled"])
+      await blockerEntered.promise
       scheduler.reschedule(definition)
 
       await clock.advance(30_000)
-      Automation.runNowExecuting(definition.id, {
+      await Automation.runNowExecuting(definition.id, {
         now: 30_000,
         executor: async () => ({ sessionID: SessionID.descending(), result: "manual", cost: 0 }),
       })
@@ -829,6 +1101,7 @@ describe("automation scheduler", () => {
       const definition = Automation.create(oneshotInput(projectID, 1_000), { now: 0 })
       const active = Automation.runNow(definition.id, { now: 0 })
       Automation.markRunStarted(active, SessionID.descending(), { now: 0 })
+      await using _ = await Flock.acquire(`automation-run:${Instance.directory}:${active.id}`)
 
       scheduler.reschedule(definition)
       await clock.advance(1_000)
@@ -841,6 +1114,36 @@ describe("automation scheduler", () => {
         triggeredAt: 1_000,
         completedAt: 1_000,
       })
+      scheduler.stop()
+    })
+  })
+
+  test("reconciles a stale project writer before firing another automation", async () => {
+    await withAutomation(async (projectID) => {
+      const clock = new FakeClock(0)
+      const calls: number[] = []
+      const scheduler = AutomationScheduler.make({
+        clock,
+        executor: async () => {
+          calls.push(clock.now())
+          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+        },
+      })
+      const staleWriter = Automation.create(recurringInput(projectID, 60_000, { title: "Stale writer" }), { now: 0 })
+      const stale = Automation.runNow(staleWriter.id, { now: 0 })
+      const definition = Automation.create(oneshotInput(projectID, 1_000), { now: 0 })
+
+      scheduler.reschedule(definition)
+      await clock.advance(1_000)
+      const runs = await waitForRunStates(definition.id, ["succeeded"])
+
+      expect(calls).toEqual([1_000])
+      expect(Automation.runs({ automationID: staleWriter.id }).items[0]).toMatchObject({
+        id: stale.id,
+        state: "stopped",
+        stopReason: "expired",
+      })
+      expect(runs[0]).toMatchObject({ state: "succeeded", triggeredAt: 1_000 })
       scheduler.stop()
     })
   })
@@ -920,6 +1223,32 @@ describe("automation scheduler", () => {
       await waitForRunStates(definition.id, ["succeeded"])
 
       expect(calls).toEqual([65_000])
+      scheduler.stop()
+    })
+  })
+
+  test("records a missed one-shot after restart instead of catching up within timer grace", async () => {
+    await withAutomation(async (projectID) => {
+      const clock = new OversleepClock(90_000, 90_000)
+      const calls: number[] = []
+      const definition = Automation.create(oneshotInput(projectID, 60_000), { now: 0 })
+      const scheduler = AutomationScheduler.make({
+        clock,
+        executor: async () => {
+          calls.push(clock.now())
+          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+        },
+      })
+
+      const runs = await waitForRunCount(definition.id, 1)
+
+      expect(calls).toEqual([])
+      expect(runs[0]).toMatchObject({
+        state: "stopped",
+        stopReason: "missed_schedule",
+        triggeredAt: 60_000,
+        completedAt: 90_000,
+      })
       scheduler.stop()
     })
   })

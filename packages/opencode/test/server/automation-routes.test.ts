@@ -10,6 +10,7 @@ import { ErrorMiddleware } from "../../src/server/middleware"
 import { AutomationRoutes } from "../../src/server/instance/automation"
 import { PermissionID } from "../../src/permission/schema"
 import { SessionID } from "../../src/session/schema"
+import { Flock } from "../../src/util/flock"
 import { tmpdir } from "../fixture/fixture"
 
 void Log.init({ print: false })
@@ -43,6 +44,24 @@ async function waitForRunCount(automationID: string, count: number) {
     await Bun.sleep(5)
   }
   throw new Error(`Timed out waiting for automation run count: ${count}`)
+}
+
+async function waitForRunState(automationID: string, state: Automation.Run["state"]) {
+  const deadline = Date.now() + 2_000
+  while (Date.now() < deadline) {
+    const run = Automation.runs({ automationID }).items[0]
+    if (run?.state === state) return run
+    await Bun.sleep(5)
+  }
+  throw new Error(`Timed out waiting for automation run state: ${state}`)
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  const promise = new Promise<T>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
 }
 
 type RecurringCreateInput = Extract<Automation.CreateInput, { kind: "recurring" }>
@@ -94,12 +113,224 @@ function run(overrides: Record<string, unknown> = {}) {
 }
 
 describe("automation routes", () => {
+  test("reloads definitions and runs from durable storage after instance restart", async () => {
+    await using tmp = await tmpdir({ git: true })
+    let automationID: string | undefined
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const definition = Automation.create(recurringInput(Instance.project.id), { now: 100 })
+        const run = Automation.runNow(definition.id, { now: 200 })
+        automationID = definition.id
+
+        expect(run.automationID).toBe(definition.id)
+      },
+    })
+
+    await Instance.disposeAll()
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        if (!automationID) throw new Error("expected automationID")
+        expect(Automation.list().map((item) => item.id)).toEqual([automationID])
+        expect(Automation.runs({ automationID }).items.map((item) => item.triggeredAt)).toEqual([200])
+      },
+    })
+  })
+
+  test("reconciles persisted active runs with stopped reasons after restart", async () => {
+    await using tmp = await tmpdir({ git: true })
+    let automationID: string | undefined
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const definition = Automation.create(recurringInput(Instance.project.id), { now: 100 })
+        const scheduled = Automation.runNow(definition.id, { now: 200 })
+        const running = Automation.markRunStarted(scheduled, SessionID.descending(), { now: 300 })
+        Automation.markRunBlocked(running, { kind: "question", callID: "call_1" })
+        automationID = definition.id
+      },
+    })
+
+    await Instance.disposeAll()
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        if (!automationID) throw new Error("expected automationID")
+        const reconciled = await Automation.reconcileInterruptedRuns({ now: 400 })
+        expect(reconciled).toHaveLength(1)
+        expect(reconciled[0]).toMatchObject({ state: "stopped", stopReason: "blocker_lost", completedAt: 400 })
+        expect(Automation.runs({ automationID }).items[0]).toMatchObject({
+          state: "stopped",
+          stopReason: "blocker_lost",
+          completedAt: 400,
+        })
+      },
+    })
+  })
+
+  test("does not reconcile a persisted active run while another process holds its run lease", async () => {
+    await withAutomationApp(async ({ projectID }) => {
+      const definition = Automation.create(recurringInput(projectID), { now: 100 })
+      const active = Automation.runNow(definition.id, { now: 200 })
+      await using _ = await Flock.acquire(`automation-run:${Instance.directory}:${active.id}`)
+
+      const reconciled = await Automation.reconcileInterruptedRuns({ now: 300 })
+
+      expect(reconciled).toEqual([])
+      expect(Automation.runs({ automationID: definition.id }).items[0]).toMatchObject({
+        id: active.id,
+        state: "scheduled",
+      })
+
+      const blockedDefinition = Automation.create(recurringInput(projectID, { title: "Blocked repo brief" }), { now: 100 })
+      let started = false
+      await Automation.runNowExecuting(blockedDefinition.id, {
+        now: 400,
+        executor: async () => {
+          started = true
+          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+        },
+      })
+      const blocked = await waitForRunState(blockedDefinition.id, "stopped")
+      expect(started).toBe(false)
+      expect(blocked).toMatchObject({ state: "stopped", stopReason: "previous_run_awaiting_input" })
+    })
+  })
+
+  test("does not expose an executing run to reconcile before its run lease is held", async () => {
+    await withAutomationApp(async ({ projectID }) => {
+      const release = deferred<{ sessionID: SessionID; result: string | null; cost?: number | null }>()
+      const definition = Automation.create(recurringInput(projectID), { now: 100 })
+
+      const pending = Automation.runNowExecuting(definition.id, {
+        now: 200,
+        executor: async () => release.promise,
+      })
+
+      expect(Automation.runs({ automationID: definition.id }).items).toEqual([])
+      expect(await Automation.reconcileInterruptedRuns({ now: 300 })).toEqual([])
+
+      const initial = await pending
+      expect(Automation.runs({ automationID: definition.id }).items[0]).toMatchObject({
+        id: initial.id,
+        state: "scheduled",
+      })
+
+      release.resolve({ sessionID: SessionID.descending(), result: "done", cost: 0 })
+      await waitForRunState(definition.id, "succeeded")
+    })
+  })
+
+  test("does not reconcile a run that is active in the current process", async () => {
+    await withAutomationApp(async ({ projectID }) => {
+      const release = deferred<void>()
+      const entered = deferred<void>()
+      const definition = Automation.create(recurringInput(projectID), { now: 100 })
+      const initial = await Automation.runNowExecuting(definition.id, {
+        now: 200,
+        executor: async () => {
+          entered.resolve()
+          await release.promise
+          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+        },
+      })
+
+      await entered.promise
+      await expect(Automation.reconcileInterruptedRuns({ now: 300 })).resolves.toEqual([])
+      expect(Automation.runs({ automationID: definition.id }).items[0]).toMatchObject({
+        id: initial.id,
+        state: "scheduled",
+      })
+
+      release.resolve()
+      const run = await waitForRunState(definition.id, "succeeded")
+      expect(run).toMatchObject({ id: initial.id, state: "succeeded" })
+    })
+  })
+
+  test("list route waits for scheduler owner settle before returning persisted definitions", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const gate = deferred<void>()
+      let settled = false
+      let responseSettled = false
+      AutomationScheduler.install({
+        stop: () => undefined,
+        stopOwnedRuns: () => undefined,
+        settleOwner: async () => {
+          settled = true
+          await gate.promise
+        },
+        reschedule: () => undefined,
+        cancel: () => undefined,
+        computeNextFireAt: () => null,
+      })
+      const definition = Automation.create(recurringInput(projectID), { now: 100 })
+
+      const responsePromise = json(app, "/automation").then((response) => {
+        responseSettled = true
+        return response
+      })
+      await Bun.sleep(0)
+
+      expect(settled).toBe(true)
+      expect(responseSettled).toBe(false)
+      gate.resolve()
+      const response = await responsePromise
+      expect(response.items.map((item: Automation.Definition) => item.id)).toEqual([definition.id])
+    })
+  })
+
+  test("runNow route reconciles stale persisted active runs before queuing a new run", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const gate = deferred<void>()
+      let settled = false
+      let responseSettled = false
+      AutomationScheduler.install({
+        stop: () => undefined,
+        stopOwnedRuns: () => undefined,
+        settleOwner: async () => {
+          settled = true
+          await gate.promise
+          for (const run of await Automation.reconcileInterruptedRuns({ now: 300 })) await Automation.publishRunUpdated(run)
+        },
+        reschedule: () => undefined,
+        cancel: () => undefined,
+        computeNextFireAt: () => null,
+      })
+      const definition = Automation.create(recurringInput(projectID), { now: 100 })
+      const stale = Automation.runNow(definition.id, { now: 200 })
+
+      const responsePromise = json(app, `/automation/${definition.id}/run`, { method: "POST" }).then((response) => {
+        responseSettled = true
+        return response
+      })
+      await Bun.sleep(0)
+
+      expect(settled).toBe(true)
+      expect(responseSettled).toBe(false)
+      gate.resolve()
+      const response = await responsePromise
+      const runs = Automation.runs({ automationID: definition.id }).items
+
+      expect(response).toMatchObject({ automationID: definition.id, state: "scheduled" })
+      expect(response.id).not.toBe(stale.id)
+      expect(runs.find((run) => run.id === stale.id)).toMatchObject({ state: "stopped", stopReason: "expired" })
+    })
+  })
+
+
   test("route deletion cancels timers before publishing the tombstone", async () => {
     await withAutomationApp(async ({ app, projectID }) => {
       const cancelled: string[] = []
       AutomationScheduler.install({
         stop: () => undefined,
         stopOwnedRuns: () => undefined,
+        settleOwner: async () => undefined,
         reschedule: () => undefined,
         cancel: (automationID) => cancelled.push(automationID),
         computeNextFireAt: () => null,
@@ -214,6 +445,11 @@ describe("automation routes", () => {
           [{ field: "rhythm.expression", message: "invalid_cron_expression" }],
         ],
         [
+          "impossible cron date without weekday fallback",
+          recurringInput(projectID, { rhythm: { kind: "cron", expression: "0 0 31 2 *" } }),
+          [{ field: "rhythm.expression", message: "invalid_cron_expression" }],
+        ],
+        [
           "invalid timezone",
           recurringInput(projectID, { timezone: "Mars/Olympus" }),
           [{ field: "timezone", message: "invalid_timezone" }],
@@ -303,6 +539,24 @@ describe("automation routes", () => {
 
       const afterDelete = await json(app, "/automation")
       expect(afterDelete.items).toEqual([])
+    })
+  })
+
+  test("delete rejects a live run owned by another process", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const created = Automation.create(recurringInput(projectID), { now: 100 })
+      const active = Automation.runNow(created.id, { now: 200 })
+      await using _ = await Flock.acquire(`automation-run:${Instance.directory}:${active.id}`)
+
+      const response = await app.request(`/automation/${created.id}`, { method: "DELETE" })
+
+      expect(response.status).toBe(409)
+      expect(await response.json()).toEqual({ error: "active_run_still_running", runID: active.id })
+      expect(Automation.get(created.id).id).toBe(created.id)
+      expect(Automation.runs({ automationID: created.id }).items[0]).toMatchObject({
+        id: active.id,
+        state: "scheduled",
+      })
     })
   })
 
@@ -523,10 +777,20 @@ describe("automation routes", () => {
     const paths = spec.paths as Record<string, any>
     const create422 = paths["/automation"].post.responses["422"].content["application/json"].schema
     const update422 = paths["/automation/{automationID}"].put.responses["422"].content["application/json"].schema
+    const update409 = paths["/automation/{automationID}"].put.responses["409"].content["application/json"].schema
+    const pause409 = paths["/automation/{automationID}/pause"].post.responses["409"].content["application/json"].schema
+    const resume409 = paths["/automation/{automationID}/resume"].post.responses["409"].content["application/json"].schema
+    const delete409 = paths["/automation/{automationID}"].delete.responses["409"].content["application/json"].schema
 
     expect(create422).toEqual({ $ref: "#/components/schemas/AutomationValidationError" })
     expect(update422).toEqual({ $ref: "#/components/schemas/AutomationValidationError" })
+    expect(update409).toEqual({ $ref: "#/components/schemas/AutomationConflictError" })
+    expect(pause409).toEqual({ $ref: "#/components/schemas/AutomationConflictError" })
+    expect(resume409).toEqual({ $ref: "#/components/schemas/AutomationConflictError" })
+    expect(delete409).toEqual({ $ref: "#/components/schemas/AutomationActiveRunStillRunningError" })
     expect(spec.components?.schemas).toHaveProperty("AutomationValidationError")
+    expect(spec.components?.schemas).toHaveProperty("AutomationConflictError")
+    expect(spec.components?.schemas).toHaveProperty("AutomationActiveRunStillRunningError")
   })
 
   test("openapi describes delete active-run stop side effect", async () => {
@@ -537,6 +801,7 @@ describe("automation routes", () => {
 
     expect(description).toContain("If a run is active")
     expect(description).toContain("publish the stopped run")
+    expect(description).toContain("live run is owned by another process")
   })
 
   test("runNow returns the queued run before background execution updates it", async () => {
