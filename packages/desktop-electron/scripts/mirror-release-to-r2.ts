@@ -25,6 +25,35 @@ import { releaseAssetNames } from "./verify-release.ts"
 const MUTABLE_POINTERS = new Set(["latest.yml", "latest-mac.yml"])
 const IMMUTABLE_CACHE = "public, max-age=31536000, immutable"
 const POINTER_CACHE = "no-cache, must-revalidate"
+const MANIFEST_NAME = "latest.json"
+
+export type UploadStep = { name: string; cacheControl: string; manifest?: boolean }
+
+// Pointer object the landing page reads to swap download buttons to R2 links.
+// Keys match the data-dl attributes on the buttons in site/src/pages/index.astro.
+export function buildManifest(version: string, publicBase: string) {
+  const base = publicBase.replace(/\/$/, "")
+  return {
+    version,
+    macArm64: `${base}/pawwork-mac-arm64-${version}.dmg`,
+    macX64: `${base}/pawwork-mac-x64-${version}.dmg`,
+    winX64: `${base}/pawwork-win-x64-${version}.exe`,
+  }
+}
+
+// Ordered upload plan: immutable versioned artifacts first, then the mutable
+// electron-updater pointers, then the landing-page manifest LAST — the single
+// switch that makes a release live. The order is load-bearing (a half-mirror
+// must never point the site at incomplete artifacts); locked by the test.
+export function uploadPlan(assets: string[]): UploadStep[] {
+  const versioned = assets
+    .filter((name) => !MUTABLE_POINTERS.has(name))
+    .map((name) => ({ name, cacheControl: IMMUTABLE_CACHE }))
+  const pointers = assets
+    .filter((name) => MUTABLE_POINTERS.has(name))
+    .map((name) => ({ name, cacheControl: POINTER_CACHE }))
+  return [...versioned, ...pointers, { name: MANIFEST_NAME, cacheControl: POINTER_CACHE, manifest: true }]
+}
 
 const CONTENT_TYPES: Record<string, string> = {
   dmg: "application/x-apple-diskimage",
@@ -74,12 +103,10 @@ async function main() {
   const endpoint = `https://${accountId}.r2.cloudflarestorage.com`
 
   const assets = releaseAssetNames(version)
-  const versioned = assets.filter((name) => !MUTABLE_POINTERS.has(name))
-  const pointers = assets.filter((name) => MUTABLE_POINTERS.has(name))
 
   const dir = await mkdtemp(join(tmpdir(), "pawwork-r2-"))
   try {
-    await mirror({ assets, versioned, pointers, tag, repo, dir, bucket, endpoint, publicBase, version })
+    await mirror({ assets, tag, repo, dir, bucket, endpoint, publicBase, version })
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
@@ -87,8 +114,6 @@ async function main() {
 
 type MirrorArgs = {
   assets: string[]
-  versioned: string[]
-  pointers: string[]
   tag: string
   repo: string
   dir: string
@@ -98,7 +123,7 @@ type MirrorArgs = {
   version: string
 }
 
-async function mirror({ assets, versioned, pointers, tag, repo, dir, bucket, endpoint, publicBase, version }: MirrorArgs) {
+async function mirror({ assets, tag, repo, dir, bucket, endpoint, publicBase, version }: MirrorArgs) {
   console.log(`Downloading ${assets.length} assets of ${tag} from ${repo} ...`)
   for (const name of assets) {
     await run(["gh", "release", "download", tag, "--repo", repo, "--pattern", name, "--dir", dir])
@@ -126,30 +151,21 @@ async function mirror({ assets, versioned, pointers, tag, repo, dir, bucket, end
     console.log(`  ✓ ${name} (${localSize} bytes)`)
   }
 
-  // 1. Immutable versioned artifacts first, each verified by HEAD.
-  console.log("Uploading versioned artifacts ...")
-  for (const name of versioned) await upload(name, IMMUTABLE_CACHE)
-
-  // 2. electron-updater pointers (mutable, for the future #219 in-app updater).
-  console.log("Uploading updater pointers ...")
-  for (const name of pointers) await upload(name, POINTER_CACHE)
-
-  // 3. Landing page pointer LAST — the single switch that makes the new
-  //    release live on the site.
-  const manifest = {
-    version,
-    macArm64: `${publicBase}/pawwork-mac-arm64-${version}.dmg`,
-    macX64: `${publicBase}/pawwork-mac-x64-${version}.dmg`,
-    winX64: `${publicBase}/pawwork-win-x64-${version}.exe`,
+  // Upload in the load-bearing order (versioned -> updater pointers -> manifest
+  // last). The manifest is generated just before its upload.
+  for (const step of uploadPlan(assets)) {
+    if (step.manifest) {
+      await Bun.write(join(dir, step.name), JSON.stringify(buildManifest(version, publicBase), null, 2))
+    }
+    await upload(step.name, step.cacheControl)
   }
-  const manifestPath = join(dir, "latest.json")
-  await Bun.write(manifestPath, JSON.stringify(manifest, null, 2))
-  await upload("latest.json", POINTER_CACHE)
 
   console.log(`Mirrored ${tag} to ${publicBase} (latest.json -> ${version}).`)
 }
 
-main().catch((err) => {
-  console.error(err instanceof Error ? err.message : err)
-  process.exit(1)
-})
+if (import.meta.main) {
+  main().catch((err) => {
+    console.error(err instanceof Error ? err.message : err)
+    process.exit(1)
+  })
+}
