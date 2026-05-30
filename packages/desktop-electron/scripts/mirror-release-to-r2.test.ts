@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test"
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
 
 import { releaseAssetNames } from "./verify-release.ts"
 import { buildManifest, uploadPlan } from "./mirror-release-to-r2.ts"
@@ -51,5 +53,27 @@ describe("uploadPlan", () => {
     const assets = releaseAssetNames("2026.5.29")
     expect(names.slice(0, -1).sort()).toEqual([...assets].sort())
     expect(new Set(names).size).toBe(names.length)
+  })
+})
+
+describe("mirror workflow shell-injection guard", () => {
+  const workflow = readFileSync(
+    join(import.meta.dir, "..", "..", "..", ".github", "workflows", "mirror-release-to-r2.yml"),
+    "utf8",
+  )
+
+  test("never interpolates a GitHub expression into a run: command", () => {
+    // An attacker-controlled tag must reach the secrets-bearing steps as data
+    // ($TAG), never as shell text — ${{ }} in a run: line allows injection.
+    const offending = workflow
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("#"))
+      .filter((line) => line.includes("run:") && line.includes("${{"))
+    expect(offending).toEqual([])
+  })
+
+  test("passes the tag to scripts via the quoted env var", () => {
+    expect(workflow).toContain('verify-release.ts "$TAG"')
+    expect(workflow).toContain('mirror-release-to-r2.ts "$TAG"')
   })
 })

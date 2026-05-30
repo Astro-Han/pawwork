@@ -24,6 +24,10 @@ permissions:
 env:
   R2_BUCKET: pawwork-downloads
   DOWNLOAD_PUBLIC_BASE: https://dl.pawwork.ai
+  # Pass the tag via env, never interpolate ${{ }} into a run: script — an
+  # attacker-controlled tag must reach the secrets-bearing steps as data, not
+  # shell. Steps reference "$TAG" only.
+  TAG: ${{ github.event.release.tag_name || github.event.inputs.tag }}
 
 jobs:
   mirror:
@@ -39,17 +43,13 @@ jobs:
           # Load-bearing for `bun audit` exit semantics; do not bump without re-verifying advisory exit codes.
           bun-version: "1.3.14"
 
-      - name: Resolve tag
-        id: tag
-        run: echo "tag=${{ github.event.release.tag_name || github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
-
       - name: Verify release is complete (fail closed)
-        run: bun packages/desktop-electron/scripts/verify-release.ts "${{ steps.tag.outputs.tag }}"
+        run: bun packages/desktop-electron/scripts/verify-release.ts "$TAG"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Mirror release assets to R2
-        run: bun packages/desktop-electron/scripts/mirror-release-to-r2.ts "${{ steps.tag.outputs.tag }}"
+        run: bun packages/desktop-electron/scripts/mirror-release-to-r2.ts "$TAG"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           R2_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
