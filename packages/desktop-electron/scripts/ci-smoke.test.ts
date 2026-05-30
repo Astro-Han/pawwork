@@ -5,11 +5,16 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import { desktopShellMainSelector, titlebarShellSelector } from "../src/renderer/ci-smoke-selectors"
 import {
+  allocateCiSmokeCdpPort,
   appIdForSmoke,
   buildSmokeEnv,
+  isCiSmokeRendererTarget,
   parseSmokeArgs,
+  parseSmokeCdpPort,
+  probeCiSmokeCdpTarget,
   requiredSelectors,
   resolveCiSmokeReadyFile,
+  resolveCiSmokeCdpPort,
   resolveLaunchCommand,
   resolveMainEntry,
 } from "./ci-smoke"
@@ -66,6 +71,141 @@ describe("ci smoke helpers", () => {
     expect(env.OPENCODE_CHANNEL).toBe("prod")
     expect(env.PAWWORK_CI_SMOKE).toBe("true")
     expect(env.PAWWORK_CI_SMOKE_HOME).toBe("/tmp/pawwork-ci-smoke")
+  })
+
+  test("buildSmokeEnv carries the workflow-scoped CDP port into the child process", () => {
+    const env = buildSmokeEnv("/tmp/pawwork-ci-smoke", "dev", { PAWWORK_CI_SMOKE_CDP_PORT: "48291" })
+
+    expect(env.PAWWORK_CI_SMOKE_CDP_PORT).toBe("48291")
+  })
+
+  test("buildSmokeEnv injects the harness-allocated CDP port into the child process", () => {
+    const env = buildSmokeEnv("/tmp/pawwork-ci-smoke", "dev", {}, { cdpPort: 48291 })
+
+    expect(env.PAWWORK_CI_SMOKE_CDP_PORT).toBe("48291")
+  })
+
+  test("parseSmokeCdpPort accepts only concrete TCP ports", () => {
+    expect(parseSmokeCdpPort("48291")).toBe(48291)
+    expect(parseSmokeCdpPort(undefined)).toBeUndefined()
+    expect(parseSmokeCdpPort("")).toBeUndefined()
+
+    for (const value of ["0", "65536", "1.5", "not-a-port"]) {
+      expect(() => parseSmokeCdpPort(value)).toThrow("Invalid CI smoke CDP port")
+    }
+  })
+
+  test("resolveCiSmokeCdpPort allocates a port only when the CDP probe is enabled", async () => {
+    const allocated: string[] = []
+
+    expect(await resolveCiSmokeCdpPort({}, async () => 48291)).toBeUndefined()
+    expect(
+      await resolveCiSmokeCdpPort({ PAWWORK_CI_SMOKE_CDP: "true" }, async () => {
+        allocated.push("called")
+        return 48291
+      }),
+    ).toBe(48291)
+    expect(allocated).toEqual(["called"])
+  })
+
+  test("resolveCiSmokeCdpPort prefers an explicit port for local smoke debugging", async () => {
+    expect(
+      await resolveCiSmokeCdpPort({ PAWWORK_CI_SMOKE_CDP: "true", PAWWORK_CI_SMOKE_CDP_PORT: "48291" }, async () => {
+        throw new Error("explicit ports should not allocate")
+      }),
+    ).toBe(48291)
+  })
+
+  test("allocateCiSmokeCdpPort returns a concrete loopback TCP port", async () => {
+    const port = await allocateCiSmokeCdpPort()
+
+    expect(port).toBeGreaterThan(0)
+    expect(port).toBeLessThanOrEqual(65_535)
+  })
+
+  test("isCiSmokeRendererTarget accepts real renderer page URLs only", () => {
+    expect(isCiSmokeRendererTarget({ type: "page", url: "http://127.0.0.1:5173/index.html" })).toBe(true)
+    expect(isCiSmokeRendererTarget({ type: "page", url: "http://localhost:5173/index.html#/chat" })).toBe(true)
+    expect(isCiSmokeRendererTarget({ type: "page", url: "http://[::1]:5173/index.html?debug=1" })).toBe(true)
+    expect(isCiSmokeRendererTarget({ type: "page", url: "pawwork-renderer://renderer/index.html#/session" })).toBe(true)
+
+    expect(isCiSmokeRendererTarget({ type: "page", url: "about:blank" })).toBe(false)
+    expect(isCiSmokeRendererTarget({ type: "page", url: "devtools://devtools/bundled/inspector.html" })).toBe(false)
+    expect(isCiSmokeRendererTarget({ type: "iframe", url: "pawwork-renderer://renderer/index.html" })).toBe(false)
+    expect(isCiSmokeRendererTarget({ type: "page", url: "file:///Applications/PawWork/index.html" })).toBe(false)
+    expect(isCiSmokeRendererTarget({ type: "page", url: "pawwork-renderer://wrong/index.html" })).toBe(false)
+  })
+
+  test("probeCiSmokeCdpTarget retries until the renderer target is discoverable", async () => {
+    const calls: string[] = []
+    const responses = [
+      Promise.reject(new Error("connect ECONNREFUSED")),
+      Promise.resolve(new Response(JSON.stringify([{ type: "page", url: "about:blank" }]))),
+      Promise.resolve(
+        new Response(JSON.stringify([{ type: "page", url: "pawwork-renderer://renderer/index.html" }])),
+      ),
+    ]
+
+    await probeCiSmokeCdpTarget(48291, {
+      attempts: 3,
+      delayMs: 1,
+      fetch: (url) => {
+        calls.push(url)
+        return responses.shift()!
+      },
+      sleep: () => Promise.resolve(),
+    })
+
+    expect(calls).toEqual([
+      "http://127.0.0.1:48291/json/list",
+      "http://127.0.0.1:48291/json/list",
+      "http://127.0.0.1:48291/json/list",
+    ])
+  })
+
+  test("probeCiSmokeCdpTarget fails clearly when no renderer page appears", async () => {
+    await expect(
+      probeCiSmokeCdpTarget(48291, {
+        attempts: 2,
+        delayMs: 1,
+        fetch: () => Promise.resolve(new Response(JSON.stringify([{ type: "page", url: "about:blank" }]))),
+        sleep: () => Promise.resolve(),
+      }),
+    ).rejects.toThrow("CDP endpoint on port 48291 did not expose a renderer page target")
+  })
+
+  test("probeCiSmokeCdpTarget drains non-OK discovery responses before retrying", async () => {
+    let drained = false
+
+    await expect(
+      probeCiSmokeCdpTarget(48291, {
+        attempts: 1,
+        delayMs: 1,
+        fetch: () =>
+          Promise.resolve({
+            ok: false,
+            status: 403,
+            arrayBuffer: () => {
+              drained = true
+              return Promise.resolve(new ArrayBuffer(0))
+            },
+          } as Response),
+        sleep: () => Promise.resolve(),
+      }),
+    ).rejects.toThrow("CDP endpoint never came up on port 48291: HTTP 403")
+
+    expect(drained).toBe(true)
+  })
+
+  test("probeCiSmokeCdpTarget fails clearly when the endpoint never responds", async () => {
+    await expect(
+      probeCiSmokeCdpTarget(48291, {
+        attempts: 2,
+        delayMs: 1,
+        fetch: () => Promise.reject(new Error("connect ECONNREFUSED")),
+        sleep: () => Promise.resolve(),
+      }),
+    ).rejects.toThrow("CDP endpoint never came up on port 48291")
   })
 
   test("parseSmokeArgs defaults to raw dev mode", () => {
