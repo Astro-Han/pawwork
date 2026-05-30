@@ -42,7 +42,7 @@ export const formDataBodySerializer = {
   bodySerializer: (body: unknown): FormData => {
     const data = new FormData()
 
-    Object.entries(body as Record<string, unknown>).forEach(([key, value]) => {
+    Object.entries((body ?? {}) as Record<string, unknown>).forEach(([key, value]) => {
       if (value === undefined || value === null) {
         return
       }
@@ -66,7 +66,7 @@ export const urlSearchParamsBodySerializer = {
   bodySerializer: (body: unknown): string => {
     const data = new URLSearchParams()
 
-    Object.entries(body as Record<string, unknown>).forEach(([key, value]) => {
+    Object.entries((body ?? {}) as Record<string, unknown>).forEach(([key, value]) => {
       if (value === undefined || value === null) {
         return
       }

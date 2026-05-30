@@ -151,7 +151,9 @@ export function createSseClient<TData = unknown>({
             const { done, value } = await reader.read()
             if (done) break
             buffer += value
-            buffer = buffer.replace(/\r\n?/g, "\n") // normalize line endings
+            const hasTrailingCR = buffer.endsWith("\r")
+            const toNormalize = hasTrailingCR ? buffer.slice(0, -1) : buffer
+            buffer = toNormalize.replace(/\r\n?/g, "\n") + (hasTrailingCR ? "\r" : "")
 
             const chunks = buffer.split("\n\n")
             buffer = chunks.pop() ?? ""

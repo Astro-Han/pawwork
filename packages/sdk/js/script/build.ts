@@ -44,6 +44,8 @@ await $`bun prettier --write src/v2`
 // @hey-api/client-fetch passes raw options to error interceptors on request failures.
 // Keep the generated v2 client aligned with the SDK contract until upstream supports this.
 await patchV2ClientErrorInterceptorOptions()
+await patchV2BodySerializerNullHandling()
+await patchV2SseSplitCrLfHandling()
 await $`bun prettier --write src/v2`
 await $`rm -rf dist`
 await $`bun tsc`
@@ -127,9 +129,42 @@ async function patchV2ClientErrorInterceptorOptions() {
   await writeFile(clientPath, source)
 }
 
+async function patchV2BodySerializerNullHandling() {
+  const serializerPath = path.join(dir, "src/v2/gen/core/bodySerializer.gen.ts")
+  let source = await readFile(serializerPath, "utf8")
+
+  source = replacePatternOnce(
+    source,
+    /Object\.entries\(body as Record<string, unknown>\)\.forEach\(\(\[key, value\]\) => \{/,
+    "Object.entries((body ?? {}) as Record<string, unknown>).forEach(([key, value]) => {",
+  )
+  source = replacePatternOnce(
+    source,
+    /Object\.entries\(body as Record<string, unknown>\)\.forEach\(\(\[key, value\]\) => \{/,
+    "Object.entries((body ?? {}) as Record<string, unknown>).forEach(([key, value]) => {",
+  )
+
+  await writeFile(serializerPath, source)
+}
+
+async function patchV2SseSplitCrLfHandling() {
+  const ssePath = path.join(dir, "src/v2/gen/core/serverSentEvents.gen.ts")
+  let source = await readFile(ssePath, "utf8")
+
+  source = replacePatternOnce(
+    source,
+    /buffer = buffer\.replace\(\/\\r\\n\?\/g, ['"]\\n['"]\)(?: \/\/ normalize line endings)?/,
+    `const hasTrailingCR = buffer.endsWith("\\r")
+            const toNormalize = hasTrailingCR ? buffer.slice(0, -1) : buffer
+            buffer = toNormalize.replace(/\\r\\n?/g, "\\n") + (hasTrailingCR ? "\\r" : "")`,
+  )
+
+  await writeFile(ssePath, source)
+}
+
 function replacePatternOnce(source: string, search: RegExp, replacement: string) {
   if (!search.test(source)) {
-    throw new Error("Generated client shape changed; update the SDK error interceptor patch")
+    throw new Error("Generated SDK shape changed; update the SDK post-generation patches")
   }
 
   return source.replace(search, replacement)
