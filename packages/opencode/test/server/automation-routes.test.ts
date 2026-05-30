@@ -759,10 +759,17 @@ describe("automation routes", () => {
     const paths = spec.paths as Record<string, any>
     const create422 = paths["/automation"].post.responses["422"].content["application/json"].schema
     const update422 = paths["/automation/{automationID}"].put.responses["422"].content["application/json"].schema
+    const update409 = paths["/automation/{automationID}"].put.responses["409"].content["application/json"].schema
+    const pause409 = paths["/automation/{automationID}/pause"].post.responses["409"].content["application/json"].schema
+    const resume409 = paths["/automation/{automationID}/resume"].post.responses["409"].content["application/json"].schema
 
     expect(create422).toEqual({ $ref: "#/components/schemas/AutomationValidationError" })
     expect(update422).toEqual({ $ref: "#/components/schemas/AutomationValidationError" })
+    expect(update409).toEqual({ $ref: "#/components/schemas/AutomationConflictError" })
+    expect(pause409).toEqual({ $ref: "#/components/schemas/AutomationConflictError" })
+    expect(resume409).toEqual({ $ref: "#/components/schemas/AutomationConflictError" })
     expect(spec.components?.schemas).toHaveProperty("AutomationValidationError")
+    expect(spec.components?.schemas).toHaveProperty("AutomationConflictError")
   })
 
   test("openapi describes delete active-run stop side effect", async () => {

@@ -720,15 +720,17 @@ export namespace Automation {
         revision: source.revision + 1,
         updatedAt: Date.now(),
       })
-    try {
-      return replaceDefinition(current, buildNext(current))
-    } catch (error) {
-      if (!(error instanceof ConflictError)) throw error
-      const latest = getOptional(definition.id)
-      if (!latest || latest.context !== "continue" || latest.automationSessionID === sessionID) return latest ?? definition
-      current = latest
-      return replaceDefinition(current, buildNext(current))
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        return replaceDefinition(current, buildNext(current))
+      } catch (error) {
+        if (!(error instanceof ConflictError)) throw error
+        const latest = getOptional(definition.id)
+        if (!latest || latest.context !== "continue" || latest.automationSessionID === sessionID) return latest ?? definition
+        current = latest
+      }
     }
+    return current
   }
 
   export function markRunBlocked(run: Run, blocker: AutomationRunBlocker): Run {
@@ -1089,27 +1091,6 @@ export namespace Automation {
     )
     const items = page.slice(0, limit)
     return { items, nextCursor: page.length > limit ? items.at(-1)?.id ?? null : null }
-  }
-
-  function allRuns(automationID: string) {
-    get(automationID)
-    const projectID = Instance.project.id
-    const ownerDirectory = Instance.directory
-    return Database.use((db) =>
-      db
-        .select()
-        .from(AutomationRunTable)
-        .where(
-          and(
-            eq(AutomationRunTable.automation_id, automationID),
-            eq(AutomationRunTable.project_id, projectID),
-            eq(AutomationRunTable.owner_directory, ownerDirectory),
-          ),
-        )
-        .orderBy(desc(AutomationRunTable.triggered_at), desc(AutomationRunTable.id))
-        .all()
-        .map((row) => Run.parse(row.data)),
-    )
   }
 
   export const publishDefinitionUpdated = (definition: Definition) => Bus.publish(Event.DefinitionUpdated, definition)

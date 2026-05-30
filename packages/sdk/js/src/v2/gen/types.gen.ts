@@ -2440,6 +2440,11 @@ export type AutomationCreateInput =
       stop: AutomationStop
     }
 
+export type AutomationConflictError = {
+  error: "automation_conflict"
+  message: string
+}
+
 export type AutomationUpdateInput = {
   title?: string
   prompt?: string
@@ -5873,6 +5878,10 @@ export type AutomationUpdateErrors = {
    */
   404: NotFoundError
   /**
+   * Automation update conflict
+   */
+  409: AutomationConflictError
+  /**
    * Automation validation failed
    */
   422: AutomationValidationError
@@ -5906,6 +5915,10 @@ export type AutomationPauseErrors = {
    * Not found
    */
   404: NotFoundError
+  /**
+   * Automation update conflict
+   */
+  409: AutomationConflictError
 }
 
 export type AutomationPauseError = AutomationPauseErrors[keyof AutomationPauseErrors]
@@ -5936,6 +5949,10 @@ export type AutomationResumeErrors = {
    * Not found
    */
   404: NotFoundError
+  /**
+   * Automation update conflict
+   */
+  409: AutomationConflictError
 }
 
 export type AutomationResumeError = AutomationResumeErrors[keyof AutomationResumeErrors]
