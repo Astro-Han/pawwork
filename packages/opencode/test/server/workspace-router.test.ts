@@ -250,7 +250,7 @@ describe("workspace router", () => {
     }
   })
 
-  test("keeps GET session list local for remote workspaces", async () => {
+  test("keeps GET session list on the current local route for remote workspaces", async () => {
     let remoteHits = 0
     await using remote = Bun.serve({
       port: 0,
@@ -278,7 +278,10 @@ describe("workspace router", () => {
         },
       })
 
-      await response.text()
+      expect(response.status).toBe(500)
+      const body = await response.json()
+      expect(body.name).toBe("UnknownError")
+      expect(body.data.message).toContain("No context found for instance")
       expect(remoteHits).toBe(0)
     } finally {
       ensureSync.mockRestore()

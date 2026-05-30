@@ -357,7 +357,7 @@ Decision table for the design:
 | Local workspace target | Run in the adaptor target directory. | `InstanceRef` for target directory; `WorkspaceRef` for the selected workspace. |
 | Remote workspace target, normal forwarded route | Forward through `ServerProxy.http` after stripping proxy-only workspace headers. | No local instance context for the route body. |
 | Remote workspace target, WebSocket upgrade | Forward through `ServerProxy.websocket`. | No local instance context for the route body. |
-| Remote workspace target, local cached route | Keep local for `GET /session` and session-detail GET routes. | No instance context today; preserve current route behavior unless explicitly changed. |
+| Remote workspace target, local cached route | Keep local for `GET /session` and session-detail GET routes, rather than forwarding them to the remote target. `GET /session` currently has no instance context and returns the current local error; making it return a usable list is a behavior change that needs an explicit decision. | No instance context today; preserve current route behavior unless explicitly changed. |
 | `/session/status` with workspace | Forward to the remote target. | No local instance context for the route body. |
 | Session route with a bound `workspaceID` and a conflicting query `workspace` | Use the session-bound workspace. | Same context as the selected workspace target. |
 | Missing workspace record, normal route | Return `500` text response with `Workspace not found: <id>`. | No instance context. |
