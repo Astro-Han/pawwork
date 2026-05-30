@@ -219,6 +219,13 @@ export namespace AutomationScheduler {
       return true
     }
 
+    const hasSchedulerOwnedActiveRun = (automationID: string) => {
+      for (const ownedAutomationID of ownedRuns.values()) {
+        if (ownedAutomationID === automationID) return true
+      }
+      return false
+    }
+
     const reschedule = (definition: Automation.Definition) => {
       const next = computeNextFireAt(definition, clock.now())
       if (next === null) {
@@ -226,6 +233,7 @@ export namespace AutomationScheduler {
         return
       }
       if (preservePendingSchedule(definition)) return
+      if (!tasks.has(definition.id) && definition.kind === "recurring" && hasSchedulerOwnedActiveRun(definition.id)) return
       schedule(definition, next)
     }
 

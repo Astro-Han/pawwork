@@ -591,6 +591,46 @@ describe("automation scheduler", () => {
     })
   })
 
+  test("does not schedule a recurring timer while its scheduled run is active", async () => {
+    await withAutomation(async (projectID) => {
+      const clock = new FakeClock(0)
+      const releaseFirst = deferred<void>()
+      const starts: number[] = []
+      const scheduler = AutomationScheduler.make({
+        clock,
+        executor: async () => {
+          starts.push(clock.now())
+          if (starts.length === 1) await releaseFirst.promise
+          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+        },
+      })
+      const definition = Automation.create(recurringInput(projectID, 30_000), { now: 0 })
+
+      scheduler.reschedule(definition)
+      await clock.advance(30_000)
+      expect(starts).toEqual([30_000])
+
+      await clock.advance(10_000)
+      const updated = Automation.update(definition.id, { title: "Updated title" }, { now: 40_000 })
+      await Automation.publishDefinitionUpdated(updated)
+
+      await clock.advance(30_000)
+      expect(Automation.runs({ automationID: definition.id }).items.map((run) => run.state)).toEqual(["scheduled"])
+
+      await clock.advance(20_000)
+      releaseFirst.resolve()
+      await waitForRunStates(definition.id, ["succeeded"])
+
+      await clock.advance(29_999)
+      expect(starts).toEqual([30_000])
+
+      await clock.advance(1)
+      await waitForRunStates(definition.id, ["succeeded", "succeeded"])
+      expect(starts).toEqual([30_000, 120_000])
+      scheduler.stop()
+    })
+  })
+
   test("stops scheduling recurring automation after count limit", async () => {
     await withAutomation(async (projectID) => {
       const clock = new FakeClock(0)
