@@ -80,12 +80,15 @@ function createSseReader(response: Response) {
       while (frames.length < count) {
         const remaining = deadline - Date.now()
         if (remaining <= 0) throw new Error(`Timed out waiting for ${count} SSE frames. Received: ${text}`)
+        let timeout: ReturnType<typeof setTimeout> | undefined
         const next = await Promise.race([
           reader.read(),
-          new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error(`Timed out reading SSE stream. Received: ${text}`)), remaining),
-          ),
-        ])
+          new Promise<never>((_, reject) => {
+            timeout = setTimeout(() => reject(new Error(`Timed out reading SSE stream. Received: ${text}`)), remaining)
+          }),
+        ]).finally(() => {
+          if (timeout) clearTimeout(timeout)
+        })
         if (next.done) break
         text += decoder.decode(next.value, { stream: true })
         text = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n")
