@@ -173,6 +173,8 @@ jobs:
       - name: Launch desktop smoke app
         run: bun run smoke:ci
         working-directory: packages/desktop-electron
+        env:
+          PAWWORK_CI_SMOKE_CDP: "true"
 
       - name: Report problem smoke
         run: bun run smoke:report
@@ -254,6 +256,8 @@ jobs:
           EXECUTABLE_PATH="dist/mac-arm64/PawWork Dev.app/Contents/MacOS/PawWork Dev"
           bun ./scripts/ci-smoke.ts packaged dev "$EXECUTABLE_PATH"
         working-directory: packages/desktop-electron
+        env:
+          PAWWORK_CI_SMOKE_CDP: "true"
 
   # Compatibility aggregator for branch protection setups that require
   # `desktop-smoke / check`. The live dev ruleset currently requires

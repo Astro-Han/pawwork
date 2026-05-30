@@ -1,13 +1,18 @@
 import { Context, Effect, Fiber, Layer } from "effect"
+import { DateTime } from "luxon"
+import { Log } from "@opencode-ai/core/util/log"
 import { Automation } from "."
 import { Bus } from "@/bus"
 import { Instance, type InstanceContext } from "@/project/instance"
 import { NotFoundError } from "@/storage/db"
+import { Flock } from "@/util/flock"
 import { sessionPromptExecutor } from "./runner"
 
 export namespace AutomationScheduler {
   const MAX_TIMER_DELAY_MS = 2_147_483_647
   const MISSED_SCHEDULE_GRACE_MS = 60_000
+  const CRON_LOOKAHEAD_MINUTES = 527_040 * 5
+  const log = Log.create({ service: "automation.scheduler" })
 
   export interface Clock {
     now(): number
@@ -25,6 +30,7 @@ export namespace AutomationScheduler {
   export interface Interface {
     stop(): void
     stopOwnedRuns(): void
+    settleOwner(): Promise<void>
     reschedule(definition: Automation.Definition): void
     cancel(automationID: string): void
     computeNextFireAt(definition: Automation.Definition, from?: number): number | null
@@ -34,6 +40,9 @@ export namespace AutomationScheduler {
     clock?: Clock
     executor?: Automation.RunExecutor
     runtime?: TaskRuntime
+    ownerKey?: string
+    ownerRetryMs?: number
+    ownerRescanMs?: number
   }
 
   type ScheduledTask = {
@@ -41,6 +50,16 @@ export namespace AutomationScheduler {
     fireAt: number
     token: symbol
     definition: Automation.Definition
+  }
+
+  type CronSchedule = {
+    minutes: Set<number>
+    hours: Set<number>
+    days: Set<number>
+    months: Set<number>
+    weekdays: Set<number>
+    dayRestricted: boolean
+    weekdayRestricted: boolean
   }
 
   export const liveClock: Clock = {
@@ -97,8 +116,80 @@ export namespace AutomationScheduler {
       return definition.fireAt
     }
     if (!canScheduleRecurring(definition)) return null
-    if (definition.rhythm.kind !== "interval") return null
+    if (definition.rhythm.kind === "cron") return computeNextCronFireAt(definition, from)
     return from + definition.rhythm.everyMs
+  }
+
+  function cronValues(field: string, min: number, max: number, options?: { sundayAlias?: boolean }) {
+    const values = new Set<number>()
+    for (const item of field.split(",")) {
+      const [base, stepRaw] = item.split("/")
+      if (!base || item.split("/").length > 2) throw new Error(`Invalid cron field: ${item}`)
+      const step = stepRaw === undefined ? 1 : Number(stepRaw)
+      if (!Number.isInteger(step) || step <= 0) throw new Error(`Invalid cron step: ${item}`)
+      const range = base === "*" ? [min, max] : base.split("-").map(Number)
+      if (range.length === 0 || range.length > 2 || range.some((value) => !Number.isInteger(value))) {
+        throw new Error(`Invalid cron field: ${item}`)
+      }
+      const start = range[0]
+      const end = base === "*" || (range.length === 1 && stepRaw !== undefined) ? max : range.length === 1 ? range[0] : range[1]
+      if (start < min || end > max || start > end) throw new Error(`Invalid cron range: ${item}`)
+      for (let value = start; value <= end; value += step) {
+        values.add(options?.sundayAlias && value === 7 ? 0 : value)
+      }
+    }
+    return values
+  }
+
+  function parseCronSchedule(expression: string): CronSchedule {
+    const fields = expression.trim().split(/\s+/)
+    if (fields.length !== 5) throw new Error(`Invalid cron expression: ${expression}`)
+    const [minuteField, hourField, dayField, monthField, weekdayField] = fields
+    return {
+      minutes: cronValues(minuteField, 0, 59),
+      hours: cronValues(hourField, 0, 23),
+      days: cronValues(dayField, 1, 31),
+      months: cronValues(monthField, 1, 12),
+      weekdays: cronValues(weekdayField, 0, 7, { sundayAlias: true }),
+      dayRestricted: dayField !== "*",
+      weekdayRestricted: weekdayField !== "*",
+    }
+  }
+
+  function cronMatches(schedule: CronSchedule, time: DateTime) {
+    const weekday = time.weekday === 7 ? 0 : time.weekday
+    const dayMatches = schedule.days.has(time.day)
+    const weekdayMatches = schedule.weekdays.has(weekday)
+    const calendarMatches =
+      schedule.dayRestricted && schedule.weekdayRestricted ? dayMatches || weekdayMatches : dayMatches && weekdayMatches
+    return (
+      schedule.minutes.has(time.minute) &&
+      schedule.hours.has(time.hour) &&
+      schedule.months.has(time.month) &&
+      calendarMatches
+    )
+  }
+
+  function computeNextCronFireAt(definition: Extract<Automation.Definition, { kind: "recurring" }>, from: number) {
+    if (definition.rhythm.kind !== "cron") return null
+    const schedule = parseCronSchedule(definition.rhythm.expression)
+    let cursor = DateTime.fromMillis(from, { zone: definition.timezone }).plus({ minutes: 1 }).startOf("minute")
+    for (let attempts = 0; attempts < CRON_LOOKAHEAD_MINUTES; attempts++) {
+      if (cronMatches(schedule, cursor)) return cursor.toMillis()
+      cursor = cursor.plus({ minutes: 1 })
+    }
+    return null
+  }
+
+  function computePreviousCronFireAt(definition: Extract<Automation.Definition, { kind: "recurring" }>, from: number, until: number) {
+    if (definition.rhythm.kind !== "cron" || until < from) return null
+    const schedule = parseCronSchedule(definition.rhythm.expression)
+    let cursor = DateTime.fromMillis(until, { zone: definition.timezone }).startOf("minute")
+    for (let attempts = 0; attempts < CRON_LOOKAHEAD_MINUTES && cursor.toMillis() >= from; attempts++) {
+      if (cronMatches(schedule, cursor)) return cursor.toMillis()
+      cursor = cursor.minus({ minutes: 1 })
+    }
+    return null
   }
 
   function canScheduleRecurring(definition: Extract<Automation.Definition, { kind: "recurring" }>) {
@@ -111,7 +202,11 @@ export namespace AutomationScheduler {
     if (left.kind !== right.kind || left.paused !== right.paused) return false
     if (left.kind === "oneshot" && right.kind === "oneshot") return left.fireAt === right.fireAt
     if (left.kind === "recurring" && right.kind === "recurring") {
-      return JSON.stringify(left.rhythm) === JSON.stringify(right.rhythm) && JSON.stringify(left.stop) === JSON.stringify(right.stop)
+      return (
+        left.timezone === right.timezone &&
+        JSON.stringify(left.rhythm) === JSON.stringify(right.rhythm) &&
+        JSON.stringify(left.stop) === JSON.stringify(right.stop)
+      )
     }
     return false
   }
@@ -120,12 +215,22 @@ export namespace AutomationScheduler {
     const clock = options.clock ?? liveClock
     const executor = options.executor ?? sessionPromptExecutor
     const runtime = options.runtime ?? liveRuntime
+    const ownerKey = options.ownerKey
+    const ownerRetryMs = options.ownerRetryMs ?? 5_000
+    const ownerRescanMs = options.ownerRescanMs ?? 5_000
     const tasks = new Map<string, ScheduledTask>()
+    const unschedulable = new Map<string, Automation.Definition>()
     const ownedRuns = new Map<string, string>()
     const schedulerStoppedRuns = new Set<string>()
+    let ownsTimers = !ownerKey
+    let ownerLease: Flock.Lease | undefined
+    let ownerAttempt: Promise<void> | undefined
+    let ownerRetryTimer: ReturnType<typeof setInterval> | undefined
+    let ownerRescanTimer: ReturnType<typeof setInterval> | undefined
     let running = true
 
     const cancel = (automationID: string) => {
+      unschedulable.delete(automationID)
       const entry = tasks.get(automationID)
       if (!entry) return
       tasks.delete(automationID)
@@ -135,8 +240,11 @@ export namespace AutomationScheduler {
     const scheduleNextInterval = (automationID: string) => {
       try {
         const latest = Automation.get(automationID)
-        if (latest.kind === "recurring" && latest.rhythm.kind === "interval" && !latest.paused && canScheduleRecurring(latest)) {
-          schedule(latest, clock.now() + latest.rhythm.everyMs)
+        if (latest.kind === "recurring" && !latest.paused && canScheduleRecurring(latest)) {
+          const next =
+            latest.rhythm.kind === "interval" ? clock.now() + latest.rhythm.everyMs : computeNextFireAt(latest, clock.now())
+          if (next === null) cancel(automationID)
+          else schedule(latest, next)
         } else {
           cancel(automationID)
         }
@@ -146,14 +254,14 @@ export namespace AutomationScheduler {
       }
     }
 
-    const fire = (automationID: string, triggeredAt: number) => {
+    const fire = async (automationID: string, triggeredAt: number) => {
       tasks.delete(automationID)
       const firedAt = clock.now()
       try {
         const latest = Automation.get(automationID)
         if (latest.paused) return
         if (latest.kind === "oneshot" && latest.fireAt !== triggeredAt) return
-        if (latest.kind === "recurring" && (latest.rhythm.kind !== "interval" || !canScheduleRecurring(latest))) return
+        if (latest.kind === "recurring" && !canScheduleRecurring(latest)) return
         if (firedAt - triggeredAt > MISSED_SCHEDULE_GRACE_MS) {
           const stopped = Automation.recordStoppedRun(automationID, "missed_schedule", { now: firedAt, triggeredAt })
           schedulerStoppedRuns.add(stopped.id)
@@ -165,6 +273,7 @@ export namespace AutomationScheduler {
         if (!NotFoundError.isInstance(error)) throw error
         return
       }
+      for (const run of await Automation.reconcileInterruptedRuns({ now: firedAt })) void Automation.publishRunUpdated(run)
       if (Automation.hasActiveRun(automationID)) {
         const stopped = Automation.recordStoppedRun(automationID, "previous_run_awaiting_input", { now: triggeredAt })
         schedulerStoppedRuns.add(stopped.id)
@@ -173,12 +282,14 @@ export namespace AutomationScheduler {
         return
       }
       try {
-        const run = Automation.runNowExecuting(automationID, {
+        const run = await Automation.runNowExecuting(automationID, {
           executor,
           attendance: "unattended",
           now: triggeredAt,
         })
         ownedRuns.set(run.id, automationID)
+        const latest = Automation.get(automationID)
+        if (latest.kind === "recurring" && latest.rhythm.kind === "cron") scheduleNextInterval(automationID)
       } catch (error) {
         if (!NotFoundError.isInstance(error)) throw error
       }
@@ -197,12 +308,12 @@ export namespace AutomationScheduler {
           if (!isCurrentTask(automationID, fireAt, token, signal)) return
         }
         if (!isCurrentTask(automationID, fireAt, token, signal)) return
-        fire(automationID, fireAt)
+        yield* Effect.promise(() => fire(automationID, fireAt))
       })
 
     const schedule = (definition: Automation.Definition, fireAt: number) => {
       cancel(definition.id)
-      if (!running || definition.paused) return
+      if (!running || !ownsTimers || definition.paused) return
       const token = Symbol(definition.id)
       tasks.set(definition.id, {
         task: runtime.fork((signal) => waitUntil(definition.id, fireAt, token, signal)),
@@ -219,6 +330,16 @@ export namespace AutomationScheduler {
       return true
     }
 
+    const preserveDueSchedule = (definition: Automation.Definition) => {
+      const current = tasks.get(definition.id)
+      if (!current || current.fireAt > clock.now() || !isSameSchedule(current.definition, definition)) return false
+      current.definition = definition
+      return true
+    }
+
+    const isStableCronSchedule = (definition: Automation.Definition) =>
+      definition.kind === "recurring" && definition.rhythm.kind === "cron" && definition.stop.kind === "never"
+
     const hasSchedulerOwnedActiveRun = (automationID: string) => {
       for (const ownedAutomationID of ownedRuns.values()) {
         if (ownedAutomationID === automationID) return true
@@ -227,8 +348,31 @@ export namespace AutomationScheduler {
     }
 
     const reschedule = (definition: Automation.Definition) => {
+      if (!ownsTimers) return
+      if (preserveDueSchedule(definition)) return
+      if (isStableCronSchedule(definition) && preservePendingSchedule(definition)) return
+      const cached = unschedulable.get(definition.id)
+      if (cached && isSameSchedule(cached, definition)) return
+      unschedulable.delete(definition.id)
+      if (definition.kind === "recurring" && definition.rhythm.kind === "cron" && canScheduleRecurring(definition)) {
+        const firstScheduled = computeNextCronFireAt(definition, definition.createdAt)
+        const missed = firstScheduled === null ? null : computePreviousCronFireAt(definition, firstScheduled, clock.now())
+        if (missed !== null && !Automation.hasRunTriggeredAtOrAfter(definition.id, missed)) {
+          const stopped = Automation.recordStoppedRun(definition.id, "missed_schedule", { now: clock.now(), triggeredAt: missed })
+          schedulerStoppedRuns.add(stopped.id)
+          void Automation.publishRunUpdated(stopped)
+        }
+      }
       const next = computeNextFireAt(definition, clock.now())
       if (next === null) {
+        cancel(definition.id)
+        if (isStableCronSchedule(definition)) unschedulable.set(definition.id, definition)
+        return
+      }
+      if (definition.kind === "oneshot" && next <= clock.now()) {
+        const stopped = Automation.recordStoppedRun(definition.id, "missed_schedule", { now: clock.now(), triggeredAt: next })
+        schedulerStoppedRuns.add(stopped.id)
+        void Automation.publishRunUpdated(stopped)
         cancel(definition.id)
         return
       }
@@ -255,7 +399,48 @@ export namespace AutomationScheduler {
       cancel(event.properties.id)
     })
 
-    for (const definition of Automation.list()) reschedule(definition)
+    const scan = async () => {
+      if (!running || !ownsTimers) return
+      for (const run of await Automation.reconcileInterruptedRuns({ now: clock.now() })) void Automation.publishRunUpdated(run)
+      for (const definition of Automation.list()) {
+        try {
+          reschedule(definition)
+        } catch (error) {
+          log.error("automation scheduler scan failed", { error, automationID: definition.id })
+        }
+      }
+    }
+
+    const becomeOwner = async () => {
+      if (!running || !ownerKey || ownerLease) return
+      const lease = await Flock.tryAcquire(ownerKey).catch(() => undefined)
+      if (!lease || !running || ownerLease) {
+        if (lease) await lease.release().catch(() => undefined)
+        return
+      }
+      ownerLease = lease
+      ownsTimers = true
+      ownerRescanTimer = setInterval(() => void scan(), ownerRescanMs)
+      ownerRescanTimer.unref?.()
+      for (const run of await Automation.reconcileInterruptedRuns({ now: clock.now() })) void Automation.publishRunUpdated(run)
+      void scan()
+    }
+
+    const settleOwner = () => {
+      if (!ownerKey || ownerLease || !running) return Promise.resolve()
+      ownerAttempt ??= becomeOwner().finally(() => {
+        ownerAttempt = undefined
+      })
+      return ownerAttempt
+    }
+
+    if (ownerKey) {
+      void settleOwner()
+      ownerRetryTimer = setInterval(() => void settleOwner(), ownerRetryMs)
+      ownerRetryTimer.unref?.()
+    } else {
+      void scan()
+    }
 
     const stopOwnedRuns = () => {
       for (const runID of [...ownedRuns.keys()]) {
@@ -268,13 +453,17 @@ export namespace AutomationScheduler {
     return {
       stop() {
         running = false
+        if (ownerRetryTimer) clearInterval(ownerRetryTimer)
+        if (ownerRescanTimer) clearInterval(ownerRescanTimer)
         unsubscribeRunUpdates()
         unsubscribeDefinitionUpdates()
         unsubscribeDefinitionDeletes()
         stopOwnedRuns()
         for (const automationID of [...tasks.keys()]) cancel(automationID)
+        if (ownerLease) void ownerLease.release().catch(() => undefined)
       },
       stopOwnedRuns,
+      settleOwner,
       reschedule,
       cancel,
       computeNextFireAt(definition, from = clock.now()) {
@@ -292,7 +481,7 @@ export namespace AutomationScheduler {
   const owner = Instance.state<OwnerState>(
     () => {
       const context = Instance.current
-      const state = { context, scheduler: make() }
+      const state = { context, scheduler: make({ ownerKey: `automation-scheduler:${context.directory}` }) }
       owners.set(context.directory, state)
       return state
     },

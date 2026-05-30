@@ -325,6 +325,30 @@ export namespace Flock {
     }
   }
 
+  export async function tryAcquire(key: string, input: Omit<Options, "timeoutMs" | "onWait"> = {}): Promise<Lease | undefined> {
+    input.signal?.throwIfAborted()
+    const cfg: Opts = {
+      staleMs: input.staleMs ?? defaultOpts.staleMs,
+      timeoutMs: 0,
+      baseDelayMs: input.baseDelayMs ?? defaultOpts.baseDelayMs,
+      maxDelayMs: input.maxDelayMs ?? defaultOpts.maxDelayMs,
+    }
+    const dir = input.dir ?? root
+
+    await mkdir(dir, { recursive: true })
+    const lockfile = path.join(dir, Hash.fast(key) + ".lock")
+    const lock = await tryAcquireLockDir(lockfile, cfg)
+    if (!lock.acquired) return undefined
+    lock.startHeartbeat()
+    const release = () => lock.release()
+    return {
+      release,
+      [Symbol.asyncDispose]() {
+        return release()
+      },
+    }
+  }
+
   export async function withLock<T>(key: string, fn: () => Promise<T>, input: Options = {}) {
     await using _ = await acquire(key, input)
     input.signal?.throwIfAborted()

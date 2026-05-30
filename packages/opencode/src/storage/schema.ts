@@ -1,4 +1,5 @@
 export { AccountTable, AccountStateTable, ControlAccountTable } from "../account/account.sql"
+export { AutomationDefinitionTable, AutomationRunTable } from "../automation/automation.sql"
 export { ProjectTable } from "../project/project.sql"
 export {
   SessionTable,

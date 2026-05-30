@@ -3,12 +3,15 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { Effect } from "effect"
 import { Automation } from "../../src/automation"
 import { sessionPromptExecutor } from "../../src/automation/runner"
+import { AutomationRunTable } from "../../src/automation/automation.sql"
 import { Bus } from "../../src/bus"
+import { Database, eq } from "../../src/storage/db"
 import { Instance } from "../../src/project/instance"
 import { ProjectID } from "../../src/project/schema"
 import { Session } from "../../src/session"
 import { SessionID } from "../../src/session/schema"
 import { AutomationRunContext, AutomationStepCapError } from "../../src/automation/run-context"
+import { Flock } from "../../src/util/flock"
 import { tmpdir } from "../fixture/fixture"
 
 afterEach(async () => {
@@ -110,7 +113,7 @@ describe("automation runNow execution", () => {
       const definition = Automation.create(input(projectID))
       const sessionID = SessionID.descending()
 
-      const initial = Automation.runNowExecuting(definition.id, {
+      const initial = await Automation.runNowExecuting(definition.id, {
         executor: async () => ({ sessionID, result: "done", cost: 0 }),
       })
       expect(initial.state).toBe("scheduled")
@@ -135,7 +138,7 @@ describe("automation runNow execution", () => {
         if (event.properties.automationID === definition.id) runEvents.push(event.properties)
       })
 
-      Automation.runNowExecuting(definition.id, {
+      await Automation.runNowExecuting(definition.id, {
         executor: async ({ run }) => {
           const started = Automation.markRunStarted(run, sessionID, { now: run.triggeredAt })
           await Automation.publishRunUpdated(started)
@@ -159,14 +162,14 @@ describe("automation runNow execution", () => {
       })
       let entered = 0
 
-      Automation.runNowExecuting(first.id, {
+      await Automation.runNowExecuting(first.id, {
         executor: async () => {
           entered++
           await held
           return { sessionID: SessionID.descending(), result: "first", cost: 0 }
         },
       })
-      Automation.runNowExecuting(second.id, {
+      await Automation.runNowExecuting(second.id, {
         executor: async () => {
           entered++
           return { sessionID: SessionID.descending(), result: "second", cost: 0 }
@@ -180,6 +183,55 @@ describe("automation runNow execution", () => {
       release()
       const succeeded = await waitForRun(first.id, "succeeded")
       expect(succeeded.result).toBe("first")
+    })
+  })
+
+  test("blocks a run when durable storage already has an active run for the project", async () => {
+    await withAutomation(async (projectID) => {
+      const first = Automation.create(input(projectID, { title: "First automation" }))
+      const second = Automation.create(input(projectID, { title: "Second automation" }))
+      const active = Automation.runNow(first.id, { now: 100 })
+      await using _ = await Flock.acquire(`automation-run:${Instance.directory}:${active.id}`)
+      let entered = false
+
+      await Automation.runNowExecuting(second.id, {
+        now: 200,
+        executor: async () => {
+          entered = true
+          return { sessionID: SessionID.descending(), result: "second", cost: 0 }
+        },
+      })
+
+      const stopped = await waitForRun(second.id, "stopped")
+      if (stopped.state !== "stopped") throw new Error("expected stopped run")
+      expect(stopped.stopReason).toBe("previous_run_awaiting_input")
+      expect(entered).toBe(false)
+    })
+  })
+
+  test("reconciles stale durable writers before executing a manual run", async () => {
+    await withAutomation(async (projectID) => {
+      const first = Automation.create(input(projectID, { title: "Stale writer" }))
+      const second = Automation.create(input(projectID, { title: "Manual run" }))
+      const stale = Automation.runNow(first.id, { now: 100 })
+      let entered = false
+
+      await Automation.runNowExecuting(second.id, {
+        now: 200,
+        executor: async () => {
+          entered = true
+          return { sessionID: SessionID.descending(), result: "second", cost: 0 }
+        },
+      })
+
+      const succeeded = await waitForRun(second.id, "succeeded")
+      expect(entered).toBe(true)
+      expect(succeeded.result).toBe("second")
+      expect(Automation.runs({ automationID: first.id }).items[0]).toMatchObject({
+        id: stale.id,
+        state: "stopped",
+        stopReason: "expired",
+      })
     })
   })
 
@@ -205,7 +257,7 @@ describe("automation runNow execution", () => {
     await withAutomation(async (projectID) => {
       const definition = Automation.create(input(projectID))
 
-      Automation.runNowExecuting(definition.id, {
+      await Automation.runNowExecuting(definition.id, {
         executor: async ({ run }) => {
           const started = Automation.markRunStarted(run, SessionID.descending(), { now: run.triggeredAt })
           Automation.markRunBlocked(started, { kind: "question", callID: "call_1" })
@@ -220,13 +272,13 @@ describe("automation runNow execution", () => {
       const held = new Promise<void>((resolve) => {
         release = resolve
       })
-      Automation.runNowExecuting(definition.id, {
+      await Automation.runNowExecuting(definition.id, {
         executor: async () => {
           await held
           return { sessionID: SessionID.descending(), result: "first", cost: 0 }
         },
       })
-      Automation.runNowExecuting(definition.id, {
+      await Automation.runNowExecuting(definition.id, {
         executor: async () => ({ sessionID: SessionID.descending(), result: "second", cost: 0 }),
       })
       const stopped = await waitForRun(definition.id, "stopped")
@@ -234,6 +286,49 @@ describe("automation runNow execution", () => {
       const restarted = Automation.markRunStarted(stopped, SessionID.descending(), { now: stopped.completedAt })
       expect(restarted).not.toHaveProperty("stopReason")
       release()
+    })
+  })
+
+  test("does not let stale active snapshots overwrite terminal runs", async () => {
+    await withAutomation(async (projectID) => {
+      const definition = Automation.create(input(projectID))
+      const scheduled = Automation.runNow(definition.id, { now: 100 })
+      const stopped = Automation.stopRunByID(scheduled.id, "cancelled", { now: 200 })
+
+      expect(stopped).toMatchObject({ state: "stopped", revision: 2 })
+      const staleStarted = Automation.markRunStarted(scheduled, SessionID.descending(), { now: 300 })
+
+      expect(staleStarted).toMatchObject({ state: "stopped", revision: 2, stopReason: "cancelled" })
+      expect(Automation.runs({ automationID: definition.id }).items[0]).toMatchObject({
+        state: "stopped",
+        revision: 2,
+        stopReason: "cancelled",
+      })
+    })
+  })
+
+  test("does not publish execution updates after the durable run row disappears", async () => {
+    await withAutomation(async (projectID) => {
+      const definition = Automation.create(input(projectID))
+      const runEvents: Automation.Run[] = []
+      const executorFinished = defer<void>()
+      const unsubscribeRun = Bus.subscribe(Automation.Event.RunUpdated, (event) => {
+        if (event.properties.automationID === definition.id) runEvents.push(event.properties)
+      })
+
+      await Automation.runNowExecuting(definition.id, {
+        executor: async ({ run }) => {
+          Database.use((db) => db.delete(AutomationRunTable).where(eq(AutomationRunTable.id, run.id)).run())
+          executorFinished.resolve()
+          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+        },
+      })
+      await executorFinished.promise
+      await Bun.sleep(50)
+      unsubscribeRun()
+
+      expect(runEvents).toEqual([])
+      expect(Automation.runs({ automationID: definition.id }).items).toEqual([])
     })
   })
 
@@ -246,7 +341,7 @@ describe("automation runNow execution", () => {
         definitionEvents.push(event.properties)
       })
 
-      Automation.runNowExecuting(definition.id, {
+      await Automation.runNowExecuting(definition.id, {
         executor: async () => {
           Automation.update(definition.id, { title: "Updated repo brief", prompt: "Use the latest prompt." })
           return { sessionID, result: "done", cost: 0 }
@@ -275,11 +370,11 @@ describe("automation runNow execution", () => {
       const unsubscribeDefinition = Bus.subscribe(Automation.Event.DefinitionUpdated, (event) => {
         definitionEvents.push(event.properties)
       })
-      let removed!: ReturnType<typeof Automation.remove>
+      let removed!: Awaited<ReturnType<typeof Automation.remove>>
 
-      Automation.runNowExecuting(definition.id, {
+      await Automation.runNowExecuting(definition.id, {
         executor: async () => {
-          removed = Automation.remove(definition.id)
+          removed = await Automation.remove(definition.id)
           return { sessionID: SessionID.descending(), result: "done", cost: 0 }
         },
       })
@@ -304,7 +399,7 @@ describe("automation runNow execution", () => {
         if (event.properties.automationID === definition.id) runEvents.push(event.properties)
       })
 
-      Automation.runNowExecuting(definition.id, {
+      await Automation.runNowExecuting(definition.id, {
         executor: async ({ run, signal }) => {
           Automation.markRunStarted(run, sessionID, { now: run.triggeredAt })
           signal.addEventListener("abort", () => {
@@ -318,7 +413,7 @@ describe("automation runNow execution", () => {
       })
 
       await started.promise
-      const removed = Automation.remove(definition.id)
+      const removed = await Automation.remove(definition.id)
 
       expect(sawAbort).toBe(true)
       expect(removed.stoppedRun).toMatchObject({
@@ -378,10 +473,10 @@ describe("automation runNow execution", () => {
         fn: async () => {
           const definition = Automation.create(input(Instance.project.id, { title: "Cancel real prompt" }))
 
-          Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
+          await Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
           await ready.promise
 
-          const removed = Automation.remove(definition.id)
+          const removed = await Automation.remove(definition.id)
           const stoppedRun = removed.stoppedRun
           expect(stoppedRun).toMatchObject({ state: "stopped", stopReason: "cancelled" })
           if (!stoppedRun?.sessionID) throw new Error("expected stopped run to keep its sessionID")
@@ -440,14 +535,14 @@ describe("automation runNow execution", () => {
         directory: tmp.path,
         fn: async () => {
           const definition = Automation.create(input(Instance.project.id, { title: "Cancel before runner busy" }))
-          const removed = Promise.withResolvers<ReturnType<typeof Automation.remove>>()
+          const removed = Promise.withResolvers<Awaited<ReturnType<typeof Automation.remove>>>()
           const unsubscribe = Bus.subscribe(Automation.Event.RunUpdated, (event) => {
             if (event.properties.automationID !== definition.id || event.properties.state !== "running") return
-            removed.resolve(Automation.remove(definition.id))
+            void Automation.remove(definition.id).then(removed.resolve, removed.reject)
           })
 
-          Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
-          let result: ReturnType<typeof Automation.remove>
+          await Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
+          let result: Awaited<ReturnType<typeof Automation.remove>>
           try {
             result = await Promise.race([
               removed.promise,
@@ -490,7 +585,7 @@ describe("automation runNow execution", () => {
     await withAutomation(async (projectID) => {
       const definition = Automation.create(input(projectID))
 
-      Automation.runNowExecuting(definition.id, {
+      await Automation.runNowExecuting(definition.id, {
         executor: async ({ run }) => {
           Automation.markRunStarted(run, SessionID.descending(), { now: run.triggeredAt })
           throw new AutomationStepCapError(50)

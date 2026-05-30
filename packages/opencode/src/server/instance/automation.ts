@@ -2,7 +2,7 @@ import { Hono } from "hono"
 import type { Context } from "hono"
 import { describeRoute, resolver, validator } from "hono-openapi"
 import z from "zod"
-import { Automation, AutomationID, ValidationError } from "@/automation"
+import { ActiveRunStillRunningError, Automation, AutomationID, ConflictError, ValidationError } from "@/automation"
 import { sessionPromptExecutor } from "@/automation/runner"
 import { AutomationScheduler } from "@/automation/scheduler"
 import { errors } from "../error"
@@ -11,9 +11,24 @@ function validationError(error: ValidationError) {
   return Automation.ValidationErrorResponse.parse({ error: "invalid_automation", details: error.details })
 }
 
+function conflictError(error: ConflictError) {
+  return Automation.ConflictErrorResponse.parse({ error: "automation_conflict", message: error.message })
+}
+
+function activeRunStillRunningError(error: ActiveRunStillRunningError) {
+  return Automation.ActiveRunStillRunningErrorResponse.parse({
+    error: "active_run_still_running",
+    runID: error.runID,
+  })
+}
+
 async function publishIfChanged(previous: Automation.Definition, definition: Automation.Definition) {
   if (definition.revision === previous.revision) return
   await Automation.publishDefinitionUpdated(definition)
+}
+
+async function settleAutomationScheduler() {
+  await AutomationScheduler.current().settleOwner()
 }
 
 function validationIssuePath(issue: unknown) {
@@ -78,7 +93,10 @@ export const AutomationRoutes = (): Hono =>
           },
         },
       }),
-      (c) => c.json({ items: Automation.list() }),
+      async (c) => {
+        await settleAutomationScheduler()
+        return c.json({ items: Automation.list() })
+      },
     )
     .post(
       "/",
@@ -101,7 +119,7 @@ export const AutomationRoutes = (): Hono =>
       validator("json", Automation.CreateInput, automationBodyValidationHook),
       async (c) => {
         try {
-          AutomationScheduler.current()
+          await settleAutomationScheduler()
           const definition = Automation.create(c.req.valid("json"))
           await Automation.publishDefinitionUpdated(definition)
           return c.json(definition)
@@ -126,7 +144,10 @@ export const AutomationRoutes = (): Hono =>
         },
       }),
       validator("param", z.object({ automationID: AutomationID.Definition.zod })),
-      (c) => c.json(Automation.get(c.req.valid("param").automationID)),
+      async (c) => {
+        await settleAutomationScheduler()
+        return c.json(Automation.get(c.req.valid("param").automationID))
+      },
     )
     .put(
       "/:automationID",
@@ -143,6 +164,10 @@ export const AutomationRoutes = (): Hono =>
             description: "Automation validation failed",
             content: { "application/json": { schema: resolver(Automation.ValidationErrorResponse) } },
           },
+          409: {
+            description: "Automation update conflict",
+            content: { "application/json": { schema: resolver(Automation.ConflictErrorResponse) } },
+          },
           ...errors(400, 404),
         },
       }),
@@ -151,13 +176,14 @@ export const AutomationRoutes = (): Hono =>
       async (c) => {
         try {
           const automationID = c.req.valid("param").automationID
-          AutomationScheduler.current()
+          await settleAutomationScheduler()
           const previous = Automation.get(automationID)
           const definition = Automation.update(automationID, c.req.valid("json"))
           await publishIfChanged(previous, definition)
           return c.json(definition)
         } catch (error) {
           if (error instanceof ValidationError) return c.json(validationError(error), 422)
+          if (error instanceof ConflictError) return c.json(conflictError(error), 409)
           throw error
         }
       },
@@ -173,17 +199,26 @@ export const AutomationRoutes = (): Hono =>
             description: "Paused automation definition",
             content: { "application/json": { schema: resolver(Automation.Definition) } },
           },
+          409: {
+            description: "Automation update conflict",
+            content: { "application/json": { schema: resolver(Automation.ConflictErrorResponse) } },
+          },
           ...errors(404),
         },
       }),
       validator("param", z.object({ automationID: AutomationID.Definition.zod })),
       async (c) => {
-        const automationID = c.req.valid("param").automationID
-        AutomationScheduler.current()
-        const previous = Automation.get(automationID)
-        const definition = Automation.update(automationID, { paused: true })
-        await publishIfChanged(previous, definition)
-        return c.json(definition)
+        try {
+          const automationID = c.req.valid("param").automationID
+          await settleAutomationScheduler()
+          const previous = Automation.get(automationID)
+          const definition = Automation.update(automationID, { paused: true })
+          await publishIfChanged(previous, definition)
+          return c.json(definition)
+        } catch (error) {
+          if (error instanceof ConflictError) return c.json(conflictError(error), 409)
+          throw error
+        }
       },
     )
     .post(
@@ -197,17 +232,26 @@ export const AutomationRoutes = (): Hono =>
             description: "Resumed automation definition",
             content: { "application/json": { schema: resolver(Automation.Definition) } },
           },
+          409: {
+            description: "Automation update conflict",
+            content: { "application/json": { schema: resolver(Automation.ConflictErrorResponse) } },
+          },
           ...errors(404),
         },
       }),
       validator("param", z.object({ automationID: AutomationID.Definition.zod })),
       async (c) => {
-        const automationID = c.req.valid("param").automationID
-        AutomationScheduler.current()
-        const previous = Automation.get(automationID)
-        const definition = Automation.update(automationID, { paused: false })
-        await publishIfChanged(previous, definition)
-        return c.json(definition)
+        try {
+          const automationID = c.req.valid("param").automationID
+          await settleAutomationScheduler()
+          const previous = Automation.get(automationID)
+          const definition = Automation.update(automationID, { paused: false })
+          await publishIfChanged(previous, definition)
+          return c.json(definition)
+        } catch (error) {
+          if (error instanceof ConflictError) return c.json(conflictError(error), 409)
+          throw error
+        }
       },
     )
     .delete(
@@ -215,23 +259,34 @@ export const AutomationRoutes = (): Hono =>
       describeRoute({
         summary: "Delete automation",
         description:
-          "Delete an automation definition and return a tombstone. If a run is active, stop it and publish the stopped run before publishing the tombstone.",
+          "Delete an automation definition and return a tombstone. If a run is active in this process, stop it and publish the stopped run before publishing the tombstone. If a live run is owned by another process, return 409 without deleting.",
         operationId: "automation.delete",
         responses: {
           200: {
             description: "Automation deletion tombstone",
             content: { "application/json": { schema: resolver(Automation.Tombstone) } },
           },
+          409: {
+            description: "Automation has a live run owned by another process",
+            content: { "application/json": { schema: resolver(Automation.ActiveRunStillRunningErrorResponse) } },
+          },
           ...errors(404),
         },
       }),
       validator("param", z.object({ automationID: AutomationID.Definition.zod })),
       async (c) => {
-        const removed = Automation.remove(c.req.valid("param").automationID)
-        AutomationScheduler.current().cancel(removed.tombstone.id)
-        if (removed.stoppedRun) await Automation.publishRunUpdated(removed.stoppedRun)
-        await Automation.publishDefinitionDeleted(removed.tombstone)
-        return c.json(removed.tombstone)
+        try {
+          const scheduler = AutomationScheduler.current()
+          await scheduler.settleOwner()
+          const removed = await Automation.remove(c.req.valid("param").automationID)
+          scheduler.cancel(removed.tombstone.id)
+          if (removed.stoppedRun) await Automation.publishRunUpdated(removed.stoppedRun)
+          await Automation.publishDefinitionDeleted(removed.tombstone)
+          return c.json(removed.tombstone)
+        } catch (error) {
+          if (error instanceof ActiveRunStillRunningError) return c.json(activeRunStillRunningError(error), 409)
+          throw error
+        }
       },
     )
     .post(
@@ -250,7 +305,8 @@ export const AutomationRoutes = (): Hono =>
       }),
       validator("param", z.object({ automationID: AutomationID.Definition.zod })),
       async (c) => {
-        const run = Automation.runNowExecuting(c.req.valid("param").automationID, {
+        await settleAutomationScheduler()
+        const run = await Automation.runNowExecuting(c.req.valid("param").automationID, {
           executor: sessionPromptExecutor,
         })
         await Automation.publishRunUpdated(run)
@@ -279,5 +335,8 @@ export const AutomationRoutes = (): Hono =>
           cursor: AutomationID.Run.zod.optional(),
         }),
       ),
-      (c) => c.json(Automation.runs({ automationID: c.req.valid("param").automationID, ...c.req.valid("query") })),
+      async (c) => {
+        await settleAutomationScheduler()
+        return c.json(Automation.runs({ automationID: c.req.valid("param").automationID, ...c.req.valid("query") }))
+      },
     )
