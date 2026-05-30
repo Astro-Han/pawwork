@@ -176,7 +176,7 @@ jobs:
               test/question
               test/effect
               test/agent
-              test/git
+              test/git/git.test.ts
               test/storage
               test/provider
               test/pty
