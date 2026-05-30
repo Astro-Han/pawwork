@@ -119,7 +119,7 @@ const seoDesc =
 
     function applyLang(l) {
       root.setAttribute("data-lang", l);
-      root.setAttribute("lang", l === "cn" ? "zh" : "en");
+      root.setAttribute("lang", l === "cn" ? "zh-CN" : "en");
       const dict = I18N[l];
       document.querySelectorAll("[data-i18n]").forEach((el) => {
         const key = el.getAttribute("data-i18n");

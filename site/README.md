@@ -13,7 +13,7 @@ bun run preview  # serve the production build locally
 
 ## Structure
 
-```
+```text
 src/
   pages/index.astro     page markup; English first paint + client-side CN/EN switch
   layouts/Base.astro    <head>, SEO tags, anti-flash theme script
