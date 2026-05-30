@@ -94,6 +94,32 @@ function run(overrides: Record<string, unknown> = {}) {
 }
 
 describe("automation routes", () => {
+  test("reloads definitions and runs from durable storage after instance restart", async () => {
+    await using tmp = await tmpdir({ git: true })
+    let automationID: string | undefined
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const definition = Automation.create(recurringInput(Instance.project.id), { now: 100 })
+        const run = Automation.runNow(definition.id, { now: 200 })
+        automationID = definition.id
+
+        expect(run.automationID).toBe(definition.id)
+      },
+    })
+
+    await Instance.disposeAll()
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        expect(Automation.list().map((item) => item.id)).toEqual([automationID])
+        expect(Automation.runs({ automationID: automationID! }).items.map((item) => item.triggeredAt)).toEqual([200])
+      },
+    })
+  })
+
   test("route deletion cancels timers before publishing the tombstone", async () => {
     await withAutomationApp(async ({ app, projectID }) => {
       const cancelled: string[] = []
