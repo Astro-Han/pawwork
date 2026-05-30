@@ -5,6 +5,7 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import { desktopShellMainSelector, titlebarShellSelector } from "../src/renderer/ci-smoke-selectors"
 import {
+  allocateCiSmokeCdpPort,
   appIdForSmoke,
   buildSmokeEnv,
   isCiSmokeRendererTarget,
@@ -13,6 +14,7 @@ import {
   probeCiSmokeCdpTarget,
   requiredSelectors,
   resolveCiSmokeReadyFile,
+  resolveCiSmokeCdpPort,
   resolveLaunchCommand,
   resolveMainEntry,
 } from "./ci-smoke"
@@ -77,6 +79,12 @@ describe("ci smoke helpers", () => {
     expect(env.PAWWORK_CI_SMOKE_CDP_PORT).toBe("48291")
   })
 
+  test("buildSmokeEnv injects the harness-allocated CDP port into the child process", () => {
+    const env = buildSmokeEnv("/tmp/pawwork-ci-smoke", "dev", {}, { cdpPort: 48291 })
+
+    expect(env.PAWWORK_CI_SMOKE_CDP_PORT).toBe("48291")
+  })
+
   test("parseSmokeCdpPort accepts only concrete TCP ports", () => {
     expect(parseSmokeCdpPort("48291")).toBe(48291)
     expect(parseSmokeCdpPort(undefined)).toBeUndefined()
@@ -85,6 +93,34 @@ describe("ci smoke helpers", () => {
     for (const value of ["0", "65536", "1.5", "not-a-port"]) {
       expect(() => parseSmokeCdpPort(value)).toThrow("Invalid CI smoke CDP port")
     }
+  })
+
+  test("resolveCiSmokeCdpPort allocates a port only when the CDP probe is enabled", async () => {
+    const allocated: string[] = []
+
+    expect(await resolveCiSmokeCdpPort({}, async () => 48291)).toBeUndefined()
+    expect(
+      await resolveCiSmokeCdpPort({ PAWWORK_CI_SMOKE_CDP: "true" }, async () => {
+        allocated.push("called")
+        return 48291
+      }),
+    ).toBe(48291)
+    expect(allocated).toEqual(["called"])
+  })
+
+  test("resolveCiSmokeCdpPort prefers an explicit port for local smoke debugging", async () => {
+    expect(
+      await resolveCiSmokeCdpPort({ PAWWORK_CI_SMOKE_CDP: "true", PAWWORK_CI_SMOKE_CDP_PORT: "48291" }, async () => {
+        throw new Error("explicit ports should not allocate")
+      }),
+    ).toBe(48291)
+  })
+
+  test("allocateCiSmokeCdpPort returns a concrete loopback TCP port", async () => {
+    const port = await allocateCiSmokeCdpPort()
+
+    expect(port).toBeGreaterThan(0)
+    expect(port).toBeLessThanOrEqual(65_535)
   })
 
   test("isCiSmokeRendererTarget accepts real renderer page URLs only", () => {

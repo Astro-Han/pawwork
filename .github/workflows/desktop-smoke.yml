@@ -170,39 +170,11 @@ jobs:
         run: bun ./scripts/runtime-import-guard.ts
         working-directory: packages/desktop-electron
 
-      - name: Allocate desktop smoke CDP port
-        id: desktop-smoke-cdp-port
-        run: |
-          node --input-type=module <<'NODE'
-          import { appendFileSync } from "node:fs"
-          import { createServer } from "node:net"
-
-          const server = createServer()
-          server.listen(0, "127.0.0.1", () => {
-            const address = server.address()
-            if (!address || typeof address === "string") {
-              throw new Error("Failed to allocate a TCP port on 127.0.0.1")
-            }
-            console.log(`Allocated desktop smoke CDP port ${address.port}`)
-            appendFileSync(process.env.GITHUB_OUTPUT, `port=${address.port}\n`)
-            server.close(() => {
-              process.exit(0)
-            })
-          })
-
-          server.on("error", (error) => {
-            console.error(error)
-            process.exit(1)
-          })
-          NODE
-        env:
-          NODE_OPTIONS: ""
-
       - name: Launch desktop smoke app
         run: bun run smoke:ci
         working-directory: packages/desktop-electron
         env:
-          PAWWORK_CI_SMOKE_CDP_PORT: ${{ steps.desktop-smoke-cdp-port.outputs.port }}
+          PAWWORK_CI_SMOKE_CDP: "true"
 
       - name: Report problem smoke
         run: bun run smoke:report
@@ -277,34 +249,6 @@ jobs:
           grep -q "Signature=adhoc" /tmp/pawwork-codesign.txt
         working-directory: packages/desktop-electron
 
-      - name: Allocate packaged smoke CDP port
-        id: packaged-smoke-cdp-port
-        run: |
-          node --input-type=module <<'NODE'
-          import { appendFileSync } from "node:fs"
-          import { createServer } from "node:net"
-
-          const server = createServer()
-          server.listen(0, "127.0.0.1", () => {
-            const address = server.address()
-            if (!address || typeof address === "string") {
-              throw new Error("Failed to allocate a TCP port on 127.0.0.1")
-            }
-            console.log(`Allocated packaged smoke CDP port ${address.port}`)
-            appendFileSync(process.env.GITHUB_OUTPUT, `port=${address.port}\n`)
-            server.close(() => {
-              process.exit(0)
-            })
-          })
-
-          server.on("error", (error) => {
-            console.error(error)
-            process.exit(1)
-          })
-          NODE
-        env:
-          NODE_OPTIONS: ""
-
       - name: Launch packaged desktop smoke app
         run: |
           set -euo pipefail
@@ -313,7 +257,7 @@ jobs:
           bun ./scripts/ci-smoke.ts packaged dev "$EXECUTABLE_PATH"
         working-directory: packages/desktop-electron
         env:
-          PAWWORK_CI_SMOKE_CDP_PORT: ${{ steps.packaged-smoke-cdp-port.outputs.port }}
+          PAWWORK_CI_SMOKE_CDP: "true"
 
   # Compatibility aggregator for branch protection setups that require
   # `desktop-smoke / check`. The live dev ruleset currently requires

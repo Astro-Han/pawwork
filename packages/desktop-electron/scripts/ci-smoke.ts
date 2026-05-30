@@ -2,6 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { once } from "node:events"
 import { existsSync, mkdtempSync } from "node:fs"
 import { createRequire } from "node:module"
+import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import process from "node:process"
@@ -34,6 +35,14 @@ type ProbeOptions = {
   delayMs?: number
   fetch?: typeof fetch
   sleep?: (ms: number) => Promise<unknown>
+}
+
+type BuildSmokeEnvOptions = {
+  cdpPort?: number
+}
+
+type LaunchAppOptions = {
+  cdpPort?: number
 }
 
 const APP_ID_BY_CHANNEL: Record<SmokeChannel, string> = {
@@ -74,6 +83,7 @@ export function buildSmokeEnv(
   homeDir: string,
   channel: SmokeChannel = "dev",
   env: NodeJS.ProcessEnv = process.env,
+  options: BuildSmokeEnvOptions = {},
 ) {
   return {
     ...env,
@@ -86,6 +96,7 @@ export function buildSmokeEnv(
     XDG_CONFIG_HOME: homeDir,
     XDG_STATE_HOME: homeDir,
     OPENCODE_CHANNEL: channel,
+    ...(options.cdpPort !== undefined ? { PAWWORK_CI_SMOKE_CDP_PORT: String(options.cdpPort) } : {}),
   }
 }
 
@@ -98,6 +109,39 @@ export function parseSmokeCdpPort(raw: string | undefined) {
     throw new Error(`Invalid CI smoke CDP port: ${raw}`)
   }
   return port
+}
+
+export async function allocateCiSmokeCdpPort() {
+  return await new Promise<number>((resolve, reject) => {
+    const server = createServer()
+
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address()
+      if (!address || typeof address === "string") {
+        server.close(() => reject(new Error("Failed to allocate a TCP port on 127.0.0.1")))
+        return
+      }
+
+      const port = address.port
+      server.close((error) => {
+        if (error) reject(error)
+        else resolve(port)
+      })
+    })
+
+    server.on("error", reject)
+  })
+}
+
+export async function resolveCiSmokeCdpPort(
+  env: Partial<Record<string, string | undefined>> = process.env,
+  allocate: () => Promise<number> = allocateCiSmokeCdpPort,
+) {
+  const explicitPort = parseSmokeCdpPort(env.PAWWORK_CI_SMOKE_CDP_PORT)
+  if (explicitPort !== undefined) return explicitPort
+  if (env.PAWWORK_CI_SMOKE_CDP !== "true") return undefined
+
+  return await allocate()
 }
 
 export function isCiSmokeRendererTarget(target: CdpTarget) {
@@ -216,12 +260,12 @@ async function waitForCiSmokeReady(
   throw new Error(`Timed out waiting for the desktop app to report CI smoke readiness${tail}`)
 }
 
-function launchApp(homeDir: string, target: SmokeTarget): LaunchedApp {
+function launchApp(homeDir: string, target: SmokeTarget, options: LaunchAppOptions = {}): LaunchedApp {
   const launch = resolveLaunchCommand(target)
   const spawnError = { current: undefined as Error | undefined }
   try {
     const child = spawn(launch.command, launch.args, {
-      env: buildSmokeEnv(homeDir, target.channel),
+      env: buildSmokeEnv(homeDir, target.channel, process.env, { cdpPort: options.cdpPort }),
       stdio: ["ignore", "pipe", "pipe"],
     })
     child.on("error", (error) => {
@@ -249,12 +293,12 @@ async function stopChild(child: ChildProcessWithoutNullStreams) {
 async function main() {
   const target = parseSmokeArgs(Bun.argv.slice(2))
   const homeDir = mkdtempSync(join(tmpdir(), "pawwork-ci-smoke-"))
-  const { child, spawnError } = launchApp(homeDir, target)
+  const cdpPort = await resolveCiSmokeCdpPort(process.env)
+  const { child, spawnError } = launchApp(homeDir, target, { cdpPort })
   const logs = watchChildLogs(child)
 
   try {
     await waitForCiSmokeReady(homeDir, target, child, spawnError, logs.recent)
-    const cdpPort = parseSmokeCdpPort(process.env.PAWWORK_CI_SMOKE_CDP_PORT)
     if (cdpPort !== undefined) await probeCiSmokeCdpTarget(cdpPort)
   } finally {
     logs.close()
