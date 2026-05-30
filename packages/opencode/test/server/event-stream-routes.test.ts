@@ -232,10 +232,11 @@ describe("SSE event routes", () => {
       expect(
         frames.find((frame) => (frame.data as { payload: { type: string } }).payload.type === "permission.asked")?.id,
       ).toBe("boot:1")
-      expect(
-        frames.find((frame) => (frame.data as { payload: { type: string } }).payload.type === "message.part.delta")
-          ?.id,
-      ).toBe(undefined)
+      const deltaFrame = frames.find(
+        (frame) => (frame.data as { payload: { type: string } }).payload.type === "message.part.delta",
+      )
+      expect(deltaFrame).toBeDefined()
+      expect(deltaFrame?.id).toBe(undefined)
       expect(
         frames.find((frame) => (frame.data as { payload: { type: string } }).payload.type === "server.heartbeat")?.id,
       ).toBe(undefined)
