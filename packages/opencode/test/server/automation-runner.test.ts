@@ -9,6 +9,7 @@ import { ProjectID } from "../../src/project/schema"
 import { Session } from "../../src/session"
 import { SessionID } from "../../src/session/schema"
 import { AutomationRunContext, AutomationStepCapError } from "../../src/automation/run-context"
+import { Flock } from "../../src/util/flock"
 import { tmpdir } from "../fixture/fixture"
 
 afterEach(async () => {
@@ -187,7 +188,8 @@ describe("automation runNow execution", () => {
     await withAutomation(async (projectID) => {
       const first = Automation.create(input(projectID, { title: "First automation" }))
       const second = Automation.create(input(projectID, { title: "Second automation" }))
-      Automation.runNow(first.id, { now: 100 })
+      const active = Automation.runNow(first.id, { now: 100 })
+      await using _ = await Flock.acquire(`automation-run:${Instance.directory}:${active.id}`)
       let entered = false
 
       await Automation.runNowExecuting(second.id, {
@@ -202,6 +204,32 @@ describe("automation runNow execution", () => {
       if (stopped.state !== "stopped") throw new Error("expected stopped run")
       expect(stopped.stopReason).toBe("previous_run_awaiting_input")
       expect(entered).toBe(false)
+    })
+  })
+
+  test("reconciles stale durable writers before executing a manual run", async () => {
+    await withAutomation(async (projectID) => {
+      const first = Automation.create(input(projectID, { title: "Stale writer" }))
+      const second = Automation.create(input(projectID, { title: "Manual run" }))
+      const stale = Automation.runNow(first.id, { now: 100 })
+      let entered = false
+
+      await Automation.runNowExecuting(second.id, {
+        now: 200,
+        executor: async () => {
+          entered = true
+          return { sessionID: SessionID.descending(), result: "second", cost: 0 }
+        },
+      })
+
+      const succeeded = await waitForRun(second.id, "succeeded")
+      expect(entered).toBe(true)
+      expect(succeeded.result).toBe("second")
+      expect(Automation.runs({ automationID: first.id }).items[0]).toMatchObject({
+        id: stale.id,
+        state: "stopped",
+        stopReason: "expired",
+      })
     })
   })
 

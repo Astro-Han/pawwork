@@ -1018,6 +1018,7 @@ export namespace Automation {
     try {
       const definition = get(initial.automationID)
       writerKey = definition.where.worktree ?? definition.where.projectID
+      for (const run of await reconcileInterruptedRuns()) await publishRunUpdated(run)
       if (data.activeWriters.has(writerKey) || hasDurableActiveWriter(initial, writerKey)) {
         const stopped = reviseRun(initial, {
           state: "stopped",
