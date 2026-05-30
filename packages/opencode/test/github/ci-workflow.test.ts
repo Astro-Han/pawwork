@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
 import path from "node:path"
-import { parseWorkflow, readWorkflow } from "./workflow-parser"
+import { parseWorkflow, parseYamlFile, readWorkflow, type WorkflowStep } from "./workflow-parser"
 
 const repoRoot = path.join(import.meta.dir, "../../../..")
 const ciWorkflowPath = path.join(repoRoot, ".github", "workflows", "ci.yml")
+const setupActionPath = path.join(repoRoot, ".github", "actions", "setup", "action.yml")
 const windowsAdvisoryWorkflowPath = path.join(repoRoot, ".github", "workflows", "windows-advisory.yml")
 const turboJsonPath = path.join(repoRoot, "turbo.json")
 const uiPackageJsonPath = path.join(repoRoot, "packages", "ui", "package.json")
@@ -16,6 +17,7 @@ const pinned = {
   setupNode: "actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
   setupBun: "oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6",
   cache: "actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae",
+  hardenRunner: "step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411",
   junit: "mikepenz/action-junit-report@3a81627bfac62268172037048872e8ebd4207e6d",
   artifact: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
 }
@@ -25,6 +27,26 @@ const githubSha = "${{ github.sha }}"
 const lintJobName = "lint"
 const frontendArchitectureJobName = "frontend-architecture"
 const windowsUnitJobName = "unit-windows"
+const setupAction = "./.github/actions/setup"
+const actionlintJobName = "actionlint"
+const actionlintVersion = "1.7.12"
+const actionlintLinuxAmd64Sha = "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+const hardenRunnerJobs = [
+  "typecheck",
+  lintJobName,
+  frontendArchitectureJobName,
+  "unit-ui",
+  "unit-app",
+  "unit-opencode",
+  "unit-desktop",
+] as const
+
+type CompositeActionMetadata = {
+  runs?: {
+    using?: string
+    steps?: WorkflowStep[]
+  }
+}
 
 // Suffixes drive readable job and artifact names; commands use package.json names verbatim.
 // `opencode` is intentionally unscoped because that is its actual package name.
@@ -222,20 +244,15 @@ describe("ci workflow", () => {
     expect(checkoutStep("changes")?.with?.["fetch-depth"]).toBe(0)
 
     for (const job of ["typecheck", ...linuxUnitJobNames]) {
-      expect(steps(job).find((step) => step.uses?.startsWith("actions/setup-node@"))?.uses).toBe(pinned.setupNode)
-      expect(steps(job).find((step) => step.uses?.startsWith("oven-sh/setup-bun@"))?.uses).toBe(pinned.setupBun)
+      expect(steps(job).find((step) => step.uses === setupAction)?.uses).toBe(setupAction)
       expect(steps(job).filter((step) => step.uses?.startsWith("actions/cache@")).map((step) => step.uses)).toEqual([
-        pinned.cache,
         pinned.cache,
       ])
     }
 
-    expect(steps(lintJobName).find((step) => step.uses?.startsWith("actions/setup-node@"))?.uses).toBe(
-      pinned.setupNode,
-    )
-    expect(steps(lintJobName).find((step) => step.uses?.startsWith("oven-sh/setup-bun@"))?.uses).toBe(pinned.setupBun)
+    expect(steps(lintJobName).find((step) => step.uses === setupAction)?.uses).toBe(setupAction)
     expect(steps(lintJobName).filter((step) => step.uses?.startsWith("actions/cache@")).map((step) => step.uses)).toEqual(
-      [pinned.cache],
+      [],
     )
 
     for (const job of linuxUnitJobNames) {
@@ -249,6 +266,72 @@ describe("ci workflow", () => {
     expect(workflow).not.toContain("pull_request_target")
     expect(workflow).not.toContain("persist-credentials: true")
     expect(parsed.jobs?.[windowsUnitJobName]).toBeUndefined()
+  })
+
+  test("audits required dependency-installing jobs before checkout", () => {
+    for (const job of hardenRunnerJobs) {
+      const jobSteps = steps(job)
+
+      expect(jobSteps[0]?.uses).toBe(pinned.hardenRunner)
+      expect(jobSteps[0]?.with?.["egress-policy"]).toBe("audit")
+      expect(jobSteps[1]?.uses).toBe(pinned.checkout)
+    }
+
+    expect(steps("check").some((step) => step.uses === pinned.hardenRunner)).toBe(false)
+  })
+
+  test("uses a local setup composite for shared CI Node and Bun setup", () => {
+    const setupActionContent = readWorkflow(setupActionPath)
+    const setupActionMetadata = parseYamlFile<CompositeActionMetadata>(setupActionPath)
+    const setupSteps = setupActionMetadata.runs?.steps ?? []
+    const setupNode = setupSteps.find((step) => step.uses?.startsWith("actions/setup-node@"))
+    const setupBun = setupSteps.find((step) => step.uses?.startsWith("oven-sh/setup-bun@"))
+    const cache = setupSteps.find((step) => step.uses?.startsWith("actions/cache@"))
+    const install = setupSteps.find((step) => step.run === "bun install --frozen-lockfile")
+
+    expect(setupActionMetadata.runs?.using).toBe("composite")
+    expect(setupNode?.uses).toBe(pinned.setupNode)
+    expect(setupNode?.with?.["node-version"]).toBe("24")
+    expect(setupBun?.uses).toBe(pinned.setupBun)
+    expect(setupBun?.with?.["bun-version"]).toBe("1.3.14")
+    expect(cache?.uses).toBe(pinned.cache)
+    expect(cache?.with?.path).toBe("~/.bun/install/cache")
+    expect(install?.shell).toBe("bash")
+    expect(setupActionContent).toContain("Load-bearing: `bun install` runs `trustedDependencies`")
+    expect(setupActionContent).toContain("Load-bearing for `bun audit` exit semantics")
+
+    const setupActionJobs = [
+      "typecheck",
+      lintJobName,
+      frontendArchitectureJobName,
+      ...linuxUnitJobs.map((item) => item.jobName),
+    ]
+
+    for (const job of setupActionJobs) {
+      expect(steps(job).some((step) => step.uses === setupAction)).toBe(true)
+    }
+
+    for (const workflowStep of steps(frontendArchitectureJobName).slice(0, 4)) {
+      expect(workflowStep.uses).not.toBe(setupAction)
+    }
+  })
+
+  test("runs actionlint as a non-blocking pinned advisory check", () => {
+    const workflow = readWorkflow(ciWorkflowPath)
+    const actionlint = parseWorkflow(ciWorkflowPath).jobs?.[actionlintJobName]
+    const actionlintSteps = steps(actionlintJobName)
+
+    expect(actionlint?.["continue-on-error"]).toBe(true)
+    expect(actionlint?.needs).toBeUndefined()
+    expect(actionlintSteps[0]?.uses).toBe(pinned.checkout)
+    expect(actionlintSteps[1]?.name).toBe("Download actionlint")
+    expect(actionlintSteps[1]?.run).toContain(`ACTIONLINT_VERSION="${actionlintVersion}"`)
+    expect(actionlintSteps[1]?.run).toContain(`ACTIONLINT_SHA256="${actionlintLinuxAmd64Sha}"`)
+    expect(actionlintSteps[1]?.run).toContain("sha256sum --check")
+    expect(actionlintSteps[2]?.name).toBe("Run actionlint")
+    expect(actionlintSteps[2]?.run).toBe("./actionlint -color -shellcheck=")
+    expect(workflow).not.toContain("rhysd/actionlint@")
+    expect(parseWorkflow(ciWorkflowPath).jobs?.check?.needs).not.toContain(actionlintJobName)
   })
 
   test("keeps dev runs and cancels stale pull request runs", () => {
@@ -415,15 +498,8 @@ describe("ci workflow", () => {
     expect(computeRange?.run).toContain("BASE_SHA=")
     expect(computeRange?.run).toContain("HEAD_SHA=")
     expect(computeRange?.run).toContain("skipped=true")
-    expect(steps(frontendArchitectureJobName).find((step) => step.uses?.startsWith("actions/setup-node@"))?.uses).toBe(
-      pinned.setupNode,
-    )
-    expect(steps(frontendArchitectureJobName).find((step) => step.uses?.startsWith("oven-sh/setup-bun@"))?.uses).toBe(
-      pinned.setupBun,
-    )
-    expect(steps(frontendArchitectureJobName).filter((step) => step.uses?.startsWith("actions/cache@")).map((step) => step.uses)).toEqual([
-      pinned.cache,
-    ])
+    expect(steps(frontendArchitectureJobName).find((step) => step.uses === setupAction)?.uses).toBe(setupAction)
+    expect(steps(frontendArchitectureJobName).filter((step) => step.uses?.startsWith("actions/cache@")).map((step) => step.uses)).toEqual([])
     expect(inventory?.run).toContain("node script/frontend-inventory.mjs --format json")
     expect(inventory?.run).toContain(".artifacts/frontend-architecture/frontend-inventory.json")
     expect(ratchet?.if).toBe("steps.compute-range.outputs.skipped != 'true'")
