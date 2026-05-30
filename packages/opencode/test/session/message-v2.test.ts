@@ -1896,3 +1896,96 @@ describe("session.message-v2.ToolStateError.reason", () => {
     expect(result.success).toBe(false)
   })
 })
+
+describe("session.message-v2 cumulative tokens", () => {
+  const cumulative = (
+    input: number,
+    output: number,
+    reasoning: number,
+    read: number,
+    write: number,
+    total?: number,
+  ) => ({
+    total,
+    input,
+    output,
+    reasoning,
+    cache: { read, write },
+  })
+
+  const stepFinishPart = (
+    messageID: string,
+    id: string,
+    tokens: { total?: number; input: number; output: number; reasoning: number; read: number; write: number },
+  ) =>
+    ({
+      ...basePart(messageID, id),
+      type: "step-finish",
+      reason: "stop",
+      cost: 0,
+      tokens: {
+        total: tokens.total,
+        input: tokens.input,
+        output: tokens.output,
+        reasoning: tokens.reasoning,
+        cache: { read: tokens.read, write: tokens.write },
+      },
+    }) as unknown as MessageV2.Part
+
+  describe("addTokens", () => {
+    test("returns the next tally when the accumulator is undefined", () => {
+      expect(MessageV2.addTokens(undefined, cumulative(10, 5, 2, 30, 40))).toEqual(cumulative(10, 5, 2, 30, 40))
+    })
+
+    test("sums every field across multiple steps", () => {
+      let acc = MessageV2.addTokens(undefined, cumulative(100, 10, 1, 0, 500))
+      acc = MessageV2.addTokens(acc, cumulative(20, 5, 2, 480, 10))
+      acc = MessageV2.addTokens(acc, cumulative(3, 1, 0, 7, 0))
+      expect(acc).toEqual(cumulative(123, 16, 3, 487, 510))
+    })
+
+    test("keeps total undefined until at least one step reports it", () => {
+      const noTotal = MessageV2.addTokens(undefined, cumulative(10, 0, 0, 0, 0))
+      expect(noTotal.total).toBeUndefined()
+      const withTotal = MessageV2.addTokens(noTotal, cumulative(10, 0, 0, 0, 0, 20))
+      expect(withTotal.total).toBe(20)
+    })
+
+    test("does not throw when an accumulator is missing its cache object", () => {
+      const malformed = { input: 1, output: 0, reasoning: 0 } as unknown as Parameters<typeof MessageV2.addTokens>[0]
+      expect(() => MessageV2.addTokens(malformed, cumulative(1, 0, 0, 5, 5))).not.toThrow()
+    })
+  })
+
+  describe("backfillCumulative", () => {
+    test("rebuilds tokensCumulative from multiple step-finish parts on a legacy assistant message", () => {
+      const info = assistantInfo("a1", "u1")
+      const parts = [
+        stepFinishPart("a1", "p1", { input: 100, output: 10, reasoning: 1, read: 0, write: 500 }),
+        stepFinishPart("a1", "p2", { input: 20, output: 5, reasoning: 2, read: 480, write: 10 }),
+      ]
+      const result = MessageV2.backfillCumulative(info, parts) as MessageV2.Assistant
+      expect(result.tokensCumulative).toEqual(cumulative(120, 15, 3, 480, 510))
+    })
+
+    test("leaves an existing tokensCumulative untouched", () => {
+      const info = { ...assistantInfo("a1", "u1"), tokensCumulative: cumulative(1, 1, 1, 1, 1) } as MessageV2.Assistant
+      const parts = [stepFinishPart("a1", "p1", { input: 999, output: 0, reasoning: 0, read: 999, write: 0 })]
+      const result = MessageV2.backfillCumulative(info, parts) as MessageV2.Assistant
+      expect(result.tokensCumulative).toEqual(cumulative(1, 1, 1, 1, 1))
+    })
+
+    test("returns the message unchanged when there are no step-finish parts", () => {
+      const info = assistantInfo("a1", "u1")
+      const result = MessageV2.backfillCumulative(info, []) as MessageV2.Assistant
+      expect(result.tokensCumulative).toBeUndefined()
+      expect(result).toBe(info)
+    })
+
+    test("ignores non-assistant messages", () => {
+      const info = userInfo("u1")
+      const parts = [stepFinishPart("u1", "p1", { input: 100, output: 0, reasoning: 0, read: 50, write: 50 })]
+      expect(MessageV2.backfillCumulative(info, parts)).toBe(info)
+    })
+  })
+})

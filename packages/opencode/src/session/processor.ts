@@ -929,6 +929,9 @@ export const layer: Layer.Layer<
             ctx.assistantMessage.finish = value.finishReason
             ctx.assistantMessage.cost += usage.cost
             ctx.assistantMessage.tokens = usage.tokens
+            // `tokens` holds only this step's snapshot (the current window state); accumulate every
+            // step here so the turn-level cache hit rate can sum reads/writes across all steps.
+            ctx.assistantMessage.tokensCumulative = MessageV2.addTokens(ctx.assistantMessage.tokensCumulative, usage.tokens)
             yield* session.updatePart({
               id: PartID.ascending(),
               reason: value.finishReason,

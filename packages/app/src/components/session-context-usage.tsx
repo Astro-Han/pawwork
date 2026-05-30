@@ -15,6 +15,36 @@ interface SessionContextUsageProps {
   placement?: TooltipProps["placement"]
 }
 
+interface SessionContextUsageTooltipContentProps {
+  title: () => string
+  contextUsedLabel: () => string | undefined
+  compactStatus: () => string | undefined
+  cost: () => string
+  costLabel: () => string
+}
+
+function SessionContextUsageTooltipContent(props: SessionContextUsageTooltipContentProps) {
+  return (
+    <div>
+      <Show when={props.contextUsedLabel()}>
+        <div class="flex items-center gap-2">
+          <span>{props.title()}</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span>{props.contextUsedLabel()}</span>
+        </div>
+        <Show when={props.compactStatus()}>
+          <div>{props.compactStatus()}</div>
+        </Show>
+      </Show>
+      <div class="flex items-center gap-2">
+        <span>{props.cost()}</span>
+        <span>{props.costLabel()}</span>
+      </div>
+    </div>
+  )
+}
+
 export function SessionContextUsage(props: SessionContextUsageProps) {
   const sync = useSync()
   const language = useLanguage()
@@ -72,27 +102,19 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
       limit: limit.toLocaleString(language.intl()),
     })
   }
+  const contextUsedLabel = createMemo(() => {
+    const ctx = context()
+    return ctx ? contextUsedText(ctx) : undefined
+  })
 
   const tooltipValue = () => (
-    <div>
-      <Show when={context()}>
-        {(ctx) => (
-          <>
-            <div class="flex items-center gap-2">
-              <span>{language.t("context.usage.title")}</span>
-            </div>
-            <div class="flex items-center gap-2">
-              <span>{contextUsedText(ctx())}</span>
-            </div>
-            <Show when={compactStatus()}>{(status) => <div>{status()}</div>}</Show>
-          </>
-        )}
-      </Show>
-      <div class="flex items-center gap-2">
-        <span>{cost()}</span>
-        <span>{language.t("context.usage.cost")}</span>
-      </div>
-    </div>
+    <SessionContextUsageTooltipContent
+      title={() => language.t("context.usage.title")}
+      contextUsedLabel={contextUsedLabel}
+      compactStatus={compactStatus}
+      cost={cost}
+      costLabel={() => language.t("context.usage.cost")}
+    />
   )
 
   return (

@@ -121,4 +121,27 @@ describe("AuthMiddleware", () => {
     expect(response.status).toBe(401)
     expect(response.headers.get("www-authenticate")).toBe('Basic realm="opencode"')
   })
+
+  test("lets PTY websocket ticket requests reach the PTY connect route", async () => {
+    mutableFlag.OPENCODE_SERVER_PASSWORD = "secret"
+    mutableFlag.OPENCODE_SERVER_USERNAME = "alice"
+    const app = new Hono()
+    app.use(AuthMiddleware)
+    app.get("/pty/:ptyID/connect", (c) => c.text(c.req.query("ticket") ?? "missing"))
+
+    const response = await app.request("/pty/pty_test/connect?ticket=one-use")
+
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe("one-use")
+  })
+
+  test("does not treat PTY websocket tickets as general API auth", async () => {
+    mutableFlag.OPENCODE_SERVER_PASSWORD = "secret"
+    mutableFlag.OPENCODE_SERVER_USERNAME = "alice"
+
+    const response = await app().request("/?ticket=one-use")
+
+    expect(response.status).toBe(401)
+    expect(response.headers.get("www-authenticate")).toBe('Basic realm="opencode"')
+  })
 })

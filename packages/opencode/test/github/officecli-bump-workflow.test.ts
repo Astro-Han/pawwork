@@ -37,7 +37,7 @@ describe("officecli bump workflow", () => {
     expect(setupNode?.uses).toBe("actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e")
     expect(setupNode?.with).toEqual({ "node-version": "24" })
     expect(setupBun?.uses).toBe("oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6")
-    expect(setupBun?.with).toEqual({ "bun-version": "1.3.13" })
+    expect(setupBun?.with).toEqual({ "bun-version": "1.3.14" })
 
     expect(workflow).not.toContain("persist-credentials: true")
     expect(workflow).toContain("gh api repos/iOfficeAI/OfficeCLI/releases/latest")

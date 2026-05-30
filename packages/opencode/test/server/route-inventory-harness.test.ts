@@ -120,6 +120,18 @@ describe("route inventory harness", () => {
     ).toMatchObject({ hono: true, openapi: false, v2Sdk: true, classification: "hono-v2-sdk" })
   })
 
+  test("keeps the PTY connect-token route in the public OpenAPI and v2 SDK surfaces", async () => {
+    const inventory = await buildRouteInventory({ root, requireUpstream: false })
+
+    expect(inventory.rows.find((row) => row.method === "POST" && row.path === "/pty/:ptyID/connect-token")).toMatchObject({
+      hono: true,
+      openapi: true,
+      v2Sdk: true,
+      classification: "openapi-v2-sdk",
+      specialSurface: "PTY websocket",
+    })
+  })
+
   test("fails when the upstream HttpApi ref is unavailable", async () => {
     await expect(
       buildRouteInventory({

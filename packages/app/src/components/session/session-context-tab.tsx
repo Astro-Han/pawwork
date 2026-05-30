@@ -15,7 +15,7 @@ import { useLanguage } from "@/context/language"
 import { useProviders } from "@/hooks/use-providers"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { emptyMessages, emptyUserMessages, readSessionMessages, readUserMessages } from "@/pages/session/session-messages"
-import { getSessionContextMetrics } from "./session-context-metrics"
+import { getRecentTurnCache, getSessionContextMetrics } from "./session-context-metrics"
 import { estimateSessionContextBreakdown, type SessionContextBreakdownKey } from "./session-context-breakdown"
 import { createSessionContextFormatter } from "./session-context-format"
 
@@ -187,11 +187,13 @@ export function SessionContextTab() {
     return formatter().number(c.compactThreshold)
   })
 
+  const recentTurnCache = createMemo(() => getRecentTurnCache(messages(), info()?.revert?.messageID))
+
   const cacheHitRate = createMemo(() => {
-    const c = ctx()
-    const value = c?.cacheHitRate
-    const raw = `${language.t("context.stats.cacheTokens")}: ${formatter().number(c?.cacheRead)} / ${formatter().number(c?.cacheWrite)}`
-    const hasCacheTokens = !!c && (c.cacheRead > 0 || c.cacheWrite > 0)
+    const turn = recentTurnCache()
+    const value = turn?.hitRate
+    const raw = `${language.t("context.stats.cacheTokens")}: ${formatter().number(turn?.read)} / ${formatter().number(turn?.write)}`
+    const hasCacheTokens = !!turn && (turn.read > 0 || turn.write > 0)
     return (
       <span class="flex flex-col gap-1" title={raw}>
         <span class={cacheHitRateClass(value)}>{formatter().percent(value, 1)}</span>

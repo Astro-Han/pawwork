@@ -13,6 +13,8 @@ describe("codeql workflow", () => {
     const changesJob = jobs.changes
     const changesSteps = changesJob?.steps ?? []
     const changesCheckoutStep = changesSteps.find((step) => step.uses?.startsWith("actions/checkout@"))
+    const docsPathsStep = changesSteps.find((step) => step.id === "docs-paths")
+    const codePathsStep = changesSteps.find((step) => step.id === "code-paths")
     const changesFilterStep = changesSteps.find((step) => step.id === "filter")
     const job = jobs["analyze-js-ts"]
     const steps = job?.steps ?? []
@@ -26,21 +28,37 @@ describe("codeql workflow", () => {
     expect(parsed.on?.schedule).toEqual([{ cron: "0 2 * * 1" }])
     expect(parsed.on?.workflow_dispatch).toBeUndefined()
     expect(parsed.permissions).toEqual({
-      actions: "read",
       contents: "read",
+      "pull-requests": "read",
       "security-events": "write",
     })
     expect(Object.keys(jobs)).toEqual(["changes", "analyze-js-ts"])
     expect(Object.keys(changesJob ?? {}).sort()).toEqual(["outputs", "runs-on", "steps"])
     expect(changesJob?.["runs-on"]).toBe("ubuntu-latest")
     expect(changesJob?.outputs).toEqual({ docs_only: "${{ steps.filter.outputs.docs_only }}" })
-    expect(changesSteps).toHaveLength(2)
+    expect(changesSteps).toHaveLength(4)
     expect(changesCheckoutStep?.uses).toBe("actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd")
+    expect(changesCheckoutStep?.if).toBe("github.event_name == 'push'")
     expect(changesCheckoutStep?.with).toEqual({ "fetch-depth": 0, "persist-credentials": false })
+    expect(docsPathsStep?.uses).toBe("dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d")
+    expect(docsPathsStep?.if).toBe("github.event_name == 'pull_request' || github.event_name == 'push'")
+    expect(docsPathsStep?.["continue-on-error"]).toBe(true)
+    expect(docsPathsStep?.with?.filters).toContain("docs:")
+    expect(docsPathsStep?.with?.filters).toContain("'docs/**'")
+    expect(codePathsStep?.uses).toBe("dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d")
+    expect(codePathsStep?.if).toBe("github.event_name == 'pull_request' || github.event_name == 'push'")
+    expect(codePathsStep?.["continue-on-error"]).toBe(true)
+    expect(codePathsStep?.with?.["predicate-quantifier"]).toBe("every")
+    expect(codePathsStep?.with?.filters).toContain("code:")
+    expect(codePathsStep?.with?.filters).toContain("'!docs/**'")
+    expect(changesFilterStep?.if).toBe("always()")
     expect(changesFilterStep?.env).toEqual({
       EVENT_NAME: "${{ github.event_name }}",
-      BASE_SHA: "${{ github.event.pull_request.base.sha || github.event.before }}",
-      HEAD_SHA: "${{ github.sha }}",
+      BEFORE_SHA: "${{ github.event.before }}",
+      DOCS_OUTCOME: "${{ steps.docs-paths.outcome }}",
+      CODE_OUTCOME: "${{ steps.code-paths.outcome }}",
+      DOCS_CHANGED: "${{ steps.docs-paths.outputs.docs }}",
+      CODE_CHANGED: "${{ steps.code-paths.outputs.code }}",
     })
     expect(changesFilterStep?.run).toContain("docs_only=$docs_only")
 

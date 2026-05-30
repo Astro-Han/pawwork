@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.ref == 'refs/heads/dev' && format('windows-advisory-{0}', github.run_id) || format('windows-advisory-{0}', github.event.pull_request.number || github.ref) }}
+  group: ${{ github.ref == 'refs/heads/dev' && format('windows-advisory-{0}', github.run_id) || format('windows-advisory-{0}', github.ref) }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/dev' }}
 
 permissions:
@@ -21,67 +21,84 @@ jobs:
       docs_only: ${{ steps.filter.outputs.docs_only }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6
+        if: github.event_name == 'push'
         with:
           fetch-depth: 0
           persist-credentials: false
 
+      - id: docs-paths
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        continue-on-error: true
+        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # dorny/paths-filter@v4.0.1
+        with:
+          filters: |
+            docs:
+              - 'README.md'
+              - 'README_CN.md'
+              - 'AGENTS.md'
+              - 'CONTRIBUTING.md'
+              - 'SECURITY.md'
+              - 'LICENSE'
+              - 'docs/**'
+              - 'assets/readme/**'
+              - '.github/ISSUE_TEMPLATE/**'
+              - '.github/pull_request_template.md'
+              - 'packages/**/README.md'
+              - 'packages/opencode/specs/**'
+
+      - id: code-paths
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        continue-on-error: true
+        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # dorny/paths-filter@v4.0.1
+        with:
+          predicate-quantifier: every
+          filters: |
+            code:
+              - '**'
+              - '!README.md'
+              - '!README_CN.md'
+              - '!AGENTS.md'
+              - '!CONTRIBUTING.md'
+              - '!SECURITY.md'
+              - '!LICENSE'
+              - '!docs/**'
+              - '!assets/readme/**'
+              - '!.github/ISSUE_TEMPLATE/**'
+              - '!.github/pull_request_template.md'
+              - '!packages/**/README.md'
+              - '!packages/opencode/specs/**'
+
       - id: filter
+        if: always()
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-          HEAD_SHA: ${{ github.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          DOCS_OUTCOME: ${{ steps.docs-paths.outcome }}
+          CODE_OUTCOME: ${{ steps.code-paths.outcome }}
+          DOCS_CHANGED: ${{ steps.docs-paths.outputs.docs }}
+          CODE_CHANGED: ${{ steps.code-paths.outputs.code }}
         run: |
           set -euo pipefail
 
-          is_docs_path() {
-            case "$1" in
-              README.md|README_CN.md|assets/readme/*|.github/ISSUE_TEMPLATE/*|.github/pull_request_template.md|packages/*/README.md|packages/opencode/specs/*)
-                return 0
-                ;;
-              *)
-                return 1
-                ;;
-            esac
-          }
-
           docs_only=false
 
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+          if [ "$EVENT_NAME" != "pull_request" ] && [ "$EVENT_NAME" != "push" ]; then
             echo "docs_only=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
-            BASE_SHA="$(git rev-list --max-parents=0 HEAD | tail -n 1)"
+          if [ "$EVENT_NAME" = "push" ] && { [ -z "$BEFORE_SHA" ] || [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ]; }; then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
-          mapfile -t changes < <(git diff --name-status --find-renames --find-copies "$BASE_SHA" "$HEAD_SHA" --)
+          if [ "$DOCS_OUTCOME" != "success" ] || [ "$CODE_OUTCOME" != "success" ]; then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
-          if [ "${#changes[@]}" -gt 0 ]; then
+          if [ "$DOCS_CHANGED" = "true" ] && [ "$CODE_CHANGED" != "true" ]; then
             docs_only=true
-
-            for change in "${changes[@]}"; do
-              IFS=$'\t' read -r status path1 path2 <<< "$change"
-
-              case "$status" in
-                A*|M*|T*|D*)
-                  if ! is_docs_path "$path1"; then
-                    docs_only=false
-                    break
-                  fi
-                  ;;
-                R*|C*)
-                  if ! is_docs_path "$path1" || ! is_docs_path "$path2"; then
-                    docs_only=false
-                    break
-                  fi
-                  ;;
-                *)
-                  docs_only=false
-                  break
-                  ;;
-              esac
-            done
           fi
 
           echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
@@ -138,7 +155,7 @@ jobs:
               test/config
               test/project
               test/worktree
-              test/file
+              test/file/
               test/github
               test/settings
               test/settings.test.ts
@@ -159,11 +176,11 @@ jobs:
               test/question
               test/effect
               test/agent
-              test/git
+              test/git/
               test/storage
               test/provider
               test/pty
-              test/share
+              test/share/
               test/script
               test/memory
               test/lsp
@@ -208,7 +225,8 @@ jobs:
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.13"
+          # Load-bearing for `bun audit` exit semantics; do not bump without re-verifying advisory exit codes.
+          bun-version: "1.3.14"
 
       - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
         with:
