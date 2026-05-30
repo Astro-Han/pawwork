@@ -323,6 +323,20 @@ describe("automation scheduler", () => {
     })
   })
 
+  test("computes cron next fires across a leap-year cycle", async () => {
+    await withAutomation(async (projectID) => {
+      const scheduler = AutomationScheduler.make()
+      const definition = Automation.create(cronInput(projectID, "0 0 29 2 *"), {
+        now: Date.UTC(2026, 2, 1, 0, 0),
+      })
+
+      const next = scheduler.computeNextFireAt(definition, Date.UTC(2026, 2, 1, 0, 0))
+
+      expect(next).toBe(Date.UTC(2028, 1, 29, 0, 0))
+      scheduler.stop()
+    })
+  })
+
   test("reschedules pending cron timers when timezone changes", async () => {
     await withAutomation(async (projectID) => {
       const clock = new FakeClock(Date.UTC(2024, 4, 30, 8, 30))

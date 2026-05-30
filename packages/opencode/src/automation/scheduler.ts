@@ -1,5 +1,6 @@
 import { Context, Effect, Fiber, Layer } from "effect"
 import { DateTime } from "luxon"
+import { Log } from "@opencode-ai/core/util/log"
 import { Automation } from "."
 import { Bus } from "@/bus"
 import { Instance, type InstanceContext } from "@/project/instance"
@@ -10,6 +11,8 @@ import { sessionPromptExecutor } from "./runner"
 export namespace AutomationScheduler {
   const MAX_TIMER_DELAY_MS = 2_147_483_647
   const MISSED_SCHEDULE_GRACE_MS = 60_000
+  const CRON_LOOKAHEAD_MINUTES = 527_040 * 5
+  const log = Log.create({ service: "automation.scheduler" })
 
   export interface Clock {
     now(): number
@@ -163,7 +166,7 @@ export namespace AutomationScheduler {
     if (definition.rhythm.kind !== "cron") return null
     const schedule = parseCronSchedule(definition.rhythm.expression)
     let cursor = DateTime.fromMillis(from, { zone: definition.timezone }).plus({ minutes: 1 }).startOf("minute")
-    for (let attempts = 0; attempts < 527_040; attempts++) {
+    for (let attempts = 0; attempts < CRON_LOOKAHEAD_MINUTES; attempts++) {
       if (cronMatches(schedule, cursor)) return cursor.toMillis()
       cursor = cursor.plus({ minutes: 1 })
     }
@@ -344,7 +347,13 @@ export namespace AutomationScheduler {
 
     const scan = () => {
       if (!running || !ownsTimers) return
-      for (const definition of Automation.list()) reschedule(definition)
+      for (const definition of Automation.list()) {
+        try {
+          reschedule(definition)
+        } catch (error) {
+          log.error("automation scheduler scan failed", { error, automationID: definition.id })
+        }
+      }
     }
 
     const becomeOwner = async () => {
@@ -356,10 +365,10 @@ export namespace AutomationScheduler {
       }
       ownerLease = lease
       ownsTimers = true
-      for (const run of Automation.reconcileInterruptedRuns({ now: clock.now() })) void Automation.publishRunUpdated(run)
-      scan()
       ownerRescanTimer = setInterval(scan, ownerRescanMs)
       ownerRescanTimer.unref?.()
+      for (const run of Automation.reconcileInterruptedRuns({ now: clock.now() })) void Automation.publishRunUpdated(run)
+      scan()
     }
 
     const settleOwner = () => {
