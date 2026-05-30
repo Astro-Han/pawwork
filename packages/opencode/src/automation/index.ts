@@ -6,7 +6,7 @@ import { Instance } from "@/project/instance"
 import { ProjectID } from "@/project/schema"
 import { PermissionID } from "@/permission/schema"
 import { SessionID } from "@/session/schema"
-import { and, Database, desc, eq, inArray, lt, NotFoundError, or, sql } from "@/storage/db"
+import { and, Database, desc, eq, gte, inArray, lt, NotFoundError, or, sql } from "@/storage/db"
 import type { AutomationRunAttendance, AutomationRunBlocker } from "./run-context"
 import { AutomationDefinitionTable, AutomationRunTable } from "./automation.sql"
 
@@ -722,8 +722,25 @@ export namespace Automation {
 
   export function hasActiveRun(automationID: string): boolean {
     if (state().activeRuns.has(automationID)) return true
-    return allRuns(automationID).some(
-      (run) => run.state === "scheduled" || run.state === "running" || run.state === "awaiting_input",
+    get(automationID)
+    const projectID = Instance.project.id
+    const ownerDirectory = Instance.directory
+    return Boolean(
+      Database.use((db) =>
+        db
+          .select({ id: AutomationRunTable.id })
+          .from(AutomationRunTable)
+          .where(
+            and(
+              eq(AutomationRunTable.automation_id, automationID),
+              eq(AutomationRunTable.project_id, projectID),
+              eq(AutomationRunTable.owner_directory, ownerDirectory),
+              sql`json_extract(${AutomationRunTable.data}, '$.state') in ('scheduled', 'running', 'awaiting_input')`,
+            ),
+          )
+          .limit(1)
+          .get(),
+      ),
     )
   }
 
@@ -780,11 +797,47 @@ export namespace Automation {
   }
 
   export function hasRunTriggeredAtOrAfter(automationID: string, triggeredAt: number): boolean {
-    return allRuns(automationID).some((run) => run.triggeredAt >= triggeredAt)
+    get(automationID)
+    const projectID = Instance.project.id
+    const ownerDirectory = Instance.directory
+    return Boolean(
+      Database.use((db) =>
+        db
+          .select({ id: AutomationRunTable.id })
+          .from(AutomationRunTable)
+          .where(
+            and(
+              eq(AutomationRunTable.automation_id, automationID),
+              eq(AutomationRunTable.project_id, projectID),
+              eq(AutomationRunTable.owner_directory, ownerDirectory),
+              gte(AutomationRunTable.triggered_at, triggeredAt),
+            ),
+          )
+          .limit(1)
+          .get(),
+      ),
+    )
   }
 
   export function completedRunCount(automationID: string): number {
-    return allRuns(automationID).filter((run) => run.state === "succeeded" || run.state === "failed").length
+    get(automationID)
+    const projectID = Instance.project.id
+    const ownerDirectory = Instance.directory
+    const row = Database.use((db) =>
+      db
+        .select({ count: sql<number>`count(*)` })
+        .from(AutomationRunTable)
+        .where(
+          and(
+            eq(AutomationRunTable.automation_id, automationID),
+            eq(AutomationRunTable.project_id, projectID),
+            eq(AutomationRunTable.owner_directory, ownerDirectory),
+            sql`json_extract(${AutomationRunTable.data}, '$.state') in ('succeeded', 'failed')`,
+          ),
+        )
+        .get(),
+    )
+    return Number(row?.count ?? 0)
   }
 
   export function reconcileInterruptedRuns(options?: { now?: number }): Run[] {
