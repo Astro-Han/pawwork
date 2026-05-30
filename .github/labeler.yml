@@ -20,6 +20,7 @@ ui:
           - "packages/app/src/components/**"
           - "packages/ui/**"
           - "**/*.tsx"
+          - "site/**"
 
 harness:
   - changed-files:
