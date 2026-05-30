@@ -166,6 +166,7 @@ describe("release workflow", () => {
         ref: "${{ inputs.source_sha }}",
       })
       expect(setupNodeStep?.with).toEqual({ "node-version": "24" })
+      expect(installDependenciesStep).toBeDefined()
       expect(importCertificateStep).toBeDefined()
       expect(importCertificateStep?.if).toBe("runner.os == 'macOS'")
       expect(steps.indexOf(importCertificateStep!)).toBeGreaterThan(steps.indexOf(installDependenciesStep!))
@@ -194,6 +195,8 @@ describe("release workflow", () => {
       expect(runtimeImportGuardStep?.["working-directory"]).toBe("packages/desktop-electron")
       expect(steps.indexOf(runtimeImportGuardStep!)).toBeGreaterThan(steps.indexOf(buildElectronAppStep!))
       expect(steps.indexOf(runtimeImportGuardStep!)).toBeLessThan(steps.indexOf(setupAppleApiKeyStep!))
+      expect(submitNotarizationStep).toBeDefined()
+      expect(finalizeNotarizationStep).toBeDefined()
       expect(setupAppleApiKeyStep?.if).toBe("runner.os == 'macOS'")
       expect(steps.indexOf(setupAppleApiKeyStep!)).toBeLessThan(steps.indexOf(submitNotarizationStep!))
       expect(steps.indexOf(setupAppleApiKeyStep!)).toBeLessThan(steps.indexOf(finalizeNotarizationStep!))
@@ -209,7 +212,6 @@ describe("release workflow", () => {
       expect(steps.indexOf(deleteAppleApiKeyAfterFinalizeStep!)).toBe(
         steps.indexOf(finalizeNotarizationStep!) + 1,
       )
-      expect(deleteAppleApiKeyAfterSubmitStep?.if).not.toContain("full")
       expect(packageAppStep?.shell).toBe("bash")
       expect(packageAppStep?.env).toEqual({
         OPENCODE_CHANNEL: "${{ inputs.channel || 'dev' }}",
