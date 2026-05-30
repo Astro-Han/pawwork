@@ -41,7 +41,7 @@ describe("main updater source contracts", () => {
   })
 
   test("registers progress listeners only after the updater-disabled early return", () => {
-    const earlyReturnIndex = source.search(/if\s*\(\s*!UPDATER_ENABLED\s*\)\s*return/)
+    const earlyReturnIndex = source.search(/if\s*\(\s*!UPDATER_ACTIVE\s*\)\s*return/)
     const listenerIndex = source.search(/autoUpdater\.on\("download-progress"/)
     expect(earlyReturnIndex).toBeGreaterThan(0)
     expect(listenerIndex).toBeGreaterThan(earlyReturnIndex)

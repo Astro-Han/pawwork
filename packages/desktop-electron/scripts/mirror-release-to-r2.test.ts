@@ -3,7 +3,12 @@ import { readFileSync } from "node:fs"
 import { join } from "node:path"
 
 import { releaseAssetNames } from "./verify-release.ts"
-import { buildManifest, uploadPlan } from "./mirror-release-to-r2.ts"
+import {
+  buildManifest,
+  missingPointerReferences,
+  pointerReferencedAssets,
+  uploadPlan,
+} from "./mirror-release-to-r2.ts"
 
 describe("buildManifest", () => {
   test("locks the manifest shape and per-platform installer URLs", () => {
@@ -53,6 +58,42 @@ describe("uploadPlan", () => {
     const assets = releaseAssetNames("2026.5.29")
     expect(names.slice(0, -1).sort()).toEqual([...assets].sort())
     expect(new Set(names).size).toBe(names.length)
+  })
+})
+
+describe("pointer reference alignment", () => {
+  const latestMacYml = [
+    "version: 2026.5.29",
+    "files:",
+    "  - url: pawwork-mac-arm64-2026.5.29.zip",
+    "    sha512: abc",
+    "    size: 123",
+    "  - url: pawwork-mac-x64-2026.5.29.zip",
+    "    sha512: def",
+    "    size: 456",
+    "path: pawwork-mac-arm64-2026.5.29.zip",
+    "sha512: abc",
+    "",
+  ].join("\n")
+
+  test("collects the deduped asset names a pointer references", () => {
+    expect(pointerReferencedAssets(latestMacYml)).toEqual([
+      "pawwork-mac-arm64-2026.5.29.zip",
+      "pawwork-mac-x64-2026.5.29.zip",
+    ])
+  })
+
+  test("reduces a full download URL to its asset name", () => {
+    const yml = "files:\n  - url: https://example.com/d/pawwork-win-x64-2026.5.29.exe\npath: pawwork-win-x64-2026.5.29.exe\n"
+    expect(pointerReferencedAssets(yml)).toEqual(["pawwork-win-x64-2026.5.29.exe"])
+  })
+
+  test("flags references the mirror would not upload", () => {
+    const mirrored = new Set(releaseAssetNames("2026.5.29"))
+    expect(missingPointerReferences(pointerReferencedAssets(latestMacYml), mirrored)).toEqual([])
+    expect(missingPointerReferences(["pawwork-mac-arm64-9.9.9.zip"], mirrored)).toEqual([
+      "pawwork-mac-arm64-9.9.9.zip",
+    ])
   })
 })
 
