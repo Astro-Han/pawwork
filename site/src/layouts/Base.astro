@@ -1,0 +1,57 @@
+---
+// Page shell: basic SEO tags in <head> plus the anti-flash theme script.
+// Language switching happens on the client; first paint renders English.
+import "../styles/global.css";
+
+interface Props {
+  title: string;
+  description: string;
+  image?: string;
+}
+
+const { title, description, image = "/app-icon.svg" } = Astro.props;
+const canonical = new URL(Astro.url.pathname, Astro.site).href;
+const ogImage = new URL(image, Astro.site).href;
+---
+
+<!doctype html>
+<html lang="en" data-theme="light" data-lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="/app-icon.svg" />
+    <link rel="canonical" href={canonical} />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#ff5910" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="PawWork" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    {/* TODO: replace with a dedicated 1200×630 share image; app icon is a placeholder */}
+    <meta property="og:image" content={ogImage} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImage} />
+
+    {/* Set the theme before first paint so dark-mode users don't see a light flash */}
+    <script is:inline>
+      (function () {
+        try {
+          var qs = new URLSearchParams(location.search);
+          var stored = localStorage.getItem("pw-theme");
+          var mq = window.matchMedia("(prefers-color-scheme: dark)");
+          var theme = qs.get("theme") || stored || (mq.matches ? "dark" : "light");
+          if (theme !== "dark" && theme !== "light") theme = "light";
+          document.documentElement.setAttribute("data-theme", theme);
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <slot />
+  </body>
+</html>

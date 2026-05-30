@@ -1,0 +1,16 @@
+{
+  "name": "@pawwork/site",
+  "type": "module",
+  "version": "0.0.0",
+  "private": true,
+  "description": "PawWork download landing page",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "check": "astro check"
+  },
+  "dependencies": {
+    "astro": "6.4.2"
+  }
+}

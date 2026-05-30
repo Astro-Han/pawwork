@@ -1,0 +1,150 @@
+---
+import Base from "../layouts/Base.astro";
+import { I18N } from "../i18n";
+import { DOWNLOAD, REPO_URL, RELEASES_URL } from "../config";
+
+// First paint renders English (basic SEO); the client then switches by browser
+// language or the user's toggle.
+const t = I18N.en;
+
+const seoTitle = "PawWork — Real work, done on your desktop";
+const seoDesc =
+  "Free, open-source AI desktop app for macOS and Windows. No terminal, no API key, no paid plan — open PawWork, choose a folder, and ask in plain language.";
+---
+
+<Base title={seoTitle} description={seoDesc}>
+  <svg width="0" height="0" style="position:absolute"
+    ><defs>
+      <g id="gh"
+        ><path
+          d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"
+        ></path></g
+      >
+      <g id="apple"
+        ><path
+          d="M16.36 12.78c-.02-2.05 1.67-3.03 1.75-3.08-.95-1.4-2.44-1.59-2.97-1.61-1.26-.13-2.46.74-3.1.74-.64 0-1.63-.72-2.68-.7-1.38.02-2.65.8-3.36 2.03-1.43 2.49-.37 6.17 1.03 8.19.68.99 1.49 2.1 2.55 2.06 1.02-.04 1.41-.66 2.65-.66 1.23 0 1.58.66 2.66.64 1.1-.02 1.79-1 2.47-1.99.78-1.14 1.1-2.25 1.12-2.31-.02-.01-2.15-.83-2.17-3.27zM14.3 6.84c.56-.68.94-1.62.84-2.56-.81.03-1.79.54-2.37 1.22-.52.6-.98 1.56-.86 2.48.9.07 1.83-.46 2.39-1.14z"
+        ></path></g
+      >
+      <g id="win"
+        ><path
+          d="M3 5.4 10.2 4.4v6.9H3V5.4zM11.1 4.27 21 3v8.3h-9.9V4.27zM3 12.2h7.2v6.9L3 18.1v-5.9zM11.1 12.2H21V21l-9.9-1.3v-7.5z"
+        ></path></g
+      >
+      <g id="paw"
+        ><circle cx="24.8" cy="22" r="4.4"></circle><circle cx="39.2" cy="22" r="4.4"></circle><circle
+          cx="18.3"
+          cy="30.75"
+          r="3.8"></circle><circle cx="45.75" cy="30.75" r="3.8"></circle><path
+          d="M32 29.2C24.2 29.2 19.8 37.6 19.8 42.6c0 3.8 3.5 5.3 8.5 3.5 1.8-.7 5.6-.7 7.5 0 5 1.8 8.4.3 8.4-3.5 0-5-4.4-13.4-12.2-13.4z"
+        ></path></g
+      >
+      <g id="ck"
+        ><path
+          d="M20 6 9 17l-5-5"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="3"
+          stroke-linecap="round"
+          stroke-linejoin="round"></path></g
+      >
+    </defs></svg
+  >
+
+  <div class="in">
+    <div class="bar">
+      <span class="mark"><img src="/app-icon.svg" alt="" /><span data-i18n="brand" set:html={t["brand"]} /></span>
+      <nav class="nav">
+        <a class="lk" href="#feat" data-i18n="nav.feat" set:html={t["nav.feat"]}></a>
+        <a class="lk gh" href={REPO_URL}><svg viewBox="0 0 16 16" fill="currentColor"><use href="#gh"></use></svg>GitHub</a>
+        <button class="toggle" id="lg" aria-label="Switch language"><span class="ll-en">EN</span><span class="ll-cn">中</span></button>
+        <button class="toggle" id="tg" aria-label="Switch theme">
+          <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>
+          <svg class="moon" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path></svg>
+        </button>
+      </nav>
+    </div>
+
+    <section class="hero">
+      <div>
+        <span class="tag"><span class="dot"></span><span data-i18n="tag" set:html={t["tag"]} /></span>
+        <h1 data-i18n="h1" set:html={t["h1"]}></h1>
+        <p class="sub" data-i18n="sub" set:html={t["sub"]}></p>
+        <div class="dlblock">
+          <div class="dl">
+            <a class="dlbtn lead" href={DOWNLOAD.mac}><svg viewBox="0 0 24 24" fill="currentColor"><use href="#apple"></use></svg><span class="t"><b data-i18n="dl.mac.t" set:html={t["dl.mac.t"]}></b><span data-i18n="dl.mac.s" set:html={t["dl.mac.s"]}></span></span></a>
+            <a class="dlbtn" href={DOWNLOAD.macIntel}><svg viewBox="0 0 24 24" fill="currentColor"><use href="#apple"></use></svg><span class="t"><b data-i18n="dl.intel.t" set:html={t["dl.intel.t"]}></b><span data-i18n="dl.intel.s" set:html={t["dl.intel.s"]}></span></span></a>
+            <a class="dlbtn" href={DOWNLOAD.win}><svg viewBox="0 0 24 24" fill="currentColor"><use href="#win"></use></svg><span class="t"><b data-i18n="dl.win.t" set:html={t["dl.win.t"]}></b><span data-i18n="dl.win.s" set:html={t["dl.win.s"]}></span></span></a>
+          </div>
+          <div class="meta"><a class="gh2" href={RELEASES_URL}><svg viewBox="0 0 16 16" fill="currentColor"><use href="#gh"></use></svg> <span data-i18n="gh2" set:html={t["gh2"]} /></a></div>
+          <p class="wnote" data-i18n="wnote" set:html={t["wnote"]}></p>
+        </div>
+      </div>
+
+      <div class="stage">
+        <span class="shotnote" data-i18n="shotnote" set:html={t["shotnote"]}></span>
+        <div class="mock">
+          <div class="top"><span class="dots"><i></i><i></i><i></i></span><span class="ttl" data-i18n="mock.title" set:html={t["mock.title"]}></span></div>
+          <div class="body">
+            <span class="you" data-i18n="mock.you" set:html={t["mock.you"]}></span>
+            <div class="card">
+              <div class="ch"><span class="sp"></span> <span data-i18n="mock.ch" set:html={t["mock.ch"]}></span></div>
+              <div class="step"><svg class="ck" viewBox="0 0 24 24"><use href="#ck"></use></svg> <span data-i18n="mock.s1" set:html={t["mock.s1"]}></span></div>
+              <div class="step"><svg class="ck" viewBox="0 0 24 24"><use href="#ck"></use></svg> <span data-i18n="mock.s2" set:html={t["mock.s2"]}></span></div>
+              <div class="step run"><span class="rb"></span> <span data-i18n="mock.s3" set:html={t["mock.s3"]}></span></div>
+            </div>
+            <div class="out"><svg class="x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"></rect><path d="M8 9h8M8 13h8M8 17h5"></path></svg> invoices.xlsx <span class="rd" data-i18n="mock.rd" set:html={t["mock.rd"]}></span></div>
+          </div>
+        </div>
+        <span class="pawchip"><svg viewBox="0 0 64 64" fill="currentColor"><use href="#paw"></use></svg></span>
+      </div>
+    </section>
+
+    <section class="caps" id="feat">
+      <div class="cap"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"></rect><path d="M8 8h8M8 12h8M8 16h5"></path></svg></span><h3 data-i18n="cap1.h" set:html={t["cap1.h"]}></h3><p data-i18n="cap1.p" set:html={t["cap1.p"]}></p></div>
+      <div class="cap"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3"></path></svg></span><h3 data-i18n="cap2.h" set:html={t["cap2.h"]}></h3><p data-i18n="cap2.p" set:html={t["cap2.p"]}></p></div>
+      <div class="cap"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6l-6 6 6 6M16 6l6 6-6 6"></path></svg></span><h3 data-i18n="cap3.h" set:html={t["cap3.h"]}></h3><p data-i18n="cap3.p" set:html={t["cap3.p"]}></p></div>
+    </section>
+  </div>
+
+  <footer><div class="foot">
+    <span class="mark"><img src="/app-icon.svg" alt="" /><span data-i18n="brand" set:html={t["brand"]} /></span>
+    <span data-i18n="foot" set:html={t["foot"]}></span>
+  </div></footer>
+
+  <script define:vars={{ I18N }}>
+    const root = document.documentElement;
+    const tg = document.getElementById("tg");
+    const lg = document.getElementById("lg");
+    const qs = new URLSearchParams(location.search);
+
+    function applyLang(l) {
+      root.setAttribute("data-lang", l);
+      root.setAttribute("lang", l === "cn" ? "zh" : "en");
+      const dict = I18N[l];
+      document.querySelectorAll("[data-i18n]").forEach((el) => {
+        const key = el.getAttribute("data-i18n");
+        if (dict[key] != null) el.innerHTML = dict[key];
+      });
+      try {
+        localStorage.setItem("pw-lang", l);
+      } catch (e) {}
+    }
+
+    function applyTheme(theme) {
+      root.setAttribute("data-theme", theme);
+      try {
+        localStorage.setItem("pw-theme", theme);
+      } catch (e) {}
+    }
+
+    // Initial language: URL param > localStorage > browser language, fall back to English
+    let lang = qs.get("lang") || localStorage.getItem("pw-lang");
+    if (lang !== "cn" && lang !== "en") {
+      lang = (navigator.language || "").toLowerCase().indexOf("zh") === 0 ? "cn" : "en";
+    }
+    applyLang(lang);
+
+    tg.addEventListener("click", () => applyTheme(root.getAttribute("data-theme") === "dark" ? "light" : "dark"));
+    lg.addEventListener("click", () => applyLang(root.getAttribute("data-lang") === "cn" ? "en" : "cn"));
+  </script>
+</Base>
