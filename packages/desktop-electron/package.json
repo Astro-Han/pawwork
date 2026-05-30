@@ -40,7 +40,6 @@
     "undici": "7.24.7"
   },
   "devDependencies": {
-    "@actions/artifact": "4.0.0",
     "@lydell/node-pty": "catalog:",
     "@opencode-ai/app": "workspace:*",
     "@opencode-ai/ui": "workspace:*",

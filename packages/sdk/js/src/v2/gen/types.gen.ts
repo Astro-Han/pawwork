@@ -680,6 +680,27 @@ export type UserMessage = {
     [key: string]: boolean
   }
   replay?: boolean
+  diagnostics?: {
+    run_lifecycle?: Array<{
+      schema_version: 1
+      type: string
+      session_id: string
+      message_id?: string
+      assistant_message_id?: string
+      at: number
+      duration_ms?: number
+      reason?: string
+      lifecycle?: {
+        action_id: string
+        kind: string
+        initiated_at?: number
+        initiated_monotonic_ms?: number
+        affected_directory_keys?: Array<string>
+        origin?: unknown
+        request?: unknown
+      }
+    }>
+  }
 }
 
 export type AssistantMessage = {
@@ -806,6 +827,25 @@ export type AssistantMessage = {
       stream?: unknown
     }
     run_observability?: unknown
+    run_lifecycle?: Array<{
+      schema_version: 1
+      type: string
+      session_id: string
+      message_id?: string
+      assistant_message_id?: string
+      at: number
+      duration_ms?: number
+      reason?: string
+      lifecycle?: {
+        action_id: string
+        kind: string
+        initiated_at?: number
+        initiated_monotonic_ms?: number
+        affected_directory_keys?: Array<string>
+        origin?: unknown
+        request?: unknown
+      }
+    }>
     abort?: {
       source?: string
       reason?: string
@@ -1570,32 +1610,7 @@ export type AgentConfig = {
    */
   maxSteps?: number
   permission?: PermissionConfig
-  [key: string]:
-    | unknown
-    | string
-    | string
-    | number
-    | {
-        [key: string]: boolean
-      }
-    | boolean
-    | "subagent"
-    | "primary"
-    | "all"
-    | {
-        [key: string]: unknown
-      }
-    | string
-    | "primary"
-    | "secondary"
-    | "accent"
-    | "success"
-    | "warning"
-    | "error"
-    | "info"
-    | number
-    | PermissionConfig
-    | undefined
+  [key: string]: unknown
 }
 
 export type ProviderConfig = {
@@ -1625,7 +1640,7 @@ export type ProviderConfig = {
      * Timeout in milliseconds between streamed SSE chunks for this provider. If no chunk arrives within this window, the request is aborted.
      */
     chunkTimeout?: number
-    [key: string]: unknown | string | boolean | number | false | number | undefined
+    [key: string]: unknown
   }
   models?: {
     [key: string]: {
@@ -1684,7 +1699,7 @@ export type ProviderConfig = {
            * Disable this variant for the model
            */
           disabled?: boolean
-          [key: string]: unknown | boolean | undefined
+          [key: string]: unknown
         }
       }
     }

@@ -9,6 +9,14 @@ const workflowsRoot = path.join(repoRoot, ".github", "workflows")
 const expectedBunVersion = "1.3.14"
 const auditComment = "Load-bearing for `bun audit` exit semantics"
 
+function repoRelativeWorkflowPath(workflowPath: string) {
+  return normalizeWorkflowPath(path.relative(repoRoot, workflowPath))
+}
+
+function normalizeWorkflowPath(relativePath: string) {
+  return relativePath.replaceAll("\\", "/")
+}
+
 function collectSetupBunPins(workflow: Workflow, relativePath: string) {
   const pins: string[] = []
 
@@ -25,6 +33,10 @@ function collectSetupBunPins(workflow: Workflow, relativePath: string) {
 }
 
 describe("GitHub workflow Bun version pin", () => {
+  test("normalizes workflow paths for cross-platform assertions", () => {
+    expect(normalizeWorkflowPath(".github\\workflows\\ci.yml")).toBe(".github/workflows/ci.yml")
+  })
+
   test("detects setup-bun steps that omit bun-version", () => {
     const workflow: Workflow = {
       jobs: {
@@ -55,7 +67,7 @@ describe("GitHub workflow Bun version pin", () => {
     const missingComments: string[] = []
 
     for (const workflowPath of workflowFiles) {
-      const relativePath = path.relative(repoRoot, workflowPath)
+      const relativePath = repoRelativeWorkflowPath(workflowPath)
       setupBunPins.push(...collectSetupBunPins(parseWorkflow(workflowPath), relativePath))
 
       const lines = fs.readFileSync(workflowPath, "utf8").split(/\r?\n/)
