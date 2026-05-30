@@ -1103,6 +1103,7 @@ describe("automation scheduler", () => {
     await withAutomation(async (projectID) => {
       const clock = new OversleepClock(90_000, 90_000)
       const calls: number[] = []
+      const definition = Automation.create(oneshotInput(projectID, 60_000), { now: 0 })
       const scheduler = AutomationScheduler.make({
         clock,
         executor: async () => {
@@ -1110,9 +1111,7 @@ describe("automation scheduler", () => {
           return { sessionID: SessionID.descending(), result: "done", cost: 0 }
         },
       })
-      const definition = Automation.create(oneshotInput(projectID, 60_000), { now: 0 })
 
-      scheduler.reschedule(definition)
       const runs = await waitForRunCount(definition.id, 1)
 
       expect(calls).toEqual([])
