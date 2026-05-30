@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { LLM } from "../../src/session/llm"
 import { MessageID, SessionID } from "../../src/session/schema"
 import { RunIncident } from "../../src/session/run-incident"
 import { RunObservability } from "../../src/session/run-observability"
@@ -1276,6 +1277,36 @@ describe("RunObservability", () => {
       reason: "no_visible_output_or_tool_execution",
     })
     expect(summary.incident?.recovery).toMatchObject({
+      recommendation: "auto_retry_once",
+      reason: "no_visible_output_or_tool_execution",
+    })
+  })
+
+  test("disabled unknown tools are absent from before-progress retry boundary proof", () => {
+    const tools = LLM.resolveTools({
+      agent: { permission: [] } as never,
+      permission: [],
+      user: { tools: { mcp_write: false } } as never,
+      tools: {
+        read: {},
+        mcp_write: {},
+      } as never,
+    })
+    const snapshot = RunObservability.sideEffectBoundarySnapshot(tools)
+    const decision = recoveryForBeforeProgress({
+      side_effect_facts_complete: true,
+      side_effect_boundary_snapshot: snapshot,
+    })
+
+    expect(Object.keys(tools)).toEqual(["read"])
+    expect(snapshot).toMatchObject({
+      exposed_tool_count: 1,
+      unknown_tool_count: 0,
+      unclassified_effect_count: 0,
+      proof_result: "complete",
+      proof_reason: "all_boundaries_classified",
+    })
+    expect(decision).toMatchObject({
       recommendation: "auto_retry_once",
       reason: "no_visible_output_or_tool_execution",
     })

@@ -38,6 +38,7 @@ import type {
   ConfigProvidersResponses,
   ConfigUpdateErrors,
   ConfigUpdateResponses,
+  EventSubscribeResponse,
   EventSubscribeResponses,
   ExperimentalConsoleGetResponses,
   ExperimentalConsoleListOrgsResponses,
@@ -64,8 +65,10 @@ import type {
   GlobalConfigUpdateErrors,
   GlobalConfigUpdateResponses,
   GlobalDisposeResponses,
+  GlobalEventResponse,
   GlobalEventResponses,
   GlobalHealthResponses,
+  GlobalSyncEventSubscribeResponse,
   GlobalSyncEventSubscribeResponses,
   GlobalUpgradeErrors,
   GlobalUpgradeResponses,
@@ -220,10 +223,11 @@ import type {
   WorktreeResetResponses,
 } from "./types.gen.js"
 
-export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean> = Options2<
-  TData,
-  ThrowOnError
-> & {
+export type Options<
+  TData extends TDataShape = TDataShape,
+  ThrowOnError extends boolean = boolean,
+  TResponse = unknown,
+> = Options2<TData, ThrowOnError, TResponse> & {
   /**
    * You can provide a client instance returned by `createClient()` instead of
    * individual options. This might be also useful if you want to implement a
@@ -269,7 +273,9 @@ export class SyncEvent extends HeyApiClient {
    *
    * Get global sync events
    */
-  public subscribe<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+  public subscribe<ThrowOnError extends boolean = false>(
+    options?: Options<never, ThrowOnError, GlobalSyncEventSubscribeResponse>,
+  ) {
     return (options?.client ?? this.client).sse.get<GlobalSyncEventSubscribeResponses, unknown, ThrowOnError>({
       url: "/global/sync-event",
       ...options,
@@ -333,7 +339,7 @@ export class Global extends HeyApiClient {
    *
    * Subscribe to global events from the OpenCode system using server-sent events.
    */
-  public event<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+  public event<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError, GlobalEventResponse>) {
     return (options?.client ?? this.client).sse.get<GlobalEventResponses, unknown, ThrowOnError>({
       url: "/global/event",
       ...options,
@@ -450,12 +456,12 @@ export class App extends HeyApiClient {
    * Write a log entry to the server logs with specified level and metadata.
    */
   public log<ThrowOnError extends boolean = false>(
-    parameters?: {
+    parameters: {
       directory?: string
       workspace?: string
-      service?: string
-      level?: "debug" | "info" | "error" | "warn"
-      message?: string
+      service: string
+      level: "debug" | "info" | "error" | "warn"
+      message: string
       extra?: {
         [key: string]: unknown
       }
@@ -587,13 +593,13 @@ export class Workspace extends HeyApiClient {
    * Create a workspace for the current project.
    */
   public create<ThrowOnError extends boolean = false>(
-    parameters?: {
+    parameters: {
       directory?: string
       workspace?: string
       id?: string
-      type?: string
-      branch?: string | null
-      extra?: unknown | null
+      type: string
+      branch: string | null
+      extra: unknown | null
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -762,11 +768,11 @@ export class Console extends HeyApiClient {
    * Persist a new active Console account/org selection for the current local OpenCode state.
    */
   public switchOrg<ThrowOnError extends boolean = false>(
-    parameters?: {
+    parameters: {
       directory?: string
       workspace?: string
-      accountID?: string
-      orgID?: string
+      accountID: string
+      orgID: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -1906,9 +1912,9 @@ export class Session2 extends HeyApiClient {
       sessionID: string
       directory?: string
       workspace?: string
-      modelID?: string
-      providerID?: string
-      messageID?: string
+      modelID: string
+      providerID: string
+      messageID: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -2464,8 +2470,8 @@ export class Session2 extends HeyApiClient {
       sessionID: string
       directory?: string
       workspace?: string
-      providerID?: string
-      modelID?: string
+      providerID: string
+      modelID: string
       auto?: boolean
     },
     options?: Options<never, ThrowOnError>,
@@ -2557,7 +2563,7 @@ export class Session2 extends HeyApiClient {
       format?: OutputFormat
       system?: string
       variant?: string
-      parts?: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
+      parts: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -2691,7 +2697,7 @@ export class Session2 extends HeyApiClient {
       format?: OutputFormat
       system?: string
       variant?: string
-      parts?: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
+      parts: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -2743,8 +2749,8 @@ export class Session2 extends HeyApiClient {
       agent?: string
       model?: string
       locale?: string
-      arguments?: string
-      command?: string
+      arguments: string
+      command: string
       variant?: string
       parts?: Array<{
         id?: string
@@ -2803,12 +2809,12 @@ export class Session2 extends HeyApiClient {
       directory?: string
       workspace?: string
       messageID?: string
-      agent?: string
+      agent: string
       model?: {
         providerID: string
         modelID: string
       }
-      command?: string
+      command: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -2850,7 +2856,7 @@ export class Session2 extends HeyApiClient {
       sessionID: string
       directory?: string
       workspace?: string
-      messageID?: string
+      messageID: string
       partID?: string
     },
     options?: Options<never, ThrowOnError>,
@@ -3005,7 +3011,7 @@ export class Permission extends HeyApiClient {
       permissionID: string
       directory?: string
       workspace?: string
-      response?: "once" | "always" | "reject"
+      response: "once" | "always" | "reject"
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3045,7 +3051,7 @@ export class Permission extends HeyApiClient {
       requestID: string
       directory?: string
       workspace?: string
-      reply?: "once" | "always" | "reject"
+      reply: "once" | "always" | "reject"
       message?: string
     },
     options?: Options<never, ThrowOnError>,
@@ -3150,7 +3156,7 @@ export class Oauth extends HeyApiClient {
       providerID: string
       directory?: string
       workspace?: string
-      method?: number
+      method: number
       inputs?: {
         [key: string]: string
       }
@@ -3197,7 +3203,7 @@ export class Oauth extends HeyApiClient {
       providerID: string
       directory?: string
       workspace?: string
-      method?: number
+      method: number
       code?: string
     },
     options?: Options<never, ThrowOnError>,
@@ -3529,7 +3535,7 @@ export class Automation extends HeyApiClient {
   /**
    * Delete automation
    *
-   * Delete an automation definition and return a tombstone.
+   * Delete an automation definition and return a tombstone. If a run is active, stop it and publish the stopped run before publishing the tombstone.
    */
   public delete<ThrowOnError extends boolean = false>(
     parameters: {
@@ -3696,7 +3702,7 @@ export class Automation extends HeyApiClient {
   /**
    * Run automation now
    *
-   * Create a scheduled automation run record. Execution lands in a later PR.
+   * Create a queued automation run, start execution in the background, and return the queued run immediately.
    */
   public runNow<ThrowOnError extends boolean = false>(
     parameters: {
@@ -3866,7 +3872,7 @@ export class Find extends HeyApiClient {
   }
 }
 
-export class File extends HeyApiClient {
+export class File_ extends HeyApiClient {
   /**
    * List files
    *
@@ -3962,7 +3968,7 @@ export class File extends HeyApiClient {
   }
 }
 
-export class Event extends HeyApiClient {
+export class Event_ extends HeyApiClient {
   /**
    * Subscribe to events
    *
@@ -3973,7 +3979,7 @@ export class Event extends HeyApiClient {
       directory?: string
       workspace?: string
     },
-    options?: Options<never, ThrowOnError>,
+    options?: Options<never, ThrowOnError, EventSubscribeResponse>,
   ) {
     const params = buildClientParams(
       [parameters],
@@ -4069,7 +4075,7 @@ export class Auth2 extends HeyApiClient {
       name: string
       directory?: string
       workspace?: string
-      code?: string
+      code: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -4170,11 +4176,11 @@ export class Mcp extends HeyApiClient {
    * Dynamically add a new Model Context Protocol (MCP) server to the system.
    */
   public add<ThrowOnError extends boolean = false>(
-    parameters?: {
+    parameters: {
       directory?: string
       workspace?: string
-      name?: string
-      config?: McpLocalConfig | McpRemoteConfig
+      name: string
+      config: McpLocalConfig | McpRemoteConfig
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -4464,10 +4470,10 @@ export class Vcs extends HeyApiClient {
    * Apply a git patch to the current project.
    */
   public apply<ThrowOnError extends boolean = false>(
-    parameters?: {
+    parameters: {
       directory?: string
       workspace?: string
-      patch?: string
+      patch: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -4601,11 +4607,11 @@ export class OpencodeClient extends HeyApiClient {
   }
 
   public postSessionE2eUpdateTodos<ThrowOnError extends boolean = false>(
-    parameters?: {
+    parameters: {
       directory?: string
       workspace?: string
-      sessionID?: string
-      todos?: Array<{
+      sessionID: string
+      todos: Array<{
         id?: string
         /**
          * Brief description of the task
@@ -4649,12 +4655,12 @@ export class OpencodeClient extends HeyApiClient {
   }
 
   public postPermissionE2eAsk<ThrowOnError extends boolean = false>(
-    parameters?: {
+    parameters: {
       directory?: string
       workspace?: string
-      sessionID?: string
-      permission?: string
-      patterns?: Array<string>
+      sessionID: string
+      permission: string
+      patterns: Array<string>
       metadata?: {
         [key: string]: unknown
       }
@@ -4775,14 +4781,14 @@ export class OpencodeClient extends HeyApiClient {
     return (this._find ??= new Find({ client: this.client }))
   }
 
-  private _file?: File
-  get file(): File {
-    return (this._file ??= new File({ client: this.client }))
+  private _file?: File_
+  get file(): File_ {
+    return (this._file ??= new File_({ client: this.client }))
   }
 
-  private _event?: Event
-  get event(): Event {
-    return (this._event ??= new Event({ client: this.client }))
+  private _event?: Event_
+  get event(): Event_ {
+    return (this._event ??= new Event_({ client: this.client }))
   }
 
   private _mcp?: Mcp

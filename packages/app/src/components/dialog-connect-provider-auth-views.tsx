@@ -117,12 +117,17 @@ export function ProviderOAuthCodeView(props: {
       setFormStore("error", language.t("provider.connect.oauth.code.required"))
       return
     }
+    const methodIndex = props.methodIndex()
+    if (methodIndex === undefined) {
+      setFormStore("error", language.t("common.requestFailed"))
+      return
+    }
 
     setFormStore("error", undefined)
     const result = await globalSDK.client.provider.oauth
       .callback({
         providerID: props.provider().id,
-        method: props.methodIndex(),
+        method: methodIndex,
         code,
       })
       .then((value) => (value.error ? { ok: false as const, error: value.error } : { ok: true as const }))

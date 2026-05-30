@@ -32,10 +32,16 @@ export function ProviderOAuthAutoView(props: {
 
   onMount(() => {
     void (async () => {
+      const methodIndex = props.methodIndex()
+      if (methodIndex === undefined) {
+        props.onError(language.t("common.requestFailed"))
+        return
+      }
+
       const result = await globalSDK.client.provider.oauth
         .callback({
           providerID: props.provider().id,
-          method: props.methodIndex(),
+          method: methodIndex,
         })
         .then((value) => (value.error ? { ok: false as const, error: value.error } : { ok: true as const }))
         .catch((error) => ({ ok: false as const, error }))

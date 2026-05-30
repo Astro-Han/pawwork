@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test"
-import { extractResponseText, formatPromptTooLargeError } from "../../src/cli/cmd/github"
+import { extractResponseText, formatPromptTooLargeError, resolveGithubRunContext } from "../../src/cli/cmd/github"
 import type { MessageV2 } from "../../src/session/message-v2"
 import { SessionID, MessageID, PartID } from "../../src/session/schema"
 
@@ -194,5 +194,33 @@ describe("formatPromptTooLargeError", () => {
     expect(result).toInclude("img1.png (3 KB)")
     expect(result).toInclude("img2.jpg (6 KB)")
     expect(result).toInclude("img3.gif (9 KB)")
+  })
+})
+
+describe("resolveGithubRunContext", () => {
+  test("uses the fallback GitHub context when token is provided without event JSON", () => {
+    const fallbackContext = {
+      eventName: "issue_comment",
+      repo: { owner: "owner", repo: "repo" },
+      payload: {},
+    } as NonNullable<Parameters<typeof resolveGithubRunContext>[1]>
+
+    const result = resolveGithubRunContext({ token: "github_pat_test" }, fallbackContext)
+
+    expect(result.isMock).toBe(true)
+    expect(result.context).toBe(fallbackContext)
+  })
+
+  test("parses event JSON when provided", () => {
+    const eventContext = {
+      eventName: "workflow_dispatch",
+      repo: { owner: "owner", repo: "repo" },
+      payload: {},
+    }
+
+    const result = resolveGithubRunContext({ event: JSON.stringify(eventContext) })
+
+    expect(result.isMock).toBe(true)
+    expect(result.context.eventName).toBe("workflow_dispatch")
   })
 })

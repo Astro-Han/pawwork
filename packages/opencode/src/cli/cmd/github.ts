@@ -7,7 +7,6 @@ import { Octokit } from "@octokit/rest"
 import { graphql } from "@octokit/graphql"
 import * as core from "@actions/core"
 import * as github from "@actions/github"
-import type { Context } from "@actions/github/lib/context"
 import type {
   IssueCommentEvent,
   IssuesEvent,
@@ -33,6 +32,18 @@ import { AppRuntime } from "@/effect/app-runtime"
 import { Git } from "@/git"
 import { setTimeout as sleep } from "node:timers/promises"
 import { Process } from "@/util/process"
+
+type ActionsContext = typeof github.context
+
+export function resolveGithubRunContext(
+  args: { event?: string; token?: string },
+  fallbackContext: ActionsContext = github.context,
+) {
+  const isMock = Boolean(args.token || args.event)
+  const context = args.event ? (JSON.parse(args.event) as ActionsContext) : fallbackContext
+
+  return { context, isMock }
+}
 
 type GitHubAuthor = {
   login: string
@@ -438,9 +449,7 @@ export const GithubRunCommand = cmd({
       }),
   async handler(args) {
     await bootstrap(process.cwd(), async () => {
-      const isMock = args.token || args.event
-
-      const context = isMock ? (JSON.parse(args.event!) as Context) : github.context
+      const { context, isMock } = resolveGithubRunContext(args)
       if (!SUPPORTED_EVENTS.includes(context.eventName as (typeof SUPPORTED_EVENTS)[number])) {
         core.setFailed(`Unsupported event type: ${context.eventName}`)
         process.exit(1)

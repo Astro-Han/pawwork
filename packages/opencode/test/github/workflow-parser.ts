@@ -49,6 +49,7 @@ export type Workflow = {
     group?: string
     "cancel-in-progress"?: boolean | string
   }
+  env?: Record<string, string>
   on?: Record<string, unknown>
   permissions?: Record<string, string>
   jobs?: Record<string, WorkflowJob>
