@@ -162,6 +162,7 @@ export namespace Worktree {
     readonly makeWorktreeInfo: (name?: string) => Effect.Effect<Info>
     readonly createFromInfo: (info: Info, startCommand?: string) => Effect.Effect<void>
     readonly create: (input?: CreateInput) => Effect.Effect<Info>
+    readonly createReady: (input?: CreateInput) => Effect.Effect<Info>
     readonly list: () => Effect.Effect<Info[]>
     readonly lookupByDirectory: (directory: string) => Effect.Effect<Info | undefined>
     readonly lookupBySlug: (slug: string) => Effect.Effect<Info | undefined>
@@ -459,6 +460,13 @@ export namespace Worktree {
         return info
       })
 
+      const createReady = Effect.fn("Worktree.createReady")(function* (input?: CreateInput) {
+        const info = yield* makeWorktreeInfo(input?.name)
+        yield* setup(info)
+        yield* boot(info, input?.startCommand)
+        return info
+      })
+
       const canonical = Effect.fnUntraced(function* (input: string) {
         const abs = pathSvc.resolve(input)
         const real = yield* fs.realPath(abs).pipe(Effect.catch(() => Effect.succeed(abs)))
@@ -751,6 +759,7 @@ export namespace Worktree {
         makeWorktreeInfo,
         createFromInfo,
         create,
+        createReady,
         list,
         lookupByDirectory,
         lookupBySlug,
@@ -780,6 +789,10 @@ export namespace Worktree {
 
   export async function create(input?: CreateInput) {
     return runPromise((svc) => svc.create(input))
+  }
+
+  export async function createReady(input?: CreateInput) {
+    return runPromise((svc) => svc.createReady(input))
   }
 
   export async function list() {

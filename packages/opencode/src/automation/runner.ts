@@ -3,6 +3,28 @@ import { Automation } from "."
 import { Session } from "@/session"
 import { SessionPrompt } from "@/session/prompt"
 import { AutomationRunContext, type AutomationRunBlocker } from "./run-context"
+import { Worktree } from "@/worktree"
+
+async function releaseAutomationWorktreeBindings(directory: string) {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const binding = await Session.findActiveWorktreeBinding(directory)
+    if (!binding) return
+    if (!binding.title.startsWith("Automation: ")) return
+    await Session.updateExecutionContext({ sessionID: binding.id, activeWorktree: null })
+  }
+}
+
+async function prepareWorktreePlacement(definition: Automation.Definition) {
+  const placement = definition.where.worktree
+  if (!placement) return undefined
+  const existing = await Worktree.lookupBySlug(placement)
+  if (existing) {
+    await releaseAutomationWorktreeBindings(existing.directory)
+    await Worktree.reset({ directory: existing.directory })
+    return existing
+  }
+  return Worktree.createReady({ name: placement })
+}
 
 export const sessionPromptExecutor: Automation.RunExecutor = async ({ definition, run, attendance, signal }) => {
   signal.throwIfAborted()
@@ -10,6 +32,18 @@ export const sessionPromptExecutor: Automation.RunExecutor = async ({ definition
     definition.context === "continue" && definition.automationSessionID
       ? definition.automationSessionID
       : (await Session.create({ title: `Automation: ${definition.title}` })).id
+  const worktree = await prepareWorktreePlacement(definition)
+  if (worktree) {
+    await Session.updateExecutionContext({
+      sessionID,
+      activeWorktree: {
+        directory: worktree.directory,
+        name: worktree.name,
+        branch: worktree.branch,
+        source: worktree.source,
+      },
+    })
+  }
   const cancelPrompt = () => {
     void SessionPrompt.cancel(sessionID, { source: "automation.cancel" }).catch(() => undefined)
   }
