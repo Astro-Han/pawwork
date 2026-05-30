@@ -43,11 +43,17 @@ type SsePacket = {
   replaySeq?: number
 }
 
+const DEFAULT_HEARTBEAT_MS = 10_000
+
 export type GlobalEventReplayPacket = SsePacket
 export type GlobalRoutesOptions = {
   replayBridge?: ReturnType<typeof createGlobalEventReplayBridge>
   syncSubscribe?: (q: AsyncQueue<string | null>) => () => void
   heartbeatMs?: number
+}
+
+function normalizeHeartbeatMs(value: number | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : DEFAULT_HEARTBEAT_MS
 }
 
 function packetForEnvelope(envelope: GlobalEventEnvelope): SsePacket {
@@ -257,6 +263,7 @@ export async function streamGlobalEvents(
 
 export function createGlobalRoutes(options: GlobalRoutesOptions = {}) {
   const replayBridge = options.replayBridge ?? globalEventReplay
+  const heartbeatMs = normalizeHeartbeatMs(options.heartbeatMs)
   const syncSubscribe =
     options.syncSubscribe ??
     ((q: AsyncQueue<string | null>) => {
@@ -331,7 +338,7 @@ export function createGlobalRoutes(options: GlobalRoutesOptions = {}) {
         c.header("X-Accel-Buffering", "no")
         c.header("X-Content-Type-Options", "nosniff")
 
-        return streamGlobalEvents(c, replayBridge, options.heartbeatMs)
+        return streamGlobalEvents(c, replayBridge, heartbeatMs)
       },
     )
     .get(
@@ -364,7 +371,7 @@ export function createGlobalRoutes(options: GlobalRoutesOptions = {}) {
         c.header("Cache-Control", "no-cache, no-transform")
         c.header("X-Accel-Buffering", "no")
         c.header("X-Content-Type-Options", "nosniff")
-        return streamEvents(c, syncSubscribe, options.heartbeatMs)
+        return streamEvents(c, syncSubscribe, heartbeatMs)
       },
     )
     .get(
