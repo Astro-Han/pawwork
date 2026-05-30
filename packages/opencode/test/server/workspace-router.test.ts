@@ -250,6 +250,76 @@ describe("workspace router", () => {
     }
   })
 
+  test("keeps GET session list local for remote workspaces", async () => {
+    let remoteHits = 0
+    await using remote = Bun.serve({
+      port: 0,
+      fetch() {
+        remoteHits++
+        return Response.json({ remote: true })
+      },
+    })
+
+    await using tmp = await tmpdir({
+      init: (dir) => writeRemoteWorkspacePlugin({ dir, url: remote.url.origin }),
+    })
+
+    const workspace = await persistRemoteWorkspace({ directory: tmp.path, type: tmp.extra.type })
+
+    await Instance.disposeAll()
+
+    const ensureSync = disableWorkspaceSync()
+
+    try {
+      const app = Server.Default().app
+      const response = await app.request(`/session?workspace=${workspace.id}`, {
+        headers: {
+          "x-opencode-directory": tmp.path,
+        },
+      })
+
+      await response.text()
+      expect(remoteHits).toBe(0)
+    } finally {
+      ensureSync.mockRestore()
+    }
+  })
+
+  test("returns an explicit error when a workspace record is missing", async () => {
+    await using tmp = await tmpdir()
+
+    const app = Server.Default().app
+    const response = await app.request(`/path?workspace=${WorkspaceID.ascending()}`, {
+      headers: {
+        "x-opencode-directory": tmp.path,
+      },
+    })
+
+    expect(response.status).toBe(500)
+    expect(response.headers.get("content-type")).toBe("text/plain; charset=utf-8")
+    expect(await response.text()).toStartWith("Workspace not found: wrk_")
+  })
+
+  test("routes session delete past a missing workspace record", async () => {
+    await using tmp = await tmpdir()
+
+    const app = Server.Default().app
+    const response = await app.request(`/session/ses_missing?workspace=${WorkspaceID.ascending()}`, {
+      method: "DELETE",
+      headers: {
+        "x-opencode-directory": tmp.path,
+      },
+    })
+
+    expect(response.status).toBe(404)
+    expect(await response.json()).toMatchObject({
+      name: "NotFoundError",
+      data: {
+        message: "Session not found: ses_missing",
+      },
+    })
+  })
+
   test("uses a session workspace before the workspace query parameter for mutating session routes", async () => {
     let remoteHits = 0
     await using remote = Bun.serve({
