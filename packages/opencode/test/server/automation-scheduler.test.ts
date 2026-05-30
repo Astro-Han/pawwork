@@ -436,6 +436,38 @@ describe("automation scheduler", () => {
     })
   })
 
+  test("does not record missed cron fires after count stop is reached", async () => {
+    await withAutomation(async (projectID) => {
+      const createdAt = Date.UTC(2026, 4, 30, 8, 30)
+      const firstFire = Date.UTC(2026, 4, 30, 9, 0)
+      const afterSecondFire = Date.UTC(2026, 4, 31, 9, 5)
+      const clock = new FakeClock(createdAt)
+      const starts: number[] = []
+      const scheduler = AutomationScheduler.make({
+        clock,
+        executor: async () => {
+          starts.push(clock.now())
+          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+        },
+      })
+      const definition = Automation.create(cronInput(projectID, "0 9 * * *", { stop: { kind: "count", count: 1 } }), {
+        now: createdAt,
+      })
+
+      scheduler.reschedule(definition)
+      await clock.advance(firstFire - createdAt)
+      await waitForRunStates(definition.id, ["succeeded"])
+
+      clock.jumpTo(afterSecondFire)
+      scheduler.reschedule(definition)
+      await clock.advance(0)
+
+      expect(starts).toEqual([firstFire])
+      expect(Automation.runs({ automationID: definition.id }).items).toHaveLength(1)
+      scheduler.stop()
+    })
+  })
+
   test("does not cancel a due cron fire during owner rescan", async () => {
     await withAutomation(async (projectID) => {
       const clock = new FakeClock(0)

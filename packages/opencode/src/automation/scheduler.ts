@@ -354,7 +354,7 @@ export namespace AutomationScheduler {
       const cached = unschedulable.get(definition.id)
       if (cached && isSameSchedule(cached, definition)) return
       unschedulable.delete(definition.id)
-      if (definition.kind === "recurring" && definition.rhythm.kind === "cron") {
+      if (definition.kind === "recurring" && definition.rhythm.kind === "cron" && canScheduleRecurring(definition)) {
         const firstScheduled = computeNextCronFireAt(definition, definition.createdAt)
         const missed = firstScheduled === null ? null : computePreviousCronFireAt(definition, firstScheduled, clock.now())
         if (missed !== null && !Automation.hasRunTriggeredAtOrAfter(definition.id, missed)) {
