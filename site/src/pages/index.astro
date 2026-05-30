@@ -1,7 +1,7 @@
 ---
 import Base from "../layouts/Base.astro";
 import { I18N } from "../i18n";
-import { DOWNLOAD, REPO_URL, RELEASES_URL } from "../config";
+import { DOWNLOAD, DOWNLOAD_MANIFEST_URL, REPO_URL, RELEASES_URL } from "../config";
 
 // First paint renders English (basic SEO); the client then switches by browser
 // language or the user's toggle.
@@ -71,9 +71,9 @@ const seoDesc =
         <p class="sub" data-i18n="sub" set:html={t["sub"]}></p>
         <div class="dlblock">
           <div class="dl">
-            <a class="dlbtn lead" href={DOWNLOAD.mac}><svg viewBox="0 0 24 24" fill="currentColor"><use href="#apple"></use></svg><span class="t"><b data-i18n="dl.mac.t" set:html={t["dl.mac.t"]}></b><span data-i18n="dl.mac.s" set:html={t["dl.mac.s"]}></span></span></a>
-            <a class="dlbtn" href={DOWNLOAD.macIntel}><svg viewBox="0 0 24 24" fill="currentColor"><use href="#apple"></use></svg><span class="t"><b data-i18n="dl.intel.t" set:html={t["dl.intel.t"]}></b><span data-i18n="dl.intel.s" set:html={t["dl.intel.s"]}></span></span></a>
-            <a class="dlbtn" href={DOWNLOAD.win}><svg viewBox="0 0 24 24" fill="currentColor"><use href="#win"></use></svg><span class="t"><b data-i18n="dl.win.t" set:html={t["dl.win.t"]}></b><span data-i18n="dl.win.s" set:html={t["dl.win.s"]}></span></span></a>
+            <a class="dlbtn lead" data-dl="macArm64" href={DOWNLOAD.mac}><svg viewBox="0 0 24 24" fill="currentColor"><use href="#apple"></use></svg><span class="t"><b data-i18n="dl.mac.t" set:html={t["dl.mac.t"]}></b><span data-i18n="dl.mac.s" set:html={t["dl.mac.s"]}></span></span></a>
+            <a class="dlbtn" data-dl="macX64" href={DOWNLOAD.macIntel}><svg viewBox="0 0 24 24" fill="currentColor"><use href="#apple"></use></svg><span class="t"><b data-i18n="dl.intel.t" set:html={t["dl.intel.t"]}></b><span data-i18n="dl.intel.s" set:html={t["dl.intel.s"]}></span></span></a>
+            <a class="dlbtn" data-dl="winX64" href={DOWNLOAD.win}><svg viewBox="0 0 24 24" fill="currentColor"><use href="#win"></use></svg><span class="t"><b data-i18n="dl.win.t" set:html={t["dl.win.t"]}></b><span data-i18n="dl.win.s" set:html={t["dl.win.s"]}></span></span></a>
           </div>
           <div class="meta"><a class="gh2" href={RELEASES_URL}><svg viewBox="0 0 16 16" fill="currentColor"><use href="#gh"></use></svg> <span data-i18n="gh2" set:html={t["gh2"]} /></a></div>
           <p class="wnote" data-i18n="wnote" set:html={t["wnote"]}></p>
@@ -111,7 +111,7 @@ const seoDesc =
     <span data-i18n="foot" set:html={t["foot"]}></span>
   </div></footer>
 
-  <script define:vars={{ I18N }}>
+  <script define:vars={{ I18N, DOWNLOAD_MANIFEST_URL }}>
     const root = document.documentElement;
     const tg = document.getElementById("tg");
     const lg = document.getElementById("lg");
@@ -152,5 +152,20 @@ const seoDesc =
 
     tg?.addEventListener("click", () => applyTheme(root.getAttribute("data-theme") === "dark" ? "light" : "dark"));
     lg?.addEventListener("click", () => applyLang(root.getAttribute("data-lang") === "cn" ? "en" : "cn"));
+
+    // Swap download buttons to China-accessible R2 direct links when the
+    // manifest is reachable. Buttons keep their GitHub Releases href as a
+    // fallback if this fetch fails (offline, R2 down, blocked).
+    fetch(DOWNLOAD_MANIFEST_URL, { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((manifest) => {
+        if (!manifest) return;
+        document.querySelectorAll("[data-dl]").forEach((el) => {
+          const url = manifest[el.getAttribute("data-dl")];
+          // Guard against a compromised manifest injecting javascript: hrefs.
+          if (typeof url === "string" && /^https?:\/\//i.test(url)) el.setAttribute("href", url);
+        });
+      })
+      .catch(() => {});
   </script>
 </Base>
