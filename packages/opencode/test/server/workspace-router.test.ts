@@ -1,5 +1,5 @@
 import { $ } from "bun"
-import { afterAll, afterEach, describe, expect, test } from "bun:test"
+import { afterAll, afterEach, describe, expect, spyOn, test } from "bun:test"
 import { Effect } from "effect"
 import path from "path"
 import { pathToFileURL } from "url"
@@ -14,6 +14,8 @@ import { Database } from "../../src/storage/db"
 import { Log } from "@opencode-ai/core/util/log"
 import { resetDatabase } from "../fixture/db"
 import { tmpdir } from "../fixture/fixture"
+import { Session } from "../../src/session"
+import { ServerProxy } from "../../src/server/proxy"
 
 Log.init({ print: false })
 
@@ -90,6 +92,319 @@ async function pluginProject() {
 }
 
 describe("workspace router", () => {
+  test("keeps GET session detail routes local for remote workspaces", async () => {
+    let remoteHits = 0
+    await using remote = Bun.serve({
+      port: 0,
+      fetch() {
+        remoteHits++
+        return Response.json({ remote: true })
+      },
+    })
+
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        const type = `plug-${Math.random().toString(36).slice(2)}`
+        const file = path.join(dir, "plugin.ts")
+        await Bun.write(
+          file,
+          [
+            "export default async ({ experimental_workspace }) => {",
+            `  experimental_workspace.register(${JSON.stringify(type)}, {`,
+            '    name: "remote",',
+            '    description: "remote adaptor",',
+            '    configure(input) { return { ...input, name: "remote", branch: null, directory: null } },',
+            "    async create() {},",
+            "    async remove() {},",
+            "    target() {",
+            `      return { type: "remote", url: ${JSON.stringify(remote.url.origin)} }`,
+            "    },",
+            "  })",
+            "  return {}",
+            "}",
+            "",
+          ].join("\n"),
+        )
+
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify(
+            {
+              $schema: "https://opencode.ai/config.json",
+              plugin: [pathToFileURL(file).href],
+            },
+            null,
+            2,
+          ),
+        )
+
+        return { type }
+      },
+    })
+
+    const workspace = await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        await Plugin.init()
+        const id = WorkspaceID.ascending()
+        Database.use((db) =>
+          db.insert(WorkspaceTable)
+            .values({
+              id,
+              type: tmp.extra.type,
+              branch: null,
+              name: "remote",
+              directory: null,
+              owner_directory: tmp.path,
+              extra: null,
+              project_id: Instance.project.id,
+            })
+            .run(),
+        )
+        return { id }
+      },
+    })
+
+    await Instance.disposeAll()
+
+    const app = Server.Default().app
+    const response = await app.request(`/session/ses_missing?workspace=${workspace.id}`, {
+      headers: {
+        "x-opencode-directory": tmp.path,
+      },
+    })
+
+    expect(response.status).toBe(404)
+    expect(remoteHits).toBe(0)
+  })
+
+  test("uses a session workspace before the workspace query parameter for mutating session routes", async () => {
+    let remoteHits = 0
+    await using remote = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const url = new URL(req.url)
+        if (url.pathname !== "/sync/event") remoteHits++
+        return Response.json({ routed: "session-workspace" })
+      },
+    })
+
+    await using first = await tmpdir({
+      init: async (dir) => {
+        const type = `plug-${Math.random().toString(36).slice(2)}`
+        const file = path.join(dir, "plugin.ts")
+        await Bun.write(
+          file,
+          [
+            "export default async ({ experimental_workspace }) => {",
+            `  experimental_workspace.register(${JSON.stringify(type)}, {`,
+            '    name: "remote",',
+            '    description: "remote adaptor",',
+            '    configure(input) { return { ...input, name: "remote", branch: null, directory: null } },',
+            "    async create() {},",
+            "    async remove() {},",
+            "    target() {",
+            `      return { type: "remote", url: ${JSON.stringify(remote.url.origin)} }`,
+            "    },",
+            "  })",
+            "  return {}",
+            "}",
+            "",
+          ].join("\n"),
+        )
+
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify(
+            {
+              $schema: "https://opencode.ai/config.json",
+              plugin: [pathToFileURL(file).href],
+            },
+            null,
+            2,
+          ),
+        )
+
+        return { type }
+      },
+    })
+    await using second = await tmpdir({
+      init: async (dir) => {
+        const type = `plug-${Math.random().toString(36).slice(2)}`
+        const file = path.join(dir, "plugin.ts")
+        await Bun.write(
+          file,
+          [
+            "export default async ({ experimental_workspace }) => {",
+            `  experimental_workspace.register(${JSON.stringify(type)}, {`,
+            '    name: "local",',
+            '    description: "local adaptor",',
+            `    configure(input) { return { ...input, name: "local", branch: null, directory: ${JSON.stringify(dir)} } },`,
+            "    async create() {},",
+            "    async remove() {},",
+            "    target(input) { return { type: \"local\", directory: input.directory } }",
+            "  })",
+            "  return {}",
+            "}",
+            "",
+          ].join("\n"),
+        )
+
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify(
+            {
+              $schema: "https://opencode.ai/config.json",
+              plugin: [pathToFileURL(file).href],
+            },
+            null,
+            2,
+          ),
+        )
+
+        return { type }
+      },
+    })
+
+    const remoteWorkspace = await Instance.provide({
+      directory: first.path,
+      fn: async () => {
+        await Plugin.init()
+        const id = WorkspaceID.ascending()
+        Database.use((db) =>
+          db.insert(WorkspaceTable)
+            .values({
+              id,
+              type: first.extra.type,
+              branch: null,
+              name: "remote",
+              directory: null,
+              owner_directory: first.path,
+              extra: null,
+              project_id: Instance.project.id,
+            })
+            .run(),
+        )
+        return { id }
+      },
+    })
+    const localWorkspace = await Instance.provide({
+      directory: second.path,
+      fn: async () => {
+        await Plugin.init()
+        return Workspace.create({
+          type: second.extra.type,
+          branch: null,
+          extra: null,
+          projectID: Instance.project.id,
+        })
+      },
+    })
+    const session = await Instance.provide({
+      directory: first.path,
+      fn: () => Session.create({ workspaceID: remoteWorkspace.id }),
+    })
+
+    await Instance.disposeAll()
+
+    const app = Server.Default().app
+    const response = await app.request(`/session/${session.id}/message?workspace=${localWorkspace.id}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-opencode-directory": first.path,
+      },
+      body: JSON.stringify({}),
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ routed: "session-workspace" })
+    expect(remoteHits).toBe(1)
+  })
+
+  test("routes remote workspace websocket upgrades through the websocket proxy", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        const type = `plug-${Math.random().toString(36).slice(2)}`
+        const file = path.join(dir, "plugin.ts")
+        await Bun.write(
+          file,
+          [
+            "export default async ({ experimental_workspace }) => {",
+            `  experimental_workspace.register(${JSON.stringify(type)}, {`,
+            '    name: "remote",',
+            '    description: "remote adaptor",',
+            '    configure(input) { return { ...input, name: "remote", branch: null, directory: null } },',
+            "    async create() {},",
+            "    async remove() {},",
+            '    target() { return { type: "remote", url: "http://127.0.0.1:9" } }',
+            "  })",
+            "  return {}",
+            "}",
+            "",
+          ].join("\n"),
+        )
+
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify(
+            {
+              $schema: "https://opencode.ai/config.json",
+              plugin: [pathToFileURL(file).href],
+            },
+            null,
+            2,
+          ),
+        )
+
+        return { type }
+      },
+    })
+
+    const workspace = await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        await Plugin.init()
+        const id = WorkspaceID.ascending()
+        Database.use((db) =>
+          db.insert(WorkspaceTable)
+            .values({
+              id,
+              type: tmp.extra.type,
+              branch: null,
+              name: "remote",
+              directory: null,
+              owner_directory: tmp.path,
+              extra: null,
+              project_id: Instance.project.id,
+            })
+            .run(),
+        )
+        return { id }
+      },
+    })
+    await Instance.disposeAll()
+
+    const websocket = spyOn(ServerProxy, "websocket").mockImplementation(() => new Response("websocket-proxy"))
+
+    try {
+      const app = Server.Default().app
+      const response = await app.request(`/pty/pty_test/connect?workspace=${workspace.id}`, {
+        headers: {
+          connection: "upgrade",
+          upgrade: "websocket",
+          "x-opencode-directory": tmp.path,
+        },
+      })
+
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe("websocket-proxy")
+      expect(websocket).toHaveBeenCalledTimes(1)
+    } finally {
+      websocket.mockRestore()
+    }
+  })
+
   test("bootstraps the owning project before routing a persisted plugin workspace", async () => {
     await using tmp = await pluginProject()
 

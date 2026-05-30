@@ -90,6 +90,7 @@ describe("default directory routing", () => {
       expect(response.status).toBe(200)
       expect(body.config).toBe(expected)
       expect(fs.existsSync(expected)).toBe(true)
+      expect(fs.existsSync(path.join(tmp.path, "legacy-config"))).toBe(false)
     } finally {
       if (previousRuntime === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
       else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
