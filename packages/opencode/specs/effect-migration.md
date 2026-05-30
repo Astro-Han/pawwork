@@ -335,10 +335,35 @@ For each service, the migration is roughly:
 
 ### Migration log
 
-- Workspace routing guardrails — scoped 2026-05-30 as the next #936 slice after VCS, PTY connect-token, and SSE guardrails. This slice is planning + tests only; it does not migrate Hono routes to Effect HttpApi.
-  - PR scope: lock the current workspace routing decisions before any middleware migration. `GET /session` and session-detail GET routes stay local while `/session/status` remains forwarded, a session's bound `workspaceID` wins over `?workspace=`, PawWork `/path?ensureConfig=true` must not create the legacy OpenCode config directory, and remote workspace WebSocket upgrades must reach `ServerProxy.websocket`.
+- Workspace routing guardrails - completed 2026-05-30 as the next #936 slice after VCS, PTY connect-token, and SSE guardrails. This slice is planning + tests only; it does not migrate Hono routes to Effect HttpApi.
+  - PR scope: lock the current workspace routing decisions before any middleware migration. `GET /session`, session-detail GET routes, and missing-workspace session deletes stay local while `/session/status` remains forwarded, a session's bound `workspaceID` wins over `?workspace=`, missing workspace records return an explicit `Workspace not found` error for normal routes, PawWork `/path?ensureConfig=true` must not create the legacy OpenCode config directory, and remote workspace WebSocket upgrades must reach `ServerProxy.websocket`.
   - Non-goals: no upstream `/sync/*`, workspace adapter/sync-list/warp, v2 `/api/*`, TUI, auth/OAuth, OpenAPI/SDK shape, or proxy internals migration.
-  - Follow-ups only when touched: EnterWorktree/ExitWorktree execution-context tests, WebSocket queue/close-code/bidirectional proxy tests, and the actual WorkspaceRouting/InstanceContext Effect middleware design.
+  - Next follow-up: design the actual WorkspaceRouting / Effect instance context middleware split before replacing Hono middleware. Follow-ups only when touched: EnterWorktree/ExitWorktree execution-context tests and WebSocket queue/close-code/bidirectional proxy tests.
+
+### Workspace routing / instance context planning
+
+The future Effect middleware should preserve the existing Hono split rather than copying upstream semantics wholesale:
+
+- `WorkspaceRouterMiddleware` is the router. It decides whether a request runs locally, forwards to a remote workspace, uses a local workspace target, or fails because the workspace record is missing.
+- `InstanceMiddleware` is a thin provider for `/experimental/workspace`. It resolves the request directory and provides `Instance` / `WorkspaceContext`; it does not own proxy or forwarding decisions.
+- The Effect design should bind request context through the existing bridge primitives: `InstanceRef`, `WorkspaceRef`, `attachWith`, `EffectBridge`, and the existing ALS-backed `Instance` / `WorkspaceContext`. Do not invent a parallel context model.
+- Avoid naming the new provider simply `InstanceContext` unless the existing `project/instance-context.ts` type is intentionally overloaded; prefer a middleware-specific name in the implementation plan.
+
+Decision table for the design:
+
+| Case | Workspace routing decision | Context to provide |
+| --- | --- | --- |
+| No `workspace` and no session-bound workspace | Run in the request/default directory. Best-effort create `~/PawWork` when no directory is supplied. | `InstanceRef` for the resolved directory; no `WorkspaceRef`. |
+| Local workspace target | Run in the adaptor target directory. | `InstanceRef` for target directory; `WorkspaceRef` for the selected workspace. |
+| Remote workspace target, normal forwarded route | Forward through `ServerProxy.http` after stripping proxy-only workspace headers. | No local instance context for the route body. |
+| Remote workspace target, WebSocket upgrade | Forward through `ServerProxy.websocket`. | No local instance context for the route body. |
+| Remote workspace target, local cached route | Keep local for `GET /session` and session-detail GET routes. | No instance context today; preserve current route behavior unless explicitly changed. |
+| `/session/status` with workspace | Forward to the remote target. | No local instance context for the route body. |
+| Session route with a bound `workspaceID` and a conflicting query `workspace` | Use the session-bound workspace. | Same context as the selected workspace target. |
+| Missing workspace record, normal route | Return `500` text response with `Workspace not found: <id>`. | No instance context. |
+| Missing workspace record, `DELETE /session/:id` | Let the session route run so broken synced sessions remain deletable. | No instance context. |
+| `/path?ensureConfig=true` in PawWork runtime | Return PawWork primary config path without creating the legacy OpenCode config directory. | Same context as the selected local path case. |
+
 - `SessionStatus` — migrated 2026-04-11. Replaced the last route and retry-policy callers with `AppRuntime.runPromise(SessionStatus.Service.use(...))` and removed the `makeRuntime(...)` facade.
 - `ShareNext` — migrated 2026-04-11. Swapped remaining async callers to `AppRuntime.runPromise(ShareNext.Service.use(...))`, removed the `makeRuntime(...)` facade, and kept instance bootstrap on the shared app runtime.
 - `SessionTodo` — migrated 2026-04-10. Already matched the target service shape in `session/todo.ts`: single namespace, traced Effect methods, and no `makeRuntime(...)` facade remained; checklist updated to reflect the completed migration.
