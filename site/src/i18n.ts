@@ -9,6 +9,7 @@ export type Dict = Record<string, string>;
 
 export const I18N: Record<Lang, Dict> = {
   en: {
+    title: "PawWork — Real work, done on your desktop",
     brand: "PawWork",
     "nav.feat": "What it does",
     tag: "Open-source · Free to use",
@@ -40,6 +41,7 @@ export const I18N: Record<Lang, Dict> = {
     foot: "Apache-2.0 · Built on OpenCode",
   },
   cn: {
+    title: "爪印 — 真能干活，跑在你电脑上",
     brand: "爪印",
     "nav.feat": "功能",
     tag: "开源 · 下载即用",

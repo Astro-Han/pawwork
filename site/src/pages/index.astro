@@ -7,7 +7,7 @@ import { DOWNLOAD, REPO_URL, RELEASES_URL } from "../config";
 // language or the user's toggle.
 const t = I18N.en;
 
-const seoTitle = "PawWork — Real work, done on your desktop";
+const seoTitle = t["title"];
 const seoDesc =
   "Free, open-source AI desktop app for macOS and Windows. No terminal, no API key, no paid plan — open PawWork, choose a folder, and ask in plain language.";
 ---
@@ -125,6 +125,7 @@ const seoDesc =
         const key = el.getAttribute("data-i18n");
         if (dict[key] != null) el.innerHTML = dict[key];
       });
+      if (dict["title"]) document.title = dict["title"];
       try {
         localStorage.setItem("pw-lang", l);
       } catch (e) {}
@@ -138,13 +139,18 @@ const seoDesc =
     }
 
     // Initial language: URL param > localStorage > browser language, fall back to English
-    let lang = qs.get("lang") || localStorage.getItem("pw-lang");
+    let lang;
+    try {
+      lang = qs.get("lang") || localStorage.getItem("pw-lang");
+    } catch (e) {
+      lang = qs.get("lang");
+    }
     if (lang !== "cn" && lang !== "en") {
       lang = (navigator.language || "").toLowerCase().indexOf("zh") === 0 ? "cn" : "en";
     }
     applyLang(lang);
 
-    tg.addEventListener("click", () => applyTheme(root.getAttribute("data-theme") === "dark" ? "light" : "dark"));
-    lg.addEventListener("click", () => applyLang(root.getAttribute("data-lang") === "cn" ? "en" : "cn"));
+    tg?.addEventListener("click", () => applyTheme(root.getAttribute("data-theme") === "dark" ? "light" : "dark"));
+    lg?.addEventListener("click", () => applyLang(root.getAttribute("data-lang") === "cn" ? "en" : "cn"));
   </script>
 </Base>
