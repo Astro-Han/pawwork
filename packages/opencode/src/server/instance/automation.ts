@@ -237,9 +237,9 @@ export const AutomationRoutes = (): Hono =>
       }),
       validator("param", z.object({ automationID: AutomationID.Definition.zod })),
       async (c) => {
-        const removed = Automation.remove(c.req.valid("param").automationID)
         const scheduler = AutomationScheduler.current()
         await scheduler.settleOwner()
+        const removed = Automation.remove(c.req.valid("param").automationID)
         scheduler.cancel(removed.tombstone.id)
         if (removed.stoppedRun) await Automation.publishRunUpdated(removed.stoppedRun)
         await Automation.publishDefinitionDeleted(removed.tombstone)

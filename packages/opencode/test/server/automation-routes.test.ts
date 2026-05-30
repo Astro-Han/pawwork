@@ -201,12 +201,15 @@ describe("automation routes", () => {
 
   test("list route waits for scheduler owner settle before returning persisted definitions", async () => {
     await withAutomationApp(async ({ app, projectID }) => {
+      const gate = deferred<void>()
       let settled = false
+      let responseSettled = false
       AutomationScheduler.install({
         stop: () => undefined,
         stopOwnedRuns: () => undefined,
         settleOwner: async () => {
           settled = true
+          await gate.promise
         },
         reschedule: () => undefined,
         cancel: () => undefined,
@@ -214,21 +217,31 @@ describe("automation routes", () => {
       })
       const definition = Automation.create(recurringInput(projectID), { now: 100 })
 
-      const response = await json(app, "/automation")
+      const responsePromise = json(app, "/automation").then((response) => {
+        responseSettled = true
+        return response
+      })
+      await Bun.sleep(0)
 
       expect(settled).toBe(true)
+      expect(responseSettled).toBe(false)
+      gate.resolve()
+      const response = await responsePromise
       expect(response.items.map((item: Automation.Definition) => item.id)).toEqual([definition.id])
     })
   })
 
   test("runNow route reconciles stale persisted active runs before queuing a new run", async () => {
     await withAutomationApp(async ({ app, projectID }) => {
+      const gate = deferred<void>()
       let settled = false
+      let responseSettled = false
       AutomationScheduler.install({
         stop: () => undefined,
         stopOwnedRuns: () => undefined,
         settleOwner: async () => {
           settled = true
+          await gate.promise
           for (const run of Automation.reconcileInterruptedRuns({ now: 300 })) await Automation.publishRunUpdated(run)
         },
         reschedule: () => undefined,
@@ -238,10 +251,18 @@ describe("automation routes", () => {
       const definition = Automation.create(recurringInput(projectID), { now: 100 })
       const stale = Automation.runNow(definition.id, { now: 200 })
 
-      const response = await json(app, `/automation/${definition.id}/run`, { method: "POST" })
-      const runs = Automation.runs({ automationID: definition.id }).items
+      const responsePromise = json(app, `/automation/${definition.id}/run`, { method: "POST" }).then((response) => {
+        responseSettled = true
+        return response
+      })
+      await Bun.sleep(0)
 
       expect(settled).toBe(true)
+      expect(responseSettled).toBe(false)
+      gate.resolve()
+      const response = await responsePromise
+      const runs = Automation.runs({ automationID: definition.id }).items
+
       expect(response).toMatchObject({ automationID: definition.id, state: "scheduled" })
       expect(response.id).not.toBe(stale.id)
       expect(runs.find((run) => run.id === stale.id)).toMatchObject({ state: "stopped", stopReason: "expired" })

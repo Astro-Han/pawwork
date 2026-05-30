@@ -124,10 +124,16 @@ export namespace AutomationScheduler {
     const values = new Set<number>()
     for (const item of field.split(",")) {
       const [base, stepRaw] = item.split("/")
+      if (!base || item.split("/").length > 2) throw new Error(`Invalid cron field: ${item}`)
       const step = stepRaw === undefined ? 1 : Number(stepRaw)
+      if (!Number.isInteger(step) || step <= 0) throw new Error(`Invalid cron step: ${item}`)
       const range = base === "*" ? [min, max] : base.split("-").map(Number)
+      if (range.length === 0 || range.length > 2 || range.some((value) => !Number.isInteger(value))) {
+        throw new Error(`Invalid cron field: ${item}`)
+      }
       const start = range[0]
       const end = base === "*" || (range.length === 1 && stepRaw !== undefined) ? max : range.length === 1 ? range[0] : range[1]
+      if (start < min || end > max || start > end) throw new Error(`Invalid cron range: ${item}`)
       for (let value = start; value <= end; value += step) {
         values.add(options?.sundayAlias && value === 7 ? 0 : value)
       }
@@ -136,7 +142,9 @@ export namespace AutomationScheduler {
   }
 
   function parseCronSchedule(expression: string): CronSchedule {
-    const [minuteField, hourField, dayField, monthField, weekdayField] = expression.trim().split(/\s+/)
+    const fields = expression.trim().split(/\s+/)
+    if (fields.length !== 5) throw new Error(`Invalid cron expression: ${expression}`)
+    const [minuteField, hourField, dayField, monthField, weekdayField] = fields
     return {
       minutes: cronValues(minuteField, 0, 59),
       hours: cronValues(hourField, 0, 23),

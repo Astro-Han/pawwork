@@ -6,7 +6,7 @@ import { Instance } from "@/project/instance"
 import { ProjectID } from "@/project/schema"
 import { PermissionID } from "@/permission/schema"
 import { SessionID } from "@/session/schema"
-import { and, Database, desc, eq, NotFoundError } from "@/storage/db"
+import { and, Database, desc, eq, lt, NotFoundError, or, sql } from "@/storage/db"
 import type { AutomationRunAttendance, AutomationRunBlocker } from "./run-context"
 import { AutomationDefinitionTable, AutomationRunTable } from "./automation.sql"
 
@@ -464,10 +464,14 @@ export namespace Automation {
       db
         .select()
         .from(AutomationDefinitionTable)
-        .where(eq(AutomationDefinitionTable.project_id, projectID))
+        .where(
+          and(
+            eq(AutomationDefinitionTable.project_id, projectID),
+            eq(AutomationDefinitionTable.owner_directory, ownerDirectory),
+          ),
+        )
         .orderBy(desc(AutomationDefinitionTable.time_updated), desc(AutomationDefinitionTable.id))
         .all()
-        .filter((row) => row.owner_directory === ownerDirectory)
         .map((row) => Definition.parse(row.data)),
     )
   }
@@ -736,7 +740,13 @@ export namespace Automation {
         db
           .select()
           .from(AutomationRunTable)
-          .where(and(eq(AutomationRunTable.project_id, projectID), eq(AutomationRunTable.owner_directory, ownerDirectory)))
+          .where(
+            and(
+              eq(AutomationRunTable.project_id, projectID),
+              eq(AutomationRunTable.owner_directory, ownerDirectory),
+              sql`json_extract(${AutomationRunTable.data}, '$.state') in ('scheduled', 'running', 'awaiting_input')`,
+            ),
+          )
           .all()
           .some((row) => {
             if (row.id === run.id) return false
@@ -767,7 +777,13 @@ export namespace Automation {
         const rows = db
           .select()
           .from(AutomationRunTable)
-          .where(and(eq(AutomationRunTable.project_id, projectID), eq(AutomationRunTable.owner_directory, ownerDirectory)))
+          .where(
+            and(
+              eq(AutomationRunTable.project_id, projectID),
+              eq(AutomationRunTable.owner_directory, ownerDirectory),
+              sql`json_extract(${AutomationRunTable.data}, '$.state') in ('scheduled', 'running', 'awaiting_input')`,
+            ),
+          )
           .all()
         const stopped: Run[] = []
         for (const row of rows) {
@@ -896,11 +912,36 @@ export namespace Automation {
 
   export function runs(input: { automationID: string; limit?: number; cursor?: string }) {
     const limit = Math.min(Math.max(input.limit ?? 50, 1), 100)
-    const all = allRuns(input.automationID)
-    const cursorIndex = input.cursor ? all.findIndex((run) => run.id === input.cursor) : -1
-    const start = input.cursor ? (cursorIndex === -1 ? all.length : cursorIndex + 1) : 0
-    const items = all.slice(start, start + limit)
-    return { items, nextCursor: start + limit < all.length ? items.at(-1)?.id ?? null : null }
+    get(input.automationID)
+    const projectID = Instance.project.id
+    const ownerDirectory = Instance.directory
+    const cursorRun = input.cursor ? getRun(input.cursor) : undefined
+    if (input.cursor && (!cursorRun || cursorRun.automationID !== input.automationID)) return { items: [], nextCursor: null }
+    const cursorPredicate = cursorRun
+      ? or(
+          lt(AutomationRunTable.triggered_at, cursorRun.triggeredAt),
+          and(eq(AutomationRunTable.triggered_at, cursorRun.triggeredAt), lt(AutomationRunTable.id, cursorRun.id)),
+        )
+      : undefined
+    const page = Database.use((db) =>
+      db
+        .select()
+        .from(AutomationRunTable)
+        .where(
+          and(
+            eq(AutomationRunTable.automation_id, input.automationID),
+            eq(AutomationRunTable.project_id, projectID),
+            eq(AutomationRunTable.owner_directory, ownerDirectory),
+            cursorPredicate,
+          ),
+        )
+        .orderBy(desc(AutomationRunTable.triggered_at), desc(AutomationRunTable.id))
+        .limit(limit + 1)
+        .all()
+        .map((row) => Run.parse(row.data)),
+    )
+    const items = page.slice(0, limit)
+    return { items, nextCursor: page.length > limit ? items.at(-1)?.id ?? null : null }
   }
 
   function allRuns(automationID: string) {
