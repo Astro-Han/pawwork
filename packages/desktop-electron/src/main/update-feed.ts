@@ -4,18 +4,21 @@
 // fast and reachable from mainland China; GitHub is the global fallback. The
 // baked app-update.yml stays `provider: github` (CI verifies that and it is the
 // safest default); this module overrides the provider at runtime so each check
-// tries R2 first and falls back to GitHub.
+// prefers R2 and falls back to GitHub.
 //
-// electron-updater binds the download source at check time: downloadUpdate()
-// reuses the updateInfoAndProvider captured by the last checkForUpdates(), not
-// the baked yml. So feed selection must happen at check; the same active feed
-// then serves the download. If an R2 download fails we re-check against GitHub
-// before retrying the download.
+// Feed selection uses a CANCELLABLE reachability probe (HEAD on the channel
+// file, aborted on timeout), then runs exactly one electron-updater
+// checkForUpdates() against the winning feed. This is the load-bearing design
+// choice: electron-updater's checkForUpdates() is not cancellable and mutates a
+// shared provider on a single autoUpdater instance, so racing it with a timeout
+// would let a slow R2 check resolve late and rebind the provider back to R2
+// AFTER we fell back to GitHub — silently sending the download to the very feed
+// the fallback exists to avoid. Probing first means only one real check ever
+// runs, bound to the chosen feed; downloadUpdate() then reuses that provider.
 //
 // R2 serves byte-identical assets and the same latest*.yml as the GitHub
 // release (see mirror-release-to-r2.ts), so the sha512 verification chain holds
-// regardless of which feed wins, and a feed swap never points at a mismatched
-// binary.
+// regardless of which feed wins.
 
 export type FeedLabel = "r2" | "github"
 
@@ -23,9 +26,12 @@ export type GenericFeed = { provider: "generic"; url: string; channel: string }
 export type GithubFeed = { provider: "github"; owner: string; repo: string; channel: string }
 export type FeedOptions = GenericFeed | GithubFeed
 
-export type FeedTarget = { label: FeedLabel; options: FeedOptions }
+export type FeedTarget = { label: FeedLabel; options: FeedOptions; probeUrl: string }
 
-export type UpdateCheck = { isUpdateAvailable: boolean; updateInfo?: { version?: string; files?: Array<{ url: string }> } } | null
+export type UpdateCheck = {
+  isUpdateAvailable: boolean
+  updateInfo?: { version?: string; files?: Array<{ url: string }> }
+} | null
 
 type Deps = {
   // Ordered by preference: primary first (R2), fallback last (GitHub). Beta has
@@ -34,92 +40,101 @@ type Deps = {
   setFeedURL: (options: FeedOptions) => void
   checkForUpdates: () => Promise<UpdateCheck>
   downloadUpdate: () => Promise<unknown>
-  // Timeout for a single feed's check before moving to the next feed. Caps the
-  // mainland "reachable but hanging" case; outright failures reject sooner.
+  // Cancellable reachability probe for a feed's channel file. Selecting the feed
+  // with something we can actually abort — rather than racing the uncancellable
+  // checkForUpdates — is what keeps a slow R2 from rebinding the provider after
+  // a GitHub fallback.
+  probe?: (url: string, signal: AbortSignal) => Promise<boolean>
+  // Per-feed probe timeout; the probe is aborted (not abandoned) when it elapses.
   timeoutMs: number
   log: (message: string, data?: Record<string, unknown>) => void
   error: (message: string, error: unknown) => void
-  // Injected for tests; defaults to a real timer in production wiring.
+  // Injected for tests; default to real timers in production wiring.
   setTimer?: (callback: () => void, ms: number) => unknown
   clearTimer?: (handle: unknown) => void
 }
 
-class FeedTimeoutError extends Error {
-  constructor(label: FeedLabel, ms: number) {
-    super(`Update check via ${label} timed out after ${ms}ms`)
-    this.name = "FeedTimeoutError"
-  }
+const defaultProbe = async (url: string, signal: AbortSignal) => {
+  const response = await fetch(url, { method: "HEAD", redirect: "follow", cache: "no-store", signal })
+  return response.ok
 }
 
 export function createUpdateFeed(deps: Deps) {
   if (deps.feeds.length === 0) throw new Error("createUpdateFeed requires at least one feed")
+  const probe = deps.probe ?? defaultProbe
   const setTimer = deps.setTimer ?? ((callback: () => void, ms: number) => setTimeout(callback, ms))
   const clearTimer = deps.clearTimer ?? ((handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>))
 
   let activeLabel: FeedLabel = deps.feeds[0].label
-  // Guards against a timed-out check resolving late and being mistaken for the
-  // winning result. Each check() call bumps the token; stale resolutions are
-  // ignored by the resolver, never by feed state.
-  let generation = 0
+  // Version from the last successful check, used to keep the download-fallback
+  // from quietly swapping in a different release than the controller validated.
+  let checkedVersion: string | undefined
 
-  const withTimeout = async (label: FeedLabel): Promise<UpdateCheck> => {
-    let handle: unknown
-    const timeout = new Promise<never>((_, reject) => {
-      handle = setTimer(() => reject(new FeedTimeoutError(label, deps.timeoutMs)), deps.timeoutMs)
-    })
+  const reachable = async (feed: FeedTarget): Promise<boolean> => {
+    const controller = new AbortController()
+    const handle = setTimer(() => controller.abort(), deps.timeoutMs)
     try {
-      return await Promise.race([deps.checkForUpdates(), timeout])
+      return await probe(feed.probeUrl, controller.signal)
+    } catch (error) {
+      deps.error(`update feed probe via ${feed.label} failed`, error)
+      return false
     } finally {
       clearTimer(handle)
     }
   }
 
-  // Try each feed in order; the first check that resolves wins and becomes the
-  // active feed. Throws the last feed's error only if every feed fails.
-  const check = async (): Promise<UpdateCheck> => {
-    generation += 1
-    const token = generation
-    let lastError: unknown
+  // Pick the first reachable feed and point electron-updater at it. The last
+  // feed is selected without probing — if everything else is unreachable we
+  // still want the real check to run against GitHub and surface a definitive
+  // result rather than failing on the probe.
+  const selectFeed = async (): Promise<FeedTarget> => {
     for (let index = 0; index < deps.feeds.length; index += 1) {
       const feed = deps.feeds[index]
-      const isLast = index === deps.feeds.length - 1
-      try {
+      if (index === deps.feeds.length - 1) {
         deps.setFeedURL(feed.options)
         deps.log("update feed selected", { feed: feed.label, attempt: index + 1, total: deps.feeds.length })
-        const result = await withTimeout(feed.label)
-        if (token !== generation) {
-          // A newer check() superseded us; do not touch active feed.
-          deps.log("update check superseded, discarding result", { feed: feed.label })
-          return result
-        }
-        activeLabel = feed.label
-        return result
-      } catch (error) {
-        lastError = error
-        deps.error(`update check via ${feed.label} failed`, error)
-        if (isLast) throw error
-        deps.log("falling back to next update feed", { from: feed.label, to: deps.feeds[index + 1].label })
+        return feed
       }
+      if (await reachable(feed)) {
+        deps.setFeedURL(feed.options)
+        deps.log("update feed selected", { feed: feed.label, attempt: index + 1, total: deps.feeds.length })
+        return feed
+      }
+      deps.log("update feed unreachable, falling back", { from: feed.label, to: deps.feeds[index + 1].label })
     }
-    throw lastError
+    // Unreachable: the loop always returns on the last feed.
+    throw new Error("update feed selection exhausted")
+  }
+
+  const check = async (): Promise<UpdateCheck> => {
+    const feed = await selectFeed()
+    const result = await deps.checkForUpdates()
+    activeLabel = feed.label
+    checkedVersion = result?.updateInfo?.version
+    return result
   }
 
   // Download from the active feed. If an R2 download fails and GitHub is
-  // available, re-check against GitHub (to rebind updateInfoAndProvider) and
-  // retry once. GitHub failures surface to the caller.
+  // available, re-check against GitHub (to rebind the provider) and retry —
+  // but only if GitHub offers the same version we validated, otherwise fail
+  // closed so the controller never marks a version ready that it did not check.
   const download = async (): Promise<unknown> => {
     try {
       return await deps.downloadUpdate()
     } catch (error) {
       const github = deps.feeds.find((feed) => feed.label === "github")
-      if (activeLabel !== "github" && github) {
-        deps.error("update download via active feed failed, retrying on github", error)
-        deps.setFeedURL(github.options)
-        await deps.checkForUpdates()
-        activeLabel = "github"
-        return await deps.downloadUpdate()
+      if (activeLabel === "github" || !github) throw error
+      deps.error("update download via active feed failed, retrying on github", error)
+      deps.setFeedURL(github.options)
+      const recheck = await deps.checkForUpdates()
+      const githubVersion = recheck?.updateInfo?.version
+      if (githubVersion !== checkedVersion) {
+        throw new Error(
+          `github fallback version mismatch: expected ${checkedVersion ?? "unknown"}, got ${githubVersion ?? "unknown"}`,
+        )
       }
-      throw error
+      activeLabel = "github"
+      return await deps.downloadUpdate()
     }
   }
 
@@ -130,10 +145,15 @@ export function createUpdateFeed(deps: Deps) {
   }
 }
 
-export function r2Feed(publicBase: string, channel: string): FeedTarget {
-  return { label: "r2", options: { provider: "generic", url: publicBase.replace(/\/$/, ""), channel } }
+export function r2Feed(publicBase: string, channel: string, channelFile: string): FeedTarget {
+  const base = publicBase.replace(/\/$/, "")
+  return { label: "r2", options: { provider: "generic", url: base, channel }, probeUrl: `${base}/${channelFile}` }
 }
 
-export function githubFeed(owner: string, repo: string, channel: string): FeedTarget {
-  return { label: "github", options: { provider: "github", owner, repo, channel } }
+export function githubFeed(owner: string, repo: string, channel: string, channelFile: string): FeedTarget {
+  return {
+    label: "github",
+    options: { provider: "github", owner, repo, channel },
+    probeUrl: `https://github.com/${owner}/${repo}/releases/latest/download/${channelFile}`,
+  }
 }

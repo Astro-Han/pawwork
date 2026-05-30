@@ -35,9 +35,13 @@ const APP_IDS: Record<string, string> = {
 const CI_SMOKE_HOME = process.env.PAWWORK_CI_SMOKE_HOME
 const CI_SMOKE_ENABLED = process.env.PAWWORK_CI_SMOKE === "true"
 const FEEDBACK_SESSION_EXPORT_TIMEOUT_MS = 3_000
-// How long to wait on one update feed's check before falling back to the next.
-// Caps the "reachable but hanging" case; outright failures reject sooner.
+// How long to wait on one update feed's reachability probe before falling back
+// to the next. The probe is aborted (not abandoned) when it elapses.
 const UPDATE_FEED_TIMEOUT_MS = 10_000
+// electron-updater channel metadata file for this platform; the feed probe HEADs
+// it to decide reachability.
+const UPDATE_CHANNEL_FILE =
+  process.platform === "win32" ? "latest.yml" : process.platform === "darwin" ? "latest-mac.yml" : "latest-linux.yml"
 const userDataRoot = CI_SMOKE_HOME ?? app.getPath("appData")
 
 app.setName(app.isPackaged ? APP_NAMES[CHANNEL] : "PawWork Dev")
@@ -157,8 +161,8 @@ const rendererDiagnostics = createRendererDiagnosticsRecorder({
 // global fallback. electron-updater binds the download source at check time, so
 // feed selection happens here and the same active feed serves the download.
 function buildUpdateFeeds(): FeedTarget[] {
-  const r2 = UPDATE_R2_ENABLED ? [r2Feed(DOWNLOAD_PUBLIC_BASE, UPDATE_CHANNEL)] : []
-  return [...r2, githubFeed(UPDATE_GITHUB_OWNER, UPDATE_GITHUB_REPO, UPDATE_CHANNEL)]
+  const r2 = UPDATE_R2_ENABLED ? [r2Feed(DOWNLOAD_PUBLIC_BASE, UPDATE_CHANNEL, UPDATE_CHANNEL_FILE)] : []
+  return [...r2, githubFeed(UPDATE_GITHUB_OWNER, UPDATE_GITHUB_REPO, UPDATE_CHANNEL, UPDATE_CHANNEL_FILE)]
 }
 
 const updateFeed = createUpdateFeed({

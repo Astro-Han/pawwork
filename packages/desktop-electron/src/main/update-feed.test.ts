@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import { createUpdateFeed, githubFeed, r2Feed, type FeedTarget } from "./update-feed"
 
-const R2 = r2Feed("https://dl.pawwork.ai", "latest")
-const GITHUB = githubFeed("Astro-Han", "pawwork", "latest")
+const R2 = r2Feed("https://dl.pawwork.ai", "latest", "latest-mac.yml")
+const GITHUB = githubFeed("Astro-Han", "pawwork", "latest", "latest-mac.yml")
 
 const available = (version: string) => ({
   isUpdateAvailable: true,
@@ -14,6 +14,7 @@ function feed(overrides: Partial<Parameters<typeof createUpdateFeed>[0]> = {}) {
     setFeedURL: [] as string[],
     check: 0,
     download: 0,
+    probe: [] as string[],
   }
   const deps = {
     feeds: [R2, GITHUB] as FeedTarget[],
@@ -27,10 +28,13 @@ function feed(overrides: Partial<Parameters<typeof createUpdateFeed>[0]> = {}) {
     downloadUpdate: async () => {
       calls.download += 1
     },
+    probe: async (url: string) => {
+      calls.probe.push(url)
+      return true
+    },
     timeoutMs: 10_000,
     log: () => undefined,
     error: () => undefined,
-    // Default timer never fires; tests that exercise timeout override setTimer.
     setTimer: () => 0,
     clearTimer: () => undefined,
     ...overrides,
@@ -38,91 +42,63 @@ function feed(overrides: Partial<Parameters<typeof createUpdateFeed>[0]> = {}) {
   return { calls, feed: createUpdateFeed(deps) }
 }
 
-describe("update feed check", () => {
-  test("uses the primary feed (R2) when its check succeeds", async () => {
+describe("update feed selection", () => {
+  test("selects R2 when its probe succeeds and runs exactly one check", async () => {
     const setup = feed()
     await expect(setup.feed.check()).resolves.toEqual(available("0.2.5"))
+    expect(setup.calls.probe).toEqual(["https://dl.pawwork.ai/latest-mac.yml"])
     expect(setup.calls.setFeedURL).toEqual(["r2"])
     expect(setup.calls.check).toBe(1)
     expect(setup.feed.activeFeed()).toBe("r2")
   })
 
-  test("falls back to GitHub when the R2 check throws", async () => {
-    const setup = feed({
-      checkForUpdates: async () => {
-        setup.calls.check += 1
-        if (setup.calls.check === 1) throw new Error("r2 unreachable")
-        return available("0.2.5")
-      },
-    })
+  test("falls back to GitHub when the R2 probe reports unreachable", async () => {
+    const setup = feed({ probe: async () => false })
     await expect(setup.feed.check()).resolves.toEqual(available("0.2.5"))
-    expect(setup.calls.setFeedURL).toEqual(["r2", "github"])
-    expect(setup.calls.check).toBe(2)
+    expect(setup.calls.setFeedURL).toEqual(["github"])
+    expect(setup.calls.check).toBe(1)
     expect(setup.feed.activeFeed()).toBe("github")
   })
 
-  test("falls back to GitHub when the R2 check times out", async () => {
-    let timerCalls = 0
+  test("falls back to GitHub when the R2 probe throws", async () => {
     const setup = feed({
-      // R2 (call 1) hangs; GitHub (call 2) resolves.
-      checkForUpdates: async () => {
-        setup.calls.check += 1
-        if (setup.calls.check === 1) return new Promise(() => {})
-        return available("0.2.5")
-      },
-      // Fire the timeout only for the first feed's check.
-      setTimer: (callback: () => void) => {
-        timerCalls += 1
-        if (timerCalls === 1) callback()
-        return timerCalls
+      probe: async () => {
+        throw new Error("r2 dns failure")
       },
     })
-    await expect(setup.feed.check()).resolves.toEqual(available("0.2.5"))
-    expect(setup.calls.setFeedURL).toEqual(["r2", "github"])
-    expect(setup.feed.activeFeed()).toBe("github")
-  })
-
-  test("throws the last error when every feed fails", async () => {
-    const setup = feed({
-      checkForUpdates: async () => {
-        setup.calls.check += 1
-        throw new Error(setup.calls.check === 1 ? "r2 down" : "github down")
-      },
-    })
-    await expect(setup.feed.check()).rejects.toThrow("github down")
-    expect(setup.calls.setFeedURL).toEqual(["r2", "github"])
-  })
-
-  test("beta (single GitHub feed) never touches R2", async () => {
-    const setup = feed({ feeds: [GITHUB] })
     await expect(setup.feed.check()).resolves.toEqual(available("0.2.5"))
     expect(setup.calls.setFeedURL).toEqual(["github"])
     expect(setup.feed.activeFeed()).toBe("github")
   })
 
-  test("a superseded (late) check does not change the active feed", async () => {
-    let release: ((value: ReturnType<typeof available>) => void) | undefined
+  test("aborts a hanging R2 probe on timeout, then falls back to GitHub with a single check", async () => {
     const setup = feed({
-      checkForUpdates: () => {
-        setup.calls.check += 1
-        if (setup.calls.check === 1) {
-          return new Promise((resolve) => {
-            release = (value) => resolve(value)
-          })
-        }
-        return Promise.resolve(available("0.2.6"))
+      // R2 probe never resolves on its own; it only rejects when aborted.
+      probe: (_url: string, signal: AbortSignal) =>
+        new Promise((_resolve, reject) => {
+          if (signal.aborted) return reject(new Error("aborted"))
+          signal.addEventListener("abort", () => reject(new Error("aborted")))
+        }),
+      // Fire the per-probe timeout immediately so the abort path runs.
+      setTimer: (callback: () => void) => {
+        callback()
+        return 0
       },
     })
+    await expect(setup.feed.check()).resolves.toEqual(available("0.2.5"))
+    expect(setup.calls.setFeedURL).toEqual(["github"])
+    // The load-bearing assertion (#219 P1): only one real electron-updater check
+    // ever runs, bound to the fallback feed — no abandoned R2 check can rebind it.
+    expect(setup.calls.check).toBe(1)
+    expect(setup.feed.activeFeed()).toBe("github")
+  })
 
-    const stale = setup.feed.check() // generation 1, pending on R2
-    const fresh = await setup.feed.check() // generation 2, resolves on R2
-    expect(fresh).toEqual(available("0.2.6"))
-    expect(setup.feed.activeFeed()).toBe("r2")
-
-    release?.(available("0.2.5"))
-    await expect(stale).resolves.toEqual(available("0.2.5"))
-    // The late generation-1 resolution must not clobber the active feed.
-    expect(setup.feed.activeFeed()).toBe("r2")
+  test("beta (single GitHub feed) selects GitHub without probing", async () => {
+    const setup = feed({ feeds: [GITHUB] })
+    await expect(setup.feed.check()).resolves.toEqual(available("0.2.5"))
+    expect(setup.calls.probe).toEqual([])
+    expect(setup.calls.setFeedURL).toEqual(["github"])
+    expect(setup.feed.activeFeed()).toBe("github")
   })
 })
 
@@ -135,19 +111,35 @@ describe("update feed download", () => {
     expect(setup.feed.activeFeed()).toBe("r2")
   })
 
-  test("retries the download on GitHub when the R2 download fails", async () => {
+  test("retries the download on GitHub when the R2 download fails and versions match", async () => {
     const setup = feed({
       downloadUpdate: async () => {
         setup.calls.download += 1
         if (setup.calls.download === 1) throw new Error("r2 blob 404")
       },
     })
-    await setup.feed.check() // active = r2
+    await setup.feed.check() // active = r2, checkedVersion = 0.2.5
     await setup.feed.download()
     expect(setup.calls.download).toBe(2)
-    // re-check rebinds the provider to github before the second download
-    expect(setup.calls.setFeedURL).toEqual(["r2", "github"])
+    expect(setup.calls.setFeedURL).toEqual(["r2", "github"]) // re-point before retry
     expect(setup.feed.activeFeed()).toBe("github")
+  })
+
+  test("fails closed when the GitHub fallback offers a different version", async () => {
+    const setup = feed({
+      checkForUpdates: async () => {
+        setup.calls.check += 1
+        // first (R2) check: 0.2.5; second (github re-check): 0.2.6
+        return setup.calls.check === 1 ? available("0.2.5") : available("0.2.6")
+      },
+      downloadUpdate: async () => {
+        setup.calls.download += 1
+        throw new Error("r2 blob 404")
+      },
+    })
+    await setup.feed.check()
+    await expect(setup.feed.download()).rejects.toThrow("github fallback version mismatch")
+    expect(setup.calls.download).toBe(1) // second download never attempted
   })
 
   test("does not retry when the GitHub download fails", async () => {
@@ -165,17 +157,19 @@ describe("update feed download", () => {
 })
 
 describe("feed config builders", () => {
-  test("r2Feed strips a trailing slash and uses the generic provider", () => {
-    expect(r2Feed("https://dl.pawwork.ai/", "latest")).toEqual({
+  test("r2Feed strips a trailing slash and builds the generic feed + probe URL", () => {
+    expect(r2Feed("https://dl.pawwork.ai/", "latest", "latest-mac.yml")).toEqual({
       label: "r2",
       options: { provider: "generic", url: "https://dl.pawwork.ai", channel: "latest" },
+      probeUrl: "https://dl.pawwork.ai/latest-mac.yml",
     })
   })
 
-  test("githubFeed targets the owner/repo with the github provider", () => {
-    expect(githubFeed("Astro-Han", "pawwork-beta", "latest")).toEqual({
+  test("githubFeed targets owner/repo and the releases/latest probe URL", () => {
+    expect(githubFeed("Astro-Han", "pawwork-beta", "latest", "latest.yml")).toEqual({
       label: "github",
       options: { provider: "github", owner: "Astro-Han", repo: "pawwork-beta", channel: "latest" },
+      probeUrl: "https://github.com/Astro-Han/pawwork-beta/releases/latest/download/latest.yml",
     })
   })
 })
