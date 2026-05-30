@@ -1,0 +1,599 @@
+/*
+  PawWork download landing styles. Ported from the approved design at
+  docs/design/scratch/2026-05-30-download-landing-pawwork-final.html.
+  Plain CSS + custom properties; light/dark via [data-theme], CN/EN via [data-lang].
+  System fonts, warm neutrals, soft shadows, rounded corners, orange as a
+  restrained accent; dark mode borrows the product's warm-coffee tones.
+*/
+
+:root,
+[data-theme="light"] {
+  --brand: #ff5910;
+  --brand-hover: #e04e0e;
+  --peach: #fff1e8;
+  --bg: #faf9f7;
+  --surface: #ffffff;
+  --surface-2: #f9f4ee;
+  --ink: #1a1613;
+  --ink-2: #4a4138;
+  --ink-3: #8c817a;
+  --ink-4: #b6ada7;
+  --border: #ece6df;
+  --ring: rgba(11, 6, 0, 0.14);
+  --raised: 0 6px 24px rgba(26, 22, 19, 0.06), 0 1px 2px rgba(26, 22, 19, 0.05);
+  --float: 0 18px 48px -14px rgba(26, 22, 19, 0.18), 0 4px 12px rgba(26, 22, 19, 0.06);
+  --onbrand: #fff;
+}
+
+[data-theme="dark"] {
+  --brand: #ff6a26;
+  --brand-hover: #ff7a3a;
+  --peach: #2b1f19;
+  --bg: #1a1714;
+  --surface: #221f1c;
+  --surface-2: #16130f;
+  --ink: #f3ede4;
+  --ink-2: #c5beb4;
+  --ink-3: #8a8278;
+  --ink-4: #6b645c;
+  --border: #2c2823;
+  --ring: rgba(243, 237, 228, 0.14);
+  --raised: 0 6px 24px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --float: 0 24px 60px -16px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.4);
+  --onbrand: #1a1005;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+html {
+  scroll-behavior: smooth;
+}
+body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background 0.25s, color 0.25s;
+  overflow-x: hidden;
+}
+img {
+  display: block;
+  max-width: 100%;
+}
+a {
+  color: inherit;
+  text-decoration: none;
+}
+.in {
+  max-width: 1140px;
+  margin: 0 auto;
+  padding: 0 40px;
+}
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes floaty {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-7deg);
+  }
+  50% {
+    transform: translateY(-7px) rotate(-7deg);
+  }
+}
+
+.bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px 0;
+}
+.mark {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  font-weight: 700;
+  font-size: 19px;
+  letter-spacing: -0.015em;
+}
+.mark img {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+}
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.nav a.lk {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+.nav a.lk:hover {
+  color: var(--brand);
+}
+.nav .gh {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.nav .gh svg {
+  width: 17px;
+  height: 17px;
+}
+.toggle {
+  height: 36px;
+  min-width: 36px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  display: inline-grid;
+  place-items: center;
+  cursor: pointer;
+  box-shadow: var(--raised);
+  transition: transform 0.1s, color 0.15s;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.toggle:hover {
+  color: var(--brand);
+}
+.toggle svg {
+  width: 17px;
+  height: 17px;
+}
+[data-theme="light"] .toggle .moon {
+  display: none;
+}
+[data-theme="dark"] .toggle .sun {
+  display: none;
+}
+[data-lang="cn"] .toggle .ll-cn {
+  display: none;
+}
+[data-lang="en"] .toggle .ll-en {
+  display: none;
+}
+
+.hero {
+  padding: 58px 0 0;
+  display: grid;
+  grid-template-columns: 1.02fr 0.98fr;
+  gap: 60px;
+  align-items: center;
+}
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+  background: var(--peach);
+  border-radius: 999px;
+  padding: 7px 15px;
+  animation: rise 0.6s both;
+}
+.tag .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--brand);
+  flex: 0 0 auto;
+}
+h1 {
+  font-weight: 800;
+  font-size: clamp(42px, 3vw + 1.3rem, 72px);
+  line-height: 1.04;
+  letter-spacing: -0.035em;
+  margin-top: 22px;
+  color: var(--ink);
+  animation: rise 0.6s 0.05s both;
+}
+h1 .o {
+  color: var(--brand);
+}
+[data-lang="cn"] h1 {
+  letter-spacing: 0.005em;
+  line-height: 1.16;
+}
+.sub {
+  margin-top: 24px;
+  font-size: 18px;
+  line-height: 1.55;
+  color: var(--ink-2);
+  max-width: 42ch;
+  animation: rise 0.6s 0.1s both;
+}
+.sub b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.dlblock {
+  margin-top: 30px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: flex-start;
+  animation: rise 0.6s 0.16s both;
+}
+.dl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  width: 100%;
+  max-width: 430px;
+}
+.dlbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 11px;
+  height: 54px;
+  padding: 0 16px;
+  border-radius: 13px;
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--ring), var(--raised);
+  color: var(--ink);
+  transition: transform 0.12s, box-shadow 0.12s, background 0.12s;
+}
+.dlbtn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 0 1px var(--brand), 0 12px 26px -10px rgba(255, 89, 16, 0.34);
+}
+.dlbtn svg {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+}
+.dlbtn .t {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.18;
+  text-align: left;
+}
+.dlbtn .t b {
+  font-weight: 600;
+  font-size: 14px;
+}
+.dlbtn .t span {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.dlbtn.lead {
+  grid-column: 1 / -1;
+  background: var(--brand);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.05), 0 10px 26px -10px rgba(255, 89, 16, 0.5);
+  color: var(--onbrand);
+}
+.dlbtn.lead .t span {
+  color: var(--onbrand);
+  opacity: 0.74;
+}
+.dlbtn.lead:hover {
+  background: var(--brand-hover);
+  transform: translateY(-2px);
+}
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 18px;
+}
+.gh2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+.gh2 u {
+  border-bottom: 1px solid var(--ink-4);
+  padding-bottom: 1px;
+}
+.gh2:hover {
+  color: var(--brand);
+}
+.gh2:hover u {
+  border-color: var(--brand);
+}
+.gh2 svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+}
+.wnote {
+  font-size: 12.5px;
+  color: var(--ink-3);
+  line-height: 1.55;
+  max-width: 50ch;
+}
+.wnote b {
+  color: var(--ink-2);
+  font-weight: 600;
+}
+
+.stage {
+  position: relative;
+  animation: rise 0.7s 0.2s both;
+}
+.mock {
+  position: relative;
+  z-index: 2;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: var(--float);
+  overflow: hidden;
+}
+.mock .top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.mock .dots {
+  display: flex;
+  gap: 6px;
+}
+.mock .dots i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--ink-4);
+  opacity: 0.5;
+}
+.mock .dots i:first-child {
+  background: var(--brand);
+  opacity: 1;
+}
+.mock .ttl {
+  font-size: 12.5px;
+  color: var(--ink-3);
+  margin-left: 5px;
+  font-weight: 500;
+}
+.mock .body {
+  padding: 18px;
+}
+.mock .you {
+  display: inline-block;
+  background: var(--peach);
+  border-radius: 14px;
+  border-bottom-right-radius: 5px;
+  padding: 11px 14px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ink);
+  max-width: 90%;
+}
+.mock .card {
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--surface);
+}
+.mock .card .ch {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 14px;
+  font-weight: 600;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+}
+.mock .card .ch .sp {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--brand);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+  flex: 0 0 auto;
+}
+.mock .step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.mock .step + .step {
+  border-top: 1px solid var(--border);
+}
+.mock .step .ck {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  color: var(--brand);
+}
+.mock .step.run {
+  color: var(--ink-3);
+}
+.mock .step.run .rb {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  border: 2px dashed var(--ink-4);
+  border-radius: 50%;
+}
+.mock .out {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px;
+  padding: 11px 14px;
+  border-radius: 12px;
+  background: var(--peach);
+  font-size: 13px;
+  font-weight: 600;
+}
+.mock .out .x {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  color: var(--brand);
+}
+.mock .out .rd {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--ink-3);
+  font-weight: 500;
+}
+.pawchip {
+  position: absolute;
+  z-index: 3;
+  left: -22px;
+  bottom: -18px;
+  width: 58px;
+  height: 58px;
+  border-radius: 18px;
+  background: var(--brand);
+  display: grid;
+  place-items: center;
+  box-shadow: 0 12px 26px -8px rgba(255, 89, 16, 0.5);
+  animation: floaty 5s ease-in-out infinite;
+}
+.pawchip svg {
+  width: 34px;
+  height: 34px;
+  color: #fff;
+}
+.shotnote {
+  position: absolute;
+  right: 4px;
+  top: -22px;
+  z-index: 2;
+  font-size: 11px;
+  color: var(--ink-4);
+}
+
+.caps {
+  padding: 88px 0 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+.cap {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--raised);
+  padding: 22px 22px 24px;
+  transition: transform 0.14s, box-shadow 0.14s;
+}
+.cap:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--float);
+}
+.cap .ic {
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  color: var(--brand);
+  background: var(--peach);
+  margin-bottom: 14px;
+}
+.cap .ic svg {
+  width: 21px;
+  height: 21px;
+}
+.cap h3 {
+  font-weight: 700;
+  font-size: 15.5px;
+  margin-bottom: 7px;
+  letter-spacing: -0.01em;
+}
+.cap p {
+  font-size: 13.5px;
+  color: var(--ink-2);
+  line-height: 1.55;
+}
+
+footer {
+  margin-top: 80px;
+  border-top: 1px solid var(--border);
+}
+.foot {
+  max-width: 1140px;
+  margin: 0 auto;
+  padding: 28px 40px 60px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+.foot .mark {
+  font-size: 15px;
+}
+.foot .mark img {
+  width: 26px;
+  height: 26px;
+}
+@media (max-width: 860px) {
+  .hero,
+  .caps {
+    grid-template-columns: 1fr;
+  }
+  .stage {
+    order: -1;
+    margin-bottom: 8px;
+  }
+}
+
+/* Phones: tighten the header so brand, GitHub, language and theme controls
+   all fit on one row down to ~320px. The secondary "What it does" anchor is
+   dropped (the section is just below) and the brand shrinks slightly. */
+@media (max-width: 600px) {
+  .in {
+    padding: 0 18px;
+  }
+  .bar {
+    padding: 18px 0;
+  }
+  .mark {
+    gap: 9px;
+    font-size: 17px;
+  }
+  .mark img {
+    width: 28px;
+    height: 28px;
+  }
+  .nav {
+    gap: 10px;
+  }
+  .nav a.lk {
+    display: none;
+  }
+}
