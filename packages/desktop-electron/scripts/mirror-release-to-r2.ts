@@ -17,7 +17,7 @@
 //   AWS_SECRET_ACCESS_KEY    R2 token secret
 //   GH_TOKEN                 GitHub token for `gh release download`
 
-import { mkdtemp, readdir, stat } from "node:fs/promises"
+import { mkdtemp, readdir, rm, stat } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { releaseAssetNames } from "./verify-release.ts"
@@ -78,6 +78,27 @@ async function main() {
   const pointers = assets.filter((name) => MUTABLE_POINTERS.has(name))
 
   const dir = await mkdtemp(join(tmpdir(), "pawwork-r2-"))
+  try {
+    await mirror({ assets, versioned, pointers, tag, repo, dir, bucket, endpoint, publicBase, version })
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+}
+
+type MirrorArgs = {
+  assets: string[]
+  versioned: string[]
+  pointers: string[]
+  tag: string
+  repo: string
+  dir: string
+  bucket: string
+  endpoint: string
+  publicBase: string
+  version: string
+}
+
+async function mirror({ assets, versioned, pointers, tag, repo, dir, bucket, endpoint, publicBase, version }: MirrorArgs) {
   console.log(`Downloading ${assets.length} assets of ${tag} from ${repo} ...`)
   for (const name of assets) {
     await run(["gh", "release", "download", tag, "--repo", repo, "--pattern", name, "--dir", dir])

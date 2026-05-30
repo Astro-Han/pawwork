@@ -162,7 +162,8 @@ const seoDesc =
         if (!manifest) return;
         document.querySelectorAll("[data-dl]").forEach((el) => {
           const url = manifest[el.getAttribute("data-dl")];
-          if (url) el.setAttribute("href", url);
+          // Guard against a compromised manifest injecting javascript: hrefs.
+          if (typeof url === "string" && /^https?:\/\//i.test(url)) el.setAttribute("href", url);
         });
       })
       .catch(() => {});
