@@ -281,7 +281,10 @@ describe("session.listGlobal activity order", () => {
 
       await Instance.provide({
         directory: tmp.path,
-        fn: async () => userMessageWithSyntheticReminder(oldMixedUser.id, 4_000),
+        fn: async () => {
+          now = 4_000
+          return userMessageWithSyntheticReminder(oldMixedUser.id, 4_000)
+        },
       })
 
       const sessions = [
