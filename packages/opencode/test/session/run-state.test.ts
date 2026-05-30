@@ -116,6 +116,7 @@ describe("SessionRunState", () => {
       (directory) =>
         Effect.gen(function* () {
           const run = yield* SessionRunState.Service
+          const started = yield* Deferred.make<void>()
           const fiber = yield* run
             .ensureRunning(
               SessionID.make("ses_run_state_scope"),
@@ -124,11 +125,11 @@ describe("SessionRunState", () => {
                   captured = meta
                   return {} as never
                 }),
-              Effect.never,
+              Deferred.succeed(started, undefined).pipe(Effect.andThen(Effect.never)),
             )
             .pipe(Effect.forkChild)
 
-          yield* Effect.sleep("10 millis")
+          yield* Deferred.await(started)
           yield* Effect.promise(() => Instance.dispose({ mode: "force" }))
 
           const exit = yield* Fiber.await(fiber)

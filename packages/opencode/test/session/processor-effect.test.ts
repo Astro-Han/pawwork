@@ -1645,7 +1645,7 @@ it.live("disabled unknown tools do not block safe connect-timeout auto retry", (
               inputSchema: z.object({}),
             }),
           },
-          connectTimeoutMs: 20,
+          connectTimeoutMs: 250,
           streamTimeoutMs: 1_000,
         })
 

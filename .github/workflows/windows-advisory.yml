@@ -155,7 +155,7 @@ jobs:
               test/config
               test/project
               test/worktree
-              test/file
+              test/file/
               test/github
               test/settings
               test/settings.test.ts
@@ -176,11 +176,11 @@ jobs:
               test/question
               test/effect
               test/agent
-              test/git
+              test/git/
               test/storage
               test/provider
               test/pty
-              test/share
+              test/share/
               test/script
               test/memory
               test/lsp

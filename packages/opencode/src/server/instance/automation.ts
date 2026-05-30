@@ -4,6 +4,7 @@ import { describeRoute, resolver, validator } from "hono-openapi"
 import z from "zod"
 import { Automation, AutomationID, ValidationError } from "@/automation"
 import { sessionPromptExecutor } from "@/automation/runner"
+import { AutomationScheduler } from "@/automation/scheduler"
 import { errors } from "../error"
 
 function validationError(error: ValidationError) {
@@ -100,6 +101,7 @@ export const AutomationRoutes = (): Hono =>
       validator("json", Automation.CreateInput, automationBodyValidationHook),
       async (c) => {
         try {
+          AutomationScheduler.current()
           const definition = Automation.create(c.req.valid("json"))
           await Automation.publishDefinitionUpdated(definition)
           return c.json(definition)
@@ -149,6 +151,7 @@ export const AutomationRoutes = (): Hono =>
       async (c) => {
         try {
           const automationID = c.req.valid("param").automationID
+          AutomationScheduler.current()
           const previous = Automation.get(automationID)
           const definition = Automation.update(automationID, c.req.valid("json"))
           await publishIfChanged(previous, definition)
@@ -176,6 +179,7 @@ export const AutomationRoutes = (): Hono =>
       validator("param", z.object({ automationID: AutomationID.Definition.zod })),
       async (c) => {
         const automationID = c.req.valid("param").automationID
+        AutomationScheduler.current()
         const previous = Automation.get(automationID)
         const definition = Automation.update(automationID, { paused: true })
         await publishIfChanged(previous, definition)
@@ -199,6 +203,7 @@ export const AutomationRoutes = (): Hono =>
       validator("param", z.object({ automationID: AutomationID.Definition.zod })),
       async (c) => {
         const automationID = c.req.valid("param").automationID
+        AutomationScheduler.current()
         const previous = Automation.get(automationID)
         const definition = Automation.update(automationID, { paused: false })
         await publishIfChanged(previous, definition)
@@ -223,6 +228,7 @@ export const AutomationRoutes = (): Hono =>
       validator("param", z.object({ automationID: AutomationID.Definition.zod })),
       async (c) => {
         const removed = Automation.remove(c.req.valid("param").automationID)
+        AutomationScheduler.current().cancel(removed.tombstone.id)
         if (removed.stoppedRun) await Automation.publishRunUpdated(removed.stoppedRun)
         await Automation.publishDefinitionDeleted(removed.tombstone)
         return c.json(removed.tombstone)

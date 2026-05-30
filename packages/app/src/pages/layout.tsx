@@ -614,7 +614,7 @@ export default function Layout(props: ParentProps) {
         setPawworkSessionWindowState("normal", reconcile(sortPawworkSessionWindowSessions(normal), { key: "id" }))
         setPawworkSessionWindowState("pinned", reconcile(pinned, { key: "id" }))
         setPawworkSessionWindowState("active", activeRoot)
-        setPawworkSessionWindowState("hasMore", !!response.response.headers.get("x-next-cursor"))
+        setPawworkSessionWindowState("hasMore", !!response.response?.headers.get("x-next-cursor"))
         setPawworkSessionWindowState("loading", false)
       })
     } catch (error) {
@@ -802,7 +802,7 @@ export default function Layout(props: ParentProps) {
             const next = items.map((x) => x.info).filter((m): m is Message => !!m?.id)
             const sorted = mergeByID([], next)
             const stale = markPrefetched(directory, sessionID)
-            const cursor = messages.response.headers.get("x-next-cursor") ?? undefined
+            const cursor = messages.response?.headers.get("x-next-cursor") ?? undefined
             const meta = {
               limit: sorted.length,
               cursor,
