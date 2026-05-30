@@ -35,6 +35,16 @@ import { Process } from "@/util/process"
 
 type ActionsContext = typeof github.context
 
+export function resolveGithubRunContext(
+  args: { event?: string; token?: string },
+  fallbackContext: ActionsContext = github.context,
+) {
+  const isMock = Boolean(args.token || args.event)
+  const context = args.event ? (JSON.parse(args.event) as ActionsContext) : fallbackContext
+
+  return { context, isMock }
+}
+
 type GitHubAuthor = {
   login: string
   name?: string
@@ -439,9 +449,7 @@ export const GithubRunCommand = cmd({
       }),
   async handler(args) {
     await bootstrap(process.cwd(), async () => {
-      const isMock = args.token || args.event
-
-      const context = isMock ? (JSON.parse(args.event!) as ActionsContext) : github.context
+      const { context, isMock } = resolveGithubRunContext(args)
       if (!SUPPORTED_EVENTS.includes(context.eventName as (typeof SUPPORTED_EVENTS)[number])) {
         core.setFailed(`Unsupported event type: ${context.eventName}`)
         process.exit(1)

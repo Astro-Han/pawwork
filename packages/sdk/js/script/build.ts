@@ -133,15 +133,11 @@ async function patchV2BodySerializerNullHandling() {
   const serializerPath = path.join(dir, "src/v2/gen/core/bodySerializer.gen.ts")
   let source = await readFile(serializerPath, "utf8")
 
-  source = replacePatternOnce(
+  source = replacePattern(
     source,
-    /Object\.entries\(body as Record<string, unknown>\)\.forEach\(\(\[key, value\]\) => \{/,
+    /Object\.entries\(body as Record<string, unknown>\)\.forEach\(\(\[key, value\]\) => \{/g,
     "Object.entries((body ?? {}) as Record<string, unknown>).forEach(([key, value]) => {",
-  )
-  source = replacePatternOnce(
-    source,
-    /Object\.entries\(body as Record<string, unknown>\)\.forEach\(\(\[key, value\]\) => \{/,
-    "Object.entries((body ?? {}) as Record<string, unknown>).forEach(([key, value]) => {",
+    2,
   )
 
   await writeFile(serializerPath, source)
@@ -163,7 +159,12 @@ async function patchV2SseSplitCrLfHandling() {
 }
 
 function replacePatternOnce(source: string, search: RegExp, replacement: string) {
-  if (!search.test(source)) {
+  return replacePattern(source, search, replacement, 1)
+}
+
+function replacePattern(source: string, search: RegExp, replacement: string, expectedMatches: number) {
+  const matches = source.match(search)
+  if (matches?.length !== expectedMatches) {
     throw new Error("Generated SDK shape changed; update the SDK post-generation patches")
   }
 
