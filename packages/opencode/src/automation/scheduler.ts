@@ -348,6 +348,13 @@ export namespace AutomationScheduler {
         if (isStableCronSchedule(definition)) unschedulable.set(definition.id, definition)
         return
       }
+      if (definition.kind === "oneshot" && next <= clock.now()) {
+        const stopped = Automation.recordStoppedRun(definition.id, "missed_schedule", { now: clock.now(), triggeredAt: next })
+        schedulerStoppedRuns.add(stopped.id)
+        void Automation.publishRunUpdated(stopped)
+        cancel(definition.id)
+        return
+      }
       if (preservePendingSchedule(definition)) return
       if (!tasks.has(definition.id) && definition.kind === "recurring" && hasSchedulerOwnedActiveRun(definition.id)) return
       schedule(definition, next)

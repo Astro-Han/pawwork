@@ -6,7 +6,7 @@ import { Instance } from "@/project/instance"
 import { ProjectID } from "@/project/schema"
 import { PermissionID } from "@/permission/schema"
 import { SessionID } from "@/session/schema"
-import { and, Database, desc, eq, lt, NotFoundError, or, sql } from "@/storage/db"
+import { and, Database, desc, eq, inArray, lt, NotFoundError, or, sql } from "@/storage/db"
 import type { AutomationRunAttendance, AutomationRunBlocker } from "./run-context"
 import { AutomationDefinitionTable, AutomationRunTable } from "./automation.sql"
 
@@ -736,8 +736,8 @@ export namespace Automation {
     const projectID = definition.where.projectID
     const ownerDirectory = Instance.directory
     return Database.transaction(
-      (db) =>
-        db
+      (db) => {
+        const rows = db
           .select()
           .from(AutomationRunTable)
           .where(
@@ -748,14 +748,33 @@ export namespace Automation {
             ),
           )
           .all()
-          .some((row) => {
-            if (row.id === run.id) return false
-            const item = Run.parse(row.data)
-            if (!isActiveRun(item)) return false
-            const itemDefinition = getOptional(item.automationID)
-            const itemWriterKey = itemDefinition?.where.worktree ?? itemDefinition?.where.projectID
-            return itemWriterKey === writerKey
+        const automationIDs = [...new Set(rows.map((row) => row.automation_id))]
+        const definitions = automationIDs.length
+          ? db
+              .select()
+              .from(AutomationDefinitionTable)
+              .where(
+                and(
+                  eq(AutomationDefinitionTable.project_id, projectID),
+                  eq(AutomationDefinitionTable.owner_directory, ownerDirectory),
+                  inArray(AutomationDefinitionTable.id, automationIDs),
+                ),
+              )
+              .all()
+          : []
+        const writerKeys = new Map(
+          definitions.map((row) => {
+            const item = Definition.parse(row.data)
+            return [item.id, item.where.worktree ?? item.where.projectID]
           }),
+        )
+        return rows.some((row) => {
+          if (row.id === run.id) return false
+          const item = Run.parse(row.data)
+          if (!isActiveRun(item)) return false
+          return writerKeys.get(item.automationID) === writerKey
+        })
+      },
       { behavior: "immediate" },
     )
   }

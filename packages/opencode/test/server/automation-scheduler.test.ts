@@ -1099,6 +1099,33 @@ describe("automation scheduler", () => {
     })
   })
 
+  test("records a missed one-shot after restart instead of catching up within timer grace", async () => {
+    await withAutomation(async (projectID) => {
+      const clock = new OversleepClock(90_000, 90_000)
+      const calls: number[] = []
+      const scheduler = AutomationScheduler.make({
+        clock,
+        executor: async () => {
+          calls.push(clock.now())
+          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+        },
+      })
+      const definition = Automation.create(oneshotInput(projectID, 60_000), { now: 0 })
+
+      scheduler.reschedule(definition)
+      const runs = await waitForRunCount(definition.id, 1)
+
+      expect(calls).toEqual([])
+      expect(runs[0]).toMatchObject({
+        state: "stopped",
+        stopReason: "missed_schedule",
+        triggeredAt: 60_000,
+        completedAt: 90_000,
+      })
+      scheduler.stop()
+    })
+  })
+
   test("records missed schedules instead of catching up after an overslept timer", async () => {
     await withAutomation(async (projectID) => {
       const clock = new OversleepClock(0, 180_001)
