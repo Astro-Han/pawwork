@@ -335,7 +335,7 @@ For each service, the migration is roughly:
 
 ### Migration log
 
-- Workspace routing guardrails - completed 2026-05-30 as the next #936 slice after VCS, PTY connect-token, and SSE guardrails. This slice is planning + tests only; it does not migrate Hono routes to Effect HttpApi.
+- Workspace routing guardrails (completed 2026-05-30) as the next #936 slice after VCS, PTY connect-token, and SSE guardrails. This slice is planning + tests only; it does not migrate Hono routes to Effect HttpApi.
   - PR scope: lock the current workspace routing decisions before any middleware migration. `GET /session`, session-detail GET routes, and missing-workspace session deletes stay local while `/session/status` remains forwarded, a session's bound `workspaceID` wins over `?workspace=`, missing workspace records return an explicit `Workspace not found` error for normal routes, PawWork `/path?ensureConfig=true` must not create the legacy OpenCode config directory, and remote workspace WebSocket upgrades must reach `ServerProxy.websocket`.
   - Non-goals: no upstream `/sync/*`, workspace adapter/sync-list/warp, v2 `/api/*`, TUI, auth/OAuth, OpenAPI/SDK shape, or proxy internals migration.
   - Next follow-up: design the actual WorkspaceRouting / Effect instance context middleware split before replacing Hono middleware. Follow-ups only when touched: EnterWorktree/ExitWorktree execution-context tests and WebSocket queue/close-code/bidirectional proxy tests.
