@@ -453,6 +453,22 @@ describe("automation scheduler", () => {
     })
   })
 
+  test("continues maintenance dispose if scheduler pre-stop fails", async () => {
+    await withAutomation(async () => {
+      AutomationScheduler.install({
+        stop: () => undefined,
+        stopOwnedRuns: () => {
+          throw new Error("pre-stop failed")
+        },
+        reschedule: () => undefined,
+        cancel: () => undefined,
+        computeNextFireAt: () => null,
+      })
+
+      await expect(Instance.dispose()).resolves.toBeUndefined()
+    })
+  })
+
   test("anchors recurring schedule after a long manual run completes", async () => {
     await withAutomation(async (projectID) => {
       const clock = new FakeClock(0)
