@@ -106,12 +106,34 @@ export function createUpdateFeed(deps: Deps) {
     throw new Error("update feed selection exhausted")
   }
 
+  // Run the real electron-updater check on the selected feed. If the check
+  // rejects (R2 probe passed but the actual metadata fetch failed — DNS flip,
+  // transient 5xx, or the 60 s socket timeout built into builder-util-runtime),
+  // fall through to the next feed. The last feed throws on failure so the
+  // caller gets a definitive error.
   const check = async (): Promise<UpdateCheck> => {
-    const feed = await selectFeed()
-    const result = await deps.checkForUpdates()
-    activeLabel = feed.label
-    checkedVersion = result?.updateInfo?.version
-    return result
+    const feeds = deps.feeds
+    const selected = await selectFeed()
+    const selectedIndex = feeds.indexOf(selected)
+
+    for (let i = selectedIndex; i < feeds.length; i++) {
+      const feed = feeds[i]
+      if (i !== selectedIndex) {
+        deps.setFeedURL(feed.options)
+        deps.log("update check retrying on next feed", { feed: feed.label })
+      }
+      try {
+        const result = await deps.checkForUpdates()
+        activeLabel = feed.label
+        checkedVersion = result?.updateInfo?.version
+        return result
+      } catch (error) {
+        if (i === feeds.length - 1) throw error
+        deps.error(`update check via ${feed.label} failed, falling back`, error)
+      }
+    }
+    // Unreachable: the loop always returns or throws on the last feed.
+    throw new Error("update check exhausted all feeds")
   }
 
   // Download from the active feed. If an R2 download fails and GitHub is
@@ -126,6 +148,7 @@ export function createUpdateFeed(deps: Deps) {
       if (activeLabel === "github" || !github) throw error
       deps.error("update download via active feed failed, retrying on github", error)
       deps.setFeedURL(github.options)
+      deps.log("update download fallback: re-checking on github")
       const recheck = await deps.checkForUpdates()
       const githubVersion = recheck?.updateInfo?.version
       if (githubVersion !== checkedVersion) {

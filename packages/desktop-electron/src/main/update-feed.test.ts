@@ -100,6 +100,30 @@ describe("update feed selection", () => {
     expect(setup.calls.setFeedURL).toEqual(["github"])
     expect(setup.feed.activeFeed()).toBe("github")
   })
+
+  test("falls back to GitHub when R2 probe succeeds but R2 check rejects", async () => {
+    let checkCount = 0
+    const setup = feed({
+      checkForUpdates: async () => {
+        checkCount += 1
+        if (checkCount === 1) throw new Error("R2 metadata fetch 503")
+        return available("0.2.5")
+      },
+    })
+    await expect(setup.feed.check()).resolves.toEqual(available("0.2.5"))
+    expect(setup.calls.setFeedURL).toEqual(["r2", "github"])
+    expect(checkCount).toBe(2)
+    expect(setup.feed.activeFeed()).toBe("github")
+  })
+
+  test("throws when R2 probe succeeds, R2 check rejects, and GitHub check also rejects", async () => {
+    const setup = feed({
+      checkForUpdates: async () => {
+        throw new Error("both feeds down")
+      },
+    })
+    await expect(setup.feed.check()).rejects.toThrow("both feeds down")
+  })
 })
 
 describe("update feed download", () => {
@@ -153,6 +177,24 @@ describe("update feed download", () => {
     await setup.feed.check() // active = github
     await expect(setup.feed.download()).rejects.toThrow("github blob 404")
     expect(setup.calls.download).toBe(1)
+  })
+
+  test("fails closed when the GitHub fallback re-check rejects", async () => {
+    let checkCount = 0
+    const setup = feed({
+      checkForUpdates: async () => {
+        checkCount += 1
+        if (checkCount === 1) return available("0.2.5")
+        throw new Error("github re-check timeout")
+      },
+      downloadUpdate: async () => {
+        setup.calls.download += 1
+        throw new Error("r2 download failed")
+      },
+    })
+    await setup.feed.check() // active = r2, version 0.2.5
+    await expect(setup.feed.download()).rejects.toThrow("github re-check timeout")
+    expect(setup.calls.download).toBe(1) // only the failed R2 download, no GitHub retry
   })
 })
 

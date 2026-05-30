@@ -69,7 +69,6 @@ import {
   UPDATE_GITHUB_REPO,
   UPDATE_R2_ENABLED,
   UPDATER_ACTIVE,
-  UPDATER_ENABLED,
 } from "./constants"
 import { normalizeDesktopContextPayload, syncWindowTitleForDesktopContext } from "./desktop-context-window"
 import { createDesktopContextStore } from "./desktop-context-store"
@@ -194,7 +193,7 @@ function diagnostics(context = currentDesktopContext()) {
     appVersion: app.getVersion(),
     channel: CHANNEL,
     packaged: app.isPackaged,
-    updaterEnabled: UPDATER_ENABLED,
+    updaterEnabled: UPDATER_ACTIVE,
     platform: process.platform,
     osVersion: `${os.type()} ${os.release()}`,
     arch: process.arch,
@@ -607,7 +606,7 @@ registerIpcHandlers({
   getWslConfig: () => Promise.resolve(getWslConfig()),
   setWslConfig: (config: WslConfig) => setWslConfig(config),
   getWindowConfig: () => ({
-    updaterEnabled: UPDATER_ENABLED,
+    updaterEnabled: UPDATER_ACTIVE,
     wslEnabled: getWslConfig().enabled,
   }),
   consumeInitialDeepLinks: () => pendingDeepLinks.splice(0),
