@@ -102,7 +102,6 @@
   "trustedDependencies": [
     "esbuild",
     "node-pty",
-    "protobufjs",
     "tree-sitter",
     "tree-sitter-bash",
     "tree-sitter-powershell",
