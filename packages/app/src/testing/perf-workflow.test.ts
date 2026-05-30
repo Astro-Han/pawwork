@@ -5,9 +5,9 @@ const normalizeLineEndings = (text: string) => text.replace(/\r\n?/g, "\n")
 
 describe("perf workflow contract", () => {
   test("matches workflow snippets after Windows line-ending checkout", () => {
-    const workflow = normalizeLineEndings("restore-keys: |\r\n            playwright-${{ runner.os }}-")
+    const workflow = normalizeLineEndings("restore-keys: |\r\n            bun-${{ runner.os }}-")
 
-    expect(workflow).toContain("restore-keys: |\n            playwright-${{ runner.os }}-")
+    expect(workflow).toContain("restore-keys: |\n            bun-${{ runner.os }}-")
   })
 
   test("keeps default gate broad and low-end gate scoped", async () => {
@@ -28,7 +28,8 @@ describe("perf workflow contract", () => {
     expect(workflow).toContain('PLAYWRIGHT_VIDEO: "off"')
     expect(workflow).not.toContain("playwright install --with-deps chromium")
     expect(workflow).toContain("actions/cache/restore@")
-    expect(workflow).toContain("restore-keys: |\n            playwright-${{ runner.os }}-")
+    expect(workflow).not.toContain("PLAYWRIGHT_BROWSERS_PATH")
+    expect(workflow).not.toContain(".playwright-browsers")
     expect(workflow).toContain("perf-base-combined.json")
     expect(workflow).toContain("perf-head-combined.json")
     expect(workflow).toContain("perf-comment.md")
