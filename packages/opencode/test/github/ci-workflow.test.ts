@@ -66,14 +66,14 @@ const windowsOpencodeShards = [
     suffix: "opencode-config-project",
     usesTurbo: false,
     command:
-      "cd packages/opencode && bun test --timeout 30000 --reporter=junit --reporter-outfile=.artifacts/unit/junit-windows-config-project.xml test/config test/project test/worktree test/file test/github test/settings test/settings.test.ts",
+      "cd packages/opencode && bun test --timeout 30000 --reporter=junit --reporter-outfile=.artifacts/unit/junit-windows-config-project.xml test/config test/project test/worktree test/file/ test/github test/settings test/settings.test.ts",
     reportPath: "packages/opencode/.artifacts/unit/junit-windows-config-project.xml",
   },
   {
     suffix: "opencode-server-tools",
     usesTurbo: false,
     command:
-      "cd packages/opencode && bun test --timeout 30000 --reporter=junit --reporter-outfile=.artifacts/unit/junit-windows-server-tools.xml test/server test/snapshot test/tool test/mcp test/question test/effect test/agent test/git/git.test.ts test/storage test/provider test/pty test/share test/script test/memory test/lsp test/fixture test/acp test/bus test/cli test/global test/format test/account test/sync test/filesystem test/patch test/shell test/control-plane test/ide test/installation test/auth",
+      "cd packages/opencode && bun test --timeout 30000 --reporter=junit --reporter-outfile=.artifacts/unit/junit-windows-server-tools.xml test/server test/snapshot test/tool test/mcp test/question test/effect test/agent test/git/ test/storage test/provider test/pty test/share/ test/script test/memory test/lsp test/fixture test/acp test/bus test/cli test/global test/format test/account test/sync test/filesystem test/patch test/shell test/control-plane test/ide test/installation test/auth",
     reportPath: "packages/opencode/.artifacts/unit/junit-windows-server-tools.xml",
   },
 ] as const
@@ -147,6 +147,19 @@ function expandOpencodeTestPath(testPath: string): string[] {
     return listOpencodeTestFiles(fullPath)
   }
   return [testPath]
+}
+
+function ambiguousDirectoryShardArgs(testPaths: string[]) {
+  const testRootEntries = readdirSync(opencodeTestRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => `test/${entry.name}`)
+  const testRootEntrySet = new Set(testRootEntries)
+
+  return testPaths.filter((testPath) => {
+    if (testPath.endsWith("/")) return false
+    if (!testRootEntrySet.has(testPath)) return false
+    return testRootEntries.some((entry) => entry !== testPath && entry.startsWith(testPath))
+  })
 }
 
 function testPathArgs(command: string) {
@@ -606,9 +619,8 @@ describe("ci workflow", () => {
     const matrixIncludes = parsed.jobs?.[windowsUnitJobName]?.strategy?.matrix?.include ?? []
     const opencodeShards = matrixIncludes.filter(isWindowsOpencodeShard)
     const shardArgs = opencodeShards.flatMap((item) => testPathArgs(item.command))
-    const ambiguousArgs = shardArgs.filter((arg) => arg === "test/git")
 
-    expect(ambiguousArgs).toEqual([])
+    expect(ambiguousDirectoryShardArgs(shardArgs)).toEqual([])
   })
 
   test("keeps docs-only behavior and excludes Windows from the blocking aggregate", () => {
