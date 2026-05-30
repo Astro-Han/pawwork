@@ -45,6 +45,10 @@ function wait(ms = 50) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+function disableWorkspaceSync() {
+  return spyOn(Workspace, "ensureSync").mockImplementation(() => {})
+}
+
 async function pluginProject() {
   return tmpdir({
     git: true,
@@ -92,7 +96,7 @@ async function pluginProject() {
 }
 
 describe("workspace router", () => {
-  test("keeps GET session detail routes local for remote workspaces", async () => {
+  test("keeps GET session detail routes local while forwarding session status", async () => {
     let remoteHits = 0
     await using remote = Bun.serve({
       port: 0,
@@ -167,15 +171,31 @@ describe("workspace router", () => {
 
     await Instance.disposeAll()
 
-    const app = Server.Default().app
-    const response = await app.request(`/session/ses_missing?workspace=${workspace.id}`, {
-      headers: {
-        "x-opencode-directory": tmp.path,
-      },
-    })
+    const ensureSync = disableWorkspaceSync()
 
-    expect(response.status).toBe(404)
-    expect(remoteHits).toBe(0)
+    try {
+      const app = Server.Default().app
+      const detail = await app.request(`/session/ses_missing?workspace=${workspace.id}`, {
+        headers: {
+          "x-opencode-directory": tmp.path,
+        },
+      })
+
+      expect(detail.status).toBe(404)
+      expect(remoteHits).toBe(0)
+
+      const status = await app.request(`/session/status?workspace=${workspace.id}`, {
+        headers: {
+          "x-opencode-directory": tmp.path,
+        },
+      })
+
+      expect(status.status).toBe(200)
+      expect(await status.json()).toEqual({ remote: true })
+      expect(remoteHits).toBe(1)
+    } finally {
+      ensureSync.mockRestore()
+    }
   })
 
   test("uses a session workspace before the workspace query parameter for mutating session routes", async () => {
@@ -307,19 +327,25 @@ describe("workspace router", () => {
 
     await Instance.disposeAll()
 
-    const app = Server.Default().app
-    const response = await app.request(`/session/${session.id}/message?workspace=${localWorkspace.id}`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-opencode-directory": first.path,
-      },
-      body: JSON.stringify({}),
-    })
+    const ensureSync = disableWorkspaceSync()
 
-    expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ routed: "session-workspace" })
-    expect(remoteHits).toBe(1)
+    try {
+      const app = Server.Default().app
+      const response = await app.request(`/session/${session.id}/message?workspace=${localWorkspace.id}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-opencode-directory": first.path,
+        },
+        body: JSON.stringify({}),
+      })
+
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({ routed: "session-workspace" })
+      expect(remoteHits).toBe(1)
+    } finally {
+      ensureSync.mockRestore()
+    }
   })
 
   test("routes remote workspace websocket upgrades through the websocket proxy", async () => {
@@ -385,6 +411,7 @@ describe("workspace router", () => {
     })
     await Instance.disposeAll()
 
+    const ensureSync = disableWorkspaceSync()
     const websocket = spyOn(ServerProxy, "websocket").mockImplementation(() => new Response("websocket-proxy"))
 
     try {
@@ -401,6 +428,7 @@ describe("workspace router", () => {
       expect(await response.text()).toBe("websocket-proxy")
       expect(websocket).toHaveBeenCalledTimes(1)
     } finally {
+      ensureSync.mockRestore()
       websocket.mockRestore()
     }
   })
