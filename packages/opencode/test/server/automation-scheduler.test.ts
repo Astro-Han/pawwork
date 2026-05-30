@@ -171,13 +171,15 @@ function deferred<T>() {
 }
 
 async function waitForRunStates(automationID: string, states: Automation.Run["state"][]) {
-  const deadline = Date.now() + 1_000
+  const deadline = Date.now() + 3_000
+  let latest: Automation.Run[] = []
   while (Date.now() < deadline) {
     const items = Automation.runs({ automationID }).items
+    latest = items
     if (items.length >= states.length && states.every((state, index) => items[index]?.state === state)) return items
     await Bun.sleep(5)
   }
-  throw new Error(`Timed out waiting for automation run states: ${states.join(", ")}`)
+  throw new Error(`Timed out waiting for automation run states: ${states.join(", ")}; latest=${JSON.stringify(latest)}`)
 }
 
 function allRuns(automationID: string) {
@@ -199,6 +201,25 @@ async function waitForRunCount(automationID: string, count: number) {
     await Bun.sleep(5)
   }
   throw new Error(`Timed out waiting for automation run count: ${count}`)
+}
+
+async function waitForStarts(starts: unknown[], count: number) {
+  const deadline = Date.now() + 3_000
+  while (Date.now() < deadline) {
+    if (starts.length >= count) return
+    await Bun.sleep(5)
+  }
+  throw new Error(`Timed out waiting for scheduler starts: ${count}`)
+}
+
+async function waitForSignal(input: () => AbortSignal | undefined) {
+  const deadline = Date.now() + 3_000
+  while (Date.now() < deadline) {
+    const signal = input()
+    if (signal) return signal
+    await Bun.sleep(5)
+  }
+  throw new Error("Timed out waiting for run signal")
 }
 
 describe("automation scheduler", () => {
@@ -246,6 +267,7 @@ describe("automation scheduler", () => {
       })
 
       await clock.advance(1_000)
+      await waitForStarts(calls, 1)
       expect(calls).toEqual([1_000])
       scheduler.stop()
     })
@@ -600,7 +622,8 @@ describe("automation scheduler", () => {
 
       scheduler.reschedule(definition)
       await clock.advance(60_000)
-      expect(runSignal?.aborted).toBe(false)
+      await waitForRunStates(definition.id, ["scheduled"])
+      expect((await waitForSignal(() => runSignal)).aborted).toBe(false)
 
       await Instance.dispose({ mode: "force" })
 
@@ -628,7 +651,8 @@ describe("automation scheduler", () => {
 
       scheduler.reschedule(definition)
       await clock.advance(60_000)
-      expect(runSignal?.aborted).toBe(false)
+      await waitForRunStates(definition.id, ["scheduled"])
+      expect((await waitForSignal(() => runSignal)).aborted).toBe(false)
 
       await Instance.dispose()
 
@@ -721,6 +745,7 @@ describe("automation scheduler", () => {
 
       scheduler.reschedule(definition)
       await clock.advance(60_000)
+      await waitForStarts(starts, 1)
       expect(starts).toEqual([60_000])
 
       await clock.advance(60_000)
@@ -783,6 +808,7 @@ describe("automation scheduler", () => {
 
       scheduler.reschedule(definition)
       await clock.advance(30_000)
+      await waitForStarts(starts, 1)
       expect(starts).toEqual([30_000])
 
       await clock.advance(10_000)
@@ -887,6 +913,7 @@ describe("automation scheduler", () => {
       scheduler.reschedule(definition)
       for (let runCount = 1; runCount <= 101; runCount++) {
         await clock.advance(60_000)
+        await waitForStarts(starts, runCount)
         await waitForRunCount(definition.id, runCount)
       }
       await clock.advance(60_000)
@@ -926,13 +953,17 @@ describe("automation scheduler", () => {
     await withAutomation(async (projectID) => {
       const clock = new FakeClock(0)
       const releaseWriter = deferred<{ sessionID: SessionID; result: string | null; cost?: number | null }>()
+      const writerEntered = deferred<void>()
       const starts: number[] = []
       const blocker = Automation.create(oneshotInput(projectID, 10_000_000), { now: 0 })
       Automation.runNowExecuting(blocker.id, {
         now: 0,
-        executor: async () => releaseWriter.promise,
+        executor: async () => {
+          writerEntered.resolve()
+          return releaseWriter.promise
+        },
       })
-      await waitForRunStates(blocker.id, ["scheduled"])
+      await writerEntered.promise
       const scheduler = AutomationScheduler.make({
         clock,
         executor: async () => {
@@ -960,6 +991,7 @@ describe("automation scheduler", () => {
     await withAutomation(async (projectID) => {
       const clock = new FakeClock(0)
       const releaseBlocker = deferred<{ sessionID: SessionID; result: string | null; cost?: number | null }>()
+      const blockerEntered = deferred<void>()
       const scheduler = AutomationScheduler.make({
         clock,
         executor: async () => ({ sessionID: SessionID.descending(), result: "scheduled", cost: 0 }),
@@ -969,9 +1001,12 @@ describe("automation scheduler", () => {
 
       Automation.runNowExecuting(blocker.id, {
         now: 0,
-        executor: async () => releaseBlocker.promise,
+        executor: async () => {
+          blockerEntered.resolve()
+          return releaseBlocker.promise
+        },
       })
-      await waitForRunStates(blocker.id, ["scheduled"])
+      await blockerEntered.promise
       scheduler.reschedule(definition)
 
       await clock.advance(30_000)

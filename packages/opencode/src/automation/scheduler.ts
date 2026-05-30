@@ -400,7 +400,7 @@ export namespace AutomationScheduler {
       ownsTimers = true
       ownerRescanTimer = setInterval(scan, ownerRescanMs)
       ownerRescanTimer.unref?.()
-      for (const run of Automation.reconcileInterruptedRuns({ now: clock.now() })) void Automation.publishRunUpdated(run)
+      for (const run of await Automation.reconcileInterruptedRuns({ now: clock.now() })) void Automation.publishRunUpdated(run)
       scan()
     }
 

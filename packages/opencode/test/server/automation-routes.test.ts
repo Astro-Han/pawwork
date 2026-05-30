@@ -10,6 +10,7 @@ import { ErrorMiddleware } from "../../src/server/middleware"
 import { AutomationRoutes } from "../../src/server/instance/automation"
 import { PermissionID } from "../../src/permission/schema"
 import { SessionID } from "../../src/session/schema"
+import { Flock } from "../../src/util/flock"
 import { tmpdir } from "../fixture/fixture"
 
 void Log.init({ print: false })
@@ -160,7 +161,7 @@ describe("automation routes", () => {
       directory: tmp.path,
       fn: async () => {
         if (!automationID) throw new Error("expected automationID")
-        const reconciled = Automation.reconcileInterruptedRuns({ now: 400 })
+        const reconciled = await Automation.reconcileInterruptedRuns({ now: 400 })
         expect(reconciled).toHaveLength(1)
         expect(reconciled[0]).toMatchObject({ state: "stopped", stopReason: "blocker_lost", completedAt: 400 })
         expect(Automation.runs({ automationID }).items[0]).toMatchObject({
@@ -169,6 +170,35 @@ describe("automation routes", () => {
           completedAt: 400,
         })
       },
+    })
+  })
+
+  test("does not reconcile a persisted active run while another process holds its run lease", async () => {
+    await withAutomationApp(async ({ projectID }) => {
+      const definition = Automation.create(recurringInput(projectID), { now: 100 })
+      const active = Automation.runNow(definition.id, { now: 200 })
+      await using _ = await Flock.acquire(`automation-run:${Instance.directory}:${active.id}`)
+
+      const reconciled = await Automation.reconcileInterruptedRuns({ now: 300 })
+
+      expect(reconciled).toEqual([])
+      expect(Automation.runs({ automationID: definition.id }).items[0]).toMatchObject({
+        id: active.id,
+        state: "scheduled",
+      })
+
+      const blockedDefinition = Automation.create(recurringInput(projectID, { title: "Blocked repo brief" }), { now: 100 })
+      let started = false
+      Automation.runNowExecuting(blockedDefinition.id, {
+        now: 400,
+        executor: async () => {
+          started = true
+          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+        },
+      })
+      const blocked = await waitForRunState(blockedDefinition.id, "stopped")
+      expect(started).toBe(false)
+      expect(blocked).toMatchObject({ state: "stopped", stopReason: "previous_run_awaiting_input" })
     })
   })
 
@@ -187,7 +217,7 @@ describe("automation routes", () => {
       })
 
       await entered.promise
-      expect(Automation.reconcileInterruptedRuns({ now: 300 })).toEqual([])
+      await expect(Automation.reconcileInterruptedRuns({ now: 300 })).resolves.toEqual([])
       expect(Automation.runs({ automationID: definition.id }).items[0]).toMatchObject({
         id: initial.id,
         state: "scheduled",
@@ -242,7 +272,7 @@ describe("automation routes", () => {
         settleOwner: async () => {
           settled = true
           await gate.promise
-          for (const run of Automation.reconcileInterruptedRuns({ now: 300 })) await Automation.publishRunUpdated(run)
+          for (const run of await Automation.reconcileInterruptedRuns({ now: 300 })) await Automation.publishRunUpdated(run)
         },
         reschedule: () => undefined,
         cancel: () => undefined,

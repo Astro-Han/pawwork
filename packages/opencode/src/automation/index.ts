@@ -7,6 +7,7 @@ import { ProjectID } from "@/project/schema"
 import { PermissionID } from "@/permission/schema"
 import { SessionID } from "@/session/schema"
 import { and, Database, desc, eq, gte, inArray, lt, NotFoundError, or, sql } from "@/storage/db"
+import { Flock } from "@/util/flock"
 import type { AutomationRunAttendance, AutomationRunBlocker } from "./run-context"
 import { AutomationDefinitionTable, AutomationRunTable } from "./automation.sql"
 
@@ -748,6 +749,17 @@ export namespace Automation {
     return run.state === "scheduled" || run.state === "running" || run.state === "awaiting_input"
   }
 
+  function runLeaseKey(runID: string) {
+    return `automation-run:${Instance.directory}:${runID}`
+  }
+
+  async function hasLiveRunLease(runID: string) {
+    const lease = await Flock.tryAcquire(runLeaseKey(runID))
+    if (!lease) return true
+    await lease.release().catch(() => undefined)
+    return false
+  }
+
   function hasDurableActiveWriter(run: Run, writerKey: string) {
     const definition = get(run.automationID)
     const projectID = definition.where.projectID
@@ -840,37 +852,44 @@ export namespace Automation {
     return Number(row?.count ?? 0)
   }
 
-  export function reconcileInterruptedRuns(options?: { now?: number }): Run[] {
+  export async function reconcileInterruptedRuns(options?: { now?: number }): Promise<Run[]> {
     const projectID = Instance.project.id
     const ownerDirectory = Instance.directory
     const now = options?.now ?? Date.now()
-    return Database.transaction(
-      (db) => {
-        const rows = db
-          .select()
-          .from(AutomationRunTable)
-          .where(
-            and(
-              eq(AutomationRunTable.project_id, projectID),
-              eq(AutomationRunTable.owner_directory, ownerDirectory),
-              sql`json_extract(${AutomationRunTable.data}, '$.state') in ('scheduled', 'running', 'awaiting_input')`,
-            ),
-          )
-          .all()
-        const stopped: Run[] = []
-        for (const row of rows) {
-          const run = Run.parse(row.data)
-          if (!isActiveRun(run)) continue
-          const active = state().activeRuns.get(run.automationID)
-          if (active?.runID === run.id) continue
+    const rows = Database.use((db) =>
+      db
+        .select()
+        .from(AutomationRunTable)
+        .where(
+          and(
+            eq(AutomationRunTable.project_id, projectID),
+            eq(AutomationRunTable.owner_directory, ownerDirectory),
+            sql`json_extract(${AutomationRunTable.data}, '$.state') in ('scheduled', 'running', 'awaiting_input')`,
+          ),
+        )
+        .all(),
+    )
+    const stopped: Run[] = []
+    for (const row of rows) {
+      const run = Run.parse(row.data)
+      if (!isActiveRun(run)) continue
+      const active = state().activeRuns.get(run.automationID)
+      if (active?.runID === run.id) continue
+      if (await hasLiveRunLease(run.id)) continue
+      const next = Database.transaction(
+        (db) => {
+          const currentRow = db.select().from(AutomationRunTable).where(eq(AutomationRunTable.id, run.id)).get()
+          if (!currentRow) return
+          const current = Run.parse(currentRow.data)
+          if (!isActiveRun(current)) return
           const nextData: Record<string, unknown> = {
-            ...run,
-            revision: run.revision + 1,
+            ...current,
+            revision: current.revision + 1,
             state: "stopped",
             completedAt: now,
             result: null,
             error: null,
-            stopReason: run.state === "awaiting_input" ? "blocker_lost" : "expired",
+            stopReason: current.state === "awaiting_input" ? "blocker_lost" : "expired",
           }
           delete nextData.blocker
           const next = Run.parse(nextData)
@@ -878,12 +897,13 @@ export namespace Automation {
             .set({ data: next, time_updated: now })
             .where(eq(AutomationRunTable.id, next.id))
             .run()
-          stopped.push(next)
-        }
-        return stopped
-      },
-      { behavior: "immediate" },
-    )
+          return next
+        },
+        { behavior: "immediate" },
+      )
+      if (next) stopped.push(next)
+    }
+    return stopped
   }
 
   export function recordStoppedRun(
@@ -908,20 +928,22 @@ export namespace Automation {
     const data = state()
     const definition = get(initial.automationID)
     const writerKey = definition.where.worktree ?? definition.where.projectID
-    if (data.activeWriters.has(writerKey) || hasDurableActiveWriter(initial, writerKey)) {
-      const stopped = reviseRun(initial, {
-        state: "stopped",
-        completedAt: Date.now(),
-        stopReason: "previous_run_awaiting_input",
-      })
-      await publishRunUpdated(stopped)
-      return
-    }
-    data.activeWriters.add(writerKey)
     const controller = new AbortController()
-    data.activeRuns.set(initial.automationID, { writerKey, controller, runID: initial.id })
+    let lease: Flock.Lease | undefined
     let current = initial
     try {
+      lease = await Flock.acquire(runLeaseKey(initial.id), { signal: controller.signal })
+      if (data.activeWriters.has(writerKey) || hasDurableActiveWriter(initial, writerKey)) {
+        const stopped = reviseRun(initial, {
+          state: "stopped",
+          completedAt: Date.now(),
+          stopReason: "previous_run_awaiting_input",
+        })
+        await publishRunUpdated(stopped)
+        return
+      }
+      data.activeWriters.add(writerKey)
+      data.activeRuns.set(initial.automationID, { writerKey, controller, runID: initial.id })
       const prepared = await executor({ definition, run: initial, attendance, signal: controller.signal })
       const latest = getRun(initial.id) ?? initial
       if (controller.signal.aborted) {
@@ -979,6 +1001,7 @@ export namespace Automation {
         data.activeRuns.delete(initial.automationID)
         data.activeWriters.delete(writerKey)
       }
+      await lease?.release().catch(() => undefined)
     }
   }
 
