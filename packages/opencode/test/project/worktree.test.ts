@@ -162,7 +162,8 @@ describe("Worktree", () => {
     test("restores .gitignore when git worktree add fails", async () => {
       await using tmp = await tmpdir({ git: true })
       const info = await withInstance(tmp.path, () => Worktree.makeWorktreeInfo("bad-branch"))
-      await $`git branch ${info.branch}`.cwd(tmp.path).quiet()
+      await fs.mkdir(info.directory, { recursive: true })
+      await Bun.write(path.join(info.directory, "blocker"), "already here\n")
 
       await expect(withInstance(tmp.path, () => Worktree.createFromInfo(info))).rejects.toThrow(
         "WorktreeCreateFailedError",
