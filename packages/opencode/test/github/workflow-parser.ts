@@ -63,8 +63,8 @@ export function readWorkflow(workflowPath: string) {
   return fs.readFileSync(workflowPath, "utf8")
 }
 
-/** Parses workflow YAML with Ruby, preserving GitHub's `on` key for assertions. */
-export function parseWorkflow(workflowPath: string) {
+/** Parses YAML with Ruby, preserving GitHub's workflow `on` key for assertions. */
+export function parseYamlFile<T>(yamlPath: string) {
   const parsed = execFileSync(
     "ruby",
     [
@@ -77,10 +77,15 @@ export function parseWorkflow(workflowPath: string) {
         data["on"] = data.delete(true) if data.key?(true)
         puts JSON.generate(data)
       `,
-      workflowPath,
+      yamlPath,
     ],
     { encoding: "utf8" },
   )
 
-  return JSON.parse(parsed) as Workflow
+  return JSON.parse(parsed) as T
+}
+
+/** Parses workflow YAML with Ruby, preserving GitHub's `on` key for assertions. */
+export function parseWorkflow(workflowPath: string) {
+  return parseYamlFile<Workflow>(workflowPath)
 }

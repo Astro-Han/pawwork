@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
 import path from "node:path"
-import { parseWorkflow, readWorkflow } from "./workflow-parser"
+import { parseWorkflow, parseYamlFile, readWorkflow, type WorkflowStep } from "./workflow-parser"
 
 const repoRoot = path.join(import.meta.dir, "../../../..")
 const ciWorkflowPath = path.join(repoRoot, ".github", "workflows", "ci.yml")
@@ -33,12 +33,20 @@ const actionlintVersion = "1.7.12"
 const actionlintLinuxAmd64Sha = "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
 const hardenRunnerJobs = [
   "typecheck",
+  lintJobName,
   frontendArchitectureJobName,
   "unit-ui",
   "unit-app",
   "unit-opencode",
   "unit-desktop",
 ] as const
+
+type CompositeActionMetadata = {
+  runs?: {
+    using?: string
+    steps?: WorkflowStep[]
+  }
+}
 
 // Suffixes drive readable job and artifact names; commands use package.json names verbatim.
 // `opencode` is intentionally unscoped because that is its actual package name.
@@ -269,19 +277,26 @@ describe("ci workflow", () => {
       expect(jobSteps[1]?.uses).toBe(pinned.checkout)
     }
 
-    expect(steps(lintJobName)[0]?.uses).toBe(pinned.checkout)
     expect(steps("check").some((step) => step.uses === pinned.hardenRunner)).toBe(false)
   })
 
   test("uses a local setup composite for shared CI Node and Bun setup", () => {
     const setupActionContent = readWorkflow(setupActionPath)
+    const setupActionMetadata = parseYamlFile<CompositeActionMetadata>(setupActionPath)
+    const setupSteps = setupActionMetadata.runs?.steps ?? []
+    const setupNode = setupSteps.find((step) => step.uses?.startsWith("actions/setup-node@"))
+    const setupBun = setupSteps.find((step) => step.uses?.startsWith("oven-sh/setup-bun@"))
+    const cache = setupSteps.find((step) => step.uses?.startsWith("actions/cache@"))
+    const install = setupSteps.find((step) => step.run === "bun install --frozen-lockfile")
 
-    expect(setupActionContent).toContain(pinned.setupNode)
-    expect(setupActionContent).toContain('node-version: "24"')
-    expect(setupActionContent).toContain(pinned.setupBun)
-    expect(setupActionContent).toContain('bun-version: "1.3.14"')
-    expect(setupActionContent).toContain(pinned.cache)
-    expect(setupActionContent).toContain("bun install --frozen-lockfile")
+    expect(setupActionMetadata.runs?.using).toBe("composite")
+    expect(setupNode?.uses).toBe(pinned.setupNode)
+    expect(setupNode?.with?.["node-version"]).toBe("24")
+    expect(setupBun?.uses).toBe(pinned.setupBun)
+    expect(setupBun?.with?.["bun-version"]).toBe("1.3.14")
+    expect(cache?.uses).toBe(pinned.cache)
+    expect(cache?.with?.path).toBe("~/.bun/install/cache")
+    expect(install?.shell).toBe("bash")
     expect(setupActionContent).toContain("Load-bearing: `bun install` runs `trustedDependencies`")
     expect(setupActionContent).toContain("Load-bearing for `bun audit` exit semantics")
 
