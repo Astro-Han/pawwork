@@ -7,7 +7,7 @@ import { sessionPromptExecutor } from "./runner"
 
 export namespace AutomationScheduler {
   const MAX_TIMER_DELAY_MS = 2_147_483_647
-  const MISSED_SCHEDULE_GRACE_MS = 1_000
+  const MISSED_SCHEDULE_GRACE_MS = 60_000
 
   export interface Clock {
     now(): number
@@ -173,6 +173,7 @@ export namespace AutomationScheduler {
         while (clock.now() < fireAt) {
           const delayMs = Math.max(0, fireAt - clock.now())
           yield* Effect.promise(() => clock.sleep(Math.min(delayMs, MAX_TIMER_DELAY_MS), signal))
+          if (signal.aborted || !running || !tasks.has(automationID)) return
         }
         if (!running || !tasks.has(automationID)) return
         fire(automationID, fireAt)

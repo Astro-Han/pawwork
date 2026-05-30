@@ -767,9 +767,30 @@ describe("automation scheduler", () => {
     })
   })
 
+  test("executes schedules after a short overslept timer", async () => {
+    await withAutomation(async (projectID) => {
+      const clock = new OversleepClock(0, 65_000)
+      const calls: number[] = []
+      const scheduler = AutomationScheduler.make({
+        clock,
+        executor: async () => {
+          calls.push(clock.now())
+          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+        },
+      })
+      const definition = Automation.create(oneshotInput(projectID, 60_000), { now: 0 })
+
+      scheduler.reschedule(definition)
+      await waitForRunStates(definition.id, ["succeeded"])
+
+      expect(calls).toEqual([65_000])
+      scheduler.stop()
+    })
+  })
+
   test("records missed schedules instead of catching up after an overslept timer", async () => {
     await withAutomation(async (projectID) => {
-      const clock = new OversleepClock(0, 120_000)
+      const clock = new OversleepClock(0, 180_001)
       const calls: number[] = []
       const scheduler = AutomationScheduler.make({
         clock,
@@ -788,7 +809,7 @@ describe("automation scheduler", () => {
         state: "stopped",
         stopReason: "missed_schedule",
         triggeredAt: 60_000,
-        completedAt: 120_000,
+        completedAt: 180_001,
       })
       scheduler.stop()
     })
