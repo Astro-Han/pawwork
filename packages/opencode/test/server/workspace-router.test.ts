@@ -322,9 +322,9 @@ describe("workspace router", () => {
       expect(response.status).toBe(200)
       expect(await response.text()).toBe("websocket-proxy")
       expect(websocket).toHaveBeenCalledTimes(1)
-      const call = websocket.mock.calls[0]
-      const proxiedTarget = call[1] as { type?: string; url?: string }
-      const proxiedRequest = call[2] as Request
+      const call = websocket.mock.calls[0] as unknown as [unknown, { type?: string; url?: string }, Request]
+      const proxiedTarget = call[1]
+      const proxiedRequest = call[2]
       const proxiedURL = new URL(proxiedRequest.url)
       expect(proxiedTarget).toEqual({ type: "remote", url: target })
       expect(proxiedURL.pathname).toBe("/pty/pty_test/connect")
