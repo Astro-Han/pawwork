@@ -199,6 +199,55 @@ describe("automation routes", () => {
     })
   })
 
+  test("list route waits for scheduler owner settle before returning persisted definitions", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      let settled = false
+      AutomationScheduler.install({
+        stop: () => undefined,
+        stopOwnedRuns: () => undefined,
+        settleOwner: async () => {
+          settled = true
+        },
+        reschedule: () => undefined,
+        cancel: () => undefined,
+        computeNextFireAt: () => null,
+      })
+      const definition = Automation.create(recurringInput(projectID), { now: 100 })
+
+      const response = await json(app, "/automation")
+
+      expect(settled).toBe(true)
+      expect(response.items.map((item: Automation.Definition) => item.id)).toEqual([definition.id])
+    })
+  })
+
+  test("runNow route reconciles stale persisted active runs before queuing a new run", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      let settled = false
+      AutomationScheduler.install({
+        stop: () => undefined,
+        stopOwnedRuns: () => undefined,
+        settleOwner: async () => {
+          settled = true
+          for (const run of Automation.reconcileInterruptedRuns({ now: 300 })) await Automation.publishRunUpdated(run)
+        },
+        reschedule: () => undefined,
+        cancel: () => undefined,
+        computeNextFireAt: () => null,
+      })
+      const definition = Automation.create(recurringInput(projectID), { now: 100 })
+      const stale = Automation.runNow(definition.id, { now: 200 })
+
+      const response = await json(app, `/automation/${definition.id}/run`, { method: "POST" })
+      const runs = Automation.runs({ automationID: definition.id }).items
+
+      expect(settled).toBe(true)
+      expect(response).toMatchObject({ automationID: definition.id, state: "scheduled" })
+      expect(response.id).not.toBe(stale.id)
+      expect(runs.find((run) => run.id === stale.id)).toMatchObject({ state: "stopped", stopReason: "expired" })
+    })
+  })
+
 
   test("route deletion cancels timers before publishing the tombstone", async () => {
     await withAutomationApp(async ({ app, projectID }) => {
@@ -206,6 +255,7 @@ describe("automation routes", () => {
       AutomationScheduler.install({
         stop: () => undefined,
         stopOwnedRuns: () => undefined,
+        settleOwner: async () => undefined,
         reschedule: () => undefined,
         cancel: (automationID) => cancelled.push(automationID),
         computeNextFireAt: () => null,

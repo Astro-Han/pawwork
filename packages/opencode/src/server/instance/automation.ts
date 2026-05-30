@@ -16,6 +16,10 @@ async function publishIfChanged(previous: Automation.Definition, definition: Aut
   await Automation.publishDefinitionUpdated(definition)
 }
 
+async function settleAutomationScheduler() {
+  await AutomationScheduler.current().settleOwner()
+}
+
 function validationIssuePath(issue: unknown) {
   const path = typeof issue === "object" && issue !== null && "path" in issue ? issue.path : undefined
   if (!Array.isArray(path)) return ""
@@ -78,7 +82,10 @@ export const AutomationRoutes = (): Hono =>
           },
         },
       }),
-      (c) => c.json({ items: Automation.list() }),
+      async (c) => {
+        await settleAutomationScheduler()
+        return c.json({ items: Automation.list() })
+      },
     )
     .post(
       "/",
@@ -101,7 +108,7 @@ export const AutomationRoutes = (): Hono =>
       validator("json", Automation.CreateInput, automationBodyValidationHook),
       async (c) => {
         try {
-          AutomationScheduler.current()
+          await settleAutomationScheduler()
           const definition = Automation.create(c.req.valid("json"))
           await Automation.publishDefinitionUpdated(definition)
           return c.json(definition)
@@ -126,7 +133,10 @@ export const AutomationRoutes = (): Hono =>
         },
       }),
       validator("param", z.object({ automationID: AutomationID.Definition.zod })),
-      (c) => c.json(Automation.get(c.req.valid("param").automationID)),
+      async (c) => {
+        await settleAutomationScheduler()
+        return c.json(Automation.get(c.req.valid("param").automationID))
+      },
     )
     .put(
       "/:automationID",
@@ -151,7 +161,7 @@ export const AutomationRoutes = (): Hono =>
       async (c) => {
         try {
           const automationID = c.req.valid("param").automationID
-          AutomationScheduler.current()
+          await settleAutomationScheduler()
           const previous = Automation.get(automationID)
           const definition = Automation.update(automationID, c.req.valid("json"))
           await publishIfChanged(previous, definition)
@@ -179,7 +189,7 @@ export const AutomationRoutes = (): Hono =>
       validator("param", z.object({ automationID: AutomationID.Definition.zod })),
       async (c) => {
         const automationID = c.req.valid("param").automationID
-        AutomationScheduler.current()
+        await settleAutomationScheduler()
         const previous = Automation.get(automationID)
         const definition = Automation.update(automationID, { paused: true })
         await publishIfChanged(previous, definition)
@@ -203,7 +213,7 @@ export const AutomationRoutes = (): Hono =>
       validator("param", z.object({ automationID: AutomationID.Definition.zod })),
       async (c) => {
         const automationID = c.req.valid("param").automationID
-        AutomationScheduler.current()
+        await settleAutomationScheduler()
         const previous = Automation.get(automationID)
         const definition = Automation.update(automationID, { paused: false })
         await publishIfChanged(previous, definition)
@@ -228,7 +238,9 @@ export const AutomationRoutes = (): Hono =>
       validator("param", z.object({ automationID: AutomationID.Definition.zod })),
       async (c) => {
         const removed = Automation.remove(c.req.valid("param").automationID)
-        AutomationScheduler.current().cancel(removed.tombstone.id)
+        const scheduler = AutomationScheduler.current()
+        await scheduler.settleOwner()
+        scheduler.cancel(removed.tombstone.id)
         if (removed.stoppedRun) await Automation.publishRunUpdated(removed.stoppedRun)
         await Automation.publishDefinitionDeleted(removed.tombstone)
         return c.json(removed.tombstone)
@@ -250,6 +262,7 @@ export const AutomationRoutes = (): Hono =>
       }),
       validator("param", z.object({ automationID: AutomationID.Definition.zod })),
       async (c) => {
+        await settleAutomationScheduler()
         const run = Automation.runNowExecuting(c.req.valid("param").automationID, {
           executor: sessionPromptExecutor,
         })
@@ -279,5 +292,8 @@ export const AutomationRoutes = (): Hono =>
           cursor: AutomationID.Run.zod.optional(),
         }),
       ),
-      (c) => c.json(Automation.runs({ automationID: c.req.valid("param").automationID, ...c.req.valid("query") })),
+      async (c) => {
+        await settleAutomationScheduler()
+        return c.json(Automation.runs({ automationID: c.req.valid("param").automationID, ...c.req.valid("query") }))
+      },
     )

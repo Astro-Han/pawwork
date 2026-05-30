@@ -598,6 +598,7 @@ describe("automation scheduler", () => {
         stopOwnedRuns: () => {
           throw new Error("pre-stop failed")
         },
+        settleOwner: async () => undefined,
         reschedule: () => undefined,
         cancel: () => undefined,
         computeNextFireAt: () => null,

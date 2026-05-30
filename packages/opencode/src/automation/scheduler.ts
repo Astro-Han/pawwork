@@ -27,6 +27,7 @@ export namespace AutomationScheduler {
   export interface Interface {
     stop(): void
     stopOwnedRuns(): void
+    settleOwner(): Promise<void>
     reschedule(definition: Automation.Definition): void
     cancel(automationID: string): void
     computeNextFireAt(definition: Automation.Definition, from?: number): number | null
@@ -200,6 +201,7 @@ export namespace AutomationScheduler {
     const schedulerStoppedRuns = new Set<string>()
     let ownsTimers = !ownerKey
     let ownerLease: Flock.Lease | undefined
+    let ownerAttempt: Promise<void> | undefined
     let ownerRetryTimer: ReturnType<typeof setInterval> | undefined
     let ownerRescanTimer: ReturnType<typeof setInterval> | undefined
     let running = true
@@ -360,9 +362,17 @@ export namespace AutomationScheduler {
       ownerRescanTimer.unref?.()
     }
 
+    const settleOwner = () => {
+      if (!ownerKey || ownerLease || !running) return Promise.resolve()
+      ownerAttempt ??= becomeOwner().finally(() => {
+        ownerAttempt = undefined
+      })
+      return ownerAttempt
+    }
+
     if (ownerKey) {
-      void becomeOwner()
-      ownerRetryTimer = setInterval(() => void becomeOwner(), ownerRetryMs)
+      void settleOwner()
+      ownerRetryTimer = setInterval(() => void settleOwner(), ownerRetryMs)
       ownerRetryTimer.unref?.()
     } else {
       scan()
@@ -389,6 +399,7 @@ export namespace AutomationScheduler {
         if (ownerLease) void ownerLease.release().catch(() => undefined)
       },
       stopOwnedRuns,
+      settleOwner,
       reschedule,
       cancel,
       computeNextFireAt(definition, from = clock.now()) {
