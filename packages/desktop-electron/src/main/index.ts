@@ -38,9 +38,6 @@ const FEEDBACK_SESSION_EXPORT_TIMEOUT_MS = 3_000
 // How long to wait on one update feed's check before falling back to the next.
 // Caps the "reachable but hanging" case; outright failures reject sooner.
 const UPDATE_FEED_TIMEOUT_MS = 10_000
-// How long to wait on one update feed's check before falling back to the next.
-// Caps the "reachable but hanging" case; outright failures reject sooner.
-const UPDATE_FEED_TIMEOUT_MS = 10_000
 const userDataRoot = CI_SMOKE_HOME ?? app.getPath("appData")
 
 app.setName(app.isPackaged ? APP_NAMES[CHANNEL] : "PawWork Dev")
