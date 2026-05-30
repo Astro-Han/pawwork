@@ -20,7 +20,9 @@
 import { mkdtemp, readdir, rm, stat } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { releaseAssetNames } from "./verify-release.ts"
+import { parseUpdaterFileUrls, releaseAssetNames } from "./verify-release.ts"
+
+const POINTER_YMLS = ["latest.yml", "latest-mac.yml"] as const
 
 const MUTABLE_POINTERS = new Set(["latest.yml", "latest-mac.yml"])
 const IMMUTABLE_CACHE = "public, max-age=31536000, immutable"
@@ -53,6 +55,17 @@ export function uploadPlan(assets: string[]): UploadStep[] {
     .filter((name) => MUTABLE_POINTERS.has(name))
     .map((name) => ({ name, cacheControl: POINTER_CACHE }))
   return [...versioned, ...pointers, { name: MANIFEST_NAME, cacheControl: POINTER_CACHE, manifest: true }]
+}
+
+// The bare asset names a latest*.yml points electron-updater at. The generic R2
+// feed resolves these relative to dl.pawwork.ai, so each must be an object we
+// actually mirror — otherwise the in-app updater (#219) downloads a 404.
+export function pointerReferencedAssets(pointerYml: string): string[] {
+  return [...new Set(parseUpdaterFileUrls(pointerYml).map((url) => url.split("/").at(-1) ?? url))]
+}
+
+export function missingPointerReferences(referenced: string[], mirrored: Set<string>): string[] {
+  return referenced.filter((name) => !mirrored.has(name))
 }
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -131,6 +144,17 @@ async function mirror({ assets, tag, repo, dir, bucket, endpoint, publicBase, ve
   const present = new Set(await readdir(dir))
   const missing = assets.filter((name) => !present.has(name))
   if (missing.length) throw new Error(`Assets missing after download: ${missing.join(", ")}`)
+
+  // Fail before mirroring if a pointer references an asset we will not upload:
+  // the generic R2 feed must be able to resolve every file the yml lists.
+  const mirrored = new Set(assets)
+  for (const pointer of POINTER_YMLS) {
+    const referenced = pointerReferencedAssets(await Bun.file(join(dir, pointer)).text())
+    const missingRefs = missingPointerReferences(referenced, mirrored)
+    if (missingRefs.length) {
+      throw new Error(`${pointer} references assets not mirrored to R2: ${missingRefs.join(", ")}`)
+    }
+  }
 
   const upload = async (name: string, cacheControl: string) => {
     const local = join(dir, name)

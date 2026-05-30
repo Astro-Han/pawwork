@@ -35,6 +35,12 @@ const APP_IDS: Record<string, string> = {
 const CI_SMOKE_HOME = process.env.PAWWORK_CI_SMOKE_HOME
 const CI_SMOKE_ENABLED = process.env.PAWWORK_CI_SMOKE === "true"
 const FEEDBACK_SESSION_EXPORT_TIMEOUT_MS = 3_000
+// How long to wait on one update feed's check before falling back to the next.
+// Caps the "reachable but hanging" case; outright failures reject sooner.
+const UPDATE_FEED_TIMEOUT_MS = 10_000
+// How long to wait on one update feed's check before falling back to the next.
+// Caps the "reachable but hanging" case; outright failures reject sooner.
+const UPDATE_FEED_TIMEOUT_MS = 10_000
 const userDataRoot = CI_SMOKE_HOME ?? app.getPath("appData")
 
 app.setName(app.isPackaged ? APP_NAMES[CHANNEL] : "PawWork Dev")
@@ -52,7 +58,18 @@ const { autoUpdater } = pkg
 
 import type { DesktopContext, InitStep, ServerReadyData, SqliteMigrationProgress, WslConfig } from "../preload/types"
 import { checkAppExists, resolveAppPath, wslPath } from "./apps"
-import { CHANNEL, FEEDBACK_FORM_URL, UPDATER_ENABLED } from "./constants"
+import {
+  CHANNEL,
+  DEV_UPDATER,
+  DOWNLOAD_PUBLIC_BASE,
+  FEEDBACK_FORM_URL,
+  UPDATE_CHANNEL,
+  UPDATE_GITHUB_OWNER,
+  UPDATE_GITHUB_REPO,
+  UPDATE_R2_ENABLED,
+  UPDATER_ACTIVE,
+  UPDATER_ENABLED,
+} from "./constants"
 import { normalizeDesktopContextPayload, syncWindowTitleForDesktopContext } from "./desktop-context-window"
 import { createDesktopContextStore } from "./desktop-context-store"
 import { createFeedbackHandler, feedbackDialogLabels } from "./feedback"
@@ -72,7 +89,7 @@ import {
 } from "./renderer-diagnostics"
 import { getDefaultServerUrl, getWslConfig, setDefaultServerUrl, setWslConfig, spawnLocalServer } from "./server"
 import { PAWWORK_RUNTIME } from "./runtime-namespace"
-import { createUpdaterController } from "./updater"
+import { createUpdaterController, createUpdateFeed, githubFeed, r2Feed, type FeedTarget } from "./updater"
 import { pendingUpdateCacheDir } from "./updater-cache"
 import { updaterDialogLabels } from "./updater-dialog-labels"
 import {
@@ -139,11 +156,29 @@ const rendererDiagnostics = createRendererDiagnosticsRecorder({
   root: rendererDiagnosticsRoot(app.getPath("userData")),
   appLaunchID: randomUUID(),
 })
-const updater = createUpdaterController({
-  enabled: UPDATER_ENABLED,
-  currentVersion: () => app.getVersion(),
+// Ordered update feeds: R2 first (fast/reachable in mainland China), GitHub as
+// global fallback. electron-updater binds the download source at check time, so
+// feed selection happens here and the same active feed serves the download.
+function buildUpdateFeeds(): FeedTarget[] {
+  const r2 = UPDATE_R2_ENABLED ? [r2Feed(DOWNLOAD_PUBLIC_BASE, UPDATE_CHANNEL)] : []
+  return [...r2, githubFeed(UPDATE_GITHUB_OWNER, UPDATE_GITHUB_REPO, UPDATE_CHANNEL)]
+}
+
+const updateFeed = createUpdateFeed({
+  feeds: buildUpdateFeeds(),
+  setFeedURL: (options) => autoUpdater.setFeedURL(options),
   checkForUpdates: () => autoUpdater.checkForUpdates(),
   downloadUpdate: () => autoUpdater.downloadUpdate(),
+  timeoutMs: UPDATE_FEED_TIMEOUT_MS,
+  log: (message, data) => logger.log(message, data),
+  error: (message, error) => logger.error(message, error),
+})
+
+const updater = createUpdaterController({
+  enabled: UPDATER_ACTIVE,
+  currentVersion: () => app.getVersion(),
+  checkForUpdates: () => updateFeed.check(),
+  downloadUpdate: () => updateFeed.download(),
   clearPendingUpdate: clearPendingUpdate,
   quitAndInstall: () => {
     killSidecar()
@@ -674,18 +709,40 @@ async function clearPendingUpdate() {
 }
 
 function setupAutoUpdater() {
-  if (!UPDATER_ENABLED) return
+  if (!UPDATER_ACTIVE) return
   autoUpdater.logger = logger
+  // Dev-only: run the real updater under dev:desktop so the R2 feed and GitHub
+  // fallback can be exercised without a signed packaged build (#219).
+  if (DEV_UPDATER) autoUpdater.forceDevUpdateConfig = true
   autoUpdater.channel = "latest"
   autoUpdater.allowPrerelease = false
   autoUpdater.allowDowngrade = false
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = process.platform !== "darwin"
+  // Set an initial feed so any pre-check path has a sane provider and so a
+  // broken feed config surfaces in logs at startup. Every check() re-selects
+  // the feed (R2 first, GitHub fallback) regardless.
+  const feeds = buildUpdateFeeds()
+  try {
+    autoUpdater.setFeedURL(feeds[0].options)
+  } catch (error) {
+    logger.error("initial update feed config failed", error)
+    const github = feeds.find((feed) => feed.label === "github")
+    if (github) {
+      try {
+        autoUpdater.setFeedURL(github.options)
+      } catch (fallbackError) {
+        logger.error("github update feed config failed", fallbackError)
+      }
+    }
+  }
   logger.log("auto updater configured", {
     channel: autoUpdater.channel,
     allowPrerelease: autoUpdater.allowPrerelease,
     allowDowngrade: autoUpdater.allowDowngrade,
     autoInstallOnAppQuit: autoUpdater.autoInstallOnAppQuit,
+    devUpdater: DEV_UPDATER,
+    feeds: feeds.map((feed) => feed.label),
     currentVersion: app.getVersion(),
   })
   autoUpdater.on("download-progress", (info) => {
