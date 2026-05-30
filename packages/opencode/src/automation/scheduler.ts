@@ -262,6 +262,7 @@ export namespace AutomationScheduler {
         if (!NotFoundError.isInstance(error)) throw error
         return
       }
+      for (const run of await Automation.reconcileInterruptedRuns({ now: firedAt })) void Automation.publishRunUpdated(run)
       if (Automation.hasActiveRun(automationID)) {
         const stopped = Automation.recordStoppedRun(automationID, "previous_run_awaiting_input", { now: triggeredAt })
         schedulerStoppedRuns.add(stopped.id)
@@ -378,8 +379,9 @@ export namespace AutomationScheduler {
       cancel(event.properties.id)
     })
 
-    const scan = () => {
+    const scan = async () => {
       if (!running || !ownsTimers) return
+      for (const run of await Automation.reconcileInterruptedRuns({ now: clock.now() })) void Automation.publishRunUpdated(run)
       for (const definition of Automation.list()) {
         try {
           reschedule(definition)
@@ -398,10 +400,10 @@ export namespace AutomationScheduler {
       }
       ownerLease = lease
       ownsTimers = true
-      ownerRescanTimer = setInterval(scan, ownerRescanMs)
+      ownerRescanTimer = setInterval(() => void scan(), ownerRescanMs)
       ownerRescanTimer.unref?.()
       for (const run of await Automation.reconcileInterruptedRuns({ now: clock.now() })) void Automation.publishRunUpdated(run)
-      scan()
+      void scan()
     }
 
     const settleOwner = () => {
@@ -417,7 +419,7 @@ export namespace AutomationScheduler {
       ownerRetryTimer = setInterval(() => void settleOwner(), ownerRetryMs)
       ownerRetryTimer.unref?.()
     } else {
-      scan()
+      void scan()
     }
 
     const stopOwnedRuns = () => {

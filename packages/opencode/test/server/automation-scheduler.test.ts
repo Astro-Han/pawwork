@@ -1039,6 +1039,7 @@ describe("automation scheduler", () => {
       const definition = Automation.create(oneshotInput(projectID, 1_000), { now: 0 })
       const active = Automation.runNow(definition.id, { now: 0 })
       Automation.markRunStarted(active, SessionID.descending(), { now: 0 })
+      await using _ = await Flock.acquire(`automation-run:${Instance.directory}:${active.id}`)
 
       scheduler.reschedule(definition)
       await clock.advance(1_000)
@@ -1051,6 +1052,36 @@ describe("automation scheduler", () => {
         triggeredAt: 1_000,
         completedAt: 1_000,
       })
+      scheduler.stop()
+    })
+  })
+
+  test("reconciles a stale project writer before firing another automation", async () => {
+    await withAutomation(async (projectID) => {
+      const clock = new FakeClock(0)
+      const calls: number[] = []
+      const scheduler = AutomationScheduler.make({
+        clock,
+        executor: async () => {
+          calls.push(clock.now())
+          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+        },
+      })
+      const staleWriter = Automation.create(recurringInput(projectID, 60_000, { title: "Stale writer" }), { now: 0 })
+      const stale = Automation.runNow(staleWriter.id, { now: 0 })
+      const definition = Automation.create(oneshotInput(projectID, 1_000), { now: 0 })
+
+      scheduler.reschedule(definition)
+      await clock.advance(1_000)
+      const runs = await waitForRunStates(definition.id, ["succeeded"])
+
+      expect(calls).toEqual([1_000])
+      expect(Automation.runs({ automationID: staleWriter.id }).items[0]).toMatchObject({
+        id: stale.id,
+        state: "stopped",
+        stopReason: "expired",
+      })
+      expect(runs[0]).toMatchObject({ state: "succeeded", triggeredAt: 1_000 })
       scheduler.stop()
     })
   })
