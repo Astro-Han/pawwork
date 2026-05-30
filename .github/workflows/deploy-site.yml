@@ -1,0 +1,40 @@
+name: deploy-site
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - "site/**"
+
+  # Allow manual trigger for first deploy or re-deploy without code change
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-site
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: oven-sh/setup-bun@735343b667d3e6a283e0e5dd0578baf5f2d0e57e # v2
+        with:
+          bun-version: latest
+
+      - run: bun install --frozen-lockfile
+        working-directory: site
+
+      - run: bun run build
+        working-directory: site
+
+      - uses: cloudflare/wrangler-action@da0993054ca88fcab66e0b3f30f55ff1a93f81f0 # v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy site/dist --project-name=pawwork --branch=dev
