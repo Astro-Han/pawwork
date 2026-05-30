@@ -189,7 +189,7 @@ describe("automation routes", () => {
 
       const blockedDefinition = Automation.create(recurringInput(projectID, { title: "Blocked repo brief" }), { now: 100 })
       let started = false
-      Automation.runNowExecuting(blockedDefinition.id, {
+      await Automation.runNowExecuting(blockedDefinition.id, {
         now: 400,
         executor: async () => {
           started = true
@@ -202,12 +202,36 @@ describe("automation routes", () => {
     })
   })
 
+  test("does not expose an executing run to reconcile before its run lease is held", async () => {
+    await withAutomationApp(async ({ projectID }) => {
+      const release = deferred<{ sessionID: SessionID; result: string | null; cost?: number | null }>()
+      const definition = Automation.create(recurringInput(projectID), { now: 100 })
+
+      const pending = Automation.runNowExecuting(definition.id, {
+        now: 200,
+        executor: async () => release.promise,
+      })
+
+      expect(Automation.runs({ automationID: definition.id }).items).toEqual([])
+      expect(await Automation.reconcileInterruptedRuns({ now: 300 })).toEqual([])
+
+      const initial = await pending
+      expect(Automation.runs({ automationID: definition.id }).items[0]).toMatchObject({
+        id: initial.id,
+        state: "scheduled",
+      })
+
+      release.resolve({ sessionID: SessionID.descending(), result: "done", cost: 0 })
+      await waitForRunState(definition.id, "succeeded")
+    })
+  })
+
   test("does not reconcile a run that is active in the current process", async () => {
     await withAutomationApp(async ({ projectID }) => {
       const release = deferred<void>()
       const entered = deferred<void>()
       const definition = Automation.create(recurringInput(projectID), { now: 100 })
-      const initial = Automation.runNowExecuting(definition.id, {
+      const initial = await Automation.runNowExecuting(definition.id, {
         now: 200,
         executor: async () => {
           entered.resolve()

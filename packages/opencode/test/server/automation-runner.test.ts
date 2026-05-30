@@ -110,7 +110,7 @@ describe("automation runNow execution", () => {
       const definition = Automation.create(input(projectID))
       const sessionID = SessionID.descending()
 
-      const initial = Automation.runNowExecuting(definition.id, {
+      const initial = await Automation.runNowExecuting(definition.id, {
         executor: async () => ({ sessionID, result: "done", cost: 0 }),
       })
       expect(initial.state).toBe("scheduled")
@@ -135,7 +135,7 @@ describe("automation runNow execution", () => {
         if (event.properties.automationID === definition.id) runEvents.push(event.properties)
       })
 
-      Automation.runNowExecuting(definition.id, {
+      await Automation.runNowExecuting(definition.id, {
         executor: async ({ run }) => {
           const started = Automation.markRunStarted(run, sessionID, { now: run.triggeredAt })
           await Automation.publishRunUpdated(started)
@@ -159,14 +159,14 @@ describe("automation runNow execution", () => {
       })
       let entered = 0
 
-      Automation.runNowExecuting(first.id, {
+      await Automation.runNowExecuting(first.id, {
         executor: async () => {
           entered++
           await held
           return { sessionID: SessionID.descending(), result: "first", cost: 0 }
         },
       })
-      Automation.runNowExecuting(second.id, {
+      await Automation.runNowExecuting(second.id, {
         executor: async () => {
           entered++
           return { sessionID: SessionID.descending(), result: "second", cost: 0 }
@@ -190,7 +190,7 @@ describe("automation runNow execution", () => {
       Automation.runNow(first.id, { now: 100 })
       let entered = false
 
-      Automation.runNowExecuting(second.id, {
+      await Automation.runNowExecuting(second.id, {
         now: 200,
         executor: async () => {
           entered = true
@@ -227,7 +227,7 @@ describe("automation runNow execution", () => {
     await withAutomation(async (projectID) => {
       const definition = Automation.create(input(projectID))
 
-      Automation.runNowExecuting(definition.id, {
+      await Automation.runNowExecuting(definition.id, {
         executor: async ({ run }) => {
           const started = Automation.markRunStarted(run, SessionID.descending(), { now: run.triggeredAt })
           Automation.markRunBlocked(started, { kind: "question", callID: "call_1" })
@@ -242,13 +242,13 @@ describe("automation runNow execution", () => {
       const held = new Promise<void>((resolve) => {
         release = resolve
       })
-      Automation.runNowExecuting(definition.id, {
+      await Automation.runNowExecuting(definition.id, {
         executor: async () => {
           await held
           return { sessionID: SessionID.descending(), result: "first", cost: 0 }
         },
       })
-      Automation.runNowExecuting(definition.id, {
+      await Automation.runNowExecuting(definition.id, {
         executor: async () => ({ sessionID: SessionID.descending(), result: "second", cost: 0 }),
       })
       const stopped = await waitForRun(definition.id, "stopped")
@@ -268,7 +268,7 @@ describe("automation runNow execution", () => {
         definitionEvents.push(event.properties)
       })
 
-      Automation.runNowExecuting(definition.id, {
+      await Automation.runNowExecuting(definition.id, {
         executor: async () => {
           Automation.update(definition.id, { title: "Updated repo brief", prompt: "Use the latest prompt." })
           return { sessionID, result: "done", cost: 0 }
@@ -299,7 +299,7 @@ describe("automation runNow execution", () => {
       })
       let removed!: ReturnType<typeof Automation.remove>
 
-      Automation.runNowExecuting(definition.id, {
+      await Automation.runNowExecuting(definition.id, {
         executor: async () => {
           removed = Automation.remove(definition.id)
           return { sessionID: SessionID.descending(), result: "done", cost: 0 }
@@ -326,7 +326,7 @@ describe("automation runNow execution", () => {
         if (event.properties.automationID === definition.id) runEvents.push(event.properties)
       })
 
-      Automation.runNowExecuting(definition.id, {
+      await Automation.runNowExecuting(definition.id, {
         executor: async ({ run, signal }) => {
           Automation.markRunStarted(run, sessionID, { now: run.triggeredAt })
           signal.addEventListener("abort", () => {
@@ -400,7 +400,7 @@ describe("automation runNow execution", () => {
         fn: async () => {
           const definition = Automation.create(input(Instance.project.id, { title: "Cancel real prompt" }))
 
-          Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
+          await Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
           await ready.promise
 
           const removed = Automation.remove(definition.id)
@@ -468,7 +468,7 @@ describe("automation runNow execution", () => {
             removed.resolve(Automation.remove(definition.id))
           })
 
-          Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
+          await Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
           let result: ReturnType<typeof Automation.remove>
           try {
             result = await Promise.race([
@@ -512,7 +512,7 @@ describe("automation runNow execution", () => {
     await withAutomation(async (projectID) => {
       const definition = Automation.create(input(projectID))
 
-      Automation.runNowExecuting(definition.id, {
+      await Automation.runNowExecuting(definition.id, {
         executor: async ({ run }) => {
           Automation.markRunStarted(run, SessionID.descending(), { now: run.triggeredAt })
           throw new AutomationStepCapError(50)

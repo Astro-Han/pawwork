@@ -546,7 +546,7 @@ describe("automation scheduler", () => {
           return { sessionID: SessionID.descending(), result: "scheduled", cost: 0 }
         },
       })
-      Automation.runNowExecuting(definition.id, {
+      await Automation.runNowExecuting(definition.id, {
         now: 0,
         executor: async () => releaseManual.promise,
       })
@@ -701,7 +701,7 @@ describe("automation scheduler", () => {
           return { sessionID: SessionID.descending(), result: "scheduled", cost: 0 }
         },
       })
-      Automation.runNowExecuting(definition.id, {
+      await Automation.runNowExecuting(definition.id, {
         now: 0,
         executor: async () => releaseManual.promise,
       })
@@ -880,7 +880,7 @@ describe("automation scheduler", () => {
       )
 
       scheduler.reschedule(definition)
-      Automation.runNowExecuting(definition.id, {
+      await Automation.runNowExecuting(definition.id, {
         now: 30_000,
         executor: async () => ({ sessionID: SessionID.descending(), result: "manual", cost: 0 }),
       })
@@ -956,7 +956,7 @@ describe("automation scheduler", () => {
       const writerEntered = deferred<void>()
       const starts: number[] = []
       const blocker = Automation.create(oneshotInput(projectID, 10_000_000), { now: 0 })
-      Automation.runNowExecuting(blocker.id, {
+      await Automation.runNowExecuting(blocker.id, {
         now: 0,
         executor: async () => {
           writerEntered.resolve()
@@ -999,7 +999,7 @@ describe("automation scheduler", () => {
       const blocker = Automation.create(oneshotInput(projectID, 10_000_000), { now: 0 })
       const definition = Automation.create(recurringInput(projectID, 60_000), { now: 0 })
 
-      Automation.runNowExecuting(blocker.id, {
+      await Automation.runNowExecuting(blocker.id, {
         now: 0,
         executor: async () => {
           blockerEntered.resolve()
@@ -1010,7 +1010,7 @@ describe("automation scheduler", () => {
       scheduler.reschedule(definition)
 
       await clock.advance(30_000)
-      Automation.runNowExecuting(definition.id, {
+      await Automation.runNowExecuting(definition.id, {
         now: 30_000,
         executor: async () => ({ sessionID: SessionID.descending(), result: "manual", cost: 0 }),
       })

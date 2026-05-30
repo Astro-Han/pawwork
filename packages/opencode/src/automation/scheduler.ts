@@ -243,7 +243,7 @@ export namespace AutomationScheduler {
       }
     }
 
-    const fire = (automationID: string, triggeredAt: number) => {
+    const fire = async (automationID: string, triggeredAt: number) => {
       tasks.delete(automationID)
       const firedAt = clock.now()
       try {
@@ -270,7 +270,7 @@ export namespace AutomationScheduler {
         return
       }
       try {
-        const run = Automation.runNowExecuting(automationID, {
+        const run = await Automation.runNowExecuting(automationID, {
           executor,
           attendance: "unattended",
           now: triggeredAt,
@@ -296,7 +296,7 @@ export namespace AutomationScheduler {
           if (!isCurrentTask(automationID, fireAt, token, signal)) return
         }
         if (!isCurrentTask(automationID, fireAt, token, signal)) return
-        fire(automationID, fireAt)
+        yield* Effect.promise(() => fire(automationID, fireAt))
       })
 
     const schedule = (definition: Automation.Definition, fireAt: number) => {

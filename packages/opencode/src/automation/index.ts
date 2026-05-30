@@ -701,10 +701,10 @@ export namespace Automation {
     })
   }
 
-  export function runNow(id: string, options?: { now?: number }): Run {
+  export function runNow(id: string, options?: { now?: number; runID?: string }): Run {
     const definition = get(id)
     const run = Run.parse({
-      id: AutomationID.Run.ascending(),
+      id: options?.runID ?? AutomationID.Run.ascending(),
       automationID: id,
       revision: 1,
       definitionRevision: definition.revision,
@@ -915,24 +915,24 @@ export namespace Automation {
     return stopRun(run, stopReason, options)
   }
 
-  export function runNowExecuting(
+  export async function runNowExecuting(
     id: string,
     options: { executor: RunExecutor; attendance?: AutomationRunAttendance; now?: number },
-  ): Run {
-    const initial = runNow(id, { now: options.now })
-    void executeRun(initial, options.executor, options.attendance ?? "attended")
+  ): Promise<Run> {
+    const runID = AutomationID.Run.ascending()
+    const lease = await Flock.acquire(runLeaseKey(runID))
+    const initial = runNow(id, { now: options.now, runID })
+    queueMicrotask(() => void executeRun(initial, options.executor, options.attendance ?? "attended", lease))
     return initial
   }
 
-  async function executeRun(initial: Run, executor: RunExecutor, attendance: AutomationRunAttendance) {
+  async function executeRun(initial: Run, executor: RunExecutor, attendance: AutomationRunAttendance, lease: Flock.Lease) {
     const data = state()
     const definition = get(initial.automationID)
     const writerKey = definition.where.worktree ?? definition.where.projectID
     const controller = new AbortController()
-    let lease: Flock.Lease | undefined
     let current = initial
     try {
-      lease = await Flock.acquire(runLeaseKey(initial.id), { signal: controller.signal })
       if (data.activeWriters.has(writerKey) || hasDurableActiveWriter(initial, writerKey)) {
         const stopped = reviseRun(initial, {
           state: "stopped",
@@ -1001,7 +1001,7 @@ export namespace Automation {
         data.activeRuns.delete(initial.automationID)
         data.activeWriters.delete(writerKey)
       }
-      await lease?.release().catch(() => undefined)
+      await lease.release().catch(() => undefined)
     }
   }
 

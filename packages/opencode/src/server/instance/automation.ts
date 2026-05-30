@@ -263,7 +263,7 @@ export const AutomationRoutes = (): Hono =>
       validator("param", z.object({ automationID: AutomationID.Definition.zod })),
       async (c) => {
         await settleAutomationScheduler()
-        const run = Automation.runNowExecuting(c.req.valid("param").automationID, {
+        const run = await Automation.runNowExecuting(c.req.valid("param").automationID, {
           executor: sessionPromptExecutor,
         })
         await Automation.publishRunUpdated(run)
