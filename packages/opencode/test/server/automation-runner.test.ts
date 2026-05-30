@@ -315,11 +315,11 @@ describe("automation runNow execution", () => {
       const unsubscribeDefinition = Bus.subscribe(Automation.Event.DefinitionUpdated, (event) => {
         definitionEvents.push(event.properties)
       })
-      let removed!: ReturnType<typeof Automation.remove>
+      let removed!: Awaited<ReturnType<typeof Automation.remove>>
 
       await Automation.runNowExecuting(definition.id, {
         executor: async () => {
-          removed = Automation.remove(definition.id)
+          removed = await Automation.remove(definition.id)
           return { sessionID: SessionID.descending(), result: "done", cost: 0 }
         },
       })
@@ -358,7 +358,7 @@ describe("automation runNow execution", () => {
       })
 
       await started.promise
-      const removed = Automation.remove(definition.id)
+      const removed = await Automation.remove(definition.id)
 
       expect(sawAbort).toBe(true)
       expect(removed.stoppedRun).toMatchObject({
@@ -421,7 +421,7 @@ describe("automation runNow execution", () => {
           await Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
           await ready.promise
 
-          const removed = Automation.remove(definition.id)
+          const removed = await Automation.remove(definition.id)
           const stoppedRun = removed.stoppedRun
           expect(stoppedRun).toMatchObject({ state: "stopped", stopReason: "cancelled" })
           if (!stoppedRun?.sessionID) throw new Error("expected stopped run to keep its sessionID")
@@ -480,14 +480,14 @@ describe("automation runNow execution", () => {
         directory: tmp.path,
         fn: async () => {
           const definition = Automation.create(input(Instance.project.id, { title: "Cancel before runner busy" }))
-          const removed = Promise.withResolvers<ReturnType<typeof Automation.remove>>()
+          const removed = Promise.withResolvers<Awaited<ReturnType<typeof Automation.remove>>>()
           const unsubscribe = Bus.subscribe(Automation.Event.RunUpdated, (event) => {
             if (event.properties.automationID !== definition.id || event.properties.state !== "running") return
-            removed.resolve(Automation.remove(definition.id))
+            void Automation.remove(definition.id).then(removed.resolve, removed.reject)
           })
 
           await Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
-          let result: ReturnType<typeof Automation.remove>
+          let result: Awaited<ReturnType<typeof Automation.remove>>
           try {
             result = await Promise.race([
               removed.promise,

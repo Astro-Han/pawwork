@@ -542,6 +542,24 @@ describe("automation routes", () => {
     })
   })
 
+  test("delete rejects a live run owned by another process", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const created = Automation.create(recurringInput(projectID), { now: 100 })
+      const active = Automation.runNow(created.id, { now: 200 })
+      await using _ = await Flock.acquire(`automation-run:${Instance.directory}:${active.id}`)
+
+      const response = await app.request(`/automation/${created.id}`, { method: "DELETE" })
+
+      expect(response.status).toBe(409)
+      expect(await response.json()).toEqual({ error: "active_run_still_running", runID: active.id })
+      expect(Automation.get(created.id).id).toBe(created.id)
+      expect(Automation.runs({ automationID: created.id }).items[0]).toMatchObject({
+        id: active.id,
+        state: "scheduled",
+      })
+    })
+  })
+
   test("update accepts a deterministic timestamp", async () => {
     await withAutomationApp(async ({ projectID }) => {
       const definition = Automation.create(recurringInput(projectID), { now: 100 })
@@ -762,14 +780,17 @@ describe("automation routes", () => {
     const update409 = paths["/automation/{automationID}"].put.responses["409"].content["application/json"].schema
     const pause409 = paths["/automation/{automationID}/pause"].post.responses["409"].content["application/json"].schema
     const resume409 = paths["/automation/{automationID}/resume"].post.responses["409"].content["application/json"].schema
+    const delete409 = paths["/automation/{automationID}"].delete.responses["409"].content["application/json"].schema
 
     expect(create422).toEqual({ $ref: "#/components/schemas/AutomationValidationError" })
     expect(update422).toEqual({ $ref: "#/components/schemas/AutomationValidationError" })
     expect(update409).toEqual({ $ref: "#/components/schemas/AutomationConflictError" })
     expect(pause409).toEqual({ $ref: "#/components/schemas/AutomationConflictError" })
     expect(resume409).toEqual({ $ref: "#/components/schemas/AutomationConflictError" })
+    expect(delete409).toEqual({ $ref: "#/components/schemas/AutomationActiveRunStillRunningError" })
     expect(spec.components?.schemas).toHaveProperty("AutomationValidationError")
     expect(spec.components?.schemas).toHaveProperty("AutomationConflictError")
+    expect(spec.components?.schemas).toHaveProperty("AutomationActiveRunStillRunningError")
   })
 
   test("openapi describes delete active-run stop side effect", async () => {
@@ -780,6 +801,7 @@ describe("automation routes", () => {
 
     expect(description).toContain("If a run is active")
     expect(description).toContain("publish the stopped run")
+    expect(description).toContain("live run is owned by another process")
   })
 
   test("runNow returns the queued run before background execution updates it", async () => {

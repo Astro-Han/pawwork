@@ -51,6 +51,10 @@ export namespace Automation {
     .object({ error: z.literal("automation_conflict"), message: z.string() })
     .strict()
     .meta({ ref: "AutomationConflictError" })
+  export const ActiveRunStillRunningErrorResponse = z
+    .object({ error: z.literal("active_run_still_running"), runID: RunID })
+    .strict()
+    .meta({ ref: "AutomationActiveRunStillRunningError" })
   export const Stop = z
     .discriminatedUnion("kind", [
       z.object({ kind: z.literal("count"), count: z.number().int().positive() }).strict(),
@@ -612,9 +616,11 @@ export namespace Automation {
     return replaceDefinition(previous, next)
   }
 
-  export function remove(id: string): { tombstone: Tombstone; stoppedRun?: Run } {
+  export async function remove(id: string): Promise<{ tombstone: Tombstone; stoppedRun?: Run }> {
     const previous = get(id)
     const stoppedRun = stopActiveRun(id)
+    const liveRun = await getLiveActiveRun(id)
+    if (liveRun) throw new ActiveRunStillRunningError(liveRun.id)
     Database.use((db) => db.delete(AutomationDefinitionTable).where(eq(AutomationDefinitionTable.id, id)).run())
     return { tombstone: { id: previous.id, deleted: true, revision: previous.revision + 1 }, stoppedRun }
   }
@@ -684,6 +690,31 @@ export namespace Automation {
     active.controller.abort()
     const current = getRun(active.runID)
     return current ? stopRun(current, "cancelled") : undefined
+  }
+
+  async function getLiveActiveRun(automationID: string) {
+    get(automationID)
+    const projectID = Instance.project.id
+    const ownerDirectory = Instance.directory
+    const rows = Database.use((db) =>
+      db
+        .select()
+        .from(AutomationRunTable)
+        .where(
+          and(
+            eq(AutomationRunTable.automation_id, automationID),
+            eq(AutomationRunTable.project_id, projectID),
+            eq(AutomationRunTable.owner_directory, ownerDirectory),
+            sql`json_extract(${AutomationRunTable.data}, '$.state') in ('scheduled', 'running', 'awaiting_input')`,
+          ),
+        )
+        .all(),
+    )
+    for (const row of rows) {
+      const run = Run.parse(row.data)
+      if (!isActiveRun(run)) continue
+      if (await hasLiveRunLease(run.id)) return run
+    }
   }
 
   export function stopRunByID(
@@ -1109,5 +1140,12 @@ export class ConflictError extends Error {
   constructor(readonly id: string) {
     super(`Automation changed while updating: ${id}`)
     this.name = "AutomationConflictError"
+  }
+}
+
+export class ActiveRunStillRunningError extends Error {
+  constructor(readonly runID: string) {
+    super(`Automation run is still running: ${runID}`)
+    this.name = "AutomationActiveRunStillRunningError"
   }
 }

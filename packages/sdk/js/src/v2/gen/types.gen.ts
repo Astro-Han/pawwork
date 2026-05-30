@@ -2457,6 +2457,11 @@ export type AutomationUpdateInput = {
   stop?: AutomationStop
 }
 
+export type AutomationActiveRunStillRunningError = {
+  error: "active_run_still_running"
+  runID: string
+}
+
 export type AutomationRunsResponse = {
   items: Array<AutomationRun>
   nextCursor: string | null
@@ -5813,6 +5818,10 @@ export type AutomationDeleteErrors = {
    * Not found
    */
   404: NotFoundError
+  /**
+   * Automation has a live run owned by another process
+   */
+  409: AutomationActiveRunStillRunningError
 }
 
 export type AutomationDeleteError = AutomationDeleteErrors[keyof AutomationDeleteErrors]

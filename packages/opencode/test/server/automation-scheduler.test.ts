@@ -525,7 +525,7 @@ describe("automation scheduler", () => {
       const definition = Automation.create(oneshotInput(projectID, 1_000), { now: 0 })
 
       scheduler.reschedule(definition)
-      Automation.remove(definition.id)
+      await Automation.remove(definition.id)
       await expect(clock.advance(1_000)).resolves.toBeUndefined()
 
       expect(calls).toEqual([])
