@@ -5,6 +5,7 @@ const wintest = process.platform !== "win32" ? test : test.skip
 import fs from "fs/promises"
 import path from "path"
 import { Instance } from "../../src/project/instance"
+import { Project } from "../../src/project/project"
 import { ProjectTable } from "../../src/project/project.sql"
 import { Database, eq } from "../../src/storage/db"
 import { Worktree } from "../../src/worktree"
@@ -145,6 +146,19 @@ describe("Worktree", () => {
       await withInstance(tmp.path, () => Worktree.remove({ directory: info.directory }))
     })
 
+    test("createReady with exact name rejects occupied managed placement", async () => {
+      await using tmp = await tmpdir({ git: true })
+      const occupied = path.join(tmp.path, ".worktrees", "pawwork", "daily-brief")
+      await fs.mkdir(occupied, { recursive: true })
+
+      await expect(
+        withInstance(tmp.path, () => Worktree.createReady({ name: "daily-brief", exactName: true })),
+      ).rejects.toThrow("WorktreeNameGenerationFailedError")
+
+      const list = await $`git worktree list --porcelain`.cwd(tmp.path).quiet().text()
+      expect(list).not.toContain("daily-brief-")
+    })
+
     test("refuses to create when .gitignore has local changes", async () => {
       await using tmp = await tmpdir({ git: true })
       await Bun.write(path.join(tmp.path, ".gitignore"), "node_modules\n")
@@ -189,6 +203,25 @@ describe("Worktree", () => {
 
       await ready
       await withInstance(tmp.path, () => Worktree.remove({ directory: info.directory }))
+    })
+  })
+
+  describe("reset", () => {
+    test("waits for project start command before returning", async () => {
+      await using tmp = await tmpdir({ git: true })
+
+      await withInstance(tmp.path, async () => {
+        const info = await Worktree.createReady({ name: "reset-start-command" })
+        await Project.update({
+          projectID: Instance.project.id,
+          commands: { start: `bun -e "await Bun.sleep(300); await Bun.write('.reset-start-complete', 'ready')"` },
+        })
+
+        await Worktree.reset({ directory: info.directory })
+
+        expect(await Bun.file(path.join(info.directory, ".reset-start-complete")).text()).toBe("ready")
+        await Worktree.remove({ directory: info.directory })
+      })
     })
   })
 

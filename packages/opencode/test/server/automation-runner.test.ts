@@ -1,4 +1,5 @@
 import path from "path"
+import fs from "fs/promises"
 import { afterEach, describe, expect, test } from "bun:test"
 import { Effect } from "effect"
 import { Automation } from "../../src/automation"
@@ -643,6 +644,36 @@ describe("automation runNow execution", () => {
     } finally {
       void server.stop(true)
     }
+  })
+
+  test("does not fall back to a random worktree when the placement slug is occupied outside the registry", async () => {
+    await using tmp = await tmpdir({ git: true })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const occupied = path.join(tmp.path, ".worktrees", "pawwork", "daily-brief")
+        await fs.mkdir(occupied, { recursive: true })
+        await Bun.write(path.join(occupied, "blocker.txt"), "occupied\n")
+        const definition = Automation.create(
+          input(Instance.project.id, {
+            title: "Exact worktree placement",
+            where: { projectID: Instance.project.id, worktree: "daily-brief" },
+          }),
+        )
+
+        await Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
+
+        const stopped = await waitForRun(definition.id, "stopped")
+        if (stopped.state !== "stopped") throw new Error("expected stopped run")
+        expect(stopped.stopReason).toBe("cancelled")
+        const entries = new Bun.Glob("daily-brief-*").scan({
+          cwd: path.join(tmp.path, ".worktrees", "pawwork"),
+          onlyFiles: false,
+        })
+        expect(await Array.fromAsync(entries)).toEqual([])
+      },
+    })
   })
 
   test("deleting after run start but before prompt runner is busy does not call the provider", async () => {

@@ -349,9 +349,10 @@ export namespace Worktree {
 
       const MAX_NAME_ATTEMPTS = 26
       const BRANCH_PREFIX = "pawwork/"
-      const candidate = Effect.fn("Worktree.candidate")(function* (root: string, base?: string) {
+      const candidate = Effect.fn("Worktree.candidate")(function* (root: string, base?: string, exactName?: boolean) {
         const ctx = yield* InstanceState.context
-        for (const attempt of Array.from({ length: MAX_NAME_ATTEMPTS }, (_, i) => i)) {
+        const attempts = exactName ? 1 : MAX_NAME_ATTEMPTS
+        for (const attempt of Array.from({ length: attempts }, (_, i) => i)) {
           const name = base ? (attempt === 0 ? base : `${base}-${Slug.create()}`) : Slug.create()
           const branch = `${BRANCH_PREFIX}${name}`
           const directory = pathSvc.join(root, name)
@@ -367,7 +368,7 @@ export namespace Worktree {
         throw new NameGenerationFailedError({ message: "Failed to generate a unique worktree name" })
       })
 
-      const makeWorktreeInfo = Effect.fn("Worktree.makeWorktreeInfo")(function* (name?: string) {
+      const makeWorktreeInfo = Effect.fn("Worktree.makeWorktreeInfo")(function* (name?: string, exactName?: boolean) {
         const ctx = yield* InstanceState.context
         if (ctx.project.vcs !== "git") {
           throw new NotGitError({ message: "Worktrees are only supported for git projects" })
@@ -377,7 +378,7 @@ export namespace Worktree {
         yield* fs.makeDirectory(root, { recursive: true }).pipe(Effect.orDie)
 
         const base = name ? slugify(name) : ""
-        return yield* candidate(root, base || undefined)
+        return yield* candidate(root, base || undefined, exactName)
       })
 
       const setup = Effect.fnUntraced(function* (info: Info) {
@@ -460,8 +461,8 @@ export namespace Worktree {
         return info
       })
 
-      const createReady = Effect.fn("Worktree.createReady")(function* (input?: CreateInput) {
-        const info = yield* makeWorktreeInfo(input?.name)
+      const createReady = Effect.fn("Worktree.createReady")(function* (input?: CreateInput & { exactName?: boolean }) {
+        const info = yield* makeWorktreeInfo(input?.name, input?.exactName)
         yield* setup(info)
         yield* boot(info, input?.startCommand)
         return info
@@ -681,6 +682,13 @@ export namespace Worktree {
           throw new ResetFailedError({ message: "Cannot reset the primary workspace" })
         }
 
+        const bound = yield* Effect.promise(() => Session.findActiveWorktreeBinding(directory))
+        if (bound) {
+          throw new ResetFailedError({
+            message: `Worktree is in use by session "${bound.title}". Call ExitWorktree from that session first.`,
+          })
+        }
+
         const list = yield* git(["worktree", "list", "--porcelain"], { cwd: Instance.worktree })
         if (list.code !== 0) {
           throw new ResetFailedError({ message: list.stderr || list.text || "Failed to read git worktrees" })
@@ -749,7 +757,6 @@ export namespace Worktree {
 
         yield* runStartScripts(worktreePath, { projectID: Instance.project.id }).pipe(
           Effect.catchCause((cause) => Effect.sync(() => log.error("worktree start task failed", { cause }))),
-          Effect.forkIn(scope),
         )
 
         return true
@@ -791,7 +798,7 @@ export namespace Worktree {
     return runPromise((svc) => svc.create(input))
   }
 
-  export async function createReady(input?: CreateInput) {
+  export async function createReady(input?: CreateInput & { exactName?: boolean }) {
     return runPromise((svc) => svc.createReady(input))
   }
 

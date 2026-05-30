@@ -196,3 +196,42 @@ describe("Worktree.remove", () => {
     expect(ref.exitCode).not.toBe(0)
   })
 })
+
+describe("Worktree.reset", () => {
+  test("refuses to reset a worktree bound to an active session", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const root = tmp.path
+
+    const { info, session } = await Instance.provide({
+      directory: root,
+      fn: async () => {
+        const info = await Worktree.createReady({ name: "reset-bound-session" })
+        const session = await Session.create({ title: "Bound reset session" })
+        await Session.updateExecutionContext({
+          sessionID: session.id,
+          activeWorktree: info,
+        })
+        return { info, session }
+      },
+    })
+
+    await Bun.write(path.join(info.directory, "unsaved.txt"), "do not delete\n")
+
+    await expect(
+      Instance.provide({
+        directory: root,
+        fn: () => Worktree.reset({ directory: info.directory }),
+      }),
+    ).rejects.toThrow("WorktreeResetFailedError")
+    expect(await Bun.file(path.join(info.directory, "unsaved.txt")).text()).toBe("do not delete\n")
+
+    await Instance.provide({
+      directory: root,
+      fn: async () => {
+        await Session.updateExecutionContext({ sessionID: session.id, activeWorktree: null })
+        await Session.remove(session.id)
+        await Worktree.remove({ directory: info.directory })
+      },
+    })
+  })
+})

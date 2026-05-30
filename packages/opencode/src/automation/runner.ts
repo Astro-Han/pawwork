@@ -23,7 +23,7 @@ async function prepareWorktreePlacement(definition: Automation.Definition) {
     await Worktree.reset({ directory: existing.directory })
     return existing
   }
-  return Worktree.createReady({ name: placement })
+  return Worktree.createReady({ name: placement, exactName: true })
 }
 
 export const sessionPromptExecutor: Automation.RunExecutor = async ({ definition, run, attendance, signal }) => {
