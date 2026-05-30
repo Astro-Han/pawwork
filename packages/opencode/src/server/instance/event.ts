@@ -7,9 +7,16 @@ import { Bus } from "@/bus"
 import { AsyncQueue } from "../../util/queue"
 
 const log = Log.create({ service: "server" })
+const DEFAULT_HEARTBEAT_MS = 10_000
 
-export const EventRoutes = () =>
-  new Hono().get(
+function normalizeHeartbeatMs(value: number | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : DEFAULT_HEARTBEAT_MS
+}
+
+export const EventRoutes = (options: { heartbeatMs?: number } = {}) => {
+  const heartbeatMs = normalizeHeartbeatMs(options.heartbeatMs)
+
+  return new Hono().get(
     "/event",
     describeRoute({
       summary: "Subscribe to events",
@@ -50,7 +57,7 @@ export const EventRoutes = () =>
               properties: {},
             }),
           )
-        }, 10_000)
+        }, heartbeatMs)
 
         const stop = () => {
           if (done) return
@@ -81,3 +88,4 @@ export const EventRoutes = () =>
       })
     },
   )
+}
