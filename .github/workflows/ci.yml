@@ -110,30 +110,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # step-security/harden-runner@v2.19.4
+        with:
+          egress-policy: audit
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6
         with:
           persist-credentials: false
 
-      # Load-bearing: `bun install` runs `trustedDependencies`
-      # postinstalls from the root package.json (electron, node-pty,
-      # esbuild, tree-sitter at time of writing), which call `node`
-      # explicitly. Do not drop without first patching those scripts.
-      # Source of truth: grep `trustedDependencies` in package.json. (#70)
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # actions/setup-node@v6.4.0
-        with:
-          node-version: "24"
-
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # oven-sh/setup-bun@v2
-        with:
-          # Load-bearing for `bun audit` exit semantics; do not bump without re-verifying advisory exit codes.
-          bun-version: "1.3.14"
-
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            bun-${{ runner.os }}-
+      - uses: ./.github/actions/setup
 
       - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
         with:
@@ -142,8 +127,6 @@ jobs:
           restore-keys: |
             turbo-${{ runner.os }}-typecheck-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-
             turbo-${{ runner.os }}-typecheck-
-
-      - run: bun install --frozen-lockfile
 
       - name: typecheck
         run: bun turbo typecheck
@@ -159,31 +142,35 @@ jobs:
         with:
           persist-credentials: false
 
-      # Load-bearing: `bun install` runs `trustedDependencies`
-      # postinstalls from the root package.json (electron, node-pty,
-      # esbuild, tree-sitter at time of writing), which call `node`
-      # explicitly. Do not drop without first patching those scripts.
-      # Source of truth: grep `trustedDependencies` in package.json. (#70)
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # actions/setup-node@v6.4.0
-        with:
-          node-version: "24"
-
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # oven-sh/setup-bun@v2
-        with:
-          # Load-bearing for `bun audit` exit semantics; do not bump without re-verifying advisory exit codes.
-          bun-version: "1.3.14"
-
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            bun-${{ runner.os }}-
-
-      - run: bun install --frozen-lockfile
+      - uses: ./.github/actions/setup
 
       - name: lint
         run: bun run lint:ci
+
+  actionlint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Download actionlint
+        run: |
+          set -euo pipefail
+
+          ACTIONLINT_VERSION="1.7.12"
+          ACTIONLINT_SHA256="8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+          ACTIONLINT_ARCHIVE="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          ACTIONLINT_URL="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${ACTIONLINT_ARCHIVE}"
+
+          curl --fail --location --show-error --silent "$ACTIONLINT_URL" --output "$ACTIONLINT_ARCHIVE"
+          echo "${ACTIONLINT_SHA256}  ${ACTIONLINT_ARCHIVE}" | sha256sum --check
+          tar -xzf "$ACTIONLINT_ARCHIVE" actionlint
+
+      - name: Run actionlint
+        run: ./actionlint -color -shellcheck=
 
   frontend-architecture:
     needs: changes
@@ -191,6 +178,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # step-security/harden-runner@v2.19.4
+        with:
+          egress-policy: audit
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6
         with:
           fetch-depth: 0
@@ -247,28 +238,7 @@ jobs:
             } >> "$GITHUB_ENV"
           fi
 
-      # Load-bearing: `bun install` runs `trustedDependencies`
-      # postinstalls from the root package.json (electron, node-pty,
-      # esbuild, tree-sitter at time of writing), which call `node`
-      # explicitly. Do not drop without first patching those scripts.
-      # Source of truth: grep `trustedDependencies` in package.json. (#70)
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # actions/setup-node@v6.4.0
-        with:
-          node-version: "24"
-
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # oven-sh/setup-bun@v2
-        with:
-          # Load-bearing for `bun audit` exit semantics; do not bump without re-verifying advisory exit codes.
-          bun-version: "1.3.14"
-
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            bun-${{ runner.os }}-
-
-      - run: bun install --frozen-lockfile
+      - uses: ./.github/actions/setup
 
       - name: frontend inventory
         run: |
@@ -288,30 +258,15 @@ jobs:
       contents: read
       checks: write
     steps:
+      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # step-security/harden-runner@v2.19.4
+        with:
+          egress-policy: audit
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6
         with:
           persist-credentials: false
 
-      # Load-bearing: `bun install` runs `trustedDependencies`
-      # postinstalls from the root package.json (electron, node-pty,
-      # esbuild, tree-sitter at time of writing), which call `node`
-      # explicitly. Do not drop without first patching those scripts.
-      # Source of truth: grep `trustedDependencies` in package.json. (#70)
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # actions/setup-node@v6.4.0
-        with:
-          node-version: "24"
-
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # oven-sh/setup-bun@v2
-        with:
-          # Load-bearing for `bun audit` exit semantics; do not bump without re-verifying advisory exit codes.
-          bun-version: "1.3.14"
-
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            bun-${{ runner.os }}-
+      - uses: ./.github/actions/setup
 
       - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
         with:
@@ -320,8 +275,6 @@ jobs:
           restore-keys: |
             turbo-${{ runner.os }}-unit-app-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-
             turbo-${{ runner.os }}-unit-app-
-
-      - run: bun install --frozen-lockfile
 
       - name: unit
         run: bun turbo test:ci --filter=@opencode-ai/app
@@ -360,30 +313,15 @@ jobs:
       contents: read
       checks: write
     steps:
+      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # step-security/harden-runner@v2.19.4
+        with:
+          egress-policy: audit
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6
         with:
           persist-credentials: false
 
-      # Load-bearing: `bun install` runs `trustedDependencies`
-      # postinstalls from the root package.json (electron, node-pty,
-      # esbuild, tree-sitter at time of writing), which call `node`
-      # explicitly. Do not drop without first patching those scripts.
-      # Source of truth: grep `trustedDependencies` in package.json. (#70)
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # actions/setup-node@v6.4.0
-        with:
-          node-version: "24"
-
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # oven-sh/setup-bun@v2
-        with:
-          # Load-bearing for `bun audit` exit semantics; do not bump without re-verifying advisory exit codes.
-          bun-version: "1.3.14"
-
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            bun-${{ runner.os }}-
+      - uses: ./.github/actions/setup
 
       - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
         with:
@@ -392,8 +330,6 @@ jobs:
           restore-keys: |
             turbo-${{ runner.os }}-unit-ui-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-
             turbo-${{ runner.os }}-unit-ui-
-
-      - run: bun install --frozen-lockfile
 
       - name: unit
         run: bun turbo test:ci --filter=@opencode-ai/ui
@@ -432,30 +368,15 @@ jobs:
       contents: read
       checks: write
     steps:
+      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # step-security/harden-runner@v2.19.4
+        with:
+          egress-policy: audit
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6
         with:
           persist-credentials: false
 
-      # Load-bearing: `bun install` runs `trustedDependencies`
-      # postinstalls from the root package.json (electron, node-pty,
-      # esbuild, tree-sitter at time of writing), which call `node`
-      # explicitly. Do not drop without first patching those scripts.
-      # Source of truth: grep `trustedDependencies` in package.json. (#70)
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # actions/setup-node@v6.4.0
-        with:
-          node-version: "24"
-
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # oven-sh/setup-bun@v2
-        with:
-          # Load-bearing for `bun audit` exit semantics; do not bump without re-verifying advisory exit codes.
-          bun-version: "1.3.14"
-
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            bun-${{ runner.os }}-
+      - uses: ./.github/actions/setup
 
       - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
         with:
@@ -464,8 +385,6 @@ jobs:
           restore-keys: |
             turbo-${{ runner.os }}-unit-opencode-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-
             turbo-${{ runner.os }}-unit-opencode-
-
-      - run: bun install --frozen-lockfile
 
       - name: unit
         run: bun turbo test:ci --filter=opencode
@@ -504,30 +423,15 @@ jobs:
       contents: read
       checks: write
     steps:
+      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # step-security/harden-runner@v2.19.4
+        with:
+          egress-policy: audit
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6
         with:
           persist-credentials: false
 
-      # Load-bearing: `bun install` runs `trustedDependencies`
-      # postinstalls from the root package.json (electron, node-pty,
-      # esbuild, tree-sitter at time of writing), which call `node`
-      # explicitly. Do not drop without first patching those scripts.
-      # Source of truth: grep `trustedDependencies` in package.json. (#70)
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # actions/setup-node@v6.4.0
-        with:
-          node-version: "24"
-
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # oven-sh/setup-bun@v2
-        with:
-          # Load-bearing for `bun audit` exit semantics; do not bump without re-verifying advisory exit codes.
-          bun-version: "1.3.14"
-
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            bun-${{ runner.os }}-
+      - uses: ./.github/actions/setup
 
       - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
         with:
@@ -536,8 +440,6 @@ jobs:
           restore-keys: |
             turbo-${{ runner.os }}-unit-desktop-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-
             turbo-${{ runner.os }}-unit-desktop-
-
-      - run: bun install --frozen-lockfile
 
       - name: unit
         run: bun turbo test:ci --filter=@opencode-ai/desktop-electron

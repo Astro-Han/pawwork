@@ -6,6 +6,7 @@ import { parseWorkflow, type Workflow } from "./workflow-parser"
 
 const repoRoot = fileURLToPath(new URL("../../../..", import.meta.url))
 const workflowsRoot = path.join(repoRoot, ".github", "workflows")
+const setupActionPath = path.join(repoRoot, ".github", "actions", "setup", "action.yml")
 const expectedBunVersion = "1.3.14"
 const auditComment = "Load-bearing for `bun audit` exit semantics"
 
@@ -83,13 +84,6 @@ describe("GitHub workflow Bun version pin", () => {
 
     expect(setupBunPins).toEqual([
       ".github/workflows/build.yml:build-electron:step-5:bun-version: \"1.3.14\"",
-      ".github/workflows/ci.yml:typecheck:step-3:bun-version: \"1.3.14\"",
-      ".github/workflows/ci.yml:lint:step-3:bun-version: \"1.3.14\"",
-      ".github/workflows/ci.yml:frontend-architecture:step-5:bun-version: \"1.3.14\"",
-      ".github/workflows/ci.yml:unit-app:step-3:bun-version: \"1.3.14\"",
-      ".github/workflows/ci.yml:unit-ui:step-3:bun-version: \"1.3.14\"",
-      ".github/workflows/ci.yml:unit-opencode:step-3:bun-version: \"1.3.14\"",
-      ".github/workflows/ci.yml:unit-desktop:step-3:bun-version: \"1.3.14\"",
       ".github/workflows/desktop-smoke.yml:smoke-macos-arm64:step-3:bun-version: \"1.3.14\"",
       ".github/workflows/dev-dep-audit.yml:dev-dep-audit:step-3:bun-version: \"1.3.14\"",
       ".github/workflows/e2e-artifacts.yml:e2e-artifacts:step-3:bun-version: \"1.3.14\"",
@@ -98,5 +92,9 @@ describe("GitHub workflow Bun version pin", () => {
       ".github/workflows/windows-advisory.yml:unit-windows:step-3:bun-version: \"1.3.14\"",
     ])
     expect(missingComments).toEqual([])
+
+    const setupAction = fs.readFileSync(setupActionPath, "utf8")
+    expect(setupAction).toContain(`bun-version: "${expectedBunVersion}"`)
+    expect(setupAction).toContain(auditComment)
   })
 })
