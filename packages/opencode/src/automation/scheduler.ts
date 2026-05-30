@@ -310,6 +310,13 @@ export namespace AutomationScheduler {
       return true
     }
 
+    const preserveDueSchedule = (definition: Automation.Definition) => {
+      const current = tasks.get(definition.id)
+      if (!current || current.fireAt > clock.now() || !isSameSchedule(current.definition, definition)) return false
+      current.definition = definition
+      return true
+    }
+
     const isStableCronSchedule = (definition: Automation.Definition) =>
       definition.kind === "recurring" && definition.rhythm.kind === "cron" && definition.stop.kind === "never"
 
@@ -322,6 +329,7 @@ export namespace AutomationScheduler {
 
     const reschedule = (definition: Automation.Definition) => {
       if (!ownsTimers) return
+      if (preserveDueSchedule(definition)) return
       if (isStableCronSchedule(definition) && preservePendingSchedule(definition)) return
       const cached = unschedulable.get(definition.id)
       if (cached && isSameSchedule(cached, definition)) return

@@ -63,6 +63,10 @@ class FakeClock implements AutomationScheduler.Clock {
     }
     this.current = target
   }
+
+  jumpTo(current: number) {
+    this.current = current
+  }
 }
 
 class OversleepClock implements AutomationScheduler.Clock {
@@ -376,6 +380,30 @@ describe("automation scheduler", () => {
       await clock.advance(4 * 60 * 60_000)
       await waitForRunStates(definition.id, ["succeeded"])
       expect(starts).toEqual([Date.UTC(2024, 4, 30, 13, 0)])
+      scheduler.stop()
+    })
+  })
+
+  test("does not cancel a due cron fire during owner rescan", async () => {
+    await withAutomation(async (projectID) => {
+      const clock = new FakeClock(0)
+      const starts: number[] = []
+      const scheduler = AutomationScheduler.make({
+        clock,
+        executor: async () => {
+          starts.push(clock.now())
+          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+        },
+      })
+      const definition = Automation.create(cronInput(projectID, "* * * * *"), { now: 0 })
+
+      scheduler.reschedule(definition)
+      clock.jumpTo(60_000)
+      scheduler.reschedule(definition)
+      await clock.advance(0)
+      await waitForRunStates(definition.id, ["succeeded"])
+
+      expect(starts).toEqual([60_000])
       scheduler.stop()
     })
   })
