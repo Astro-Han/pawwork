@@ -7,14 +7,18 @@
 // prefers R2 and falls back to GitHub.
 //
 // Feed selection uses a CANCELLABLE reachability probe (HEAD on the channel
-// file, aborted on timeout), then runs exactly one electron-updater
-// checkForUpdates() against the winning feed. This is the load-bearing design
+// file, aborted on timeout) to pick the primary feed, then runs a SEQUENTIAL
+// checkForUpdates() — never concurrent. If the probe-selected feed's real
+// check rejects, we fall through to the next feed and retry. At most one
+// checkForUpdates() is in-flight at a time. This is the load-bearing design
 // choice: electron-updater's checkForUpdates() is not cancellable and mutates a
-// shared provider on a single autoUpdater instance, so racing it with a timeout
-// would let a slow R2 check resolve late and rebind the provider back to R2
-// AFTER we fell back to GitHub — silently sending the download to the very feed
-// the fallback exists to avoid. Probing first means only one real check ever
-// runs, bound to the chosen feed; downloadUpdate() then reuses that provider.
+// shared provider on a single autoUpdater instance, so racing two checks would
+// let the slower one resolve late and rebind the provider — silently sending the
+// download to the wrong feed. Sequential fallback avoids that entirely.
+//
+// The underlying HTTP layer (builder-util-runtime httpExecutor) has a default
+// 60 s socket timeout; this module does not add its own check-level timeout
+// because we cannot cancel an in-flight checkForUpdates().
 //
 // R2 serves byte-identical assets and the same latest*.yml as the GitHub
 // release (see mirror-release-to-r2.ts), so the sha512 verification chain holds
