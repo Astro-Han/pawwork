@@ -80,7 +80,7 @@
     "glob": "13.0.5",
     "prettier": "3.6.2",
     "semver": "^7.6.0",
-    "sst": "3.18.10",
+    "sst": "4.15.2",
     "turbo": "2.8.13",
     "typescript-eslint": "8.59.3"
   },
