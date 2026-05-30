@@ -138,6 +138,29 @@ describe("ci smoke helpers", () => {
     ).rejects.toThrow("CDP endpoint on port 48291 did not expose a renderer page target")
   })
 
+  test("probeCiSmokeCdpTarget drains non-OK discovery responses before retrying", async () => {
+    let drained = false
+
+    await expect(
+      probeCiSmokeCdpTarget(48291, {
+        attempts: 1,
+        delayMs: 1,
+        fetch: () =>
+          Promise.resolve({
+            ok: false,
+            status: 403,
+            arrayBuffer: () => {
+              drained = true
+              return Promise.resolve(new ArrayBuffer(0))
+            },
+          } as Response),
+        sleep: () => Promise.resolve(),
+      }),
+    ).rejects.toThrow("CDP endpoint never came up on port 48291: HTTP 403")
+
+    expect(drained).toBe(true)
+  })
+
   test("probeCiSmokeCdpTarget fails clearly when the endpoint never responds", async () => {
     await expect(
       probeCiSmokeCdpTarget(48291, {

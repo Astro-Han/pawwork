@@ -125,6 +125,7 @@ export async function probeCiSmokeCdpTarget(port: number, options: ProbeOptions 
       const response = await fetcher(url)
       if (!response.ok) {
         lastConnectionError = `HTTP ${response.status}`
+        await response.arrayBuffer().catch(() => undefined)
       } else {
         const targets = (await response.json()) as unknown
         if (Array.isArray(targets) && targets.some(isCiSmokeRendererTarget)) {
