@@ -921,18 +921,24 @@ export namespace Automation {
   ): Promise<Run> {
     const runID = AutomationID.Run.ascending()
     const lease = await Flock.acquire(runLeaseKey(runID))
-    const initial = runNow(id, { now: options.now, runID })
-    queueMicrotask(() => void executeRun(initial, options.executor, options.attendance ?? "attended", lease))
-    return initial
+    try {
+      const initial = runNow(id, { now: options.now, runID })
+      queueMicrotask(() => void executeRun(initial, options.executor, options.attendance ?? "attended", lease))
+      return initial
+    } catch (error) {
+      await lease.release().catch(() => undefined)
+      throw error
+    }
   }
 
   async function executeRun(initial: Run, executor: RunExecutor, attendance: AutomationRunAttendance, lease: Flock.Lease) {
     const data = state()
-    const definition = get(initial.automationID)
-    const writerKey = definition.where.worktree ?? definition.where.projectID
     const controller = new AbortController()
+    let writerKey: string | undefined
     let current = initial
     try {
+      const definition = get(initial.automationID)
+      writerKey = definition.where.worktree ?? definition.where.projectID
       if (data.activeWriters.has(writerKey) || hasDurableActiveWriter(initial, writerKey)) {
         const stopped = reviseRun(initial, {
           state: "stopped",
@@ -997,7 +1003,7 @@ export namespace Automation {
       await publishRunUpdated(failed)
     } finally {
       const active = data.activeRuns.get(initial.automationID)
-      if (active?.runID === initial.id) {
+      if (writerKey && active?.runID === initial.id) {
         data.activeRuns.delete(initial.automationID)
         data.activeWriters.delete(writerKey)
       }
