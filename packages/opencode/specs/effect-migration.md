@@ -335,6 +335,10 @@ For each service, the migration is roughly:
 
 ### Migration log
 
+- Workspace routing guardrails — scoped 2026-05-30 as the next #936 slice after VCS, PTY connect-token, and SSE guardrails. This slice is planning + tests only; it does not migrate Hono routes to Effect HttpApi.
+  - PR scope: lock the current workspace routing decisions before any middleware migration. `GET /session` and session-detail GET routes stay local while `/session/status` remains forwarded, a session's bound `workspaceID` wins over `?workspace=`, PawWork `/path?ensureConfig=true` must not create the legacy OpenCode config directory, and remote workspace WebSocket upgrades must reach `ServerProxy.websocket`.
+  - Non-goals: no upstream `/sync/*`, workspace adapter/sync-list/warp, v2 `/api/*`, TUI, auth/OAuth, OpenAPI/SDK shape, or proxy internals migration.
+  - Follow-ups only when touched: EnterWorktree/ExitWorktree execution-context tests, WebSocket queue/close-code/bidirectional proxy tests, and the actual WorkspaceRouting/InstanceContext Effect middleware design.
 - `SessionStatus` — migrated 2026-04-11. Replaced the last route and retry-policy callers with `AppRuntime.runPromise(SessionStatus.Service.use(...))` and removed the `makeRuntime(...)` facade.
 - `ShareNext` — migrated 2026-04-11. Swapped remaining async callers to `AppRuntime.runPromise(ShareNext.Service.use(...))`, removed the `makeRuntime(...)` facade, and kept instance bootstrap on the shared app runtime.
 - `SessionTodo` — migrated 2026-04-10. Already matched the target service shape in `session/todo.ts`: single namespace, traced Effect methods, and no `makeRuntime(...)` facade remained; checklist updated to reflect the completed migration.
