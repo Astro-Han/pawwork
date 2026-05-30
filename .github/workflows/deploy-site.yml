@@ -6,26 +6,31 @@ on:
     paths:
       - "site/**"
 
+  # Build-check the site on PRs that touch it; deploy step is skipped (see below)
+  pull_request:
+    paths:
+      - "site/**"
+
   # Allow manual trigger for first deploy or re-deploy without code change
   workflow_dispatch:
 
 concurrency:
-  group: deploy-site
+  group: deploy-site-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - uses: oven-sh/setup-bun@735343b667d3e6a283e0e5dd0578baf5f2d0e57e # v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: "1.3.14"
 
       - run: bun install --frozen-lockfile
         working-directory: site
@@ -33,7 +38,9 @@ jobs:
       - run: bun run build
         working-directory: site
 
+      # Deploy only on push to dev / manual trigger; PRs run build-check only
       - uses: cloudflare/wrangler-action@da0993054ca88fcab66e0b3f30f55ff1a93f81f0 # v3
+        if: github.event_name != 'pull_request'
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
