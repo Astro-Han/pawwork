@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { Hono } from "hono"
 import { Log } from "@opencode-ai/core/util/log"
 import { Automation, AutomationID } from "../../src/automation"
+import { AutomationScheduler } from "../../src/automation/scheduler"
 import { Bus } from "../../src/bus"
 import { Instance } from "../../src/project/instance"
 import { ProjectID } from "../../src/project/schema"
@@ -32,6 +33,16 @@ async function withAutomationApp<T>(fn: (input: { app: Hono; projectID: ProjectI
 async function json(app: Hono, input: string, init?: RequestInit) {
   const response = await app.request(input, init)
   return response.json()
+}
+
+async function waitForRunCount(automationID: string, count: number) {
+  const deadline = Date.now() + 2_000
+  while (Date.now() < deadline) {
+    const items = Automation.runs({ automationID, limit: 100 }).items
+    if (items.length >= count) return items
+    await Bun.sleep(5)
+  }
+  throw new Error(`Timed out waiting for automation run count: ${count}`)
 }
 
 type RecurringCreateInput = Extract<Automation.CreateInput, { kind: "recurring" }>
@@ -83,6 +94,39 @@ function run(overrides: Record<string, unknown> = {}) {
 }
 
 describe("automation routes", () => {
+  test("route deletion cancels timers before publishing the tombstone", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const cancelled: string[] = []
+      AutomationScheduler.install({
+        stop: () => undefined,
+        stopOwnedRuns: () => undefined,
+        reschedule: () => undefined,
+        cancel: (automationID) => cancelled.push(automationID),
+        computeNextFireAt: () => null,
+      })
+
+      const created = await json(app, "/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(recurringInput(projectID)),
+      })
+      await json(app, `/automation/${created.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title: "Updated brief" }),
+      })
+      await json(app, `/automation/${created.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      })
+      await json(app, `/automation/${created.id}/pause`, { method: "POST" })
+      await json(app, `/automation/${created.id}`, { method: "DELETE" })
+
+      expect(cancelled).toEqual([created.id])
+    })
+  })
+
   test("create echoes the resolved definition with revision and normalization warnings", async () => {
     await withAutomationApp(async ({ app, projectID }) => {
       const response = await app.request("/automation", {
@@ -111,6 +155,20 @@ describe("automation routes", () => {
       expect(body.updatedAt).toBe(body.createdAt)
       expect(body.nextFireAt).toBeNull()
       expect(body.nextFires).toEqual([])
+    })
+  })
+
+  test("create lazily starts the scheduler before publishing definition updates", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const created = await json(app, "/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(oneshotInput(projectID, { fireAt: Date.now() + 20 })),
+      })
+
+      const runs = await waitForRunCount(created.id, 1)
+
+      expect(runs[0]?.automationID).toBe(created.id)
     })
   })
 

@@ -1,3 +1,4 @@
+import { Log } from "@opencode-ai/core/util/log"
 import { Filesystem } from "@/util/filesystem"
 import { context, containsPath as containsPathInContext, type InstanceContext } from "./instance-context"
 import { Project } from "./project"
@@ -6,9 +7,25 @@ import { State } from "./state"
 export type { InstanceContext } from "./instance-context"
 
 const directories = new Set<string>()
+const log = Log.create({ service: "instance" })
 
 async function runtime() {
   return (await import("./instance-runtime")).InstanceRuntime
+}
+
+async function scheduler() {
+  return (await import("@/automation/scheduler")).AutomationScheduler
+}
+
+async function stopSchedulerOwnedRuns(kind: "current" | "directory" | "all", directory?: string) {
+  try {
+    const automationScheduler = await scheduler()
+    if (kind === "current") automationScheduler.stopCurrentOwnedRuns()
+    else if (kind === "directory" && directory) automationScheduler.stopDirectoryOwnedRuns(directory)
+    else automationScheduler.stopAllOwnedRuns()
+  } catch (error) {
+    log.error("failed to stop scheduler-owned automation runs before instance disposal", { error, kind, directory })
+  }
 }
 
 export const Instance = {
@@ -123,6 +140,7 @@ export const Instance = {
   },
   async dispose(input?: { mode?: "maintenance" | "force"; onCompleted?: () => void | Promise<void> }) {
     const ctx = Instance.current
+    if ((input?.mode ?? "maintenance") === "maintenance") await stopSchedulerOwnedRuns("current")
     const instanceRuntime = await runtime()
     const onCompleted = async () => {
       directories.delete(ctx.directory)
@@ -136,6 +154,7 @@ export const Instance = {
     input?: { mode?: "maintenance" | "force"; onCompleted?: () => void | Promise<void> },
   ) {
     const directory = Filesystem.resolve(inputDirectory)
+    if ((input?.mode ?? "maintenance") === "maintenance") await stopSchedulerOwnedRuns("directory", directory)
     const instanceRuntime = await runtime()
     const onCompleted = async () => {
       directories.delete(directory)
@@ -146,6 +165,7 @@ export const Instance = {
   },
   async disposeAll(input?: { mode?: "maintenance" | "force"; onCompleted?: () => void | Promise<void> }) {
     const { disposeAllLoadedInstances } = await import("./instance-store")
+    if ((input?.mode ?? "maintenance") === "maintenance") await stopSchedulerOwnedRuns("all")
     const onCompleted = async () => {
       directories.clear()
       await input?.onCompleted?.()

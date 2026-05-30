@@ -1,5 +1,6 @@
 import { Effect, Schema } from "effect"
 import { Automation, ValidationError } from "@/automation"
+import { AutomationScheduler } from "@/automation/scheduler"
 import * as Tool from "./tool"
 
 const Where = Schema.Struct({
@@ -89,6 +90,7 @@ export function createAutomateDefinition(): Tool.DefWithoutID<typeof AutomatePar
             }
             const { sourceSessionID: _ignoredSourceSessionID, ...input } = params as typeof params & { sourceSessionID?: unknown }
             const parsed = Automation.CreateInput.parse(input)
+            AutomationScheduler.current()
             return Automation.create(parsed, { sourceSessionID: ctx.sessionID })
           },
           catch: readableAutomationError,
