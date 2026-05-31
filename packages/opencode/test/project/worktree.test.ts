@@ -18,12 +18,13 @@ import { Worktree } from "../../src/worktree"
 import { tmpdir } from "../fixture/fixture"
 
 const encoder = new TextEncoder()
+type StartCommandProbe = { spawned: boolean; released: boolean; release?: () => void }
 
 function withInstance(directory: string, fn: () => Promise<any>) {
   return Instance.provide({ directory, fn })
 }
 
-function startCommandSpawnProbe(probe: { spawned: boolean; release?: () => void }) {
+function startCommandSpawnProbe(probe: StartCommandProbe) {
   return Layer.effect(
     ChildProcessSpawner.ChildProcessSpawner,
     Effect.gen(function* () {
@@ -42,6 +43,7 @@ function startCommandSpawnProbe(probe: { spawned: boolean; release?: () => void 
             probe.release = () => {
               if (released) return
               released = true
+              probe.released = true
               finish(ChildProcessSpawner.ExitCode(0))
             }
             return ChildProcessSpawner.makeHandle({
@@ -65,7 +67,7 @@ function startCommandSpawnProbe(probe: { spawned: boolean; release?: () => void 
   ).pipe(Layer.provide(CrossSpawnSpawner.defaultLayer))
 }
 
-function worktreeLayerWithStartCommandProbe(probe: { spawned: boolean; release?: () => void }) {
+function worktreeLayerWithStartCommandProbe(probe: StartCommandProbe) {
   return Worktree.layer.pipe(
     Layer.provide(Git.defaultLayer),
     Layer.provide(Project.defaultLayer),
@@ -290,43 +292,9 @@ describe("Worktree", () => {
   })
 
   describe("reset", () => {
-    test("starts project start command without waiting for it to exit", async () => {
+    test("starts project start command before returning without waiting for it to exit", async () => {
       await using tmp = await tmpdir({ git: true })
-
-      await withInstance(tmp.path, async () => {
-        const info = await Worktree.createReady({ name: "reset-start-command" })
-        await Project.update({
-          projectID: Instance.project.id,
-          commands: {
-            start:
-              "bun -e \"await Bun.write('.reset-start-began', 'ready'); while (!(await Bun.file('.reset-start-release').exists())) await Bun.sleep(20)\"",
-          },
-        })
-
-        const reset = Worktree.reset({ directory: info.directory })
-        const result = await Promise.race([
-          reset.then(() => "done" as const),
-          Bun.sleep(2_000).then(() => "timeout" as const),
-        ])
-        if (result === "timeout") {
-          await Bun.write(path.join(info.directory, ".reset-start-release"), "done")
-          await reset.catch(() => undefined)
-          throw new Error("Worktree.reset waited for the project start command to exit")
-        }
-
-        const deadline = Date.now() + 1_000
-        while (!(await Bun.file(path.join(info.directory, ".reset-start-began")).exists()) && Date.now() < deadline) {
-          await Bun.sleep(20)
-        }
-        expect(await Bun.file(path.join(info.directory, ".reset-start-began")).text()).toBe("ready")
-        await Bun.write(path.join(info.directory, ".reset-start-release"), "done")
-        await Worktree.remove({ directory: info.directory })
-      })
-    })
-
-    test("returns only after the project start command has spawned", async () => {
-      await using tmp = await tmpdir({ git: true })
-      const probe = { spawned: false, release: undefined as (() => void) | undefined }
+      const probe: StartCommandProbe = { spawned: false, released: false }
 
       await withInstance(tmp.path, async () => {
         const info = await Worktree.createReady({ name: "reset-start-spawn-probe" })
@@ -338,11 +306,21 @@ describe("Worktree", () => {
         })
 
         const layer = worktreeLayerWithStartCommandProbe(probe)
-        await Effect.runPromise(
+        const reset = Effect.runPromise(
           Worktree.Service.use((svc) => svc.reset({ directory: info.directory })).pipe(Effect.provide(layer)),
         )
+        const result = await Promise.race([
+          reset.then(() => "done" as const),
+          Bun.sleep(10_000).then(() => "timeout" as const),
+        ])
+        if (result === "timeout") {
+          probe.release?.()
+          await reset.catch(() => undefined)
+          throw new Error("Worktree.reset waited for the project start command to exit")
+        }
 
         expect(probe.spawned).toBe(true)
+        expect(probe.released).toBe(false)
         probe.release?.()
         await Worktree.remove({ directory: info.directory })
       })
