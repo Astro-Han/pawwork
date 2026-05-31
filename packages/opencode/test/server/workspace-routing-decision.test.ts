@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test"
+import { Effect } from "effect"
 import {
   classifyWorkspaceRoute,
+  resolveWorkspaceRoute,
   sessionIDForWorkspaceRouting,
   shouldCreateLegacyConfigBeforeNoWorkspacePath,
 } from "../../src/server/instance/workspace-routing"
@@ -93,5 +95,25 @@ describe("workspace routing decisions", () => {
         isPawWork: true,
       }),
     ).toBe(false)
+  })
+
+  test("resolves no-workspace routes through an Effect route decision", async () => {
+    const directory = "/tmp/pawwork-effect-router"
+    const decision = await Effect.runPromise(
+      resolveWorkspaceRoute({
+        method: "GET",
+        pathname: "/path",
+        directory,
+        workspaceID: undefined,
+        ensureConfig: true,
+        isPawWork: false,
+      }),
+    )
+
+    expect(decision).toEqual({
+      action: "provide-local-context",
+      directory,
+      createLegacyConfig: true,
+    })
   })
 })
