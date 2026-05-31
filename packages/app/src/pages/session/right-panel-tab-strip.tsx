@@ -30,9 +30,6 @@ function RightPanelShellIcon(props: { icon: ShellTabIcon; active?: boolean }) {
       <Match when={props.icon.kind === "icon" && props.icon.name === "status"}>
         <Icon name="status" class="text-fg-weaker" />
       </Match>
-      <Match when={props.icon.kind === "icon" && props.icon.name === "folder"}>
-        <Icon name="folder" class="text-fg-weaker" />
-      </Match>
       <Match when={props.icon.kind === "icon" && props.icon.name === "review"}>
         <Icon name={props.active ? "review-active" : "review"} class="text-fg-weaker" />
       </Match>
