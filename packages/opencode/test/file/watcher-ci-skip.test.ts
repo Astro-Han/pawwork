@@ -1,28 +1,28 @@
 import { describe, expect, test } from "bun:test"
-import { readFile } from "fs/promises"
-import path from "path"
-
-const guardedTests = [
-  {
-    name: "FileWatcher live test suite",
-    file: path.join(import.meta.dir, "watcher.test.ts"),
-  },
-  {
-    name: "Vcs live watcher test suite",
-    file: path.resolve(import.meta.dir, "../project/vcs.test.ts"),
-  },
-]
+import { shouldRunNativeWatcherTests } from "./native-watcher-ci-guard"
 
 describe("watcher CI skip guards", () => {
-  for (const item of guardedTests) {
-    test(`${item.name} checks CI before probing native bindings`, async () => {
-      const source = await readFile(item.file, "utf8")
-      const ciGuard = source.indexOf("!process.env.CI")
-      const nativeProbe = source.indexOf("FileWatcher.hasNativeBinding()")
+  test("skips CI without probing native bindings", () => {
+    let probed = false
 
-      expect(ciGuard).toBeGreaterThanOrEqual(0)
-      expect(nativeProbe).toBeGreaterThanOrEqual(0)
-      expect(ciGuard).toBeLessThan(nativeProbe)
-    })
-  }
+    const shouldRun = shouldRunNativeWatcherTests(() => {
+      probed = true
+      return true
+    }, { CI: "1" })
+
+    expect(shouldRun).toBe(false)
+    expect(probed).toBe(false)
+  })
+
+  test("runs outside CI when native bindings are available", () => {
+    let probed = false
+
+    const shouldRun = shouldRunNativeWatcherTests(() => {
+      probed = true
+      return true
+    }, {})
+
+    expect(shouldRun).toBe(true)
+    expect(probed).toBe(true)
+  })
 })

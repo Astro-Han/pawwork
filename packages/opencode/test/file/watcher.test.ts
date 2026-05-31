@@ -9,9 +9,10 @@ import { Config } from "../../src/config/config"
 import { FileWatcher } from "../../src/file/watcher"
 import { Git } from "../../src/git"
 import { Instance } from "../../src/project/instance"
+import { shouldRunNativeWatcherTests } from "./native-watcher-ci-guard"
 
 // Native @parcel/watcher bindings aren't reliably available in CI (missing on Linux, flaky on Windows)
-const describeWatcher = !process.env.CI && FileWatcher.hasNativeBinding() ? describe : describe.skip
+const describeWatcher = shouldRunNativeWatcherTests(FileWatcher.hasNativeBinding) ? describe : describe.skip
 
 // ---------------------------------------------------------------------------
 // Helpers

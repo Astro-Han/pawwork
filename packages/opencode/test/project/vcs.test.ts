@@ -10,9 +10,10 @@ import { Instance } from "../../src/project/instance"
 import { GlobalBus } from "../../src/bus/global"
 import { Vcs } from "../../src/project/vcs"
 import { testEffect } from "../lib/effect"
+import { shouldRunNativeWatcherTests } from "../file/native-watcher-ci-guard"
 
 // Skip in CI — native @parcel/watcher binding needed
-const describeVcs = !process.env.CI && FileWatcher.hasNativeBinding() ? describe : describe.skip
+const describeVcs = shouldRunNativeWatcherTests(FileWatcher.hasNativeBinding) ? describe : describe.skip
 
 // ---------------------------------------------------------------------------
 // Helpers
