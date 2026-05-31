@@ -10,7 +10,7 @@
  *
  * Pre-flatten, "terminal" was a fixed slot containing an internal multi-terminal
  * strip. After flatten (Area B, 2026-05-25) each terminal is its own outer tab,
- * sibling of files/review/context. Legacy persistence with "terminal" as a fixed
+ * sibling of status/review/context. Legacy persistence with "terminal" as a fixed
  * slot is dropped via migrateLegacyRightPanelTab / coerceLegacySidePanelTab.
  */
 

@@ -77,6 +77,7 @@ function GitRow(props: {
         "cursor-default": !props.onClick,
         "hover:bg-surface-raised": !!props.onClick,
       }}
+      disabled={!props.onClick}
       onClick={props.onClick}
       title={props.title}
     >
@@ -102,19 +103,21 @@ function GitSection(props: {
     return stats.additions > 0 || stats.deletions > 0
   })
 
+  const na = () => language.t("status.summary.git.worktree.notAvailable")
+
   const worktreeTooltip = (worktree: ActiveWorktree) => (
     <div class="grid min-w-0 gap-1.5 py-1 text-left">
       <div class="grid min-w-0 grid-cols-[64px_minmax(0,1fr)] items-start gap-3">
-        <span class="text-caption">Worktree</span>
-        <span class="text-h3 min-w-0 break-all leading-[1.45]">{worktree.name || "Not available"}</span>
+        <span class="text-caption">{language.t("status.summary.git.worktree.label")}</span>
+        <span class="text-h3 min-w-0 break-all leading-[1.45]">{worktree.name || na()}</span>
       </div>
       <div class="grid min-w-0 grid-cols-[64px_minmax(0,1fr)] items-start gap-3">
-        <span class="text-caption">Branch</span>
-        <span class="text-body min-w-0 break-all leading-[1.45]">{worktree.branch || "Not available"}</span>
+        <span class="text-caption">{language.t("status.summary.git.branch.label")}</span>
+        <span class="text-body min-w-0 break-all leading-[1.45]">{worktree.branch || na()}</span>
       </div>
       <div class="grid min-w-0 grid-cols-[64px_minmax(0,1fr)] items-start gap-3">
-        <span class="text-caption">Location</span>
-        <span class="text-body min-w-0 break-all leading-[1.45]">{worktree.directory || "Not available"}</span>
+        <span class="text-caption">{language.t("status.summary.git.location.label")}</span>
+        <span class="text-body min-w-0 break-all leading-[1.45]">{worktree.directory || na()}</span>
       </div>
     </div>
   )
@@ -162,7 +165,7 @@ function GitSection(props: {
                 }}
                 title={language.t("status.summary.git.worktree.open")}
               >
-                <span class="text-body text-fg-base">{worktree().name || worktree().branch || "Worktree"}</span>
+                <span class="text-body text-fg-base">{worktree().name || worktree().branch || language.t("status.summary.git.worktree.fallback")}</span>
               </GitRow>
             </Tooltip>
           )}
@@ -179,7 +182,7 @@ function ArtifactRow(props: {
 }) {
   const language = useLanguage()
   const filename = createMemo(() => {
-    const parts = props.file.path.split("/")
+    const parts = props.file.path.replace(/\\/g, "/").split("/")
     return parts[parts.length - 1] || props.file.path
   })
 
@@ -273,7 +276,7 @@ export function SessionStatusSummary(props: {
   const todos = createMemo(() => snapshot().items)
   const sources = createMemo(() => extractSources(props.parts()))
 
-  const isGitRepo = createMemo(() => !!props.vcs?.()?.branch || !!props.activeWorktree?.())
+  const isGitRepo = createMemo(() => !!props.vcs?.() || !!props.activeWorktree?.())
 
   const navigateToReview = () => {
     props.onNavigateReview?.()
@@ -285,12 +288,12 @@ export function SessionStatusSummary(props: {
   }
 
   const openFile = (path: string) => {
-    if (!platform.openPath) return
+    if (!canOpenLocalPath(platform) || !server.isLocal() || !platform.openPath) return
     void platform.openPath(path).catch(() => {})
   }
 
   const revealFile = (path: string) => {
-    if (!platform.showItemInFolder) return
+    if (!canOpenLocalPath(platform) || !server.isLocal() || !platform.showItemInFolder) return
     void platform.showItemInFolder(path).catch(() => {})
   }
 
