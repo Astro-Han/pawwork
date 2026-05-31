@@ -3,7 +3,7 @@ import { useParams } from "@solidjs/router"
 import type { Part } from "@opencode-ai/sdk/v2"
 import { useGlobalSync } from "@/context/global-sync"
 import { useSync } from "@/context/sync"
-import type { FilesTabEntry } from "@/pages/session/files-tab-state"
+import { normalizeArtifactPathKey, type FilesTabEntry } from "@/pages/session/files-tab-state"
 import { aggregateFiles } from "@/pages/session/session-aggregate-files"
 import { SessionStatusSummary } from "./session-status-summary"
 
@@ -56,7 +56,7 @@ export function SessionStatusPanel(props: {
   const diffsByPath = createMemo(() => {
     const map = new Map<string, { additions: number; deletions: number }>()
     for (const file of aggregatedFiles()) {
-      map.set(file.file, { additions: file.additions, deletions: file.deletions })
+      map.set(normalizeArtifactPathKey(file.file), { additions: file.additions, deletions: file.deletions })
     }
     return map
   })

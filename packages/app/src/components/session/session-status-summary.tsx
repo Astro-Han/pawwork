@@ -11,7 +11,7 @@ import { extractSources } from "@/pages/session/session-status-extractors"
 import { selectSessionTodoDataSnapshot } from "@/pages/session/session-todos"
 import type { SessionTodoItem } from "@/pages/session/todos/todo-model"
 import type { CanonicalTodoSnapshot } from "@/pages/session/todos/todo-source"
-import type { FilesTabEntry } from "@/pages/session/files-tab-state"
+import { normalizeArtifactPathKey, type FilesTabEntry } from "@/pages/session/files-tab-state"
 
 function Section(props: { title: string; children: JSX.Element }) {
   return (
@@ -257,7 +257,7 @@ function ArtifactSection(props: {
             {(file) => (
               <ArtifactRow
                 file={file}
-                diff={props.diffsByPath?.().get(file.path)}
+                diff={props.diffsByPath?.().get(normalizeArtifactPathKey(file.path))}
                 onOpen={() => props.onOpenFile(file.path)}
                 onReveal={() => props.onRevealFile(file.path)}
               />
