@@ -12,7 +12,7 @@ import { Vcs } from "../../src/project/vcs"
 import { testEffect } from "../lib/effect"
 
 // Skip in CI — native @parcel/watcher binding needed
-const describeVcs = FileWatcher.hasNativeBinding() && !process.env.CI ? describe : describe.skip
+const describeVcs = !process.env.CI && FileWatcher.hasNativeBinding() ? describe : describe.skip
 
 // ---------------------------------------------------------------------------
 // Helpers
