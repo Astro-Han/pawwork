@@ -43,6 +43,7 @@ import { PromptProvider } from "@/context/prompt"
 import { ServerConnection, ServerProvider, serverName, useServer } from "@/context/server"
 import { SettingsProvider } from "@/context/settings"
 import { TerminalProvider } from "@/context/terminal"
+import { AppStartupPending } from "@/components/app-startup-pending"
 import { AboutModal, type AboutInfo } from "@/components/about-modal"
 import DirectoryLayout from "@/pages/directory-layout"
 import Layout from "@/pages/layout"
@@ -54,7 +55,7 @@ import { base64Encode } from "@opencode-ai/util/encode"
 
 const loadSession = () => import("@/pages/session")
 const Session = lazy(loadSession)
-const Loading = () => <div class="size-full" />
+const Loading = () => <AppStartupPending />
 
 if (typeof location === "object" && /\/session(?:\/|$)/.test(location.pathname)) {
   void loadSession()
@@ -80,7 +81,7 @@ const HomeRedirectRoute = () => {
   return (
     <Show
       when={target()}
-      fallback={<div data-component="home-redirect-pending" class="size-full" aria-hidden="true" />}
+      fallback={<AppStartupPending />}
     >
       {(directory) => <Navigate href={`/${base64Encode(directory())}/session`} />}
     </Show>
