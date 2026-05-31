@@ -168,7 +168,7 @@ export type MaterializedToolBoundary = {
 
 export type RecoveryDecision = {
   recommendation:
-    | "auto_retry_once"
+    | "auto_retry"
     | "offer_continue"
     | "offer_resume_with_confirmation"
     | "ask_user_before_retry"
@@ -188,7 +188,7 @@ export type RecoveryDecision = {
     | "local_lifecycle_close"
     | "user_cancel"
     | "unknown"
-  auto_retry?: { max_attempts: 1; backoff_ms: number; attempted_at?: number }
+  auto_retry?: { max_attempts: number; backoff_ms: number; attempted_at?: number }
   user_action?: { kind: "continue" | "resume" | "retry" | "confirm_continue" | "dismiss"; idempotency_key: string }
   safety_scope: "visible_output_and_tool_side_effects"
 }

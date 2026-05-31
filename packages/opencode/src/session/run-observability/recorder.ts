@@ -534,7 +534,11 @@ export function createRecorder(input: RecorderInput): Recorder {
       return deriveCurrentIncident(next.at, { includeRecoveredTerminal: true })?.recovery ?? unknownRecovery()
     },
     recordRecoveryDecision(next) {
-      if (recoveryDecision?.retry_attempted && next.safe_recovery_attempt > recoveryDecision.safe_recovery_attempt) {
+      if (
+        recoveryDecision?.retry_attempted &&
+        next.safe_recovery_attempt > recoveryDecision.safe_recovery_attempt &&
+        next.recovery_mode !== "auto_replay_blocked"
+      ) {
         rememberEvent(next.monotonicMs)
         return
       }

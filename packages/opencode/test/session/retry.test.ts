@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import type { NamedError } from "@opencode-ai/util/error"
 import { APICallError } from "ai"
 import { setTimeout as sleep } from "node:timers/promises"
-import { Effect, Exit, Pull, Schedule } from "effect"
+import { Clock, Effect, Exit, Pull, Schedule } from "effect"
 import { SessionRetry } from "../../src/session/retry"
 import { MessageV2 } from "../../src/session/message-v2"
 import { ProviderID } from "../../src/provider/schema"
@@ -171,7 +171,11 @@ describe("session.retry.delay", () => {
     })
   })
 
-  test("safe recovery policy stops after the one replay budget is exhausted", async () => {
+  test("delay() produces the expected exponential backoff values", () => {
+    expect([SessionRetry.delay(1), SessionRetry.delay(2), SessionRetry.delay(3)]).toEqual([2000, 4000, 8000])
+  })
+
+  test("safe recovery policy uses injected delay across the replay budget then stops", async () => {
     const statuses: Array<{
       attempt: number
       message: string
@@ -180,14 +184,24 @@ describe("session.retry.delay", () => {
       reason: "network_connection_dropped"
     }> = []
 
+    const requestedWaits: number[] = []
+    const fastDelay = (attempt: number) => {
+      const wait = attempt * 10
+      requestedWaits.push(wait)
+      return wait
+    }
+
     const exit = await Effect.runPromise(
       Effect.gen(function* () {
         const step = yield* Schedule.toStepWithMetadata(
           SessionRetry.safeRecoveryPolicy({
             set: (info) => Effect.sync(() => statuses.push(info)),
+            delay: fastDelay,
           }),
         )
-        yield* step(undefined)
+        for (let attempt = 0; attempt < SessionRetry.SAFE_RECOVERY_MAX_ATTEMPTS; attempt++) {
+          yield* step(undefined)
+        }
         return yield* Effect.exit(step(undefined))
       }),
     )
@@ -196,13 +210,17 @@ describe("session.retry.delay", () => {
     if (Exit.isFailure(exit)) {
       expect(Pull.isDoneCause(exit.cause)).toBe(true)
     }
-    expect(statuses).toHaveLength(1)
-    expect(statuses[0]).toMatchObject({
-      attempt: 1,
-      message: "",
-      presentation: "recovery",
-      reason: "network_connection_dropped",
-    })
+    expect(statuses).toHaveLength(SessionRetry.SAFE_RECOVERY_MAX_ATTEMPTS)
+    expect(statuses.map((status) => status.attempt)).toEqual([1, 2, 3])
+    expect(requestedWaits).toEqual([10, 20, 30])
+    expect(
+      statuses.every(
+        (status) =>
+          status.message === "" &&
+          status.presentation === "recovery" &&
+          status.reason === "network_connection_dropped",
+      ),
+    ).toBe(true)
   })
 
   test("policy stops retrying after the configured max attempts", async () => {

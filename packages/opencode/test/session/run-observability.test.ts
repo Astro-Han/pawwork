@@ -131,7 +131,7 @@ describe("RunObservability", () => {
 
     const summary = recorder.finalize({ completedAt: 131, monotonicMs: 231 })
     expect(decision).toMatchObject({
-      recommendation: "auto_retry_once",
+      recommendation: "auto_retry",
       reason: "no_visible_output_or_tool_execution",
     })
     expect(summary.incident?.terminal_cause).toMatchObject({
@@ -240,7 +240,7 @@ describe("RunObservability", () => {
 
     expect(summary.recovery_decision).toMatchObject({
       technical_retryable: true,
-      safety_gate_recommendation: "auto_retry_once",
+      safety_gate_recommendation: "auto_retry",
       safety_gate_reason: "no_visible_output_or_tool_execution",
       recovery_mode: "replay",
       attempt_kind: "safe_recovery_replay",
@@ -256,7 +256,7 @@ describe("RunObservability", () => {
     })
   })
 
-  test("does not mark replay recovered before the recovery attempt succeeds", () => {
+  test("exhausted budget overwrites replay decision with blocked state", () => {
     const recorder = RunObservability.createRecorder({
       runID: RunObservability.RunID.make("run_recovery_decision_failed_attempt"),
       traceID: MessageID.make("msg_recovery_decision_failed_attempt"),
@@ -334,11 +334,148 @@ describe("RunObservability", () => {
     const summary = recorder.finalize({ completedAt: 10, monotonicMs: 190 })
 
     expect(summary.recovery_decision).toMatchObject({
-      retry_attempted: true,
-      failed_attempt_provider_progress_seen: false,
-      recovery_attempt_id: second.attemptID,
-      recovery_attempt_provider_progress_seen: true,
-      outcome: "failed",
+      recovery_mode: "auto_replay_blocked",
+      blocked_reason: "safe_recovery_budget_exhausted",
+      safe_recovery_attempt: 1,
+      presentation: "safe_recovery_failed",
+      outcome: "blocked",
+    })
+  })
+
+  test("budget-exhausted recovery decision overwrites intermediate replay decision", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_budget_exhausted_overwrites"),
+      traceID: MessageID.make("msg_budget_exhausted_overwrites"),
+      sessionID: SessionID.make("ses_budget_exhausted_overwrites"),
+      messageID: MessageID.make("msg_budget_exhausted_overwrites"),
+      providerID: "test",
+      modelID: "test-model",
+      createdAt: 1,
+      monotonicStartMs: 100,
+    })
+
+    const a1 = recorder.beginAttempt({ attemptIndex: 1, at: 2, monotonicMs: 110, connectTimeoutMs: 60_000 })
+    recorder.recordSideEffectBoundarySnapshot({
+      attemptID: a1.attemptID,
+      at: 2,
+      monotonicMs: 112,
+      snapshot: {
+        exposed_tool_count: 0,
+        unknown_tool_count: 0,
+        unclassified_effect_count: 0,
+        provider_executed_capability_present: false,
+        external_boundary_present: false,
+        proof_result: "complete",
+        proof_reason: "all_boundaries_classified",
+      },
+    })
+    const r1 = recorder.recordAttemptFailureAndDeriveRecovery({
+      attemptID: a1.attemptID,
+      at: 3,
+      monotonicMs: 120,
+      error: new Error("LLM stream connection timed out after 60000ms without provider progress"),
+      evidence: ["watchdog_fired", "iterator_error"],
+      watchdog: { phase: "connect" },
+      retryable: true,
+    })
+    recorder.recordRecoveryDecision({
+      attemptID: a1.attemptID,
+      at: 4,
+      monotonicMs: 130,
+      technical_retryable: true,
+      safety_gate_decision: r1,
+      recovery_mode: "replay",
+      attempt_kind: "safe_recovery_replay",
+      model_stream_attempt: 1,
+      safe_recovery_attempt: 0,
+      timeout_policy: "reasoning_first_attempt",
+      presentation: "recovery",
+    })
+    recorder.recordAutoRetryAttempted({ attemptID: a1.attemptID, at: 5, monotonicMs: 140 })
+
+    const a2 = recorder.beginAttempt({ attemptIndex: 2, at: 6, monotonicMs: 150, connectTimeoutMs: 60_000 })
+    const r2 = recorder.recordAttemptFailureAndDeriveRecovery({
+      attemptID: a2.attemptID,
+      at: 7,
+      monotonicMs: 160,
+      error: new Error("LLM stream connection timed out"),
+      evidence: ["watchdog_fired", "iterator_error"],
+      watchdog: { phase: "connect" },
+      retryable: true,
+    })
+    recorder.recordRecoveryDecision({
+      attemptID: a2.attemptID,
+      at: 8,
+      monotonicMs: 170,
+      technical_retryable: true,
+      safety_gate_decision: r2,
+      recovery_mode: "replay",
+      attempt_kind: "safe_recovery_replay",
+      model_stream_attempt: 2,
+      safe_recovery_attempt: 1,
+      timeout_policy: "reasoning_safe_recovery",
+      presentation: "recovery",
+    })
+    recorder.recordAutoRetryAttempted({ attemptID: a2.attemptID, at: 9, monotonicMs: 180 })
+
+    const a3 = recorder.beginAttempt({ attemptIndex: 3, at: 10, monotonicMs: 190, connectTimeoutMs: 60_000 })
+    const r3 = recorder.recordAttemptFailureAndDeriveRecovery({
+      attemptID: a3.attemptID,
+      at: 11,
+      monotonicMs: 200,
+      error: new Error("LLM stream connection timed out"),
+      evidence: ["watchdog_fired", "iterator_error"],
+      watchdog: { phase: "connect" },
+      retryable: true,
+    })
+    recorder.recordRecoveryDecision({
+      attemptID: a3.attemptID,
+      at: 12,
+      monotonicMs: 210,
+      technical_retryable: true,
+      safety_gate_decision: r3,
+      recovery_mode: "replay",
+      attempt_kind: "safe_recovery_replay",
+      model_stream_attempt: 3,
+      safe_recovery_attempt: 2,
+      timeout_policy: "reasoning_safe_recovery",
+      presentation: "recovery",
+    })
+    recorder.recordAutoRetryAttempted({ attemptID: a3.attemptID, at: 13, monotonicMs: 220 })
+
+    const a4 = recorder.beginAttempt({ attemptIndex: 4, at: 14, monotonicMs: 230, connectTimeoutMs: 60_000 })
+    const r4 = recorder.recordAttemptFailureAndDeriveRecovery({
+      attemptID: a4.attemptID,
+      at: 15,
+      monotonicMs: 240,
+      error: new Error("LLM stream connection timed out"),
+      evidence: ["watchdog_fired", "iterator_error"],
+      watchdog: { phase: "connect" },
+      retryable: true,
+    })
+    recorder.recordRecoveryDecision({
+      attemptID: a4.attemptID,
+      at: 16,
+      monotonicMs: 250,
+      technical_retryable: true,
+      safety_gate_decision: r4,
+      recovery_mode: "auto_replay_blocked",
+      blocked_reason: "safe_recovery_budget_exhausted",
+      attempt_kind: "safe_recovery_replay",
+      model_stream_attempt: 4,
+      safe_recovery_attempt: 3,
+      timeout_policy: "reasoning_safe_recovery",
+      presentation: "safe_recovery_failed",
+    })
+
+    const summary = recorder.finalize({ completedAt: 17, monotonicMs: 260 })
+
+    expect(summary.recovery_decision).toMatchObject({
+      recovery_mode: "auto_replay_blocked",
+      blocked_reason: "safe_recovery_budget_exhausted",
+      safe_recovery_attempt: 3,
+      presentation: "safe_recovery_failed",
+      outcome: "blocked",
     })
   })
 
@@ -1137,7 +1274,7 @@ describe("RunObservability", () => {
     })
 
     expect(decision).toMatchObject({
-      recommendation: "auto_retry_once",
+      recommendation: "auto_retry",
       reason: "no_visible_output_or_tool_execution",
     })
   })
@@ -1181,7 +1318,7 @@ describe("RunObservability", () => {
       tool_input_started: true,
     })
     expect(summary.incident?.recovery).toMatchObject({
-      recommendation: "auto_retry_once",
+      recommendation: "auto_retry",
       reason: "no_visible_output_or_tool_execution",
     })
     expect(summary.retry_safety).toMatchObject({
@@ -1273,11 +1410,11 @@ describe("RunObservability", () => {
       proof_reason: "unknown_tool_boundary",
     })
     expect(decision).toMatchObject({
-      recommendation: "auto_retry_once",
+      recommendation: "auto_retry",
       reason: "no_visible_output_or_tool_execution",
     })
     expect(summary.incident?.recovery).toMatchObject({
-      recommendation: "auto_retry_once",
+      recommendation: "auto_retry",
       reason: "no_visible_output_or_tool_execution",
     })
   })
@@ -1307,7 +1444,7 @@ describe("RunObservability", () => {
       proof_reason: "all_boundaries_classified",
     })
     expect(decision).toMatchObject({
-      recommendation: "auto_retry_once",
+      recommendation: "auto_retry",
       reason: "no_visible_output_or_tool_execution",
     })
   })
@@ -1402,7 +1539,7 @@ describe("RunObservability", () => {
 
     for (const [name, overrides] of cases) {
       const decision = recoveryForBeforeProgress(overrides)
-      expect(decision, name).not.toMatchObject({ recommendation: "auto_retry_once" })
+      expect(decision, name).not.toMatchObject({ recommendation: "auto_retry" })
     }
   })
 
@@ -1993,11 +2130,11 @@ describe("RunObservability", () => {
 
     const summary = recorder.finalize({ completedAt: 16, monotonicMs: 160 })
     expect(decision).toMatchObject({
-      recommendation: "auto_retry_once",
+      recommendation: "auto_retry",
       reason: "reasoning_only_without_final_text_or_tool_activity",
     })
     expect(summary.incident?.recovery).toMatchObject({
-      recommendation: "auto_retry_once",
+      recommendation: "auto_retry",
       reason: "reasoning_only_without_final_text_or_tool_activity",
     })
     expect(summary.retry_safety).toMatchObject({
@@ -2276,7 +2413,7 @@ describe("RunObservability", () => {
       subcategory: "before_first_provider_progress",
     })
     expect(summary.incident?.recovery).toMatchObject({
-      recommendation: "auto_retry_once",
+      recommendation: "auto_retry",
       reason: "no_visible_output_or_tool_execution",
     })
   })
@@ -2317,7 +2454,7 @@ describe("RunObservability", () => {
 
     const summary = recorder.finalize({ completedAt: 22, monotonicMs: 220 })
     expect(summary.incident?.recovery).toMatchObject({
-      recommendation: "auto_retry_once",
+      recommendation: "auto_retry",
       reason: "no_visible_output_or_tool_execution",
     })
   })
@@ -2353,7 +2490,7 @@ describe("RunObservability", () => {
 
     const summary = recorder.finalize({ completedAt: 23, monotonicMs: 230 })
     expect(summary.incident?.recovery).toMatchObject({
-      recommendation: "auto_retry_once",
+      recommendation: "auto_retry",
       reason: "no_visible_output_or_tool_execution",
     })
   })

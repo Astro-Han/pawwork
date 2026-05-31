@@ -3,7 +3,7 @@ import { buildModelRetryDecision, selectRetryTimeoutPolicy } from "../../src/ses
 import type { RunIncident } from "../../src/session/run-incident"
 
 const safeReplayGate: RunIncident.Recovery = {
-  recommendation: "auto_retry_once",
+  recommendation: "auto_retry",
   confidence: "high",
   reason: "reasoning_only_without_final_text_or_tool_activity",
   auto_retry: { max_attempts: 1, backoff_ms: 1_000 },

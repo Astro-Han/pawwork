@@ -30,7 +30,7 @@ export function plainSummary(input: { cause: TerminalCause; facts: IncidentFacts
 }
 
 function actionKey(recovery: RecoveryDecision) {
-  if (recovery.recommendation === "auto_retry_once") return "run_incident.action.retry"
+  if (recovery.recommendation === "auto_retry") return "run_incident.action.retry"
   if (recovery.recommendation === "offer_continue") return "run_incident.action.continue"
   if (recovery.recommendation === "offer_resume_with_confirmation") return "run_incident.action.confirm_continue"
   if (recovery.recommendation === "ask_user_before_retry") return "run_incident.action.confirm_retry"

@@ -1,5 +1,11 @@
 import { allowsBeforeProgressRetry as boundaryAllowsBeforeProgressRetry } from "../run-observability/boundary"
+import { RETRY_INITIAL_DELAY, SAFE_RECOVERY_MAX_ATTEMPTS } from "../retry"
 import type { IncidentFacts, RecoveryDecision, TerminalCause } from "./types"
+
+const SAFE_RECOVERY_AUTO_RETRY = {
+  max_attempts: SAFE_RECOVERY_MAX_ATTEMPTS,
+  backoff_ms: RETRY_INITIAL_DELAY,
+} as const
 
 export function recoveryFor(input: {
   cause: TerminalCause
@@ -35,10 +41,10 @@ export function recoveryFor(input: {
   ) {
     return {
       ...base,
-      recommendation: "auto_retry_once",
+      recommendation: "auto_retry",
       confidence: "high",
       reason: "no_visible_output_or_tool_execution",
-      auto_retry: { max_attempts: 1, backoff_ms: 1_000 },
+      auto_retry: SAFE_RECOVERY_AUTO_RETRY,
     }
   }
   if (isBeforeFirstProviderProgressCause(input.cause) && beforeProgressBoundaryEvidenceBlocksRetry(terminalFacts)) {
@@ -60,10 +66,10 @@ export function recoveryFor(input: {
   ) {
     return {
       ...base,
-      recommendation: "auto_retry_once",
+      recommendation: "auto_retry",
       confidence: "high",
       reason: "reasoning_only_without_final_text_or_tool_activity",
-      auto_retry: { max_attempts: 1, backoff_ms: 1_000 },
+      auto_retry: SAFE_RECOVERY_AUTO_RETRY,
     }
   }
   if (!terminalFacts.side_effect_facts_complete) {
@@ -147,10 +153,10 @@ export function recoveryFor(input: {
   if (retryableTransport) {
     return {
       ...base,
-      recommendation: "auto_retry_once",
+      recommendation: "auto_retry",
       confidence: "medium",
       reason: "no_visible_output_or_tool_execution",
-      auto_retry: { max_attempts: 1, backoff_ms: 1_000 },
+      auto_retry: SAFE_RECOVERY_AUTO_RETRY,
     }
   }
   return { ...base, recommendation: "unknown", confidence: "low", reason: "unknown" }
