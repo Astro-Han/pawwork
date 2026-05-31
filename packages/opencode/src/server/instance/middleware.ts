@@ -27,7 +27,7 @@ async function getSessionWorkspace(url: URL) {
   return session?.workspaceID
 }
 
-async function provideLocalWorkspaceContext<R>(input: {
+function provideLocalWorkspaceContext<R>(input: {
   directory: string
   workspaceID?: WorkspaceID
   request: RequestContextSnapshot
