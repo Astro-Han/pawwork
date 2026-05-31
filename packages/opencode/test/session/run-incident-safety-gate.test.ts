@@ -43,6 +43,28 @@ describe("run incident safety gate", () => {
     })
   })
 
+  test("allows replays across a multi-attempt budget and blocks once exhausted", () => {
+    const recovery = {
+      ...base,
+      recommendation: "auto_retry_once",
+      reason: "no_visible_output_or_tool_execution",
+      auto_retry: { max_attempts: 3, backoff_ms: 2_000 },
+    } as const
+
+    for (const safeRecoveryAttempt of [0, 1, 2]) {
+      expect(RunIncident.evaluateReplaySafety({ recovery, safeRecoveryAttempt })).toMatchObject({
+        canReplay: true,
+        recoveryMode: "replay",
+      })
+    }
+
+    expect(RunIncident.evaluateReplaySafety({ recovery, safeRecoveryAttempt: 3 })).toMatchObject({
+      canReplay: false,
+      recoveryMode: "auto_replay_blocked",
+      blockedReason: "safe_recovery_budget_exhausted",
+    })
+  })
+
   test("keeps visible-output recovery as continuation instead of replay", () => {
     const decision = RunIncident.evaluateReplaySafety({
       recovery: {

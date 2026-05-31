@@ -387,6 +387,8 @@ attemptTimeoutIt.live("reasoning connect watchdog is attempt-scoped for before-p
         expect(capturedAttemptConnectTimeouts).toEqual([
           SessionProcessor.REASONING_FIRST_ATTEMPT_CONNECT_TIMEOUT_MS,
           SessionProcessor.REASONING_SAFE_RETRY_CONNECT_TIMEOUT_MS,
+          SessionProcessor.REASONING_SAFE_RETRY_CONNECT_TIMEOUT_MS,
+          SessionProcessor.REASONING_SAFE_RETRY_CONNECT_TIMEOUT_MS,
         ])
         expect(retryStatus).toMatchObject({
           type: "retry",
@@ -401,6 +403,14 @@ attemptTimeoutIt.live("reasoning connect watchdog is attempt-scoped for before-p
           },
           {
             attempt_index: 2,
+            connect_timeout_ms: SessionProcessor.REASONING_SAFE_RETRY_CONNECT_TIMEOUT_MS,
+          },
+          {
+            attempt_index: 3,
+            connect_timeout_ms: SessionProcessor.REASONING_SAFE_RETRY_CONNECT_TIMEOUT_MS,
+          },
+          {
+            attempt_index: 4,
             connect_timeout_ms: SessionProcessor.REASONING_SAFE_RETRY_CONNECT_TIMEOUT_MS,
           },
         ])
@@ -435,7 +445,11 @@ attemptTimeoutIt.live("reasoning connect watchdog is attempt-scoped for before-p
         expect(capturedAttemptConnectTimeouts).toEqual([
           SessionProcessor.REASONING_FIRST_ATTEMPT_CONNECT_TIMEOUT_MS,
           SessionProcessor.REASONING_SAFE_RETRY_CONNECT_TIMEOUT_MS,
+          SessionProcessor.REASONING_SAFE_RETRY_CONNECT_TIMEOUT_MS,
+          SessionProcessor.REASONING_SAFE_RETRY_CONNECT_TIMEOUT_MS,
           SessionProcessor.REASONING_FIRST_ATTEMPT_CONNECT_TIMEOUT_MS,
+          SessionProcessor.REASONING_SAFE_RETRY_CONNECT_TIMEOUT_MS,
+          SessionProcessor.REASONING_SAFE_RETRY_CONNECT_TIMEOUT_MS,
           SessionProcessor.REASONING_SAFE_RETRY_CONNECT_TIMEOUT_MS,
         ])
       }),
@@ -544,6 +558,8 @@ attemptTimeoutIt.live("reasoning first attempt uses fast timeout with unclassifi
         expect(value).toBe("stop")
         expect(capturedAttemptConnectTimeouts).toEqual([
           SessionProcessor.REASONING_FIRST_ATTEMPT_CONNECT_TIMEOUT_MS,
+          SessionProcessor.REASONING_SAFE_RETRY_CONNECT_TIMEOUT_MS,
+          SessionProcessor.REASONING_SAFE_RETRY_CONNECT_TIMEOUT_MS,
           SessionProcessor.REASONING_SAFE_RETRY_CONNECT_TIMEOUT_MS,
         ])
         expect(parts.some((part) => part.type === "notice" && part.kind === "safe_retry_failed")).toBe(true)
@@ -1268,7 +1284,7 @@ it.live("session.processor effect tests retry recognized structured json errors"
   ),
 )
 
-it.live("retryable API errors write a safe retry notice after one recovery retry", () =>
+it.live("retryable API errors write a safe retry notice after the recovery retries are exhausted", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>
       Effect.gen(function* () {
@@ -1276,7 +1292,9 @@ it.live("retryable API errors write a safe retry notice after one recovery retry
 
         yield* llm.error(503, { error: "temporarily unavailable" })
         yield* llm.error(503, { error: "still unavailable" })
-        yield* llm.text("third attempt should not run")
+        yield* llm.error(503, { error: "still unavailable" })
+        yield* llm.error(503, { error: "still unavailable" })
+        yield* llm.text("recovered attempt should not run")
 
         const chat = yield* session.create({})
         const parent = yield* user(chat.id, "retry api twice")
@@ -1308,12 +1326,12 @@ it.live("retryable API errors write a safe retry notice after one recovery retry
         const parts = MessageV2.parts(msg.id)
 
         expect(value).toBe("stop")
-        expect(yield* llm.calls).toBe(2)
-        expect(parts.some((part) => part.type === "text" && part.text === "third attempt should not run")).toBe(false)
+        expect(yield* llm.calls).toBe(4)
+        expect(parts.some((part) => part.type === "text" && part.text === "recovered attempt should not run")).toBe(false)
         expect(parts.some((part) => part.type === "notice" && part.kind === "safe_retry_failed")).toBe(true)
         expect(handle.message.error).toBeUndefined()
-        expect(handle.message.diagnostics?.run_observability?.attempts).toHaveLength(2)
-        expect(handle.message.diagnostics?.run_observability?.recovered_incidents).toHaveLength(1)
+        expect(handle.message.diagnostics?.run_observability?.attempts).toHaveLength(4)
+        expect(handle.message.diagnostics?.run_observability?.recovered_incidents).toHaveLength(3)
       }),
     { git: true, config: (url) => providerCfg(url) },
   ),
@@ -1505,7 +1523,7 @@ it.live("connect timeout auto retry stops if lifecycle closes during backoff", (
         })
         yield* Effect.promise(() =>
           withLifecycleCloseAction([path.resolve(dir)], action, async () => {
-            await Bun.sleep(1_200)
+            await Bun.sleep(3_000)
           }),
         )
         const value = yield* Fiber.join(run)
@@ -1955,13 +1973,13 @@ it.live("reasoning-only failure with a provider-executed tool does not auto retr
   ),
 )
 
-it.live("reasoning-only retry writes a notice after the one safe retry is exhausted", () =>
+it.live("reasoning-only retry writes a notice after the safe retries are exhausted", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>
       Effect.gen(function* () {
         const { processors, session, provider } = yield* boot()
 
-        for (const suffix of ["first", "second"]) {
+        for (const suffix of ["first", "second", "third", "fourth"]) {
           yield* llm.push(
             raw({
               head: [
@@ -1988,7 +2006,7 @@ it.live("reasoning-only retry writes a notice after the one safe retry is exhaus
             }),
           )
         }
-        yield* llm.text("third attempt should not run")
+        yield* llm.text("recovered attempt should not run")
 
         const chat = yield* session.create({})
         const parent = yield* user(chat.id, "reasoning retry fails twice")
@@ -2025,12 +2043,12 @@ it.live("reasoning-only retry writes a notice after the one safe retry is exhaus
         const parts = MessageV2.parts(msg.id)
 
         expect(value).toBe("stop")
-        expect(yield* llm.calls).toBe(2)
+        expect(yield* llm.calls).toBe(4)
         expect(parts.some((part) => part.type === "reasoning")).toBe(false)
-        expect(parts.some((part) => part.type === "text" && part.text === "third attempt should not run")).toBe(false)
+        expect(parts.some((part) => part.type === "text" && part.text === "recovered attempt should not run")).toBe(false)
         expect(parts.some((part) => part.type === "notice" && part.kind === "safe_retry_failed")).toBe(true)
         expect(handle.message.error).toBeUndefined()
-        expect(handle.message.diagnostics?.run_observability?.recovered_incidents).toHaveLength(1)
+        expect(handle.message.diagnostics?.run_observability?.recovered_incidents).toHaveLength(3)
       }),
     { git: true, config: (url) => providerCfg(url) },
   ),
@@ -2679,6 +2697,8 @@ it.live("connect timeout writes a safe retry notice and flips session_status idl
 
         yield* llm.hang
         yield* llm.hang
+        yield* llm.hang
+        yield* llm.hang
 
         const chat = yield* session.create({})
         const parent = yield* user(chat.id, "bad model")
@@ -2714,7 +2734,7 @@ it.live("connect timeout writes a safe retry notice and flips session_status idl
         const state = yield* sts.get(chat.id)
 
         expect(result).toBe("stop")
-        expect(yield* llm.calls).toBe(2)
+        expect(yield* llm.calls).toBe(4)
         expect(handle.message.error).toBeUndefined()
         expect(parts.some((part) => part.type === "notice" && part.kind === "safe_retry_failed")).toBe(true)
         expect(stored.info.role).toBe("assistant")

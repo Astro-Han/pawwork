@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import type { NamedError } from "@opencode-ai/util/error"
 import { APICallError } from "ai"
 import { setTimeout as sleep } from "node:timers/promises"
-import { Effect, Exit, Pull, Schedule } from "effect"
+import { Clock, Effect, Exit, Pull, Schedule } from "effect"
 import { SessionRetry } from "../../src/session/retry"
 import { MessageV2 } from "../../src/session/message-v2"
 import { ProviderID } from "../../src/provider/schema"
@@ -171,7 +171,7 @@ describe("session.retry.delay", () => {
     })
   })
 
-  test("safe recovery policy stops after the one replay budget is exhausted", async () => {
+  test("safe recovery policy uses exponential backoff across the replay budget then stops", async () => {
     const statuses: Array<{
       attempt: number
       message: string
@@ -180,6 +180,8 @@ describe("session.retry.delay", () => {
       reason: "network_connection_dropped"
     }> = []
 
+    const observedWaits: number[] = []
+
     const exit = await Effect.runPromise(
       Effect.gen(function* () {
         const step = yield* Schedule.toStepWithMetadata(
@@ -187,7 +189,15 @@ describe("session.retry.delay", () => {
             set: (info) => Effect.sync(() => statuses.push(info)),
           }),
         )
-        yield* step(undefined)
+        // Exhaust the full budget of automatic replays, capturing the scheduled
+        // wait for each one. info.next is `now + delay(attempt)`, so subtracting
+        // the clock reading taken just before the step recovers the backoff.
+        for (let attempt = 0; attempt < SessionRetry.SAFE_RECOVERY_MAX_ATTEMPTS; attempt++) {
+          const before = yield* Clock.currentTimeMillis
+          yield* step(undefined)
+          observedWaits.push(statuses[statuses.length - 1]!.next - before)
+        }
+        // The next step exceeds the budget and must terminate the schedule.
         return yield* Effect.exit(step(undefined))
       }),
     )
@@ -196,14 +206,28 @@ describe("session.retry.delay", () => {
     if (Exit.isFailure(exit)) {
       expect(Pull.isDoneCause(exit.cause)).toBe(true)
     }
-    expect(statuses).toHaveLength(1)
-    expect(statuses[0]).toMatchObject({
-      attempt: 1,
-      message: "",
-      presentation: "recovery",
-      reason: "network_connection_dropped",
+    expect(statuses).toHaveLength(SessionRetry.SAFE_RECOVERY_MAX_ATTEMPTS)
+    expect(statuses.map((status) => status.attempt)).toEqual([1, 2, 3])
+    // Backoff reuses the API-path delay(): 2s -> 4s -> 8s. The monotonic clock can
+    // only add to the gap, so each observed wait is at least the scheduled backoff
+    // and comfortably under the next step up.
+    const expectedBackoff = [SessionRetry.delay(1), SessionRetry.delay(2), SessionRetry.delay(3)]
+    expect(expectedBackoff).toEqual([2000, 4000, 8000])
+    observedWaits.forEach((wait, index) => {
+      expect(wait).toBeGreaterThanOrEqual(expectedBackoff[index]!)
+      expect(wait).toBeLessThan(expectedBackoff[index]! + 1000)
     })
-  })
+    expect(
+      statuses.every(
+        (status) =>
+          status.message === "" &&
+          status.presentation === "recovery" &&
+          status.reason === "network_connection_dropped",
+      ),
+    ).toBe(true)
+    // This exercises the real schedule, so it waits the full 2s + 4s + 8s backoff.
+    // Override Bun's 5s default timeout to keep it green on focused runs and CI.
+  }, 20_000)
 
   test("policy stops retrying after the configured max attempts", async () => {
     const attempts: number[] = []

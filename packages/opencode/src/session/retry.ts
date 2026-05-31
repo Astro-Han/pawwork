@@ -15,8 +15,7 @@ export const RETRY_BACKOFF_FACTOR = 2
 export const RETRY_MAX_DELAY_NO_HEADERS = 30_000 // 30 seconds
 export const RETRY_MAX_DELAY = 2_147_483_647 // max 32-bit signed integer for setTimeout
 export const RETRY_MAX_ATTEMPTS = 10
-export const SAFE_RECOVERY_REPLAY_DELAY = 1_000
-export const SAFE_RECOVERY_MAX_ATTEMPTS = 1
+export const SAFE_RECOVERY_MAX_ATTEMPTS = 3
 
 function cap(ms: number) {
   return Math.min(ms, RETRY_MAX_DELAY)
@@ -190,15 +189,17 @@ export function safeRecoveryPolicy(opts: {
     Effect.succeed((meta: Schedule.InputMetadata<unknown>) => {
       if (meta.attempt > SAFE_RECOVERY_MAX_ATTEMPTS) return Cause.done(meta.attempt)
       return Effect.gen(function* () {
+        // Reuse the API-path backoff schedule: 2s -> 4s -> 8s, capped at 30s.
+        const wait = delay(meta.attempt)
         const now = yield* Clock.currentTimeMillis
         yield* opts.set({
           attempt: meta.attempt,
           message: "",
-          next: now + SAFE_RECOVERY_REPLAY_DELAY,
+          next: now + wait,
           presentation: "recovery",
           reason: "network_connection_dropped",
         })
-        return [meta.attempt, Duration.millis(SAFE_RECOVERY_REPLAY_DELAY)] as [number, Duration.Duration]
+        return [meta.attempt, Duration.millis(wait)] as [number, Duration.Duration]
       })
     }),
   )

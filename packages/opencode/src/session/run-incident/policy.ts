@@ -38,7 +38,7 @@ export function recoveryFor(input: {
       recommendation: "auto_retry_once",
       confidence: "high",
       reason: "no_visible_output_or_tool_execution",
-      auto_retry: { max_attempts: 1, backoff_ms: 1_000 },
+      auto_retry: { max_attempts: 3, backoff_ms: 2_000 },
     }
   }
   if (isBeforeFirstProviderProgressCause(input.cause) && beforeProgressBoundaryEvidenceBlocksRetry(terminalFacts)) {
@@ -63,7 +63,7 @@ export function recoveryFor(input: {
       recommendation: "auto_retry_once",
       confidence: "high",
       reason: "reasoning_only_without_final_text_or_tool_activity",
-      auto_retry: { max_attempts: 1, backoff_ms: 1_000 },
+      auto_retry: { max_attempts: 3, backoff_ms: 2_000 },
     }
   }
   if (!terminalFacts.side_effect_facts_complete) {
@@ -150,7 +150,7 @@ export function recoveryFor(input: {
       recommendation: "auto_retry_once",
       confidence: "medium",
       reason: "no_visible_output_or_tool_execution",
-      auto_retry: { max_attempts: 1, backoff_ms: 1_000 },
+      auto_retry: { max_attempts: 3, backoff_ms: 2_000 },
     }
   }
   return { ...base, recommendation: "unknown", confidence: "low", reason: "unknown" }
