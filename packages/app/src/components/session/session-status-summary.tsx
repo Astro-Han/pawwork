@@ -1,6 +1,7 @@
 import { For, Show, createMemo, type Accessor, type JSX } from "solid-js"
 import { TodoStatusMarker } from "@opencode-ai/ui/todo-status-marker"
 import { Icon } from "@opencode-ai/ui/icon"
+import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import type { Part, VcsInfo } from "@opencode-ai/sdk/v2"
 import { useLanguage } from "@/context/language"
@@ -183,29 +184,34 @@ function ArtifactRow(props: {
   })
 
   return (
-    <div class="group flex items-center gap-2 py-1.5">
-      <Icon name="review" class="shrink-0 text-fg-weak" />
-      <span class="min-w-0 flex-1 truncate text-body text-fg-base" title={props.file.path}>
+    <div
+      class="group grid h-[30px] items-center gap-[var(--space-sm)] px-3 transition-colors hover:bg-[var(--row-hover-overlay)]"
+      style={{ "grid-template-columns": "16px minmax(0, 1fr) max-content" }}
+    >
+      <Icon name="review" class="size-4 shrink-0 text-fg-weak" />
+      <span class="min-w-0 truncate text-body leading-[var(--line-height-h3)] text-fg-strong" title={props.file.path}>
         {filename()}
       </span>
-      <div class="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-        <button
-          type="button"
-          class="flex size-6 items-center justify-center rounded text-fg-weak hover:bg-surface-raised hover:text-fg-strong"
-          onClick={props.onOpen}
-          title={language.t("status.summary.artifact.open")}
-        >
-          <Icon name="open-file" />
-        </button>
-        <button
-          type="button"
-          class="flex size-6 items-center justify-center rounded text-fg-weak hover:bg-surface-raised hover:text-fg-strong"
-          onClick={props.onReveal}
-          title={language.t("status.summary.artifact.reveal")}
-        >
-          <Icon name="folder" />
-        </button>
-      </div>
+      <span class="relative flex items-center justify-end">
+        <span class="inline-flex items-center gap-1 opacity-0 transition-[opacity] group-hover:opacity-100 group-focus-within:opacity-100">
+          <Tooltip value={language.t("status.summary.artifact.open")} placement="top">
+            <IconButton
+              icon="open-file"
+              aria-label={language.t("status.summary.artifact.open")}
+              onClick={props.onOpen}
+              class="!size-[26px] !rounded-[var(--radius-md)] hover:!bg-[var(--row-active-overlay)]"
+            />
+          </Tooltip>
+          <Tooltip value={language.t("status.summary.artifact.reveal")} placement="top">
+            <IconButton
+              icon="folder-add-left"
+              aria-label={language.t("status.summary.artifact.reveal")}
+              onClick={props.onReveal}
+              class="!size-[26px] !rounded-[var(--radius-md)] hover:!bg-[var(--row-active-overlay)]"
+            />
+          </Tooltip>
+        </span>
+      </span>
     </div>
   )
 }
