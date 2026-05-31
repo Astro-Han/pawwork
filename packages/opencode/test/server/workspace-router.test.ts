@@ -1,17 +1,22 @@
 import { $ } from "bun"
 import { afterAll, afterEach, describe, expect, spyOn, test } from "bun:test"
 import { Effect } from "effect"
+import fs from "fs/promises"
+import { Hono } from "hono"
 import path from "path"
 import { pathToFileURL } from "url"
 import { eq } from "../../src/storage/db"
+import { WorkspaceContext } from "../../src/control-plane/workspace-context"
 import { Instance } from "../../src/project/instance"
 import { Plugin } from "../../src/plugin"
 import { Server } from "../../src/server/server"
+import { WorkspaceRouterMiddleware } from "../../src/server/instance/middleware"
 import { WorkspaceID } from "../../src/control-plane/schema"
 import { Workspace } from "../../src/control-plane/workspace"
 import { WorkspaceTable } from "../../src/control-plane/workspace.sql"
 import { Database } from "../../src/storage/db"
 import { Log } from "@opencode-ai/core/util/log"
+import { currentRequestContext } from "../../src/server/request-context"
 import { resetDatabase } from "../fixture/db"
 import { tmpdir } from "../fixture/fixture"
 import { Session } from "../../src/session"
@@ -205,6 +210,81 @@ async function pluginProject() {
 }
 
 describe("workspace router", () => {
+  test("provides instance and request context for no-workspace local routes", async () => {
+    await using tmp = await tmpdir()
+    const app = new Hono()
+    app.use(WorkspaceRouterMiddleware(() => undefined as never))
+    app.get("/context", (c) =>
+      c.json({
+        directory: Instance.current.directory,
+        request: currentRequestContext(),
+      }),
+    )
+
+    const response = await app.request(`/context?directory=${encodeURIComponent(tmp.path)}`, {
+      headers: {
+        "x-pawwork-client-action-id": "client-action-workspace-router",
+        "x-pawwork-client-action-kind": "project.git.init",
+      },
+    })
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.directory).toBe(tmp.path)
+    expect(body.request).toMatchObject({
+      method: "GET",
+      path: "/context",
+      client_action: {
+        id: "client-action-workspace-router",
+        kind: "project.git.init",
+      },
+    })
+    expect(JSON.stringify(body.request)).not.toContain(tmp.path)
+  })
+
+  test("provides target instance, workspace, and request context for local workspace routes", async () => {
+    await using tmp = await tmpdir()
+    const space = path.join(tmp.path, "space")
+    await fs.mkdir(space, { recursive: true })
+    const plugin = await writeLocalWorkspacePlugin({ dir: tmp.path, directory: space })
+    const workspace = await createLocalWorkspace({ directory: tmp.path, type: plugin.type })
+    await Instance.disposeAll()
+
+    const app = new Hono()
+    app.use(WorkspaceRouterMiddleware(() => undefined as never))
+    app.get("/context", (c) =>
+      c.json({
+        directory: Instance.current.directory,
+        workspaceID: WorkspaceContext.workspaceID,
+        request: currentRequestContext(),
+      }),
+    )
+
+    const response = await app.request(`/context?workspace=${workspace.id}`, {
+      headers: {
+        "x-opencode-directory": tmp.path,
+        "x-pawwork-client-action-id": "client-action-local-workspace",
+        "x-pawwork-client-action-kind": "project.git.init",
+      },
+    })
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.directory).toBe(space)
+    expect(body.workspaceID).toBe(workspace.id)
+    expect(body.request).toMatchObject({
+      method: "GET",
+      path: "/context",
+      workspace_id: workspace.id,
+      client_action: {
+        id: "client-action-local-workspace",
+        kind: "project.git.init",
+      },
+    })
+    expect(JSON.stringify(body.request)).not.toContain(tmp.path)
+    expect(JSON.stringify(body.request)).not.toContain(space)
+  })
+
   test("keeps GET session detail routes local while forwarding session status", async () => {
     let remoteHits = 0
     await using remote = Bun.serve({
