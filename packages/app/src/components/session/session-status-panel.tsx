@@ -1,12 +1,10 @@
-import { createMemo, onCleanup, type Accessor } from "solid-js"
+import { createMemo, type Accessor } from "solid-js"
 import { useParams } from "@solidjs/router"
 import type { Part } from "@opencode-ai/sdk/v2"
 import { useGlobalSync } from "@/context/global-sync"
-import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import type { FilesTabEntry } from "@/pages/session/files-tab-state"
 import { aggregateFiles } from "@/pages/session/session-aggregate-files"
-import { isFileWatcherVcsRefreshEvent } from "@/pages/session/use-session-vcs-refresh"
 import { SessionStatusSummary } from "./session-status-summary"
 
 export function SessionStatusPanel(props: {
@@ -16,7 +14,6 @@ export function SessionStatusPanel(props: {
 }) {
   const params = useParams()
   const globalSync = useGlobalSync()
-  const sdk = useSDK()
   const sync = useSync()
 
   const parts = createMemo<Part[]>(() => {
@@ -32,15 +29,7 @@ export function SessionStatusPanel(props: {
     params.id && sync.directory ? globalSync.todoHydrate.isPending(sync.directory, params.id) : false,
   )
 
-  const vcs = () => sync.data.vcs
-
-  const stopVcsRefresh = sdk.event.on("file.watcher.updated", (evt) => {
-    if (!isFileWatcherVcsRefreshEvent(evt)) return
-    void sdk.client.vcs.get().then((res) => {
-      if (res.data) sync.set("vcs", res.data)
-    })
-  })
-  onCleanup(stopVcsRefresh)
+  const vcs = createMemo(() => sync.data.vcs)
 
   const activeWorktree = createMemo(() => {
     if (!params.id) return undefined

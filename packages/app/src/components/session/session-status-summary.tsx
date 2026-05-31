@@ -102,8 +102,6 @@ function GitSection(props: {
     return stats.additions > 0 || stats.deletions > 0
   })
 
-  const branch = createMemo(() => props.activeWorktree()?.branch ?? props.vcs()?.branch)
-
   const worktreeTooltip = (worktree: ActiveWorktree) => (
     <div class="grid min-w-0 gap-1.5 py-1 text-left">
       <div class="grid min-w-0 grid-cols-[64px_minmax(0,1fr)] items-start gap-3">
@@ -141,10 +139,10 @@ function GitSection(props: {
           </Show>
         </GitRow>
 
-        <Show when={branch()}>
-          {(b) => (
+        <Show when={props.vcs()?.branch}>
+          {(branch) => (
             <GitRow icon="branch">
-              <span class="text-body text-fg-base">{b()}</span>
+              <span class="text-body text-fg-base">{branch()}</span>
             </GitRow>
           )}
         </Show>
