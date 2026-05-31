@@ -567,6 +567,197 @@ describe("tool.bash expected_outputs", () => {
     })
   })
 
+  test("auto-discovers undeclared Office outputs for write-like commands", async () => {
+    await resetDatabase()
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await initBash()
+        const turn = await createTurn()
+        const target = path.join(tmp.path, "Report.DOCX")
+        const marker = path.join(tmp.path, "marker.txt")
+        const script = path.join(tmp.path, "write-office.cjs")
+        await fs.promises.writeFile(
+          script,
+          [
+            "const fs = require('node:fs')",
+            "fs.writeFileSync(process.argv[2], Buffer.from([80,75,3,4,20,6,8,8,8,1,65,66]))",
+          ].join("\n"),
+          "utf-8",
+        )
+        const command = `${PS.has(sh()) ? "& " : ""}${bin} ${quote(script.replaceAll("\\", "/"))} ${quote(target.replaceAll("\\", "/"))} > ${quote(marker.replaceAll("\\", "/"))}`
+        const result = await Effect.runPromise(
+          bash.execute(
+            {
+              command,
+              description: "Create undeclared Office file",
+            },
+            { ...ctx, ...turn },
+          ),
+        )
+
+        expect(result.metadata.exit).toBe(0)
+        expect(
+          (
+            result.metadata as {
+              artifacts?: Array<{ path: string; exists: boolean; changed: boolean; binary?: boolean }>
+            }
+          ).artifacts,
+        ).toEqual([{ path: target, exists: true, changed: true, binary: true }])
+
+        expect(TurnChange.finalize(turn)?.files).toEqual([
+          {
+            path: "Report.DOCX",
+            status: "added",
+            binary: true,
+            restoreAvailable: false,
+            expandable: false,
+          },
+        ])
+      },
+    })
+  })
+
+  test("uses resolved workdir as the Office auto-discovery root", async () => {
+    await resetDatabase()
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await fs.promises.mkdir(path.join(dir, "nested"), { recursive: true })
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await initBash()
+        const turn = await createTurn()
+        const target = path.join(tmp.path, "nested", "Report.XLSX")
+        const script = path.join(tmp.path, "write-office-workdir.cjs")
+        await fs.promises.writeFile(
+          script,
+          "require('node:fs').writeFileSync(process.argv[2], Buffer.from([80,75,3,4,20,6,8,8]))\n",
+          "utf-8",
+        )
+        const command = `${PS.has(sh()) ? "& " : ""}${bin} ${quote(script.replaceAll("\\", "/"))} Report.XLSX > marker.txt`
+        const result = await Effect.runPromise(
+          bash.execute(
+            {
+              command,
+              workdir: "nested",
+              description: "Create workdir Office file",
+            },
+            { ...ctx, ...turn },
+          ),
+        )
+
+        expect(result.metadata.exit).toBe(0)
+        expect(
+          (
+            result.metadata as {
+              artifacts?: Array<{ path: string; exists: boolean; changed: boolean; binary?: boolean }>
+            }
+          ).artifacts,
+        ).toEqual([{ path: target, exists: true, changed: true, binary: true }])
+        expect(TurnChange.finalize(turn)?.files?.[0]).toMatchObject({
+          path: "nested/Report.XLSX",
+          status: "added",
+          binary: true,
+          expandable: false,
+        })
+      },
+    })
+  })
+
+  test("does not auto-capture Office outputs under ignored paths", async () => {
+    await resetDatabase()
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await fs.promises.mkdir(path.join(dir, "node_modules"), { recursive: true })
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await initBash()
+        const turn = await createTurn()
+        const target = path.join(tmp.path, "node_modules", "hidden.docx")
+        const script = path.join(tmp.path, "write-ignored-office.cjs")
+        await fs.promises.writeFile(
+          script,
+          "require('node:fs').writeFileSync(process.argv[2], Buffer.from([80,75,3,4,20,6,8,8]))\n",
+          "utf-8",
+        )
+        const command = `${PS.has(sh()) ? "& " : ""}${bin} ${quote(script.replaceAll("\\", "/"))} ${quote(target.replaceAll("\\", "/"))} > ${quote(path.join(tmp.path, "marker.txt").replaceAll("\\", "/"))}`
+        const result = await Effect.runPromise(
+          bash.execute(
+            {
+              command,
+              description: "Create ignored Office file",
+            },
+            { ...ctx, ...turn },
+          ),
+        )
+
+        expect(result.metadata.exit).toBe(0)
+        expect((result.metadata as { artifacts?: unknown[] }).artifacts).toBeUndefined()
+        expect(TurnChange.finalize(turn)).toBeUndefined()
+        expect(
+          TurnChange.aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
+        ).toMatchObject({
+          kind: "uncaptured",
+          count: 1,
+        })
+      },
+    })
+  })
+
+  test("records uncaptured when Office auto-discovery exceeds traversal budget", async () => {
+    await resetDatabase()
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Promise.all(
+          Array.from({ length: 505 }, (_, index) =>
+            fs.promises.writeFile(path.join(dir, `existing-${index}.txt`), "x", "utf-8"),
+          ),
+        )
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await initBash()
+        const turn = await createTurn()
+        const target = path.join(tmp.path, "budget-report.docx")
+        const script = path.join(tmp.path, "write-budget-office.cjs")
+        await fs.promises.writeFile(
+          script,
+          "require('node:fs').writeFileSync(process.argv[2], Buffer.from([80,75,3,4,20,6,8,8]))\n",
+          "utf-8",
+        )
+        const command = `${PS.has(sh()) ? "& " : ""}${bin} ${quote(script.replaceAll("\\", "/"))} ${quote(target.replaceAll("\\", "/"))} > ${quote(path.join(tmp.path, "marker.txt").replaceAll("\\", "/"))}`
+        const result = await Effect.runPromise(
+          bash.execute(
+            {
+              command,
+              description: "Create Office file over budget",
+            },
+            { ...ctx, ...turn },
+          ),
+        )
+
+        expect(result.metadata.exit).toBe(0)
+        expect((result.metadata as { artifacts?: unknown[] }).artifacts).toBeUndefined()
+        expect(TurnChange.finalize(turn)).toBeUndefined()
+        expect(
+          TurnChange.aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
+        ).toMatchObject({
+          kind: "uncaptured",
+          count: 1,
+        })
+      },
+    })
+  })
+
   test("does not record uncaptured marker for read-only command without expected_outputs", async () => {
     await resetDatabase()
     await using tmp = await tmpdir()

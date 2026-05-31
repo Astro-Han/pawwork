@@ -9,6 +9,7 @@ const writeCommands = new Set([
   "make",
   "mkdir",
   "mv",
+  "officecli",
   "patch",
   "rm",
   "rmdir",
