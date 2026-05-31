@@ -18,7 +18,7 @@ import { LLM } from "../../src/session/llm"
 import { MessageV2 } from "../../src/session/message-v2"
 import { SessionProcessor } from "../../src/session/processor"
 import { SessionDiagnostics } from "../../src/session/diagnostics"
-import { beginLifecycleClose, createLifecycleCloseAction, withLifecycleCloseAction } from "../../src/session/lifecycle-provenance"
+import { beginLifecycleClose, closingStartWaiterCount, createLifecycleCloseAction, withLifecycleCloseAction } from "../../src/session/lifecycle-provenance"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { SessionStatus } from "../../src/session/status"
 import { SessionSummary } from "../../src/session/summary"
@@ -1612,6 +1612,54 @@ it.live("maintenance lifecycle close during backoff interrupts safe recovery", (
         if (stored?.info.role === "assistant") {
           expect(stored.info.error?.data.message).toContain("lifecycle close")
         }
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
+it.live("lifecycle close waiter is cleaned up after normal backoff completion", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+
+        yield* llm.hang
+        yield* llm.hang
+        yield* llm.hang
+        yield* llm.hang
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "waiter cleanup check")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const before = closingStartWaiterCount()
+        yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "waiter cleanup check" }],
+          tools: {},
+          connectTimeoutMs: 20,
+          streamTimeoutMs: 1_000,
+        })
+
+        expect(closingStartWaiterCount()).toBe(before)
       }),
     { git: true, config: (url) => providerCfg(url) },
   ),

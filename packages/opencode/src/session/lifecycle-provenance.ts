@@ -148,13 +148,25 @@ export function isLifecycleClosing(directory: string): boolean {
   return (closingByDirectory.get(directory) ?? 0) > 0
 }
 
-export function whenLifecycleCloseBegins(directory: string): Promise<void> {
+export function whenLifecycleCloseBegins(directory: string): { promise: Promise<void>; cancel: () => void } {
   if (isLifecycleClosing(directory) || currentLifecycleCloseAction(directory)) {
-    return Promise.resolve()
+    return { promise: Promise.resolve(), cancel: () => {} }
   }
-  return new Promise<void>((resolve) => {
-    closingStartWaiters.add({ directory, resolve })
+  const waiter = { directory, resolve: () => {} }
+  const promise = new Promise<void>((resolve) => {
+    waiter.resolve = resolve
   })
+  closingStartWaiters.add(waiter)
+  return {
+    promise,
+    cancel: () => {
+      closingStartWaiters.delete(waiter)
+    },
+  }
+}
+
+export function closingStartWaiterCount(): number {
+  return closingStartWaiters.size
 }
 
 function notifyClosingStartWaiters(directories: readonly string[]) {

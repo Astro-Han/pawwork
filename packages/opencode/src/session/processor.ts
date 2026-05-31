@@ -1450,9 +1450,11 @@ export const layer: Layer.Layer<
               if (beforeRetry.allowed) {
                 automaticStreamRetriesUsed += 1
                 yield* removeReasoningForAttempt(attemptID)
-                const lifecycleCloseWatch = Effect.promise(() => whenLifecycleCloseBegins(ctx.directory)).pipe(
-                  Effect.as("lifecycle_close" as const),
-                )
+                const lifecycleCloseWatch = Effect.callback<"lifecycle_close">((resume) => {
+                  const handle = whenLifecycleCloseBegins(ctx.directory)
+                  handle.promise.then(() => resume(Effect.succeed("lifecycle_close" as const)))
+                  return Effect.sync(() => handle.cancel())
+                })
                 const backoffResult = yield* Effect.race(
                   safeRecoveryStep(undefined).pipe(Effect.as("scheduled" as const)),
                   lifecycleCloseWatch,
