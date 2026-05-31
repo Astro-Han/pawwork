@@ -142,6 +142,10 @@ function hasLifecycleClose(directories: readonly string[]): boolean {
   return directories.some((directory) => (closingByDirectory.get(directory) ?? 0) > 0)
 }
 
+export function isLifecycleClosing(directory: string): boolean {
+  return (closingByDirectory.get(directory) ?? 0) > 0
+}
+
 function notifyCloseWaiters() {
   for (const waiter of [...closeWaiters]) {
     if (hasLifecycleClose([waiter.directory])) continue
