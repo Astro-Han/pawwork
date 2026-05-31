@@ -39,16 +39,26 @@ export function SessionStatusPanel(props: {
     return exec.activeWorktree
   })
 
+  const aggregatedFiles = createMemo(() =>
+    params.id ? aggregateFiles(sync.data.turn_change_aggregate[params.id]) : [],
+  )
+
   const diffStats = createMemo(() => {
-    if (!params.id) return { additions: 0, deletions: 0 }
-    const files = aggregateFiles(sync.data.turn_change_aggregate[params.id])
     let additions = 0
     let deletions = 0
-    for (const file of files) {
+    for (const file of aggregatedFiles()) {
       additions += file.additions
       deletions += file.deletions
     }
     return { additions, deletions }
+  })
+
+  const diffsByPath = createMemo(() => {
+    const map = new Map<string, { additions: number; deletions: number }>()
+    for (const file of aggregatedFiles()) {
+      map.set(file.file, { additions: file.additions, deletions: file.deletions })
+    }
+    return map
   })
 
   return (
@@ -62,6 +72,7 @@ export function SessionStatusPanel(props: {
         activeWorktree={activeWorktree}
         diffStats={diffStats}
         artifactFiles={props.artifactFiles}
+        diffsByPath={diffsByPath}
         onNavigateReview={props.onNavigateReview}
       />
     </div>

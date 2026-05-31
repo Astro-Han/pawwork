@@ -699,6 +699,7 @@ export const dict = {
   "status.summary.progress.empty": "No todos yet.",
   "status.summary.sources": "Sources",
   "status.summary.sources.empty": "No sources used yet.",
+  "status.summary.sources.open": "Open in browser",
   "status.summary.git": "Workspace",
   "status.summary.git.changes": "Changes",
   "status.summary.git.worktree.open": "Open worktree folder",

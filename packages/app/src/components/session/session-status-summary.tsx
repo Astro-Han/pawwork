@@ -48,11 +48,20 @@ function TodoRow(props: { todo: SessionTodoItem }) {
   )
 }
 
-function SourceRow(props: { url: string }) {
+function SourceRow(props: { url: string; onOpen: (url: string) => void }) {
+  const language = useLanguage()
   return (
-    <div class="flex items-center gap-2 py-1 min-h-[26px]" title={props.url}>
+    <button
+      type="button"
+      data-slot="status-summary-source"
+      class="flex w-full min-h-[26px] items-center gap-2 rounded-md px-2 text-left transition-colors hover:bg-[var(--row-hover-overlay)]"
+      onClick={() => props.onOpen(props.url)}
+      title={props.url}
+      aria-label={`${language.t("status.summary.sources.open")}: ${props.url}`}
+    >
+      <Icon name="square-arrow-top-right" class="shrink-0 text-fg-weak" />
       <span class="text-body text-fg-base truncate min-w-0">{props.url}</span>
-    </div>
+    </button>
   )
 }
 
@@ -75,7 +84,7 @@ function GitRow(props: {
       class="flex w-full items-center gap-2 rounded-md px-2 text-left transition-colors min-h-[30px]"
       classList={{
         "cursor-default": !props.onClick,
-        "hover:bg-surface-raised": !!props.onClick,
+        "hover:bg-[var(--row-hover-overlay)]": !!props.onClick,
       }}
       disabled={!props.onClick}
       onClick={props.onClick}
@@ -177,6 +186,7 @@ function GitSection(props: {
 
 function ArtifactRow(props: {
   file: FilesTabEntry
+  diff?: { additions: number; deletions: number }
   onOpen: () => void
   onReveal: () => void
 }) {
@@ -188,15 +198,24 @@ function ArtifactRow(props: {
 
   return (
     <div
-      class="group grid min-h-[30px] items-center gap-[var(--space-sm)] px-3 rounded-md transition-colors hover:bg-surface-raised"
-      style={{ "grid-template-columns": "16px minmax(0, 1fr) max-content" }}
+      data-slot="status-summary-artifact"
+      class="group grid min-h-[30px] items-center gap-[var(--space-sm)] px-3 rounded-md transition-colors hover:bg-[var(--row-hover-overlay)]"
+      style={{ "grid-template-columns": "16px minmax(0, 1fr) minmax(60px, max-content)" }}
     >
       <Icon name="review" class="size-4 shrink-0 text-fg-weak" />
-      <span class="min-w-0 truncate text-body leading-[var(--line-height-h3)] text-fg-strong" title={props.file.path}>
+      <span class="min-w-0 truncate text-body text-fg-strong" title={props.file.path}>
         {filename()}
       </span>
-      <span class="relative flex items-center justify-end">
-        <span class="inline-flex items-center gap-1 opacity-0 transition-[opacity] group-hover:opacity-100 group-focus-within:opacity-100">
+      <span class="relative inline-flex h-full items-center justify-end">
+        <Show when={props.diff}>
+          {(diff) => (
+            <span class="inline-flex items-baseline gap-2 text-mono-small whitespace-nowrap transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
+              <span class="text-success tabular-nums">+{diff().additions}</span>
+              <span class="text-error tabular-nums">−{diff().deletions}</span>
+            </span>
+          )}
+        </Show>
+        <span class="pointer-events-none absolute inset-0 inline-flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
           <Tooltip value={language.t("status.summary.artifact.open")} placement="top">
             <IconButton
               icon="open-file"
@@ -221,6 +240,7 @@ function ArtifactRow(props: {
 
 function ArtifactSection(props: {
   files: Accessor<FilesTabEntry[]>
+  diffsByPath?: Accessor<Map<string, { additions: number; deletions: number }>>
   onOpenFile: (path: string) => void
   onRevealFile: (path: string) => void
 }) {
@@ -237,6 +257,7 @@ function ArtifactSection(props: {
             {(file) => (
               <ArtifactRow
                 file={file}
+                diff={props.diffsByPath?.().get(file.path)}
                 onOpen={() => props.onOpenFile(file.path)}
                 onReveal={() => props.onRevealFile(file.path)}
               />
@@ -257,6 +278,7 @@ export function SessionStatusSummary(props: {
   activeWorktree?: Accessor<ActiveWorktree | undefined>
   diffStats?: Accessor<{ additions: number; deletions: number }>
   artifactFiles?: Accessor<FilesTabEntry[]>
+  diffsByPath?: Accessor<Map<string, { additions: number; deletions: number }>>
   onNavigateReview?: () => void
 }) {
   const language = useLanguage()
@@ -297,6 +319,10 @@ export function SessionStatusSummary(props: {
     void platform.showItemInFolder(path).catch(() => {})
   }
 
+  const openSource = (url: string) => {
+    platform.openLink(url)
+  }
+
   return (
     <>
       <Show when={snapshot().phase !== "pending"}>
@@ -323,6 +349,7 @@ export function SessionStatusSummary(props: {
         {(files) => (
           <ArtifactSection
             files={files()}
+            diffsByPath={props.diffsByPath}
             onOpenFile={openFile}
             onRevealFile={revealFile}
           />
@@ -332,7 +359,7 @@ export function SessionStatusSummary(props: {
       <Section title={language.t("status.summary.sources")}>
         <Show when={sources().length > 0} fallback={<Empty text={language.t("status.summary.sources.empty")} />}>
           <div class="flex flex-col">
-            <For each={sources()}>{(url) => <SourceRow url={url} />}</For>
+            <For each={sources()}>{(url) => <SourceRow url={url} onOpen={openSource} />}</For>
           </div>
         </Show>
       </Section>

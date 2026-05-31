@@ -633,6 +633,7 @@ export const dict = {
   "status.summary.progress.empty": "还没有待办事项。",
   "status.summary.sources": "来源",
   "status.summary.sources.empty": "还没有使用任何来源。",
+  "status.summary.sources.open": "在浏览器中打开",
   "status.summary.git": "工作区",
   "status.summary.git.changes": "变更",
   "status.summary.git.worktree.open": "打开 worktree 文件夹",
