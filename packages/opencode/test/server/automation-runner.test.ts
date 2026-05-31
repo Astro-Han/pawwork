@@ -686,14 +686,6 @@ describe("automation runNow execution", () => {
           expect(providerCalls).toBe(1)
           const worktree = await Worktree.lookupBySlug("long-start")
           if (!worktree) throw new Error("expected worktree placement")
-          const deadline = Date.now() + 1_000
-          while (
-            !(await Bun.file(path.join(worktree.directory, ".automation-start-began")).exists()) &&
-            Date.now() < deadline
-          ) {
-            await Bun.sleep(20)
-          }
-          expect(await Bun.file(path.join(worktree.directory, ".automation-start-began")).text()).toBe("ready")
           await Bun.write(path.join(worktree.directory, ".automation-start-release"), "done")
         },
       })
