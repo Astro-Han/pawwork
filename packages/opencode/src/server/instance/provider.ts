@@ -1,5 +1,6 @@
 import { Hono } from "hono"
 import { describeRoute, validator, resolver } from "hono-openapi"
+import { Effect } from "effect"
 import z from "zod"
 import { Config } from "../../config/config"
 import { Provider } from "../../provider/provider"
@@ -40,11 +41,18 @@ export const ProviderRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const config = await Config.get()
+        const [config, allProviders, connected] = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const config = yield* Config.Service
+            const provider = yield* Provider.Service
+            return yield* Effect.all([config.get(), Effect.promise(() => ModelsDev.get()), provider.list()], {
+              concurrency: 3,
+            })
+          }),
+        )
         const disabled = new Set(config.disabled_providers ?? [])
         const enabled = config.enabled_providers ? new Set(config.enabled_providers) : undefined
 
-        const allProviders = await ModelsDev.get()
         const filteredProviders: Record<string, (typeof allProviders)[string]> = {}
         for (const [key, value] of Object.entries(allProviders)) {
           if ((enabled ? enabled.has(key) : true) && !disabled.has(key)) {
@@ -52,7 +60,6 @@ export const ProviderRoutes = lazy(() =>
           }
         }
 
-        const connected = await Provider.list()
         const providers = Object.assign(
           mapValues(filteredProviders, (x) => Provider.fromModelsDevProvider(x)),
           connected,
