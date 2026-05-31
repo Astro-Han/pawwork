@@ -159,6 +159,17 @@ describe("Worktree", () => {
       expect(list).not.toContain("daily-brief-")
     })
 
+    test("createReady with exact name rejects names with an empty slug", async () => {
+      await using tmp = await tmpdir({ git: true })
+
+      await expect(withInstance(tmp.path, () => Worktree.createReady({ name: "!!!", exactName: true }))).rejects.toThrow(
+        "WorktreeNameGenerationFailedError",
+      )
+
+      const list = await $`git worktree list --porcelain`.cwd(tmp.path).quiet().text()
+      expect(normalize(list)).not.toContain(normalize(path.join(".worktrees", "pawwork")))
+    })
+
     test("createReady rejects when worktree bootstrap fails", async () => {
       await using tmp = await tmpdir({ git: true })
 

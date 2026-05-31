@@ -76,6 +76,18 @@ async function waitForSucceededRunCount(automationID: string, count: number) {
   throw new Error(`Timed out waiting for ${count} succeeded automation runs`)
 }
 
+async function waitForTerminalRun(automationID: string) {
+  const deadline = Date.now() + 2_000
+  while (Date.now() < deadline) {
+    const run = Automation.runs({ automationID }).items.find((item) =>
+      item.state === "succeeded" || item.state === "failed" || item.state === "stopped"
+    )
+    if (run) return run
+    await Bun.sleep(10)
+  }
+  throw new Error("Timed out waiting for terminal automation run")
+}
+
 function defer<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void
   const promise = new Promise<T>((done) => {
@@ -753,6 +765,88 @@ describe("automation runNow execution", () => {
           if (!latest?.sessionID) throw new Error("expected latest run session")
           const session = await Session.get(latest.sessionID)
           expect(session.executionContext.activeWorktree?.branch).toBe("manual-automation-branch")
+        },
+      })
+    } finally {
+      void server.stop(true)
+    }
+  })
+
+  test("does not release user sessions whose title looks like automation", async () => {
+    let providerCalls = 0
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const url = new URL(req.url)
+        if (!url.pathname.endsWith("/chat/completions")) return new Response("not found", { status: 404 })
+        providerCalls++
+        return Response.json({
+          id: "chatcmpl-1",
+          object: "chat.completion",
+          choices: [{ message: { role: "assistant", content: "done" }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+        })
+      },
+    })
+
+    try {
+      await using tmp = await tmpdir({
+        git: true,
+        init: async (dir) => {
+          await Bun.write(
+            path.join(dir, "opencode.json"),
+            JSON.stringify({
+              $schema: "https://opencode.ai/config.json",
+              enabled_providers: ["alibaba"],
+              provider: {
+                alibaba: {
+                  options: {
+                    apiKey: "test-key",
+                    baseURL: `${server.url.origin}/v1`,
+                  },
+                },
+              },
+              agent: {
+                build: {
+                  model: "alibaba/qwen-plus",
+                },
+              },
+            }),
+          )
+        },
+      })
+
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const worktree = await Worktree.createReady({ name: "daily-brief" })
+          await Bun.write(path.join(worktree.directory, "user-draft.txt"), "keep me\n")
+          const userSession = await Session.create({ title: "Automation: User renamed" })
+          await Session.updateExecutionContext({
+            sessionID: userSession.id,
+            activeWorktree: {
+              directory: worktree.directory,
+              name: worktree.name,
+              branch: worktree.branch,
+              source: worktree.source,
+            },
+          })
+          const definition = Automation.create(
+            input(Instance.project.id, {
+              title: "Respect user binding",
+              where: { projectID: Instance.project.id, worktree: "daily-brief" },
+            }),
+          )
+
+          await Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
+
+          const terminal = await waitForTerminalRun(definition.id)
+          if (terminal.state !== "stopped") throw new Error(`expected stopped run, got ${terminal.state}`)
+          expect(terminal.stopReason).toBe("cancelled")
+          expect(providerCalls).toBe(0)
+          expect(await Bun.file(path.join(worktree.directory, "user-draft.txt")).text()).toBe("keep me\n")
+          const updatedUserSession = await Session.get(userSession.id)
+          expect(updatedUserSession.executionContext.activeWorktree?.name).toBe("daily-brief")
         },
       })
     } finally {

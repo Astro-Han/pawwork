@@ -374,10 +374,14 @@ export namespace Worktree {
           throw new NotGitError({ message: "Worktrees are only supported for git projects" })
         }
 
+        const base = name ? slugify(name) : ""
+        if (exactName && name !== undefined && !base) {
+          throw new NameGenerationFailedError({ message: "Failed to generate a unique worktree name" })
+        }
+
         const root = pathSvc.join(ctx.worktree, ".worktrees", "pawwork")
         yield* fs.makeDirectory(root, { recursive: true }).pipe(Effect.orDie)
 
-        const base = name ? slugify(name) : ""
         return yield* candidate(root, base || undefined, exactName)
       })
 

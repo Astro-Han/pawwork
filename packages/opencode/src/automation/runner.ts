@@ -1,15 +1,37 @@
 import { Effect } from "effect"
 import { Automation } from "."
+import { AutomationRunTable } from "./automation.sql"
+import { Instance } from "@/project/instance"
 import { Session } from "@/session"
 import { SessionPrompt } from "@/session/prompt"
+import { Database, and, eq, sql } from "@/storage/db"
 import { AutomationRunContext, type AutomationRunBlocker } from "./run-context"
 import { Worktree } from "@/worktree"
+
+function isAutomationOwnedSession(sessionID: string) {
+  return Boolean(
+    Database.use((db) =>
+      db
+        .select({ id: AutomationRunTable.id })
+        .from(AutomationRunTable)
+        .where(
+          and(
+            eq(AutomationRunTable.project_id, Instance.project.id),
+            eq(AutomationRunTable.owner_directory, Instance.directory),
+            sql`json_extract(${AutomationRunTable.data}, '$.sessionID') = ${sessionID}`,
+          ),
+        )
+        .limit(1)
+        .get(),
+    ),
+  )
+}
 
 async function releaseAutomationWorktreeBindings(directory: string) {
   for (let attempt = 0; attempt < 20; attempt++) {
     const binding = await Session.findActiveWorktreeBinding(directory)
     if (!binding) return
-    if (!binding.title.startsWith("Automation: ")) return
+    if (!isAutomationOwnedSession(binding.id)) return
     await Session.updateExecutionContext({ sessionID: binding.id, activeWorktree: null })
   }
 }
