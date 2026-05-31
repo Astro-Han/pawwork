@@ -168,7 +168,7 @@ export type MaterializedToolBoundary = {
 
 export type RecoveryDecision = {
   recommendation:
-    | "auto_retry_once"
+    | "auto_retry"
     | "offer_continue"
     | "offer_resume_with_confirmation"
     | "ask_user_before_retry"

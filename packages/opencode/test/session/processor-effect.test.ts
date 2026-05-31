@@ -565,7 +565,7 @@ attemptTimeoutIt.live("reasoning first attempt uses fast timeout with unclassifi
         expect(parts.some((part) => part.type === "notice" && part.kind === "safe_retry_failed")).toBe(true)
         expect(handle.message.error).toBeUndefined()
         expect(handle.message.diagnostics?.run_observability?.recovered_incidents?.[0]?.recovery).toMatchObject({
-          recommendation: "auto_retry_once",
+          recommendation: "auto_retry",
           reason: "no_visible_output_or_tool_execution",
         })
       }),
@@ -1449,7 +1449,7 @@ it.live("connect timeout before provider progress auto retries once and succeeds
             subcategory: "connect",
           })
           expect(observability?.recovered_incidents?.[0]?.recovery).toMatchObject({
-            recommendation: "auto_retry_once",
+            recommendation: "auto_retry",
             reason: "no_visible_output_or_tool_execution",
           })
           expect(observability?.attempts).toHaveLength(2)
@@ -1682,7 +1682,7 @@ it.live("disabled unknown tools do not block safe connect-timeout auto retry", (
             proof_result: "complete",
           })
           expect(stored.info.diagnostics?.run_observability?.recovered_incidents?.[0]?.recovery).toMatchObject({
-            recommendation: "auto_retry_once",
+            recommendation: "auto_retry",
             reason: "no_visible_output_or_tool_execution",
           })
         }
@@ -1784,7 +1784,7 @@ it.live("reasoning-only retry removes failed reasoning before replaying the assi
         if (stored?.info.role === "assistant") {
           expect(stored.info.error).toBeUndefined()
           expect(stored.info.diagnostics?.run_observability?.recovered_incidents?.[0]?.recovery).toMatchObject({
-            recommendation: "auto_retry_once",
+            recommendation: "auto_retry",
             reason: "reasoning_only_without_final_text_or_tool_activity",
           })
         }

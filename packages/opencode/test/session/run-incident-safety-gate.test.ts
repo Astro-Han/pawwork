@@ -11,7 +11,7 @@ describe("run incident safety gate", () => {
     const decision = RunIncident.evaluateReplaySafety({
       recovery: {
         ...base,
-        recommendation: "auto_retry_once",
+        recommendation: "auto_retry",
         reason: "reasoning_only_without_final_text_or_tool_activity",
         auto_retry: { max_attempts: 1, backoff_ms: 1_000 },
       },
@@ -29,7 +29,7 @@ describe("run incident safety gate", () => {
     const decision = RunIncident.evaluateReplaySafety({
       recovery: {
         ...base,
-        recommendation: "auto_retry_once",
+        recommendation: "auto_retry",
         reason: "no_visible_output_or_tool_execution",
         auto_retry: { max_attempts: 1, backoff_ms: 1_000 },
       },
@@ -46,7 +46,7 @@ describe("run incident safety gate", () => {
   test("allows replays across a multi-attempt budget and blocks once exhausted", () => {
     const recovery = {
       ...base,
-      recommendation: "auto_retry_once",
+      recommendation: "auto_retry",
       reason: "no_visible_output_or_tool_execution",
       auto_retry: { max_attempts: 3, backoff_ms: 2_000 },
     } as const

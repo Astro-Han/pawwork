@@ -131,7 +131,7 @@ describe("RunObservability", () => {
 
     const summary = recorder.finalize({ completedAt: 131, monotonicMs: 231 })
     expect(decision).toMatchObject({
-      recommendation: "auto_retry_once",
+      recommendation: "auto_retry",
       reason: "no_visible_output_or_tool_execution",
     })
     expect(summary.incident?.terminal_cause).toMatchObject({
@@ -240,7 +240,7 @@ describe("RunObservability", () => {
 
     expect(summary.recovery_decision).toMatchObject({
       technical_retryable: true,
-      safety_gate_recommendation: "auto_retry_once",
+      safety_gate_recommendation: "auto_retry",
       safety_gate_reason: "no_visible_output_or_tool_execution",
       recovery_mode: "replay",
       attempt_kind: "safe_recovery_replay",
@@ -1137,7 +1137,7 @@ describe("RunObservability", () => {
     })
 
     expect(decision).toMatchObject({
-      recommendation: "auto_retry_once",
+      recommendation: "auto_retry",
       reason: "no_visible_output_or_tool_execution",
     })
   })
@@ -1181,7 +1181,7 @@ describe("RunObservability", () => {
       tool_input_started: true,
     })
     expect(summary.incident?.recovery).toMatchObject({
-      recommendation: "auto_retry_once",
+      recommendation: "auto_retry",
       reason: "no_visible_output_or_tool_execution",
     })
     expect(summary.retry_safety).toMatchObject({
@@ -1273,11 +1273,11 @@ describe("RunObservability", () => {
       proof_reason: "unknown_tool_boundary",
     })
     expect(decision).toMatchObject({
-      recommendation: "auto_retry_once",
+      recommendation: "auto_retry",
       reason: "no_visible_output_or_tool_execution",
     })
     expect(summary.incident?.recovery).toMatchObject({
-      recommendation: "auto_retry_once",
+      recommendation: "auto_retry",
       reason: "no_visible_output_or_tool_execution",
     })
   })
@@ -1307,7 +1307,7 @@ describe("RunObservability", () => {
       proof_reason: "all_boundaries_classified",
     })
     expect(decision).toMatchObject({
-      recommendation: "auto_retry_once",
+      recommendation: "auto_retry",
       reason: "no_visible_output_or_tool_execution",
     })
   })
@@ -1402,7 +1402,7 @@ describe("RunObservability", () => {
 
     for (const [name, overrides] of cases) {
       const decision = recoveryForBeforeProgress(overrides)
-      expect(decision, name).not.toMatchObject({ recommendation: "auto_retry_once" })
+      expect(decision, name).not.toMatchObject({ recommendation: "auto_retry" })
     }
   })
 
@@ -1993,11 +1993,11 @@ describe("RunObservability", () => {
 
     const summary = recorder.finalize({ completedAt: 16, monotonicMs: 160 })
     expect(decision).toMatchObject({
-      recommendation: "auto_retry_once",
+      recommendation: "auto_retry",
       reason: "reasoning_only_without_final_text_or_tool_activity",
     })
     expect(summary.incident?.recovery).toMatchObject({
-      recommendation: "auto_retry_once",
+      recommendation: "auto_retry",
       reason: "reasoning_only_without_final_text_or_tool_activity",
     })
     expect(summary.retry_safety).toMatchObject({
@@ -2276,7 +2276,7 @@ describe("RunObservability", () => {
       subcategory: "before_first_provider_progress",
     })
     expect(summary.incident?.recovery).toMatchObject({
-      recommendation: "auto_retry_once",
+      recommendation: "auto_retry",
       reason: "no_visible_output_or_tool_execution",
     })
   })
@@ -2317,7 +2317,7 @@ describe("RunObservability", () => {
 
     const summary = recorder.finalize({ completedAt: 22, monotonicMs: 220 })
     expect(summary.incident?.recovery).toMatchObject({
-      recommendation: "auto_retry_once",
+      recommendation: "auto_retry",
       reason: "no_visible_output_or_tool_execution",
     })
   })
@@ -2353,7 +2353,7 @@ describe("RunObservability", () => {
 
     const summary = recorder.finalize({ completedAt: 23, monotonicMs: 230 })
     expect(summary.incident?.recovery).toMatchObject({
-      recommendation: "auto_retry_once",
+      recommendation: "auto_retry",
       reason: "no_visible_output_or_tool_execution",
     })
   })

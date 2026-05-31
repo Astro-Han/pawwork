@@ -35,7 +35,7 @@ export function recoveryFor(input: {
   ) {
     return {
       ...base,
-      recommendation: "auto_retry_once",
+      recommendation: "auto_retry",
       confidence: "high",
       reason: "no_visible_output_or_tool_execution",
       auto_retry: { max_attempts: 3, backoff_ms: 2_000 },
@@ -60,7 +60,7 @@ export function recoveryFor(input: {
   ) {
     return {
       ...base,
-      recommendation: "auto_retry_once",
+      recommendation: "auto_retry",
       confidence: "high",
       reason: "reasoning_only_without_final_text_or_tool_activity",
       auto_retry: { max_attempts: 3, backoff_ms: 2_000 },
@@ -147,7 +147,7 @@ export function recoveryFor(input: {
   if (retryableTransport) {
     return {
       ...base,
-      recommendation: "auto_retry_once",
+      recommendation: "auto_retry",
       confidence: "medium",
       reason: "no_visible_output_or_tool_execution",
       auto_retry: { max_attempts: 3, backoff_ms: 2_000 },
