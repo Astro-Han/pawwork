@@ -28,11 +28,12 @@ async function prepareWorktreePlacement(definition: Automation.Definition) {
 
 export const sessionPromptExecutor: Automation.RunExecutor = async ({ definition, run, attendance, signal }) => {
   signal.throwIfAborted()
+  const worktree = await prepareWorktreePlacement(definition)
+  signal.throwIfAborted()
   const sessionID =
     definition.context === "continue" && definition.automationSessionID
       ? definition.automationSessionID
       : (await Session.create({ title: `Automation: ${definition.title}` })).id
-  const worktree = await prepareWorktreePlacement(definition)
   if (worktree) {
     await Session.updateExecutionContext({
       sessionID,

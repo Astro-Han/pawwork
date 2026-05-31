@@ -9,8 +9,10 @@ import { AutomationRunTable } from "../../src/automation/automation.sql"
 import { Bus } from "../../src/bus"
 import { Database, eq } from "../../src/storage/db"
 import { Instance } from "../../src/project/instance"
+import { Project } from "../../src/project/project"
 import { ProjectID } from "../../src/project/schema"
 import { Session } from "../../src/session"
+import { SessionTable } from "../../src/session/session.sql"
 import { SessionID } from "../../src/session/schema"
 import { AutomationRunContext, AutomationStepCapError } from "../../src/automation/run-context"
 import { Flock } from "../../src/util/flock"
@@ -80,6 +82,16 @@ function defer<T>() {
     resolve = done
   })
   return { promise, resolve }
+}
+
+function automationSessionsForTitle(title: string) {
+  return Database.use((db) =>
+    db
+      .select()
+      .from(SessionTable)
+      .where(eq(SessionTable.title, `Automation: ${title}`))
+      .all(),
+  )
 }
 
 function hangingChat(ready: () => void) {
@@ -583,6 +595,99 @@ describe("automation runNow execution", () => {
     }
   })
 
+  test("does not wait for a long-lived worktree start command before prompting", async () => {
+    let providerCalls = 0
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const url = new URL(req.url)
+        if (!url.pathname.endsWith("/chat/completions")) return new Response("not found", { status: 404 })
+        providerCalls++
+        return Response.json({
+          id: "chatcmpl-1",
+          object: "chat.completion",
+          choices: [{ message: { role: "assistant", content: "done" }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+        })
+      },
+    })
+
+    try {
+      await using tmp = await tmpdir({
+        git: true,
+        init: async (dir) => {
+          await Bun.write(
+            path.join(dir, "opencode.json"),
+            JSON.stringify({
+              $schema: "https://opencode.ai/config.json",
+              enabled_providers: ["alibaba"],
+              provider: {
+                alibaba: {
+                  options: {
+                    apiKey: "test-key",
+                    baseURL: `${server.url.origin}/v1`,
+                  },
+                },
+              },
+              agent: {
+                build: {
+                  model: "alibaba/qwen-plus",
+                },
+              },
+            }),
+          )
+        },
+      })
+
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          await Project.update({
+            projectID: Instance.project.id,
+            commands: {
+              start:
+                "bun -e \"await Bun.write('.automation-start-began', 'ready'); while (!(await Bun.file('.automation-start-release').exists())) await Bun.sleep(20)\"",
+            },
+          })
+          const definition = Automation.create(
+            input(Instance.project.id, {
+              title: "Worktree long start",
+              where: { projectID: Instance.project.id, worktree: "long-start" },
+            }),
+          )
+
+          await Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
+          const result = await Promise.race([
+            waitForRun(definition.id, "succeeded").then((run) => ({ state: "succeeded" as const, run })),
+            Bun.sleep(2_000).then(() => ({ state: "timeout" as const })),
+          ])
+          if (result.state === "timeout") {
+            const worktree = await Worktree.lookupBySlug("long-start")
+            if (worktree) await Bun.write(path.join(worktree.directory, ".automation-start-release"), "done")
+            throw new Error("Automation waited for the worktree start command to exit before prompting")
+          }
+
+          const succeeded = result.run
+          if (!succeeded.sessionID) throw new Error("expected run session")
+          expect(providerCalls).toBe(1)
+          const worktree = await Worktree.lookupBySlug("long-start")
+          if (!worktree) throw new Error("expected worktree placement")
+          const deadline = Date.now() + 1_000
+          while (
+            !(await Bun.file(path.join(worktree.directory, ".automation-start-began")).exists()) &&
+            Date.now() < deadline
+          ) {
+            await Bun.sleep(20)
+          }
+          expect(await Bun.file(path.join(worktree.directory, ".automation-start-began")).text()).toBe("ready")
+          await Bun.write(path.join(worktree.directory, ".automation-start-release"), "done")
+        },
+      })
+    } finally {
+      void server.stop(true)
+    }
+  })
+
   test("can run the same worktree placement more than once", async () => {
     const server = Bun.serve({
       port: 0,
@@ -681,8 +786,81 @@ describe("automation runNow execution", () => {
           onlyFiles: false,
         })
         expect(await Array.fromAsync(entries)).toEqual([])
+        expect(automationSessionsForTitle("Exact worktree placement")).toEqual([])
       },
     })
+  })
+
+  test("does not prompt or keep a session when worktree bootstrap fails", async () => {
+    let providerCalls = 0
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const url = new URL(req.url)
+        if (!url.pathname.endsWith("/chat/completions")) return new Response("not found", { status: 404 })
+        providerCalls++
+        return Response.json({
+          id: "chatcmpl-1",
+          object: "chat.completion",
+          choices: [{ message: { role: "assistant", content: "done" }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+        })
+      },
+    })
+
+    try {
+      await using tmp = await tmpdir({
+        git: true,
+        init: async (dir) => {
+          await Bun.write(
+            path.join(dir, "opencode.json"),
+            JSON.stringify({
+              $schema: "https://opencode.ai/config.json",
+              enabled_providers: ["alibaba"],
+              provider: {
+                alibaba: {
+                  options: {
+                    apiKey: "test-key",
+                    baseURL: `${server.url.origin}/v1`,
+                  },
+                },
+              },
+              agent: {
+                build: {
+                  model: "alibaba/qwen-plus",
+                },
+              },
+            }),
+          )
+        },
+      })
+
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          await Bun.write(path.join(tmp.path, "opencode.json"), "{ invalid")
+          await $`git add opencode.json`.cwd(tmp.path).quiet()
+          await $`git commit -m invalid-config`.cwd(tmp.path).quiet()
+
+          const definition = Automation.create(
+            input(Instance.project.id, {
+              title: "Bootstrap failure",
+              where: { projectID: Instance.project.id, worktree: "bad-config" },
+            }),
+          )
+
+          await Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
+
+          const stopped = await waitForRun(definition.id, "stopped")
+          if (stopped.state !== "stopped") throw new Error("expected stopped run")
+          expect(stopped.stopReason).toBe("cancelled")
+          expect(providerCalls).toBe(0)
+          expect(automationSessionsForTitle("Bootstrap failure")).toEqual([])
+        },
+      })
+    } finally {
+      void server.stop(true)
+    }
   })
 
   test("deleting after run start but before prompt runner is busy does not call the provider", async () => {

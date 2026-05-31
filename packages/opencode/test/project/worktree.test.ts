@@ -159,6 +159,18 @@ describe("Worktree", () => {
       expect(list).not.toContain("daily-brief-")
     })
 
+    test("createReady rejects when worktree bootstrap fails", async () => {
+      await using tmp = await tmpdir({ git: true })
+
+      await withInstance(tmp.path, async () => {
+        await Bun.write(path.join(tmp.path, "opencode.json"), "{ invalid")
+        await $`git add opencode.json`.cwd(tmp.path).quiet()
+        await $`git commit -m invalid-config`.cwd(tmp.path).quiet()
+
+        await expect(Worktree.createReady({ name: "bad-config" })).rejects.toThrow("WorktreeCreateFailedError")
+      })
+    })
+
     test("refuses to create when .gitignore has local changes", async () => {
       await using tmp = await tmpdir({ git: true })
       await Bun.write(path.join(tmp.path, ".gitignore"), "node_modules\n")
@@ -207,19 +219,36 @@ describe("Worktree", () => {
   })
 
   describe("reset", () => {
-    test("waits for project start command before returning", async () => {
+    test("starts project start command without waiting for it to exit", async () => {
       await using tmp = await tmpdir({ git: true })
 
       await withInstance(tmp.path, async () => {
         const info = await Worktree.createReady({ name: "reset-start-command" })
         await Project.update({
           projectID: Instance.project.id,
-          commands: { start: `bun -e "await Bun.sleep(300); await Bun.write('.reset-start-complete', 'ready')"` },
+          commands: {
+            start:
+              "bun -e \"await Bun.write('.reset-start-began', 'ready'); while (!(await Bun.file('.reset-start-release').exists())) await Bun.sleep(20)\"",
+          },
         })
 
-        await Worktree.reset({ directory: info.directory })
+        const reset = Worktree.reset({ directory: info.directory })
+        const result = await Promise.race([
+          reset.then(() => "done" as const),
+          Bun.sleep(2_000).then(() => "timeout" as const),
+        ])
+        if (result === "timeout") {
+          await Bun.write(path.join(info.directory, ".reset-start-release"), "done")
+          await reset.catch(() => undefined)
+          throw new Error("Worktree.reset waited for the project start command to exit")
+        }
 
-        expect(await Bun.file(path.join(info.directory, ".reset-start-complete")).text()).toBe("ready")
+        const deadline = Date.now() + 1_000
+        while (!(await Bun.file(path.join(info.directory, ".reset-start-began")).exists()) && Date.now() < deadline) {
+          await Bun.sleep(20)
+        }
+        expect(await Bun.file(path.join(info.directory, ".reset-start-began")).text()).toBe("ready")
+        await Bun.write(path.join(info.directory, ".reset-start-release"), "done")
         await Worktree.remove({ directory: info.directory })
       })
     })

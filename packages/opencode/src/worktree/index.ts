@@ -411,15 +411,14 @@ export namespace Worktree {
             workspace: workspaceID,
             payload: { type: Event.Failed.type, properties: { message } },
           })
-          return
+          throw new CreateFailedError({ message })
         }
 
-        const booted = yield* Effect.promise(() =>
+        yield* Effect.promise(() =>
           Instance.provide({
             directory: info.directory,
             fn: () => undefined,
           })
-            .then(() => true)
             .catch((error) => {
               const message = errorMessage(error)
               log.error("worktree bootstrap failed", { directory: info.directory, message })
@@ -429,10 +428,9 @@ export namespace Worktree {
                 workspace: workspaceID,
                 payload: { type: Event.Failed.type, properties: { message } },
               })
-              return false
+              throw new CreateFailedError({ message })
             }),
         )
-        if (!booted) return
 
         GlobalBus.emit("event", {
           directory: info.directory,
@@ -444,7 +442,10 @@ export namespace Worktree {
           },
         })
 
-        yield* runStartScripts(info.directory, { projectID, extra })
+        yield* runStartScripts(info.directory, { projectID, extra }).pipe(
+          Effect.catchCause((cause) => Effect.sync(() => log.error("worktree start task failed", { cause }))),
+          Effect.forkIn(scope),
+        )
       })
 
       const createFromInfo = Effect.fn("Worktree.createFromInfo")(function* (info: Info, startCommand?: string) {
@@ -763,6 +764,7 @@ export namespace Worktree {
 
         yield* runStartScripts(worktreePath, { projectID: Instance.project.id }).pipe(
           Effect.catchCause((cause) => Effect.sync(() => log.error("worktree start task failed", { cause }))),
+          Effect.forkIn(scope),
         )
 
         return true
