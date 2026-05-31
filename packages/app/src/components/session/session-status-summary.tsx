@@ -1,30 +1,16 @@
-import { For, Show, createMemo, type Accessor, type JSX } from "solid-js"
+import { For, Show, createMemo, type Accessor } from "solid-js"
 import { TodoStatusMarker } from "@opencode-ai/ui/todo-status-marker"
 import { Icon } from "@opencode-ai/ui/icon"
-import { IconButton } from "@opencode-ai/ui/icon-button"
-import { Tooltip } from "@opencode-ai/ui/tooltip"
 import type { Part, VcsInfo } from "@opencode-ai/sdk/v2"
 import { useLanguage } from "@/context/language"
-import { canOpenLocalPath, usePlatform } from "@/context/platform"
-import { useServer } from "@/context/server"
 import { extractSources } from "@/pages/session/session-status-extractors"
 import { selectSessionTodoDataSnapshot } from "@/pages/session/session-todos"
 import type { SessionTodoItem } from "@/pages/session/todos/todo-model"
 import type { CanonicalTodoSnapshot } from "@/pages/session/todos/todo-source"
-import { normalizeArtifactPathKey, type FilesTabEntry } from "@/pages/session/files-tab-state"
-
-function Section(props: { title: string; children: JSX.Element }) {
-  return (
-    <div class="flex flex-col gap-2 px-4 py-6">
-      <div class="text-caption text-fg-weak">{props.title}</div>
-      {props.children}
-    </div>
-  )
-}
-
-function Empty(props: { text: string }) {
-  return <div class="text-body text-fg-weaker">{props.text}</div>
-}
+import type { FilesTabEntry } from "@/pages/session/files-tab-state"
+import { Empty, Section } from "./session-status-summary-shell"
+import { GitSection, type ActiveWorktree } from "./session-status-summary-git"
+import { ArtifactSection } from "./session-status-summary-artifact"
 
 function TodoRow(props: { todo: SessionTodoItem }) {
   const isDone = () => props.todo.status === "completed" || props.todo.status === "cancelled"
@@ -65,210 +51,10 @@ function SourceRow(props: { url: string; onOpen: (url: string) => void }) {
   )
 }
 
-interface ActiveWorktree {
-  name: string
-  branch?: string
-  directory?: string
-}
-
-function GitRow(props: {
-  icon: string
-  onClick?: () => void
-  children: JSX.Element
-  chevron?: "down" | "right" | false
-  title?: string
-}) {
-  return (
-    <button
-      type="button"
-      class="flex w-full items-center gap-2 rounded-md px-2 text-left transition-colors min-h-[30px]"
-      classList={{
-        "cursor-default": !props.onClick,
-        "hover:bg-[var(--row-hover-overlay)]": !!props.onClick,
-      }}
-      disabled={!props.onClick}
-      onClick={props.onClick}
-      title={props.title}
-    >
-      <Icon name={props.icon as any} class="shrink-0 text-fg-weak" />
-      <div class="min-w-0 flex-1">{props.children}</div>
-      <Show when={props.chevron}>
-        {(dir) => <Icon name={dir() === "down" ? "chevron-down" : "chevron-right"} class="shrink-0 text-fg-weaker" />}
-      </Show>
-    </button>
-  )
-}
-
-function GitSection(props: {
-  vcs: Accessor<VcsInfo | undefined>
-  activeWorktree: Accessor<ActiveWorktree | undefined>
-  diffStats: Accessor<{ additions: number; deletions: number }>
-  onNavigateReview: () => void
-  onOpenWorktreeDirectory: (directory: string) => void
-}) {
-  const language = useLanguage()
-  const hasChanges = createMemo(() => {
-    const stats = props.diffStats()
-    return stats.additions > 0 || stats.deletions > 0
-  })
-
-  const na = () => language.t("status.summary.git.worktree.notAvailable")
-
-  const worktreeTooltip = (worktree: ActiveWorktree) => (
-    <div class="grid min-w-0 gap-1.5 py-1 text-left">
-      <div class="grid min-w-0 grid-cols-[64px_minmax(0,1fr)] items-start gap-3">
-        <span class="text-caption">{language.t("status.summary.git.worktree.label")}</span>
-        <span class="text-h3 min-w-0 break-all leading-[1.45]">{worktree.name || na()}</span>
-      </div>
-      <div class="grid min-w-0 grid-cols-[64px_minmax(0,1fr)] items-start gap-3">
-        <span class="text-caption">{language.t("status.summary.git.branch.label")}</span>
-        <span class="text-body min-w-0 break-all leading-[1.45]">{worktree.branch || na()}</span>
-      </div>
-      <div class="grid min-w-0 grid-cols-[64px_minmax(0,1fr)] items-start gap-3">
-        <span class="text-caption">{language.t("status.summary.git.location.label")}</span>
-        <span class="text-body min-w-0 break-all leading-[1.45]">{worktree.directory || na()}</span>
-      </div>
-    </div>
-  )
-
-  return (
-    <Section title={language.t("status.summary.git")}>
-      <div class="flex flex-col">
-        <GitRow
-          icon="changes"
-          onClick={props.onNavigateReview}
-          chevron="right"
-        >
-          <Show
-            when={hasChanges()}
-            fallback={<span class="text-body text-fg-weaker">{language.t("status.summary.git.changes")}</span>}
-          >
-            <span class="font-mono text-body">
-              <span class="text-success">+{props.diffStats().additions}</span>
-              {" "}
-              <span class="text-error">−{props.diffStats().deletions}</span>
-            </span>
-          </Show>
-        </GitRow>
-
-        <Show when={props.vcs()?.branch}>
-          {(branch) => (
-            <GitRow icon="branch">
-              <span class="text-body text-fg-base">{branch()}</span>
-            </GitRow>
-          )}
-        </Show>
-
-        <Show when={props.activeWorktree()}>
-          {(worktree) => (
-            <Tooltip
-              placement="bottom"
-              value={worktreeTooltip(worktree())}
-              contentClass="max-w-[420px] px-3 py-2"
-            >
-              <GitRow
-                icon="worktree"
-                onClick={() => {
-                  const directory = worktree().directory
-                  if (directory) props.onOpenWorktreeDirectory(directory)
-                }}
-                title={language.t("status.summary.git.worktree.open")}
-              >
-                <span class="text-body text-fg-base">{worktree().name || worktree().branch || language.t("status.summary.git.worktree.fallback")}</span>
-              </GitRow>
-            </Tooltip>
-          )}
-        </Show>
-      </div>
-    </Section>
-  )
-}
-
-function ArtifactRow(props: {
-  file: FilesTabEntry
-  diff?: { additions: number; deletions: number }
-  onOpen: () => void
-  onReveal: () => void
-}) {
-  const language = useLanguage()
-  const filename = createMemo(() => {
-    const parts = props.file.path.replace(/\\/g, "/").split("/")
-    return parts[parts.length - 1] || props.file.path
-  })
-
-  return (
-    <div
-      data-slot="status-summary-artifact"
-      class="group grid min-h-[30px] items-center gap-[var(--space-sm)] px-3 rounded-md transition-colors hover:bg-[var(--row-hover-overlay)]"
-      style={{ "grid-template-columns": "16px minmax(0, 1fr) minmax(60px, max-content)" }}
-    >
-      <Icon name="review" class="size-4 shrink-0 text-fg-weak" />
-      <span class="min-w-0 truncate text-body text-fg-strong" title={props.file.path}>
-        {filename()}
-      </span>
-      <span class="relative inline-flex h-full items-center justify-end">
-        <Show when={props.diff}>
-          {(diff) => (
-            <span class="inline-flex items-baseline gap-2 text-mono-small whitespace-nowrap transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
-              <span class="text-success tabular-nums">+{diff().additions}</span>
-              <span class="text-error tabular-nums">−{diff().deletions}</span>
-            </span>
-          )}
-        </Show>
-        <span class="pointer-events-none absolute inset-0 inline-flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
-          <Tooltip value={language.t("status.summary.artifact.open")} placement="top">
-            <IconButton
-              icon="open-file"
-              aria-label={language.t("status.summary.artifact.open")}
-              onClick={props.onOpen}
-              class="!size-[26px] !rounded-[var(--radius-md)] hover:!bg-[var(--row-active-overlay)]"
-            />
-          </Tooltip>
-          <Tooltip value={language.t("status.summary.artifact.reveal")} placement="top">
-            <IconButton
-              icon="folder-add-left"
-              aria-label={language.t("status.summary.artifact.reveal")}
-              onClick={props.onReveal}
-              class="!size-[26px] !rounded-[var(--radius-md)] hover:!bg-[var(--row-active-overlay)]"
-            />
-          </Tooltip>
-        </span>
-      </span>
-    </div>
-  )
-}
-
-function ArtifactSection(props: {
-  files: Accessor<FilesTabEntry[]>
-  diffsByPath?: Accessor<Map<string, { additions: number; deletions: number }>>
-  onOpenFile: (path: string) => void
-  onRevealFile: (path: string) => void
-}) {
-  const language = useLanguage()
-
-  return (
-    <Section title={language.t("status.summary.artifact")}>
-      <Show
-        when={props.files().length > 0}
-        fallback={<Empty text={language.t("status.summary.artifact.empty")} />}
-      >
-        <div class="flex flex-col">
-          <For each={props.files()}>
-            {(file) => (
-              <ArtifactRow
-                file={file}
-                diff={props.diffsByPath?.().get(normalizeArtifactPathKey(file.path))}
-                onOpen={() => props.onOpenFile(file.path)}
-                onReveal={() => props.onRevealFile(file.path)}
-              />
-            )}
-          </For>
-        </div>
-      </Show>
-    </Section>
-  )
-}
-
+// Pure composition. All platform-touching work (file stat, openPath /
+// showItemInFolder / openLink wrappers, capability detection, failure toast)
+// lives in SessionStatusPanel — this file only stitches the four sections and
+// has no React-context dependency beyond useLanguage.
 export function SessionStatusSummary(props: {
   canonical?: Accessor<CanonicalTodoSnapshot | undefined>
   isAuthoritativelyInvalidated?: Accessor<boolean>
@@ -279,11 +65,16 @@ export function SessionStatusSummary(props: {
   diffStats?: Accessor<{ additions: number; deletions: number }>
   artifactFiles?: Accessor<FilesTabEntry[]>
   diffsByPath?: Accessor<Map<string, { additions: number; deletions: number }>>
+  canOpenWorktreeDirectory: (directory: string) => boolean
+  canOpenArtifactFile: (path: string) => boolean
+  canRevealArtifactFile: (path: string) => boolean
   onNavigateReview?: () => void
+  onOpenWorktreeDirectory: (directory: string) => void
+  onOpenArtifactFile: (path: string) => void
+  onRevealArtifactFile: (path: string) => void
+  onOpenSourceLink: (url: string) => void
 }) {
   const language = useLanguage()
-  const platform = usePlatform()
-  const server = useServer()
 
   const snapshot = createMemo(() =>
     selectSessionTodoDataSnapshot({
@@ -299,29 +90,6 @@ export function SessionStatusSummary(props: {
   const sources = createMemo(() => extractSources(props.parts()))
 
   const isGitRepo = createMemo(() => !!props.vcs?.() || !!props.activeWorktree?.())
-
-  const navigateToReview = () => {
-    props.onNavigateReview?.()
-  }
-
-  const openWorktreeDirectory = (directory: string) => {
-    if (!canOpenLocalPath(platform) || !server.isLocal() || !platform.openPath) return
-    void platform.openPath(directory).catch(() => {})
-  }
-
-  const openFile = (path: string) => {
-    if (!canOpenLocalPath(platform) || !server.isLocal() || !platform.openPath) return
-    void platform.openPath(path).catch(() => {})
-  }
-
-  const revealFile = (path: string) => {
-    if (!canOpenLocalPath(platform) || !server.isLocal() || !platform.showItemInFolder) return
-    void platform.showItemInFolder(path).catch(() => {})
-  }
-
-  const openSource = (url: string) => {
-    platform.openLink(url)
-  }
 
   return (
     <>
@@ -340,8 +108,9 @@ export function SessionStatusSummary(props: {
           vcs={props.vcs!}
           activeWorktree={() => props.activeWorktree?.()}
           diffStats={props.diffStats!}
-          onNavigateReview={navigateToReview}
-          onOpenWorktreeDirectory={openWorktreeDirectory}
+          onNavigateReview={() => props.onNavigateReview?.()}
+          canOpenDirectory={props.canOpenWorktreeDirectory}
+          onOpenDirectory={props.onOpenWorktreeDirectory}
         />
       </Show>
 
@@ -350,8 +119,10 @@ export function SessionStatusSummary(props: {
           <ArtifactSection
             files={files()}
             diffsByPath={props.diffsByPath}
-            onOpenFile={openFile}
-            onRevealFile={revealFile}
+            canOpenFile={props.canOpenArtifactFile}
+            canRevealFile={props.canRevealArtifactFile}
+            onOpenFile={props.onOpenArtifactFile}
+            onRevealFile={props.onRevealArtifactFile}
           />
         )}
       </Show>
@@ -359,7 +130,7 @@ export function SessionStatusSummary(props: {
       <Section title={language.t("status.summary.sources")}>
         <Show when={sources().length > 0} fallback={<Empty text={language.t("status.summary.sources.empty")} />}>
           <div class="flex flex-col">
-            <For each={sources()}>{(url) => <SourceRow url={url} onOpen={openSource} />}</For>
+            <For each={sources()}>{(url) => <SourceRow url={url} onOpen={props.onOpenSourceLink} />}</For>
           </div>
         </Show>
       </Section>

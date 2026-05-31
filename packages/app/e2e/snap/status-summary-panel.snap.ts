@@ -155,10 +155,22 @@ async function seedWebfetchSource(input: {
   })
 }
 
+// Wait for the panel to reflect the exact seeded counts (4 todos, 2 artifacts,
+// 2 sources). Exact counts catch partial-seed regressions that a "first row
+// visible" wait would miss — e.g. one webfetch part failing to attach would
+// leave only one Source row, but a "first visible" check would still pass.
 async function waitForAllSections(panel: ReturnType<Page["locator"]>) {
-  await panel.locator('[data-slot="status-summary-todo"]').first().waitFor({ state: "visible", timeout: 30_000 })
-  await panel.locator('[data-slot="status-summary-artifact"]').first().waitFor({ state: "visible", timeout: 30_000 })
-  await panel.locator('[data-slot="status-summary-source"]').first().waitFor({ state: "visible", timeout: 30_000 })
+  await expect.poll(() => panel.locator('[data-slot="status-summary-todo"]').count(), { timeout: 30_000 }).toBe(4)
+  await expect.poll(() => panel.locator('[data-slot="status-summary-artifact"]').count(), { timeout: 30_000 }).toBe(2)
+  await expect.poll(() => panel.locator('[data-slot="status-summary-source"]').count(), { timeout: 30_000 }).toBe(2)
+  // The first artifact row must show its per-path diff stats (+N −N) before
+  // we screenshot. If the path-key normalization broke, the row would render
+  // without numbers, and a rest-state snapshot would silently match a
+  // diff-less baseline. Match on text content rather than CSS class so the
+  // assertion is robust to the artifact row's exact markup.
+  const firstArtifact = panel.locator('[data-slot="status-summary-artifact"]').first()
+  await expect(firstArtifact).toContainText(/\+\d+/, { timeout: 10_000 })
+  await expect(firstArtifact).toContainText(/−\d+/, { timeout: 10_000 })
 }
 
 // The mock LLM backend triggers a "Server unreachable" health-check toast plus
