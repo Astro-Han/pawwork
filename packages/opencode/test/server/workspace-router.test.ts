@@ -5,6 +5,8 @@ import fs from "fs/promises"
 import { Hono } from "hono"
 import path from "path"
 import { pathToFileURL } from "url"
+import { AppRuntime } from "../../src/effect/app-runtime"
+import { InstanceRef, WorkspaceRef } from "../../src/effect/instance-ref"
 import { eq } from "../../src/storage/db"
 import { WorkspaceContext } from "../../src/control-plane/workspace-context"
 import { Instance } from "../../src/project/instance"
@@ -52,6 +54,19 @@ function wait(ms = 50) {
 
 function disableWorkspaceSync() {
   return spyOn(Workspace, "ensureSync").mockImplementation(() => {})
+}
+
+async function readEffectContext() {
+  return AppRuntime.runPromise(
+    Effect.gen(function* () {
+      const instance = yield* InstanceRef
+      const workspaceID = yield* WorkspaceRef
+      return {
+        directory: instance?.directory,
+        workspaceID: workspaceID ?? null,
+      }
+    }),
+  )
 }
 
 async function writeOpencodeConfig(dir: string, pluginFile: string) {
@@ -214,9 +229,10 @@ describe("workspace router", () => {
     await using tmp = await tmpdir()
     const app = new Hono()
     app.use(WorkspaceRouterMiddleware(() => undefined as never))
-    app.get("/context", (c) =>
+    app.get("/context", async (c) =>
       c.json({
         directory: Instance.current.directory,
+        effect: await readEffectContext(),
         request: currentRequestContext(),
       }),
     )
@@ -231,6 +247,11 @@ describe("workspace router", () => {
 
     expect(response.status).toBe(200)
     expect(body.directory).toBe(tmp.path)
+    expect(body.effect).toEqual({
+      directory: tmp.path,
+      workspaceID: null,
+    })
+    expect(Instance.directories()).toContain(tmp.path)
     expect(body.request).toMatchObject({
       method: "GET",
       path: "/context",
@@ -252,10 +273,11 @@ describe("workspace router", () => {
 
     const app = new Hono()
     app.use(WorkspaceRouterMiddleware(() => undefined as never))
-    app.get("/context", (c) =>
+    app.get("/context", async (c) =>
       c.json({
         directory: Instance.current.directory,
         workspaceID: WorkspaceContext.workspaceID,
+        effect: await readEffectContext(),
         request: currentRequestContext(),
       }),
     )
@@ -272,6 +294,11 @@ describe("workspace router", () => {
     expect(response.status).toBe(200)
     expect(body.directory).toBe(space)
     expect(body.workspaceID).toBe(workspace.id)
+    expect(body.effect).toEqual({
+      directory: space,
+      workspaceID: workspace.id,
+    })
+    expect(Instance.directories()).toContain(space)
     expect(body.request).toMatchObject({
       method: "GET",
       path: "/context",
