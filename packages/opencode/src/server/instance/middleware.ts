@@ -4,28 +4,15 @@ import { mkdirSync } from "fs"
 import os from "os"
 import path from "path"
 import { WorkspaceID } from "@/control-plane/schema"
-import { Workspace } from "@/control-plane/workspace"
 import { ServerProxy } from "../proxy"
 import { Filesystem } from "@/util/filesystem"
 import { Instance } from "@/project/instance"
-import { Session } from "@/session"
 import { WorkspaceContext } from "@/control-plane/workspace-context"
 import { Global } from "@/global"
 import { Runtime } from "@opencode-ai/core/runtime"
 import { requestContextFromHono, withRequestContext, type RequestContextSnapshot } from "@/server/request-context"
-import {
-  classifyWorkspaceRoute,
-  sessionIDForWorkspaceRouting,
-  shouldCreateLegacyConfigBeforeNoWorkspacePath,
-} from "./workspace-routing"
-
-async function getSessionWorkspace(url: URL) {
-  const id = sessionIDForWorkspaceRouting(url.pathname)
-  if (!id) return null
-
-  const session = await Session.get(id).catch(() => undefined)
-  return session?.workspaceID
-}
+import { resolveWorkspaceRoute } from "./workspace-routing"
+import { AppRuntime } from "@/effect/app-runtime"
 
 function provideLocalWorkspaceContext<R>(input: {
   directory: string
@@ -71,18 +58,20 @@ export function WorkspaceRouterMiddleware(upgrade: UpgradeWebSocket): Middleware
     const directory = Filesystem.resolve(decoded)
 
     const url = new URL(c.req.url)
-    const sessionWorkspaceID = await getSessionWorkspace(url)
-    const workspaceID = sessionWorkspaceID || url.searchParams.get("workspace")
+    const decision = await AppRuntime.runPromise(
+      resolveWorkspaceRoute({
+        method: c.req.method,
+        pathname: url.pathname,
+        directory,
+        workspaceID: url.searchParams.get("workspace"),
+        ensureConfig: url.searchParams.get("ensureConfig") === "true",
+        isPawWork: Runtime.isPawWork(),
+        isWebSocketUpgrade: c.req.header("upgrade")?.toLowerCase() === "websocket",
+      }),
+    )
 
-    // If no workspace is provided we use the project
-    if (!workspaceID) {
-      if (
-        shouldCreateLegacyConfigBeforeNoWorkspacePath({
-          pathname: url.pathname,
-          ensureConfig: url.searchParams.get("ensureConfig") === "true",
-          isPawWork: Runtime.isPawWork(),
-        })
-      ) {
+    if (decision.action === "provide-local-context") {
+      if (decision.createLegacyConfig) {
         try {
           mkdirSync(Global.Path.config, { recursive: true })
         } catch {
@@ -91,69 +80,31 @@ export function WorkspaceRouterMiddleware(upgrade: UpgradeWebSocket): Middleware
       }
 
       return provideLocalWorkspaceContext({
-        directory,
-        request: requestContextFromHono(c, { directory }),
+        directory: decision.directory,
+        workspaceID: decision.workspaceID,
+        request: requestContextFromHono(c, { directory: decision.directory, workspaceID: decision.workspaceID }),
         fn: next,
       })
     }
 
-    const workspace = await Workspace.record(WorkspaceID.make(workspaceID))
-
-    if (!workspace) {
-      const decision = classifyWorkspaceRoute({
-        method: c.req.method,
-        pathname: url.pathname,
-        target: "missing",
-      })
+    if (decision.action === "pass-missing-session-delete") {
       // Special-case deleting a session in case user's data in a
       // weird state. Allow them to forcefully delete a synced session
       // even if the remote workspace is not in their data.
       //
       // The lets the `DELETE /session/:id` endpoint through and we've
       // made sure that it will run without an instance
-      if (decision.action === "pass-missing-session-delete") {
-        return next()
-      }
+      return next()
+    }
 
-      return new Response(`Workspace not found: ${workspaceID}`, {
+    if (decision.action === "missing-workspace-error") {
+      return new Response(`Workspace not found: ${decision.workspaceID}`, {
         status: 500,
         headers: {
           "content-type": "text/plain; charset=utf-8",
         },
       })
     }
-
-    Workspace.ensureSync(workspace, directory)
-
-    const adaptor = await Workspace.resolveAdaptor({
-      ...workspace,
-      hint: directory,
-    })
-    const target = await adaptor.target(workspace)
-
-    if (target.type === "local") {
-      const decision = classifyWorkspaceRoute({
-        method: c.req.method,
-        pathname: url.pathname,
-        target: target.type,
-      })
-      if (decision.action !== "provide-local-workspace") {
-        throw new Error(`Unexpected local workspace routing decision: ${decision.action}`)
-      }
-      return provideLocalWorkspaceContext({
-        directory: target.directory,
-        workspaceID: WorkspaceID.make(workspaceID),
-        request: requestContextFromHono(c, { directory: target.directory, workspaceID }),
-        fn: next,
-      })
-    }
-
-    const decision = classifyWorkspaceRoute({
-      method: c.req.method,
-      pathname: url.pathname,
-      target: target.type,
-      isWebSocketUpgrade: c.req.header("upgrade")?.toLowerCase() === "websocket",
-    })
 
     if (decision.action === "serve-local-cache") {
       // No instance provided because we are serving cached data; there
@@ -162,19 +113,19 @@ export function WorkspaceRouterMiddleware(upgrade: UpgradeWebSocket): Middleware
     }
 
     if (decision.action === "proxy-websocket") {
-      return ServerProxy.websocket(upgrade, target, c.req.raw, c.env)
+      return ServerProxy.websocket(upgrade, decision.target, c.req.raw, c.env)
     }
 
     const headers = new Headers(c.req.raw.headers)
     headers.delete("x-opencode-workspace")
 
     return ServerProxy.http(
-      target.url,
-      target.headers,
+      decision.target.url,
+      decision.target.headers,
       new Request(c.req.raw, {
         headers,
       }),
-      WorkspaceID.make(workspaceID),
+      decision.workspaceID,
     )
   }
 }
