@@ -79,11 +79,16 @@ export const PermissionRoutes = lazy(() =>
       async (c) => {
         const params = c.req.valid("param")
         const json = c.req.valid("json")
-        await Permission.reply({
-          requestID: params.requestID,
-          reply: json.reply,
-          message: json.message,
-        })
+        await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const permission = yield* Permission.Service
+            yield* permission.reply({
+              requestID: params.requestID,
+              reply: json.reply,
+              message: json.message,
+            })
+          }),
+        )
         return c.json(true)
       },
     )
