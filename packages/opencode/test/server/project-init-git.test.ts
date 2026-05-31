@@ -17,6 +17,25 @@ afterEach(async () => {
 })
 
 describe("project.initGit endpoint", () => {
+  test("lists and reads projects through the route runtime", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const app = Server.Default().app
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const headers = { "x-opencode-directory": tmp.path }
+        const list = await app.request("/project", { headers })
+        expect(list.status).toBe(200)
+        expect(await list.json()).toBeArray()
+
+        const current = await app.request("/project/current", { headers })
+        expect(current.status).toBe(200)
+        expect(await current.json()).toMatchObject({ vcs: "git", worktree: tmp.path })
+      },
+    })
+  })
+
   test("initializes git and reloads immediately", async () => {
     await using tmp = await tmpdir()
     const app = Server.Default().app
