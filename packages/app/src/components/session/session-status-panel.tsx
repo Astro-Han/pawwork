@@ -29,7 +29,7 @@ export function SessionStatusPanel(props: {
     params.id && sync.directory ? globalSync.todoHydrate.isPending(sync.directory, params.id) : false,
   )
 
-  const vcs = createMemo(() => sync.data.vcs)
+  const vcs = () => sync.data.vcs
 
   const activeWorktree = createMemo(() => {
     if (!params.id) return undefined
