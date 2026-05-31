@@ -72,72 +72,75 @@ export function resolveWorkspaceRoute(input: {
   isPawWork: boolean
   isWebSocketUpgrade?: boolean
 }): Effect.Effect<WorkspaceRouteResolution, unknown> {
-  return Effect.promise(async () => {
-    const sessionWorkspaceID = await getSessionWorkspace(input.pathname)
-    const workspaceID = sessionWorkspaceID || input.workspaceID
+  return Effect.tryPromise({
+    try: async () => {
+      const sessionWorkspaceID = await getSessionWorkspace(input.pathname)
+      const workspaceID = sessionWorkspaceID || input.workspaceID
 
-    if (!workspaceID) {
-      const createLegacyConfig = shouldCreateLegacyConfigBeforeNoWorkspacePath({
-        pathname: input.pathname,
-        ensureConfig: input.ensureConfig,
-        isPawWork: input.isPawWork,
-      })
-      return {
-        action: "provide-local-context",
-        directory: input.directory,
-        createLegacyConfig: createLegacyConfig || undefined,
+      if (!workspaceID) {
+        const createLegacyConfig = shouldCreateLegacyConfigBeforeNoWorkspacePath({
+          pathname: input.pathname,
+          ensureConfig: input.ensureConfig,
+          isPawWork: input.isPawWork,
+        })
+        return {
+          action: "provide-local-context",
+          directory: input.directory,
+          createLegacyConfig: createLegacyConfig || undefined,
+        }
       }
-    }
 
-    const id = WorkspaceID.make(workspaceID)
-    const workspace = await Workspace.record(id)
+      const id = WorkspaceID.make(workspaceID)
+      const workspace = await Workspace.record(id)
 
-    if (!workspace) {
-      const decision = classifyWorkspaceRoute({
-        method: input.method,
-        pathname: input.pathname,
-        target: "missing",
-      })
-      if (decision.action === "pass-missing-session-delete") {
-        return { action: "pass-missing-session-delete" }
+      if (!workspace) {
+        const decision = classifyWorkspaceRoute({
+          method: input.method,
+          pathname: input.pathname,
+          target: "missing",
+        })
+        if (decision.action === "pass-missing-session-delete") {
+          return { action: "pass-missing-session-delete" }
+        }
+        return { action: "missing-workspace-error", workspaceID: id }
       }
-      return { action: "missing-workspace-error", workspaceID: id }
-    }
 
-    Workspace.ensureSync(workspace, input.directory)
+      Workspace.ensureSync(workspace, input.directory)
 
-    const adaptor = await Workspace.resolveAdaptor({
-      ...workspace,
-      hint: input.directory,
-    })
-    const target = await adaptor.target(workspace)
+      const adaptor = await Workspace.resolveAdaptor({
+        ...workspace,
+        hint: input.directory,
+      })
+      const target = await adaptor.target(workspace)
 
-    if (target.type === "local") {
+      if (target.type === "local") {
+        const decision = classifyWorkspaceRoute({
+          method: input.method,
+          pathname: input.pathname,
+          target: target.type,
+        })
+        if (decision.action !== "provide-local-workspace") {
+          throw new Error(`Unexpected local workspace routing decision: ${decision.action}`)
+        }
+        return {
+          action: "provide-local-context",
+          directory: target.directory,
+          workspaceID: id,
+        }
+      }
+
       const decision = classifyWorkspaceRoute({
         method: input.method,
         pathname: input.pathname,
         target: target.type,
+        isWebSocketUpgrade: input.isWebSocketUpgrade,
       })
-      if (decision.action !== "provide-local-workspace") {
-        throw new Error(`Unexpected local workspace routing decision: ${decision.action}`)
-      }
-      return {
-        action: "provide-local-context",
-        directory: target.directory,
-        workspaceID: id,
-      }
-    }
 
-    const decision = classifyWorkspaceRoute({
-      method: input.method,
-      pathname: input.pathname,
-      target: target.type,
-      isWebSocketUpgrade: input.isWebSocketUpgrade,
-    })
-
-    if (decision.action === "serve-local-cache") return { action: "serve-local-cache" }
-    if (decision.action === "proxy-websocket") return { action: "proxy-websocket", target }
-    return { action: "proxy-http", target, workspaceID: id }
+      if (decision.action === "serve-local-cache") return { action: "serve-local-cache" }
+      if (decision.action === "proxy-websocket") return { action: "proxy-websocket", target }
+      return { action: "proxy-http", target, workspaceID: id }
+    },
+    catch: (error) => error,
   })
 }
 
