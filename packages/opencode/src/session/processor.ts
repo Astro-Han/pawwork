@@ -1459,8 +1459,12 @@ export const layer: Layer.Layer<
                   safeRecoveryStep(undefined).pipe(Effect.as("scheduled" as const)),
                   lifecycleCloseWatch,
                 ).pipe(
-                  Effect.catchCause(() => Effect.succeed("exhausted" as const)),
                   Effect.onInterrupt(() => recordProcessInterrupt(attemptID)),
+                  Effect.catchCause((cause) =>
+                    Cause.hasInterruptsOnly(cause)
+                      ? Effect.interrupt
+                      : Effect.succeed("exhausted" as const),
+                  ),
                 )
                 if (backoffResult === "exhausted") {
                   yield* writeSafeRetryFailedNotice(attemptID)
