@@ -185,7 +185,7 @@ function ArtifactRow(props: {
 
   return (
     <div
-      class="group grid h-[30px] items-center gap-[var(--space-sm)] px-3 transition-colors hover:bg-[var(--row-hover-overlay)]"
+      class="group grid h-[30px] items-center gap-[var(--space-sm)] px-3 rounded-md transition-colors hover:bg-[var(--row-hover-overlay)]"
       style={{ "grid-template-columns": "16px minmax(0, 1fr) max-content" }}
     >
       <Icon name="review" class="size-4 shrink-0 text-fg-weak" />
