@@ -12,7 +12,7 @@ import { Session } from "@/session"
 import { WorkspaceContext } from "@/control-plane/workspace-context"
 import { Global } from "@/global"
 import { Runtime } from "@opencode-ai/core/runtime"
-import { requestContextFromHono, withRequestContext } from "@/server/request-context"
+import { requestContextFromHono, withRequestContext, type RequestContextSnapshot } from "@/server/request-context"
 import {
   classifyWorkspaceRoute,
   sessionIDForWorkspaceRouting,
@@ -25,6 +25,27 @@ async function getSessionWorkspace(url: URL) {
 
   const session = await Session.get(id).catch(() => undefined)
   return session?.workspaceID
+}
+
+function provideLocalWorkspaceContext<R>(input: {
+  directory: string
+  workspaceID?: WorkspaceID
+  request: RequestContextSnapshot
+  fn: () => R
+}) {
+  const run = () =>
+    withRequestContext(input.request, () =>
+      Instance.provide({
+        directory: input.directory,
+        fn: input.fn,
+      }),
+    )
+
+  if (!input.workspaceID) return run()
+  return WorkspaceContext.provide({
+    workspaceID: input.workspaceID,
+    fn: run,
+  })
 }
 
 export function WorkspaceRouterMiddleware(upgrade: UpgradeWebSocket): MiddlewareHandler {
@@ -69,15 +90,11 @@ export function WorkspaceRouterMiddleware(upgrade: UpgradeWebSocket): Middleware
         }
       }
 
-      const snapshot = requestContextFromHono(c, { directory })
-      return withRequestContext(snapshot, () =>
-        Instance.provide({
-          directory,
-          async fn() {
-            return next()
-          },
-        }),
-      )
+      return provideLocalWorkspaceContext({
+        directory,
+        request: requestContextFromHono(c, { directory }),
+        fn: next,
+      })
     }
 
     const workspace = await Workspace.record(WorkspaceID.make(workspaceID))
@@ -123,18 +140,11 @@ export function WorkspaceRouterMiddleware(upgrade: UpgradeWebSocket): Middleware
       if (decision.action !== "provide-local-workspace") {
         throw new Error(`Unexpected local workspace routing decision: ${decision.action}`)
       }
-      const snapshot = requestContextFromHono(c, { directory: target.directory, workspaceID })
-      return WorkspaceContext.provide({
+      return provideLocalWorkspaceContext({
+        directory: target.directory,
         workspaceID: WorkspaceID.make(workspaceID),
-        fn: () =>
-          withRequestContext(snapshot, () =>
-            Instance.provide({
-              directory: target.directory,
-              async fn() {
-                return next()
-              },
-            }),
-          ),
+        request: requestContextFromHono(c, { directory: target.directory, workspaceID }),
+        fn: next,
       })
     }
 
