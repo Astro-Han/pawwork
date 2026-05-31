@@ -32,7 +32,7 @@ function TodoRow(props: { todo: SessionTodoItem }) {
     <div
       data-slot="status-summary-todo"
       data-state={props.todo.status}
-      class="flex items-start gap-2 py-1 min-h-[30px]"
+      class="flex items-start gap-2 py-1"
     >
       <TodoStatusMarker status={props.todo.status} marginTop="1px" />
       <div
@@ -50,7 +50,7 @@ function TodoRow(props: { todo: SessionTodoItem }) {
 
 function SourceRow(props: { url: string }) {
   return (
-    <div class="flex items-center gap-2 py-1 min-h-[30px]" title={props.url}>
+    <div class="flex items-center gap-2 py-1" title={props.url}>
       <span class="text-body text-fg-base truncate min-w-0">{props.url}</span>
     </div>
   )
