@@ -1,8 +1,10 @@
 import { Hono } from "hono"
 import { describeRoute, validator, resolver } from "hono-openapi"
+import { Effect } from "effect"
 import z from "zod"
 import { Config } from "../../config/config"
 import { Provider } from "../../provider/provider"
+import { AppRuntime } from "../../effect/app-runtime"
 import { mapValues } from "remeda"
 import { errors } from "../error"
 import { Log } from "@opencode-ai/core/util/log"
@@ -30,7 +32,13 @@ export const ConfigRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        return c.json(await Config.get())
+        const config = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const service = yield* Config.Service
+            return yield* service.get()
+          }),
+        )
+        return c.json(config)
       },
     )
     .patch(
@@ -54,7 +62,12 @@ export const ConfigRoutes = lazy(() =>
       validator("json", Config.Info.zod),
       async (c) => {
         const config = c.req.valid("json")
-        await Config.update(config)
+        await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const service = yield* Config.Service
+            yield* service.update(config)
+          }),
+        )
         return c.json(config)
       },
     )
@@ -82,7 +95,13 @@ export const ConfigRoutes = lazy(() =>
       }),
       async (c) => {
         using _ = log.time("providers")
-        const providers = await Provider.list().then((x) => mapValues(x, (item) => item))
+        const providers = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const service = yield* Provider.Service
+            const items = yield* service.list()
+            return mapValues(items, (item) => item)
+          }),
+        )
         return c.json({
           providers: Object.values(providers),
           default: mapValues(providers, (item) => Provider.defaultModelID(item)),
