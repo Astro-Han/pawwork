@@ -71,8 +71,11 @@ function GitRow(props: {
   return (
     <button
       type="button"
-      class="flex w-full items-center gap-2 rounded-sm px-1 py-1 text-left transition-colors hover:bg-surface-raised"
-      classList={{ "cursor-default": !props.onClick }}
+      class="flex w-full items-center gap-2 rounded px-2 text-left transition-colors min-h-[30px]"
+      classList={{
+        "cursor-default": !props.onClick,
+        "hover:bg-surface-raised": !!props.onClick,
+      }}
       onClick={props.onClick}
       title={props.title}
     >
@@ -120,8 +123,8 @@ function GitSection(props: {
       <div class="flex flex-col">
         <GitRow
           icon="changes"
-          onClick={hasChanges() ? props.onNavigateReview : undefined}
-          chevron={hasChanges() ? "right" : false}
+          onClick={props.onNavigateReview}
+          chevron="right"
         >
           <Show
             when={hasChanges()}
@@ -137,7 +140,7 @@ function GitSection(props: {
 
         <Show when={props.vcs()?.branch}>
           {(branch) => (
-            <GitRow icon="branch" chevron="down">
+            <GitRow icon="branch">
               <span class="text-body text-fg-base">{branch()}</span>
             </GitRow>
           )}
