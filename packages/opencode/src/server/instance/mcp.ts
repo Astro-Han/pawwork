@@ -1,10 +1,12 @@
 import { Hono } from "hono"
 import { describeRoute, validator, resolver } from "hono-openapi"
+import { Effect } from "effect"
 import z from "zod"
 import { MCP } from "../../mcp"
 import { Config } from "../../config/config"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
+import { AppRuntime } from "../../effect/app-runtime"
 
 export const McpRoutes = lazy(() =>
   new Hono()
@@ -26,7 +28,13 @@ export const McpRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        return c.json(await MCP.status())
+        const status = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const mcp = yield* MCP.Service
+            return yield* mcp.status()
+          }),
+        )
+        return c.json(status)
       },
     )
     .post(
