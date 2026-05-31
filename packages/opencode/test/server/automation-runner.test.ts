@@ -19,6 +19,8 @@ import { Flock } from "../../src/util/flock"
 import { Worktree } from "../../src/worktree"
 import { tmpdir } from "../fixture/fixture"
 
+const RUN_WAIT_TIMEOUT_MS = 10_000
+
 afterEach(async () => {
   await Instance.disposeAll()
 })
@@ -46,7 +48,7 @@ function input(projectID: ProjectID, overrides: Partial<Extract<Automation.Creat
 }
 
 async function waitForRun(automationID: string, state: Automation.Run["state"]) {
-  const deadline = Date.now() + 2_000
+  const deadline = Date.now() + RUN_WAIT_TIMEOUT_MS
   while (Date.now() < deadline) {
     const run = Automation.runs({ automationID }).items.find((item) => item.state === state)
     if (run?.state === state) return run
@@ -56,7 +58,7 @@ async function waitForRun(automationID: string, state: Automation.Run["state"]) 
 }
 
 async function waitForRunCount(automationID: string, count: number) {
-  const deadline = Date.now() + 2_000
+  const deadline = Date.now() + RUN_WAIT_TIMEOUT_MS
   while (Date.now() < deadline) {
     const items = Automation.runs({ automationID, limit: 100 }).items
     if (items.length >= count) return items
@@ -66,7 +68,7 @@ async function waitForRunCount(automationID: string, count: number) {
 }
 
 async function waitForSucceededRunCount(automationID: string, count: number) {
-  const deadline = Date.now() + 2_000
+  const deadline = Date.now() + RUN_WAIT_TIMEOUT_MS
   while (Date.now() < deadline) {
     const items = Automation.runs({ automationID, limit: 100 }).items
     const succeeded = items.filter((run) => run.state === "succeeded")
@@ -77,7 +79,7 @@ async function waitForSucceededRunCount(automationID: string, count: number) {
 }
 
 async function waitForTerminalRun(automationID: string) {
-  const deadline = Date.now() + 2_000
+  const deadline = Date.now() + RUN_WAIT_TIMEOUT_MS
   while (Date.now() < deadline) {
     const run = Automation.runs({ automationID }).items.find((item) =>
       item.state === "succeeded" || item.state === "failed" || item.state === "stopped"
@@ -671,7 +673,7 @@ describe("automation runNow execution", () => {
           await Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
           const result = await Promise.race([
             waitForRun(definition.id, "succeeded").then((run) => ({ state: "succeeded" as const, run })),
-            Bun.sleep(2_000).then(() => ({ state: "timeout" as const })),
+            Bun.sleep(RUN_WAIT_TIMEOUT_MS).then(() => ({ state: "timeout" as const })),
           ])
           if (result.state === "timeout") {
             const worktree = await Worktree.lookupBySlug("long-start")
