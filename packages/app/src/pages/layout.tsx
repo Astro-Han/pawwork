@@ -121,6 +121,7 @@ import { PawworkTitlebar } from "./layout/pawwork-titlebar"
 import { createDefaultLayoutPageState, createLayoutPagePersistTarget, removePinnedSessionIDs } from "./layout/layout-page-store"
 import { SettingsContent, SettingsNav, isSettingsTab, type SettingsTab } from "@/pages/settings/settings-shell"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
+import { AppStartupPending } from "@/components/app-startup-pending"
 import { sessionTitle } from "@/utils/session-title"
 import { sizingStopEvents } from "@/pages/session/helpers"
 
@@ -359,6 +360,7 @@ export default function Layout(props: ParentProps) {
     if (!dir) return
     await openProject(dir, true)
   })
+  const startupAutoselectPending = () => state.autoselect && autoselecting.loading
 
   const workspaceName = (directory: string, projectId?: string, branch?: string) => {
     const key = workspaceKey(directory)
@@ -2429,7 +2431,7 @@ export default function Layout(props: ParentProps) {
                       aria-hidden={settingsOpen() || undefined}
                       classList={{ "size-full": true, invisible: settingsOpen() }}
                     >
-                      <Show when={!autoselecting.loading} fallback={<div class="size-full" />}>
+                      <Show when={!startupAutoselectPending()} fallback={<AppStartupPending />}>
                         {props.children}
                       </Show>
                     </div>
