@@ -23,18 +23,16 @@ describe("right panel tab helpers", () => {
     expect(migrateLegacyRightPanelTab("changes")).toBe("review")
   })
 
-  test("migrates old files tab to files", () => {
-    expect(migrateLegacyRightPanelTab("files")).toBe("files")
+  test("migrates old files tab to status", () => {
+    expect(migrateLegacyRightPanelTab("files")).toBe("status")
   })
 
   test("keeps new right panel tabs stable", () => {
-    const tabs: RightPanelTab[] = ["status", "files", "review", "context"]
+    const tabs: RightPanelTab[] = ["status", "review", "context"]
     expect(tabs.map((tab) => migrateLegacyRightPanelTab(tab))).toEqual(tabs)
   })
 
   test("drops legacy 'terminal' static value (terminals now come from terminal.all)", () => {
-    // Pre-refactor 'terminal' was a fixed slot. After flattening, only
-    // dynamic 'terminal:<id>' is valid; the bare value falls back to status.
     expect(migrateLegacyRightPanelTab("terminal")).toBe("status")
   })
 })
@@ -46,6 +44,7 @@ describe("isRightPanelTab", () => {
 
   test("rejects unknown strings and non-strings", () => {
     expect(isRightPanelTab("changes")).toBe(false)
+    expect(isRightPanelTab("files")).toBe(false)
     expect(isRightPanelTab(undefined)).toBe(false)
     expect(isRightPanelTab(123)).toBe(false)
     expect(isRightPanelTab(null)).toBe(false)
@@ -76,9 +75,12 @@ describe("coerceLegacySidePanelTab", () => {
     expect(coerceLegacySidePanelTab("changes")).toBe("review")
   })
 
+  test("maps files to status", () => {
+    expect(coerceLegacySidePanelTab("files")).toBe("status")
+  })
+
   test("passes through known tabs", () => {
     expect(coerceLegacySidePanelTab("status")).toBe("status")
-    expect(coerceLegacySidePanelTab("files")).toBe("files")
     expect(coerceLegacySidePanelTab("context")).toBe("context")
   })
 
@@ -105,18 +107,18 @@ describe("normalizeShellTabs", () => {
   })
 
   test("injects status at head if missing", () => {
-    expect(normalizeShellTabs({ openShellTabs: ["files", "review"], sidePanelTab: "files" })).toEqual({
-      openShellTabs: ["status", "files", "review"],
-      sidePanelTab: "files",
+    expect(normalizeShellTabs({ openShellTabs: ["review", "context"], sidePanelTab: "review" })).toEqual({
+      openShellTabs: ["status", "review", "context"],
+      sidePanelTab: "review",
     })
   })
 
   test("dedupes preserving first occurrence", () => {
     expect(
-      normalizeShellTabs({ openShellTabs: ["status", "files", "files", "review"], sidePanelTab: "review" }),
+      normalizeShellTabs({ openShellTabs: ["status", "review", "review", "context"], sidePanelTab: "context" }),
     ).toEqual({
-      openShellTabs: ["status", "files", "review"],
-      sidePanelTab: "review",
+      openShellTabs: ["status", "review", "context"],
+      sidePanelTab: "context",
     })
   })
 
@@ -130,16 +132,22 @@ describe("normalizeShellTabs", () => {
   })
 
   test("falls back to status when sidePanelTab not in list", () => {
-    expect(normalizeShellTabs({ openShellTabs: ["status", "files"], sidePanelTab: "review" })).toEqual({
-      openShellTabs: ["status", "files"],
+    expect(normalizeShellTabs({ openShellTabs: ["status", "review"], sidePanelTab: "context" })).toEqual({
+      openShellTabs: ["status", "review"],
       sidePanelTab: "status",
     })
   })
 
   test("idempotent", () => {
-    const once = normalizeShellTabs({ openShellTabs: ["files", "status", "files"], sidePanelTab: "files" })
+    const once = normalizeShellTabs({ openShellTabs: ["review", "status", "review"], sidePanelTab: "review" })
     const twice = normalizeShellTabs(once)
     expect(twice).toEqual(once)
+  })
+
+  test("drops legacy files from persisted openShellTabs", () => {
+    const result = normalizeShellTabs({ openShellTabs: ["status", "files"], sidePanelTab: "files" })
+    expect(result.openShellTabs).toEqual(["status"])
+    expect(result.sidePanelTab).toBe("status")
   })
 })
 
@@ -152,15 +160,12 @@ describe("terminalTabValue", () => {
 
   test("throws on an empty id rather than returning the invalid 'terminal:'", () => {
     expect(() => terminalTabValue("")).toThrow()
-    // The empty form would otherwise be rejected by the type guard.
     expect(isRightPanelTerminalTab("terminal:")).toBe(false)
   })
 })
 
 describe("isDanglingTerminalSelection", () => {
   test("not dangling while terminal store is still hydrating (ready=false)", () => {
-    // The restore race: layout restored sidePanelTab=terminal:t1 but the
-    // terminal store hasn't loaded yet, so all() is empty. Must NOT bounce.
     expect(isDanglingTerminalSelection("terminal:t1" as RightPanelTab, false, [])).toBe(false)
   })
 
@@ -174,43 +179,35 @@ describe("isDanglingTerminalSelection", () => {
 
   test("static tabs are never dangling, ready or not", () => {
     expect(isDanglingTerminalSelection("status", true, [])).toBe(false)
-    expect(isDanglingTerminalSelection("files", false, [])).toBe(false)
+    expect(isDanglingTerminalSelection("review", false, [])).toBe(false)
   })
 })
 
 describe("shouldCommitDeferredOpen", () => {
-  // Scenario: openTab("files") scheduled a microtask while baseline was "status".
-  // By the time the microtask runs, evaluate whether the deferred selection
-  // write to "files" is still safe.
-
   test("commits when chip still open and baseline selection unchanged", () => {
-    const after = normalizeShellTabs({ openShellTabs: ["status", "files"], sidePanelTab: "status" })
-    expect(shouldCommitDeferredOpen(after, "files", "status")).toBe(true)
+    const after = normalizeShellTabs({ openShellTabs: ["status", "review"], sidePanelTab: "status" })
+    expect(shouldCommitDeferredOpen(after, "review", "status")).toBe(true)
   })
 
   test("skips when chip was closed before microtask fired", () => {
     const after = normalizeShellTabs({ openShellTabs: ["status"], sidePanelTab: "status" })
-    expect(shouldCommitDeferredOpen(after, "files", "status")).toBe(false)
+    expect(shouldCommitDeferredOpen(after, "review", "status")).toBe(false)
   })
 
   test("skips when a same-tick openTab(B) moved selection off baseline", () => {
-    // Sequence: openTab("files") defers, openTab("review") commits sync to
-    // "review". The deferred microtask must not overwrite "review".
     const after = normalizeShellTabs({
-      openShellTabs: ["status", "files", "review"],
-      sidePanelTab: "review",
+      openShellTabs: ["status", "review", "context"],
+      sidePanelTab: "context",
     })
-    expect(shouldCommitDeferredOpen(after, "files", "status")).toBe(false)
+    expect(shouldCommitDeferredOpen(after, "review", "status")).toBe(false)
   })
 
   test("skips when selection moved off baseline to a different open tab", () => {
     const after = normalizeShellTabs({
-      openShellTabs: ["status", "files", "context"],
+      openShellTabs: ["status", "review", "context"],
       sidePanelTab: "context",
     })
-    // Baseline was "status"; by microtask time selection is on "context".
-    // Don't overwrite that with the deferred "files".
-    expect(shouldCommitDeferredOpen(after, "files", "status")).toBe(false)
+    expect(shouldCommitDeferredOpen(after, "review", "status")).toBe(false)
   })
 
   test("never commits for a terminal target (terminal chips skip the defer path entirely)", () => {

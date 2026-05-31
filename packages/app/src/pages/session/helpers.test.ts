@@ -122,19 +122,19 @@ describe("getTabReorderIndex", () => {
 describe("planShellTabReorder", () => {
   test("static to static returns a static move", () => {
     const plan = planShellTabReorder({
-      draggableId: "files",
-      droppableId: "review",
-      openStatic: ["status", "files", "review", "context"],
+      draggableId: "review",
+      droppableId: "context",
+      openStatic: ["status", "review", "context"],
       terminalIds: [],
     })
-    expect(plan).toEqual({ kind: "static", target: "files", to: 2 })
+    expect(plan).toEqual({ kind: "static", target: "review", to: 2 })
   })
 
   test("terminal to terminal returns a terminal move with terminal-segment index", () => {
     const plan = planShellTabReorder({
       draggableId: "terminal:a",
       droppableId: "terminal:c",
-      openStatic: ["status", "files"],
+      openStatic: ["status", "review"],
       terminalIds: ["a", "b", "c"],
     })
     expect(plan).toEqual({ kind: "terminal", target: "a", to: 2 })
@@ -143,9 +143,9 @@ describe("planShellTabReorder", () => {
   test("cross-segment drag (static <-> terminal) is a no-op", () => {
     expect(
       planShellTabReorder({
-        draggableId: "files",
+        draggableId: "review",
         droppableId: "terminal:a",
-        openStatic: ["status", "files", "review"],
+        openStatic: ["status", "review", "review"],
         terminalIds: ["a"],
       }),
     ).toBeNull()
@@ -153,7 +153,7 @@ describe("planShellTabReorder", () => {
       planShellTabReorder({
         draggableId: "terminal:a",
         droppableId: "review",
-        openStatic: ["status", "files", "review"],
+        openStatic: ["status", "review", "review"],
         terminalIds: ["a"],
       }),
     ).toBeNull()
@@ -162,9 +162,9 @@ describe("planShellTabReorder", () => {
   test("dragging onto self is a no-op", () => {
     expect(
       planShellTabReorder({
-        draggableId: "files",
-        droppableId: "files",
-        openStatic: ["status", "files", "review"],
+        draggableId: "review",
+        droppableId: "review",
+        openStatic: ["status", "review", "review"],
         terminalIds: [],
       }),
     ).toBeNull()
@@ -174,8 +174,8 @@ describe("planShellTabReorder", () => {
     expect(
       planShellTabReorder({
         draggableId: "ghost",
-        droppableId: "files",
-        openStatic: ["status", "files"],
+        droppableId: "review",
+        openStatic: ["status", "review"],
         terminalIds: [],
       }),
     ).toBeNull()
@@ -192,9 +192,9 @@ describe("planShellTabReorder", () => {
   test("rejects dragging onto status (pinned)", () => {
     expect(
       planShellTabReorder({
-        draggableId: "files",
+        draggableId: "review",
         droppableId: "status",
-        openStatic: ["status", "files"],
+        openStatic: ["status", "review"],
         terminalIds: [],
       }),
     ).toBeNull()
@@ -204,8 +204,8 @@ describe("planShellTabReorder", () => {
     expect(
       planShellTabReorder({
         draggableId: "status",
-        droppableId: "files",
-        openStatic: ["status", "files"],
+        droppableId: "review",
+        openStatic: ["status", "review"],
         terminalIds: [],
       }),
     ).toBeNull()

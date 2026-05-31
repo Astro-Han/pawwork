@@ -45,15 +45,15 @@ describe("resolveActiveCandidate", () => {
   })
 
   test("maps legacy review inner tabs before stored side panel tab", () => {
-    expect(resolveActiveCandidate(legacyEntry({ migratedSidePanelTab: "files", sessionTabsRaw: { active: "changes" } })))
+    expect(resolveActiveCandidate(legacyEntry({ migratedSidePanelTab: "status", sessionTabsRaw: { active: "changes" } })))
       .toBe("review")
-    expect(resolveActiveCandidate(legacyEntry({ migratedSidePanelTab: "files", sessionTabsRaw: { active: "review" } })))
+    expect(resolveActiveCandidate(legacyEntry({ migratedSidePanelTab: "status", sessionTabsRaw: { active: "review" } })))
       .toBe("review")
   })
 
   test("falls back to stored side panel tab before inferred review presence", () => {
-    expect(resolveActiveCandidate(legacyEntry({ migratedSidePanelTab: "files", reviewInSessionTabs: true }))).toBe(
-      "files",
+    expect(resolveActiveCandidate(legacyEntry({ migratedSidePanelTab: "status", reviewInSessionTabs: true }))).toBe(
+      "status",
     )
     expect(resolveActiveCandidate(legacyEntry({ reviewInSessionTabs: true }))).toBe("review")
   })
@@ -95,10 +95,10 @@ describe("migrateSessionView", () => {
 
   test("preserves existing openShellTabs and absorbs sessionTabs active context", () => {
     const out = migrateSessionView(
-      { a: { scroll: {}, openShellTabs: ["status", "files"], sidePanelTab: "files" } },
+      { a: { scroll: {}, openShellTabs: ["status", "review"], sidePanelTab: "review" } },
       { a: { all: ["file://x"], active: "context" } },
     )
-    expect((out.sessionView as any).a.openShellTabs).toEqual(["status", "files", "review", "context"])
+    expect((out.sessionView as any).a.openShellTabs).toEqual(["status", "review", "context"])
     expect((out.sessionView as any).a.sidePanelTab).toBe("context")
     expect((out.sessionTabs as any).a).toEqual({ all: ["file://x"], active: undefined })
   })
@@ -139,21 +139,21 @@ describe("migrateSessionView", () => {
     expect(out.changed).toBe(true)
   })
 
-  test("normalizes damaged openShellTabs", () => {
+  test("normalizes damaged openShellTabs and drops legacy files", () => {
     const out = migrateSessionView(
       { a: { scroll: {}, openShellTabs: ["review", "status", "files", "files"], sidePanelTab: "review" } },
       {},
     )
-    expect((out.sessionView as any).a.openShellTabs).toEqual(["status", "review", "files"])
+    expect((out.sessionView as any).a.openShellTabs).toEqual(["status", "review"])
     expect((out.sessionView as any).a.sidePanelTab).toBe("review")
   })
 
   test("keeps valid openShellTabs but resets invalid sidePanelTab", () => {
     const out = migrateSessionView(
-      { a: { scroll: {}, openShellTabs: ["status", "files"], sidePanelTab: "bogus" } },
+      { a: { scroll: {}, openShellTabs: ["status", "review"], sidePanelTab: "bogus" } },
       {},
     )
-    expect((out.sessionView as any).a.openShellTabs).toEqual(["status", "files"])
+    expect((out.sessionView as any).a.openShellTabs).toEqual(["status", "review"])
     expect((out.sessionView as any).a.sidePanelTab).toBe("status")
     expect(out.changed).toBe(true)
   })
