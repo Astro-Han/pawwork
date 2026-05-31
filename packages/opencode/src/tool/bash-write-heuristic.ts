@@ -9,7 +9,6 @@ const writeCommands = new Set([
   "make",
   "mkdir",
   "mv",
-  "officecli",
   "patch",
   "rm",
   "rmdir",
@@ -21,6 +20,18 @@ const writeCommands = new Set([
 
 const powershellWriteCommands =
   /\b(set-content|new-item|remove-item|copy-item|move-item|out-file|add-content|clear-content|rename-item)\b/i
+const officeCliWriteCommands = new Set([
+  "add",
+  "batch",
+  "close",
+  "create",
+  "import",
+  "move",
+  "raw-set",
+  "remove",
+  "set",
+  "swap",
+])
 
 function withoutQuotedText(command: string) {
   return command.replace(/'[^']*'/g, "''").replace(/"[^"\\]*(?:\\.[^"\\]*)*"/g, '""')
@@ -57,6 +68,10 @@ function commandHead(words: string[]) {
   return { head: words[index], next: words[index + 1], rest: words.slice(index + 1) }
 }
 
+function isOfficeCli(head: string) {
+  return head === "officecli" || head === "officecli.exe"
+}
+
 export function isLikelyWriteCommand(command: string) {
   for (const words of commandSegments(command)) {
     const { head } = commandHead(words)
@@ -70,6 +85,7 @@ export function isLikelyWriteCommand(command: string) {
   for (const words of commandSegments(stripped)) {
     const { head, next, rest } = commandHead(words)
     if (!head) continue
+    if (isOfficeCli(head) && officeCliWriteCommands.has(next ?? "")) return true
     if (writeCommands.has(head)) return true
     if (head === "sed" && rest.slice(0, 3).some((item) => item === "-i" || item.startsWith("-i"))) return true
     if (head === "perl" && rest.slice(0, 3).some((item) => item.includes("i"))) return true

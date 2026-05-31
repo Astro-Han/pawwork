@@ -57,9 +57,11 @@ const positive = [
   "cmake --build build",
   "python setup.py build",
   "python3 setup.py install",
-  "officecli document create report.docx",
-  "officecli spreadsheet update report.xlsx",
-  "officecli presentation export report.pptx",
+  "officecli create report.docx",
+  "officecli add report.pptx / --type slide",
+  "officecli set report.xlsx /Sheet1/A1 --prop value=hello",
+  "officecli import report.xlsx /Sheet1 --file data.csv --header",
+  "officecli close report.pptx",
   "tsc",
   "tsc -p tsconfig.json",
   "vite build",
@@ -117,6 +119,12 @@ const negative = [
   "uv run pytest",
   "vite --version",
   "tsc --noEmit",
+  "officecli --version",
+  "officecli help docx",
+  "officecli view report.docx outline",
+  "officecli get report.docx /body --depth 1",
+  "officecli query report.xlsx sheet",
+  "officecli validate report.pptx",
 ]
 
 describe("isLikelyWriteCommand", () => {

@@ -619,6 +619,108 @@ describe("tool.bash expected_outputs", () => {
     })
   })
 
+  test("keeps modified auto-discovered Office outputs visible in turn-change", async () => {
+    await resetDatabase()
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await fs.promises.writeFile(path.join(dir, "report.docx"), Buffer.from([80, 75, 3, 4, 1, 2, 3, 4]))
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await initBash()
+        const turn = await createTurn()
+        const target = path.join(tmp.path, "report.docx")
+        const marker = path.join(tmp.path, "marker.txt")
+        const script = path.join(tmp.path, "modify-office.cjs")
+        await fs.promises.writeFile(
+          script,
+          "require('node:fs').writeFileSync(process.argv[2], Buffer.from([80,75,3,4,9,8,7,6]))\n",
+          "utf-8",
+        )
+        const command = `${PS.has(sh()) ? "& " : ""}${bin} ${quote(script.replaceAll("\\", "/"))} ${quote(target.replaceAll("\\", "/"))} > ${quote(marker.replaceAll("\\", "/"))}`
+        const result = await Effect.runPromise(
+          bash.execute(
+            {
+              command,
+              description: "Modify undeclared Office file",
+            },
+            { ...ctx, ...turn },
+          ),
+        )
+
+        expect(result.metadata.exit).toBe(0)
+        expect(
+          (
+            result.metadata as {
+              artifacts?: Array<{ path: string; exists: boolean; changed: boolean; binary?: boolean }>
+            }
+          ).artifacts,
+        ).toEqual([{ path: target, exists: true, changed: true, binary: true }])
+        expect(TurnChange.finalize(turn)?.files).toEqual([
+          {
+            path: "report.docx",
+            status: "modified",
+            binary: true,
+            restoreAvailable: false,
+            expandable: false,
+          },
+        ])
+      },
+    })
+  })
+
+  test("preserves uncaptured marker alongside auto-discovered Office outputs", async () => {
+    await resetDatabase()
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await initBash()
+        const turn = await createTurn()
+        const target = path.join(tmp.path, "report.docx")
+        const script = path.join(tmp.path, "write-office-and-text.cjs")
+        await fs.promises.writeFile(
+          script,
+          [
+            "const fs = require('node:fs')",
+            "fs.writeFileSync(process.argv[2], Buffer.from([80,75,3,4,20,6,8,8]))",
+            "fs.writeFileSync(process.argv[3], 'notes\\n')",
+          ].join("\n"),
+          "utf-8",
+        )
+        const command = `${PS.has(sh()) ? "& " : ""}${bin} ${quote(script.replaceAll("\\", "/"))} ${quote(target.replaceAll("\\", "/"))} ${quote(path.join(tmp.path, "notes.txt").replaceAll("\\", "/"))} > ${quote(path.join(tmp.path, "marker.txt").replaceAll("\\", "/"))}`
+        const result = await Effect.runPromise(
+          bash.execute(
+            {
+              command,
+              description: "Create mixed undeclared files",
+            },
+            { ...ctx, ...turn },
+          ),
+        )
+
+        expect(result.metadata.exit).toBe(0)
+        TurnChange.finalize(turn)
+        expect(
+          TurnChange.aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
+        ).toMatchObject({
+          kind: "mixed",
+          count: 1,
+          files: [
+            {
+              path: "report.docx",
+              status: "added",
+              binary: true,
+              expandable: false,
+            },
+          ],
+        })
+      },
+    })
+  })
+
   test("uses resolved workdir as the Office auto-discovery root", async () => {
     await resetDatabase()
     await using tmp = await tmpdir({

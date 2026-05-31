@@ -524,29 +524,32 @@ export const BashTool = Tool.define(
         let dirs = 0
         let overflowed = false
 
-        const overBudget = () =>
-          Date.now() - started > AUTO_DISCOVERY_BUDGET.maxMillis ||
-          files > AUTO_DISCOVERY_BUDGET.maxFiles ||
-          dirs > AUTO_DISCOVERY_BUDGET.maxDirs ||
-          paths.length > AUTO_DISCOVERY_BUDGET.maxCaptures
+        const timeExceeded = () => Date.now() - started > AUTO_DISCOVERY_BUDGET.maxMillis
+        const overflow = () => {
+          overflowed = true
+        }
 
         const scan = async (dir: string, depth: number): Promise<void> => {
           if (overflowed) return
-          dirs++
-          if (overBudget()) {
-            overflowed = true
+          if (timeExceeded() || dirs >= AUTO_DISCOVERY_BUDGET.maxDirs) {
+            overflow()
             return
           }
+          dirs++
 
-          let entries: Awaited<ReturnType<typeof nodefs.readdir>>
+          let entries: Awaited<ReturnType<typeof nodefs.opendir>>
           try {
-            entries = await nodefs.readdir(dir, { withFileTypes: true })
+            entries = await nodefs.opendir(dir)
           } catch {
             return
           }
 
-          for (const entry of entries) {
+          for await (const entry of entries) {
             if (overflowed) return
+            if (timeExceeded()) {
+              overflow()
+              return
+            }
             const absolute = path.join(dir, entry.name)
             const relative = relativeDiscoveryPath(root, absolute)
             if (!relative || FileIgnore.match(relative)) continue
@@ -558,15 +561,17 @@ export const BashTool = Tool.define(
             }
 
             if (!entry.isFile()) continue
-            files++
-            if (overBudget()) {
-              overflowed = true
+            if (files >= AUTO_DISCOVERY_BUDGET.maxFiles) {
+              overflow()
               return
             }
-            if (isOfficeOutputPath(entry.name)) paths.push(absolute)
-            if (overBudget()) {
-              overflowed = true
-              return
+            files++
+            if (isOfficeOutputPath(entry.name)) {
+              if (paths.length >= AUTO_DISCOVERY_BUDGET.maxCaptures) {
+                overflow()
+                return
+              }
+              paths.push(absolute)
             }
           }
         }
@@ -885,18 +890,21 @@ export const BashTool = Tool.define(
                 }),
               )
 
-              const trackedOutputs = yield* Effect.forEach(params.expected_outputs ?? [], (rawPath) =>
-                Effect.gen(function* () {
-                  const resolved = yield* resolveExecutionPath(rawPath, cwd, shell)
-                  const normalized = AppFileSystem.normalizePath(resolved)
-                  const filepath =
-                    (yield* assertExternalDirectoryEffect(ctx, normalized, { kind: "file" })) ?? normalized
-                  return {
-                    normalized: AppFileSystem.normalizePath(filepath),
-                    path: filepath,
-                    before: yield* readTrackedState(filepath),
-                  }
-                }),
+              const trackedOutputs = yield* Effect.forEach(
+                params.expected_outputs ?? [],
+                (rawPath) =>
+                  Effect.gen(function* () {
+                    const resolved = yield* resolveExecutionPath(rawPath, cwd, shell)
+                    const normalized = AppFileSystem.normalizePath(resolved)
+                    const filepath =
+                      (yield* assertExternalDirectoryEffect(ctx, normalized, { kind: "file" })) ?? normalized
+                    return {
+                      normalized: AppFileSystem.normalizePath(filepath),
+                      path: filepath,
+                      before: yield* readTrackedState(filepath),
+                    }
+                  }),
+                { concurrency: 4 },
               ).pipe(
                 Effect.map((items) => {
                   const deduped = new Map<string, { path: string; before: TrackedOutputState }>()
@@ -913,13 +921,16 @@ export const BashTool = Tool.define(
                 ? yield* Effect.gen(function* () {
                     const discovered = yield* discoverOfficeOutputs(cwd)
                     if (discovered.overflowed) return { outputs: [], overflowed: true }
-                    const outputs = yield* Effect.forEach(discovered.paths, (filepath) =>
-                      Effect.gen(function* () {
-                        return {
-                          path: filepath,
-                          before: yield* readTrackedState(filepath),
-                        }
-                      }),
+                    const outputs = yield* Effect.forEach(
+                      discovered.paths,
+                      (filepath) =>
+                        Effect.gen(function* () {
+                          return {
+                            path: filepath,
+                            before: yield* readTrackedState(filepath),
+                          }
+                        }),
+                      { concurrency: 4 },
                     )
                     return { outputs, overflowed: false }
                   })
@@ -984,37 +995,40 @@ export const BashTool = Tool.define(
                 return result
               }
 
-              const artifacts = yield* Effect.forEach(outputsToRecord, (tracked) =>
-                Effect.gen(function* () {
-                  const after = yield* readTrackedState(tracked.path)
-                  const changed =
-                    tracked.before.comparable && after.comparable && !sameState(tracked.before.state, after.state)
-                  if (changed) {
-                    yield* turnChange.recordWrite({
-                      sessionID: ctx.sessionID,
-                      messageID: ctx.messageID,
+              const artifacts = yield* Effect.forEach(
+                outputsToRecord,
+                (tracked) =>
+                  Effect.gen(function* () {
+                    const after = yield* readTrackedState(tracked.path)
+                    const changed =
+                      tracked.before.comparable && after.comparable && !sameState(tracked.before.state, after.state)
+                    if (changed) {
+                      yield* turnChange.recordWrite({
+                        sessionID: ctx.sessionID,
+                        messageID: ctx.messageID,
+                        path: tracked.path,
+                        before: tracked.before.state,
+                        after: after.state,
+                      })
+                    }
+                    return {
                       path: tracked.path,
-                      before: tracked.before.state,
-                      after: after.state,
-                    })
-                  }
-                  return {
-                    path: tracked.path,
-                    exists: after.state.exists,
-                    changed,
-                    ...(after.kind === "directory" ? { directory: true } : {}),
-                    ...(after.state.binary && after.kind !== "directory" ? { binary: true } : {}),
-                    ...(after.state.large ? { large: true } : {}),
-                    ...(!tracked.before.comparable || !after.comparable
-                      ? {
-                          comparable: false,
-                          errorCode:
-                            ("errorCode" in tracked.before ? tracked.before.errorCode : undefined) ??
-                            ("errorCode" in after ? after.errorCode : undefined),
-                        }
-                      : {}),
-                  }
-                }),
+                      exists: after.state.exists,
+                      changed,
+                      ...(after.kind === "directory" ? { directory: true } : {}),
+                      ...(after.state.binary && after.kind !== "directory" ? { binary: true } : {}),
+                      ...(after.state.large ? { large: true } : {}),
+                      ...(!tracked.before.comparable || !after.comparable
+                        ? {
+                            comparable: false,
+                            errorCode:
+                              ("errorCode" in tracked.before ? tracked.before.errorCode : undefined) ??
+                              ("errorCode" in after ? after.errorCode : undefined),
+                          }
+                        : {}),
+                    }
+                  }),
+                { concurrency: 4 },
               )
               const visibleArtifacts = autoDiscovered ? artifacts.filter((item) => item.changed) : artifacts
               if (autoDiscovered && visibleArtifacts.length === 0) {
@@ -1023,6 +1037,12 @@ export const BashTool = Tool.define(
                   messageID: ctx.messageID,
                 })
                 return result
+              }
+              if (autoDiscovered) {
+                yield* turnChange.recordUncaptured({
+                  sessionID: ctx.sessionID,
+                  messageID: ctx.messageID,
+                })
               }
 
               return {
