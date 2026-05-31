@@ -32,7 +32,7 @@ function TodoRow(props: { todo: SessionTodoItem }) {
     <div
       data-slot="status-summary-todo"
       data-state={props.todo.status}
-      class="flex items-start gap-2 py-1"
+      class="flex items-start gap-2 py-1 min-h-[30px]"
     >
       <TodoStatusMarker status={props.todo.status} marginTop="1px" />
       <div
@@ -50,7 +50,7 @@ function TodoRow(props: { todo: SessionTodoItem }) {
 
 function SourceRow(props: { url: string }) {
   return (
-    <div class="flex items-center gap-2 py-1" title={props.url}>
+    <div class="flex items-center gap-2 py-1 min-h-[30px]" title={props.url}>
       <span class="text-body text-fg-base truncate min-w-0">{props.url}</span>
     </div>
   )
@@ -185,7 +185,7 @@ function ArtifactRow(props: {
 
   return (
     <div
-      class="group grid h-[30px] items-center gap-[var(--space-sm)] px-3 rounded-md transition-colors hover:bg-surface-raised"
+      class="group grid min-h-[30px] items-center gap-[var(--space-sm)] px-3 rounded-md transition-colors hover:bg-surface-raised"
       style={{ "grid-template-columns": "16px minmax(0, 1fr) max-content" }}
     >
       <Icon name="review" class="size-4 shrink-0 text-fg-weak" />
