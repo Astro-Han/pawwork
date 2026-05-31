@@ -2,8 +2,14 @@ import { $ } from "bun"
 import { afterEach, describe, expect, test } from "bun:test"
 
 const wintest = process.platform !== "win32" ? test : test.skip
+import { AppFileSystem } from "@opencode-ai/core/filesystem"
+import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
+import { NodePath } from "@effect/platform-node"
+import { Effect, Layer, Stream } from "effect"
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import fs from "fs/promises"
 import path from "path"
+import { Git } from "../../src/git"
 import { Instance } from "../../src/project/instance"
 import { Project } from "../../src/project/project"
 import { ProjectTable } from "../../src/project/project.sql"
@@ -11,8 +17,64 @@ import { Database, eq } from "../../src/storage/db"
 import { Worktree } from "../../src/worktree"
 import { tmpdir } from "../fixture/fixture"
 
+const encoder = new TextEncoder()
+type StartCommandProbe = { spawned: boolean; released: boolean; release?: () => void }
+
 function withInstance(directory: string, fn: () => Promise<any>) {
   return Instance.provide({ directory, fn })
+}
+
+function startCommandSpawnProbe(probe: StartCommandProbe) {
+  return Layer.effect(
+    ChildProcessSpawner.ChildProcessSpawner,
+    Effect.gen(function* () {
+      const real = yield* ChildProcessSpawner.ChildProcessSpawner
+      return ChildProcessSpawner.make(
+        Effect.fnUntraced(function* (command) {
+          const std = ChildProcess.isStandardCommand(command) ? command : undefined
+          const text = std ? [std.command, ...std.args].join(" ") : ""
+          if (text.includes("start-spawn-probe")) {
+            probe.spawned = true
+            let released = false
+            let finish: (code: ChildProcessSpawner.ExitCode) => void = () => undefined
+            const exit = new Promise<ChildProcessSpawner.ExitCode>((resolve) => {
+              finish = resolve
+            })
+            probe.release = () => {
+              if (released) return
+              released = true
+              probe.released = true
+              finish(ChildProcessSpawner.ExitCode(0))
+            }
+            return ChildProcessSpawner.makeHandle({
+              pid: ChildProcessSpawner.ProcessId(0),
+              exitCode: Effect.promise(() => exit),
+              isRunning: Effect.sync(() => !released),
+              kill: () => Effect.sync(() => probe.release?.()),
+              stdin: { [Symbol.for("effect/Sink/TypeId")]: Symbol.for("effect/Sink/TypeId") } as any,
+              stdout: Stream.empty,
+              stderr: Stream.make(encoder.encode("")),
+              all: Stream.empty,
+              getInputFd: () => ({ [Symbol.for("effect/Sink/TypeId")]: Symbol.for("effect/Sink/TypeId") }) as any,
+              getOutputFd: () => Stream.empty,
+              unref: Effect.succeed(Effect.void),
+            })
+          }
+          return yield* real.spawn(command)
+        }),
+      )
+    }),
+  ).pipe(Layer.provide(CrossSpawnSpawner.defaultLayer))
+}
+
+function worktreeLayerWithStartCommandProbe(probe: StartCommandProbe) {
+  return Worktree.layer.pipe(
+    Layer.provide(Git.defaultLayer),
+    Layer.provide(Project.defaultLayer),
+    Layer.provide(startCommandSpawnProbe(probe)),
+    Layer.provide(AppFileSystem.defaultLayer),
+    Layer.provide(NodePath.layer),
+  )
 }
 
 function normalize(input: string) {
@@ -230,36 +292,36 @@ describe("Worktree", () => {
   })
 
   describe("reset", () => {
-    test("starts project start command without waiting for it to exit", async () => {
+    test("starts project start command before returning without waiting for it to exit", async () => {
       await using tmp = await tmpdir({ git: true })
+      const probe: StartCommandProbe = { spawned: false, released: false }
 
       await withInstance(tmp.path, async () => {
-        const info = await Worktree.createReady({ name: "reset-start-command" })
+        const info = await Worktree.createReady({ name: "reset-start-spawn-probe" })
         await Project.update({
           projectID: Instance.project.id,
           commands: {
-            start:
-              "bun -e \"await Bun.write('.reset-start-began', 'ready'); while (!(await Bun.file('.reset-start-release').exists())) await Bun.sleep(20)\"",
+            start: "start-spawn-probe",
           },
         })
 
-        const reset = Worktree.reset({ directory: info.directory })
+        const layer = worktreeLayerWithStartCommandProbe(probe)
+        const reset = Effect.runPromise(
+          Worktree.Service.use((svc) => svc.reset({ directory: info.directory })).pipe(Effect.provide(layer)),
+        )
         const result = await Promise.race([
           reset.then(() => "done" as const),
-          Bun.sleep(2_000).then(() => "timeout" as const),
+          Bun.sleep(10_000).then(() => "timeout" as const),
         ])
         if (result === "timeout") {
-          await Bun.write(path.join(info.directory, ".reset-start-release"), "done")
+          probe.release?.()
           await reset.catch(() => undefined)
           throw new Error("Worktree.reset waited for the project start command to exit")
         }
 
-        const deadline = Date.now() + 1_000
-        while (!(await Bun.file(path.join(info.directory, ".reset-start-began")).exists()) && Date.now() < deadline) {
-          await Bun.sleep(20)
-        }
-        expect(await Bun.file(path.join(info.directory, ".reset-start-began")).text()).toBe("ready")
-        await Bun.write(path.join(info.directory, ".reset-start-release"), "done")
+        expect(probe.spawned).toBe(true)
+        expect(probe.released).toBe(false)
+        probe.release?.()
         await Worktree.remove({ directory: info.directory })
       })
     })

@@ -11,7 +11,7 @@ import { errorMessage } from "../util/error"
 import { BusEvent } from "@/bus/bus-event"
 import { GlobalBus } from "@/bus/global"
 import { Git } from "@/git"
-import { Effect, Layer, Path, Scope, Context, Stream, Semaphore } from "effect"
+import { Deferred, Effect, Layer, Path, Scope, Context, Stream, Semaphore } from "effect"
 import { ensureWorktreesIgnored, restoreWorktreesIgnored } from "./gitignore-guard"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { NodePath } from "@effect/platform-node"
@@ -446,10 +446,7 @@ export namespace Worktree {
           },
         })
 
-        yield* runStartScripts(info.directory, { projectID, extra }).pipe(
-          Effect.catchCause((cause) => Effect.sync(() => log.error("worktree start task failed", { cause }))),
-          Effect.forkIn(scope),
-        )
+        yield* launchStartScripts(info.directory, { projectID, extra })
       })
 
       const createFromInfo = Effect.fn("Worktree.createFromInfo")(function* (info: Info, startCommand?: string) {
@@ -608,28 +605,42 @@ export namespace Worktree {
         return result
       })
 
+      const signalStartLaunch = (launch: Deferred.Deferred<void> | undefined) => {
+        if (!launch) return Effect.void
+        return Deferred.succeed(launch, undefined).pipe(Effect.ignore)
+      }
+
       const runStartCommand = Effect.fnUntraced(
-        function* (directory: string, cmd: string) {
-          const [shell, args] = process.platform === "win32" ? ["cmd", ["/c", cmd]] : ["bash", ["-lc", cmd]]
-          const handle = yield* spawner.spawn(
-            ChildProcess.make(shell, args, { cwd: directory, extendEnv: true, stdin: "ignore" }),
+        function* (directory: string, cmd: string, launch?: Deferred.Deferred<void>) {
+          return yield* Effect.gen(function* () {
+            const [shell, args] = process.platform === "win32" ? ["cmd", ["/c", cmd]] : ["bash", ["-lc", cmd]]
+            const handle = yield* spawner.spawn(
+              ChildProcess.make(shell, args, { cwd: directory, extendEnv: true, stdin: "ignore" }),
+            )
+            yield* signalStartLaunch(launch)
+            // Drain stdout, capture stderr for error reporting
+            const [, stderr] = yield* Effect.all(
+              [Stream.runDrain(handle.stdout), Stream.mkString(Stream.decodeText(handle.stderr))],
+              { concurrency: 2 },
+            ).pipe(Effect.orDie)
+            const code = yield* handle.exitCode
+            return { code, stderr }
+          }).pipe(
+            Effect.scoped,
+            Effect.catch(() => signalStartLaunch(launch).pipe(Effect.as({ code: 1, stderr: "" }))),
           )
-          // Drain stdout, capture stderr for error reporting
-          const [, stderr] = yield* Effect.all(
-            [Stream.runDrain(handle.stdout), Stream.mkString(Stream.decodeText(handle.stderr))],
-            { concurrency: 2 },
-          ).pipe(Effect.orDie)
-          const code = yield* handle.exitCode
-          return { code, stderr }
         },
-        Effect.scoped,
-        Effect.catch(() => Effect.succeed({ code: 1, stderr: "" })),
       )
 
-      const runStartScript = Effect.fnUntraced(function* (directory: string, cmd: string, kind: string) {
+      const runStartScript = Effect.fnUntraced(function* (
+        directory: string,
+        cmd: string,
+        kind: string,
+        launch?: Deferred.Deferred<void>,
+      ) {
         const text = cmd.trim()
         if (!text) return true
-        const result = yield* runStartCommand(directory, text)
+        const result = yield* runStartCommand(directory, text, launch)
         if (result.code === 0) return true
         log.error("worktree start command failed", { kind, directory, message: result.stderr })
         return false
@@ -638,16 +649,38 @@ export namespace Worktree {
       const runStartScripts = Effect.fnUntraced(function* (
         directory: string,
         input: { projectID: ProjectID; extra?: string },
+        launch?: Deferred.Deferred<void>,
       ) {
         const row = yield* Effect.sync(() =>
           Database.use((db) => db.select().from(ProjectTable).where(eq(ProjectTable.id, input.projectID)).get()),
         )
         const project = row ? Project.fromRow(row) : undefined
         const startup = project?.commands?.start?.trim() ?? ""
-        const ok = yield* runStartScript(directory, startup, "project")
+        const extra = input.extra?.trim() ?? ""
+        if (!startup && !extra) {
+          yield* signalStartLaunch(launch)
+          return true
+        }
+        const ok = yield* runStartScript(directory, startup, "project", startup ? launch : undefined)
         if (!ok) return false
-        yield* runStartScript(directory, input.extra ?? "", "worktree")
+        yield* runStartScript(directory, extra, "worktree", startup ? undefined : launch)
         return true
+      })
+
+      const launchStartScripts = Effect.fnUntraced(function* (
+        directory: string,
+        input: { projectID: ProjectID; extra?: string },
+      ) {
+        const launch = yield* Deferred.make<void>()
+        yield* runStartScripts(directory, input, launch).pipe(
+          Effect.catchCause((cause) =>
+            signalStartLaunch(launch).pipe(
+              Effect.andThen(Effect.sync(() => log.error("worktree start task failed", { cause }))),
+            ),
+          ),
+          Effect.forkIn(scope),
+        )
+        return yield* Deferred.await(launch)
       })
 
       const prune = Effect.fnUntraced(function* (root: string, entries: string[]) {
@@ -766,10 +799,7 @@ export namespace Worktree {
           yield* upsertRegistry(Info.parse({ ...registered, branch }))
         }
 
-        yield* runStartScripts(worktreePath, { projectID: Instance.project.id }).pipe(
-          Effect.catchCause((cause) => Effect.sync(() => log.error("worktree start task failed", { cause }))),
-          Effect.forkIn(scope),
-        )
+        yield* launchStartScripts(worktreePath, { projectID: Instance.project.id })
 
         return true
       })
