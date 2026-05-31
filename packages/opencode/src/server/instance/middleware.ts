@@ -16,7 +16,7 @@ import { requestContextFromHono, withRequestContext } from "@/server/request-con
 import {
   classifyWorkspaceRoute,
   sessionIDForWorkspaceRouting,
-  shouldCreateLegacyConfigBeforePath,
+  shouldCreateLegacyConfigBeforeNoWorkspacePath,
 } from "./workspace-routing"
 
 async function getSessionWorkspace(url: URL) {
@@ -56,10 +56,9 @@ export function WorkspaceRouterMiddleware(upgrade: UpgradeWebSocket): Middleware
     // If no workspace is provided we use the project
     if (!workspaceID) {
       if (
-        shouldCreateLegacyConfigBeforePath({
+        shouldCreateLegacyConfigBeforeNoWorkspacePath({
           pathname: url.pathname,
           ensureConfig: url.searchParams.get("ensureConfig") === "true",
-          hasWorkspace: false,
           isPawWork: Runtime.isPawWork(),
         })
       ) {

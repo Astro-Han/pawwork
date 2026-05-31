@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import {
   classifyWorkspaceRoute,
   sessionIDForWorkspaceRouting,
-  shouldCreateLegacyConfigBeforePath,
+  shouldCreateLegacyConfigBeforeNoWorkspacePath,
 } from "../../src/server/instance/workspace-routing"
 
 describe("workspace routing decisions", () => {
@@ -48,6 +48,29 @@ describe("workspace routing decisions", () => {
     })
   })
 
+  test("keeps cached remote GET session routes before websocket proxy routing", () => {
+    expect(
+      classifyWorkspaceRoute({
+        method: "GET",
+        pathname: "/session",
+        target: "remote",
+        isWebSocketUpgrade: true,
+      }),
+    ).toEqual({
+      action: "serve-local-cache",
+    })
+    expect(
+      classifyWorkspaceRoute({
+        method: "GET",
+        pathname: "/session/ses_1",
+        target: "remote",
+        isWebSocketUpgrade: true,
+      }),
+    ).toEqual({
+      action: "serve-local-cache",
+    })
+  })
+
   test("detects workspace session ids without treating status or e2e routes as session-bound", () => {
     expect(sessionIDForWorkspaceRouting("/session/ses_1/message")?.toString()).toBe("ses_1")
     expect(sessionIDForWorkspaceRouting("/session/status")).toBeUndefined()
@@ -57,26 +80,16 @@ describe("workspace routing decisions", () => {
 
   test("keeps legacy config precreation scoped to OpenCode no-workspace path requests", () => {
     expect(
-      shouldCreateLegacyConfigBeforePath({
+      shouldCreateLegacyConfigBeforeNoWorkspacePath({
         pathname: "/path",
         ensureConfig: true,
-        hasWorkspace: false,
         isPawWork: false,
       }),
     ).toBe(true)
     expect(
-      shouldCreateLegacyConfigBeforePath({
+      shouldCreateLegacyConfigBeforeNoWorkspacePath({
         pathname: "/path",
         ensureConfig: true,
-        hasWorkspace: true,
-        isPawWork: false,
-      }),
-    ).toBe(false)
-    expect(
-      shouldCreateLegacyConfigBeforePath({
-        pathname: "/path",
-        ensureConfig: true,
-        hasWorkspace: false,
         isPawWork: true,
       }),
     ).toBe(false)

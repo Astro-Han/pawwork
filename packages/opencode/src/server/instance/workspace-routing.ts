@@ -34,13 +34,12 @@ export function sessionIDForWorkspaceRouting(pathname: string) {
   return SessionID.make(id)
 }
 
-export function shouldCreateLegacyConfigBeforePath(input: {
+export function shouldCreateLegacyConfigBeforeNoWorkspacePath(input: {
   pathname: string
   ensureConfig: boolean
-  hasWorkspace: boolean
   isPawWork: boolean
 }) {
-  return input.pathname === "/path" && input.ensureConfig && !input.hasWorkspace && !input.isPawWork
+  return input.pathname === "/path" && input.ensureConfig && !input.isPawWork
 }
 
 export function classifyWorkspaceRoute(input: {
