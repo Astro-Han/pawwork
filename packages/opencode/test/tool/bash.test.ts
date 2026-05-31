@@ -813,6 +813,51 @@ describe("tool.bash expected_outputs", () => {
     })
   })
 
+  test("does not auto-capture Office outputs when workdir is ignored", async () => {
+    await resetDatabase()
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await fs.promises.mkdir(path.join(dir, "node_modules"), { recursive: true })
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await initBash()
+        const turn = await createTurn()
+        const target = path.join(tmp.path, "node_modules", "hidden.docx")
+        const script = path.join(tmp.path, "write-ignored-workdir-office.cjs")
+        await fs.promises.writeFile(
+          script,
+          "require('node:fs').writeFileSync(process.argv[2], Buffer.from([80,75,3,4,20,6,8,8]))\n",
+          "utf-8",
+        )
+        const command = `${PS.has(sh()) ? "& " : ""}${bin} ${quote(script.replaceAll("\\", "/"))} hidden.docx > marker.txt`
+        const result = await Effect.runPromise(
+          bash.execute(
+            {
+              command,
+              workdir: "node_modules",
+              description: "Create ignored workdir Office file",
+            },
+            { ...ctx, ...turn },
+          ),
+        )
+
+        expect(result.metadata.exit).toBe(0)
+        expect(fs.existsSync(target)).toBe(true)
+        expect((result.metadata as { artifacts?: unknown[] }).artifacts).toBeUndefined()
+        expect(TurnChange.finalize(turn)).toBeUndefined()
+        expect(
+          TurnChange.aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
+        ).toMatchObject({
+          kind: "uncaptured",
+          count: 1,
+        })
+      },
+    })
+  })
+
   test("records uncaptured when Office auto-discovery exceeds traversal budget", async () => {
     await resetDatabase()
     await using tmp = await tmpdir({

@@ -516,7 +516,7 @@ export const BashTool = Tool.define(
       return env
     })
 
-    const discoverOfficeOutputs = Effect.fn("BashTool.discoverOfficeOutputs")((root: string) =>
+    const discoverOfficeOutputs = Effect.fn("BashTool.discoverOfficeOutputs")((root: string, projectRoot: string) =>
       Effect.promise(async () => {
         const started = Date.now()
         const paths: string[] = []
@@ -551,7 +551,7 @@ export const BashTool = Tool.define(
               return
             }
             const absolute = path.join(dir, entry.name)
-            const relative = relativeDiscoveryPath(root, absolute)
+            const relative = relativeDiscoveryPath(projectRoot, absolute)
             if (!relative || FileIgnore.match(relative)) continue
 
             if (entry.isDirectory()) {
@@ -919,7 +919,7 @@ export const BashTool = Tool.define(
                 (params.expected_outputs ?? []).length === 0 && !!ctx.messageID && isLikelyWriteCommand(params.command)
               const autoDiscoveredBefore = shouldAutoDiscoverOutputs
                 ? yield* Effect.gen(function* () {
-                    const discovered = yield* discoverOfficeOutputs(cwd)
+                    const discovered = yield* discoverOfficeOutputs(cwd, directory)
                     if (discovered.overflowed) return { outputs: [], overflowed: true }
                     const outputs = yield* Effect.forEach(
                       discovered.paths,
@@ -961,7 +961,7 @@ export const BashTool = Tool.define(
                     if (deduped.has(normalized)) continue
                     deduped.set(normalized, item)
                   }
-                  const discoveredAfter = yield* discoverOfficeOutputs(cwd)
+                  const discoveredAfter = yield* discoverOfficeOutputs(cwd, directory)
                   overflowed = discoveredAfter.overflowed
                   if (!overflowed) {
                     for (const filepath of discoveredAfter.paths) {
