@@ -282,6 +282,36 @@ export namespace Automation {
     details.push({ field, message })
   }
 
+  export function normalizeWorktreePlacement(input: string) {
+    const slug = input
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+/, "")
+      .replace(/-+$/, "")
+    return slug.length > 0 && slug.length <= 40 ? slug : undefined
+  }
+
+  function normalizeWhere<T extends { projectID: ProjectID; worktree?: string }>(where: T): T {
+    if (!where.worktree) return where
+    const worktree = normalizeWorktreePlacement(where.worktree)
+    if (!worktree) return where
+    return { ...where, worktree }
+  }
+
+  function normalizeDefinitionInput<T extends CreateInput | Definition>(input: T): T {
+    return { ...input, where: normalizeWhere(input.where) } as T
+  }
+
+  function normalizeUpdateInput(input: UpdateInput): UpdateInput {
+    if (!input.where) return input
+    return { ...input, where: normalizeWhere(input.where) }
+  }
+
+  export function getWriterKey(definition: Definition) {
+    return definition.where.worktree ?? definition.where.projectID
+  }
+
   function rejectUnknownFields(
     input: Record<string, unknown>,
     allowed: Set<string>,
@@ -404,7 +434,15 @@ export namespace Automation {
     if (input.where.projectID !== projectID) {
       addDetail(details, "where.projectID", "Automation must target the current project.")
     }
-    if (input.where.worktree) addDetail(details, "where.worktree", "unsupported_where_worktree")
+    if (input.where.worktree && !normalizeWorktreePlacement(input.where.worktree)) {
+      addDetail(details, "where.worktree", "invalid_worktree_placement")
+    }
+    if (input.where.worktree && input.context === "continue") {
+      addDetail(details, "context", "unsupported_continue_with_worktree")
+    }
+    if (input.where.worktree && Instance.project.vcs !== "git") {
+      addDetail(details, "where.worktree", "unsupported_where_worktree_not_git")
+    }
     details.push(...validateScheduleFields(input))
     return details
   }
@@ -433,6 +471,7 @@ export namespace Automation {
   }
 
   export function create(input: CreateInput, options?: { now?: number; sourceSessionID?: SessionID }): Definition {
+    input = normalizeDefinitionInput(input)
     const now = options?.now ?? Date.now()
     const details = validateCreateInput(input, Instance.project.id, now)
     if (details.length) throw new ValidationError(details)
@@ -601,6 +640,7 @@ export namespace Automation {
 
   export function update(id: string, patch: UpdateInput, options?: { now?: number }): Definition {
     const previous = get(id)
+    patch = normalizeUpdateInput(patch)
     const now = options?.now ?? Date.now()
     const updateDetails = validateUpdateInput(previous, patch, now)
     if (updateDetails.length) throw new ValidationError(updateDetails)
@@ -873,7 +913,7 @@ export namespace Automation {
         const writerKeys = new Map(
           definitions.map((row) => {
             const item = Definition.parse(row.data)
-            return [item.id, item.where.worktree ?? item.where.projectID]
+            return [item.id, getWriterKey(item)]
           }),
         )
         return rows.some((row) => {
@@ -1017,7 +1057,7 @@ export namespace Automation {
     let current = initial
     try {
       const definition = get(initial.automationID)
-      writerKey = definition.where.worktree ?? definition.where.projectID
+      writerKey = getWriterKey(definition)
       for (const run of await reconcileInterruptedRuns()) await publishRunUpdated(run)
       if (data.activeWriters.has(writerKey) || hasDurableActiveWriter(initial, writerKey)) {
         const stopped = reviseRun(initial, {

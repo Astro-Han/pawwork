@@ -8,7 +8,7 @@ export const automationDefinitionFixture = Automation.Definition.parse({
   revision: 2,
   paused: false,
   context: "fresh",
-  where: { projectID: "project-fixture" },
+  where: { projectID: "project-fixture", worktree: "daily-brief" },
   createdAt: 1_800_000_000_000,
   updatedAt: 1_800_000_030_000,
   timezone: "UTC",

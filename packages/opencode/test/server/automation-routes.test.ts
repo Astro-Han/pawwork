@@ -19,9 +19,12 @@ afterEach(async () => {
   await Instance.disposeAll()
 })
 
-async function withAutomationApp<T>(fn: (input: { app: Hono; projectID: ProjectID }) => Promise<T>) {
-  await using tmp = await tmpdir({ git: true })
-  return Instance.provide({
+async function withAutomationApp<T>(
+  fn: (input: { app: Hono; projectID: ProjectID }) => Promise<T>,
+  options: { git?: boolean } = { git: true },
+) {
+  await using tmp = await tmpdir({ git: options.git ?? true })
+  return await Instance.provide({
     directory: tmp.path,
     fn: async () => {
       const app = new Hono().route("/automation", AutomationRoutes())
@@ -420,20 +423,75 @@ describe("automation routes", () => {
     })
   })
 
-  test("rejects worktree placement until the PR5 location slice", async () => {
+  test("accepts fresh worktree placement for git projects", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const body = await json(app, "/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(recurringInput(projectID, { where: { projectID, worktree: "daily-brief" } })),
+      })
+
+      expect(body.where).toEqual({ projectID, worktree: "daily-brief" })
+    })
+  })
+
+  test("normalizes worktree placement before echoing the definition", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const body = await json(app, "/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(recurringInput(projectID, { where: { projectID, worktree: "Daily Brief!" } })),
+      })
+
+      expect(body.where).toEqual({ projectID, worktree: "daily-brief" })
+    })
+  })
+
+  test("rejects worktree placement that cannot be normalized to a slug", async () => {
     await withAutomationApp(async ({ app, projectID }) => {
       const response = await app.request("/automation", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(recurringInput(projectID, { where: { projectID, worktree: "/repo/.worktrees/run" } })),
+        body: JSON.stringify(recurringInput(projectID, { where: { projectID, worktree: "!!!" } })),
       })
       const body = await response.json()
 
       expect(response.status).toBe(422)
-      expect(body.details).toEqual([
-        { field: "where.worktree", message: "unsupported_where_worktree" },
-      ])
+      expect(body.details).toEqual([{ field: "where.worktree", message: "invalid_worktree_placement" }])
     })
+  })
+
+  test("rejects continue worktree placement", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const response = await app.request("/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          recurringInput(projectID, { context: "continue", where: { projectID, worktree: "daily-brief" } }),
+        ),
+      })
+      const body = await response.json()
+
+      expect(response.status).toBe(422)
+      expect(body.details).toEqual([{ field: "context", message: "unsupported_continue_with_worktree" }])
+    })
+  })
+
+  test("rejects worktree placement for non-git projects", async () => {
+    await withAutomationApp(
+      async ({ app, projectID }) => {
+        const response = await app.request("/automation", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(recurringInput(projectID, { where: { projectID, worktree: "daily-brief" } })),
+        })
+        const body = await response.json()
+
+        expect(response.status).toBe(422)
+        expect(body.details).toEqual([{ field: "where.worktree", message: "unsupported_where_worktree_not_git" }])
+      },
+      { git: false },
+    )
   })
 
   test("rejects invalid semantic fields with the automation validation error shape", async () => {

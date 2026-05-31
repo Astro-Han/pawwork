@@ -5,6 +5,7 @@ const wintest = process.platform !== "win32" ? test : test.skip
 import fs from "fs/promises"
 import path from "path"
 import { Instance } from "../../src/project/instance"
+import { Project } from "../../src/project/project"
 import { ProjectTable } from "../../src/project/project.sql"
 import { Database, eq } from "../../src/storage/db"
 import { Worktree } from "../../src/worktree"
@@ -145,6 +146,42 @@ describe("Worktree", () => {
       await withInstance(tmp.path, () => Worktree.remove({ directory: info.directory }))
     })
 
+    test("createReady with exact name rejects occupied managed placement", async () => {
+      await using tmp = await tmpdir({ git: true })
+      const occupied = path.join(tmp.path, ".worktrees", "pawwork", "daily-brief")
+      await fs.mkdir(occupied, { recursive: true })
+
+      await expect(
+        withInstance(tmp.path, () => Worktree.createReady({ name: "daily-brief", exactName: true })),
+      ).rejects.toThrow("WorktreeNameGenerationFailedError")
+
+      const list = await $`git worktree list --porcelain`.cwd(tmp.path).quiet().text()
+      expect(list).not.toContain("daily-brief-")
+    })
+
+    test("createReady with exact name rejects names with an empty slug", async () => {
+      await using tmp = await tmpdir({ git: true })
+
+      await expect(withInstance(tmp.path, () => Worktree.createReady({ name: "!!!", exactName: true }))).rejects.toThrow(
+        "WorktreeNameGenerationFailedError",
+      )
+
+      const list = await $`git worktree list --porcelain`.cwd(tmp.path).quiet().text()
+      expect(normalize(list)).not.toContain(normalize(path.join(".worktrees", "pawwork")))
+    })
+
+    test("createReady rejects when worktree bootstrap fails", async () => {
+      await using tmp = await tmpdir({ git: true })
+
+      await withInstance(tmp.path, async () => {
+        await Bun.write(path.join(tmp.path, "opencode.json"), "{ invalid")
+        await $`git add opencode.json`.cwd(tmp.path).quiet()
+        await $`git commit -m invalid-config`.cwd(tmp.path).quiet()
+
+        await expect(Worktree.createReady({ name: "bad-config" })).rejects.toThrow("WorktreeCreateFailedError")
+      })
+    })
+
     test("refuses to create when .gitignore has local changes", async () => {
       await using tmp = await tmpdir({ git: true })
       await Bun.write(path.join(tmp.path, ".gitignore"), "node_modules\n")
@@ -189,6 +226,57 @@ describe("Worktree", () => {
 
       await ready
       await withInstance(tmp.path, () => Worktree.remove({ directory: info.directory }))
+    })
+  })
+
+  describe("reset", () => {
+    test("starts project start command without waiting for it to exit", async () => {
+      await using tmp = await tmpdir({ git: true })
+
+      await withInstance(tmp.path, async () => {
+        const info = await Worktree.createReady({ name: "reset-start-command" })
+        await Project.update({
+          projectID: Instance.project.id,
+          commands: {
+            start:
+              "bun -e \"await Bun.write('.reset-start-began', 'ready'); while (!(await Bun.file('.reset-start-release').exists())) await Bun.sleep(20)\"",
+          },
+        })
+
+        const reset = Worktree.reset({ directory: info.directory })
+        const result = await Promise.race([
+          reset.then(() => "done" as const),
+          Bun.sleep(2_000).then(() => "timeout" as const),
+        ])
+        if (result === "timeout") {
+          await Bun.write(path.join(info.directory, ".reset-start-release"), "done")
+          await reset.catch(() => undefined)
+          throw new Error("Worktree.reset waited for the project start command to exit")
+        }
+
+        const deadline = Date.now() + 1_000
+        while (!(await Bun.file(path.join(info.directory, ".reset-start-began")).exists()) && Date.now() < deadline) {
+          await Bun.sleep(20)
+        }
+        expect(await Bun.file(path.join(info.directory, ".reset-start-began")).text()).toBe("ready")
+        await Bun.write(path.join(info.directory, ".reset-start-release"), "done")
+        await Worktree.remove({ directory: info.directory })
+      })
+    })
+
+    test("refreshes registry branch metadata from the attached worktree", async () => {
+      await using tmp = await tmpdir({ git: true })
+
+      await withInstance(tmp.path, async () => {
+        const info = await Worktree.createReady({ name: "reset-branch-metadata" })
+        await $`git checkout -b manual-reset-branch`.cwd(info.directory).quiet()
+
+        await Worktree.reset({ directory: info.directory })
+
+        const refreshed = await Worktree.lookupBySlug("reset-branch-metadata")
+        expect(refreshed?.branch).toBe("manual-reset-branch")
+        await Worktree.remove({ directory: info.directory })
+      })
     })
   })
 

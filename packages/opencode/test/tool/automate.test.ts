@@ -138,7 +138,7 @@ describe("automate tool", () => {
 
   test.each([
     ["wrong project", () => ({ projectID: "other-project" }), "where.projectID"],
-    ["worktree placement", (projectID: string) => ({ projectID, worktree: "feature" }), "where.worktree"],
+    ["invalid worktree placement", (projectID: string) => ({ projectID, worktree: "!!!" }), "where.worktree"],
   ])("reports execute-time automation validation as model-readable input errors: %s", async (_name, where, field) => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({

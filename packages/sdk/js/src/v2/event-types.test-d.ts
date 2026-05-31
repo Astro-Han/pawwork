@@ -31,7 +31,7 @@ const _automationDefinitionUpdated: EventAutomationDefinitionUpdated = {
     revision: 2,
     paused: false,
     context: "fresh",
-    where: { projectID: "project-fixture" },
+    where: { projectID: "project-fixture", worktree: "daily-brief" },
     createdAt: 1800000000000,
     updatedAt: 1800000030000,
     timezone: "UTC",
