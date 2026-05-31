@@ -1119,25 +1119,41 @@ export const SessionRoutes = lazy(() =>
         const query = c.req.valid("query")
         const sessionID = c.req.valid("param").sessionID
         if (query.limit === undefined) {
-          await Session.get(sessionID)
-          const messages = await Session.messages({ sessionID })
+          const messages = await AppRuntime.runPromise(
+            Effect.gen(function* () {
+              const sessions = yield* Session.Service
+              yield* sessions.get(sessionID)
+              return yield* sessions.messages({ sessionID })
+            }),
+          )
           return c.json(messages)
         }
 
         if (query.limit === 0) {
-          await Session.get(sessionID)
-          const messages = await Session.messages({ sessionID })
+          const messages = await AppRuntime.runPromise(
+            Effect.gen(function* () {
+              const sessions = yield* Session.Service
+              yield* sessions.get(sessionID)
+              return yield* sessions.messages({ sessionID })
+            }),
+          )
           return c.json(messages)
         }
 
-        const page = await Session.messagesPage({
-          sessionID,
-          limit: query.limit,
-          before: query.before,
-        })
+        const limit = query.limit
+        const page = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const sessions = yield* Session.Service
+            return yield* sessions.messagesPage({
+              sessionID,
+              limit,
+              before: query.before,
+            })
+          }),
+        )
         if (page.cursor) {
           const url = new URL(c.req.url)
-          url.searchParams.set("limit", query.limit.toString())
+          url.searchParams.set("limit", limit.toString())
           url.searchParams.set("before", page.cursor)
           c.header("Access-Control-Expose-Headers", "Link, X-Next-Cursor")
           c.header("Link", `<${url.toString()}>; rel=\"next\"`)
@@ -1254,11 +1270,16 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const params = c.req.valid("param")
-        await Session.removePart({
-          sessionID: params.sessionID,
-          messageID: params.messageID,
-          partID: params.partID,
-        })
+        await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const sessions = yield* Session.Service
+            yield* sessions.removePart({
+              sessionID: params.sessionID,
+              messageID: params.messageID,
+              partID: params.partID,
+            })
+          }),
+        )
         return c.json(true)
       },
     )
@@ -1296,7 +1317,12 @@ export const SessionRoutes = lazy(() =>
             `Part mismatch: body.id='${body.id}' vs partID='${params.partID}', body.messageID='${body.messageID}' vs messageID='${params.messageID}', body.sessionID='${body.sessionID}' vs sessionID='${params.sessionID}'`,
           )
         }
-        const part = await Session.updatePart(body)
+        const part = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const sessions = yield* Session.Service
+            return yield* sessions.updatePart(body)
+          }),
+        )
         return c.json(part)
       },
     )
