@@ -3,13 +3,15 @@ import { useParams } from "@solidjs/router"
 import type { Part } from "@opencode-ai/sdk/v2"
 import { useGlobalSync } from "@/context/global-sync"
 import { useSync } from "@/context/sync"
+import type { FilesTabEntry } from "@/pages/session/files-tab-state"
+import { aggregateFiles } from "@/pages/session/session-aggregate-files"
 import { SessionStatusSummary } from "./session-status-summary"
 
-// `shown` is kept on the props contract: callers still gate this tab and the
-// summary stays a cheap reactive read, so there is nothing here to pause when
-// the tab is hidden. Connection health moved to Settings.Integrations +
-// the global ConnectionHealth toast monitor (closes #862).
-export function SessionStatusPanel(_props: { shown: Accessor<boolean> }) {
+export function SessionStatusPanel(props: {
+  shown: Accessor<boolean>
+  artifactFiles?: Accessor<FilesTabEntry[]>
+  onNavigateReview?: () => void
+}) {
   const params = useParams()
   const globalSync = useGlobalSync()
   const sync = useSync()
@@ -27,6 +29,28 @@ export function SessionStatusPanel(_props: { shown: Accessor<boolean> }) {
     params.id && sync.directory ? globalSync.todoHydrate.isPending(sync.directory, params.id) : false,
   )
 
+  const vcs = createMemo(() => sync.data.vcs)
+
+  const activeWorktree = createMemo(() => {
+    if (!params.id) return undefined
+    const session = sync.session.get(params.id)
+    const exec = session?.executionContext
+    if (!exec) return undefined
+    return exec.activeWorktree
+  })
+
+  const diffStats = createMemo(() => {
+    if (!params.id) return { additions: 0, deletions: 0 }
+    const files = aggregateFiles(sync.data.turn_change_aggregate[params.id])
+    let additions = 0
+    let deletions = 0
+    for (const file of files) {
+      additions += file.additions
+      deletions += file.deletions
+    }
+    return { additions, deletions }
+  })
+
   return (
     <div class="h-full min-h-0 overflow-y-auto">
       <SessionStatusSummary
@@ -34,6 +58,11 @@ export function SessionStatusPanel(_props: { shown: Accessor<boolean> }) {
         isAuthoritativelyInvalidated={isAuthoritativelyInvalidated}
         isPending={isPending}
         parts={parts}
+        vcs={vcs}
+        activeWorktree={activeWorktree}
+        diffStats={diffStats}
+        artifactFiles={props.artifactFiles}
+        onNavigateReview={props.onNavigateReview}
       />
     </div>
   )

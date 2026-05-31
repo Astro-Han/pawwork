@@ -16,7 +16,6 @@ import { useLanguage } from "@/context/language"
 import { MAX_RIGHT_PANEL_WIDTH, MIN_RIGHT_PANEL_WIDTH, useLayout } from "@/context/layout"
 import { useTerminal } from "@/context/terminal"
 import type { TerminalTabID } from "@/context/terminal-types"
-import { FilesTab } from "@/pages/session/files-tab"
 import type { FilesTabEntry } from "@/pages/session/files-tab-state"
 import {
   createOpenSessionFileTab,
@@ -382,13 +381,11 @@ export function SessionSidePanel(props: {
                 />
 
                 <Tabs.Content value="status" class="min-h-0 flex-1 overflow-hidden">
-                  <SessionStatusPanel shown={() => open() && sidePanelTab() === "status"} />
-                </Tabs.Content>
-
-                <Tabs.Content value="files" class="min-h-0 flex-1 overflow-hidden">
-                  <Show when={sidePanelTab() === "files"}>
-                    <FilesTab files={props.files()} />
-                  </Show>
+                  <SessionStatusPanel
+                    shown={() => open() && sidePanelTab() === "status"}
+                    artifactFiles={props.files}
+                    onNavigateReview={() => setSidePanelTabValue("review")}
+                  />
                 </Tabs.Content>
 
                 <Tabs.Content value="review" class="min-h-0 flex-1 overflow-hidden">
