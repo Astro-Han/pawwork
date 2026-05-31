@@ -24,7 +24,7 @@ async function withAutomationApp<T>(
   options: { git?: boolean } = { git: true },
 ) {
   await using tmp = await tmpdir({ git: options.git ?? true })
-  return Instance.provide({
+  return await Instance.provide({
     directory: tmp.path,
     fn: async () => {
       const app = new Hono().route("/automation", AutomationRoutes())
