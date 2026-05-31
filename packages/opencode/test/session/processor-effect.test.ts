@@ -32,6 +32,8 @@ import { raw, reply, TestLLMServer } from "../lib/llm-server"
 
 void Log.init({ print: false })
 
+const FAST_SAFE_RECOVERY_DELAY = () => 10
+
 const summary = Layer.succeed(
   SessionSummary.Service,
   SessionSummary.Service.of({
@@ -356,7 +358,7 @@ attemptTimeoutIt.live("reasoning connect watchdog is attempt-scoped for before-p
           if (evt.properties.sessionID !== chat.id) return
           if (evt.properties.status.type === "retry") retrySeen.resolve(evt.properties.status)
         })
-        const handle = yield* processors.create({
+        const handle = yield* processors.create({ safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
           assistantMessage: msg,
           sessionID: chat.id,
           model: mdl,
@@ -420,6 +422,7 @@ attemptTimeoutIt.live("reasoning connect watchdog is attempt-scoped for before-p
         const manualParent = yield* user(chat.id, "manual retry starts fresh")
         const manualMsg = yield* assistant(chat.id, manualParent.id, path.resolve(dir))
         const manualHandle = yield* processors.create({
+          safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
           assistantMessage: manualMsg,
           sessionID: chat.id,
           model: mdl,
@@ -467,7 +470,7 @@ attemptTimeoutIt.live("reasoning first attempt keeps global timeout when active 
         const parent = yield* user(chat.id, "reasoning external boundary timeout policy")
         const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
         const mdl = yield* provider.getModel(reasoningRef.providerID, reasoningRef.modelID)
-        const handle = yield* processors.create({
+        const handle = yield* processors.create({ safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
           assistantMessage: msg,
           sessionID: chat.id,
           model: mdl,
@@ -526,7 +529,7 @@ attemptTimeoutIt.live("reasoning first attempt uses fast timeout with unclassifi
         const parent = yield* user(chat.id, "reasoning unclassified local tool timeout policy")
         const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
         const mdl = yield* provider.getModel(reasoningRef.providerID, reasoningRef.modelID)
-        const handle = yield* processors.create({
+        const handle = yield* processors.create({ safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
           assistantMessage: msg,
           sessionID: chat.id,
           model: mdl,
@@ -644,7 +647,7 @@ it.live("session.processor keeps late tool execution diagnostics on the bound to
         const parent = yield* user(chat.id, "late tool attempt binding")
         const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
         const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
-        const handle = yield* processors.create({
+        const handle = yield* processors.create({ safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
           assistantMessage: msg,
           sessionID: chat.id,
           model: mdl,
@@ -779,7 +782,7 @@ it.live("session.processor records late transport failures against the failing s
         const parent = yield* user(chat.id, "late transport attempt binding")
         const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
         const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
-        const handle = yield* processors.create({
+        const handle = yield* processors.create({ safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
           assistantMessage: msg,
           sessionID: chat.id,
           model: mdl,
@@ -862,7 +865,7 @@ it.live("session.processor effect tests capture llm input cleanly", () =>
         const parent = yield* user(chat.id, "hi")
         const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
         const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
-        const handle = yield* processors.create({
+        const handle = yield* processors.create({ safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
           assistantMessage: msg,
           sessionID: chat.id,
           model: mdl,
@@ -951,7 +954,7 @@ it.live("session.processor effect tests preserve text start time", () =>
         const parent = yield* user(chat.id, "hi")
         const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
         const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
-        const handle = yield* processors.create({
+        const handle = yield* processors.create({ safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
           assistantMessage: msg,
           sessionID: chat.id,
           model: mdl,
@@ -1015,7 +1018,7 @@ it.live("session.processor effect tests stop after token overflow requests compa
         const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
         const base = yield* provider.getModel(ref.providerID, ref.modelID)
         const mdl = { ...base, limit: { context: 20, output: 10 } }
-        const handle = yield* processors.create({
+        const handle = yield* processors.create({ safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
           assistantMessage: msg,
           sessionID: chat.id,
           model: mdl,
@@ -1060,7 +1063,7 @@ it.live("session.processor effect tests flag empty completions", () =>
         const parent = yield* user(chat.id, "empty")
         const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
         const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
-        const handle = yield* processors.create({
+        const handle = yield* processors.create({ safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
           assistantMessage: msg,
           sessionID: chat.id,
           model: mdl,
@@ -1104,7 +1107,7 @@ it.live("session.processor effect tests capture reasoning from http mock", () =>
         const parent = yield* user(chat.id, "reason")
         const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
         const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
-        const handle = yield* processors.create({
+        const handle = yield* processors.create({ safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
           assistantMessage: msg,
           sessionID: chat.id,
           model: mdl,
@@ -1154,7 +1157,7 @@ it.live("session.processor effect tests reset reasoning state across retries", (
         const parent = yield* user(chat.id, "reason")
         const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
         const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
-        const handle = yield* processors.create({
+        const handle = yield* processors.create({ safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
           assistantMessage: msg,
           sessionID: chat.id,
           model: mdl,
@@ -1205,7 +1208,7 @@ it.live("session.processor effect tests do not retry unknown json errors", () =>
         const parent = yield* user(chat.id, "json")
         const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
         const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
-        const handle = yield* processors.create({
+        const handle = yield* processors.create({ safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
           assistantMessage: msg,
           sessionID: chat.id,
           model: mdl,
@@ -1250,7 +1253,7 @@ it.live("session.processor effect tests retry recognized structured json errors"
         const parent = yield* user(chat.id, "retry json")
         const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
         const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
-        const handle = yield* processors.create({
+        const handle = yield* processors.create({ safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
           assistantMessage: msg,
           sessionID: chat.id,
           model: mdl,
@@ -1300,7 +1303,7 @@ it.live("retryable API errors write a safe retry notice after the recovery retri
         const parent = yield* user(chat.id, "retry api twice")
         const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
         const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
-        const handle = yield* processors.create({
+        const handle = yield* processors.create({ safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
           assistantMessage: msg,
           sessionID: chat.id,
           model: mdl,
@@ -1356,7 +1359,7 @@ it.live("session.processor effect tests publish retry status updates", () =>
           if (evt.properties.sessionID !== chat.id) return
           if (evt.properties.status.type === "retry") states.push(evt.properties.status.attempt)
         })
-        const handle = yield* processors.create({
+        const handle = yield* processors.create({ safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
           assistantMessage: msg,
           sessionID: chat.id,
           model: mdl,
@@ -1402,7 +1405,7 @@ it.live("connect timeout before provider progress auto retries once and succeeds
         const parent = yield* user(chat.id, "auto retry connect timeout")
         const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
         const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
-        const handle = yield* processors.create({
+        const handle = yield* processors.create({ safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
           assistantMessage: msg,
           sessionID: chat.id,
           model: mdl,
@@ -1489,7 +1492,7 @@ it.live("connect timeout auto retry stops if lifecycle closes during backoff", (
           if (evt.properties.sessionID !== chat.id) return
           if (evt.properties.status.type === "retry") retrySeen.resolve()
         })
-        const handle = yield* processors.create({
+        const handle = yield* processors.create({ safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
           assistantMessage: msg,
           sessionID: chat.id,
           model: mdl,
@@ -1568,7 +1571,7 @@ it.live("maintenance lifecycle close during backoff interrupts safe recovery", (
           if (evt.properties.sessionID !== chat.id) return
           if (evt.properties.status.type === "retry") retrySeen.resolve()
         })
-        const handle = yield* processors.create({
+        const handle = yield* processors.create({ safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
           assistantMessage: msg,
           sessionID: chat.id,
           model: mdl,
@@ -1633,7 +1636,7 @@ it.live("connect timeout auto retry records abort if interrupted during backoff"
           if (evt.properties.sessionID !== chat.id) return
           if (evt.properties.status.type === "retry") retrySeen.resolve()
         })
-        const handle = yield* processors.create({
+        const handle = yield* processors.create({ safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
           assistantMessage: msg,
           sessionID: chat.id,
           model: mdl,
@@ -1697,7 +1700,7 @@ it.live("disabled unknown tools do not block safe connect-timeout auto retry", (
         const parent = yield* user(chat.id, "disabled unknown tool retry")
         const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
         const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
-        const handle = yield* processors.create({
+        const handle = yield* processors.create({ safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
           assistantMessage: msg,
           sessionID: chat.id,
           model: mdl,
@@ -1799,7 +1802,7 @@ it.live("reasoning-only retry removes failed reasoning before replaying the assi
           if (evt.properties.sessionID !== chat.id) return
           if (evt.properties.status.type === "retry") retrySeen.resolve(evt.properties.status)
         })
-        const handle = yield* processors.create({
+        const handle = yield* processors.create({ safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
           assistantMessage: msg,
           sessionID: chat.id,
           model: mdl,
@@ -1895,7 +1898,7 @@ it.live("reasoning-only failure with an external-result tool does not auto retry
         const parent = yield* user(chat.id, "external boundary retry")
         const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
         const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
-        const handle = yield* processors.create({
+        const handle = yield* processors.create({ safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
           assistantMessage: msg,
           sessionID: chat.id,
           model: mdl,
@@ -1986,7 +1989,7 @@ it.live("reasoning-only failure with a provider-executed tool does not auto retr
         const parent = yield* user(chat.id, "provider boundary retry")
         const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
         const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
-        const handle = yield* processors.create({
+        const handle = yield* processors.create({ safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
           assistantMessage: msg,
           sessionID: chat.id,
           model: mdl,
@@ -2077,7 +2080,7 @@ it.live("reasoning-only retry writes a notice after the safe retries are exhaust
         const parent = yield* user(chat.id, "reasoning retry fails twice")
         const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
         const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
-        const handle = yield* processors.create({
+        const handle = yield* processors.create({ safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
           assistantMessage: msg,
           sessionID: chat.id,
           model: mdl,
@@ -2156,7 +2159,7 @@ it.live("retryable stream error after visible output does not replay the assista
         const parent = yield* user(chat.id, "visible output retry guard")
         const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
         const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
-        const handle = yield* processors.create({
+        const handle = yield* processors.create({ safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
           assistantMessage: msg,
           sessionID: chat.id,
           model: mdl,
@@ -2214,7 +2217,7 @@ it.live("session.processor effect tests compact on structured context overflow",
         const parent = yield* user(chat.id, "compact json")
         const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
         const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
-        const handle = yield* processors.create({
+        const handle = yield* processors.create({ safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
           assistantMessage: msg,
           sessionID: chat.id,
           model: mdl,
@@ -2257,7 +2260,7 @@ it.live("session.processor effect tests mark pending tools as aborted on cleanup
         const parent = yield* user(chat.id, "tool abort")
         const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
         const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
-        const handle = yield* processors.create({
+        const handle = yield* processors.create({ safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
           assistantMessage: msg,
           sessionID: chat.id,
           model: mdl,
@@ -2388,7 +2391,7 @@ it.live("session.processor effect tests mark materialized tools as prepared but 
         const parent = yield* user(chat.id, "materialized tool abort")
         const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
         const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
-        const handle = yield* processors.create({
+        const handle = yield* processors.create({ safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
           assistantMessage: msg,
           sessionID: chat.id,
           model: mdl,
@@ -2488,7 +2491,7 @@ it.live("session.processor effect tests execute Responses args-done-only tool ca
         const parent = yield* user(chat.id, "responses args done tool")
         const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
         const mdl = yield* provider.getModel(copilotResponsesRef.providerID, copilotResponsesRef.modelID)
-        const handle = yield* processors.create({
+        const handle = yield* processors.create({ safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
           assistantMessage: msg,
           sessionID: chat.id,
           model: mdl,
@@ -2563,7 +2566,7 @@ it.live("test LLM server preserves cached input tokens when converting chat chun
         const parent = yield* user(chat.id, "responses cache usage")
         const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
         const mdl = yield* provider.getModel(copilotResponsesRef.providerID, copilotResponsesRef.modelID)
-        const handle = yield* processors.create({
+        const handle = yield* processors.create({ safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
           assistantMessage: msg,
           sessionID: chat.id,
           model: mdl,
@@ -2628,7 +2631,7 @@ it.live("session.processor effect tests rewrite aborted question tool error to f
         const parent = yield* user(chat.id, "question abort")
         const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
         const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
-        const handle = yield* processors.create({
+        const handle = yield* processors.create({ safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
           assistantMessage: msg,
           sessionID: chat.id,
           model: mdl,
@@ -2702,7 +2705,7 @@ it.live("session.processor effect tests record aborted errors and idle state", (
           errs.push(evt.properties.error.name)
           seen.resolve()
         })
-        const handle = yield* processors.create({
+        const handle = yield* processors.create({ safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
           assistantMessage: msg,
           sessionID: chat.id,
           model: mdl,
@@ -2769,7 +2772,7 @@ it.live("connect timeout writes a safe retry notice and flips session_status idl
         const parent = yield* user(chat.id, "bad model")
         const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
         const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
-        const handle = yield* processors.create({
+        const handle = yield* processors.create({ safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
           assistantMessage: msg,
           sessionID: chat.id,
           model: mdl,
@@ -2825,7 +2828,7 @@ it.live("session.processor effect tests mark interruptions aborted without manua
         const parent = yield* user(chat.id, "interrupt")
         const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
         const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
-        const handle = yield* processors.create({
+        const handle = yield* processors.create({ safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
           assistantMessage: msg,
           sessionID: chat.id,
           model: mdl,

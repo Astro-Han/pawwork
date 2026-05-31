@@ -27,7 +27,12 @@ import { InstanceState } from "@/effect/instance-state"
 import { TurnChange } from "./turn-change"
 import { LLMTrace } from "./llm-trace"
 import { RunObservability } from "./run-observability"
-import { currentLifecycleCloseAction, isLifecycleClosing, lifecycleCloseActionMeta } from "./lifecycle-provenance"
+import {
+  currentLifecycleCloseAction,
+  isLifecycleClosing,
+  lifecycleCloseActionMeta,
+  whenLifecycleCloseBegins,
+} from "./lifecycle-provenance"
 
 const log = Log.create({ service: "session.processor" })
 const TOOL_CLEANUP_TIMEOUT_MS = 1_000
@@ -98,6 +103,7 @@ type Input = {
   assistantMessage: MessageV2.Assistant
   sessionID: SessionID
   model: Provider.Model
+  safeRecoveryDelay?: (attempt: number) => number
 }
 
 export interface Interface {
@@ -1326,6 +1332,7 @@ export const layer: Layer.Layer<
                 presentation: info.presentation,
                 reason: info.reason,
               }),
+            delay: input.safeRecoveryDelay,
           }),
         )
 
@@ -1443,11 +1450,9 @@ export const layer: Layer.Layer<
               if (beforeRetry.allowed) {
                 automaticStreamRetriesUsed += 1
                 yield* removeReasoningForAttempt(attemptID)
-                const lifecycleCloseWatch = Effect.gen(function* () {
-                  while (!isLifecycleClosing(ctx.directory) && !currentLifecycleCloseAction(ctx.directory)) {
-                    yield* Effect.sleep("500 millis")
-                  }
-                }).pipe(Effect.as("lifecycle_close" as const))
+                const lifecycleCloseWatch = Effect.promise(() => whenLifecycleCloseBegins(ctx.directory)).pipe(
+                  Effect.as("lifecycle_close" as const),
+                )
                 const backoffResult = yield* Effect.race(
                   safeRecoveryStep(undefined).pipe(Effect.as("scheduled" as const)),
                   lifecycleCloseWatch,

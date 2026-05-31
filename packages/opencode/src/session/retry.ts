@@ -184,13 +184,14 @@ export function safeRecoveryPolicy(opts: {
     presentation: "recovery"
     reason: "network_connection_dropped"
   }) => Effect.Effect<void>
+  delay?: (attempt: number) => number
 }) {
+  const delayFn = opts.delay ?? delay
   return Schedule.fromStepWithMetadata(
     Effect.succeed((meta: Schedule.InputMetadata<unknown>) => {
       if (meta.attempt > SAFE_RECOVERY_MAX_ATTEMPTS) return Cause.done(meta.attempt)
       return Effect.gen(function* () {
-        // Reuse the API-path backoff schedule: 2s -> 4s -> 8s, capped at 30s.
-        const wait = delay(meta.attempt)
+        const wait = delayFn(meta.attempt)
         const now = yield* Clock.currentTimeMillis
         yield* opts.set({
           attempt: meta.attempt,
