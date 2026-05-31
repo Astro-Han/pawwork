@@ -208,7 +208,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
         data-session-id={props.session.id}
         data-component="pawwork-session-row"
         data-switch-paint={switchPaintRole()}
-        class="group/session relative w-full min-w-0 h-[30px] flex items-center rounded-sm cursor-default pr-[10px]"
+        class="group/session relative w-full min-w-0 h-[30px] flex items-center rounded-md cursor-default pr-[10px]"
         // Sub-session indentation: base padding is 10 (sidebar row spec); add 16 per nesting level.
         // The flat-row spec locks left-side affordances at 10; nested-row indentation is a deliberate
         // visual departure to express parent/child without re-introducing accent bars.
