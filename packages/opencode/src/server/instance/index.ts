@@ -227,7 +227,7 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
       "/vcs/diff/raw",
       describeRoute({
         summary: "Get raw VCS diff",
-        description: "Retrieve the current git diff as raw patch text.",
+        description: "Retrieve the current git diff as raw patch text. Review-oriented unified diff; not guaranteed to apply cleanly via `git apply` for mixed index/worktree states in pre-first-commit repos (the same path may appear in both staged and worktree sections).",
         operationId: "vcs.diffRaw",
         responses: {
           200: {

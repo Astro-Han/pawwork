@@ -17,6 +17,8 @@ export namespace Vcs {
   const MAX_PATCH_BYTES = 10_000_000
   const MAX_TOTAL_PATCH_BYTES = 10_000_000
   export const MAX_APPLY_PATCH_BYTES = MAX_TOTAL_PATCH_BYTES
+  // git's well-known empty-tree object; used as a HEAD substitute in pre-first-commit repos.
+  const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
   const emptyPatch = (file: string) => formatPatch(structuredPatch(file, file, "", "", "", "", { context: 0 }))
 
@@ -341,23 +343,25 @@ export namespace Vcs {
             concurrency: 2,
           })
           const batch: PatchBatch = { total: 0, capped: false }
+          const opts = { binary: true, maxOutputBytes: MAX_TOTAL_PATCH_BYTES }
+          // No-HEAD repos: a single unified patch can't carry both staged content
+          // and a subsequent worktree mutation for the same path (e.g. status "AD":
+          // stage-add then rm). Stitch index-vs-empty + worktree-vs-index + untracked
+          // so callers see every uncommitted change; duplicate per-file headers are
+          // intentional. This makes diffRaw review-oriented text, NOT guaranteed
+          // git-apply-clean for mixed index/worktree states in fresh repos.
           const tracked = hasHead
-            ? yield* rawPatch(
-                batch,
-                git.patchAll(worktree, "HEAD", { binary: true, maxOutputBytes: MAX_TOTAL_PATCH_BYTES }),
-              )
-            : ""
-          const fallback = hasHead ? status.filter((item) => item.code === "??") : status
+            ? yield* rawPatch(batch, git.patchAll(worktree, "HEAD", opts))
+            : yield* rawPatch(batch, git.patchAll(worktree, EMPTY_TREE, { ...opts, cached: true }))
+          const unstaged = hasHead
+            ? ""
+            : yield* rawPatch(batch, git.patchAllUnstaged(worktree, opts))
           const extras = yield* Effect.forEach(
-            fallback,
-            (item) =>
-              rawPatch(
-                batch,
-                git.patchUntracked(worktree, item.file, { binary: true, maxOutputBytes: MAX_TOTAL_PATCH_BYTES }),
-              ),
+            status.filter((item) => item.code === "??"),
+            (item) => rawPatch(batch, git.patchUntracked(worktree, item.file, opts)),
             { concurrency: 1 },
           )
-          const patch = [tracked, ...extras].filter(Boolean).join("\n")
+          const patch = [tracked, unstaged, ...extras].filter(Boolean).join("\n")
           if (Buffer.byteLength(patch) > MAX_TOTAL_PATCH_BYTES) {
             return yield* Effect.fail(new RawDiffError("Raw VCS diff exceeds the 10 MB output limit", "too-large"))
           }

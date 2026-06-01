@@ -95,6 +95,7 @@ export namespace Git {
     readonly stats: (cwd: string, ref: string, options?: DiffOptions) => Effect.Effect<Stat[]>
     readonly patch: (cwd: string, ref: string, file: string, options?: PatchOptions) => Effect.Effect<Patch>
     readonly patchAll: (cwd: string, ref: string, options?: PatchOptions) => Effect.Effect<Patch>
+    readonly patchAllUnstaged: (cwd: string, options?: PatchOptions) => Effect.Effect<Patch>
     readonly patchUntracked: (cwd: string, file: string, options?: PatchOptions) => Effect.Effect<Patch>
     readonly statUntracked: (cwd: string, file: string) => Effect.Effect<Stat | undefined>
     readonly applyPatch: (cwd: string, patch: string) => Effect.Effect<Result>
@@ -324,6 +325,15 @@ export namespace Git {
         )
       })
 
+      // worktree vs index for every tracked path. No ref; not interchangeable with patchAll.
+      const patchAllUnstaged = Effect.fn("Git.patchAllUnstaged")(function* (cwd: string, options?: PatchOptions) {
+        return yield* patchResult(
+          ["diff", "--patch", ...binary(options), "--no-ext-diff", "--no-renames", `--unified=${options?.context ?? 3}`, "--", "."],
+          cwd,
+          options,
+        )
+      })
+
       const patchUntracked = Effect.fn("Git.patchUntracked")(function* (cwd: string, file: string, options?: PatchOptions) {
         return yield* patchResult(
           [
@@ -381,6 +391,7 @@ export namespace Git {
         stats,
         patch,
         patchAll,
+        patchAllUnstaged,
         patchUntracked,
         statUntracked,
         applyPatch,

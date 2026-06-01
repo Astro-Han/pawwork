@@ -293,6 +293,25 @@ describe("Vcs diff", () => {
     }),
   )
 
+  vcsIt.live("diffRaw() surfaces staged-add and worktree-delete on the same path in a no-HEAD repo", () =>
+    Effect.gen(function* () {
+      const tmp = yield* scopedTmpdir()
+      yield* Effect.promise(async () => {
+        await $`git init`.cwd(tmp.path).quiet()
+        await $`git config commit.gpgsign false`.cwd(tmp.path).quiet()
+        await fs.writeFile(path.join(tmp.path, "foo.txt"), "staged-content\n", "utf-8")
+        await $`git add foo.txt`.cwd(tmp.path).quiet()
+        await fs.rm(path.join(tmp.path, "foo.txt"))
+      })
+
+      yield* withVcsOnly(tmp.path, async () => {
+        const patch = await Vcs.diffRaw()
+        expect(patch).toContain("+staged-content")
+        expect(patch).toMatch(/deleted file|\+\+\+ \/dev\/null/)
+      })
+    }),
+  )
+
   vcsIt.live("apply() applies a valid patch", () =>
     Effect.gen(function* () {
       const source = yield* scopedTmpdir({ git: true })
