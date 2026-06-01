@@ -773,6 +773,11 @@ export const BashTool = Tool.define(
                 autoDiscovered = true
                 let overflowed = autoDiscoveredBefore?.overflowed ?? false
                 const deduped = new Map<string, { path: string; before: TrackedOutputState }>()
+                for (const item of exactOfficeOutputs) {
+                  const normalized = AppFileSystem.normalizePath(item.path)
+                  if (deduped.has(normalized)) continue
+                  deduped.set(normalized, item)
+                }
                 if (!overflowed) {
                   for (const item of autoDiscoveredBefore?.outputs ?? []) {
                     const normalized = AppFileSystem.normalizePath(item.path)
