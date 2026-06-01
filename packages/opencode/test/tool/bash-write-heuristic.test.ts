@@ -62,6 +62,8 @@ const positive = [
   "officecli set report.xlsx /Sheet1/A1 --prop value=hello",
   "officecli import report.xlsx /Sheet1 --file data.csv --header",
   "officecli close report.pptx",
+  'officecli batch report.docx --commands \'[{"op":"set","path":"/body/p[1]","props":{"text":"Done"}}]\'',
+  'officecli batch report.docx --commands \'[{"command":"raw-set","part":"/document","action":"replace","xml":"<w:p/>"}]\'',
   "tsc",
   "tsc -p tsconfig.json",
   "vite build",
@@ -126,6 +128,8 @@ const negative = [
   "officecli query report.xlsx sheet",
   "officecli validate report.pptx",
   "officecli batch readonly.officecli",
+  'officecli batch report.docx --commands \'[{"op":"get","path":"/body","depth":1}]\'',
+  'officecli batch report.docx --commands \'[{"command":"view","mode":"outline"}]\'',
 ]
 
 describe("isLikelyWriteCommand", () => {
