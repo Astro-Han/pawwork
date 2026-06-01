@@ -1265,6 +1265,28 @@ export default function Layout(props: ParentProps) {
     shellNavigation.openSettings(tab)
   }
 
+  async function openGlobalConfigFolder() {
+    const target = await globalSDK.client.path
+      .get({ ensureConfig: true })
+      .then((x) => x.data?.config)
+      .catch((err) => {
+        showToast({
+          title: language.t("toast.settings.openGlobalConfigFolderFailed.title"),
+          description: errorMessage(err, language.t("common.requestFailed")),
+          variant: "error",
+        })
+        return undefined
+      })
+    if (!target) return
+    await platform.openPath?.(target).catch((err) => {
+      showToast({
+        title: language.t("toast.settings.openGlobalConfigFolderFailed.title"),
+        description: errorMessage(err, language.t("common.requestFailed")),
+        variant: "error",
+      })
+    })
+  }
+
   createEffect(() => {
     command.setModalOpen(settingsOpen())
   })
@@ -2012,23 +2034,49 @@ export default function Layout(props: ParentProps) {
     navigate(`/${base64Encode(created.directory)}/session`)
   }
 
+  function createCurrentWorkspace() {
+    const project = currentProject()
+    if (!project) return
+    return createWorkspace(project)
+  }
+
+  function toggleCurrentWorkspace() {
+    const project = currentProject()
+    if (!project) return undefined
+    if (project.vcs !== "git") return undefined
+    const wasEnabled = layout.sidebar.workspaces(project.worktree)()
+    layout.sidebar.toggleWorkspaces(project.worktree)
+    return wasEnabled
+  }
+
   registerLayoutCommands({
-    command,
-    language,
-    layout,
-    theme,
-    platform,
-    globalSDK,
-    currentProject,
-    workspaceSetting,
-    chooseProject,
-    navigateProjectByOffset,
-    connectProvider,
-    openServer,
-    openSettings,
-    navigateSessionByOffset,
-    navigateSessionByUnseen,
-    createWorkspace,
+    registry: command,
+    copy: language,
+    appearance: theme,
+    viewActions: {
+      toggleSidebar: layout.sidebar.toggle,
+    },
+    navigationActions: {
+      openProject: chooseProject,
+      moveProject: navigateProjectByOffset,
+      moveSession: navigateSessionByOffset,
+      moveUnseenSession: navigateSessionByUnseen,
+    },
+    settingsActions: {
+      open: openSettings,
+      canOpenGlobalConfigFolder: () => !!platform.openPath,
+      openGlobalConfigFolder,
+    },
+    workspaceActions: {
+      canCreateCurrent: () => !!workspaceSetting(),
+      createCurrent: createCurrentWorkspace,
+      canToggleCurrent: () => currentProject()?.vcs === "git",
+      toggleCurrent: toggleCurrentWorkspace,
+    },
+    systemActions: {
+      connectProvider,
+      switchServer: openServer,
+    },
   })
 
   const workspaceSidebarCtx: WorkspaceSidebarContext = {
