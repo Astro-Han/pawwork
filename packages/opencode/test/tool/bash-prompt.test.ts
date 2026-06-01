@@ -107,5 +107,15 @@ describe("bash prompt", () => {
       expect(EXPECTED_OUTPUTS_DESCRIPTION).toContain("read-only inspection")
       expect(EXPECTED_OUTPUTS_DESCRIPTION).toContain("officecli")
     })
+
+    test("expected_outputs description: routine builds DO NOT set; named build deliverables DO", () => {
+      // Routine compile/install loops must stay out of expected_outputs to
+      // avoid noise, but a build that emits a specific named deliverable
+      // (binary, report) MUST list that file or it slips past turn-change.
+      expect(EXPECTED_OUTPUTS_DESCRIPTION).toContain("routine builds")
+      expect(EXPECTED_OUTPUTS_DESCRIPTION).toContain("named deliverable")
+      expect(EXPECTED_OUTPUTS_DESCRIPTION).toContain("list that file")
+      expect(EXPECTED_OUTPUTS_DESCRIPTION).not.toMatch(/DO NOT set it for: tests, builds,/)
+    })
   })
 })

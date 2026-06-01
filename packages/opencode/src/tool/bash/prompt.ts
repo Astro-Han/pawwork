@@ -34,7 +34,7 @@ export function chainingFor(name: string) {
 }
 
 export const EXPECTED_OUTPUTS_DESCRIPTION =
-  "Absolute or workdir-relative file paths the command will create or modify. Set this ONLY for commands that produce deliverable artifacts (officecli writes to .docx / .xlsx / .pptx, scripts generating reports, binary outputs, or files written outside the working directory). DO NOT set it for: tests, builds, installs, package managers, git inspection (status / log / diff), lint / typecheck, cat / ls / grep / find, dev servers, or any read-only inspection. When unsure, leave it empty."
+  "Absolute or workdir-relative file paths the command will create or modify. Set this ONLY for commands that produce deliverable artifacts (officecli writes to .docx / .xlsx / .pptx, scripts generating reports, a specific named binary or report you will then consume, or files written outside the working directory). DO NOT set it for: tests, routine builds, installs, package managers, git inspection (status / log / diff), lint / typecheck, cat / ls / grep / find, dev servers, or any read-only inspection. A build that emits a specific named deliverable counts as a deliverable artifact — list that file; a routine project rebuild does not. When unsure, leave it empty."
 
 export function parameterSchema() {
   return Schema.Struct({
