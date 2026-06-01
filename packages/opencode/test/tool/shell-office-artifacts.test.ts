@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { nonOfficeCliCommandText, officeCliTargets } from "../../src/tool/bash-office-artifacts"
+import { nonOfficeCliCommandText, officeCliTargets } from "../../src/tool/shell-office-artifacts"
 
 describe("officeCliTargets", () => {
   test.each([

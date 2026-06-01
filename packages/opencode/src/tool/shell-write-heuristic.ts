@@ -6,7 +6,7 @@ import {
   isOfficeCli,
   isOfficeCliWriteCommand,
   tokenWords,
-} from "./bash-office-artifacts"
+} from "./shell-office-artifacts"
 
 const writeCommands = new Set([
   "apply_patch",

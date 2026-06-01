@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { chainingFor, EXPECTED_OUTPUTS_DESCRIPTION, render } from "../../src/tool/bash/prompt"
+import { chainingFor, EXPECTED_OUTPUTS_DESCRIPTION, render } from "../../src/tool/shell/prompt"
 
 const LIMITS = { maxLines: 2000, maxBytes: 50 * 1024 }
 const DEFAULTS = {

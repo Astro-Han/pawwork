@@ -8,7 +8,7 @@ import path from "path"
 import { existsSync } from "node:fs"
 import { setTimeout as sleep } from "node:timers/promises"
 import { Shell } from "../../src/shell/shell"
-import { BashTool } from "../../src/tool/bash"
+import { ShellTool } from "../../src/tool/shell"
 import { Instance } from "../../src/project/instance"
 import { Filesystem } from "../../src/util/filesystem"
 import { tmpdir } from "../fixture/fixture"
@@ -38,7 +38,7 @@ const runtime = ManagedRuntime.make(
 )
 
 function initBash() {
-  return runtime.runPromise(BashTool.pipe(Effect.flatMap((info) => info.init())))
+  return runtime.runPromise(ShellTool.pipe(Effect.flatMap((info) => info.init())))
 }
 
 const ctx = {

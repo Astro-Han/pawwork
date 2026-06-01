@@ -5,7 +5,7 @@ import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { FileIgnore } from "@/file/ignore"
 import type { FileState } from "@/session/turn-change"
 import * as Bom from "@/util/bom"
-import { isOfficeCliOutputPath } from "./bash-office-artifacts"
+import { isOfficeCliOutputPath } from "./shell-office-artifacts"
 import { Effect } from "effect"
 
 const TRACKED_OUTPUT_LIMIT = 20 * 1024 * 1024
@@ -44,7 +44,7 @@ export function sameTrackedState(before: FileState, after: FileState) {
   )
 }
 
-export const discoverOfficeOutputs = Effect.fn("BashOutputCapture.discoverOfficeOutputs")(
+export const discoverOfficeOutputs = Effect.fn("ShellOutputCapture.discoverOfficeOutputs")(
   (root: string, projectRoot: string) =>
     Effect.promise(async () => {
       const started = Date.now()
@@ -115,7 +115,7 @@ export const discoverOfficeOutputs = Effect.fn("BashOutputCapture.discoverOffice
     }),
 )
 
-export const readTrackedState = Effect.fn("BashOutputCapture.readTrackedState")((file: string) =>
+export const readTrackedState = Effect.fn("ShellOutputCapture.readTrackedState")((file: string) =>
   Effect.promise(async () => {
     try {
       const stat = await nodefs.stat(file)

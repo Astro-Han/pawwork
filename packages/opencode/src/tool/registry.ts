@@ -1,7 +1,7 @@
 import { PlanExitTool } from "./plan"
 import { Session } from "../session"
 import { QuestionTool } from "./question"
-import { BashTool } from "./bash"
+import { ShellTool } from "./shell"
 import { EditTool } from "./edit"
 import { GlobTool } from "./glob"
 import { GrepTool } from "./grep"
@@ -132,7 +132,7 @@ export namespace ToolRegistry {
       const plan = yield* PlanExitTool
       const webfetch = yield* WebFetchTool
       const websearch = yield* WebSearchTool
-      const bash = yield* BashTool
+      const bash = yield* ShellTool
       const globtool = yield* GlobTool
       const writetool = yield* WriteTool
       const edit = yield* EditTool

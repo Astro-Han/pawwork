@@ -25,12 +25,12 @@ import { Global } from "@opencode-ai/core/global"
 import { assertExternalDirectoryEffect, resolveExternalPathForPermission } from "./external-directory"
 import { InstanceState } from "@/effect/instance-state"
 import { TurnChange } from "@/session/turn-change"
-import { isLikelyWriteCommand } from "./bash-write-heuristic"
-import { nonOfficeCliCommandText, officeCliTargets } from "./bash-office-artifacts"
-import { discoverOfficeOutputs, readTrackedState } from "./bash-output-capture"
-import { Parameters, render as renderDescription, type Limits } from "./bash/prompt"
-import { ToolID as BashToolID } from "./bash/id"
-import { orchestrateArtifacts, type ArtifactDeps } from "./bash-artifact-orchestrator"
+import { isLikelyWriteCommand } from "./shell-write-heuristic"
+import { nonOfficeCliCommandText, officeCliTargets } from "./shell-office-artifacts"
+import { discoverOfficeOutputs, readTrackedState } from "./shell-output-capture"
+import { Parameters, render as renderDescription, type Limits } from "./shell/prompt"
+import { ToolID as ShellToolID } from "./shell/id"
+import { orchestrateArtifacts, type ArtifactDeps } from "./shell-artifact-orchestrator"
 
 const MAX_METADATA_LENGTH = 30_000
 const DEFAULT_TIMEOUT = Flag.OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS || 2 * 60 * 1000
@@ -77,7 +77,7 @@ type Chunk = {
   size: number
 }
 
-export const log = Log.create({ service: "bash-tool" })
+export const log = Log.create({ service: "shell-tool" })
 
 const resolveWasm = (asset: string) => {
   if (asset.startsWith("file://")) return fileURLToPath(asset)
@@ -247,13 +247,13 @@ function tail(text: string, maxLines: number, maxBytes: number) {
   }
 }
 
-const parse = Effect.fn("BashTool.parse")(function* (command: string, ps: boolean) {
+const parse = Effect.fn("ShellTool.parse")(function* (command: string, ps: boolean) {
   const tree = yield* Effect.promise(() => parser().then((p) => (ps ? p.ps : p.bash).parse(command)))
   if (!tree) throw new Error("Failed to parse command")
   return tree
 })
 
-const ask = Effect.fn("BashTool.ask")(function* (ctx: Tool.Context, scan: Scan) {
+const ask = Effect.fn("ShellTool.ask")(function* (ctx: Tool.Context, scan: Scan) {
   if (scan.dirs.size > 0) {
     const globs = Array.from(scan.dirs).map((dir) => {
       if (process.platform === "win32") return AppFileSystem.normalizePathPattern(path.join(dir, "*"))
@@ -269,7 +269,7 @@ const ask = Effect.fn("BashTool.ask")(function* (ctx: Tool.Context, scan: Scan) 
 
   if (scan.patterns.size === 0) return
   yield* ctx.ask({
-    permission: BashToolID,
+    permission: ShellToolID,
     patterns: Array.from(scan.patterns),
     always: Array.from(scan.always),
     metadata: {},
@@ -322,11 +322,11 @@ const parser = lazy(async () => {
   return { bash, ps }
 })
 
-// Public tool id stays "bash" indefinitely (kept in BashToolID for the
+// Public tool id stays "bash" indefinitely (kept in ShellToolID for the
 // single source of truth — saved permissions, plugins, and config all
 // reference this literal).
-export const BashTool = Tool.define(
-  BashToolID,
+export const ShellTool = Tool.define(
+  ShellToolID,
   Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner
     const afs = yield* AppFileSystem.Service
@@ -334,7 +334,7 @@ export const BashTool = Tool.define(
     const plugin = yield* Plugin.Service
     const turnChange = yield* TurnChange.Service
 
-    const cygpath = Effect.fn("BashTool.cygpath")(function* (shell: string, text: string) {
+    const cygpath = Effect.fn("ShellTool.cygpath")(function* (shell: string, text: string) {
       const lines = yield* spawner
         .lines(ChildProcess.make(shell, ["-lc", 'cygpath -w -- "$1"', "_", text]))
         .pipe(Effect.catch(() => Effect.succeed([] as string[])))
@@ -343,7 +343,7 @@ export const BashTool = Tool.define(
       return AppFileSystem.normalizePath(file)
     })
 
-    const resolveExecutionPath = Effect.fn("BashTool.resolveExecutionPath")(function* (
+    const resolveExecutionPath = Effect.fn("ShellTool.resolveExecutionPath")(function* (
       text: string,
       root: string,
       shell: string,
@@ -358,7 +358,7 @@ export const BashTool = Tool.define(
       return path.isAbsolute(text) ? text : `${root.replace(/\/+$/, "")}/${text}`
     })
 
-    const resolvePermissionTarget = Effect.fn("BashTool.resolvePermissionTarget")(function* (
+    const resolvePermissionTarget = Effect.fn("ShellTool.resolvePermissionTarget")(function* (
       text: string,
       root: string,
       shell: string,
@@ -373,7 +373,7 @@ export const BashTool = Tool.define(
       return path.isAbsolute(text) ? text : `${root.replace(/\/+$/, "")}/${text}`
     })
 
-    const argPath = Effect.fn("BashTool.argPath")(function* (arg: string, cwd: string, ps: boolean, shell: string) {
+    const argPath = Effect.fn("ShellTool.argPath")(function* (arg: string, cwd: string, ps: boolean, shell: string) {
       const text = ps ? expand(arg, cwd, shell) : home(unquote(arg))
       const file = text && prefix(text)
       if (!file || dynamic(file, ps)) return
@@ -382,7 +382,7 @@ export const BashTool = Tool.define(
       return yield* resolvePermissionTarget(next, cwd, shell)
     })
 
-    const collect = Effect.fn("BashTool.collect")(function* (
+    const collect = Effect.fn("ShellTool.collect")(function* (
       root: Node,
       cwd: string,
       ps: boolean,
@@ -421,7 +421,7 @@ export const BashTool = Tool.define(
       return scan
     })
 
-    const shellEnv = Effect.fn("BashTool.shellEnv")(function* (ctx: Tool.Context, cwd: string) {
+    const shellEnv = Effect.fn("ShellTool.shellEnv")(function* (ctx: Tool.Context, cwd: string) {
       const extra = yield* plugin.trigger(
         "shell.env",
         { cwd, sessionID: ctx.sessionID, callID: ctx.callID },
@@ -446,7 +446,7 @@ export const BashTool = Tool.define(
       return env
     })
 
-    const run = Effect.fn("BashTool.run")(function* (
+    const run = Effect.fn("ShellTool.run")(function* (
       input: {
         shell: string
         name: string
@@ -615,7 +615,7 @@ export const BashTool = Tool.define(
         const directory = (yield* InstanceState.context).directory
         const shell = Shell.acceptable()
         const name = Shell.name(shell)
-        log.info("bash tool using shell", { shell })
+        log.info("shell tool using shell", { shell })
 
         const limits: Limits = { maxLines: Truncate.MAX_LINES, maxBytes: Truncate.MAX_BYTES }
         const description = renderDescription({
