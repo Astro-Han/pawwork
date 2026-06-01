@@ -38,6 +38,7 @@ function promptSession() {
     current: () => prompt,
     cursor: () => cursor,
     dirty: () => dirty,
+    hasDraft: () => !isStructurallyEmpty(prompt, items, []),
     context: {
       items: () => items,
       add: (item: ContextItem) => {
@@ -110,6 +111,30 @@ describe("createPromptBinding", () => {
     expect(binding.cursor()).toBe(5)
     expect(binding.dirty()).toBe(true)
     expect(binding.context.items().map((item) => item.path)).toEqual(["a.ts"])
+  })
+
+  test("checks whether an explicit target session has a structural draft", () => {
+    const current = promptSession()
+    const target = promptSession()
+    const binding = createPromptBinding(
+      () => ({ dir: "repo", id: "current" }),
+      (dir, id) => {
+        expect(dir).toBe("repo")
+        return id === "fork" ? target : current
+      },
+    )
+
+    current.reset()
+    target.reset()
+    target.context.add({ type: "file", path: "target.ts" })
+
+    expect(binding.hasDraft()).toBe(false)
+    expect(binding.hasDraft({ dir: "repo", id: "fork" })).toBe(true)
+
+    target.context.replaceAll([])
+    target.set([{ type: "image", id: "img", filename: "shot.png", mime: "image/png", dataUrl: "data:" }], 0)
+
+    expect(binding.hasDraft({ dir: "repo", id: "fork" })).toBe(true)
   })
 
   test("writes to an explicit target session", () => {

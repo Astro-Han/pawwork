@@ -618,15 +618,9 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       }
     }
 
-    const isActivePromptScope = (scope: PromptRouteScope) => {
-      const active = params()
-      return active.dir === scope.dir && active.id === scope.id
-    }
-
     const shouldRestoreOwnerDraft = (ownerHasNewDraft: boolean) => {
       if (ownerHasNewDraft) return false
-      if (!isActivePromptScope(promptScope)) return true
-      return !prompt.dirty() && prompt.context.items().length === 0
+      return !prompt.hasDraft(promptScope)
     }
 
     const restoreInput = (owned: SubmitOwnership) => {

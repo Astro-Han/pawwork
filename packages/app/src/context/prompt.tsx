@@ -196,6 +196,7 @@ type PromptBindingSession = {
   current: () => Prompt
   cursor: () => number | undefined
   dirty: () => boolean
+  hasDraft: () => boolean
   context: {
     items: () => (ContextItem & { key: string })[]
     add: (item: ContextItem) => void
@@ -226,6 +227,7 @@ export function createPromptBinding(
     current: () => session()?.current() ?? clonePrompt(DEFAULT_PROMPT),
     cursor: () => session()?.cursor(),
     dirty: () => session()?.dirty() ?? false,
+    hasDraft: (target?: Scope) => pick(target)?.hasDraft() ?? false,
     context: {
       items: () => session()?.context.items() ?? [],
       add: (item: ContextItem) => session()?.context.add(item),
@@ -268,6 +270,7 @@ function createPromptSession(dir: string, id: string | undefined) {
     current: createMemo(() => store.prompt),
     cursor: createMemo(() => store.cursor),
     dirty: createMemo(() => !isPromptEqual(store.prompt, DEFAULT_PROMPT)),
+    hasDraft: createMemo(() => !isStructurallyEmpty(store.prompt, store.context.items, [])),
     context: {
       items: createMemo(() => store.context.items),
       add(item: ContextItem) {

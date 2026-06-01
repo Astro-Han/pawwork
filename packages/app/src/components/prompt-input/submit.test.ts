@@ -42,6 +42,7 @@ const childTodoSets: Array<{ directory: string; sessionID: string; todos: unknow
 const promptSetCalls: Array<{ prompt: Prompt; cursor?: number; target?: { dir: string; id?: string } }> = []
 const promptResetCalls: Array<{ target?: { dir: string; id?: string } }> = []
 const promptContextReplaceAllCalls: Array<{ items: unknown[]; target?: { dir: string; id?: string } }> = []
+const promptHasDraftCalls: Array<{ target?: { dir: string; id?: string } }> = []
 let promptContextItems: Array<{ key: string; type: "file"; path: string; comment?: string }> = []
 
 let params: { dir?: string; id?: string } = {}
@@ -49,6 +50,7 @@ let navigateImpl = (_path: string): void => {}
 let selected = "/repo/worktree-a"
 let variant: string | undefined
 let promptDirty = false
+let promptHasDraft = false
 
 let currentIntl = "zh-Hans"
 let promptValue: Prompt = [{ type: "text", content: "ls", start: 0, end: 2 }]
@@ -60,6 +62,8 @@ const waitForCall = async (check: () => boolean) => {
   }
   throw new Error("timed out waiting for async request")
 }
+
+const waitForAsyncSubmitSettled = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 const clientFor = (directory: string) => {
   createdClients.push(directory)
@@ -153,6 +157,11 @@ beforeAll(async () => {
     usePrompt: () => ({
       current: () => promptValue,
       dirty: () => promptDirty,
+      hasDraft: (target?: { dir: string; id?: string }) => {
+        promptHasDraftCalls.push({ target })
+        const targetIsActive = target && params.dir === target.dir && params.id === target.id
+        return promptHasDraft || (!!targetIsActive && (promptDirty || promptContextItems.length > 0))
+      },
       reset: (target?: { dir: string; id?: string }) => {
         promptResetCalls.push({ target })
       },
@@ -285,6 +294,7 @@ beforeEach(() => {
   promptSetCalls.length = 0
   promptResetCalls.length = 0
   promptContextReplaceAllCalls.length = 0
+  promptHasDraftCalls.length = 0
   promptContextItems = []
   params = {}
   navigateImpl = (_path: string): void => {}
@@ -293,6 +303,7 @@ beforeEach(() => {
   selected = "/repo/worktree-a"
   variant = undefined
   promptDirty = false
+  promptHasDraft = false
   currentIntl = "zh-Hans"
   promptValue = [{ type: "text", content: "ls", start: 0, end: 2 }]
   _portableDraftTesting.reset()
@@ -1083,11 +1094,46 @@ describe("prompt submit worktree selection", () => {
     promptContextItems = [{ key: "new", type: "file", path: "/repo/main/new.ts", comment: "new note" }]
     releasePromptAsync()
     await submitted
-    await Promise.resolve()
-    await Promise.resolve()
+    await waitForAsyncSubmitSettled()
 
     expect(promptSetCalls).toEqual([])
     expect(promptContextReplaceAllCalls).toEqual([])
+    expect(promptHasDraftCalls.at(-1)?.target).toEqual({ dir: "/repo/main", id: "session-1" })
+  })
+
+  test("does not restore submitted portable draft over inactive target route with a newer draft", async () => {
+    params = { dir: "/repo/main" }
+    promptValue = [{ type: "text", content: "old submit", start: 0, end: 10 }]
+    const portable = usePortableDraft()
+    portable.record({
+      sourceFilesystemDirectory: "/repo/main",
+      prompt: promptValue,
+      context: [],
+      images: [],
+      resolvedMentions: {},
+    })
+
+    let releasePromptAsync!: () => void
+    promptAsyncGate = new Promise<void>((resolve) => {
+      releasePromptAsync = resolve
+    })
+    promptAsyncFailure = new Error("network down")
+
+    const submit = createHomepageSubmit()
+
+    const submitted = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptAsyncCalls.length > 0)
+
+    params = { dir: "/repo/main", id: "session-1" }
+    promptHasDraft = true
+    params = { dir: "/repo/other", id: "session-other" }
+    releasePromptAsync()
+    await submitted
+    await waitForAsyncSubmitSettled()
+
+    expect(promptSetCalls).toEqual([])
+    expect(promptContextReplaceAllCalls).toEqual([])
+    expect(promptHasDraftCalls.at(-1)?.target).toEqual({ dir: "/repo/main", id: "session-1" })
   })
 
   test("detaches submitted pinned draft before async prompt settles", async () => {
@@ -1224,6 +1270,35 @@ describe("prompt submit worktree selection", () => {
 
     expect(promptSetCalls).toEqual([])
     expect(promptContextReplaceAllCalls).toEqual([])
+  })
+
+  test("does not restore submitted pinned draft over inactive target route with a newer draft", async () => {
+    params = { dir: "/repo/main" }
+    promptValue = [{ type: "text", content: "old pin", start: 0, end: 7 }]
+    const pinned = usePinnedDraft()
+    pinned.adopt({ directory: "/repo/main", prompt: "old pin" })
+
+    let releasePromptAsync!: () => void
+    promptAsyncGate = new Promise<void>((resolve) => {
+      releasePromptAsync = resolve
+    })
+    promptAsyncFailure = new Error("network down")
+
+    const submit = createHomepageSubmit()
+
+    const submitted = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptAsyncCalls.length > 0)
+
+    params = { dir: "/repo/main", id: "session-1" }
+    promptHasDraft = true
+    params = { dir: "/repo/other", id: "session-other" }
+    releasePromptAsync()
+    await submitted
+    await waitForAsyncSubmitSettled()
+
+    expect(promptSetCalls).toEqual([])
+    expect(promptContextReplaceAllCalls).toEqual([])
+    expect(promptHasDraftCalls.at(-1)?.target).toEqual({ dir: "/repo/main", id: "session-1" })
   })
 })
 
