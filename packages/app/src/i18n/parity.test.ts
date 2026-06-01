@@ -6,6 +6,7 @@ const locales = [zh]
 const keys = [
   "command.session.previous.unseen",
   "command.session.next.unseen",
+  "app.startup.opening",
   "home.hero.title",
   "session.panel.addTab",
   "session.panel.utility",

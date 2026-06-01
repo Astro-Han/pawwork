@@ -324,6 +324,7 @@ export const dict = {
   "app.server.unreachable": "Could not reach {{server}}",
   "app.server.retrying": "Retrying automatically...",
   "app.server.otherServers": "Other servers",
+  "app.startup.opening": "Opening PawWork",
 
   "dialog.server.title": "Servers",
   "dialog.server.description": "Switch which PawWork server this app connects to.",
