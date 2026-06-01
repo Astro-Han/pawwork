@@ -92,9 +92,10 @@ describe("automate tool", () => {
 
   test.each([
     ["empty cron expression", { rhythm: { kind: "cron", expression: "" }, stop: { kind: "never" } }],
+    ["empty stop condition", { rhythm: { kind: "interval", everyMs: 60_000 }, stop: { kind: "condition", condition: "" } }],
     ["title above replay-safe limit", { title: "x".repeat(161) }],
     ["prompt above replay-safe limit", { prompt: "x".repeat(20_001) }],
-    ["stop kind condition (not yet supported as input)", { rhythm: { kind: "interval", everyMs: 60_000 }, stop: { kind: "condition", condition: "repo is ready" } }],
+    ["condition above replay-safe limit", { rhythm: { kind: "interval", everyMs: 60_000 }, stop: { kind: "condition", condition: "x".repeat(4_001) } }],
   ])("rejects empty nested strings before execute reaches the Zod create parser: %s", (_name, override) => {
     const decode = Schema.decodeUnknownSync(AutomateParameters)
     let error: unknown

@@ -25,6 +25,8 @@ const CronExpression = Schema.NonEmptyString.check(
 )
 const Title = Schema.NonEmptyString.check(Schema.isMaxLength(Automation.MAX_TITLE_CHARS))
 const Prompt = Schema.NonEmptyString.check(Schema.isMaxLength(Automation.MAX_PROMPT_CHARS))
+const Condition = Schema.NonEmptyString.check(Schema.isMaxLength(Automation.MAX_CONDITION_CHARS))
+
 const Common = {
   title: Title,
   prompt: Prompt,
@@ -39,11 +41,13 @@ const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
 const PositiveInt = Schema.Int.check(Schema.isGreaterThan(0))
 const IntervalMs = Schema.Int.check(Schema.isGreaterThanOrEqualTo(Automation.MIN_INTERVAL_MS))
 
-// `condition` is part of the persisted Stop union but not yet supported as
-// input; keep this in lockstep with Automation.SupportedCreateStop so the tool
-// signature doesn't advertise a kind we reject.
+// Mirrors Automation.Stop. `kind: "condition"` is currently rejected at
+// validate time with { field: "stop", message: "unsupported_stop_condition" };
+// kept in the schema so the structured error contract matches HTTP routes.
+// The tool description below points the LLM away from condition.
 const Stop = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("count"), count: PositiveInt }),
+  Schema.Struct({ kind: Schema.Literal("condition"), condition: Condition }),
   Schema.Struct({ kind: Schema.Literal("never") }),
 ])
 
@@ -75,6 +79,7 @@ export function formatAutomateValidationError(error: unknown) {
     "Invalid automate input.",
     "Expected shape: oneshot { kind, title, prompt, context, where, timezone, model, variant?, fireAt } or recurring { kind, title, prompt, context, where, timezone, model, variant?, rhythm, stop }.",
     "model is required as { providerID, modelID }; variant is optional and must be a valid effort key for that model (omit for models without reasoning).",
+    "stop only supports { kind: \"count\", count } or { kind: \"never\" } today; { kind: \"condition\" } is reserved and currently rejected.",
     "Example: { kind: \"recurring\", title: \"Daily repo brief\", prompt: \"Summarize repo changes.\", context: \"fresh\", where: { projectID: \"current-project\" }, timezone: \"UTC\", model: { providerID: \"anthropic\", modelID: \"claude-sonnet-4-6\" }, variant: \"high\", rhythm: { kind: \"interval\", everyMs: 3600000 }, stop: { kind: \"never\" } }.",
     detail,
   ].join("\n")
