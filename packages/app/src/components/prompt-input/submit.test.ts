@@ -946,6 +946,75 @@ describe("prompt submit worktree selection", () => {
     expect(portable.snapshot()?.prompt[0]).toMatchObject({ content: "new draft" })
   })
 
+  test("restores submitted portable draft when a different active route is dirty", async () => {
+    params = { dir: "/repo/main" }
+    promptValue = [{ type: "text", content: "background fail", start: 0, end: 15 }]
+    const portable = usePortableDraft()
+    portable.record({
+      sourceFilesystemDirectory: "/repo/main",
+      prompt: promptValue,
+      context: [],
+      images: [],
+      resolvedMentions: {},
+    })
+
+    let releasePromptAsync!: () => void
+    promptAsyncGate = new Promise<void>((resolve) => {
+      releasePromptAsync = resolve
+    })
+    promptAsyncFailure = new Error("network down")
+
+    const submit = createHomepageSubmit()
+
+    const submitted = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptAsyncCalls.length > 0)
+
+    params = { dir: "/repo/other", id: "session-other" }
+    promptDirty = true
+    releasePromptAsync()
+    await submitted
+    await waitForCall(() => promptSetCalls.length > 0)
+
+    expect(promptSetCalls.at(-1)).toMatchObject({
+      prompt: promptValue,
+      cursor: 15,
+      target: { dir: "/repo/main", id: "session-1" },
+    })
+  })
+
+  test("does not restore submitted portable draft over dirty active target route", async () => {
+    params = { dir: "/repo/main" }
+    promptValue = [{ type: "text", content: "same route fail", start: 0, end: 15 }]
+    const portable = usePortableDraft()
+    portable.record({
+      sourceFilesystemDirectory: "/repo/main",
+      prompt: promptValue,
+      context: [],
+      images: [],
+      resolvedMentions: {},
+    })
+
+    let releasePromptAsync!: () => void
+    promptAsyncGate = new Promise<void>((resolve) => {
+      releasePromptAsync = resolve
+    })
+    promptAsyncFailure = new Error("network down")
+
+    const submit = createHomepageSubmit()
+
+    const submitted = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptAsyncCalls.length > 0)
+
+    params = { dir: "/repo/main", id: "session-1" }
+    promptDirty = true
+    releasePromptAsync()
+    await submitted
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(promptSetCalls).toEqual([])
+  })
+
   test("detaches submitted pinned draft before async prompt settles", async () => {
     params = { dir: "/repo/main" }
     promptValue = [{ type: "text", content: "deep link", start: 0, end: 9 }]

@@ -618,15 +618,26 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       }
     }
 
+    const isActivePromptScope = (scope: PromptRouteScope) => {
+      const active = params()
+      return active.dir === scope.dir && active.id === scope.id
+    }
+
+    const shouldRestoreOwnerDraft = (ownerHasNewDraft: boolean) => {
+      if (ownerHasNewDraft) return false
+      if (!isActivePromptScope(promptScope)) return true
+      return !prompt.dirty()
+    }
+
     const restoreInput = (owned: SubmitOwnership) => {
       switch (owned.kind) {
         case "portable":
-          if (portable.snapshot() !== null || prompt.dirty()) return
+          if (!shouldRestoreOwnerDraft(portable.snapshot() !== null)) return
           prompt.set(submittedDraft.prompt, input.promptLength(submittedDraft.prompt), promptScope)
           prompt.context.replaceAll(submittedDraft.context.map(({ key: _omit, ...rest }) => rest))
           break
         case "pinned":
-          if (pinned.current() !== null || prompt.dirty()) return
+          if (!shouldRestoreOwnerDraft(pinned.current() !== null)) return
           prompt.set(submittedDraft.prompt, input.promptLength(submittedDraft.prompt), promptScope)
           prompt.context.replaceAll(submittedDraft.context.map(({ key: _omit, ...rest }) => rest))
           break
