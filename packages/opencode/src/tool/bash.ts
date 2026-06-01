@@ -27,7 +27,7 @@ import { assertExternalDirectoryEffect, resolveExternalPathForPermission } from 
 import { InstanceState } from "@/effect/instance-state"
 import { TurnChange } from "@/session/turn-change"
 import { isLikelyWriteCommand } from "./bash-write-heuristic"
-import { officeCliTargets } from "./bash-office-artifacts"
+import { nonOfficeCliCommandText, officeCliTargets } from "./bash-office-artifacts"
 import {
   discoverOfficeOutputs,
   readTrackedState,
@@ -726,9 +726,10 @@ export const BashTool = Tool.define(
               )
               const shouldAutoDiscoverOutputs =
                 (params.expected_outputs ?? []).length === 0 &&
-                exactOfficeOutputs.length === 0 &&
                 !!ctx.messageID &&
-                isLikelyWriteCommand(params.command)
+                isLikelyWriteCommand(
+                  exactOfficeOutputs.length ? nonOfficeCliCommandText(params.command) : params.command,
+                )
               const autoDiscoveredBefore = shouldAutoDiscoverOutputs
                 ? yield* Effect.gen(function* () {
                     const discovered = yield* discoverOfficeOutputs(cwd, directory)

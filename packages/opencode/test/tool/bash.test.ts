@@ -999,7 +999,7 @@ describe("tool.bash expected_outputs", () => {
             "[System.IO.File]::WriteAllBytes($file, [byte[]](80,75,3,4,9,8,7,6))",
             "}",
             `officecli batch ${quote(target.replaceAll("\\", "/"))} --commands '[{\"op\":\"set\",\"path\":\"/body/p[1]\",\"props\":{\"text\":\"Done\"}}]'`,
-          ].join("; ")
+          ].join("\n")
         } else if (shell === "cmd") {
           const officecli = path.join(tmp.path, "officecli.bat")
           await fs.promises.writeFile(
@@ -1049,6 +1049,85 @@ describe("tool.bash expected_outputs", () => {
     })
   })
 
+  test("preserves uncaptured marker for side effects alongside exact OfficeCLI targets", async () => {
+    await resetDatabase()
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await fs.promises.writeFile(path.join(dir, "report.docx"), Buffer.from([80, 75, 3, 4, 1, 2, 3, 4]))
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await initBash()
+        const turn = await createTurn()
+        const target = path.join(tmp.path, "report.docx")
+        const notes = path.join(tmp.path, "notes.txt")
+        const shell = sh()
+        let command: string
+        if (PS.has(shell)) {
+          command = [
+            "function officecli {",
+            "param($verb, $file)",
+            "[System.IO.File]::WriteAllBytes($file, [byte[]](80,75,3,4,9,8,7,6))",
+            "}",
+            `officecli batch ${quote(target.replaceAll("\\", "/"))} --commands '[{\"op\":\"set\",\"path\":\"/body/p[1]\",\"props\":{\"text\":\"Done\"}}]'`,
+            `Set-Content -Path ${quote(notes.replaceAll("\\", "/"))} -Value side-effect`,
+          ].join("\n")
+        } else if (shell === "cmd") {
+          const officecli = path.join(tmp.path, "officecli.bat")
+          await fs.promises.writeFile(
+            officecli,
+            "@echo off\r\npowershell -NoProfile -Command \"[System.IO.File]::WriteAllBytes('%~2',[byte[]](80,75,3,4,9,8,7,6))\"\r\n",
+            "utf-8",
+          )
+          command = `set "PATH=${tmp.path};%PATH%" && officecli batch ${quote(target.replaceAll("\\", "/"))} --commands "[{\\"op\\":\\"set\\",\\"path\\":\\"/body/p[1]\\",\\"props\\":{\\"text\\":\\"Done\\"}}]" && echo side-effect> ${quote(notes.replaceAll("\\", "/"))}`
+        } else {
+          const officecli = path.join(tmp.path, "officecli")
+          await fs.promises.writeFile(
+            officecli,
+            "#!/usr/bin/env sh\nprintf '\\120\\113\\003\\004\\011\\010\\007\\006' > \"$2\"\n",
+            { mode: 0o755 },
+          )
+          command = `PATH=${quote(tmp.path.replaceAll("\\", "/"))}:$PATH officecli batch ${quote(target.replaceAll("\\", "/"))} --commands '[{"op":"set","path":"/body/p[1]","props":{"text":"Done"}}]'; printf 'side-effect\\n' > ${quote(notes.replaceAll("\\", "/"))}`
+        }
+
+        const result = await Effect.runPromise(
+          bash.execute(
+            {
+              command,
+              description: "Mutating OfficeCLI batch with side effect",
+            },
+            { ...ctx, ...turn },
+          ),
+        )
+
+        expect(result.metadata.exit).toBe(0)
+        expect(
+          (
+            result.metadata as {
+              artifacts?: Array<{ path: string; exists: boolean; changed: boolean; binary?: boolean }>
+            }
+          ).artifacts,
+        ).toEqual([{ path: target, exists: true, changed: true, binary: true }])
+        expect(
+          TurnChange.aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
+        ).toMatchObject({
+          kind: "mixed",
+          count: 1,
+          files: [
+            {
+              path: "report.docx",
+              status: "modified",
+              binary: true,
+              expandable: false,
+            },
+          ],
+        })
+      },
+    })
+  })
+
   test("auto-discovers Office outputs for mutating piped officecli batch commands", async () => {
     await resetDatabase()
     await using tmp = await tmpdir({
@@ -1072,7 +1151,7 @@ describe("tool.bash expected_outputs", () => {
             "[System.IO.File]::WriteAllBytes($file, [byte[]](80,75,3,4,9,8,7,6))",
             "}",
             `Write-Output '[{\"command\":\"set\",\"path\":\"/Sheet1/A1\",\"props\":{\"value\":\"x\"}}]' | officecli batch ${quote(target.replaceAll("\\", "/"))}`,
-          ].join("; ")
+          ].join("\n")
         } else if (shell === "cmd") {
           const officecli = path.join(tmp.path, "officecli.bat")
           await fs.promises.writeFile(
@@ -1144,7 +1223,7 @@ describe("tool.bash expected_outputs", () => {
             "$null = [Console]::In.ReadToEnd()",
             "}",
             `Write-Output '[{\"command\":\"get\",\"path\":\"/Sheet1/A1\"}]' | officecli batch ${quote(target.replaceAll("\\", "/"))}`,
-          ].join("; ")
+          ].join("\n")
         } else if (shell === "cmd") {
           const officecli = path.join(tmp.path, "officecli.bat")
           await fs.promises.writeFile(

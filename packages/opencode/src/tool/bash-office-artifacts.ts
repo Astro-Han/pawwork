@@ -31,7 +31,9 @@ export function commandSegments(command: string) {
 
     const next = command[index + 1]
     const currentDelimiter =
-      char === "&" && next === "&"
+      char === "\n" || char === "\r"
+        ? char
+        : char === "&" && next === "&"
         ? "&&"
         : char === "|" && next === "|"
           ? "||"
@@ -55,6 +57,17 @@ export function tokenWords(command: string) {
   return commandSegments(command)
     .map((segment) => shellWords(segment.text).map((word) => word.toLowerCase()))
     .filter((words) => words.length > 0)
+}
+
+export function nonOfficeCliCommandText(command: string) {
+  return commandSegments(command)
+    .filter((segment) => {
+      const words = shellWords(segment.text).map((word) => word.toLowerCase())
+      const { head } = commandHead(words)
+      return !head || !isOfficeCli(head)
+    })
+    .map((segment) => segment.text)
+    .join("; ")
 }
 
 export function commandHead(words: string[]) {
