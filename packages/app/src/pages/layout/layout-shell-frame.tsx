@@ -5,6 +5,7 @@ import { isMacShell, shellAttrs, type usePlatform } from "@/context/platform"
 import { DebugBar } from "@/components/debug-bar"
 import { Titlebar } from "@/components/titlebar"
 import { PawworkTitlebar } from "./pawwork-titlebar"
+import { shouldShowLayoutDebugBar } from "./layout-shell-frame-debug"
 
 type LayoutShellFrameProps = {
   platform: ReturnType<typeof usePlatform>
@@ -143,9 +144,7 @@ export function LayoutShellFrame(props: LayoutShellFrameProps) {
               </div>
             </div>
           </div>
-          {import.meta.env.DEV &&
-            !((window as typeof window & { __opencode_e2e?: unknown }).__opencode_e2e) &&
-            <DebugBar />}
+          {shouldShowLayoutDebugBar() && <DebugBar />}
         </div>
       </div>
       <Toast.Region />
