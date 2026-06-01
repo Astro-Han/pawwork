@@ -15,39 +15,26 @@ type TrackedOutput = {
   before: TrackedOutputState
 }
 
-export type ResolveExecutionPath = (
-  raw: string,
-  root: string,
-  shell: string,
-) => Effect.Effect<string, never, any>
-
-export type AssertExternalDirectory = (
-  ctx: Tool.Context,
-  filepath: string,
-  opts: { kind: "file" },
-) => Effect.Effect<string | undefined, never, any>
-
-export type ReadTrackedState = (file: string) => Effect.Effect<TrackedOutputState, never, any>
-
-export type DiscoverOfficeOutputs = (cwd: string, projectRoot: string) => Effect.Effect<OutputDiscovery, never, any>
-
-export type OfficeCliTargetsFn = (command: string) => readonly string[]
-export type NonOfficeCliCommandTextFn = (command: string) => string
-export type IsLikelyWriteCommandFn = (command: string) => boolean
-
-export type RecordWrite = (input: RecordWriteInput) => Effect.Effect<void, never, any>
-export type RecordUncaptured = (input: RecordUncapturedInput) => Effect.Effect<void, never, any>
-
-export type ArtifactDeps = {
-  resolveExecutionPath: ResolveExecutionPath
-  assertExternalDirectory: AssertExternalDirectory
-  readTrackedState: ReadTrackedState
-  discoverOfficeOutputs: DiscoverOfficeOutputs
-  officeCliTargets: OfficeCliTargetsFn
-  nonOfficeCliCommandText: NonOfficeCliCommandTextFn
-  isLikelyWriteCommand: IsLikelyWriteCommandFn
-  recordWrite: RecordWrite
-  recordUncaptured: RecordUncaptured
+// All Effect-returning deps share one requirement type parameter `DepR`.
+// This makes service requirements (InstanceState, ChildProcessSpawner,
+// TurnChange.Service, etc.) bubble up to the orchestrator's return type
+// instead of being swallowed by `any` — wiring the orchestrator into a
+// runtime that lacks one of those services becomes a compile error, not
+// a runtime crash.
+export type ArtifactDeps<DepR = never> = {
+  resolveExecutionPath: (raw: string, root: string, shell: string) => Effect.Effect<string, never, DepR>
+  assertExternalDirectory: (
+    ctx: Tool.Context,
+    filepath: string,
+    opts: { kind: "file" },
+  ) => Effect.Effect<string | undefined, never, DepR>
+  readTrackedState: (file: string) => Effect.Effect<TrackedOutputState, never, DepR>
+  discoverOfficeOutputs: (cwd: string, projectRoot: string) => Effect.Effect<OutputDiscovery, never, DepR>
+  officeCliTargets: (command: string) => readonly string[]
+  nonOfficeCliCommandText: (command: string) => string
+  isLikelyWriteCommand: (command: string) => boolean
+  recordWrite: (input: RecordWriteInput) => Effect.Effect<void, never, DepR>
+  recordUncaptured: (input: RecordUncapturedInput) => Effect.Effect<void, never, DepR>
 }
 
 export type ArtifactInput = {
@@ -61,11 +48,11 @@ export type ArtifactInput = {
 
 export type ArtifactRunner<R> = () => Effect.Effect<ToolResultLike, never, R>
 
-export const orchestrateArtifacts = <R>(
+export const orchestrateArtifacts = <RunR, DepR>(
   input: ArtifactInput,
-  run: ArtifactRunner<R>,
-  deps: ArtifactDeps,
-): Effect.Effect<ToolResultLike, never, R> =>
+  run: ArtifactRunner<RunR>,
+  deps: ArtifactDeps<DepR>,
+): Effect.Effect<ToolResultLike, never, RunR | DepR> =>
   Effect.gen(function* () {
     const { ctx, cwd, directory, shell, command, expectedOutputs } = input
     const hasMessage = !!ctx.messageID

@@ -73,7 +73,7 @@ function build(opts: {
       return stateMissing()
     })
 
-  const discoverOfficeOutputs = (_cwd: string, _root: string): Effect.Effect<OutputDiscovery, never, any> =>
+  const discoverOfficeOutputs = (_cwd: string, _root: string): Effect.Effect<OutputDiscovery, never, never> =>
     Effect.sync(() => {
       discoverCalls++
       if (discoverCalls === 1) {
@@ -257,6 +257,56 @@ describe("orchestrateArtifacts", () => {
     expect(harness.uncaptured).toHaveLength(0)
     expect(harness.discoverCalls).toBe(0)
     expect((result.metadata as any).artifacts).toBeUndefined()
+  })
+
+  test("before-snapshot precedes runner — protects against shell.env-style side-effect ordering regressions", async () => {
+    const file = "/tmp/work/ordered.docx"
+    const order: string[] = []
+    const stateCounts = new Map<string, number>()
+    const readTrackedState = (target: string) =>
+      Effect.sync(() => {
+        const count = stateCounts.get(target) ?? 0
+        stateCounts.set(target, count + 1)
+        order.push(`read:${count === 0 ? "before" : "after"}`)
+        if (count === 0) return stateMissing()
+        return stateFile("written")
+      })
+
+    const deps: ArtifactDeps = {
+      resolveExecutionPath: (raw) => Effect.succeed(raw),
+      assertExternalDirectory: (_ctx, fp) => Effect.succeed(fp),
+      readTrackedState,
+      discoverOfficeOutputs: () => Effect.succeed({ paths: [], overflowed: false }),
+      officeCliTargets: () => [],
+      nonOfficeCliCommandText: (c) => c,
+      isLikelyWriteCommand: () => false,
+      recordWrite: () => Effect.void,
+      recordUncaptured: () => Effect.void,
+    }
+
+    await Effect.runPromise(
+      orchestrateArtifacts(
+        {
+          ctx,
+          cwd: "/tmp/work",
+          directory: "/tmp/work",
+          shell: "/bin/bash",
+          command: "officecli docx create ordered.docx",
+          expectedOutputs: [file],
+        },
+        () =>
+          Effect.sync(() => {
+            order.push("runner")
+            return buildResult()
+          }),
+        deps,
+      ),
+    )
+
+    const beforeIndex = order.indexOf("read:before")
+    const runnerIndex = order.indexOf("runner")
+    expect(beforeIndex).toBeGreaterThanOrEqual(0)
+    expect(runnerIndex).toBeGreaterThan(beforeIndex)
   })
 
   test("expected_outputs present → only declared recorded; discoverOfficeOutputs is NOT called", async () => {

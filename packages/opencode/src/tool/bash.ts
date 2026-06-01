@@ -663,8 +663,11 @@ export const BashTool = Tool.define(
                 }),
               )
 
-              const env = yield* shellEnv(ctx, cwd)
-
+              // shellEnv() must run AFTER the orchestrator's before-snapshots.
+              // A `shell.env` plugin can create or modify files (config, sockets,
+              // bundled-tool drops) as a side effect; running it before the
+              // before-state read would fold that mutation into "before" and the
+              // subsequent change would never surface as a turn-change record.
               return yield* orchestrateArtifacts(
                 {
                   ctx,
@@ -675,18 +678,21 @@ export const BashTool = Tool.define(
                   expectedOutputs: params.expected_outputs ?? [],
                 },
                 () =>
-                  run(
-                    {
-                      shell,
-                      name,
-                      command: params.command,
-                      cwd,
-                      env,
-                      timeout,
-                      description: params.description,
-                    },
-                    ctx,
-                  ),
+                  Effect.gen(function* () {
+                    const env = yield* shellEnv(ctx, cwd)
+                    return yield* run(
+                      {
+                        shell,
+                        name,
+                        command: params.command,
+                        cwd,
+                        env,
+                        timeout,
+                        description: params.description,
+                      },
+                      ctx,
+                    )
+                  }),
                 deps,
               )
             }),
