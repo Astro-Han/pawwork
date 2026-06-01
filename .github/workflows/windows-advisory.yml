@@ -300,6 +300,10 @@ jobs:
           echo "first_exit_code=$first_status" >> "$GITHUB_OUTPUT"
 
           if [ "$status" -eq 0 ] && [ "$first_status" -ne 0 ]; then
+            # ::notice surfaces the recovery in the run-level annotations panel
+            # and in each check's annotation list, not just buried in the
+            # collapsed step summary, so flake rate stays observable.
+            echo "::notice title=Windows unit recovered on retry::package=${{ matrix.package }}; attempt 1 exit code=$first_status; attempt 2 succeeded"
             {
               echo "### Windows unit recovered on retry"
               echo ""
@@ -308,6 +312,10 @@ jobs:
               echo "- attempt 2: success"
             } >> "$GITHUB_STEP_SUMMARY"
           elif [ "$status" -ne 0 ]; then
+            # ::warning gives the run-level annotation a yellow icon on a red
+            # job — the step is still failing (advisory signal red), but the
+            # annotation makes the post-retry failure scannable at a glance.
+            echo "::warning title=Windows unit failed advisory signal after retry::package=${{ matrix.package }}; final exit code=$status; attempts=$attempts"
             {
               echo "### Windows unit diagnostic"
               echo ""

@@ -628,6 +628,12 @@ describe("ci workflow", () => {
     expect(unitRun).toContain("### Windows unit attempt $attempt failed (retrying)")
     expect(unitRun).toContain("### Windows unit recovered on retry")
 
+    // The recovered and final-failed outcomes also emit run-level annotations
+    // (::notice / ::warning) so the signal is visible in the Actions UI
+    // annotations panel, not only inside the collapsed step summary.
+    expect(unitRun).toContain("::notice title=Windows unit recovered on retry")
+    expect(unitRun).toContain("::warning title=Windows unit failed advisory signal after retry")
+
     // The final exit code is the last attempt's status, not the first.
     // Otherwise a recovered run would still turn the advisory red.
     expect(unitRun).toMatch(/exit "\$status"\s*$/)
