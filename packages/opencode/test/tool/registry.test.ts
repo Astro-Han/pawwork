@@ -55,12 +55,12 @@ describe("tool.registry", () => {
   })
 
   test("keeps trash removal contract across prompt and package surfaces", async () => {
-    const bashDescription = await Bun.file(new URL("../../src/tool/bash.txt", import.meta.url)).text()
-    expect(bashDescription).not.toContain("trash tool")
-    expect(bashDescription).toContain("Avoid permanent deletion commands")
-    expect(bashDescription).toContain("gio trash")
-    expect(bashDescription).toContain("trash-put")
-    expect(bashDescription).toContain("Get-Command")
+    const shellDescription = await Bun.file(new URL("../../src/tool/shell.txt", import.meta.url)).text()
+    expect(shellDescription).not.toContain("trash tool")
+    expect(shellDescription).toContain("Avoid permanent deletion commands")
+    expect(shellDescription).toContain("gio trash")
+    expect(shellDescription).toContain("trash-put")
+    expect(shellDescription).toContain("Get-Command")
 
     const packageJson = (await Bun.file(new URL("../../package.json", import.meta.url)).json()) as {
       dependencies?: Record<string, string>

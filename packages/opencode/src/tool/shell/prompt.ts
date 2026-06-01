@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import DESCRIPTION from "../bash.txt"
+import DESCRIPTION from "../shell.txt"
 import { toKind } from "./id"
 
 export type Limits = {

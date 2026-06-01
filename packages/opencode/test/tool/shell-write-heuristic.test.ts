@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { isLikelyWriteCommand } from "../../src/tool/bash-write-heuristic"
+import { isLikelyWriteCommand } from "../../src/tool/shell-write-heuristic"
 
 const positive = [
   "echo x > foo",

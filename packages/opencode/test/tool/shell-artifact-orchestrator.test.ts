@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import { Effect } from "effect"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
-import { orchestrateArtifacts, type ArtifactDeps } from "../../src/tool/bash-artifact-orchestrator"
-import type { TrackedOutputState, OutputDiscovery } from "../../src/tool/bash-output-capture"
+import { orchestrateArtifacts, type ArtifactDeps } from "../../src/tool/shell-artifact-orchestrator"
+import type { TrackedOutputState, OutputDiscovery } from "../../src/tool/shell-output-capture"
 import type { RecordWriteInput, RecordUncapturedInput } from "../../src/session/turn-change"
 import { MessageID, SessionID } from "../../src/session/schema"
 

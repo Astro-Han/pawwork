@@ -1,7 +1,7 @@
 import { Effect } from "effect"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import type * as Tool from "./tool"
-import { sameTrackedState, type TrackedOutputState, type OutputDiscovery } from "./bash-output-capture"
+import { sameTrackedState, type TrackedOutputState, type OutputDiscovery } from "./shell-output-capture"
 import type { RecordWriteInput, RecordUncapturedInput } from "../session/turn-change"
 
 type ToolResultLike = {
