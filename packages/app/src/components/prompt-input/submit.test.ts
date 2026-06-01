@@ -43,6 +43,10 @@ const promptSetCalls: Array<{ prompt: Prompt; cursor?: number; target?: { dir: s
 const promptResetCalls: Array<{ target?: { dir: string; id?: string } }> = []
 const promptContextReplaceAllCalls: Array<{ items: unknown[]; target?: { dir: string; id?: string } }> = []
 const promptHasDraftCalls: Array<{ target?: { dir: string; id?: string } }> = []
+const uiSetModeCalls: Array<"normal" | "shell"> = []
+const uiSetPopoverCalls: Array<"at" | "slash" | null> = []
+const uiQueueScrollCalls: string[] = []
+const uiFocusCalls: string[] = []
 let promptContextItems: Array<{ key: string; type: "file"; path: string; comment?: string }> = []
 
 let params: { dir?: string; id?: string } = {}
@@ -295,6 +299,10 @@ beforeEach(() => {
   promptResetCalls.length = 0
   promptContextReplaceAllCalls.length = 0
   promptHasDraftCalls.length = 0
+  uiSetModeCalls.length = 0
+  uiSetPopoverCalls.length = 0
+  uiQueueScrollCalls.length = 0
+  uiFocusCalls.length = 0
   promptContextItems = []
   params = {}
   navigateImpl = (_path: string): void => {}
@@ -846,7 +854,7 @@ describe("prompt submit worktree selection", () => {
     expect(promptResetCalls.at(-1)?.target?.id).toBeUndefined()
   })
 
-  const createHomepageSubmit = () =>
+  const createHomepageSubmit = (overrides: Partial<PromptSubmitInput> = {}) =>
     createPromptSubmit({
       navigate: (path) => navigateImpl(path),
       routeParams: () => params,
@@ -857,13 +865,14 @@ describe("prompt submit worktree selection", () => {
       mode: () => "normal",
       working: () => false,
       editor: () => undefined,
-      queueScroll: () => undefined,
+      queueScroll: () => uiQueueScrollCalls.push("queue"),
       promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
       addToHistory: () => undefined,
       resetHistoryNavigation: () => undefined,
-      setMode: () => undefined,
-      setPopover: () => undefined,
+      setMode: (nextMode) => uiSetModeCalls.push(nextMode),
+      setPopover: (popover) => uiSetPopoverCalls.push(popover),
       onSubmit: () => undefined,
+      ...overrides,
     })
 
   test("detaches submitted portable draft before async prompt settles", async () => {
@@ -1002,6 +1011,62 @@ describe("prompt submit worktree selection", () => {
       cursor: 15,
       target: { dir: "/repo/main", id: "session-1" },
     })
+  })
+
+  test("restores submitted portable draft in background without changing active composer UI", async () => {
+    const originalRequestAnimationFrame = globalThis.requestAnimationFrame
+    globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      callback(0)
+      return 0
+    }) as typeof requestAnimationFrame
+    try {
+      params = { dir: "/repo/main" }
+      promptValue = [{ type: "text", content: "background ui", start: 0, end: 13 }]
+      const portable = usePortableDraft()
+      portable.record({
+        sourceFilesystemDirectory: "/repo/main",
+        prompt: promptValue,
+        context: [],
+        images: [],
+        resolvedMentions: {},
+      })
+
+      const editor = document.createElement("div")
+      editor.textContent = "active composer"
+      Object.defineProperty(editor, "focus", { value: () => uiFocusCalls.push("focus") })
+
+      let releasePromptAsync!: () => void
+      promptAsyncGate = new Promise<void>((resolve) => {
+        releasePromptAsync = resolve
+      })
+      promptAsyncFailure = new Error("network down")
+
+      const submit = createHomepageSubmit({ editor: () => editor })
+
+      const submitted = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+      await waitForCall(() => promptResetCalls.length > 0)
+      const modeCallsAfterClear = uiSetModeCalls.length
+      const popoverCallsAfterClear = uiSetPopoverCalls.length
+      const focusCallsAfterClear = uiFocusCalls.length
+      const queueScrollCallsAfterClear = uiQueueScrollCalls.length
+
+      params = { dir: "/repo/other", id: "session-other" }
+      releasePromptAsync()
+      await submitted
+      await waitForAsyncSubmitSettled()
+
+      expect(promptSetCalls.at(-1)).toMatchObject({
+        prompt: promptValue,
+        cursor: 13,
+        target: { dir: "/repo/main", id: "session-1" },
+      })
+      expect(uiSetModeCalls).toHaveLength(modeCallsAfterClear)
+      expect(uiSetPopoverCalls).toHaveLength(popoverCallsAfterClear)
+      expect(uiFocusCalls).toHaveLength(focusCallsAfterClear)
+      expect(uiQueueScrollCalls).toHaveLength(queueScrollCallsAfterClear)
+    } finally {
+      globalThis.requestAnimationFrame = originalRequestAnimationFrame
+    }
   })
 
   test("restores submitted portable context to target scope when a different active route is dirty", async () => {
@@ -1258,6 +1323,56 @@ describe("prompt submit worktree selection", () => {
       directory: "/repo/other",
       prompt: [{ type: "text", content: "new pin", start: 0, end: 7 }],
     })
+  })
+
+  test("restores submitted pinned draft in background without changing active composer UI", async () => {
+    const originalRequestAnimationFrame = globalThis.requestAnimationFrame
+    globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      callback(0)
+      return 0
+    }) as typeof requestAnimationFrame
+    try {
+      params = { dir: "/repo/main" }
+      promptValue = [{ type: "text", content: "pin background", start: 0, end: 14 }]
+      const pinned = usePinnedDraft()
+      pinned.adopt({ directory: "/repo/main", prompt: "pin background" })
+
+      const editor = document.createElement("div")
+      editor.textContent = "active composer"
+      Object.defineProperty(editor, "focus", { value: () => uiFocusCalls.push("focus") })
+
+      let releasePromptAsync!: () => void
+      promptAsyncGate = new Promise<void>((resolve) => {
+        releasePromptAsync = resolve
+      })
+      promptAsyncFailure = new Error("network down")
+
+      const submit = createHomepageSubmit({ editor: () => editor })
+
+      const submitted = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+      await waitForCall(() => promptResetCalls.length > 0)
+      const modeCallsAfterClear = uiSetModeCalls.length
+      const popoverCallsAfterClear = uiSetPopoverCalls.length
+      const focusCallsAfterClear = uiFocusCalls.length
+      const queueScrollCallsAfterClear = uiQueueScrollCalls.length
+
+      params = { dir: "/repo/other", id: "session-other" }
+      releasePromptAsync()
+      await submitted
+      await waitForAsyncSubmitSettled()
+
+      expect(promptSetCalls.at(-1)).toMatchObject({
+        prompt: promptValue,
+        cursor: 14,
+        target: { dir: "/repo/main", id: "session-1" },
+      })
+      expect(uiSetModeCalls).toHaveLength(modeCallsAfterClear)
+      expect(uiSetPopoverCalls).toHaveLength(popoverCallsAfterClear)
+      expect(uiFocusCalls).toHaveLength(focusCallsAfterClear)
+      expect(uiQueueScrollCalls).toHaveLength(queueScrollCallsAfterClear)
+    } finally {
+      globalThis.requestAnimationFrame = originalRequestAnimationFrame
+    }
   })
 
   test("does not restore submitted pinned draft over context-only active target route", async () => {

@@ -622,6 +622,25 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       return !prompt.hasDraft(promptScope)
     }
 
+    const isActivePromptScope = (scope: PromptRouteScope) => {
+      const active = params()
+      return active.dir === scope.dir && active.id === scope.id
+    }
+
+    const restoreVisibleEditor = (owned: SubmitOwnership) => {
+      if (!isActivePromptScope(promptScope)) return
+      input.setMode(mode)
+      input.setPopover(null)
+      requestAnimationFrame(() => {
+        const editor = input.editor()
+        if (!editor) return
+        editor.focus()
+        const cursorPrompt = owned.kind === "route" ? currentPrompt : prompt.current()
+        setCursorPosition(editor, input.promptLength(cursorPrompt))
+        input.queueScroll()
+      })
+    }
+
     const restoreInput = (owned: SubmitOwnership) => {
       switch (owned.kind) {
         case "portable":
@@ -640,16 +659,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
           break
         }
       }
-      input.setMode(mode)
-      input.setPopover(null)
-      requestAnimationFrame(() => {
-        const editor = input.editor()
-        if (!editor) return
-        editor.focus()
-        const cursorPrompt = owned.kind === "route" ? currentPrompt : prompt.current()
-        setCursorPosition(editor, input.promptLength(cursorPrompt))
-        input.queueScroll()
-      })
+      restoreVisibleEditor(owned)
     }
 
     // commentItems is referenced by restoreInput (route case) and by the prompt
