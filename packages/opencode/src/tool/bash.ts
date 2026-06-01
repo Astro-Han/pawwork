@@ -799,13 +799,18 @@ export const BashTool = Tool.define(
                 }
 
                 if (overflowed) {
-                  yield* turnChange.recordUncaptured({
-                    sessionID: ctx.sessionID,
-                    messageID: ctx.messageID,
-                  })
-                  return result
+                  if (deduped.size > 0) {
+                    outputsToRecord = Array.from(deduped.values())
+                  } else {
+                    yield* turnChange.recordUncaptured({
+                      sessionID: ctx.sessionID,
+                      messageID: ctx.messageID,
+                    })
+                    return result
+                  }
+                } else {
+                  outputsToRecord = Array.from(deduped.values())
                 }
-                outputsToRecord = Array.from(deduped.values())
               }
 
               if (!outputsToRecord.length) {
