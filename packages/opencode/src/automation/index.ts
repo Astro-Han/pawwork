@@ -638,10 +638,6 @@ export namespace Automation {
     options?: {
       now?: number
       refreshOnStopped?: boolean
-      /** @internal Test-only hook fired between reading `previous` and calling
-       * `replaceDefinition`. Used to deterministically inject a concurrent write
-       * so the ConflictError retry path can be covered. */
-      __testBeforeReplace?: (previous: Definition) => void
     },
   ): Definition | undefined {
     if (run.state !== "succeeded" && run.state !== "failed" && run.state !== "stopped") return undefined
@@ -675,7 +671,7 @@ export namespace Automation {
         revision: previous.revision + 1,
         updatedAt: now,
       })
-      options?.__testBeforeReplace?.(previous)
+      __testHooks.beforeReplaceDefinition?.(previous)
       try {
         return replaceDefinition(previous, next)
       } catch (error) {
@@ -685,6 +681,17 @@ export namespace Automation {
     }
     return undefined
   }
+
+  /**
+   * @internal Test-only seam. Production code MUST NOT read or write this.
+   * Tests assign `beforeReplaceDefinition` to deterministically inject a
+   * concurrent write between `recordRunOutcome`'s read and its replace, so
+   * the ConflictError retry path can be exercised end-to-end. Reset to `{}`
+   * after each test (or scope assignments with try/finally).
+   */
+  export const __testHooks: {
+    beforeReplaceDefinition?: (previous: Definition) => void
+  } = {}
 
   function sameArray(left: readonly number[], right: readonly number[]) {
     if (left.length !== right.length) return false

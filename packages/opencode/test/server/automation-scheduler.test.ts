@@ -1023,19 +1023,22 @@ describe("automation scheduler", () => {
       const failed = (await waitForFailedRunCount(created.id, 1)).find((r) => r.state === "failed")
       if (!failed) throw new Error("failed missing")
 
-      // Force a real ConflictError: __testBeforeReplace fires after record
-      // reads `previous` but before it writes, so the unrelated update bumps
-      // the row's revision and the first replaceDefinition hits ConflictError.
+      // Force a real ConflictError: the test hook fires after record reads
+      // `previous` but before it writes, so the unrelated update bumps the
+      // row's revision and the first replaceDefinition hits ConflictError.
       let hookFires = 0
-      const refreshed = Automation.recordRunOutcome(failed, {
-        now: 1_500,
-        __testBeforeReplace: (previous) => {
-          if (hookFires === 0) {
-            hookFires += 1
-            Automation.update(previous.id, { title: "raced edit" }, { now: 1_400 })
-          }
-        },
-      })
+      Automation.__testHooks.beforeReplaceDefinition = (previous) => {
+        if (hookFires === 0) {
+          hookFires += 1
+          Automation.update(previous.id, { title: "raced edit" }, { now: 1_400 })
+        }
+      }
+      let refreshed: Automation.Definition | undefined
+      try {
+        refreshed = Automation.recordRunOutcome(failed, { now: 1_500 })
+      } finally {
+        delete Automation.__testHooks.beforeReplaceDefinition
+      }
       expect(hookFires).toBe(1)
       if (!refreshed || refreshed.kind !== "recurring") throw new Error("refreshed missing")
       // The retry must preserve the racing edit AND apply the run's contribution.
