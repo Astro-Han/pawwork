@@ -44,7 +44,7 @@ jobs:
       # Deploy only when on dev (push to dev or manual dispatch from dev). PRs and
       # manual runs from other branches stop after the build-check steps above, so
       # the fixed --branch=dev below can never publish non-dev content.
-      - uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3
+      - uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
         if: github.ref == 'refs/heads/dev'
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
