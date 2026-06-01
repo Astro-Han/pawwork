@@ -6,6 +6,7 @@ import { DebugBar } from "@/components/debug-bar"
 import { Titlebar } from "@/components/titlebar"
 import { PawworkTitlebar } from "./pawwork-titlebar"
 import { shouldShowLayoutDebugBar } from "./layout-shell-frame-debug"
+import { normalizedSidebarWidth } from "./layout-shell-frame-geometry"
 
 type LayoutShellFrameProps = {
   platform: ReturnType<typeof usePlatform>
@@ -34,11 +35,17 @@ type LayoutShellFrameProps = {
 }
 
 export function LayoutShellFrame(props: LayoutShellFrameProps) {
-  const side = createMemo(() => Math.max(props.sidebar.width(), props.sidebar.minWidth))
+  const sidebarWidth = createMemo(() =>
+    normalizedSidebarWidth({
+      width: props.sidebar.width(),
+      minWidth: props.sidebar.minWidth,
+      maxWidth: props.sidebar.maxWidth(),
+    }),
+  )
 
   createEffect(() => {
-    const sidebarWidth = props.sidebar.visible() ? props.sidebar.width() : 0
-    document.documentElement.style.setProperty("--dialog-left-margin", `${sidebarWidth}px`)
+    const dialogLeftMargin = props.sidebar.visible() ? sidebarWidth() : 0
+    document.documentElement.style.setProperty("--dialog-left-margin", `${dialogLeftMargin}px`)
   })
 
   return (
@@ -55,7 +62,7 @@ export function LayoutShellFrame(props: LayoutShellFrameProps) {
         "--shell-titlebar-current-height": isMacShell(props.platform)
           ? `calc(var(--shell-titlebar-height, 44px) / ${props.platform.webviewZoom?.() ?? 1})`
           : "var(--shell-titlebar-height, 44px)",
-        "--sidebar-width": props.sidebar.visible() ? `${side()}px` : "0px",
+        "--sidebar-width": props.sidebar.visible() ? `${sidebarWidth()}px` : "0px",
         "--right-panel-width": props.rightPanel.opened() ? `${props.rightPanel.width()}px` : "0px",
         "--right-panel-divider": props.rightPanel.opened() ? "var(--border-weaker)" : "transparent",
       }}
@@ -76,7 +83,7 @@ export function LayoutShellFrame(props: LayoutShellFrameProps) {
                   aria-label={props.sidebar.label()}
                   data-component="sidebar-nav-desktop"
                   class="absolute inset-y-0 left-0 z-10 border-r border-border-weaker"
-                  style={{ width: `${side()}px` }}
+                  style={{ width: `${sidebarWidth()}px` }}
                 >
                   <div
                     classList={{ "@container w-full h-full contain-strict": true, invisible: props.settings.open() }}
@@ -94,12 +101,12 @@ export function LayoutShellFrame(props: LayoutShellFrameProps) {
                 <Show when={!props.settings.open()}>
                   <div
                     class="absolute inset-y-0 z-30 w-0 overflow-visible"
-                    style={{ left: `${side()}px` }}
+                    style={{ left: `${sidebarWidth()}px` }}
                     onPointerDown={props.sidebar.onResizeStart}
                   >
                     <ResizeHandle
                       direction="horizontal"
-                      size={props.sidebar.width()}
+                      size={sidebarWidth()}
                       min={props.sidebar.minWidth}
                       max={props.sidebar.maxWidth()}
                       onResize={props.sidebar.onResize}
@@ -116,7 +123,7 @@ export function LayoutShellFrame(props: LayoutShellFrameProps) {
                     !props.sizing(),
                 }}
                 style={{
-                  "--main-left": props.sidebar.visible() ? `${side()}px` : "0",
+                  "--main-left": props.sidebar.visible() ? `${sidebarWidth()}px` : "0",
                 }}
               >
                 <main
