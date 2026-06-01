@@ -38,10 +38,35 @@ function withoutQuotedText(command: string) {
 }
 
 function rawCommandSegments(command: string) {
-  return command
-    .split(/&&|\|\||[;|]/)
-    .map((part) => part.trim())
-    .filter(Boolean)
+  const segments: Array<{ text: string; delimiter?: string }> = []
+  let start = 0
+  let delimiter: string | undefined
+  let quote: "'" | '"' | undefined
+  for (let index = 0; index < command.length; index++) {
+    const char = command[index]
+    if (quote) {
+      if (char === quote) quote = undefined
+      if (char === "\\" && quote === '"') index++
+      continue
+    }
+    if (char === "'" || char === '"') {
+      quote = char
+      continue
+    }
+
+    const next = command[index + 1]
+    const currentDelimiter = char === "&" && next === "&" ? "&&" : char === "|" && next === "|" ? "||" : char === ";" || char === "|" ? char : undefined
+    if (!currentDelimiter) continue
+
+    const text = command.slice(start, index).trim()
+    if (text) segments.push({ text, delimiter })
+    delimiter = currentDelimiter
+    index += currentDelimiter.length - 1
+    start = index + 1
+  }
+  const text = command.slice(start).trim()
+  if (text) segments.push({ text, delimiter })
+  return segments
 }
 
 function commandSegments(command: string) {
@@ -87,6 +112,21 @@ function hasMutatingOfficeCliBatchCommand(segment: string) {
   return false
 }
 
+function isOfficePath(path: string) {
+  return /\.(docx|pptx|xlsx)(?:["']?)$/i.test(path)
+}
+
+function hasOfficeCliBatchStdin(rawSegment: { text: string; delimiter?: string }) {
+  const hasInput = rawSegment.delimiter === "|" || /(?:^|\s)<{1,2}\s*\S/.test(rawSegment.text)
+  if (!hasInput) return false
+
+  const target = rawSegment.text.match(/\bofficecli(?:\.exe)?\s+batch\s+(?:"([^"]+)"|'([^']+)'|(\S+))/i)
+  if (!target) return false
+  const path = target[1] ?? target[2] ?? target[3] ?? ""
+  if (isOfficePath(path)) return true
+  return path.includes("$") || path.includes("%")
+}
+
 export function isLikelyWriteCommand(command: string) {
   for (const words of commandSegments(command)) {
     const { head } = commandHead(words)
@@ -103,7 +143,14 @@ export function isLikelyWriteCommand(command: string) {
     const words = strippedSegments[index]
     const { head, next, rest } = commandHead(words)
     if (!head) continue
-    if (isOfficeCli(head) && next === "batch" && hasMutatingOfficeCliBatchCommand(rawSegments[index] ?? "")) return true
+    const rawSegment = rawSegments[index]
+    if (
+      isOfficeCli(head) &&
+      next === "batch" &&
+      rawSegment &&
+      (hasMutatingOfficeCliBatchCommand(rawSegment.text) || hasOfficeCliBatchStdin(rawSegment))
+    )
+      return true
     if (isOfficeCli(head) && officeCliWriteCommands.has(next ?? "")) return true
     if (writeCommands.has(head)) return true
     if (head === "sed" && rest.slice(0, 3).some((item) => item === "-i" || item.startsWith("-i"))) return true
