@@ -609,6 +609,30 @@ describe("ci workflow", () => {
     )
   })
 
+  test("retries the Windows unit step once on transient failure", () => {
+    const unitRun = stepByName(windowsUnitJobName, "unit", windowsAdvisoryWorkflowPath)?.run ?? ""
+
+    // Retry budget: exactly one extra attempt (max_attempts=2).
+    expect(unitRun).toContain("attempts=2")
+
+    // Each attempt runs in a subshell so `cd packages/...` in matrix.command
+    // does not leak working directory across attempts.
+    expect(unitRun).toContain("( ${{ matrix.command }} )")
+
+    // First-attempt exit code must be exported so downstream steps and humans
+    // can tell a recovered run apart from a clean-first-pass run.
+    expect(unitRun).toContain('echo "first_exit_code=$first_status" >> "$GITHUB_OUTPUT"')
+
+    // First-attempt failure is surfaced in the step summary even when the
+    // retry recovers — the advisory must not silently swallow transient flake.
+    expect(unitRun).toContain("### Windows unit attempt $attempt failed (retrying)")
+    expect(unitRun).toContain("### Windows unit recovered on retry")
+
+    // The final exit code is the last attempt's status, not the first.
+    // Otherwise a recovered run would still turn the advisory red.
+    expect(unitRun).toMatch(/exit "\$status"\s*$/)
+  })
+
   test("defines Windows unit packages and opencode shards", () => {
     const parsed = parseWorkflow(windowsAdvisoryWorkflowPath)
     const job = parsed.jobs?.[windowsUnitJobName]
