@@ -322,16 +322,17 @@ export namespace Vcs {
         diff: Effect.fn("Vcs.diff")(function* (mode: Mode) {
           const value = yield* InstanceState.get(state)
           if (Instance.project.vcs !== "git") return []
+          const worktree = Instance.worktree ?? Instance.directory
           if (mode === "git") {
-            const ref = (yield* git.hasHead(Instance.directory)) ? "HEAD" : undefined
-            return yield* track(git, Instance.directory, ref)
+            const ref = (yield* git.hasHead(worktree)) ? "HEAD" : undefined
+            return yield* track(git, worktree, ref)
           }
 
           if (!value.root) return []
           if (value.current && value.current === value.root.name) return []
-          const ref = yield* git.mergeBase(Instance.directory, value.root.ref)
+          const ref = yield* git.mergeBase(worktree, value.root.ref)
           if (!ref) return []
-          return yield* track(git, Instance.directory, ref)
+          return yield* track(git, worktree, ref)
         }),
         diffRaw: Effect.fn("Vcs.diffRaw")(function* () {
           if (Instance.project.vcs !== "git") return ""
