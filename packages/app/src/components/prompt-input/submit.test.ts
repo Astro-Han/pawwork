@@ -1055,6 +1055,41 @@ describe("prompt submit worktree selection", () => {
     expect(promptSetCalls).toEqual([])
   })
 
+  test("does not restore submitted portable draft over context-only active target route", async () => {
+    params = { dir: "/repo/main" }
+    promptValue = [{ type: "text", content: "same route context", start: 0, end: 18 }]
+    const portable = usePortableDraft()
+    portable.record({
+      sourceFilesystemDirectory: "/repo/main",
+      prompt: promptValue,
+      context: [],
+      images: [],
+      resolvedMentions: {},
+    })
+
+    let releasePromptAsync!: () => void
+    promptAsyncGate = new Promise<void>((resolve) => {
+      releasePromptAsync = resolve
+    })
+    promptAsyncFailure = new Error("network down")
+
+    const submit = createHomepageSubmit()
+
+    const submitted = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptAsyncCalls.length > 0)
+
+    params = { dir: "/repo/main", id: "session-1" }
+    promptDirty = false
+    promptContextItems = [{ key: "new", type: "file", path: "/repo/main/new.ts", comment: "new note" }]
+    releasePromptAsync()
+    await submitted
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(promptSetCalls).toEqual([])
+    expect(promptContextReplaceAllCalls).toEqual([])
+  })
+
   test("detaches submitted pinned draft before async prompt settles", async () => {
     params = { dir: "/repo/main" }
     promptValue = [{ type: "text", content: "deep link", start: 0, end: 9 }]
@@ -1160,6 +1195,35 @@ describe("prompt submit worktree selection", () => {
 
     expect(promptSetCalls).toEqual([])
     expect(pinned.current()?.prompt[0]).toMatchObject({ content: "new pin" })
+  })
+
+  test("does not restore submitted pinned draft over context-only active target route", async () => {
+    params = { dir: "/repo/main" }
+    promptValue = [{ type: "text", content: "old pin", start: 0, end: 7 }]
+    const pinned = usePinnedDraft()
+    pinned.adopt({ directory: "/repo/main", prompt: "old pin" })
+
+    let releasePromptAsync!: () => void
+    promptAsyncGate = new Promise<void>((resolve) => {
+      releasePromptAsync = resolve
+    })
+    promptAsyncFailure = new Error("network down")
+
+    const submit = createHomepageSubmit()
+
+    const submitted = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptAsyncCalls.length > 0)
+
+    params = { dir: "/repo/main", id: "session-1" }
+    promptDirty = false
+    promptContextItems = [{ key: "new", type: "file", path: "/repo/main/new-pin.ts", comment: "new pin note" }]
+    releasePromptAsync()
+    await submitted
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(promptSetCalls).toEqual([])
+    expect(promptContextReplaceAllCalls).toEqual([])
   })
 })
 

@@ -626,7 +626,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const shouldRestoreOwnerDraft = (ownerHasNewDraft: boolean) => {
       if (ownerHasNewDraft) return false
       if (!isActivePromptScope(promptScope)) return true
-      return !prompt.dirty()
+      return !prompt.dirty() && prompt.context.items().length === 0
     }
 
     const restoreInput = (owned: SubmitOwnership) => {
