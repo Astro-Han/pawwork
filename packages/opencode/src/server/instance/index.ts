@@ -179,7 +179,7 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
       "/vcs/diff",
       describeRoute({
         summary: "Get VCS diff",
-        description: "Retrieve the current unstaged, staged, or default-branch git diff.",
+        description: "Retrieve the current working-tree diff. `git` compares the working tree against HEAD (covers staged and unstaged changes plus untracked files); `branch` compares the working tree against the merge base with the default branch.",
         operationId: "vcs.diff",
         responses: {
           200: {

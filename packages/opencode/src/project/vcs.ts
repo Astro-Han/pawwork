@@ -66,51 +66,28 @@ export namespace Vcs {
     return result.text
   })
 
-  const staged = Effect.fnUntraced(function* (git: Git.Interface, cwd: string) {
-    const [list, stats] = yield* Effect.all([git.diffStaged(cwd), git.statsStaged(cwd)], { concurrency: 2 })
+  const track = Effect.fnUntraced(function* (git: Git.Interface, cwd: string, ref: string | undefined) {
+    const [tracked, status, stats] = ref
+      ? yield* Effect.all([git.diff(cwd, ref), git.status(cwd), git.stats(cwd, ref)], { concurrency: 3 })
+      : [[] as Git.Item[], yield* git.status(cwd), [] as Git.Stat[]]
+    const list = ref
+      ? merge(
+          tracked,
+          status.filter((item) => item.code === "??"),
+        )
+      : status
     const statMap = nums(stats)
     const batch: PatchBatch = { total: 0, capped: false }
-    const next = yield* Effect.forEach(
+    return yield* Effect.forEach(
       list.toSorted((a, b) => a.file.localeCompare(b.file)),
       (item) =>
         Effect.gen(function* () {
-          const stat = statMap.get(item.file)
-          return {
-            file: item.file,
-            patch: yield* boundedPatch(batch, item, git.patchStaged(cwd, item.file, {
-              context: PATCH_CONTEXT_LINES,
-              maxOutputBytes: MAX_PATCH_BYTES,
-            })),
-            additions: stat?.additions ?? 0,
-            deletions: stat?.deletions ?? 0,
-            status: item.status,
-          } satisfies FileDiff
-        }),
-      { concurrency: 1 },
-    )
-    return next
-  })
-
-  const unstaged = Effect.fnUntraced(function* (git: Git.Interface, cwd: string) {
-    const [tracked, extra, stats] = yield* Effect.all(
-      [git.diffUnstaged(cwd), git.statusUnstaged(cwd), git.statsUnstaged(cwd)],
-      { concurrency: 3 },
-    )
-    const list = merge(
-      tracked,
-      extra.filter((item) => item.code === "??"),
-    )
-    const statMap = nums(stats)
-    const batch: PatchBatch = { total: 0, capped: false }
-    const next = yield* Effect.forEach(
-      list.toSorted((a, b) => a.file.localeCompare(b.file)),
-      (item) =>
-        Effect.gen(function* () {
-          const stat = statMap.get(item.file) ?? (item.status === "added" ? yield* git.statUntracked(cwd, item.file) : undefined)
+          const stat =
+            statMap.get(item.file) ?? (item.status === "added" ? yield* git.statUntracked(cwd, item.file) : undefined)
           const patch =
-            item.code === "??"
+            item.code === "??" || !ref
               ? git.patchUntracked(cwd, item.file, { context: PATCH_CONTEXT_LINES, maxOutputBytes: MAX_PATCH_BYTES })
-              : git.patchUnstaged(cwd, item.file, { context: PATCH_CONTEXT_LINES, maxOutputBytes: MAX_PATCH_BYTES })
+              : git.patch(cwd, ref, item.file, { context: PATCH_CONTEXT_LINES, maxOutputBytes: MAX_PATCH_BYTES })
           return {
             file: item.file,
             patch: yield* boundedPatch(batch, item, patch),
@@ -121,35 +98,9 @@ export namespace Vcs {
         }),
       { concurrency: 1 },
     )
-    return next
   })
 
-  const branchHead = Effect.fnUntraced(function* (git: Git.Interface, cwd: string, ref: string) {
-    const [list, stats] = yield* Effect.all([git.diffHead(cwd, ref), git.statsHead(cwd, ref)], { concurrency: 2 })
-    const statMap = nums(stats)
-    const batch: PatchBatch = { total: 0, capped: false }
-    const next = yield* Effect.forEach(
-      list.toSorted((a, b) => a.file.localeCompare(b.file)),
-      (item) =>
-        Effect.gen(function* () {
-          const stat = statMap.get(item.file)
-          return {
-            file: item.file,
-            patch: yield* boundedPatch(batch, item, git.patchHead(cwd, ref, item.file, {
-              context: PATCH_CONTEXT_LINES,
-              maxOutputBytes: MAX_PATCH_BYTES,
-            })),
-            additions: stat?.additions ?? 0,
-            deletions: stat?.deletions ?? 0,
-            status: item.status,
-          } satisfies FileDiff
-        }),
-      { concurrency: 1 },
-    )
-    return next
-  })
-
-  export const Mode = z.enum(["unstaged", "staged", "branch"])
+  export const Mode = z.enum(["git", "branch"])
   export type Mode = z.infer<typeof Mode>
 
   export const Event = {
@@ -343,19 +294,16 @@ export namespace Vcs {
         diff: Effect.fn("Vcs.diff")(function* (mode: Mode) {
           const value = yield* InstanceState.get(state)
           if (Instance.project.vcs !== "git") return []
-          if (mode === "unstaged") {
-            return yield* unstaged(git, Instance.directory)
-          }
-
-          if (mode === "staged") {
-            return yield* staged(git, Instance.directory)
+          if (mode === "git") {
+            const ref = (yield* git.hasHead(Instance.directory)) ? "HEAD" : undefined
+            return yield* track(git, Instance.directory, ref)
           }
 
           if (!value.root) return []
           if (value.current && value.current === value.root.name) return []
           const ref = yield* git.mergeBase(Instance.directory, value.root.ref)
           if (!ref) return []
-          return yield* branchHead(git, Instance.directory, ref)
+          return yield* track(git, Instance.directory, ref)
         }),
         diffRaw: Effect.fn("Vcs.diffRaw")(function* () {
           if (Instance.project.vcs !== "git") return ""
@@ -364,14 +312,15 @@ export namespace Vcs {
             concurrency: 2,
           })
           const batch: PatchBatch = { total: 0, capped: false }
-          const tracked = yield* rawPatch(
-            batch,
-            hasHead
-              ? git.patchAll(worktree, "HEAD", { binary: true, maxOutputBytes: MAX_TOTAL_PATCH_BYTES })
-              : git.patchStagedAll(worktree, { binary: true, maxOutputBytes: MAX_TOTAL_PATCH_BYTES }),
-          )
-          const untracked = yield* Effect.forEach(
-            status.filter((item) => item.code === "??"),
+          const tracked = hasHead
+            ? yield* rawPatch(
+                batch,
+                git.patchAll(worktree, "HEAD", { binary: true, maxOutputBytes: MAX_TOTAL_PATCH_BYTES }),
+              )
+            : ""
+          const fallback = hasHead ? status.filter((item) => item.code === "??") : status
+          const extras = yield* Effect.forEach(
+            fallback,
             (item) =>
               rawPatch(
                 batch,
@@ -379,18 +328,7 @@ export namespace Vcs {
               ),
             { concurrency: 1 },
           )
-          const initialWorktree = hasHead
-            ? []
-            : yield* Effect.forEach(
-                status.filter((item) => item.code !== "??" && item.code[1] !== " "),
-                (item) =>
-                  rawPatch(
-                    batch,
-                    git.patchUnstaged(worktree, item.file, { binary: true, maxOutputBytes: MAX_TOTAL_PATCH_BYTES }),
-                  ),
-                { concurrency: 1 },
-              )
-          const patch = [tracked, ...initialWorktree, ...untracked].filter(Boolean).join("\n")
+          const patch = [tracked, ...extras].filter(Boolean).join("\n")
           if (Buffer.byteLength(patch) > MAX_TOTAL_PATCH_BYTES) {
             return yield* Effect.fail(new RawDiffError("Raw VCS diff exceeds the 10 MB output limit", "too-large"))
           }

@@ -216,7 +216,7 @@ describe("Vcs diff", () => {
     }),
   )
 
-  vcsIt.live("diff('unstaged') returns unstaged and untracked changes only", () =>
+  vcsIt.live("diff('git') merges staged, unstaged, and untracked changes into one view", () =>
     Effect.gen(function* () {
       const tmp = yield* scopedTmpdir({ git: true })
       yield* Effect.promise(async () => {
@@ -230,16 +230,17 @@ describe("Vcs diff", () => {
       })
 
       yield* withVcsOnly(tmp.path, async () => {
-        const diff = await Vcs.diff("unstaged")
+        const diff = await Vcs.diff("git")
         expect(diff).toEqual(
           expect.arrayContaining([
             expect.objectContaining({ file: "tracked.txt", status: "modified" }),
+            expect.objectContaining({ file: "staged.txt", status: "added" }),
             expect.objectContaining({ file: "untracked.txt", status: "added" }),
           ]),
         )
         expect(diff.find((item) => item.file === "tracked.txt")?.patch).toContain("diff --git")
+        expect(diff.find((item) => item.file === "staged.txt")?.patch).toContain("+staged")
         expect(diff.find((item) => item.file === "untracked.txt")?.patch).toContain("+untracked")
-        expect(diff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "staged.txt" })]))
       })
     }),
   )
@@ -336,13 +337,13 @@ describe("Vcs diff", () => {
     }),
   )
 
-  vcsIt.live("diff('unstaged') handles special filenames", () =>
+  vcsIt.live("diff('git') handles special filenames", () =>
     Effect.gen(function* () {
       const tmp = yield* scopedTmpdir({ git: true })
       yield* Effect.promise(() => fs.writeFile(path.join(tmp.path, weird), "hello\n", "utf-8"))
 
       yield* withVcsOnly(tmp.path, async () => {
-        const diff = await Vcs.diff("unstaged")
+        const diff = await Vcs.diff("git")
         expect(diff).toEqual(
           expect.arrayContaining([
             expect.objectContaining({
@@ -355,28 +356,7 @@ describe("Vcs diff", () => {
     }),
   )
 
-  vcsIt.live("diff('staged') returns staged changes only", () =>
-    Effect.gen(function* () {
-      const tmp = yield* scopedTmpdir({ git: true })
-      yield* Effect.promise(async () => {
-        await fs.writeFile(path.join(tmp.path, "tracked.txt"), "original\n", "utf-8")
-        await $`git add tracked.txt`.cwd(tmp.path).quiet()
-        await $`git commit --no-gpg-sign -m "add file"`.cwd(tmp.path).quiet()
-        await fs.writeFile(path.join(tmp.path, "staged.txt"), "staged\n", "utf-8")
-        await $`git add staged.txt`.cwd(tmp.path).quiet()
-        await fs.writeFile(path.join(tmp.path, "unstaged.txt"), "unstaged\n", "utf-8")
-      })
-
-      yield* withVcsOnly(tmp.path, async () => {
-        const diff = await Vcs.diff("staged")
-        expect(diff).toEqual(expect.arrayContaining([expect.objectContaining({ file: "staged.txt", status: "added" })]))
-        expect(diff.find((item) => item.file === "staged.txt")?.patch).toContain("+staged")
-        expect(diff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "unstaged.txt" })]))
-      })
-    }),
-  )
-
-  vcsIt.live("diff('staged') returns staged files before the first commit", () =>
+  vcsIt.live("diff('git') returns staged files before the first commit", () =>
     Effect.gen(function* () {
       const tmp = yield* scopedTmpdir()
       yield* Effect.promise(async () => {
@@ -386,13 +366,13 @@ describe("Vcs diff", () => {
       })
 
       yield* withVcsOnly(tmp.path, async () => {
-        const diff = await Vcs.diff("staged")
+        const diff = await Vcs.diff("git")
         expect(diff).toEqual(expect.arrayContaining([expect.objectContaining({ file: "first.txt", status: "added" })]))
       })
     }),
   )
 
-  vcsIt.live("diff('branch') returns committed branch changes without staged, unstaged, or untracked files", () =>
+  vcsIt.live("diff('branch') includes committed, staged, unstaged, and untracked branch work", () =>
     Effect.gen(function* () {
       const tmp = yield* scopedTmpdir({ git: true })
       yield* Effect.promise(async () => {
@@ -404,16 +384,24 @@ describe("Vcs diff", () => {
         await fs.writeFile(path.join(tmp.path, "staged.txt"), "staged\n", "utf-8")
         await $`git add staged.txt`.cwd(tmp.path).quiet()
         await fs.writeFile(path.join(tmp.path, "unstaged.txt"), "unstaged\n", "utf-8")
+        await $`git add unstaged.txt`.cwd(tmp.path).quiet()
+        await fs.writeFile(path.join(tmp.path, "unstaged.txt"), "unstaged-edited\n", "utf-8")
         await fs.writeFile(path.join(tmp.path, "untracked.txt"), "untracked\n", "utf-8")
       })
 
       yield* withVcsOnly(tmp.path, async () => {
         const diff = await Vcs.diff("branch")
-        expect(diff).toEqual(expect.arrayContaining([expect.objectContaining({ file: "branch.txt", status: "added" })]))
-        expect(diff.find((item) => item.file === "branch.txt")?.patch).toContain("+branch")
-        expect(diff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "staged.txt" })]))
-        expect(diff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "unstaged.txt" })]))
-        expect(diff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "untracked.txt" })]))
+        // Branch view must reflect the full delta the user sees against the default branch,
+        // not just commits — this guards against the regression where `git diff <ref> HEAD`
+        // silently dropped staged and working-tree changes.
+        expect(diff).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ file: "branch.txt", status: "added" }),
+            expect.objectContaining({ file: "staged.txt", status: "added" }),
+            expect.objectContaining({ file: "unstaged.txt", status: "added" }),
+            expect.objectContaining({ file: "untracked.txt", status: "added" }),
+          ]),
+        )
       })
     }),
   )
@@ -439,6 +427,32 @@ describe("Vcs diff", () => {
             }),
           ]),
         )
+      })
+    }),
+  )
+
+  vcsIt.live("diff('branch') reports working-tree edits on top of branch commits", () =>
+    Effect.gen(function* () {
+      const tmp = yield* scopedTmpdir({ git: true })
+      yield* Effect.promise(async () => {
+        await fs.writeFile(path.join(tmp.path, "base.txt"), "base\n", "utf-8")
+        await $`git add base.txt`.cwd(tmp.path).quiet()
+        await $`git commit --no-gpg-sign -m "base"`.cwd(tmp.path).quiet()
+        await $`git branch -M main`.cwd(tmp.path).quiet()
+        await $`git checkout -b feature/test`.cwd(tmp.path).quiet()
+        await fs.writeFile(path.join(tmp.path, "branch.txt"), "branch\n", "utf-8")
+        await $`git add branch.txt`.cwd(tmp.path).quiet()
+        await $`git commit --no-gpg-sign -m "branch file"`.cwd(tmp.path).quiet()
+        // Working-tree edit that has not been committed yet — regression guard
+        // for the old `git diff <ref> HEAD` form that swallowed this delta.
+        await fs.writeFile(path.join(tmp.path, "branch.txt"), "branch\ndirty\n", "utf-8")
+      })
+
+      yield* withVcsOnly(tmp.path, async () => {
+        const diff = await Vcs.diff("branch")
+        const branch = diff.find((item) => item.file === "branch.txt")
+        expect(branch?.patch).toContain("+dirty")
+        expect(branch?.additions).toBeGreaterThan(0)
       })
     }),
   )

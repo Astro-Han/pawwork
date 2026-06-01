@@ -15,7 +15,7 @@ describe("review change mode", () => {
   })
 
   test("keeps all review modes selectable for git projects", () => {
-    expect(reviewChangeOptions({ isGit: true })).toEqual(["unstaged", "staged", "branch", "turn"])
+    expect(reviewChangeOptions({ isGit: true })).toEqual(["git", "branch", "turn"])
   })
 
   test("keeps branch selectable even when the branch diff is empty", () => {
@@ -31,15 +31,13 @@ describe("review change mode", () => {
   })
 
   test("identifies VCS-backed review modes", () => {
-    expect(isVcsReviewMode("unstaged")).toBe(true)
-    expect(isVcsReviewMode("staged")).toBe(true)
+    expect(isVcsReviewMode("git")).toBe(true)
     expect(isVcsReviewMode("branch")).toBe(true)
     expect(isVcsReviewMode("turn")).toBe(false)
   })
 
   test("maps modes to translation keys", () => {
-    expect(reviewModeLabelKey("unstaged")).toBe("ui.sessionReview.title.unstaged")
-    expect(reviewModeLabelKey("staged")).toBe("ui.sessionReview.title.staged")
+    expect(reviewModeLabelKey("git")).toBe("ui.sessionReview.title.git")
     expect(reviewModeLabelKey("branch")).toBe("ui.sessionReview.title.branch")
     expect(reviewModeLabelKey("turn")).toBe("ui.sessionReview.title.lastTurn")
   })
@@ -51,8 +49,7 @@ describe("review change mode", () => {
   test("uses turn diffs without falling back to VCS diffs", () => {
     const turn = ["turn diff"]
     const vcs = {
-      unstaged: ["unstaged diff"],
-      staged: ["staged diff"],
+      git: ["git diff"],
       branch: ["branch diff"],
     }
 
@@ -61,8 +58,7 @@ describe("review change mode", () => {
 
   test("keeps an empty last turn empty when VCS diffs exist", () => {
     const vcs = {
-      unstaged: ["unstaged diff"],
-      staged: ["staged diff"],
+      git: ["git diff"],
       branch: ["branch diff"],
     }
 

@@ -48,8 +48,7 @@ export function createReviewPanelView(input: {
 
   const reviewEmptyText = createMemo(() => {
     const changes = input.reviewState.changes()
-    if (changes === "unstaged") return input.language.t("session.review.noUnstagedChanges")
-    if (changes === "staged") return input.language.t("session.review.noStagedChanges")
+    if (changes === "git") return input.language.t("session.review.noGitChanges")
     if (changes === "branch") return input.language.t("session.review.noBranchChanges")
     return input.language.t("session.review.noChanges")
   })

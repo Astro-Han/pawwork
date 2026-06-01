@@ -6509,7 +6509,7 @@ export type VcsDiffData = {
   query: {
     directory?: string
     workspace?: string
-    mode: "unstaged" | "staged" | "branch"
+    mode: "git" | "branch"
   }
   url: "/vcs/diff"
 }

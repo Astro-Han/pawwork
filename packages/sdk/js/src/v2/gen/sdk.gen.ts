@@ -4375,13 +4375,13 @@ export class Vcs extends HeyApiClient {
   /**
    * Get VCS diff
    *
-   * Retrieve the current unstaged, staged, or default-branch git diff.
+   * Retrieve the current working-tree diff. `git` compares the working tree against HEAD (covers staged and unstaged changes plus untracked files); `branch` compares the working tree against the merge base with the default branch.
    */
   public diff<ThrowOnError extends boolean = false>(
     parameters: {
       directory?: string
       workspace?: string
-      mode: "unstaged" | "staged" | "branch"
+      mode: "git" | "branch"
     },
     options?: Options<never, ThrowOnError>,
   ) {
