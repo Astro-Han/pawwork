@@ -1,3 +1,13 @@
+import {
+  commandHead,
+  commandSegments as rawCommandSegments,
+  hasMutatingOfficeCliBatchCommand,
+  hasOfficeCliBatchDynamicInput,
+  isOfficeCli,
+  isOfficeCliWriteCommand,
+  tokenWords,
+} from "./bash-office-artifacts"
+
 const writeCommands = new Set([
   "apply_patch",
   "chmod",
@@ -20,111 +30,13 @@ const writeCommands = new Set([
 
 const powershellWriteCommands =
   /\b(set-content|new-item|remove-item|copy-item|move-item|out-file|add-content|clear-content|rename-item)\b/i
-const officeCliWriteCommands = new Set([
-  "add",
-  "close",
-  "create",
-  "import",
-  "move",
-  "raw-set",
-  "remove",
-  "set",
-  "swap",
-])
-const officeCliBatchWriteCommands = new Set(["add", "add-part", "move", "raw-set", "remove", "set", "swap"])
 
 function withoutQuotedText(command: string) {
   return command.replace(/'[^']*'/g, "''").replace(/"[^"\\]*(?:\\.[^"\\]*)*"/g, '""')
 }
 
-function rawCommandSegments(command: string) {
-  const segments: Array<{ text: string; delimiter?: string }> = []
-  let start = 0
-  let delimiter: string | undefined
-  let quote: "'" | '"' | undefined
-  for (let index = 0; index < command.length; index++) {
-    const char = command[index]
-    if (quote) {
-      if (char === quote) quote = undefined
-      if (char === "\\" && quote === '"') index++
-      continue
-    }
-    if (char === "'" || char === '"') {
-      quote = char
-      continue
-    }
-
-    const next = command[index + 1]
-    const currentDelimiter = char === "&" && next === "&" ? "&&" : char === "|" && next === "|" ? "||" : char === ";" || char === "|" ? char : undefined
-    if (!currentDelimiter) continue
-
-    const text = command.slice(start, index).trim()
-    if (text) segments.push({ text, delimiter })
-    delimiter = currentDelimiter
-    index += currentDelimiter.length - 1
-    start = index + 1
-  }
-  const text = command.slice(start).trim()
-  if (text) segments.push({ text, delimiter })
-  return segments
-}
-
 function commandSegments(command: string) {
-  return command
-    .split(/&&|\|\||[;|]/)
-    .map((part) =>
-      part
-        .trim()
-        .split(/\s+/)
-        .filter(Boolean)
-        .map((word) => word.toLowerCase()),
-    )
-    .filter((words) => words.length > 0)
-}
-
-function commandHead(words: string[]) {
-  let index = 0
-  while (true) {
-    const word = words[index]
-    if (!word) break
-    if (word.includes("=") && !word.startsWith("-") && !word.startsWith("=")) {
-      index++
-      continue
-    }
-    if (["command", "sudo", "env"].includes(word)) {
-      index++
-      continue
-    }
-    break
-  }
-  return { head: words[index], next: words[index + 1], rest: words.slice(index + 1) }
-}
-
-function isOfficeCli(head: string) {
-  return head === "officecli" || head === "officecli.exe"
-}
-
-function hasMutatingOfficeCliBatchCommand(segment: string) {
-  if (!/(?:^|\s)--commands(?:=|\s)/i.test(segment)) return false
-  for (const match of segment.matchAll(/["'](?:command|op)["']\s*:\s*["']([^"']+)["']/gi)) {
-    if (officeCliBatchWriteCommands.has(match[1].toLowerCase())) return true
-  }
-  return false
-}
-
-function isOfficePath(path: string) {
-  return /\.(docx|pptx|xlsx)(?:["']?)$/i.test(path)
-}
-
-function hasOfficeCliBatchStdin(rawSegment: { text: string; delimiter?: string }) {
-  const hasInput = rawSegment.delimiter === "|" || /(?:^|\s)<{1,2}\s*\S/.test(rawSegment.text)
-  if (!hasInput) return false
-
-  const target = rawSegment.text.match(/\bofficecli(?:\.exe)?\s+batch\s+(?:"([^"]+)"|'([^']+)'|(\S+))/i)
-  if (!target) return false
-  const path = target[1] ?? target[2] ?? target[3] ?? ""
-  if (isOfficePath(path)) return true
-  return path.includes("$") || path.includes("%")
+  return tokenWords(command)
 }
 
 export function isLikelyWriteCommand(command: string) {
@@ -148,10 +60,10 @@ export function isLikelyWriteCommand(command: string) {
       isOfficeCli(head) &&
       next === "batch" &&
       rawSegment &&
-      (hasMutatingOfficeCliBatchCommand(rawSegment.text) || hasOfficeCliBatchStdin(rawSegment))
+      (hasMutatingOfficeCliBatchCommand(rawSegment.text) || hasOfficeCliBatchDynamicInput(rawSegment))
     )
       return true
-    if (isOfficeCli(head) && officeCliWriteCommands.has(next ?? "")) return true
+    if (isOfficeCli(head) && isOfficeCliWriteCommand(next)) return true
     if (writeCommands.has(head)) return true
     if (head === "sed" && rest.slice(0, 3).some((item) => item === "-i" || item.startsWith("-i"))) return true
     if (head === "perl" && rest.slice(0, 3).some((item) => item.includes("i"))) return true

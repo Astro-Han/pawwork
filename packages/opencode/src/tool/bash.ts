@@ -1,10 +1,8 @@
 import { Schema } from "effect"
 import os from "os"
 import { createWriteStream } from "node:fs"
-import nodefs from "node:fs/promises"
 import * as Tool from "./tool"
 import path from "path"
-import crypto from "crypto"
 import DESCRIPTION from "./bash.txt"
 import { Log } from "../util"
 import { Instance, type InstanceContext } from "../project/instance"
@@ -27,22 +25,18 @@ import { envValueCaseInsensitive, prependBundledTools, stripPathKeys, withoutInt
 import { Global } from "@opencode-ai/core/global"
 import { assertExternalDirectoryEffect, resolveExternalPathForPermission } from "./external-directory"
 import { InstanceState } from "@/effect/instance-state"
-import * as Bom from "@/util/bom"
-import { TurnChange, type FileState } from "@/session/turn-change"
+import { TurnChange } from "@/session/turn-change"
 import { isLikelyWriteCommand } from "./bash-write-heuristic"
-import { FileIgnore } from "@/file/ignore"
+import { officeCliTargets } from "./bash-office-artifacts"
+import {
+  discoverOfficeOutputs,
+  readTrackedState,
+  sameTrackedState,
+  type TrackedOutputState,
+} from "./bash-output-capture"
 
 const MAX_METADATA_LENGTH = 30_000
 const DEFAULT_TIMEOUT = Flag.OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS || 2 * 60 * 1000
-const TRACKED_OUTPUT_LIMIT = 20 * 1024 * 1024
-const OFFICE_OUTPUT_EXTENSIONS = new Set([".docx", ".xlsx", ".pptx"])
-const AUTO_DISCOVERY_BUDGET = {
-  maxFiles: 500,
-  maxDirs: 80,
-  maxDepth: 3,
-  maxMillis: 75,
-  maxCaptures: 16,
-}
 const PS = new Set(["powershell", "pwsh"])
 const CWD = new Set(["cd", "push-location", "set-location"])
 const FILES = new Set([
@@ -102,19 +96,6 @@ type Scan = {
 type Chunk = {
   text: string
   size: number
-}
-
-type OutputDiscovery = {
-  paths: string[]
-  overflowed: boolean
-}
-
-function isOfficeOutputPath(file: string) {
-  return OFFICE_OUTPUT_EXTENSIONS.has(path.extname(file).toLowerCase())
-}
-
-function relativeDiscoveryPath(root: string, file: string) {
-  return path.relative(root, file).replaceAll("\\", "/")
 }
 
 export const log = Log.create({ service: "bash-tool" })
@@ -285,38 +266,6 @@ function tail(text: string, maxLines: number, maxBytes: number) {
     text: out.join("\n"),
     cut: true,
   }
-}
-
-function textHash(content: string, bom?: boolean) {
-  return (
-    "sha256:" +
-    crypto
-      .createHash("sha256")
-      .update(`${bom ? "bom:1" : "bom:0"}\0${content}`)
-      .digest("hex")
-  )
-}
-
-function binaryHash(buffer: Buffer) {
-  return "sha256-bin:" + crypto.createHash("sha256").update(buffer).digest("hex")
-}
-
-function sameState(before: FileState, after: FileState) {
-  if (!before.exists && !after.exists) return true
-  return (
-    before.exists === after.exists &&
-    before.hash === after.hash &&
-    before.bom === after.bom &&
-    before.large === after.large &&
-    before.binary === after.binary
-  )
-}
-
-type TrackedOutputState = {
-  state: FileState
-  comparable: boolean
-  kind: "missing" | "file" | "directory" | "error"
-  errorCode?: string
 }
 
 const parse = Effect.fn("BashTool.parse")(function* (command: string, ps: boolean) {
@@ -515,171 +464,6 @@ export const BashTool = Tool.define(
       env.PATH = prependBundledTools(currentPath)
       return env
     })
-
-    const discoverOfficeOutputs = Effect.fn("BashTool.discoverOfficeOutputs")((root: string, projectRoot: string) =>
-      Effect.promise(async () => {
-        const started = Date.now()
-        const paths: string[] = []
-        let files = 0
-        let dirs = 0
-        let overflowed = false
-
-        const timeExceeded = () => Date.now() - started > AUTO_DISCOVERY_BUDGET.maxMillis
-        const overflow = () => {
-          overflowed = true
-        }
-
-        const scan = async (dir: string, depth: number): Promise<void> => {
-          if (overflowed) return
-          if (timeExceeded() || dirs >= AUTO_DISCOVERY_BUDGET.maxDirs) {
-            overflow()
-            return
-          }
-          dirs++
-
-          let entries: Awaited<ReturnType<typeof nodefs.opendir>>
-          try {
-            entries = await nodefs.opendir(dir)
-          } catch {
-            return
-          }
-
-          for await (const entry of entries) {
-            if (overflowed) return
-            if (timeExceeded()) {
-              overflow()
-              return
-            }
-            const absolute = path.join(dir, entry.name)
-            const relative = relativeDiscoveryPath(projectRoot, absolute)
-            if (!relative || FileIgnore.match(relative)) continue
-
-            if (entry.isDirectory()) {
-              if (depth >= AUTO_DISCOVERY_BUDGET.maxDepth) continue
-              await scan(absolute, depth + 1)
-              continue
-            }
-
-            if (!entry.isFile()) continue
-            if (files >= AUTO_DISCOVERY_BUDGET.maxFiles) {
-              overflow()
-              return
-            }
-            files++
-            if (isOfficeOutputPath(entry.name)) {
-              if (paths.length >= AUTO_DISCOVERY_BUDGET.maxCaptures) {
-                overflow()
-                return
-              }
-              paths.push(absolute)
-            }
-          }
-        }
-
-        await scan(root, 0)
-        return {
-          paths: Array.from(new Set(paths.map((item) => AppFileSystem.normalizePath(item)))).sort((a, b) =>
-            a.localeCompare(b),
-          ),
-          overflowed,
-        } satisfies OutputDiscovery
-      }),
-    )
-
-    const readTrackedState = Effect.fn("BashTool.readTrackedState")((file: string) =>
-      Effect.promise(async () => {
-        try {
-          const stat = await nodefs.stat(file)
-          if (stat.isDirectory()) {
-            return {
-              state: { exists: true, restorable: false, hash: "directory", binary: true } satisfies FileState,
-              comparable: true,
-              kind: "directory",
-            } satisfies TrackedOutputState
-          }
-          if (isOfficeOutputPath(file)) {
-            if (stat.size > TRACKED_OUTPUT_LIMIT) {
-              return {
-                state: {
-                  exists: true,
-                  restorable: false,
-                  hash: `large:${stat.size}:${stat.mtimeMs}`,
-                  large: true,
-                  binary: true,
-                } satisfies FileState,
-                comparable: true,
-                kind: "file",
-              } satisfies TrackedOutputState
-            }
-            const buffer = await nodefs.readFile(file)
-            return {
-              state: {
-                exists: true,
-                restorable: false,
-                hash: binaryHash(buffer),
-                binary: true,
-              } satisfies FileState,
-              comparable: true,
-              kind: "file",
-            } satisfies TrackedOutputState
-          }
-          if (stat.size > TRACKED_OUTPUT_LIMIT) {
-            return {
-              state: {
-                exists: true,
-                restorable: false,
-                hash: `large:${stat.size}:${stat.mtimeMs}`,
-                large: true,
-              } satisfies FileState,
-              comparable: true,
-              kind: "file",
-            } satisfies TrackedOutputState
-          }
-          const buffer = await nodefs.readFile(file)
-          if (buffer.includes(0)) {
-            return {
-              state: {
-                exists: true,
-                restorable: false,
-                hash: binaryHash(buffer),
-                binary: true,
-              } satisfies FileState,
-              comparable: true,
-              kind: "file",
-            } satisfies TrackedOutputState
-          }
-          const current = Bom.split(buffer.toString("utf-8"))
-          return {
-            state: {
-              exists: true,
-              content: current.text,
-              bom: current.bom,
-              hash: textHash(current.text, current.bom),
-            } satisfies FileState,
-            comparable: true,
-            kind: "file",
-          } satisfies TrackedOutputState
-        } catch (err) {
-          const code = (err as NodeJS.ErrnoException).code
-          if (code === "ENOENT")
-            return {
-              state: { exists: false } satisfies FileState,
-              comparable: true,
-              kind: "missing",
-            } satisfies TrackedOutputState
-          return {
-            state: {
-              exists: true,
-              restorable: false,
-              hash: `error:${code ?? "unknown"}`,
-            } satisfies FileState,
-            comparable: false,
-            kind: "error",
-            ...(code ? { errorCode: code } : {}),
-          } satisfies TrackedOutputState
-        }
-      }).pipe(Effect.orDie),
-    )
 
     const run = Effect.fn("BashTool.run")(function* (
       input: {
@@ -915,8 +699,36 @@ export const BashTool = Tool.define(
                   return Array.from(deduped.values())
                 }),
               )
+              const exactOfficeOutputs = yield* Effect.forEach(
+                (params.expected_outputs ?? []).length === 0 && !!ctx.messageID ? officeCliTargets(params.command) : [],
+                (rawPath) =>
+                  Effect.gen(function* () {
+                    const resolved = yield* resolveExecutionPath(rawPath, cwd, shell)
+                    const normalized = AppFileSystem.normalizePath(resolved)
+                    const filepath =
+                      (yield* assertExternalDirectoryEffect(ctx, normalized, { kind: "file" })) ?? normalized
+                    return {
+                      normalized: AppFileSystem.normalizePath(filepath),
+                      path: filepath,
+                      before: yield* readTrackedState(filepath),
+                    }
+                  }),
+                { concurrency: 4 },
+              ).pipe(
+                Effect.map((items) => {
+                  const deduped = new Map<string, { path: string; before: TrackedOutputState }>()
+                  for (const item of items) {
+                    if (deduped.has(item.normalized)) continue
+                    deduped.set(item.normalized, { path: item.path, before: item.before })
+                  }
+                  return Array.from(deduped.values())
+                }),
+              )
               const shouldAutoDiscoverOutputs =
-                (params.expected_outputs ?? []).length === 0 && !!ctx.messageID && isLikelyWriteCommand(params.command)
+                (params.expected_outputs ?? []).length === 0 &&
+                exactOfficeOutputs.length === 0 &&
+                !!ctx.messageID &&
+                isLikelyWriteCommand(params.command)
               const autoDiscoveredBefore = shouldAutoDiscoverOutputs
                 ? yield* Effect.gen(function* () {
                     const discovered = yield* discoverOfficeOutputs(cwd, directory)
@@ -951,6 +763,11 @@ export const BashTool = Tool.define(
 
               let outputsToRecord = trackedOutputs
               let autoDiscovered = false
+              let exactOfficeTargeted = false
+              if (!outputsToRecord.length && exactOfficeOutputs.length) {
+                outputsToRecord = exactOfficeOutputs
+                exactOfficeTargeted = true
+              }
               if (!trackedOutputs.length && shouldAutoDiscoverOutputs) {
                 autoDiscovered = true
                 let overflowed = autoDiscoveredBefore?.overflowed ?? false
@@ -1001,7 +818,9 @@ export const BashTool = Tool.define(
                   Effect.gen(function* () {
                     const after = yield* readTrackedState(tracked.path)
                     const changed =
-                      tracked.before.comparable && after.comparable && !sameState(tracked.before.state, after.state)
+                      tracked.before.comparable &&
+                      after.comparable &&
+                      !sameTrackedState(tracked.before.state, after.state)
                     if (changed) {
                       yield* turnChange.recordWrite({
                         sessionID: ctx.sessionID,
@@ -1030,7 +849,8 @@ export const BashTool = Tool.define(
                   }),
                 { concurrency: 4 },
               )
-              const visibleArtifacts = autoDiscovered ? artifacts.filter((item) => item.changed) : artifacts
+              const visibleArtifacts =
+                autoDiscovered || exactOfficeTargeted ? artifacts.filter((item) => item.changed) : artifacts
               if (autoDiscovered && visibleArtifacts.length === 0) {
                 yield* turnChange.recordUncaptured({
                   sessionID: ctx.sessionID,
@@ -1038,6 +858,7 @@ export const BashTool = Tool.define(
                 })
                 return result
               }
+              if (exactOfficeTargeted && visibleArtifacts.length === 0) return result
               if (autoDiscovered) {
                 yield* turnChange.recordUncaptured({
                   sessionID: ctx.sessionID,

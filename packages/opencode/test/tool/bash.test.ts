@@ -1122,6 +1122,65 @@ describe("tool.bash expected_outputs", () => {
     })
   })
 
+  test("does not record uncaptured marker for read-only piped officecli batch", async () => {
+    await resetDatabase()
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await fs.promises.writeFile(path.join(dir, "report.xlsx"), Buffer.from([80, 75, 3, 4, 1, 2, 3, 4]))
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await initBash()
+        const turn = await createTurn()
+        const target = path.join(tmp.path, "report.xlsx")
+        const shell = sh()
+        let command: string
+        if (PS.has(shell)) {
+          command = [
+            "function officecli {",
+            "param($verb, $file)",
+            "$null = [Console]::In.ReadToEnd()",
+            "}",
+            `Write-Output '[{\"command\":\"get\",\"path\":\"/Sheet1/A1\"}]' | officecli batch ${quote(target.replaceAll("\\", "/"))}`,
+          ].join("; ")
+        } else if (shell === "cmd") {
+          const officecli = path.join(tmp.path, "officecli.bat")
+          await fs.promises.writeFile(
+            officecli,
+            "@echo off\r\npowershell -NoProfile -Command \"$null=[Console]::In.ReadToEnd()\"\r\n",
+            "utf-8",
+          )
+          command = `set "PATH=${tmp.path};%PATH%" && echo [{"command":"get","path":"/Sheet1/A1"}] | officecli batch ${quote(target.replaceAll("\\", "/"))}`
+        } else {
+          const officecli = path.join(tmp.path, "officecli")
+          await fs.promises.writeFile(officecli, "#!/usr/bin/env sh\ncat >/dev/null\n", { mode: 0o755 })
+          command = `PATH=${quote(tmp.path.replaceAll("\\", "/"))}:$PATH; printf '[{"command":"get","path":"/Sheet1/A1"}]' | officecli batch ${quote(target.replaceAll("\\", "/"))}`
+        }
+
+        const result = await Effect.runPromise(
+          bash.execute(
+            {
+              command,
+              description: "Read-only piped OfficeCLI batch",
+            },
+            { ...ctx, ...turn },
+          ),
+        )
+
+        expect(result.metadata.exit).toBe(0)
+        expect((result.metadata as { artifacts?: unknown[] }).artifacts).toBeUndefined()
+        expect(TurnChange.finalize(turn)).toBeUndefined()
+        expect(
+          TurnChange.aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
+        ).toMatchObject({
+          kind: "empty",
+        })
+      },
+    })
+  })
+
   test("does not record false positives when the before state is indeterminate", async () => {
     await resetDatabase()
     await using tmp = await tmpdir({
