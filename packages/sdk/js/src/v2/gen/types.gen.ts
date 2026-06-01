@@ -2469,7 +2469,7 @@ export type AutomationUpdateInput = {
   rhythm?: AutomationRhythm
   stop?: AutomationStop
   model?: AutomationModel
-  variant?: string
+  variant?: string | null
 }
 
 export type AutomationActiveRunStillRunningError = {

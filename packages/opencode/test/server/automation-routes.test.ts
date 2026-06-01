@@ -727,6 +727,51 @@ describe("automation routes", () => {
     })
   })
 
+  test("metadata-only update preserves pending nextFireAt and nextFires", async () => {
+    await withAutomationApp(async ({ projectID }) => {
+      const created = Automation.create(recurringInput(projectID), { now: 100 })
+      expect(created.kind).toBe("recurring")
+      if (created.kind !== "recurring") throw new Error("recurring")
+      const updated = Automation.update(created.id, { title: "Renamed" }, { now: 200 })
+      expect(updated).toMatchObject({
+        title: "Renamed",
+        nextFireAt: created.nextFireAt,
+        nextFires: created.nextFires,
+      })
+    })
+  })
+
+  test("rhythm change recomputes nextFireAt from the update timestamp", async () => {
+    await withAutomationApp(async ({ projectID }) => {
+      const created = Automation.create(recurringInput(projectID), { now: 100 })
+      const updated = Automation.update(
+        created.id,
+        { rhythm: { kind: "interval", everyMs: 120_000 } },
+        { now: 300 },
+      )
+      if (updated.kind !== "recurring") throw new Error("recurring")
+      expect(updated.nextFireAt).toBe(300 + 120_000)
+    })
+  })
+
+  test("update accepts variant: null to clear a previously set effort", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const created = await json(app, "/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(recurringInput(projectID, { variant: "high" } as Partial<RecurringCreateInput>)),
+      })
+      expect(created.variant).toBe("high")
+      const cleared = await json(app, `/automation/${created.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ variant: null }),
+      })
+      expect(cleared).not.toHaveProperty("variant")
+      expect(Automation.get(created.id)).not.toHaveProperty("variant")
+    })
+  })
+
   test("pause and resume only revise when paused state changes", async () => {
     await withAutomationApp(async ({ app, projectID }) => {
       const created = await json(app, "/automation", {

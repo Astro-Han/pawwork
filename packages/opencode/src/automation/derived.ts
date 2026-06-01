@@ -66,6 +66,11 @@ export function cronMatches(schedule: CronSchedule, time: DateTime) {
   )
 }
 
+const PLUS_ONE_MONTH = { months: 1 }
+const PLUS_ONE_DAY = { days: 1 }
+const PLUS_ONE_HOUR = { hours: 1 }
+const PLUS_ONE_MINUTE = { minutes: 1 }
+
 function nextCronFires(definition: RecurringDefinition, from: number, count: number): number[] {
   if (definition.rhythm.kind !== "cron" || count <= 0) return []
   let schedule: CronSchedule
@@ -75,10 +80,28 @@ function nextCronFires(definition: RecurringDefinition, from: number, count: num
     return []
   }
   const fires: number[] = []
-  let cursor = DateTime.fromMillis(from, { zone: definition.timezone }).plus({ minutes: 1 }).startOf("minute")
-  for (let attempts = 0; attempts < CRON_LOOKAHEAD_MINUTES && fires.length < count; attempts++) {
-    if (cronMatches(schedule, cursor)) fires.push(cursor.toMillis())
-    cursor = cursor.plus({ minutes: 1 })
+  const maxTimestamp = from + CRON_LOOKAHEAD_MINUTES * 60 * 1000
+  let cursor = DateTime.fromMillis(from, { zone: definition.timezone }).plus(PLUS_ONE_MINUTE).startOf("minute")
+  while (cursor.toMillis() < maxTimestamp && fires.length < count) {
+    if (!schedule.months.has(cursor.month)) {
+      cursor = cursor.plus(PLUS_ONE_MONTH).startOf("month")
+      continue
+    }
+    const weekday = cursor.weekday === 7 ? 0 : cursor.weekday
+    const dayMatches = schedule.days.has(cursor.day)
+    const weekdayMatches = schedule.weekdays.has(weekday)
+    const calendarMatches =
+      schedule.dayRestricted && schedule.weekdayRestricted ? dayMatches || weekdayMatches : dayMatches && weekdayMatches
+    if (!calendarMatches) {
+      cursor = cursor.plus(PLUS_ONE_DAY).startOf("day")
+      continue
+    }
+    if (!schedule.hours.has(cursor.hour)) {
+      cursor = cursor.plus(PLUS_ONE_HOUR).startOf("hour")
+      continue
+    }
+    if (schedule.minutes.has(cursor.minute)) fires.push(cursor.toMillis())
+    cursor = cursor.plus(PLUS_ONE_MINUTE)
   }
   return fires
 }

@@ -107,7 +107,7 @@ export namespace Automation {
       rhythm: Rhythm.optional(),
       stop: Stop.optional(),
       model: Model.optional(),
-      variant: z.string().min(1).optional(),
+      variant: z.string().min(1).nullable().optional(),
     })
     .strict()
     .meta({ ref: "AutomationUpdateInput" })
@@ -675,17 +675,25 @@ export namespace Automation {
     const updateDetails = validateUpdateInput(previous, patch, now)
     if (updateDetails.length) throw new ValidationError(updateDetails)
     if (!hasChanges(previous, patch)) return previous
+    const merged: Record<string, unknown> = { ...previous, ...patch }
+    if (patch.variant === null) delete merged.variant
     let next = Definition.parse({
-      ...previous,
-      ...patch,
+      ...merged,
       revision: previous.revision + 1,
       updatedAt: now,
     })
     const details = validateCreateInput(next)
     if (details.length) throw new ValidationError(details)
-    if (next.kind === "recurring") {
-      const derived = computeDerivedFields(next, now, completedRunCount(next.id))
-      next = { ...next, nextFireAt: derived.nextFireAt, nextFires: derived.nextFires }
+    if (next.kind === "recurring" && previous.kind === "recurring") {
+      const scheduleChanged =
+        !isSameValue(previous.rhythm, next.rhythm) ||
+        !isSameValue(previous.stop, next.stop) ||
+        previous.timezone !== next.timezone ||
+        previous.paused !== next.paused
+      if (scheduleChanged) {
+        const derived = computeDerivedFields(next, now, completedRunCount(next.id))
+        next = { ...next, nextFireAt: derived.nextFireAt, nextFires: derived.nextFires }
+      }
     }
     return replaceDefinition(previous, next)
   }

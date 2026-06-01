@@ -196,7 +196,7 @@ export const AutomationRoutes = (): Hono =>
           const patch = c.req.valid("json")
           if (patch.model !== undefined || patch.variant !== undefined) {
             const effectiveModel = patch.model ?? previous.model
-            const effectiveVariant = patch.variant ?? previous.variant
+            const effectiveVariant = patch.variant === null ? undefined : (patch.variant ?? previous.variant)
             const modelDetails = await modelValidationDetails(effectiveModel, effectiveVariant)
             if (modelDetails.length) {
               return c.json(
