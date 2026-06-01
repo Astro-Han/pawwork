@@ -130,6 +130,69 @@ function run(overrides: Record<string, unknown> = {}) {
   }
 }
 
+describe("automation route 422 wiring with provider validation enabled", () => {
+  // These tests deliberately bypass the suite-wide skip flag to exercise the
+  // real modelValidationDetails -> AppRuntime path that production hits.
+  let restoreBypass: string | undefined
+  const enableValidation = () => {
+    restoreBypass = process.env.OPENCODE_SKIP_AUTOMATION_MODEL_VALIDATION
+    delete process.env.OPENCODE_SKIP_AUTOMATION_MODEL_VALIDATION
+  }
+  const restoreBypassEnv = () => {
+    if (restoreBypass === undefined) delete process.env.OPENCODE_SKIP_AUTOMATION_MODEL_VALIDATION
+    else process.env.OPENCODE_SKIP_AUTOMATION_MODEL_VALIDATION = restoreBypass
+  }
+
+  test("create rejects with 422 invalid_automation details when provider lookup fails", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      enableValidation()
+      try {
+        const response = await app.request("/automation", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(recurringInput(projectID)),
+        })
+        expect(response.status).toBe(422)
+        const body = await response.json()
+        expect(body.error).toBe("invalid_automation")
+        expect(body.details).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ field: "model" }),
+          ]),
+        )
+        expect(["model_not_found", "model_lookup_failed"]).toContain(body.details[0].message)
+      } finally {
+        restoreBypassEnv()
+      }
+    })
+  })
+
+  test("update rejects with 422 invalid_automation details when model patch fails provider lookup", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const created = await json(app, "/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(recurringInput(projectID)),
+      })
+      enableValidation()
+      try {
+        const response = await app.request(`/automation/${created.id}`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ model: { providerID: "nonexistent", modelID: "missing-model" } }),
+        })
+        expect(response.status).toBe(422)
+        const body = await response.json()
+        expect(body.error).toBe("invalid_automation")
+        expect(body.details[0].field).toBe("model")
+        expect(["model_not_found", "model_lookup_failed"]).toContain(body.details[0].message)
+      } finally {
+        restoreBypassEnv()
+      }
+    })
+  })
+})
+
 describe("automation routes", () => {
   test("reloads definitions and runs from durable storage after instance restart", async () => {
     await using tmp = await tmpdir({ git: true })

@@ -331,7 +331,10 @@ export namespace AutomationScheduler {
       if (run.state === "stopped" && !wasOwned && !wasSchedulerStopped) return
       if (ownsTimers) {
         try {
-          const refreshed = Automation.recordRunOutcome(run, { now: clock.now() })
+          const refreshed = Automation.recordRunOutcome(run, {
+            now: clock.now(),
+            refreshOnStopped: wasOwned || wasSchedulerStopped,
+          })
           if (refreshed) void Automation.publishDefinitionUpdated(refreshed)
         } catch (error) {
           if (!NotFoundError.isInstance(error)) log.error("automation derived field update failed", { error, automationID: run.automationID })

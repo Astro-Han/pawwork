@@ -4,45 +4,10 @@ import { AutomateParameters, createAutomateDefinition, formatAutomateValidationE
 import { Automation } from "../../src/automation"
 import { Instance } from "../../src/project/instance"
 import { MessageID, SessionID } from "../../src/session/schema"
-import { ModelID, ProviderID } from "../../src/provider/schema"
-import type { Provider } from "../../src/provider/provider"
 import { tmpdir } from "../fixture/fixture"
-import { ProviderTest } from "../fake/provider"
+import { fakeAutomationProvider } from "../fake/provider"
 
-const fakeProviderID = ProviderID.make("openai")
-const fakeModelID = ModelID.make("test-reasoning-model")
-const fakeModel = ProviderTest.model({
-  id: fakeModelID,
-  providerID: fakeProviderID,
-  capabilities: {
-    toolcall: true,
-    attachment: false,
-    reasoning: true,
-    temperature: true,
-    interleaved: false,
-    input: { text: true, image: false, audio: false, video: false, pdf: false },
-    output: { text: true, image: false, audio: false, video: false, pdf: false },
-  },
-  api: { id: fakeModelID, url: "https://example.com", npm: "ai-gateway-provider" },
-})
-const fakeInfo = ProviderTest.info({ id: fakeProviderID }, fakeModel)
-const fakeProviderInterface: Provider.Interface = {
-  list: () => Effect.succeed({ [fakeProviderID]: fakeInfo }),
-  getProvider: (providerID) =>
-    providerID === fakeProviderID
-      ? Effect.succeed(fakeInfo)
-      : Effect.die(new Error(`Unknown provider: ${providerID}`)),
-  getModel: (providerID, modelID) =>
-    providerID === fakeProviderID && modelID === fakeModelID
-      ? Effect.succeed(fakeModel)
-      : Effect.die(new Error(`Unknown model: ${providerID}/${modelID}`)),
-  getLanguage: () => Effect.die(new Error("getLanguage not configured")),
-  closest: (providerID) =>
-    Effect.succeed(providerID === fakeProviderID ? { providerID, modelID: fakeModelID } : undefined),
-  getSmallModel: (providerID) =>
-    Effect.succeed(providerID === fakeProviderID ? fakeModel : undefined),
-  defaultModel: () => Effect.succeed({ providerID: fakeProviderID, modelID: fakeModelID }),
-}
+const { providerID: fakeProviderID, modelID: fakeModelID, interface: fakeProviderInterface } = fakeAutomationProvider()
 const fixtureModel = { providerID: fakeProviderID, modelID: fakeModelID }
 
 afterEach(async () => {

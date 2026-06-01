@@ -698,7 +698,10 @@ export namespace Automation {
     return replaceDefinition(previous, next)
   }
 
-  export function recordRunOutcome(run: Run, options?: { now?: number }): Definition | undefined {
+  export function recordRunOutcome(
+    run: Run,
+    options?: { now?: number; refreshOnStopped?: boolean },
+  ): Definition | undefined {
     if (run.state !== "succeeded" && run.state !== "failed" && run.state !== "stopped") return undefined
     const previous = getOptional(run.automationID)
     if (!previous || previous.kind !== "recurring") return undefined
@@ -706,7 +709,7 @@ export namespace Automation {
     const failureStreak =
       run.state === "succeeded" ? 0 : run.state === "failed" ? previous.failureStreak + 1 : previous.failureStreak
     const derived =
-      run.state === "stopped"
+      run.state === "stopped" && !options?.refreshOnStopped
         ? { nextFireAt: previous.nextFireAt, nextFires: previous.nextFires }
         : computeDerivedFields(previous, now, completedRunCount(previous.id))
     if (

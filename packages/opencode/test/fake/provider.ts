@@ -28,15 +28,23 @@ export function fakeAutomationProvider(): {
   // Sanity check: variants include 'high' so tests can use it.
   void ProviderTransform.variants(mdl)
   const iface: Provider.Interface = {
-    list: () => Effect.succeed({ [providerID]: info }),
-    getProvider: (id) =>
+    list: Effect.fn("Provider.list")(() => Effect.succeed({ [providerID]: info })),
+    getProvider: Effect.fn("Provider.getProvider")((id) =>
       id === providerID ? Effect.succeed(info) : Effect.die(new Error(`Unknown provider: ${id}`)),
-    getModel: (pId, mId) =>
-      pId === providerID && mId === modelID ? Effect.succeed(mdl) : Effect.die(new Error(`Unknown model: ${pId}/${mId}`)),
-    getLanguage: () => Effect.die(new Error("getLanguage not configured")),
-    closest: (pId) => Effect.succeed(pId === providerID ? { providerID, modelID } : undefined),
-    getSmallModel: (pId) => Effect.succeed(pId === providerID ? mdl : undefined),
-    defaultModel: () => Effect.succeed({ providerID, modelID }),
+    ),
+    getModel: Effect.fn("Provider.getModel")((pId, mId) =>
+      pId === providerID && mId === modelID
+        ? Effect.succeed(mdl)
+        : Effect.die(new Error(`Unknown model: ${pId}/${mId}`)),
+    ),
+    getLanguage: Effect.fn("Provider.getLanguage")(() => Effect.die(new Error("getLanguage not configured"))),
+    closest: Effect.fn("Provider.closest")((pId) =>
+      Effect.succeed(pId === providerID ? { providerID, modelID } : undefined),
+    ),
+    getSmallModel: Effect.fn("Provider.getSmallModel")((pId) =>
+      Effect.succeed(pId === providerID ? mdl : undefined),
+    ),
+    defaultModel: Effect.fn("Provider.defaultModel")(() => Effect.succeed({ providerID, modelID })),
   }
   return { providerID, modelID, interface: iface }
 }

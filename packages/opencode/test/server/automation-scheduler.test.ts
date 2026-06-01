@@ -1084,13 +1084,12 @@ describe("automation scheduler", () => {
       const runs = await waitForRunStates(definition.id, ["stopped", "stopped"])
       expect(runs[0].triggeredAt).toBe(60_000)
       const after = Automation.get(definition.id)
-      if (after.kind !== "recurring") throw new Error("recurring")
-      expect(after.revision).toBe(definition.revision)
-      if (definition.kind === "recurring") {
-        expect(after.failureStreak).toBe(definition.failureStreak)
-        expect(after.nextFireAt).toBe(definition.nextFireAt)
-        expect(after.nextFires).toEqual(definition.nextFires)
-      }
+      if (after.kind !== "recurring" || definition.kind !== "recurring") throw new Error("recurring")
+      // failureStreak must not advance on stopped (manual conflict, writer block, missed schedule).
+      expect(after.failureStreak).toBe(definition.failureStreak)
+      // Scheduler-owned stopped (`previous_run_awaiting_input` at t=60_000) advances the stored
+      // nextFireAt preview so the UI does not display a fire time that has already elapsed.
+      expect(after.nextFireAt).toBe(120_000)
       releaseBlocker.resolve({ sessionID: SessionID.descending(), result: "blocker done", cost: 0 })
       scheduler.stop()
     })
@@ -1285,6 +1284,28 @@ describe("automation scheduler", () => {
         triggeredAt: 60_000,
         completedAt: 180_001,
       })
+      scheduler.stop()
+    })
+  })
+
+  test("missed_schedule on a recurring interval advances the stored nextFireAt preview", async () => {
+    await withAutomation(async (projectID) => {
+      const clock = new OversleepClock(0, 180_001)
+      const scheduler = AutomationScheduler.make({
+        clock,
+        executor: async () => ({ sessionID: SessionID.descending(), result: "done", cost: 0 }),
+      })
+      const definition = Automation.create(recurringInput(projectID, 60_000), { now: 0 })
+
+      scheduler.reschedule(definition)
+      const runs = await waitForRunCount(definition.id, 1)
+      expect(runs[0]).toMatchObject({ state: "stopped", stopReason: "missed_schedule" })
+
+      const after = Automation.get(definition.id)
+      if (after.kind !== "recurring" || definition.kind !== "recurring") throw new Error("recurring")
+      expect(after.failureStreak).toBe(definition.failureStreak)
+      expect(after.nextFireAt).not.toBe(definition.nextFireAt)
+      expect(after.nextFireAt).toBeGreaterThanOrEqual(clock.now())
       scheduler.stop()
     })
   })
