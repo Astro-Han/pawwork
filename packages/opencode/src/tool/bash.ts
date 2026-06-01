@@ -29,6 +29,7 @@ import { isLikelyWriteCommand } from "./bash-write-heuristic"
 import { nonOfficeCliCommandText, officeCliTargets } from "./bash-office-artifacts"
 import { discoverOfficeOutputs, readTrackedState } from "./bash-output-capture"
 import { Parameters, render as renderDescription, type Limits } from "./bash/prompt"
+import { ToolID as BashToolID } from "./bash/id"
 import { orchestrateArtifacts, type ArtifactDeps } from "./bash-artifact-orchestrator"
 
 const MAX_METADATA_LENGTH = 30_000
@@ -268,7 +269,7 @@ const ask = Effect.fn("BashTool.ask")(function* (ctx: Tool.Context, scan: Scan) 
 
   if (scan.patterns.size === 0) return
   yield* ctx.ask({
-    permission: "bash",
+    permission: BashToolID,
     patterns: Array.from(scan.patterns),
     always: Array.from(scan.always),
     metadata: {},
@@ -321,9 +322,11 @@ const parser = lazy(async () => {
   return { bash, ps }
 })
 
-// TODO: we may wanna rename this tool so it works better on other shells
+// Public tool id stays "bash" indefinitely (kept in BashToolID for the
+// single source of truth — saved permissions, plugins, and config all
+// reference this literal).
 export const BashTool = Tool.define(
-  "bash",
+  BashToolID,
   Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner
     const afs = yield* AppFileSystem.Service
