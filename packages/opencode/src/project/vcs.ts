@@ -66,17 +66,40 @@ export namespace Vcs {
     return result.text
   })
 
+  // True when the index column of a porcelain status code reports a staged
+  // delta. Picks up "MM", "A ", "AD", etc. while excluding untracked entries
+  // ("??") and worktree-only changes (" M"). Used to detect files whose
+  // staged contents disagree with the ref even when the worktree happens to
+  // match it — `git diff <ref>` alone misses these.
+  const stagedAgainstRef = (item: Git.Item) => item.code !== "??" && item.code[0] !== " " && item.code[0] !== "?"
+
   const track = Effect.fnUntraced(function* (git: Git.Interface, cwd: string, ref: string | undefined) {
-    const [tracked, status, stats] = ref
-      ? yield* Effect.all([git.diff(cwd, ref), git.status(cwd), git.stats(cwd, ref)], { concurrency: 3 })
-      : [[] as Git.Item[], yield* git.status(cwd), [] as Git.Stat[]]
+    const [tracked, status, headStats, cachedStats] = ref
+      ? yield* Effect.all(
+          [
+            git.diff(cwd, ref),
+            git.status(cwd),
+            git.stats(cwd, ref),
+            git.stats(cwd, ref, { cached: true }),
+          ],
+          { concurrency: 4 },
+        )
+      : [[] as Git.Item[], yield* git.status(cwd), [] as Git.Stat[], [] as Git.Stat[]]
     const list = ref
       ? merge(
           tracked,
+          // Surface staged-only deltas the worktree-vs-ref diff would silently drop
+          // (e.g. edit → git add → restore worktree to ref, leaving status "MM" but
+          // `git diff <ref>` empty). merge() keeps the first occurrence per file, so
+          // tracked entries win when both lists overlap.
+          status.filter(stagedAgainstRef),
           status.filter((item) => item.code === "??"),
         )
       : status
-    const statMap = nums(stats)
+    // Head stats describe worktree-vs-ref and are authoritative when present;
+    // cached stats backfill staged-only files that head missed. Map iteration order
+    // means later sets win, so seed with cached first then overlay head.
+    const statMap = nums([...cachedStats, ...headStats])
     const batch: PatchBatch = { total: 0, capped: false }
     return yield* Effect.forEach(
       list.toSorted((a, b) => a.file.localeCompare(b.file)),
@@ -84,10 +107,15 @@ export namespace Vcs {
         Effect.gen(function* () {
           const stat =
             statMap.get(item.file) ?? (item.status === "added" ? yield* git.statUntracked(cwd, item.file) : undefined)
+          const patchOpts = { context: PATCH_CONTEXT_LINES, maxOutputBytes: MAX_PATCH_BYTES }
           const patch =
             item.code === "??" || !ref
-              ? git.patchUntracked(cwd, item.file, { context: PATCH_CONTEXT_LINES, maxOutputBytes: MAX_PATCH_BYTES })
-              : git.patch(cwd, ref, item.file, { context: PATCH_CONTEXT_LINES, maxOutputBytes: MAX_PATCH_BYTES })
+              ? git.patchUntracked(cwd, item.file, patchOpts)
+              : Effect.gen(function* () {
+                  const head = yield* git.patch(cwd, ref, item.file, patchOpts)
+                  if (head.truncated || head.text || !stagedAgainstRef(item)) return head
+                  return yield* git.patch(cwd, ref, item.file, { ...patchOpts, cached: true })
+                })
           return {
             file: item.file,
             patch: yield* boundedPatch(batch, item, patch),

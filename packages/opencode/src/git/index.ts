@@ -54,7 +54,11 @@ export namespace Git {
     readonly truncated: boolean
   }
 
-  export interface PatchOptions {
+  export interface DiffOptions {
+    readonly cached?: boolean
+  }
+
+  export interface PatchOptions extends DiffOptions {
     readonly context?: number
     readonly maxOutputBytes?: number
     readonly binary?: boolean
@@ -87,8 +91,8 @@ export namespace Git {
     readonly show: (cwd: string, ref: string, file: string, prefix?: string) => Effect.Effect<string>
     readonly showIndex: (cwd: string, file: string, prefix?: string) => Effect.Effect<string>
     readonly status: (cwd: string) => Effect.Effect<Item[]>
-    readonly diff: (cwd: string, ref: string) => Effect.Effect<Item[]>
-    readonly stats: (cwd: string, ref: string) => Effect.Effect<Stat[]>
+    readonly diff: (cwd: string, ref: string, options?: DiffOptions) => Effect.Effect<Item[]>
+    readonly stats: (cwd: string, ref: string, options?: DiffOptions) => Effect.Effect<Stat[]>
     readonly patch: (cwd: string, ref: string, file: string, options?: PatchOptions) => Effect.Effect<Patch>
     readonly patchAll: (cwd: string, ref: string, options?: PatchOptions) => Effect.Effect<Patch>
     readonly patchUntracked: (cwd: string, file: string, options?: PatchOptions) => Effect.Effect<Patch>
@@ -260,9 +264,11 @@ export namespace Git {
         })
       })
 
-      const diff = Effect.fn("Git.diff")(function* (cwd: string, ref: string) {
+      const cached = (options?: DiffOptions) => (options?.cached ? ["--cached"] : [])
+
+      const diff = Effect.fn("Git.diff")(function* (cwd: string, ref: string, options?: DiffOptions) {
         const list = nuls(
-          yield* text(["diff", "--no-ext-diff", "--no-renames", "--name-status", "-z", ref, "--", "."], { cwd }),
+          yield* text(["diff", ...cached(options), "--no-ext-diff", "--no-renames", "--name-status", "-z", ref, "--", "."], { cwd }),
         )
         return list.flatMap((code, idx) => {
           if (idx % 2 !== 0) return []
@@ -272,9 +278,9 @@ export namespace Git {
         })
       })
 
-      const stats = Effect.fn("Git.stats")(function* (cwd: string, ref: string) {
+      const stats = Effect.fn("Git.stats")(function* (cwd: string, ref: string, options?: DiffOptions) {
         return nuls(
-          yield* text(["diff", "--no-ext-diff", "--no-renames", "--numstat", "-z", ref, "--", "."], { cwd }),
+          yield* text(["diff", ...cached(options), "--no-ext-diff", "--no-renames", "--numstat", "-z", ref, "--", "."], { cwd }),
         ).flatMap((item) => {
           const a = item.indexOf("\t")
           const b = item.indexOf("\t", a + 1)
@@ -304,7 +310,7 @@ export namespace Git {
 
       const patch = Effect.fn("Git.patch")(function* (cwd: string, ref: string, file: string, options?: PatchOptions) {
         return yield* patchResult(
-          ["diff", "--patch", ...binary(options), "--no-ext-diff", "--no-renames", `--unified=${options?.context ?? 3}`, ref, "--", file],
+          ["diff", ...cached(options), "--patch", ...binary(options), "--no-ext-diff", "--no-renames", `--unified=${options?.context ?? 3}`, ref, "--", file],
           cwd,
           options,
         )
@@ -312,7 +318,7 @@ export namespace Git {
 
       const patchAll = Effect.fn("Git.patchAll")(function* (cwd: string, ref: string, options?: PatchOptions) {
         return yield* patchResult(
-          ["diff", "--patch", ...binary(options), "--no-ext-diff", "--no-renames", `--unified=${options?.context ?? 3}`, ref, "--", "."],
+          ["diff", ...cached(options), "--patch", ...binary(options), "--no-ext-diff", "--no-renames", `--unified=${options?.context ?? 3}`, ref, "--", "."],
           cwd,
           options,
         )

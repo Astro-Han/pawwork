@@ -245,6 +245,32 @@ describe("Vcs diff", () => {
     }),
   )
 
+  vcsIt.live("diff('git') still surfaces staged content when the worktree happens to match HEAD", () =>
+    Effect.gen(function* () {
+      const tmp = yield* scopedTmpdir({ git: true })
+      yield* Effect.promise(async () => {
+        await fs.writeFile(path.join(tmp.path, "tracked.txt"), "v1\n", "utf-8")
+        await $`git add tracked.txt`.cwd(tmp.path).quiet()
+        await $`git commit --no-gpg-sign -m "v1"`.cwd(tmp.path).quiet()
+        // Stage a v2, then write the worktree back to v1 without resetting the index.
+        // Status reads "MM" but the worktree byte-for-byte matches HEAD, so the plain
+        // `git diff HEAD` form sees nothing. The staged contents will still land in the
+        // next commit, so the review panel must surface them.
+        await fs.writeFile(path.join(tmp.path, "tracked.txt"), "v2\n", "utf-8")
+        await $`git add tracked.txt`.cwd(tmp.path).quiet()
+        await fs.writeFile(path.join(tmp.path, "tracked.txt"), "v1\n", "utf-8")
+      })
+
+      yield* withVcsOnly(tmp.path, async () => {
+        const diff = await Vcs.diff("git")
+        const entry = diff.find((item) => item.file === "tracked.txt")
+        expect(entry).toBeDefined()
+        expect(entry?.patch).toContain("+v2")
+        expect(entry?.additions).toBeGreaterThan(0)
+      })
+    }),
+  )
+
   vcsIt.live("diffRaw() returns a patch with tracked and untracked changes", () =>
     Effect.gen(function* () {
       const tmp = yield* scopedTmpdir({ git: true })
