@@ -13,6 +13,7 @@ import type { AutomationRunAttendance, AutomationRunBlocker } from "./run-contex
 import { AutomationDefinitionTable, AutomationRunTable } from "./automation.sql"
 import { isValidCronExpression as cronIsValidExpression } from "./cron"
 import { computeDerivedFields } from "./derived"
+import { internalTestHooks } from "./__test_hooks"
 
 export const AutomationID = {
   Definition: {
@@ -671,7 +672,7 @@ export namespace Automation {
         revision: previous.revision + 1,
         updatedAt: now,
       })
-      __testHooks.beforeReplaceDefinition?.(previous)
+      internalTestHooks.beforeReplaceDefinition?.(previous)
       try {
         return replaceDefinition(previous, next)
       } catch (error) {
@@ -681,17 +682,6 @@ export namespace Automation {
     }
     return undefined
   }
-
-  /**
-   * @internal Test-only seam. Production code MUST NOT read or write this.
-   * Tests assign `beforeReplaceDefinition` to deterministically inject a
-   * concurrent write between `recordRunOutcome`'s read and its replace, so
-   * the ConflictError retry path can be exercised end-to-end. Reset to `{}`
-   * after each test (or scope assignments with try/finally).
-   */
-  export const __testHooks: {
-    beforeReplaceDefinition?: (previous: Definition) => void
-  } = {}
 
   function sameArray(left: readonly number[], right: readonly number[]) {
     if (left.length !== right.length) return false

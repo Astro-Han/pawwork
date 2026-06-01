@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { Effect } from "effect"
 import { Automation } from "../../src/automation"
+import { internalTestHooks } from "../../src/automation/__test_hooks"
 import { AutomationScheduler } from "../../src/automation/scheduler"
 import { Instance } from "../../src/project/instance"
 import { ProjectID } from "../../src/project/schema"
@@ -1027,7 +1028,7 @@ describe("automation scheduler", () => {
       // `previous` but before it writes, so the unrelated update bumps the
       // row's revision and the first replaceDefinition hits ConflictError.
       let hookFires = 0
-      Automation.__testHooks.beforeReplaceDefinition = (previous) => {
+      internalTestHooks.beforeReplaceDefinition = (previous) => {
         if (hookFires === 0) {
           hookFires += 1
           Automation.update(previous.id, { title: "raced edit" }, { now: 1_400 })
@@ -1037,7 +1038,7 @@ describe("automation scheduler", () => {
       try {
         refreshed = Automation.recordRunOutcome(failed, { now: 1_500 })
       } finally {
-        delete Automation.__testHooks.beforeReplaceDefinition
+        delete internalTestHooks.beforeReplaceDefinition
       }
       expect(hookFires).toBe(1)
       if (!refreshed || refreshed.kind !== "recurring") throw new Error("refreshed missing")
