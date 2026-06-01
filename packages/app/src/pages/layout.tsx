@@ -20,17 +20,16 @@ import { useGlobalSync } from "@/context/global-sync"
 import { Persist, persisted } from "@/utils/persist"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { decode64 } from "@/utils/base64"
-import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { Button } from "@opencode-ai/ui/button"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { getFilename } from "@opencode-ai/util/path"
 import { Session, type GlobalSession, type Message } from "@opencode-ai/sdk/v2/client"
-import { isMacShell, shellAttrs, usePlatform } from "@/context/platform"
+import { usePlatform } from "@/context/platform"
 import { useSettings } from "@/context/settings"
 import { createStore, produce, reconcile } from "solid-js/store"
 import type { DragEvent } from "@thisbeyond/solid-dnd"
 import { useProviders } from "@/hooks/use-providers"
-import { showToast, Toast, toaster } from "@opencode-ai/ui/toast"
+import { showToast, toaster } from "@opencode-ai/ui/toast"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { clientActionHeaders } from "@/utils/server"
 import { LayoutPageContext } from "@/context/layout-page"
@@ -68,8 +67,6 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useTheme } from "@opencode-ai/ui/theme/context"
 import { useCommand } from "@/context/command"
 import { getDraggableId } from "@/utils/solid-dnd"
-import { DebugBar } from "@/components/debug-bar"
-import { Titlebar } from "@/components/titlebar"
 import { useServer } from "@/context/server"
 import { useLanguage } from "@/context/language"
 import {
@@ -108,6 +105,7 @@ import { createShellNavigation } from "./layout/shell-navigation"
 import { useUpdatePolling } from "./layout/layout-update-polling"
 import { sessionNotificationHref, useSDKNotificationToasts } from "./layout/layout-sdk-event-effects"
 import { registerLayoutCommands } from "./layout/layout-commands"
+import { LayoutShellFrame } from "./layout/layout-shell-frame"
 import {
   buildPawworkSessionWindow,
   nextPawworkSessionWindowLimit,
@@ -118,7 +116,6 @@ import {
 } from "./layout/pawwork-session-window"
 import { type WorkspaceSidebarContext } from "./layout/sidebar-workspace"
 import { PawworkSidebar, type PawworkSidebarSession } from "./layout/pawwork-sidebar"
-import { PawworkTitlebar } from "./layout/pawwork-titlebar"
 import { createDefaultLayoutPageState, createLayoutPagePersistTarget, removePinnedSessionIDs } from "./layout/layout-page-store"
 import { SettingsContent, SettingsNav, isSettingsTab, type SettingsTab } from "@/pages/settings/settings-shell"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
@@ -184,7 +181,6 @@ export default function Layout(props: ParentProps) {
     autoselect: !initialDirectory,
     busyWorkspaces: {} as Record<string, boolean>,
     scrollSessionKey: undefined as string | undefined,
-    nav: undefined as HTMLElement | undefined,
     sizing: false,
   })
 
@@ -1265,6 +1261,28 @@ export default function Layout(props: ParentProps) {
     shellNavigation.openSettings(tab)
   }
 
+  async function openGlobalConfigFolder() {
+    const target = await globalSDK.client.path
+      .get({ ensureConfig: true })
+      .then((x) => x.data?.config)
+      .catch((err) => {
+        showToast({
+          title: language.t("toast.settings.openGlobalConfigFolderFailed.title"),
+          description: errorMessage(err, language.t("common.requestFailed")),
+          variant: "error",
+        })
+        return undefined
+      })
+    if (!target) return
+    await platform.openPath?.(target).catch((err) => {
+      showToast({
+        title: language.t("toast.settings.openGlobalConfigFolderFailed.title"),
+        description: errorMessage(err, language.t("common.requestFailed")),
+        variant: "error",
+      })
+    })
+  }
+
   createEffect(() => {
     command.setModalOpen(settingsOpen())
   })
@@ -1872,14 +1890,6 @@ export default function Layout(props: ParentProps) {
     ),
   )
 
-  createEffect(() => {
-    const sidebarWidth = layout.sidebar.opened() ? layout.sidebar.width() : 0
-    document.documentElement.style.setProperty("--dialog-left-margin", `${sidebarWidth}px`)
-  })
-
-  const side = createMemo(() => Math.max(layout.sidebar.width(), 180))
-  const panel = createMemo(() => Math.max(side() - 64, 0))
-
   const loadedSessionDirs = new Set<string>()
 
   createEffect(
@@ -2012,23 +2022,49 @@ export default function Layout(props: ParentProps) {
     navigate(`/${base64Encode(created.directory)}/session`)
   }
 
+  function createCurrentWorkspace() {
+    const project = currentProject()
+    if (!project) return
+    return createWorkspace(project)
+  }
+
+  function toggleCurrentWorkspace() {
+    const project = currentProject()
+    if (!project) return undefined
+    if (project.vcs !== "git") return undefined
+    const wasEnabled = layout.sidebar.workspaces(project.worktree)()
+    layout.sidebar.toggleWorkspaces(project.worktree)
+    return wasEnabled
+  }
+
   registerLayoutCommands({
-    command,
-    language,
-    layout,
-    theme,
-    platform,
-    globalSDK,
-    currentProject,
-    workspaceSetting,
-    chooseProject,
-    navigateProjectByOffset,
-    connectProvider,
-    openServer,
-    openSettings,
-    navigateSessionByOffset,
-    navigateSessionByUnseen,
-    createWorkspace,
+    registry: command,
+    copy: language,
+    appearance: theme,
+    viewActions: {
+      toggleSidebar: layout.sidebar.toggle,
+    },
+    navigationActions: {
+      openProject: chooseProject,
+      moveProject: navigateProjectByOffset,
+      moveSession: navigateSessionByOffset,
+      moveUnseenSession: navigateSessionByUnseen,
+    },
+    settingsActions: {
+      open: openSettings,
+      canOpenGlobalConfigFolder: () => !!platform.openPath,
+      openGlobalConfigFolder,
+    },
+    workspaceActions: {
+      canCreateCurrent: () => !!workspaceSetting(),
+      createCurrent: createCurrentWorkspace,
+      canToggleCurrent: () => currentProject()?.vcs === "git",
+      toggleCurrent: toggleCurrentWorkspace,
+    },
+    systemActions: {
+      connectProvider,
+      switchServer: openServer,
+    },
   })
 
   const workspaceSidebarCtx: WorkspaceSidebarContext = {
@@ -2106,6 +2142,14 @@ export default function Layout(props: ParentProps) {
   )
   const sidebarContent = () =>
     renderPawworkPanel(pawworkSessions, { directory: currentProject()?.worktree, scope: "main" })
+
+  function handleSidebarResize(width: number) {
+    setState("sizing", true)
+    if (sizet !== undefined) clearTimeout(sizet)
+    sizet = window.setTimeout(() => setState("sizing", false), 120)
+    layout.sidebar.resize(width)
+  }
+
   return (
     <LayoutPageContext.Provider
       value={{
@@ -2125,131 +2169,35 @@ export default function Layout(props: ParentProps) {
           closeSettings,
         }}
       >
-      <div
-        data-component="desktop-shell"
-        data-platform={platform.platform}
-        {...shellAttrs(platform)}
-        class="relative bg-bg-base flex-1 min-h-0 min-w-0 flex flex-col select-none [&_input]:select-text [&_textarea]:select-text [&_[contenteditable]]:select-text"
-        classList={{
-          "[transition:--sidebar-width_200ms_cubic-bezier(0.22,1,0.36,1),--right-panel-width_240ms_cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none":
-            !state.sizing,
-        }}
-        style={{
-          "--shell-titlebar-current-height":
-            isMacShell(platform)
-              ? `calc(var(--shell-titlebar-height, 44px) / ${platform.webviewZoom?.() ?? 1})`
-              : "var(--shell-titlebar-height, 44px)",
-          "--sidebar-width": layout.sidebar.opened() || settingsOpen() ? `${side()}px` : "0px",
-          "--right-panel-width": layout.rightPanel.opened() ? `${layout.rightPanel.width()}px` : "0px",
-          "--right-panel-divider": layout.rightPanel.opened() ? "var(--border-weaker)" : "transparent",
-        }}
-      >
-        <div
-          data-component="desktop-shell-frame"
-          data-platform={platform.platform}
-          {...shellAttrs(platform)}
-          class="flex flex-1 min-h-0 min-w-0 flex-col"
-        >
-          <Titlebar />
-          <PawworkTitlebar visible={settingsOpen} title={() => language.t("sidebar.settings")} />
-          <div class="flex-1 min-h-0 min-w-0 flex">
-          <div class="flex-1 min-h-0 relative">
-            <div data-component="shell-content" class="size-full relative overflow-x-hidden">
-              <Show when={layout.sidebar.opened() || settingsOpen()}>
-                <aside
-                  aria-label={language.t("sidebar.nav.projectsAndSessions")}
-                  data-component="sidebar-nav-desktop"
-                  class="absolute inset-y-0 left-0 z-10 border-r border-border-weaker"
-                  style={{ width: `${side()}px` }}
-                  ref={(el) => {
-                    setState("nav", el)
-                  }}
-                >
-                  <div
-                    classList={{ "@container w-full h-full contain-strict": true, invisible: settingsOpen() }}
-                    inert={settingsOpen() ? true : undefined}
-                    aria-hidden={settingsOpen() || undefined}
-                  >
-                    {sidebarContent()}
-                  </div>
-                  {/* Settings takeover: the nav overlays the session sidebar (kept mounted, only inert, so scroll state survives); geometry is inherited from this aside slot. */}
-                  <Show when={settingsOpen()}>
-                    <div class="absolute inset-0 z-10">
-                      <SettingsNav active={settingsTab()} onSelect={setSettingsTab} onClose={closeSettings} />
-                    </div>
-                  </Show>
-                </aside>
-
-                {/* Hide the resize handle while settings is open: the sidebar width is not draggable inside settings. */}
-                <Show when={!settingsOpen()}>
-                  <div
-                    class="absolute inset-y-0 z-30 w-0 overflow-visible"
-                    style={{ left: `${side()}px` }}
-                    onPointerDown={() => setState("sizing", true)}
-                  >
-                    <ResizeHandle
-                      direction="horizontal"
-                      size={layout.sidebar.width()}
-                      min={180}
-                      max={typeof window === "undefined" ? 1000 : window.innerWidth * 0.3 + 64}
-                      onResize={(w) => {
-                        setState("sizing", true)
-                        if (sizet !== undefined) clearTimeout(sizet)
-                        sizet = window.setTimeout(() => setState("sizing", false), 120)
-                        layout.sidebar.resize(w)
-                      }}
-                    />
-                  </div>
-                </Show>
-              </Show>
-
-              <div
-                classList={{
-                  "absolute inset-y-0 right-0 left-[var(--main-left)]": true,
-                  "z-20": true,
-                  "transition-[left] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[left] motion-reduce:transition-none":
-                    !state.sizing,
-                }}
-                style={{
-                  "--main-left": layout.sidebar.opened() || settingsOpen() ? `${side()}px` : "0",
-                }}
-              >
-                <main
-                  data-component="desktop-shell-main"
-                  data-platform={platform.platform}
-                  {...shellAttrs(platform)}
-                  classList={{
-                    "size-full overflow-x-hidden flex flex-col items-start contain-strict": true,
-                  }}
-                >
-                  <div class="relative size-full">
-                    <div
-                      inert={settingsOpen() ? true : undefined}
-                      aria-hidden={settingsOpen() || undefined}
-                      classList={{ "size-full": true, invisible: settingsOpen() }}
-                    >
-                      <Show when={!startupAutoselectPending()} fallback={<AppStartupPending />}>
-                        {props.children}
-                      </Show>
-                    </div>
-                    {/* Settings takeover: the content overlays the session page (kept mounted, only inert, so the terminal/right panel are not torn down); geometry is inherited from the main slot. */}
-                    <Show when={settingsOpen()}>
-                      <div class="absolute inset-0 z-10">
-                        <SettingsContent active={settingsTab()} directory={currentDir()} onClose={closeSettings} />
-                      </div>
-                    </Show>
-                  </div>
-                </main>
-              </div>
-            </div>
-          </div>
-          {import.meta.env.DEV &&
-            !((window as typeof window & { __opencode_e2e?: unknown }).__opencode_e2e) &&
-            <DebugBar />}
-          </div>
-        </div>
-        <Toast.Region />
-      </div>
+        <LayoutShellFrame
+          platform={platform}
+          sizing={() => state.sizing}
+          sidebar={{
+            visible: () => layout.sidebar.opened() || settingsOpen(),
+            width: layout.sidebar.width,
+            minWidth: 180,
+            maxWidth: () => (typeof window === "undefined" ? 1000 : window.innerWidth * 0.3 + 64),
+            label: () => language.t("sidebar.nav.projectsAndSessions"),
+            content: sidebarContent,
+            onResizeStart: () => setState("sizing", true),
+            onResize: handleSidebarResize,
+          }}
+          rightPanel={{
+            opened: layout.rightPanel.opened,
+            width: layout.rightPanel.width,
+          }}
+          settings={{
+            open: settingsOpen,
+            title: () => language.t("sidebar.settings"),
+            nav: () => <SettingsNav active={settingsTab()} onSelect={setSettingsTab} onClose={closeSettings} />,
+            content: () => <SettingsContent active={settingsTab()} directory={currentDir()} onClose={closeSettings} />,
+          }}
+          main={() => (
+            <Show when={!startupAutoselectPending()} fallback={<AppStartupPending />}>
+              {props.children}
+            </Show>
+          )}
+        />
       </ShellSurfaceContext.Provider>
     </LayoutPageContext.Provider>
   )
