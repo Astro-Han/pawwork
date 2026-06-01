@@ -196,6 +196,7 @@ type PromptBindingSession = {
   current: () => Prompt
   cursor: () => number | undefined
   dirty: () => boolean
+  hasDraft: () => boolean
   context: {
     items: () => (ContextItem & { key: string })[]
     add: (item: ContextItem) => void
@@ -203,7 +204,7 @@ type PromptBindingSession = {
     removeComment: (path: string, commentID: string) => void
     updateComment: (path: string, commentID: string, next: Partial<FileContextItem> & { comment?: string }) => void
     replaceComments: (items: FileContextItem[]) => void
-    /** Atomic full-replace: swaps ALL context items at once. Used by carry hydration. */
+    /** Atomic full-replace: swaps ALL context items at once. Used by carry hydration and failure restore. */
     replaceAll: (items: ContextItem[]) => void
   }
   set: (prompt: Prompt, cursorPosition?: number) => void
@@ -226,6 +227,7 @@ export function createPromptBinding(
     current: () => session()?.current() ?? clonePrompt(DEFAULT_PROMPT),
     cursor: () => session()?.cursor(),
     dirty: () => session()?.dirty() ?? false,
+    hasDraft: (target?: Scope) => pick(target)?.hasDraft() ?? false,
     context: {
       items: () => session()?.context.items() ?? [],
       add: (item: ContextItem) => session()?.context.add(item),
@@ -234,7 +236,7 @@ export function createPromptBinding(
       updateComment: (path: string, commentID: string, next: Partial<FileContextItem> & { comment?: string }) =>
         session()?.context.updateComment(path, commentID, next),
       replaceComments: (items: FileContextItem[]) => session()?.context.replaceComments(items),
-      replaceAll: (items: ContextItem[]) => session()?.context.replaceAll(items),
+      replaceAll: (items: ContextItem[], target?: Scope) => pick(target)?.context.replaceAll(items),
     },
     set: (prompt: Prompt, cursorPosition?: number, target?: Scope) => pick(target)?.set(prompt, cursorPosition),
     reset: (target?: Scope) => pick(target)?.reset(),
@@ -268,6 +270,7 @@ function createPromptSession(dir: string, id: string | undefined) {
     current: createMemo(() => store.prompt),
     cursor: createMemo(() => store.cursor),
     dirty: createMemo(() => !isPromptEqual(store.prompt, DEFAULT_PROMPT)),
+    hasDraft: createMemo(() => !isStructurallyEmpty(store.prompt, store.context.items, [])),
     context: {
       items: createMemo(() => store.context.items),
       add(item: ContextItem) {
