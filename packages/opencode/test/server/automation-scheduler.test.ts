@@ -995,20 +995,16 @@ describe("automation scheduler", () => {
     })
   })
 
-  test("rejects recurring condition stops at create time", async () => {
+  test("CreateInput schema rejects stop kind 'condition' before reaching validate", async () => {
     await withAutomation(async (projectID) => {
+      const raw = recurringInput(projectID, 60_000, { stop: { kind: "condition", condition: "repo is ready" } as never })
       let captured: unknown
       try {
-        Automation.create(
-          recurringInput(projectID, 60_000, { stop: { kind: "condition", condition: "repo is ready" } }),
-          { now: 0 },
-        )
+        Automation.CreateInput.parse(raw)
       } catch (error) {
         captured = error
       }
       expect(captured).toBeInstanceOf(Error)
-      const validation = captured as { details?: { field: string; message: string }[] }
-      expect(validation.details).toEqual(expect.arrayContaining([{ field: "stop", message: "unsupported_stop_condition" }]))
     })
   })
 

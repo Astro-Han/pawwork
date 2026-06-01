@@ -608,11 +608,6 @@ describe("automation routes", () => {
           [{ field: "prompt", message: "prompt_too_long_20000" }],
         ],
         [
-          "condition above replay-safe limit",
-          recurringInput(projectID, { stop: { kind: "condition", condition: "x".repeat(4_001) } }),
-          [{ field: "stop.condition", message: "condition_too_long_4000" }],
-        ],
-        [
           "externally supplied automation session",
           { ...recurringInput(projectID), automationSessionID: SessionID.descending() },
           [{ field: "automationSessionID", message: "unsupported_automation_field" }],
@@ -657,6 +652,38 @@ describe("automation routes", () => {
         expect(response.status).toBe(422)
         expect(await response.json()).toEqual({ error: "invalid_automation", details })
       }
+    })
+  })
+
+  test("rejects stop kind 'condition' at the create/update route as unsupported input", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const createResponse = await app.request("/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ...recurringInput(projectID),
+          stop: { kind: "condition", condition: "repo is ready" },
+        }),
+      })
+      expect(createResponse.status).toBe(422)
+      const createBody = (await createResponse.json()) as { error: string; details: { field: string }[] }
+      expect(createBody.error).toBe("invalid_automation")
+      expect(createBody.details.some((d) => d.field.startsWith("stop"))).toBe(true)
+
+      const created = await json(app, "/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(recurringInput(projectID)),
+      })
+      const updateResponse = await app.request(`/automation/${created.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ stop: { kind: "condition", condition: "repo is ready" } }),
+      })
+      expect(updateResponse.status).toBe(422)
+      const updateBody = (await updateResponse.json()) as { error: string; details: { field: string }[] }
+      expect(updateBody.error).toBe("invalid_automation")
+      expect(updateBody.details.some((d) => d.field.startsWith("stop"))).toBe(true)
     })
   })
 
@@ -842,6 +869,31 @@ describe("automation routes", () => {
       })
       expect(cleared).not.toHaveProperty("variant")
       expect(Automation.get(created.id)).not.toHaveProperty("variant")
+    })
+  })
+
+  test("update with variant: null on an unset variant is a no-op (no revision bump, no event)", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const created = await json(app, "/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(recurringInput(projectID)),
+      })
+      expect(created).not.toHaveProperty("variant")
+      const updates: number[] = []
+      const unsubscribe = Bus.subscribe(Automation.Event.DefinitionUpdated, (event) => {
+        if (event.properties.id === created.id) updates.push(event.properties.revision)
+      })
+      const noop = await json(app, `/automation/${created.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ variant: null }),
+      })
+      await Bun.sleep(10)
+      unsubscribe()
+      expect(noop.revision).toBe(created.revision)
+      expect(noop.updatedAt).toBe(created.updatedAt)
+      expect(updates).toEqual([])
     })
   })
 

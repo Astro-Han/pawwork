@@ -46,6 +46,42 @@ export function parseCronSchedule(expression: string): CronSchedule {
   }
 }
 
+const monthMaxDays = new Map([
+  [1, 31],
+  [2, 29],
+  [3, 31],
+  [4, 30],
+  [5, 31],
+  [6, 30],
+  [7, 31],
+  [8, 31],
+  [9, 30],
+  [10, 31],
+  [11, 30],
+  [12, 31],
+])
+
+function hasReachableDayMonth(schedule: CronSchedule) {
+  for (const month of schedule.months) {
+    const maxDay = monthMaxDays.get(month)
+    if (maxDay === undefined) continue
+    for (const day of schedule.days) {
+      if (day <= maxDay) return true
+    }
+  }
+  return false
+}
+
+export function isValidCronExpression(expression: string): boolean {
+  try {
+    const schedule = parseCronSchedule(expression)
+    if (!schedule.weekdayRestricted && !hasReachableDayMonth(schedule)) return false
+    return true
+  } catch {
+    return false
+  }
+}
+
 export function cronMatches(schedule: CronSchedule, time: DateTime) {
   const weekday = time.weekday === 7 ? 0 : time.weekday
   const dayMatches = schedule.days.has(time.day)

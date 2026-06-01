@@ -166,8 +166,11 @@ export namespace AutomationScheduler {
     // Marks DefinitionUpdated events that the scheduler emits itself after a
     // stopped-run refresh, so its own DefinitionUpdated subscriber can skip
     // reschedule() — preventing a missed_schedule → refresh → publish → reschedule
-    // self-loop when the clock keeps oversleeping.
+    // self-loop when the clock keeps oversleeping. Keyed by id:revision so a real
+    // update that races ahead of the self event isn't swallowed by id alone.
     const selfPublishedDefinitionUpdates = new Set<string>()
+    const selfUpdateKey = (definition: { id: string; revision: number }) =>
+      `${definition.id}:${definition.revision}`
     let ownsTimers = !ownerKey
     let ownerLease: Flock.Lease | undefined
     let ownerAttempt: Promise<void> | undefined
@@ -341,8 +344,12 @@ export namespace AutomationScheduler {
             refreshOnStopped: wasOwned || wasSchedulerStopped,
           })
           if (refreshed) {
-            selfPublishedDefinitionUpdates.add(refreshed.id)
-            void Automation.publishDefinitionUpdated(refreshed)
+            const key = selfUpdateKey(refreshed)
+            selfPublishedDefinitionUpdates.add(key)
+            void Automation.publishDefinitionUpdated(refreshed).catch((error) => {
+              selfPublishedDefinitionUpdates.delete(key)
+              log.error("automation derived field publish failed", { error, automationID: refreshed.id })
+            })
           }
         } catch (error) {
           if (!NotFoundError.isInstance(error)) log.error("automation derived field update failed", { error, automationID: run.automationID })
@@ -352,7 +359,7 @@ export namespace AutomationScheduler {
     })
     const unsubscribeDefinitionUpdates = Bus.subscribe(Automation.Event.DefinitionUpdated, (event) => {
       if (!running) return
-      if (selfPublishedDefinitionUpdates.delete(event.properties.id)) return
+      if (selfPublishedDefinitionUpdates.delete(selfUpdateKey(event.properties))) return
       reschedule(event.properties)
     })
     const unsubscribeDefinitionDeletes = Bus.subscribe(Automation.Event.DefinitionDeleted, (event) => {

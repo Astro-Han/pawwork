@@ -25,8 +25,6 @@ const CronExpression = Schema.NonEmptyString.check(
 )
 const Title = Schema.NonEmptyString.check(Schema.isMaxLength(Automation.MAX_TITLE_CHARS))
 const Prompt = Schema.NonEmptyString.check(Schema.isMaxLength(Automation.MAX_PROMPT_CHARS))
-const Condition = Schema.NonEmptyString.check(Schema.isMaxLength(Automation.MAX_CONDITION_CHARS))
-
 const Common = {
   title: Title,
   prompt: Prompt,
@@ -41,9 +39,11 @@ const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
 const PositiveInt = Schema.Int.check(Schema.isGreaterThan(0))
 const IntervalMs = Schema.Int.check(Schema.isGreaterThanOrEqualTo(Automation.MIN_INTERVAL_MS))
 
+// `condition` is part of the persisted Stop union but not yet supported as
+// input; keep this in lockstep with Automation.SupportedCreateStop so the tool
+// signature doesn't advertise a kind we reject.
 const Stop = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("count"), count: PositiveInt }),
-  Schema.Struct({ kind: Schema.Literal("condition"), condition: Condition }),
   Schema.Struct({ kind: Schema.Literal("never") }),
 ])
 

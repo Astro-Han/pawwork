@@ -11,6 +11,7 @@ import { and, Database, desc, eq, gte, inArray, lt, NotFoundError, or, sql } fro
 import { Flock } from "@/util/flock"
 import type { AutomationRunAttendance, AutomationRunBlocker } from "./run-context"
 import { AutomationDefinitionTable, AutomationRunTable } from "./automation.sql"
+import { isValidCronExpression as cronIsValidExpression } from "./cron"
 import { computeDerivedFields } from "./derived"
 
 export const AutomationID = {
@@ -70,6 +71,15 @@ export namespace Automation {
       z.object({ kind: z.literal("never") }).strict(),
     ])
     .meta({ ref: "AutomationStop" })
+  // Input-only Stop: condition is persisted (Definition.stop can be `condition`)
+  // but cannot be supplied via create/update yet. Keep the two schemas separate
+  // so the public contract doesn't advertise a kind we reject at runtime.
+  export const SupportedCreateStop = z
+    .discriminatedUnion("kind", [
+      z.object({ kind: z.literal("count"), count: z.number().int().positive() }).strict(),
+      z.object({ kind: z.literal("never") }).strict(),
+    ])
+    .meta({ ref: "AutomationSupportedCreateStop" })
   export const Rhythm = z
     .discriminatedUnion("kind", [
       z.object({ kind: z.literal("interval"), everyMs: z.number().int().min(MIN_INTERVAL_MS, `interval_below_minimum_${MIN_INTERVAL_MS}ms`) }).strict(),
@@ -90,7 +100,7 @@ export namespace Automation {
   export const CreateInput = z
     .discriminatedUnion("kind", [
       z.object({ kind: z.literal("oneshot"), ...CommonCreate, fireAt: z.number().int().nonnegative() }).strict(),
-      z.object({ kind: z.literal("recurring"), ...CommonCreate, rhythm: Rhythm, stop: Stop }).strict(),
+      z.object({ kind: z.literal("recurring"), ...CommonCreate, rhythm: Rhythm, stop: SupportedCreateStop }).strict(),
     ])
     .meta({ ref: "AutomationCreateInput" })
   export type CreateInput = z.infer<typeof CreateInput>
@@ -105,7 +115,7 @@ export namespace Automation {
       timezone: z.string().min(1).optional(),
       fireAt: z.number().int().nonnegative().optional(),
       rhythm: Rhythm.optional(),
-      stop: Stop.optional(),
+      stop: SupportedCreateStop.optional(),
       model: Model.optional(),
       variant: z.string().min(1).nullable().optional(),
     })
@@ -351,80 +361,7 @@ export namespace Automation {
     }
   }
 
-  function isValidCronInteger(input: string, min: number, max: number) {
-    if (!/^\d+$/.test(input)) return false
-    const value = Number(input)
-    return value >= min && value <= max
-  }
-
-  function isValidCronField(input: string, min: number, max: number) {
-    if (!input) return false
-    return input.split(",").every((item) => {
-      const [base, step, extra] = item.split("/")
-      if (extra !== undefined) return false
-      if (step !== undefined && !isValidCronInteger(step, 1, max)) return false
-      if (base === "*") return true
-      const range = base.split("-")
-      if (range.length === 2) {
-        const [start, end] = range
-        if (!isValidCronInteger(start, min, max) || !isValidCronInteger(end, min, max)) return false
-        return Number(start) <= Number(end)
-      }
-      if (range.length !== 1) return false
-      return isValidCronInteger(base, min, max)
-    })
-  }
-
-  function cronFieldValues(field: string, min: number, max: number) {
-    const values = new Set<number>()
-    for (const item of field.split(",")) {
-      const [base, stepRaw] = item.split("/")
-      const step = stepRaw === undefined ? 1 : Number(stepRaw)
-      const range = base === "*" ? [min, max] : base.split("-").map(Number)
-      const start = range[0]
-      const end = base === "*" || (range.length === 1 && stepRaw !== undefined) ? max : range.length === 1 ? range[0] : range[1]
-      for (let value = start; value <= end; value += step) values.add(value)
-    }
-    return values
-  }
-
-  function hasPossibleCronDayMonth(dayField: string, monthField: string) {
-    const maxDays = new Map([
-      [1, 31],
-      [2, 29],
-      [3, 31],
-      [4, 30],
-      [5, 31],
-      [6, 30],
-      [7, 31],
-      [8, 31],
-      [9, 30],
-      [10, 31],
-      [11, 30],
-      [12, 31],
-    ])
-    for (const month of cronFieldValues(monthField, 1, 12)) {
-      const maxDay = maxDays.get(month)
-      if (maxDay === undefined) continue
-      for (const day of cronFieldValues(dayField, 1, 31)) {
-        if (day <= maxDay) return true
-      }
-    }
-    return false
-  }
-
-  export function isValidCronExpression(expression: string) {
-    const fields = expression.trim().split(/\s+/)
-    if (fields.length !== 5) return false
-    return (
-      isValidCronField(fields[0], 0, 59) &&
-      isValidCronField(fields[1], 0, 23) &&
-      isValidCronField(fields[2], 1, 31) &&
-      isValidCronField(fields[3], 1, 12) &&
-      isValidCronField(fields[4], 0, 7) &&
-      (fields[4] !== "*" || hasPossibleCronDayMonth(fields[2], fields[3]))
-    )
-  }
+  export const isValidCronExpression = cronIsValidExpression
 
   function validateScheduleFields(input: CreateInput | Definition) {
     const details: ValidationErrorDetail[] = []
@@ -461,9 +398,6 @@ export namespace Automation {
     if (input.where.worktree && Instance.project.vcs !== "git") {
       addDetail(details, "where.worktree", "unsupported_where_worktree_not_git")
     }
-    if (input.kind === "recurring" && input.stop.kind === "condition") {
-      addDetail(details, "stop", "unsupported_stop_condition")
-    }
     details.push(...validateScheduleFields(input))
     return details
   }
@@ -487,9 +421,6 @@ export namespace Automation {
     }
     if (patch.rhythm?.kind === "cron" && !isValidCronExpression(patch.rhythm.expression)) {
       addDetail(details, "rhythm.expression", "invalid_cron_expression")
-    }
-    if (patch.stop?.kind === "condition") {
-      addDetail(details, "stop", "unsupported_stop_condition")
     }
     return details
   }
@@ -665,7 +596,10 @@ export namespace Automation {
   }
 
   function hasChanges(previous: Definition, patch: UpdateInput) {
-    return Object.entries(patch).some(([field, value]) => !isSameValue(previous[field as keyof Definition], value))
+    return Object.entries(patch).some(([field, value]) => {
+      if (field === "variant" && value === null && previous.variant === undefined) return false
+      return !isSameValue(previous[field as keyof Definition], value)
+    })
   }
 
   export function update(id: string, patch: UpdateInput, options?: { now?: number }): Definition {
