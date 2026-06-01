@@ -637,36 +637,44 @@ export namespace Automation {
     options?: { now?: number; refreshOnStopped?: boolean },
   ): Definition | undefined {
     if (run.state !== "succeeded" && run.state !== "failed" && run.state !== "stopped") return undefined
-    const previous = getOptional(run.automationID)
-    if (!previous || previous.kind !== "recurring") return undefined
     const now = options?.now ?? Date.now()
-    const failureStreak =
-      run.state === "succeeded" ? 0 : run.state === "failed" ? previous.failureStreak + 1 : previous.failureStreak
-    const derived =
-      run.state === "stopped" && !options?.refreshOnStopped
-        ? { nextFireAt: previous.nextFireAt, nextFires: previous.nextFires }
-        : computeDerivedFields(previous, now, completedRunCount(previous.id))
-    if (
-      previous.failureStreak === failureStreak &&
-      previous.nextFireAt === derived.nextFireAt &&
-      sameArray(previous.nextFires, derived.nextFires)
-    ) {
-      return undefined
+    // Retry on revision conflict: a concurrent write (e.g. pause/update) may
+    // have advanced the row between our read and our update. Re-read the
+    // latest definition and recompute failureStreak + derived fields against
+    // it, otherwise we silently drop the run's outcome and the user sees a
+    // stale nextFireAt / failureStreak.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const previous = getOptional(run.automationID)
+      if (!previous || previous.kind !== "recurring") return undefined
+      const failureStreak =
+        run.state === "succeeded" ? 0 : run.state === "failed" ? previous.failureStreak + 1 : previous.failureStreak
+      const derived =
+        run.state === "stopped" && !options?.refreshOnStopped
+          ? { nextFireAt: previous.nextFireAt, nextFires: previous.nextFires }
+          : computeDerivedFields(previous, now, completedRunCount(previous.id))
+      if (
+        previous.failureStreak === failureStreak &&
+        previous.nextFireAt === derived.nextFireAt &&
+        sameArray(previous.nextFires, derived.nextFires)
+      ) {
+        return undefined
+      }
+      const next = Definition.parse({
+        ...previous,
+        failureStreak,
+        nextFireAt: derived.nextFireAt,
+        nextFires: derived.nextFires,
+        revision: previous.revision + 1,
+        updatedAt: now,
+      })
+      try {
+        return replaceDefinition(previous, next)
+      } catch (error) {
+        if (!(error instanceof ConflictError)) throw error
+        // retry: read latest and recompute
+      }
     }
-    const next = Definition.parse({
-      ...previous,
-      failureStreak,
-      nextFireAt: derived.nextFireAt,
-      nextFires: derived.nextFires,
-      revision: previous.revision + 1,
-      updatedAt: now,
-    })
-    try {
-      return replaceDefinition(previous, next)
-    } catch (error) {
-      if (error instanceof ConflictError) return undefined
-      throw error
-    }
+    return undefined
   }
 
   function sameArray(left: readonly number[], right: readonly number[]) {

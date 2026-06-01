@@ -995,6 +995,50 @@ describe("automation scheduler", () => {
     })
   })
 
+  test("recordRunOutcome stays consistent across concurrent revision bumps", async () => {
+    await withAutomation(async (projectID) => {
+      const created = Automation.create(recurringInput(projectID, 60_000), { now: 0 })
+      if (created.kind !== "recurring") throw new Error("recurring")
+
+      const triggerFailedRun = async (now: number) => {
+        const sessionID = SessionID.descending()
+        await Automation.runNowExecuting(created.id, {
+          now,
+          executor: async ({ run }) => {
+            const running = Automation.markRunStarted(run, sessionID, { now })
+            await Automation.publishRunUpdated(running)
+            throw new Error("kaboom")
+          },
+        }).catch(() => undefined)
+        await Bun.sleep(10)
+      }
+
+      await triggerFailedRun(1_000)
+      const failed1 = Automation.runs({ automationID: created.id }).items.find((r) => r.state === "failed")
+      if (!failed1) throw new Error("failed1 missing")
+      const after1 = Automation.recordRunOutcome(failed1, { now: 1_500 })
+      if (!after1 || after1.kind !== "recurring") throw new Error("after1")
+      expect(after1.failureStreak).toBe(1)
+      expect(after1.revision).toBeGreaterThan(created.revision)
+
+      const edited = Automation.update(created.id, { title: "edited" }, { now: 2_000 })
+      expect(edited.revision).toBeGreaterThan(after1.revision)
+
+      await triggerFailedRun(3_000)
+      const failed2 = Automation.runs({ automationID: created.id }).items
+        .filter((r) => r.state === "failed")
+        .find((r) => r.id !== failed1.id)
+      if (!failed2) throw new Error("failed2 missing")
+      const after2 = Automation.recordRunOutcome(failed2, { now: 3_500 })
+      if (!after2 || after2.kind !== "recurring") throw new Error("after2")
+      // Concurrent edit must not erase the streak; record reads the latest
+      // and applies the increment on top.
+      expect(after2.failureStreak).toBe(2)
+      expect(after2.title).toBe("edited")
+      expect(after2.revision).toBeGreaterThan(edited.revision)
+    })
+  })
+
   test("CreateInput schema rejects stop kind 'condition' before reaching validate", async () => {
     await withAutomation(async (projectID) => {
       const raw = recurringInput(projectID, 60_000, { stop: { kind: "condition", condition: "repo is ready" } as never })
