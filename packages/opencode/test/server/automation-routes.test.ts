@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test"
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test"
 import { Hono } from "hono"
 import { Log } from "@opencode-ai/core/util/log"
 import { Automation, AutomationID } from "../../src/automation"
@@ -13,8 +13,18 @@ import { SessionID } from "../../src/session/schema"
 import { Flock } from "../../src/util/flock"
 import { tmpdir } from "../fixture/fixture"
 
-process.env.OPENCODE_SKIP_AUTOMATION_MODEL_VALIDATION = "1"
 void Log.init({ print: false })
+
+const previousSkipAutomationModelValidation = process.env.OPENCODE_SKIP_AUTOMATION_MODEL_VALIDATION
+
+beforeAll(() => {
+  process.env.OPENCODE_SKIP_AUTOMATION_MODEL_VALIDATION = "1"
+})
+
+afterAll(() => {
+  if (previousSkipAutomationModelValidation === undefined) delete process.env.OPENCODE_SKIP_AUTOMATION_MODEL_VALIDATION
+  else process.env.OPENCODE_SKIP_AUTOMATION_MODEL_VALIDATION = previousSkipAutomationModelValidation
+})
 
 afterEach(async () => {
   await Instance.disposeAll()
