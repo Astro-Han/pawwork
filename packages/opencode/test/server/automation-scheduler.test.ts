@@ -1083,6 +1083,14 @@ describe("automation scheduler", () => {
 
       const runs = await waitForRunStates(definition.id, ["stopped", "stopped"])
       expect(runs[0].triggeredAt).toBe(60_000)
+      const after = Automation.get(definition.id)
+      if (after.kind !== "recurring") throw new Error("recurring")
+      expect(after.revision).toBe(definition.revision)
+      if (definition.kind === "recurring") {
+        expect(after.failureStreak).toBe(definition.failureStreak)
+        expect(after.nextFireAt).toBe(definition.nextFireAt)
+        expect(after.nextFires).toEqual(definition.nextFires)
+      }
       releaseBlocker.resolve({ sessionID: SessionID.descending(), result: "blocker done", cost: 0 })
       scheduler.stop()
     })

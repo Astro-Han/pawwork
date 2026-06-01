@@ -705,7 +705,10 @@ export namespace Automation {
     const now = options?.now ?? Date.now()
     const failureStreak =
       run.state === "succeeded" ? 0 : run.state === "failed" ? previous.failureStreak + 1 : previous.failureStreak
-    const derived = computeDerivedFields(previous, now, completedRunCount(previous.id))
+    const derived =
+      run.state === "stopped"
+        ? { nextFireAt: previous.nextFireAt, nextFires: previous.nextFires }
+        : computeDerivedFields(previous, now, completedRunCount(previous.id))
     if (
       previous.failureStreak === failureStreak &&
       previous.nextFireAt === derived.nextFireAt &&
