@@ -150,7 +150,11 @@ describe("automation route 422 wiring with provider validation enabled", () => {
         const response = await app.request("/automation", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify(recurringInput(projectID)),
+          body: JSON.stringify(
+            recurringInput(projectID, {
+              model: Automation.Model.parse({ providerID: "nonexistent", modelID: "missing-model" }),
+            }),
+          ),
         })
         expect(response.status).toBe(422)
         const body = await response.json()

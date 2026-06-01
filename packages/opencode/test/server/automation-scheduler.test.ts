@@ -212,6 +212,17 @@ async function waitForRunCount(automationID: string, count: number) {
   throw new Error(`Timed out waiting for automation run count: ${count}`)
 }
 
+async function waitForFailedRunCount(automationID: string, count: number) {
+  const deadline = Date.now() + 3_000
+  let latest: Automation.Run[] = []
+  while (Date.now() < deadline) {
+    latest = Automation.runs({ automationID }).items
+    if (latest.filter((r) => r.state === "failed").length >= count) return latest
+    await Bun.sleep(5)
+  }
+  throw new Error(`Timed out waiting for ${count} failed run(s); latest=${JSON.stringify(latest)}`)
+}
+
 async function waitForStarts(starts: unknown[], count: number) {
   const deadline = Date.now() + 3_000
   while (Date.now() < deadline) {
@@ -1009,8 +1020,7 @@ describe("automation scheduler", () => {
           throw new Error("kaboom")
         },
       }).catch(() => undefined)
-      await Bun.sleep(10)
-      const failed = Automation.runs({ automationID: created.id }).items.find((r) => r.state === "failed")
+      const failed = (await waitForFailedRunCount(created.id, 1)).find((r) => r.state === "failed")
       if (!failed) throw new Error("failed missing")
 
       // Force a real ConflictError: __testBeforeReplace fires after record
@@ -1040,8 +1050,10 @@ describe("automation scheduler", () => {
       const created = Automation.create(recurringInput(projectID, 60_000), { now: 0 })
       if (created.kind !== "recurring") throw new Error("recurring")
 
+      let expectedFailed = 0
       const triggerFailedRun = async (now: number) => {
         const sessionID = SessionID.descending()
+        expectedFailed += 1
         await Automation.runNowExecuting(created.id, {
           now,
           executor: async ({ run }) => {
@@ -1050,7 +1062,7 @@ describe("automation scheduler", () => {
             throw new Error("kaboom")
           },
         }).catch(() => undefined)
-        await Bun.sleep(10)
+        await waitForFailedRunCount(created.id, expectedFailed)
       }
 
       await triggerFailedRun(1_000)
