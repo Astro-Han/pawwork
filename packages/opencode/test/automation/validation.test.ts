@@ -35,8 +35,8 @@ describe("automation validation — matches HTTP route 422 details payload", () 
     Effect.gen(function* () {
       const provider: Provider.Interface = {
         ...fakeAutomationProvider().interface,
-        getModel: ((pId, mId) =>
-          Effect.fail(new ModelNotFoundError({ providerID: pId, modelID: mId }))) as Provider.Interface["getModel"],
+        getModel: (pId, mId) =>
+          Effect.fail(new ModelNotFoundError({ providerID: pId, modelID: mId })) as never,
       }
       const details = yield* validateModelAndVariantWith(provider, { providerID: "anthropic", modelID: "claude-bogus" }, undefined)
       expect(details).toEqual([{ field: "model", message: "model_not_found" }])
@@ -47,7 +47,7 @@ describe("automation validation — matches HTTP route 422 details payload", () 
     Effect.gen(function* () {
       const provider: Provider.Interface = {
         ...fakeAutomationProvider().interface,
-        getModel: (() => Effect.die(new Error("provider exploded"))) as Provider.Interface["getModel"],
+        getModel: () => Effect.die(new Error("provider exploded")) as never,
       }
       const details = yield* validateModelAndVariantWith(provider, { providerID: "x", modelID: "y" }, undefined)
       expect(details).toEqual([{ field: "model", message: "model_lookup_failed" }])
@@ -71,7 +71,7 @@ describe("automation validation — matches HTTP route 422 details payload", () 
       })
       const provider: Provider.Interface = {
         ...fakeAutomationProvider().interface,
-        getModel: (() => Effect.succeed(nonReasoning)) as Provider.Interface["getModel"],
+        getModel: () => Effect.succeed(nonReasoning) as never,
       }
       const details = yield* validateModelAndVariantWith(provider, { providerID: "openai", modelID: "plain-model" }, "high")
       expect(details).toEqual([{ field: "variant", message: "invalid_variant_for_model" }])

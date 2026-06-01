@@ -163,6 +163,11 @@ export namespace AutomationScheduler {
     const unschedulable = new Map<string, Automation.Definition>()
     const ownedRuns = new Map<string, string>()
     const schedulerStoppedRuns = new Set<string>()
+    // Marks DefinitionUpdated events that the scheduler emits itself after a
+    // stopped-run refresh, so its own DefinitionUpdated subscriber can skip
+    // reschedule() — preventing a missed_schedule → refresh → publish → reschedule
+    // self-loop when the clock keeps oversleeping.
+    const selfPublishedDefinitionUpdates = new Set<string>()
     let ownsTimers = !ownerKey
     let ownerLease: Flock.Lease | undefined
     let ownerAttempt: Promise<void> | undefined
@@ -335,7 +340,10 @@ export namespace AutomationScheduler {
             now: clock.now(),
             refreshOnStopped: wasOwned || wasSchedulerStopped,
           })
-          if (refreshed) void Automation.publishDefinitionUpdated(refreshed)
+          if (refreshed) {
+            selfPublishedDefinitionUpdates.add(refreshed.id)
+            void Automation.publishDefinitionUpdated(refreshed)
+          }
         } catch (error) {
           if (!NotFoundError.isInstance(error)) log.error("automation derived field update failed", { error, automationID: run.automationID })
         }
@@ -344,6 +352,7 @@ export namespace AutomationScheduler {
     })
     const unsubscribeDefinitionUpdates = Bus.subscribe(Automation.Event.DefinitionUpdated, (event) => {
       if (!running) return
+      if (selfPublishedDefinitionUpdates.delete(event.properties.id)) return
       reschedule(event.properties)
     })
     const unsubscribeDefinitionDeletes = Bus.subscribe(Automation.Event.DefinitionDeleted, (event) => {

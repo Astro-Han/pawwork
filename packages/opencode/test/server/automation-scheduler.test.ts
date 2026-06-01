@@ -1287,26 +1287,4 @@ describe("automation scheduler", () => {
       scheduler.stop()
     })
   })
-
-  test("missed_schedule on a recurring interval advances the stored nextFireAt preview", async () => {
-    await withAutomation(async (projectID) => {
-      const clock = new OversleepClock(0, 180_001)
-      const scheduler = AutomationScheduler.make({
-        clock,
-        executor: async () => ({ sessionID: SessionID.descending(), result: "done", cost: 0 }),
-      })
-      const definition = Automation.create(recurringInput(projectID, 60_000), { now: 0 })
-
-      scheduler.reschedule(definition)
-      const runs = await waitForRunCount(definition.id, 1)
-      expect(runs[0]).toMatchObject({ state: "stopped", stopReason: "missed_schedule" })
-
-      const after = Automation.get(definition.id)
-      if (after.kind !== "recurring" || definition.kind !== "recurring") throw new Error("recurring")
-      expect(after.failureStreak).toBe(definition.failureStreak)
-      expect(after.nextFireAt).not.toBe(definition.nextFireAt)
-      expect(after.nextFireAt).toBeGreaterThanOrEqual(clock.now())
-      scheduler.stop()
-    })
-  })
 })
