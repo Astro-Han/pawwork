@@ -7,6 +7,7 @@ import { ProjectID } from "../../src/project/schema"
 import { trackActiveRun } from "../../src/session/lifecycle-provenance"
 import { MessageID, SessionID } from "../../src/session/schema"
 import { createAutomateDefinition } from "../../src/tool/automate"
+import { fakeAutomationProvider } from "../fake/provider"
 import { tmpdir } from "../fixture/fixture"
 import { Flock } from "../../src/util/flock"
 
@@ -125,6 +126,12 @@ async function withAutomation<T>(fn: (projectID: ProjectID) => Promise<T>) {
   })
 }
 
+const fakeProvider = fakeAutomationProvider()
+const fixtureModel = Automation.Model.parse({
+  providerID: fakeProvider.providerID,
+  modelID: fakeProvider.modelID,
+})
+
 function oneshotInput(projectID: ProjectID, fireAt: number): Automation.CreateInput {
   return {
     kind: "oneshot",
@@ -133,6 +140,7 @@ function oneshotInput(projectID: ProjectID, fireAt: number): Automation.CreateIn
     context: "fresh",
     where: { projectID },
     timezone: "Asia/Shanghai",
+    model: fixtureModel,
     fireAt,
   }
 }
@@ -147,6 +155,7 @@ function recurringInput(projectID: ProjectID, everyMs: number, overrides: Partia
     context: "fresh",
     where: { projectID },
     timezone: "Asia/Shanghai",
+    model: fixtureModel,
     rhythm: { kind: "interval", everyMs },
     stop: { kind: "never" },
     ...overrides,
@@ -280,7 +289,7 @@ describe("automation scheduler", () => {
         clock,
         executor: async () => ({ sessionID: SessionID.descending(), result: "done", cost: 0 }),
       })
-      const tool = createAutomateDefinition()
+      const tool = createAutomateDefinition(fakeProvider.interface)
 
       const result = await Effect.runPromise(
         tool.execute(
@@ -986,28 +995,20 @@ describe("automation scheduler", () => {
     })
   })
 
-  test("does not schedule recurring condition stops without an evaluator", async () => {
+  test("rejects recurring condition stops at create time", async () => {
     await withAutomation(async (projectID) => {
-      const clock = new FakeClock(0)
-      const starts: number[] = []
-      const scheduler = AutomationScheduler.make({
-        clock,
-        executor: async () => {
-          starts.push(clock.now())
-          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
-        },
-      })
-      const definition = Automation.create(
-        recurringInput(projectID, 60_000, { stop: { kind: "condition", condition: "repo is ready" } }),
-        { now: 0 },
-      )
-
-      scheduler.reschedule(definition)
-      await clock.advance(60_000)
-
-      expect(starts).toEqual([])
-      expect(Automation.runs({ automationID: definition.id }).items).toHaveLength(0)
-      scheduler.stop()
+      let captured: unknown
+      try {
+        Automation.create(
+          recurringInput(projectID, 60_000, { stop: { kind: "condition", condition: "repo is ready" } }),
+          { now: 0 },
+        )
+      } catch (error) {
+        captured = error
+      }
+      expect(captured).toBeInstanceOf(Error)
+      const validation = captured as { details?: { field: string; message: string }[] }
+      expect(validation.details).toEqual(expect.arrayContaining([{ field: "stop", message: "unsupported_stop_condition" }]))
     })
   })
 

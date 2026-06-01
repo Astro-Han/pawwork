@@ -388,6 +388,14 @@ export namespace AutomationScheduler {
       const wasOwned = ownedRuns.delete(run.id)
       const wasSchedulerStopped = schedulerStoppedRuns.delete(run.id)
       if (run.state === "stopped" && !wasOwned && !wasSchedulerStopped) return
+      if (ownsTimers) {
+        try {
+          const refreshed = Automation.recordRunOutcome(run, { now: clock.now() })
+          if (refreshed) void Automation.publishDefinitionUpdated(refreshed)
+        } catch (error) {
+          if (!NotFoundError.isInstance(error)) log.error("automation derived field update failed", { error, automationID: run.automationID })
+        }
+      }
       scheduleNextInterval(run.automationID)
     })
     const unsubscribeDefinitionUpdates = Bus.subscribe(Automation.Event.DefinitionUpdated, (event) => {

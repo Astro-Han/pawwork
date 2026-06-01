@@ -1,6 +1,45 @@
 import { Effect, Layer } from "effect"
 import { Provider } from "../../src/provider/provider"
+import { ProviderTransform } from "../../src/provider/transform"
 import { ModelID, ProviderID } from "../../src/provider/schema"
+
+export function fakeAutomationProvider(): {
+  providerID: ProviderID
+  modelID: ModelID
+  interface: Provider.Interface
+} {
+  const providerID = ProviderID.make("openai")
+  const modelID = ModelID.make("test-reasoning-model")
+  const mdl = ProviderTest.model({
+    id: modelID,
+    providerID,
+    capabilities: {
+      toolcall: true,
+      attachment: false,
+      reasoning: true,
+      temperature: true,
+      interleaved: false,
+      input: { text: true, image: false, audio: false, video: false, pdf: false },
+      output: { text: true, image: false, audio: false, video: false, pdf: false },
+    },
+    api: { id: modelID, url: "https://example.com", npm: "ai-gateway-provider" },
+  })
+  const info = ProviderTest.info({ id: providerID }, mdl)
+  // Sanity check: variants include 'high' so tests can use it.
+  void ProviderTransform.variants(mdl)
+  const iface: Provider.Interface = {
+    list: () => Effect.succeed({ [providerID]: info }),
+    getProvider: (id) =>
+      id === providerID ? Effect.succeed(info) : Effect.die(new Error(`Unknown provider: ${id}`)),
+    getModel: (pId, mId) =>
+      pId === providerID && mId === modelID ? Effect.succeed(mdl) : Effect.die(new Error(`Unknown model: ${pId}/${mId}`)),
+    getLanguage: () => Effect.die(new Error("getLanguage not configured")),
+    closest: (pId) => Effect.succeed(pId === providerID ? { providerID, modelID } : undefined),
+    getSmallModel: (pId) => Effect.succeed(pId === providerID ? mdl : undefined),
+    defaultModel: () => Effect.succeed({ providerID, modelID }),
+  }
+  return { providerID, modelID, interface: iface }
+}
 
 export namespace ProviderTest {
   export function model(override: Partial<Provider.Model> = {}): Provider.Model {

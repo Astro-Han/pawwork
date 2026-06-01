@@ -13,6 +13,7 @@ import { SessionID } from "../../src/session/schema"
 import { Flock } from "../../src/util/flock"
 import { tmpdir } from "../fixture/fixture"
 
+process.env.OPENCODE_SKIP_AUTOMATION_MODEL_VALIDATION = "1"
 void Log.init({ print: false })
 
 afterEach(async () => {
@@ -70,6 +71,8 @@ function deferred<T>() {
 type RecurringCreateInput = Extract<Automation.CreateInput, { kind: "recurring" }>
 type OneshotCreateInput = Extract<Automation.CreateInput, { kind: "oneshot" }>
 
+const fixtureModel = Automation.Model.parse({ providerID: "anthropic", modelID: "claude-sonnet-4-6" })
+
 function recurringInput(projectID: ProjectID, overrides: Partial<RecurringCreateInput> = {}): RecurringCreateInput {
   return {
     kind: "recurring",
@@ -78,6 +81,7 @@ function recurringInput(projectID: ProjectID, overrides: Partial<RecurringCreate
     context: "fresh",
     where: { projectID },
     timezone: "Asia/Shanghai",
+    model: fixtureModel,
     rhythm: { kind: "interval", everyMs: 60_000 },
     stop: { kind: "count", count: 3 },
     ...overrides,
@@ -92,6 +96,7 @@ function oneshotInput(projectID: ProjectID, overrides: Partial<OneshotCreateInpu
     context: "fresh",
     where: { projectID },
     timezone: "Asia/Shanghai",
+    model: fixtureModel,
     fireAt: 1_800_000_000_000,
     ...overrides,
   }
@@ -387,8 +392,10 @@ describe("automation routes", () => {
       expect(body.id).toMatch(/^automation_/)
       expect(body.createdAt).toBeNumber()
       expect(body.updatedAt).toBe(body.createdAt)
-      expect(body.nextFireAt).toBeNull()
-      expect(body.nextFires).toEqual([])
+      expect(body.model).toEqual(fixtureModel)
+      expect(body.nextFireAt).toBeNumber()
+      expect(body.nextFires).toHaveLength(3)
+      expect(body.failureStreak).toBe(0)
     })
   })
 

@@ -5,11 +5,13 @@ import { Identifier } from "@/id/id"
 import { Instance } from "@/project/instance"
 import { ProjectID } from "@/project/schema"
 import { PermissionID } from "@/permission/schema"
+import { ModelID, ProviderID } from "@/provider/schema"
 import { SessionID } from "@/session/schema"
 import { and, Database, desc, eq, gte, inArray, lt, NotFoundError, or, sql } from "@/storage/db"
 import { Flock } from "@/util/flock"
 import type { AutomationRunAttendance, AutomationRunBlocker } from "./run-context"
 import { AutomationDefinitionTable, AutomationRunTable } from "./automation.sql"
+import { computeDerivedFields } from "./derived"
 
 export const AutomationID = {
   Definition: {
@@ -38,11 +40,17 @@ export namespace Automation {
     .meta({
       ref: "AutomationWhere",
     })
+  export const Model = z
+    .object({ providerID: ProviderID.zod, modelID: ModelID.zod })
+    .strict()
+    .meta({ ref: "AutomationModel" })
+  export type Model = z.infer<typeof Model>
   export const ValidationErrorDetail = z
     .object({ field: z.string(), message: z.string() })
     .strict()
     .meta({ ref: "AutomationValidationErrorDetail" })
   export type ValidationErrorDetail = z.infer<typeof ValidationErrorDetail>
+  export type ValidationErrorDetailType = ValidationErrorDetail
   export const ValidationErrorResponse = z
     .object({ error: z.literal("invalid_automation"), details: z.array(ValidationErrorDetail) })
     .strict()
@@ -75,6 +83,8 @@ export namespace Automation {
     context: Context,
     where: Where,
     timezone: z.string().min(1),
+    model: Model,
+    variant: z.string().min(1).optional(),
   }
 
   export const CreateInput = z
@@ -96,6 +106,8 @@ export namespace Automation {
       fireAt: z.number().int().nonnegative().optional(),
       rhythm: Rhythm.optional(),
       stop: Stop.optional(),
+      model: Model.optional(),
+      variant: z.string().min(1).optional(),
     })
     .strict()
     .meta({ ref: "AutomationUpdateInput" })
@@ -115,6 +127,8 @@ export namespace Automation {
     sourceSessionID: SessionID.zod.optional(),
     automationSessionID: SessionID.zod.optional(),
     normalizationWarnings: z.array(z.string()),
+    model: Model,
+    variant: z.string().min(1).optional(),
   }
 
   export const Definition = z
@@ -263,6 +277,8 @@ export namespace Automation {
     "context",
     "where",
     "timezone",
+    "model",
+    "variant",
   ])
   const ONESHOT_CREATE_FIELDS = new Set([...COMMON_CREATE_FIELDS, "fireAt"])
   const RECURRING_CREATE_FIELDS = new Set([...COMMON_CREATE_FIELDS, "rhythm", "stop"])
@@ -276,6 +292,8 @@ export namespace Automation {
     "fireAt",
     "rhythm",
     "stop",
+    "model",
+    "variant",
   ])
 
   function addDetail(details: ValidationErrorDetail[], field: string, message: string) {
@@ -443,6 +461,9 @@ export namespace Automation {
     if (input.where.worktree && Instance.project.vcs !== "git") {
       addDetail(details, "where.worktree", "unsupported_where_worktree_not_git")
     }
+    if (input.kind === "recurring" && input.stop.kind === "condition") {
+      addDetail(details, "stop", "unsupported_stop_condition")
+    }
     details.push(...validateScheduleFields(input))
     return details
   }
@@ -467,6 +488,9 @@ export namespace Automation {
     if (patch.rhythm?.kind === "cron" && !isValidCronExpression(patch.rhythm.expression)) {
       addDetail(details, "rhythm.expression", "invalid_cron_expression")
     }
+    if (patch.stop?.kind === "condition") {
+      addDetail(details, "stop", "unsupported_stop_condition")
+    }
     return details
   }
 
@@ -487,9 +511,11 @@ export namespace Automation {
       updatedAt: now,
       timezone: input.timezone,
       normalizationWarnings: [],
+      model: input.model,
+      ...(input.variant ? { variant: input.variant } : {}),
       ...(options?.sourceSessionID ? { sourceSessionID: options.sourceSessionID } : {}),
     }
-    const definition: Definition =
+    let definition: Definition =
       input.kind === "oneshot"
         ? { kind: "oneshot", ...base, fireAt: input.fireAt }
         : {
@@ -501,6 +527,10 @@ export namespace Automation {
             nextFires: [],
             failureStreak: 0,
           }
+    if (definition.kind === "recurring") {
+      const derived = computeDerivedFields(definition, now, 0)
+      definition = { ...definition, nextFireAt: derived.nextFireAt, nextFires: derived.nextFires }
+    }
     writeDefinition(definition)
     return definition
   }
@@ -645,7 +675,7 @@ export namespace Automation {
     const updateDetails = validateUpdateInput(previous, patch, now)
     if (updateDetails.length) throw new ValidationError(updateDetails)
     if (!hasChanges(previous, patch)) return previous
-    const next = Definition.parse({
+    let next = Definition.parse({
       ...previous,
       ...patch,
       revision: previous.revision + 1,
@@ -653,7 +683,50 @@ export namespace Automation {
     })
     const details = validateCreateInput(next)
     if (details.length) throw new ValidationError(details)
+    if (next.kind === "recurring") {
+      const derived = computeDerivedFields(next, now, completedRunCount(next.id))
+      next = { ...next, nextFireAt: derived.nextFireAt, nextFires: derived.nextFires }
+    }
     return replaceDefinition(previous, next)
+  }
+
+  export function recordRunOutcome(run: Run, options?: { now?: number }): Definition | undefined {
+    if (run.state !== "succeeded" && run.state !== "failed" && run.state !== "stopped") return undefined
+    const previous = getOptional(run.automationID)
+    if (!previous || previous.kind !== "recurring") return undefined
+    const now = options?.now ?? Date.now()
+    const failureStreak =
+      run.state === "succeeded" ? 0 : run.state === "failed" ? previous.failureStreak + 1 : previous.failureStreak
+    const derived = computeDerivedFields(previous, now, completedRunCount(previous.id))
+    if (
+      previous.failureStreak === failureStreak &&
+      previous.nextFireAt === derived.nextFireAt &&
+      sameArray(previous.nextFires, derived.nextFires)
+    ) {
+      return undefined
+    }
+    const next = Definition.parse({
+      ...previous,
+      failureStreak,
+      nextFireAt: derived.nextFireAt,
+      nextFires: derived.nextFires,
+      revision: previous.revision + 1,
+      updatedAt: now,
+    })
+    try {
+      return replaceDefinition(previous, next)
+    } catch (error) {
+      if (error instanceof ConflictError) return undefined
+      throw error
+    }
+  }
+
+  function sameArray(left: readonly number[], right: readonly number[]) {
+    if (left.length !== right.length) return false
+    for (let index = 0; index < left.length; index++) {
+      if (left[index] !== right[index]) return false
+    }
+    return true
   }
 
   export async function remove(id: string): Promise<{ tombstone: Tombstone; stoppedRun?: Run }> {

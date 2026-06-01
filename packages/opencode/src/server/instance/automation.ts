@@ -5,6 +5,8 @@ import z from "zod"
 import { ActiveRunStillRunningError, Automation, AutomationID, ConflictError, ValidationError } from "@/automation"
 import { sessionPromptExecutor } from "@/automation/runner"
 import { AutomationScheduler } from "@/automation/scheduler"
+import { validateModelAndVariant } from "@/automation/validation"
+import { AppRuntime } from "@/effect/app-runtime"
 import { errors } from "../error"
 
 function validationError(error: ValidationError) {
@@ -29,6 +31,11 @@ async function publishIfChanged(previous: Automation.Definition, definition: Aut
 
 async function settleAutomationScheduler() {
   await AutomationScheduler.current().settleOwner()
+}
+
+async function modelValidationDetails(model: Automation.Model, variant?: string) {
+  if (process.env.OPENCODE_SKIP_AUTOMATION_MODEL_VALIDATION === "1") return []
+  return AppRuntime.runPromise(validateModelAndVariant(model, variant))
 }
 
 function validationIssuePath(issue: unknown) {
@@ -120,7 +127,15 @@ export const AutomationRoutes = (): Hono =>
       async (c) => {
         try {
           await settleAutomationScheduler()
-          const definition = Automation.create(c.req.valid("json"))
+          const input = c.req.valid("json")
+          const modelDetails = await modelValidationDetails(input.model, input.variant)
+          if (modelDetails.length) {
+            return c.json(
+              Automation.ValidationErrorResponse.parse({ error: "invalid_automation", details: modelDetails }),
+              422,
+            )
+          }
+          const definition = Automation.create(input)
           await Automation.publishDefinitionUpdated(definition)
           return c.json(definition)
         } catch (error) {
@@ -178,7 +193,19 @@ export const AutomationRoutes = (): Hono =>
           const automationID = c.req.valid("param").automationID
           await settleAutomationScheduler()
           const previous = Automation.get(automationID)
-          const definition = Automation.update(automationID, c.req.valid("json"))
+          const patch = c.req.valid("json")
+          if (patch.model !== undefined || patch.variant !== undefined) {
+            const effectiveModel = patch.model ?? previous.model
+            const effectiveVariant = patch.variant ?? previous.variant
+            const modelDetails = await modelValidationDetails(effectiveModel, effectiveVariant)
+            if (modelDetails.length) {
+              return c.json(
+                Automation.ValidationErrorResponse.parse({ error: "invalid_automation", details: modelDetails }),
+                422,
+              )
+            }
+          }
+          const definition = Automation.update(automationID, patch)
           await publishIfChanged(previous, definition)
           return c.json(definition)
         } catch (error) {
