@@ -91,18 +91,15 @@ export function createSessionReviewState(input: {
     scope: Record<VcsReviewMode, ExecutionScope | undefined>
   }>({
     diff: {
-      unstaged: [],
-      staged: [],
+      git: [],
       branch: [],
     },
     ready: {
-      unstaged: false,
-      staged: false,
+      git: false,
       branch: false,
     },
     scope: {
-      unstaged: undefined,
-      staged: undefined,
+      git: undefined,
       branch: undefined,
     },
   })
@@ -119,7 +116,7 @@ export function createSessionReviewState(input: {
 
   const resetVcs = (mode?: VcsReviewMode) => {
     const scope = input.executionScope()
-    const modes = mode ? [mode] : (["unstaged", "staged", "branch"] as const)
+    const modes = mode ? [mode] : (["git", "branch"] as const)
     modes.forEach((item) => {
       const key = vcsTaskKey(scope, item)
       bumpVcs(scope, item)

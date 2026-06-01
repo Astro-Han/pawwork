@@ -17,6 +17,8 @@ export namespace Vcs {
   const MAX_PATCH_BYTES = 10_000_000
   const MAX_TOTAL_PATCH_BYTES = 10_000_000
   export const MAX_APPLY_PATCH_BYTES = MAX_TOTAL_PATCH_BYTES
+  // git's well-known empty-tree object; used as a HEAD substitute in pre-first-commit repos.
+  const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
   const emptyPatch = (file: string) => formatPatch(structuredPatch(file, file, "", "", "", "", { context: 0 }))
 
@@ -66,51 +68,56 @@ export namespace Vcs {
     return result.text
   })
 
-  const staged = Effect.fnUntraced(function* (git: Git.Interface, cwd: string) {
-    const [list, stats] = yield* Effect.all([git.diffStaged(cwd), git.statsStaged(cwd)], { concurrency: 2 })
-    const statMap = nums(stats)
-    const batch: PatchBatch = { total: 0, capped: false }
-    const next = yield* Effect.forEach(
-      list.toSorted((a, b) => a.file.localeCompare(b.file)),
-      (item) =>
-        Effect.gen(function* () {
-          const stat = statMap.get(item.file)
-          return {
-            file: item.file,
-            patch: yield* boundedPatch(batch, item, git.patchStaged(cwd, item.file, {
-              context: PATCH_CONTEXT_LINES,
-              maxOutputBytes: MAX_PATCH_BYTES,
-            })),
-            additions: stat?.additions ?? 0,
-            deletions: stat?.deletions ?? 0,
-            status: item.status,
-          } satisfies FileDiff
-        }),
-      { concurrency: 1 },
-    )
-    return next
-  })
+  // True when the index column of a porcelain status code reports a staged
+  // delta. Picks up "MM", "A ", "AD", etc. while excluding untracked entries
+  // ("??") and worktree-only changes (" M"). Used to detect files whose
+  // staged contents disagree with the ref even when the worktree happens to
+  // match it — `git diff <ref>` alone misses these.
+  const stagedAgainstRef = (item: Git.Item) => item.code !== "??" && item.code[0] !== " " && item.code[0] !== "?"
 
-  const unstaged = Effect.fnUntraced(function* (git: Git.Interface, cwd: string) {
-    const [tracked, extra, stats] = yield* Effect.all(
-      [git.diffUnstaged(cwd), git.statusUnstaged(cwd), git.statsUnstaged(cwd)],
-      { concurrency: 3 },
-    )
-    const list = merge(
-      tracked,
-      extra.filter((item) => item.code === "??"),
-    )
-    const statMap = nums(stats)
+  const track = Effect.fnUntraced(function* (git: Git.Interface, cwd: string, ref: string | undefined) {
+    const [tracked, status, headStats, cachedStats] = ref
+      ? yield* Effect.all(
+          [
+            git.diff(cwd, ref),
+            git.status(cwd),
+            git.stats(cwd, ref),
+            git.stats(cwd, ref, { cached: true }),
+          ],
+          { concurrency: 4 },
+        )
+      : [[] as Git.Item[], yield* git.status(cwd), [] as Git.Stat[], [] as Git.Stat[]]
+    const list = ref
+      ? merge(
+          tracked,
+          // Surface staged-only deltas the worktree-vs-ref diff would silently drop
+          // (e.g. edit → git add → restore worktree to ref, leaving status "MM" but
+          // `git diff <ref>` empty). merge() keeps the first occurrence per file, so
+          // tracked entries win when both lists overlap.
+          status.filter(stagedAgainstRef),
+          status.filter((item) => item.code === "??"),
+        )
+      : status
+    // Head stats describe worktree-vs-ref and are authoritative when present;
+    // cached stats backfill staged-only files that head missed. Map iteration order
+    // means later sets win, so seed with cached first then overlay head.
+    const statMap = nums([...cachedStats, ...headStats])
     const batch: PatchBatch = { total: 0, capped: false }
-    const next = yield* Effect.forEach(
+    return yield* Effect.forEach(
       list.toSorted((a, b) => a.file.localeCompare(b.file)),
       (item) =>
         Effect.gen(function* () {
-          const stat = statMap.get(item.file) ?? (item.status === "added" ? yield* git.statUntracked(cwd, item.file) : undefined)
+          const stat =
+            statMap.get(item.file) ?? (item.status === "added" ? yield* git.statUntracked(cwd, item.file) : undefined)
+          const patchOpts = { context: PATCH_CONTEXT_LINES, maxOutputBytes: MAX_PATCH_BYTES }
           const patch =
-            item.code === "??"
-              ? git.patchUntracked(cwd, item.file, { context: PATCH_CONTEXT_LINES, maxOutputBytes: MAX_PATCH_BYTES })
-              : git.patchUnstaged(cwd, item.file, { context: PATCH_CONTEXT_LINES, maxOutputBytes: MAX_PATCH_BYTES })
+            item.code === "??" || !ref
+              ? git.patchUntracked(cwd, item.file, patchOpts)
+              : Effect.gen(function* () {
+                  const head = yield* git.patch(cwd, ref, item.file, patchOpts)
+                  if (head.truncated || head.text || !stagedAgainstRef(item)) return head
+                  return yield* git.patch(cwd, ref, item.file, { ...patchOpts, cached: true })
+                })
           return {
             file: item.file,
             patch: yield* boundedPatch(batch, item, patch),
@@ -121,35 +128,9 @@ export namespace Vcs {
         }),
       { concurrency: 1 },
     )
-    return next
   })
 
-  const branchHead = Effect.fnUntraced(function* (git: Git.Interface, cwd: string, ref: string) {
-    const [list, stats] = yield* Effect.all([git.diffHead(cwd, ref), git.statsHead(cwd, ref)], { concurrency: 2 })
-    const statMap = nums(stats)
-    const batch: PatchBatch = { total: 0, capped: false }
-    const next = yield* Effect.forEach(
-      list.toSorted((a, b) => a.file.localeCompare(b.file)),
-      (item) =>
-        Effect.gen(function* () {
-          const stat = statMap.get(item.file)
-          return {
-            file: item.file,
-            patch: yield* boundedPatch(batch, item, git.patchHead(cwd, ref, item.file, {
-              context: PATCH_CONTEXT_LINES,
-              maxOutputBytes: MAX_PATCH_BYTES,
-            })),
-            additions: stat?.additions ?? 0,
-            deletions: stat?.deletions ?? 0,
-            status: item.status,
-          } satisfies FileDiff
-        }),
-      { concurrency: 1 },
-    )
-    return next
-  })
-
-  export const Mode = z.enum(["unstaged", "staged", "branch"])
+  export const Mode = z.enum(["git", "branch"])
   export type Mode = z.infer<typeof Mode>
 
   export const Event = {
@@ -343,19 +324,17 @@ export namespace Vcs {
         diff: Effect.fn("Vcs.diff")(function* (mode: Mode) {
           const value = yield* InstanceState.get(state)
           if (Instance.project.vcs !== "git") return []
-          if (mode === "unstaged") {
-            return yield* unstaged(git, Instance.directory)
-          }
-
-          if (mode === "staged") {
-            return yield* staged(git, Instance.directory)
+          const worktree = Instance.worktree ?? Instance.directory
+          if (mode === "git") {
+            const ref = (yield* git.hasHead(worktree)) ? "HEAD" : undefined
+            return yield* track(git, worktree, ref)
           }
 
           if (!value.root) return []
           if (value.current && value.current === value.root.name) return []
-          const ref = yield* git.mergeBase(Instance.directory, value.root.ref)
+          const ref = yield* git.mergeBase(worktree, value.root.ref)
           if (!ref) return []
-          return yield* branchHead(git, Instance.directory, ref)
+          return yield* track(git, worktree, ref)
         }),
         diffRaw: Effect.fn("Vcs.diffRaw")(function* () {
           if (Instance.project.vcs !== "git") return ""
@@ -364,33 +343,25 @@ export namespace Vcs {
             concurrency: 2,
           })
           const batch: PatchBatch = { total: 0, capped: false }
-          const tracked = yield* rawPatch(
-            batch,
-            hasHead
-              ? git.patchAll(worktree, "HEAD", { binary: true, maxOutputBytes: MAX_TOTAL_PATCH_BYTES })
-              : git.patchStagedAll(worktree, { binary: true, maxOutputBytes: MAX_TOTAL_PATCH_BYTES }),
-          )
-          const untracked = yield* Effect.forEach(
+          const opts = { binary: true, maxOutputBytes: MAX_TOTAL_PATCH_BYTES }
+          // No-HEAD repos: a single unified patch can't carry both staged content
+          // and a subsequent worktree mutation for the same path (e.g. status "AD":
+          // stage-add then rm). Stitch index-vs-empty + worktree-vs-index + untracked
+          // so callers see every uncommitted change; duplicate per-file headers are
+          // intentional. This makes diffRaw review-oriented text, NOT guaranteed
+          // git-apply-clean for mixed index/worktree states in fresh repos.
+          const tracked = hasHead
+            ? yield* rawPatch(batch, git.patchAll(worktree, "HEAD", opts))
+            : yield* rawPatch(batch, git.patchAll(worktree, EMPTY_TREE, { ...opts, cached: true }))
+          const unstaged = hasHead
+            ? ""
+            : yield* rawPatch(batch, git.patchAllUnstaged(worktree, opts))
+          const extras = yield* Effect.forEach(
             status.filter((item) => item.code === "??"),
-            (item) =>
-              rawPatch(
-                batch,
-                git.patchUntracked(worktree, item.file, { binary: true, maxOutputBytes: MAX_TOTAL_PATCH_BYTES }),
-              ),
+            (item) => rawPatch(batch, git.patchUntracked(worktree, item.file, opts)),
             { concurrency: 1 },
           )
-          const initialWorktree = hasHead
-            ? []
-            : yield* Effect.forEach(
-                status.filter((item) => item.code !== "??" && item.code[1] !== " "),
-                (item) =>
-                  rawPatch(
-                    batch,
-                    git.patchUnstaged(worktree, item.file, { binary: true, maxOutputBytes: MAX_TOTAL_PATCH_BYTES }),
-                  ),
-                { concurrency: 1 },
-              )
-          const patch = [tracked, ...initialWorktree, ...untracked].filter(Boolean).join("\n")
+          const patch = [tracked, unstaged, ...extras].filter(Boolean).join("\n")
           if (Buffer.byteLength(patch) > MAX_TOTAL_PATCH_BYTES) {
             return yield* Effect.fail(new RawDiffError("Raw VCS diff exceeds the 10 MB output limit", "too-large"))
           }

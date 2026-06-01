@@ -54,7 +54,11 @@ export namespace Git {
     readonly truncated: boolean
   }
 
-  export interface PatchOptions {
+  export interface DiffOptions {
+    readonly cached?: boolean
+  }
+
+  export interface PatchOptions extends DiffOptions {
     readonly context?: number
     readonly maxOutputBytes?: number
     readonly binary?: boolean
@@ -87,21 +91,11 @@ export namespace Git {
     readonly show: (cwd: string, ref: string, file: string, prefix?: string) => Effect.Effect<string>
     readonly showIndex: (cwd: string, file: string, prefix?: string) => Effect.Effect<string>
     readonly status: (cwd: string) => Effect.Effect<Item[]>
-    readonly statusUnstaged: (cwd: string) => Effect.Effect<Item[]>
-    readonly diff: (cwd: string, ref: string) => Effect.Effect<Item[]>
-    readonly diffUnstaged: (cwd: string) => Effect.Effect<Item[]>
-    readonly diffStaged: (cwd: string) => Effect.Effect<Item[]>
-    readonly diffHead: (cwd: string, ref: string) => Effect.Effect<Item[]>
-    readonly stats: (cwd: string, ref: string) => Effect.Effect<Stat[]>
-    readonly statsUnstaged: (cwd: string) => Effect.Effect<Stat[]>
-    readonly statsStaged: (cwd: string) => Effect.Effect<Stat[]>
-    readonly statsHead: (cwd: string, ref: string) => Effect.Effect<Stat[]>
+    readonly diff: (cwd: string, ref: string, options?: DiffOptions) => Effect.Effect<Item[]>
+    readonly stats: (cwd: string, ref: string, options?: DiffOptions) => Effect.Effect<Stat[]>
     readonly patch: (cwd: string, ref: string, file: string, options?: PatchOptions) => Effect.Effect<Patch>
     readonly patchAll: (cwd: string, ref: string, options?: PatchOptions) => Effect.Effect<Patch>
-    readonly patchStagedAll: (cwd: string, options?: PatchOptions) => Effect.Effect<Patch>
-    readonly patchUnstaged: (cwd: string, file: string, options?: PatchOptions) => Effect.Effect<Patch>
-    readonly patchStaged: (cwd: string, file: string, options?: PatchOptions) => Effect.Effect<Patch>
-    readonly patchHead: (cwd: string, ref: string, file: string, options?: PatchOptions) => Effect.Effect<Patch>
+    readonly patchAllUnstaged: (cwd: string, options?: PatchOptions) => Effect.Effect<Patch>
     readonly patchUntracked: (cwd: string, file: string, options?: PatchOptions) => Effect.Effect<Patch>
     readonly statUntracked: (cwd: string, file: string) => Effect.Effect<Stat | undefined>
     readonly applyPatch: (cwd: string, patch: string) => Effect.Effect<Result>
@@ -271,25 +265,11 @@ export namespace Git {
         })
       })
 
-      const statusUnstaged = Effect.fn("Git.statusUnstaged")(function* (cwd: string) {
-        return nuls(
-          yield* text(["status", "--porcelain=v1", "--untracked-files=all", "--no-renames", "-z", "--", "."], {
-            cwd,
-          }),
-        ).flatMap((item) => {
-          const file = item.slice(3)
-          if (!file) return []
-          const index = item[0] ?? " "
-          const worktree = item[1] ?? " "
-          if (index !== "?" && worktree === " ") return []
-          const code = item.slice(0, 2)
-          return [{ file, code, status: kind(code) } satisfies Item]
-        })
-      })
+      const cached = (options?: DiffOptions) => (options?.cached ? ["--cached"] : [])
 
-      const diff = Effect.fn("Git.diff")(function* (cwd: string, ref: string) {
+      const diff = Effect.fn("Git.diff")(function* (cwd: string, ref: string, options?: DiffOptions) {
         const list = nuls(
-          yield* text(["diff", "--no-ext-diff", "--no-renames", "--name-status", "-z", ref, "--", "."], { cwd }),
+          yield* text(["diff", ...cached(options), "--no-ext-diff", "--no-renames", "--name-status", "-z", ref, "--", "."], { cwd }),
         )
         return list.flatMap((code, idx) => {
           if (idx % 2 !== 0) return []
@@ -299,118 +279,9 @@ export namespace Git {
         })
       })
 
-      const diffUnstaged = Effect.fn("Git.diffUnstaged")(function* (cwd: string) {
-        const list = nuls(
-          yield* text(["diff", "--no-ext-diff", "--no-renames", "--name-status", "-z", "--", "."], { cwd }),
-        )
-        return list.flatMap((code, idx) => {
-          if (idx % 2 !== 0) return []
-          const file = list[idx + 1]
-          if (!code || !file) return []
-          return [{ file, code, status: kind(code) } satisfies Item]
-        })
-      })
-
-      const diffStaged = Effect.fn("Git.diffStaged")(function* (cwd: string) {
-        const list = nuls(
-          yield* text(["diff", "--no-ext-diff", "--no-renames", "--cached", "--name-status", "-z", "--", "."], {
-            cwd,
-          }),
-        )
-        return list.flatMap((code, idx) => {
-          if (idx % 2 !== 0) return []
-          const file = list[idx + 1]
-          if (!code || !file) return []
-          return [{ file, code, status: kind(code) } satisfies Item]
-        })
-      })
-
-      const diffHead = Effect.fn("Git.diffHead")(function* (cwd: string, ref: string) {
-        const list = nuls(
-          yield* text(["diff", "--no-ext-diff", "--no-renames", "--name-status", "-z", ref, "HEAD", "--", "."], {
-            cwd,
-          }),
-        )
-        return list.flatMap((code, idx) => {
-          if (idx % 2 !== 0) return []
-          const file = list[idx + 1]
-          if (!code || !file) return []
-          return [{ file, code, status: kind(code) } satisfies Item]
-        })
-      })
-
-      const stats = Effect.fn("Git.stats")(function* (cwd: string, ref: string) {
+      const stats = Effect.fn("Git.stats")(function* (cwd: string, ref: string, options?: DiffOptions) {
         return nuls(
-          yield* text(["diff", "--no-ext-diff", "--no-renames", "--numstat", "-z", ref, "--", "."], { cwd }),
-        ).flatMap((item) => {
-          const a = item.indexOf("\t")
-          const b = item.indexOf("\t", a + 1)
-          if (a === -1 || b === -1) return []
-          const file = item.slice(b + 1)
-          if (!file) return []
-          const adds = item.slice(0, a)
-          const dels = item.slice(a + 1, b)
-          const additions = adds === "-" ? 0 : Number.parseInt(adds || "0", 10)
-          const deletions = dels === "-" ? 0 : Number.parseInt(dels || "0", 10)
-          return [
-            {
-              file,
-              additions: Number.isFinite(additions) ? additions : 0,
-              deletions: Number.isFinite(deletions) ? deletions : 0,
-            } satisfies Stat,
-          ]
-        })
-      })
-
-      const statsUnstaged = Effect.fn("Git.statsUnstaged")(function* (cwd: string) {
-        return nuls(
-          yield* text(["diff", "--no-ext-diff", "--no-renames", "--numstat", "-z", "--", "."], { cwd }),
-        ).flatMap((item) => {
-          const a = item.indexOf("\t")
-          const b = item.indexOf("\t", a + 1)
-          if (a === -1 || b === -1) return []
-          const file = item.slice(b + 1)
-          if (!file) return []
-          const adds = item.slice(0, a)
-          const dels = item.slice(a + 1, b)
-          const additions = adds === "-" ? 0 : Number.parseInt(adds || "0", 10)
-          const deletions = dels === "-" ? 0 : Number.parseInt(dels || "0", 10)
-          return [
-            {
-              file,
-              additions: Number.isFinite(additions) ? additions : 0,
-              deletions: Number.isFinite(deletions) ? deletions : 0,
-            } satisfies Stat,
-          ]
-        })
-      })
-
-      const statsStaged = Effect.fn("Git.statsStaged")(function* (cwd: string) {
-        return nuls(
-          yield* text(["diff", "--no-ext-diff", "--no-renames", "--cached", "--numstat", "-z", "--", "."], { cwd }),
-        ).flatMap((item) => {
-          const a = item.indexOf("\t")
-          const b = item.indexOf("\t", a + 1)
-          if (a === -1 || b === -1) return []
-          const file = item.slice(b + 1)
-          if (!file) return []
-          const adds = item.slice(0, a)
-          const dels = item.slice(a + 1, b)
-          const additions = adds === "-" ? 0 : Number.parseInt(adds || "0", 10)
-          const deletions = dels === "-" ? 0 : Number.parseInt(dels || "0", 10)
-          return [
-            {
-              file,
-              additions: Number.isFinite(additions) ? additions : 0,
-              deletions: Number.isFinite(deletions) ? deletions : 0,
-            } satisfies Stat,
-          ]
-        })
-      })
-
-      const statsHead = Effect.fn("Git.statsHead")(function* (cwd: string, ref: string) {
-        return nuls(
-          yield* text(["diff", "--no-ext-diff", "--no-renames", "--numstat", "-z", ref, "HEAD", "--", "."], { cwd }),
+          yield* text(["diff", ...cached(options), "--no-ext-diff", "--no-renames", "--numstat", "-z", ref, "--", "."], { cwd }),
         ).flatMap((item) => {
           const a = item.indexOf("\t")
           const b = item.indexOf("\t", a + 1)
@@ -440,7 +311,7 @@ export namespace Git {
 
       const patch = Effect.fn("Git.patch")(function* (cwd: string, ref: string, file: string, options?: PatchOptions) {
         return yield* patchResult(
-          ["diff", "--patch", ...binary(options), "--no-ext-diff", "--no-renames", `--unified=${options?.context ?? 3}`, ref, "--", file],
+          ["diff", ...cached(options), "--patch", ...binary(options), "--no-ext-diff", "--no-renames", `--unified=${options?.context ?? 3}`, ref, "--", file],
           cwd,
           options,
         )
@@ -448,49 +319,16 @@ export namespace Git {
 
       const patchAll = Effect.fn("Git.patchAll")(function* (cwd: string, ref: string, options?: PatchOptions) {
         return yield* patchResult(
-          ["diff", "--patch", ...binary(options), "--no-ext-diff", "--no-renames", `--unified=${options?.context ?? 3}`, ref, "--", "."],
+          ["diff", ...cached(options), "--patch", ...binary(options), "--no-ext-diff", "--no-renames", `--unified=${options?.context ?? 3}`, ref, "--", "."],
           cwd,
           options,
         )
       })
 
-      const patchStagedAll = Effect.fn("Git.patchStagedAll")(function* (cwd: string, options?: PatchOptions) {
+      // worktree vs index for every tracked path. No ref; not interchangeable with patchAll.
+      const patchAllUnstaged = Effect.fn("Git.patchAllUnstaged")(function* (cwd: string, options?: PatchOptions) {
         return yield* patchResult(
-          ["diff", "--cached", "--patch", ...binary(options), "--no-ext-diff", "--no-renames", `--unified=${options?.context ?? 3}`, "--", "."],
-          cwd,
-          options,
-        )
-      })
-
-      const patchUnstaged = Effect.fn("Git.patchUnstaged")(function* (cwd: string, file: string, options?: PatchOptions) {
-        return yield* patchResult(
-          ["diff", "--patch", ...binary(options), "--no-ext-diff", "--no-renames", `--unified=${options?.context ?? 3}`, "--", file],
-          cwd,
-          options,
-        )
-      })
-
-      const patchStaged = Effect.fn("Git.patchStaged")(function* (cwd: string, file: string, options?: PatchOptions) {
-        return yield* patchResult(
-          [
-            "diff",
-            "--cached",
-            "--patch",
-            ...binary(options),
-            "--no-ext-diff",
-            "--no-renames",
-            `--unified=${options?.context ?? 3}`,
-            "--",
-            file,
-          ],
-          cwd,
-          options,
-        )
-      })
-
-      const patchHead = Effect.fn("Git.patchHead")(function* (cwd: string, ref: string, file: string, options?: PatchOptions) {
-        return yield* patchResult(
-          ["diff", "--patch", ...binary(options), "--no-ext-diff", "--no-renames", `--unified=${options?.context ?? 3}`, ref, "HEAD", "--", file],
+          ["diff", "--patch", ...binary(options), "--no-ext-diff", "--no-renames", `--unified=${options?.context ?? 3}`, "--", "."],
           cwd,
           options,
         )
@@ -549,21 +387,11 @@ export namespace Git {
         show,
         showIndex,
         status,
-        statusUnstaged,
         diff,
-        diffUnstaged,
-        diffStaged,
-        diffHead,
         stats,
-        statsUnstaged,
-        statsStaged,
-        statsHead,
         patch,
         patchAll,
-        patchStagedAll,
-        patchUnstaged,
-        patchStaged,
-        patchHead,
+        patchAllUnstaged,
         patchUntracked,
         statUntracked,
         applyPatch,
