@@ -134,7 +134,8 @@ export function officeCliTargets(command: string) {
 
 function firstPathArgument(words: string[]) {
   for (const word of words) {
-    if (!word || word.startsWith("-")) continue
+    if (!word) continue
+    if (word.startsWith("-")) return
     return word
   }
 }
