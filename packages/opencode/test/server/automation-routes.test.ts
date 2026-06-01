@@ -608,6 +608,16 @@ describe("automation routes", () => {
           [{ field: "prompt", message: "prompt_too_long_20000" }],
         ],
         [
+          "stop kind condition rejected with structured detail",
+          recurringInput(projectID, { stop: { kind: "condition", condition: "repo is ready" } }),
+          [{ field: "stop", message: "unsupported_stop_condition" }],
+        ],
+        [
+          "condition above replay-safe limit",
+          recurringInput(projectID, { stop: { kind: "condition", condition: "x".repeat(4_001) } }),
+          [{ field: "stop.condition", message: "condition_too_long_4000" }],
+        ],
+        [
           "externally supplied automation session",
           { ...recurringInput(projectID), automationSessionID: SessionID.descending() },
           [{ field: "automationSessionID", message: "unsupported_automation_field" }],
@@ -655,35 +665,23 @@ describe("automation routes", () => {
     })
   })
 
-  test("rejects stop kind 'condition' at the create/update route as unsupported input", async () => {
+  test("PUT rejects stop kind 'condition' with structured unsupported_stop_condition detail", async () => {
     await withAutomationApp(async ({ app, projectID }) => {
-      const createResponse = await app.request("/automation", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          ...recurringInput(projectID),
-          stop: { kind: "condition", condition: "repo is ready" },
-        }),
-      })
-      expect(createResponse.status).toBe(422)
-      const createBody = (await createResponse.json()) as { error: string; details: { field: string }[] }
-      expect(createBody.error).toBe("invalid_automation")
-      expect(createBody.details.some((d) => d.field.startsWith("stop"))).toBe(true)
-
       const created = await json(app, "/automation", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(recurringInput(projectID)),
       })
-      const updateResponse = await app.request(`/automation/${created.id}`, {
+      const response = await app.request(`/automation/${created.id}`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ stop: { kind: "condition", condition: "repo is ready" } }),
       })
-      expect(updateResponse.status).toBe(422)
-      const updateBody = (await updateResponse.json()) as { error: string; details: { field: string }[] }
-      expect(updateBody.error).toBe("invalid_automation")
-      expect(updateBody.details.some((d) => d.field.startsWith("stop"))).toBe(true)
+      expect(response.status).toBe(422)
+      expect(await response.json()).toEqual({
+        error: "invalid_automation",
+        details: [{ field: "stop", message: "unsupported_stop_condition" }],
+      })
     })
   })
 

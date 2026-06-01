@@ -64,6 +64,10 @@ export namespace Automation {
     .object({ error: z.literal("active_run_still_running"), runID: RunID })
     .strict()
     .meta({ ref: "AutomationActiveRunStillRunningError" })
+  // Stop accepts all three kinds at the schema layer so create/update can
+  // return a structured `unsupported_stop_condition` error for `kind: "condition"`
+  // (rejected by validateCreateInput / validateUpdateInput). The agent-facing
+  // `automate` tool schema separately omits condition from its input surface.
   export const Stop = z
     .discriminatedUnion("kind", [
       z.object({ kind: z.literal("count"), count: z.number().int().positive() }).strict(),
@@ -71,15 +75,6 @@ export namespace Automation {
       z.object({ kind: z.literal("never") }).strict(),
     ])
     .meta({ ref: "AutomationStop" })
-  // Input-only Stop: condition is persisted (Definition.stop can be `condition`)
-  // but cannot be supplied via create/update yet. Keep the two schemas separate
-  // so the public contract doesn't advertise a kind we reject at runtime.
-  export const SupportedCreateStop = z
-    .discriminatedUnion("kind", [
-      z.object({ kind: z.literal("count"), count: z.number().int().positive() }).strict(),
-      z.object({ kind: z.literal("never") }).strict(),
-    ])
-    .meta({ ref: "AutomationSupportedCreateStop" })
   export const Rhythm = z
     .discriminatedUnion("kind", [
       z.object({ kind: z.literal("interval"), everyMs: z.number().int().min(MIN_INTERVAL_MS, `interval_below_minimum_${MIN_INTERVAL_MS}ms`) }).strict(),
@@ -100,7 +95,7 @@ export namespace Automation {
   export const CreateInput = z
     .discriminatedUnion("kind", [
       z.object({ kind: z.literal("oneshot"), ...CommonCreate, fireAt: z.number().int().nonnegative() }).strict(),
-      z.object({ kind: z.literal("recurring"), ...CommonCreate, rhythm: Rhythm, stop: SupportedCreateStop }).strict(),
+      z.object({ kind: z.literal("recurring"), ...CommonCreate, rhythm: Rhythm, stop: Stop }).strict(),
     ])
     .meta({ ref: "AutomationCreateInput" })
   export type CreateInput = z.infer<typeof CreateInput>
@@ -115,7 +110,7 @@ export namespace Automation {
       timezone: z.string().min(1).optional(),
       fireAt: z.number().int().nonnegative().optional(),
       rhythm: Rhythm.optional(),
-      stop: SupportedCreateStop.optional(),
+      stop: Stop.optional(),
       model: Model.optional(),
       variant: z.string().min(1).nullable().optional(),
     })
@@ -398,6 +393,9 @@ export namespace Automation {
     if (input.where.worktree && Instance.project.vcs !== "git") {
       addDetail(details, "where.worktree", "unsupported_where_worktree_not_git")
     }
+    if (input.kind === "recurring" && input.stop.kind === "condition") {
+      addDetail(details, "stop", "unsupported_stop_condition")
+    }
     details.push(...validateScheduleFields(input))
     return details
   }
@@ -421,6 +419,9 @@ export namespace Automation {
     }
     if (patch.rhythm?.kind === "cron" && !isValidCronExpression(patch.rhythm.expression)) {
       addDetail(details, "rhythm.expression", "invalid_cron_expression")
+    }
+    if (patch.stop?.kind === "condition") {
+      addDetail(details, "stop", "unsupported_stop_condition")
     }
     return details
   }
@@ -634,7 +635,14 @@ export namespace Automation {
 
   export function recordRunOutcome(
     run: Run,
-    options?: { now?: number; refreshOnStopped?: boolean },
+    options?: {
+      now?: number
+      refreshOnStopped?: boolean
+      /** @internal Test-only hook fired between reading `previous` and calling
+       * `replaceDefinition`. Used to deterministically inject a concurrent write
+       * so the ConflictError retry path can be covered. */
+      __testBeforeReplace?: (previous: Definition) => void
+    },
   ): Definition | undefined {
     if (run.state !== "succeeded" && run.state !== "failed" && run.state !== "stopped") return undefined
     const now = options?.now ?? Date.now()
@@ -667,6 +675,7 @@ export namespace Automation {
         revision: previous.revision + 1,
         updatedAt: now,
       })
+      options?.__testBeforeReplace?.(previous)
       try {
         return replaceDefinition(previous, next)
       } catch (error) {

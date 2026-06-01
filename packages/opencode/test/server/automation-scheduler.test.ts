@@ -995,6 +995,46 @@ describe("automation scheduler", () => {
     })
   })
 
+  test("recordRunOutcome retries on real ConflictError and merges with the racing edit", async () => {
+    await withAutomation(async (projectID) => {
+      const created = Automation.create(recurringInput(projectID, 60_000), { now: 0 })
+      if (created.kind !== "recurring") throw new Error("recurring")
+
+      const sessionID = SessionID.descending()
+      await Automation.runNowExecuting(created.id, {
+        now: 1_000,
+        executor: async ({ run }) => {
+          const running = Automation.markRunStarted(run, sessionID, { now: 1_000 })
+          await Automation.publishRunUpdated(running)
+          throw new Error("kaboom")
+        },
+      }).catch(() => undefined)
+      await Bun.sleep(10)
+      const failed = Automation.runs({ automationID: created.id }).items.find((r) => r.state === "failed")
+      if (!failed) throw new Error("failed missing")
+
+      // Force a real ConflictError: __testBeforeReplace fires after record
+      // reads `previous` but before it writes, so the unrelated update bumps
+      // the row's revision and the first replaceDefinition hits ConflictError.
+      let hookFires = 0
+      const refreshed = Automation.recordRunOutcome(failed, {
+        now: 1_500,
+        __testBeforeReplace: (previous) => {
+          if (hookFires === 0) {
+            hookFires += 1
+            Automation.update(previous.id, { title: "raced edit" }, { now: 1_400 })
+          }
+        },
+      })
+      expect(hookFires).toBe(1)
+      if (!refreshed || refreshed.kind !== "recurring") throw new Error("refreshed missing")
+      // The retry must preserve the racing edit AND apply the run's contribution.
+      expect(refreshed.title).toBe("raced edit")
+      expect(refreshed.failureStreak).toBe(1)
+      expect(refreshed.nextFireAt).not.toBe(created.nextFireAt)
+    })
+  })
+
   test("recordRunOutcome stays consistent across concurrent revision bumps", async () => {
     await withAutomation(async (projectID) => {
       const created = Automation.create(recurringInput(projectID, 60_000), { now: 0 })
@@ -1039,16 +1079,20 @@ describe("automation scheduler", () => {
     })
   })
 
-  test("CreateInput schema rejects stop kind 'condition' before reaching validate", async () => {
+  test("rejects recurring condition stops at create time", async () => {
     await withAutomation(async (projectID) => {
-      const raw = recurringInput(projectID, 60_000, { stop: { kind: "condition", condition: "repo is ready" } as never })
       let captured: unknown
       try {
-        Automation.CreateInput.parse(raw)
+        Automation.create(
+          recurringInput(projectID, 60_000, { stop: { kind: "condition", condition: "repo is ready" } }),
+          { now: 0 },
+        )
       } catch (error) {
         captured = error
       }
       expect(captured).toBeInstanceOf(Error)
+      const validation = captured as { details?: { field: string; message: string }[] }
+      expect(validation.details).toEqual(expect.arrayContaining([{ field: "stop", message: "unsupported_stop_condition" }]))
     })
   })
 
