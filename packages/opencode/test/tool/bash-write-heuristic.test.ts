@@ -125,6 +125,7 @@ const negative = [
   "officecli get report.docx /body --depth 1",
   "officecli query report.xlsx sheet",
   "officecli validate report.pptx",
+  "officecli batch readonly.officecli",
 ]
 
 describe("isLikelyWriteCommand", () => {

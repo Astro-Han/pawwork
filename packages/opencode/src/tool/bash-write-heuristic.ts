@@ -22,7 +22,6 @@ const powershellWriteCommands =
   /\b(set-content|new-item|remove-item|copy-item|move-item|out-file|add-content|clear-content|rename-item)\b/i
 const officeCliWriteCommands = new Set([
   "add",
-  "batch",
   "close",
   "create",
   "import",

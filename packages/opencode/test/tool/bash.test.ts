@@ -933,6 +933,50 @@ describe("tool.bash expected_outputs", () => {
     })
   })
 
+  test("does not record uncaptured marker for read-only officecli batch without expected_outputs", async () => {
+    await resetDatabase()
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await initBash()
+        const turn = await createTurn()
+        const shell = sh()
+        let command: string
+        if (PS.has(shell)) {
+          command = "function officecli { param($verb, $file) Write-Output \"checked $verb $file\" }; officecli batch readonly.officecli"
+        } else if (shell === "cmd") {
+          const officecli = path.join(tmp.path, "officecli.bat")
+          await fs.promises.writeFile(officecli, "@echo off\r\necho checked %*\r\n", "utf-8")
+          command = `set "PATH=${tmp.path};%PATH%" && officecli batch readonly.officecli`
+        } else {
+          const officecli = path.join(tmp.path, "officecli")
+          await fs.promises.writeFile(officecli, "#!/usr/bin/env sh\necho checked \"$@\"\n", { mode: 0o755 })
+          command = `PATH=${quote(tmp.path.replaceAll("\\", "/"))}:$PATH officecli batch readonly.officecli`
+        }
+
+        const result = await Effect.runPromise(
+          bash.execute(
+            {
+              command,
+              description: "Read-only OfficeCLI batch",
+            },
+            { ...ctx, ...turn },
+          ),
+        )
+
+        expect(result.metadata.exit).toBe(0)
+        expect((result.metadata as { artifacts?: unknown[] }).artifacts).toBeUndefined()
+        expect(TurnChange.finalize(turn)).toBeUndefined()
+        expect(
+          TurnChange.aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
+        ).toMatchObject({
+          kind: "empty",
+        })
+      },
+    })
+  })
+
   test("does not record false positives when the before state is indeterminate", async () => {
     await resetDatabase()
     await using tmp = await tmpdir({
