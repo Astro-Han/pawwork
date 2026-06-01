@@ -1,5 +1,6 @@
 import { Schema } from "effect"
 import DESCRIPTION from "../bash.txt"
+import { toKind } from "./id"
 
 export type Limits = {
   maxLines: number
@@ -19,10 +20,17 @@ const BASH_CHAIN =
   "If the commands depend on each other and must run sequentially, use a single Bash call with '&&' to chain them together (e.g., `git add . && git commit -m \"message\" && git push`). For instance, if one operation must complete before another starts (like mkdir before cp, Write before Bash for git operations, or git add before git commit), run these operations sequentially instead."
 
 export function chainingFor(name: string) {
-  if (name === "powershell") return POWERSHELL_CHAIN
-  if (name === "pwsh") return PWSH_CHAIN
-  if (name === "cmd") return CMD_CHAIN
-  return BASH_CHAIN
+  switch (toKind(name)) {
+    case "powershell":
+      return POWERSHELL_CHAIN
+    case "pwsh":
+      return PWSH_CHAIN
+    case "cmd":
+      return CMD_CHAIN
+    case "bash":
+    default:
+      return BASH_CHAIN
+  }
 }
 
 export const EXPECTED_OUTPUTS_DESCRIPTION =
@@ -65,5 +73,3 @@ export function render(input: {
     .replaceAll("${maxLines}", String(input.limits.maxLines))
     .replaceAll("${maxBytes}", String(input.limits.maxBytes))
 }
-
-export * as BashPrompt from "./prompt"

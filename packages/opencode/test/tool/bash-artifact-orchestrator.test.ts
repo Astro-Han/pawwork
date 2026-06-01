@@ -15,7 +15,7 @@ const ctx = {
   messageID,
   callID: "call_test",
   agent: "build",
-  abort: AbortSignal.any([]),
+  abort: new AbortController().signal,
   messages: [],
   metadata: () => Effect.void,
   ask: () => Effect.void,

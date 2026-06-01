@@ -211,9 +211,7 @@ export const orchestrateArtifacts = <RunR, DepR>(
             ...(!tracked.before.comparable || !after.comparable
               ? {
                   comparable: false,
-                  errorCode:
-                    ("errorCode" in tracked.before ? tracked.before.errorCode : undefined) ??
-                    ("errorCode" in after ? after.errorCode : undefined),
+                  errorCode: tracked.before.errorCode ?? after.errorCode,
                 }
               : {}),
           }

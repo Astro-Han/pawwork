@@ -21,5 +21,3 @@ export function toKind(value: string): Kind {
 // Public tool id and permission key — keep as "bash" indefinitely.
 export const ToolID = "bash"
 export type ToolID = typeof ToolID
-
-export * as BashID from "./id"
