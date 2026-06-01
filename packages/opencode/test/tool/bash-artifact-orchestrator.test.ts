@@ -1,9 +1,17 @@
 import { describe, expect, test } from "bun:test"
 import { Effect } from "effect"
+import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { orchestrateArtifacts, type ArtifactDeps } from "../../src/tool/bash-artifact-orchestrator"
 import type { TrackedOutputState, OutputDiscovery } from "../../src/tool/bash-output-capture"
 import type { RecordWriteInput, RecordUncapturedInput } from "../../src/session/turn-change"
 import { MessageID, SessionID } from "../../src/session/schema"
+
+// Orchestrator internally feeds every path through AppFileSystem.normalizePath
+// before calling deps.readTrackedState / building artifact.path. On Windows
+// that rewrites "/tmp/work/foo" to "D:\\tmp\\work\\foo", so the mock state
+// dictionary must be keyed by the platform-native form. np() is a no-op on
+// POSIX, so the same test file works on every runner.
+const np = (p: string) => AppFileSystem.normalizePath(p)
 
 type ToolResult = { title: string; metadata: Record<string, unknown>; output: string }
 
@@ -115,7 +123,7 @@ function build(opts: {
 
 describe("orchestrateArtifacts", () => {
   test("declared expected_outputs, file changed → recordWrite + artifact visible", async () => {
-    const file = "/tmp/work/out.docx"
+    const file = np("/tmp/work/out.docx")
     const harness = build({
       states: { [file]: [stateMissing(), stateFile("h1")] },
     })
@@ -144,7 +152,7 @@ describe("orchestrateArtifacts", () => {
   })
 
   test("declared expected_outputs, file unchanged → no recordWrite, artifact changed:false", async () => {
-    const file = "/tmp/work/same.docx"
+    const file = np("/tmp/work/same.docx")
     const harness = build({
       states: { [file]: [stateFile("h1"), stateFile("h1")] },
     })
@@ -172,7 +180,7 @@ describe("orchestrateArtifacts", () => {
   })
 
   test("exact OfficeCLI target, no declared outputs, file changed → recordWrite + visible only when changed", async () => {
-    const file = "/tmp/work/x.xlsx"
+    const file = np("/tmp/work/x.xlsx")
     const harness = build({
       states: { [file]: [stateMissing(), stateFile("hx")] },
       officeTargets: [file],
@@ -310,12 +318,12 @@ describe("orchestrateArtifacts", () => {
   })
 
   test("expected_outputs present → only declared recorded; discoverOfficeOutputs is NOT called", async () => {
-    const declared = "/tmp/work/decl.docx"
+    const declared = np("/tmp/work/decl.docx")
     const harness = build({
       states: { [declared]: [stateMissing(), stateFile("d1")] },
-      officeTargets: ["/tmp/work/should-be-ignored.docx"], // would surface if expected_outputs were empty
+      officeTargets: [np("/tmp/work/should-be-ignored.docx")], // would surface if expected_outputs were empty
       isWrite: true,
-      discoverPaths: ["/tmp/work/side.docx"],
+      discoverPaths: [np("/tmp/work/side.docx")],
     })
 
     const result = await Effect.runPromise(
