@@ -41,7 +41,8 @@ const globalTodoSets: Array<{ sessionID: string; todos: unknown }> = []
 const childTodoSets: Array<{ directory: string; sessionID: string; todos: unknown }> = []
 const promptSetCalls: Array<{ prompt: Prompt; cursor?: number; target?: { dir: string; id?: string } }> = []
 const promptResetCalls: Array<{ target?: { dir: string; id?: string } }> = []
-const promptContextReplaceAllCalls: unknown[][] = []
+const promptContextReplaceAllCalls: Array<{ items: unknown[]; target?: { dir: string; id?: string } }> = []
+let promptContextItems: Array<{ key: string; type: "file"; path: string; comment?: string }> = []
 
 let params: { dir?: string; id?: string } = {}
 let navigateImpl = (_path: string): void => {}
@@ -161,9 +162,9 @@ beforeAll(async () => {
       context: {
         add: () => undefined,
         remove: () => undefined,
-        items: () => [],
-        replaceAll: (items: unknown[]) => {
-          promptContextReplaceAllCalls.push(items)
+        items: () => promptContextItems,
+        replaceAll: (items: unknown[], target?: { dir: string; id?: string }) => {
+          promptContextReplaceAllCalls.push({ items, target })
         },
       },
     }),
@@ -284,6 +285,7 @@ beforeEach(() => {
   promptSetCalls.length = 0
   promptResetCalls.length = 0
   promptContextReplaceAllCalls.length = 0
+  promptContextItems = []
   params = {}
   navigateImpl = (_path: string): void => {}
   sentShell.length = 0
@@ -982,6 +984,44 @@ describe("prompt submit worktree selection", () => {
     })
   })
 
+  test("restores submitted portable context to target scope when a different active route is dirty", async () => {
+    params = { dir: "/repo/main" }
+    promptValue = [{ type: "text", content: "background context", start: 0, end: 18 }]
+    const submittedContext = [{ key: "old", type: "file" as const, path: "/repo/main/old.ts", comment: "old note" }]
+    promptContextItems = submittedContext
+    const portable = usePortableDraft()
+    portable.record({
+      sourceFilesystemDirectory: "/repo/main",
+      prompt: promptValue,
+      context: submittedContext,
+      images: [],
+      resolvedMentions: {},
+    })
+
+    let releasePromptAsync!: () => void
+    promptAsyncGate = new Promise<void>((resolve) => {
+      releasePromptAsync = resolve
+    })
+    promptAsyncFailure = new Error("network down")
+
+    const submit = createHomepageSubmit()
+
+    const submitted = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptAsyncCalls.length > 0)
+
+    params = { dir: "/repo/other", id: "session-other" }
+    promptDirty = true
+    releasePromptAsync()
+    await submitted
+    await waitForCall(() => promptContextReplaceAllCalls.length > 0)
+
+    expect(promptSetCalls.at(-1)?.target).toEqual({ dir: "/repo/main", id: "session-1" })
+    expect(promptContextReplaceAllCalls.at(-1)).toEqual({
+      items: [{ type: "file", path: "/repo/main/old.ts", comment: "old note" }],
+      target: { dir: "/repo/main", id: "session-1" },
+    })
+  })
+
   test("does not restore submitted portable draft over dirty active target route", async () => {
     params = { dir: "/repo/main" }
     promptValue = [{ type: "text", content: "same route fail", start: 0, end: 15 }]
@@ -1040,6 +1080,7 @@ describe("prompt submit worktree selection", () => {
   test("restores submitted pinned draft on async prompt failure when no new draft exists", async () => {
     params = { dir: "/repo/main" }
     promptValue = [{ type: "text", content: "restore pin", start: 0, end: 11 }]
+    promptContextItems = [{ key: "pin", type: "file", path: "/repo/main/pin.ts", comment: "pin note" }]
     const pinned = usePinnedDraft()
     pinned.adopt({ directory: "/repo/main", prompt: "restore pin" })
     promptAsyncFailure = new Error("network down")
@@ -1053,6 +1094,44 @@ describe("prompt submit worktree selection", () => {
     expect(promptSetCalls.at(-1)).toMatchObject({
       prompt: promptValue,
       cursor: 11,
+      target: { dir: "/repo/main", id: "session-1" },
+    })
+  })
+
+  test("restores submitted pinned context to target scope when a different active route is dirty", async () => {
+    params = { dir: "/repo/main" }
+    promptValue = [{ type: "text", content: "restore pin", start: 0, end: 11 }]
+    promptContextItems = [{ key: "pin", type: "file", path: "/repo/main/pin.ts", comment: "pin note" }]
+    const pinned = usePinnedDraft()
+    pinned.adopt({ directory: "/repo/main", prompt: "restore pin" })
+    pinned.recordEdit({
+      directory: "/repo/main",
+      prompt: promptValue,
+      context: promptContextItems,
+      images: [],
+      resolvedMentions: {},
+    })
+
+    let releasePromptAsync!: () => void
+    promptAsyncGate = new Promise<void>((resolve) => {
+      releasePromptAsync = resolve
+    })
+    promptAsyncFailure = new Error("network down")
+
+    const submit = createHomepageSubmit()
+
+    const submitted = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptAsyncCalls.length > 0)
+
+    params = { dir: "/repo/other", id: "session-other" }
+    promptDirty = true
+    releasePromptAsync()
+    await submitted
+    await waitForCall(() => promptContextReplaceAllCalls.length > 0)
+
+    expect(promptSetCalls.at(-1)?.target).toEqual({ dir: "/repo/main", id: "session-1" })
+    expect(promptContextReplaceAllCalls.at(-1)).toEqual({
+      items: [{ type: "file", path: "/repo/main/pin.ts", comment: "pin note" }],
       target: { dir: "/repo/main", id: "session-1" },
     })
   })

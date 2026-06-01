@@ -634,12 +634,12 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         case "portable":
           if (!shouldRestoreOwnerDraft(portable.snapshot() !== null)) return
           prompt.set(submittedDraft.prompt, input.promptLength(submittedDraft.prompt), promptScope)
-          prompt.context.replaceAll(submittedDraft.context.map(({ key: _omit, ...rest }) => rest))
+          prompt.context.replaceAll(submittedDraft.context.map(({ key: _omit, ...rest }) => rest), promptScope)
           break
         case "pinned":
           if (!shouldRestoreOwnerDraft(pinned.current() !== null)) return
           prompt.set(submittedDraft.prompt, input.promptLength(submittedDraft.prompt), promptScope)
-          prompt.context.replaceAll(submittedDraft.context.map(({ key: _omit, ...rest }) => rest))
+          prompt.context.replaceAll(submittedDraft.context.map(({ key: _omit, ...rest }) => rest), promptScope)
           break
         case "route": {
           prompt.set(currentPrompt, input.promptLength(currentPrompt), promptScope)

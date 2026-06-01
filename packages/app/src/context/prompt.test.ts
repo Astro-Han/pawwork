@@ -54,7 +54,10 @@ function promptSession() {
       removeComment: () => markDirty(),
       updateComment: () => markDirty(),
       replaceComments: () => markDirty(),
-      replaceAll: () => markDirty(),
+      replaceAll: (next: ContextItem[]) => {
+        items.splice(0, items.length, ...next.map((item) => ({ key: item.type, ...item })))
+        markDirty()
+      },
     },
     set: (next: Prompt, nextCursor?: number) => {
       prompt = next
@@ -133,6 +136,27 @@ describe("createPromptBinding", () => {
     expect(target.current()).toEqual(DEFAULT_PROMPT)
     expect(target.cursor()).toBe(0)
     expect(current.current()).toEqual([{ type: "text", content: "hello", start: 0, end: 5 }])
+  })
+
+  test("replaces context on an explicit target session", () => {
+    const current = promptSession()
+    const target = promptSession()
+    const binding = createPromptBinding(
+      () => ({ dir: "repo", id: "current" }),
+      (dir, id) => {
+        expect(dir).toBe("repo")
+        return id === "fork" ? target : current
+      },
+    )
+
+    binding.context.add({ type: "file", path: "current.ts" })
+    binding.context.replaceAll([{ type: "file", path: "target.ts", comment: "restore me" }], {
+      dir: "repo",
+      id: "fork",
+    })
+
+    expect(current.context.items().map((item) => item.path)).toEqual(["current.ts"])
+    expect(target.context.items()).toMatchObject([{ type: "file", path: "target.ts", comment: "restore me" }])
   })
 })
 

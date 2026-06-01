@@ -203,7 +203,7 @@ type PromptBindingSession = {
     removeComment: (path: string, commentID: string) => void
     updateComment: (path: string, commentID: string, next: Partial<FileContextItem> & { comment?: string }) => void
     replaceComments: (items: FileContextItem[]) => void
-    /** Atomic full-replace: swaps ALL context items at once. Used by carry hydration. */
+    /** Atomic full-replace: swaps ALL context items at once. Used by carry hydration and failure restore. */
     replaceAll: (items: ContextItem[]) => void
   }
   set: (prompt: Prompt, cursorPosition?: number) => void
@@ -234,7 +234,7 @@ export function createPromptBinding(
       updateComment: (path: string, commentID: string, next: Partial<FileContextItem> & { comment?: string }) =>
         session()?.context.updateComment(path, commentID, next),
       replaceComments: (items: FileContextItem[]) => session()?.context.replaceComments(items),
-      replaceAll: (items: ContextItem[]) => session()?.context.replaceAll(items),
+      replaceAll: (items: ContextItem[], target?: Scope) => pick(target)?.context.replaceAll(items),
     },
     set: (prompt: Prompt, cursorPosition?: number, target?: Scope) => pick(target)?.set(prompt, cursorPosition),
     reset: (target?: Scope) => pick(target)?.reset(),
