@@ -921,7 +921,7 @@ describe("prompt submit worktree selection", () => {
     })
   })
 
-  test("does not restore submitted portable draft over new draft after async failure", async () => {
+  test("restores submitted portable draft while preserving a different homepage owner draft", async () => {
     params = { dir: "/repo/main" }
     promptValue = [{ type: "text", content: "old submit", start: 0, end: 10 }]
     const portable = usePortableDraft()
@@ -944,19 +944,28 @@ describe("prompt submit worktree selection", () => {
     const submitted = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
     await waitForCall(() => promptResetCalls.length > 0)
 
+    params = { dir: "/repo/other" }
+    const otherDraft = [{ type: "text" as const, content: "new draft", start: 0, end: 9 }]
     portable.record({
-      sourceFilesystemDirectory: "/repo/main",
-      prompt: [{ type: "text", content: "new draft", start: 0, end: 9 }],
+      sourceFilesystemDirectory: "/repo/other",
+      prompt: otherDraft,
       context: [],
       images: [],
       resolvedMentions: {},
     })
-    promptDirty = true
     releasePromptAsync()
     await submitted
+    await waitForAsyncSubmitSettled()
 
-    expect(promptSetCalls).toEqual([])
-    expect(portable.snapshot()?.prompt[0]).toMatchObject({ content: "new draft" })
+    expect(promptSetCalls.at(-1)).toMatchObject({
+      prompt: promptValue,
+      cursor: 10,
+      target: { dir: "/repo/main", id: "session-1" },
+    })
+    expect(portable.snapshot()).toMatchObject({
+      sourceFilesystemDirectory: "/repo/other",
+      prompt: otherDraft,
+    })
   })
 
   test("restores submitted portable draft when a different active route is dirty", async () => {
@@ -1217,7 +1226,7 @@ describe("prompt submit worktree selection", () => {
     })
   })
 
-  test("does not restore submitted pinned draft over new pinned draft after async failure", async () => {
+  test("restores submitted pinned draft while preserving a different homepage owner draft", async () => {
     params = { dir: "/repo/main" }
     promptValue = [{ type: "text", content: "old pin", start: 0, end: 7 }]
     const pinned = usePinnedDraft()
@@ -1234,13 +1243,21 @@ describe("prompt submit worktree selection", () => {
     const submitted = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
     await waitForCall(() => promptResetCalls.length > 0)
 
-    pinned.adopt({ directory: "/repo/main", prompt: "new pin" })
-    promptDirty = true
+    params = { dir: "/repo/other" }
+    pinned.adopt({ directory: "/repo/other", prompt: "new pin" })
     releasePromptAsync()
     await submitted
+    await waitForAsyncSubmitSettled()
 
-    expect(promptSetCalls).toEqual([])
-    expect(pinned.current()?.prompt[0]).toMatchObject({ content: "new pin" })
+    expect(promptSetCalls.at(-1)).toMatchObject({
+      prompt: promptValue,
+      cursor: 7,
+      target: { dir: "/repo/main", id: "session-1" },
+    })
+    expect(pinned.current()).toMatchObject({
+      directory: "/repo/other",
+      prompt: [{ type: "text", content: "new pin", start: 0, end: 7 }],
+    })
   })
 
   test("does not restore submitted pinned draft over context-only active target route", async () => {
