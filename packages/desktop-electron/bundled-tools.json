@@ -1,6 +1,6 @@
 {
   "officecli": {
-    "version": "v1.0.93",
+    "version": "v1.0.102",
     "repo": "iOfficeAI/OfficeCLI",
     "assets": {
       "darwin-arm64": "officecli-mac-arm64",
