@@ -4,6 +4,8 @@ import type {
   createPromptSubmit as createPromptSubmitType,
   sendFollowupDraft as sendFollowupDraftType,
 } from "./submit"
+import { _portableDraftTesting, usePortableDraft } from "./portable-draft"
+import { _pinnedDraftTesting, usePinnedDraft } from "./pinned-draft"
 
 type PromptSubmitInput = Parameters<typeof createPromptSubmitType>[0]
 type PromptSubmit = ReturnType<typeof createPromptSubmitType>
@@ -33,16 +35,19 @@ const commandCalls: Array<Record<string, unknown>> = []
 const commandDefinitions: Array<{ name: string }> = []
 let commandsReady = true
 let promptAsyncFailure: Error | undefined
+let promptAsyncGate: Promise<void> | undefined
 const abortedSessions: Array<{ sessionID: string; source?: string }> = []
 const globalTodoSets: Array<{ sessionID: string; todos: unknown }> = []
 const childTodoSets: Array<{ directory: string; sessionID: string; todos: unknown }> = []
 const promptSetCalls: Array<{ prompt: Prompt; cursor?: number; target?: { dir: string; id?: string } }> = []
 const promptResetCalls: Array<{ target?: { dir: string; id?: string } }> = []
+const promptContextReplaceAllCalls: unknown[][] = []
 
 let params: { dir?: string; id?: string } = {}
 let navigateImpl = (_path: string): void => {}
 let selected = "/repo/worktree-a"
 let variant: string | undefined
+let promptDirty = false
 
 let currentIntl = "zh-Hans"
 let promptValue: Prompt = [{ type: "text", content: "ls", start: 0, end: 2 }]
@@ -75,6 +80,7 @@ const clientFor = (directory: string) => {
       prompt: async () => ({ data: undefined }),
       promptAsync: async (input: Record<string, unknown>) => {
         promptAsyncCalls.push(input)
+        await promptAsyncGate
         if (promptAsyncFailure) throw promptAsyncFailure
         return { data: undefined }
       },
@@ -145,6 +151,7 @@ beforeAll(async () => {
   mock.module("@/context/prompt", () => ({
     usePrompt: () => ({
       current: () => promptValue,
+      dirty: () => promptDirty,
       reset: (target?: { dir: string; id?: string }) => {
         promptResetCalls.push({ target })
       },
@@ -155,6 +162,9 @@ beforeAll(async () => {
         add: () => undefined,
         remove: () => undefined,
         items: () => [],
+        replaceAll: (items: unknown[]) => {
+          promptContextReplaceAllCalls.push(items)
+        },
       },
     }),
   }))
@@ -267,19 +277,24 @@ beforeEach(() => {
   commandDefinitions.length = 0
   commandsReady = true
   promptAsyncFailure = undefined
+  promptAsyncGate = undefined
   abortedSessions.length = 0
   globalTodoSets.length = 0
   childTodoSets.length = 0
   promptSetCalls.length = 0
   promptResetCalls.length = 0
+  promptContextReplaceAllCalls.length = 0
   params = {}
   navigateImpl = (_path: string): void => {}
   sentShell.length = 0
   syncedDirectories.length = 0
   selected = "/repo/worktree-a"
   variant = undefined
+  promptDirty = false
   currentIntl = "zh-Hans"
   promptValue = [{ type: "text", content: "ls", start: 0, end: 2 }]
+  _portableDraftTesting.reset()
+  _pinnedDraftTesting.reset()
   for (const key of Object.keys(storedSessions)) delete storedSessions[key]
 })
 
@@ -806,7 +821,20 @@ describe("prompt submit worktree selection", () => {
       if (match) params.id = match[1]
     }
 
-    const submit = createPromptSubmit({
+    const submit = createHomepageSubmit()
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptResetCalls.length > 0)
+
+    // After navigate(), params.id is now "session-1", but clearInput must reset the
+    // SOURCE scope (home page: dir=/repo/main, no session id) not the final session scope
+    expect(params.id).toBe("session-1") // confirm navigate ran and updated params
+    expect(promptResetCalls.at(-1)?.target?.dir).toBe("/repo/main")
+    expect(promptResetCalls.at(-1)?.target?.id).toBeUndefined()
+  })
+
+  const createHomepageSubmit = () =>
+    createPromptSubmit({
       navigate: (path) => navigateImpl(path),
       routeParams: () => params,
       info: () => undefined,
@@ -825,14 +853,165 @@ describe("prompt submit worktree selection", () => {
       onSubmit: () => undefined,
     })
 
-    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+  test("detaches submitted portable draft before async prompt settles", async () => {
+    params = { dir: "/repo/main" }
+    promptValue = [{ type: "text", content: "already sent", start: 0, end: 12 }]
+    const portable = usePortableDraft()
+    portable.record({
+      sourceFilesystemDirectory: "/repo/main",
+      prompt: promptValue,
+      context: [],
+      images: [],
+      resolvedMentions: {},
+    })
+
+    let releasePromptAsync!: () => void
+    promptAsyncGate = new Promise<void>((resolve) => {
+      releasePromptAsync = resolve
+    })
+
+    const submit = createHomepageSubmit()
+
+    const submitted = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
     await waitForCall(() => promptResetCalls.length > 0)
 
-    // After navigate(), params.id is now "session-1", but clearInput must reset the
-    // SOURCE scope (home page: dir=/repo/main, no session id) not the final session scope
-    expect(params.id).toBe("session-1") // confirm navigate ran and updated params
-    expect(promptResetCalls.at(-1)?.target?.dir).toBe("/repo/main")
-    expect(promptResetCalls.at(-1)?.target?.id).toBeUndefined()
+    expect(portable.snapshot()).toBeNull()
+    expect(portable.consumeForHomepage("/repo/other", true)).toBeNull()
+
+    releasePromptAsync()
+    await submitted
+  })
+
+  test("restores submitted portable draft on async prompt failure when no new draft exists", async () => {
+    params = { dir: "/repo/main" }
+    promptValue = [{ type: "text", content: "restore me", start: 0, end: 10 }]
+    const portable = usePortableDraft()
+    portable.record({
+      sourceFilesystemDirectory: "/repo/main",
+      prompt: promptValue,
+      context: [],
+      images: [],
+      resolvedMentions: {},
+    })
+    promptAsyncFailure = new Error("network down")
+
+    const submit = createHomepageSubmit()
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptSetCalls.length > 0)
+
+    expect(portable.snapshot()).toBeNull()
+    expect(promptSetCalls.at(-1)).toMatchObject({
+      prompt: promptValue,
+      cursor: 10,
+      target: { dir: "/repo/main", id: "session-1" },
+    })
+  })
+
+  test("does not restore submitted portable draft over new draft after async failure", async () => {
+    params = { dir: "/repo/main" }
+    promptValue = [{ type: "text", content: "old submit", start: 0, end: 10 }]
+    const portable = usePortableDraft()
+    portable.record({
+      sourceFilesystemDirectory: "/repo/main",
+      prompt: promptValue,
+      context: [],
+      images: [],
+      resolvedMentions: {},
+    })
+
+    let releasePromptAsync!: () => void
+    promptAsyncGate = new Promise<void>((resolve) => {
+      releasePromptAsync = resolve
+    })
+    promptAsyncFailure = new Error("network down")
+
+    const submit = createHomepageSubmit()
+
+    const submitted = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptResetCalls.length > 0)
+
+    portable.record({
+      sourceFilesystemDirectory: "/repo/main",
+      prompt: [{ type: "text", content: "new draft", start: 0, end: 9 }],
+      context: [],
+      images: [],
+      resolvedMentions: {},
+    })
+    promptDirty = true
+    releasePromptAsync()
+    await submitted
+
+    expect(promptSetCalls).toEqual([])
+    expect(portable.snapshot()?.prompt[0]).toMatchObject({ content: "new draft" })
+  })
+
+  test("detaches submitted pinned draft before async prompt settles", async () => {
+    params = { dir: "/repo/main" }
+    promptValue = [{ type: "text", content: "deep link", start: 0, end: 9 }]
+    const pinned = usePinnedDraft()
+    pinned.adopt({ directory: "/repo/main", prompt: "deep link" })
+
+    let releasePromptAsync!: () => void
+    promptAsyncGate = new Promise<void>((resolve) => {
+      releasePromptAsync = resolve
+    })
+
+    const submit = createHomepageSubmit()
+
+    const submitted = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptResetCalls.length > 0)
+
+    expect(pinned.current()).toBeNull()
+
+    releasePromptAsync()
+    await submitted
+  })
+
+  test("restores submitted pinned draft on async prompt failure when no new draft exists", async () => {
+    params = { dir: "/repo/main" }
+    promptValue = [{ type: "text", content: "restore pin", start: 0, end: 11 }]
+    const pinned = usePinnedDraft()
+    pinned.adopt({ directory: "/repo/main", prompt: "restore pin" })
+    promptAsyncFailure = new Error("network down")
+
+    const submit = createHomepageSubmit()
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptSetCalls.length > 0)
+
+    expect(pinned.current()).toBeNull()
+    expect(promptSetCalls.at(-1)).toMatchObject({
+      prompt: promptValue,
+      cursor: 11,
+      target: { dir: "/repo/main", id: "session-1" },
+    })
+  })
+
+  test("does not restore submitted pinned draft over new pinned draft after async failure", async () => {
+    params = { dir: "/repo/main" }
+    promptValue = [{ type: "text", content: "old pin", start: 0, end: 7 }]
+    const pinned = usePinnedDraft()
+    pinned.adopt({ directory: "/repo/main", prompt: "old pin" })
+
+    let releasePromptAsync!: () => void
+    promptAsyncGate = new Promise<void>((resolve) => {
+      releasePromptAsync = resolve
+    })
+    promptAsyncFailure = new Error("network down")
+
+    const submit = createHomepageSubmit()
+
+    const submitted = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptResetCalls.length > 0)
+
+    pinned.adopt({ directory: "/repo/main", prompt: "new pin" })
+    promptDirty = true
+    releasePromptAsync()
+    await submitted
+
+    expect(promptSetCalls).toEqual([])
+    expect(pinned.current()?.prompt[0]).toMatchObject({ content: "new pin" })
   })
 })
 

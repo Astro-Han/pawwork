@@ -1,6 +1,8 @@
 import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures"
 import {
+  cleanupTestProject,
+  createTestProject,
   openSidebar,
   resolveSlug,
   sessionIDFromUrl,
@@ -9,7 +11,12 @@ import {
   waitSession,
   waitSlug,
 } from "../actions"
-import { workspaceItemSelector, workspaceNewSessionSelector } from "../selectors"
+import { promptSelector, workspaceItemSelector, workspaceNewSessionSelector } from "../selectors"
+import { sessionPath } from "../utils"
+
+function clean(value: string | null) {
+  return (value ?? "").replace(/\u200B/g, "").trim()
+}
 
 function item(space: { slug: string; raw: string }) {
   return `${workspaceItemSelector(space.slug)}, ${workspaceItemSelector(space.raw)}`
@@ -75,4 +82,41 @@ test.skip("new sessions from sidebar workspace actions stay in selected workspac
   await createSessionFromWorkspace(project, page, first, `workspace one ${Date.now()}`)
   await createSessionFromWorkspace(project, page, second, `workspace two ${Date.now()}`)
   await createSessionFromWorkspace(project, page, first, `workspace one again ${Date.now()}`)
+})
+
+test("sent homepage prompt does not carry to another project while pending", async ({ page, project, assistant, backend }) => {
+  await page.setViewportSize({ width: 1400, height: 800 })
+
+  const other = await createTestProject({ serverUrl: backend.url })
+  try {
+    await project.open({ extra: [other] })
+
+    let releaseReply!: () => void
+    const replyGate = new Promise<void>((resolve) => {
+      releaseReply = resolve
+    })
+    await assistant.hold("ok", replyGate)
+
+    const text = `already sent ${Date.now()}`
+    const prompt = page.locator(promptSelector).first()
+    await expect(prompt).toBeVisible()
+    await prompt.click()
+    await page.keyboard.type(text)
+    await expect.poll(async () => clean(await prompt.textContent())).toBe(text)
+    await page.keyboard.press("Enter")
+
+    await expect.poll(async () => clean(await prompt.textContent())).toBe("")
+    await expect.poll(() => sessionIDFromUrl(page.url()) ?? "").not.toBe("")
+    project.trackSession(sessionIDFromUrl(page.url())!, project.directory)
+    await expect.poll(() => assistant.calls()).toBe(1)
+
+    await page.goto(sessionPath(other))
+    await waitSession(page, { directory: other, serverUrl: backend.url })
+
+    await expect.poll(async () => clean(await page.locator(promptSelector).first().textContent())).toBe("")
+
+    releaseReply()
+  } finally {
+    await cleanupTestProject(other, { serverUrl: backend.url })
+  }
 })

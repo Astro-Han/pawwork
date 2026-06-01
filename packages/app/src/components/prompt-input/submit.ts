@@ -578,21 +578,23 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       sessionID: session.id,
     })
 
-    // Two-phase clear (Bug 2):
-    //   1) clearInput(owned) runs SYNCHRONOUSLY before the await. It resets the
-    //      visible UI only; the owner snapshot is intentionally preserved so
-    //      restoreInput() can push it back on async failure.
-    //   2) confirmOwnerCleared(owned) runs in each success path AFTER the await
-    //      resolves. It tears down the owner snapshot under the captured revision
-    //      so a user who typed during the await is never trampled.
-    //   restoreInput(owned) (failure path) reads from the still-intact owner.
+    const submittedDraft = {
+      prompt: currentPrompt,
+      context,
+    }
+
+    // Submitted owner-backed drafts leave the live draft owner before the async
+    // send settles. The owner only represents editable unsent draft state;
+    // failure recovery uses submittedDraft captured above.
     const clearInput = (owned: SubmitOwnership) => {
       switch (owned.kind) {
-        case "portable":
         case "pinned":
-          // Reset the visible UI to homepage source scope. The owner snapshot
-          // stays put for now; confirmOwnerCleared/restoreInput own its fate.
           prompt.reset(sourcePromptScope)
+          pinned.clearAll(owned.revision)
+          break
+        case "portable":
+          prompt.reset(sourcePromptScope)
+          portable.clear(owned.revision)
           break
         case "route":
           prompt.reset(owned.scope)
@@ -603,9 +605,6 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     }
 
     const confirmOwnerCleared = (owned: SubmitOwnership) => {
-      // Owner-backed cases: clear under the captured revision. If the user typed
-      // during the await the revision diverged and clear() returns false; we
-      // leave their fresh content in place.
       switch (owned.kind) {
         case "portable":
           portable.clear(owned.revision)
@@ -620,26 +619,17 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     }
 
     const restoreInput = (owned: SubmitOwnership) => {
-      // Revision-guarded restore: only push the captured draft back if the user
-      // has not typed new content since submit. For owner-backed cases this means
-      // the owner's current revision still matches the captured revision (the
-      // owner is the source of truth). For route, the prompt store is a UI
-      // mirror with no separate owner, so we always re-push the captured value.
       switch (owned.kind) {
-        case "portable": {
-          const current = portable.snapshot()
-          if (!current || current.revision !== owned.revision) return
-          prompt.set(current.prompt, input.promptLength(current.prompt), promptScope)
-          prompt.context.replaceAll(current.context.map(({ key: _omit, ...rest }) => rest))
+        case "portable":
+          if (portable.snapshot() !== null || prompt.dirty()) return
+          prompt.set(submittedDraft.prompt, input.promptLength(submittedDraft.prompt), promptScope)
+          prompt.context.replaceAll(submittedDraft.context.map(({ key: _omit, ...rest }) => rest))
           break
-        }
-        case "pinned": {
-          const current = pinned.current()
-          if (!current || current.revision !== owned.revision) return
-          prompt.set(current.prompt, input.promptLength(current.prompt), promptScope)
-          prompt.context.replaceAll(current.context.map(({ key: _omit, ...rest }) => rest))
+        case "pinned":
+          if (pinned.current() !== null || prompt.dirty()) return
+          prompt.set(submittedDraft.prompt, input.promptLength(submittedDraft.prompt), promptScope)
+          prompt.context.replaceAll(submittedDraft.context.map(({ key: _omit, ...rest }) => rest))
           break
-        }
         case "route": {
           prompt.set(currentPrompt, input.promptLength(currentPrompt), promptScope)
           restoreCommentItems(commentItems)
