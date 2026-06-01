@@ -520,6 +520,12 @@ export namespace TurnChange {
 
   function prepareState(state: FileState): FileState {
     if (!state.exists) return state
+    if (
+      state.content === undefined &&
+      (state.hash !== undefined || state.restorable === false || state.binary || state.large)
+    ) {
+      return { ...state, restorable: false }
+    }
     const content = state.content ?? ""
     const binary = isBinary(content)
     const large = byteSize(content) > RESTORE_LIMIT
