@@ -1,4 +1,4 @@
-Executes a given bash command in a persistent shell session with optional timeout, ensuring proper handling and security measures.
+Executes one command in the selected shell with optional timeout. Each BashTool call runs in a fresh process; cwd and environment do not persist across calls - use the `workdir` parameter to set the working directory.
 
 Be aware: OS: ${os}, Shell: ${shell}
 

@@ -1,9 +1,8 @@
-import { Schema } from "effect"
+import type { Schema } from "effect"
 import os from "os"
 import { createWriteStream } from "node:fs"
 import * as Tool from "./tool"
 import path from "path"
-import DESCRIPTION from "./bash.txt"
 import { Log } from "../util"
 import { Instance, type InstanceContext } from "../project/instance"
 import { lazy } from "@/util/lazy"
@@ -28,12 +27,10 @@ import { InstanceState } from "@/effect/instance-state"
 import { TurnChange } from "@/session/turn-change"
 import { isLikelyWriteCommand } from "./bash-write-heuristic"
 import { nonOfficeCliCommandText, officeCliTargets } from "./bash-office-artifacts"
-import {
-  discoverOfficeOutputs,
-  readTrackedState,
-  sameTrackedState,
-  type TrackedOutputState,
-} from "./bash-output-capture"
+import { discoverOfficeOutputs, readTrackedState } from "./bash-output-capture"
+import { Parameters, render as renderDescription, type Limits } from "./bash/prompt"
+import { ToolID as BashToolID } from "./bash/id"
+import { orchestrateArtifacts, type ArtifactDeps } from "./bash-artifact-orchestrator"
 
 const MAX_METADATA_LENGTH = 30_000
 const DEFAULT_TIMEOUT = Flag.OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS || 2 * 60 * 1000
@@ -63,24 +60,6 @@ const FILES = new Set([
 ])
 const FLAGS = new Set(["-destination", "-literalpath", "-path"])
 const SWITCHES = new Set(["-confirm", "-debug", "-force", "-nonewline", "-recurse", "-verbose", "-whatif"])
-
-export const Parameters = Schema.Struct({
-  command: Schema.String.annotate({ description: "The command to execute" }),
-  timeout: Schema.optional(Schema.Number).annotate({ description: "Optional timeout in milliseconds" }),
-  workdir: Schema.optional(Schema.String).annotate({
-    description: `The working directory to run the command in. Defaults to the current directory. Use this instead of 'cd' commands.`,
-  }),
-  expected_outputs: Schema.optional(
-    Schema.Array(Schema.String).annotate({
-      description:
-        "Optional absolute or workdir-relative file paths that this command is expected to create or modify. The runtime will verify these paths after execution and register any real file changes in turn-change.",
-    }),
-  ),
-  description: Schema.String.annotate({
-    description:
-      "Clear, concise description of what this command does in 5-10 words. Examples:\nInput: ls\nOutput: Lists files in current directory\n\nInput: git status\nOutput: Shows working tree status\n\nInput: npm install\nOutput: Installs package dependencies\n\nInput: mkdir foo\nOutput: Creates directory 'foo'",
-  }),
-})
 
 type Part = {
   type: string
@@ -290,7 +269,7 @@ const ask = Effect.fn("BashTool.ask")(function* (ctx: Tool.Context, scan: Scan) 
 
   if (scan.patterns.size === 0) return
   yield* ctx.ask({
-    permission: "bash",
+    permission: BashToolID,
     patterns: Array.from(scan.patterns),
     always: Array.from(scan.always),
     metadata: {},
@@ -343,9 +322,11 @@ const parser = lazy(async () => {
   return { bash, ps }
 })
 
-// TODO: we may wanna rename this tool so it works better on other shells
+// Public tool id stays "bash" indefinitely (kept in BashToolID for the
+// single source of truth — saved permissions, plugins, and config all
+// reference this literal).
 export const BashTool = Tool.define(
-  "bash",
+  BashToolID,
   Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner
     const afs = yield* AppFileSystem.Service
@@ -634,20 +615,31 @@ export const BashTool = Tool.define(
         const directory = (yield* InstanceState.context).directory
         const shell = Shell.acceptable()
         const name = Shell.name(shell)
-        const chain =
-          name === "powershell"
-            ? "If the commands depend on each other and must run sequentially, avoid '&&' in this shell because Windows PowerShell 5.1 does not support it. Use PowerShell conditionals such as `cmd1; if ($?) { cmd2 }` when later commands must depend on earlier success."
-            : "If the commands depend on each other and must run sequentially, use a single Bash call with '&&' to chain them together (e.g., `git add . && git commit -m \"message\" && git push`). For instance, if one operation must complete before another starts (like mkdir before cp, Write before Bash for git operations, or git add before git commit), run these operations sequentially instead."
         log.info("bash tool using shell", { shell })
 
+        const limits: Limits = { maxLines: Truncate.MAX_LINES, maxBytes: Truncate.MAX_BYTES }
+        const description = renderDescription({
+          name,
+          platform: process.platform,
+          directory,
+          tmp: Global.Path.tmp,
+          limits,
+        })
+
+        const deps: ArtifactDeps = {
+          resolveExecutionPath,
+          assertExternalDirectory: assertExternalDirectoryEffect,
+          readTrackedState,
+          discoverOfficeOutputs,
+          officeCliTargets,
+          nonOfficeCliCommandText,
+          isLikelyWriteCommand,
+          recordWrite: (input) => turnChange.recordWrite(input),
+          recordUncaptured: (input) => turnChange.recordUncaptured(input),
+        }
+
         return {
-          description: DESCRIPTION.replaceAll("${directory}", directory)
-            .replaceAll("${tmp}", Global.Path.tmp)
-            .replaceAll("${os}", process.platform)
-            .replaceAll("${shell}", name)
-            .replaceAll("${chaining}", chain)
-            .replaceAll("${maxLines}", String(Truncate.MAX_LINES))
-            .replaceAll("${maxBytes}", String(Truncate.MAX_BYTES)),
+          description,
           parameters: Parameters,
           execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
             Effect.gen(function* () {
@@ -674,216 +666,38 @@ export const BashTool = Tool.define(
                 }),
               )
 
-              const trackedOutputs = yield* Effect.forEach(
-                params.expected_outputs ?? [],
-                (rawPath) =>
-                  Effect.gen(function* () {
-                    const resolved = yield* resolveExecutionPath(rawPath, cwd, shell)
-                    const normalized = AppFileSystem.normalizePath(resolved)
-                    const filepath =
-                      (yield* assertExternalDirectoryEffect(ctx, normalized, { kind: "file" })) ?? normalized
-                    return {
-                      normalized: AppFileSystem.normalizePath(filepath),
-                      path: filepath,
-                      before: yield* readTrackedState(filepath),
-                    }
-                  }),
-                { concurrency: 4 },
-              ).pipe(
-                Effect.map((items) => {
-                  const deduped = new Map<string, { path: string; before: TrackedOutputState }>()
-                  for (const item of items) {
-                    if (deduped.has(item.normalized)) continue
-                    deduped.set(item.normalized, { path: item.path, before: item.before })
-                  }
-                  return Array.from(deduped.values())
-                }),
-              )
-              const exactOfficeOutputs = yield* Effect.forEach(
-                (params.expected_outputs ?? []).length === 0 && !!ctx.messageID ? officeCliTargets(params.command) : [],
-                (rawPath) =>
-                  Effect.gen(function* () {
-                    const resolved = yield* resolveExecutionPath(rawPath, cwd, shell)
-                    const normalized = AppFileSystem.normalizePath(resolved)
-                    const filepath =
-                      (yield* assertExternalDirectoryEffect(ctx, normalized, { kind: "file" })) ?? normalized
-                    return {
-                      normalized: AppFileSystem.normalizePath(filepath),
-                      path: filepath,
-                      before: yield* readTrackedState(filepath),
-                    }
-                  }),
-                { concurrency: 4 },
-              ).pipe(
-                Effect.map((items) => {
-                  const deduped = new Map<string, { path: string; before: TrackedOutputState }>()
-                  for (const item of items) {
-                    if (deduped.has(item.normalized)) continue
-                    deduped.set(item.normalized, { path: item.path, before: item.before })
-                  }
-                  return Array.from(deduped.values())
-                }),
-              )
-              const shouldAutoDiscoverOutputs =
-                (params.expected_outputs ?? []).length === 0 &&
-                !!ctx.messageID &&
-                isLikelyWriteCommand(
-                  exactOfficeOutputs.length ? nonOfficeCliCommandText(params.command) : params.command,
-                )
-              const autoDiscoveredBefore = shouldAutoDiscoverOutputs
-                ? yield* Effect.gen(function* () {
-                    const discovered = yield* discoverOfficeOutputs(cwd, directory)
-                    if (discovered.overflowed) return { outputs: [], overflowed: true }
-                    const outputs = yield* Effect.forEach(
-                      discovered.paths,
-                      (filepath) =>
-                        Effect.gen(function* () {
-                          return {
-                            path: filepath,
-                            before: yield* readTrackedState(filepath),
-                          }
-                        }),
-                      { concurrency: 4 },
-                    )
-                    return { outputs, overflowed: false }
-                  })
-                : undefined
-
-              const result = yield* run(
+              // shellEnv() must run AFTER the orchestrator's before-snapshots.
+              // A `shell.env` plugin can create or modify files (config, sockets,
+              // bundled-tool drops) as a side effect; running it before the
+              // before-state read would fold that mutation into "before" and the
+              // subsequent change would never surface as a turn-change record.
+              return yield* orchestrateArtifacts(
                 {
-                  shell,
-                  name,
-                  command: params.command,
+                  ctx,
                   cwd,
-                  env: yield* shellEnv(ctx, cwd),
-                  timeout,
-                  description: params.description,
+                  directory,
+                  shell,
+                  command: params.command,
+                  expectedOutputs: params.expected_outputs ?? [],
                 },
-                ctx,
-              )
-
-              let outputsToRecord = trackedOutputs
-              let autoDiscovered = false
-              let exactOfficeTargeted = false
-              if (!outputsToRecord.length && exactOfficeOutputs.length) {
-                outputsToRecord = exactOfficeOutputs
-                exactOfficeTargeted = true
-              }
-              if (!trackedOutputs.length && shouldAutoDiscoverOutputs) {
-                autoDiscovered = true
-                let overflowed = autoDiscoveredBefore?.overflowed ?? false
-                const deduped = new Map<string, { path: string; before: TrackedOutputState }>()
-                for (const item of exactOfficeOutputs) {
-                  const normalized = AppFileSystem.normalizePath(item.path)
-                  if (deduped.has(normalized)) continue
-                  deduped.set(normalized, item)
-                }
-                if (!overflowed) {
-                  for (const item of autoDiscoveredBefore?.outputs ?? []) {
-                    const normalized = AppFileSystem.normalizePath(item.path)
-                    if (deduped.has(normalized)) continue
-                    deduped.set(normalized, item)
-                  }
-                  const discoveredAfter = yield* discoverOfficeOutputs(cwd, directory)
-                  overflowed = discoveredAfter.overflowed
-                  if (!overflowed) {
-                    for (const filepath of discoveredAfter.paths) {
-                      const normalized = AppFileSystem.normalizePath(filepath)
-                      if (deduped.has(normalized)) continue
-                      deduped.set(normalized, {
-                        path: filepath,
-                        before: { state: { exists: false }, comparable: true, kind: "missing" },
-                      })
-                    }
-                  }
-                }
-
-                if (overflowed) {
-                  if (deduped.size > 0) {
-                    outputsToRecord = Array.from(deduped.values())
-                  } else {
-                    yield* turnChange.recordUncaptured({
-                      sessionID: ctx.sessionID,
-                      messageID: ctx.messageID,
-                    })
-                    return result
-                  }
-                } else {
-                  outputsToRecord = Array.from(deduped.values())
-                }
-              }
-
-              if (!outputsToRecord.length) {
-                if (shouldAutoDiscoverOutputs) {
-                  yield* turnChange.recordUncaptured({
-                    sessionID: ctx.sessionID,
-                    messageID: ctx.messageID,
-                  })
-                }
-                return result
-              }
-
-              const artifacts = yield* Effect.forEach(
-                outputsToRecord,
-                (tracked) =>
+                () =>
                   Effect.gen(function* () {
-                    const after = yield* readTrackedState(tracked.path)
-                    const changed =
-                      tracked.before.comparable &&
-                      after.comparable &&
-                      !sameTrackedState(tracked.before.state, after.state)
-                    if (changed) {
-                      yield* turnChange.recordWrite({
-                        sessionID: ctx.sessionID,
-                        messageID: ctx.messageID,
-                        path: tracked.path,
-                        before: tracked.before.state,
-                        after: after.state,
-                      })
-                    }
-                    return {
-                      path: tracked.path,
-                      exists: after.state.exists,
-                      changed,
-                      ...(after.kind === "directory" ? { directory: true } : {}),
-                      ...(after.state.binary && after.kind !== "directory" ? { binary: true } : {}),
-                      ...(after.state.large ? { large: true } : {}),
-                      ...(!tracked.before.comparable || !after.comparable
-                        ? {
-                            comparable: false,
-                            errorCode:
-                              ("errorCode" in tracked.before ? tracked.before.errorCode : undefined) ??
-                              ("errorCode" in after ? after.errorCode : undefined),
-                          }
-                        : {}),
-                    }
+                    const env = yield* shellEnv(ctx, cwd)
+                    return yield* run(
+                      {
+                        shell,
+                        name,
+                        command: params.command,
+                        cwd,
+                        env,
+                        timeout,
+                        description: params.description,
+                      },
+                      ctx,
+                    )
                   }),
-                { concurrency: 4 },
+                deps,
               )
-              const visibleArtifacts =
-                autoDiscovered || exactOfficeTargeted ? artifacts.filter((item) => item.changed) : artifacts
-              if (autoDiscovered && visibleArtifacts.length === 0) {
-                yield* turnChange.recordUncaptured({
-                  sessionID: ctx.sessionID,
-                  messageID: ctx.messageID,
-                })
-                return result
-              }
-              if (exactOfficeTargeted && visibleArtifacts.length === 0) return result
-              if (autoDiscovered) {
-                yield* turnChange.recordUncaptured({
-                  sessionID: ctx.sessionID,
-                  messageID: ctx.messageID,
-                })
-              }
-
-              return {
-                ...result,
-                metadata: {
-                  ...result.metadata,
-                  artifacts: visibleArtifacts,
-                },
-              }
             }),
         }
       })
