@@ -193,7 +193,12 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
-        const session = await Session.get(sessionID)
+        const session = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const sessions = yield* Session.Service
+            return yield* sessions.get(sessionID)
+          }),
+        )
         return c.json(session)
       },
     )
@@ -224,7 +229,12 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
-        const session = await Session.children(sessionID)
+        const session = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const sessions = yield* Session.Service
+            return yield* sessions.children(sessionID)
+          }),
+        )
         return c.json(session)
       },
     )
@@ -309,7 +319,12 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
-        await Session.remove(sessionID)
+        await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const sessions = yield* Session.Service
+            yield* sessions.remove(sessionID)
+          }),
+        )
         return c.json(true)
       },
     )
@@ -352,22 +367,27 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
         const updates = c.req.valid("json")
-        const current = await Session.get(sessionID)
+        const session = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const sessions = yield* Session.Service
+            const current = yield* sessions.get(sessionID)
 
-        if (updates.title !== undefined) {
-          await Session.setTitle({ sessionID, title: updates.title })
-        }
-        if (updates.permission !== undefined) {
-          await Session.setPermission({
-            sessionID,
-            permission: Permission.merge(current.permission ?? [], updates.permission),
-          })
-        }
-        if (updates.time?.archived !== undefined) {
-          await Session.setArchived({ sessionID, time: updates.time.archived })
-        }
+            if (updates.title !== undefined) {
+              yield* sessions.setTitle({ sessionID, title: updates.title })
+            }
+            if (updates.permission !== undefined) {
+              yield* sessions.setPermission({
+                sessionID,
+                permission: Permission.merge(current.permission ?? [], updates.permission),
+              })
+            }
+            if (updates.time?.archived !== undefined) {
+              yield* sessions.setArchived({ sessionID, time: updates.time.archived })
+            }
 
-        const session = await Session.get(sessionID)
+            return yield* sessions.get(sessionID)
+          }),
+        )
         return c.json(session)
       },
     )
@@ -445,7 +465,12 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
         const body = c.req.valid("json")
-        const result = await Session.fork({ ...body, sessionID })
+        const result = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const sessions = yield* Session.Service
+            return yield* sessions.fork({ ...body, sessionID })
+          }),
+        )
         return c.json(result)
       },
     )
