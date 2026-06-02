@@ -1,10 +1,22 @@
 import { describe, expect, test } from "bun:test"
 import { Effect, Schema } from "effect"
-import { deriveActivatedTools, buildCardList, DEFERRED_TOOL_IDS, makeToolInfoTool } from "../../src/tool/tool-info"
+import {
+  buildActivationReminder,
+  buildCardList,
+  DEFERRED_TOOL_IDS,
+  deriveActivatedTools,
+  deriveNewlyActivated,
+  makeToolInfoTool,
+} from "../../src/tool/tool-info"
 import type { MessageV2 } from "../../src/session/message-v2"
 
-function toolPart(tool: string, status: string, input: Record<string, unknown>) {
-  return { type: "tool", tool, callID: "c", state: { status, input } }
+function toolPart(
+  tool: string,
+  status: string,
+  input: Record<string, unknown>,
+  metadata?: Record<string, unknown>,
+) {
+  return { type: "tool", tool, callID: "c", state: { status, input, ...(metadata ? { metadata } : {}) } }
 }
 
 function assistant(parts: unknown[]): MessageV2.WithParts {
@@ -56,7 +68,35 @@ describe("tool-info", () => {
     })
     const ctx = { extra: { deferredAvailable: () => true } } as unknown as Parameters<typeof tool.execute>[1]
     const result = await Effect.runPromise(tool.execute({ name: "enter-worktree" }, ctx))
-    expect(result.output).toContain("is now available")
+    expect(result.output).toContain("is now in your tool list")
     expect(result.metadata).toMatchObject({ activated: "enter-worktree" })
+  })
+
+  test("deriveNewlyActivated only picks the most recent assistant message", () => {
+    const messages = [
+      assistant([toolPart("tool_info", "completed", { name: "enter-worktree" }, { activated: "enter-worktree" })]),
+      { info: { role: "user" }, parts: [] } as unknown as MessageV2.WithParts,
+      assistant([toolPart("tool_info", "completed", { name: "exit-worktree" }, { activated: "exit-worktree" })]),
+    ]
+    expect([...deriveNewlyActivated(messages)]).toEqual(["exit-worktree"])
+  })
+
+  test("deriveNewlyActivated returns empty when the last assistant has no tool_info part", () => {
+    const messages = [assistant([toolPart("read", "completed", {})])]
+    expect(deriveNewlyActivated(messages).size).toBe(0)
+  })
+
+  test("buildActivationReminder anchors on system-reminder and rules out the bash fallback for enter-worktree", () => {
+    const r = buildActivationReminder("enter-worktree")
+    expect(r).toContain("<system-reminder>")
+    expect(r).toContain("</system-reminder>")
+    expect(r).toContain("enter-worktree")
+    expect(r).toContain("bash git worktree")
+  })
+
+  test("buildActivationReminder omits the anti-fallback hint for tools that have none", () => {
+    const r = buildActivationReminder("exit-worktree")
+    expect(r).toContain("exit-worktree")
+    expect(r).not.toContain("bash git worktree")
   })
 })

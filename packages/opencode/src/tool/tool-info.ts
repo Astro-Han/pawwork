@@ -52,6 +52,39 @@ export function deriveActivatedTools(messages: MessageV2.WithParts[]): Set<strin
   return activated
 }
 
+// Identifies deferred tools whose activation lives in the MOST RECENT assistant
+// message — used to inject a one-shot reminder for exactly the next turn.
+export function deriveNewlyActivated(messages: MessageV2.WithParts[]): Set<string> {
+  const newly = new Set<string>()
+  const lastAssistant = [...messages].reverse().find((m) => m.info.role === "assistant")
+  if (!lastAssistant) return newly
+  for (const part of lastAssistant.parts) {
+    if (part.type !== "tool" || part.tool !== TOOL_INFO_ID) continue
+    if (part.state.status !== "completed") continue
+    const activated = (part.state.metadata as { activated?: unknown } | undefined)?.activated
+    if (typeof activated === "string" && DEFERRED_TOOL_IDS.has(activated)) newly.add(activated)
+  }
+  return newly
+}
+
+// Tool-specific anti-fallback hint. Empty when the tool has no obvious bash equivalent.
+const ANTI_FALLBACK: Record<string, string> = {
+  "enter-worktree": " Do not use `bash git worktree` as a substitute.",
+}
+
+// One-shot system-reminder for the step after a tool_info activation. Anchored on
+// <system-reminder> because models attend to system signals more reliably than to
+// tool self-descriptions.
+export function buildActivationReminder(name: string): string {
+  return [
+    "<system-reminder>",
+    `Deferred tool activated: \`${name}\` is now in your tool list for this step. ` +
+      `Call \`${name}\` directly to continue. ` +
+      `Do not call \`tool_info\` again for this tool.${ANTI_FALLBACK[name] ?? ""}`,
+    "</system-reminder>",
+  ].join("\n")
+}
+
 // Dynamic card list appended to tool_info's static preface each turn (the
 // registry joins it after PREFACE). `available` are deferred ids not yet
 // activated and permitted for this agent/session.
@@ -101,7 +134,7 @@ export function makeToolInfoTool(input: {
             JSON.stringify(schema, null, 2),
             "```",
             "",
-            `${params.name} is now available. Call it directly on your next step.`,
+            `${params.name} is now in your tool list. Call ${params.name} directly. Do not call tool_info again for this tool.`,
             "</tool_info>",
           ].join("\n"),
           metadata: { activated: params.name },

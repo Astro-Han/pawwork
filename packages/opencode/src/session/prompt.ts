@@ -16,7 +16,7 @@ import type { JSONSchema7 } from "@ai-sdk/provider"
 import { SessionCompaction } from "./compaction"
 import { Bus } from "../bus"
 import { ProviderTransform } from "../provider/transform"
-import { deriveActivatedTools } from "../tool/tool-info"
+import { buildActivationReminder, deriveActivatedTools, deriveNewlyActivated } from "../tool/tool-info"
 import { SystemPrompt } from "./system"
 import { Instruction } from "./instruction"
 import { Plugin } from "../plugin"
@@ -2104,6 +2104,23 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             concurrency: "unbounded",
             discard: true,
           })
+
+          // Tool description self-claims of "now available" don't move small models;
+          // a <system-reminder> in the user message of the very next step does.
+          const newlyActivated = deriveNewlyActivated(msgs)
+          if (newlyActivated.size > 0) {
+            const userMessage = msgs.findLast((msg) => msg.info.role === "user" && msg.info.id === lastUser.id)
+            for (const name of newlyActivated) {
+              userMessage?.parts.push({
+                id: PartID.ascending(),
+                messageID: lastUser.id,
+                sessionID,
+                type: "text",
+                text: buildActivationReminder(name),
+                synthetic: true,
+              })
+            }
+          }
 
           const execLive = (yield* sessions.get(sessionID)).executionContext
           const msg: MessageV2.Assistant = {
