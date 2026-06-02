@@ -1,5 +1,7 @@
 import z from "zod"
 import { Context as EffectContext, Effect, Layer } from "effect"
+import { InstanceState } from "@/effect/instance-state"
+import { makeRuntime } from "@/effect/run-service"
 import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
 import { Identifier } from "@/id/id"
@@ -265,10 +267,11 @@ export namespace Automation {
     activeWriters: Set<string>
     activeRuns: Map<string, { writerKey: string; controller: AbortController; runID: string }>
   }
-  const state = Instance.state<State>(() => ({
-    activeWriters: new Set(),
-    activeRuns: new Map(),
-  }))
+  // Per-directory execution state. The container lives in InstanceState (owned by the
+  // Service layer below); the sync facade reads it through a runtime bridge (see `state`).
+  function state(): State {
+    return automationRuntime.runSync((svc) => svc.activeState())
+  }
 
   export type RunExecutor = (input: {
     definition: Definition
@@ -1235,46 +1238,56 @@ export namespace Automation {
     readonly publishDefinitionUpdated: (definition: Definition) => Effect.Effect<void>
     readonly publishDefinitionDeleted: (tombstone: Tombstone) => Effect.Effect<void>
     readonly publishRunUpdated: (run: Run) => Effect.Effect<void>
+    // Execution-face: the per-directory mutable active-run/writer state, owned by InstanceState.
+    readonly activeState: () => Effect.Effect<State>
   }
 
   export class Service extends EffectContext.Service<Service, Interface>()("@opencode/Automation") {}
 
-  export const layer: Layer.Layer<Service> = Layer.succeed(
+  export const layer: Layer.Layer<Service> = Layer.effect(
     Service,
-    Service.of({
-      list: () => Effect.sync(() => list()),
-      get: (id) => Effect.sync(() => get(id)),
-      create: (input, options) =>
-        Effect.try({
-          try: () => create(input, options),
-          catch: (error) => {
-            if (error instanceof ValidationError) return error
-            throw error
-          },
-        }),
-      update: (id, patch, options) =>
-        Effect.try({
-          try: () => update(id, patch, options),
-          catch: (error) => {
-            if (error instanceof ValidationError || error instanceof ConflictError) return error
-            throw error
-          },
-        }),
-      remove: (id) =>
-        Effect.tryPromise({ try: () => remove(id), catch: (error) => error }).pipe(
-          Effect.catch((error) =>
-            error instanceof ActiveRunStillRunningError ? Effect.fail(error) : Effect.die(error),
+    Effect.gen(function* () {
+      const activeStateHandle = yield* InstanceState.make<State>(() =>
+        Effect.sync(() => ({ activeWriters: new Set<string>(), activeRuns: new Map() })),
+      )
+      return Service.of({
+        list: () => Effect.sync(() => list()),
+        get: (id) => Effect.sync(() => get(id)),
+        create: (input, options) =>
+          Effect.try({
+            try: () => create(input, options),
+            catch: (error) => {
+              if (error instanceof ValidationError) return error
+              throw error
+            },
+          }),
+        update: (id, patch, options) =>
+          Effect.try({
+            try: () => update(id, patch, options),
+            catch: (error) => {
+              if (error instanceof ValidationError || error instanceof ConflictError) return error
+              throw error
+            },
+          }),
+        remove: (id) =>
+          Effect.tryPromise({ try: () => remove(id), catch: (error) => error }).pipe(
+            Effect.catch((error) =>
+              error instanceof ActiveRunStillRunningError ? Effect.fail(error) : Effect.die(error),
+            ),
           ),
-        ),
-      runNowExecuting: (id, options) => Effect.promise(() => runNowExecuting(id, options)),
-      runs: (input) => Effect.sync(() => runs(input)),
-      publishDefinitionUpdated: (definition) => Effect.promise(() => publishDefinitionUpdated(definition)),
-      publishDefinitionDeleted: (tombstone) => Effect.promise(() => publishDefinitionDeleted(tombstone)),
-      publishRunUpdated: (run) => Effect.promise(() => publishRunUpdated(run)),
+        runNowExecuting: (id, options) => Effect.promise(() => runNowExecuting(id, options)),
+        runs: (input) => Effect.sync(() => runs(input)),
+        publishDefinitionUpdated: (definition) => Effect.promise(() => publishDefinitionUpdated(definition)),
+        publishDefinitionDeleted: (tombstone) => Effect.promise(() => publishDefinitionDeleted(tombstone)),
+        publishRunUpdated: (run) => Effect.promise(() => publishRunUpdated(run)),
+        activeState: () => InstanceState.get(activeStateHandle),
+      })
     }),
   )
 
   export const defaultLayer = layer
+
+  const automationRuntime = makeRuntime(Service, layer)
 }
 
 export class ValidationError extends Error {
