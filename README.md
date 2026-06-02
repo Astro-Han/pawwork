@@ -1,6 +1,7 @@
 # PawWork
 
-**Open-source AI agent that works out of the box on your desktop.**
+**Open-source alternative to Codex App and Claude Cowork.**
+Bring your own key, works with any model — including ChatGPT OAuth.
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![macOS](https://img.shields.io/badge/macOS-signed_and_notarized-black.svg)](https://github.com/Astro-Han/pawwork/releases/latest)
@@ -8,11 +9,9 @@
 
 [中文说明](README_CN.md)
 
-PawWork is an open-source alternative to Codex App and Claude Desktop. It brings AI agent work into a polished desktop app for files, documents, spreadsheets, research, writing, code, and local tasks.
+PawWork brings AI agent work into a polished desktop app for files, documents, spreadsheets, research, writing, code, and local tasks. Use your ChatGPT Plus/Pro plan for OpenAI, or bring your own API key for Claude, Gemini, DeepSeek, Kimi, GLM, and 75+ providers, including local models.
 
-Start without a terminal, API key, or paid model plan. PawWork includes a free plan powered by OpenCode Zen, built-in web search, task cards, and support for your own model accounts when you want more choice or control.
-
-![PawWork - Open-source AI agent that works out of the box on your desktop](assets/readme/pawwork-cover.png)
+![PawWork - Open-source alternative to Codex App and Claude Cowork](assets/readme/pawwork-cover.png)
 
 ## Why PawWork
 
