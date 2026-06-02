@@ -12,17 +12,17 @@ const PLUS_ONE_DAY = { days: 1 }
 const PLUS_ONE_HOUR = { hours: 1 }
 const PLUS_ONE_MINUTE = { minutes: 1 }
 
-function nextCronFires(definition: RecurringDefinition, from: number, count: number): number[] {
-  if (definition.rhythm.kind !== "cron" || count <= 0) return []
+function collectCronFires(expression: string, timezone: string, from: number, count: number): number[] {
+  if (count <= 0) return []
   let schedule: CronSchedule
   try {
-    schedule = parseCronSchedule(definition.rhythm.expression)
+    schedule = parseCronSchedule(expression)
   } catch {
     return []
   }
   const fires: number[] = []
   const maxTimestamp = from + CRON_LOOKAHEAD_MINUTES * 60 * 1000
-  let cursor = DateTime.fromMillis(from, { zone: definition.timezone }).plus(PLUS_ONE_MINUTE).startOf("minute")
+  let cursor = DateTime.fromMillis(from, { zone: timezone }).plus(PLUS_ONE_MINUTE).startOf("minute")
   while (cursor.toMillis() < maxTimestamp && fires.length < count) {
     if (!schedule.months.has(cursor.month)) {
       cursor = cursor.plus(PLUS_ONE_MONTH).startOf("month")
@@ -45,6 +45,16 @@ function nextCronFires(definition: RecurringDefinition, from: number, count: num
     cursor = cursor.plus(PLUS_ONE_MINUTE)
   }
   return fires
+}
+
+function nextCronFires(definition: RecurringDefinition, from: number, count: number): number[] {
+  if (definition.rhythm.kind !== "cron") return []
+  return collectCronFires(definition.rhythm.expression, definition.timezone, from, count)
+}
+
+/** First cron fire strictly after `from` in `timezone`, or null if none within the lookahead window. */
+export function nextCronFireAfter(expression: string, timezone: string, from: number): number | null {
+  return collectCronFires(expression, timezone, from, 1)[0] ?? null
 }
 
 function nextIntervalFires(definition: RecurringDefinition, from: number, count: number): number[] {

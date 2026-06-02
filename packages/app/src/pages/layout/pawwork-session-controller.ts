@@ -318,6 +318,7 @@ export function createPawworkSessionController(input: PawworkSessionControllerIn
     sessions: pawworkSessions,
     sessionSections: pawworkSessionSections,
     sessionByID: pawworkSessionByID,
+    loadSessionByID,
     navigationSessions: pawworkNavigationSessions,
     projectKeyForSession,
     windowLoading,

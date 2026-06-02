@@ -301,7 +301,7 @@ export namespace ToolRegistry {
               tool.patch,
               ...(lspEnabled ? [tool.lsp] : []),
               ...(Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE && Flag.OPENCODE_CLIENT === "cli" ? [tool.plan] : []),
-              ...(Env.get("OPENCODE_ENABLE_AUTOMATE_TOOL") === "true" ? [tool.automate] : []),
+              tool.automate,
               tool.enterWorktree,
               tool.exitWorktree,
             ],

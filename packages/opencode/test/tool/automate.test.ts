@@ -1,115 +1,59 @@
-import { afterEach, describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, spyOn, test } from "bun:test"
 import { Effect, Schema } from "effect"
 import { AutomateParameters, createAutomateDefinition, formatAutomateValidationError } from "../../src/tool/automate"
 import { Automation } from "../../src/automation"
 import { Instance } from "../../src/project/instance"
+import { Provider } from "../../src/provider/provider"
+import { MessageV2 } from "../../src/session/message-v2"
 import { MessageID, SessionID } from "../../src/session/schema"
+import { NotFoundError } from "../../src/storage/db"
 import { tmpdir } from "../fixture/fixture"
 import { fakeAutomationProvider } from "../fake/provider"
 
 const { providerID: fakeProviderID, modelID: fakeModelID, interface: fakeProviderInterface } = fakeAutomationProvider()
-const fixtureModel = { providerID: fakeProviderID, modelID: fakeModelID }
+
+const ctx = (sessionID: SessionID) => ({
+  sessionID,
+  messageID: MessageID.ascending(),
+  agent: "build",
+  abort: new AbortController().signal,
+  messages: [],
+  metadata: () => Effect.void,
+  ask: () => Effect.void,
+})
 
 afterEach(async () => {
   await Instance.disposeAll()
 })
 
 describe("automate tool", () => {
-  test("validation errors name the wrong field and show the expected shape", () => {
+  test("decode rejects a missing required field and shows the flat shape", () => {
     const decode = Schema.decodeUnknownSync(AutomateParameters)
     let error: unknown
     try {
-      decode({
-        kind: "recurring",
-        title: "Missing prompt",
-        context: "fresh",
-        where: { projectID: "project" },
-        timezone: "UTC",
-        model: fixtureModel,
-        rhythm: { kind: "interval", everyMs: 60_000 },
-        stop: { kind: "never" },
-      })
+      decode({ title: "Daily repo brief", cron: "0 9 * * *" })
     } catch (caught) {
       error = caught
     }
 
     expect(error).toBeDefined()
+    expect(formatAutomateValidationError(error)).toContain("Invalid automate input")
     expect(formatAutomateValidationError(error)).toContain("prompt")
-    expect(formatAutomateValidationError(error)).toContain("model")
-  })
-
-  test("rejects empty strings before execute reaches the Zod create parser", () => {
-    const decode = Schema.decodeUnknownSync(AutomateParameters)
-    let error: unknown
-    try {
-      decode({
-        kind: "recurring",
-        title: "",
-        prompt: "Summarize repo changes.",
-        context: "fresh",
-        where: { projectID: "project", worktree: "" },
-        timezone: "",
-        model: fixtureModel,
-        rhythm: { kind: "interval", everyMs: 60_000 },
-        stop: { kind: "never" },
-      })
-    } catch (caught) {
-      error = caught
-    }
-
-    expect(error).toBeDefined()
-    expect(formatAutomateValidationError(error)).toContain("Invalid automate input")
   })
 
   test.each([
-    ["negative fireAt", { kind: "oneshot", fireAt: -1 }],
-    ["fractional fireAt", { kind: "oneshot", fireAt: 1.5 }],
-    ["zero interval", { kind: "recurring", rhythm: { kind: "interval", everyMs: 0 }, stop: { kind: "never" } }],
-    ["interval below floor", { kind: "recurring", rhythm: { kind: "interval", everyMs: 29_999 }, stop: { kind: "never" } }],
-    ["fractional interval", { kind: "recurring", rhythm: { kind: "interval", everyMs: 1.5 }, stop: { kind: "never" } }],
-    ["zero count", { kind: "recurring", rhythm: { kind: "interval", everyMs: 60_000 }, stop: { kind: "count", count: 0 } }],
-    ["fractional count", { kind: "recurring", rhythm: { kind: "interval", everyMs: 60_000 }, stop: { kind: "count", count: 1.5 } }],
-  ])("rejects invalid numeric fields before execute reaches the Zod create parser: %s", (_name, override) => {
-    const decode = Schema.decodeUnknownSync(AutomateParameters)
-    const base = {
-      title: "Daily repo brief",
-      prompt: "Summarize repo changes.",
-      context: "fresh",
-      where: { projectID: "project" },
-      timezone: "UTC",
-      model: fixtureModel,
-    }
-    let error: unknown
-    try {
-      decode({ ...base, ...override })
-    } catch (caught) {
-      error = caught
-    }
-
-    expect(error).toBeDefined()
-    expect(formatAutomateValidationError(error)).toContain("Invalid automate input")
-  })
-
-  test.each([
-    ["empty cron expression", { rhythm: { kind: "cron", expression: "" }, stop: { kind: "never" } }],
-    ["empty stop condition", { rhythm: { kind: "interval", everyMs: 60_000 }, stop: { kind: "condition", condition: "" } }],
+    ["empty title", { title: "" }],
+    ["empty prompt", { prompt: "" }],
+    ["empty cron", { cron: "" }],
+    ["invalid cron", { cron: "not cron" }],
+    ["invalid timezone", { timezone: "Not/AZone" }],
     ["title above replay-safe limit", { title: "x".repeat(161) }],
     ["prompt above replay-safe limit", { prompt: "x".repeat(20_001) }],
-    ["condition above replay-safe limit", { rhythm: { kind: "interval", everyMs: 60_000 }, stop: { kind: "condition", condition: "x".repeat(4_001) } }],
-  ])("rejects empty nested strings before execute reaches the Zod create parser: %s", (_name, override) => {
+  ])("decode rejects invalid input before execute: %s", (_name, override) => {
     const decode = Schema.decodeUnknownSync(AutomateParameters)
     let error: unknown
     try {
-      decode({
-        kind: "recurring",
-        title: "Daily repo brief",
-        prompt: "Summarize repo changes.",
-        context: "fresh",
-        where: { projectID: "project" },
-        timezone: "UTC",
-        model: fixtureModel,
-        ...override,
-      })
+      decode({ title: "Daily repo brief", prompt: "Summarize repo changes.", cron: "0 9 * * *", ...override })
     } catch (caught) {
       error = caught
     }
@@ -118,67 +62,118 @@ describe("automate tool", () => {
     expect(formatAutomateValidationError(error)).toContain("Invalid automate input")
   })
 
-  test.each([
-    ["invalid timezone", { timezone: "Not/AZone" }],
-    ["invalid cron expression", { rhythm: { kind: "cron", expression: "not cron" } }],
-  ])("rejects semantic validation before execute reaches the Zod create parser: %s", (_name, override) => {
-    const decode = Schema.decodeUnknownSync(AutomateParameters)
-    let error: unknown
-    try {
-      decode({
-        kind: "recurring",
-        title: "Daily repo brief",
-        prompt: "Summarize repo changes.",
-        context: "fresh",
-        where: { projectID: "project" },
-        timezone: "UTC",
-        model: fixtureModel,
-        rhythm: { kind: "interval", everyMs: 60_000 },
-        stop: { kind: "never" },
-        ...override,
-      })
-    } catch (caught) {
-      error = caught
-    }
+  test("decode strips fields the surface does not expose (spoof + frozen-only knobs)", () => {
+    const decoded = Schema.decodeUnknownSync(AutomateParameters)({
+      title: "Daily repo brief",
+      prompt: "Summarize repo changes.",
+      cron: "0 9 * * *",
+      where: { projectID: "spoofed" },
+      automationSessionID: SessionID.descending(),
+      sourceSessionID: SessionID.descending(),
+      rhythm: { kind: "interval", everyMs: 60_000 },
+    })
 
-    expect(error).toBeDefined()
-    expect(formatAutomateValidationError(error)).toContain("Invalid automate input")
+    expect(decoded).toEqual({ title: "Daily repo brief", prompt: "Summarize repo changes.", cron: "0 9 * * *" })
   })
 
-  test.each([
-    ["wrong project", () => ({ projectID: "other-project" }), "where.projectID"],
-    ["invalid worktree placement", (projectID: string) => ({ projectID, worktree: "!!!" }), "where.worktree"],
-  ])("reports execute-time automation validation as model-readable input errors: %s", async (_name, where, field) => {
+  test("creates a recurring cron automation, defaulting project/timezone/model to the session", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
         const tool = createAutomateDefinition(fakeProviderInterface)
         const sourceSessionID = SessionID.descending()
+        const result = await Effect.runPromise(
+          tool.execute(
+            { title: "Daily repo brief", prompt: "Summarize repo changes.", cron: "0 9 * * *" },
+            ctx(sourceSessionID),
+          ),
+        )
+
+        expect(result.title).toBe("Automation created")
+        const definition = result.metadata.automationDefinition
+        expect(definition).toMatchObject({
+          kind: "recurring",
+          title: "Daily repo brief",
+          prompt: "Summarize repo changes.",
+          revision: 1,
+          paused: false,
+          where: { projectID: Instance.project.id },
+          model: { providerID: fakeProviderID, modelID: fakeModelID },
+          sourceSessionID,
+        })
+        expect(definition.kind === "recurring" && definition.rhythm).toEqual({ kind: "cron", expression: "0 9 * * *" })
+        expect(Automation.isValidTimezone(definition.timezone)).toBe(true)
+        expect(Automation.list()).toHaveLength(1)
+      },
+    })
+  })
+
+  test("recurring:false creates a one-shot fired at the next cron match", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const tool = createAutomateDefinition(fakeProviderInterface)
+        const before = Date.now()
+        const result = await Effect.runPromise(
+          tool.execute(
+            { title: "One-off brief", prompt: "Summarize repo changes.", cron: "0 9 * * *", recurring: false },
+            ctx(SessionID.descending()),
+          ),
+        )
+
+        const definition = result.metadata.automationDefinition
+        expect(definition.kind).toBe("oneshot")
+        expect(definition.kind === "oneshot" && definition.fireAt).toBeGreaterThan(before)
+      },
+    })
+  })
+
+  test("honors an explicit flat model override and variant", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const tool = createAutomateDefinition(fakeProviderInterface)
+        const result = await Effect.runPromise(
+          tool.execute(
+            {
+              title: "Daily repo brief",
+              prompt: "Summarize repo changes.",
+              cron: "0 9 * * *",
+              model: `${fakeProviderID}/${fakeModelID}`,
+              variant: "high",
+            },
+            ctx(SessionID.descending()),
+          ),
+        )
+
+        expect(result.metadata.automationDefinition).toMatchObject({
+          model: { providerID: fakeProviderID, modelID: fakeModelID },
+          variant: "high",
+        })
+      },
+    })
+  })
+
+  test("surfaces execute-time model validation as a readable input error", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const tool = createAutomateDefinition(fakeProviderInterface)
         let error: unknown
         try {
           await Effect.runPromise(
             tool.execute(
               {
-                kind: "recurring",
                 title: "Daily repo brief",
                 prompt: "Summarize repo changes.",
-                context: "fresh",
-                where: where(Instance.project.id),
-                timezone: "UTC",
-                model: fixtureModel,
-                rhythm: { kind: "interval", everyMs: 60_000 },
-                stop: { kind: "never" },
+                cron: "0 9 * * *",
+                model: `${fakeProviderID}/does-not-exist`,
               },
-              {
-                sessionID: sourceSessionID,
-                messageID: MessageID.ascending(),
-                agent: "build",
-                abort: new AbortController().signal,
-                messages: [],
-                metadata: () => Effect.void,
-                ask: () => Effect.void,
-              },
+              ctx(SessionID.descending()),
             ),
           )
         } catch (caught) {
@@ -186,138 +181,135 @@ describe("automate tool", () => {
         }
 
         expect(String(error)).toContain("Invalid automate input")
-        expect(String(error)).toContain(field)
+        expect(String(error)).toContain("model")
         expect(Automation.list()).toHaveLength(0)
       },
     })
   })
 
-  test("echoes the resolved definition through the automation create path", async () => {
+  test("a non-NotFound failure reading the session messages fails the tool instead of silently using the default model", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const tool = createAutomateDefinition(fakeProviderInterface)
-        const sourceSessionID = SessionID.descending()
-        const result = await Effect.runPromise(
-          tool.execute(
-            {
-              kind: "recurring",
-              title: "Daily repo brief",
-              prompt: "Summarize repo changes.",
-              context: "fresh",
-              where: { projectID: Instance.project.id },
-              timezone: "Asia/Shanghai",
-              model: fixtureModel,
-              rhythm: { kind: "interval", everyMs: 60_000 },
-              stop: { kind: "never" },
-            },
-            {
-              sessionID: sourceSessionID,
-              messageID: MessageID.ascending(),
-              agent: "build",
-              abort: new AbortController().signal,
-              messages: [],
-              metadata: () => Effect.void,
-              ask: () => Effect.void,
-            },
-          ),
-        )
-
-        expect(result.title).toBe("Automation created")
-        expect(result.metadata.automationDefinition).toMatchObject({
-          title: "Daily repo brief",
-          prompt: "Summarize repo changes.",
-          revision: 1,
-          paused: false,
-          where: { projectID: Instance.project.id },
-          sourceSessionID,
-        })
-        expect(Automation.list()).toHaveLength(1)
-      },
-    })
-  })
-
-  test("binds sourceSessionID to the current tool context even when input tries to spoof it", async () => {
-    await using tmp = await tmpdir({ git: true })
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const tool = createAutomateDefinition(fakeProviderInterface)
-        const sourceSessionID = SessionID.descending()
-        const spoofedSessionID = SessionID.descending()
-        const spoofedSource = { sourceSessionID: spoofedSessionID } as Record<string, unknown>
-        const result = await Effect.runPromise(
-          tool.execute(
-            {
-              kind: "recurring",
-              title: "Daily repo brief",
-              prompt: "Summarize repo changes.",
-              context: "fresh",
-              where: { projectID: Instance.project.id },
-              timezone: "Asia/Shanghai",
-              model: fixtureModel,
-              ...spoofedSource,
-              rhythm: { kind: "interval", everyMs: 60_000 },
-              stop: { kind: "never" },
-            },
-            {
-              sessionID: sourceSessionID,
-              messageID: MessageID.ascending(),
-              agent: "build",
-              abort: new AbortController().signal,
-              messages: [],
-              metadata: () => Effect.void,
-              ask: () => Effect.void,
-            },
-          ),
-        )
-
-        expect(result.metadata.automationDefinition.sourceSessionID).toBe(sourceSessionID)
-      },
-    })
-  })
-
-  test("rejects externally supplied automationSessionID through the create path", async () => {
-    await using tmp = await tmpdir({ git: true })
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const tool = createAutomateDefinition(fakeProviderInterface)
-        let error: unknown
-        const spoofedSession = { automationSessionID: SessionID.descending() } as Record<string, unknown>
+        const streamSpy = spyOn(MessageV2, "stream").mockImplementation((() => {
+          throw new Error("storage corrupt")
+        }) as typeof MessageV2.stream)
         try {
-          await Effect.runPromise(
+          const tool = createAutomateDefinition(fakeProviderInterface)
+          let error: unknown
+          try {
+            await Effect.runPromise(
+              tool.execute(
+                { title: "Daily repo brief", prompt: "Summarize repo changes.", cron: "0 9 * * *" },
+                ctx(SessionID.descending()),
+              ),
+            )
+          } catch (caught) {
+            error = caught
+          }
+
+          expect(String(error)).toContain("storage corrupt")
+          expect(Automation.list()).toHaveLength(0)
+        } finally {
+          streamSpy.mockRestore()
+        }
+      },
+    })
+  })
+
+  test("a missing session (NotFound) still falls back to the provider default model", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const streamSpy = spyOn(MessageV2, "stream").mockImplementation((() => {
+          throw new NotFoundError({ message: "Session not found" })
+        }) as typeof MessageV2.stream)
+        try {
+          const tool = createAutomateDefinition(fakeProviderInterface)
+          const result = await Effect.runPromise(
             tool.execute(
-              {
-                kind: "recurring",
-                title: "Daily repo brief",
-                prompt: "Summarize repo changes.",
-                context: "fresh",
-                where: { projectID: Instance.project.id },
-                timezone: "Asia/Shanghai",
-                model: fixtureModel,
-                ...spoofedSession,
-                rhythm: { kind: "interval", everyMs: 60_000 },
-                stop: { kind: "never" },
-              },
-              {
-                sessionID: SessionID.descending(),
-                messageID: MessageID.ascending(),
-                agent: "build",
-                abort: new AbortController().signal,
-                messages: [],
-                metadata: () => Effect.void,
-                ask: () => Effect.void,
-              },
+              { title: "Daily repo brief", prompt: "Summarize repo changes.", cron: "0 9 * * *" },
+              ctx(SessionID.descending()),
             ),
           )
-        } catch (caught) {
-          error = caught
-        }
 
-        expect(error).toBeInstanceOf(Error)
-        expect(String(error)).toContain("automationSessionID: unsupported_automation_field")
+          expect(result.metadata.automationDefinition.model).toEqual({
+            providerID: fakeProviderID,
+            modelID: fakeModelID,
+          })
+        } finally {
+          streamSpy.mockRestore()
+        }
+      },
+    })
+  })
+
+  test("one-shot fireAt is sampled after model validation, so a crossed cron boundary never yields an already-due fire", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const boundary = Date.UTC(2026, 0, 1, 12, 1, 0)
+        let clock = boundary - 1_000
+        const nowSpy = spyOn(Date, "now").mockImplementation(() => clock)
+        // Validation crosses the minute boundary. If now were sampled before
+        // validation, the one-shot would fire at 12:01:00 (already due); sampling
+        // after pushes it to 12:02:00.
+        const slowProvider: Provider.Interface = {
+          ...fakeProviderInterface,
+          getModel: ((pId, mId) => {
+            clock = boundary + 1_000
+            return fakeProviderInterface.getModel(pId, mId)
+          }) as Provider.Interface["getModel"],
+        }
+        try {
+          const tool = createAutomateDefinition(slowProvider)
+          const result = await Effect.runPromise(
+            tool.execute(
+              {
+                title: "One-off brief",
+                prompt: "Summarize repo changes.",
+                cron: "* * * * *",
+                recurring: false,
+                timezone: "UTC",
+              },
+              ctx(SessionID.descending()),
+            ),
+          )
+
+          const definition = result.metadata.automationDefinition
+          expect(definition.kind).toBe("oneshot")
+          expect(definition.kind === "oneshot" && definition.fireAt).toBe(Date.UTC(2026, 0, 1, 12, 2, 0))
+        } finally {
+          nowSpy.mockRestore()
+        }
+      },
+    })
+  })
+
+  test("binds sourceSessionID to the tool context and ignores any spoofed identity fields", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const tool = createAutomateDefinition(fakeProviderInterface)
+        const sourceSessionID = SessionID.descending()
+        const spoof = {
+          sourceSessionID: SessionID.descending(),
+          automationSessionID: SessionID.descending(),
+        } as Record<string, unknown>
+        const result = await Effect.runPromise(
+          tool.execute(
+            { title: "Daily repo brief", prompt: "Summarize repo changes.", cron: "0 9 * * *", ...spoof },
+            ctx(sourceSessionID),
+          ),
+        )
+
+        const definition = result.metadata.automationDefinition
+        expect(definition.sourceSessionID).toBe(sourceSessionID)
+        expect(definition.automationSessionID).toBeUndefined()
       },
     })
   })

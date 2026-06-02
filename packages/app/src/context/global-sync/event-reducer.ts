@@ -1,6 +1,9 @@
 import { Binary } from "@opencode-ai/util/binary"
 import { produce, reconcile, type SetStoreFunction, type Store } from "solid-js/store"
 import type {
+  AutomationDefinition,
+  AutomationDefinitionTombstone,
+  AutomationRun,
   Message,
   Part,
   PermissionRequest,
@@ -11,6 +14,7 @@ import type {
   TodoSnapshot,
 } from "@opencode-ai/sdk/v2/client"
 import type { State, VcsCache } from "./types"
+import { applyAutomationDefinition, applyAutomationRun, applyAutomationTombstone } from "./automation-store"
 import { trimSessions } from "./session-trim"
 import { dropSessionCaches } from "./session-cache"
 import { message as clean } from "@/utils/diffs"
@@ -18,6 +22,12 @@ import type { createBlockerTerminalCache } from "./blocker-terminal-cache"
 import type { TodoHydrateCoordinator } from "./todo-hydrate-coordinator"
 
 const SKIP_PARTS = new Set(["patch", "step-start", "step-finish"])
+
+// A recurring automation that fails this many times in a row earns one subtle
+// toast on the rising edge. The threshold and the rising-edge gate keep SSE
+// replays and the bootstrap snapshot (which never runs this reducer path) quiet.
+const AUTOMATION_FAILURE_STREAK_ALERT = 3
+type RecurringAutomation = Extract<AutomationDefinition, { kind: "recurring" }>
 type AcceptSessionTodo = (sessionID: string, snapshot: TodoSnapshot) => boolean
 type ClearSessionTodoAuthoritative = (sessionID: string) => void
 type TodoHydrateBoundary = Partial<Pick<TodoHydrateCoordinator, "canAcceptLiveTodo" | "invalidateSession">>
@@ -177,6 +187,7 @@ export function applyDirectoryEvent(input: {
   clearSessionTodoAuthoritative?: ClearSessionTodoAuthoritative
   todoHydrate?: TodoHydrateBoundary
   blockerTerminals?: ReturnType<typeof createBlockerTerminalCache>
+  onAutomationFailureStreak?: (definition: RecurringAutomation) => void
 }) {
   const event = input.event
   switch (event.type) {
@@ -425,6 +436,33 @@ export function applyDirectoryEvent(input: {
     }
     case "lsp.updated": {
       input.loadLsp()
+      break
+    }
+    case "automation.definition.updated": {
+      const definition = event.properties as AutomationDefinition
+      // Snapshot the prior streak as a primitive before applying: the store proxy
+      // reflects the current value at its path, so reading it post-write would
+      // mask the rising edge.
+      const previous = input.store.automation[definition.id]
+      const previousStreak = previous?.kind === "recurring" ? previous.failureStreak : undefined
+      const accepted = applyAutomationDefinition(input.store, input.setStore, definition)
+      if (
+        accepted &&
+        definition.kind === "recurring" &&
+        definition.failureStreak >= AUTOMATION_FAILURE_STREAK_ALERT &&
+        previousStreak !== undefined &&
+        previousStreak < AUTOMATION_FAILURE_STREAK_ALERT
+      ) {
+        input.onAutomationFailureStreak?.(definition)
+      }
+      break
+    }
+    case "automation.definition.deleted": {
+      applyAutomationTombstone(input.store, input.setStore, event.properties as AutomationDefinitionTombstone)
+      break
+    }
+    case "automation.run.updated": {
+      applyAutomationRun(input.store, input.setStore, event.properties as AutomationRun)
       break
     }
   }

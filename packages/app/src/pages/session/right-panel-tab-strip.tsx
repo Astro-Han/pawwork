@@ -10,6 +10,7 @@ import { SessionContextUsage } from "@/components/session-context-usage"
 import { ShellTab, SortableShellTab } from "@/components/session"
 import { useCommand } from "@/context/command"
 import { useLanguage } from "@/context/language"
+import { useShellSurface } from "@/context/shell-surface"
 import { sortableShellTabIds } from "@/pages/session/helpers"
 import type { RightPanelShellIconName, RightPanelTab, ShellTabIcon } from "@/pages/session/right-panel-tabs"
 
@@ -66,6 +67,7 @@ export function RightPanelTabStrip(props: {
 }) {
   const language = useLanguage()
   const command = useCommand()
+  const shellSurface = useShellSurface()
   // `<For>` keys by reference identity. The parent's `shellTabs()` returns a
   // fresh array of fresh objects on every recompute (session-side-panel.tsx:137
   // builds it via `.map(...)`), so iterating that array directly would cause
@@ -86,7 +88,7 @@ export function RightPanelTabStrip(props: {
     return map
   })
   return (
-    <Show when={props.tabsPortalMount()}>
+    <Show when={!shellSurface.automationsOpen() && props.tabsPortalMount()}>
       {(mount) => (
         <Portal mount={mount()}>
           {/* Tabs.List portals into <Titlebar>'s `pawwork-titlebar-tabs` slot so the
