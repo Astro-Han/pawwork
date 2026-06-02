@@ -3,7 +3,6 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { Binary } from "@opencode-ai/util/binary"
 import type { Accessor } from "solid-js"
-import type { FileSelection } from "@/context/file"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
@@ -16,18 +15,17 @@ import { useSync } from "@/context/sync"
 import { promptProbe } from "@/testing/prompt"
 import { Identifier } from "@/utils/id"
 import { Worktree as WorktreeState } from "@/utils/worktree"
-import { setCursorPosition } from "./editor-dom"
 import { reportInvariantBreach } from "./invariant"
 import { formatServerError } from "@/utils/server-errors"
 import { canSubmitPrompt } from "@/pages/session/session-action-readiness"
 import { type PromptRouteScope, promptScopeForSession } from "@/pages/session/prompt-route-scope"
 import { usePortableDraft } from "./portable-draft"
 import { usePinnedDraft } from "./pinned-draft"
-import type { ResolvedMention } from "./mention-metadata"
 import type { FollowupDraft } from "./followup-draft"
 import { detectSubmitOwnership, type SubmitOwnership } from "./submit-ownership"
 import { sendFollowupDraft } from "./send-followup-draft"
 import { createAbort, pending } from "./submit-abort"
+import { createPromptDraftLifecycle } from "./prompt-draft-lifecycle"
 
 type PromptSubmitInput = {
   sessionID?: Accessor<string | undefined>
@@ -55,16 +53,6 @@ type PromptSubmitInput = {
   onSubmit?: () => void
   navigate?: (path: string) => void
   routeParams?: Accessor<{ dir?: string; id?: string }>
-}
-
-type CommentItem = {
-  path: string
-  selection?: FileSelection
-  comment?: string
-  commentID?: string
-  commentOrigin?: "review" | "file"
-  preview?: string
-  resolvedMentions?: ResolvedMention[]
 }
 
 export function createPromptSubmit(input: PromptSubmitInput) {
@@ -100,33 +88,6 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     onAbort: input.onAbort,
     client: () => sdk.client,
   })
-
-  const restoreCommentItems = (items: CommentItem[]) => {
-    for (const item of items) {
-      prompt.context.add({
-        type: "file",
-        path: item.path,
-        selection: item.selection,
-        comment: item.comment,
-        commentID: item.commentID,
-        commentOrigin: item.commentOrigin,
-        preview: item.preview,
-        resolvedMentions: item.resolvedMentions,
-      })
-    }
-  }
-
-  const removeCommentItems = (items: { key: string }[]) => {
-    for (const item of items) {
-      prompt.context.remove(item.key)
-    }
-  }
-
-  const clearContext = () => {
-    for (const item of prompt.context.items()) {
-      prompt.context.remove(item.key)
-    }
-  }
 
   const seed = (dir: string, info: Session) => {
     const [, setStore] = globalSync.child(dir)
@@ -316,102 +277,47 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       context,
     }
 
-    // Submitted owner-backed drafts leave the live draft owner before the async
-    // send settles. The owner only represents editable unsent draft state;
-    // failure recovery uses submittedDraft captured above.
-    const clearInput = (owned: SubmitOwnership) => {
-      switch (owned.kind) {
-        case "pinned":
-          prompt.reset(sourcePromptScope)
-          pinned.clearAll(owned.revision)
-          break
-        case "portable":
-          prompt.reset(sourcePromptScope)
-          portable.clear(owned.revision)
-          break
-        case "route":
-          prompt.reset(owned.scope)
-          break
-      }
-      input.setMode("normal")
-      input.setPopover(null)
-    }
-
-    const confirmOwnerCleared = (owned: SubmitOwnership) => {
-      switch (owned.kind) {
-        case "portable":
-          portable.clear(owned.revision)
-          break
-        case "pinned":
-          pinned.clearAll(owned.revision)
-          break
-        case "route":
-          // route store was reset synchronously by clearInput; no owner snapshot.
-          break
-      }
-    }
-
-    const shouldRestoreOwnerDraft = () => {
-      return !prompt.hasDraft(promptScope)
-    }
-
-    const isActivePromptScope = (scope: PromptRouteScope) => {
-      const active = params()
-      return active.dir === scope.dir && active.id === scope.id
-    }
-
-    const restoreVisibleEditor = (owned: SubmitOwnership) => {
-      if (!isActivePromptScope(promptScope)) return
-      input.setMode(mode)
-      input.setPopover(null)
-      requestAnimationFrame(() => {
-        const editor = input.editor()
-        if (!editor) return
-        editor.focus()
-        const cursorPrompt = owned.kind === "route" ? currentPrompt : prompt.current()
-        setCursorPosition(editor, input.promptLength(cursorPrompt))
-        input.queueScroll()
-      })
-    }
-
-    const restoreInput = (owned: SubmitOwnership) => {
-      switch (owned.kind) {
-        case "portable":
-          if (!shouldRestoreOwnerDraft()) return
-          prompt.set(submittedDraft.prompt, input.promptLength(submittedDraft.prompt), promptScope)
-          prompt.context.replaceAll(submittedDraft.context.map(({ key: _omit, ...rest }) => rest), promptScope)
-          break
-        case "pinned":
-          if (!shouldRestoreOwnerDraft()) return
-          prompt.set(submittedDraft.prompt, input.promptLength(submittedDraft.prompt), promptScope)
-          prompt.context.replaceAll(submittedDraft.context.map(({ key: _omit, ...rest }) => rest), promptScope)
-          break
-        case "route": {
-          prompt.set(currentPrompt, input.promptLength(currentPrompt), promptScope)
-          restoreCommentItems(commentItems)
-          break
-        }
-      }
-      restoreVisibleEditor(owned)
-    }
-
     // commentItems is referenced by restoreInput (route case) and by the prompt
     // path below. Compute it before the queue branch so both can use it.
     // Note: it is only meaningful for the prompt-submit path (where comment
     // context items exist); the queue branch ignores it.
     const commentItems = context.filter((item) => item.type === "file" && !!item.comment?.trim())
 
+    // Owner-backed drafts leave the live draft owner before the async send
+    // settles; the owner only represents editable unsent draft state, and
+    // failure recovery restores from submittedDraft captured above. The
+    // lifecycle binds this submit's ownership snapshot, so its methods are
+    // no-arg and can be handed to waitForWorktree as a bound restore callback.
+    const lifecycle = createPromptDraftLifecycle({
+      prompt,
+      pinned,
+      portable,
+      params,
+      ownership,
+      sourcePromptScope,
+      promptScope,
+      mode,
+      currentPrompt,
+      submittedDraft,
+      commentItems,
+      editor: input.editor,
+      promptLength: input.promptLength,
+      queueScroll: input.queueScroll,
+      setMode: input.setMode,
+      setPopover: input.setPopover,
+    })
+
     if (!creatingNewSession && mode === "normal" && input.shouldQueue?.()) {
       // Queue path is unreachable for portable/pinned homepage submits because
       // shouldQueue only fires when !creatingNewSession — homepage submits always
       // create a new session. SubmitOwnership.kind is always "route" here.
       input.onQueue?.(draft)
-      clearContext()
-      clearInput(ownership)
+      lifecycle.clearContext()
+      lifecycle.clearInput()
       // Queue path is synchronous; tear down owner snapshot immediately.
       // ownership.kind is "route" here (see comment above), so this is a no-op
       // for the only kind reachable, but the call is kept for parity.
-      confirmOwnerCleared(ownership)
+      lifecycle.confirmOwnerCleared()
       return
     }
 
@@ -419,7 +325,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     input.onSubmit?.()
 
     if (mode === "shell") {
-      clearInput(ownership)
+      lifecycle.clearInput()
       client.session
         .shell({
           sessionID: session.id,
@@ -428,14 +334,14 @@ export function createPromptSubmit(input: PromptSubmitInput) {
           command: text,
         })
         .then(() => {
-          confirmOwnerCleared(ownership)
+          lifecycle.confirmOwnerCleared()
         })
         .catch((err) => {
           showToast({
             title: language.t("prompt.toast.shellSendFailed.title"),
             description: errorMessage(err),
           })
-          restoreInput(ownership)
+          lifecycle.restoreInput()
         })
       return
     }
@@ -454,7 +360,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         reportInvariantBreach("handleSubmit: command content prefix mismatch", firstPart)
         // Fall through to the legacy slash-command check below.
       } else {
-        clearInput(ownership)
+        lifecycle.clearInput()
         client.session
           .command({
             sessionID: session.id,
@@ -473,14 +379,14 @@ export function createPromptSubmit(input: PromptSubmitInput) {
             })),
           })
           .then(() => {
-            confirmOwnerCleared(ownership)
+            lifecycle.confirmOwnerCleared()
           })
           .catch((err) => {
             showToast({
               title: language.t("prompt.toast.commandSendFailed.title"),
               description: formatServerError(err, language.t, language.t("common.requestFailed")),
             })
-            restoreInput(ownership)
+            lifecycle.restoreInput()
           })
         return
       }
@@ -491,7 +397,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       const commandName = cmdName.slice(1)
       const customCommand = sync.data.command.find((c) => c.name === commandName)
       if (customCommand) {
-        clearInput(ownership)
+        lifecycle.clearInput()
         client.session
           .command({
             sessionID: session.id,
@@ -510,14 +416,14 @@ export function createPromptSubmit(input: PromptSubmitInput) {
             })),
           })
           .then(() => {
-            confirmOwnerCleared(ownership)
+            lifecycle.confirmOwnerCleared()
           })
           .catch((err) => {
             showToast({
               title: language.t("prompt.toast.commandSendFailed.title"),
               description: formatServerError(err, language.t, language.t("common.requestFailed")),
             })
-            restoreInput(ownership)
+            lifecycle.restoreInput()
           })
         return
       }
@@ -536,8 +442,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       })
     }
 
-    removeCommentItems(commentItems)
-    clearInput(ownership)
+    lifecycle.removeSubmittedCommentItems()
+    lifecycle.clearInput()
     void emitRendererDiagnostic({
       name: "session.action.submit",
       trace_id: messageID,
@@ -571,7 +477,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         removeOptimisticMessage()
         // restoreInput handles route-case comment items internally; owner-backed
         // cases re-push context from the snapshot via replaceAll.
-        restoreInput(ownership)
+        lifecycle.restoreInput()
       }
 
       pending.set(session.id, { abort: controller, cleanup })
@@ -624,7 +530,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       // sendFollowupDraft returns false when `before` (worktree wait) bailed; in
       // that case the cleanup path already restored the input via the pending
       // controller's cleanup() handler.
-      if (ok) confirmOwnerCleared(ownership)
+      if (ok) lifecycle.confirmOwnerCleared()
     }).catch((err) => {
       pending.delete(session.id)
       if (sessionDirectory === projectDirectory) {
@@ -637,7 +543,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       removeOptimisticMessage()
       // restoreInput handles route-case comment items internally; owner-backed
       // cases re-push context from the snapshot via replaceAll.
-      restoreInput(ownership)
+      lifecycle.restoreInput()
     })
   }
 
