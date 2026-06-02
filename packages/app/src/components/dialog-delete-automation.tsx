@@ -33,7 +33,7 @@ export function DialogDeleteAutomation(props: {
         <Button variant="secondary" onClick={() => dialog.close()} disabled={deleting()}>
           {language.t("common.cancel")}
         </Button>
-        <Button variant="danger" onClick={handleDelete} disabled={deleting()}>
+        <Button variant="danger" data-action="automation-delete-confirm" onClick={handleDelete} disabled={deleting()}>
           {language.t("automations.action.delete")}
         </Button>
       </div>

@@ -210,15 +210,16 @@ export function AutomationDetail(props: {
       <header class="flex items-start justify-between gap-4">
         <h1 class="min-w-0 truncate text-h2 text-fg-strong">{props.automation().title}</h1>
         <div class="flex shrink-0 items-center gap-2">
-          <Button variant="primary" onClick={runNow} disabled={busy()}>
+          <Button variant="primary" data-action="automation-run-now" onClick={runNow} disabled={busy()}>
             {t("automations.action.runNow")}
           </Button>
-          <Button variant="secondary" onClick={toggleActive} disabled={busy()}>
+          <Button variant="secondary" data-action="automation-toggle-active" onClick={toggleActive} disabled={busy()}>
             {props.automation().paused ? t("automations.action.resume") : t("automations.action.pause")}
           </Button>
           <Button
             variant="ghost"
             icon="trash"
+            data-action="automation-delete"
             aria-label={t("automations.action.delete")}
             onClick={confirmDelete}
             disabled={busy()}
