@@ -1300,6 +1300,14 @@ export default function Layout(props: ParentProps) {
     setActiveSurface("none")
   }
 
+  // Opening a run from the Automations panel leaves the surface and lands on the
+  // run's chat session, which also lives in the normal All chats list.
+  async function openAutomationRun(sessionID: string) {
+    closeSettings()
+    const session = await loadSessionByID(sessionID)
+    if (session) navigateToSession(session)
+  }
+
 
   function projectRoot(directory: string) {
     const key = workspaceKey(directory)
@@ -2211,6 +2219,7 @@ export default function Layout(props: ParentProps) {
               <AutomationsSurface
                 directory={() => currentProject()?.worktree ?? projectRoot(currentDir())}
                 onClose={closeSettings}
+                onOpenRun={openAutomationRun}
               />
             ),
           }}

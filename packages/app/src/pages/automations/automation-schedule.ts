@@ -40,3 +40,20 @@ export function formatScheduleSummary(definition: AutomationDefinition, t: Trans
   if (definition.rhythm.kind === "interval") return formatInterval(definition.rhythm.everyMs, t)
   return formatCron(definition.rhythm.expression, t)
 }
+
+// Absolute short timestamp for future-facing fields (next run) where a "… ago"
+// relative phrase would read wrong. Falls back to the host locale if the
+// definition timezone is rejected by Intl.
+export function formatTimestamp(ms: number, timezone?: string): string {
+  const options: Intl.DateTimeFormatOptions = {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }
+  try {
+    return new Intl.DateTimeFormat(undefined, { ...options, timeZone: timezone }).format(new Date(ms))
+  } catch {
+    return new Intl.DateTimeFormat(undefined, options).format(new Date(ms))
+  }
+}

@@ -26,6 +26,7 @@ function AutomationsEmpty(): JSX.Element {
 export function AutomationsSurface(props: {
   directory: Accessor<string>
   onClose: () => void
+  onOpenRun: (sessionID: string) => void
 }): JSX.Element {
   const globalSync = useGlobalSync()
   const language = useLanguage()
@@ -93,7 +94,14 @@ export function AutomationsSurface(props: {
             </Show>
           }
         >
-          {(automation) => <AutomationDetail automation={automation()} onBack={() => setSelectedID(undefined)} />}
+          {(automation) => (
+            <AutomationDetail
+              automation={automation}
+              directory={props.directory}
+              onBack={() => setSelectedID(undefined)}
+              onOpenRun={props.onOpenRun}
+            />
+          )}
         </Show>
       </div>
     </section>
