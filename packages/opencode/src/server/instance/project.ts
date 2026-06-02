@@ -57,12 +57,7 @@ export const ProjectRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const project = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            return Instance.project
-          }),
-        )
-        return c.json(project)
+        return c.json(Instance.project)
       },
     )
     .post(
