@@ -26,6 +26,7 @@ import { detectSubmitOwnership, type SubmitOwnership } from "./submit-ownership"
 import { sendFollowupDraft } from "./send-followup-draft"
 import { createAbort, pending } from "./submit-abort"
 import { createPromptDraftLifecycle } from "./prompt-draft-lifecycle"
+import { createWaitForWorktree } from "./wait-for-worktree"
 
 type PromptSubmitInput = {
   sessionID?: Accessor<string | undefined>
@@ -461,61 +462,15 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       },
     }).catch(() => {})
 
-    const waitForWorktree = async () => {
-      const worktree = WorktreeState.get(sessionDirectory)
-      if (!worktree || worktree.status !== "pending") return true
-
-      if (sessionDirectory === projectDirectory) {
-        sync.set("session_status", session.id, { type: "busy" })
-      }
-
-      const controller = new AbortController()
-      const cleanup = () => {
-        if (sessionDirectory === projectDirectory) {
-          sync.set("session_status", session.id, { type: "idle" })
-        }
-        removeOptimisticMessage()
-        // restoreInput handles route-case comment items internally; owner-backed
-        // cases re-push context from the snapshot via replaceAll.
-        lifecycle.restoreInput()
-      }
-
-      pending.set(session.id, { abort: controller, cleanup })
-
-      const abortWait = new Promise<Awaited<ReturnType<typeof WorktreeState.wait>>>((resolve) => {
-        if (controller.signal.aborted) {
-          resolve({ status: "failed", message: "aborted" })
-          return
-        }
-        controller.signal.addEventListener(
-          "abort",
-          () => {
-            resolve({ status: "failed", message: "aborted" })
-          },
-          { once: true },
-        )
-      })
-
-      const timeoutMs = 5 * 60 * 1000
-      const timer = { id: undefined as number | undefined }
-      const timeout = new Promise<Awaited<ReturnType<typeof WorktreeState.wait>>>((resolve) => {
-        timer.id = window.setTimeout(() => {
-          resolve({
-            status: "failed",
-            message: language.t("workspace.error.stillPreparing"),
-          })
-        }, timeoutMs)
-      })
-
-      const result = await Promise.race([WorktreeState.wait(sessionDirectory), abortWait, timeout]).finally(() => {
-        if (timer.id === undefined) return
-        clearTimeout(timer.id)
-      })
-      pending.delete(session.id)
-      if (controller.signal.aborted) return false
-      if (result.status === "failed") throw new Error(result.message)
-      return true
-    }
+    const waitForWorktree = createWaitForWorktree({
+      sessionDirectory,
+      projectDirectory,
+      sessionID: session.id,
+      sync,
+      language,
+      removeOptimisticMessage,
+      restoreInput: lifecycle.restoreInput,
+    })
 
     void sendFollowupDraft({
       client,
