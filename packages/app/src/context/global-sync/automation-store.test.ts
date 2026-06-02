@@ -164,14 +164,35 @@ describe("mergeAutomationList", () => {
         automation_tombstone: { deleted: 2 },
       }),
     )
-    mergeAutomationList(store, setStore, [
-      definition({ id: "live", revision: 3, title: "stale-v3" }),
-      definition({ id: "fresh", revision: 1 }),
-      definition({ id: "deleted", revision: 2 }),
-    ])
+    mergeAutomationList(
+      store,
+      setStore,
+      [
+        definition({ id: "live", revision: 3, title: "stale-v3" }),
+        definition({ id: "fresh", revision: 1 }),
+        definition({ id: "deleted", revision: 2 }),
+      ],
+      new Set(["gone", "live"]),
+    )
     expect(store.automation["gone"]).toBeUndefined()
     expect(store.automation["deleted"]).toBeUndefined()
     expect(store.automation["fresh"]?.id).toBe("fresh")
     expect(store.automation["live"]?.title).toBe("local-v4")
+  })
+
+  test("preserves a definition created after the snapshot request was issued", () => {
+    const [store, setStore] = createStore(
+      baseState({
+        automation: {
+          existing: definition({ id: "existing", revision: 1 }),
+          created: definition({ id: "created", revision: 1, title: "live-arrival" }),
+        },
+      }),
+    )
+    // The snapshot only lists "existing"; "created" landed via SSE while the
+    // request was in flight, so it must survive the reconcile.
+    mergeAutomationList(store, setStore, [definition({ id: "existing", revision: 1 })], new Set(["existing"]))
+    expect(store.automation["existing"]?.id).toBe("existing")
+    expect(store.automation["created"]?.title).toBe("live-arrival")
   })
 })

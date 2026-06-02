@@ -79,10 +79,17 @@ export function applyAutomationRun(
 // Authoritative merge for the bootstrap `automation.list` snapshot: drop
 // definitions the server no longer returns, skip re-adding a locally tombstoned
 // id, and keep a locally newer revision when the snapshot is stale.
+//
+// `knownIds` is the set of definition ids present when the list request was
+// issued. An id absent from the snapshot is a real server-side deletion only if
+// it existed back then; an id that appeared afterwards (a `definition.updated`
+// SSE landing while the request was in flight) couldn't have been in the
+// snapshot, so it's preserved instead of being reconciled away.
 export function mergeAutomationList(
   store: Store<State>,
   setStore: SetStoreFunction<State>,
   items: AutomationDefinition[],
+  knownIds: ReadonlySet<string>,
 ) {
   const next: Record<string, AutomationDefinition> = {}
   for (const incoming of items) {
@@ -90,6 +97,10 @@ export function mergeAutomationList(
     if (tombstoneRevision !== undefined && tombstoneRevision >= incoming.revision) continue
     const current = store.automation[incoming.id]
     next[incoming.id] = current && current.revision > incoming.revision ? current : incoming
+  }
+  for (const id of Object.keys(store.automation)) {
+    if (next[id] || knownIds.has(id)) continue
+    next[id] = store.automation[id]
   }
   setStore("automation", reconcile(next))
 }

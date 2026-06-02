@@ -345,28 +345,48 @@ function createGlobalSync() {
   // the UI reflects the change without waiting for the SSE round-trip; the
   // matching event then no-ops as an equal revision.
   async function pauseAutomation(directory: string, automationID: string) {
-    const [store, setStore] = children.peek(directory, { bootstrap: false })
-    const res = await sdkFor(directory).automation.pause({ automationID })
-    if (res.data) applyAutomationDefinition(store, setStore, res.data)
+    children.pin(directory)
+    try {
+      const [store, setStore] = children.peek(directory, { bootstrap: false })
+      const res = await sdkFor(directory).automation.pause({ automationID })
+      if (res.data) applyAutomationDefinition(store, setStore, res.data)
+    } finally {
+      children.unpin(directory)
+    }
   }
 
   async function resumeAutomation(directory: string, automationID: string) {
-    const [store, setStore] = children.peek(directory, { bootstrap: false })
-    const res = await sdkFor(directory).automation.resume({ automationID })
-    if (res.data) applyAutomationDefinition(store, setStore, res.data)
+    children.pin(directory)
+    try {
+      const [store, setStore] = children.peek(directory, { bootstrap: false })
+      const res = await sdkFor(directory).automation.resume({ automationID })
+      if (res.data) applyAutomationDefinition(store, setStore, res.data)
+    } finally {
+      children.unpin(directory)
+    }
   }
 
   async function deleteAutomation(directory: string, automationID: string) {
-    const [store, setStore] = children.peek(directory, { bootstrap: false })
-    const res = await sdkFor(directory).automation.delete({ automationID })
-    if (res.data) applyAutomationTombstone(store, setStore, res.data)
+    children.pin(directory)
+    try {
+      const [store, setStore] = children.peek(directory, { bootstrap: false })
+      const res = await sdkFor(directory).automation.delete({ automationID })
+      if (res.data) applyAutomationTombstone(store, setStore, res.data)
+    } finally {
+      children.unpin(directory)
+    }
   }
 
   async function runAutomationNow(directory: string, automationID: string) {
-    const [store, setStore] = children.peek(directory, { bootstrap: false })
-    const res = await sdkFor(directory).automation.runNow({ automationID })
-    if (res.data) applyAutomationRun(store, setStore, res.data)
-    return res.data
+    children.pin(directory)
+    try {
+      const [store, setStore] = children.peek(directory, { bootstrap: false })
+      const res = await sdkFor(directory).automation.runNow({ automationID })
+      if (res.data) applyAutomationRun(store, setStore, res.data)
+      return res.data
+    } finally {
+      children.unpin(directory)
+    }
   }
 
   async function bootstrapInstance(directory: string) {

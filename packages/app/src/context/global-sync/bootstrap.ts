@@ -501,11 +501,12 @@ export async function bootstrapDirectory(input: {
           }),
         ),
       () =>
-        retry(() =>
-          input.sdk.automation.list().then((x) => {
-            mergeAutomationList(input.store, input.setStore, x.data?.items ?? [])
-          }),
-        ),
+        retry(() => {
+          const knownIds = new Set(Object.keys(input.store.automation))
+          return input.sdk.automation.list().then((x) => {
+            mergeAutomationList(input.store, input.setStore, x.data?.items ?? [], knownIds)
+          })
+        }),
     ]
 
     await waitForPaint()
