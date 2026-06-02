@@ -421,6 +421,56 @@ describe("session messages endpoint", () => {
       }),
     )
   })
+
+  test("rejects a part update whose body does not match the path with a 400", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await withoutWatcher(() =>
+      Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const session = await svc.create({})
+          const messageID = MessageID.ascending()
+          const partID = PartID.ascending()
+          await svc.updateMessage({
+            id: messageID,
+            sessionID: session.id,
+            role: "user",
+            time: { created: Date.now() },
+            agent: "test",
+            model: { providerID: "test", modelID: "test" },
+            tools: {},
+            mode: "",
+          } as unknown as MessageV2.Info)
+          await svc.updatePart({
+            id: partID,
+            sessionID: session.id,
+            messageID,
+            type: "text",
+            text: "before",
+          })
+          const app = Server.Default().app
+
+          const res = await app.request(`/session/${session.id}/message/${messageID}/part/${partID}`, {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              id: PartID.ascending(),
+              sessionID: session.id,
+              messageID,
+              type: "text",
+              text: "after",
+            }),
+          })
+          expect(res.status).toBe(400)
+          const body = await res.json()
+          expect(body.success).toBe(false)
+          expect(Array.isArray(body.errors)).toBe(true)
+
+          await svc.remove(session.id)
+        },
+      }),
+    )
+  })
 })
 
 describe("session.prompt_async error handling", () => {

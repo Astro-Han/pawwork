@@ -1348,8 +1348,17 @@ export const SessionRoutes = lazy(() =>
         const params = c.req.valid("param")
         const body = c.req.valid("json")
         if (body.id !== params.partID || body.messageID !== params.messageID || body.sessionID !== params.sessionID) {
-          throw new Error(
-            `Part mismatch: body.id='${body.id}' vs partID='${params.partID}', body.messageID='${body.messageID}' vs messageID='${params.messageID}', body.sessionID='${body.sessionID}' vs sessionID='${params.sessionID}'`,
+          return c.json(
+            {
+              success: false as const,
+              errors: [
+                {
+                  message: `Part mismatch: body.id='${body.id}' vs partID='${params.partID}', body.messageID='${body.messageID}' vs messageID='${params.messageID}', body.sessionID='${body.sessionID}' vs sessionID='${params.sessionID}'`,
+                },
+              ],
+              data: null,
+            },
+            400,
           )
         }
         const part = await AppRuntime.runPromise(
