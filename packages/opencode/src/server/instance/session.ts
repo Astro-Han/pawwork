@@ -662,10 +662,15 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const query = c.req.valid("query")
         const params = c.req.valid("param")
-        const result = await SessionSummary.diff({
-          sessionID: params.sessionID,
-          messageID: query.messageID,
-        })
+        const result = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const summary = yield* SessionSummary.Service
+            return yield* summary.diff({
+              sessionID: params.sessionID,
+              messageID: query.messageID,
+            })
+          }),
+        )
         return c.json(result)
       },
     )
@@ -926,9 +931,14 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const params = c.req.valid("param")
-        const result = await SessionSummary.artifacts({
-          sessionID: params.sessionID,
-        })
+        const result = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const summary = yield* SessionSummary.Service
+            return yield* summary.artifacts({
+              sessionID: params.sessionID,
+            })
+          }),
+        )
         return c.json(result)
       },
     )
