@@ -193,6 +193,21 @@ describe("createPawworkSessionCommands", () => {
     })
   })
 
+  test("exportSession sanitizes filesystem-hostile slug characters", async () => {
+    await withToastSpy(async () => {
+      await createRoot(async (dispose) => {
+        const { input, calls } = setup({
+          sessions: [{ id: "s1", slug: 'a/b:c*?"<>|d' }],
+        })
+        const cmd = createPawworkSessionCommands(input)
+        await cmd.exportSession(makeSession({ id: "s1" }))
+        const defaultName = calls.exportArgs[0][2] as string
+        expect(defaultName.startsWith("pawwork-session-a-b-c------d-")).toBe(true)
+        dispose()
+      })
+    })
+  })
+
   test("exportSession falls back to the session id suffix when the slug has no alphanumerics", async () => {
     await withToastSpy(async () => {
       await createRoot(async (dispose) => {
@@ -277,6 +292,28 @@ describe("createPawworkSessionCommands", () => {
         const cmd = createPawworkSessionCommands(input)
         await cmd.deleteSession({ id: "p", directory: "/repo" })
         expect(calls.navigate).toEqual([])
+        dispose()
+      })
+    })
+  })
+
+  test("deleteSession navigates to the previous sibling when the deleted session is last, skipping archived ones", async () => {
+    await withToastSpy(async () => {
+      await createRoot(async (dispose) => {
+        const { input, calls } = setup({
+          sessions: [
+            { id: "a", directory: "/repo", parentID: undefined, time: {} },
+            { id: "b", directory: "/repo", parentID: undefined, time: {} },
+            { id: "arch", directory: "/repo", parentID: undefined, time: { archived: 123 } },
+          ],
+          paramsId: "b",
+          paramsDir: "dirslug",
+        })
+        const cmd = createPawworkSessionCommands(input)
+        await cmd.deleteSession({ id: "b", directory: "/repo" })
+        // "b" is the last non-archived top-level; next falls back to the prior
+        // sibling "a" (archived "arch" is excluded from the candidate list).
+        expect(calls.navigate).toEqual(["/dirslug/session/a"])
         dispose()
       })
     })
