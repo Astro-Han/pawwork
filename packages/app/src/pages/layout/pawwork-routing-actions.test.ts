@@ -3,10 +3,6 @@ import { createRoot } from "solid-js"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { createPawworkRoutingActions, type PawworkRoutingActionsInput } from "./pawwork-routing-actions"
 
-// syncSessionRoute schedules a scroll via requestAnimationFrame; keep it a no-op
-// so the synchronous assertions below are not affected by the deferred callback.
-globalThis.requestAnimationFrame ??= (() => 0) as typeof requestAnimationFrame
-
 type Calls = {
   navigate: string[]
   setStore: unknown[][]
@@ -18,6 +14,8 @@ type Calls = {
   openNewSession: (string | undefined)[]
   unhideProject: string[]
   projectsOpen: string[]
+  // Cross-function call order so tests can pin unhide-then-open ordering.
+  order: string[]
 }
 
 function setup(
@@ -34,6 +32,7 @@ function setup(
     openNewSession: [],
     unhideProject: [],
     projectsOpen: [],
+    order: [],
   }
   const store = {
     pawworkProjectHidden: storeOverride.pawworkProjectHidden ?? {},
@@ -47,13 +46,24 @@ function setup(
     notification: { session: { markViewed: (id: string) => calls.markViewed.push(id) } },
     scrollToSession: (id: string, key: string) => calls.scrollToSession.push([id, key]),
     pinned: { adopt: (draft: unknown) => calls.adopt.push(draft) },
-    projectRoot: (directory: string) => directory,
+    // Resolved root differs from the input directory so tests can prove the
+    // new-session slug is built from the original directory, not the root.
+    projectRoot: (directory: string) => `/resolved${directory}`,
     activeProjectRoot: (directory: string) => `root:${directory}`,
     shellNavigation: {
-      openSession: (session: unknown) => calls.openSession.push(session),
-      openNewSession: (directory: string | undefined) => calls.openNewSession.push(directory),
+      openSession: (session: unknown) => {
+        calls.openSession.push(session)
+        calls.order.push("openSession")
+      },
+      openNewSession: (directory: string | undefined) => {
+        calls.openNewSession.push(directory)
+        calls.order.push(`openNewSession:${directory}`)
+      },
     },
-    unhideProject: (key: string) => calls.unhideProject.push(key),
+    unhideProject: (key: string) => {
+      calls.unhideProject.push(key)
+      calls.order.push(`unhide:${key}`)
+    },
     projectKeyForSession: (session: { directory: string }) => session.directory,
     layout: { projects: { open: (directory: string) => calls.projectsOpen.push(directory) } },
   } as unknown as PawworkRoutingActionsInput
@@ -61,13 +71,13 @@ function setup(
 }
 
 describe("createPawworkRoutingActions", () => {
-  test("navigateToSession unhides a hidden project before opening the session", () => {
+  test("navigateToSession unhides a hidden project BEFORE opening the session", () => {
     createRoot((dispose) => {
       const { input, calls } = setup({ pawworkProjectHidden: { "/repo": true } })
       const actions = createPawworkRoutingActions(input)
       const session = { id: "s1", directory: "/repo" }
       actions.navigateToSession(session as never)
-      expect(calls.unhideProject).toEqual(["/repo"])
+      expect(calls.order).toEqual(["unhide:/repo", "openSession"])
       expect(calls.openSession).toEqual([session])
       dispose()
     })
@@ -78,32 +88,42 @@ describe("createPawworkRoutingActions", () => {
       const { input, calls } = setup()
       const actions = createPawworkRoutingActions(input)
       actions.navigateToSession({ id: "s1", directory: "/repo" } as never)
-      expect(calls.unhideProject).toEqual([])
-      expect(calls.openSession).toHaveLength(1)
+      expect(calls.order).toEqual(["openSession"])
       dispose()
     })
   })
 
-  test("openPawworkHome unhides a hidden directory before opening a new session", () => {
+  test("openPawworkHome unhides a hidden directory BEFORE opening a new session", () => {
     createRoot((dispose) => {
       const { input, calls } = setup({ pawworkProjectHidden: { "/repo": true } })
       const actions = createPawworkRoutingActions(input)
       actions.openPawworkHome("/repo")
-      expect(calls.unhideProject).toEqual(["/repo"])
-      expect(calls.openNewSession).toEqual(["/repo"])
+      expect(calls.order).toEqual(["unhide:/repo", "openNewSession:/repo"])
       dispose()
     })
   })
 
-  test("syncSessionRoute returns the resolved root, marks viewed, and expands a collapsed directory", () => {
-    createRoot((dispose) => {
-      const { input, calls } = setup({ workspaceExpanded: { "/repo": false } })
-      const actions = createPawworkRoutingActions(input)
-      expect(actions.syncSessionRoute("/repo", "s1")).toBe("root:/repo")
-      expect(calls.markViewed).toEqual(["s1"])
-      expect(calls.setStore).toContainEqual(["workspaceExpanded", "/repo", true])
-      dispose()
-    })
+  test("syncSessionRoute returns root, marks viewed, expands the directory, and schedules the scroll via rAF", () => {
+    const originalRAF = globalThis.requestAnimationFrame
+    // Run the rAF callback synchronously so the scheduled scroll is observable;
+    // this pins the RAF/untrack ordering that a naive refactor could drop.
+    globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+      cb(0)
+      return 0
+    }) as typeof requestAnimationFrame
+    try {
+      createRoot((dispose) => {
+        const { input, calls } = setup({ workspaceExpanded: { "/repo": false } })
+        const actions = createPawworkRoutingActions(input)
+        expect(actions.syncSessionRoute("/repo", "s1")).toBe("root:/repo")
+        expect(calls.markViewed).toEqual(["s1"])
+        expect(calls.setStore).toContainEqual(["workspaceExpanded", "/repo", true])
+        expect(calls.scrollToSession).toEqual([["s1", "/repo:s1"]])
+        dispose()
+      })
+    } finally {
+      globalThis.requestAnimationFrame = originalRAF
+    }
   })
 
   test("syncSessionRoute honors an explicit root argument", () => {
@@ -115,13 +135,14 @@ describe("createPawworkRoutingActions", () => {
     })
   })
 
-  test("deep-link new-session opens the project without navigating, then navigates to the original slug (not openPawworkHome)", () => {
+  test("deep-link new-session opens the project without navigating, then navigates to the ORIGINAL directory slug (not the resolved root, not openPawworkHome)", () => {
     createRoot((dispose) => {
       const { input, calls } = setup()
       const actions = createPawworkRoutingActions(input)
       actions.handleDeepLinks(["opencode://new-session?directory=/repo&prompt=hello"])
       expect(calls.projectsOpen).toEqual(["/repo"])
       expect(calls.adopt).toEqual([{ directory: "/repo", prompt: "hello" }])
+      // Original directory slug, NOT base64Encode(projectRoot("/repo")) === "/resolved/repo".
       expect(calls.navigate).toEqual([`/${base64Encode("/repo")}/session`])
       expect(calls.openNewSession).toEqual([])
       expect(calls.touch).toEqual([])
@@ -129,13 +150,14 @@ describe("createPawworkRoutingActions", () => {
     })
   })
 
-  test("deep-link open-project routes through openProject into navigateToProject", () => {
+  test("deep-link open-project routes through openProject into navigateToProject (touches the resolved root)", () => {
     createRoot((dispose) => {
       const { input, calls } = setup()
       const actions = createPawworkRoutingActions(input)
       actions.handleDeepLinks(["opencode://open-project?directory=/repo"])
       expect(calls.projectsOpen).toEqual(["/repo"])
-      expect(calls.touch).toEqual(["/repo"])
+      expect(calls.touch).toEqual(["/resolved/repo"])
+      dispose()
     })
   })
 })
