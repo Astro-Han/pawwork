@@ -40,7 +40,7 @@ describe("tool.registry", () => {
     })
   })
 
-  test("keeps automate hidden until the manageability UI slice", async () => {
+  test("exposes automate now that the Automations panel ships", async () => {
     await using tmp = await tmpdir()
 
     await withMockedConfigInstall(async () => {
@@ -48,7 +48,7 @@ describe("tool.registry", () => {
         directory: tmp.path,
         fn: async () => {
           const ids = await ToolRegistry.ids()
-          expect(ids).not.toContain("automate")
+          expect(ids).toContain("automate")
         },
       })
     })

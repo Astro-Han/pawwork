@@ -64,11 +64,9 @@ describe("automate tool", () => {
   test.each([
     ["negative fireAt", { kind: "oneshot", fireAt: -1 }],
     ["fractional fireAt", { kind: "oneshot", fireAt: 1.5 }],
-    ["zero interval", { kind: "recurring", rhythm: { kind: "interval", everyMs: 0 }, stop: { kind: "never" } }],
-    ["interval below floor", { kind: "recurring", rhythm: { kind: "interval", everyMs: 29_999 }, stop: { kind: "never" } }],
-    ["fractional interval", { kind: "recurring", rhythm: { kind: "interval", everyMs: 1.5 }, stop: { kind: "never" } }],
-    ["zero count", { kind: "recurring", rhythm: { kind: "interval", everyMs: 60_000 }, stop: { kind: "count", count: 0 } }],
-    ["fractional count", { kind: "recurring", rhythm: { kind: "interval", everyMs: 60_000 }, stop: { kind: "count", count: 1.5 } }],
+    ["zero interval", { kind: "recurring", rhythm: { kind: "interval", everyMs: 0 } }],
+    ["interval below floor", { kind: "recurring", rhythm: { kind: "interval", everyMs: 29_999 } }],
+    ["fractional interval", { kind: "recurring", rhythm: { kind: "interval", everyMs: 1.5 } }],
   ])("rejects invalid numeric fields before execute reaches the Zod create parser: %s", (_name, override) => {
     const decode = Schema.decodeUnknownSync(AutomateParameters)
     const base = {
@@ -91,11 +89,9 @@ describe("automate tool", () => {
   })
 
   test.each([
-    ["empty cron expression", { rhythm: { kind: "cron", expression: "" }, stop: { kind: "never" } }],
-    ["empty stop condition", { rhythm: { kind: "interval", everyMs: 60_000 }, stop: { kind: "condition", condition: "" } }],
+    ["empty cron expression", { rhythm: { kind: "cron", expression: "" } }],
     ["title above replay-safe limit", { title: "x".repeat(161) }],
     ["prompt above replay-safe limit", { prompt: "x".repeat(20_001) }],
-    ["condition above replay-safe limit", { rhythm: { kind: "interval", everyMs: 60_000 }, stop: { kind: "condition", condition: "x".repeat(4_001) } }],
   ])("rejects empty nested strings before execute reaches the Zod create parser: %s", (_name, override) => {
     const decode = Schema.decodeUnknownSync(AutomateParameters)
     let error: unknown
@@ -162,14 +158,10 @@ describe("automate tool", () => {
               {
                 kind: "recurring",
                 title: "Daily repo brief",
-                prompt: "Summarize repo changes.",
-                context: "fresh",
-                where: where(Instance.project.id),
+                prompt: "Summarize repo changes.",                where: where(Instance.project.id),
                 timezone: "UTC",
                 model: fixtureModel,
-                rhythm: { kind: "interval", everyMs: 60_000 },
-                stop: { kind: "never" },
-              },
+                rhythm: { kind: "interval", everyMs: 60_000 },              },
               {
                 sessionID: sourceSessionID,
                 messageID: MessageID.ascending(),
@@ -204,14 +196,10 @@ describe("automate tool", () => {
             {
               kind: "recurring",
               title: "Daily repo brief",
-              prompt: "Summarize repo changes.",
-              context: "fresh",
-              where: { projectID: Instance.project.id },
+              prompt: "Summarize repo changes.",              where: { projectID: Instance.project.id },
               timezone: "Asia/Shanghai",
               model: fixtureModel,
-              rhythm: { kind: "interval", everyMs: 60_000 },
-              stop: { kind: "never" },
-            },
+              rhythm: { kind: "interval", everyMs: 60_000 },            },
             {
               sessionID: sourceSessionID,
               messageID: MessageID.ascending(),
@@ -252,15 +240,11 @@ describe("automate tool", () => {
             {
               kind: "recurring",
               title: "Daily repo brief",
-              prompt: "Summarize repo changes.",
-              context: "fresh",
-              where: { projectID: Instance.project.id },
+              prompt: "Summarize repo changes.",              where: { projectID: Instance.project.id },
               timezone: "Asia/Shanghai",
               model: fixtureModel,
               ...spoofedSource,
-              rhythm: { kind: "interval", everyMs: 60_000 },
-              stop: { kind: "never" },
-            },
+              rhythm: { kind: "interval", everyMs: 60_000 },            },
             {
               sessionID: sourceSessionID,
               messageID: MessageID.ascending(),
@@ -292,15 +276,11 @@ describe("automate tool", () => {
               {
                 kind: "recurring",
                 title: "Daily repo brief",
-                prompt: "Summarize repo changes.",
-                context: "fresh",
-                where: { projectID: Instance.project.id },
+                prompt: "Summarize repo changes.",                where: { projectID: Instance.project.id },
                 timezone: "Asia/Shanghai",
                 model: fixtureModel,
                 ...spoofedSession,
-                rhythm: { kind: "interval", everyMs: 60_000 },
-                stop: { kind: "never" },
-              },
+                rhythm: { kind: "interval", everyMs: 60_000 },              },
               {
                 sessionID: SessionID.descending(),
                 messageID: MessageID.ascending(),

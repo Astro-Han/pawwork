@@ -7,7 +7,6 @@ import * as Tool from "./tool"
 
 const Where = Schema.Struct({
   projectID: Schema.String,
-  worktree: Schema.optional(Schema.NonEmptyString),
 })
 
 const Model = Schema.Struct({
@@ -25,12 +24,14 @@ const CronExpression = Schema.NonEmptyString.check(
 )
 const Title = Schema.NonEmptyString.check(Schema.isMaxLength(Automation.MAX_TITLE_CHARS))
 const Prompt = Schema.NonEmptyString.check(Schema.isMaxLength(Automation.MAX_PROMPT_CHARS))
-const Condition = Schema.NonEmptyString.check(Schema.isMaxLength(Automation.MAX_CONDITION_CHARS))
 
+// The v1 automate surface deliberately omits the context, stop, and worktree
+// knobs the frozen domain contract still supports. execute() pins them to the
+// defaults (fresh session, run until paused, project root) before the domain
+// create parser, so chat-created automations match the Automations panel.
 const Common = {
   title: Title,
   prompt: Prompt,
-  context: Schema.Union([Schema.Literal("continue"), Schema.Literal("fresh")]),
   where: Where,
   timezone: Timezone,
   model: Model,
@@ -38,18 +39,7 @@ const Common = {
 }
 
 const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
-const PositiveInt = Schema.Int.check(Schema.isGreaterThan(0))
 const IntervalMs = Schema.Int.check(Schema.isGreaterThanOrEqualTo(Automation.MIN_INTERVAL_MS))
-
-// Mirrors Automation.Stop. `kind: "condition"` is currently rejected at
-// validate time with { field: "stop", message: "unsupported_stop_condition" };
-// kept in the schema so the structured error contract matches HTTP routes.
-// The tool description below points the LLM away from condition.
-const Stop = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("count"), count: PositiveInt }),
-  Schema.Struct({ kind: Schema.Literal("condition"), condition: Condition }),
-  Schema.Struct({ kind: Schema.Literal("never") }),
-])
 
 const Rhythm = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("interval"), everyMs: IntervalMs }),
@@ -66,7 +56,6 @@ export const AutomateParameters = Schema.Union([
     kind: Schema.Literal("recurring"),
     ...Common,
     rhythm: Rhythm,
-    stop: Stop,
   }),
 ])
 
@@ -77,10 +66,10 @@ export function formatAutomateValidationError(error: unknown) {
       : String(error)
   return [
     "Invalid automate input.",
-    "Expected shape: oneshot { kind, title, prompt, context, where, timezone, model, variant?, fireAt } or recurring { kind, title, prompt, context, where, timezone, model, variant?, rhythm, stop }.",
-    "model is required as { providerID, modelID }; variant is optional and must be a valid effort key for that model (omit for models without reasoning).",
-    "stop only supports { kind: \"count\", count } or { kind: \"never\" } today; { kind: \"condition\" } is reserved and currently rejected.",
-    "Example: { kind: \"recurring\", title: \"Daily repo brief\", prompt: \"Summarize repo changes.\", context: \"fresh\", where: { projectID: \"current-project\" }, timezone: \"UTC\", model: { providerID: \"anthropic\", modelID: \"claude-sonnet-4-6\" }, variant: \"high\", rhythm: { kind: \"interval\", everyMs: 3600000 }, stop: { kind: \"never\" } }.",
+    "Expected shape: oneshot { kind, title, prompt, where, timezone, model, variant?, fireAt } or recurring { kind, title, prompt, where, timezone, model, variant?, rhythm }.",
+    "where is { projectID }. model is required as { providerID, modelID }; variant is optional and must be a valid effort key for that model (omit for models without reasoning).",
+    "rhythm is { kind: \"interval\", everyMs } or { kind: \"cron\", expression }. Automations always run as a fresh session and repeat on their schedule until the user pauses or deletes them.",
+    "Example: { kind: \"recurring\", title: \"Daily repo brief\", prompt: \"Summarize repo changes.\", where: { projectID: \"current-project\" }, timezone: \"UTC\", model: { providerID: \"anthropic\", modelID: \"claude-sonnet-4-6\" }, variant: \"high\", rhythm: { kind: \"interval\", everyMs: 3600000 } }.",
     detail,
   ].join("\n")
 }
@@ -93,7 +82,7 @@ function readableAutomationError(error: unknown) {
 export function createAutomateDefinition(provider: Provider.Interface): Tool.DefWithoutID<typeof AutomateParameters, { automationDefinition: Automation.Definition }> {
   return {
     description:
-      "Create an Automation definition for later execution. The automation is not executed by this tool; it only stores the definition and echoes the resolved contract.",
+      "Create an Automation definition for later execution. The automation is not executed by this tool; it only stores the definition and echoes the resolved contract. Each run starts a fresh session and repeats on its schedule until the user pauses or deletes it in the Automations panel.",
     parameters: AutomateParameters,
     formatValidationError: formatAutomateValidationError,
     execute: (params, ctx) =>
@@ -112,7 +101,13 @@ export function createAutomateDefinition(provider: Provider.Interface): Tool.Def
         }
         const definition = yield* Effect.try({
           try: () => {
-            const parsed = Automation.CreateInput.parse(input)
+            // Pin the v1 defaults the tool surface no longer exposes before the
+            // domain create parser: fresh context always, never-stop for recurring.
+            const enriched =
+              input.kind === "recurring"
+                ? { ...input, context: "fresh" as const, stop: { kind: "never" as const } }
+                : { ...input, context: "fresh" as const }
+            const parsed = Automation.CreateInput.parse(enriched)
             AutomationScheduler.current()
             return Automation.create(parsed, { sourceSessionID: ctx.sessionID })
           },
