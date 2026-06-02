@@ -7,6 +7,7 @@ import { Instance } from "@/project/instance"
 import { Provider } from "@/provider/provider"
 import { MessageV2 } from "@/session/message-v2"
 import type { SessionID } from "@/session/schema"
+import { NotFoundError } from "@/storage/db"
 import * as Tool from "./tool"
 
 const Timezone = Schema.NonEmptyString.check(
@@ -65,16 +66,18 @@ function resolveTimezone(explicit: string | undefined): string {
 
 // Model the automation inherits when the caller does not name one: the most
 // recent user-message model on this session (matches plan.ts), else undefined.
-// Best-effort — if the session has no persisted messages yet, stream() throws
-// NotFoundError; treat that as "no model to inherit" and let execute() fall
-// back to the provider default rather than hard-failing the tool.
+// Best-effort — a missing session makes stream() throw NotFoundError, which we
+// treat as "no model to inherit" and let execute() fall back to the provider
+// default. Any other failure (corrupt store, IO, parse) propagates instead of
+// silently downgrading the inherited model to the provider default.
 function sessionModel(sessionID: SessionID) {
   try {
     for (const item of MessageV2.stream(sessionID)) {
       if (item.info.role === "user" && item.info.model) return item.info.model
     }
-  } catch {
-    return undefined
+  } catch (error) {
+    if (NotFoundError.isInstance(error)) return undefined
+    throw error
   }
   return undefined
 }
@@ -89,7 +92,6 @@ export function createAutomateDefinition(
     formatValidationError: formatAutomateValidationError,
     execute: (params, ctx) =>
       Effect.gen(function* () {
-        const now = Date.now()
         const timezone = resolveTimezone(params.timezone)
 
         let model: { providerID: string; modelID: string }
@@ -109,6 +111,11 @@ export function createAutomateDefinition(
           return yield* Effect.fail(readableAutomationError(new ValidationError(modelDetails)))
         }
 
+        // Sample now only after model resolution/validation, which may have
+        // yielded on I/O. Sampling earlier risks a one-shot fireAt computed from
+        // a stale instant that a crossed cron boundary turns into an already-due
+        // time.
+        const now = Date.now()
         const definition = yield* Effect.try({
           try: () => {
             const common = {

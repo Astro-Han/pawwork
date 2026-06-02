@@ -1,9 +1,12 @@
-import { afterEach, describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, spyOn, test } from "bun:test"
 import { Effect, Schema } from "effect"
 import { AutomateParameters, createAutomateDefinition, formatAutomateValidationError } from "../../src/tool/automate"
 import { Automation } from "../../src/automation"
 import { Instance } from "../../src/project/instance"
+import { Provider } from "../../src/provider/provider"
+import { MessageV2 } from "../../src/session/message-v2"
 import { MessageID, SessionID } from "../../src/session/schema"
+import { NotFoundError } from "../../src/storage/db"
 import { tmpdir } from "../fixture/fixture"
 import { fakeAutomationProvider } from "../fake/provider"
 
@@ -180,6 +183,108 @@ describe("automate tool", () => {
         expect(String(error)).toContain("Invalid automate input")
         expect(String(error)).toContain("model")
         expect(Automation.list()).toHaveLength(0)
+      },
+    })
+  })
+
+  test("a non-NotFound failure reading the session messages fails the tool instead of silently using the default model", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const streamSpy = spyOn(MessageV2, "stream").mockImplementation((() => {
+          throw new Error("storage corrupt")
+        }) as typeof MessageV2.stream)
+        try {
+          const tool = createAutomateDefinition(fakeProviderInterface)
+          let error: unknown
+          try {
+            await Effect.runPromise(
+              tool.execute(
+                { title: "Daily repo brief", prompt: "Summarize repo changes.", cron: "0 9 * * *" },
+                ctx(SessionID.descending()),
+              ),
+            )
+          } catch (caught) {
+            error = caught
+          }
+
+          expect(String(error)).toContain("storage corrupt")
+          expect(Automation.list()).toHaveLength(0)
+        } finally {
+          streamSpy.mockRestore()
+        }
+      },
+    })
+  })
+
+  test("a missing session (NotFound) still falls back to the provider default model", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const streamSpy = spyOn(MessageV2, "stream").mockImplementation((() => {
+          throw new NotFoundError({ message: "Session not found" })
+        }) as typeof MessageV2.stream)
+        try {
+          const tool = createAutomateDefinition(fakeProviderInterface)
+          const result = await Effect.runPromise(
+            tool.execute(
+              { title: "Daily repo brief", prompt: "Summarize repo changes.", cron: "0 9 * * *" },
+              ctx(SessionID.descending()),
+            ),
+          )
+
+          expect(result.metadata.automationDefinition.model).toEqual({
+            providerID: fakeProviderID,
+            modelID: fakeModelID,
+          })
+        } finally {
+          streamSpy.mockRestore()
+        }
+      },
+    })
+  })
+
+  test("one-shot fireAt is sampled after model validation, so a crossed cron boundary never yields an already-due fire", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const boundary = Date.UTC(2026, 0, 1, 12, 1, 0)
+        let clock = boundary - 1_000
+        const nowSpy = spyOn(Date, "now").mockImplementation(() => clock)
+        // Validation crosses the minute boundary. If now were sampled before
+        // validation, the one-shot would fire at 12:01:00 (already due); sampling
+        // after pushes it to 12:02:00.
+        const slowProvider: Provider.Interface = {
+          ...fakeProviderInterface,
+          getModel: ((pId, mId) => {
+            clock = boundary + 1_000
+            return fakeProviderInterface.getModel(pId, mId)
+          }) as Provider.Interface["getModel"],
+        }
+        try {
+          const tool = createAutomateDefinition(slowProvider)
+          const result = await Effect.runPromise(
+            tool.execute(
+              {
+                title: "One-off brief",
+                prompt: "Summarize repo changes.",
+                cron: "* * * * *",
+                recurring: false,
+                timezone: "UTC",
+              },
+              ctx(SessionID.descending()),
+            ),
+          )
+
+          const definition = result.metadata.automationDefinition
+          expect(definition.kind).toBe("oneshot")
+          expect(definition.kind === "oneshot" && definition.fireAt).toBe(Date.UTC(2026, 0, 1, 12, 2, 0))
+        } finally {
+          nowSpy.mockRestore()
+        }
       },
     })
   })
