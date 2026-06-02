@@ -1,25 +1,40 @@
 import { Effect, Schema } from "effect"
 import * as Tool from "./tool"
 import * as EffectZod from "@/util/effect-zod"
+import { Parameters as EnterWorktreeParameters } from "./enter-worktree"
+import EnterWorktreeDescription from "./enter-worktree.txt"
+import { Parameters as ExitWorktreeParameters } from "./exit-worktree"
+import ExitWorktreeDescription from "./exit-worktree.txt"
 import { ProviderTransform } from "../provider/transform"
 import type { Provider } from "../provider/provider"
 import type { MessageV2 } from "../session/message-v2"
 
 export const TOOL_INFO_ID = "tool_info"
 
-// Tools whose full description + parameter schema are withheld from the default
-// tool surface and only loaded once the model activates them via tool_info.
-// Hardcoded for v1 (issue #1054): both are 0-invocation in historical samples,
-// so a discovery miss harms no real user workflow while the mechanism is proven.
-export const DEFERRED_TOOL_IDS: ReadonlySet<string> = new Set(["enter-worktree", "exit-worktree"])
+// Single source of truth for deferred tools. id + card + description + parameters
+// all live here, so adding a new deferred tool is a one-entry change rather than
+// a coordinated edit across DEFERRED_TOOL_IDS, DEFERRED_CARDS, and a registry lookup.
+// Cards are one-line summaries shown in tool_info's description (one-line budget
+// instead of the full .txt).
+const DEFERRED = [
+  {
+    id: "enter-worktree" as const,
+    card: "Switch the session into an isolated git worktree to work on a branch in parallel without disturbing the main checkout. Use when a task needs its own branch/worktree.",
+    description: EnterWorktreeDescription,
+    parameters: EnterWorktreeParameters as unknown as Tool.Def["parameters"],
+  },
+  {
+    id: "exit-worktree" as const,
+    card: "Leave the current worktree and return the session to the project root.",
+    description: ExitWorktreeDescription,
+    parameters: ExitWorktreeParameters as unknown as Tool.Def["parameters"],
+  },
+] as const
 
-// One-line business cards shown in tool_info's description. Deliberately short:
-// the whole point is to spend ~one line of budget instead of the full .txt.
-export const DEFERRED_CARDS: Record<string, string> = {
-  "enter-worktree":
-    "Switch the session into an isolated git worktree to work on a branch in parallel without disturbing the main checkout. Use when a task needs its own branch/worktree.",
-  "exit-worktree": "Leave the current worktree and return the session to the project root.",
-}
+const BY_ID: Record<string, (typeof DEFERRED)[number]> = Object.fromEntries(DEFERRED.map((d) => [d.id, d]))
+
+export const DEFERRED_TOOL_IDS: ReadonlySet<string> = new Set(DEFERRED.map((d) => d.id))
+export const DEFERRED_CARDS: Record<string, string> = Object.fromEntries(DEFERRED.map((d) => [d.id, d.card]))
 
 const PREFACE = [
   "Load a deferred tool's full description and parameter schema on demand, then activate it so you can call it.",
@@ -37,8 +52,8 @@ export const Parameters = Schema.Struct({
 
 // Activation is derived from durable conversation history, not a side state: a
 // completed tool_info(name=X) call means X is activated for the rest of that
-// history. Mirrors how provider-native tool search carries "discovered" state in
-// the conversation, and stays consistent across retry/fork/compaction.
+// history. Compaction protects tool_info parts (see compaction.ts
+// PRUNE_PROTECTED_TOOLS) so activation survives pruning without a parallel state.
 export function deriveActivatedTools(messages: MessageV2.WithParts[]): Set<string> {
   const activated = new Set<string>()
   for (const message of messages) {
@@ -65,6 +80,20 @@ export function deriveNewlyActivated(messages: MessageV2.WithParts[]): Set<strin
     if (typeof activated === "string" && DEFERRED_TOOL_IDS.has(activated)) newly.add(activated)
   }
   return newly
+}
+
+// Repair-time hint when the model directly calls a deferred tool without first loading
+// it via tool_info. Uses the canonical lowercase id so a CamelCase echo like
+// "Enter-Worktree" doesn't get suggested back as an invalid tool_info name argument.
+export function buildDeferredHint(rawToolName: string): string {
+  const lower = rawToolName.toLowerCase()
+  const canonical = DEFERRED_TOOL_IDS.has(rawToolName)
+    ? rawToolName
+    : DEFERRED_TOOL_IDS.has(lower)
+      ? lower
+      : undefined
+  if (!canonical) return ""
+  return ` "${canonical}" is a deferred tool: call tool_info with name="${canonical}" to load and activate it, then call it on your next step.`
 }
 
 // Tool-specific anti-fallback hint. Empty when the tool has no obvious bash equivalent.
@@ -97,48 +126,60 @@ export function buildCardList(available: string[]): string {
   ].join("\n")
 }
 
-export function makeToolInfoTool(input: {
-  lookup: (id: string) => { description: string; parameters: Tool.Def["parameters"] } | undefined
-}): Tool.Def {
-  return {
-    id: TOOL_INFO_ID,
-    description: PREFACE,
-    parameters: Parameters,
-    execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
-      Effect.gen(function* () {
-        const target = input.lookup(params.name)
-        if (!target) {
-          const names = [...DEFERRED_TOOL_IDS].join(", ")
-          throw new Error(`Unknown deferred tool "${params.name}". Available: ${names || "none"}`)
-        }
-        // Refuse tools hidden by permission / user.tools this turn, so the model is
-        // never told a disabled tool is "activated" (the next registry pass keeps it
-        // hidden, which would otherwise make it burn turns calling an absent tool).
-        const isAvailable = ctx.extra?.["deferredAvailable"] as ((id: string) => boolean) | undefined
-        if (isAvailable && !isAvailable(params.name)) {
-          throw new Error(`Deferred tool "${params.name}" is not available in this context.`)
-        }
-        // Return the SAME provider-transformed schema the real call will use, so
-        // the parameters the model reads here match what it must emit later.
-        const model = ctx.extra?.["model"] as Provider.Model | undefined
-        const raw = EffectZod.toJsonSchema(target.parameters)
-        const schema = model ? ProviderTransform.schema(model, raw) : raw
-        return {
-          title: `Loaded tool: ${params.name}`,
-          output: [
-            `<tool_info name="${params.name}">`,
-            target.description.trim(),
-            "",
-            "Parameters (JSON Schema):",
-            "```json",
-            JSON.stringify(schema, null, 2),
-            "```",
-            "",
-            `${params.name} is now in your tool list. Call ${params.name} directly. Do not call tool_info again for this tool.`,
-            "</tool_info>",
-          ].join("\n"),
-          metadata: { activated: params.name },
-        }
-      }).pipe(Effect.orDie),
-  }
-}
+// tool_info as a first-class Tool.define so it gets the same wrapping (truncation,
+// validation, spans, error formatting) as every other builtin. applyPluginDefinition
+// is the closure the registry passes in: it runs the same plugin.trigger pipeline
+// that registry.tools() uses, so what the model reads here matches what the next
+// step's tool list will hand it. Kept as a closure (rather than yield* Plugin.Service)
+// so this Tool.define stays Plugin-free in its R, which lets the registry yield it
+// at the outer make scope alongside the other Tool.define exports.
+export const ToolInfoTool = (
+  applyPluginDefinition: (
+    toolID: string,
+    output: { description: string; parameters: Tool.Def["parameters"] },
+  ) => Effect.Effect<void>,
+) =>
+  Tool.define(
+    TOOL_INFO_ID,
+    Effect.gen(function* () {
+      return {
+        description: PREFACE,
+        parameters: Parameters,
+        execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
+          Effect.gen(function* () {
+            const target = BY_ID[params.name]
+            if (!target) {
+              const names = [...DEFERRED_TOOL_IDS].join(", ")
+              return yield* Effect.fail(
+                new Error(`Unknown deferred tool "${params.name}". Available: ${names || "none"}`),
+              )
+            }
+            const isAvailable = ctx.extra?.["deferredAvailable"] as ((id: string) => boolean) | undefined
+            if (isAvailable && !isAvailable(params.name)) {
+              return yield* Effect.fail(new Error(`Deferred tool "${params.name}" is not available in this context.`))
+            }
+            const processed = { description: target.description, parameters: target.parameters }
+            yield* applyPluginDefinition(target.id, processed)
+            const model = ctx.extra?.["model"] as Provider.Model | undefined
+            const raw = EffectZod.toJsonSchema(processed.parameters)
+            const schema = model ? ProviderTransform.schema(model, raw) : raw
+            return {
+              title: `Loaded tool: ${params.name}`,
+              output: [
+                `<tool_info name="${params.name}">`,
+                processed.description.trim(),
+                "",
+                "Parameters (JSON Schema):",
+                "```json",
+                JSON.stringify(schema, null, 2),
+                "```",
+                "",
+                `${params.name} is now in your tool list. Call ${params.name} directly. Do not call tool_info again for this tool.`,
+                "</tool_info>",
+              ].join("\n"),
+              metadata: { activated: params.name },
+            }
+          }),
+      }
+    }),
+  )

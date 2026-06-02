@@ -15,7 +15,7 @@ import { SystemPrompt } from "./system"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { Permission } from "@/permission"
 import { PermissionID } from "@/permission/schema"
-import { DEFERRED_TOOL_IDS } from "../tool/tool-info"
+import { buildDeferredHint } from "../tool/tool-info"
 import { Bus } from "@/bus"
 import { Wildcard } from "@/util/wildcard"
 import { SessionID } from "@/session/schema"
@@ -372,10 +372,7 @@ const live: Layer.Layer<
               toolName: lower,
             }
           }
-          const deferredHint =
-            DEFERRED_TOOL_IDS.has(failed.toolCall.toolName) || DEFERRED_TOOL_IDS.has(lower)
-              ? ` "${failed.toolCall.toolName}" is a deferred tool: call tool_info with name="${failed.toolCall.toolName}" to load and activate it, then call it on your next step.`
-              : ""
+          const deferredHint = buildDeferredHint(failed.toolCall.toolName)
           return {
             ...failed.toolCall,
             input: JSON.stringify({

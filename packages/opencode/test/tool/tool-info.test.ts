@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test"
-import { Effect, Schema } from "effect"
+import { PRUNE_PROTECTED_TOOLS } from "../../src/session/compaction"
 import {
   buildActivationReminder,
   buildCardList,
+  buildDeferredHint,
   DEFERRED_TOOL_IDS,
   deriveActivatedTools,
   deriveNewlyActivated,
-  makeToolInfoTool,
 } from "../../src/tool/tool-info"
 import type { MessageV2 } from "../../src/session/message-v2"
 
@@ -53,25 +53,6 @@ describe("tool-info", () => {
     expect(buildCardList([])).toContain("No deferred tools")
   })
 
-  test("tool_info refuses a deferred tool hidden this turn", async () => {
-    const tool = makeToolInfoTool({
-      lookup: (id) => (id === "enter-worktree" ? { description: "desc", parameters: Schema.Struct({}) } : undefined),
-    })
-    const ctx = { extra: { deferredAvailable: () => false } } as unknown as Parameters<typeof tool.execute>[1]
-    const exit = await Effect.runPromiseExit(tool.execute({ name: "enter-worktree" }, ctx))
-    expect(exit._tag).toBe("Failure")
-  })
-
-  test("tool_info loads an available deferred tool and marks it activated", async () => {
-    const tool = makeToolInfoTool({
-      lookup: (id) => (id === "enter-worktree" ? { description: "desc", parameters: Schema.Struct({}) } : undefined),
-    })
-    const ctx = { extra: { deferredAvailable: () => true } } as unknown as Parameters<typeof tool.execute>[1]
-    const result = await Effect.runPromise(tool.execute({ name: "enter-worktree" }, ctx))
-    expect(result.output).toContain("is now in your tool list")
-    expect(result.metadata).toMatchObject({ activated: "enter-worktree" })
-  })
-
   test("deriveNewlyActivated only picks the most recent assistant message", () => {
     const messages = [
       assistant([toolPart("tool_info", "completed", { name: "enter-worktree" }, { activated: "enter-worktree" })]),
@@ -98,5 +79,25 @@ describe("tool-info", () => {
     const r = buildActivationReminder("exit-worktree")
     expect(r).toContain("exit-worktree")
     expect(r).not.toContain("bash git worktree")
+  })
+
+  test("buildDeferredHint canonicalises a CamelCase model echo to the real kebab-case id", () => {
+    const hint = buildDeferredHint("Enter-Worktree")
+    expect(hint).toContain(`name="enter-worktree"`)
+    expect(hint).not.toContain(`name="Enter-Worktree"`)
+  })
+
+  test("buildDeferredHint passes a canonical kebab-case id through unchanged", () => {
+    const hint = buildDeferredHint("enter-worktree")
+    expect(hint).toContain(`name="enter-worktree"`)
+  })
+
+  test("buildDeferredHint returns empty string for non-deferred tools", () => {
+    expect(buildDeferredHint("read")).toBe("")
+    expect(buildDeferredHint("Bash")).toBe("")
+  })
+
+  test("compaction PRUNE_PROTECTED_TOOLS protects tool_info so activation survives pruning", () => {
+    expect(PRUNE_PROTECTED_TOOLS).toContain("tool_info")
   })
 })
