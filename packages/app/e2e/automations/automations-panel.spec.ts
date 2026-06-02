@@ -47,9 +47,9 @@ test("@smoke automations panel: list, detail, pause, delete", async ({ page, pro
   await expect(detail).toBeVisible()
   await expect(detail.getByRole("heading", { name: "Daily standup digest" })).toBeVisible()
 
-  // Pause flips the action label to Resume and the status row to Paused.
+  // Pause flips the icon-only action's aria-label to Resume and the status row to Paused.
   await detail.locator('[data-action="automation-toggle-active"]').click()
-  await expect(detail.locator('[data-action="automation-toggle-active"]')).toHaveText("Resume")
+  await expect(detail.locator('[data-action="automation-toggle-active"]')).toHaveAttribute("aria-label", "Resume")
   await expect(detail.getByText("Paused")).toBeVisible()
 
   // Delete confirms through a dialog and drops back to the empty list.
