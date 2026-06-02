@@ -4,6 +4,7 @@ import {
   buildActivationReminder,
   buildCardList,
   buildDeferredHint,
+  canonicalDeferredId,
   DEFERRED_TOOL_IDS,
   deriveActivatedTools,
   deriveNewlyActivated,
@@ -95,6 +96,18 @@ describe("tool-info", () => {
   test("buildDeferredHint returns empty string for non-deferred tools", () => {
     expect(buildDeferredHint("read")).toBe("")
     expect(buildDeferredHint("Bash")).toBe("")
+  })
+
+  test("buildDeferredHint stays silent when the deferred tool is unavailable", () => {
+    expect(buildDeferredHint("enter-worktree", () => false)).toBe("")
+    expect(buildDeferredHint("enter-worktree", () => true)).toContain(`name="enter-worktree"`)
+  })
+
+  test("canonicalDeferredId maps mis-cased echoes to the real id and rejects non-deferred names", () => {
+    expect(canonicalDeferredId("enter-worktree")).toBe("enter-worktree")
+    expect(canonicalDeferredId("Enter-Worktree")).toBe("enter-worktree")
+    expect(canonicalDeferredId("ENTER-WORKTREE")).toBe("enter-worktree")
+    expect(canonicalDeferredId("read")).toBeUndefined()
   })
 
   test("compaction PRUNE_PROTECTED_TOOLS protects tool_info so activation survives pruning", () => {

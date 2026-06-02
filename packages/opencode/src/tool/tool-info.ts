@@ -82,17 +82,26 @@ export function deriveNewlyActivated(messages: MessageV2.WithParts[]): Set<strin
   return newly
 }
 
+// Maps a possibly mis-cased model echo (e.g. "Enter-Worktree") to the canonical
+// kebab-case deferred id, or undefined if the name isn't a deferred tool. Single
+// source for the lenient matching used by both the repair hint and tool_info's
+// own lookup, so the two never disagree on what counts as a deferred tool.
+export function canonicalDeferredId(rawName: string): string | undefined {
+  if (DEFERRED_TOOL_IDS.has(rawName)) return rawName
+  const lower = rawName.toLowerCase()
+  return DEFERRED_TOOL_IDS.has(lower) ? lower : undefined
+}
+
 // Repair-time hint when the model directly calls a deferred tool without first loading
-// it via tool_info. Uses the canonical lowercase id so a CamelCase echo like
-// "Enter-Worktree" doesn't get suggested back as an invalid tool_info name argument.
-export function buildDeferredHint(rawToolName: string): string {
-  const lower = rawToolName.toLowerCase()
-  const canonical = DEFERRED_TOOL_IDS.has(rawToolName)
-    ? rawToolName
-    : DEFERRED_TOOL_IDS.has(lower)
-      ? lower
-      : undefined
+// it via tool_info. Canonicalises the name so a CamelCase echo like "Enter-Worktree"
+// isn't suggested back as an invalid tool_info argument. `isAvailable` (optional) gates
+// on per-agent/session availability: a disabled or permission-denied deferred tool can't
+// be activated via tool_info either, so we fall back to a plain invalid-tool error rather
+// than routing the model to a path that will just fail again.
+export function buildDeferredHint(rawToolName: string, isAvailable?: (id: string) => boolean): string {
+  const canonical = canonicalDeferredId(rawToolName)
   if (!canonical) return ""
+  if (isAvailable && !isAvailable(canonical)) return ""
   return ` "${canonical}" is a deferred tool: call tool_info with name="${canonical}" to load and activate it, then call it on your next step.`
 }
 
@@ -147,7 +156,11 @@ export const ToolInfoTool = (
         parameters: Parameters,
         execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
           Effect.gen(function* () {
-            const target = BY_ID[params.name]
+            // Canonicalise first so a CamelCase echo (e.g. "Enter-Worktree") resolves
+            // to the real id instead of burning a turn on an "unknown tool" error.
+            // target.id is canonical by construction, so every downstream string and
+            // the activation metadata use the canonical form.
+            const target = BY_ID[canonicalDeferredId(params.name) ?? ""]
             if (!target) {
               const names = [...DEFERRED_TOOL_IDS].join(", ")
               return yield* Effect.fail(
@@ -155,8 +168,8 @@ export const ToolInfoTool = (
               )
             }
             const isAvailable = ctx.extra?.["deferredAvailable"] as ((id: string) => boolean) | undefined
-            if (isAvailable && !isAvailable(params.name)) {
-              return yield* Effect.fail(new Error(`Deferred tool "${params.name}" is not available in this context.`))
+            if (isAvailable && !isAvailable(target.id)) {
+              return yield* Effect.fail(new Error(`Deferred tool "${target.id}" is not available in this context.`))
             }
             const processed = { description: target.description, parameters: target.parameters }
             yield* applyPluginDefinition(target.id, processed)
@@ -164,9 +177,9 @@ export const ToolInfoTool = (
             const raw = EffectZod.toJsonSchema(processed.parameters)
             const schema = model ? ProviderTransform.schema(model, raw) : raw
             return {
-              title: `Loaded tool: ${params.name}`,
+              title: `Loaded tool: ${target.id}`,
               output: [
-                `<tool_info name="${params.name}">`,
+                `<tool_info name="${target.id}">`,
                 processed.description.trim(),
                 "",
                 "Parameters (JSON Schema):",
@@ -174,10 +187,13 @@ export const ToolInfoTool = (
                 JSON.stringify(schema, null, 2),
                 "```",
                 "",
-                `${params.name} is now in your tool list. Call ${params.name} directly. Do not call tool_info again for this tool.`,
+                `${target.id} is now in your tool list. Call ${target.id} directly. Do not call tool_info again for this tool.`,
                 "</tool_info>",
               ].join("\n"),
-              metadata: { activated: params.name },
+              // truncated:false opts this tool out of output truncation (see tool.ts
+              // wrap): tool_info exists to hand the model a *complete* schema, so a
+              // large deferred tool's parameters must never be clipped mid-load.
+              metadata: { activated: target.id, truncated: false },
             }
           }),
       }

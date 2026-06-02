@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test"
 import path from "path"
 import fs from "fs/promises"
+import { Effect } from "effect"
 import { tmpdir } from "../fixture/fixture"
 import { writeInstalledConfigDeps, writeMockConfigInstall } from "../shared/mock-npm-install"
 import { withConfigDepsLock } from "../shared/config-deps-lock"
@@ -8,6 +9,8 @@ import { Instance } from "../../src/project/instance"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { localToolImportSpec, ToolRegistry } from "../../src/tool/registry"
 import { Settings } from "../../src/settings"
+import { MessageID, SessionID } from "../../src/session/schema"
+import * as EffectZod from "../../src/util/effect-zod"
 import { Npm } from "@opencode-ai/core/npm"
 
 afterEach(async () => {
@@ -726,6 +729,53 @@ describe("tool.registry", () => {
         })
         expect(denied.map((tool) => tool.id)).not.toContain("enter-worktree")
         expect(denied.find((tool) => tool.id === "tool_info")!.description).toContain("No deferred tools")
+      },
+    })
+  })
+
+  test("tool_info hands back exactly the schema the activated tool will expose, untruncated", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const base = {
+          providerID: ProviderID.make("openai"),
+          modelID: ModelID.make("gpt-5"),
+          agent: { name: "build", mode: "primary" as const, permission: [], options: {} },
+        }
+
+        // Step 1: enter-worktree carries no full schema in the surface; only tool_info does.
+        const deferred = await ToolRegistry.tools(base)
+        expect(deferred.map((tool) => tool.id)).not.toContain("enter-worktree")
+        const toolInfo = deferred.find((tool) => tool.id === "tool_info")!
+
+        // The schema the model will see once enter-worktree is activated.
+        const activated = await ToolRegistry.tools({ ...base, activatedTools: new Set(["enter-worktree"]) })
+        const enterWorktree = activated.find((tool) => tool.id === "enter-worktree")!
+        const expectedSchema = EffectZod.toJsonSchema(enterWorktree.parameters)
+
+        const ctx = {
+          sessionID: SessionID.descending(),
+          messageID: MessageID.ascending(),
+          agent: "build",
+          abort: new AbortController().signal,
+          messages: [],
+          metadata: () => Effect.void,
+          ask: () => Effect.void,
+        }
+
+        const result = await Effect.runPromise(toolInfo.execute({ name: "enter-worktree" }, ctx))
+        const json = result.output.match(/```json\n([\s\S]*?)\n```/)?.[1]
+        expect(json).toBeDefined()
+        // tool_info's loaded schema is identical to the post-activation tool schema.
+        expect(JSON.parse(json!)).toEqual(expectedSchema)
+        expect(result.metadata.activated).toBe("enter-worktree")
+        // P3-2: the schema output opts out of truncation so a large tool never loads clipped.
+        expect(result.metadata.truncated).toBe(false)
+
+        // P3-1: a CamelCase echo still resolves to the canonical id.
+        const camel = await Effect.runPromise(toolInfo.execute({ name: "Enter-Worktree" }, ctx))
+        expect(camel.metadata.activated).toBe("enter-worktree")
       },
     })
   })

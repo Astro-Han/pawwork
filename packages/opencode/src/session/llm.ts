@@ -354,6 +354,13 @@ const live: Layer.Layer<
         }),
       )
 
+      // Same availability rule the registry uses to card/expose deferred tools
+      // (prompt.ts deferredAvailable): a deferred tool the user disabled or a
+      // permission rule denied can't be activated via tool_info, so the repair
+      // hint below must not route the model there.
+      const deferredRuleset = Permission.merge(input.agent.permission, input.permission ?? [])
+      const deferredAvailable = (id: string) =>
+        input.user.tools?.[id] !== false && !Permission.disabled([id], deferredRuleset).has(id)
       return streamText({
         onError(error) {
           l.error("stream error", {
@@ -372,7 +379,7 @@ const live: Layer.Layer<
               toolName: lower,
             }
           }
-          const deferredHint = buildDeferredHint(failed.toolCall.toolName)
+          const deferredHint = buildDeferredHint(failed.toolCall.toolName, deferredAvailable)
           return {
             ...failed.toolCall,
             input: JSON.stringify({
