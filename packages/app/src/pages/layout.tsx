@@ -116,6 +116,7 @@ import {
 } from "./layout/pawwork-session-window"
 import { type WorkspaceSidebarContext } from "./layout/sidebar-workspace"
 import { PawworkSidebar, type PawworkSidebarSession } from "./layout/pawwork-sidebar"
+import { AutomationsSurface } from "@/pages/automations/automations-surface"
 import { createDefaultLayoutPageState, createLayoutPagePersistTarget, removePinnedSessionIDs } from "./layout/layout-page-store"
 import { SettingsContent, SettingsNav, isSettingsTab, type SettingsTab } from "@/pages/settings/settings-shell"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
@@ -134,7 +135,11 @@ export default function Layout(props: ParentProps) {
   let scrollContainerRef: HTMLDivElement | undefined
   let dialogRun = 0
   let dialogDead = false
-  const [settingsOpen, setSettingsOpen] = createSignal(false)
+  // One mutually-exclusive shell surface at a time. Settings replaces the
+  // sidebar + main; automations only takes over main (sidebar stays live).
+  const [activeSurface, setActiveSurface] = createSignal<"none" | "settings" | "automations">("none")
+  const settingsOpen = createMemo(() => activeSurface() === "settings")
+  const automationsOpen = createMemo(() => activeSurface() === "automations")
   const [settingsTab, setSettingsTab] = createSignal<SettingsTab>("general")
 
   const params = useParams()
@@ -1254,7 +1259,11 @@ export default function Layout(props: ParentProps) {
     // as the tab argument — only a known tab string selects a page, anything
     // else falls back to General.
     setSettingsTab(typeof tab === "string" && isSettingsTab(tab) ? tab : "general")
-    setSettingsOpen(true)
+    setActiveSurface("settings")
+  }
+
+  function toggleAutomations() {
+    setActiveSurface((current) => (current === "automations" ? "none" : "automations"))
   }
 
   function openSettings(tab?: SettingsTab) {
@@ -1284,11 +1293,11 @@ export default function Layout(props: ParentProps) {
   }
 
   createEffect(() => {
-    command.setModalOpen(settingsOpen())
+    command.setModalOpen(activeSurface() !== "none")
   })
 
   function closeSettings() {
-    setSettingsOpen(false)
+    setActiveSurface("none")
   }
 
 
@@ -2133,6 +2142,9 @@ export default function Layout(props: ParentProps) {
       onNew={() => openPawworkHome(options?.directory)}
       onSearch={() => command.show()}
       onOpenProject={chooseProject}
+      onOpenAutomations={toggleAutomations}
+      automationsActive={automationsOpen}
+      automationsLabel={() => language.t("sidebar.pawwork.automations")}
       onOpenSettings={() => openSettings()}
       settingsLabel={() => language.t("sidebar.settings")}
       settingsKeybind={() => command.keybind("settings.open")}
@@ -2191,6 +2203,16 @@ export default function Layout(props: ParentProps) {
             title: () => language.t("sidebar.settings"),
             nav: () => <SettingsNav active={settingsTab()} onSelect={setSettingsTab} onClose={closeSettings} />,
             content: () => <SettingsContent active={settingsTab()} directory={currentDir()} onClose={closeSettings} />,
+          }}
+          automations={{
+            open: automationsOpen,
+            title: () => language.t("automations.title"),
+            content: () => (
+              <AutomationsSurface
+                directory={() => currentProject()?.worktree ?? projectRoot(currentDir())}
+                onClose={closeSettings}
+              />
+            ),
           }}
           main={() => (
             <Show when={!startupAutoselectPending()} fallback={<AppStartupPending />}>
