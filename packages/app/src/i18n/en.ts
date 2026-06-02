@@ -792,6 +792,7 @@ export const dict = {
   "automations.schedule.weekly": "Weekly at {{time}}",
   "automations.schedule.custom": "Custom schedule",
   "automations.schedule.every": "Every {{duration}}",
+  "automations.schedule.seconds": "{{count}} s",
   "automations.schedule.minutes": "{{count}} min",
   "automations.schedule.hours": "{{count}} h",
   "automations.action.pause": "Pause",

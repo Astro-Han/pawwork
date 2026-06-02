@@ -702,6 +702,7 @@ export const dict = {
   "automations.schedule.weekly": "每周 {{time}}",
   "automations.schedule.custom": "自定义日程",
   "automations.schedule.every": "每 {{duration}}",
+  "automations.schedule.seconds": "{{count}} 秒",
   "automations.schedule.minutes": "{{count}} 分钟",
   "automations.schedule.hours": "{{count}} 小时",
   "automations.action.pause": "暂停",

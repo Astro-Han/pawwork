@@ -4,6 +4,7 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { Button } from "@opencode-ai/ui/button"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { getFilename } from "@opencode-ai/util/path"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { formatServerError } from "@/utils/server-errors"
@@ -15,11 +16,6 @@ import { RunStatusIcon, runStatusLabelKey } from "./automation-run-status"
 const INITIAL_RUN_COUNT = 5
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string
-
-function basename(path: string): string {
-  const parts = path.split(/[\\/]/).filter(Boolean)
-  return parts[parts.length - 1] ?? path
-}
 
 function InfoRow(props: { label: string; value: string }): JSX.Element {
   return (
@@ -250,7 +246,7 @@ export function AutomationDetail(props: {
           </DetailGroup>
 
           <DetailGroup heading={t("automations.detail.detailsHeading")}>
-            <InfoRow label={t("automations.detail.project")} value={basename(props.directory())} />
+            <InfoRow label={t("automations.detail.project")} value={getFilename(props.directory())} />
             <InfoRow label={t("automations.detail.repeats")} value={formatScheduleSummary(props.automation(), t)} />
             <InfoRow label={t("automations.detail.model")} value={props.automation().model.modelID} />
             <Show when={reasoningLabel()}>

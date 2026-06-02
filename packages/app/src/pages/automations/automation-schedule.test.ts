@@ -38,12 +38,22 @@ describe("formatScheduleSummary", () => {
 
   test("non-standard cron falls back to custom", () => {
     expect(formatScheduleSummary(recurring({ kind: "cron", expression: "0 9 1 * *" }), t)).toBe("automations.schedule.custom")
-    expect(formatScheduleSummary(recurring({ kind: "cron", expression: "*/15 * * * *" }), t)).toBe("automations.schedule.hourly")
+    expect(formatScheduleSummary(recurring({ kind: "cron", expression: "*/15 * * * *" }), t)).toBe("automations.schedule.custom")
   })
 
-  test("interval in minutes and hours", () => {
+  test("fixed-minute hourly cron", () => {
+    expect(formatScheduleSummary(recurring({ kind: "cron", expression: "30 * * * *" }), t)).toBe("automations.schedule.hourly")
+  })
+
+  test("interval in seconds, minutes and hours", () => {
+    expect(formatScheduleSummary(recurring({ kind: "interval", everyMs: 30 * 1000 }), t)).toBe(
+      'automations.schedule.every:{"duration":"automations.schedule.seconds:{\\"count\\":30}"}',
+    )
     expect(formatScheduleSummary(recurring({ kind: "interval", everyMs: 30 * 60000 }), t)).toBe(
       'automations.schedule.every:{"duration":"automations.schedule.minutes:{\\"count\\":30}"}',
+    )
+    expect(formatScheduleSummary(recurring({ kind: "interval", everyMs: 90 * 60000 }), t)).toBe(
+      'automations.schedule.every:{"duration":"automations.schedule.minutes:{\\"count\\":90}"}',
     )
     expect(formatScheduleSummary(recurring({ kind: "interval", everyMs: 2 * 3600000 }), t)).toBe(
       'automations.schedule.every:{"duration":"automations.schedule.hours:{\\"count\\":2}"}',

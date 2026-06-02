@@ -7,9 +7,15 @@ function pad(value: number) {
 }
 
 function formatInterval(everyMs: number, t: Translate) {
+  if (everyMs < 60000) {
+    const seconds = Math.round(everyMs / 1000)
+    return t("automations.schedule.every", { duration: t("automations.schedule.seconds", { count: seconds }) })
+  }
   const minutes = Math.round(everyMs / 60000)
-  if (minutes < 60) return t("automations.schedule.every", { duration: t("automations.schedule.minutes", { count: minutes }) })
-  const hours = Math.round(minutes / 60)
+  // Only collapse to an hour label when the minutes divide evenly; otherwise the
+  // exact minute count is shown so a 90-minute cadence isn't rounded to "2 h".
+  if (minutes % 60 !== 0) return t("automations.schedule.every", { duration: t("automations.schedule.minutes", { count: minutes }) })
+  const hours = minutes / 60
   return t("automations.schedule.every", { duration: t("automations.schedule.hours", { count: hours }) })
 }
 
@@ -22,7 +28,12 @@ function formatCron(expression: string, t: Translate) {
   const everyDay = dom === "*" && month === "*"
   if (!everyDay) return t("automations.schedule.custom")
 
-  if (hour === "*") return t("automations.schedule.hourly")
+  // "Hourly" only fits a single fixed minute on every hour and day (e.g.
+  // `0 * * * *`); a stepped/ranged minute like `*/15 * * * *` runs more often.
+  if (hour === "*") {
+    if (dow === "*" && /^[0-5]?\d$/.test(minute)) return t("automations.schedule.hourly")
+    return t("automations.schedule.custom")
+  }
 
   const minuteNum = Number(minute)
   const hourNum = Number(hour)
@@ -45,6 +56,7 @@ export function formatScheduleSummary(definition: AutomationDefinition, t: Trans
 // relative phrase would read wrong. Falls back to the host locale if the
 // definition timezone is rejected by Intl.
 export function formatTimestamp(ms: number, timezone?: string): string {
+  if (!Number.isFinite(ms)) return ""
   const options: Intl.DateTimeFormatOptions = {
     month: "short",
     day: "numeric",
