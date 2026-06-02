@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { createRoot } from "solid-js"
 import { base64Encode } from "@opencode-ai/util/encode"
+import { toaster } from "@opencode-ai/ui/toast"
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import {
   createPawworkWorkspaceLifecycle,
@@ -41,6 +42,20 @@ type SetupOpts = {
 
 function makeProject(over: Record<string, unknown> = {}) {
   return { worktree: "/repo", id: "p1", vcs: "git", sandboxes: [], ...over }
+}
+
+// resetWorkspace dismisses its persistent "resetting" toast via the module
+// singleton toaster.dismiss (not injected), so spy it directly. Async-aware:
+// restore only after the awaited body settles.
+async function withDismissSpy(fn: (dismissed: unknown[]) => Promise<void>) {
+  const dismissed: unknown[] = []
+  const original = toaster.dismiss
+  toaster.dismiss = ((id: unknown) => dismissed.push(id)) as unknown as typeof toaster.dismiss
+  try {
+    await fn(dismissed)
+  } finally {
+    toaster.dismiss = original
+  }
 }
 
 function setup(opts: SetupOpts = {}) {
@@ -257,6 +272,27 @@ describe("createPawworkWorkspaceLifecycle", () => {
     })
   })
 
+  test("deleteWorkspace with leaveDeletedWorkspace removes + mutates but never navigates (dialog already left)", async () => {
+    await createRoot(async (dispose) => {
+      // currentDir + paramsDir would normally trigger the navigate-away branch;
+      // the leave flag must suppress BOTH the pre-remove navigate and the
+      // post-success validation navigate (shouldLeave early return).
+      const { input, calls } = setup({
+        currentDir: "/repo/.wt/feat",
+        paramsDir: "slug",
+        workspaceOrder: { "/repo": ["/repo", "/repo/.wt/feat"] },
+      })
+      const actions = createPawworkWorkspaceLifecycle(input)
+      await actions.deleteWorkspace("/repo", "/repo/.wt/feat", true)
+      expect(calls.navigate).toEqual([])
+      expect(calls.worktreeRemove.length).toBe(1)
+      expect(calls.globalSyncSet.length).toBe(1)
+      expect(calls.projectsClose).toEqual(["/repo/.wt/feat"])
+      expect(calls.projectsOpen).toEqual(["/repo"])
+      dispose()
+    })
+  })
+
   test("deleteWorkspace on remove failure does not mutate or close", async () => {
     await createRoot(async (dispose) => {
       const { input, calls } = setup({ currentDir: "/repo", removeResult: "reject" })
@@ -278,43 +314,53 @@ describe("createPawworkWorkspaceLifecycle", () => {
       { id: "s1", directory: "/repo/.wt/feat", time: { archived: undefined } },
       { id: "s2", directory: "/repo/.wt/feat", time: { archived: 123 } },
     ] as unknown as Session[]
-    await createRoot(async (dispose) => {
-      const { input, calls } = setup({ resetResult: true, sessions })
-      const actions = createPawworkWorkspaceLifecycle(input)
-      await actions.resetWorkspace("/repo", "/repo/.wt/feat")
+    await withDismissSpy(async (dismissed) => {
+      await createRoot(async (dispose) => {
+        const { input, calls } = setup({ resetResult: true, sessions })
+        const actions = createPawworkWorkspaceLifecycle(input)
+        await actions.resetWorkspace("/repo", "/repo/.wt/feat")
 
-      // Terminals are cleared with all session ids before the dispose/reset.
-      expect(calls.clearTerminals).toEqual([["/repo/.wt/feat", ["s1", "s2"], {}]])
-      expect(calls.order.indexOf("clearTerminals")).toBeLessThan(calls.order.indexOf("dispose"))
-      expect(calls.order.indexOf("dispose")).toBeLessThan(calls.order.indexOf("worktree.reset"))
-      expect(calls.dispose).toEqual([{ directory: "/repo/.wt/feat" }])
-      expect(calls.worktreeReset).toEqual([{ directory: "/repo", worktreeResetInput: { directory: "/repo/.wt/feat" } }])
-      // Only s1 (archived === undefined) gets an update.
-      expect(calls.sessionUpdate.length).toBe(1)
-      expect((calls.sessionUpdate[0][0] as { sessionID: string }).sessionID).toBe("s1")
-      // Busy is set true at start and cleared on success.
-      expect(calls.setBusy).toEqual([
-        ["/repo/.wt/feat", true],
-        ["/repo/.wt/feat", false],
-      ])
-      dispose()
+        // Terminals are cleared with all session ids before the dispose/reset.
+        expect(calls.clearTerminals).toEqual([["/repo/.wt/feat", ["s1", "s2"], {}]])
+        expect(calls.order.indexOf("clearTerminals")).toBeLessThan(calls.order.indexOf("dispose"))
+        expect(calls.order.indexOf("dispose")).toBeLessThan(calls.order.indexOf("worktree.reset"))
+        expect(calls.dispose).toEqual([{ directory: "/repo/.wt/feat" }])
+        expect(calls.worktreeReset).toEqual([
+          { directory: "/repo", worktreeResetInput: { directory: "/repo/.wt/feat" } },
+        ])
+        // Only s1 (archived === undefined) gets an update.
+        expect(calls.sessionUpdate.length).toBe(1)
+        expect((calls.sessionUpdate[0][0] as { sessionID: string }).sessionID).toBe("s1")
+        // Busy is set true at start and cleared on success.
+        expect(calls.setBusy).toEqual([
+          ["/repo/.wt/feat", true],
+          ["/repo/.wt/feat", false],
+        ])
+        // The persistent "resetting" toast is dismissed on success.
+        expect(dismissed.length).toBe(1)
+        dispose()
+      })
     })
   })
 
-  test("resetWorkspace on reset failure clears busy and archives nothing", async () => {
+  test("resetWorkspace on reset failure clears busy, dismisses the toast, and archives nothing", async () => {
     const sessions = [
       { id: "s1", directory: "/repo/.wt/feat", time: { archived: undefined } },
     ] as unknown as Session[]
-    await createRoot(async (dispose) => {
-      const { input, calls } = setup({ resetResult: "reject", sessions })
-      const actions = createPawworkWorkspaceLifecycle(input)
-      await actions.resetWorkspace("/repo", "/repo/.wt/feat")
-      expect(calls.sessionUpdate).toEqual([])
-      expect(calls.setBusy).toEqual([
-        ["/repo/.wt/feat", true],
-        ["/repo/.wt/feat", false],
-      ])
-      dispose()
+    await withDismissSpy(async (dismissed) => {
+      await createRoot(async (dispose) => {
+        const { input, calls } = setup({ resetResult: "reject", sessions })
+        const actions = createPawworkWorkspaceLifecycle(input)
+        await actions.resetWorkspace("/repo", "/repo/.wt/feat")
+        expect(calls.sessionUpdate).toEqual([])
+        expect(calls.setBusy).toEqual([
+          ["/repo/.wt/feat", true],
+          ["/repo/.wt/feat", false],
+        ])
+        // Failure branch must still dismiss the persistent "resetting" toast.
+        expect(dismissed.length).toBe(1)
+        dispose()
+      })
     })
   })
 
