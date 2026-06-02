@@ -43,7 +43,6 @@ import { playSoundById } from "@/utils/sound"
 import { setNavigate } from "@/utils/notification-click"
 import { setOpenSettings } from "@/utils/settings-navigation"
 import { Worktree as WorktreeState } from "@/utils/worktree"
-import { setSessionHandoff } from "@/pages/session/handoff"
 import { usePinnedDraft } from "@/components/prompt-input/pinned-draft"
 import {
   runHomepageMigration,
@@ -63,19 +62,12 @@ import {
   displayName,
   effectiveWorkspaceOrder,
   errorMessage,
-  openProjectRoute,
   startupAutoselectDirectory,
   sortedRootSessions,
   workspaceKey,
 } from "./layout/helpers"
-import {
-  collectNewSessionDeepLinks,
-  collectOpenProjectDeepLinks,
-  deepLinkEvent,
-  drainPendingDeepLinks,
-} from "./layout/deep-links"
 import { createInlineEditorController } from "./layout/inline-editor"
-import { pawworkSessionRouteUnhideKeys, pawworkSessionDirectories } from "./layout/pawwork-session-source"
+import { pawworkSessionDirectories } from "./layout/pawwork-session-source"
 import { findPawworkSessionNavigationTarget } from "./layout/pawwork-session-nav"
 import { createShellNavigation } from "./layout/shell-navigation"
 import { useUpdatePolling } from "./layout/layout-update-polling"
@@ -85,6 +77,7 @@ import { LayoutShellFrame } from "./layout/layout-shell-frame"
 import { createPawworkSessionPrefetch } from "./layout/pawwork-session-prefetch"
 import { createPawworkSessionController } from "./layout/pawwork-session-controller"
 import { createPawworkProjectControls } from "./layout/pawwork-project-controls"
+import { createPawworkRoutingActions } from "./layout/pawwork-routing-actions"
 import { type WorkspaceSidebarContext } from "./layout/sidebar-workspace"
 import { PawworkSidebar, type PawworkSidebarSession } from "./layout/pawwork-sidebar"
 import { createDefaultLayoutPageState, createLayoutPagePersistTarget } from "./layout/layout-page-store"
@@ -725,47 +718,6 @@ export default function Layout(props: ParentProps) {
     setState("sizing", false)
   }
 
-  function syncSessionRoute(directory: string, id: string, root = activeProjectRoot(directory)) {
-    for (const key of pawworkSessionRouteUnhideKeys(directory)) {
-      if (!store.pawworkProjectHidden[key]) continue
-      unhideProject(key)
-    }
-    notification.session.markViewed(id)
-    const expanded = untrack(() => store.workspaceExpanded[directory])
-    if (expanded === false) {
-      setStore("workspaceExpanded", directory, true)
-    }
-    requestAnimationFrame(() => scrollToSession(id, `${directory}:${id}`))
-    return root
-  }
-
-  async function navigateToProject(directory: string | undefined) {
-    if (!directory) return
-    const root = projectRoot(directory)
-    server.projects.touch(root)
-    navigate(openProjectRoute(root))
-  }
-
-  function navigateToSession(session: Session | undefined) {
-    if (session) {
-      const key = projectKeyForSession(session)
-      if (store.pawworkProjectHidden[key]) {
-        unhideProject(key)
-      }
-    }
-    shellNavigation.openSession(session)
-  }
-
-  function openPawworkHome(directory?: string) {
-    if (directory) {
-      const key = workspaceKey(directory)
-      if (store.pawworkProjectHidden[key]) {
-        unhideProject(key)
-      }
-    }
-    shellNavigation.openNewSession(directory)
-  }
-
   const shellNavigation = createShellNavigation({
     navigate,
     releaseTransientLocks: releaseTransientShellLocks,
@@ -776,49 +728,29 @@ export default function Layout(props: ParentProps) {
     closeSettingsSurface: closeSettings,
   })
 
-  function openProject(directory: string, shouldNavigate = true) {
-    layout.projects.open(directory)
-    if (shouldNavigate) return navigateToProject(directory)
-  }
-
   // Singleton; same instance returned every call.
   const pinned = usePinnedDraft()
 
-  const handleDeepLinks = (urls: string[]) => {
-    if (!server.isLocal()) return
-
-    for (const directory of collectOpenProjectDeepLinks(urls)) {
-      openProject(directory)
-    }
-
-    for (const link of collectNewSessionDeepLinks(urls)) {
-      openProject(link.directory, false)
-      const slug = base64Encode(link.directory)
-      if (link.prompt) {
-        // Pin the prompt to this directory so it is NOT carried portably to
-        // other homepages. The pinned slot is consumed by editor-input.ts when
-        // the user lands on the /repo homepage.
-        pinned.adopt({ directory: link.directory, prompt: link.prompt })
-        // Also keep the session handoff for the new-session composer region
-        // that shows the prefill text before the session is created (T7 will
-        // decide whether to clear it on submit).
-        setSessionHandoff(slug, { prompt: link.prompt })
-      }
-      const href = `/${slug}/session`
-      navigate(href)
-    }
-  }
-
-  onMount(() => {
-    const handler = (event: Event) => {
-      const detail = (event as CustomEvent<{ urls: string[] }>).detail
-      const urls = detail?.urls ?? []
-      if (urls.length === 0) return
-      handleDeepLinks(urls)
-    }
-
-    handleDeepLinks(drainPendingDeepLinks(window))
-    makeEventListener(window, deepLinkEvent, handler as EventListener)
+  const {
+    syncSessionRoute,
+    navigateToProject,
+    navigateToSession,
+    openPawworkHome,
+    openProject,
+  } = createPawworkRoutingActions({
+    navigate,
+    server,
+    store,
+    setStore,
+    notification,
+    scrollToSession,
+    pinned,
+    projectRoot,
+    activeProjectRoot,
+    shellNavigation,
+    unhideProject,
+    projectKeyForSession,
+    layout,
   })
 
   // Run the v7 homepage-draft migration as soon as a directory becomes
