@@ -8,7 +8,7 @@
 
 [English](README.md)
 
-爪印 PawWork 是 Codex App 和 Claude Desktop 的开源替代方案。它面向真实的桌面工作场景，在一个极简、优雅的界面里，帮你处理文档、表格、资料整理、写作、代码和本地文件。
+爪印 PawWork 是 Codex App 和 Claude Cowork 的开源替代方案。它面向真实的桌面工作场景，在一个极简、优雅的界面里，帮你处理文档、表格、资料整理、写作、代码和本地文件。
 
 无需安装复杂的工具链，无需提前准备 API 密钥，也无需购买付费模型账号。爪印 PawWork 内置来自 OpenCode Zen 的免费额度、内置搜索和任务卡片，下载打开就能开始。
 
