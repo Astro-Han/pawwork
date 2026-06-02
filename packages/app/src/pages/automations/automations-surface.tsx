@@ -33,11 +33,18 @@ export function AutomationsSurface(props: {
   const [selectedID, setSelectedID] = createSignal<string | undefined>()
 
   // Escape returns to the list when a row is open, otherwise closes the surface.
-  // Mirrors the settings takeover, and bails while a transient overlay is open.
+  // The capture listener bails while a transient overlay is open; unlike the
+  // settings takeover, the sidebar stays live here, so its dropdown/context
+  // menus must get Escape first instead of being preempted into closing us.
   onMount(() => {
     const onEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return
-      if (document.querySelector('[data-component="dialog-overlay"], [data-component="select-content"]')) return
+      if (
+        document.querySelector(
+          '[data-component="dialog-overlay"], [data-component="select-content"], [data-component="dropdown-menu-content"], [data-component="context-menu-content"]',
+        )
+      )
+        return
       event.preventDefault()
       if (selectedID()) {
         setSelectedID(undefined)
