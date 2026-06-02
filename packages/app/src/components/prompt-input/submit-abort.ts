@@ -25,7 +25,7 @@ export function createAbort(deps: {
   abortReady: () => boolean
   sessionID: () => string | undefined
   onAbort?: () => void
-  client: ReturnType<typeof useSDK>["client"]
+  client: () => ReturnType<typeof useSDK>["client"]
 }) {
   return async (source: AbortSource = "stopButton") => {
     if (!deps.abortReady()) return Promise.resolve()
@@ -49,7 +49,7 @@ export function createAbort(deps: {
       })
       return Promise.resolve()
     }
-    return deps.client.session
+    return deps.client().session
       .abort({
         sessionID: activeSessionID,
         source: rendererAbortDiagnosticSource({ sessionID: activeSessionID, source }),

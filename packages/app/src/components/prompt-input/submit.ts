@@ -98,7 +98,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     abortReady,
     sessionID,
     onAbort: input.onAbort,
-    client: sdk.client,
+    client: () => sdk.client,
   })
 
   const restoreCommentItems = (items: CommentItem[]) => {
