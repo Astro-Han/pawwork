@@ -98,8 +98,7 @@ export const ConfigRoutes = lazy(() =>
         const providers = await AppRuntime.runPromise(
           Effect.gen(function* () {
             const service = yield* Provider.Service
-            const items = yield* service.list()
-            return mapValues(items, (item) => item)
+            return yield* service.list()
           }),
         )
         return c.json({
