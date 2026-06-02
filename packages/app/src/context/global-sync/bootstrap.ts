@@ -18,6 +18,7 @@ import { retry } from "@opencode-ai/util/retry"
 import { batch } from "solid-js"
 import { produce, reconcile, type SetStoreFunction, type Store } from "solid-js/store"
 import type { State, VcsCache } from "./types"
+import { mergeAutomationList } from "./automation-store"
 import { cmp, normalizeAgentList, normalizeProviderList } from "./utils"
 import { formatServerError } from "@/utils/server-errors"
 import { QueryClient, queryOptions } from "@tanstack/solid-query"
@@ -497,6 +498,12 @@ export async function bootstrapDirectory(input: {
           input.sdk.mcp.status().then((x) => {
             input.setStore("mcp", x.data!)
             input.setStore("mcp_ready", true)
+          }),
+        ),
+      () =>
+        retry(() =>
+          input.sdk.automation.list().then((x) => {
+            mergeAutomationList(input.store, input.setStore, x.data?.items ?? [])
           }),
         ),
     ]

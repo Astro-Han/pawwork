@@ -40,6 +40,9 @@ function createState(): State {
     limit: 5,
     message: {},
     part: {},
+    automation: {},
+    automation_run: {},
+    automation_tombstone: {},
   }
 }
 
@@ -150,6 +153,7 @@ describe("bootstrapDirectory", () => {
       permission: { list: async () => ({ data: [] }) },
       externalResult: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
+      automation: { list: async () => ({ data: { items: [] } }) },
       provider: {
         list: async () => {
           const next = providers[Math.min(providerCalls, providers.length - 1)]
@@ -234,6 +238,7 @@ describe("bootstrapDirectory", () => {
       permission: { list: async () => ({ data: [] }) },
       externalResult: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
+      automation: { list: async () => ({ data: { items: [] } }) },
       provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
     } as any
 
@@ -326,6 +331,7 @@ describe("bootstrapDirectory", () => {
       },
       externalResult: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
+      automation: { list: async () => ({ data: { items: [] } }) },
       provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
     } as any
 
@@ -377,6 +383,7 @@ describe("bootstrapDirectory", () => {
       permission: { list: async () => ({ data: [] }) },
       externalResult: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
+      automation: { list: async () => ({ data: { items: [] } }) },
       provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
     } as any
 
@@ -432,6 +439,7 @@ describe("bootstrapDirectory", () => {
       permission: { list: async () => permission.promise },
       externalResult: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
+      automation: { list: async () => ({ data: { items: [] } }) },
       provider: { list: async () => ({ data: providers }) },
     } as any
 
@@ -485,6 +493,7 @@ describe("bootstrapDirectory", () => {
       permission: { list: async () => ({ data: [] }) },
       externalResult: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
+      automation: { list: async () => ({ data: { items: [] } }) },
       provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
     } as any
 
@@ -543,6 +552,7 @@ describe("bootstrapDirectory", () => {
       permission: { list: async () => ({ data: [] }) },
       externalResult: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
+      automation: { list: async () => ({ data: { items: [] } }) },
       provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
     } as any
 
@@ -610,6 +620,7 @@ describe("bootstrapDirectory", () => {
       permission: { list: async () => ({ data: [] }) },
       externalResult: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
+      automation: { list: async () => ({ data: { items: [] } }) },
       provider: {
         list: async () => {
           calls += 1

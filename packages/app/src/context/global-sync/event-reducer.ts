@@ -1,6 +1,9 @@
 import { Binary } from "@opencode-ai/util/binary"
 import { produce, reconcile, type SetStoreFunction, type Store } from "solid-js/store"
 import type {
+  AutomationDefinition,
+  AutomationDefinitionTombstone,
+  AutomationRun,
   Message,
   Part,
   PermissionRequest,
@@ -11,6 +14,7 @@ import type {
   TodoSnapshot,
 } from "@opencode-ai/sdk/v2/client"
 import type { State, VcsCache } from "./types"
+import { applyAutomationDefinition, applyAutomationRun, applyAutomationTombstone } from "./automation-store"
 import { trimSessions } from "./session-trim"
 import { dropSessionCaches } from "./session-cache"
 import { message as clean } from "@/utils/diffs"
@@ -425,6 +429,18 @@ export function applyDirectoryEvent(input: {
     }
     case "lsp.updated": {
       input.loadLsp()
+      break
+    }
+    case "automation.definition.updated": {
+      applyAutomationDefinition(input.store, input.setStore, event.properties as AutomationDefinition)
+      break
+    }
+    case "automation.definition.deleted": {
+      applyAutomationTombstone(input.store, input.setStore, event.properties as AutomationDefinitionTombstone)
+      break
+    }
+    case "automation.run.updated": {
+      applyAutomationRun(input.store, input.setStore, event.properties as AutomationRun)
       break
     }
   }

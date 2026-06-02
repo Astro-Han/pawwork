@@ -31,6 +31,7 @@ import { createRefreshQueue } from "./global-sync/queue"
 import { clearSessionPrefetchDirectory } from "./global-sync/session-prefetch"
 import { estimateRootSessionTotal, loadRootSessionsWithFallback } from "./global-sync/session-load"
 import { trimSessions } from "./global-sync/session-trim"
+import { mergeAutomationRuns } from "./global-sync/automation-store"
 import type { ProjectMeta } from "./global-sync/types"
 import { SESSION_RECENT_LIMIT } from "./global-sync/types"
 import { createTodoHydrateCoordinator } from "./global-sync/todo-hydrate-coordinator"
@@ -321,6 +322,20 @@ function createGlobalSync() {
     return promise
   }
 
+  async function loadAutomationRuns(directory: string, automationID: string, options?: { cursor?: string }) {
+    if (!directory || !automationID) return
+    children.pin(directory)
+    try {
+      const [store, setStore] = children.peek(directory, { bootstrap: false })
+      const sdk = sdkFor(directory)
+      const res = await sdk.automation.runs({ automationID, ...(options?.cursor ? { cursor: options.cursor } : {}) })
+      mergeAutomationRuns(store, setStore, res.data?.items ?? [])
+      return res.data?.nextCursor ?? null
+    } finally {
+      children.unpin(directory)
+    }
+  }
+
   async function bootstrapInstance(directory: string) {
     if (!directory) return
     const pending = booting.get(directory)
@@ -563,6 +578,9 @@ function createGlobalSync() {
     bootstrap,
     updateConfig,
     project: projectApi,
+    automation: {
+      loadRuns: loadAutomationRuns,
+    },
     todo: {
       set: setSessionTodo,
       accept: acceptSessionTodo,
