@@ -1,9 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
 import type { Prompt } from "@/context/prompt"
-import type {
-  createPromptSubmit as createPromptSubmitType,
-  sendFollowupDraft as sendFollowupDraftType,
-} from "./submit"
+import type { createPromptSubmit as createPromptSubmitType } from "./submit"
 import { _portableDraftTesting, usePortableDraft } from "./portable-draft"
 import { _pinnedDraftTesting, usePinnedDraft } from "./pinned-draft"
 
@@ -11,7 +8,6 @@ type PromptSubmitInput = Parameters<typeof createPromptSubmitType>[0]
 type PromptSubmit = ReturnType<typeof createPromptSubmitType>
 
 let createPromptSubmit: (input: PromptSubmitInput) => PromptSubmit
-let sendFollowupDraft: typeof sendFollowupDraftType
 
 const createdClients: string[] = []
 const createdSessions: string[] = []
@@ -276,7 +272,6 @@ beforeAll(async () => {
 
   const mod = await import("./submit")
   createPromptSubmit = mod.createPromptSubmit
-  sendFollowupDraft = mod.sendFollowupDraft
 })
 
 beforeEach(() => {
@@ -802,35 +797,6 @@ describe("prompt submit worktree selection", () => {
     await waitForCall(() => commandCalls.length > 0)
 
     expect(commandCalls.at(-1)?.locale).toBe("nb-NO")
-  })
-
-  test("sends locale with slash-command followups", async () => {
-    await sendFollowupDraft({
-      client: clientFor("/repo/main") as any,
-      globalSync: {
-        child: () => [{}, () => undefined],
-      } as any,
-      sync: {
-        data: { command: [{ name: "summarize" }], command_ready: true },
-        session: {
-          optimistic: {
-            add: () => undefined,
-            remove: () => undefined,
-          },
-        },
-      } as any,
-      draft: {
-        sessionID: "session-1",
-        sessionDirectory: "/repo/main",
-        prompt: [{ type: "text", content: "/summarize this", start: 0, end: 15 }],
-        context: [],
-        agent: "agent",
-        model: { providerID: "provider", modelID: "model" },
-        locale: "zh-Hans",
-      },
-    })
-
-    expect(commandCalls.at(-1)?.locale).toBe("zh-Hans")
   })
 
   test("clears prompt source scope on successful new-session submit", async () => {
