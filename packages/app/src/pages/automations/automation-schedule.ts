@@ -42,7 +42,12 @@ function formatCron(expression: string, t: Translate) {
 
   if (dow === "*") return t("automations.schedule.daily", { time })
   if (dow === "1-5") return t("automations.schedule.weekdays", { time })
-  if (/^[0-6]$/.test(dow)) return t("automations.schedule.weekly", { time })
+  // A single weekday (cron 0=Sun..6=Sat) must name the day, otherwise Monday and
+  // Friday at the same time render identically.
+  if (/^[0-6]$/.test(dow)) {
+    const day = t(`automations.schedule.weekday.${dow}`)
+    return t("automations.schedule.weekly", { day, time })
+  }
   return t("automations.schedule.custom")
 }
 

@@ -111,6 +111,8 @@ export function AutomationDetail(props: {
   const [busy, setBusy] = createSignal(false)
 
   onMount(() => {
+    // Load only the most recent page; the "Recent runs" heading scopes the list
+    // to that page, so the returned nextCursor is intentionally not paged.
     void globalSync.automation.loadRuns(props.directory(), props.automation().id)
   })
 

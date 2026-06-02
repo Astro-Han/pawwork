@@ -30,10 +30,18 @@ describe("formatScheduleSummary", () => {
     )
   })
 
-  test("weekly cron", () => {
+  test("weekly cron names the weekday", () => {
     expect(formatScheduleSummary(recurring({ kind: "cron", expression: "30 8 * * 0" }), t)).toBe(
-      'automations.schedule.weekly:{"time":"08:30"}',
+      'automations.schedule.weekly:{"day":"automations.schedule.weekday.0","time":"08:30"}',
     )
+  })
+
+  test("weekly cron distinguishes weekdays at the same time", () => {
+    const monday = formatScheduleSummary(recurring({ kind: "cron", expression: "0 9 * * 1" }), t)
+    const friday = formatScheduleSummary(recurring({ kind: "cron", expression: "0 9 * * 5" }), t)
+    expect(monday).toBe('automations.schedule.weekly:{"day":"automations.schedule.weekday.1","time":"09:00"}')
+    expect(friday).toBe('automations.schedule.weekly:{"day":"automations.schedule.weekday.5","time":"09:00"}')
+    expect(monday).not.toBe(friday)
   })
 
   test("non-standard cron falls back to custom", () => {
