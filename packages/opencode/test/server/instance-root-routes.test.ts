@@ -43,7 +43,7 @@ describe("instance root routes", () => {
     expect(info.status).toBe(200)
     expect(await info.json()).toMatchObject({ branch: expect.any(String) })
 
-    const diff = await app.request("/vcs/diff?mode=unstaged", { headers })
+    const diff = await app.request("/vcs/diff?mode=git", { headers })
     expect(diff.status).toBe(200)
     expect(await diff.json()).toEqual([
       expect.objectContaining({ file: "tracked.txt", additions: 1, deletions: 1, status: "modified" }),
