@@ -2183,6 +2183,7 @@ export default function Layout(props: ParentProps) {
       <ShellSurfaceContext.Provider
         value={{
           settingsOpen,
+          automationsOpen,
           openNewSession: openPawworkHome,
           openSession: navigateToSession,
           openSettings,
