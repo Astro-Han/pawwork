@@ -17,7 +17,7 @@ import { Process } from "@/util/process"
 import { BashArity } from "@/permission/arity"
 import * as Truncate from "./truncate"
 import { Plugin } from "@/plugin"
-import { Effect, Stream } from "effect"
+import { Duration, Effect, Fiber, Stream } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { envValueCaseInsensitive, prependBundledTools, stripPathKeys, withoutInternalServerAuthEnv } from "@/util/env"
@@ -31,8 +31,20 @@ import { discoverOfficeOutputs, readTrackedState } from "./shell-output-capture"
 import { Parameters, render as renderDescription, type Limits } from "./shell/prompt"
 import { ToolID as ShellToolID } from "./shell/id"
 import { orchestrateArtifacts, type ArtifactDeps } from "./shell-artifact-orchestrator"
+import { makeMetadataThrottle } from "./shell-metadata-throttle"
 
 const MAX_METADATA_LENGTH = 30_000
+// Coalesce streaming metadata pushes: emit the first chunk immediately, then at
+// most once per interval or once accumulated input crosses the byte threshold.
+const METADATA_FLUSH_INTERVAL_MS = 150
+const METADATA_FLUSH_BYTES = 4 * 1024
+// Cap how long we wait for the consumer to drain buffered output after the
+// process exits/aborts/times out. On timeout we fall through to scope cleanup,
+// which interrupts the consumer; the final tool-result metadata still carries
+// the tail via completeToolCall, so this only bounds a pathological slow/never
+// closing stream — it never blocks the normal path where the stream is already
+// drained by the time the exit race resolves.
+const CONSUMER_DRAIN_TIMEOUT = Duration.seconds(1)
 const DEFAULT_TIMEOUT = Flag.OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS || 2 * 60 * 1000
 const PS = new Set(["powershell", "pwsh"])
 const CWD = new Set(["cd", "push-location", "set-location"])
@@ -481,7 +493,14 @@ export const ShellTool = Tool.define(
         Effect.gen(function* () {
           const handle = yield* spawner.spawn(cmd(input.shell, input.name, input.command, input.cwd, input.env))
 
-          yield* Effect.forkScoped(
+          const throttle = yield* makeMetadataThrottle({
+            intervalMillis: METADATA_FLUSH_INTERVAL_MS,
+            byteThreshold: METADATA_FLUSH_BYTES,
+            snapshot: () => last,
+            emit: (output) => ctx.metadata({ metadata: { output, description: input.description } }),
+          })
+
+          const consumer = yield* Effect.forkScoped(
             Stream.runForEach(Stream.decodeText(handle.all), (chunk) => {
               const size = Buffer.byteLength(chunk, "utf-8")
               list.push({ text: chunk, size })
@@ -497,36 +516,25 @@ export const ShellTool = Tool.define(
 
               if (file) {
                 sink?.write(chunk)
-              } else {
-                full += chunk
-                if (Buffer.byteLength(full, "utf-8") > limits.maxBytes) {
-                  return trunc.write(full).pipe(
-                    Effect.andThen((next) =>
-                      Effect.sync(() => {
-                        file = next
-                        cut = true
-                        sink = createWriteStream(next, { flags: "a" })
-                        full = ""
-                      }),
-                    ),
-                    Effect.andThen(
-                      ctx.metadata({
-                        metadata: {
-                          output: last,
-                          description: input.description,
-                        },
-                      }),
-                    ),
-                  )
-                }
+                return throttle.onChunk(size)
               }
 
-              return ctx.metadata({
-                metadata: {
-                  output: last,
-                  description: input.description,
-                },
-              })
+              full += chunk
+              if (Buffer.byteLength(full, "utf-8") > limits.maxBytes) {
+                return trunc.write(full).pipe(
+                  Effect.andThen((next) =>
+                    Effect.sync(() => {
+                      file = next
+                      cut = true
+                      sink = createWriteStream(next, { flags: "a" })
+                      full = ""
+                    }),
+                  ),
+                  Effect.andThen(throttle.flush("spill")),
+                )
+              }
+
+              return throttle.onChunk(size)
             }),
           )
 
@@ -557,6 +565,15 @@ export const ShellTool = Tool.define(
               Process.terminateTree({ pid: handle.pid, waitForExit: Effect.runPromise(handle.exitCode) }),
             ).pipe(Effect.orDie)
           }
+
+          // Drain any chunks the consumer hasn't processed yet, then push the
+          // final preview. Both happen inside the process scope so the throttle's
+          // timer fiber is still alive and is interrupted on scope exit. The
+          // timeout guards against a stream that never closes; ignore mirrors the
+          // pre-existing fork-without-join behavior where consumer errors were
+          // unobserved.
+          yield* Fiber.join(consumer).pipe(Effect.timeout(CONSUMER_DRAIN_TIMEOUT), Effect.ignore)
+          yield* throttle.flush("final")
 
           return exit.kind === "exit" ? exit.code : null
         }),
