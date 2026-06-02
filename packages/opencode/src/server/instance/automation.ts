@@ -26,11 +26,6 @@ function activeRunStillRunningError(error: ActiveRunStillRunningError) {
   })
 }
 
-async function publishIfChanged(previous: Automation.Definition, definition: Automation.Definition) {
-  if (definition.revision === previous.revision) return
-  await Automation.publishDefinitionUpdated(definition)
-}
-
 async function settleAutomationScheduler() {
   await AutomationScheduler.current().settleOwner()
 }
@@ -236,7 +231,9 @@ export const AutomationRoutes = (): Hono =>
               }
             }
             const definition = yield* automation.update(automationID, patch)
-            yield* Effect.promise(() => publishIfChanged(previous, definition))
+            if (definition.revision !== previous.revision) {
+              yield* automation.publishDefinitionUpdated(definition)
+            }
             return c.json(definition)
           }),
         ),
@@ -269,7 +266,9 @@ export const AutomationRoutes = (): Hono =>
             yield* Effect.promise(() => settleAutomationScheduler())
             const previous = yield* automation.get(automationID)
             const definition = yield* automation.update(automationID, { paused: true })
-            yield* Effect.promise(() => publishIfChanged(previous, definition))
+            if (definition.revision !== previous.revision) {
+              yield* automation.publishDefinitionUpdated(definition)
+            }
             return c.json(definition)
           }),
         ),
@@ -302,7 +301,9 @@ export const AutomationRoutes = (): Hono =>
             yield* Effect.promise(() => settleAutomationScheduler())
             const previous = yield* automation.get(automationID)
             const definition = yield* automation.update(automationID, { paused: false })
-            yield* Effect.promise(() => publishIfChanged(previous, definition))
+            if (definition.revision !== previous.revision) {
+              yield* automation.publishDefinitionUpdated(definition)
+            }
             return c.json(definition)
           }),
         ),
