@@ -10,13 +10,12 @@ import { useLayout } from "@/context/layout"
 import { useLocal } from "@/context/local"
 import { usePermission } from "@/context/permission"
 import { type ImageAttachmentPart, type Prompt, usePrompt } from "@/context/prompt"
-import { emitRendererDiagnostic, sessionAbortDiagnosticEvent } from "@/context/renderer-diagnostics"
+import { emitRendererDiagnostic } from "@/context/renderer-diagnostics"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { promptProbe } from "@/testing/prompt"
 import { Identifier } from "@/utils/id"
 import { Worktree as WorktreeState } from "@/utils/worktree"
-import { rendererAbortDiagnosticSource, type RendererAbortSource } from "@/session/abort-source"
 import { setCursorPosition } from "./editor-dom"
 import { reportInvariantBreach } from "./invariant"
 import { formatServerError } from "@/utils/server-errors"
@@ -28,14 +27,7 @@ import type { ResolvedMention } from "./mention-metadata"
 import type { FollowupDraft } from "./followup-draft"
 import { detectSubmitOwnership, type SubmitOwnership } from "./submit-ownership"
 import { sendFollowupDraft } from "./send-followup-draft"
-
-type PendingPrompt = {
-  abort: AbortController
-  cleanup: VoidFunction
-}
-
-const pending = new Map<string, PendingPrompt>()
-type AbortSource = Extract<RendererAbortSource, "ctrlG" | "emptyEnter" | "escape" | "stopButton">
+import { createAbort, pending } from "./submit-abort"
 
 type PromptSubmitInput = {
   sessionID?: Accessor<string | undefined>
@@ -102,54 +94,12 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     return language.t("common.requestFailed")
   }
 
-  const emitAbortDiagnostic = (input: {
-    routeSessionID?: string
-    visibleSessionID?: string
-    timelineSessionID?: string
-    source: AbortSource
-    result: "aborted" | "ignored_awaiting_question"
-  }) => {
-    void emitRendererDiagnostic(sessionAbortDiagnosticEvent(input)).catch(() => undefined)
-  }
-
-  const abort = async (source: AbortSource = "stopButton") => {
-    if (!abortReady()) return Promise.resolve()
-
-    const activeSessionID = sessionID()
-    if (!activeSessionID) return Promise.resolve()
-
-    input.onAbort?.()
-
-    const queued = pending.get(activeSessionID)
-    if (queued) {
-      queued.abort.abort()
-      queued.cleanup()
-      pending.delete(activeSessionID)
-      emitAbortDiagnostic({
-        routeSessionID: activeSessionID,
-        visibleSessionID: activeSessionID,
-        timelineSessionID: activeSessionID,
-        source,
-        result: "aborted",
-      })
-      return Promise.resolve()
-    }
-    return sdk.client.session
-      .abort({
-        sessionID: activeSessionID,
-        source: rendererAbortDiagnosticSource({ sessionID: activeSessionID, source }),
-      })
-      .then((result) => {
-        emitAbortDiagnostic({
-          routeSessionID: activeSessionID,
-          visibleSessionID: activeSessionID,
-          timelineSessionID: activeSessionID,
-          source,
-          result: result.data === false ? "ignored_awaiting_question" : "aborted",
-        })
-      })
-      .catch(() => {})
-  }
+  const abort = createAbort({
+    abortReady,
+    sessionID,
+    onAbort: input.onAbort,
+    client: sdk.client,
+  })
 
   const restoreCommentItems = (items: CommentItem[]) => {
     for (const item of items) {
