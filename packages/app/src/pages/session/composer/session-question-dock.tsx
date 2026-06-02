@@ -9,8 +9,9 @@ import { useSDK } from "@/context/sdk"
 import type { DockQuestionRequest } from "@/pages/session/blockers/use-session-blockers"
 import { createQuestionResponseGuard, normalizeToolRespondError, resolveSkipAction } from "./question-tool-respond"
 import { Mark, Option } from "./question-option"
-import { cache, type DraftAnswer, type QuestionAnswer } from "./question-draft"
+import { cache, type DraftAnswer, type QuestionAnswer, type QuestionStore } from "./question-draft"
 import { focusWithoutScrollingTimeline } from "./question-option-focus"
+import { createQuestionAnswerEditing } from "./question-answer-editing"
 
 type QuestionRequestFingerprint = Pick<DockQuestionRequest, "id" | "sessionID" | "messageID" | "callID">
 
@@ -34,7 +35,7 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
   const total = createMemo(() => questions().length)
 
   const cached = cache.get(props.request.id)
-  const [store, setStore] = createStore({
+  const [store, setStore] = createStore<QuestionStore>({
     tab: cached?.tab ?? 0,
     answers: cached?.answers ?? ([] as DraftAnswer[]),
     custom: cached?.custom ?? ([] as string[]),
@@ -68,26 +69,6 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
   const customPlaceholder = () => language.t("ui.question.custom.placeholder")
 
   const last = createMemo(() => store.tab >= total() - 1)
-
-  const customUpdate = (value: string, selected: boolean = on()) => {
-    const prev = input().trim()
-    const next = value.trim()
-
-    setStore("custom", store.tab, value)
-    if (!selected) return
-
-    if (multi()) {
-      setStore("answers", store.tab, (current = []) => {
-        const removed = prev ? current.filter((item) => item.trim() !== prev) : current
-        if (!next) return removed.length ? removed : undefined
-        if (removed.some((item) => item.trim() === next)) return removed
-        return [...removed, next]
-      })
-      return
-    }
-
-    setStore("answers", store.tab, next ? [next] : undefined)
-  }
 
   const clamp = (i: number) => Math.max(0, Math.min(count() - 1, i))
 
@@ -256,62 +237,16 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
     reply(questions().map((_, i) => store.answers[i] ?? [])).catch(() => {})
   }
 
-  const picked = (answer: string) => store.answers[store.tab]?.includes(answer) ?? false
-
-  const pick = (answer: string, custom: boolean = false) => {
-    setStore("answers", store.tab, [answer])
-    if (custom) setStore("custom", store.tab, answer)
-    if (!custom) setStore("customOn", store.tab, false)
-    setStore("editing", false)
-  }
-
-  const toggle = (answer: string) => {
-    setStore("answers", store.tab, (current = []) => {
-      if (current.includes(answer)) {
-        const next = current.filter((item) => item !== answer)
-        return next.length ? next : undefined
-      }
-      return [...current, answer]
-    })
-  }
-
-  const customToggle = () => {
-    if (!canInteract()) return
-    setStore("focus", options().length)
-
-    if (!multi()) {
-      setStore("customOn", store.tab, true)
-      setStore("editing", true)
-      customUpdate(input(), true)
-      return
-    }
-
-    const next = !on()
-    setStore("customOn", store.tab, next)
-    if (next) {
-      setStore("editing", true)
-      customUpdate(input(), true)
-      return
-    }
-
-    const value = input().trim()
-    if (value) {
-      setStore("answers", store.tab, (current = []) => {
-        const next = current.filter((item) => item.trim() !== value)
-        return next.length ? next : undefined
-      })
-    }
-    setStore("editing", false)
-    focus(options().length)
-  }
-
-  const customOpen = () => {
-    if (!canInteract()) return
-    setStore("focus", options().length)
-    if (!on()) setStore("customOn", store.tab, true)
-    setStore("editing", true)
-    customUpdate(input(), true)
-  }
+  const editing = createQuestionAnswerEditing({
+    store,
+    setStore,
+    input,
+    on,
+    multi,
+    optionCount: () => options().length,
+    canInteract,
+    focus,
+  })
 
   const move = (step: number) => {
     if (store.editing || !canInteract()) return
@@ -369,7 +304,7 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
 
     if (optIndex === options().length) {
       if (!customAllowed()) return
-      customOpen()
+      editing.customOpen()
       return
     }
 
@@ -377,16 +312,10 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
     if (!opt) return
     if (multi()) {
       setStore("editing", false)
-      toggle(opt.label)
+      editing.toggle(opt.label)
       return
     }
-    pick(opt.label)
-  }
-
-  const commitCustom = () => {
-    setStore("editing", false)
-    customUpdate(input())
-    focus(options().length)
+    editing.pick(opt.label)
   }
 
   const resizeInput = (el: HTMLTextAreaElement) => {
@@ -404,12 +333,12 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
   const toggleCustomMark = (event: MouseEvent) => {
     event.preventDefault()
     event.stopPropagation()
-    customToggle()
+    editing.customToggle()
   }
 
   const next = () => {
     if (!canInteract()) return
-    if (store.editing) commitCustom()
+    if (store.editing) editing.commitCustom()
 
     if (store.tab >= total() - 1) {
       submit()
@@ -514,7 +443,7 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
           {(opt, i) => (
             <Option
               multi={multi()}
-              picked={picked(opt.label)}
+              picked={editing.picked(opt.label)}
               label={opt.label}
               description={opt.description}
               disabled={!canInteract()}
@@ -539,7 +468,7 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
                 aria-checked={on()}
                 disabled={!canInteract()}
                 onFocus={() => setStore("focus", options().length)}
-                onClick={customOpen}
+                onClick={editing.customOpen}
               >
                 <Mark multi={multi()} picked={on()} onClick={toggleCustomMark} />
                 <span data-slot="question-option-main">
@@ -566,7 +495,7 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
               }}
               onSubmit={(e) => {
                 e.preventDefault()
-                commitCustom()
+                editing.commitCustom()
               }}
             >
               <Mark multi={multi()} picked={on()} onClick={toggleCustomMark} />
@@ -589,10 +518,10 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
                     if ((e.metaKey || e.ctrlKey) && !e.altKey) return
                     if (e.key !== "Enter" || e.shiftKey) return
                     e.preventDefault()
-                    commitCustom()
+                    editing.commitCustom()
                   }}
                   onInput={(e) => {
-                    customUpdate(e.currentTarget.value)
+                    editing.customUpdate(e.currentTarget.value)
                     resizeInput(e.currentTarget)
                   }}
                 />

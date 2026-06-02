@@ -5,4 +5,13 @@ export type QuestionAnswer = readonly string[]
 
 export type DraftAnswer = QuestionAnswer | undefined
 
-export const cache = new Map<string, { tab: number; answers: DraftAnswer[]; custom: string[]; customOn: boolean[] }>()
+export type QuestionStore = {
+  tab: number
+  answers: DraftAnswer[]
+  custom: string[]
+  customOn: boolean[]
+  editing: boolean
+  focus: number
+}
+
+export const cache = new Map<string, Pick<QuestionStore, "tab" | "answers" | "custom" | "customOn">>()
