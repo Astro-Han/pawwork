@@ -9,7 +9,7 @@ import type { useGlobalSDK } from "@/context/global-sdk"
 import type { useDialog } from "@opencode-ai/ui/context/dialog"
 import { workspaceKey } from "./helpers"
 
-export type WorkspaceDialogsInput = {
+export type PawworkWorkspaceDialogsInput = {
   globalSDK: Pick<ReturnType<typeof useGlobalSDK>, "client">
   dialog: Pick<ReturnType<typeof useDialog>, "close">
   language: { t: (key: string, params?: Record<string, string | number | boolean>) => string }
@@ -20,7 +20,7 @@ export type WorkspaceDialogsInput = {
   resetWorkspace: (root: string, directory: string) => unknown
 }
 
-export function createWorkspaceDialogs(input: WorkspaceDialogsInput) {
+export function createPawworkWorkspaceDialogs(input: PawworkWorkspaceDialogsInput) {
   function DialogDeleteWorkspace(props: { root: string; directory: string }) {
     const name = createMemo(() => getFilename(props.directory))
     const [data, setData] = createStore({

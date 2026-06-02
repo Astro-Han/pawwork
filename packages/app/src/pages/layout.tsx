@@ -75,7 +75,7 @@ import { createPawworkSessionController } from "./layout/pawwork-session-control
 import { createPawworkProjectControls } from "./layout/pawwork-project-controls"
 import { createPawworkRoutingActions } from "./layout/pawwork-routing-actions"
 import { createPawworkWorkspaceLifecycle } from "./layout/pawwork-workspace-lifecycle"
-import { createWorkspaceDialogs } from "./layout/pawwork-workspace-dialogs"
+import { createPawworkWorkspaceDialogs } from "./layout/pawwork-workspace-dialogs"
 import { type WorkspaceSidebarContext } from "./layout/sidebar-workspace"
 import { PawworkSidebar, type PawworkSidebarSession } from "./layout/pawwork-sidebar"
 import { createDefaultLayoutPageState, createLayoutPagePersistTarget } from "./layout/layout-page-store"
@@ -777,7 +777,7 @@ export default function Layout(props: ParentProps) {
     workspaceName,
   })
 
-  const { DialogDeleteWorkspace, DialogResetWorkspace } = createWorkspaceDialogs({
+  const { DialogDeleteWorkspace, DialogResetWorkspace } = createPawworkWorkspaceDialogs({
     globalSDK,
     dialog,
     language,
