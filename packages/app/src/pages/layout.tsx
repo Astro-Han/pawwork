@@ -31,10 +31,8 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { LayoutPageContext } from "@/context/layout-page"
 import { ShellSurfaceContext } from "@/context/shell-surface"
 import { clearWorkspaceTerminals } from "@/context/terminal"
-import { dropSessionCaches } from "@/context/global-sync/session-cache"
 import { useNotification } from "@/context/notification"
 import { usePermission } from "@/context/permission"
-import { Binary } from "@opencode-ai/util/binary"
 import { playSoundById } from "@/utils/sound"
 import { setNavigate } from "@/utils/notification-click"
 import { setOpenSettings } from "@/utils/settings-navigation"
@@ -61,6 +59,7 @@ import {
   workspaceKey,
 } from "./layout/helpers"
 import { createInlineEditorController } from "./layout/inline-editor"
+import { createPawworkSessionCommands, type SessionDeleteTarget } from "./layout/pawwork-session-commands"
 import { pawworkSessionDirectories } from "./layout/pawwork-session-source"
 import { findPawworkSessionNavigationTarget } from "./layout/pawwork-session-nav"
 import { createShellNavigation } from "./layout/shell-navigation"
@@ -452,32 +451,6 @@ export default function Layout(props: ParentProps) {
     navigateToSession(session)
   }
 
-  async function renamePawworkSession(session: Session, next: string) {
-    const title = next.trim()
-    if (!title || title === (session.title ?? "")) return
-
-    try {
-      await globalSDK.client.session.update({
-        directory: session.directory,
-        sessionID: session.id,
-        title,
-      })
-
-      const [, setStore] = globalSync.child(session.directory)
-      setStore(
-        produce((draft) => {
-          const match = Binary.search(draft.session, session.id, (item) => item.id)
-          if (match.found) draft.session[match.index].title = title
-        }),
-      )
-    } catch (error) {
-      showToast({
-        title: language.t("common.requestFailed"),
-        description: errorMessage(error, language.t("common.requestFailed")),
-      })
-    }
-  }
-
   const {
     togglePinnedSession,
     dragPawworkSession,
@@ -498,111 +471,15 @@ export default function Layout(props: ParentProps) {
     setWorkspaceName,
   })
 
-  // Export hits the embedded sidecar via main-process IPC. When the user has
-  // switched the active server to a remote target, the sidecar holds different
-  // data than the UI; hide the action rather than ship a misleading export.
-  const exportSessionAvailable = createMemo(
-    () => !!platform.exportSession && server.current?.type === "sidecar",
-  )
-
-  async function exportSession(session: Session) {
-    if (!platform.exportSession) return
-    const [store] = globalSync.child(session.directory)
-    const sessionInfo = store.session?.find((s) => s.id === session.id)
-    const slugSource = sessionInfo?.slug ?? session.id
-    const sanitized = slugSource.replace(/[\\/:*?"<>|]/g, "-").slice(0, 32)
-    const slug = /[\p{L}\p{N}]/u.test(sanitized) ? sanitized : session.id.slice(-8)
-    const stamp = new Date().toISOString().replace(/[:T]/g, "-").replace(/\..+$/, "")
-    const defaultName = `pawwork-session-${slug}-${stamp}.json`
-
-    let result: { ok: true; path: string } | { ok: false; error: string }
-    try {
-      result = await platform.exportSession(
-        session.id,
-        session.directory,
-        defaultName,
-        language.t("session.export.action.export"),
-      )
-    } catch (err) {
-      showToast({
-        title: language.t("session.export.error.failed"),
-        description: errorMessage(err, language.t("common.requestFailed")),
-        variant: "error",
-      })
-      return
-    }
-    if (!result.ok) {
-      if (result.error === "cancelled") return
-      showToast({
-        title: language.t("session.export.error.failed"),
-        description: result.error,
-        variant: "error",
-      })
-      return
-    }
-    showToast({
-      title: language.t("session.export.success"),
-      description: result.path,
-    })
-  }
-
-  type SessionDeleteTarget = Pick<Session, "id" | "directory">
-
-  async function deleteSession(session: SessionDeleteTarget) {
-    const [store, setStore] = globalSync.child(session.directory)
-    const sessions = (store.session ?? []).filter((s) => !s.parentID && !s.time?.archived)
-    const index = sessions.findIndex((s) => s.id === session.id)
-    const nextSession = index === -1 ? undefined : (sessions[index + 1] ?? sessions[index - 1])
-
-    const result = await globalSDK.client.session
-      .delete({ directory: session.directory, sessionID: session.id })
-      .then((x) => x.data)
-      .catch((err) => {
-        showToast({
-          title: language.t("session.delete.failed.title"),
-          description: errorMessage(err, language.t("common.requestFailed")),
-          variant: "error",
-        })
-        return undefined
-      })
-
-    if (!result) return
-
-    setStore(
-      produce((draft) => {
-        const removed = new Set<string>([session.id])
-        const byParent = new Map<string, string[]>()
-        for (const item of draft.session) {
-          const parentID = item.parentID
-          if (!parentID) continue
-          const existing = byParent.get(parentID)
-          if (existing) {
-            existing.push(item.id)
-            continue
-          }
-          byParent.set(parentID, [item.id])
-        }
-        const stack = [session.id]
-        while (stack.length) {
-          const parentID = stack.pop()
-          if (!parentID) continue
-          const children = byParent.get(parentID)
-          if (!children) continue
-          for (const child of children) {
-            if (removed.has(child)) continue
-            removed.add(child)
-            stack.push(child)
-          }
-        }
-        dropSessionCaches(draft, [...removed])
-        draft.session = draft.session.filter((s) => !removed.has(s.id))
-      }),
-    )
-
-    if (session.id === params.id) {
-      navigate(nextSession ? `/${params.dir}/session/${nextSession.id}` : `/${params.dir}/session`)
-    }
-  }
+  const { exportSessionAvailable, renamePawworkSession, exportSession, deleteSession } = createPawworkSessionCommands({
+    globalSDK,
+    globalSync,
+    platform,
+    server,
+    language,
+    navigate,
+    params,
+  })
 
   function confirmDeleteSession(session: Session) {
     const target: SessionDeleteTarget = { id: session.id, directory: session.directory }
