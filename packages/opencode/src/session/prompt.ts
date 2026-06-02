@@ -16,6 +16,7 @@ import type { JSONSchema7 } from "@ai-sdk/provider"
 import { SessionCompaction } from "./compaction"
 import { Bus } from "../bus"
 import { ProviderTransform } from "../provider/transform"
+import { deriveActivatedTools } from "../tool/tool-info"
 import { SystemPrompt } from "./system"
 import { Instruction } from "./instruction"
 import { Plugin } from "../plugin"
@@ -835,10 +836,16 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           }),
       })
 
+      const activatedTools = deriveActivatedTools(input.messages)
+      const deferredRuleset = Permission.merge(input.agent.permission, input.session.permission ?? [])
+      const deferredAvailable = (id: string) =>
+        input.tools?.[id] !== false && !Permission.disabled([id], deferredRuleset).has(id)
       for (const item of yield* registry.tools({
         modelID: ModelID.make(input.model.api.id),
         providerID: input.model.providerID,
         agent: input.agent,
+        activatedTools,
+        deferredAvailable,
       })) {
         const schema = ProviderTransform.schema(input.model, EffectZod.toJsonSchema(item.parameters))
         const aiTool = tool({
