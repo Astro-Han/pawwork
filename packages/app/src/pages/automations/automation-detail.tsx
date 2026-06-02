@@ -190,7 +190,7 @@ export function AutomationDetail(props: {
   }
 
   return (
-    <div data-component="automation-detail" class="flex flex-col gap-5">
+    <div data-component="automation-detail" class="flex flex-col gap-6">
       <nav class="flex items-center gap-1 text-body text-fg-weak">
         <button
           type="button"
@@ -206,12 +206,6 @@ export function AutomationDetail(props: {
       <header class="flex items-start justify-between gap-4">
         <h1 class="min-w-0 truncate text-h2 text-fg-strong">{props.automation().title}</h1>
         <div class="flex shrink-0 items-center gap-2">
-          <Button variant="primary" data-action="automation-run-now" onClick={runNow} disabled={busy()}>
-            {t("automations.action.runNow")}
-          </Button>
-          <Button variant="secondary" data-action="automation-toggle-active" onClick={toggleActive} disabled={busy()}>
-            {props.automation().paused ? t("automations.action.resume") : t("automations.action.pause")}
-          </Button>
           <Button
             variant="ghost"
             icon="trash"
@@ -220,10 +214,21 @@ export function AutomationDetail(props: {
             onClick={confirmDelete}
             disabled={busy()}
           />
+          <Button
+            variant="ghost"
+            icon={props.automation().paused ? "play" : "pause"}
+            data-action="automation-toggle-active"
+            aria-label={props.automation().paused ? t("automations.action.resume") : t("automations.action.pause")}
+            onClick={toggleActive}
+            disabled={busy()}
+          />
+          <Button variant="primary" icon="play" data-action="automation-run-now" onClick={runNow} disabled={busy()}>
+            {t("automations.action.runNow")}
+          </Button>
         </div>
       </header>
 
-      <div class="grid grid-cols-[minmax(0,1fr)_240px] gap-6">
+      <div class="grid grid-cols-[minmax(0,1fr)_240px] gap-8">
         <section class="flex flex-col gap-2">
           <h2 class="text-caption font-emphasis uppercase tracking-wide text-fg-weak">
             {t("automations.detail.instructions")}
