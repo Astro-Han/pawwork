@@ -1261,13 +1261,11 @@ export namespace Automation {
           },
         }),
       remove: (id) =>
-        Effect.tryPromise({
-          try: () => remove(id),
-          catch: (error) => {
-            if (error instanceof ActiveRunStillRunningError) return error
-            throw error
-          },
-        }),
+        Effect.tryPromise({ try: () => remove(id), catch: (error) => error }).pipe(
+          Effect.catch((error) =>
+            error instanceof ActiveRunStillRunningError ? Effect.fail(error) : Effect.die(error),
+          ),
+        ),
       runNowExecuting: (id, options) => Effect.promise(() => runNowExecuting(id, options)),
       runs: (input) => Effect.sync(() => runs(input)),
       publishDefinitionUpdated: (definition) => Effect.promise(() => publishDefinitionUpdated(definition)),

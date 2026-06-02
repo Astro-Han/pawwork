@@ -727,6 +727,13 @@ describe("automation routes", () => {
     })
   })
 
+  test("delete returns 404 for an unknown automation", async () => {
+    await withAutomationApp(async ({ app }) => {
+      const response = await app.request(`/automation/${AutomationID.Definition.ascending()}`, { method: "DELETE" })
+      expect(response.status).toBe(404)
+    })
+  })
+
   test("update accepts a deterministic timestamp", async () => {
     await withAutomationApp(async ({ projectID }) => {
       const definition = Automation.create(recurringInput(projectID), { now: 100 })
