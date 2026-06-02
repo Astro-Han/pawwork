@@ -1,4 +1,5 @@
-import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, spyOn, test } from "bun:test"
+import * as uiToast from "@opencode-ai/ui/toast"
 import type { Prompt } from "@/context/prompt"
 import type { createPromptSubmit as createPromptSubmitType } from "./submit"
 import { _portableDraftTesting, usePortableDraft } from "./portable-draft"
@@ -119,9 +120,11 @@ beforeAll(async () => {
     },
   }))
 
-  mock.module("@opencode-ai/ui/toast", () => ({
-    showToast: () => 0,
-  }))
+  // spyOn + afterAll restore instead of mock.module: bun's mock.module is a
+  // global, persistent, non-restoring registry override, so a noop toast mock
+  // here leaked into every later test file in the run and broke suites that
+  // rely on the real showToast (e.g. pawwork-session-commands.test.ts).
+  spyOn(uiToast, "showToast").mockImplementation(() => 0 as never)
 
   mock.module("@opencode-ai/util/encode", () => ({
     base64Encode: (value: string) => value,
@@ -272,6 +275,10 @@ beforeAll(async () => {
 
   const mod = await import("./submit")
   createPromptSubmit = mod.createPromptSubmit
+})
+
+afterAll(() => {
+  mock.restore()
 })
 
 beforeEach(() => {
