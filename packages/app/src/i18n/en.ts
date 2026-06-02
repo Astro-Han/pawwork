@@ -799,6 +799,8 @@ export const dict = {
   "automations.action.runNow": "Run now",
   "automations.action.delete": "Delete",
   "automations.toast.actionFailed.title": "Couldn't update automation",
+  "automations.toast.failureStreak.title": "Automation keeps failing",
+  "automations.toast.failureStreak.description": "“{{title}}” has failed {{count}} times in a row. Open Automations to check it.",
   "automations.detail.instructions": "Instructions",
   "automations.detail.statusHeading": "Status",
   "automations.detail.detailsHeading": "Details",

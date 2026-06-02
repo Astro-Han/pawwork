@@ -709,6 +709,8 @@ export const dict = {
   "automations.action.runNow": "立即运行",
   "automations.action.delete": "删除",
   "automations.toast.actionFailed.title": "更新自动化失败",
+  "automations.toast.failureStreak.title": "自动化持续失败",
+  "automations.toast.failureStreak.description": "“{{title}}”已连续失败 {{count}} 次，打开自动化面板查看。",
   "automations.detail.instructions": "指令",
   "automations.detail.statusHeading": "状态",
   "automations.detail.detailsHeading": "详情",

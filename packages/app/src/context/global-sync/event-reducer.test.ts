@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type {
+  AutomationDefinition,
   Message,
   Part,
   PermissionRequest,
@@ -79,6 +80,28 @@ const permissionRequest = (id: string, sessionID: string, title = id) =>
 
 const emptyAggregate = (sessionID: string): SessionDiffResponse => ({ kind: "empty", sessionID })
 
+const recurringAutomation = (input: { id: string; revision: number; failureStreak: number }) =>
+  ({
+    kind: "recurring",
+    id: input.id,
+    title: `Auto ${input.id}`,
+    prompt: "do things",
+    revision: input.revision,
+    paused: false,
+    context: "fresh",
+    where: { projectID: "proj" },
+    createdAt: 1,
+    updatedAt: 1,
+    timezone: "UTC",
+    normalizationWarnings: [],
+    model: { providerID: "opencode", modelID: "big-pickle" },
+    rhythm: { kind: "cron", expression: "0 9 * * *" },
+    stop: { kind: "never" },
+    nextFireAt: null,
+    nextFires: [],
+    failureStreak: input.failureStreak,
+  }) as AutomationDefinition
+
 const baseState = (input: Partial<State> = {}) =>
   ({
     status: "complete",
@@ -105,6 +128,9 @@ const baseState = (input: Partial<State> = {}) =>
     limit: 10,
     message: {},
     part: {},
+    automation: {},
+    automation_run: {},
+    automation_tombstone: {},
     ...input,
   }) as State
 
@@ -706,6 +732,81 @@ describe("applyDirectoryEvent", () => {
 
     expect(store.vcs).toEqual({ branch: "feature/test", default_branch: "main" })
     expect(cacheStore.value).toEqual({ branch: "feature/test", default_branch: "main" })
+  })
+
+  test("fires one failure-streak alert on the rising edge, then stays quiet", () => {
+    const [store, setStore] = createStore(
+      baseState({ automation: { auto_1: recurringAutomation({ id: "auto_1", revision: 1, failureStreak: 2 }) } }),
+    )
+    const alerts: AutomationDefinition[] = []
+
+    applyDirectoryEvent({
+      event: {
+        type: "automation.definition.updated",
+        properties: recurringAutomation({ id: "auto_1", revision: 2, failureStreak: 3 }),
+      },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+      onAutomationFailureStreak: (definition) => alerts.push(definition),
+    })
+
+    applyDirectoryEvent({
+      event: {
+        type: "automation.definition.updated",
+        properties: recurringAutomation({ id: "auto_1", revision: 3, failureStreak: 4 }),
+      },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+      onAutomationFailureStreak: (definition) => alerts.push(definition),
+    })
+
+    expect(alerts.map((definition) => definition.id)).toEqual(["auto_1"])
+    expect((store.automation.auto_1 as AutomationDefinition).revision).toBe(3)
+  })
+
+  test("stays quiet for first-seen and stale failure-streak definitions", () => {
+    const [store, setStore] = createStore(
+      baseState({ automation: { auto_stale: recurringAutomation({ id: "auto_stale", revision: 5, failureStreak: 3 }) } }),
+    )
+    const alerts: AutomationDefinition[] = []
+    const onAutomationFailureStreak = (definition: AutomationDefinition) => alerts.push(definition)
+
+    // First time we ever see this automation it is already failing: no transition
+    // was witnessed (covers the bootstrap-then-replay case), so no alert.
+    applyDirectoryEvent({
+      event: {
+        type: "automation.definition.updated",
+        properties: recurringAutomation({ id: "auto_new", revision: 1, failureStreak: 3 }),
+      },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+      onAutomationFailureStreak,
+    })
+
+    // Stale replay below the stored revision is dropped before it can alert.
+    applyDirectoryEvent({
+      event: {
+        type: "automation.definition.updated",
+        properties: recurringAutomation({ id: "auto_stale", revision: 4, failureStreak: 9 }),
+      },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+      onAutomationFailureStreak,
+    })
+
+    expect(alerts).toEqual([])
   })
 
   test("routes disposal and lsp events to side-effect handlers", () => {

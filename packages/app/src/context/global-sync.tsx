@@ -461,6 +461,16 @@ function createGlobalSync() {
         todoHydrate,
         blockerTerminals,
         vcsCache: children.vcsCache.get(targetDirectory),
+        onAutomationFailureStreak: (definition) => {
+          showToast({
+            variant: "subtle",
+            title: language.t("automations.toast.failureStreak.title"),
+            description: language.t("automations.toast.failureStreak.description", {
+              title: definition.title,
+              count: definition.failureStreak,
+            }),
+          })
+        },
         loadLsp: () => {
           void sdkFor(targetDirectory)
             .lsp.status()
