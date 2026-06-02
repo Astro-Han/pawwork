@@ -25,7 +25,6 @@ import { Session } from "@opencode-ai/sdk/v2/client"
 import { usePlatform } from "@/context/platform"
 import { useSettings } from "@/context/settings"
 import { createStore, produce } from "solid-js/store"
-import type { DragEvent } from "@thisbeyond/solid-dnd"
 import { useProviders } from "@/hooks/use-providers"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useGlobalSDK } from "@/context/global-sdk"
@@ -52,7 +51,6 @@ import { createMigrationStorageIO } from "@/components/prompt-input/homepage-mig
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useTheme } from "@opencode-ai/ui/theme/context"
 import { useCommand } from "@/context/command"
-import { getDraggableId } from "@/utils/solid-dnd"
 import { useServer } from "@/context/server"
 import { useLanguage } from "@/context/language"
 import {
@@ -1004,28 +1002,6 @@ export default function Layout(props: ParentProps) {
     ),
   )
 
-  function handleDragStart(event: unknown) {
-    const id = getDraggableId(event)
-    if (!id) return
-    setStore("activeProject", id)
-  }
-
-  function handleDragOver(event: DragEvent) {
-    const { draggable, droppable } = event
-    if (draggable && droppable) {
-      const projects = layout.projects.list()
-      const fromIndex = projects.findIndex((p) => p.worktree === draggable.id.toString())
-      const toIndex = projects.findIndex((p) => p.worktree === droppable.id.toString())
-      if (fromIndex !== toIndex && toIndex !== -1) {
-        layout.projects.move(draggable.id.toString(), toIndex)
-      }
-    }
-  }
-
-  function handleDragEnd() {
-    setStore("activeProject", undefined)
-  }
-
   function workspaceIds(project: LocalProject | undefined) {
     return pawworkSessionDirectories({
       project,
@@ -1033,42 +1009,6 @@ export default function Layout(props: ParentProps) {
       currentDirectory: currentDir(),
       workspaceOrder: project ? store.workspaceOrder[project.worktree] : undefined,
     })
-  }
-
-  const sidebarProject = createMemo(() => currentProject())
-
-  function handleWorkspaceDragStart(event: unknown) {
-    const id = getDraggableId(event)
-    if (!id) return
-    setStore("activeWorkspace", id)
-  }
-
-  function handleWorkspaceDragOver(event: DragEvent) {
-    const { draggable, droppable } = event
-    if (!draggable || !droppable) return
-
-    const project = sidebarProject()
-    if (!project) return
-
-    const ids = workspaceIds(project)
-    const fromIndex = ids.findIndex((dir) => dir === draggable.id.toString())
-    const toIndex = ids.findIndex((dir) => dir === droppable.id.toString())
-    if (fromIndex === -1 || toIndex === -1) return
-    if (fromIndex === toIndex) return
-
-    const result = ids.slice()
-    const [item] = result.splice(fromIndex, 1)
-    if (!item) return
-    result.splice(toIndex, 0, item)
-    setStore(
-      "workspaceOrder",
-      project.worktree,
-      result.filter((directory) => workspaceKey(directory) !== workspaceKey(project.worktree)),
-    )
-  }
-
-  function handleWorkspaceDragEnd() {
-    setStore("activeWorkspace", undefined)
   }
 
   registerLayoutCommands({

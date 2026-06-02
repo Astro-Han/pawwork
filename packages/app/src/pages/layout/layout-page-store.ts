@@ -60,8 +60,6 @@ function hasLayoutPageFields(value: Record<string, unknown>) {
 
 export function createDefaultLayoutPageState() {
   return {
-    activeProject: undefined as string | undefined,
-    activeWorkspace: undefined as string | undefined,
     workspaceOrder: {} as Record<string, string[]>,
     workspaceName: {} as Record<string, string>,
     workspaceBranchName: {} as Record<string, Record<string, string>>,
