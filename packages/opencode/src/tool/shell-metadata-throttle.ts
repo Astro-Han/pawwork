@@ -46,6 +46,10 @@ export const makeMetadataThrottle = (
 
     const onChunk = (size: number) =>
       Effect.suspend(() => {
+        // A leading empty decode chunk (TextDecoder can emit "" on a partial
+        // multibyte boundary) carries no new preview; skipping it avoids burning
+        // the first-flush slot before the first real output arrives.
+        if (size <= 0) return Effect.void
         dirty = true
         bytesSinceFlush += size
         // First non-empty chunk is visible immediately: downstream consumers

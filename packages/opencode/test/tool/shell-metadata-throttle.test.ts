@@ -111,6 +111,19 @@ describe("tool.shell metadata throttle", () => {
     }),
   )
 
+  it.effect("ignores empty chunks and keeps the first-flush slot for the first real output", () =>
+    Effect.gen(function* () {
+      const { emits, state, make } = setup()
+      const throttle = yield* make
+      state.last = "" // empty decode chunk: nothing new to preview
+      yield* throttle.onChunk(0)
+      expect(emits).toEqual([]) // no emit, and first-flush slot not consumed
+      state.last = "real"
+      yield* throttle.onChunk(4) // first real output still flushes synchronously
+      expect(emits).toEqual(["real"])
+    }),
+  )
+
   it.effect("swallows a defect from emit across first-chunk, timer, and final flush", () =>
     Effect.gen(function* () {
       let calls = 0
