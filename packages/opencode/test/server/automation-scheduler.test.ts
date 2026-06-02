@@ -305,7 +305,10 @@ describe("automation scheduler", () => {
 
       const result = await Effect.runPromise(
         tool.execute(
-          recurringInput(projectID, 60_000),
+          // Flat cron surface: "* * * * *" fires on the next minute boundary,
+          // which is 60_000 from the fake clock's 0 — the interval-era cadence
+          // this test asserts. projectID/model default to the instance/session.
+          { title: "Recurring brief", prompt: "Summarize repo changes.", cron: "* * * * *", timezone: "UTC" },
           {
             sessionID: SessionID.descending(),
             messageID: MessageID.ascending(),
