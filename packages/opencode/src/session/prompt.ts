@@ -715,12 +715,17 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       )
       const lastUserLocale = lastUserMessage?.info.locale
 
+      const activatedTools = deriveActivatedTools(input.messages)
+      const deferredRuleset = Permission.merge(input.agent.permission, input.session.permission ?? [])
+      const deferredAvailable = (id: string) =>
+        input.tools?.[id] !== false && !Permission.disabled([id], deferredRuleset).has(id)
+
       const context = (args: any, options: ToolExecutionOptions): Tool.Context => ({
         sessionID: input.session.id,
         abort: options.abortSignal!,
         messageID: input.processor.message.id,
         callID: options.toolCallId,
-        extra: { model: input.model, bypassAgentCheck: input.bypassAgentCheck, promptOps },
+        extra: { model: input.model, bypassAgentCheck: input.bypassAgentCheck, promptOps, deferredAvailable },
         agent: input.agent.name,
         messages: input.messages,
         metadata: (val) =>
@@ -836,10 +841,6 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           }),
       })
 
-      const activatedTools = deriveActivatedTools(input.messages)
-      const deferredRuleset = Permission.merge(input.agent.permission, input.session.permission ?? [])
-      const deferredAvailable = (id: string) =>
-        input.tools?.[id] !== false && !Permission.disabled([id], deferredRuleset).has(id)
       for (const item of yield* registry.tools({
         modelID: ModelID.make(input.model.api.id),
         providerID: input.model.providerID,

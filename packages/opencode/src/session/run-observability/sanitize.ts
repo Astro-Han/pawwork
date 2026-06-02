@@ -7,8 +7,9 @@ export const TOOL_GREP = "grep"
 export const TOOL_WEBFETCH = "webfetch"
 export const TOOL_APPLY_PATCH = "apply_patch"
 export const TOOL_BASH = "bash"
+export const TOOL_INFO = "tool_info"
 
-const READ_ONLY_TOOLS = new Set([TOOL_READ, TOOL_GLOB, TOOL_GREP, TOOL_WEBFETCH])
+const READ_ONLY_TOOLS = new Set([TOOL_READ, TOOL_GLOB, TOOL_GREP, TOOL_WEBFETCH, TOOL_INFO])
 
 export function safeToolName(value: unknown): SafeToolName {
   if (typeof value !== "string") return "unknown" as SafeToolName

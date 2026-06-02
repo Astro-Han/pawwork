@@ -75,8 +75,15 @@ export function makeToolInfoTool(input: {
       Effect.gen(function* () {
         const target = input.lookup(params.name)
         if (!target) {
-          const available = [...DEFERRED_TOOL_IDS].join(", ")
-          throw new Error(`Unknown deferred tool "${params.name}". Available: ${available || "none"}`)
+          const names = [...DEFERRED_TOOL_IDS].join(", ")
+          throw new Error(`Unknown deferred tool "${params.name}". Available: ${names || "none"}`)
+        }
+        // Refuse tools hidden by permission / user.tools this turn, so the model is
+        // never told a disabled tool is "activated" (the next registry pass keeps it
+        // hidden, which would otherwise make it burn turns calling an absent tool).
+        const isAvailable = ctx.extra?.["deferredAvailable"] as ((id: string) => boolean) | undefined
+        if (isAvailable && !isAvailable(params.name)) {
+          throw new Error(`Deferred tool "${params.name}" is not available in this context.`)
         }
         // Return the SAME provider-transformed schema the real call will use, so
         // the parameters the model reads here match what it must emit later.

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import { deriveActivatedTools, buildCardList, DEFERRED_TOOL_IDS } from "../../src/tool/tool-info"
+import { Effect, Schema } from "effect"
+import { deriveActivatedTools, buildCardList, DEFERRED_TOOL_IDS, makeToolInfoTool } from "../../src/tool/tool-info"
 import type { MessageV2 } from "../../src/session/message-v2"
 
 function toolPart(tool: string, status: string, input: Record<string, unknown>) {
@@ -38,5 +39,24 @@ describe("tool-info", () => {
 
   test("buildCardList reports none when nothing is available", () => {
     expect(buildCardList([])).toContain("No deferred tools")
+  })
+
+  test("tool_info refuses a deferred tool hidden this turn", async () => {
+    const tool = makeToolInfoTool({
+      lookup: (id) => (id === "enter-worktree" ? { description: "desc", parameters: Schema.Struct({}) } : undefined),
+    })
+    const ctx = { extra: { deferredAvailable: () => false } } as unknown as Parameters<typeof tool.execute>[1]
+    const exit = await Effect.runPromiseExit(tool.execute({ name: "enter-worktree" }, ctx))
+    expect(exit._tag).toBe("Failure")
+  })
+
+  test("tool_info loads an available deferred tool and marks it activated", async () => {
+    const tool = makeToolInfoTool({
+      lookup: (id) => (id === "enter-worktree" ? { description: "desc", parameters: Schema.Struct({}) } : undefined),
+    })
+    const ctx = { extra: { deferredAvailable: () => true } } as unknown as Parameters<typeof tool.execute>[1]
+    const result = await Effect.runPromise(tool.execute({ name: "enter-worktree" }, ctx))
+    expect(result.output).toContain("is now available")
+    expect(result.metadata).toMatchObject({ activated: "enter-worktree" })
   })
 })
