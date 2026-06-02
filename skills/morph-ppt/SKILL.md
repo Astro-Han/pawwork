@@ -15,8 +15,8 @@ When the pptx base rules cover it, the text here says `→ see pptx v2 §X`. Rea
 
 If `officecli` is missing:
 
-- **macOS / Linux**: `curl -fsSL https://raw.githubusercontent.com/iOfficeAI/OfficeCLI/main/install.sh | bash`
-- **Windows (PowerShell)**: `irm https://raw.githubusercontent.com/iOfficeAI/OfficeCLI/main/install.ps1 | iex`
+- **macOS / Linux**: `curl -fsSL https://d.officecli.ai/install.sh | bash`
+- **Windows (PowerShell)**: `irm https://d.officecli.ai/install.ps1 | iex`
 
 Verify with `officecli --version` (open a new terminal if PATH hasn't picked up). If install fails, download a binary from https://github.com/iOfficeAI/OfficeCLI/releases.
 
@@ -440,7 +440,7 @@ Or in a build loop:
 for SLIDE_NUM in 3 4 5 6 7 8 9 10 11; do
   # Add content specific to this slide
   officecli add "$FILE" "/slide[$SLIDE_NUM]" --type shape ...
-
+  
   # IMMEDIATELY ghost all old actors (M-2 prevention)
   officecli set "$FILE" "/slide[$SLIDE_NUM]/shape[@name=!!actor-ring]" --prop x=36cm || true
   officecli set "$FILE" "/slide[$SLIDE_NUM]/shape[@name=!!actor-dot]" --prop x=36cm || true

@@ -17,7 +17,7 @@ description: "Use this skill to create fillable Word forms (.docx) with real Con
 
 ```bash
 if ! command -v officecli >/dev/null 2>&1; then
-    curl -fsSL https://raw.githubusercontent.com/iOfficeAI/OfficeCLI/main/install.sh | bash
+    curl -fsSL https://d.officecli.ai/install.sh | bash
 fi
 ```
 
@@ -25,7 +25,7 @@ fi
 
 ```powershell
 if (-not (Get-Command officecli -ErrorAction SilentlyContinue)) {
-    irm https://raw.githubusercontent.com/iOfficeAI/OfficeCLI/main/install.ps1 | iex
+    irm https://d.officecli.ai/install.ps1 | iex
 }
 ```
 
