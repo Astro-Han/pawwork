@@ -55,4 +55,27 @@ describe("memory routes", () => {
       },
     })
   })
+
+  test("PATCH with invalid content returns a clean safe-mode reason", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await using home = await tmpdir()
+    process.env.PAWWORK_HOME = home.path
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const response = await app().request("/memory", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ content: "garbage with no profile or archive sections" }),
+        })
+
+        expect(response.status).toBe(400)
+        const body = await response.json()
+        // The original error must surface cleanly through the Effect runtime,
+        // not as a wrapped FiberFailure trace.
+        expect(body).toMatchObject({ error: "invalid_memory_file", reason: "missing_profile" })
+      },
+    })
+  })
 })
