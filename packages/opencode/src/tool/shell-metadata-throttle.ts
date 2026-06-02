@@ -36,7 +36,11 @@ export const makeMetadataThrottle = (
           // dirty for the next flush instead of being silently dropped.
           dirty = false
           bytesSinceFlush = 0
-          return options.emit(output)
+          // Best-effort: a metadata push is a UI/notification side effect. Swallow
+          // a defect so it cannot fail the stream consumer (which would stop
+          // reading stdout and could hang the process) or orDie the final flush.
+          // Interrupts and typed errors still propagate.
+          return options.emit(output).pipe(Effect.catchDefect(() => Effect.void))
         }),
       )
 

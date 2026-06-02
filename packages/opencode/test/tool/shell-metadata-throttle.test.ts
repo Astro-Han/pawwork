@@ -110,4 +110,30 @@ describe("tool.shell metadata throttle", () => {
       expect(emits).toEqual(["done"])
     }),
   )
+
+  it.effect("swallows a defect from emit across first-chunk, timer, and final flush", () =>
+    Effect.gen(function* () {
+      let calls = 0
+      const state = { last: "" }
+      const throttle = yield* makeMetadataThrottle({
+        intervalMillis: 150,
+        byteThreshold: 4 * 1024,
+        snapshot: () => state.last,
+        emit: () => {
+          calls += 1
+          return Effect.die(new Error("metadata channel boom"))
+        },
+      })
+      state.last = "first"
+      yield* throttle.onChunk(1) // first-chunk synchronous flush
+      state.last = "first+timer"
+      yield* throttle.onChunk(1)
+      yield* TestClock.adjust(Duration.millis(150)) // timer flush
+      state.last = "first+timer+final"
+      yield* throttle.onChunk(1)
+      yield* throttle.flush("final") // final flush
+      // Reaching here proves none of the three flush paths propagated the defect.
+      expect(calls).toBeGreaterThanOrEqual(3)
+    }),
+  )
 })

@@ -38,6 +38,13 @@ const MAX_METADATA_LENGTH = 30_000
 // most once per interval or once accumulated input crosses the byte threshold.
 const METADATA_FLUSH_INTERVAL_MS = 150
 const METADATA_FLUSH_BYTES = 4 * 1024
+// Cap how long we wait for the consumer to drain buffered output after the
+// process exits/aborts/times out. On timeout we fall through to scope cleanup,
+// which interrupts the consumer; the final tool-result metadata still carries
+// the tail via completeToolCall, so this only bounds a pathological slow/never
+// closing stream — it never blocks the normal path where the stream is already
+// drained by the time the exit race resolves.
+const CONSUMER_DRAIN_TIMEOUT = Duration.seconds(1)
 const DEFAULT_TIMEOUT = Flag.OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS || 2 * 60 * 1000
 const PS = new Set(["powershell", "pwsh"])
 const CWD = new Set(["cd", "push-location", "set-location"])
@@ -565,7 +572,7 @@ export const ShellTool = Tool.define(
           // timeout guards against a stream that never closes; ignore mirrors the
           // pre-existing fork-without-join behavior where consumer errors were
           // unobserved.
-          yield* Fiber.join(consumer).pipe(Effect.timeout(Duration.seconds(1)), Effect.ignore)
+          yield* Fiber.join(consumer).pipe(Effect.timeout(CONSUMER_DRAIN_TIMEOUT), Effect.ignore)
           yield* throttle.flush("final")
 
           return exit.kind === "exit" ? exit.code : null
