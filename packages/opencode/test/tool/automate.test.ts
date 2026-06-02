@@ -5,6 +5,10 @@ import { Automation } from "../../src/automation"
 import { Instance } from "../../src/project/instance"
 import { MessageID, SessionID } from "../../src/session/schema"
 import { tmpdir } from "../fixture/fixture"
+import { fakeAutomationProvider } from "../fake/provider"
+
+const { providerID: fakeProviderID, modelID: fakeModelID, interface: fakeProviderInterface } = fakeAutomationProvider()
+const fixtureModel = { providerID: fakeProviderID, modelID: fakeModelID }
 
 afterEach(async () => {
   await Instance.disposeAll()
@@ -21,6 +25,7 @@ describe("automate tool", () => {
         context: "fresh",
         where: { projectID: "project" },
         timezone: "UTC",
+        model: fixtureModel,
         rhythm: { kind: "interval", everyMs: 60_000 },
         stop: { kind: "never" },
       })
@@ -30,7 +35,7 @@ describe("automate tool", () => {
 
     expect(error).toBeDefined()
     expect(formatAutomateValidationError(error)).toContain("prompt")
-    expect(formatAutomateValidationError(error)).toContain("kind, title, prompt, context, where, timezone")
+    expect(formatAutomateValidationError(error)).toContain("model")
   })
 
   test("rejects empty strings before execute reaches the Zod create parser", () => {
@@ -44,6 +49,7 @@ describe("automate tool", () => {
         context: "fresh",
         where: { projectID: "project", worktree: "" },
         timezone: "",
+        model: fixtureModel,
         rhythm: { kind: "interval", everyMs: 60_000 },
         stop: { kind: "never" },
       })
@@ -71,6 +77,7 @@ describe("automate tool", () => {
       context: "fresh",
       where: { projectID: "project" },
       timezone: "UTC",
+      model: fixtureModel,
     }
     let error: unknown
     try {
@@ -100,6 +107,7 @@ describe("automate tool", () => {
         context: "fresh",
         where: { projectID: "project" },
         timezone: "UTC",
+        model: fixtureModel,
         ...override,
       })
     } catch (caught) {
@@ -124,6 +132,7 @@ describe("automate tool", () => {
         context: "fresh",
         where: { projectID: "project" },
         timezone: "UTC",
+        model: fixtureModel,
         rhythm: { kind: "interval", everyMs: 60_000 },
         stop: { kind: "never" },
         ...override,
@@ -144,7 +153,7 @@ describe("automate tool", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const tool = createAutomateDefinition()
+        const tool = createAutomateDefinition(fakeProviderInterface)
         const sourceSessionID = SessionID.descending()
         let error: unknown
         try {
@@ -157,6 +166,7 @@ describe("automate tool", () => {
                 context: "fresh",
                 where: where(Instance.project.id),
                 timezone: "UTC",
+                model: fixtureModel,
                 rhythm: { kind: "interval", everyMs: 60_000 },
                 stop: { kind: "never" },
               },
@@ -187,7 +197,7 @@ describe("automate tool", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const tool = createAutomateDefinition()
+        const tool = createAutomateDefinition(fakeProviderInterface)
         const sourceSessionID = SessionID.descending()
         const result = await Effect.runPromise(
           tool.execute(
@@ -198,6 +208,7 @@ describe("automate tool", () => {
               context: "fresh",
               where: { projectID: Instance.project.id },
               timezone: "Asia/Shanghai",
+              model: fixtureModel,
               rhythm: { kind: "interval", everyMs: 60_000 },
               stop: { kind: "never" },
             },
@@ -232,7 +243,7 @@ describe("automate tool", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const tool = createAutomateDefinition()
+        const tool = createAutomateDefinition(fakeProviderInterface)
         const sourceSessionID = SessionID.descending()
         const spoofedSessionID = SessionID.descending()
         const spoofedSource = { sourceSessionID: spoofedSessionID } as Record<string, unknown>
@@ -245,6 +256,7 @@ describe("automate tool", () => {
               context: "fresh",
               where: { projectID: Instance.project.id },
               timezone: "Asia/Shanghai",
+              model: fixtureModel,
               ...spoofedSource,
               rhythm: { kind: "interval", everyMs: 60_000 },
               stop: { kind: "never" },
@@ -271,7 +283,7 @@ describe("automate tool", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const tool = createAutomateDefinition()
+        const tool = createAutomateDefinition(fakeProviderInterface)
         let error: unknown
         const spoofedSession = { automationSessionID: SessionID.descending() } as Record<string, unknown>
         try {
@@ -284,6 +296,7 @@ describe("automate tool", () => {
                 context: "fresh",
                 where: { projectID: Instance.project.id },
                 timezone: "Asia/Shanghai",
+                model: fixtureModel,
                 ...spoofedSession,
                 rhythm: { kind: "interval", everyMs: 60_000 },
                 stop: { kind: "never" },

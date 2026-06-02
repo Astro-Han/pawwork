@@ -6,6 +6,7 @@ import { Bus } from "@/bus"
 import { Instance, type InstanceContext } from "@/project/instance"
 import { NotFoundError } from "@/storage/db"
 import { Flock } from "@/util/flock"
+import { cronMatches, parseCronSchedule } from "./cron"
 import { sessionPromptExecutor } from "./runner"
 
 export namespace AutomationScheduler {
@@ -50,16 +51,6 @@ export namespace AutomationScheduler {
     fireAt: number
     token: symbol
     definition: Automation.Definition
-  }
-
-  type CronSchedule = {
-    minutes: Set<number>
-    hours: Set<number>
-    days: Set<number>
-    months: Set<number>
-    weekdays: Set<number>
-    dayRestricted: boolean
-    weekdayRestricted: boolean
   }
 
   export const liveClock: Clock = {
@@ -120,56 +111,6 @@ export namespace AutomationScheduler {
     return from + definition.rhythm.everyMs
   }
 
-  function cronValues(field: string, min: number, max: number, options?: { sundayAlias?: boolean }) {
-    const values = new Set<number>()
-    for (const item of field.split(",")) {
-      const [base, stepRaw] = item.split("/")
-      if (!base || item.split("/").length > 2) throw new Error(`Invalid cron field: ${item}`)
-      const step = stepRaw === undefined ? 1 : Number(stepRaw)
-      if (!Number.isInteger(step) || step <= 0) throw new Error(`Invalid cron step: ${item}`)
-      const range = base === "*" ? [min, max] : base.split("-").map(Number)
-      if (range.length === 0 || range.length > 2 || range.some((value) => !Number.isInteger(value))) {
-        throw new Error(`Invalid cron field: ${item}`)
-      }
-      const start = range[0]
-      const end = base === "*" || (range.length === 1 && stepRaw !== undefined) ? max : range.length === 1 ? range[0] : range[1]
-      if (start < min || end > max || start > end) throw new Error(`Invalid cron range: ${item}`)
-      for (let value = start; value <= end; value += step) {
-        values.add(options?.sundayAlias && value === 7 ? 0 : value)
-      }
-    }
-    return values
-  }
-
-  function parseCronSchedule(expression: string): CronSchedule {
-    const fields = expression.trim().split(/\s+/)
-    if (fields.length !== 5) throw new Error(`Invalid cron expression: ${expression}`)
-    const [minuteField, hourField, dayField, monthField, weekdayField] = fields
-    return {
-      minutes: cronValues(minuteField, 0, 59),
-      hours: cronValues(hourField, 0, 23),
-      days: cronValues(dayField, 1, 31),
-      months: cronValues(monthField, 1, 12),
-      weekdays: cronValues(weekdayField, 0, 7, { sundayAlias: true }),
-      dayRestricted: dayField !== "*",
-      weekdayRestricted: weekdayField !== "*",
-    }
-  }
-
-  function cronMatches(schedule: CronSchedule, time: DateTime) {
-    const weekday = time.weekday === 7 ? 0 : time.weekday
-    const dayMatches = schedule.days.has(time.day)
-    const weekdayMatches = schedule.weekdays.has(weekday)
-    const calendarMatches =
-      schedule.dayRestricted && schedule.weekdayRestricted ? dayMatches || weekdayMatches : dayMatches && weekdayMatches
-    return (
-      schedule.minutes.has(time.minute) &&
-      schedule.hours.has(time.hour) &&
-      schedule.months.has(time.month) &&
-      calendarMatches
-    )
-  }
-
   function computeNextCronFireAt(definition: Extract<Automation.Definition, { kind: "recurring" }>, from: number) {
     if (definition.rhythm.kind !== "cron") return null
     const schedule = parseCronSchedule(definition.rhythm.expression)
@@ -222,6 +163,14 @@ export namespace AutomationScheduler {
     const unschedulable = new Map<string, Automation.Definition>()
     const ownedRuns = new Map<string, string>()
     const schedulerStoppedRuns = new Set<string>()
+    // Marks DefinitionUpdated events that the scheduler emits itself after a
+    // stopped-run refresh, so its own DefinitionUpdated subscriber can skip
+    // reschedule() — preventing a missed_schedule → refresh → publish → reschedule
+    // self-loop when the clock keeps oversleeping. Keyed by id:revision so a real
+    // update that races ahead of the self event isn't swallowed by id alone.
+    const selfPublishedDefinitionUpdates = new Set<string>()
+    const selfUpdateKey = (definition: { id: string; revision: number }) =>
+      `${definition.id}:${definition.revision}`
     let ownsTimers = !ownerKey
     let ownerLease: Flock.Lease | undefined
     let ownerAttempt: Promise<void> | undefined
@@ -388,10 +337,29 @@ export namespace AutomationScheduler {
       const wasOwned = ownedRuns.delete(run.id)
       const wasSchedulerStopped = schedulerStoppedRuns.delete(run.id)
       if (run.state === "stopped" && !wasOwned && !wasSchedulerStopped) return
+      if (ownsTimers) {
+        try {
+          const refreshed = Automation.recordRunOutcome(run, {
+            now: clock.now(),
+            refreshOnStopped: wasOwned || wasSchedulerStopped,
+          })
+          if (refreshed) {
+            const key = selfUpdateKey(refreshed)
+            selfPublishedDefinitionUpdates.add(key)
+            void Automation.publishDefinitionUpdated(refreshed).catch((error) => {
+              selfPublishedDefinitionUpdates.delete(key)
+              log.error("automation derived field publish failed", { error, automationID: refreshed.id })
+            })
+          }
+        } catch (error) {
+          if (!NotFoundError.isInstance(error)) log.error("automation derived field update failed", { error, automationID: run.automationID })
+        }
+      }
       scheduleNextInterval(run.automationID)
     })
     const unsubscribeDefinitionUpdates = Bus.subscribe(Automation.Event.DefinitionUpdated, (event) => {
       if (!running) return
+      if (selfPublishedDefinitionUpdates.delete(selfUpdateKey(event.properties))) return
       reschedule(event.properties)
     })
     const unsubscribeDefinitionDeletes = Bus.subscribe(Automation.Event.DefinitionDeleted, (event) => {

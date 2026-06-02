@@ -1,11 +1,18 @@
 import { Effect, Schema } from "effect"
 import { Automation, ValidationError } from "@/automation"
 import { AutomationScheduler } from "@/automation/scheduler"
+import { validateModelAndVariantWith } from "@/automation/validation"
+import { Provider } from "@/provider/provider"
 import * as Tool from "./tool"
 
 const Where = Schema.Struct({
   projectID: Schema.String,
   worktree: Schema.optional(Schema.NonEmptyString),
+})
+
+const Model = Schema.Struct({
+  providerID: Schema.NonEmptyString,
+  modelID: Schema.NonEmptyString,
 })
 
 const Timezone = Schema.NonEmptyString.check(
@@ -26,12 +33,18 @@ const Common = {
   context: Schema.Union([Schema.Literal("continue"), Schema.Literal("fresh")]),
   where: Where,
   timezone: Timezone,
+  model: Model,
+  variant: Schema.optional(Schema.NonEmptyString),
 }
 
 const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
 const PositiveInt = Schema.Int.check(Schema.isGreaterThan(0))
 const IntervalMs = Schema.Int.check(Schema.isGreaterThanOrEqualTo(Automation.MIN_INTERVAL_MS))
 
+// Mirrors Automation.Stop. `kind: "condition"` is currently rejected at
+// validate time with { field: "stop", message: "unsupported_stop_condition" };
+// kept in the schema so the structured error contract matches HTTP routes.
+// The tool description below points the LLM away from condition.
 const Stop = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("count"), count: PositiveInt }),
   Schema.Struct({ kind: Schema.Literal("condition"), condition: Condition }),
@@ -64,8 +77,10 @@ export function formatAutomateValidationError(error: unknown) {
       : String(error)
   return [
     "Invalid automate input.",
-    "Expected shape: oneshot { kind, title, prompt, context, where, timezone, fireAt } or recurring { kind, title, prompt, context, where, timezone, rhythm, stop }.",
-    "Example: { kind: \"recurring\", title: \"Daily repo brief\", prompt: \"Summarize repo changes.\", context: \"fresh\", where: { projectID: \"current-project\" }, timezone: \"UTC\", rhythm: { kind: \"interval\", everyMs: 3600000 }, stop: { kind: \"never\" } }.",
+    "Expected shape: oneshot { kind, title, prompt, context, where, timezone, model, variant?, fireAt } or recurring { kind, title, prompt, context, where, timezone, model, variant?, rhythm, stop }.",
+    "model is required as { providerID, modelID }; variant is optional and must be a valid effort key for that model (omit for models without reasoning).",
+    "stop only supports { kind: \"count\", count } or { kind: \"never\" } today; { kind: \"condition\" } is reserved and currently rejected.",
+    "Example: { kind: \"recurring\", title: \"Daily repo brief\", prompt: \"Summarize repo changes.\", context: \"fresh\", where: { projectID: \"current-project\" }, timezone: \"UTC\", model: { providerID: \"anthropic\", modelID: \"claude-sonnet-4-6\" }, variant: \"high\", rhythm: { kind: \"interval\", everyMs: 3600000 }, stop: { kind: \"never\" } }.",
     detail,
   ].join("\n")
 }
@@ -75,7 +90,7 @@ function readableAutomationError(error: unknown) {
   return error
 }
 
-export function createAutomateDefinition(): Tool.DefWithoutID<typeof AutomateParameters, { automationDefinition: Automation.Definition }> {
+export function createAutomateDefinition(provider: Provider.Interface): Tool.DefWithoutID<typeof AutomateParameters, { automationDefinition: Automation.Definition }> {
   return {
     description:
       "Create an Automation definition for later execution. The automation is not executed by this tool; it only stores the definition and echoes the resolved contract.",
@@ -83,12 +98,20 @@ export function createAutomateDefinition(): Tool.DefWithoutID<typeof AutomatePar
     formatValidationError: formatAutomateValidationError,
     execute: (params, ctx) =>
       Effect.gen(function* () {
+        const { sourceSessionID: _ignoredSourceSessionID, ...input } = params as typeof params & { sourceSessionID?: unknown }
+        if (Object.hasOwn(input, "automationSessionID")) {
+          return yield* Effect.fail(
+            readableAutomationError(
+              new ValidationError([{ field: "automationSessionID", message: "unsupported_automation_field" }]),
+            ),
+          )
+        }
+        const modelDetails = yield* validateModelAndVariantWith(provider, input.model, input.variant)
+        if (modelDetails.length) {
+          return yield* Effect.fail(readableAutomationError(new ValidationError(modelDetails)))
+        }
         const definition = yield* Effect.try({
           try: () => {
-            if (Object.hasOwn(params as object, "automationSessionID")) {
-              throw new ValidationError([{ field: "automationSessionID", message: "unsupported_automation_field" }])
-            }
-            const { sourceSessionID: _ignoredSourceSessionID, ...input } = params as typeof params & { sourceSessionID?: unknown }
             const parsed = Automation.CreateInput.parse(input)
             AutomationScheduler.current()
             return Automation.create(parsed, { sourceSessionID: ctx.sessionID })
@@ -105,4 +128,10 @@ export function createAutomateDefinition(): Tool.DefWithoutID<typeof AutomatePar
   }
 }
 
-export const AutomateTool = Tool.define("automate", Effect.succeed(createAutomateDefinition()))
+export const AutomateTool = Tool.define(
+  "automate",
+  Effect.gen(function* () {
+    const provider = yield* Provider.Service
+    return createAutomateDefinition(provider)
+  }),
+)

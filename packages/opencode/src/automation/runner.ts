@@ -96,6 +96,8 @@ export const sessionPromptExecutor: Automation.RunExecutor = async ({ definition
     const message = await SessionPrompt.promptWithAutomationContext(
       {
         sessionID,
+        model: definition.model,
+        ...(definition.variant ? { variant: definition.variant } : {}),
         parts: [{ type: "text", text: definition.prompt }],
       },
       scoped,

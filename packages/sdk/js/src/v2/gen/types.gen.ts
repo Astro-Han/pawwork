@@ -358,6 +358,11 @@ export type AutomationWhere = {
   worktree?: string
 }
 
+export type AutomationModel = {
+  providerID: string
+  modelID: string
+}
+
 export type AutomationRhythm =
   | {
       kind: "interval"
@@ -397,6 +402,8 @@ export type AutomationDefinition =
       sourceSessionID?: string
       automationSessionID?: string
       normalizationWarnings: Array<string>
+      model: AutomationModel
+      variant?: string
       fireAt: number
     }
   | {
@@ -414,6 +421,8 @@ export type AutomationDefinition =
       sourceSessionID?: string
       automationSessionID?: string
       normalizationWarnings: Array<string>
+      model: AutomationModel
+      variant?: string
       rhythm: AutomationRhythm
       stop: AutomationStop
       nextFireAt: number | null
@@ -2427,6 +2436,8 @@ export type AutomationCreateInput =
       context: "continue" | "fresh"
       where: AutomationWhere
       timezone: string
+      model: AutomationModel
+      variant?: string
       fireAt: number
     }
   | {
@@ -2436,6 +2447,8 @@ export type AutomationCreateInput =
       context: "continue" | "fresh"
       where: AutomationWhere
       timezone: string
+      model: AutomationModel
+      variant?: string
       rhythm: AutomationRhythm
       stop: AutomationStop
     }
@@ -2455,6 +2468,8 @@ export type AutomationUpdateInput = {
   fireAt?: number
   rhythm?: AutomationRhythm
   stop?: AutomationStop
+  model?: AutomationModel
+  variant?: string | null
 }
 
 export type AutomationActiveRunStillRunningError = {

@@ -33,6 +33,8 @@ async function withAutomation<T>(fn: (projectID: ProjectID) => Promise<T>) {
   })
 }
 
+const fixtureModel = Automation.Model.parse({ providerID: "alibaba", modelID: "qwen-plus" })
+
 function input(projectID: ProjectID, overrides: Partial<Extract<Automation.CreateInput, { kind: "recurring" }>> = {}): Automation.CreateInput {
   return {
     kind: "recurring",
@@ -41,6 +43,7 @@ function input(projectID: ProjectID, overrides: Partial<Extract<Automation.Creat
     context: "fresh",
     where: { projectID },
     timezone: "Asia/Shanghai",
+    model: fixtureModel,
     rhythm: { kind: "interval", everyMs: 60_000 },
     stop: { kind: "count", count: 3 },
     ...overrides,

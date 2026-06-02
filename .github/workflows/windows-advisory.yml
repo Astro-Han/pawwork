@@ -204,6 +204,7 @@ jobs:
               test/ide
               test/installation
               test/auth
+              test/automation
             report_path: packages/opencode/.artifacts/unit/junit-windows-server-tools.xml
           - package: desktop
             uses_turbo: true
