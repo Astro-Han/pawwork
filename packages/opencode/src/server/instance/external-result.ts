@@ -1,5 +1,6 @@
 import { Hono } from "hono"
 import { describeRoute, resolver } from "hono-openapi"
+import { Effect } from "effect"
 import z from "zod"
 import { Session } from "@/session"
 import { MessageV2 } from "@/session/message-v2"
@@ -7,6 +8,7 @@ import { SessionID, MessageID } from "@/session/schema"
 import { ExternalResult } from "@/tool/external-result"
 import { lazy } from "../../util/lazy"
 import { Log } from "@opencode-ai/core/util/log"
+import { AppRuntime } from "@/effect/app-runtime"
 
 const log = Log.create({ service: "server" })
 
@@ -52,7 +54,12 @@ export const ExternalResultRoutes = lazy(() =>
           // schema), so we coerce here using the canonical brand maker.
           const sessionID = SessionID.make(snap.sessionID)
           const messageID = MessageID.make(snap.messageID)
-          const session = await Session.get(sessionID)
+          const session = await AppRuntime.runPromise(
+            Effect.gen(function* () {
+              const sessions = yield* Session.Service
+              return yield* sessions.get(sessionID)
+            }),
+          )
           // Brief retry for the register → updateToolCall race: ExternalResult
           // entry is set before processor.updateToolCall flushes the part row
           // to DB. Without the retry a reload that hits this millisecond
@@ -60,11 +67,11 @@ export const ExternalResultRoutes = lazy(() =>
           // message.part.updated either because the child session/message
           // never made it into the store (part.updated reducer does not
           // upsert session info).
-          let message = await MessageV2.get({ sessionID, messageID })
+          let message = MessageV2.get({ sessionID, messageID })
           let part = message.parts.find((p) => p.type === "tool" && p.callID === snap.callID)
           for (let attempt = 0; !part && attempt < 3; attempt++) {
             await new Promise((resolve) => setTimeout(resolve, 50))
-            message = await MessageV2.get({ sessionID, messageID })
+            message = MessageV2.get({ sessionID, messageID })
             part = message.parts.find((p) => p.type === "tool" && p.callID === snap.callID)
           }
           if (!part) continue

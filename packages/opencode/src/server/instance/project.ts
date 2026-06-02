@@ -1,12 +1,14 @@
 import { Hono } from "hono"
 import { describeRoute, validator } from "hono-openapi"
 import { resolver } from "hono-openapi"
+import { Effect } from "effect"
 import { Instance } from "../../project/instance"
 import { Project } from "../../project/project"
 import z from "zod"
 import { ProjectID } from "../../project/schema"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
+import { AppRuntime } from "../../effect/app-runtime"
 
 export const ProjectRoutes = lazy(() =>
   new Hono()
@@ -28,7 +30,12 @@ export const ProjectRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const projects = Project.list()
+        const projects = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const service = yield* Project.Service
+            return yield* service.list()
+          }),
+        )
         return c.json(projects)
       },
     )
@@ -73,16 +80,24 @@ export const ProjectRoutes = lazy(() =>
       async (c) => {
         const dir = Instance.directory
         const prev = Instance.project
-        const next = await Project.initGit({
-          directory: dir,
-          project: prev,
-        })
-        if (next.id === prev.id && next.vcs === prev.vcs && next.worktree === prev.worktree) return c.json(next)
-        await Instance.reload({
-          directory: dir,
-          worktree: dir,
-          project: next,
-        })
+        const next = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const service = yield* Project.Service
+            const project = yield* service.initGit({
+              directory: dir,
+              project: prev,
+            })
+            if (project.id === prev.id && project.vcs === prev.vcs && project.worktree === prev.worktree) return project
+            yield* Effect.promise(() =>
+              Instance.reload({
+                directory: dir,
+                worktree: dir,
+                project,
+              }),
+            )
+            return project
+          }),
+        )
         return c.json(next)
       },
     )
@@ -109,7 +124,12 @@ export const ProjectRoutes = lazy(() =>
       async (c) => {
         const projectID = c.req.valid("param").projectID
         const body = c.req.valid("json")
-        const project = await Project.update({ ...body, projectID })
+        const project = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const service = yield* Project.Service
+            return yield* service.update({ ...body, projectID })
+          }),
+        )
         return c.json(project)
       },
     ),
