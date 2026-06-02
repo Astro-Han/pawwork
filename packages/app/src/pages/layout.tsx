@@ -20,8 +20,6 @@ import { useGlobalSync } from "@/context/global-sync"
 import { Persist, persisted } from "@/utils/persist"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { decode64 } from "@/utils/base64"
-import { Button } from "@opencode-ai/ui/button"
-import { Dialog } from "@opencode-ai/ui/dialog"
 import { getFilename } from "@opencode-ai/util/path"
 import { Session } from "@opencode-ai/sdk/v2/client"
 import { usePlatform } from "@/context/platform"
@@ -77,6 +75,7 @@ import { createPawworkSessionController } from "./layout/pawwork-session-control
 import { createPawworkProjectControls } from "./layout/pawwork-project-controls"
 import { createPawworkRoutingActions } from "./layout/pawwork-routing-actions"
 import { createPawworkWorkspaceLifecycle } from "./layout/pawwork-workspace-lifecycle"
+import { createWorkspaceDialogs } from "./layout/pawwork-workspace-dialogs"
 import { type WorkspaceSidebarContext } from "./layout/sidebar-workspace"
 import { PawworkSidebar, type PawworkSidebarSession } from "./layout/pawwork-sidebar"
 import { createDefaultLayoutPageState, createLayoutPagePersistTarget } from "./layout/layout-page-store"
@@ -778,6 +777,17 @@ export default function Layout(props: ParentProps) {
     workspaceName,
   })
 
+  const { DialogDeleteWorkspace, DialogResetWorkspace } = createWorkspaceDialogs({
+    globalSDK,
+    dialog,
+    language,
+    params,
+    currentDir,
+    navigate,
+    deleteWorkspace,
+    resetWorkspace,
+  })
+
   // Run the v7 homepage-draft migration as soon as a directory becomes
   // available (fire-and-forget). currentDir() can be empty during the initial
   // autoselect phase, so onMount alone would skip migration for that session.
@@ -914,140 +924,6 @@ export default function Layout(props: ParentProps) {
           resolve(null)
         })
     }
-  }
-
-  function DialogDeleteWorkspace(props: { root: string; directory: string }) {
-    const name = createMemo(() => getFilename(props.directory))
-    const [data, setData] = createStore({
-      status: "loading" as "loading" | "ready" | "error",
-      dirty: false,
-    })
-
-    onMount(() => {
-      globalSDK.client.file
-        .status({ directory: props.directory })
-        .then((x) => {
-          const files = x.data ?? []
-          const dirty = files.length > 0
-          setData({ status: "ready", dirty })
-        })
-        .catch(() => {
-          setData({ status: "error", dirty: false })
-        })
-    })
-
-    const handleDelete = () => {
-      const leaveDeletedWorkspace = !!params.dir && workspaceKey(currentDir()) === workspaceKey(props.directory)
-      if (leaveDeletedWorkspace) {
-        navigate(`/${base64Encode(props.root)}/session`)
-      }
-      dialog.close()
-      void deleteWorkspace(props.root, props.directory, leaveDeletedWorkspace)
-    }
-
-    const description = () => {
-      if (data.status === "loading") return language.t("workspace.status.checking")
-      if (data.status === "error") return language.t("workspace.status.error")
-      if (!data.dirty) return language.t("workspace.status.clean")
-      return language.t("workspace.status.dirty")
-    }
-
-    return (
-      <Dialog title={language.t("workspace.delete.title")} fit>
-        <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
-          <div class="flex flex-col gap-1">
-            <span class="text-body text-fg-strong">
-              {language.t("workspace.delete.confirm", { name: name() })}
-            </span>
-            <span class="text-body text-fg-weak">{description()}</span>
-          </div>
-          <div class="flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => dialog.close()}>
-              {language.t("common.cancel")}
-            </Button>
-            <Button variant="primary" disabled={data.status === "loading"} onClick={handleDelete}>
-              {language.t("workspace.delete.button")}
-            </Button>
-          </div>
-        </div>
-      </Dialog>
-    )
-  }
-
-  function DialogResetWorkspace(props: { root: string; directory: string }) {
-    const name = createMemo(() => getFilename(props.directory))
-    const [state, setState] = createStore({
-      status: "loading" as "loading" | "ready" | "error",
-      dirty: false,
-      sessions: [] as Session[],
-    })
-
-    const refresh = async () => {
-      const sessions = await globalSDK.client.session
-        .list({ directory: props.directory })
-        .then((x) => x.data ?? [])
-        .catch(() => [])
-      const active = sessions.filter((session) => session.time.archived === undefined)
-      setState({ sessions: active })
-    }
-
-    onMount(() => {
-      globalSDK.client.file
-        .status({ directory: props.directory })
-        .then((x) => {
-          const files = x.data ?? []
-          const dirty = files.length > 0
-          setState({ status: "ready", dirty })
-          void refresh()
-        })
-        .catch(() => {
-          setState({ status: "error", dirty: false })
-        })
-    })
-
-    const handleReset = () => {
-      dialog.close()
-      void resetWorkspace(props.root, props.directory)
-    }
-
-    const archivedCount = () => state.sessions.length
-
-    const description = () => {
-      if (state.status === "loading") return language.t("workspace.status.checking")
-      if (state.status === "error") return language.t("workspace.status.error")
-      if (!state.dirty) return language.t("workspace.status.clean")
-      return language.t("workspace.status.dirty")
-    }
-
-    const archivedLabel = () => {
-      const count = archivedCount()
-      if (count === 0) return language.t("workspace.reset.archived.none")
-      if (count === 1) return language.t("workspace.reset.archived.one")
-      return language.t("workspace.reset.archived.many", { count })
-    }
-
-    return (
-      <Dialog title={language.t("workspace.reset.title")} fit>
-        <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
-          <div class="flex flex-col gap-1">
-            <span class="text-body text-fg-strong">
-              {language.t("workspace.reset.confirm", { name: name() })}
-            </span>
-            <span class="text-body text-fg-weak">
-              {description()} {archivedLabel()} {language.t("workspace.reset.note")}
-            </span>
-          </div>
-          <div class="flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => dialog.close()}>
-              {language.t("common.cancel")}
-            </Button>
-            <Button variant="primary" disabled={state.status === "loading"} onClick={handleReset}>
-              {language.t("workspace.reset.button")}
-            </Button>
-          </div>
-        </div>
-      </Dialog>
-    )
   }
 
   const activeRoute = {
