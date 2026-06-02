@@ -26,7 +26,7 @@ import { getFilename } from "@opencode-ai/util/path"
 import { Session } from "@opencode-ai/sdk/v2/client"
 import { usePlatform } from "@/context/platform"
 import { useSettings } from "@/context/settings"
-import { createStore, produce, reconcile } from "solid-js/store"
+import { createStore, produce } from "solid-js/store"
 import type { DragEvent } from "@thisbeyond/solid-dnd"
 import { useProviders } from "@/hooks/use-providers"
 import { showToast, toaster } from "@opencode-ai/ui/toast"
@@ -75,16 +75,8 @@ import {
   drainPendingDeepLinks,
 } from "./layout/deep-links"
 import { createInlineEditorController } from "./layout/inline-editor"
-import {
-  pawworkSessionRouteUnhideKeys,
-  pawworkSessionDirectories,
-  resolvePawworkProjectRenameTarget,
-} from "./layout/pawwork-session-source"
-import {
-  findPawworkSessionNavigationTarget,
-  reorderPawworkPinnedByVisible,
-  unpinPawworkSession,
-} from "./layout/pawwork-session-nav"
+import { pawworkSessionRouteUnhideKeys, pawworkSessionDirectories } from "./layout/pawwork-session-source"
+import { findPawworkSessionNavigationTarget } from "./layout/pawwork-session-nav"
 import { createShellNavigation } from "./layout/shell-navigation"
 import { useUpdatePolling } from "./layout/layout-update-polling"
 import { sessionNotificationHref, useSDKNotificationToasts } from "./layout/layout-sdk-event-effects"
@@ -92,6 +84,7 @@ import { registerLayoutCommands } from "./layout/layout-commands"
 import { LayoutShellFrame } from "./layout/layout-shell-frame"
 import { createPawworkSessionPrefetch } from "./layout/pawwork-session-prefetch"
 import { createPawworkSessionController } from "./layout/pawwork-session-controller"
+import { createPawworkProjectControls } from "./layout/pawwork-project-controls"
 import { type WorkspaceSidebarContext } from "./layout/sidebar-workspace"
 import { PawworkSidebar, type PawworkSidebarSession } from "./layout/pawwork-sidebar"
 import { createDefaultLayoutPageState, createLayoutPagePersistTarget } from "./layout/layout-page-store"
@@ -496,124 +489,25 @@ export default function Layout(props: ParentProps) {
     }
   }
 
-  function togglePinnedSession(sessionID: string) {
-    setStore("pawworkPinnedSessions", (current) => {
-      const next = current.filter((id) => id !== sessionID)
-      if (next.length !== current.length) return next
-      return [sessionID, ...current]
-    })
-  }
-
-  /**
-   * Cross-zone drag: All ⇄ Pinned with positional insert, or intra-Pinned
-   * reorder. `visiblePinnedIDs` is the rendered pinned order from the sidebar;
-   * `visibleTargetIndex` is a slot inside it. We translate to the raw
-   * pinned array so hidden / un-loaded pinned IDs keep their positions.
-   */
-  function dragPawworkSession(input: {
-    sessionID: string
-    targetSection: "pinned" | "recent"
-    visiblePinnedIDs: string[]
-    visibleTargetIndex: number
-  }) {
-    setStore("pawworkPinnedSessions", (current) => {
-      if (input.targetSection === "recent") {
-        return unpinPawworkSession({ pinnedIDs: current, sourceID: input.sessionID })
-      }
-      return reorderPawworkPinnedByVisible({
-        pinnedIDs: current,
-        visiblePinnedIDs: input.visiblePinnedIDs,
-        sourceID: input.sessionID,
-        targetVisibleIndex: input.visibleTargetIndex,
-      })
-    })
-  }
-
-  /**
-   * Menu-driven move up / down: keyboard-accessible reorder within the pinned
-   * zone. Operates on the visible pinned order so adjacency matches what the
-   * user sees; the helper reconciles back to the raw array.
-   */
-  function movePinnedSessionByOne(input: {
-    sessionID: string
-    direction: "up" | "down"
-    visiblePinnedIDs: string[]
-  }) {
-    const visibleIndex = input.visiblePinnedIDs.indexOf(input.sessionID)
-    if (visibleIndex === -1) return
-    const offset = input.direction === "up" ? -1 : 1
-    const nextVisibleIndex = Math.max(0, Math.min(input.visiblePinnedIDs.length - 1, visibleIndex + offset))
-    if (nextVisibleIndex === visibleIndex) return
-    setStore("pawworkPinnedSessions", (current) =>
-      reorderPawworkPinnedByVisible({
-        pinnedIDs: current,
-        visiblePinnedIDs: input.visiblePinnedIDs,
-        sourceID: input.sessionID,
-        targetVisibleIndex: nextVisibleIndex,
-      }),
-    )
-  }
-
-  function setPawworkSortMode(mode: "time" | "project") {
-    setStore("pawworkSortMode", mode)
-  }
-
-  function toggleProjectCollapsed(label: string) {
-    const current = store.pawworkProjectCollapsed
-    const next: Record<string, boolean> = { ...current }
-    if (next[label]) delete next[label]
-    else next[label] = true
-    setStore("pawworkProjectCollapsed", reconcile(next))
-  }
-
-  function hideProject(projectKey: string) {
-    if (store.pawworkProjectHidden[projectKey]) return
-    setStore("pawworkProjectHidden", projectKey, true)
-    showToast({
-      title: language.t("project.remove.toast.title"),
-      description: language.t("project.remove.toast.description"),
-      actions: [
-        {
-          label: language.t("common.undo"),
-          onClick: () => unhideProject(projectKey),
-        },
-      ],
-    })
-  }
-
-  function unhideProject(projectKey: string) {
-    if (!store.pawworkProjectHidden[projectKey]) return
-    setStore(
-      "pawworkProjectHidden",
-      produce((draft) => {
-        delete draft[projectKey]
-      }),
-    )
-  }
-
-  async function handleRenameProject(projectKey: string, next: string) {
-    const target = resolvePawworkProjectRenameTarget(projectKey, {
-      projects: layout.projects.list(),
-      sessions: pawworkSessionWindow().sessions,
-    })
-    if (!target) return
-
-    if (target.type === "project") {
-      await renameProject(target.project, next)
-      return
-    }
-
-    setWorkspaceName(target.directory, next)
-  }
-
-  function expandPawworkProjectGroup(label: string | undefined) {
-    if (!label) return
-    if (!store.pawworkProjectCollapsed[label]) return
-
-    const next: Record<string, boolean> = { ...store.pawworkProjectCollapsed }
-    delete next[label]
-    setStore("pawworkProjectCollapsed", reconcile(next))
-  }
+  const {
+    togglePinnedSession,
+    dragPawworkSession,
+    movePinnedSessionByOne,
+    setPawworkSortMode,
+    toggleProjectCollapsed,
+    hideProject,
+    unhideProject,
+    handleRenameProject,
+    expandPawworkProjectGroup,
+  } = createPawworkProjectControls({
+    store,
+    setStore,
+    language,
+    projects: () => layout.projects.list(),
+    sessions: () => pawworkSessionWindow().sessions,
+    renameProject,
+    setWorkspaceName,
+  })
 
   // Export hits the embedded sidecar via main-process IPC. When the user has
   // switched the active server to a remote target, the sidecar holds different
