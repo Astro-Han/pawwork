@@ -9,13 +9,8 @@ import { useSDK } from "@/context/sdk"
 import type { DockQuestionRequest } from "@/pages/session/blockers/use-session-blockers"
 import { createQuestionResponseGuard, normalizeToolRespondError, resolveSkipAction } from "./question-tool-respond"
 import { Mark, Option } from "./question-option"
-
-// One question's selected labels. Mirrors the per-row shape of the
-// `payload.answers: string[][]` body sent to POST /session/:id/tool/respond
-// (validated by questionDecoder in packages/opencode/src/tool/question.ts).
-type QuestionAnswer = readonly string[]
-
-type DraftAnswer = QuestionAnswer | undefined
+import { cache, type DraftAnswer, type QuestionAnswer } from "./question-draft"
+import { focusWithoutScrollingTimeline } from "./question-option-focus"
 
 type QuestionRequestFingerprint = Pick<DockQuestionRequest, "id" | "sessionID" | "messageID" | "callID">
 
@@ -29,27 +24,6 @@ export function isSameQuestionRequest(
     return false
   if (errorRequestID !== undefined && errorRequestID !== right.id) return false
   return left.id === right.id
-}
-
-const cache = new Map<string, { tab: number; answers: DraftAnswer[]; custom: string[]; customOn: boolean[] }>()
-
-function keepVisibleInQuestionOptions(el: HTMLElement) {
-  const scroller = el.closest('[data-slot="question-options"]')
-  if (!(scroller instanceof HTMLElement)) return
-
-  const optionRect = el.getBoundingClientRect()
-  const scrollerRect = scroller.getBoundingClientRect()
-  if (optionRect.top < scrollerRect.top) {
-    scroller.scrollTop -= scrollerRect.top - optionRect.top
-  } else if (optionRect.bottom > scrollerRect.bottom) {
-    scroller.scrollTop += optionRect.bottom - scrollerRect.bottom
-  }
-}
-
-function focusWithoutScrollingTimeline(el: HTMLElement | undefined) {
-  if (!el) return
-  el.focus({ preventScroll: true })
-  keepVisibleInQuestionOptions(el)
 }
 
 export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSubmit: () => void }> = (props) => {
