@@ -465,6 +465,8 @@ describe("session messages endpoint", () => {
           const body = await res.json()
           expect(body.success).toBe(false)
           expect(Array.isArray(body.errors)).toBe(true)
+          expect(body.errors).toHaveLength(1)
+          expect(body.errors[0]?.message).toContain("Part mismatch")
 
           await svc.remove(session.id)
         },
