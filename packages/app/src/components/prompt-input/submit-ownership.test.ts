@@ -1,23 +1,15 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
 import { createPortableDraftOwner } from "./portable-draft"
 import { createPinnedDraftOwner } from "./pinned-draft"
+import { detectSubmitOwnership, type SubmitOwnership } from "./submit-ownership"
 
-let detectSubmitOwnership: any
-type SubmitOwnership = any
-
-beforeAll(async () => {
-  mock.module("@solidjs/router", () => ({
-    useNavigate: () => () => undefined,
-    useParams: () => ({}),
-  }))
+beforeAll(() => {
   mock.module("@opencode-ai/util/encode", () => ({
     base64Encode: (value: string) => value,
     base64Decode: (value: string) => value,
     checksum: (value: string) => String(value.length),
     sampledChecksum: (value: string) => String(value.length),
   }))
-  const mod = await import("./submit")
-  detectSubmitOwnership = mod.detectSubmitOwnership
 })
 
 const ROUTE_SCOPE = { dir: "L3JlcG8vbWFpbg", id: undefined } as const
