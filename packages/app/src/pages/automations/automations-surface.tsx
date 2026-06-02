@@ -1,7 +1,10 @@
 import { createMemo, createSignal, onCleanup, onMount, Show, type Accessor, type JSX } from "solid-js"
+import type { AutomationDefinition } from "@opencode-ai/sdk/v2/client"
 import { Icon } from "@opencode-ai/ui/icon"
+import { showToast } from "@opencode-ai/ui/toast"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
+import { formatServerError } from "@/utils/server-errors"
 import { AutomationList } from "./automation-list"
 import { AutomationDetail } from "./automation-detail"
 
@@ -60,6 +63,21 @@ export function AutomationsSurface(props: {
     return automations().find((automation) => automation.id === id)
   })
 
+  const toggleActive = async (automation: AutomationDefinition) => {
+    const directory = props.directory()
+    if (!directory) return
+    try {
+      if (automation.paused) await globalSync.automation.resume(directory, automation.id)
+      else await globalSync.automation.pause(directory, automation.id)
+    } catch (error) {
+      showToast({
+        variant: "error",
+        title: language.t("automations.toast.actionFailed.title"),
+        description: formatServerError(error, language.t),
+      })
+    }
+  }
+
   return (
     <section
       data-component="automations-page"
@@ -71,7 +89,7 @@ export function AutomationsSurface(props: {
           when={selected()}
           fallback={
             <Show when={automations().length > 0} fallback={<AutomationsEmpty />}>
-              <AutomationList automations={automations} onSelect={setSelectedID} />
+              <AutomationList automations={automations} onSelect={setSelectedID} onToggleActive={toggleActive} />
             </Show>
           }
         >

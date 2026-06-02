@@ -40,6 +40,11 @@ test("automations-surface", async ({ page, project }) => {
   await page.waitForFunction(() => document.querySelectorAll('[data-action="automation-row"]').length >= 2)
   const list = await page.screenshot()
 
+  // Hover a row to reveal the one-click pause/resume action.
+  await rows.first().hover()
+  await surface.locator('[data-action="automation-toggle-active"]').first().waitFor({ state: "visible", timeout: 10_000 })
+  const listHover = await page.screenshot()
+
   await rows.first().click()
   await surface.locator('[data-component="automation-detail"]').waitFor({ state: "visible", timeout: 30_000 })
   const detail = await page.screenshot()
@@ -47,6 +52,7 @@ test("automations-surface", async ({ page, project }) => {
   const shots: Shot[] = [
     { name: "empty", buf: empty },
     { name: "list", buf: list },
+    { name: "list-hover", buf: listHover },
     { name: "detail", buf: detail },
   ]
   const out = snapOutputPath("automations-surface")
