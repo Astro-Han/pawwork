@@ -703,8 +703,8 @@ export namespace LSPServer {
           return
         }
 
-        const asset = release.assets.find((a: any) => a.name === assetName)
-        if (!asset) {
+        const asset = (release.assets ?? []).find((a: any) => a.name === assetName)
+        if (!asset?.browser_download_url) {
           log.error(`Could not find asset ${assetName} in latest zls release`)
           return
         }
@@ -1431,8 +1431,8 @@ export namespace LSPServer {
           return
         }
 
-        const asset = release.assets.find((a: any) => a.name === assetName)
-        if (!asset) {
+        const asset = (release.assets ?? []).find((a: any) => a.name === assetName)
+        if (!asset?.browser_download_url) {
           log.error(`Could not find asset ${assetName} in latest lua-language-server release`)
           return
         }
