@@ -992,7 +992,13 @@ export namespace MCP {
 
   export const disconnect = async (name: string) => runPromise((svc) => svc.disconnect(name))
 
-  export const startAuth = async (mcpName: string) => runPromise((svc) => svc.startAuth(mcpName))
+  export const startAuth = async (mcpName: string) => {
+    // The /:name/auth route serializes this with c.json, so the public result
+    // must stay plain data. authenticate() consumes the connected client via the
+    // internal startAuth; never expose the live (cyclic) Client here.
+    const { authorizationUrl, oauthState } = await runPromise((svc) => svc.startAuth(mcpName))
+    return { authorizationUrl, oauthState }
+  }
 
   export const authenticate = async (mcpName: string) => runPromise((svc) => svc.authenticate(mcpName))
 

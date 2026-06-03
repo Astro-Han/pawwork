@@ -264,3 +264,44 @@ test("authenticate() persists the client when OAuth completes without a redirect
     },
   })
 })
+
+test("startAuth() keeps the public result plain data on immediate connect (#22376)", async () => {
+  const { McpOAuthCallback } = await import("../../src/mcp/oauth-callback")
+
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        `${dir}/opencode.json`,
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          mcp: {
+            "test-oauth-startauth": {
+              type: "remote",
+              url: "https://example.com/mcp",
+            },
+          },
+        }),
+      )
+    },
+  })
+
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      try {
+        // Stored tokens still valid → startAuth connects with no redirect. The
+        // public result is serialized by the /:name/auth route via c.json, so it
+        // must not carry the live (cyclic) client.
+        simulateAuthFlow = false
+        connectSucceedsImmediately = true
+
+        const result = await MCP.startAuth("test-oauth-startauth")
+        expect(Object.keys(result).sort()).toEqual(["authorizationUrl", "oauthState"])
+        expect("client" in result).toBe(false)
+        expect(() => JSON.stringify(result)).not.toThrow()
+      } finally {
+        await McpOAuthCallback.stop()
+      }
+    },
+  })
+})
