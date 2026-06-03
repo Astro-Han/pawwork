@@ -116,6 +116,74 @@ describe("classifyRetry — legacy retryable classifications stay unknown", () =
   })
 })
 
+describe("classifyRetry — reads providerFailure.kind (slice ④)", () => {
+  // Terminal kinds are client-side failures retrying cannot fix. Reading the
+  // canonical kind means they never retry even if the provider SDK wrongly
+  // marked the error retryable.
+  for (const kind of ["auth", "invalid_request", "quota_exhausted"] as const) {
+    test(`terminal kind ${kind} never retries (kind overrides a retryable SDK flag)`, () => {
+      expect(classifyRetry(makeAPIError({ isRetryable: true, providerFailure: { kind } }))).toBeUndefined()
+    })
+  }
+
+  // Transient kinds always retry, even if isRetryable is false and the status is
+  // not 5xx — the classification, not the SDK flag, is the source of truth.
+  for (const kind of ["rate_limit", "server_overload", "transport_disconnect", "decompression"] as const) {
+    test(`transient kind ${kind} retries even when isRetryable is false and status is not 5xx`, () => {
+      expect(
+        classifyRetry(makeAPIError({ isRetryable: false, statusCode: 400, providerFailure: { kind } }))?.kind,
+      ).toBe("unknown")
+    })
+  }
+
+  test("unknown kind falls back to the legacy isRetryable + 5xx gate", () => {
+    expect(
+      classifyRetry(makeAPIError({ isRetryable: true, statusCode: 404, providerFailure: { kind: "unknown" } }))?.kind,
+    ).toBe("unknown")
+    expect(
+      classifyRetry(makeAPIError({ isRetryable: false, statusCode: 404, providerFailure: { kind: "unknown" } })),
+    ).toBeUndefined()
+    expect(
+      classifyRetry(makeAPIError({ isRetryable: false, statusCode: 503, providerFailure: { kind: "unknown" } }))?.kind,
+    ).toBe("unknown")
+  })
+
+  test("absent providerFailure keeps legacy behavior (back-compat with historical rows)", () => {
+    expect(classifyRetry(makeAPIError({ isRetryable: false, statusCode: 400 }))).toBeUndefined()
+    expect(classifyRetry(makeAPIError({ isRetryable: true, statusCode: 429 }))?.kind).toBe("unknown")
+    expect(classifyRetry(makeAPIError({ isRetryable: false, statusCode: 503 }))?.kind).toBe("unknown")
+  })
+
+  test("free_quota_exhausted still wins for opencode + marker, regardless of kind", () => {
+    const error = makeAPIError({
+      providerID: ProviderID.opencode,
+      statusCode: 429,
+      responseBody: '{"error":{"type":"FreeUsageLimitError"}}',
+      responseHeaders: { "retry-after": "70" },
+      providerFailure: { kind: "rate_limit" },
+    })
+    expect(classifyRetry(error)?.kind).toBe("free_quota_exhausted")
+  })
+
+  test("retry-notice copy is unchanged when reading kind (option A keeps provider message)", () => {
+    const descriptive = makeAPIError({
+      isRetryable: true,
+      statusCode: 503,
+      message: "The server is overloaded. Please try again later. (request id req_abc)",
+      providerFailure: { kind: "server_overload" },
+    })
+    const c = classifyRetry(descriptive)
+    expect(c?.kind).toBe("unknown")
+    if (c?.kind === "unknown") {
+      expect(c.raw).toBe("The server is overloaded. Please try again later. (request id req_abc)")
+    }
+
+    const normalized = makeAPIError({ message: "Provider is Overloaded", providerFailure: { kind: "server_overload" } })
+    const c2 = classifyRetry(normalized)
+    if (c2?.kind === "unknown") expect(c2.raw).toBe("Provider is overloaded")
+  })
+})
+
 describe("retryAction re-exported from retry.ts", () => {
   test("free_quota_exhausted maps to stop", () => {
     expect(
