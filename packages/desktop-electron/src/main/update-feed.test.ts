@@ -166,6 +166,26 @@ describe("update feed download", () => {
     expect(setup.calls.download).toBe(1) // second download never attempted
   })
 
+  test("fails closed when the GitHub fallback reports no update available", async () => {
+    const setup = feed({
+      checkForUpdates: async () => {
+        setup.calls.check += 1
+        // first (R2) check: update available; second (github re-check): same
+        // version but no update available — must fail closed, never download.
+        return setup.calls.check === 1
+          ? available("0.2.5")
+          : { isUpdateAvailable: false, updateInfo: { version: "0.2.5", files: [{ url: "app-0.2.5.zip" }] } }
+      },
+      downloadUpdate: async () => {
+        setup.calls.download += 1
+        throw new Error("r2 blob 404")
+      },
+    })
+    await setup.feed.check()
+    await expect(setup.feed.download()).rejects.toThrow("github fallback reports no update available")
+    expect(setup.calls.download).toBe(1) // second download never attempted
+  })
+
   test("does not retry when the GitHub download fails", async () => {
     const setup = feed({
       feeds: [GITHUB],
