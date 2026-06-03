@@ -90,4 +90,37 @@ describe("experimental routes", () => {
       },
     })
   })
+
+  test("parses ?roots=false and ?archived=false as false instead of coercing them to true", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const root = await Session.create({ title: "roots-false-root" })
+        const child = await Session.create({ title: "roots-false-child", parentID: root.id })
+        const archived = await Session.create({ title: "archived-false" })
+        await Session.setArchived({ sessionID: archived.id, time: Date.now() })
+
+        // Scope listGlobal to this tmpdir so the default 100-row window can't push the
+        // seeded sessions out when the in-memory DB holds other tests' sessions.
+        const dir = encodeURIComponent(tmp.path)
+
+        // z.coerce.boolean() coerced "false" to true, hiding child sessions; QueryBoolean
+        // must parse ?roots=false as false so the roots filter stays disabled.
+        const rootsRes = await app().request(`/experimental/session?roots=false&directory=${dir}`)
+        expect(rootsRes.status).toBe(200)
+        const rootsIds = (await rootsRes.json()).map((session: { id: string }) => session.id)
+        expect(rootsIds).toContain(root.id)
+        expect(rootsIds).toContain(child.id)
+
+        // ?archived=false coerced to true would wrongly include archived sessions; it must
+        // parse as false so the archived filter is applied.
+        const archivedRes = await app().request(`/experimental/session?archived=false&directory=${dir}`)
+        expect(archivedRes.status).toBe(200)
+        const archivedIds = (await archivedRes.json()).map((session: { id: string }) => session.id)
+        expect(archivedIds).toContain(root.id)
+        expect(archivedIds).not.toContain(archived.id)
+      },
+    })
+  })
 })

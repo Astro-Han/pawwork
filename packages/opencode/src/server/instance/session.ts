@@ -35,6 +35,9 @@ import { Env } from "@/env"
 
 const log = Log.create({ service: "server" })
 const AbortSource = z.string().regex(/^[A-Za-z0-9._-]{1,80}$/)
+// z.coerce.boolean() runs Boolean(value), so the string "false" coerces to true and clients
+// can never disable a boolean query flag. Parse the literal strings instead.
+const QueryBoolean = z.enum(["true", "false"]).transform((value) => value === "true")
 
 // tool/respond returns route-local failure bodies ({ error } for not-found /
 // already-resolved, plus optional decoder { details } on 422) rather than the
@@ -98,7 +101,7 @@ export const SessionRoutes = lazy(() =>
         "query",
         z.object({
           directory: z.string().optional().meta({ description: "Filter sessions by project directory" }),
-          roots: z.coerce.boolean().optional().meta({ description: "Only return root sessions (no parentID)" }),
+          roots: QueryBoolean.optional().meta({ description: "Only return root sessions (no parentID)" }),
           start: z.coerce
             .number()
             .optional()

@@ -44,6 +44,9 @@ function encodeCreatedSessionCursor(session: Session.GlobalInfo) {
 
 const CreatedSessionCursor = z.object({ created: z.number(), id: SessionID.zod })
 const ActivitySessionCursor = z.object({ activityAt: z.number(), id: SessionID.zod })
+// z.coerce.boolean() runs Boolean(value), so the string "false" coerces to true and clients
+// can never disable a boolean query flag. Parse the literal strings instead.
+const QueryBoolean = z.enum(["true", "false"]).transform((value) => value === "true")
 
 function decodeCreatedSessionCursor(value: string | number | undefined) {
   if (value === undefined) return undefined
@@ -416,7 +419,7 @@ export const ExperimentalRoutes = lazy(() =>
         "query",
         z.object({
           directory: z.string().optional().meta({ description: "Filter sessions by project directory" }),
-          roots: z.coerce.boolean().optional().meta({ description: "Only return root sessions (no parentID)" }),
+          roots: QueryBoolean.optional().meta({ description: "Only return root sessions (no parentID)" }),
           start: z.coerce
             .number()
             .optional()
@@ -430,7 +433,7 @@ export const ExperimentalRoutes = lazy(() =>
             .meta({ description: "Cursor for loading the next page" }),
           search: z.string().optional().meta({ description: "Filter sessions by title (case-insensitive)" }),
           limit: z.coerce.number().optional().meta({ description: "Maximum number of sessions to return" }),
-          archived: z.coerce.boolean().optional().meta({ description: "Include archived sessions (default false)" }),
+          archived: QueryBoolean.optional().meta({ description: "Include archived sessions (default false)" }),
           sort: z
             .enum(["updated", "created", "activity"])
             .optional()
