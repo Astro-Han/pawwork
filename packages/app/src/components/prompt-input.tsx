@@ -38,6 +38,7 @@ import { ACCEPTED_FILE_TYPES } from "./prompt-input/files"
 import { promptLength } from "./prompt-input/history"
 import { createPromptDerivedState } from "./prompt-input/derived-state"
 import { createPromptCommandsAndMode } from "./prompt-input/commands-mode"
+import { createEditLoadEffect } from "./prompt-input/edit-load-effect"
 import type { PromptStore } from "./prompt-input/store-types"
 import type { FollowupDraft } from "./prompt-input/followup-draft"
 import { createPromptSubmit } from "./prompt-input/submit"
@@ -273,44 +274,14 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     addPart,
   } = editorInput
 
-  createEffect(
-    on(
-      () => props.edit?.id,
-      (id) => {
-        const edit = props.edit
-        if (!id || !edit) return
-
-        for (const item of prompt.context.items()) {
-          prompt.context.remove(item.key)
-        }
-
-        for (const item of edit.context) {
-          prompt.context.add({
-            type: item.type,
-            path: item.path,
-            selection: item.selection,
-            comment: item.comment,
-            commentID: item.commentID,
-            commentOrigin: item.commentOrigin,
-            preview: item.preview,
-          })
-        }
-
-        setStore("mode", "normal")
-        setStore("popover", null)
-        setStore("historyIndex", -1)
-        setStore("savedPrompt", null)
-        prompt.set(edit.prompt, promptLength(edit.prompt))
-        requestAnimationFrame(() => {
-          editorRef.focus()
-          setCursorPosition(editorRef, promptLength(edit.prompt))
-          queueScroll()
-        })
-        props.onEditLoaded?.()
-      },
-      { defer: true },
-    ),
-  )
+  createEditLoadEffect({
+    prompt,
+    setStore,
+    editorRef: () => editorRef,
+    queueScroll,
+    editDraft: () => props.edit,
+    onEditLoaded: () => props.onEditLoaded?.(),
+  })
 
   const { addAttachments, addPickedPaths, removeAttachment, handlePaste } = createPromptAttachments({
     editor: () => editorRef,
