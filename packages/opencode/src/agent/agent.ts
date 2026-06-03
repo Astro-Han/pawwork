@@ -20,6 +20,7 @@ import { Effect, Context, Layer } from "effect"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
 import { Global } from "@opencode-ai/core/global"
+import { aiSdkTracer } from "@opencode-ai/core/effect/observability"
 import path from "path"
 
 export namespace Agent {
@@ -326,9 +327,14 @@ export namespace Agent {
           const authInfo = yield* auth.get(model.providerID).pipe(Effect.orDie)
           const isOpenaiOauth = model.providerID === "openai" && authInfo?.type === "oauth"
 
+          // Resolve the registered OTel tracer so AI-SDK spans export; without it
+          // the SDK falls back to the no-op global tracer. Only on the opt-in path.
+          const tracer = cfg.experimental?.openTelemetry ? yield* aiSdkTracer : undefined
+
           const params = {
             experimental_telemetry: {
               isEnabled: cfg.experimental?.openTelemetry,
+              tracer,
               metadata: {
                 userId: cfg.username ?? "unknown",
               },
