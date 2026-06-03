@@ -25,7 +25,7 @@ import { BusEvent } from "../bus/bus-event"
 import { Bus } from "@/bus"
 import open from "open"
 import { Effect, Exit, Layer, Option, Context, Stream } from "effect"
-import * as EffectLogger from "@opencode-ai/core/effect/logger"
+import { EffectBridge, type Shape as EffectBridgeShape } from "@/effect/bridge"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
@@ -512,25 +512,24 @@ export namespace MCP {
         Effect.catch(() => Effect.succeed([] as number[])),
       )
 
-      function watch(s: State, name: string, client: MCPClient, timeout?: number) {
+      function watch(s: State, name: string, client: MCPClient, bridge: EffectBridgeShape, timeout?: number) {
         client.setNotificationHandler(ToolListChangedNotificationSchema, async () => {
           log.info("tools list changed notification received", { server: name })
           if (s.clients[name] !== client || s.status[name]?.status !== "connected") return
 
-          const listed = await Effect.runPromise(defs(name, client, timeout).pipe(Effect.provide(EffectLogger.layer)))
+          const listed = await bridge.promise(defs(name, client, timeout))
           if (!listed) return
           if (s.clients[name] !== client || s.status[name]?.status !== "connected") return
 
           s.defs[name] = listed
-          await Effect.runPromise(
-            bus.publish(ToolsChanged, { server: name }).pipe(Effect.ignore, Effect.provide(EffectLogger.layer)),
-          )
+          await bridge.promise(bus.publish(ToolsChanged, { server: name }).pipe(Effect.ignore))
         })
       }
 
       const state = yield* InstanceState.make<State>(
         Effect.fn("MCP.state")(function* () {
           const cfg = yield* cfgSvc.get()
+          const bridge = yield* EffectBridge.make()
           const config = cfg.mcp ?? {}
           const s: State = {
             status: {},
@@ -559,7 +558,7 @@ export namespace MCP {
                 if (result.mcpClient) {
                   s.clients[key] = result.mcpClient
                   s.defs[key] = result.defs!
-                  watch(s, key, result.mcpClient, mcp.timeout)
+                  watch(s, key, result.mcpClient, bridge, mcp.timeout)
                 }
               }),
             { concurrency: "unbounded" },
@@ -606,11 +605,12 @@ export namespace MCP {
         listed: MCPToolDef[],
         timeout?: number,
       ) {
+        const bridge = yield* EffectBridge.make()
         yield* closeClient(s, name)
         s.status[name] = { status: "connected" }
         s.clients[name] = client
         s.defs[name] = listed
-        watch(s, name, client, timeout)
+        watch(s, name, client, bridge, timeout)
         return s.status[name]
       })
 
