@@ -456,6 +456,35 @@ describe("FileWatcher git metadata filtering", () => {
     expect(FileWatcher.shouldPublishVcsWatcherPath(path.join(gitDir, "refs", "stash"), gitDir)).toBe(false)
     expect(FileWatcher.shouldPublishVcsWatcherPath(path.join(gitDir, "MERGE_HEAD"), gitDir)).toBe(false)
   })
+
+  // CI-runnable gate for the symlinked-.git fix: no native watcher binding needed.
+  // Symlink creation needs privileges on Windows; skip there (matches upstream #27016).
+  const resolveDirsTest = process.platform === "win32" ? test.skip : test
+  resolveDirsTest("resolves symlinked git dirs to their realpath before subscribing", async () => {
+    await using tmp = await tmpdir()
+    const realGit = path.join(tmp.path, "real-git")
+    const linkGit = path.join(tmp.path, ".git")
+    await fs.mkdir(realGit)
+    await fs.symlink(realGit, linkGit)
+
+    // --git-dir and --git-common-dir both report ".git" in a normal repo: resolve + realpath + dedupe to one.
+    expect(
+      await FileWatcher.resolveVcsWatchDirs({ directory: tmp.path, gitDirs: [".git", ".git"], cfgIgnores: [] }),
+    ).toEqual([realGit])
+
+    // watcher.ignore matching either the unresolved symlink path or the realpath'd dir skips it.
+    expect(
+      await FileWatcher.resolveVcsWatchDirs({ directory: tmp.path, gitDirs: [".git"], cfgIgnores: [linkGit] }),
+    ).toEqual([])
+    expect(
+      await FileWatcher.resolveVcsWatchDirs({ directory: tmp.path, gitDirs: [".git"], cfgIgnores: [realGit] }),
+    ).toEqual([])
+
+    // realpath failure (absent dir) falls back to the unresolved resolved path.
+    expect(
+      await FileWatcher.resolveVcsWatchDirs({ directory: tmp.path, gitDirs: ["missing"], cfgIgnores: [] }),
+    ).toEqual([path.join(tmp.path, "missing")])
+  })
 })
 
 describeWatcher("FileWatcher", () => {
