@@ -58,6 +58,7 @@ import { createShellNavigation } from "./layout/shell-navigation"
 import { useUpdatePolling } from "./layout/layout-update-polling"
 import { useHomepageMigration } from "./layout/layout-homepage-migration"
 import { createOpenGlobalConfigFolder } from "./layout/layout-open-global-config"
+import { createCurrentProjectMemo } from "./layout/layout-current-project"
 import { sessionNotificationHref, useSDKNotificationToasts } from "./layout/layout-sdk-event-effects"
 import { registerLayoutCommands } from "./layout/layout-commands"
 import { LayoutShellFrame } from "./layout/layout-shell-frame"
@@ -236,29 +237,7 @@ export default function Layout(props: ParentProps) {
     element.scrollIntoView({ block: "nearest", behavior: "smooth" })
   }
 
-  const currentProject = createMemo(() => {
-    const directory = currentDir()
-    if (!directory) return
-    const key = workspaceKey(directory)
-
-    const projects = layout.projects.list()
-
-    const sandbox = projects.find((p) => p.sandboxes?.some((item) => workspaceKey(item) === key))
-    if (sandbox) return sandbox
-
-    const direct = projects.find((p) => workspaceKey(p.worktree) === key)
-    if (direct) return direct
-
-    const [child] = globalSync.child(directory, { bootstrap: false })
-    const id = child.project
-    if (!id) return
-
-    const meta = globalSync.data.project.find((p) => p.id === id)
-    const root = meta?.worktree
-    if (!root) return
-
-    return projects.find((p) => p.worktree === root)
-  })
+  const currentProject = createCurrentProjectMemo({ currentDir, layout, globalSync })
   const [autoselecting] = createResource(async () => {
     await ready.promise
     await layout.ready.promise
