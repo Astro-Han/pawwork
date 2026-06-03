@@ -1,7 +1,14 @@
 import { describe, expect, test } from "bun:test"
 import { ACP } from "../../src/acp/agent"
 import type { AgentSideConnection } from "@agentclientprotocol/sdk"
-import type { Event, EventMessagePartUpdated, ToolStatePending, ToolStateRunning } from "@opencode-ai/sdk/v2"
+import type {
+  Event,
+  EventMessagePartUpdated,
+  FilePart,
+  ToolStateCompleted,
+  ToolStatePending,
+  ToolStateRunning,
+} from "@opencode-ai/sdk/v2"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 
@@ -42,9 +49,13 @@ function toolEvent(
     callID: string
     tool: string
     input: Record<string, unknown>
-  } & ({ status: "running"; metadata?: Record<string, unknown> } | { status: "pending"; raw: string }),
+  } & (
+    | { status: "running"; metadata?: Record<string, unknown> }
+    | { status: "pending"; raw: string }
+    | { status: "completed"; output: string; metadata?: Record<string, unknown>; title?: string; attachments?: FilePart[] }
+  ),
 ): GlobalEventEnvelope {
-  const state: ToolStatePending | ToolStateRunning =
+  const state: ToolStatePending | ToolStateRunning | ToolStateCompleted =
     opts.status === "running"
       ? {
           status: "running",
@@ -52,11 +63,21 @@ function toolEvent(
           ...(opts.metadata && { metadata: opts.metadata }),
           time: { start: Date.now() },
         }
-      : {
-          status: "pending",
-          input: opts.input,
-          raw: opts.raw,
-        }
+      : opts.status === "completed"
+        ? {
+            status: "completed",
+            input: opts.input,
+            output: opts.output,
+            title: opts.title ?? "test",
+            metadata: opts.metadata ?? {},
+            ...(opts.attachments && { attachments: opts.attachments }),
+            time: { start: Date.now(), end: Date.now() },
+          }
+        : {
+            status: "pending",
+            input: opts.input,
+            raw: opts.raw,
+          }
   const payload: EventMessagePartUpdated = {
     type: "message.part.updated",
     properties: {
@@ -678,6 +699,79 @@ describe("acp.agent event subscription", () => {
           .map((u) => inProgressText(u.update))
 
         expect(snapshots).toEqual(["a", "a"])
+        stop()
+      },
+    })
+  })
+
+  test("includes image attachments as content blocks on completed tool calls", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const { agent, controller, sessionUpdates, stop } = createFakeAgent()
+        const cwd = "/tmp/opencode-acp-test"
+        const sessionId = await agent.newSession({ cwd, mcpServers: [] } as any).then((x) => x.sessionId)
+        const image: FilePart = {
+          id: "file_1",
+          sessionID: sessionId,
+          messageID: "msg_call_1",
+          type: "file",
+          mime: "image/png",
+          url: "data:image/png;base64,iVBORw0KGgoAAAA=",
+        }
+        // A non-image attachment must be skipped, not turned into a content block.
+        const textFile: FilePart = {
+          id: "file_2",
+          sessionID: sessionId,
+          messageID: "msg_call_1",
+          type: "file",
+          mime: "text/plain",
+          url: "data:text/plain;base64,aGVsbG8=",
+        }
+        // A malformed data URL (many ";" and no ";base64,") must be skipped
+        // quickly — it is the ReDoS-shaped input the parser guards against.
+        const malformed: FilePart = {
+          id: "file_3",
+          sessionID: sessionId,
+          messageID: "msg_call_1",
+          type: "file",
+          mime: "image/png",
+          url: "data:image/png" + ";".repeat(64) + "x",
+        }
+
+        controller.push(
+          toolEvent(sessionId, cwd, {
+            callID: "call_1",
+            tool: "bash",
+            status: "completed",
+            input: { command: "screenshot" },
+            output: "captured",
+            attachments: [image, textFile, malformed],
+          }),
+        )
+        await new Promise((r) => setTimeout(r, 20))
+
+        const update = sessionUpdates
+          .filter((u) => u.sessionId === sessionId)
+          .map((u) => u.update)
+          .find((u) => isToolCallUpdate(u) && u.toolCallId === "call_1" && u.status === "completed")
+        expect(update && isToolCallUpdate(update)).toBe(true)
+
+        const content = isToolCallUpdate(update!) ? update!.content : undefined
+        expect(content).toContainEqual({
+          type: "content",
+          content: { type: "image", mimeType: "image/png", data: "iVBORw0KGgoAAAA=" },
+        })
+        // The text output is still present alongside the image.
+        expect(
+          content?.some(
+            (c) => c.type === "content" && c.content.type === "text" && c.content.text === "captured",
+          ),
+        ).toBe(true)
+        // Only the image attachment becomes an image block; text/plain is dropped.
+        const imageBlocks = content?.filter((c) => c.type === "content" && c.content.type === "image")
+        expect(imageBlocks).toHaveLength(1)
         stop()
       },
     })
