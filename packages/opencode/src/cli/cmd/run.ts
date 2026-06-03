@@ -6,6 +6,7 @@ import { cmd } from "./cmd"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { bootstrap } from "../bootstrap"
 import { EOL } from "os"
+import { setTimeout as delay } from "node:timers/promises"
 import { Filesystem } from "../../util/filesystem"
 import { createOpencodeClient, type OpencodeClient, type ToolPart } from "@opencode-ai/sdk/v2"
 import { Server } from "../../server/server"
@@ -27,6 +28,7 @@ import { TodoWriteTool } from "../../tool/todo"
 import { Locale } from "../../util/locale"
 import { AppRuntime } from "@/effect/app-runtime"
 import { ServerAuth } from "../../server/auth"
+import { FormatError, FormatUnknownError } from "../error"
 
 type ToolProps<T> = {
   input: Tool.InferParameters<T>
@@ -66,6 +68,46 @@ function block(info: Inline, output?: string) {
 // render after the tool id flip. Keep in sync with agent-rename:legacy-render sweep (Task 18).
 export const isAgentToolPart = (tool: string): boolean =>
   tool === "task" || tool === "agent" // agent-rename:legacy-render
+
+function formatRunError(error: unknown) {
+  return FormatError(error) ?? FormatUnknownError(error)
+}
+
+// The non-interactive exit code reflects the TERMINAL outcome of the run, not
+// intermediate `session.error` events — those can be recoverable (e.g. a
+// ContextOverflowError that auto-compacts and then continues to success). A
+// shaped SDK error (`result.error`, e.g. an unknown command/model rejected
+// before a turn ran) or a terminal error on the final assistant message both
+// fail (#27371); a recovered run reports success.
+export function runExitCode(result: { error?: unknown; data?: { info?: { error?: unknown } } }): 1 | undefined {
+  return result.error || result.data?.info?.error ? 1 : undefined
+}
+
+// Once the request resolves the turn is done and all output has been produced;
+// the drain just flushes the remaining stream events before the in-process
+// instance is torn down (otherwise trailing JSON/text is lost, see #26955).
+// Wait for the stream to reach idle, but abort it once it stops making progress
+// for this long, so a dropped/missed-idle --attach stream can't hang the run. A
+// stream still delivering events (a slow but healthy drain) is never cut short;
+// only a stalled one is abandoned.
+const DRAIN_INACTIVITY_MS = 10_000
+
+export async function drainTrailingOutput(
+  drained: Promise<unknown>,
+  lastEventAt: () => number,
+  abort: Pick<AbortController, "abort">,
+  inactivityMs = DRAIN_INACTIVITY_MS,
+): Promise<void> {
+  const DONE = Symbol()
+  while (true) {
+    const outcome = await Promise.race([drained.then(() => DONE), delay(inactivityMs, undefined, { ref: false })])
+    if (outcome === DONE) return
+    if (performance.now() - lastEventAt() >= inactivityMs) {
+      abort.abort()
+      return
+    }
+  }
+}
 
 function fallback(part: ToolPart) {
   const state = part.state
@@ -438,8 +480,13 @@ export const RunCommand = cmd({
         return false
       }
 
-      const events = await sdk.event.subscribe()
+      const drainAbort = new AbortController()
+      // event.subscribe(parameters, options): the signal goes in the second
+      // (options) arg, which is spread into the underlying fetch; the first arg
+      // is the (unused) directory/workspace query params.
+      const events = await sdk.event.subscribe(undefined, { signal: drainAbort.signal })
       let error: string | undefined
+      let lastEventAt = performance.now()
 
       async function loop() {
         const toggles = new Map<string, boolean>()
@@ -460,6 +507,9 @@ export const RunCommand = cmd({
           if (event.type === "message.part.updated") {
             const part = event.properties.part
             if (part.sessionID !== sessionID) continue
+            // Count only this session's part output as drain progress — heartbeats
+            // and other-session events must not keep the watchdog alive (#1154).
+            lastEventAt = performance.now()
 
             if (part.type === "tool" && (part.state.status === "completed" || part.state.status === "error")) {
               if (emit("tool_use", { part })) continue
@@ -640,30 +690,48 @@ export const RunCommand = cmd({
       }
       await share(sdk, sessionID)
 
-      loop().catch((e) => {
+      // Drain the SSE event stream in the background; capture the promise so we
+      // can await it after the request resolves instead of letting the instance
+      // be disposed mid-drain (which drops trailing JSON/text output).
+      const drained = loop().catch((e) => {
+        // We aborted the subscription ourselves (fail-fast / post-drain cleanup);
+        // that surfaces as a stream error but is a clean stop, not a failure.
+        if (drainAbort.signal.aborted) return undefined
         console.error(e)
-        process.exit(1)
+        process.exitCode = 1
+        return undefined
       })
 
-      if (args.command) {
-        await sdk.session.command({
-          sessionID,
-          agent: agentName,
-          model: args.model,
-          command: args.command,
-          arguments: message,
-          variant: args.variant,
-        })
-      } else {
-        const model = args.model ? Provider.parseModel(args.model) : undefined
-        await sdk.session.prompt({
-          sessionID,
-          agent: agentName,
-          model,
-          variant: args.variant,
-          parts: [...files, { type: "text", text: message }],
-        })
-      }
+      const result = args.command
+        ? await sdk.session.command({
+            sessionID,
+            agent: agentName,
+            model: args.model,
+            command: args.command,
+            arguments: message,
+            variant: args.variant,
+          })
+        : await sdk.session.prompt({
+            sessionID,
+            agent: agentName,
+            model: args.model ? Provider.parseModel(args.model) : undefined,
+            variant: args.variant,
+            parts: [...files, { type: "text", text: message }],
+          })
+
+      // Surface a shaped request error: in-turn errors arrive on the SSE bus,
+      // but a request rejected before the turn ran (e.g. unknown command/model)
+      // only shows up here.
+      if (result.error && !emit("error", { error: result.error })) UI.error(formatRunError(result.error))
+
+      const exitCode = runExitCode(result)
+      // A pre-turn request error ran no turn, so there is nothing to drain and no
+      // idle event will arrive; otherwise flush trailing output before teardown.
+      if (!result.error) await drainTrailingOutput(drained, () => lastEventAt, drainAbort)
+      // Close the (auto-retrying) SSE subscription so the process can exit even
+      // when the turn errored before idle or the live stream missed idle.
+      drainAbort.abort()
+      if (exitCode) process.exitCode = exitCode
     }
 
     if (args.attach) {
