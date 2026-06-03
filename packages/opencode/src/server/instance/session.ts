@@ -453,6 +453,7 @@ export const SessionRoutes = lazy(() =>
               },
             },
           },
+          ...errors(400, 404),
         },
       }),
       validator(

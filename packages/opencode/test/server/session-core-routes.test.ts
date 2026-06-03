@@ -3,7 +3,7 @@ import { Effect } from "effect"
 import { Instance } from "../../src/project/instance"
 import { Server } from "../../src/server/server"
 import { Session as SessionNs } from "../../src/session"
-import type { SessionID } from "../../src/session/schema"
+import { SessionID } from "../../src/session/schema"
 import { Log } from "../../src/util"
 import { tmpdir } from "../fixture/fixture"
 
@@ -78,6 +78,33 @@ describe("session core routes", () => {
           await svc.remove(child.id).catch(() => undefined)
           await svc.remove(root.id).catch(() => undefined)
         }
+      },
+    })
+  })
+
+  test("declares fork bad-request and not-found failures in OpenAPI", async () => {
+    const spec = await Server.openapi()
+    const responses = spec.paths?.["/session/{sessionID}/fork"]?.post?.responses
+
+    expect(responses?.["400"]).toBeDefined()
+    expect(responses?.["404"]).toBeDefined()
+  })
+
+  test("returns 404 when forking a missing session", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const missing = SessionID.descending()
+        const response = await Server.Default().app.request(`/session/${missing}/fork`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({}),
+        })
+
+        expect(response.status).toBe(404)
+        const body = await response.json()
+        expect(body.name).toBe("NotFoundError")
       },
     })
   })
