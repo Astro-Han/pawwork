@@ -84,7 +84,7 @@ source_run_id: 123456789
 source_run_attempt: 1
 source_ref: dev
 source_sha: 0123456789abcdef0123456789abcdef01234567
-source_workflow_ref: dev
+source_workflow_ref: workflow-snapshot-123456789-1-macos-arm64
 source_workflow_sha: 0123456789abcdef0123456789abcdef01234567
 submission_id: 00000000-0000-0000-0000-000000000000
 ```
@@ -104,27 +104,36 @@ Build and publish the Windows installer:
 gh workflow run build.yml --repo Astro-Han/pawwork --ref dev -f phase=full -f channel=prod -f target=windows -f arch=x64
 ```
 
+> **All three final targets must be the same build commit.** mac finalize rebuilds from the commit pinned by its submit snapshot tag (`source_sha`), while the Windows `full` build uses the current `dev` HEAD (`github.sha`). If `dev` moves between the macOS submits and the Windows build, the targets disagree and the auto-publisher (Step 4) refuses to publish — by design. Freeze `dev` for the duration of the release, or confirm the Windows build's commit matches the macOS `source_sha` before expecting auto-publish to fire.
+
 ## 4. Publish
 
-> **prod auto-publishes (PR #1119).** The build pipeline's tail `publish-when-complete` step flips the draft to published — pinned to the build commit — and dispatches the R2 mirror automatically once every target's assets and updater metadata have landed. For a normal prod release, Steps 4–5 are a **verification fallback**: use them only if the auto-publish did not run (a non-prod channel, or a partial build that left a draft).
+**A prod release publishes itself (PR #1119).** The tail `publish-when-complete` step of the last target's finalize/full build flips the draft to published — pinning the tag to the build commit and marking it latest — then dispatches the R2 mirror. It only does so once every target's installers and updater metadata are present AND all targets agree on a single build commit. So for a normal prod release you do **not** run `gh release edit` by hand; you confirm the auto-publish outcome.
 
-Verify the draft release has all expected user-facing installers before publishing:
-
-```bash
-gh release view vX.Y.Z --repo Astro-Han/pawwork --json isDraft,isPrerelease,assets,url
-```
-
-Publish the release as the latest stable release:
+Check the "Publish release when all targets are complete" step in the last build run, then the release state:
 
 ```bash
-gh release edit vX.Y.Z --repo Astro-Han/pawwork --draft=false --latest --prerelease=false
+gh release view vX.Y.Z --repo Astro-Han/pawwork --json isDraft,isPrerelease,targetCommitish,assets,url
 ```
+
+- **Published** (`isDraft: false`, `targetCommitish` = the build commit) → done, go to Step 6.
+- **Still a draft, a target missing** (the step logged `wait`) → finish or re-run the missing target; its own tail step will publish. Do not publish by hand.
+- **The step failed** (mixed-source, updater-metadata drift, or a missing/empty provenance marker) → **do not publish.** The guard is refusing a release built from more than one commit or with mismatched metadata. Rebuild all three targets from a single commit (see the same-commit note in Step 3) and let auto-publish run.
+
+Manual publish is a **last resort** — e.g. a non-prod channel that has no auto-publish, or recovering a release the pipeline genuinely cannot finish. It bypasses every guard (completeness, single-source markers, the updater-metadata hash anchor, seal/re-read), so only after you have confirmed the draft holds all three installers AND they were built from the same commit, publish and pin the tag to that commit:
+
+```bash
+# LAST RESORT — bypasses the auto-publisher's safety checks.
+gh release edit vX.Y.Z --repo Astro-Han/pawwork --draft=false --latest --prerelease=false --target <build-commit-sha>
+```
+
+Never publish a non-prod (beta/dev) build as `--latest --prerelease=false`, and never hand-publish a partial draft.
 
 ## 5. Mirror Downloads to Cloudflare R2
 
-The China-accessible landing page (dl.pawwork.ai) serves downloads from the R2 mirror, not GitHub. The mirror is gated by `verify-release` and only runs against a published (non-draft) release, so it must run after Step 4.
+The China-accessible landing page (dl.pawwork.ai) serves downloads from the R2 mirror, not GitHub. The mirror is gated by `verify-release` and only runs against a published (non-draft) release, so it runs after the release is published in Step 4.
 
-Publishing in Step 4 with your own credentials emits a `release: published` event, which triggers `.github/workflows/mirror-release-to-r2.yml` automatically. (A workflow that published the release with the built-in `GITHUB_TOKEN` would NOT trigger it — that path would need an explicit dispatch.) Confirm the run started, or dispatch it manually:
+On the normal path the auto-publisher (Step 4) dispatches `.github/workflows/mirror-release-to-r2.yml` itself, immediately after publishing: a release published with the built-in `GITHUB_TOKEN` does NOT emit a `release: published` event, so the auto-publisher triggers the mirror explicitly. (A manual last-resort publish with your own credentials *does* emit `release: published`, which also triggers the mirror.) Either way, confirm a run started, and dispatch it manually if none did:
 
 ```bash
 gh run list --workflow mirror-release-to-r2.yml --repo Astro-Han/pawwork --limit 3
