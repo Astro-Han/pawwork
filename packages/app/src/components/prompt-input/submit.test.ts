@@ -1,9 +1,7 @@
-import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, spyOn, test } from "bun:test"
+import * as uiToast from "@opencode-ai/ui/toast"
 import type { Prompt } from "@/context/prompt"
-import type {
-  createPromptSubmit as createPromptSubmitType,
-  sendFollowupDraft as sendFollowupDraftType,
-} from "./submit"
+import type { createPromptSubmit as createPromptSubmitType } from "./submit"
 import { _portableDraftTesting, usePortableDraft } from "./portable-draft"
 import { _pinnedDraftTesting, usePinnedDraft } from "./pinned-draft"
 
@@ -11,7 +9,6 @@ type PromptSubmitInput = Parameters<typeof createPromptSubmitType>[0]
 type PromptSubmit = ReturnType<typeof createPromptSubmitType>
 
 let createPromptSubmit: (input: PromptSubmitInput) => PromptSubmit
-let sendFollowupDraft: typeof sendFollowupDraftType
 
 const createdClients: string[] = []
 const createdSessions: string[] = []
@@ -123,9 +120,11 @@ beforeAll(async () => {
     },
   }))
 
-  mock.module("@opencode-ai/ui/toast", () => ({
-    showToast: () => 0,
-  }))
+  // spyOn + afterAll restore instead of mock.module: bun's mock.module is a
+  // global, persistent, non-restoring registry override, so a noop toast mock
+  // here leaked into every later test file in the run and broke suites that
+  // rely on the real showToast (e.g. pawwork-session-commands.test.ts).
+  spyOn(uiToast, "showToast").mockImplementation(() => 0)
 
   mock.module("@opencode-ai/util/encode", () => ({
     base64Encode: (value: string) => value,
@@ -276,7 +275,10 @@ beforeAll(async () => {
 
   const mod = await import("./submit")
   createPromptSubmit = mod.createPromptSubmit
-  sendFollowupDraft = mod.sendFollowupDraft
+})
+
+afterAll(() => {
+  mock.restore()
 })
 
 beforeEach(() => {
@@ -802,35 +804,6 @@ describe("prompt submit worktree selection", () => {
     await waitForCall(() => commandCalls.length > 0)
 
     expect(commandCalls.at(-1)?.locale).toBe("nb-NO")
-  })
-
-  test("sends locale with slash-command followups", async () => {
-    await sendFollowupDraft({
-      client: clientFor("/repo/main") as any,
-      globalSync: {
-        child: () => [{}, () => undefined],
-      } as any,
-      sync: {
-        data: { command: [{ name: "summarize" }], command_ready: true },
-        session: {
-          optimistic: {
-            add: () => undefined,
-            remove: () => undefined,
-          },
-        },
-      } as any,
-      draft: {
-        sessionID: "session-1",
-        sessionDirectory: "/repo/main",
-        prompt: [{ type: "text", content: "/summarize this", start: 0, end: 15 }],
-        context: [],
-        agent: "agent",
-        model: { providerID: "provider", modelID: "model" },
-        locale: "zh-Hans",
-      },
-    })
-
-    expect(commandCalls.at(-1)?.locale).toBe("zh-Hans")
   })
 
   test("clears prompt source scope on successful new-session submit", async () => {

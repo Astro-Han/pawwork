@@ -29,6 +29,9 @@ const svc = {
   updatePart<T extends MessageV2.Part>(part: T) {
     return run(SessionNs.Service.use((svc) => svc.updatePart(part)))
   },
+  messages(input: Parameters<typeof SessionNs.messages>[0]) {
+    return run(SessionNs.Service.use((svc) => svc.messages(input)))
+  },
 }
 
 afterEach(async () => {
@@ -356,6 +359,114 @@ describe("session messages endpoint", () => {
           expect(res.status).toBe(200)
           const body = (await res.json()) as MessageV2.WithParts[]
           expect(body).toHaveLength(510)
+
+          await svc.remove(session.id)
+        },
+      }),
+    )
+  })
+
+  test("updates and deletes message parts through the route runtime", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await withoutWatcher(() =>
+      Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const session = await svc.create({})
+          const messageID = MessageID.ascending()
+          const partID = PartID.ascending()
+          await svc.updateMessage({
+            id: messageID,
+            sessionID: session.id,
+            role: "user",
+            time: { created: Date.now() },
+            agent: "test",
+            model: { providerID: "test", modelID: "test" },
+            tools: {},
+            mode: "",
+          } as unknown as MessageV2.Info)
+          await svc.updatePart({
+            id: partID,
+            sessionID: session.id,
+            messageID,
+            type: "text",
+            text: "before",
+          })
+          const app = Server.Default().app
+
+          const update = await app.request(`/session/${session.id}/message/${messageID}/part/${partID}`, {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              id: partID,
+              sessionID: session.id,
+              messageID,
+              type: "text",
+              text: "after",
+            }),
+          })
+          const updated = await update.json()
+          expect(update.status).toBe(200)
+          expect(updated.text).toBe("after")
+
+          const remove = await app.request(`/session/${session.id}/message/${messageID}/part/${partID}`, {
+            method: "DELETE",
+          })
+          expect(remove.status).toBe(200)
+          expect(await remove.json()).toBe(true)
+          expect((await svc.messages({ sessionID: session.id }))[0].parts).toHaveLength(0)
+
+          await svc.remove(session.id)
+        },
+      }),
+    )
+  })
+
+  test("rejects a part update whose body does not match the path with a 400", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await withoutWatcher(() =>
+      Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const session = await svc.create({})
+          const messageID = MessageID.ascending()
+          const partID = PartID.ascending()
+          await svc.updateMessage({
+            id: messageID,
+            sessionID: session.id,
+            role: "user",
+            time: { created: Date.now() },
+            agent: "test",
+            model: { providerID: "test", modelID: "test" },
+            tools: {},
+            mode: "",
+          } as unknown as MessageV2.Info)
+          await svc.updatePart({
+            id: partID,
+            sessionID: session.id,
+            messageID,
+            type: "text",
+            text: "before",
+          })
+          const app = Server.Default().app
+
+          const res = await app.request(`/session/${session.id}/message/${messageID}/part/${partID}`, {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              id: PartID.ascending(),
+              sessionID: session.id,
+              messageID,
+              type: "text",
+              text: "after",
+            }),
+          })
+          expect(res.status).toBe(400)
+          const body = await res.json()
+          expect(body.success).toBe(false)
+          expect(Array.isArray(body.errors)).toBe(true)
+          expect(body.errors).toHaveLength(1)
+          expect(body.errors[0]?.message).toContain("Part mismatch")
 
           await svc.remove(session.id)
         },

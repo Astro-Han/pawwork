@@ -4,6 +4,7 @@ import type { SettingsTab } from "../pages/settings/settings-shell"
 
 export type ShellSurfaceContextValue = {
   settingsOpen: Accessor<boolean>
+  automationsOpen: Accessor<boolean>
   openNewSession: (directory?: string) => void
   openSession: (session: Session | undefined) => void
   openSettings: (tab?: SettingsTab) => void

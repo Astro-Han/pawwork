@@ -48,6 +48,7 @@ import { Installation } from "@/installation"
 import { ShareNext } from "@/share/share-next"
 import { SessionShare } from "@/share/session"
 import { ShareRuntime } from "@/share/runtime"
+import { Automation } from "@/automation"
 import { memoMap } from "@opencode-ai/core/effect/memo-map"
 import { InstanceLayer } from "@/project/instance-layer"
 
@@ -99,6 +100,7 @@ export const AppLayer = Layer.mergeAll(
   ShareNext.defaultLayer,
   SessionShare.defaultLayer,
   ShareRuntime.cloudShareGateDefaultLayer,
+  Automation.defaultLayer,
 ).pipe(Layer.provideMerge(InstanceLayer.layer))
 
 const rt = ManagedRuntime.make(AppLayer, { memoMap })

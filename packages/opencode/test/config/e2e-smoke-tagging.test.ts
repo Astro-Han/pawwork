@@ -13,6 +13,7 @@ const expectedSmokeTests = [
   "packages/app/e2e/app/root-redirect.spec.ts:@smoke root route falls back to backend project when local store is empty",
   "packages/app/e2e/app/session.spec.ts:@smoke session composer matches home structure without docktray or agent control",
   "packages/app/e2e/app/shell-frame.spec.ts:@smoke shell frame exposes stable desktop hooks",
+  "packages/app/e2e/automations/automations-panel.spec.ts:@smoke automations panel: list, detail, pause, delete",
   "packages/app/e2e/files/file-tree.spec.ts:@smoke review tab no longer renders the legacy file-tree sub-panel",
   "packages/app/e2e/icon-viewbox-fit.spec.ts:@smoke every chrome icon fits inside the 0..20 viewBox",
   "packages/app/e2e/model-picker-height.spec.ts:@smoke model picker height fits content, no empty bottom space",

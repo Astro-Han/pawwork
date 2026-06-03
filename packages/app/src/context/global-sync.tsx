@@ -31,6 +31,12 @@ import { createRefreshQueue } from "./global-sync/queue"
 import { clearSessionPrefetchDirectory } from "./global-sync/session-prefetch"
 import { estimateRootSessionTotal, loadRootSessionsWithFallback } from "./global-sync/session-load"
 import { trimSessions } from "./global-sync/session-trim"
+import {
+  applyAutomationDefinition,
+  applyAutomationRun,
+  applyAutomationTombstone,
+  mergeAutomationRuns,
+} from "./global-sync/automation-store"
 import type { ProjectMeta } from "./global-sync/types"
 import { SESSION_RECENT_LIMIT } from "./global-sync/types"
 import { createTodoHydrateCoordinator } from "./global-sync/todo-hydrate-coordinator"
@@ -321,6 +327,68 @@ function createGlobalSync() {
     return promise
   }
 
+  async function loadAutomationRuns(directory: string, automationID: string, options?: { cursor?: string }) {
+    if (!directory || !automationID) return
+    children.pin(directory)
+    try {
+      const [store, setStore] = children.peek(directory, { bootstrap: false })
+      const sdk = sdkFor(directory)
+      const res = await sdk.automation.runs({ automationID, ...(options?.cursor ? { cursor: options.cursor } : {}) })
+      mergeAutomationRuns(store, setStore, res.data?.items ?? [])
+      return res.data?.nextCursor ?? null
+    } finally {
+      children.unpin(directory)
+    }
+  }
+
+  // Mutations apply the authoritative response immediately (revision-gated), so
+  // the UI reflects the change without waiting for the SSE round-trip; the
+  // matching event then no-ops as an equal revision.
+  async function pauseAutomation(directory: string, automationID: string) {
+    children.pin(directory)
+    try {
+      const [store, setStore] = children.peek(directory, { bootstrap: false })
+      const res = await sdkFor(directory).automation.pause({ automationID })
+      if (res.data) applyAutomationDefinition(store, setStore, res.data)
+    } finally {
+      children.unpin(directory)
+    }
+  }
+
+  async function resumeAutomation(directory: string, automationID: string) {
+    children.pin(directory)
+    try {
+      const [store, setStore] = children.peek(directory, { bootstrap: false })
+      const res = await sdkFor(directory).automation.resume({ automationID })
+      if (res.data) applyAutomationDefinition(store, setStore, res.data)
+    } finally {
+      children.unpin(directory)
+    }
+  }
+
+  async function deleteAutomation(directory: string, automationID: string) {
+    children.pin(directory)
+    try {
+      const [store, setStore] = children.peek(directory, { bootstrap: false })
+      const res = await sdkFor(directory).automation.delete({ automationID })
+      if (res.data) applyAutomationTombstone(store, setStore, res.data)
+    } finally {
+      children.unpin(directory)
+    }
+  }
+
+  async function runAutomationNow(directory: string, automationID: string) {
+    children.pin(directory)
+    try {
+      const [store, setStore] = children.peek(directory, { bootstrap: false })
+      const res = await sdkFor(directory).automation.runNow({ automationID })
+      if (res.data) applyAutomationRun(store, setStore, res.data)
+      return res.data
+    } finally {
+      children.unpin(directory)
+    }
+  }
+
   async function bootstrapInstance(directory: string) {
     if (!directory) return
     const pending = booting.get(directory)
@@ -413,6 +481,16 @@ function createGlobalSync() {
         todoHydrate,
         blockerTerminals,
         vcsCache: children.vcsCache.get(targetDirectory),
+        onAutomationFailureStreak: (definition) => {
+          showToast({
+            variant: "subtle",
+            title: language.t("automations.toast.failureStreak.title"),
+            description: language.t("automations.toast.failureStreak.description", {
+              title: definition.title,
+              count: definition.failureStreak,
+            }),
+          })
+        },
         loadLsp: () => {
           void sdkFor(targetDirectory)
             .lsp.status()
@@ -563,6 +641,13 @@ function createGlobalSync() {
     bootstrap,
     updateConfig,
     project: projectApi,
+    automation: {
+      loadRuns: loadAutomationRuns,
+      pause: pauseAutomation,
+      resume: resumeAutomation,
+      delete: deleteAutomation,
+      runNow: runAutomationNow,
+    },
     todo: {
       set: setSessionTodo,
       accept: acceptSessionTodo,
