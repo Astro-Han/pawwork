@@ -1,5 +1,5 @@
 import z from "zod"
-import { and, Database, eq, NotFoundError } from "../storage/db"
+import { and, Database, eq, NotFoundError, sql } from "../storage/db"
 import { ProjectTable } from "./project.sql"
 import { SessionTable } from "../session/session.sql"
 import { Log } from "@opencode-ai/core/util/log"
@@ -327,7 +327,10 @@ export namespace Project {
           yield* db((d) =>
             d
               .update(SessionTable)
-              .set({ project_id: data.id })
+              // Pin time_updated to its current value so the re-parent does not
+              // trip drizzle's $onUpdate, which would bump every migrated
+              // session to the top of recents.
+              .set({ project_id: data.id, time_updated: sql`${SessionTable.time_updated}` })
               .where(and(eq(SessionTable.project_id, ProjectID.global), eq(SessionTable.directory, data.worktree)))
               .run(),
           )
