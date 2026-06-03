@@ -1,5 +1,6 @@
 import type { Locator } from "@playwright/test"
 import { test, expect } from "../fixtures"
+import { sessionIDFromUrl } from "../actions"
 import { promptSelector } from "../selectors"
 
 // W1 renderer contracts that the local handtest still re-checks by eye but that
@@ -191,6 +192,12 @@ test("@smoke W1 thinking indicator shows while the turn is working with nothing 
   const thinking = page.locator(THINKING)
   await expect(thinking).toBeVisible({ timeout: 30_000 })
   await expect(thinking.locator('[data-component="text-shimmer"]')).toBeVisible()
+
+  // Manual submit bypasses project.prompt(), so register the session the UI
+  // created. Otherwise teardown only drops the project directory and leaves the
+  // hung stream alive for the rest of the Playwright worker.
+  await expect.poll(() => sessionIDFromUrl(page.url()) ?? "").not.toBe("")
+  project.trackSession(sessionIDFromUrl(page.url())!)
 
   // The hang reply is dispatched asynchronously; wait for it to actually reach
   // the test LLM server (queue drains to 0) so teardown does not flag it as an
