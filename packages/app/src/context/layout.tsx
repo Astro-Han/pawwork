@@ -47,11 +47,13 @@ export {
   DEFAULT_RIGHT_PANEL_WIDTH,
   defaultSidePanelTab,
   ensureSessionKey,
+  legacyOpenShellTabs,
   legacyRightPanelOpened,
   MAX_RIGHT_PANEL_WIDTH,
   migrateStoredLayout,
   MIN_RIGHT_PANEL_WIDTH,
   pruneSessionKeys,
+  type ReviewDiffStyle,
 } from "./layout-state"
 
 const AVATAR_COLOR_KEYS = ["pink", "mint", "orange", "purple", "cyan", "lime"] as const
