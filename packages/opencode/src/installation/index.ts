@@ -82,7 +82,13 @@ export namespace Installation {
 
   export class UpgradeFailedError extends Schema.TaggedErrorClass<UpgradeFailedError>()("UpgradeFailedError", {
     stderr: Schema.String,
-  }) {}
+  }) {
+    // Without this, the TaggedError default message is empty, so the desktop upgrade API
+    // (server/instance/global.ts surfaces `err.message`) returns a blank error.
+    override get message() {
+      return this.stderr
+    }
+  }
 
   // Response schemas for external version APIs
   const GitHubRelease = Schema.Struct({ tag_name: Schema.String })
@@ -156,6 +162,17 @@ export namespace Installation {
           return "opencode"
         })
 
+        // Sanitized, user-facing failure text. Never surface raw stderr (it can contain tokens or
+        // arbitrary command output); choco keeps its actionable elevated-shell hint.
+        const upgradeFailure = (
+          method: Method,
+          result?: { code: ChildProcessSpawner.ExitCode; stdout: string; stderr: string },
+        ) => {
+          if (method === "choco") return "not running from an elevated command shell"
+          if (result) return `Upgrade failed for ${method} (exit code ${result.code}).`
+          return `Upgrade failed for ${method}.`
+        }
+
         const upgradeCurl = Effect.fnUntraced(
           function* (target: string) {
             const response = yield* httpOk.execute(HttpClientRequest.get("https://opencode.ai/install"))
@@ -175,7 +192,10 @@ export namespace Installation {
             return { code, stdout, stderr }
           },
           Effect.scoped,
-          Effect.orDie,
+          // The user only sees the sanitized message; log the raw cause for diagnostics. The curl
+          // path only fetches the public install script and spawns bash, so no user token is at risk.
+          Effect.tapError((error) => Effect.sync(() => log.error("upgrade curl failed", { error }))),
+          Effect.mapError(() => new UpgradeFailedError({ stderr: upgradeFailure("curl") })),
         )
 
         const methodImpl = Effect.fn("Installation.method")(function* () {
@@ -317,11 +337,10 @@ export namespace Installation {
               result = yield* run(["scoop", "install", `opencode@${target}`])
               break
             default:
-              return yield* new UpgradeFailedError({ stderr: `Unknown method: ${m}` })
+              return yield* new UpgradeFailedError({ stderr: `Unknown installation method: ${m}` })
           }
           if (!result || result.code !== 0) {
-            const stderr = m === "choco" ? "not running from an elevated command shell" : result?.stderr || ""
-            return yield* new UpgradeFailedError({ stderr })
+            return yield* new UpgradeFailedError({ stderr: upgradeFailure(m, result) })
           }
           log.info("upgraded", {
             method: m,
