@@ -660,6 +660,80 @@ describe("RunObservability", () => {
     expect(summary.durations_ms.last_event_to_failure).toBe(130)
   })
 
+  test("does not recommend auto-retry for a terminal provider failure on external stream disconnect", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_terminal_provider"),
+      traceID: MessageID.make("msg_terminal_provider"),
+      sessionID: SessionID.make("ses_terminal_provider"),
+      messageID: MessageID.make("msg_terminal_provider"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordProviderProgress({ attemptID: attempt.attemptID, at: 12, monotonicMs: 120 })
+    recorder.recordTransportFailure({
+      attemptID: attempt.attemptID,
+      at: 25,
+      monotonicMs: 250,
+      error: {
+        name: "TypeError",
+        message: "terminated",
+        cause: { name: "SocketError", message: "other side closed", code: "UND_ERR_SOCKET" },
+      },
+      evidence: ["provider_progress_seen", "iterator_error"],
+      retryable: false,
+    })
+
+    const summary = recorder.finalize({ completedAt: 26, monotonicMs: 260 })
+    expect(summary.classification).toBe("external_stream_disconnect")
+    expect(summary.retry_safety).toEqual({
+      recommendation: "do_not_auto_retry",
+      confidence: "high",
+      reason: "provider_terminal_failure",
+      safety_scope: "user_visible_and_tool_side_effects",
+    })
+  })
+
+  test("keeps candidate auto-retry for a retryable external stream disconnect", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_retryable_transport"),
+      traceID: MessageID.make("msg_retryable_transport"),
+      sessionID: SessionID.make("ses_retryable_transport"),
+      messageID: MessageID.make("msg_retryable_transport"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordProviderProgress({ attemptID: attempt.attemptID, at: 12, monotonicMs: 120 })
+    recorder.recordTransportFailure({
+      attemptID: attempt.attemptID,
+      at: 25,
+      monotonicMs: 250,
+      error: {
+        name: "TypeError",
+        message: "terminated",
+        cause: { name: "SocketError", message: "other side closed", code: "UND_ERR_SOCKET" },
+      },
+      evidence: ["provider_progress_seen", "iterator_error"],
+      retryable: true,
+    })
+
+    const summary = recorder.finalize({ completedAt: 26, monotonicMs: 260 })
+    expect(summary.classification).toBe("external_stream_disconnect")
+    expect(summary.retry_safety).toEqual({
+      recommendation: "candidate_safe_auto_retry",
+      confidence: "medium",
+      reason: "no_visible_output_or_tool_execution",
+      safety_scope: "user_visible_and_tool_side_effects",
+    })
+  })
+
   test("derives provider transport incident during partial tool input instead of tool failure", () => {
     const recorder = RunObservability.createRecorder({
       runID: RunObservability.RunID.make("run_partial_tool_input_disconnect"),
