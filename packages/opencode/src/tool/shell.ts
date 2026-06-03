@@ -493,6 +493,21 @@ export const ShellTool = Tool.define(
         Effect.gen(function* () {
           const handle = yield* spawner.spawn(cmd(input.shell, input.name, input.command, input.cwd, input.env))
 
+          // Close the spill write stream on scope exit no matter how the scope
+          // ends (exit, abort, timeout, interrupt, or defect). Registered before
+          // the consumer fork so the consumer is interrupted first (finalizers
+          // run LIFO), leaving no write racing the close.
+          yield* Effect.addFinalizer(() =>
+            Effect.promise(
+              () =>
+                new Promise<void>((resolve) => {
+                  if (!sink) return resolve()
+                  sink.end(() => resolve())
+                  sink.on("error", () => resolve())
+                }),
+            ),
+          )
+
           const throttle = yield* makeMetadataThrottle({
             intervalMillis: METADATA_FLUSH_INTERVAL_MS,
             byteThreshold: METADATA_FLUSH_BYTES,
@@ -602,16 +617,6 @@ export const ShellTool = Tool.define(
 
       if (meta.length > 0) {
         output += "\n\n<bash_metadata>\n" + meta.join("\n") + "\n</bash_metadata>"
-      }
-      if (sink) {
-        const stream = sink
-        yield* Effect.promise(
-          () =>
-            new Promise<void>((resolve) => {
-              stream.end(() => resolve())
-              stream.on("error", () => resolve())
-            }),
-        )
       }
 
       return {
