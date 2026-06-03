@@ -15,6 +15,7 @@ import { usePortableDraft } from "./portable-draft"
 import { usePinnedDraft } from "./pinned-draft"
 import { buildSlashRegistry } from "./command-text-part"
 import { tryPathBConversion } from "./command-space-trigger"
+import { matchSlashTrigger } from "./slash-trigger"
 import { rewriteRangeForCommandCopy, selectionTouchesCommandMark } from "./command-copy"
 import {
   createTextFragment,
@@ -33,13 +34,6 @@ import type { PopoverControllers } from "./popover-controllers"
 import type { PromptStore } from "./store-types"
 
 const NON_EMPTY_TEXT = /[^\s\u200B]/
-
-// Position-independent slash trigger. Group 1 is the consuming boundary (start,
-// whitespace, or a CJK script char) so the picker opens mid-sentence; group 2 is
-// the query. The boundary set deliberately excludes ASCII word chars and `.`/`:`,
-// and the query class stops at `/ \ :`, so paths/URLs/fractions (foo/bar, http://,
-// 2/3) never trigger. `slashOffset = match.index + match[1].length`.
-const SLASH_TRIGGER = /(^|[\s\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}])\/([^\s\/\\:]*)$/u
 
 export interface EditorInputDeps {
   store: PromptStore
@@ -291,14 +285,13 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
     if (!shellMode) {
       const beforeCursor = rawText.substring(0, cursorPosition)
       const atMatch = beforeCursor.match(/@(\S*)$/)
-      const slashMatch = beforeCursor.match(SLASH_TRIGGER)
+      const slashMatch = matchSlashTrigger(beforeCursor)
 
       if (atMatch) {
         popovers().atOnInput(atMatch[1])
         setStore("popover", "at")
       } else if (slashMatch) {
-        const slashOffset = (slashMatch.index ?? 0) + slashMatch[1].length
-        popovers().slashOnInput(slashMatch[2] ?? "", slashOffset > 0)
+        popovers().slashOnInput(slashMatch.query, slashMatch.offset > 0)
         setStore("popover", "slash")
       } else {
         closePopover()
@@ -347,8 +340,8 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
       // (space / CJK) is left in place — only the slash and query are replaced.
       let replaceStart: number | undefined
       if (part.type === "skill") {
-        const slashMatch = textBeforeCursor.match(SLASH_TRIGGER)
-        if (slashMatch) replaceStart = (slashMatch.index ?? 0) + slashMatch[1].length
+        const slashMatch = matchSlashTrigger(textBeforeCursor)
+        if (slashMatch) replaceStart = slashMatch.offset
       } else {
         const atMatch = textBeforeCursor.match(/@(\S*)$/)
         if (atMatch) replaceStart = atMatch.index ?? cursorPosition - atMatch[0].length
