@@ -246,15 +246,13 @@ export const layer: Layer.Layer<
       messages: MessageV2.WithParts[]
       model: Provider.Model
     }) {
-      // Match the serialization options that processCompaction() actually
-      // applies (see line 405-408). Estimating with full media + un-truncated
-      // tool output overstates the post-compaction size, which makes select()
-      // drop recent turns that would have fit through compaction anyway.
-      const msgs = yield* MessageV2.toModelMessagesEffect(input.messages, input.model, {
-        stripMedia: true,
-        toolOutputMaxChars: TOOL_OUTPUT_MAX_CHARS,
-        toolInputMaxChars: TOOL_INPUT_MAX_CHARS,
-      })
+      // Size the retained tail the way it actually re-enters the live prompt:
+      // prompt.ts serializes messages with no options, i.e. full media and
+      // un-truncated tool output. Only the head is summarized cheaply (stripMedia
+      // + truncation in processCompaction()); the tail is kept verbatim. Using
+      // those head options here undercounts the tail, so select()/splitTurn()
+      // keep recent turns that overflow the very next live prompt.
+      const msgs = yield* MessageV2.toModelMessagesEffect(input.messages, input.model)
       return Token.estimate(JSON.stringify(msgs))
     })
 
