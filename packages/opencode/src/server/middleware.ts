@@ -43,7 +43,10 @@ export const ErrorMiddleware: ErrorHandler = (err, c) => {
     error: err,
   })
   if (err instanceof Session.BusyError) {
-    return c.json(new NamedError.Unknown({ message: err.message }).toObject(), { status: 400 })
+    // A busy session is a conflict (the run is still in progress), not a bad
+    // request — surface it as 409 so callers can distinguish retry-later from
+    // a malformed request (which the validators already return as 400).
+    return c.json(new NamedError.Unknown({ message: err.message }).toObject(), { status: 409 })
   }
   if (err instanceof HTTPException) return err.getResponse()
   const message = err instanceof Error && err.stack ? err.stack : err.toString()

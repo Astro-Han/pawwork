@@ -1,5 +1,6 @@
 import { resolver } from "hono-openapi"
 import z from "zod"
+import { NamedError } from "@opencode-ai/util/error"
 import { NotFoundError } from "../storage/db"
 
 export const ERRORS = {
@@ -26,6 +27,16 @@ export const ERRORS = {
     content: {
       "application/json": {
         schema: resolver(NotFoundError.Schema),
+      },
+    },
+  },
+  409: {
+    description: "Conflict",
+    content: {
+      "application/json": {
+        // ErrorMiddleware wraps Session.BusyError as NamedError.Unknown, so a
+        // busy-session conflict serializes to the Unknown { name, data } shape.
+        schema: resolver(NamedError.Unknown.Schema),
       },
     },
   },

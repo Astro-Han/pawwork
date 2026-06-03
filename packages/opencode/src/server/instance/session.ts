@@ -772,7 +772,7 @@ export const SessionRoutes = lazy(() =>
               },
             },
           },
-          ...errors(400, 404),
+          ...errors(400, 404, 409),
         },
       }),
       validator(
@@ -811,7 +811,7 @@ export const SessionRoutes = lazy(() =>
               },
             },
           },
-          ...errors(400, 404),
+          ...errors(400, 404, 409),
         },
       }),
       validator(
@@ -886,7 +886,7 @@ export const SessionRoutes = lazy(() =>
               },
             },
           },
-          ...errors(400, 404),
+          ...errors(400, 404, 409),
         },
       }),
       validator(
@@ -927,7 +927,7 @@ export const SessionRoutes = lazy(() =>
               },
             },
           },
-          ...errors(400, 404),
+          ...errors(400, 404, 409),
         },
       }),
       validator(
@@ -1275,7 +1275,7 @@ export const SessionRoutes = lazy(() =>
               },
             },
           },
-          ...errors(400, 404),
+          ...errors(400, 404, 409),
         },
       }),
       validator(
@@ -1521,7 +1521,7 @@ export const SessionRoutes = lazy(() =>
               },
             },
           },
-          ...errors(400, 404),
+          ...errors(400, 404, 409),
         },
       }),
       validator(
@@ -1553,7 +1553,7 @@ export const SessionRoutes = lazy(() =>
               },
             },
           },
-          ...errors(400, 404),
+          ...errors(400, 404, 409),
         },
       }),
       validator(
@@ -1588,7 +1588,7 @@ export const SessionRoutes = lazy(() =>
               },
             },
           },
-          ...errors(400, 404),
+          ...errors(400, 404, 409),
         },
       }),
       validator(

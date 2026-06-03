@@ -108,4 +108,33 @@ describe("session core routes", () => {
       },
     })
   })
+
+  test("declares 409 conflict on every busy-guarded session route", async () => {
+    // Routes that reject a busy session with Session.BusyError (mapped to 409
+    // by ErrorMiddleware) must advertise the 409 in their contract.
+    const busyOps = new Set([
+      "session.turnChangeUndo",
+      "session.turnChangeRedo",
+      "session.turnChangesAggregateUndo",
+      "session.turnChangesAggregateRedo",
+      "session.deleteMessage",
+      "session.shell",
+      "session.revert",
+      "session.unrevert",
+    ])
+
+    const spec = await Server.openapi()
+    const seen = new Set<string>()
+    for (const item of Object.values(spec.paths ?? {})) {
+      for (const method of ["get", "post", "put", "delete", "patch"] as const) {
+        const operation = item?.[method]
+        const operationId = operation?.operationId
+        if (!operationId || !busyOps.has(operationId)) continue
+        seen.add(operationId)
+        expect(operation.responses?.["409"], operationId).toBeDefined()
+      }
+    }
+
+    expect(seen).toEqual(busyOps)
+  })
 })
