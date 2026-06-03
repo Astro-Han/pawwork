@@ -6,7 +6,7 @@
 
 import { describe, expect, test } from "bun:test"
 import type { Prompt, TextPart, FileAttachmentPart, AgentPart, ImageAttachmentPart } from "@/context/prompt"
-import { DEFAULT_PROMPT } from "@/context/prompt"
+import { DEFAULT_PROMPT } from "@/context/prompt-equality"
 import type { CommandDescriptor } from "./command-text-part"
 import { prependCommandMark } from "./command-prepend"
 

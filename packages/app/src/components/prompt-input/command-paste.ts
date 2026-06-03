@@ -13,7 +13,7 @@ import type {
   ImageAttachmentPart,
   Prompt,
 } from "@/context/prompt"
-import { isStructurallyEmpty } from "@/context/prompt"
+import { isStructurallyEmpty } from "@/context/prompt-equality"
 import type { CommandDescriptor } from "./command-text-part"
 import { tryParseLeadingCommandFromText } from "./command-text-part"
 

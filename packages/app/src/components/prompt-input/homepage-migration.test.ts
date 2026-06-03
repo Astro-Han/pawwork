@@ -6,7 +6,7 @@ import {
   type LegacyHomepagePromptStore,
 } from "./homepage-migration"
 import { createPortableDraftOwner } from "./portable-draft"
-import { DEFAULT_PROMPT } from "@/context/prompt"
+import { DEFAULT_PROMPT } from "@/context/prompt-equality"
 
 // ---------------------------------------------------------------------------
 // Helpers

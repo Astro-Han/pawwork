@@ -1,14 +1,8 @@
 // DOM ↔ Parts bidirectional serialization for the contenteditable composer.
 // Pure functions, no Solid reactivity. Pairs with editor-dom (cursor primitives).
 
-import {
-  type AgentPart,
-  type CommandSource,
-  type FileAttachmentPart,
-  type TextPart,
-  type Prompt,
-  DEFAULT_PROMPT,
-} from "@/context/prompt"
+import type { AgentPart, CommandSource, FileAttachmentPart, TextPart, Prompt } from "@/context/prompt"
+import { DEFAULT_PROMPT } from "@/context/prompt-equality"
 import { resolveCommandIconSvg } from "@opencode-ai/ui/command-icon"
 import { createTextFragment } from "./editor-dom"
 import "./command-pill.css"
