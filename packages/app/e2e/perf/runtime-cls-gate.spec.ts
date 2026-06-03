@@ -604,7 +604,6 @@ test.describe("runtime CLS source gate", () => {
 
       const result = await test.step("grow the question dock with a multi-line custom answer under the probe", async () => {
         await startRuntimeClsProbe(page, "question-dock-growth", { targetMessageID })
-        await customInput.click()
         await customInput.fill(QUESTION_CUSTOM_GROWTH_TEXT)
         await expect.poll(async () => readDockHeight(page)).toBeGreaterThan(beforeHeight + 16)
         await settleFrames(page, 6)
