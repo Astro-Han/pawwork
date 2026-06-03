@@ -434,6 +434,27 @@ describe("ProviderTransform.options - azure gpt-5.5 reasoningEffort", () => {
     expect(result.reasoningEffort).toBeUndefined()
     expect(result.reasoningSummary).toBe("auto")
   })
+
+  // Guard must be scoped to gpt-5.5 only; other azure gpt-5.x keep reasoningEffort.
+  test("azure gpt-5.1 should still set reasoningEffort to medium", () => {
+    const result = ProviderTransform.options({
+      model: createAzureModel("gpt-5.1"),
+      sessionID,
+      providerOptions: {},
+    })
+    expect(result.reasoningEffort).toBe("medium")
+    expect(result.reasoningSummary).toBe("auto")
+  })
+
+  test("azure gpt-5.2 should still set reasoningEffort to medium", () => {
+    const result = ProviderTransform.options({
+      model: createAzureModel("gpt-5.2"),
+      sessionID,
+      providerOptions: {},
+    })
+    expect(result.reasoningEffort).toBe("medium")
+    expect(result.reasoningSummary).toBe("auto")
+  })
 })
 
 describe("ProviderTransform.options - gateway", () => {
