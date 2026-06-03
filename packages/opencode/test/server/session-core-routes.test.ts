@@ -140,4 +140,30 @@ describe("session core routes", () => {
 
     expect(seen).toEqual(busyOps)
   })
+
+  test("parses ?roots=false as false instead of coercing it to true", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const root = await svc.create({ title: "roots-false-root" })
+        const child = await svc.create({ title: "roots-false-child", parentID: root.id })
+        try {
+          const app = Server.Default().app
+          // z.coerce.boolean() turned "false" into true, hiding every child session;
+          // QueryBoolean must parse ?roots=false as false so the filter stays disabled.
+          const res = await app.request("/session?roots=false", {
+            headers: { "x-opencode-directory": tmp.path },
+          })
+          expect(res.status).toBe(200)
+          const ids = (await res.json()).map((session: { id: string }) => session.id)
+          expect(ids).toContain(root.id)
+          expect(ids).toContain(child.id)
+        } finally {
+          await svc.remove(child.id).catch(() => undefined)
+          await svc.remove(root.id).catch(() => undefined)
+        }
+      },
+    })
+  })
 })
