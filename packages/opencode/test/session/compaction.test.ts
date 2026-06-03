@@ -2020,6 +2020,31 @@ describe("SessionNs.getUsage", () => {
     expect(result.tokens.total).toBe(1500)
   })
 
+  test("clamps negative output to zero when reasoning exceeds output tokens", () => {
+    const model = createModel({ context: 100_000, output: 32_000 })
+    const result = SessionNs.getUsage({
+      model,
+      usage: {
+        inputTokens: 1000,
+        outputTokens: 100,
+        totalTokens: 1100,
+        inputTokenDetails: {
+          noCacheTokens: undefined,
+          cacheReadTokens: undefined,
+          cacheWriteTokens: undefined,
+        },
+        outputTokenDetails: {
+          textTokens: undefined,
+          reasoningTokens: 150,
+        },
+      },
+    })
+
+    // output = outputTokens - reasoningTokens = 100 - 150 underflows; clamp to 0, not -50
+    expect(result.tokens.output).toBe(0)
+    expect(result.tokens.reasoning).toBe(150)
+  })
+
   test("does not double count reasoning tokens in cost", () => {
     const model = createModel({
       context: 100_000,
