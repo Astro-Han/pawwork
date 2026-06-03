@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import fs from "fs/promises"
 import path from "path"
-import { Effect } from "effect"
+import { Effect, Layer } from "effect"
+import { FetchHttpClient } from "effect/unstable/http"
+import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { Instruction, projectFiles } from "../../src/session/instruction"
 import { Config } from "../../src/config"
@@ -1400,6 +1402,84 @@ describe("Instruction.systemPaths PawWork runtime config dir", () => {
               expect(rules).toContain(
                 `Instructions from: ${path.join(pawworkConfig.path, "rules", "fallback.md")}\n# Fallback Config`,
               )
+            }),
+          ),
+        ),
+    })
+  })
+})
+
+describe("Instruction findUp lookup errors", () => {
+  // findUp walks the directory tree calling fs.exists, which propagates I/O errors
+  // such as EACCES on an unreadable ancestor. Every other I/O in instruction.ts
+  // degrades to an empty result on failure; the project-level findUp walk must do
+  // the same so a single unreadable ancestor cannot crash prompt construction.
+  const failingFindUpFs = Layer.effect(
+    AppFileSystem.Service,
+    Effect.gen(function* () {
+      const real = yield* AppFileSystem.Service
+      return AppFileSystem.Service.of({
+        ...real,
+        findUp: () => Effect.fail(new AppFileSystem.FileSystemError({ method: "findUp" })),
+      })
+    }),
+  ).pipe(Layer.provide(AppFileSystem.defaultLayer))
+
+  const failingLayer = Instruction.layer.pipe(
+    Layer.provide(Config.defaultLayer),
+    Layer.provide(failingFindUpFs),
+    Layer.provide(FetchHttpClient.layer),
+  )
+
+  const runFailing = <A>(effect: Effect.Effect<A, any, Instruction.Service>) =>
+    Effect.runPromise(effect.pipe(Effect.provide(failingLayer)))
+
+  let originalDisableProjectConfig: string | undefined
+  beforeEach(() => {
+    originalDisableProjectConfig = process.env.OPENCODE_DISABLE_PROJECT_CONFIG
+    delete process.env.OPENCODE_DISABLE_PROJECT_CONFIG
+  })
+  afterEach(() => {
+    if (originalDisableProjectConfig === undefined) delete process.env.OPENCODE_DISABLE_PROJECT_CONFIG
+    else process.env.OPENCODE_DISABLE_PROJECT_CONFIG = originalDisableProjectConfig
+  })
+
+  test("systemPaths() degrades to no project match when findUp fails instead of crashing", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "AGENTS.md"), "# Root Instructions")
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: () =>
+        runFailing(
+          Instruction.Service.use((svc) =>
+            Effect.gen(function* () {
+              const paths = yield* svc.systemPaths()
+              // The project AGENTS.md would have been discovered by findUp; with findUp
+              // failing the walk yields nothing rather than propagating the error.
+              expect(paths.has(path.join(tmp.path, "AGENTS.md"))).toBe(false)
+            }),
+          ),
+        ),
+    })
+  })
+
+  test("sources() does not crash when findUp fails", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "AGENTS.md"), "# Root Instructions")
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: () =>
+        runFailing(
+          Instruction.Service.use((svc) =>
+            Effect.gen(function* () {
+              const sources = yield* svc.sources()
+              expect(Array.isArray(sources)).toBe(true)
             }),
           ),
         ),

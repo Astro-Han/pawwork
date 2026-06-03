@@ -160,7 +160,9 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | Config.S
         // The first project-level match wins so we don't stack AGENTS.md/CLAUDE.md from every ancestor.
         if (!Flag.OPENCODE_DISABLE_PROJECT_CONFIG) {
           for (const file of FILES()) {
-            const matches = yield* fs.findUp(file, Instance.directory, Instance.worktree)
+            const matches = yield* fs
+              .findUp(file, Instance.directory, Instance.worktree)
+              .pipe(Effect.catch(() => Effect.succeed([] as string[])))
             const stats = yield* Effect.forEach(matches, (item) =>
               fs.isFile(item).pipe(Effect.map((isFile) => ({ item, isFile }))),
             )
@@ -245,7 +247,9 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | Config.S
         if (!Flag.OPENCODE_DISABLE_PROJECT_CONFIG) {
           let projectLoaded = false
           for (const file of FILES()) {
-            const matches = yield* fs.findUp(file, Instance.directory, Instance.worktree)
+            const matches = yield* fs
+              .findUp(file, Instance.directory, Instance.worktree)
+              .pipe(Effect.catch(() => Effect.succeed([] as string[])))
             const stats = yield* Effect.forEach(matches, (item) =>
               fs.isFile(item).pipe(Effect.map((isFile) => ({ item, isFile }))),
             )
