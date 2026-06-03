@@ -770,12 +770,22 @@ export namespace FileWatcher {
             }
 
             if (ctx.project.vcs === "git") {
-              const result = yield* git.run(["rev-parse", "--git-dir"], {
-                cwd: ctx.project.worktree,
-              })
-              const vcsDir =
-                result.exitCode === 0 ? path.resolve(ctx.project.worktree, result.text().trim()) : undefined
-              if (vcsDir && !cfgIgnores.includes(".git") && !cfgIgnores.includes(vcsDir)) {
+              // Resolve git metadata roots from ctx.directory (the active session dir), the same
+              // anchor Vcs.state reads the branch from. ctx.project.worktree points at the MAIN
+              // repository for a linked worktree, so its .git/HEAD never changes on a per-worktree
+              // checkout. A linked worktree keeps HEAD/index in the per-worktree --git-dir while
+              // packed-refs/refs live in the shared --git-common-dir; watch both so branch and ref
+              // events fire. They coincide in a normal repo, so dedupe to a single subscription.
+              const result = yield* git.run(
+                ["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"],
+                { cwd: ctx.directory },
+              )
+              const vcsDirs =
+                result.exitCode === 0
+                  ? [...new Set(result.text().trim().split("\n").map((line) => line.trim()).filter(Boolean))]
+                  : []
+              for (const vcsDir of vcsDirs) {
+                if (cfgIgnores.includes(".git") || cfgIgnores.includes(vcsDir)) continue
                 const ignore = vcsWatcherIgnoreEntries(yield* Effect.promise(() => readdir(vcsDir).catch(() => [])))
                 log.info(
                   "watcher subscription configured",
