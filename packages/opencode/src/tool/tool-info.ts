@@ -52,8 +52,13 @@ export const Parameters = Schema.Struct({
 
 // Activation is derived from durable conversation history, not a side state: a
 // completed tool_info(name=X) call means X is activated for the rest of that
-// history. Compaction protects tool_info parts (see compaction.ts
-// PRUNE_PROTECTED_TOOLS) so activation survives pruning without a parallel state.
+// history. The caller MUST pass the FULL message stream, not the compaction-filtered
+// view: filterCompacted drops every message before the retained tail, so an activation
+// older than the tail would vanish from a filtered list and its deferred tool would
+// silently re-lock mid-session. Deriving from the full durable history keeps activation
+// correct across compaction without any parallel side state. (The prune path also keeps
+// tool_info parts via compaction.ts PRUNE_PROTECTED_TOOLS, but activation no longer
+// depends on that — prune preserves the part regardless, and we read only its input.)
 export function deriveActivatedTools(messages: MessageV2.WithParts[]): Set<string> {
   const activated = new Set<string>()
   for (const message of messages) {

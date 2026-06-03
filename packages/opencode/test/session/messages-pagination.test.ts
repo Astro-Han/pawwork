@@ -4,6 +4,7 @@ import path from "path"
 import { Instance } from "../../src/project/instance"
 import { Session as SessionNs } from "../../src/session"
 import { MessageV2 } from "../../src/session/message-v2"
+import { deriveActivatedTools } from "../../src/tool/tool-info"
 import { MessageID, PartID, type SessionID } from "../../src/session/schema"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { Log } from "../../src/util"
@@ -122,6 +123,25 @@ async function addCompactionPart(sessionID: SessionID, messageID: MessageID, tai
     type: "compaction",
     auto: true,
     tail_start_id: tailStartID,
+  } as any)
+}
+
+async function addToolInfoPart(sessionID: SessionID, messageID: MessageID, name: string) {
+  await svc.updatePart({
+    id: PartID.ascending(),
+    sessionID,
+    messageID,
+    type: "tool",
+    callID: `call-${PartID.ascending()}`,
+    tool: "tool_info",
+    state: {
+      status: "completed",
+      input: { name },
+      output: `Loaded tool: ${name}`,
+      title: `Loaded tool: ${name}`,
+      metadata: { activated: name },
+      time: { start: Date.now(), end: Date.now() },
+    },
   } as any)
 }
 
@@ -1072,6 +1092,40 @@ describe("MessageV2.filterCompacted", () => {
     const result = MessageV2.filterCompacted(items)
     expect(result).toHaveLength(1)
     expect(result[0].info.id).toBe(id)
+  })
+
+  test("deferred-tool activation survives compaction truncation", async () => {
+    await Instance.provide({
+      directory: root,
+      fn: async () => {
+        const session = await svc.create({})
+
+        // An early turn activates a deferred tool via tool_info; the conversation
+        // then continues and a compaction retains only a later tail.
+        const activate = await addUser(session.id, "activate")
+        const activateAssistant = await addAssistant(session.id, activate)
+        await addToolInfoPart(session.id, activateAssistant, "enter-worktree")
+
+        const retained = await addUser(session.id, "retained")
+        await addAssistant(session.id, retained)
+        const boundary = await addUser(session.id, "compact")
+        await addCompactionPart(session.id, boundary, retained)
+
+        const full = Array.from(MessageV2.stream(session.id))
+        const filtered = MessageV2.filterCompacted(full)
+
+        // The compaction truncates the activating turn out of the model-facing view,
+        // so activation derived from the filtered list (the old wiring) loses it.
+        expect(filtered.map((m) => m.info.id)).not.toContain(activateAssistant)
+        expect(deriveActivatedTools(filtered).has("enter-worktree")).toBe(false)
+
+        // Deriving from the full durable history still sees the activation, so the
+        // deferred tool stays unlocked instead of silently re-locking mid-session.
+        expect(deriveActivatedTools(full).has("enter-worktree")).toBe(true)
+
+        await svc.remove(session.id)
+      },
+    })
   })
 })
 
