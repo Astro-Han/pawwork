@@ -286,11 +286,16 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
       const beforeCursor = rawText.substring(0, cursorPosition)
       const atMatch = beforeCursor.match(/@(\S*)$/)
       const slashMatch = matchSlashTrigger(beforeCursor)
+      // When a leading marked command owns the turn (Path D / session.command),
+      // a "/" in its args must NOT open the skill picker: that submit path drops
+      // structured skill parts, so an inserted chip would silently vanish. The
+      // slash stays literal command-argument text instead.
+      const leadingCommand = rawParts[0]?.type === "text" && !!rawParts[0].command
 
       if (atMatch) {
         popovers().atOnInput(atMatch[1])
         setStore("popover", "at")
-      } else if (slashMatch) {
+      } else if (slashMatch && !leadingCommand) {
         popovers().slashOnInput(slashMatch.query, slashMatch.offset > 0)
         setStore("popover", "slash")
       } else {
