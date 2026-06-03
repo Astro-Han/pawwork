@@ -540,15 +540,24 @@ describe("Vcs init", () => {
   // Regression for #22771 (thanks upstream, Dax). init() must fork the branch
   // resolution into the layer scope and return immediately rather than block the
   // caller on git subprocesses. With the git latch held closed a blocking init()
-  // never resolves; a forked init() returns right away.
+  // never resolves; a forked init() returns right away yet still drives the
+  // materialization in the background.
   test("init() returns without waiting for git branch resolution", async () => {
     await using tmp = await tmpdir({ git: true })
     const latch = await Effect.runPromise(Deferred.make<void>())
+    // Resolved by the mock git.branch once the forked materialization actually
+    // reaches it — proves init() forked the work rather than becoming a no-op.
+    const entered = await Effect.runPromise(Deferred.make<void>())
 
     const notCalled = () => Effect.die("git method not exercised by init()")
     const git: Git.Interface = {
       run: notCalled,
-      branch: () => Deferred.await(latch).pipe(Effect.as("main")),
+      branch: () =>
+        Effect.gen(function* () {
+          yield* Deferred.succeed(entered, void 0)
+          yield* Deferred.await(latch)
+          return "main"
+        }),
       prefix: notCalled,
       defaultBranch: () => Deferred.await(latch).pipe(Effect.as(undefined)),
       hasHead: notCalled,
@@ -575,11 +584,19 @@ describe("Vcs init", () => {
         directory: tmp.path,
         fn: () => runtime.runPromise(Vcs.Service.use((svc) => svc.init())),
       })
-      const outcome = await Promise.race([
+      const returned = await Promise.race([
         init.then(() => "returned" as const),
         Bun.sleep(2_000).then(() => "blocked" as const),
       ])
-      expect(outcome).toBe("returned")
+      expect(returned).toBe("returned")
+
+      // The forked fiber must still drive the materialization to the (latched)
+      // git calls, so init() returning is not a silent no-op.
+      const started = await Promise.race([
+        Effect.runPromise(Deferred.await(entered)).then(() => "started" as const),
+        Bun.sleep(2_000).then(() => "idle" as const),
+      ])
+      expect(started).toBe("started")
     } finally {
       await Effect.runPromise(Deferred.succeed(latch, void 0))
       await runtime.dispose()
