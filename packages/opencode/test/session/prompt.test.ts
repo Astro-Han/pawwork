@@ -597,6 +597,137 @@ describe("session.prompt regression", () => {
       void server.stop(true)
     }
   })
+
+  test("loop still continues when an interrupted orphan coexists with a real tool call", async () => {
+    let calls = 0
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const url = new URL(req.url)
+        if (!url.pathname.endsWith("/chat/completions")) {
+          return new Response("not found", { status: 404 })
+        }
+        calls++
+        return new Response(chat("continued"), {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        })
+      },
+    })
+
+    try {
+      await using tmp = await tmpdir({
+        git: true,
+        init: async (dir) => {
+          await Bun.write(
+            path.join(dir, "opencode.json"),
+            JSON.stringify({
+              $schema: "https://opencode.ai/config.json",
+              enabled_providers: ["alibaba"],
+              provider: {
+                alibaba: {
+                  options: {
+                    apiKey: "test-key",
+                    baseURL: `${server.url.origin}/v1`,
+                  },
+                },
+              },
+              agent: {
+                build: {
+                  model: "alibaba/qwen-plus",
+                },
+              },
+            }),
+          )
+        },
+      })
+
+      await Instance.provide({
+        directory: tmp.path,
+        fn: () =>
+          run(
+            Effect.gen(function* () {
+              const prompt = yield* SessionPrompt.Service
+              const sessions = yield* Session.Service
+              const session = yield* sessions.create({ title: "Orphan plus real tool" })
+              const model = { providerID: ProviderID.make("alibaba"), modelID: ModelID.make("qwen-plus") }
+
+              const user = yield* sessions.updateMessage({
+                id: MessageID.ascending(),
+                role: "user",
+                sessionID: session.id,
+                agent: "build",
+                model,
+                time: { created: Date.now() },
+              })
+              yield* sessions.updatePart({
+                id: PartID.ascending(),
+                messageID: user.id,
+                sessionID: session.id,
+                type: "text",
+                text: "do something",
+              })
+
+              const assistant: MessageV2.Assistant = {
+                id: MessageID.ascending(),
+                role: "assistant",
+                sessionID: session.id,
+                parentID: user.id,
+                mode: "build",
+                agent: "build",
+                path: { cwd: tmp.path, root: tmp.path },
+                cost: 0,
+                tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+                modelID: model.modelID,
+                providerID: model.providerID,
+                time: { created: Date.now() },
+                finish: "stop",
+              }
+              yield* sessions.updateMessage(assistant)
+              // An interrupted orphan...
+              yield* sessions.updatePart({
+                id: PartID.ascending(),
+                messageID: assistant.id,
+                sessionID: session.id,
+                type: "tool",
+                callID: "interrupted-call",
+                tool: "edit",
+                state: {
+                  status: "error",
+                  input: {},
+                  error: "Tool execution aborted",
+                  metadata: { interrupted: true },
+                  time: { start: 1, end: 2 },
+                },
+              })
+              // ...alongside a real, completed tool call. The real call must keep the
+              // loop alive, so the orphan exclusion must not suppress continuation.
+              yield* sessions.updatePart({
+                id: PartID.ascending(),
+                messageID: assistant.id,
+                sessionID: session.id,
+                type: "tool",
+                callID: "real-call",
+                tool: "bash",
+                state: {
+                  status: "completed",
+                  input: {},
+                  output: "ok",
+                  title: "done",
+                  metadata: {},
+                  time: { start: 1, end: 2 },
+                },
+              })
+
+              yield* prompt.loop({ sessionID: session.id })
+              expect(calls).toBeGreaterThan(0)
+            }),
+          ),
+      })
+    } finally {
+      void server.stop(true)
+    }
+  })
 })
 
 describe("session.prompt agent variant", () => {
