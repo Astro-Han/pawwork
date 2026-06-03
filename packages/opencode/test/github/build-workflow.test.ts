@@ -128,7 +128,9 @@ describe("release workflow", () => {
       })
       expect(selectBuildTarget?.permissions).toBeUndefined()
       expect(createSnapshotTag?.permissions).toEqual({ contents: "write" })
-      expect(buildElectron?.permissions).toEqual({ actions: "read", contents: "write" })
+      // actions: write lets the tail publish step dispatch the R2 mirror via
+      // workflow_dispatch (GITHUB_TOKEN publishes fire no release:published).
+      expect(buildElectron?.permissions).toEqual({ actions: "write", contents: "write" })
       expect(cleanupSnapshotTag?.permissions).toEqual({ contents: "write" })
       expect(
         Object.entries(parsed.jobs ?? {})
