@@ -17,8 +17,20 @@
 // provenance marker (`pawwork-<os>-<arch>-<version>.commit`) holding its build
 // commit. The publisher publishes only when EVERY expected marker is present and
 // they all agree. Because each target writes its own distinct marker — never a
-// shared mutable field — there is no claim race: concurrent targets built from
-// different commits leave disagreeing markers, and no run ever sees "all agree".
+// shared mutable field — concurrent targets built from different commits leave
+// disagreeing markers and no run ever sees "all agree"; both fail closed.
+//
+// Irreducible residual: GitHub has no atomic compare-and-swap across assets, and
+// every artifact (installer, latest*.yml, marker) is uploaded in a separate
+// step, so there is no transaction spanning "read markers" and "publish". If a
+// target is RE-RUN from a different commit and its assets are clobbered in the
+// sub-second window between another target reading "all agree" and its publish
+// PATCH, a mixed-source release could still slip through. This requires an
+// operator rerunning a target from a different commit for the same version at
+// that exact instant; the realistic cases (dev advancing between dispatches; two
+// fresh targets from different commits) are fully closed. Fully eliminating it
+// would require encoding the commit in the asset names (breaks the updater, the
+// R2 mirror, and the website download links) or abandoning multi-dispatch.
 
 import {
   normalizeTag,
@@ -35,6 +47,13 @@ const FETCH_TIMEOUT_MS = 30_000
 // and leave the release a draft with no later run to retry the publish.
 const WAIT_POLL_ATTEMPTS = 6
 const WAIT_POLL_INTERVAL_MS = 5_000
+// Retry the marker create on a transient 422 already_exists (delete not yet
+// visible / concurrent same-target run) so it never leaves a complete release
+// stuck as a draft.
+const MARKER_UPLOAD_ATTEMPTS = 4
+const MARKER_UPLOAD_RETRY_MS = 2_000
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 type ApiAsset = { name: string; url: string; browser_download_url: string }
 type ApiRelease = GithubRelease & { id: number; upload_url: string; assets: ApiAsset[] }
@@ -153,23 +172,40 @@ async function fetchAssetText(release: ApiRelease, name: string): Promise<string
   return res.text()
 }
 
+async function deleteExistingAsset(repo: string, releaseId: number, name: string) {
+  const res = await ghFetch(`${GITHUB_API}/repos/${repo}/releases/${releaseId}/assets?per_page=100`, {
+    accept: "application/vnd.github+json",
+  })
+  if (!res.ok) throw new Error(`failed to list assets for release ${releaseId}: ${res.status} ${res.statusText}`)
+  const existing = ((await res.json()) as ApiAsset[]).find((entry) => entry.name === name)
+  if (!existing) return
+  const del = await ghFetch(existing.url, { method: "DELETE", accept: "application/vnd.github+json" })
+  if (!del.ok && del.status !== 404) throw new Error(`failed to replace marker ${name}: ${del.status} ${del.statusText}`)
+}
+
 // Upload this target's provenance marker via the release upload_url (draft-safe:
 // the by-tag asset endpoints 404 on drafts, the release id/upload_url do not).
-// Delete any existing same-named asset first so a re-run overwrites cleanly.
+// Asset names are unique per release, so we delete any same-named asset first.
+// GitHub can still answer the create with 422 already_exists (delete not yet
+// visible, or a concurrent same-target run); retry by re-deleting so a transient
+// clash never leaves the release stuck as a complete-but-unpublished draft.
 async function putProvenanceMarker(repo: string, release: ApiRelease, name: string, sha: string) {
-  const existing = release.assets.find((entry) => entry.name === name)
-  if (existing) {
-    const del = await ghFetch(existing.url, { method: "DELETE", accept: "application/vnd.github+json" })
-    if (!del.ok && del.status !== 404) throw new Error(`failed to replace marker ${name}: ${del.status} ${del.statusText}`)
-  }
   const uploadBase = release.upload_url.replace(/\{[^}]*\}$/, "")
-  const res = await ghFetch(`${uploadBase}?name=${encodeURIComponent(name)}`, {
-    method: "POST",
-    accept: "application/vnd.github+json",
-    contentType: "text/plain",
-    body: sha,
-  })
-  if (!res.ok) throw new Error(`failed to upload marker ${name}: ${res.status} ${res.statusText}`)
+  for (let attempt = 1; ; attempt += 1) {
+    await deleteExistingAsset(repo, release.id, name)
+    const res = await ghFetch(`${uploadBase}?name=${encodeURIComponent(name)}`, {
+      method: "POST",
+      accept: "application/vnd.github+json",
+      contentType: "text/plain",
+      body: sha,
+    })
+    if (res.ok) return
+    if (res.status === 422 && attempt < MARKER_UPLOAD_ATTEMPTS) {
+      await sleep(MARKER_UPLOAD_RETRY_MS)
+      continue
+    }
+    throw new Error(`failed to upload marker ${name}: ${res.status} ${res.statusText}`)
+  }
 }
 
 async function readProvenance(release: ApiRelease, expected: string[]): Promise<Record<string, string>> {
@@ -204,8 +240,6 @@ async function gh(args: string[]) {
 async function dispatchMirror(repo: string, tag: string, ref: string) {
   await gh(["workflow", "run", "mirror-release-to-r2.yml", "--repo", repo, "--ref", ref, "-f", `tag=${tag}`])
 }
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 async function main() {
   const repo = requireEnv("GH_REPO")
