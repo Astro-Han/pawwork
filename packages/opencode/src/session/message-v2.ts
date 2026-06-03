@@ -1336,9 +1336,11 @@ export function fromError(
         },
         { cause: e },
       ).toObject()
-    case e instanceof Error:
-      return new NamedError.Unknown({ message: errorMessage(e) }, { cause: e }).toObject()
     default:
+      // A provider error can arrive raw or wrapped in an Error (the stream
+      // "error" part throws value.error; the iterator-throw mapper hands back a
+      // value). Run the stream parser for both before falling back to Unknown so
+      // Error-wrapped payloads still classify instead of being swallowed.
       try {
         const parsed = ProviderError.parseStreamError(e)
         if (parsed) {
@@ -1364,7 +1366,10 @@ export function fromError(
           ).toObject()
         }
       } catch {}
-      return new NamedError.Unknown({ message: JSON.stringify(e) }, { cause: e }).toObject()
+      return new NamedError.Unknown(
+        { message: e instanceof Error ? errorMessage(e) : JSON.stringify(e) },
+        { cause: e },
+      ).toObject()
   }
 }
 
