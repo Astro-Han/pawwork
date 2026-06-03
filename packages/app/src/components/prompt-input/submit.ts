@@ -112,6 +112,10 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const images = input.imageAttachments().slice()
     const mode = input.mode()
     const creatingNewSession = isNewSession()
+    // A prompt carrying an inline skill chip flows through promptAsync. Its
+    // flattened text can start with "/name" (chip at offset 0), which would
+    // otherwise be misrouted to the legacy session.command endpoint below.
+    const hasSkillPart = currentPrompt.some((part) => part.type === "skill")
 
     if (text.trim().length === 0 && images.length === 0 && input.commentCount() === 0) {
       if (input.working()) abort(event instanceof KeyboardEvent ? "emptyEnter" : "stopButton")
@@ -123,6 +127,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         text,
         submitReady: actionReady(),
         commandsReady: sync.data.command_ready,
+        hasSkillPart,
       })
     ) {
       return
@@ -393,7 +398,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       }
     }
 
-    if (text.startsWith("/")) {
+    if (text.startsWith("/") && !hasSkillPart) {
       const [cmdName, ...args] = text.split(" ")
       const commandName = cmdName.slice(1)
       const customCommand = sync.data.command.find((c) => c.name === commandName)

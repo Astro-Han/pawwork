@@ -86,8 +86,11 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
     }
   }
 
+  // A draft carrying an inline skill chip flows through promptAsync below; its
+  // text can start with "/name", which must not be misrouted to session.command.
+  const hasSkillPart = input.draft.prompt.some((part) => part.type === "skill")
   const [head, ...tail] = text.split(" ")
-  const cmd = head?.startsWith("/") ? head.slice(1) : undefined
+  const cmd = !hasSkillPart && head?.startsWith("/") ? head.slice(1) : undefined
   if (cmd && input.sync.data.command.find((item) => item.name === cmd)) {
     setBusy()
     try {
