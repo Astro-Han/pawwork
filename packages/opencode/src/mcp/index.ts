@@ -11,6 +11,7 @@ import {
   ToolListChangedNotificationSchema,
 } from "@modelcontextprotocol/sdk/types.js"
 import { Config } from "../config/config"
+import { NotFoundError } from "../storage/db"
 import { Log } from "@opencode-ai/core/util/log"
 import { NamedError } from "@opencode-ai/util/error"
 import z from "zod/v4"
@@ -655,11 +656,7 @@ export namespace MCP {
       })
 
       const connect = Effect.fn("MCP.connect")(function* (name: string) {
-        const mcp = yield* getMcpConfig(name)
-        if (!mcp) {
-          log.error("MCP config not found or invalid", { name })
-          return
-        }
+        const mcp = yield* requireMcpConfig(name)
         yield* createAndStore(name, { ...mcp, enabled: true })
       })
 
@@ -769,6 +766,12 @@ export namespace MCP {
         const cfg = yield* cfgSvc.get()
         const mcpConfig = cfg.mcp?.[mcpName]
         if (!mcpConfig || !isMcpConfigured(mcpConfig)) return undefined
+        return mcpConfig
+      })
+
+      const requireMcpConfig = Effect.fnUntraced(function* (mcpName: string) {
+        const mcpConfig = yield* getMcpConfig(mcpName)
+        if (!mcpConfig) throw new NotFoundError({ message: `MCP server not found: ${mcpName}` })
         return mcpConfig
       })
 
