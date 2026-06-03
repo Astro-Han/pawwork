@@ -430,7 +430,10 @@ export function plan(input: { slug: string; time: { created: number } }) {
 export const getUsage = (input: { model: Provider.Model; usage: LanguageModelUsage; metadata?: ProviderMetadata }) => {
   const safe = (value: number) => {
     if (!Number.isFinite(value)) return 0
-    return value
+    // Clamp negatives: provider accounting can make a subtraction underflow (reasoning
+    // tokens exceeding output, or cache tokens exceeding input). Negative usage understates
+    // context and can delay auto-compaction.
+    return Math.max(0, value)
   }
   const inputTokens = safe(input.usage.inputTokens ?? 0)
   const outputTokens = safe(input.usage.outputTokens ?? 0)
