@@ -73,29 +73,40 @@ function formatRunError(error: unknown) {
   return FormatError(error) ?? FormatUnknownError(error)
 }
 
-// Idle arrives right after the turn completes, so this only trips on a broken
-// stream (e.g. a dropped/reconnected --attach SSE that missed the idle event),
-// where any lost events are unrecoverable regardless of how long we wait.
-const DRAIN_FALLBACK_MS = 10_000
+// The non-interactive exit code reflects the TERMINAL outcome of the run, not
+// intermediate `session.error` events — those can be recoverable (e.g. a
+// ContextOverflowError that auto-compacts and then continues to success). A
+// shaped SDK error (`result.error`, e.g. an unknown command/model rejected
+// before a turn ran) or a terminal error on the final assistant message both
+// fail (#27371); a recovered run reports success.
+export function runExitCode(result: { error?: unknown; data?: { info?: { error?: unknown } } }): 1 | undefined {
+  return result.error || result.data?.info?.error ? 1 : undefined
+}
 
-// Decide the exit code for a non-interactive `run` after the prompt/command
-// request resolves. A shaped SDK error (`result.error`) means the request was
-// rejected before a turn ran, so no `session.status: idle` event will arrive
-// and awaiting `drained` would hang forever (see #27371) — fail fast instead.
-// Otherwise a turn ran: wait for the event stream to finish draining trailing
-// JSON/text and the idle event (so output is not lost when the instance is torn
-// down, see #26955), then fail if it accumulated a session error. The drain is
-// bounded so a missed idle event on a live stream can't hang an otherwise
-// finished run; a fallback timeout resolves as a clean (exit-zero) run, same as
-// a drain that yielded no error.
-export async function finalizeRun(
-  drained: Promise<string | undefined>,
-  result: { error?: unknown },
-  drainFallbackMs = DRAIN_FALLBACK_MS,
-): Promise<1 | undefined> {
-  if (result.error) return 1
-  const sessionError = await Promise.race([drained, delay(drainFallbackMs, undefined, { ref: false })])
-  return sessionError ? 1 : undefined
+// Once the request resolves the turn is done and all output has been produced;
+// the drain just flushes the remaining stream events before the in-process
+// instance is torn down (otherwise trailing JSON/text is lost, see #26955).
+// Wait for the stream to reach idle, but abort it once it stops making progress
+// for this long, so a dropped/missed-idle --attach stream can't hang the run. A
+// stream still delivering events (a slow but healthy drain) is never cut short;
+// only a stalled one is abandoned.
+const DRAIN_INACTIVITY_MS = 10_000
+
+export async function drainTrailingOutput(
+  drained: Promise<unknown>,
+  lastEventAt: () => number,
+  abort: Pick<AbortController, "abort">,
+  inactivityMs = DRAIN_INACTIVITY_MS,
+): Promise<void> {
+  const DONE = Symbol()
+  while (true) {
+    const outcome = await Promise.race([drained.then(() => DONE), delay(inactivityMs, undefined, { ref: false })])
+    if (outcome === DONE) return
+    if (performance.now() - lastEventAt() >= inactivityMs) {
+      abort.abort()
+      return
+    }
+  }
 }
 
 function fallback(part: ToolPart) {
@@ -472,11 +483,13 @@ export const RunCommand = cmd({
       const drainAbort = new AbortController()
       const events = await sdk.event.subscribe(undefined, { signal: drainAbort.signal })
       let error: string | undefined
+      let lastEventAt = performance.now()
 
       async function loop() {
         const toggles = new Map<string, boolean>()
 
         for await (const event of events.stream) {
+          lastEventAt = performance.now()
           if (
             event.type === "message.updated" &&
             event.properties.info.role === "assistant" &&
@@ -566,9 +579,6 @@ export const RunCommand = cmd({
               err = String(props.error.data.message)
             }
             error = error ? error + EOL + err : err
-            // Fail the exit code the moment an error is seen, so a later missed
-            // idle event (which leaves loop()/drained pending) can't exit 0.
-            process.exitCode = 1
             if (emit("error", { error: props.error })) continue
             UI.error(err)
           }
@@ -603,7 +613,6 @@ export const RunCommand = cmd({
             }
           }
         }
-        return error
       }
 
       // Validate agent if specified
@@ -710,7 +719,10 @@ export const RunCommand = cmd({
       // only shows up here.
       if (result.error && !emit("error", { error: result.error })) UI.error(formatRunError(result.error))
 
-      const exitCode = await finalizeRun(drained, result)
+      const exitCode = runExitCode(result)
+      // A pre-turn request error ran no turn, so there is nothing to drain and no
+      // idle event will arrive; otherwise flush trailing output before teardown.
+      if (!result.error) await drainTrailingOutput(drained, () => lastEventAt, drainAbort)
       // Close the (auto-retrying) SSE subscription so the process can exit even
       // when the turn errored before idle or the live stream missed idle.
       drainAbort.abort()
