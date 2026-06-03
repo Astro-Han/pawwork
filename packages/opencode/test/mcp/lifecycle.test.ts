@@ -173,6 +173,7 @@ beforeEach(() => {
 
 // Import after mocks
 const { MCP } = await import("../../src/mcp/index")
+const { Bus } = await import("../../src/bus/index")
 const { Instance } = await import("../../src/project/instance")
 const { tmpdir } = await import("../fixture/fixture")
 
@@ -264,6 +265,66 @@ test(
     expect(serverState.listToolsCalls).toBe(2)
   }),
 )
+
+// ========================================================================
+// Test: tool change notifications publish ToolsChanged on the instance bus (#22504)
+// The MCP SDK fires the notification handler from a detached transport callback,
+// outside the instance async context. The buggy handler ran bus.publish via a bare
+// Effect.runPromise, so InstanceState.get found no instance and the event silently
+// never reached subscribers (the cache still refreshed, but the UI was never told).
+// Firing the captured handler OUTSIDE Instance.provide reproduces that detached
+// context; a real subscriber must still receive the event.
+// ========================================================================
+
+test("tool change notification reaches the instance bus from a detached callback", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        `${dir}/opencode.json`,
+        JSON.stringify({ $schema: "https://opencode.ai/config.json", mcp: {} }),
+      )
+    },
+  })
+
+  const received: string[] = []
+  let detachedHandler: (() => Promise<void>) | undefined
+  let unsubscribe: (() => void) | undefined
+
+  // Set up the server + subscriber inside the instance context, then leave the
+  // instance alive (no dispose) so the bus can still deliver after we exit.
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      lastCreatedClientName = "notify-server"
+      const serverState = getOrCreateClientState("notify-server")
+
+      await MCP.add("notify-server", { type: "local", command: ["echo", "test"] })
+
+      unsubscribe = Bus.subscribe(MCP.ToolsChanged, (event) => {
+        received.push(event.properties.server)
+      })
+
+      serverState.tools = [{ name: "next_tool", description: "next", inputSchema: { type: "object", properties: {} } }]
+      detachedHandler = Array.from(serverState.notificationHandlers.values())[0]
+    },
+  })
+
+  try {
+    // Fire OUTSIDE the instance ALS — mirrors the MCP SDK transport callback.
+    // The SDK treats the handler as fire-and-forget, so a rejection is swallowed
+    // there too; tolerate it and let the received-event assertion be the pivot.
+    expect(detachedHandler).toBeDefined()
+    await detachedHandler?.().catch(() => {})
+
+    // Bus delivery happens on a forked fiber consuming the PubSub; give it a tick.
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    expect(received).toContain("notify-server")
+  } finally {
+    unsubscribe?.()
+    await Instance.disposeDirectory(tmp.path)
+  }
+})
 
 // ========================================================================
 // Test: connect() / disconnect() lifecycle
