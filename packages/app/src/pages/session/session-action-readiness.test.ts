@@ -34,6 +34,18 @@ describe("session action readiness", () => {
     expect(canSubmitPrompt({ mode: "normal", text: "/release", submitReady: true, commandsReady: true })).toBe(true)
   })
 
+  test("inline skill prompt bypasses the command-hydration gate", () => {
+    // A skill chip at offset 0 flattens to "/name" but flows through promptAsync,
+    // not the legacy command endpoint, so it must submit even before commands sync.
+    expect(
+      canSubmitPrompt({ mode: "normal", text: "/summarize", submitReady: true, commandsReady: false, hasSkillPart: true }),
+    ).toBe(true)
+    // Still gated on submitReady.
+    expect(
+      canSubmitPrompt({ mode: "normal", text: "/summarize", submitReady: false, commandsReady: true, hasSkillPart: true }),
+    ).toBe(false)
+  })
+
   test("shell submit does not wait for command hydration", () => {
     expect(canSubmitPrompt({ mode: "shell", text: "/bin/ls", submitReady: true, commandsReady: false })).toBe(true)
     expect(canSubmitPrompt({ mode: "shell", text: "/release", submitReady: false, commandsReady: true })).toBe(false)
