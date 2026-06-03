@@ -933,7 +933,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: v${{ steps.package_version.outputs.version }}
-          BUILD_SHA: ${{ inputs.source_sha || github.sha }}
+          # The commit the assets were actually built from: finalize repackages
+          # the submit build checked out at source_sha (see the finalize checkout
+          # above); full/submit build the checked-out github.sha. Tie BUILD_SHA to
+          # the phase so a full run can never pass a source_sha that disagrees
+          # with what it actually built.
+          BUILD_SHA: ${{ inputs.phase == 'finalize' && inputs.source_sha || github.sha }}
           MIRROR_REF: dev
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

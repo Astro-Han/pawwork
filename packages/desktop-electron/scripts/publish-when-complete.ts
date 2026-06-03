@@ -17,6 +17,18 @@
 // ledger: electron-builder creates the draft with the branch name there and
 // never rewrites an existing draft, so the first target pins it to its build
 // commit and every later target refuses to publish unless its own commit matches.
+//
+// This closes the realistic case (dev advances between dispatches, so a later
+// target is built from a newer commit — caught because the targets run, and
+// finish, sequentially). It does NOT fully close a concurrent race: the two mac
+// arches serialize via the build concurrency group, but mac-finalize and win-full
+// can run at once, and if both were built from different commits AND reach the
+// claim within the same window, the last writer can still publish a mixed-source
+// release (the loser detects the mismatch on its re-read and fails loudly, which
+// surfaces the problem). Fully closing that requires per-asset commit provenance
+// (stamping each target's build commit into the release and cross-checking) —
+// deliberately out of scope here; the asymmetric build durations make a same-
+// instant, different-commit finish unlikely.
 
 import { normalizeTag, verifyReleasePayload, type GithubRelease } from "./verify-release"
 
