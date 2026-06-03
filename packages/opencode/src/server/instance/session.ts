@@ -1048,7 +1048,7 @@ export const SessionRoutes = lazy(() =>
               },
             },
           },
-          ...errors(400, 404),
+          ...errors(400, 404, 409),
         },
       }),
       validator(
@@ -1077,7 +1077,7 @@ export const SessionRoutes = lazy(() =>
         // fiber instead of being silently dropped by SessionRunState.cancel;
         // (3) the prelude path uses rejectIfBusy, so summarize calls that
         // arrive while another run is in flight throw Session.BusyError
-        // (mapped to 400) instead of resolving `true` without writing the
+        // (mapped to 409) instead of resolving `true` without writing the
         // marker. Clients should queue the action and retry once the session
         // goes idle; (4) revert.cleanup and agent derivation live inside
         // the work effect, so a busy-rejected compact leaves session state

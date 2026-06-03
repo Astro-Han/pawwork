@@ -2472,7 +2472,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       // `awaitRun(existing)` and resolve to the previous run's result — the
       // requested compaction would never happen, but the route would return
       // `true`. UI callers handle the resulting `Session.BusyError` (mapped
-      // to HTTP 400 by middleware) by queuing the compact action through the
+      // to HTTP 409 by middleware) by queuing the compact action through the
       // followup machinery and auto-retrying after the session idles.
       const runLifecycle = input.traceMessageID
         ? {

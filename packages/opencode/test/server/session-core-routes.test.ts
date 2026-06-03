@@ -121,6 +121,9 @@ describe("session core routes", () => {
       "session.shell",
       "session.revert",
       "session.unrevert",
+      // summarize rejects a busy session through SessionPrompt.loop's prelude
+      // (rejectIfBusy), unlike the plain prompt/command routes which queue.
+      "session.summarize",
     ])
 
     const spec = await Server.openapi()
