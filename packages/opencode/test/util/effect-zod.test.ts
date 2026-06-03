@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { Effect, Schema, SchemaGetter } from "effect"
 import z from "zod"
 
-import { zod, ZodOverride } from "../../src/util/effect-zod"
+import { toJsonSchema, zod, ZodOverride } from "../../src/util/effect-zod"
 
 function json(schema: z.ZodTypeAny) {
   const { $schema: _, ...rest } = z.toJSONSchema(schema)
@@ -113,6 +113,35 @@ describe("util.effect-zod", () => {
     expect(() => out.parse("bar")).toThrow()
     expect(bridged).toEqual(native)
     expect(bridged.enum).toEqual(["foo"])
+  })
+
+  test("toJsonSchema rebuilds metadata: arg descriptions survive (#27770)", () => {
+    // Mirrors a custom tool whose args carry `.describe()` metadata. The metadata
+    // registry passed to z.toJSONSchema REPLACES globalRegistry, so the walker
+    // must re-collect descriptions or they vanish.
+    const override = z.object({
+      city: z.string().describe("the city to look up"),
+      units: z.enum(["metric", "imperial"]).describe("temperature units"),
+    })
+    const schema = Schema.Unknown.annotate({ [ZodOverride]: override })
+    const out = toJsonSchema(schema) as any
+    expect(out.properties.city).toMatchObject({ type: "string", description: "the city to look up" })
+    expect(out.properties.units).toMatchObject({ description: "temperature units" })
+  })
+
+  test("toJsonSchema preserves $ref/$defs from a reused .meta({id}) base across clones (#27770)", () => {
+    // A base schema with a reusable id, cloned via `.describe()`. Zod keeps the id
+    // on `_zod.parent` and toJSONSchema follows it to emit $defs/$ref — the walker
+    // must visit `_zod.parent`, not just `_zod.def`, or the refs silently vanish
+    // once the rebuilt registry replaces globalRegistry.
+    // Only the clone appears in the shape, so the id-bearing base is reachable
+    // *only* through `child._zod.parent` — the path the walker must follow.
+    const base = z.string().meta({ id: "Base", description: "base desc" })
+    const override = z.object({ a: base.describe("child desc") })
+    const schema = Schema.Unknown.annotate({ [ZodOverride]: override })
+    const out = toJsonSchema(schema) as any
+    expect(out.$defs?.Base).toMatchObject({ id: "Base", type: "string", description: "base desc" })
+    expect(out.properties.a).toEqual({ description: "child desc", $ref: "#/$defs/Base" })
   })
 
   test("ZodOverride annotation provides the Zod schema for branded IDs", () => {
