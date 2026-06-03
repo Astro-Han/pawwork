@@ -106,6 +106,8 @@ gh workflow run build.yml --repo Astro-Han/pawwork --ref dev -f phase=full -f ch
 
 ## 4. Publish
 
+> **prod auto-publishes (PR #1119).** The build pipeline's tail `publish-when-complete` step flips the draft to published — pinned to the build commit — and dispatches the R2 mirror automatically once every target's assets and updater metadata have landed. For a normal prod release, Steps 4–5 are a **verification fallback**: use them only if the auto-publish did not run (a non-prod channel, or a partial build that left a draft).
+
 Verify the draft release has all expected user-facing installers before publishing:
 
 ```bash
