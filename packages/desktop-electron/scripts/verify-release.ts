@@ -8,6 +8,10 @@ export type GithubRelease = {
   tag_name: string
   draft: boolean
   prerelease: boolean
+  // The commit/branch the release points at. A fresh electron-builder draft
+  // carries the default branch name here; the auto-publisher pins it to the
+  // build commit. Optional because the verifier itself does not need it.
+  target_commitish?: string
   assets: GithubAsset[]
 }
 
