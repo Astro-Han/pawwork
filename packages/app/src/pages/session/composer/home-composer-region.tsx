@@ -33,6 +33,7 @@ export function HomeComposerRegion(props: HomeComposerRegionProps) {
       .map((part) => {
         if (part.type === "file") return `[file:${part.path}]`
         if (part.type === "agent") return `@${part.name}`
+        if (part.type === "skill") return `/${part.name}`
         if (part.type === "image") return `[image:${part.filename}]`
         return part.content
       })

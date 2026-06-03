@@ -25,6 +25,7 @@ export function followupPreviewText(input: {
       if (part.type === "image") return `[image:${part.filename}]`
       if (part.type === "file") return `[file:${part.path}]`
       if (part.type === "agent") return `@${part.name}`
+      if (part.type === "skill") return `/${part.name}`
       return part.content
     })
     .join("")
