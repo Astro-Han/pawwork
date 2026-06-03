@@ -60,8 +60,13 @@ export function deriveActivatedTools(messages: MessageV2.WithParts[]): Set<strin
     for (const part of message.parts) {
       if (part.type !== "tool" || part.tool !== TOOL_INFO_ID) continue
       if (part.state.status !== "completed") continue
+      // The recorded input keeps the model's raw casing (e.g. "Enter-Worktree"),
+      // so canonicalise here exactly like tool_info's own lookup does — otherwise a
+      // CamelCase echo would activate metadata-side yet never appear in the next
+      // step's tool list, leaving the model pointed at a tool that isn't exposed.
       const name = part.state.input?.["name"]
-      if (typeof name === "string" && DEFERRED_TOOL_IDS.has(name)) activated.add(name)
+      const canonical = typeof name === "string" ? canonicalDeferredId(name) : undefined
+      if (canonical) activated.add(canonical)
     }
   }
   return activated

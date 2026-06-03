@@ -43,6 +43,13 @@ describe("tool-info", () => {
     expect(deriveActivatedTools([assistant([toolPart("read", "completed", {})])]).size).toBe(0)
   })
 
+  test("deriveActivatedTools canonicalises a CamelCase echo so the recorded raw input still activates", () => {
+    const messages = [
+      assistant([toolPart("tool_info", "completed", { name: "Enter-Worktree" }, { activated: "enter-worktree" })]),
+    ]
+    expect([...deriveActivatedTools(messages)]).toEqual(["enter-worktree"])
+  })
+
   test("buildCardList lists available deferred tools with their cards", () => {
     const list = buildCardList(["enter-worktree", "exit-worktree"])
     expect(list).toContain("enter-worktree")

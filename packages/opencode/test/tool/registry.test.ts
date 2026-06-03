@@ -7,6 +7,7 @@ import { writeInstalledConfigDeps, writeMockConfigInstall } from "../shared/mock
 import { withConfigDepsLock } from "../shared/config-deps-lock"
 import { Instance } from "../../src/project/instance"
 import { ModelID, ProviderID } from "../../src/provider/schema"
+import { ProviderTransform } from "../../src/provider"
 import { localToolImportSpec, ToolRegistry } from "../../src/tool/registry"
 import { Settings } from "../../src/settings"
 import { MessageID, SessionID } from "../../src/session/schema"
@@ -749,10 +750,19 @@ describe("tool.registry", () => {
         expect(deferred.map((tool) => tool.id)).not.toContain("enter-worktree")
         const toolInfo = deferred.find((tool) => tool.id === "tool_info")!
 
-        // The schema the model will see once enter-worktree is activated.
+        // The model in session context; tool_info must run the activated tool's raw
+        // schema through the SAME ProviderTransform the request pipeline would, so what
+        // it shows now matches what the model actually receives once the tool is live.
+        const model = {
+          id: "openai/gpt-5",
+          providerID: "openai",
+          api: { id: "gpt-5", url: "https://api.openai.com", npm: "@ai-sdk/openai" },
+        } as unknown as Parameters<typeof ProviderTransform.schema>[0]
+
+        // The schema the model will see once enter-worktree is activated, transformed.
         const activated = await ToolRegistry.tools({ ...base, activatedTools: new Set(["enter-worktree"]) })
         const enterWorktree = activated.find((tool) => tool.id === "enter-worktree")!
-        const expectedSchema = EffectZod.toJsonSchema(enterWorktree.parameters)
+        const expectedSchema = ProviderTransform.schema(model, EffectZod.toJsonSchema(enterWorktree.parameters))
 
         const ctx = {
           sessionID: SessionID.descending(),
@@ -762,12 +772,13 @@ describe("tool.registry", () => {
           messages: [],
           metadata: () => Effect.void,
           ask: () => Effect.void,
+          extra: { model },
         }
 
         const result = await Effect.runPromise(toolInfo.execute({ name: "enter-worktree" }, ctx))
         const json = result.output.match(/```json\n([\s\S]*?)\n```/)?.[1]
         expect(json).toBeDefined()
-        // tool_info's loaded schema is identical to the post-activation tool schema.
+        // tool_info's loaded schema is identical to the post-activation, provider-transformed schema.
         expect(JSON.parse(json!)).toEqual(expectedSchema)
         expect(result.metadata.activated).toBe("enter-worktree")
         // P3-2: the schema output opts out of truncation so a large tool never loads clipped.
