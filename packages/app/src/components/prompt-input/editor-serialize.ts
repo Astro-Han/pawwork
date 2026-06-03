@@ -36,13 +36,28 @@ export function createCommandMark(part: TextPart & { command: NonNullable<TextPa
 
 export function createPill(part: FileAttachmentPart | AgentPart | SkillAttachmentPart): HTMLSpanElement {
   const pill = document.createElement("span")
-  pill.textContent = part.content
   pill.setAttribute("data-type", part.type)
   if (part.type === "file") pill.setAttribute("data-path", part.path)
   if (part.type === "agent") pill.setAttribute("data-name", part.name)
   if (part.type === "skill") {
     pill.setAttribute("data-name", part.name)
     pill.setAttribute("data-source", part.source)
+    // Skill chips carry the skill glyph. The label span keeps textContent ===
+    // "/name" so caret/length math in editor-dom is unaffected; the icon span
+    // contributes no text. The persisted SkillPart drops the source kind, so the
+    // sent bubble uses the same glyph — keep both surfaces consistent here.
+    const iconSpan = document.createElement("span")
+    iconSpan.setAttribute("data-cmd-icon", "true")
+    iconSpan.setAttribute("aria-hidden", "true")
+    iconSpan.className = "command-icon"
+    iconSpan.innerHTML = resolveCommandIconSvg("skill")
+    pill.appendChild(iconSpan)
+    const labelSpan = document.createElement("span")
+    labelSpan.setAttribute("data-cmd-label", "true")
+    labelSpan.textContent = part.content
+    pill.appendChild(labelSpan)
+  } else {
+    pill.textContent = part.content
   }
   pill.setAttribute("contenteditable", "false")
   pill.style.userSelect = "text"

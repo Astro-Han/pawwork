@@ -1,5 +1,6 @@
-import { createMemo, For } from "solid-js"
+import { createMemo, For, Show } from "solid-js"
 import type { FilePart, SkillPart } from "@opencode-ai/sdk/v2"
+import { CommandIcon } from "../command-icon"
 
 type HighlightSegment = { text: string; type?: "file" | "skill" }
 
@@ -41,5 +42,16 @@ export function HighlightedText(props: { text: string; references: FilePart[]; s
     return result
   })
 
-  return <For each={segments()}>{(segment) => <span data-highlight={segment.type}>{segment.text}</span>}</For>
+  return (
+    <For each={segments()}>
+      {(segment) => (
+        <span data-highlight={segment.type}>
+          <Show when={segment.type === "skill"}>
+            <CommandIcon icon="skill" />
+          </Show>
+          {segment.text}
+        </span>
+      )}
+    </For>
+  )
 }

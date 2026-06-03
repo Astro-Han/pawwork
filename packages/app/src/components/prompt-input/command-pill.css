@@ -5,7 +5,8 @@
  * packages/ui/src/components/command-icon.css apply automatically.
  */
 
-[data-cmd-mark] {
+[data-cmd-mark],
+[data-type="skill"] {
   display: inline-flex;
   align-items: baseline;
   gap: 4px;
@@ -15,7 +16,8 @@
   cursor: default;
 }
 
-[data-cmd-mark] [data-cmd-label] {
+[data-cmd-mark] [data-cmd-label],
+[data-type="skill"] [data-cmd-label] {
   color: inherit;
   font-weight: var(--font-weight-body);
 }

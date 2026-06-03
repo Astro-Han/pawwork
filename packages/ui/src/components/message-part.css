@@ -171,9 +171,14 @@
     }
 
     /* Inline skill chip: same brand accent as the leading command mark
-     * (.user-message-command-prefix) so "/name" reads as a command reference. */
+     * (.user-message-command-prefix) so "/name" reads as a command reference,
+     * with the skill glyph nudged a hair off the following "/name". */
     [data-highlight="skill"] {
       color: var(--brand-primary);
+    }
+
+    [data-highlight="skill"] .command-icon {
+      margin-right: 2px;
     }
 
     max-width: 100%;
