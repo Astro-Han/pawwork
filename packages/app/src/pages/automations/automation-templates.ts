@@ -19,20 +19,20 @@ export const AUTOMATION_TEMPLATES: AutomationTemplate[] = [
     icon: "bullet-list",
     titleKey: "automations.template.dailyBrief.title",
     promptKey: "automations.template.dailyBrief.prompt",
-    schedule: { frequency: "daily", hour: 9, minute: 0, weekday: 1, cron: "0 9 * * *" },
+    schedule: { frequency: "daily", hour: 9, minute: 0, weekday: 1 },
   },
   {
     id: "weekly-review",
     icon: "review",
     titleKey: "automations.template.weeklyReview.title",
     promptKey: "automations.template.weeklyReview.prompt",
-    schedule: { frequency: "weekly", hour: 9, minute: 0, weekday: 1, cron: "0 9 * * 1" },
+    schedule: { frequency: "weekly", hour: 9, minute: 0, weekday: 1 },
   },
   {
     id: "project-monitor",
     icon: "magnifying-glass",
     titleKey: "automations.template.projectMonitor.title",
     promptKey: "automations.template.projectMonitor.prompt",
-    schedule: { frequency: "weekdays", hour: 9, minute: 0, weekday: 1, cron: "0 9 * * 1-5" },
+    schedule: { frequency: "weekdays", hour: 9, minute: 0, weekday: 1 },
   },
 ]

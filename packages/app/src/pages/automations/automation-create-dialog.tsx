@@ -7,7 +7,6 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { getFilename } from "@opencode-ai/util/path"
 import { ModelSelectorPopover } from "@/components/prompt-input/model-picker"
 import { translateVariant } from "@/components/prompt-input/variant-label"
 import { useGlobalSync } from "@/context/global-sync"
@@ -23,12 +22,13 @@ import { AUTOMATION_TEMPLATES, type AutomationTemplate } from "./automation-temp
 const KNOB_CLASS =
   "flex h-[30px] items-center gap-1.5 rounded-lg border border-border-weak bg-bg-base px-2.5 text-body text-fg-base"
 
-// Manual create card (issue #950 PR7). Title + prompt + a Project | Schedule |
-// Model bottom bar; context, stop, and worktree are pinned to fresh / never /
-// none (see handoff). The Automations surface renders outside the per-directory
-// LocalProvider, so the composer's useLocal-backed model state can't be reused;
-// a panel-local controller (see automation-model-state) drives the same picker
-// UI from useModels(), seeded with the last-used / default model.
+// Manual create card (issue #950 PR7). Title + prompt + a Schedule | Model
+// bottom bar; project, context, stop, and worktree are pinned to the surface's
+// directory / fresh / never / none (see handoff). The Automations surface
+// renders outside the per-directory LocalProvider, so the composer's
+// useLocal-backed model state can't be reused; a panel-local controller (see
+// automation-model-state) drives the same picker UI from useModels(), seeded
+// with the last-used / default model.
 export function AutomationCreateDialog(props: {
   directory: string
   projectID: string
@@ -170,25 +170,20 @@ export function AutomationCreateDialog(props: {
 
         <div class="flex items-center gap-2 border-t border-border-weak pt-3">
           <div class="flex min-w-0 flex-1 items-center gap-2">
-            <span class={`${KNOB_CLASS} min-w-0`} title={props.directory}>
-              <Icon name="folder" class="size-4 shrink-0 text-icon-weak" />
-              <span class="truncate">{getFilename(props.directory)}</span>
-            </span>
-
             <AutomationSchedulePicker value={schedule()} onChange={setSchedule} t={t} />
 
             <ModelSelectorPopover
               model={modelState}
               triggerProps={{
                 "data-action": "automation-model-trigger",
-                class: `${KNOB_CLASS} shrink-0 cursor-pointer hover:bg-row-hover-overlay focus:outline-none`,
+                class: `${KNOB_CLASS} min-w-0 cursor-pointer hover:bg-row-hover-overlay focus:outline-none`,
               }}
             >
               <Show
                 when={modelState.current()}
                 fallback={
                   <>
-                    <Icon name="models" class="size-4 text-icon-weak" />
+                    <Icon name="models" class="size-4 shrink-0 text-icon-weak" />
                     <span>{t("dialog.model.select.title")}</span>
                   </>
                 }
@@ -196,14 +191,14 @@ export function AutomationCreateDialog(props: {
                 {(selected) => (
                   <>
                     <ProviderIcon id={selected().provider.id} class="size-4 shrink-0 text-icon-weak" />
-                    <span class="max-w-[140px] truncate">{selected().name}</span>
+                    <span class="min-w-0 truncate">{selected().name}</span>
                     <Show when={modelState.variant.current()}>
                       {(value) => <span class="shrink-0 text-fg-weak">{translateVariant(t, value())}</span>}
                     </Show>
                   </>
                 )}
               </Show>
-              <Icon name="chevron-down" class="size-3.5 shrink-0 text-icon-weak" />
+              <Icon name="chevron-down" class="size-3 shrink-0 text-icon-weak" />
             </ModelSelectorPopover>
           </div>
 

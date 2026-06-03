@@ -1,23 +1,22 @@
 import { DateTime } from "luxon"
 
-// Input side of the schedule picker (draft -> AutomationCreateInput). The
-// read side (definition -> human label) lives in automation-schedule.ts; the
-// cron shapes emitted here are exactly the ones formatCron there humanizes.
+// Input side of the schedule picker (draft -> AutomationCreateInput). The read
+// side (definition -> human label) lives in automation-schedule.ts and still
+// humanizes hourly / arbitrary cron created via the SDK or automate tool; the
+// create card only emits these four frequencies.
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string
 
-export type ScheduleFrequency = "once" | "hourly" | "daily" | "weekdays" | "weekly" | "custom"
+export type ScheduleFrequency = "once" | "daily" | "weekdays" | "weekly"
 
-// The create card only exposes one-shot + cron rhythms; interval-after-completion
-// stays a power-user/SDK feature and is intentionally off this surface.
-export const SCHEDULE_FREQUENCIES: ScheduleFrequency[] = ["once", "hourly", "daily", "weekdays", "weekly", "custom"]
+// Order shown in the frequency picker. Recurring first, one-shot last.
+export const SCHEDULE_FREQUENCIES: ScheduleFrequency[] = ["daily", "weekdays", "weekly", "once"]
 
 export interface ScheduleDraft {
   frequency: ScheduleFrequency
   hour: number // 0-23
   minute: number // 0-59
-  weekday: number // cron day-of-week 0=Sun..6=Sat
-  cron: string // raw expression, only used by "custom"
+  weekday: number // cron day-of-week 0=Sun..6=Sat, only used by "weekly"
 }
 
 export const DEFAULT_SCHEDULE: ScheduleDraft = {
@@ -25,7 +24,6 @@ export const DEFAULT_SCHEDULE: ScheduleDraft = {
   hour: 9,
   minute: 0,
   weekday: 1,
-  cron: "0 9 * * *",
 }
 
 function pad(value: number): string {
@@ -36,22 +34,12 @@ export function scheduleTimeLabel(draft: ScheduleDraft): string {
   return `${pad(draft.hour)}:${pad(draft.minute)}`
 }
 
-// Frequencies that show the time-of-day control. "once" reuses it to pick the
-// next occurrence; "hourly" runs every hour at minute 0; "custom" owns the cron.
-export function scheduleUsesTime(frequency: ScheduleFrequency): boolean {
-  return frequency === "once" || frequency === "daily" || frequency === "weekdays" || frequency === "weekly"
-}
-
 export function cronForSchedule(draft: ScheduleDraft): string {
   switch (draft.frequency) {
-    case "hourly":
-      return "0 * * * *"
     case "weekdays":
       return `${draft.minute} ${draft.hour} * * 1-5`
     case "weekly":
       return `${draft.minute} ${draft.hour} * * ${draft.weekday}`
-    case "custom":
-      return draft.cron.trim()
     // "once" never emits a cron (it becomes a one-shot fireAt) but keep the
     // daily shape so a caller that asks anyway gets a sane expression.
     case "once":
@@ -89,17 +77,13 @@ export function formatScheduleDraft(draft: ScheduleDraft, t: Translate): string 
   const time = scheduleTimeLabel(draft)
   switch (draft.frequency) {
     case "once":
-      return t("automations.schedule.once")
-    case "hourly":
-      return t("automations.schedule.hourly")
+      return `${t("automations.schedule.once")} ${time}`
     case "daily":
       return t("automations.schedule.daily", { time })
     case "weekdays":
       return t("automations.schedule.weekdays", { time })
     case "weekly":
       return t("automations.schedule.weekly", { day: t(`automations.schedule.weekday.${draft.weekday}`), time })
-    case "custom":
-      return t("automations.schedule.custom")
   }
 }
 
