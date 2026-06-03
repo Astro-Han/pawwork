@@ -230,6 +230,32 @@ path: pawwork-win-x64-2026.4.28.exe
     ).toContain("Release v2026.4.28 is still a draft")
   })
 
+  test("allowDraft suppresses the draft failure but keeps every other check", () => {
+    const latestYml = "files:\n  - url: pawwork-win-x64-2026.4.28.exe\n"
+    const latestMacYml = "files:\n  - url: pawwork-mac-arm64-2026.4.28.zip\n  - url: pawwork-mac-x64-2026.4.28.zip\n"
+
+    // A complete draft is fully accepted when drafts are allowed.
+    expect(
+      verifyReleasePayload({ release: { ...baseRelease, draft: true }, latestYml, latestMacYml }, { allowDraft: true }),
+    ).toEqual([])
+
+    // allowDraft does not loosen anything else: missing assets still fail.
+    const failures = verifyReleasePayload(
+      {
+        release: {
+          ...baseRelease,
+          draft: true,
+          assets: baseRelease.assets.filter((asset) => asset.name !== "pawwork-mac-arm64-2026.4.28.dmg"),
+        },
+        latestYml,
+        latestMacYml,
+      },
+      { allowDraft: true },
+    )
+    expect(failures).toContain("Missing release asset: pawwork-mac-arm64-2026.4.28.dmg")
+    expect(failures).not.toContain("Release v2026.4.28 is still a draft")
+  })
+
   test("reports prerelease releases", () => {
     expect(
       verifyReleasePayload({

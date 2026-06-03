@@ -192,7 +192,7 @@ export function verifyStartupLog(source: string, expectedTag: string) {
   return failures
 }
 
-export function verifyReleasePayload(input: VerificationInput) {
+export function verifyReleasePayload(input: VerificationInput, options?: { allowDraft?: boolean }) {
   const failures: string[] = []
   const assetNames = new Set(input.release.assets.map((asset) => asset.name))
   let version: string | undefined
@@ -202,7 +202,7 @@ export function verifyReleasePayload(input: VerificationInput) {
     failures.push(error instanceof Error ? error.message : String(error))
   }
 
-  if (input.release.draft) failures.push(`Release ${input.release.tag_name} is still a draft`)
+  if (input.release.draft && !options?.allowDraft) failures.push(`Release ${input.release.tag_name} is still a draft`)
   if (input.release.prerelease) failures.push(`Release ${input.release.tag_name} is marked as a prerelease`)
 
   const latestUrls = input.latestYml === undefined ? [] : parseUpdaterFileUrls(input.latestYml)

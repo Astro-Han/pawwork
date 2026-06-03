@@ -187,7 +187,10 @@ jobs:
 
     runs-on: ${{ matrix.host }}
     permissions:
-      actions: read
+      # actions: write lets the prod publish step dispatch mirror-release-to-r2.yml
+      # via `gh workflow run` (workflow_dispatch is the GITHUB_TOKEN anti-recursion
+      # exception; a GITHUB_TOKEN-driven publish does NOT fire release:published).
+      actions: write
       contents: write
 
     steps:
@@ -917,6 +920,21 @@ jobs:
           EXISTING_LATEST_YML_DIR: ${{ runner.temp }}/existing-latest-yml
           LATEST_YML_DIR: ${{ runner.temp }}/latest-yml
           OPENCODE_VERSION: ${{ steps.package_version.outputs.version }}
+
+      # Runs at the tail of every prod finalize/full target, after its updater
+      # metadata lands in the draft. Publishes (and pins the tag to the build
+      # commit) only when ALL targets are present, then dispatches the R2 mirror;
+      # incomplete drafts are a no-op. The LAST target to finish flips the draft.
+      - name: Publish release when all targets are complete
+        if: ${{ inputs.channel == 'prod' && ((runner.os == 'macOS' && (inputs.phase == 'finalize' || inputs.phase == 'full') && inputs.arch == matrix.arch_label) || (runner.os == 'Windows' && inputs.phase == 'full')) }}
+        run: bun ./scripts/publish-when-complete.ts
+        working-directory: packages/desktop-electron
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: v${{ steps.package_version.outputs.version }}
+          BUILD_SHA: ${{ inputs.source_sha || github.sha }}
+          MIRROR_REF: dev
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: ${{ runner.os == 'macOS' && (inputs.phase == 'finalize' || inputs.phase == 'full') && inputs.arch == matrix.arch_label }}
