@@ -116,7 +116,8 @@ describe("createPawworkLayoutProjects list memo", () => {
         childStores: { "/w": { project: "p1", icon: "X" } },
       })
       const { list } = createPawworkLayoutProjects(input)
-      expect(list()[0].icon?.override).toBe("X")
+      const icon = list()[0].icon as { override?: string } | undefined
+      expect(icon?.override).toBe("X")
       dispose()
     })
   })
