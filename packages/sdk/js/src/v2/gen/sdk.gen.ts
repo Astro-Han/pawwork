@@ -152,6 +152,7 @@ import type {
   SessionDiffResponses,
   SessionExportErrors,
   SessionExportResponses,
+  SessionForkErrors,
   SessionForkResponses,
   SessionGetErrors,
   SessionGetResponses,
@@ -1972,7 +1973,7 @@ export class Session2 extends HeyApiClient {
         },
       ],
     )
-    return (options?.client ?? this.client).post<SessionForkResponses, unknown, ThrowOnError>({
+    return (options?.client ?? this.client).post<SessionForkResponses, SessionForkErrors, ThrowOnError>({
       url: "/session/{sessionID}/fork",
       ...options,
       ...params,
@@ -4437,7 +4438,7 @@ export class Vcs extends HeyApiClient {
   /**
    * Get raw VCS diff
    *
-   * Retrieve the current git diff as raw patch text.
+   * Retrieve the current git diff as raw patch text. Review-oriented unified diff; not guaranteed to apply cleanly via `git apply` for mixed index/worktree states in pre-first-commit repos (the same path may appear in both staged and worktree sections).
    */
   public diffRaw<ThrowOnError extends boolean = false>(
     parameters?: {
