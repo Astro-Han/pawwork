@@ -59,6 +59,7 @@ import { useUpdatePolling } from "./layout/layout-update-polling"
 import { useHomepageMigration } from "./layout/layout-homepage-migration"
 import { createOpenGlobalConfigFolder } from "./layout/layout-open-global-config"
 import { createCurrentProjectMemo } from "./layout/layout-current-project"
+import { createNavigateProjectByOffset } from "./layout/layout-navigate-project"
 import { sessionNotificationHref, useSDKNotificationToasts } from "./layout/layout-sdk-event-effects"
 import { registerLayoutCommands } from "./layout/layout-commands"
 import { LayoutShellFrame } from "./layout/layout-shell-frame"
@@ -386,28 +387,6 @@ export default function Layout(props: ParentProps) {
     navigateToSession(session)
   }
 
-  function navigateProjectByOffset(offset: number) {
-    const projects = layout.projects.list()
-    if (projects.length === 0) return
-
-    const current = currentProject()?.worktree
-    const fallback = currentDir() ? projectRoot(currentDir()) : undefined
-    const active = current ?? fallback
-    const index = active ? projects.findIndex((project) => project.worktree === active) : -1
-
-    const target =
-      index === -1
-        ? offset > 0
-          ? projects[0]
-          : projects[projects.length - 1]
-        : projects[(index + offset + projects.length) % projects.length]
-    if (!target) return
-
-    // warm up child store to prevent flicker
-    globalSync.child(target.worktree)
-    openProject(target.worktree)
-  }
-
   function navigateSessionByUnseen(offset: number) {
     const target = findPawworkSessionNavigationTarget({
       sections: pawworkSessionSections(),
@@ -595,6 +574,15 @@ export default function Layout(props: ParentProps) {
     unhideProject,
     projectKeyForSession,
     layout,
+  })
+
+  const navigateProjectByOffset = createNavigateProjectByOffset({
+    layout,
+    currentProject,
+    currentDir,
+    projectRoot,
+    globalSync,
+    openProject,
   })
 
   const {
