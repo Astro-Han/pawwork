@@ -4,6 +4,7 @@ import { NamedError } from "@opencode-ai/util/error"
 import { fileURLToPath, pathToFileURL } from "url"
 import { Effect, Layer } from "effect"
 import { Instance } from "../../src/project/instance"
+import { Permission } from "../../src/permission"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { Session } from "../../src/session"
 import { MessageV2 } from "../../src/session/message-v2"
@@ -1000,5 +1001,172 @@ describe("session.agent-resolution", () => {
     } finally {
       server.stop(true)
     }
+  }, 30000)
+})
+
+// #26597: the prompt rebuilds session.permission from the boolean tools map, which can only
+// regenerate whole-tool ("*") rules for the keys it lists. For an agent-tool subagent it must
+// carry forward the caller's inherited rules the map can't regenerate — scoped denies,
+// external_directory rules, and whole-tool denies for keys the map doesn't list (the wildcard
+// "*", MCP/custom tools) — otherwise a caller denied e.g. edit on one path, an external dir, or a
+// whole tool regains it through the child. Whole-tool denies for keys the map DOES list are
+// regenerated from the map instead, so the ruleset doesn't accumulate across turns.
+describe("session.prompt subagent permission rebuild (#26597)", () => {
+  test("carries scoped denies and external_directory forward for an agent-tool subagent", async () => {
+    await using tmp = await tmpdir({
+      config: { agent: { build: { model: "openai/gpt-5.2" } } },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: () =>
+        run(
+          Effect.gen(function* () {
+            const prompt = yield* SessionPrompt.Service
+            const sessions = yield* Session.Service
+            const parent = yield* sessions.create({})
+            const child = yield* sessions.create({
+              parentID: parent.id,
+              createdByAgentTool: true,
+              subagentType: "general",
+              permission: [
+                { permission: "external_directory", pattern: "/tmp/project/*", action: "allow" },
+                { permission: "edit", pattern: "/secret/**", action: "deny" },
+                { permission: "edit", pattern: "*", action: "deny" },
+              ],
+            })
+
+            yield* prompt.prompt({
+              sessionID: child.id,
+              agent: "build",
+              noReply: true,
+              tools: { agent: false, "enter-worktree": false },
+              parts: [{ type: "text", text: "x" }],
+            })
+
+            const after = yield* sessions.get(child.id)
+            // Scoped deny + external_directory survive (the boolean tools map can't express them).
+            expect(after.permission).toContainEqual({
+              permission: "external_directory",
+              pattern: "/tmp/project/*",
+              action: "allow",
+            })
+            expect(after.permission).toContainEqual({ permission: "edit", pattern: "/secret/**", action: "deny" })
+            // The structural denies the boolean tools map lists are regenerated from it.
+            expect(after.permission).toContainEqual({ permission: "agent", pattern: "*", action: "deny" })
+            // The whole-tool ("*") edit deny is ALSO carried forward: "edit" is absent from the
+            // tools map (which lists only agent/enter-worktree here), so the map can't regenerate
+            // it — dropping it would let the caller's edit deny vanish through the child. A
+            // whole-tool deny for a key the map DOES list is regenerated instead (next test).
+            expect(after.permission).toContainEqual({ permission: "edit", pattern: "*", action: "deny" })
+          }),
+        ),
+    })
+  }, 30000)
+
+  test("regenerates a whole-tool deny the map lists instead of double-carrying it", async () => {
+    await using tmp = await tmpdir({
+      config: { agent: { build: { model: "openai/gpt-5.2" } } },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: () =>
+        run(
+          Effect.gen(function* () {
+            const prompt = yield* SessionPrompt.Service
+            const sessions = yield* Session.Service
+            const parent = yield* sessions.create({})
+            const child = yield* sessions.create({
+              parentID: parent.id,
+              createdByAgentTool: true,
+              subagentType: "general",
+              permission: [{ permission: "edit", pattern: "*", action: "deny" }],
+            })
+
+            yield* prompt.prompt({
+              sessionID: child.id,
+              agent: "build",
+              noReply: true,
+              // "edit" is in the map, so its "*" deny is regenerated from the map — the forwarded
+              // copy is dropped from the carry-forward so the ruleset doesn't accumulate.
+              tools: { agent: false, edit: false },
+              parts: [{ type: "text", text: "x" }],
+            })
+
+            const after = yield* sessions.get(child.id)
+            expect((after.permission ?? []).filter((r) => r.permission === "edit" && r.pattern === "*")).toHaveLength(1)
+            expect(Permission.evaluate("edit", "*", after.permission ?? []).action).toBe("deny")
+          }),
+        ),
+    })
+  }, 30000)
+
+  test("carries the caller's wildcard deny forward so tools absent from the map stay denied", async () => {
+    await using tmp = await tmpdir({
+      config: { agent: { build: { model: "openai/gpt-5.2" } } },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: () =>
+        run(
+          Effect.gen(function* () {
+            const prompt = yield* SessionPrompt.Service
+            const sessions = yield* Session.Service
+            const parent = yield* sessions.create({})
+            // A read-only-style caller forwards a wildcard ("*") deny onto the child.
+            const child = yield* sessions.create({
+              parentID: parent.id,
+              createdByAgentTool: true,
+              subagentType: "general",
+              permission: [{ permission: "*", pattern: "*", action: "deny" }],
+            })
+
+            yield* prompt.prompt({
+              sessionID: child.id,
+              agent: "build",
+              noReply: true,
+              tools: { agent: false, edit: false },
+              parts: [{ type: "text", text: "x" }],
+            })
+
+            const after = yield* sessions.get(child.id)
+            // The wildcard deny is preserved, so a tool absent from the boolean tools map
+            // (automate, MCP, custom) still evaluates to deny for the subagent.
+            expect(after.permission).toContainEqual({ permission: "*", pattern: "*", action: "deny" })
+            expect(Permission.evaluate("automate", "*", after.permission ?? []).action).toBe("deny")
+          }),
+        ),
+    })
+  }, 30000)
+
+  test("replaces permission wholesale for a non-agent-tool session", async () => {
+    await using tmp = await tmpdir({
+      config: { agent: { build: { model: "openai/gpt-5.2" } } },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: () =>
+        run(
+          Effect.gen(function* () {
+            const prompt = yield* SessionPrompt.Service
+            const sessions = yield* Session.Service
+            const session = yield* sessions.create({
+              permission: [{ permission: "edit", pattern: "/secret/**", action: "deny" }],
+            })
+
+            yield* prompt.prompt({
+              sessionID: session.id,
+              agent: "build",
+              noReply: true,
+              tools: { agent: false },
+              parts: [{ type: "text", text: "x" }],
+            })
+
+            const after = yield* sessions.get(session.id)
+            // Not an agent-tool child → the rebuild replaces wholesale (pre-existing behavior).
+            expect(after.permission).not.toContainEqual({ permission: "edit", pattern: "/secret/**", action: "deny" })
+            expect(after.permission).toContainEqual({ permission: "agent", pattern: "*", action: "deny" })
+          }),
+        ),
+    })
   }, 30000)
 })

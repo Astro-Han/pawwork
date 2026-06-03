@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { Effect, Exit, Fiber, Layer } from "effect"
 import { Agent } from "../../src/agent/agent"
 import { Config } from "../../src/config/config"
+import { Permission } from "../../src/permission"
 import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
 import { Instance } from "../../src/project/instance"
 import { Session } from "../../src/session"
@@ -348,6 +349,239 @@ describe("tool.agent", () => {
     ),
   )
 
+  // #26597: a subagent must not use a tool its caller is denied. The caller's deny rules are
+  // forwarded onto the child session at dispatch and are the single source of truth — the boolean
+  // `tools` map stays availability-only. We assert the effective ruleset the child runs under (the
+  // subagent agent's rules then the child session's, last wins — exactly what the ask gate
+  // evaluates). The caller is ctx.agent on a normal LLM dispatch; on a subtask command it's
+  // ctx.extra.callerAgent (handleSubtask runs the agent tool as the child). The prompt is stubbed
+  // here, so child.permission is the create-time forward; prompt.test.ts covers the rebuild.
+  const dispatchChild = (opts: {
+    agent: string
+    callerAgent?: string
+    config?: Partial<Config.Info>
+    sessionPermission?: Permission.Ruleset
+  }) =>
+    provideTmpdirInstance(
+      () =>
+        Effect.gen(function* () {
+          const sessions = yield* Session.Service
+          const agents = yield* Agent.Service
+          const { chat, assistant } = yield* seed()
+          if (opts.sessionPermission)
+            yield* sessions.setPermission({ sessionID: chat.id, permission: opts.sessionPermission })
+          const tool = yield* AgentTool
+          const def = yield* tool.init()
+          let seenTools: Record<string, boolean> | undefined
+          const promptOps = stubOps({ onPrompt: (input) => (seenTools = input.tools) })
+
+          const result = yield* def.execute(
+            { description: "inspect bug", prompt: "x", subagent_type: "general" },
+            {
+              sessionID: chat.id,
+              messageID: assistant.id,
+              agent: opts.agent,
+              abort: new AbortController().signal,
+              callID: "call_test_" + Math.random().toString(36).slice(2),
+              extra: {
+                promptOps,
+                bypassAgentCheck: true,
+                ...(opts.callerAgent ? { callerAgent: opts.callerAgent } : {}),
+              },
+              messages: [],
+              metadata: () => Effect.void,
+              ask: () => Effect.void,
+            },
+          )
+
+          const child = yield* sessions.get(result.metadata.sessionId!)
+          const subagent = yield* agents.get("general")
+          const denies = (key: string) =>
+            Permission.evaluate(key, "*", subagent?.permission ?? [], child.permission ?? []).action === "deny"
+          return { child, seenTools, denies }
+        }),
+      opts.config ? { config: opts.config } : undefined,
+    )
+
+  it.live("denies edit to the subagent when the caller agent denies edit (#26597)", () =>
+    Effect.gen(function* () {
+      const { denies } = yield* dispatchChild({
+        agent: "restricted",
+        config: { agent: { restricted: { permission: { edit: "deny" } } } },
+      })
+      expect(denies("edit")).toBe(true)
+      // Only the denied tool is bound off — bash is untouched.
+      expect(denies("bash")).toBe(false)
+    }),
+  )
+
+  it.live("denies bash to the subagent when the caller agent denies bash (#26597)", () =>
+    Effect.gen(function* () {
+      // The escalation isn't edit-only: a caller denied bash must not regain it via a subagent
+      // (bash can write files and reach the network). edit stays untouched here.
+      const { denies } = yield* dispatchChild({
+        agent: "restricted",
+        config: { agent: { restricted: { permission: { bash: "deny" } } } },
+      })
+      expect(denies("bash")).toBe(true)
+      expect(denies("edit")).toBe(false)
+    }),
+  )
+
+  it.live("denies every tool to the subagent when the caller agent denies via a wildcard (#26597)", () =>
+    Effect.gen(function* () {
+      // A read-only-shaped agent denies through "*": deny while allowing read. Forwarding is
+      // deny-only (like upstream #26597): the wildcard deny carries over but the read
+      // allow-exception does not, so the subagent loses edit, bash AND read. Erring toward deny.
+      const { denies } = yield* dispatchChild({
+        agent: "restricted",
+        config: { agent: { restricted: { permission: { "*": "deny", read: "allow" } } } },
+      })
+      expect(denies("edit")).toBe(true)
+      expect(denies("bash")).toBe(true)
+      expect(denies("webfetch")).toBe(true)
+      expect(denies("read")).toBe(true)
+    }),
+  )
+
+  it.live("denies edit to the subagent when the caller session denies edit (#26597)", () =>
+    Effect.gen(function* () {
+      // A per-session/per-prompt deny on the caller (not the agent definition) must also bind.
+      const { denies } = yield* dispatchChild({
+        agent: "build",
+        sessionPermission: [{ permission: "edit", pattern: "*", action: "deny" }],
+      })
+      expect(denies("edit")).toBe(true)
+    }),
+  )
+
+  it.live("honors the subtask caller agent over ctx.agent when denying edit (#26597)", () =>
+    Effect.gen(function* () {
+      // Subtask dispatch: ctx.agent is the child ("general", can edit) but the real caller
+      // ("restricted", edit:deny) arrives via ctx.extra.callerAgent and must win.
+      const { denies } = yield* dispatchChild({
+        agent: "general",
+        callerAgent: "restricted",
+        config: { agent: { restricted: { permission: { edit: "deny" } } } },
+      })
+      expect(denies("edit")).toBe(true)
+    }),
+  )
+
+  it.live("leaves tools enabled for the subagent when the caller can use them (#26597)", () =>
+    Effect.gen(function* () {
+      // build can edit and run bash (its "rm *" pattern-deny must not flatten to a whole-tool
+      // deny), so neither edit nor bash is bound off on the subagent.
+      const { denies } = yield* dispatchChild({ agent: "build" })
+      expect(denies("edit")).toBe(false)
+      expect(denies("bash")).toBe(false)
+    }),
+  )
+
+  it.live("forwards the caller agent's scoped deny onto the child session (#26597)", () =>
+    provideTmpdirInstance(
+      () =>
+        Effect.gen(function* () {
+          // A scoped deny (edit denied on /secret/** while allowed elsewhere) can't be expressed in
+          // the boolean tools map. The agent tool forwards it onto the child session at create as a
+          // real rule, so the child inherits the exact shape — denied on /secret, allowed elsewhere
+          // — and the map never force-disables edit.
+          const sessions = yield* Session.Service
+          const agents = yield* Agent.Service
+          const { chat, assistant } = yield* seed()
+          const caller = yield* agents.get("restricted")
+          // The caller is genuinely scope-denied: last-match-wins makes the trailing /secret deny
+          // beat the "*" allow on /secret, but not elsewhere.
+          expect(Permission.evaluate("edit", "/secret/x", caller?.permission ?? []).action).toBe("deny")
+          expect(Permission.evaluate("edit", "/elsewhere/x", caller?.permission ?? []).action).toBe("allow")
+
+          const tool = yield* AgentTool
+          const def = yield* tool.init()
+          let seenTools: Record<string, boolean> | undefined
+          const promptOps = stubOps({ onPrompt: (input) => (seenTools = input.tools) })
+
+          const result = yield* def.execute(
+            { description: "inspect bug", prompt: "x", subagent_type: "general" },
+            {
+              sessionID: chat.id,
+              messageID: assistant.id,
+              agent: "restricted",
+              abort: new AbortController().signal,
+              callID: "call_test_" + Math.random().toString(36).slice(2),
+              extra: { promptOps, bypassAgentCheck: true },
+              messages: [],
+              metadata: () => Effect.void,
+              ask: () => Effect.void,
+            },
+          )
+
+          const child = yield* sessions.get(result.metadata.sessionId!)
+          const subagent = yield* agents.get("general")
+          // The child inherits the scoped deny: denied on /secret, still able to edit elsewhere.
+          expect(
+            Permission.evaluate("edit", "/secret/x", subagent?.permission ?? [], child.permission ?? []).action,
+          ).toBe("deny")
+          expect(
+            Permission.evaluate("edit", "/elsewhere/x", subagent?.permission ?? [], child.permission ?? []).action,
+          ).toBe("allow")
+          // The caller can edit elsewhere, so edit isn't force-disabled in the tools map.
+          expect(seenTools?.edit).toBeUndefined()
+        }),
+      { config: { agent: { restricted: { permission: { edit: { "*": "allow", "/secret/**": "deny" } } } } } },
+    ),
+  )
+
+  it.live("re-forwards the current caller's deny onto a resumed subagent session (#26597)", () =>
+    provideTmpdirInstance(
+      () =>
+        Effect.gen(function* () {
+          // Resume (subagent_session_id) skips sessions.create. A child created earlier by a
+          // permissive caller, then resumed by a now-restricted caller (edit:deny — e.g. the
+          // session switched to Plan Mode), must pick up the restrictive caller's deny; otherwise
+          // resume bypasses the escalation guard.
+          const sessions = yield* Session.Service
+          const agents = yield* Agent.Service
+          const { chat, assistant } = yield* seed()
+          // Pre-existing child as if created by a permissive caller — no edit deny.
+          const child = yield* sessions.create({
+            parentID: chat.id,
+            title: "Existing child",
+            createdByAgentTool: true,
+            subagentType: "general",
+          })
+          const subagent = yield* agents.get("general")
+          // Before resume the child can edit (general inherits the default "*": allow).
+          expect(Permission.evaluate("edit", "*", subagent?.permission ?? [], child.permission ?? []).action).toBe(
+            "allow",
+          )
+          const tool = yield* AgentTool
+          const def = yield* tool.init()
+
+          const result = yield* def.execute(
+            { description: "inspect bug", prompt: "x", subagent_type: "general", subagent_session_id: child.id },
+            {
+              sessionID: chat.id,
+              messageID: assistant.id,
+              agent: "restricted",
+              abort: new AbortController().signal,
+              callID: "call_test_" + Math.random().toString(36).slice(2),
+              extra: { promptOps: stubOps({ text: "resumed" }), bypassAgentCheck: true },
+              messages: [],
+              metadata: () => Effect.void,
+              ask: () => Effect.void,
+            },
+          )
+
+          expect(result.metadata.sessionId).toBe(child.id)
+          const after = yield* sessions.get(child.id)
+          expect(Permission.evaluate("edit", "*", subagent?.permission ?? [], after.permission ?? []).action).toBe(
+            "deny",
+          )
+        }),
+      { config: { agent: { restricted: { permission: { edit: "deny" } } } } },
+    ),
+  )
+
   it.live("execute fails when subagent_session_id refers to a missing session", () =>
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
@@ -532,28 +766,13 @@ describe("tool.agent", () => {
 
           const child = yield* sessions.get(result.metadata.sessionId!)
           expect(child.parentID).toBe(chat.id)
-          expect(child.permission).toEqual([
-            {
-              permission: "agent",
-              pattern: "*",
-              action: "deny",
-            },
-            {
-              permission: "todowrite",
-              pattern: "*",
-              action: "deny",
-            },
-            {
-              permission: "bash",
-              pattern: "*",
-              action: "allow",
-            },
-            {
-              permission: "read",
-              pattern: "*",
-              action: "allow",
-            },
-          ])
+          // The shaping logic contributes these four rules (nested-agent deny, todowrite deny,
+          // and the two primary-tool allows). #26597 also prepends the caller agent's forwarded
+          // deny rules, so assert the shaped rules are present rather than an exact ruleset.
+          expect(child.permission).toContainEqual({ permission: "agent", pattern: "*", action: "deny" })
+          expect(child.permission).toContainEqual({ permission: "todowrite", pattern: "*", action: "deny" })
+          expect(child.permission).toContainEqual({ permission: "bash", pattern: "*", action: "allow" })
+          expect(child.permission).toContainEqual({ permission: "read", pattern: "*", action: "allow" })
           expect(seen?.tools).toEqual({
             agent: false,
             "enter-worktree": false,
