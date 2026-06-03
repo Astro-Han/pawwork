@@ -7,6 +7,10 @@ import { sweepScratch } from "@/global/scratch"
 const HOUR = 60 * 60 * 1000
 const DAY = 24 * HOUR
 
+// Creating a file symlink on Windows needs elevated privileges or developer
+// mode, which CI runners do not grant; skip the symlink case there.
+const symlinkTest = process.platform === "win32" ? test.skip : test
+
 async function setMtime(file: string, ms: number) {
   const t = new Date(ms)
   await fs.utimes(file, t, t)
@@ -89,7 +93,7 @@ describe("sweepScratch", () => {
     expect(await exists(sub)).toBe(false)
   })
 
-  test("removes a stale symlink without following it to its target", async () => {
+  symlinkTest("removes a stale symlink without following it to its target", async () => {
     await using dir = await tmpdir()
     await using outside = await tmpdir()
     const created = Date.now()
