@@ -9,6 +9,7 @@ import { SyncEvent } from "../sync"
 import { Database, NotFoundError, and, desc, eq, inArray, lt, or, sql } from "@/storage/db"
 import { MessageTable, PartTable, SessionTable } from "./session.sql"
 import { ProviderError } from "@/provider"
+import { ProviderFailureKind } from "@/provider/error"
 import { iife } from "@/util/iife"
 import { errorMessage } from "@/util/error"
 import { formatToolFailureForModel } from "./tool-failure"
@@ -162,6 +163,15 @@ export const APIError = NamedError.create(
     // Optional for backwards compat with historical JSON; classifyRetry guards on
     // providerID === ProviderID.opencode and falls to `unknown` when absent.
     providerID: z.string().optional(),
+    // Canonical provider-failure classification, computed once at fromError time.
+    // Optional for back-compat with rows persisted before this field existed;
+    // consumers fall back to message sniffing when it is absent.
+    providerFailure: z
+      .object({
+        kind: ProviderFailureKind,
+        code: z.string().optional(),
+      })
+      .optional(),
   }),
 )
 export type APIError = z.infer<typeof APIError.Schema>
@@ -1336,6 +1346,7 @@ export function fromError(
             code: transport.code,
             message: (e as Error).message || "",
           },
+          providerFailure: { kind: "transport_disconnect", code: transport.code },
         },
         { cause: e },
       ).toObject()
@@ -1352,6 +1363,7 @@ export function fromError(
             code: (e as FetchDecompressionError).code,
             message: e.message,
           },
+          providerFailure: { kind: "decompression", code: (e as FetchDecompressionError).code },
         },
         { cause: e },
       ).toObject()
@@ -1379,6 +1391,7 @@ export function fromError(
           responseBody: parsed.responseBody,
           metadata: parsed.metadata,
           providerID: ctx.providerID,
+          providerFailure: parsed.kind ? { kind: parsed.kind, code: parsed.code } : undefined,
         },
         { cause: e },
       ).toObject()
@@ -1405,6 +1418,7 @@ export function fromError(
               isRetryable: parsed.isRetryable,
               responseBody: parsed.responseBody,
               providerID: ctx.providerID,
+              providerFailure: parsed.kind ? { kind: parsed.kind, code: parsed.code } : undefined,
             },
             {
               cause: e,
