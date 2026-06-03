@@ -1,5 +1,7 @@
 import { test, expect } from "bun:test"
 import {
+  importedSessionConflictSet,
+  localizeImportedSession,
   parseShareUrl,
   shouldAttachShareAuthHeaders,
   transformShareData,
@@ -51,4 +53,65 @@ test("returns null for invalid share data", () => {
   expect(transformShareData([])).toBeNull()
   expect(transformShareData([{ type: "message", data: {} as any }])).toBeNull()
   expect(transformShareData([{ type: "session", data: { id: "s" } as any }])).toBeNull() // no messages
+})
+
+// localizeImportedSession tests
+test("re-homes an imported session onto the local instance, dropping every foreign machine-local field", () => {
+  const exported = {
+    id: "sess-1",
+    slug: "sess-1",
+    projectID: "prj-exporter",
+    directory: "/exporter/home/some-project/sub",
+    workspaceID: "wsp-exporter",
+    executionContext: {
+      ownerDirectory: "/exporter/home/some-project",
+      activeDirectory: "/exporter/home/some-project/sub",
+      activeWorktree: { directory: "/exporter/home/.worktrees/x", name: "x", branch: "x", source: "existing" },
+      lastChangedAt: 111,
+    },
+    title: "Imported",
+    version: "1.0.0",
+  } as any
+
+  const localized = localizeImportedSession(exported, {
+    projectID: "prj-local",
+    directory: "/exporter-test/importer/local-project",
+    ownerDirectory: "/exporter-test/importer/local-project",
+  })
+
+  // project + directory adopt the importing instance
+  expect(localized.projectID).toBe("prj-local")
+  expect(localized.directory).toBe("/exporter-test/importer/local-project")
+  // foreign workspace binding is dropped (a foreign id would break workspace routing)
+  expect(localized.workspaceID).toBeUndefined()
+  // executionContext (the real shell/tool cwd source) is reseeded at the local owner;
+  // the exporter's absolute paths and worktree are gone
+  expect(localized.executionContext.ownerDirectory).toBe("/exporter-test/importer/local-project")
+  expect(localized.executionContext.activeDirectory).toBe("/exporter-test/importer/local-project")
+  expect(localized.executionContext.activeWorktree).toBeUndefined()
+  // unrelated fields preserved; input not mutated
+  expect(localized.id).toBe("sess-1")
+  expect(localized.title).toBe("Imported")
+  expect(exported.directory).toBe("/exporter/home/some-project/sub")
+  expect(exported.workspaceID).toBe("wsp-exporter")
+  expect(exported.executionContext.activeWorktree).toBeDefined()
+})
+
+test("re-import conflict set overwrites every re-homed column and clears a stale workspace to null", () => {
+  const set = importedSessionConflictSet({
+    project_id: "prj-local",
+    directory: "/exporter-test/importer/local-project",
+    workspace_id: undefined,
+    execution_context: { ownerDirectory: "/exporter-test/importer/local-project", activeDirectory: "/exporter-test/importer/local-project", lastChangedAt: 1 },
+  } as any)
+
+  expect(set.project_id as string).toBe("prj-local")
+  expect(set.directory).toBe("/exporter-test/importer/local-project")
+  // undefined must become null (not be skipped) so re-import clears a stale foreign id
+  expect(set.workspace_id).toBeNull()
+  expect(set.execution_context).toEqual({
+    ownerDirectory: "/exporter-test/importer/local-project",
+    activeDirectory: "/exporter-test/importer/local-project",
+    lastChangedAt: 1,
+  })
 })
