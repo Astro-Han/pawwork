@@ -122,9 +122,9 @@ describe("createCloseShellTabRouter", () => {
   }
 
   test("static tab close goes straight to sidePanel.closeTab", () => {
-    const { router, calls } = buildDeps({ activeTab: "files", terminals: [] })
-    router("files")
-    expect(calls).toEqual(["closeTab:files"])
+    const { router, calls } = buildDeps({ activeTab: "review", terminals: [] })
+    router("review")
+    expect(calls).toEqual(["closeTab:review"])
   })
 
   test("terminal tab close calls terminal.close (P1: keyboard close used to skip this)", () => {

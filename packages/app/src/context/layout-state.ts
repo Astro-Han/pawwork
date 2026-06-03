@@ -60,7 +60,7 @@ export function createSessionKeyReader(sessionKey: string | Accessor<string>, en
   }
 }
 
-export function defaultSidePanelTab(tab?: RightPanelTab | "changes") {
+export function defaultSidePanelTab(tab?: RightPanelTab | "changes" | "files") {
   return defaultRightPanelTab(tab)
 }
 

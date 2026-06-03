@@ -443,12 +443,6 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       onSelect: () => view().sidePanel.toggleTab("review"),
     }),
     viewCommand({
-      id: "fileTree.toggle",
-      title: language.t("command.fileTree.toggle"),
-      keybind: "mod+\\",
-      onSelect: () => view().sidePanel.toggleTab("files"),
-    }),
-    viewCommand({
       id: "panel.toggle",
       title: language.t("command.panel.toggle"),
       description: language.t("command.panel.toggle.description"),

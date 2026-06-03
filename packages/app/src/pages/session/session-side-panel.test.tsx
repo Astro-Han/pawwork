@@ -88,7 +88,6 @@ beforeAll(async () => {
     }),
   }))
   mock.module("@/pages/session/file-tabs", () => ({ FileTabContent: () => null }))
-  mock.module("@/pages/session/files-tab", () => ({ FilesTab: () => null }))
   mock.module("@/pages/session/handoff", () => ({ setSessionHandoff: () => undefined }))
   mock.module("@/pages/session/session-layout", () => ({
     sessionRouteLayoutKey: (params: { dir: string | undefined; id: string | undefined }) =>
@@ -169,7 +168,7 @@ describe("sortableShellTabIds", () => {
   test("keeps the pinned status tab out of sortable ids", async () => {
     const { sortableShellTabIds } = await import("./session-side-panel")
 
-    expect(sortableShellTabIds(["status", "files", "review", "context"])).toEqual(["files", "review", "context"])
+    expect(sortableShellTabIds(["status", "review", "context"])).toEqual(["review", "context"])
   })
 })
 
@@ -215,16 +214,6 @@ describe("makeRightPanelResizeHandler", () => {
 // `no-mode-picker.test.ts` and catches the most likely regressions: tab-id
 // typos, copy-paste mistakes, and any future "let's drop the Show wrap" change.
 describe("right-panel inactive-tab gating contract", () => {
-  test("files tab body is gated by Show when={sidePanelTab() === \"files\"}", async () => {
-    const source = await fs.readFile(SOURCE_PATH, "utf8")
-    const block = findTabContentBlock(source, "files")
-    expect(block).toContain(`<Show when={sidePanelTab() === "files"}>`)
-    expect(block).toContain("<FilesTab")
-    const showIdx = block.indexOf(`<Show when={sidePanelTab() === "files"}>`)
-    const compIdx = block.indexOf("<FilesTab")
-    expect(compIdx).toBeGreaterThan(showIdx) // FilesTab must sit inside the Show
-  })
-
   test("context tab body is gated by Show when={sidePanelTab() === \"context\"}", async () => {
     const source = await fs.readFile(SOURCE_PATH, "utf8")
     const block = findTabContentBlock(source, "context")
