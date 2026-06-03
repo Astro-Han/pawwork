@@ -175,6 +175,7 @@ beforeEach(() => {
 const { MCP } = await import("../../src/mcp/index")
 const { Bus } = await import("../../src/bus/index")
 const { Instance } = await import("../../src/project/instance")
+const { NotFoundError } = await import("../../src/storage/db")
 const { tmpdir } = await import("../fixture/fixture")
 
 // --- Helper ---
@@ -656,14 +657,23 @@ test(
 )
 
 // ========================================================================
-// Test: connect() on nonexistent server
+// Test: connect() on an unknown server name surfaces NotFoundError (#28817)
+// connect() used to log + bare-return for an unknown name, so the route
+// reported 200 for a server that was never connected. It now throws the
+// shared NotFoundError (storage/db), which ErrorMiddleware maps to 404.
+// instanceof NotFoundError is exactly the check the middleware relies on.
 // ========================================================================
 
 test(
-  "connect() on nonexistent server does not throw",
+  "connect() on an unknown server name rejects with NotFoundError",
   withInstance({}, async () => {
-    // Should not throw
-    await MCP.connect("nonexistent")
+    let caught: unknown
+    await MCP.connect("nonexistent").catch((err) => {
+      caught = err
+    })
+    expect(caught).toBeInstanceOf(NotFoundError)
+
+    // The unknown server is never registered.
     const status = await MCP.status()
     expect(status["nonexistent"]).toBeUndefined()
   }),
