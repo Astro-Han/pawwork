@@ -3176,3 +3176,26 @@ test("parseManagedPlist handles empty config", async () => {
   )
   expect(config.$schema).toBe("https://opencode.ai/config.json")
 })
+
+// Regression for #28388: malformed OPENCODE_PERMISSION JSON used to crash
+// config load on startup with an unhandled SyntaxError. Loading the config
+// with an invalid JSON value in this env var should warn and skip, not throw.
+describe("OPENCODE_PERMISSION env var", () => {
+  test("does not crash when OPENCODE_PERMISSION contains invalid JSON", async () => {
+    const original = process.env["OPENCODE_PERMISSION"]
+    process.env["OPENCODE_PERMISSION"] = "{invalid"
+    try {
+      await using tmp = await tmpdir()
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const config = await load()
+          expect(config).toBeDefined()
+        },
+      })
+    } finally {
+      if (original === undefined) delete process.env["OPENCODE_PERMISSION"]
+      else process.env["OPENCODE_PERMISSION"] = original
+    }
+  })
+})
