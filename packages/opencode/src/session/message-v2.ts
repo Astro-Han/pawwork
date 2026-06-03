@@ -335,6 +335,26 @@ export const AgentPart = PartBase.extend({
 })
 export type AgentPart = z.infer<typeof AgentPart>
 
+// Inline skill/command chip. Mirrors AgentPart: a structured, position-independent
+// reference that activates a skill for the whole turn. resolvePart expands the skill
+// template into a synthetic text part (model-visible); this part itself is persisted
+// only to render the chip in the bubble. `source` tracks the `/name` span in the user
+// text so the chip can be highlighted in place.
+export const SkillPart = PartBase.extend({
+  type: z.literal("skill"),
+  name: z.string(),
+  source: z
+    .object({
+      value: z.string(),
+      start: z.number().int(),
+      end: z.number().int(),
+    })
+    .optional(),
+}).meta({
+  ref: "SkillPart",
+})
+export type SkillPart = z.infer<typeof SkillPart>
+
 export const CompactionPart = PartBase.extend({
   type: z.literal("compaction"),
   auto: z.boolean(),
@@ -565,6 +585,7 @@ export const Part = z
     SnapshotPart,
     PatchPart,
     AgentPart,
+    SkillPart,
     RetryPart,
     CompactionPart,
   ])
