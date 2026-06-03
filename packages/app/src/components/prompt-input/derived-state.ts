@@ -72,7 +72,6 @@ export function createPromptDerivedState(deps: PromptDerivedStateDeps) {
 
   return {
     info,
-    status,
     working,
     imageAttachments,
     actionReady,

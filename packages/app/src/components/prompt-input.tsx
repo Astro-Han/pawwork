@@ -120,7 +120,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
 
   const {
     info,
-    status,
     working,
     imageAttachments,
     actionReady,
