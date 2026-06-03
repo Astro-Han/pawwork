@@ -1,11 +1,10 @@
 import { useSpring } from "@opencode-ai/ui/motion-spring"
-import { isWorkInFlightStatus } from "@opencode-ai/ui/util/session-status"
 import { useNavigate, useParams } from "@solidjs/router"
 import { createEffect, on, Component, For, Show, createMemo, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLocal } from "@/context/local"
 import { useFile } from "@/context/file"
-import { DEFAULT_PROMPT, Prompt, usePrompt, ImageAttachmentPart } from "@/context/prompt"
+import { DEFAULT_PROMPT, Prompt, usePrompt } from "@/context/prompt"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { useComments } from "@/context/comments"
@@ -38,6 +37,7 @@ import { createPromptAttachments } from "./prompt-input/attachments"
 import { pickAttachments } from "./prompt-input/pick-attachments"
 import { ACCEPTED_FILE_TYPES } from "./prompt-input/files"
 import { promptLength } from "./prompt-input/history"
+import { createPromptDerivedState } from "./prompt-input/derived-state"
 import type { PromptStore } from "./prompt-input/store-types"
 import type { FollowupDraft } from "./prompt-input/followup-draft"
 import { createPromptSubmit } from "./prompt-input/submit"
@@ -45,7 +45,6 @@ import { PromptPopover } from "./prompt-input/slash-popover"
 import { PromptContextItems } from "./prompt-input/context-items"
 import { PromptImageAttachments } from "./prompt-input/image-attachments"
 import { PromptDragOverlay } from "./prompt-input/drag-overlay"
-import { promptPlaceholder } from "./prompt-input/placeholder"
 import { promptSendDisabled } from "./prompt-input/readiness"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
 
@@ -110,20 +109,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
 
   const { recent, openComment } = createCommentRouting({ activeSessionID })
 
-  const info = createMemo(() => (activeSessionID() ? sync.session.get(activeSessionID()!) : undefined))
-  const status = createMemo(
-    () =>
-      sync.data.session_status[activeSessionID() ?? ""] ?? {
-        type: "idle",
-      },
-  )
-  const working = createMemo(() => isWorkInFlightStatus(status()))
-  const imageAttachments = createMemo(() =>
-    prompt.current().filter((part): part is ImageAttachmentPart => part.type === "image"),
-  )
-  const actionReady = createMemo(() => props.actionReady?.() ?? true)
-  const abortReady = createMemo(() => props.abortReady?.() ?? actionReady())
-
   const [store, setStore] = createStore<PromptStore>({
     popover: null,
     historyIndex: -1,
@@ -131,6 +116,31 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     draggingType: null,
     mode: "normal",
     applyingHistory: false,
+  })
+
+  const {
+    info,
+    status,
+    working,
+    imageAttachments,
+    actionReady,
+    abortReady,
+    commentCount,
+    blank,
+    stopping,
+    contextItems,
+    placeholder,
+    accepting,
+  } = createPromptDerivedState({
+    store,
+    prompt,
+    sync,
+    sdk,
+    permission,
+    language,
+    activeSessionID,
+    actionReadyProp: () => props.actionReady?.(),
+    abortReadyProp: () => props.abortReady?.(),
   })
 
   const buttonsSpring = useSpring(() => (store.mode === "normal" ? 1 : 0), { visualDuration: 0.2, bounce: 0 })
@@ -142,18 +152,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   })
   const buttons = createMemo(() => motion(buttonsSpring()))
 
-  const commentCount = createMemo(() => {
-    if (store.mode === "shell") return 0
-    return prompt.context.items().filter((item) => !!item.comment?.trim()).length
-  })
-  const blank = createMemo(() => {
-    const text = prompt
-      .current()
-      .map((part) => ("content" in part ? part.content : ""))
-      .join("")
-    return text.trim().length === 0 && imageAttachments().length === 0 && commentCount() === 0
-  })
-  const stopping = createMemo(() => working() && blank())
   const tip = () => {
     if (stopping() && abortReady()) {
       return (
@@ -172,12 +170,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     )
   }
 
-  const contextItems = createMemo(() => {
-    const items = prompt.context.items()
-    if (store.mode !== "shell") return items
-    return items.filter((item) => !item.comment?.trim())
-  })
-
   const { addToHistory, navigateHistory } = createHistoryNavigation({
     store,
     setStore,
@@ -193,14 +185,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       (mode) => props.onModeChange?.(mode),
       { defer: true },
     ),
-  )
-
-  const placeholder = createMemo(() =>
-    promptPlaceholder({
-      mode: store.mode,
-      commentCount: commentCount(),
-      t: (key) => language.t(key as Parameters<typeof language.t>[0]),
-    }),
   )
 
   const pick = () => {
@@ -387,11 +371,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     externalReady: actionReady,
   })
 
-  const accepting = createMemo(() => {
-    const id = activeSessionID()
-    if (!id) return permission.isAutoAcceptingDirectory(sdk.directory)
-    return permission.isAutoAccepting(id, sdk.directory)
-  })
   const navigate = useNavigate()
   const routeParams = useParams()
 
