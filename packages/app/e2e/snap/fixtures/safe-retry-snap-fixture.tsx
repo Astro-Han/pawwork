@@ -1,6 +1,7 @@
 import { render } from "solid-js/web"
-import type { AssistantMessage, NoticePart } from "@opencode-ai/sdk/v2"
+import type { AssistantMessage, NoticePart, ReasoningPart } from "@opencode-ai/sdk/v2"
 import { DataProvider, I18nProvider } from "@opencode-ai/ui/context"
+import { MarkedProvider } from "@opencode-ai/ui/context/marked"
 import { dict as zh } from "@opencode-ai/ui/i18n/zh"
 import { AssistantParts } from "@opencode-ai/ui/message-part"
 import { SessionRetry } from "@opencode-ai/ui/session-retry"
@@ -27,6 +28,18 @@ const assistant: AssistantMessage = {
     created: 0,
     completed: 1,
   },
+}
+
+// A preceding reasoning part reproduces the #943 scenario: the terminal notice
+// follows a reasoning trow and must read as its own status line, not as a
+// trailing thought attached to the thinking block.
+const reasoning: ReasoningPart = {
+  id: "part_safe_retry_reasoning",
+  sessionID: assistant.sessionID,
+  messageID: assistant.id,
+  type: "reasoning",
+  text: "正在分析请求并准备调用工具继续。",
+  time: { start: 0, end: 1 },
 }
 
 const notice: NoticePart = {
@@ -71,10 +84,29 @@ function SafeRetrySnapFixture() {
             }}
           />
         </div>
-        <div data-snap="notice">
-          <DataProvider data={{ message: {}, part: { [assistant.id]: [notice] } }} directory="/Users/yuhan/PawWork">
-            <AssistantParts messages={[assistant]} />
-          </DataProvider>
+        {/* Mirror the real assistant-content container (flex column, 12px gap)
+            so the captured spacing above the notice divider matches production. */}
+        <div data-snap="notice" style={{ display: "flex", "flex-direction": "column", gap: "12px" }}>
+          <MarkedProvider>
+            <DataProvider
+              data={{ message: {}, part: { [assistant.id]: [reasoning, notice] } }}
+              directory="/Users/yuhan/PawWork"
+            >
+              <AssistantParts messages={[assistant]} />
+            </DataProvider>
+          </MarkedProvider>
+        </div>
+        {/* A notice that is the turn's only part (first-attempt connection
+            failure, reasoning removed) must NOT draw a leading divider. */}
+        <div data-snap="notice-standalone" style={{ display: "flex", "flex-direction": "column", gap: "12px" }}>
+          <MarkedProvider>
+            <DataProvider
+              data={{ message: {}, part: { [assistant.id]: [notice] } }}
+              directory="/Users/yuhan/PawWork"
+            >
+              <AssistantParts messages={[assistant]} />
+            </DataProvider>
+          </MarkedProvider>
         </div>
       </div>
     </I18nProvider>
