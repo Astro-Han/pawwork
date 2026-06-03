@@ -1,12 +1,14 @@
 import { Effect, Schema } from "effect"
 import { Automation, ValidationError } from "@/automation"
+import { nextCronFireAfter } from "@/automation/derived"
 import { AutomationScheduler } from "@/automation/scheduler"
+import { validateModelAndVariantWith } from "@/automation/validation"
+import { Instance } from "@/project/instance"
+import { Provider } from "@/provider/provider"
+import { MessageV2 } from "@/session/message-v2"
+import type { SessionID } from "@/session/schema"
+import { NotFoundError } from "@/storage/db"
 import * as Tool from "./tool"
-
-const Where = Schema.Struct({
-  projectID: Schema.String,
-  worktree: Schema.optional(Schema.NonEmptyString),
-})
 
 const Timezone = Schema.NonEmptyString.check(
   Schema.makeFilter((timezone: string) => (Automation.isValidTimezone(timezone) ? undefined : "invalid_timezone")),
@@ -18,44 +20,23 @@ const CronExpression = Schema.NonEmptyString.check(
 )
 const Title = Schema.NonEmptyString.check(Schema.isMaxLength(Automation.MAX_TITLE_CHARS))
 const Prompt = Schema.NonEmptyString.check(Schema.isMaxLength(Automation.MAX_PROMPT_CHARS))
-const Condition = Schema.NonEmptyString.check(Schema.isMaxLength(Automation.MAX_CONDITION_CHARS))
 
-const Common = {
+// Flat LLM surface: every field is a scalar, no union/anyOf node, so models
+// cannot serialize a nested object into a JSON string (the failure mode the
+// old `where` and `rhythm` unions triggered in function-calling schemas).
+// execute() translates this into the frozen Automation.CreateInput. Only
+// title/prompt/cron are required; project, timezone, and model fall back to the
+// calling session's context. Interval/sub-minute cadence stays a UI/SDK
+// power-user feature and is intentionally off the AI surface.
+export const AutomateParameters = Schema.Struct({
   title: Title,
   prompt: Prompt,
-  context: Schema.Union([Schema.Literal("continue"), Schema.Literal("fresh")]),
-  where: Where,
-  timezone: Timezone,
-}
-
-const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
-const PositiveInt = Schema.Int.check(Schema.isGreaterThan(0))
-const IntervalMs = Schema.Int.check(Schema.isGreaterThanOrEqualTo(Automation.MIN_INTERVAL_MS))
-
-const Stop = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("count"), count: PositiveInt }),
-  Schema.Struct({ kind: Schema.Literal("condition"), condition: Condition }),
-  Schema.Struct({ kind: Schema.Literal("never") }),
-])
-
-const Rhythm = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("interval"), everyMs: IntervalMs }),
-  Schema.Struct({ kind: Schema.Literal("cron"), expression: CronExpression }),
-])
-
-export const AutomateParameters = Schema.Union([
-  Schema.Struct({
-    kind: Schema.Literal("oneshot"),
-    ...Common,
-    fireAt: NonNegativeInt,
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("recurring"),
-    ...Common,
-    rhythm: Rhythm,
-    stop: Stop,
-  }),
-])
+  cron: CronExpression,
+  recurring: Schema.optional(Schema.Boolean),
+  timezone: Schema.optional(Timezone),
+  model: Schema.optional(Schema.NonEmptyString),
+  variant: Schema.optional(Schema.NonEmptyString),
+})
 
 export function formatAutomateValidationError(error: unknown) {
   const detail =
@@ -64,8 +45,10 @@ export function formatAutomateValidationError(error: unknown) {
       : String(error)
   return [
     "Invalid automate input.",
-    "Expected shape: oneshot { kind, title, prompt, context, where, timezone, fireAt } or recurring { kind, title, prompt, context, where, timezone, rhythm, stop }.",
-    "Example: { kind: \"recurring\", title: \"Daily repo brief\", prompt: \"Summarize repo changes.\", context: \"fresh\", where: { projectID: \"current-project\" }, timezone: \"UTC\", rhythm: { kind: \"interval\", everyMs: 3600000 }, stop: { kind: \"never\" } }.",
+    "Expected: { title, prompt, cron, recurring?, timezone?, model?, variant? }.",
+    'cron is a 5-field cron expression (e.g. "0 9 * * *" = 09:00 daily). recurring defaults to true; set it false for a one-shot that fires at the next cron match.',
+    'timezone defaults to the host timezone. model, when given, is a "providerID/modelID" string and otherwise defaults to this session\'s model; variant is an optional reasoning-effort key for that model.',
+    'Example: { title: "Daily repo brief", prompt: "Summarize repo changes.", cron: "0 9 * * *" }.',
     detail,
   ].join("\n")
 }
@@ -75,27 +58,105 @@ function readableAutomationError(error: unknown) {
   return error
 }
 
-export function createAutomateDefinition(): Tool.DefWithoutID<typeof AutomateParameters, { automationDefinition: Automation.Definition }> {
+function resolveTimezone(explicit: string | undefined): string {
+  if (explicit) return explicit
+  const system = Intl.DateTimeFormat().resolvedOptions().timeZone
+  return system && Automation.isValidTimezone(system) ? system : "UTC"
+}
+
+// Model the automation inherits when the caller does not name one: the most
+// recent user-message model on this session (matches plan.ts), else undefined.
+// Best-effort — a missing session makes stream() throw NotFoundError, which we
+// treat as "no model to inherit" and let execute() fall back to the provider
+// default. Any other failure (corrupt store, IO, parse) propagates instead of
+// silently downgrading the inherited model to the provider default.
+function sessionModel(sessionID: SessionID) {
+  try {
+    for (const item of MessageV2.stream(sessionID)) {
+      if (item.info.role === "user" && item.info.model) return item.info.model
+    }
+  } catch (error) {
+    if (NotFoundError.isInstance(error)) return undefined
+    throw error
+  }
+  return undefined
+}
+
+export function createAutomateDefinition(
+  provider: Provider.Interface,
+  automation: Automation.Interface,
+): Tool.DefWithoutID<typeof AutomateParameters, { automationDefinition: Automation.Definition }> {
   return {
     description:
-      "Create an Automation definition for later execution. The automation is not executed by this tool; it only stores the definition and echoes the resolved contract.",
+      "Create an Automation that re-runs a prompt on a schedule. Provide a title, the prompt, and a 5-field cron expression; project, timezone, and model default to the current session. Each run starts a fresh session and repeats until the user pauses or deletes it in the Automations panel. This only stores the definition; it does not run the prompt now.",
     parameters: AutomateParameters,
     formatValidationError: formatAutomateValidationError,
     execute: (params, ctx) =>
       Effect.gen(function* () {
-        const definition = yield* Effect.try({
+        const timezone = resolveTimezone(params.timezone)
+
+        let model: { providerID: string; modelID: string }
+        let variant: string | undefined
+        if (params.model) {
+          model = Provider.parseModel(params.model)
+          variant = params.variant
+        } else {
+          const fromSession = sessionModel(ctx.sessionID)
+          const inherited = fromSession ?? (yield* provider.defaultModel())
+          model = { providerID: inherited.providerID, modelID: inherited.modelID }
+          variant = params.variant ?? fromSession?.variant
+        }
+
+        const modelDetails = yield* validateModelAndVariantWith(provider, model, variant)
+        if (modelDetails.length) {
+          return yield* Effect.fail(readableAutomationError(new ValidationError(modelDetails)))
+        }
+
+        // Sample now only after model resolution/validation, which may have
+        // yielded on I/O. Sampling earlier risks a one-shot fireAt computed from
+        // a stale instant that a crossed cron boundary turns into an already-due
+        // time.
+        const now = Date.now()
+        const parsed = yield* Effect.try({
           try: () => {
-            if (Object.hasOwn(params as object, "automationSessionID")) {
-              throw new ValidationError([{ field: "automationSessionID", message: "unsupported_automation_field" }])
+            const common = {
+              title: params.title,
+              prompt: params.prompt,
+              context: "fresh" as const,
+              where: { projectID: Instance.project.id },
+              timezone,
+              model,
+              ...(variant ? { variant } : {}),
             }
-            const { sourceSessionID: _ignoredSourceSessionID, ...input } = params as typeof params & { sourceSessionID?: unknown }
-            const parsed = Automation.CreateInput.parse(input)
+            // recurring defaults to true; a false flag is a one-shot whose fire
+            // time is the next cron match (5-field cron has no year, so this is
+            // "next occurrence", not an arbitrary far-future instant).
+            const createInput =
+              params.recurring === false
+                ? (() => {
+                    const fireAt = nextCronFireAfter(params.cron, timezone, now)
+                    if (fireAt === null)
+                      throw new ValidationError([{ field: "cron", message: "cron_has_no_future_fire" }])
+                    return { kind: "oneshot" as const, ...common, fireAt }
+                  })()
+                : {
+                    kind: "recurring" as const,
+                    ...common,
+                    rhythm: { kind: "cron" as const, expression: params.cron },
+                    stop: { kind: "never" as const },
+                  }
+            const validated = Automation.CreateInput.parse(createInput)
             AutomationScheduler.current()
-            return Automation.create(parsed, { sourceSessionID: ctx.sessionID })
+            return validated
           },
           catch: readableAutomationError,
         })
-        yield* Effect.promise(() => Automation.publishDefinitionUpdated(definition))
+        // sourceSessionID always comes from ctx, never from input, so a model
+        // cannot spoof it; automationSessionID is not on the surface.
+        const definition = yield* automation
+          .create(parsed, { now, sourceSessionID: ctx.sessionID })
+          .pipe(Effect.mapError(readableAutomationError))
+        yield* automation.publishDefinitionUpdated(definition)
         return {
           title: "Automation created",
           metadata: { automationDefinition: definition },
@@ -105,4 +166,11 @@ export function createAutomateDefinition(): Tool.DefWithoutID<typeof AutomatePar
   }
 }
 
-export const AutomateTool = Tool.define("automate", Effect.succeed(createAutomateDefinition()))
+export const AutomateTool = Tool.define(
+  "automate",
+  Effect.gen(function* () {
+    const provider = yield* Provider.Service
+    const automation = yield* Automation.Service
+    return createAutomateDefinition(provider, automation)
+  }),
+)

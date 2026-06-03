@@ -1,5 +1,7 @@
 import type {
   Agent,
+  AutomationDefinition,
+  AutomationRun,
   Command,
   Config,
   LspStatus,
@@ -72,6 +74,15 @@ export type State = {
   }
   part: {
     [messageID: string]: Part[]
+  }
+  automation: {
+    [automationID: string]: AutomationDefinition
+  }
+  automation_run: {
+    [runID: string]: AutomationRun
+  }
+  automation_tombstone: {
+    [automationID: string]: number
   }
 }
 

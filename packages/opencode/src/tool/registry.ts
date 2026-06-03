@@ -1,7 +1,7 @@
 import { PlanExitTool } from "./plan"
 import { Session } from "../session"
 import { QuestionTool } from "./question"
-import { BashTool } from "./bash"
+import { ShellTool } from "./shell"
 import { EditTool } from "./edit"
 import { GlobTool } from "./glob"
 import { GrepTool } from "./grep"
@@ -14,6 +14,7 @@ import { WebFetchTool } from "./webfetch"
 import { WriteTool } from "./write"
 import { InvalidTool } from "./invalid"
 import { SkillTool } from "./skill"
+import { DEFERRED_TOOL_IDS, TOOL_INFO_ID, ToolInfoTool, buildCardList } from "./tool-info"
 import * as Tool from "./tool"
 import { Config } from "../config/config"
 import { type ToolContext as PluginToolContext, type ToolDefinition } from "@opencode-ai/plugin"
@@ -32,6 +33,7 @@ import { ApplyPatchTool } from "./apply_patch"
 import { EnterWorktreeTool } from "./enter-worktree"
 import { ExitWorktreeTool } from "./exit-worktree"
 import { AutomateTool } from "./automate"
+import { Automation } from "@/automation"
 import { Permission } from "../permission"
 import { Glob } from "../util/glob"
 import path from "path"
@@ -44,6 +46,7 @@ import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Ripgrep } from "../file/ripgrep"
 import { Format } from "../format"
 import { InstanceState } from "@/effect/instance-state"
+import { EffectBridge } from "@/effect"
 import { makeRuntime } from "@/effect/run-service"
 import { Env } from "../env"
 import { Todo } from "../session/todo"
@@ -82,6 +85,8 @@ export namespace ToolRegistry {
       providerID: ProviderID
       modelID: ModelID
       agent: Agent.Info
+      activatedTools?: ReadonlySet<string>
+      deferredAvailable?: (id: string) => boolean
     }) => Effect.Effect<Tool.Def[]>
     readonly invalidate: () => Effect.Effect<void>
   }
@@ -111,6 +116,7 @@ export namespace ToolRegistry {
     | Ripgrep.Service
     | Format.Service
     | Truncate.Service
+    | Automation.Service
   > = Layer.effect(
     Service,
     Effect.gen(function* () {
@@ -132,7 +138,7 @@ export namespace ToolRegistry {
       const plan = yield* PlanExitTool
       const webfetch = yield* WebFetchTool
       const websearch = yield* WebSearchTool
-      const bash = yield* BashTool
+      const bash = yield* ShellTool
       const globtool = yield* GlobTool
       const writetool = yield* WriteTool
       const edit = yield* EditTool
@@ -142,6 +148,10 @@ export namespace ToolRegistry {
       const enterWorktree = yield* EnterWorktreeTool
       const exitWorktree = yield* ExitWorktreeTool
       const automate = yield* AutomateTool
+
+      const toolInfoInfo = yield* ToolInfoTool((toolID, output) =>
+        plugin.trigger("tool.definition", { toolID }, output),
+      )
 
       const state = yield* InstanceState.make<State>(
         Effect.fn("ToolRegistry.state")(function* (ctx) {
@@ -164,9 +174,23 @@ export namespace ToolRegistry {
               description: def.description,
               execute: (args, toolCtx) =>
                 Effect.gen(function* () {
+                  // Plugin tools see `ask`/`metadata` as Promise/void (see
+                  // @opencode-ai/plugin), but the framework versions are Effects.
+                  // Without bridging, the `...toolCtx` spread hands the plugin the raw
+                  // Effect: an awaited `ctx.ask(...)` resolves it unexecuted and a
+                  // `ctx.metadata(...)` discards it — both silent no-ops. Bridge them
+                  // so they actually run.
+                  const bridge = yield* EffectBridge.make()
                   const pluginCtx: PluginToolContext = {
                     ...toolCtx,
-                    ask: (req) => toolCtx.ask(req),
+                    ask: (req) => bridge.promise(toolCtx.ask(req)),
+                    metadata: (input) => {
+                      // `metadata` returns void in the plugin contract, so fire the
+                      // bridged Effect and log on failure rather than dropping it.
+                      void bridge.promise(toolCtx.metadata(input)).catch((err) => {
+                        log.warn("failed to set plugin tool metadata", { error: String(err) })
+                      })
+                    },
                     directory: ctx.directory,
                     worktree: ctx.worktree,
                   }
@@ -278,6 +302,7 @@ export namespace ToolRegistry {
             enterWorktree: Tool.init(enterWorktree),
             exitWorktree: Tool.init(exitWorktree),
             automate: Tool.init(automate),
+            toolInfo: Tool.init(toolInfoInfo),
           })
 
           return {
@@ -298,10 +323,11 @@ export namespace ToolRegistry {
               tool.todo,
               ...(webSearchEnabled ? [tool.search] : []),
               tool.skill,
+              tool.toolInfo,
               tool.patch,
               ...(lspEnabled ? [tool.lsp] : []),
               ...(Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE && Flag.OPENCODE_CLIENT === "cli" ? [tool.plan] : []),
-              ...(Env.get("OPENCODE_ENABLE_AUTOMATE_TOOL") === "true" ? [tool.automate] : []),
+              tool.automate,
               tool.enterWorktree,
               tool.exitWorktree,
             ],
@@ -366,8 +392,17 @@ export namespace ToolRegistry {
           if (tool.id === ApplyPatchTool.id) return usePatch
           if (tool.id === EditTool.id || tool.id === WriteTool.id) return !usePatch
 
+          if (DEFERRED_TOOL_IDS.has(tool.id)) {
+            const available = input.deferredAvailable?.(tool.id) ?? true
+            return available && (input.activatedTools?.has(tool.id) ?? false)
+          }
+
           return true
         })
+
+        const availableDeferred = [...DEFERRED_TOOL_IDS].filter(
+          (id) => (input.deferredAvailable?.(id) ?? true) && !(input.activatedTools?.has(id) ?? false),
+        )
 
         return yield* Effect.forEach(
           filtered,
@@ -384,6 +419,7 @@ export namespace ToolRegistry {
                 output.description,
                 tool.id === AgentTool.id ? yield* describeTask(input.agent) : undefined,
                 tool.id === SkillTool.id ? yield* describeSkill(input.agent) : undefined,
+                tool.id === TOOL_INFO_ID ? buildCardList(availableDeferred) : undefined,
               ]
                 .filter(Boolean)
                 .join("\n"),
@@ -430,6 +466,7 @@ export namespace ToolRegistry {
       Layer.provide(CrossSpawnSpawner.defaultLayer),
       Layer.provide(Ripgrep.defaultLayer),
       Layer.provide(Truncate.defaultLayer),
+      Layer.provide(Automation.defaultLayer),
     ),
   )
 
@@ -443,6 +480,8 @@ export namespace ToolRegistry {
     providerID: ProviderID
     modelID: ModelID
     agent: Agent.Info
+    activatedTools?: ReadonlySet<string>
+    deferredAvailable?: (id: string) => boolean
   }): Promise<(Tool.Def & { id: string })[]> {
     return runPromise((svc) => svc.tools(input))
   }

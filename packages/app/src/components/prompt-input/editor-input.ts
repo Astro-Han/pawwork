@@ -6,14 +6,8 @@
 import { createEffect, createSignal, on, type Accessor } from "solid-js"
 import { createOwnerMirrorEffect } from "./owner-mirror"
 import type { SetStoreFunction } from "solid-js/store"
-import {
-  type ContentPart,
-  DEFAULT_PROMPT,
-  type ImageAttachmentPart,
-  isPromptEqual,
-  type Prompt,
-  type usePrompt,
-} from "@/context/prompt"
+import { type ContentPart, type ImageAttachmentPart, type Prompt, type usePrompt } from "@/context/prompt"
+import { DEFAULT_PROMPT, isPromptEqual } from "@/context/prompt-equality"
 import type { useSDK } from "@/context/sdk"
 import type { useSync } from "@/context/sync"
 import { useParams } from "@solidjs/router"

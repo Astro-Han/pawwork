@@ -1,14 +1,21 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { Effect } from "effect"
+import { Effect, ManagedRuntime } from "effect"
 import { Automation } from "../../src/automation"
+import { internalTestHooks } from "../../src/automation/__test_hooks"
 import { AutomationScheduler } from "../../src/automation/scheduler"
 import { Instance } from "../../src/project/instance"
 import { ProjectID } from "../../src/project/schema"
 import { trackActiveRun } from "../../src/session/lifecycle-provenance"
 import { MessageID, SessionID } from "../../src/session/schema"
 import { createAutomateDefinition } from "../../src/tool/automate"
+import { fakeAutomationProvider } from "../fake/provider"
 import { tmpdir } from "../fixture/fixture"
 import { Flock } from "../../src/util/flock"
+
+// createAutomateDefinition now takes the resolved Automation service; resolve it
+// once (injected in production from AppRuntime, like provider).
+const runtime = ManagedRuntime.make(Automation.defaultLayer)
+const automation = await runtime.runPromise(Effect.gen(function* () { return yield* Automation.Service }))
 
 afterEach(async () => {
   await Instance.disposeAll()
@@ -125,6 +132,12 @@ async function withAutomation<T>(fn: (projectID: ProjectID) => Promise<T>) {
   })
 }
 
+const fakeProvider = fakeAutomationProvider()
+const fixtureModel = Automation.Model.parse({
+  providerID: fakeProvider.providerID,
+  modelID: fakeProvider.modelID,
+})
+
 function oneshotInput(projectID: ProjectID, fireAt: number): Automation.CreateInput {
   return {
     kind: "oneshot",
@@ -133,6 +146,7 @@ function oneshotInput(projectID: ProjectID, fireAt: number): Automation.CreateIn
     context: "fresh",
     where: { projectID },
     timezone: "Asia/Shanghai",
+    model: fixtureModel,
     fireAt,
   }
 }
@@ -147,6 +161,7 @@ function recurringInput(projectID: ProjectID, everyMs: number, overrides: Partia
     context: "fresh",
     where: { projectID },
     timezone: "Asia/Shanghai",
+    model: fixtureModel,
     rhythm: { kind: "interval", everyMs },
     stop: { kind: "never" },
     ...overrides,
@@ -201,6 +216,17 @@ async function waitForRunCount(automationID: string, count: number) {
     await Bun.sleep(5)
   }
   throw new Error(`Timed out waiting for automation run count: ${count}`)
+}
+
+async function waitForFailedRunCount(automationID: string, count: number) {
+  const deadline = Date.now() + 3_000
+  let latest: Automation.Run[] = []
+  while (Date.now() < deadline) {
+    latest = Automation.runs({ automationID }).items
+    if (latest.filter((r) => r.state === "failed").length >= count) return latest
+    await Bun.sleep(5)
+  }
+  throw new Error(`Timed out waiting for ${count} failed run(s); latest=${JSON.stringify(latest)}`)
 }
 
 async function waitForStarts(starts: unknown[], count: number) {
@@ -280,11 +306,14 @@ describe("automation scheduler", () => {
         clock,
         executor: async () => ({ sessionID: SessionID.descending(), result: "done", cost: 0 }),
       })
-      const tool = createAutomateDefinition()
+      const tool = createAutomateDefinition(fakeProvider.interface, automation)
 
       const result = await Effect.runPromise(
         tool.execute(
-          recurringInput(projectID, 60_000),
+          // Flat cron surface: "* * * * *" fires on the next minute boundary,
+          // which is 60_000 from the fake clock's 0 — the interval-era cadence
+          // this test asserts. projectID/model default to the instance/session.
+          { title: "Recurring brief", prompt: "Summarize repo changes.", cron: "* * * * *", timezone: "UTC" },
           {
             sessionID: SessionID.descending(),
             messageID: MessageID.ascending(),
@@ -986,28 +1015,108 @@ describe("automation scheduler", () => {
     })
   })
 
-  test("does not schedule recurring condition stops without an evaluator", async () => {
+  test("recordRunOutcome retries on real ConflictError and merges with the racing edit", async () => {
     await withAutomation(async (projectID) => {
-      const clock = new FakeClock(0)
-      const starts: number[] = []
-      const scheduler = AutomationScheduler.make({
-        clock,
-        executor: async () => {
-          starts.push(clock.now())
-          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+      const created = Automation.create(recurringInput(projectID, 60_000), { now: 0 })
+      if (created.kind !== "recurring") throw new Error("recurring")
+
+      const sessionID = SessionID.descending()
+      await Automation.runNowExecuting(created.id, {
+        now: 1_000,
+        executor: async ({ run }) => {
+          const running = Automation.markRunStarted(run, sessionID, { now: 1_000 })
+          await Automation.publishRunUpdated(running)
+          throw new Error("kaboom")
         },
-      })
-      const definition = Automation.create(
-        recurringInput(projectID, 60_000, { stop: { kind: "condition", condition: "repo is ready" } }),
-        { now: 0 },
-      )
+      }).catch(() => undefined)
+      const failed = (await waitForFailedRunCount(created.id, 1)).find((r) => r.state === "failed")
+      if (!failed) throw new Error("failed missing")
 
-      scheduler.reschedule(definition)
-      await clock.advance(60_000)
+      // Force a real ConflictError: the test hook fires after record reads
+      // `previous` but before it writes, so the unrelated update bumps the
+      // row's revision and the first replaceDefinition hits ConflictError.
+      let hookFires = 0
+      internalTestHooks.beforeReplaceDefinition = (previous) => {
+        if (hookFires === 0) {
+          hookFires += 1
+          Automation.update(previous.id, { title: "raced edit" }, { now: 1_400 })
+        }
+      }
+      let refreshed: Automation.Definition | undefined
+      try {
+        refreshed = Automation.recordRunOutcome(failed, { now: 1_500 })
+      } finally {
+        delete internalTestHooks.beforeReplaceDefinition
+      }
+      expect(hookFires).toBe(1)
+      if (!refreshed || refreshed.kind !== "recurring") throw new Error("refreshed missing")
+      // The retry must preserve the racing edit AND apply the run's contribution.
+      expect(refreshed.title).toBe("raced edit")
+      expect(refreshed.failureStreak).toBe(1)
+      expect(refreshed.nextFireAt).not.toBe(created.nextFireAt)
+    })
+  })
 
-      expect(starts).toEqual([])
-      expect(Automation.runs({ automationID: definition.id }).items).toHaveLength(0)
-      scheduler.stop()
+  test("recordRunOutcome stays consistent across concurrent revision bumps", async () => {
+    await withAutomation(async (projectID) => {
+      const created = Automation.create(recurringInput(projectID, 60_000), { now: 0 })
+      if (created.kind !== "recurring") throw new Error("recurring")
+
+      let expectedFailed = 0
+      const triggerFailedRun = async (now: number) => {
+        const sessionID = SessionID.descending()
+        expectedFailed += 1
+        await Automation.runNowExecuting(created.id, {
+          now,
+          executor: async ({ run }) => {
+            const running = Automation.markRunStarted(run, sessionID, { now })
+            await Automation.publishRunUpdated(running)
+            throw new Error("kaboom")
+          },
+        }).catch(() => undefined)
+        await waitForFailedRunCount(created.id, expectedFailed)
+      }
+
+      await triggerFailedRun(1_000)
+      const failed1 = Automation.runs({ automationID: created.id }).items.find((r) => r.state === "failed")
+      if (!failed1) throw new Error("failed1 missing")
+      const after1 = Automation.recordRunOutcome(failed1, { now: 1_500 })
+      if (!after1 || after1.kind !== "recurring") throw new Error("after1")
+      expect(after1.failureStreak).toBe(1)
+      expect(after1.revision).toBeGreaterThan(created.revision)
+
+      const edited = Automation.update(created.id, { title: "edited" }, { now: 2_000 })
+      expect(edited.revision).toBeGreaterThan(after1.revision)
+
+      await triggerFailedRun(3_000)
+      const failed2 = Automation.runs({ automationID: created.id }).items
+        .filter((r) => r.state === "failed")
+        .find((r) => r.id !== failed1.id)
+      if (!failed2) throw new Error("failed2 missing")
+      const after2 = Automation.recordRunOutcome(failed2, { now: 3_500 })
+      if (!after2 || after2.kind !== "recurring") throw new Error("after2")
+      // Concurrent edit must not erase the streak; record reads the latest
+      // and applies the increment on top.
+      expect(after2.failureStreak).toBe(2)
+      expect(after2.title).toBe("edited")
+      expect(after2.revision).toBeGreaterThan(edited.revision)
+    })
+  })
+
+  test("rejects recurring condition stops at create time", async () => {
+    await withAutomation(async (projectID) => {
+      let captured: unknown
+      try {
+        Automation.create(
+          recurringInput(projectID, 60_000, { stop: { kind: "condition", condition: "repo is ready" } }),
+          { now: 0 },
+        )
+      } catch (error) {
+        captured = error
+      }
+      expect(captured).toBeInstanceOf(Error)
+      const validation = captured as { details?: { field: string; message: string }[] }
+      expect(validation.details).toEqual(expect.arrayContaining([{ field: "stop", message: "unsupported_stop_condition" }]))
     })
   })
 
@@ -1082,6 +1191,13 @@ describe("automation scheduler", () => {
 
       const runs = await waitForRunStates(definition.id, ["stopped", "stopped"])
       expect(runs[0].triggeredAt).toBe(60_000)
+      const after = Automation.get(definition.id)
+      if (after.kind !== "recurring" || definition.kind !== "recurring") throw new Error("recurring")
+      // failureStreak must not advance on stopped (manual conflict, writer block, missed schedule).
+      expect(after.failureStreak).toBe(definition.failureStreak)
+      // Scheduler-owned stopped (`previous_run_awaiting_input` at t=60_000) advances the stored
+      // nextFireAt preview so the UI does not display a fire time that has already elapsed.
+      expect(after.nextFireAt).toBe(120_000)
       releaseBlocker.resolve({ sessionID: SessionID.descending(), result: "blocker done", cost: 0 })
       scheduler.stop()
     })

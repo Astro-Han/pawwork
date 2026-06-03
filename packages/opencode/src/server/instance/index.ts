@@ -2,6 +2,7 @@ import { describeRoute, resolver, validator } from "hono-openapi"
 import { Hono } from "hono"
 import type { UpgradeWebSocket } from "hono/ws"
 import fs from "fs/promises"
+import { Effect } from "effect"
 import z from "zod"
 import { Format } from "../../format"
 import { Instance } from "../../project/instance"
@@ -89,7 +90,11 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
         },
       }),
       async (c) => {
-        await Instance.dispose()
+        await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            yield* Effect.promise(() => Instance.dispose())
+          }),
+        )
         return c.json(true)
       },
     )
@@ -135,19 +140,26 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
       }),
       async (c) => {
         const ensureConfig = c.req.query("ensureConfig") === "true"
-        const config = Runtime.isPawWork()
-          ? ensureConfig
-            ? await PawWorkHome.ensurePrimary()
-            : PawWorkHome.primary()
-          : Global.Path.config
-        if (ensureConfig && !Runtime.isPawWork()) await fs.mkdir(config, { recursive: true })
-        return c.json({
-          home: Global.Path.home,
-          state: Global.Path.state,
-          config,
-          worktree: Instance.worktree,
-          directory: Instance.directory,
-        })
+        const paths = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const config = Runtime.isPawWork()
+              ? ensureConfig
+                ? yield* Effect.promise(() => PawWorkHome.ensurePrimary())
+                : PawWorkHome.primary()
+              : Global.Path.config
+            if (ensureConfig && !Runtime.isPawWork()) {
+              yield* Effect.promise(() => fs.mkdir(config, { recursive: true }))
+            }
+            return {
+              home: Global.Path.home,
+              state: Global.Path.state,
+              config,
+              worktree: Instance.worktree,
+              directory: Instance.directory,
+            }
+          }),
+        )
+        return c.json(paths)
       },
     )
     .get(
@@ -168,7 +180,12 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
         },
       }),
       async (c) => {
-        const [branch, default_branch] = await Promise.all([Vcs.branch(), Vcs.defaultBranch()])
+        const [branch, default_branch] = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const vcs = yield* Vcs.Service
+            return yield* Effect.all([vcs.branch(), vcs.defaultBranch()], { concurrency: 2 })
+          }),
+        )
         return c.json({
           branch,
           default_branch,
@@ -179,7 +196,7 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
       "/vcs/diff",
       describeRoute({
         summary: "Get VCS diff",
-        description: "Retrieve the current unstaged, staged, or default-branch git diff.",
+        description: "Retrieve the current working-tree diff. `git` compares the working tree against HEAD (covers staged and unstaged changes plus untracked files); `branch` compares the working tree against the merge base with the default branch.",
         operationId: "vcs.diff",
         responses: {
           200: {
@@ -199,7 +216,14 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
         }),
       ),
       async (c) => {
-        return c.json(await Vcs.diff(c.req.valid("query").mode))
+        const mode = c.req.valid("query").mode
+        const diff = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const vcs = yield* Vcs.Service
+            return yield* vcs.diff(mode)
+          }),
+        )
+        return c.json(diff)
       },
     )
     .get(
@@ -220,14 +244,20 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
         },
       }),
       async (c) => {
-        return c.json(await Vcs.status())
+        const status = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const vcs = yield* Vcs.Service
+            return yield* vcs.status()
+          }),
+        )
+        return c.json(status)
       },
     )
     .get(
       "/vcs/diff/raw",
       describeRoute({
         summary: "Get raw VCS diff",
-        description: "Retrieve the current git diff as raw patch text.",
+        description: "Retrieve the current git diff as raw patch text. Review-oriented unified diff; not guaranteed to apply cleanly via `git apply` for mixed index/worktree states in pre-first-commit repos (the same path may appear in both staged and worktree sections).",
         operationId: "vcs.diffRaw",
         responses: {
           200: {
@@ -339,7 +369,12 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
         },
       }),
       async (c) => {
-        const commands = await AppRuntime.runPromise(Command.Service.use((svc) => svc.list()))
+        const commands = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const command = yield* Command.Service
+            return yield* command.list()
+          }),
+        )
         return c.json(commands)
       },
     )
@@ -361,7 +396,12 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
         },
       }),
       async (c) => {
-        const modes = await Agent.list()
+        const modes = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const agent = yield* Agent.Service
+            return yield* agent.list()
+          }),
+        )
         return c.json(modes)
       },
     )
@@ -383,7 +423,12 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
         },
       }),
       async (c) => {
-        const skills = await Skill.all()
+        const skills = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const skill = yield* Skill.Service
+            return yield* skill.all()
+          }),
+        )
         return c.json(skills)
       },
     )
@@ -405,7 +450,13 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
         },
       }),
       async (c) => {
-        return c.json(await LSP.status())
+        const status = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const lsp = yield* LSP.Service
+            return yield* lsp.status()
+          }),
+        )
+        return c.json(status)
       },
     )
     .get(
@@ -426,6 +477,12 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
         },
       }),
       async (c) => {
-        return c.json(await AppRuntime.runPromise(Format.Service.use((svc) => svc.status())))
+        const status = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const format = yield* Format.Service
+            return yield* format.status()
+          }),
+        )
+        return c.json(status)
       },
     )

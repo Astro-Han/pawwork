@@ -15,6 +15,7 @@ import { SystemPrompt } from "./system"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { Permission } from "@/permission"
 import { PermissionID } from "@/permission/schema"
+import { buildDeferredHint } from "../tool/tool-info"
 import { Bus } from "@/bus"
 import { Wildcard } from "@/util/wildcard"
 import { SessionID } from "@/session/schema"
@@ -353,6 +354,13 @@ const live: Layer.Layer<
         }),
       )
 
+      // Same availability rule the registry uses to card/expose deferred tools
+      // (prompt.ts deferredAvailable): a deferred tool the user disabled or a
+      // permission rule denied can't be activated via tool_info, so the repair
+      // hint below must not route the model there.
+      const deferredRuleset = Permission.merge(input.agent.permission, input.permission ?? [])
+      const deferredAvailable = (id: string) =>
+        input.user.tools?.[id] !== false && !Permission.disabled([id], deferredRuleset).has(id)
       return streamText({
         onError(error) {
           l.error("stream error", {
@@ -371,11 +379,12 @@ const live: Layer.Layer<
               toolName: lower,
             }
           }
+          const deferredHint = buildDeferredHint(failed.toolCall.toolName, deferredAvailable)
           return {
             ...failed.toolCall,
             input: JSON.stringify({
               tool: failed.toolCall.toolName,
-              error: failed.error.message,
+              error: failed.error.message + deferredHint,
             }),
             toolName: "invalid",
           }
@@ -586,9 +595,13 @@ const live: Layer.Layer<
 
             // This is a silent-stream timeout: it limits how long we wait for
             // the next provider event, not the total model runtime.
-            return Stream.fromAsyncIterable(failOnTimeout(result.fullStream, request), (e) =>
-              e instanceof Error ? e : new Error(String(e)),
-            ).pipe(Stream.tap((event) => Effect.sync(() => request.resetTimeout(event))))
+            //
+            // Preserve the raw thrown value instead of coercing to new Error(String(e)):
+            // a structured provider error payload (object/string) would otherwise be
+            // crushed to "[object Object]", losing what fromError's stream parser needs.
+            return Stream.fromAsyncIterable(failOnTimeout(result.fullStream, request), (e) => e).pipe(
+              Stream.tap((event) => Effect.sync(() => request.resetTimeout(event))),
+            )
           }),
         ),
       )

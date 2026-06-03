@@ -14,15 +14,9 @@ import { createPortableDraftOwner } from "./portable-draft"
 import { createPinnedDraftOwner } from "./pinned-draft"
 import { buildRequestParts } from "./build-request-parts"
 import { captureCommentMentions } from "./mention-metadata"
+import { detectSubmitOwnership } from "./submit-ownership"
 
-let detectSubmitOwnership: any
-
-beforeAll(async () => {
-  // submit.ts pulls in router/sdk/etc. at module scope; mock bare minimum.
-  mock.module("@solidjs/router", () => ({
-    useNavigate: () => () => undefined,
-    useParams: () => ({}),
-  }))
+beforeAll(() => {
   // Use a real FNV-1a checksum so that Persist.workspace() still produces
   // distinct storage names for different directories (the string-length mock
   // used in submit-ownership.test.ts is order-dependent and leaks into
@@ -42,8 +36,6 @@ beforeAll(async () => {
     checksum: fnv1a,
     sampledChecksum: fnv1a,
   }))
-  const mod = await import("./submit")
-  detectSubmitOwnership = mod.detectSubmitOwnership
 })
 
 // Minimal non-empty payload for a given text string.

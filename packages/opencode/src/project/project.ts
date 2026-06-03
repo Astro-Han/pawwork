@@ -1,5 +1,5 @@
 import z from "zod"
-import { and, Database, eq } from "../storage/db"
+import { and, Database, eq, NotFoundError } from "../storage/db"
 import { ProjectTable } from "./project.sql"
 import { SessionTable } from "../session/session.sql"
 import { Log } from "@opencode-ai/core/util/log"
@@ -383,7 +383,7 @@ export namespace Project {
             .returning()
             .get(),
         )
-        if (!result) throw new Error(`Project not found: ${input.projectID}`)
+        if (!result) throw new NotFoundError({ message: `Project not found: ${input.projectID}` })
         const data = fromRow(result)
         yield* emitUpdated(data)
         return data

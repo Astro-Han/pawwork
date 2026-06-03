@@ -1,0 +1,15 @@
+/*
+ * A terminal notice (safe_retry_failed) is a turn-level status line, not a
+ * trailing thought. When it follows other turn content it sat in the bare 12px
+ * column gap and read as more model thinking (#943). A hairline top rule — the
+ * canonical divider treatment (DESIGN.md "Borders") — plus padding above the
+ * text sets it apart. The `* +` guard keeps the rule off a notice that is the
+ * turn's only part (e.g. a first-attempt connection failure, where the failed
+ * attempt's reasoning was removed), so no stray line floats with nothing above.
+ * Spacing below the rule comes from padding-top; spacing above comes from the
+ * container's existing gap, so the divider stays centered between the two.
+ */
+* + [data-component="notice-part"] {
+  padding-top: 12px;
+  border-top: 1px solid var(--border-weaker);
+}

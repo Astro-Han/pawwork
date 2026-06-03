@@ -11,7 +11,7 @@ describe("run incident safety gate", () => {
     const decision = RunIncident.evaluateReplaySafety({
       recovery: {
         ...base,
-        recommendation: "auto_retry_once",
+        recommendation: "auto_retry",
         reason: "reasoning_only_without_final_text_or_tool_activity",
         auto_retry: { max_attempts: 1, backoff_ms: 1_000 },
       },
@@ -29,7 +29,7 @@ describe("run incident safety gate", () => {
     const decision = RunIncident.evaluateReplaySafety({
       recovery: {
         ...base,
-        recommendation: "auto_retry_once",
+        recommendation: "auto_retry",
         reason: "no_visible_output_or_tool_execution",
         auto_retry: { max_attempts: 1, backoff_ms: 1_000 },
       },
@@ -37,6 +37,28 @@ describe("run incident safety gate", () => {
     })
 
     expect(decision).toMatchObject({
+      canReplay: false,
+      recoveryMode: "auto_replay_blocked",
+      blockedReason: "safe_recovery_budget_exhausted",
+    })
+  })
+
+  test("allows replays across a multi-attempt budget and blocks once exhausted", () => {
+    const recovery = {
+      ...base,
+      recommendation: "auto_retry",
+      reason: "no_visible_output_or_tool_execution",
+      auto_retry: { max_attempts: 3, backoff_ms: 2_000 },
+    } as const
+
+    for (const safeRecoveryAttempt of [0, 1, 2]) {
+      expect(RunIncident.evaluateReplaySafety({ recovery, safeRecoveryAttempt })).toMatchObject({
+        canReplay: true,
+        recoveryMode: "replay",
+      })
+    }
+
+    expect(RunIncident.evaluateReplaySafety({ recovery, safeRecoveryAttempt: 3 })).toMatchObject({
       canReplay: false,
       recoveryMode: "auto_replay_blocked",
       blockedReason: "safe_recovery_budget_exhausted",

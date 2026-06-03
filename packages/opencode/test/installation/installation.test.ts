@@ -11,19 +11,22 @@ function mockHttpClient(handler: (request: HttpClientRequest.HttpClientRequest) 
   return Layer.succeed(HttpClient.HttpClient, client)
 }
 
-function mockSpawner(handler: (cmd: string, args: readonly string[]) => string = () => "") {
+type SpawnResult = string | { code: number; stdout?: string; stderr?: string }
+
+function mockSpawner(handler: (cmd: string, args: readonly string[]) => SpawnResult = () => "") {
   const spawner = ChildProcessSpawner.make((command) => {
     const std = ChildProcess.isStandardCommand(command) ? command : undefined
-    const output = handler(std?.command ?? "", std?.args ?? [])
+    const result = handler(std?.command ?? "", std?.args ?? [])
+    const output = typeof result === "string" ? { code: 0, stdout: result, stderr: "" } : result
     return Effect.succeed(
       ChildProcessSpawner.makeHandle({
         pid: ChildProcessSpawner.ProcessId(0),
-        exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(0)),
+        exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(output.code)),
         isRunning: Effect.succeed(false),
         kill: () => Effect.void,
         stdin: { [Symbol.for("effect/Sink/TypeId")]: Symbol.for("effect/Sink/TypeId") } as any,
-        stdout: output ? Stream.make(encoder.encode(output)) : Stream.empty,
-        stderr: Stream.empty,
+        stdout: output.stdout ? Stream.make(encoder.encode(output.stdout)) : Stream.empty,
+        stderr: output.stderr ? Stream.make(encoder.encode(output.stderr)) : Stream.empty,
         all: Stream.empty,
         getInputFd: () => ({ [Symbol.for("effect/Sink/TypeId")]: Symbol.for("effect/Sink/TypeId") }) as any,
         getOutputFd: () => Stream.empty,
@@ -43,7 +46,7 @@ function jsonResponse(body: unknown) {
 
 function testLayer(
   httpHandler: (request: HttpClientRequest.HttpClientRequest) => Response,
-  spawnHandler?: (cmd: string, args: readonly string[]) => string,
+  spawnHandler?: (cmd: string, args: readonly string[]) => SpawnResult,
 ) {
   return Installation.layer.pipe(Layer.provide(mockHttpClient(httpHandler)), Layer.provide(mockSpawner(spawnHandler)))
 }
@@ -147,6 +150,64 @@ describe("installation", () => {
         Installation.Service.use((svc) => svc.latest("brew")).pipe(Effect.provide(layer)),
       )
       expect(result).toBe("2.1.0")
+    })
+  })
+
+  describe("upgrade", () => {
+    test("returns a sanitized typed error for a failed package upgrade", async () => {
+      const layer = testLayer(
+        () => jsonResponse({}),
+        (cmd) => (cmd === "npm" ? { code: 1, stderr: "token=secret command output" } : ""),
+      )
+
+      const error = await Effect.runPromise(
+        Installation.Service.use((svc) => svc.upgrade("npm", "9.9.9")).pipe(Effect.provide(layer), Effect.flip),
+      )
+      expect(error).toBeInstanceOf(Installation.UpgradeFailedError)
+      expect(error.stderr).toBe("Upgrade failed for npm (exit code 1).")
+      expect(error.message).toBe(error.stderr) // desktop API surfaces err.message
+      expect(error.stderr).not.toContain("secret")
+    })
+
+    test("returns a sanitized typed error when the curl install script exits non-zero", async () => {
+      const layer = testLayer(
+        () => new Response("install script with token=secret", { status: 200 }),
+        (cmd) => (cmd === "bash" ? { code: 1, stderr: "script output with token=secret" } : ""),
+      )
+
+      const error = await Effect.runPromise(
+        Installation.Service.use((svc) => svc.upgrade("curl", "9.9.9")).pipe(Effect.provide(layer), Effect.flip),
+      )
+      expect(error).toBeInstanceOf(Installation.UpgradeFailedError)
+      expect(error.stderr).toBe("Upgrade failed for curl (exit code 1).")
+      expect(error.message).toBe(error.stderr)
+      expect(error.stderr).not.toContain("secret")
+    })
+
+    test("types a curl install-script fetch failure instead of dying", async () => {
+      // Non-2xx makes httpOk fail; the mapError must turn that defect into a typed UpgradeFailedError.
+      const layer = testLayer(() => new Response("not found", { status: 404 }))
+
+      const error = await Effect.runPromise(
+        Installation.Service.use((svc) => svc.upgrade("curl", "9.9.9")).pipe(Effect.provide(layer), Effect.flip),
+      )
+      expect(error).toBeInstanceOf(Installation.UpgradeFailedError)
+      expect(error.stderr).toBe("Upgrade failed for curl.")
+      expect(error.message).toBe(error.stderr)
+    })
+
+    test("preserves the choco elevated-shell hint and never leaks raw stderr", async () => {
+      const layer = testLayer(
+        () => jsonResponse({}),
+        (cmd) => (cmd === "choco" ? { code: 1, stderr: "raw choco failure detail" } : ""),
+      )
+
+      const error = await Effect.runPromise(
+        Installation.Service.use((svc) => svc.upgrade("choco", "9.9.9")).pipe(Effect.provide(layer), Effect.flip),
+      )
+      expect(error.stderr).toBe("not running from an elevated command shell")
+      expect(error.message).toBe(error.stderr)
+      expect(error.stderr).not.toContain("raw choco failure detail")
     })
   })
 })

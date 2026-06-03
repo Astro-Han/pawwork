@@ -1060,6 +1060,11 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
       sessionID: SessionID
       messageID: MessageID
     }) {
+      // Surface the route's declared 404 instead of silently succeeding:
+      // removing a message that does not exist is a not-found, not a no-op.
+      // MessageV2.get throws NotFoundError for a missing row, which
+      // ErrorMiddleware maps to 404 (the deleteMessage route already declares it).
+      yield* Effect.sync(() => MessageV2.get({ sessionID: input.sessionID, messageID: input.messageID }))
       yield* Effect.sync(() =>
         SyncEvent.run(MessageV2.Event.Removed, {
           sessionID: input.sessionID,

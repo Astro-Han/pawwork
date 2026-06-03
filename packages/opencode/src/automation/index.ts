@@ -1,15 +1,22 @@
 import z from "zod"
+import { Context as EffectContext, Effect, Layer } from "effect"
+import { InstanceState } from "@/effect/instance-state"
+import { makeRuntime } from "@/effect/run-service"
 import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
 import { Identifier } from "@/id/id"
 import { Instance } from "@/project/instance"
 import { ProjectID } from "@/project/schema"
 import { PermissionID } from "@/permission/schema"
+import { ModelID, ProviderID } from "@/provider/schema"
 import { SessionID } from "@/session/schema"
 import { and, Database, desc, eq, gte, inArray, lt, NotFoundError, or, sql } from "@/storage/db"
 import { Flock } from "@/util/flock"
 import type { AutomationRunAttendance, AutomationRunBlocker } from "./run-context"
 import { AutomationDefinitionTable, AutomationRunTable } from "./automation.sql"
+import { isValidCronExpression as cronIsValidExpression } from "./cron"
+import { computeDerivedFields } from "./derived"
+import { internalTestHooks } from "./__test_hooks"
 
 export const AutomationID = {
   Definition: {
@@ -38,11 +45,17 @@ export namespace Automation {
     .meta({
       ref: "AutomationWhere",
     })
+  export const Model = z
+    .object({ providerID: ProviderID.zod, modelID: ModelID.zod })
+    .strict()
+    .meta({ ref: "AutomationModel" })
+  export type Model = z.infer<typeof Model>
   export const ValidationErrorDetail = z
     .object({ field: z.string(), message: z.string() })
     .strict()
     .meta({ ref: "AutomationValidationErrorDetail" })
   export type ValidationErrorDetail = z.infer<typeof ValidationErrorDetail>
+  export type ValidationErrorDetailType = ValidationErrorDetail
   export const ValidationErrorResponse = z
     .object({ error: z.literal("invalid_automation"), details: z.array(ValidationErrorDetail) })
     .strict()
@@ -55,6 +68,10 @@ export namespace Automation {
     .object({ error: z.literal("active_run_still_running"), runID: RunID })
     .strict()
     .meta({ ref: "AutomationActiveRunStillRunningError" })
+  // Stop accepts all three kinds at the schema layer so create/update can
+  // return a structured `unsupported_stop_condition` error for `kind: "condition"`
+  // (rejected by validateCreateInput / validateUpdateInput). The agent-facing
+  // `automate` tool schema separately omits condition from its input surface.
   export const Stop = z
     .discriminatedUnion("kind", [
       z.object({ kind: z.literal("count"), count: z.number().int().positive() }).strict(),
@@ -75,6 +92,8 @@ export namespace Automation {
     context: Context,
     where: Where,
     timezone: z.string().min(1),
+    model: Model,
+    variant: z.string().min(1).optional(),
   }
 
   export const CreateInput = z
@@ -96,6 +115,8 @@ export namespace Automation {
       fireAt: z.number().int().nonnegative().optional(),
       rhythm: Rhythm.optional(),
       stop: Stop.optional(),
+      model: Model.optional(),
+      variant: z.string().min(1).nullable().optional(),
     })
     .strict()
     .meta({ ref: "AutomationUpdateInput" })
@@ -115,6 +136,8 @@ export namespace Automation {
     sourceSessionID: SessionID.zod.optional(),
     automationSessionID: SessionID.zod.optional(),
     normalizationWarnings: z.array(z.string()),
+    model: Model,
+    variant: z.string().min(1).optional(),
   }
 
   export const Definition = z
@@ -244,10 +267,11 @@ export namespace Automation {
     activeWriters: Set<string>
     activeRuns: Map<string, { writerKey: string; controller: AbortController; runID: string }>
   }
-  const state = Instance.state<State>(() => ({
-    activeWriters: new Set(),
-    activeRuns: new Map(),
-  }))
+  // Per-directory execution state. The container lives in InstanceState (owned by the
+  // Service layer below); the sync facade reads it through a runtime bridge (see `state`).
+  function state(): State {
+    return automationRuntime.runSync((svc) => svc.activeState())
+  }
 
   export type RunExecutor = (input: {
     definition: Definition
@@ -263,6 +287,8 @@ export namespace Automation {
     "context",
     "where",
     "timezone",
+    "model",
+    "variant",
   ])
   const ONESHOT_CREATE_FIELDS = new Set([...COMMON_CREATE_FIELDS, "fireAt"])
   const RECURRING_CREATE_FIELDS = new Set([...COMMON_CREATE_FIELDS, "rhythm", "stop"])
@@ -276,6 +302,8 @@ export namespace Automation {
     "fireAt",
     "rhythm",
     "stop",
+    "model",
+    "variant",
   ])
 
   function addDetail(details: ValidationErrorDetail[], field: string, message: string) {
@@ -333,80 +361,7 @@ export namespace Automation {
     }
   }
 
-  function isValidCronInteger(input: string, min: number, max: number) {
-    if (!/^\d+$/.test(input)) return false
-    const value = Number(input)
-    return value >= min && value <= max
-  }
-
-  function isValidCronField(input: string, min: number, max: number) {
-    if (!input) return false
-    return input.split(",").every((item) => {
-      const [base, step, extra] = item.split("/")
-      if (extra !== undefined) return false
-      if (step !== undefined && !isValidCronInteger(step, 1, max)) return false
-      if (base === "*") return true
-      const range = base.split("-")
-      if (range.length === 2) {
-        const [start, end] = range
-        if (!isValidCronInteger(start, min, max) || !isValidCronInteger(end, min, max)) return false
-        return Number(start) <= Number(end)
-      }
-      if (range.length !== 1) return false
-      return isValidCronInteger(base, min, max)
-    })
-  }
-
-  function cronFieldValues(field: string, min: number, max: number) {
-    const values = new Set<number>()
-    for (const item of field.split(",")) {
-      const [base, stepRaw] = item.split("/")
-      const step = stepRaw === undefined ? 1 : Number(stepRaw)
-      const range = base === "*" ? [min, max] : base.split("-").map(Number)
-      const start = range[0]
-      const end = base === "*" || (range.length === 1 && stepRaw !== undefined) ? max : range.length === 1 ? range[0] : range[1]
-      for (let value = start; value <= end; value += step) values.add(value)
-    }
-    return values
-  }
-
-  function hasPossibleCronDayMonth(dayField: string, monthField: string) {
-    const maxDays = new Map([
-      [1, 31],
-      [2, 29],
-      [3, 31],
-      [4, 30],
-      [5, 31],
-      [6, 30],
-      [7, 31],
-      [8, 31],
-      [9, 30],
-      [10, 31],
-      [11, 30],
-      [12, 31],
-    ])
-    for (const month of cronFieldValues(monthField, 1, 12)) {
-      const maxDay = maxDays.get(month)
-      if (maxDay === undefined) continue
-      for (const day of cronFieldValues(dayField, 1, 31)) {
-        if (day <= maxDay) return true
-      }
-    }
-    return false
-  }
-
-  export function isValidCronExpression(expression: string) {
-    const fields = expression.trim().split(/\s+/)
-    if (fields.length !== 5) return false
-    return (
-      isValidCronField(fields[0], 0, 59) &&
-      isValidCronField(fields[1], 0, 23) &&
-      isValidCronField(fields[2], 1, 31) &&
-      isValidCronField(fields[3], 1, 12) &&
-      isValidCronField(fields[4], 0, 7) &&
-      (fields[4] !== "*" || hasPossibleCronDayMonth(fields[2], fields[3]))
-    )
-  }
+  export const isValidCronExpression = cronIsValidExpression
 
   function validateScheduleFields(input: CreateInput | Definition) {
     const details: ValidationErrorDetail[] = []
@@ -443,6 +398,9 @@ export namespace Automation {
     if (input.where.worktree && Instance.project.vcs !== "git") {
       addDetail(details, "where.worktree", "unsupported_where_worktree_not_git")
     }
+    if (input.kind === "recurring" && input.stop.kind === "condition") {
+      addDetail(details, "stop", "unsupported_stop_condition")
+    }
     details.push(...validateScheduleFields(input))
     return details
   }
@@ -467,6 +425,9 @@ export namespace Automation {
     if (patch.rhythm?.kind === "cron" && !isValidCronExpression(patch.rhythm.expression)) {
       addDetail(details, "rhythm.expression", "invalid_cron_expression")
     }
+    if (patch.stop?.kind === "condition") {
+      addDetail(details, "stop", "unsupported_stop_condition")
+    }
     return details
   }
 
@@ -487,9 +448,11 @@ export namespace Automation {
       updatedAt: now,
       timezone: input.timezone,
       normalizationWarnings: [],
+      model: input.model,
+      ...(input.variant ? { variant: input.variant } : {}),
       ...(options?.sourceSessionID ? { sourceSessionID: options.sourceSessionID } : {}),
     }
-    const definition: Definition =
+    let definition: Definition =
       input.kind === "oneshot"
         ? { kind: "oneshot", ...base, fireAt: input.fireAt }
         : {
@@ -501,6 +464,10 @@ export namespace Automation {
             nextFires: [],
             failureStreak: 0,
           }
+    if (definition.kind === "recurring") {
+      const derived = computeDerivedFields(definition, now, 0)
+      definition = { ...definition, nextFireAt: derived.nextFireAt, nextFires: derived.nextFires }
+    }
     writeDefinition(definition)
     return definition
   }
@@ -635,7 +602,10 @@ export namespace Automation {
   }
 
   function hasChanges(previous: Definition, patch: UpdateInput) {
-    return Object.entries(patch).some(([field, value]) => !isSameValue(previous[field as keyof Definition], value))
+    return Object.entries(patch).some(([field, value]) => {
+      if (field === "variant" && value === null && previous.variant === undefined) return false
+      return !isSameValue(previous[field as keyof Definition], value)
+    })
   }
 
   export function update(id: string, patch: UpdateInput, options?: { now?: number }): Definition {
@@ -645,15 +615,84 @@ export namespace Automation {
     const updateDetails = validateUpdateInput(previous, patch, now)
     if (updateDetails.length) throw new ValidationError(updateDetails)
     if (!hasChanges(previous, patch)) return previous
-    const next = Definition.parse({
-      ...previous,
-      ...patch,
+    const merged: Record<string, unknown> = { ...previous, ...patch }
+    if (patch.variant === null) delete merged.variant
+    let next = Definition.parse({
+      ...merged,
       revision: previous.revision + 1,
       updatedAt: now,
     })
     const details = validateCreateInput(next)
     if (details.length) throw new ValidationError(details)
+    if (next.kind === "recurring" && previous.kind === "recurring") {
+      const scheduleChanged =
+        !isSameValue(previous.rhythm, next.rhythm) ||
+        !isSameValue(previous.stop, next.stop) ||
+        previous.timezone !== next.timezone ||
+        previous.paused !== next.paused
+      if (scheduleChanged) {
+        const derived = computeDerivedFields(next, now, completedRunCount(next.id))
+        next = { ...next, nextFireAt: derived.nextFireAt, nextFires: derived.nextFires }
+      }
+    }
     return replaceDefinition(previous, next)
+  }
+
+  export function recordRunOutcome(
+    run: Run,
+    options?: {
+      now?: number
+      refreshOnStopped?: boolean
+    },
+  ): Definition | undefined {
+    if (run.state !== "succeeded" && run.state !== "failed" && run.state !== "stopped") return undefined
+    const now = options?.now ?? Date.now()
+    // Retry on revision conflict: a concurrent write (e.g. pause/update) may
+    // have advanced the row between our read and our update. Re-read the
+    // latest definition and recompute failureStreak + derived fields against
+    // it, otherwise we silently drop the run's outcome and the user sees a
+    // stale nextFireAt / failureStreak.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const previous = getOptional(run.automationID)
+      if (!previous || previous.kind !== "recurring") return undefined
+      const failureStreak =
+        run.state === "succeeded" ? 0 : run.state === "failed" ? previous.failureStreak + 1 : previous.failureStreak
+      const derived =
+        run.state === "stopped" && !options?.refreshOnStopped
+          ? { nextFireAt: previous.nextFireAt, nextFires: previous.nextFires }
+          : computeDerivedFields(previous, now, completedRunCount(previous.id))
+      if (
+        previous.failureStreak === failureStreak &&
+        previous.nextFireAt === derived.nextFireAt &&
+        sameArray(previous.nextFires, derived.nextFires)
+      ) {
+        return undefined
+      }
+      const next = Definition.parse({
+        ...previous,
+        failureStreak,
+        nextFireAt: derived.nextFireAt,
+        nextFires: derived.nextFires,
+        revision: previous.revision + 1,
+        updatedAt: now,
+      })
+      internalTestHooks.beforeReplaceDefinition?.(previous)
+      try {
+        return replaceDefinition(previous, next)
+      } catch (error) {
+        if (!(error instanceof ConflictError)) throw error
+        // retry: read latest and recompute
+      }
+    }
+    return undefined
+  }
+
+  function sameArray(left: readonly number[], right: readonly number[]) {
+    if (left.length !== right.length) return false
+    for (let index = 0; index < left.length; index++) {
+      if (left[index] !== right[index]) return false
+    }
+    return true
   }
 
   export async function remove(id: string): Promise<{ tombstone: Tombstone; stoppedRun?: Run }> {
@@ -1169,8 +1208,85 @@ export namespace Automation {
   }
 
   export const publishDefinitionUpdated = (definition: Definition) => Bus.publish(Event.DefinitionUpdated, definition)
-  export const publishDefinitionDeleted = (tombstone: Tombstone) => Bus.publish(Event.DefinitionDeleted, tombstone)
   export const publishRunUpdated = (run: Run) => Bus.publish(Event.RunUpdated, run)
+
+  export interface Interface {
+    readonly list: () => Effect.Effect<Definition[]>
+    readonly get: (id: string) => Effect.Effect<Definition>
+    readonly create: (
+      input: CreateInput,
+      options?: { now?: number; sourceSessionID?: SessionID },
+    ) => Effect.Effect<Definition, ValidationError>
+    readonly update: (
+      id: string,
+      patch: UpdateInput,
+      options?: { now?: number },
+    ) => Effect.Effect<Definition, ValidationError | ConflictError>
+    readonly remove: (
+      id: string,
+    ) => Effect.Effect<{ tombstone: Tombstone; stoppedRun?: Run }, ActiveRunStillRunningError>
+    readonly runNowExecuting: (
+      id: string,
+      options: { executor: RunExecutor; attendance?: AutomationRunAttendance; now?: number },
+    ) => Effect.Effect<Run>
+    readonly runs: (input: {
+      automationID: string
+      limit?: number
+      cursor?: string
+    }) => Effect.Effect<z.infer<typeof RunsResponse>>
+    readonly publishDefinitionUpdated: (definition: Definition) => Effect.Effect<void>
+    readonly publishDefinitionDeleted: (tombstone: Tombstone) => Effect.Effect<void>
+    readonly publishRunUpdated: (run: Run) => Effect.Effect<void>
+    // Execution-face: the per-directory mutable active-run/writer state, owned by InstanceState.
+    readonly activeState: () => Effect.Effect<State>
+  }
+
+  export class Service extends EffectContext.Service<Service, Interface>()("@opencode/Automation") {}
+
+  export const layer: Layer.Layer<Service> = Layer.effect(
+    Service,
+    Effect.gen(function* () {
+      const activeStateHandle = yield* InstanceState.make<State>(() =>
+        Effect.sync(() => ({ activeWriters: new Set<string>(), activeRuns: new Map() })),
+      )
+      return Service.of({
+        list: () => Effect.sync(() => list()),
+        get: (id) => Effect.sync(() => get(id)),
+        create: (input, options) =>
+          Effect.try({
+            try: () => create(input, options),
+            catch: (error) => {
+              if (error instanceof ValidationError) return error
+              throw error
+            },
+          }),
+        update: (id, patch, options) =>
+          Effect.try({
+            try: () => update(id, patch, options),
+            catch: (error) => {
+              if (error instanceof ValidationError || error instanceof ConflictError) return error
+              throw error
+            },
+          }),
+        remove: (id) =>
+          Effect.tryPromise({ try: () => remove(id), catch: (error) => error }).pipe(
+            Effect.catch((error) =>
+              error instanceof ActiveRunStillRunningError ? Effect.fail(error) : Effect.die(error),
+            ),
+          ),
+        runNowExecuting: (id, options) => Effect.promise(() => runNowExecuting(id, options)),
+        runs: (input) => Effect.sync(() => runs(input)),
+        publishDefinitionUpdated: (definition) => Effect.promise(() => publishDefinitionUpdated(definition)),
+        publishDefinitionDeleted: (tombstone) => Effect.promise(() => Bus.publish(Event.DefinitionDeleted, tombstone)),
+        publishRunUpdated: (run) => Effect.promise(() => publishRunUpdated(run)),
+        activeState: () => InstanceState.get(activeStateHandle),
+      })
+    }),
+  )
+
+  export const defaultLayer = layer
+
+  const automationRuntime = makeRuntime(Service, layer)
 }
 
 export class ValidationError extends Error {

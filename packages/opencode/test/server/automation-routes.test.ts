@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test"
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test"
 import { Hono } from "hono"
 import { Log } from "@opencode-ai/core/util/log"
 import { Automation, AutomationID } from "../../src/automation"
@@ -14,6 +14,17 @@ import { Flock } from "../../src/util/flock"
 import { tmpdir } from "../fixture/fixture"
 
 void Log.init({ print: false })
+
+const previousSkipAutomationModelValidation = process.env.OPENCODE_SKIP_AUTOMATION_MODEL_VALIDATION
+
+beforeAll(() => {
+  process.env.OPENCODE_SKIP_AUTOMATION_MODEL_VALIDATION = "1"
+})
+
+afterAll(() => {
+  if (previousSkipAutomationModelValidation === undefined) delete process.env.OPENCODE_SKIP_AUTOMATION_MODEL_VALIDATION
+  else process.env.OPENCODE_SKIP_AUTOMATION_MODEL_VALIDATION = previousSkipAutomationModelValidation
+})
 
 afterEach(async () => {
   await Instance.disposeAll()
@@ -70,6 +81,8 @@ function deferred<T>() {
 type RecurringCreateInput = Extract<Automation.CreateInput, { kind: "recurring" }>
 type OneshotCreateInput = Extract<Automation.CreateInput, { kind: "oneshot" }>
 
+const fixtureModel = Automation.Model.parse({ providerID: "anthropic", modelID: "claude-sonnet-4-6" })
+
 function recurringInput(projectID: ProjectID, overrides: Partial<RecurringCreateInput> = {}): RecurringCreateInput {
   return {
     kind: "recurring",
@@ -78,6 +91,7 @@ function recurringInput(projectID: ProjectID, overrides: Partial<RecurringCreate
     context: "fresh",
     where: { projectID },
     timezone: "Asia/Shanghai",
+    model: fixtureModel,
     rhythm: { kind: "interval", everyMs: 60_000 },
     stop: { kind: "count", count: 3 },
     ...overrides,
@@ -92,6 +106,7 @@ function oneshotInput(projectID: ProjectID, overrides: Partial<OneshotCreateInpu
     context: "fresh",
     where: { projectID },
     timezone: "Asia/Shanghai",
+    model: fixtureModel,
     fireAt: 1_800_000_000_000,
     ...overrides,
   }
@@ -114,6 +129,73 @@ function run(overrides: Record<string, unknown> = {}) {
     ...overrides,
   }
 }
+
+describe("automation route 422 wiring with provider validation enabled", () => {
+  // These tests deliberately bypass the suite-wide skip flag to exercise the
+  // real modelValidationDetails -> AppRuntime path that production hits.
+  let restoreBypass: string | undefined
+  const enableValidation = () => {
+    restoreBypass = process.env.OPENCODE_SKIP_AUTOMATION_MODEL_VALIDATION
+    delete process.env.OPENCODE_SKIP_AUTOMATION_MODEL_VALIDATION
+  }
+  const restoreBypassEnv = () => {
+    if (restoreBypass === undefined) delete process.env.OPENCODE_SKIP_AUTOMATION_MODEL_VALIDATION
+    else process.env.OPENCODE_SKIP_AUTOMATION_MODEL_VALIDATION = restoreBypass
+  }
+
+  test("create rejects with 422 invalid_automation details when provider lookup fails", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      enableValidation()
+      try {
+        const response = await app.request("/automation", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(
+            recurringInput(projectID, {
+              model: Automation.Model.parse({ providerID: "nonexistent", modelID: "missing-model" }),
+            }),
+          ),
+        })
+        expect(response.status).toBe(422)
+        const body = await response.json()
+        expect(body.error).toBe("invalid_automation")
+        expect(body.details).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ field: "model" }),
+          ]),
+        )
+        expect(["model_not_found", "model_lookup_failed"]).toContain(body.details[0].message)
+      } finally {
+        restoreBypassEnv()
+      }
+    })
+  })
+
+  test("update rejects with 422 invalid_automation details when model patch fails provider lookup", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const created = await json(app, "/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(recurringInput(projectID)),
+      })
+      enableValidation()
+      try {
+        const response = await app.request(`/automation/${created.id}`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ model: { providerID: "nonexistent", modelID: "missing-model" } }),
+        })
+        expect(response.status).toBe(422)
+        const body = await response.json()
+        expect(body.error).toBe("invalid_automation")
+        expect(body.details[0].field).toBe("model")
+        expect(["model_not_found", "model_lookup_failed"]).toContain(body.details[0].message)
+      } finally {
+        restoreBypassEnv()
+      }
+    })
+  })
+})
 
 describe("automation routes", () => {
   test("reloads definitions and runs from durable storage after instance restart", async () => {
@@ -387,8 +469,10 @@ describe("automation routes", () => {
       expect(body.id).toMatch(/^automation_/)
       expect(body.createdAt).toBeNumber()
       expect(body.updatedAt).toBe(body.createdAt)
-      expect(body.nextFireAt).toBeNull()
-      expect(body.nextFires).toEqual([])
+      expect(body.model).toEqual(fixtureModel)
+      expect(body.nextFireAt).toBeNumber()
+      expect(body.nextFires).toHaveLength(3)
+      expect(body.failureStreak).toBe(0)
     })
   })
 
@@ -528,6 +612,11 @@ describe("automation routes", () => {
           [{ field: "prompt", message: "prompt_too_long_20000" }],
         ],
         [
+          "stop kind condition rejected with structured detail",
+          recurringInput(projectID, { stop: { kind: "condition", condition: "repo is ready" } }),
+          [{ field: "stop", message: "unsupported_stop_condition" }],
+        ],
+        [
           "condition above replay-safe limit",
           recurringInput(projectID, { stop: { kind: "condition", condition: "x".repeat(4_001) } }),
           [{ field: "stop.condition", message: "condition_too_long_4000" }],
@@ -580,6 +669,26 @@ describe("automation routes", () => {
     })
   })
 
+  test("PUT rejects stop kind 'condition' with structured unsupported_stop_condition detail", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const created = await json(app, "/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(recurringInput(projectID)),
+      })
+      const response = await app.request(`/automation/${created.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ stop: { kind: "condition", condition: "repo is ready" } }),
+      })
+      expect(response.status).toBe(422)
+      expect(await response.json()).toEqual({
+        error: "invalid_automation",
+        details: [{ field: "stop", message: "unsupported_stop_condition" }],
+      })
+    })
+  })
+
   test("lists definitions and returns a tombstone when deleting", async () => {
     await withAutomationApp(async ({ app, projectID }) => {
       const created = await json(app, "/automation", {
@@ -615,6 +724,13 @@ describe("automation routes", () => {
         id: active.id,
         state: "scheduled",
       })
+    })
+  })
+
+  test("delete returns 404 for an unknown automation", async () => {
+    await withAutomationApp(async ({ app }) => {
+      const response = await app.request(`/automation/${AutomationID.Definition.ascending()}`, { method: "DELETE" })
+      expect(response.status).toBe(404)
     })
   })
 
@@ -717,6 +833,76 @@ describe("automation routes", () => {
       expect(samePaused.revision).toBe(1)
       expect(samePaused.updatedAt).toBe(created.updatedAt)
       expect(revisions).toEqual([])
+    })
+  })
+
+  test("metadata-only update preserves pending nextFireAt and nextFires", async () => {
+    await withAutomationApp(async ({ projectID }) => {
+      const created = Automation.create(recurringInput(projectID), { now: 100 })
+      expect(created.kind).toBe("recurring")
+      if (created.kind !== "recurring") throw new Error("recurring")
+      const updated = Automation.update(created.id, { title: "Renamed" }, { now: 200 })
+      expect(updated).toMatchObject({
+        title: "Renamed",
+        nextFireAt: created.nextFireAt,
+        nextFires: created.nextFires,
+      })
+    })
+  })
+
+  test("rhythm change recomputes nextFireAt from the update timestamp", async () => {
+    await withAutomationApp(async ({ projectID }) => {
+      const created = Automation.create(recurringInput(projectID), { now: 100 })
+      const updated = Automation.update(
+        created.id,
+        { rhythm: { kind: "interval", everyMs: 120_000 } },
+        { now: 300 },
+      )
+      if (updated.kind !== "recurring") throw new Error("recurring")
+      expect(updated.nextFireAt).toBe(300 + 120_000)
+    })
+  })
+
+  test("update accepts variant: null to clear a previously set effort", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const created = await json(app, "/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(recurringInput(projectID, { variant: "high" } as Partial<RecurringCreateInput>)),
+      })
+      expect(created.variant).toBe("high")
+      const cleared = await json(app, `/automation/${created.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ variant: null }),
+      })
+      expect(cleared).not.toHaveProperty("variant")
+      expect(Automation.get(created.id)).not.toHaveProperty("variant")
+    })
+  })
+
+  test("update with variant: null on an unset variant is a no-op (no revision bump, no event)", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const created = await json(app, "/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(recurringInput(projectID)),
+      })
+      expect(created).not.toHaveProperty("variant")
+      const updates: number[] = []
+      const unsubscribe = Bus.subscribe(Automation.Event.DefinitionUpdated, (event) => {
+        if (event.properties.id === created.id) updates.push(event.properties.revision)
+      })
+      const noop = await json(app, `/automation/${created.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ variant: null }),
+      })
+      await Bun.sleep(10)
+      unsubscribe()
+      expect(noop.revision).toBe(created.revision)
+      expect(noop.updatedAt).toBe(created.updatedAt)
+      expect(updates).toEqual([])
     })
   })
 

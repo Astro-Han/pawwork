@@ -48,8 +48,8 @@ describe("execution scope", () => {
   })
 
   test("vcs task key includes execution scope", () => {
-    const oldA = vcsTaskKey({ serverKey: "sidecar", directory: "/repo", epoch: 1 }, "unstaged")
-    const newA = vcsTaskKey({ serverKey: "sidecar", directory: "/repo", epoch: 3 }, "unstaged")
+    const oldA = vcsTaskKey({ serverKey: "sidecar", directory: "/repo", epoch: 1 }, "git")
+    const newA = vcsTaskKey({ serverKey: "sidecar", directory: "/repo", epoch: 3 }, "git")
 
     expect(oldA).not.toBe(newA)
   })

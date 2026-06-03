@@ -47,6 +47,19 @@ export function releaseAssetNames(version: string) {
   ]
 }
 
+// Per-target build-provenance marker. Each build target uploads one of these
+// (containing its build commit) so the auto-publisher can confirm every target
+// of a release was built from the same commit before publishing. One distinct
+// asset per target — never a shared mutable field — so concurrent targets cannot
+// race on it. Not part of releaseAssetNames, so the R2 mirror never copies them.
+export function releaseProvenanceAssetName(os: string, arch: string, version: string) {
+  return `pawwork-${os}-${arch}-${version}.commit`
+}
+
+export function releaseProvenanceAssetNames(version: string) {
+  return RELEASE_TARGETS.map((target) => releaseProvenanceAssetName(target.os, target.arch, version))
+}
+
 export function releaseUpdaterAssetNames(version: string): Record<MetadataFile, string[]> {
   return {
     "latest.yml": RELEASE_TARGETS.filter((target) => target.metadata === "latest.yml").map((target) =>
@@ -76,6 +89,33 @@ export function parseUpdaterFileUrls(source: string) {
   }
 
   return urls
+}
+
+// Pair each updater file entry with its content sha512, keyed by asset basename.
+// Used by the auto-publisher's single-source guard: a marker records the sha512
+// the target produced, and publishing requires it to still match the metadata —
+// so an asset rebuilt from another commit (different hash) is caught. Same
+// deliberately-narrow scanner as parseUpdaterFileUrls; ignores the top-level
+// `sha512:` (the `path:` digest), which has no preceding `- url:` entry.
+export function parseUpdaterShaByUrl(source: string): Array<{ name: string; sha512: string }> {
+  const entries: Array<{ name: string; sha512: string }> = []
+  let currentName: string | undefined
+
+  for (const line of source.split(/\r?\n/)) {
+    const fileMatch = line.match(/^\s*-\s+url:\s*(.+?)\s*$/)
+    if (fileMatch) {
+      currentName = assetNameFromUrl(parseYamlScalar(fileMatch[1]))
+      continue
+    }
+
+    const shaMatch = line.match(/^\s*sha512:\s*(.+?)\s*$/)
+    if (shaMatch && currentName) {
+      entries.push({ name: currentName, sha512: parseYamlScalar(shaMatch[1]) })
+      currentName = undefined
+    }
+  }
+
+  return entries
 }
 
 function parseYamlScalar(value: string) {
@@ -192,7 +232,7 @@ export function verifyStartupLog(source: string, expectedTag: string) {
   return failures
 }
 
-export function verifyReleasePayload(input: VerificationInput) {
+export function verifyReleasePayload(input: VerificationInput, options?: { allowDraft?: boolean }) {
   const failures: string[] = []
   const assetNames = new Set(input.release.assets.map((asset) => asset.name))
   let version: string | undefined
@@ -202,7 +242,7 @@ export function verifyReleasePayload(input: VerificationInput) {
     failures.push(error instanceof Error ? error.message : String(error))
   }
 
-  if (input.release.draft) failures.push(`Release ${input.release.tag_name} is still a draft`)
+  if (input.release.draft && !options?.allowDraft) failures.push(`Release ${input.release.tag_name} is still a draft`)
   if (input.release.prerelease) failures.push(`Release ${input.release.tag_name} is marked as a prerelease`)
 
   const latestUrls = input.latestYml === undefined ? [] : parseUpdaterFileUrls(input.latestYml)

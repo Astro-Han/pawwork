@@ -13,7 +13,7 @@
  */
 
 import type { Prompt, ContextItem } from "@/context/prompt"
-import { DEFAULT_PROMPT } from "@/context/prompt"
+import { DEFAULT_PROMPT } from "@/context/prompt-equality"
 import type { PortableDraftOwner } from "./portable-draft"
 
 export const HOMEPAGE_MIGRATION_SENTINEL_KEY = "prompt-portable-migration"

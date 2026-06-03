@@ -205,7 +205,13 @@ export const ExperimentalRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        return c.json(await ToolRegistry.ids())
+        const ids = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const registry = yield* ToolRegistry.Service
+            return yield* registry.ids()
+          }),
+        )
+        return c.json(ids)
       },
     )
     .get(
@@ -248,11 +254,18 @@ export const ExperimentalRoutes = lazy(() =>
       ),
       async (c) => {
         const { provider, model } = c.req.valid("query")
-        const tools = await ToolRegistry.tools({
-          providerID: ProviderID.make(provider),
-          modelID: ModelID.make(model),
-          agent: await Agent.get(await Agent.defaultAgent()),
-        })
+        const tools = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const registry = yield* ToolRegistry.Service
+            const agents = yield* Agent.Service
+            const agent = yield* agents.get(yield* agents.defaultAgent())
+            return yield* registry.tools({
+              providerID: ProviderID.make(provider),
+              modelID: ModelID.make(model),
+              agent,
+            })
+          }),
+        )
         return c.json(
           tools.map((t) => ({
             id: t.id,
@@ -285,7 +298,12 @@ export const ExperimentalRoutes = lazy(() =>
       validator("json", Worktree.CreateInput.optional()),
       async (c) => {
         const body = c.req.valid("json")
-        const worktree = await Worktree.create(body)
+        const worktree = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const worktrees = yield* Worktree.Service
+            return yield* worktrees.create(body)
+          }),
+        )
         return c.json(worktree)
       },
     )
@@ -307,7 +325,12 @@ export const ExperimentalRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const worktrees = await Worktree.list()
+        const worktrees = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const service = yield* Worktree.Service
+            return yield* service.list()
+          }),
+        )
         return c.json(worktrees)
       },
     )
@@ -332,11 +355,12 @@ export const ExperimentalRoutes = lazy(() =>
       validator("json", Worktree.RemoveInput),
       async (c) => {
         const body = c.req.valid("json")
-        const session = await Session.findActiveWorktreeBinding(body.directory)
-        if (session) {
-          throw new Error(`Worktree is in use by session "${session.title}". Call ExitWorktree from that session first.`)
-        }
-        await Worktree.remove(body)
+        await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const worktrees = yield* Worktree.Service
+            yield* worktrees.remove(body)
+          }),
+        )
         return c.json(true)
       },
     )
@@ -361,7 +385,12 @@ export const ExperimentalRoutes = lazy(() =>
       validator("json", Worktree.ResetInput),
       async (c) => {
         const body = c.req.valid("json")
-        await Worktree.reset(body)
+        await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const worktrees = yield* Worktree.Service
+            yield* worktrees.reset(body)
+          }),
+        )
         return c.json(true)
       },
     )
@@ -463,7 +492,13 @@ export const ExperimentalRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        return c.json(await MCP.resources())
+        const resources = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const mcp = yield* MCP.Service
+            return yield* mcp.resources()
+          }),
+        )
+        return c.json(resources)
       },
     ),
 )

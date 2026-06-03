@@ -30,7 +30,7 @@ afterEach(async () => {
 })
 
 describe("session runtime routes", () => {
-  test("share, unshare, artifacts, command, and shell routes are wired through the instance router", async () => {
+  test("share, unshare, diff, artifacts, command, and shell routes are wired through the instance router", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
       directory: tmp.path,
@@ -69,6 +69,10 @@ describe("session runtime routes", () => {
         const artifactsRes = await app.request(`/session/${session.id}/artifacts`)
         expect(artifactsRes.status).toBe(200)
         expect(Array.isArray(await artifactsRes.json())).toBe(true)
+
+        const diffRes = await app.request(`/session/${session.id}/diff`)
+        expect(diffRes.status).toBe(200)
+        expect(await diffRes.json()).toHaveProperty("kind")
 
         const commandRes = await app.request(`/session/${session.id}/command`, {
           method: "POST",

@@ -1,11 +1,8 @@
-import { Schema } from "effect"
+import type { Schema } from "effect"
 import os from "os"
 import { createWriteStream } from "node:fs"
-import nodefs from "node:fs/promises"
 import * as Tool from "./tool"
 import path from "path"
-import crypto from "crypto"
-import DESCRIPTION from "./bash.txt"
 import { Log } from "../util"
 import { Instance, type InstanceContext } from "../project/instance"
 import { lazy } from "@/util/lazy"
@@ -20,24 +17,51 @@ import { Process } from "@/util/process"
 import { BashArity } from "@/permission/arity"
 import * as Truncate from "./truncate"
 import { Plugin } from "@/plugin"
-import { Effect, Stream } from "effect"
+import { Duration, Effect, Fiber, Stream } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { envValueCaseInsensitive, prependBundledTools, stripPathKeys, withoutInternalServerAuthEnv } from "@/util/env"
 import { Global } from "@opencode-ai/core/global"
 import { assertExternalDirectoryEffect, resolveExternalPathForPermission } from "./external-directory"
 import { InstanceState } from "@/effect/instance-state"
-import * as Bom from "@/util/bom"
-import { TurnChange, type FileState } from "@/session/turn-change"
-import { isLikelyWriteCommand } from "./bash-write-heuristic"
+import { TurnChange } from "@/session/turn-change"
+import { isLikelyWriteCommand } from "./shell-write-heuristic"
+import { nonOfficeCliCommandText, officeCliTargets } from "./shell-office-artifacts"
+import { discoverOfficeOutputs, readTrackedState } from "./shell-output-capture"
+import { Parameters, render as renderDescription, type Limits } from "./shell/prompt"
+import { ToolID as ShellToolID } from "./shell/id"
+import { orchestrateArtifacts, type ArtifactDeps } from "./shell-artifact-orchestrator"
+import { makeMetadataThrottle } from "./shell-metadata-throttle"
 
 const MAX_METADATA_LENGTH = 30_000
+// Coalesce streaming metadata pushes: emit the first chunk immediately, then at
+// most once per interval or once accumulated input crosses the byte threshold.
+const METADATA_FLUSH_INTERVAL_MS = 150
+const METADATA_FLUSH_BYTES = 4 * 1024
+// Cap how long we wait for the consumer to drain buffered output after the
+// process exits/aborts/times out. On timeout we fall through to scope cleanup,
+// which interrupts the consumer; the final tool-result metadata still carries
+// the tail via completeToolCall, so this only bounds a pathological slow/never
+// closing stream — it never blocks the normal path where the stream is already
+// drained by the time the exit race resolves.
+const CONSUMER_DRAIN_TIMEOUT = Duration.seconds(1)
 const DEFAULT_TIMEOUT = Flag.OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS || 2 * 60 * 1000
-const TRACKED_OUTPUT_LIMIT = 20 * 1024 * 1024
 const PS = new Set(["powershell", "pwsh"])
+// CWD commands are skipped from the generic bash-command prompt below (they are
+// pure navigation builtins). Only put a command here when it is a real cwd
+// builtin on every shell that reaches it — otherwise a same-named PATH
+// executable would slip past the bash prompt (see pushd/chdir in FILES).
 const CWD = new Set(["cd", "push-location", "set-location"])
 const FILES = new Set([
   ...CWD,
+  // pushd (POSIX) and chdir (cmd.exe) change the cwd into their target, so the
+  // target argument must be scanned for external_directory the same way cd's is
+  // (#1052: `pushd /external` previously read outside the project unprompted).
+  // They stay OUT of CWD on purpose: pushd is not a builtin in sh/dash and chdir
+  // is not a POSIX builtin at all, so they must still raise the generic bash
+  // prompt — only the external-target scan is shared with cd.
+  "pushd",
+  "chdir",
   "rm",
   "cp",
   "mv",
@@ -61,24 +85,6 @@ const FILES = new Set([
 const FLAGS = new Set(["-destination", "-literalpath", "-path"])
 const SWITCHES = new Set(["-confirm", "-debug", "-force", "-nonewline", "-recurse", "-verbose", "-whatif"])
 
-export const Parameters = Schema.Struct({
-  command: Schema.String.annotate({ description: "The command to execute" }),
-  timeout: Schema.optional(Schema.Number).annotate({ description: "Optional timeout in milliseconds" }),
-  workdir: Schema.optional(Schema.String).annotate({
-    description: `The working directory to run the command in. Defaults to the current directory. Use this instead of 'cd' commands.`,
-  }),
-  expected_outputs: Schema.optional(
-    Schema.Array(Schema.String).annotate({
-      description:
-        "Optional absolute or workdir-relative file paths that this command is expected to create or modify. The runtime will verify these paths after execution and register any real file changes in turn-change.",
-    }),
-  ),
-  description: Schema.String.annotate({
-    description:
-      "Clear, concise description of what this command does in 5-10 words. Examples:\nInput: ls\nOutput: Lists files in current directory\n\nInput: git status\nOutput: Shows working tree status\n\nInput: npm install\nOutput: Installs package dependencies\n\nInput: mkdir foo\nOutput: Creates directory 'foo'",
-  }),
-})
-
 type Part = {
   type: string
   text: string
@@ -95,7 +101,7 @@ type Chunk = {
   size: number
 }
 
-export const log = Log.create({ service: "bash-tool" })
+export const log = Log.create({ service: "shell-tool" })
 
 const resolveWasm = (asset: string) => {
   if (asset.startsWith("file://")) return fileURLToPath(asset)
@@ -265,45 +271,13 @@ function tail(text: string, maxLines: number, maxBytes: number) {
   }
 }
 
-function textHash(content: string, bom?: boolean) {
-  return (
-    "sha256:" +
-    crypto
-      .createHash("sha256")
-      .update(`${bom ? "bom:1" : "bom:0"}\0${content}`)
-      .digest("hex")
-  )
-}
-
-function binaryHash(buffer: Buffer) {
-  return "sha256-bin:" + crypto.createHash("sha256").update(buffer).digest("hex")
-}
-
-function sameState(before: FileState, after: FileState) {
-  if (!before.exists && !after.exists) return true
-  return (
-    before.exists === after.exists &&
-    before.hash === after.hash &&
-    before.bom === after.bom &&
-    before.large === after.large &&
-    before.binary === after.binary
-  )
-}
-
-type TrackedOutputState = {
-  state: FileState
-  comparable: boolean
-  kind: "missing" | "file" | "directory" | "error"
-  errorCode?: string
-}
-
-const parse = Effect.fn("BashTool.parse")(function* (command: string, ps: boolean) {
+const parse = Effect.fn("ShellTool.parse")(function* (command: string, ps: boolean) {
   const tree = yield* Effect.promise(() => parser().then((p) => (ps ? p.ps : p.bash).parse(command)))
   if (!tree) throw new Error("Failed to parse command")
   return tree
 })
 
-const ask = Effect.fn("BashTool.ask")(function* (ctx: Tool.Context, scan: Scan) {
+const ask = Effect.fn("ShellTool.ask")(function* (ctx: Tool.Context, scan: Scan) {
   if (scan.dirs.size > 0) {
     const globs = Array.from(scan.dirs).map((dir) => {
       if (process.platform === "win32") return AppFileSystem.normalizePathPattern(path.join(dir, "*"))
@@ -319,7 +293,7 @@ const ask = Effect.fn("BashTool.ask")(function* (ctx: Tool.Context, scan: Scan) 
 
   if (scan.patterns.size === 0) return
   yield* ctx.ask({
-    permission: "bash",
+    permission: ShellToolID,
     patterns: Array.from(scan.patterns),
     always: Array.from(scan.always),
     metadata: {},
@@ -372,9 +346,11 @@ const parser = lazy(async () => {
   return { bash, ps }
 })
 
-// TODO: we may wanna rename this tool so it works better on other shells
-export const BashTool = Tool.define(
-  "bash",
+// Public tool id stays "bash" indefinitely (kept in ShellToolID for the
+// single source of truth — saved permissions, plugins, and config all
+// reference this literal).
+export const ShellTool = Tool.define(
+  ShellToolID,
   Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner
     const afs = yield* AppFileSystem.Service
@@ -382,7 +358,7 @@ export const BashTool = Tool.define(
     const plugin = yield* Plugin.Service
     const turnChange = yield* TurnChange.Service
 
-    const cygpath = Effect.fn("BashTool.cygpath")(function* (shell: string, text: string) {
+    const cygpath = Effect.fn("ShellTool.cygpath")(function* (shell: string, text: string) {
       const lines = yield* spawner
         .lines(ChildProcess.make(shell, ["-lc", 'cygpath -w -- "$1"', "_", text]))
         .pipe(Effect.catch(() => Effect.succeed([] as string[])))
@@ -391,7 +367,7 @@ export const BashTool = Tool.define(
       return AppFileSystem.normalizePath(file)
     })
 
-    const resolveExecutionPath = Effect.fn("BashTool.resolveExecutionPath")(function* (
+    const resolveExecutionPath = Effect.fn("ShellTool.resolveExecutionPath")(function* (
       text: string,
       root: string,
       shell: string,
@@ -406,7 +382,7 @@ export const BashTool = Tool.define(
       return path.isAbsolute(text) ? text : `${root.replace(/\/+$/, "")}/${text}`
     })
 
-    const resolvePermissionTarget = Effect.fn("BashTool.resolvePermissionTarget")(function* (
+    const resolvePermissionTarget = Effect.fn("ShellTool.resolvePermissionTarget")(function* (
       text: string,
       root: string,
       shell: string,
@@ -421,7 +397,7 @@ export const BashTool = Tool.define(
       return path.isAbsolute(text) ? text : `${root.replace(/\/+$/, "")}/${text}`
     })
 
-    const argPath = Effect.fn("BashTool.argPath")(function* (arg: string, cwd: string, ps: boolean, shell: string) {
+    const argPath = Effect.fn("ShellTool.argPath")(function* (arg: string, cwd: string, ps: boolean, shell: string) {
       const text = ps ? expand(arg, cwd, shell) : home(unquote(arg))
       const file = text && prefix(text)
       if (!file || dynamic(file, ps)) return
@@ -430,7 +406,7 @@ export const BashTool = Tool.define(
       return yield* resolvePermissionTarget(next, cwd, shell)
     })
 
-    const collect = Effect.fn("BashTool.collect")(function* (
+    const collect = Effect.fn("ShellTool.collect")(function* (
       root: Node,
       cwd: string,
       ps: boolean,
@@ -469,7 +445,7 @@ export const BashTool = Tool.define(
       return scan
     })
 
-    const shellEnv = Effect.fn("BashTool.shellEnv")(function* (ctx: Tool.Context, cwd: string) {
+    const shellEnv = Effect.fn("ShellTool.shellEnv")(function* (ctx: Tool.Context, cwd: string) {
       const extra = yield* plugin.trigger(
         "shell.env",
         { cwd, sessionID: ctx.sessionID, callID: ctx.callID },
@@ -494,76 +470,7 @@ export const BashTool = Tool.define(
       return env
     })
 
-    const readTrackedState = Effect.fn("BashTool.readTrackedState")((file: string) =>
-      Effect.promise(async () => {
-        try {
-          const stat = await nodefs.stat(file)
-          if (stat.isDirectory()) {
-            return {
-              state: { exists: true, restorable: false, hash: "directory", binary: true } satisfies FileState,
-              comparable: true,
-              kind: "directory",
-            } satisfies TrackedOutputState
-          }
-          if (stat.size > TRACKED_OUTPUT_LIMIT) {
-            return {
-              state: {
-                exists: true,
-                restorable: false,
-                hash: `large:${stat.size}:${stat.mtimeMs}`,
-                large: true,
-              } satisfies FileState,
-              comparable: true,
-              kind: "file",
-            } satisfies TrackedOutputState
-          }
-          const buffer = await nodefs.readFile(file)
-          if (buffer.includes(0)) {
-            return {
-              state: {
-                exists: true,
-                restorable: false,
-                hash: binaryHash(buffer),
-                binary: true,
-              } satisfies FileState,
-              comparable: true,
-              kind: "file",
-            } satisfies TrackedOutputState
-          }
-          const current = Bom.split(buffer.toString("utf-8"))
-          return {
-            state: {
-              exists: true,
-              content: current.text,
-              bom: current.bom,
-              hash: textHash(current.text, current.bom),
-            } satisfies FileState,
-            comparable: true,
-            kind: "file",
-          } satisfies TrackedOutputState
-        } catch (err) {
-          const code = (err as NodeJS.ErrnoException).code
-          if (code === "ENOENT")
-            return {
-              state: { exists: false } satisfies FileState,
-              comparable: true,
-              kind: "missing",
-            } satisfies TrackedOutputState
-          return {
-            state: {
-              exists: true,
-              restorable: false,
-              hash: `error:${code ?? "unknown"}`,
-            } satisfies FileState,
-            comparable: false,
-            kind: "error",
-            ...(code ? { errorCode: code } : {}),
-          } satisfies TrackedOutputState
-        }
-      }).pipe(Effect.orDie),
-    )
-
-    const run = Effect.fn("BashTool.run")(function* (
+    const run = Effect.fn("ShellTool.run")(function* (
       input: {
         shell: string
         name: string
@@ -598,7 +505,29 @@ export const BashTool = Tool.define(
         Effect.gen(function* () {
           const handle = yield* spawner.spawn(cmd(input.shell, input.name, input.command, input.cwd, input.env))
 
-          yield* Effect.forkScoped(
+          // Close the spill write stream on scope exit no matter how the scope
+          // ends (exit, abort, timeout, interrupt, or defect). Registered before
+          // the consumer fork so the consumer is interrupted first (finalizers
+          // run LIFO), leaving no write racing the close.
+          yield* Effect.addFinalizer(() =>
+            Effect.promise(
+              () =>
+                new Promise<void>((resolve) => {
+                  if (!sink) return resolve()
+                  sink.end(() => resolve())
+                  sink.on("error", () => resolve())
+                }),
+            ),
+          )
+
+          const throttle = yield* makeMetadataThrottle({
+            intervalMillis: METADATA_FLUSH_INTERVAL_MS,
+            byteThreshold: METADATA_FLUSH_BYTES,
+            snapshot: () => last,
+            emit: (output) => ctx.metadata({ metadata: { output, description: input.description } }),
+          })
+
+          const consumer = yield* Effect.forkScoped(
             Stream.runForEach(Stream.decodeText(handle.all), (chunk) => {
               const size = Buffer.byteLength(chunk, "utf-8")
               list.push({ text: chunk, size })
@@ -614,36 +543,25 @@ export const BashTool = Tool.define(
 
               if (file) {
                 sink?.write(chunk)
-              } else {
-                full += chunk
-                if (Buffer.byteLength(full, "utf-8") > limits.maxBytes) {
-                  return trunc.write(full).pipe(
-                    Effect.andThen((next) =>
-                      Effect.sync(() => {
-                        file = next
-                        cut = true
-                        sink = createWriteStream(next, { flags: "a" })
-                        full = ""
-                      }),
-                    ),
-                    Effect.andThen(
-                      ctx.metadata({
-                        metadata: {
-                          output: last,
-                          description: input.description,
-                        },
-                      }),
-                    ),
-                  )
-                }
+                return throttle.onChunk(size)
               }
 
-              return ctx.metadata({
-                metadata: {
-                  output: last,
-                  description: input.description,
-                },
-              })
+              full += chunk
+              if (Buffer.byteLength(full, "utf-8") > limits.maxBytes) {
+                return trunc.write(full).pipe(
+                  Effect.andThen((next) =>
+                    Effect.sync(() => {
+                      file = next
+                      cut = true
+                      sink = createWriteStream(next, { flags: "a" })
+                      full = ""
+                    }),
+                  ),
+                  Effect.andThen(throttle.flush("spill")),
+                )
+              }
+
+              return throttle.onChunk(size)
             }),
           )
 
@@ -675,6 +593,15 @@ export const BashTool = Tool.define(
             ).pipe(Effect.orDie)
           }
 
+          // Drain any chunks the consumer hasn't processed yet, then push the
+          // final preview. Both happen inside the process scope so the throttle's
+          // timer fiber is still alive and is interrupted on scope exit. The
+          // timeout guards against a stream that never closes; ignore mirrors the
+          // pre-existing fork-without-join behavior where consumer errors were
+          // unobserved.
+          yield* Fiber.join(consumer).pipe(Effect.timeout(CONSUMER_DRAIN_TIMEOUT), Effect.ignore)
+          yield* throttle.flush("final")
+
           return exit.kind === "exit" ? exit.code : null
         }),
       ).pipe(Effect.orDie)
@@ -703,16 +630,6 @@ export const BashTool = Tool.define(
       if (meta.length > 0) {
         output += "\n\n<bash_metadata>\n" + meta.join("\n") + "\n</bash_metadata>"
       }
-      if (sink) {
-        const stream = sink
-        yield* Effect.promise(
-          () =>
-            new Promise<void>((resolve) => {
-              stream.end(() => resolve())
-              stream.on("error", () => resolve())
-            }),
-        )
-      }
 
       return {
         title: input.description,
@@ -732,20 +649,31 @@ export const BashTool = Tool.define(
         const directory = (yield* InstanceState.context).directory
         const shell = Shell.acceptable()
         const name = Shell.name(shell)
-        const chain =
-          name === "powershell"
-            ? "If the commands depend on each other and must run sequentially, avoid '&&' in this shell because Windows PowerShell 5.1 does not support it. Use PowerShell conditionals such as `cmd1; if ($?) { cmd2 }` when later commands must depend on earlier success."
-            : "If the commands depend on each other and must run sequentially, use a single Bash call with '&&' to chain them together (e.g., `git add . && git commit -m \"message\" && git push`). For instance, if one operation must complete before another starts (like mkdir before cp, Write before Bash for git operations, or git add before git commit), run these operations sequentially instead."
-        log.info("bash tool using shell", { shell })
+        log.info("shell tool using shell", { shell })
+
+        const limits: Limits = { maxLines: Truncate.MAX_LINES, maxBytes: Truncate.MAX_BYTES }
+        const description = renderDescription({
+          name,
+          platform: process.platform,
+          directory,
+          tmp: Global.Path.tmp,
+          limits,
+        })
+
+        const deps: ArtifactDeps = {
+          resolveExecutionPath,
+          assertExternalDirectory: assertExternalDirectoryEffect,
+          readTrackedState,
+          discoverOfficeOutputs,
+          officeCliTargets,
+          nonOfficeCliCommandText,
+          isLikelyWriteCommand,
+          recordWrite: (input) => turnChange.recordWrite(input),
+          recordUncaptured: (input) => turnChange.recordUncaptured(input),
+        }
 
         return {
-          description: DESCRIPTION.replaceAll("${directory}", directory)
-            .replaceAll("${tmp}", Global.Path.tmp)
-            .replaceAll("${os}", process.platform)
-            .replaceAll("${shell}", name)
-            .replaceAll("${chaining}", chain)
-            .replaceAll("${maxLines}", String(Truncate.MAX_LINES))
-            .replaceAll("${maxBytes}", String(Truncate.MAX_BYTES)),
+          description,
           parameters: Parameters,
           execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
             Effect.gen(function* () {
@@ -772,96 +700,38 @@ export const BashTool = Tool.define(
                 }),
               )
 
-              const trackedOutputs = yield* Effect.forEach(params.expected_outputs ?? [], (rawPath) =>
-                Effect.gen(function* () {
-                  const resolved = yield* resolveExecutionPath(rawPath, cwd, shell)
-                  const normalized = AppFileSystem.normalizePath(resolved)
-                  const filepath =
-                    (yield* assertExternalDirectoryEffect(ctx, normalized, { kind: "file" })) ?? normalized
-                  return {
-                    normalized: AppFileSystem.normalizePath(filepath),
-                    path: filepath,
-                    before: yield* readTrackedState(filepath),
-                  }
-                }),
-              ).pipe(
-                Effect.map((items) => {
-                  const deduped = new Map<string, { path: string; before: TrackedOutputState }>()
-                  for (const item of items) {
-                    if (deduped.has(item.normalized)) continue
-                    deduped.set(item.normalized, { path: item.path, before: item.before })
-                  }
-                  return Array.from(deduped.values())
-                }),
-              )
-
-              const result = yield* run(
+              // shellEnv() must run AFTER the orchestrator's before-snapshots.
+              // A `shell.env` plugin can create or modify files (config, sockets,
+              // bundled-tool drops) as a side effect; running it before the
+              // before-state read would fold that mutation into "before" and the
+              // subsequent change would never surface as a turn-change record.
+              return yield* orchestrateArtifacts(
                 {
-                  shell,
-                  name,
-                  command: params.command,
+                  ctx,
                   cwd,
-                  env: yield* shellEnv(ctx, cwd),
-                  timeout,
-                  description: params.description,
+                  directory,
+                  shell,
+                  command: params.command,
+                  expectedOutputs: params.expected_outputs ?? [],
                 },
-                ctx,
+                () =>
+                  Effect.gen(function* () {
+                    const env = yield* shellEnv(ctx, cwd)
+                    return yield* run(
+                      {
+                        shell,
+                        name,
+                        command: params.command,
+                        cwd,
+                        env,
+                        timeout,
+                        description: params.description,
+                      },
+                      ctx,
+                    )
+                  }),
+                deps,
               )
-
-              if (!trackedOutputs.length) {
-                if (
-                  (params.expected_outputs ?? []).length === 0 &&
-                  ctx.messageID &&
-                  isLikelyWriteCommand(params.command)
-                ) {
-                  yield* turnChange.recordUncaptured({
-                    sessionID: ctx.sessionID,
-                    messageID: ctx.messageID,
-                  })
-                }
-                return result
-              }
-
-              const artifacts = yield* Effect.forEach(trackedOutputs, (tracked) =>
-                Effect.gen(function* () {
-                  const after = yield* readTrackedState(tracked.path)
-                  const changed =
-                    tracked.before.comparable && after.comparable && !sameState(tracked.before.state, after.state)
-                  if (changed) {
-                    yield* turnChange.recordWrite({
-                      sessionID: ctx.sessionID,
-                      messageID: ctx.messageID,
-                      path: tracked.path,
-                      before: tracked.before.state,
-                      after: after.state,
-                    })
-                  }
-                  return {
-                    path: tracked.path,
-                    exists: after.state.exists,
-                    changed,
-                    ...(after.kind === "directory" ? { directory: true } : {}),
-                    ...(after.state.binary && after.kind !== "directory" ? { binary: true } : {}),
-                    ...(after.state.large ? { large: true } : {}),
-                    ...(!tracked.before.comparable || !after.comparable
-                      ? {
-                          comparable: false,
-                          errorCode:
-                            ("errorCode" in tracked.before ? tracked.before.errorCode : undefined) ??
-                            ("errorCode" in after ? after.errorCode : undefined),
-                        }
-                      : {}),
-                  }
-                }),
-              )
-
-              return {
-                ...result,
-                metadata: {
-                  ...result.metadata,
-                  artifacts,
-                },
-              }
             }),
         }
       })

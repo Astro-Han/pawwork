@@ -13,6 +13,8 @@ app:
   - changed-files:
       - any-glob-to-any-file:
           - "packages/app/**"
+          - "README.md"
+          - "README_CN.md"
 
 ui:
   - changed-files:
@@ -26,3 +28,4 @@ harness:
   - changed-files:
       - any-glob-to-any-file:
           - "packages/opencode/**"
+          - "packages/sdk/**"

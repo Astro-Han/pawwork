@@ -52,8 +52,16 @@ describe("pr triage workflow", () => {
     expect(config).toContain("packages/desktop-electron/**")
     expect(config).toContain("packages/app/**")
     expect(config).toContain("packages/opencode/**")
+    expect(config).toContain("packages/sdk/**")
     expect(config).toContain("**/*.tsx")
     expect(config).not.toContain("**/*.md")
+  })
+
+  test("routes the generated SDK package to the harness area", () => {
+    // packages/sdk has no frontend/platform home; it is the opencode server's
+    // generated client, so a SDK-only PR (e.g. an SDK type regen) must still
+    // satisfy the "at least one routing label" policy via harness.
+    expect(labelerLabelsForGlob("packages/sdk/**")).toEqual(["harness"])
   })
 
   test("labels workflow PRs with routing while scripts own priority and selected type inference", () => {

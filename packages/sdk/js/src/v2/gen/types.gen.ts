@@ -331,13 +331,6 @@ export type EventTodoUpdated = {
   }
 }
 
-export type EventSessionCompacted = {
-  type: "session.compacted"
-  properties: {
-    sessionID: string
-  }
-}
-
 export type EventWorktreeReady = {
   type: "worktree.ready"
   properties: {
@@ -353,9 +346,21 @@ export type EventWorktreeFailed = {
   }
 }
 
+export type EventSessionCompacted = {
+  type: "session.compacted"
+  properties: {
+    sessionID: string
+  }
+}
+
 export type AutomationWhere = {
   projectID: string
   worktree?: string
+}
+
+export type AutomationModel = {
+  providerID: string
+  modelID: string
 }
 
 export type AutomationRhythm =
@@ -397,6 +402,8 @@ export type AutomationDefinition =
       sourceSessionID?: string
       automationSessionID?: string
       normalizationWarnings: Array<string>
+      model: AutomationModel
+      variant?: string
       fireAt: number
     }
   | {
@@ -414,6 +421,8 @@ export type AutomationDefinition =
       sourceSessionID?: string
       automationSessionID?: string
       normalizationWarnings: Array<string>
+      model: AutomationModel
+      variant?: string
       rhythm: AutomationRhythm
       stop: AutomationStop
       nextFireAt: number | null
@@ -1348,9 +1357,9 @@ export type Event =
   | EventFileWatcherUpdated
   | EventFileWatcherRescan
   | EventTodoUpdated
-  | EventSessionCompacted
   | EventWorktreeReady
   | EventWorktreeFailed
+  | EventSessionCompacted
   | EventAutomationDefinitionUpdated
   | EventAutomationDefinitionDeleted
   | EventAutomationRunUpdated
@@ -2427,6 +2436,8 @@ export type AutomationCreateInput =
       context: "continue" | "fresh"
       where: AutomationWhere
       timezone: string
+      model: AutomationModel
+      variant?: string
       fireAt: number
     }
   | {
@@ -2436,6 +2447,8 @@ export type AutomationCreateInput =
       context: "continue" | "fresh"
       where: AutomationWhere
       timezone: string
+      model: AutomationModel
+      variant?: string
       rhythm: AutomationRhythm
       stop: AutomationStop
     }
@@ -2455,6 +2468,8 @@ export type AutomationUpdateInput = {
   fireAt?: number
   rhythm?: AutomationRhythm
   stop?: AutomationStop
+  model?: AutomationModel
+  variant?: string | null
 }
 
 export type AutomationActiveRunStillRunningError = {
@@ -4051,6 +4066,19 @@ export type SessionForkData = {
   url: "/session/{sessionID}/fork"
 }
 
+export type SessionForkErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionForkError = SessionForkErrors[keyof SessionForkErrors]
+
 export type SessionForkResponses = {
   /**
    * 200
@@ -4089,9 +4117,26 @@ export type SessionToolRespondErrors = {
    */
   400: BadRequestError
   /**
-   * Not found
+   * No pending tool call for the given (session, message, call)
    */
-  404: NotFoundError
+  404: {
+    error: string
+    details?: unknown
+  }
+  /**
+   * The pending tool call was already resolved
+   */
+  409: {
+    error: string
+    details?: unknown
+  }
+  /**
+   * The submitted payload failed the tool-owned decoder
+   */
+  422: {
+    error: string
+    details?: unknown
+  }
 }
 
 export type SessionToolRespondError = SessionToolRespondErrors[keyof SessionToolRespondErrors]
@@ -4400,6 +4445,10 @@ export type SessionTurnChangeUndoErrors = {
    * Not found
    */
   404: NotFoundError
+  /**
+   * Conflict
+   */
+  409: UnknownError
 }
 
 export type SessionTurnChangeUndoError = SessionTurnChangeUndoErrors[keyof SessionTurnChangeUndoErrors]
@@ -4492,6 +4541,10 @@ export type SessionTurnChangeRedoErrors = {
    * Not found
    */
   404: NotFoundError
+  /**
+   * Conflict
+   */
+  409: UnknownError
 }
 
 export type SessionTurnChangeRedoError = SessionTurnChangeRedoErrors[keyof SessionTurnChangeRedoErrors]
@@ -4681,6 +4734,10 @@ export type SessionTurnChangesAggregateUndoErrors = {
    * Not found
    */
   404: NotFoundError
+  /**
+   * Conflict
+   */
+  409: UnknownError
 }
 
 export type SessionTurnChangesAggregateUndoError =
@@ -4777,6 +4834,10 @@ export type SessionTurnChangesAggregateRedoErrors = {
    * Not found
    */
   404: NotFoundError
+  /**
+   * Conflict
+   */
+  409: UnknownError
 }
 
 export type SessionTurnChangesAggregateRedoError =
@@ -4895,6 +4956,10 @@ export type SessionSummarizeErrors = {
    * Not found
    */
   404: NotFoundError
+  /**
+   * Conflict
+   */
+  409: UnknownError
 }
 
 export type SessionSummarizeError = SessionSummarizeErrors[keyof SessionSummarizeErrors]
@@ -5028,6 +5093,10 @@ export type SessionDeleteMessageErrors = {
    * Not found
    */
   404: NotFoundError
+  /**
+   * Conflict
+   */
+  409: UnknownError
 }
 
 export type SessionDeleteMessageError = SessionDeleteMessageErrors[keyof SessionDeleteMessageErrors]
@@ -5289,6 +5358,10 @@ export type SessionShellErrors = {
    * Not found
    */
   404: NotFoundError
+  /**
+   * Conflict
+   */
+  409: UnknownError
 }
 
 export type SessionShellError = SessionShellErrors[keyof SessionShellErrors]
@@ -5329,6 +5402,10 @@ export type SessionRevertErrors = {
    * Not found
    */
   404: NotFoundError
+  /**
+   * Conflict
+   */
+  409: UnknownError
 }
 
 export type SessionRevertError = SessionRevertErrors[keyof SessionRevertErrors]
@@ -5363,6 +5440,10 @@ export type SessionUnrevertErrors = {
    * Not found
    */
   404: NotFoundError
+  /**
+   * Conflict
+   */
+  409: UnknownError
 }
 
 export type SessionUnrevertError = SessionUnrevertErrors[keyof SessionUnrevertErrors]
@@ -6509,7 +6590,7 @@ export type VcsDiffData = {
   query: {
     directory?: string
     workspace?: string
-    mode: "unstaged" | "staged" | "branch"
+    mode: "git" | "branch"
   }
   url: "/vcs/diff"
 }

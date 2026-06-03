@@ -2264,7 +2264,7 @@ describe("redactPart", () => {
       monotonicMs: 125,
       technical_retryable: true,
       safety_gate_decision: {
-        recommendation: "auto_retry_once",
+        recommendation: "auto_retry",
         confidence: "high",
         reason: "no_visible_output_or_tool_execution",
         safety_scope: "visible_output_and_tool_side_effects",
@@ -2321,7 +2321,7 @@ describe("redactPart", () => {
     })
     expect(sanitized.diagnostics.run_observability?.[0]?.recovery_decision).toMatchObject({
       technical_retryable: true,
-      safety_gate_recommendation: "auto_retry_once",
+      safety_gate_recommendation: "auto_retry",
       recovery_mode: "replay",
       attempt_kind: "safe_recovery_replay",
       timeout_policy: "reasoning_first_attempt",

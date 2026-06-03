@@ -3,6 +3,8 @@ import { describeRoute, validator, resolver } from "hono-openapi"
 import { HTTPException } from "hono/http-exception"
 import type { UpgradeWebSocket } from "hono/ws"
 import z from "zod"
+import { Effect } from "effect"
+import { AppRuntime } from "@/effect/app-runtime"
 import { Pty } from "@/pty"
 import { PtyID } from "@/pty/schema"
 import { ConnectToken, PtyTicket } from "@/pty/ticket"
@@ -48,7 +50,13 @@ export function PtyRoutes(upgradeWebSocket: UpgradeWebSocket) {
         },
       }),
       async (c) => {
-        return c.json(await Pty.list())
+        const sessions = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const pty = yield* Pty.Service
+            return yield* pty.list()
+          }),
+        )
+        return c.json(sessions)
       },
     )
     .post(
@@ -71,7 +79,13 @@ export function PtyRoutes(upgradeWebSocket: UpgradeWebSocket) {
       }),
       validator("json", Pty.CreateInput),
       async (c) => {
-        const info = await Pty.create(c.req.valid("json"))
+        const input = c.req.valid("json")
+        const info = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const pty = yield* Pty.Service
+            return yield* pty.create(input)
+          }),
+        )
         return c.json(info)
       },
     )
@@ -95,7 +109,13 @@ export function PtyRoutes(upgradeWebSocket: UpgradeWebSocket) {
       }),
       validator("param", z.object({ ptyID: PtyID.zod })),
       async (c) => {
-        const info = await Pty.get(c.req.valid("param").ptyID)
+        const id = c.req.valid("param").ptyID
+        const info = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const pty = yield* Pty.Service
+            return yield* pty.get(id)
+          }),
+        )
         if (!info) {
           throw new NotFoundError({ message: "Session not found" })
         }
@@ -124,7 +144,14 @@ export function PtyRoutes(upgradeWebSocket: UpgradeWebSocket) {
       validator("param", z.object({ ptyID: PtyID.zod })),
       validator("json", Pty.UpdateInput),
       async (c) => {
-        const info = await Pty.update(c.req.valid("param").ptyID, c.req.valid("json"))
+        const id = c.req.valid("param").ptyID
+        const input = c.req.valid("json")
+        const info = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const pty = yield* Pty.Service
+            return yield* pty.update(id, input)
+          }),
+        )
         if (!info) {
           throw new NotFoundError({ message: "Session not found" })
         }
@@ -152,11 +179,18 @@ export function PtyRoutes(upgradeWebSocket: UpgradeWebSocket) {
       validator("param", z.object({ ptyID: PtyID.zod })),
       async (c) => {
         const id = c.req.valid("param").ptyID
-        const info = await Pty.get(id)
-        if (!info) {
+        const removed = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const pty = yield* Pty.Service
+            const info = yield* pty.get(id)
+            if (!info) return false
+            yield* pty.remove(id)
+            return true
+          }),
+        )
+        if (!removed) {
           throw new NotFoundError({ message: "Session not found" })
         }
-        await Pty.remove(id)
         return c.json(true)
       },
     )

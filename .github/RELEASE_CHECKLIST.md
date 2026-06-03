@@ -118,7 +118,28 @@ Publish the release as the latest stable release:
 gh release edit vX.Y.Z --repo Astro-Han/pawwork --draft=false --latest --prerelease=false
 ```
 
-## 5. Post-Release Verification
+## 5. Mirror Downloads to Cloudflare R2
+
+The China-accessible landing page (dl.pawwork.ai) serves downloads from the R2 mirror, not GitHub. The mirror is gated by `verify-release` and only runs against a published (non-draft) release, so it must run after Step 4.
+
+Publishing in Step 4 with your own credentials emits a `release: published` event, which triggers `.github/workflows/mirror-release-to-r2.yml` automatically. (A workflow that published the release with the built-in `GITHUB_TOKEN` would NOT trigger it — that path would need an explicit dispatch.) Confirm the run started, or dispatch it manually:
+
+```bash
+gh run list --workflow mirror-release-to-r2.yml --repo Astro-Han/pawwork --limit 3
+# If no run was triggered for this tag, dispatch it manually:
+gh workflow run mirror-release-to-r2.yml --repo Astro-Han/pawwork --ref dev -f tag=vX.Y.Z
+```
+
+Then confirm the landing page points at the new version on R2:
+
+```bash
+curl -fsSL https://dl.pawwork.ai/latest.json            # "version" should read X.Y.Z
+curl -fsI https://dl.pawwork.ai/pawwork-mac-arm64-X.Y.Z.dmg | head -1   # expect HTTP/2 200
+```
+
+If `latest.json` still shows the previous version, the mirror has not finished — do not announce the release until it does. The mirror fails closed, so a failed run leaves the site pointing at the previous good release.
+
+## 6. Post-Release Verification
 
 Run the verification helper:
 
@@ -234,6 +255,6 @@ Keep `.zip`, `.blockmap`, and `latest*.yml` assets unless updater requirements a
 
 If verification fails, check the reported missing or malformed asset first, rerun only the affected build phase, and publish the release only after the verification helper passes.
 
-## 6. Close Release Issues
+## 7. Close Release Issues
 
 Only close release-blocking issues after post-release verification passes. Leave a short comment with the release link and the verified artifact names.

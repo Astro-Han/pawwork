@@ -29,7 +29,7 @@ export namespace Flag {
   export const OPENCODE_DISABLE_PRUNE = truthy("OPENCODE_DISABLE_PRUNE")
   export const OPENCODE_DISABLE_TERMINAL_TITLE = truthy("OPENCODE_DISABLE_TERMINAL_TITLE")
   export const OPENCODE_SHOW_TTFD = truthy("OPENCODE_SHOW_TTFD")
-  export const OPENCODE_PERMISSION = process.env["OPENCODE_PERMISSION"]
+  export declare const OPENCODE_PERMISSION: string | undefined
   export const OPENCODE_DISABLE_DEFAULT_PLUGINS = truthy("OPENCODE_DISABLE_DEFAULT_PLUGINS")
   export const OPENCODE_DISABLE_LSP_DOWNLOAD = truthy("OPENCODE_DISABLE_LSP_DOWNLOAD")
   export const OPENCODE_ENABLE_EXPERIMENTAL_MODELS = truthy("OPENCODE_ENABLE_EXPERIMENTAL_MODELS")
@@ -153,6 +153,17 @@ Object.defineProperty(Flag, "OPENCODE_PURE", {
 Object.defineProperty(Flag, "OPENCODE_PLUGIN_META_FILE", {
   get() {
     return process.env["OPENCODE_PLUGIN_META_FILE"]
+  },
+  enumerable: true,
+  configurable: false,
+})
+
+// Dynamic getter for OPENCODE_PERMISSION
+// This must be evaluated at access time, not module load time,
+// because tests and external tooling may set this env var at runtime
+Object.defineProperty(Flag, "OPENCODE_PERMISSION", {
+  get() {
+    return process.env["OPENCODE_PERMISSION"]
   },
   enumerable: true,
   configurable: false,

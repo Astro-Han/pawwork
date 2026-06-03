@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer"
-import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, spyOn, test } from "bun:test"
+import * as uiToast from "@opencode-ai/ui/toast"
 import { attachmentMime } from "./files"
 import { pasteMode } from "./paste"
 import type { createPromptAttachments as createPromptAttachmentsType } from "./attachments"
@@ -27,11 +28,14 @@ class TestFileReader {
   }
 }
 
-mock.module("@opencode-ai/ui/toast", () => ({
-  showToast: (toast: (typeof toasts)[number]) => {
-    toasts.push(toast)
-  },
-}))
+// spyOn + afterAll restore instead of mock.module: bun's mock.module is a
+// global, persistent, non-restoring registry override that leaked this toast
+// mock into every later test file and broke suites relying on the real
+// showToast (e.g. pawwork-session-commands.test.ts).
+spyOn(uiToast, "showToast").mockImplementation((toast) => {
+  toasts.push(toast as (typeof toasts)[number])
+  return 0
+})
 
 mock.module("@/context/language", () => ({
   useLanguage: () => ({
@@ -68,6 +72,7 @@ beforeAll(async () => {
 
 afterAll(() => {
   ;(globalThis as unknown as { FileReader: typeof originalFileReader }).FileReader = originalFileReader
+  mock.restore()
 })
 
 beforeEach(() => {

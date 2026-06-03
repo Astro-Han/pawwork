@@ -8,13 +8,16 @@ import { createEffect, createMemo, createSignal, For, Show, type Accessor, type 
 import { useLanguage } from "@/context/language"
 import { getRelativeTime } from "@/utils/time"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { DialogRenameSession } from "@/components/dialog-rename-session"
 import { DialogRenameProject } from "@/components/dialog-rename-project"
 import { DialogRemoveProject } from "@/components/dialog-remove-project"
 import { buildPawworkSessionSections, type PawworkSortMode } from "./pawwork-session-nav"
 import { createSortableAttacher } from "./pawwork-sidebar-drag"
 import { buildPawworkSidebarCollections } from "./pawwork-sidebar-identity"
+import { PawworkSidebarAllHeader } from "./pawwork-sidebar-all-header"
+import { PawworkSidebarFoot } from "./pawwork-sidebar-foot"
+import { PawworkSidebarTop } from "./pawwork-sidebar-top"
+import { ProjectGroupHeader } from "./pawwork-sidebar-project-group-header"
 import { buildSessionMenuActions, type SessionMenuAction } from "./session-menu-actions"
 import { SessionItem, type SessionSwitchPaint } from "./sidebar-items"
 import { shouldUseShellOwnerForLink } from "./sidebar-item-navigation"
@@ -26,84 +29,6 @@ export type PawworkSidebarSession = {
   projectKey: string
   projectLabel: string
   created: number
-}
-
-function ProjectGroupHeader(props: {
-  projectKey: string
-  label: string
-  collapsed: boolean
-  onToggle: () => void
-  onRename: () => void
-  onRemove: () => void
-}) {
-  const language = useLanguage()
-  const projectMenuLabels = () => ({
-    rename: language.t("project.rename"),
-    remove: language.t("project.remove"),
-  })
-
-  return (
-    <ContextMenu>
-      <ContextMenu.Trigger as="div">
-        <div
-          data-component="pawwork-group-header"
-          data-collapsed={props.collapsed ? "true" : undefined}
-          title={props.projectKey}
-          class="group/group-header h-[30px] w-full flex items-center rounded-sm text-body text-fg-weak transition-colors hover:bg-row-hover-overlay focus-within:bg-row-hover-overlay"
-        >
-          <button
-            type="button"
-            data-action="pawwork-group-toggle"
-            data-collapsed={props.collapsed ? "true" : undefined}
-            aria-expanded={!props.collapsed}
-            onClick={props.onToggle}
-            class="min-w-0 h-full flex-1 flex items-center gap-3 px-2.5 text-left focus:outline-none"
-          >
-            <Icon name={props.collapsed ? "folder" : "folder-open"} class="shrink-0 text-icon-weak" />
-            <span class="min-w-0 flex-1 truncate">{props.label}</span>
-          </button>
-          <div class="pointer-events-none relative shrink-0 flex items-center justify-end h-[20px] min-w-[30px] pr-1">
-            <div class="absolute inset-y-0 right-1 flex items-center justify-end opacity-0 pointer-events-none group-hover/group-header:opacity-100 group-hover/group-header:pointer-events-auto group-focus-within/group-header:opacity-100 group-focus-within/group-header:pointer-events-auto group-has-[[data-expanded]]/group-header:opacity-100 group-has-[[data-expanded]]/group-header:pointer-events-auto">
-              <DropdownMenu>
-                <DropdownMenu.Trigger
-                  as={IconButton}
-                  icon="dot-grid"
-                  variant="ghost"
-                  class="pointer-events-auto h-[26px] w-[26px]"
-                  data-action="project-row-menu"
-                  aria-label={language.t("common.moreOptions")}
-                />
-                <DropdownMenu.Portal>
-                  <DropdownMenu.Content>
-                    <DropdownMenu.Item onSelect={props.onRename}>
-                      <Icon name="edit" class="text-icon-weak" />
-                      <DropdownMenu.ItemLabel>{projectMenuLabels().rename}</DropdownMenu.ItemLabel>
-                    </DropdownMenu.Item>
-                    <DropdownMenu.Item onSelect={props.onRemove}>
-                      <Icon name="archive" class="text-icon-weak" />
-                      <DropdownMenu.ItemLabel>{projectMenuLabels().remove}</DropdownMenu.ItemLabel>
-                    </DropdownMenu.Item>
-                  </DropdownMenu.Content>
-                </DropdownMenu.Portal>
-              </DropdownMenu>
-            </div>
-          </div>
-        </div>
-      </ContextMenu.Trigger>
-      <ContextMenu.Portal>
-        <ContextMenu.Content>
-          <ContextMenu.Item onSelect={props.onRename}>
-            <Icon name="edit" class="text-icon-weak" />
-            <ContextMenu.ItemLabel>{projectMenuLabels().rename}</ContextMenu.ItemLabel>
-          </ContextMenu.Item>
-          <ContextMenu.Item onSelect={props.onRemove}>
-            <Icon name="archive" class="text-icon-weak" />
-            <ContextMenu.ItemLabel>{projectMenuLabels().remove}</ContextMenu.ItemLabel>
-          </ContextMenu.Item>
-        </ContextMenu.Content>
-      </ContextMenu.Portal>
-    </ContextMenu>
-  )
 }
 
 export const PawworkSidebar = (props: {
@@ -146,6 +71,9 @@ export const PawworkSidebar = (props: {
   onNew: () => void
   onSearch: () => void
   onOpenProject: () => void
+  onOpenAutomations: () => void
+  automationsActive: Accessor<boolean>
+  automationsLabel: Accessor<string>
   onOpenSettings: () => void
   settingsLabel: Accessor<string>
   settingsKeybind: Accessor<string | undefined>
@@ -450,44 +378,15 @@ export const PawworkSidebar = (props: {
          lights on its window chrome, so reserving a second 32px band here would
          double the empty space at the top. The placeholder will return when
          slice 17 hides the OS chrome and moves the controls into the sidebar. */}
-      <div data-component="pawwork-side-top" class="shrink-0 px-3 pt-3">
-        <div class="flex flex-col gap-1">
-          <TooltipKeybind
-            placement="right"
-            title={language.t("command.session.new")}
-            keybind={props.newSessionKeybind() ?? ""}
-          >
-            <button
-              type="button"
-              data-action="pawwork-session-new"
-              onClick={props.onNew}
-              class="w-full h-[30px] flex items-center gap-3 px-2.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
-            >
-              <span class="shrink-0 w-4 h-4 flex items-center">
-                <Icon name="new-session" class="text-icon-base" />
-              </span>
-              <span class="text-h3 text-fg-base min-w-0 flex-1 truncate">{language.t("command.session.new")}</span>
-            </button>
-          </TooltipKeybind>
-          <TooltipKeybind
-            placement="right"
-            title={language.t("sidebar.pawwork.search")}
-            keybind={props.searchKeybind() ?? ""}
-          >
-            <button
-              type="button"
-              data-action="pawwork-session-search"
-              onClick={props.onSearch}
-              class="w-full h-[30px] flex items-center gap-3 px-2.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
-            >
-              <span class="shrink-0 w-4 h-4 flex items-center">
-                <Icon name="magnifying-glass" class="text-icon-base" />
-              </span>
-              <span class="text-h3 text-fg-base min-w-0 flex-1 truncate">{language.t("sidebar.pawwork.search")}</span>
-            </button>
-          </TooltipKeybind>
-        </div>
-      </div>
+      <PawworkSidebarTop
+        newSessionKeybind={props.newSessionKeybind}
+        searchKeybind={props.searchKeybind}
+        automationsActive={props.automationsActive}
+        automationsLabel={props.automationsLabel}
+        onNew={props.onNew}
+        onSearch={props.onSearch}
+        onOpenAutomations={props.onOpenAutomations}
+      />
 
       <Show
         when={!props.showProjectEmptyState}
@@ -552,51 +451,7 @@ export const PawworkSidebar = (props: {
                 </section>
               </Show>
               <Show when={sidebarCollections().recentRowKeys.length > 0 || sidebarCollections().groupKeys.length > 0}>
-                <div class="mt-4 h-[30px] flex items-center justify-between px-2.5">
-                  <span class="text-body text-fg-weak">{language.t("sidebar.pawwork.all")}</span>
-                  <DropdownMenu>
-                    <Tooltip placement="bottom" value={language.t("sidebar.pawwork.sort.label")}>
-                      <DropdownMenu.Trigger
-                        as={IconButton}
-                        data-action="pawwork-sort-trigger"
-                        data-mode={props.sortMode()}
-                        icon="sort"
-                        class="h-[26px] w-[26px]"
-                        aria-label={language.t("sidebar.pawwork.sort.label")}
-                      />
-                    </Tooltip>
-                    <DropdownMenu.Portal>
-                      <DropdownMenu.Content>
-                        <DropdownMenu.Item
-                          data-action="pawwork-sort-option"
-                          data-value="time"
-                          onSelect={() => props.onSetSortMode("time")}
-                        >
-                          <Icon name="schedule" class="text-icon-weak" />
-                          <DropdownMenu.ItemLabel>
-                            {language.t("sidebar.pawwork.sort.optionByTime")}
-                          </DropdownMenu.ItemLabel>
-                          <Show when={props.sortMode() === "time"}>
-                            <Icon name="check" class="ml-auto text-icon-weak" />
-                          </Show>
-                        </DropdownMenu.Item>
-                        <DropdownMenu.Item
-                          data-action="pawwork-sort-option"
-                          data-value="project"
-                          onSelect={() => props.onSetSortMode("project")}
-                        >
-                          <Icon name="folder" class="text-icon-weak" />
-                          <DropdownMenu.ItemLabel>
-                            {language.t("sidebar.pawwork.sort.optionByProject")}
-                          </DropdownMenu.ItemLabel>
-                          <Show when={props.sortMode() === "project"}>
-                            <Icon name="check" class="ml-auto text-icon-weak" />
-                          </Show>
-                        </DropdownMenu.Item>
-                      </DropdownMenu.Content>
-                    </DropdownMenu.Portal>
-                  </DropdownMenu>
-                </div>
+                <PawworkSidebarAllHeader sortMode={props.sortMode} onSetSortMode={props.onSetSortMode} />
               </Show>
               <Show when={props.sortMode() === "time"}>
                 <div ref={attachSortable("recent")} data-component="pawwork-recent-list" class="flex flex-col gap-0.5">
@@ -686,22 +541,11 @@ export const PawworkSidebar = (props: {
         </div>
       </Show>
 
-      <div data-component="pawwork-side-foot" class="shrink-0 px-3 pt-4 pb-3">
-        <TooltipKeybind placement="top" title={props.settingsLabel()} keybind={props.settingsKeybind() ?? ""}>
-          <button
-            type="button"
-            data-action="pawwork-open-settings"
-            onClick={props.onOpenSettings}
-            aria-label={props.settingsLabel()}
-            class="w-full h-[30px] flex items-center gap-3 px-2.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
-          >
-            <span class="shrink-0 w-4 h-4 flex items-center">
-              <Icon name="settings-gear" class="text-icon-base" />
-            </span>
-            <span class="text-h3 text-fg-base min-w-0 flex-1 truncate">{props.settingsLabel()}</span>
-          </button>
-        </TooltipKeybind>
-      </div>
+      <PawworkSidebarFoot
+        settingsLabel={props.settingsLabel}
+        settingsKeybind={props.settingsKeybind}
+        onOpenSettings={props.onOpenSettings}
+      />
     </section>
   )
 }

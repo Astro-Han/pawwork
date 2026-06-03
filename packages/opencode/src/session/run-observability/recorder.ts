@@ -534,7 +534,11 @@ export function createRecorder(input: RecorderInput): Recorder {
       return deriveCurrentIncident(next.at, { includeRecoveredTerminal: true })?.recovery ?? unknownRecovery()
     },
     recordRecoveryDecision(next) {
-      if (recoveryDecision?.retry_attempted && next.safe_recovery_attempt > recoveryDecision.safe_recovery_attempt) {
+      if (
+        recoveryDecision?.retry_attempted &&
+        next.safe_recovery_attempt > recoveryDecision.safe_recovery_attempt &&
+        next.recovery_mode !== "auto_replay_blocked"
+      ) {
         rememberEvent(next.monotonicMs)
         return
       }
@@ -671,6 +675,7 @@ export function createRecorder(input: RecorderInput): Recorder {
         reasoningOutputStarted: terminalAttempt?.reasoning_output_started ?? incident?.facts.reasoning_output_started ?? false,
         toolExecutionStarted: terminalAttempt?.tool_execution_started ?? toolExecutionStarted,
         unsafeSideEffectStarted: terminalAttempt?.unsafe_side_effect_started ?? unsafeSideEffectStarted,
+        retryable: failure?.type === "transport" ? failure.retryable : undefined,
       })
       const completedAt = final.completedAt
       const failureMonotonicMs = failure?.monotonicMs
@@ -864,6 +869,7 @@ function retrySafetyFor(input: {
   reasoningOutputStarted: boolean
   toolExecutionStarted: boolean
   unsafeSideEffectStarted: boolean
+  retryable?: boolean
 }): Summary["retry_safety"] {
   const base = { safety_scope: "user_visible_and_tool_side_effects" as const }
   if (input.classification === "success") {
@@ -879,6 +885,9 @@ function retrySafetyFor(input: {
     return { ...base, recommendation: "ask_user", confidence: "medium", reason: "tool_execution_started" }
   }
   if (input.classification === "external_stream_disconnect") {
+    if (input.retryable === false) {
+      return { ...base, recommendation: "do_not_auto_retry", confidence: "high", reason: "provider_terminal_failure" }
+    }
     if (input.reasoningOutputStarted && input.visibleOutputSeen) {
       return {
         ...base,

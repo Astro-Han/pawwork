@@ -12,7 +12,7 @@ export function evaluateReplaySafety(input: {
 }): ReplaySafetyDecision {
   const safety = input.recovery
 
-  if (safety.recommendation === "auto_retry_once") {
+  if (safety.recommendation === "auto_retry") {
     const maxAttempts = safety.auto_retry?.max_attempts ?? 1
     if (input.safeRecoveryAttempt < maxAttempts) {
       return {

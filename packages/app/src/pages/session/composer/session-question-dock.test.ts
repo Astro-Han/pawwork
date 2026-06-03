@@ -1,11 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { runBrowserCheck } from "@/testing/browser-subprocess"
-import {
-  createQuestionResponseGuard,
-  isSameQuestionRequest,
-  normalizeToolRespondError,
-  resolveSkipAction,
-} from "./session-question-dock"
+import { isSameQuestionRequest } from "./session-question-dock"
+import { createQuestionResponseGuard, normalizeToolRespondError, resolveSkipAction } from "./question-tool-respond"
 
 describe("resolveSkipAction", () => {
   test("navigates to next unsettled question when one exists after current", () => {
@@ -138,7 +134,7 @@ describe("question response duplicate submission guard", () => {
   test("updates reactive disabled state immediately after begin and confirm", () => {
     runBrowserCheck(String.raw`
       import { createMemo, createRoot } from "solid-js"
-      import { createQuestionResponseGuard } from "./src/pages/session/composer/session-question-dock.tsx"
+      import { createQuestionResponseGuard } from "./src/pages/session/composer/question-tool-respond.ts"
 
       const assert = (condition, message) => {
         if (!condition) throw new Error(message)

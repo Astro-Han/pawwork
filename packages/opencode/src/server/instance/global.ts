@@ -392,7 +392,13 @@ export function createGlobalRoutes(options: GlobalRoutesOptions = {}) {
         },
       }),
       async (c) => {
-        return c.json(await Config.getGlobal())
+        const config = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const service = yield* Config.Service
+            return yield* service.getGlobal()
+          }),
+        )
+        return c.json(config)
       },
     )
     .patch(
@@ -416,7 +422,12 @@ export function createGlobalRoutes(options: GlobalRoutesOptions = {}) {
       validator("json", Config.Info.zod),
       async (c) => {
         const config = c.req.valid("json")
-        const next = await Config.updateGlobal(config)
+        const next = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const service = yield* Config.Service
+            return yield* service.updateGlobal(config)
+          }),
+        )
         return c.json(next)
       },
     )

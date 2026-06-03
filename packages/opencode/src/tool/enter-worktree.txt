@@ -1,4 +1,4 @@
-Bind this session to a git worktree. Once entered, every subsequent tool call resolves relative paths from inside the worktree until ExitWorktree is called.
+Bind this session to a git worktree. Once entered, every subsequent tool call resolves relative paths from inside the worktree until exit-worktree is called.
 
 Use this tool whenever the user asks to create, start, enter, open, or switch the session to a worktree.
 
@@ -9,11 +9,11 @@ Do not invoke a worktree skill first when this tool directly satisfies the user'
 Use only when the user explicitly asks for worktree usage, or project instructions require it.
 
 Modes:
-- EnterWorktree() with no arguments creates a new worktree under .worktrees/pawwork/<auto-slug> on a fresh branch from project HEAD; the slug is auto-generated.
-- EnterWorktree(name="my-feature") creates or reuses a managed worktree with slug "my-feature" on branch pawwork/my-feature.
-- EnterWorktree(path="/abs/path/to/existing/worktree") enters a worktree elsewhere on disk that is part of the same git repository as the project.
+- enter-worktree() with no arguments creates a new worktree under .worktrees/pawwork/<auto-slug> on a fresh branch from project HEAD; the slug is auto-generated.
+- enter-worktree(name="my-feature") creates or reuses a managed worktree with slug "my-feature" on branch pawwork/my-feature.
+- enter-worktree(path="/abs/path/to/existing/worktree") enters a worktree elsewhere on disk that is part of the same git repository as the project.
 
-After entering, run further tools normally; their working directory is now the worktree. Call ExitWorktree to return to the project root.
+After entering, run further tools normally; their working directory is now the worktree. Call exit-worktree to return to the project root.
 
 Constraints:
 - name and path are mutually exclusive.
@@ -21,4 +21,4 @@ Constraints:
 - name slug rules: kebab-case, [a-z0-9-]+, max 40 chars, no slash, underscore, spaces, leading/trailing hyphen, or double hyphen.
 - path is canonicalised; same-repo validation is via git common-dir.
 - The transition is rejected if any other tool call is currently running in this session.
-- A→B direct switches are not allowed: call ExitWorktree first.
+- A→B direct switches are not allowed: call exit-worktree first.

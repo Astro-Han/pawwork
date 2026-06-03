@@ -95,7 +95,7 @@ const windowsOpencodeShards = [
     suffix: "opencode-server-tools",
     usesTurbo: false,
     command:
-      "cd packages/opencode && bun test --timeout 30000 --reporter=junit --reporter-outfile=.artifacts/unit/junit-windows-server-tools.xml test/server test/snapshot test/tool test/mcp test/question test/effect test/agent test/git/ test/storage test/provider test/pty test/share/ test/script test/memory test/lsp test/fixture test/acp test/bus test/cli test/global test/format test/account test/sync test/filesystem test/patch test/shell test/control-plane test/ide test/installation test/auth",
+      "cd packages/opencode && bun test --timeout 30000 --reporter=junit --reporter-outfile=.artifacts/unit/junit-windows-server-tools.xml test/server test/snapshot test/tool test/mcp test/question test/effect test/agent test/git/ test/storage test/provider test/pty test/share/ test/script test/memory test/lsp test/fixture test/acp test/bus test/cli test/global test/format test/account test/sync test/filesystem test/patch test/shell test/control-plane test/ide test/installation test/auth test/automation",
     reportPath: "packages/opencode/.artifacts/unit/junit-windows-server-tools.xml",
   },
 ] as const
@@ -534,14 +534,15 @@ describe("ci workflow", () => {
 
     expect(parsed.name).toBe("windows-advisory")
     expect(workflow).toContain("run-name: windows advisory @ ${{ github.ref_name }} / ${{ github.sha }}")
-    expect(workflow).toContain("push:")
-    expect(workflow).toContain("branches: [dev]")
+    expect(parsed.on?.push).toEqual({ branches: ["dev"] })
+    expect(parsed.on?.pull_request).toEqual({ branches: ["dev"] })
+    expect(parsed.on?.workflow_dispatch).toEqual(null)
     expect(workflow).toContain("workflow_dispatch:")
-    expect(workflow).not.toContain("pull_request:")
     expect(parsed.concurrency?.group).toContain("github.ref == 'refs/heads/dev'")
     expect(parsed.concurrency?.group).toContain("github.run_id")
     expect(parsed.concurrency?.["cancel-in-progress"]).toBe("${{ github.ref != 'refs/heads/dev' }}")
     expect(parsed.permissions).toEqual({ contents: "read" })
+    expect(parsed.jobs?.changes?.permissions).toEqual({ contents: "read", "pull-requests": "read" })
     expect(checkoutStep("changes", windowsAdvisoryWorkflowPath)?.uses).toBe(pinned.checkout)
     expect(checkoutStep("changes", windowsAdvisoryWorkflowPath)?.with?.["persist-credentials"]).toBe(false)
     expect(checkoutStep(windowsUnitJobName, windowsAdvisoryWorkflowPath)?.uses).toBe(pinned.checkout)
@@ -606,6 +607,36 @@ describe("ci workflow", () => {
       "turbo-${{ runner.os }}-unit-windows-${{ matrix.package }}-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-\n" +
         "turbo-${{ runner.os }}-unit-windows-${{ matrix.package }}-\n",
     )
+  })
+
+  test("retries the Windows unit step once on transient failure", () => {
+    const unitRun = stepByName(windowsUnitJobName, "unit", windowsAdvisoryWorkflowPath)?.run ?? ""
+
+    // Retry budget: exactly one extra attempt (max_attempts=2).
+    expect(unitRun).toContain("attempts=2")
+
+    // Each attempt runs in a subshell so `cd packages/...` in matrix.command
+    // does not leak working directory across attempts.
+    expect(unitRun).toContain("( ${{ matrix.command }} )")
+
+    // First-attempt exit code must be exported so downstream steps and humans
+    // can tell a recovered run apart from a clean-first-pass run.
+    expect(unitRun).toContain('echo "first_exit_code=$first_status" >> "$GITHUB_OUTPUT"')
+
+    // First-attempt failure is surfaced in the step summary even when the
+    // retry recovers — the advisory must not silently swallow transient flake.
+    expect(unitRun).toContain("### Windows unit attempt $attempt failed (retrying)")
+    expect(unitRun).toContain("### Windows unit recovered on retry")
+
+    // The recovered and final-failed outcomes also emit run-level annotations
+    // (::notice / ::warning) so the signal is visible in the Actions UI
+    // annotations panel, not only inside the collapsed step summary.
+    expect(unitRun).toContain("::notice title=Windows unit recovered on retry")
+    expect(unitRun).toContain("::warning title=Windows unit failed advisory signal after retry")
+
+    // The final exit code is the last attempt's status, not the first.
+    // Otherwise a recovered run would still turn the advisory red.
+    expect(unitRun).toMatch(/exit "\$status"\s*$/)
   })
 
   test("defines Windows unit packages and opencode shards", () => {

@@ -6,6 +6,9 @@ import { batch, createMemo, createRoot, getOwner, onCleanup } from "solid-js"
 import { createStore, type SetStoreFunction } from "solid-js/store"
 import type { FileSelection } from "@/context/file"
 import { Persist, persisted } from "@/utils/persist"
+import { DEFAULT_PROMPT, isPromptEqual, isStructurallyEmpty } from "./prompt-equality"
+
+export { DEFAULT_PROMPT, isPromptEqual, isStructurallyEmpty }
 
 interface PartBase {
   content: string
@@ -59,57 +62,6 @@ export type FileContextItem = {
 }
 
 export type ContextItem = FileContextItem
-
-export const DEFAULT_PROMPT: Prompt = [{ type: "text", content: "", start: 0, end: 0 }]
-
-function isSelectionEqual(a?: FileSelection, b?: FileSelection) {
-  if (!a && !b) return true
-  if (!a || !b) return false
-  return (
-    a.startLine === b.startLine && a.startChar === b.startChar && a.endLine === b.endLine && a.endChar === b.endChar
-  )
-}
-
-function isCommandMetaEqual(a: TextPart["command"], b: TextPart["command"]) {
-  if (!a && !b) return true
-  if (!a || !b) return false
-  return a.name === b.name && a.source === b.source && a.icon === b.icon
-}
-
-function isPartEqual(partA: ContentPart, partB: ContentPart) {
-  switch (partA.type) {
-    case "text":
-      return (
-        partB.type === "text" &&
-        partA.content === partB.content &&
-        isCommandMetaEqual(partA.command, partB.command)
-      )
-    case "file":
-      return partB.type === "file" && partA.path === partB.path && isSelectionEqual(partA.selection, partB.selection)
-    case "agent":
-      return partB.type === "agent" && partA.name === partB.name
-    case "image":
-      return partB.type === "image" && partA.id === partB.id
-  }
-}
-
-export function isPromptEqual(promptA: Prompt, promptB: Prompt): boolean {
-  if (promptA.length !== promptB.length) return false
-  for (let i = 0; i < promptA.length; i++) {
-    if (!isPartEqual(promptA[i], promptB[i])) return false
-  }
-  return true
-}
-
-export function isStructurallyEmpty(
-  prompt: Prompt,
-  contextItems: readonly ContextItem[],
-  imageAttachments: readonly ImageAttachmentPart[],
-): boolean {
-  if (contextItems.length > 0) return false
-  if (imageAttachments.length > 0) return false
-  return isPromptEqual(prompt, DEFAULT_PROMPT)
-}
 
 function cloneSelection(selection?: FileSelection) {
   if (!selection) return undefined
@@ -196,6 +148,7 @@ type PromptBindingSession = {
   current: () => Prompt
   cursor: () => number | undefined
   dirty: () => boolean
+  hasDraft: () => boolean
   context: {
     items: () => (ContextItem & { key: string })[]
     add: (item: ContextItem) => void
@@ -203,7 +156,7 @@ type PromptBindingSession = {
     removeComment: (path: string, commentID: string) => void
     updateComment: (path: string, commentID: string, next: Partial<FileContextItem> & { comment?: string }) => void
     replaceComments: (items: FileContextItem[]) => void
-    /** Atomic full-replace: swaps ALL context items at once. Used by carry hydration. */
+    /** Atomic full-replace: swaps ALL context items at once. Used by carry hydration and failure restore. */
     replaceAll: (items: ContextItem[]) => void
   }
   set: (prompt: Prompt, cursorPosition?: number) => void
@@ -226,6 +179,7 @@ export function createPromptBinding(
     current: () => session()?.current() ?? clonePrompt(DEFAULT_PROMPT),
     cursor: () => session()?.cursor(),
     dirty: () => session()?.dirty() ?? false,
+    hasDraft: (target?: Scope) => pick(target)?.hasDraft() ?? false,
     context: {
       items: () => session()?.context.items() ?? [],
       add: (item: ContextItem) => session()?.context.add(item),
@@ -234,7 +188,7 @@ export function createPromptBinding(
       updateComment: (path: string, commentID: string, next: Partial<FileContextItem> & { comment?: string }) =>
         session()?.context.updateComment(path, commentID, next),
       replaceComments: (items: FileContextItem[]) => session()?.context.replaceComments(items),
-      replaceAll: (items: ContextItem[]) => session()?.context.replaceAll(items),
+      replaceAll: (items: ContextItem[], target?: Scope) => pick(target)?.context.replaceAll(items),
     },
     set: (prompt: Prompt, cursorPosition?: number, target?: Scope) => pick(target)?.set(prompt, cursorPosition),
     reset: (target?: Scope) => pick(target)?.reset(),
@@ -268,6 +222,7 @@ function createPromptSession(dir: string, id: string | undefined) {
     current: createMemo(() => store.prompt),
     cursor: createMemo(() => store.cursor),
     dirty: createMemo(() => !isPromptEqual(store.prompt, DEFAULT_PROMPT)),
+    hasDraft: createMemo(() => !isStructurallyEmpty(store.prompt, store.context.items, [])),
     context: {
       items: createMemo(() => store.context.items),
       add(item: ContextItem) {

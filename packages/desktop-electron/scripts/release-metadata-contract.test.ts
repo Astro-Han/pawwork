@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { delimiter, dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -257,6 +257,29 @@ describe("release metadata finalizer", () => {
     expect(stderr).toContain("HTTP 404: Not Found")
   })
 
+  test("refuses to overwrite updater metadata once the release is published", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pawwork-release-metadata-"))
+    roots.push(root)
+    const latestDir = join(root, "latest-yml")
+    const runnerTemp = join(root, "runner")
+    const binDir = join(root, "bin")
+    mkdirSync(runnerTemp, { recursive: true })
+    mkdirSync(binDir, { recursive: true })
+    // The release has already been published (a later same-version build): the
+    // finalizer must refuse rather than clobber the live updater metadata.
+    writeFakeGh(binDir, {}, undefined, false)
+
+    writeLatest(join(latestDir, "latest-yml-aarch64-apple-darwin"), "latest-mac.yml", "PawWork-new-arm64.zip")
+
+    const proc = spawnFinalizer(binDir, latestDir, runnerTemp)
+
+    const [stderr, exitCode] = await Promise.all([new Response(proc.stderr).text(), proc.exited])
+    expect(exitCode).not.toBe(0)
+    expect(stderr).toContain("already published")
+    const uploadsLog = join(root, "gh-uploads.log")
+    expect(existsSync(uploadsLog) ? readFileSync(uploadsLog, "utf8") : "").not.toContain("release upload")
+  })
+
   test("fails when existing metadata version does not match the release", async () => {
     const root = mkdtempSync(join(tmpdir(), "pawwork-release-metadata-"))
     roots.push(root)
@@ -313,7 +336,12 @@ function writeLatest(
   )
 }
 
-function writeFakeGh(binDir: string, downloads: Record<string, string | FixtureFile> = {}, downloadFailure?: string) {
+function writeFakeGh(
+  binDir: string,
+  downloads: Record<string, string | FixtureFile> = {},
+  downloadFailure?: string,
+  releaseIsDraft = true,
+) {
   const helper = join(binDir, "fake-gh.js")
   writeFileSync(
     helper,
@@ -322,8 +350,14 @@ function writeFakeGh(binDir: string, downloads: Record<string, string | FixtureF
       "const { join } = require('node:path')",
       `const downloads = ${JSON.stringify(downloads)}`,
       `const downloadFailure = ${JSON.stringify(downloadFailure ?? null)}`,
+      `const releaseIsDraft = ${JSON.stringify(releaseIsDraft)}`,
       `const uploadLog = ${JSON.stringify(join(binDir, "..", "gh-uploads.log"))}`,
       "const args = process.argv.slice(2)",
+      // The finalizer's published-release guard: `gh release view <tag> --jq .isDraft`.
+      "if (args[0] === 'release' && args[1] === 'view') {",
+      "  process.stdout.write(`${releaseIsDraft}\\n`)",
+      "  process.exit(0)",
+      "}",
       "if (args[0] === 'release' && args[1] === 'download') {",
       "  if (downloadFailure) {",
       "    console.error(downloadFailure)",

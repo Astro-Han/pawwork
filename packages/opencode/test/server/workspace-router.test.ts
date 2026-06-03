@@ -1,6 +1,6 @@
 import { $ } from "bun"
 import { afterAll, afterEach, describe, expect, spyOn, test } from "bun:test"
-import { Effect } from "effect"
+import { Cause, Effect, Exit } from "effect"
 import fs from "fs/promises"
 import { Hono } from "hono"
 import path from "path"
@@ -13,6 +13,7 @@ import { Instance } from "../../src/project/instance"
 import { Plugin } from "../../src/plugin"
 import { Server } from "../../src/server/server"
 import { WorkspaceRouterMiddleware } from "../../src/server/instance/middleware"
+import { resolveWorkspaceRoute } from "../../src/server/instance/workspace-routing"
 import { WorkspaceID } from "../../src/control-plane/schema"
 import { Workspace } from "../../src/control-plane/workspace"
 import { WorkspaceTable } from "../../src/control-plane/workspace.sql"
@@ -83,7 +84,12 @@ async function writeOpencodeConfig(dir: string, pluginFile: string) {
   )
 }
 
-async function writeRemoteWorkspacePlugin(input: { dir: string; url: string; branch?: string | null }) {
+async function writeRemoteWorkspacePlugin(input: {
+  dir: string
+  url: string
+  branch?: string | null
+  targetError?: string
+}) {
   const type = `plug-${Math.random().toString(36).slice(2)}`
   const file = path.join(input.dir, "plugin.ts")
   const branch = input.branch === undefined ? null : input.branch
@@ -98,7 +104,9 @@ async function writeRemoteWorkspacePlugin(input: { dir: string; url: string; bra
       "    async create() {},",
       "    async remove() {},",
       "    target() {",
-      `      return { type: "remote", url: ${JSON.stringify(input.url)} }`,
+      input.targetError
+        ? `      throw new Error(${JSON.stringify(input.targetError)})`
+        : `      return { type: "remote", url: ${JSON.stringify(input.url)} }`,
       "    },",
       "  })",
       "  return {}",
@@ -514,6 +522,52 @@ describe("workspace router", () => {
     } finally {
       ensureSync.mockRestore()
       websocket.mockRestore()
+    }
+  })
+
+  test("keeps remote target failures in the Effect failure channel and Hono error response", async () => {
+    const message = "workspace target failed"
+    await using tmp = await tmpdir({
+      init: (dir) => writeRemoteWorkspacePlugin({ dir, url: "http://127.0.0.1:9", targetError: message }),
+    })
+    const workspace = await persistRemoteWorkspace({ directory: tmp.path, type: tmp.extra.type })
+    await Instance.disposeAll()
+
+    const ensureSync = disableWorkspaceSync()
+
+    try {
+      const exit = await AppRuntime.runPromiseExit(
+        resolveWorkspaceRoute({
+          method: "GET",
+          pathname: "/path",
+          directory: tmp.path,
+          workspaceID: workspace.id,
+          ensureConfig: false,
+          isPawWork: true,
+        }),
+      )
+
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (Exit.isFailure(exit)) {
+        expect(Cause.hasFails(exit.cause)).toBe(true)
+        expect(Cause.hasDies(exit.cause)).toBe(false)
+        const error = Cause.squash(exit.cause)
+        expect(error).toBeInstanceOf(Error)
+        expect((error as Error).message).toContain(message)
+      }
+
+      const response = await Server.Default().app.request(`/path?workspace=${workspace.id}`, {
+        headers: {
+          "x-opencode-directory": tmp.path,
+        },
+      })
+      const body = await response.json()
+
+      expect(response.status).toBe(500)
+      expect(body.name).toBe("UnknownError")
+      expect(body.data.message).toContain(message)
+    } finally {
+      ensureSync.mockRestore()
     }
   })
 

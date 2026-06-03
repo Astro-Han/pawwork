@@ -1,27 +1,19 @@
-import { useSpring } from "@opencode-ai/ui/motion-spring"
-import { isWorkInFlightStatus } from "@opencode-ai/ui/util/session-status"
 import { useNavigate, useParams } from "@solidjs/router"
-import { createEffect, on, Component, For, Show, createMemo, createSignal } from "solid-js"
+import { createEffect, on, Component, For, createMemo, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLocal } from "@/context/local"
 import { useFile } from "@/context/file"
-import { DEFAULT_PROMPT, Prompt, usePrompt, ImageAttachmentPart } from "@/context/prompt"
+import { DEFAULT_PROMPT, Prompt, usePrompt } from "@/context/prompt"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { useComments } from "@/context/comments"
 import { DockSegmentForm } from "@opencode-ai/ui/dock-card"
-import { Icon } from "@opencode-ai/ui/icon"
-import { IconButton } from "@opencode-ai/ui/icon-button"
-import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { openModelPicker } from "@/components/prompt-input/model-picker"
-import { WorkspaceChip } from "@/components/prompt-input/workspace-chip"
-import { SessionContextUsage } from "@/components/session-context-usage"
-import { SendButton } from "./prompt-input/send-button"
 import { useCommand } from "@/context/command"
 import { usePermission } from "@/context/permission"
 import { useLanguage } from "@/context/language"
-import { canUseNativeFilePicker, usePlatform } from "@/context/platform"
+import { usePlatform } from "@/context/platform"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { setCursorPosition } from "./prompt-input/editor-dom"
 import { createEditorImperatives } from "./prompt-input/editor-imperatives"
@@ -33,11 +25,13 @@ import {
   type PopoverControllers,
 } from "./prompt-input/popover-controllers"
 import { createPromptKeydownHandler } from "./prompt-input/keydown"
-import { PromptModelControl } from "./prompt-input/model-controls"
+import { PromptActionBar } from "./prompt-input/action-bar"
 import { createPromptAttachments } from "./prompt-input/attachments"
-import { pickAttachments } from "./prompt-input/pick-attachments"
-import { ACCEPTED_FILE_TYPES } from "./prompt-input/files"
+import { PromptEditorSurface } from "./prompt-input/editor-surface"
 import { promptLength } from "./prompt-input/history"
+import { createPromptDerivedState } from "./prompt-input/derived-state"
+import { createPromptCommandsAndMode } from "./prompt-input/commands-mode"
+import { createEditLoadEffect } from "./prompt-input/edit-load-effect"
 import type { PromptStore } from "./prompt-input/store-types"
 import type { FollowupDraft } from "./prompt-input/followup-draft"
 import { createPromptSubmit } from "./prompt-input/submit"
@@ -45,8 +39,6 @@ import { PromptPopover } from "./prompt-input/slash-popover"
 import { PromptContextItems } from "./prompt-input/context-items"
 import { PromptImageAttachments } from "./prompt-input/image-attachments"
 import { PromptDragOverlay } from "./prompt-input/drag-overlay"
-import { promptPlaceholder } from "./prompt-input/placeholder"
-import { promptSendDisabled } from "./prompt-input/readiness"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
 
 interface PromptInputProps {
@@ -110,20 +102,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
 
   const { recent, openComment } = createCommentRouting({ activeSessionID })
 
-  const info = createMemo(() => (activeSessionID() ? sync.session.get(activeSessionID()!) : undefined))
-  const status = createMemo(
-    () =>
-      sync.data.session_status[activeSessionID() ?? ""] ?? {
-        type: "idle",
-      },
-  )
-  const working = createMemo(() => isWorkInFlightStatus(status()))
-  const imageAttachments = createMemo(() =>
-    prompt.current().filter((part): part is ImageAttachmentPart => part.type === "image"),
-  )
-  const actionReady = createMemo(() => props.actionReady?.() ?? true)
-  const abortReady = createMemo(() => props.abortReady?.() ?? actionReady())
-
   const [store, setStore] = createStore<PromptStore>({
     popover: null,
     historyIndex: -1,
@@ -133,49 +111,28 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     applyingHistory: false,
   })
 
-  const buttonsSpring = useSpring(() => (store.mode === "normal" ? 1 : 0), { visualDuration: 0.2, bounce: 0 })
-  const motion = (value: number) => ({
-    opacity: value,
-    transform: `scale(${0.95 + value * 0.05})`,
-    filter: `blur(${(1 - value) * 2}px)`,
-    "pointer-events": value > 0.5 ? ("auto" as const) : ("none" as const),
-  })
-  const buttons = createMemo(() => motion(buttonsSpring()))
-
-  const commentCount = createMemo(() => {
-    if (store.mode === "shell") return 0
-    return prompt.context.items().filter((item) => !!item.comment?.trim()).length
-  })
-  const blank = createMemo(() => {
-    const text = prompt
-      .current()
-      .map((part) => ("content" in part ? part.content : ""))
-      .join("")
-    return text.trim().length === 0 && imageAttachments().length === 0 && commentCount() === 0
-  })
-  const stopping = createMemo(() => working() && blank())
-  const tip = () => {
-    if (stopping() && abortReady()) {
-      return (
-        <div class="flex items-center gap-2">
-          <span>{language.t("prompt.action.stop")}</span>
-          <span class="text-icon-base text-h3 text-[10px]!">{language.t("common.key.esc")}</span>
-        </div>
-      )
-    }
-
-    return (
-      <div class="flex items-center gap-2">
-        <span>{language.t("prompt.action.send")}</span>
-        <Icon name="enter" class="text-icon-base" />
-      </div>
-    )
-  }
-
-  const contextItems = createMemo(() => {
-    const items = prompt.context.items()
-    if (store.mode !== "shell") return items
-    return items.filter((item) => !item.comment?.trim())
+  const {
+    info,
+    working,
+    imageAttachments,
+    actionReady,
+    abortReady,
+    commentCount,
+    blank,
+    stopping,
+    contextItems,
+    placeholder,
+    accepting,
+  } = createPromptDerivedState({
+    store,
+    prompt,
+    sync,
+    sdk,
+    permission,
+    language,
+    activeSessionID,
+    actionReadyProp: () => props.actionReady?.(),
+    abortReadyProp: () => props.abortReady?.(),
   })
 
   const { addToHistory, navigateHistory } = createHistoryNavigation({
@@ -195,61 +152,17 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     ),
   )
 
-  const placeholder = createMemo(() =>
-    promptPlaceholder({
-      mode: store.mode,
-      commentCount: commentCount(),
-      t: (key) => language.t(key as Parameters<typeof language.t>[0]),
-    }),
-  )
-
-  const pick = () => {
-    if (!actionReady()) return
-    const openFilePickerDialog = platform.openFilePickerDialog
-    void pickAttachments({
-      openFilePickerDialog: canUseNativeFilePicker(platform) ? openFilePickerDialog : undefined,
-      addPickedPaths,
-      fallbackInputClick: () => fileInputRef?.click(),
-      isReady: actionReady,
-    })
-  }
-
-  const setMode = (mode: "normal" | "shell") => {
-    if (!actionReady()) return
-    setStore("mode", mode)
-    setStore("popover", null)
-    requestAnimationFrame(() => editorRef?.focus())
-  }
-
-  const shellModeKey = "mod+shift+x"
-  const normalModeKey = "mod+shift+e"
-
-  command.register("prompt-input", () => [
-    {
-      id: "file.attach",
-      title: language.t("prompt.action.attachFile"),
-      category: language.t("command.category.file"),
-      keybind: "mod+u",
-      disabled: store.mode !== "normal" || !actionReady(),
-      onSelect: pick,
-    },
-    {
-      id: "prompt.mode.shell",
-      title: language.t("command.prompt.mode.shell"),
-      category: language.t("command.category.session"),
-      keybind: shellModeKey,
-      disabled: store.mode === "shell" || !actionReady(),
-      onSelect: () => setMode("shell"),
-    },
-    {
-      id: "prompt.mode.normal",
-      title: language.t("command.prompt.mode.normal"),
-      category: language.t("command.category.session"),
-      keybind: normalModeKey,
-      disabled: store.mode === "normal" || !actionReady(),
-      onSelect: () => setMode("normal"),
-    },
-  ])
+  const { pick } = createPromptCommandsAndMode({
+    command,
+    language,
+    platform,
+    store,
+    setStore,
+    actionReady,
+    addPickedPaths: () => addPickedPaths,
+    editorRef: () => editorRef,
+    fallbackInputClick: () => fileInputRef?.click(),
+  })
 
   const closePopover = () => setStore("popover", null)
 
@@ -326,44 +239,14 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     addPart,
   } = editorInput
 
-  createEffect(
-    on(
-      () => props.edit?.id,
-      (id) => {
-        const edit = props.edit
-        if (!id || !edit) return
-
-        for (const item of prompt.context.items()) {
-          prompt.context.remove(item.key)
-        }
-
-        for (const item of edit.context) {
-          prompt.context.add({
-            type: item.type,
-            path: item.path,
-            selection: item.selection,
-            comment: item.comment,
-            commentID: item.commentID,
-            commentOrigin: item.commentOrigin,
-            preview: item.preview,
-          })
-        }
-
-        setStore("mode", "normal")
-        setStore("popover", null)
-        setStore("historyIndex", -1)
-        setStore("savedPrompt", null)
-        prompt.set(edit.prompt, promptLength(edit.prompt))
-        requestAnimationFrame(() => {
-          editorRef.focus()
-          setCursorPosition(editorRef, promptLength(edit.prompt))
-          queueScroll()
-        })
-        props.onEditLoaded?.()
-      },
-      { defer: true },
-    ),
-  )
+  createEditLoadEffect({
+    prompt,
+    setStore,
+    editorRef: () => editorRef,
+    queueScroll,
+    editDraft: () => props.edit,
+    onEditLoaded: () => props.onEditLoaded?.(),
+  })
 
   const { addAttachments, addPickedPaths, removeAttachment, handlePaste } = createPromptAttachments({
     editor: () => editorRef,
@@ -387,11 +270,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     externalReady: actionReady,
   })
 
-  const accepting = createMemo(() => {
-    const id = activeSessionID()
-    if (!id) return permission.isAutoAcceptingDirectory(sdk.directory)
-    return permission.isAutoAccepting(id, sdk.directory)
-  })
   const navigate = useNavigate()
   const routeParams = useParams()
 
@@ -518,140 +396,42 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             editorRef?.focus()
           }}
         >
-          <div
-            class="relative min-h-[100px] max-h-[240px] overflow-y-auto no-scrollbar"
-            ref={(el) => (scrollRef = el)}
-            style={{ "scroll-padding-bottom": space }}
-          >
-            <div
-              data-component="prompt-input"
-              ref={(el) => {
-                editorRef = el
-                props.ref?.(el)
-              }}
-              role="textbox"
-              aria-multiline="true"
-              aria-label={placeholder()}
-              contenteditable="true"
-              autocapitalize={store.mode === "normal" ? "sentences" : "off"}
-              autocorrect={store.mode === "normal" ? "on" : "off"}
-              spellcheck={store.mode === "normal"}
-              inputMode="text"
-              // @ts-expect-error
-              autocomplete="off"
-              onInput={handleInput}
-              onCopy={handleCopy}
-              onPaste={(event) => {
-                const hasFiles = Array.from(event.clipboardData?.items ?? []).some((item) => item.kind === "file")
-                if (!actionReady() && hasFiles) {
-                  event.preventDefault()
-                  return
-                }
-                handlePaste(event)
-              }}
-              onCompositionStart={handleCompositionStart}
-              onCompositionEnd={handleCompositionEnd}
-              onBlur={handleBlur}
-              onKeyDown={handleKeyDown}
-              classList={{
-                "select-text": true,
-                "w-full pl-4 pr-4 pt-4 text-body text-fg-strong focus:outline-none whitespace-pre-wrap": true,
-                "[&_[data-type=file]]:text-syntax-property": true,
-                "[&_[data-type=agent]]:text-syntax-type": true,
-                "font-mono!": store.mode === "shell",
-              }}
-              style={{ "padding-bottom": space }}
-            />
-            <Show when={!prompt.dirty()}>
-              <div
-                data-component="prompt-placeholder"
-                class="absolute top-0 inset-x-0 pl-4 pr-4 pt-4 text-body text-fg-weak pointer-events-none whitespace-nowrap truncate"
-                classList={{ "font-mono!": store.mode === "shell" }}
-                style={{ "padding-bottom": space }}
-              >
-                {placeholder()}
-              </div>
-            </Show>
-          </div>
-
-          <div
-            aria-hidden="true"
-            class="pointer-events-none absolute inset-x-0 bottom-0"
-            style={{
-              height: space,
-              background:
-                "linear-gradient(to top, var(--surface-raised) calc(100% - 20px), transparent)",
+          <PromptEditorSurface
+            setScrollRef={(el) => (scrollRef = el)}
+            setEditorRef={(el) => {
+              editorRef = el
+              props.ref?.(el)
             }}
+            setFileInputRef={(el) => (fileInputRef = el)}
+            mode={store.mode}
+            placeholder={placeholder}
+            dirty={prompt.dirty}
+            space={space}
+            actionReady={actionReady}
+            onInput={handleInput}
+            onCopy={handleCopy}
+            onCompositionStart={handleCompositionStart}
+            onCompositionEnd={handleCompositionEnd}
+            onBlur={handleBlur}
+            onKeyDown={handleKeyDown}
+            handlePaste={handlePaste}
+            addAttachments={addAttachments}
           />
 
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept={ACCEPTED_FILE_TYPES.join(",")}
-            class="hidden"
-            onChange={(e) => {
-              const list = e.currentTarget.files
-              if (list && actionReady()) void addAttachments(Array.from(list))
-              e.currentTarget.value = ""
-            }}
+          <PromptActionBar
+            mode={store.mode}
+            homeMode={props.homeMode}
+            language={language}
+            command={command}
+            model={local.model}
+            actionReady={actionReady}
+            working={working}
+            abortReady={abortReady}
+            blank={blank}
+            stopping={stopping}
+            pick={pick}
+            restoreFocus={restoreFocus}
           />
-
-          <div class="pointer-events-none absolute inset-x-4 bottom-3 flex items-center justify-between gap-2">
-            <div
-              aria-hidden={store.mode !== "normal"}
-              class="pointer-events-auto flex min-w-0 items-center gap-1"
-              style={{
-                "pointer-events": buttonsSpring() > 0.5 ? "auto" : "none",
-              }}
-            >
-              <TooltipKeybind
-                placement="top"
-                title={language.t("prompt.action.attachFile")}
-                keybind={command.keybind("file.attach")}
-              >
-                <IconButton
-                  icon="plus"
-                  data-action="prompt-attach"
-                  type="button"
-                  style={buttons()}
-                  onClick={pick}
-                  disabled={store.mode !== "normal" || !actionReady()}
-                  tabIndex={store.mode === "normal" ? undefined : -1}
-                  aria-label={language.t("prompt.action.attachFile")}
-                />
-              </TooltipKeybind>
-              <Show when={store.mode === "normal"}>
-                <PromptModelControl
-                  triggerStyle={buttons}
-                  actionReady={actionReady}
-                  model={local.model}
-                  language={language}
-                  command={command}
-                  onClose={restoreFocus}
-                />
-              </Show>
-              <Show when={props.homeMode && store.mode === "normal"}>
-                <WorkspaceChip style={buttons()} />
-              </Show>
-            </div>
-
-            <div class="flex items-center gap-2 pointer-events-auto">
-              <SessionContextUsage placement="top" />
-              <Tooltip placement="top" inactive={(working() ? abortReady() : actionReady()) && !working() && blank()} value={tip()}>
-                <SendButton
-                  stopping={stopping()}
-                  disabled={promptSendDisabled({
-                    stopping: stopping(),
-                    actionReady: actionReady(),
-                    abortReady: abortReady(),
-                    blank: blank(),
-                  })}
-                  aria-label={stopping() ? language.t("prompt.action.stop") : language.t("prompt.action.send")}
-                />
-              </Tooltip>
-            </div>
-          </div>
         </div>
       </DockSegmentForm>
     </div>

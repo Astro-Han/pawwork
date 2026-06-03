@@ -1660,16 +1660,19 @@ describe("session.message-v2.fromError", () => {
       {
         code: "insufficient_quota",
         message: "Quota exceeded. Check your plan and billing details.",
+        kind: "quota_exhausted",
       },
       {
         code: "usage_not_included",
         message: "To use Codex with your ChatGPT plan, upgrade to Plus: https://chatgpt.com/explore/plus.",
+        kind: "quota_exhausted",
       },
       {
         code: "invalid_prompt",
         message: "Invalid prompt from test",
+        kind: "invalid_request",
       },
-    ]
+    ] as const
 
     cases.forEach((item) => {
       const input = {
@@ -1688,6 +1691,7 @@ describe("session.message-v2.fromError", () => {
           isRetryable: false,
           responseBody: JSON.stringify(input),
           providerID,
+          providerFailure: { kind: item.kind, code: item.code },
         },
       })
     })
@@ -1714,7 +1718,49 @@ describe("session.message-v2.fromError", () => {
         isRetryable: true,
         responseBody: JSON.stringify(body),
         providerID,
+        providerFailure: { kind: "server_overload", code: "server_error" },
       },
+    })
+  })
+
+  test("classifies Error-wrapped stream error payloads, not just plain objects", () => {
+    const body = {
+      type: "error",
+      sequence_number: 2,
+      error: {
+        type: "server_error",
+        code: "server_error",
+        message: "An error occurred while processing your request.",
+        param: null,
+      },
+    }
+    // Same payload as the plain-object case above, but wrapped in an Error
+    // instance — the shape it actually arrives in from the stream "error" part
+    // (processor throws value.error) and the iterator-throw mapper in llm.ts.
+    const result = MessageV2.fromError(new Error(JSON.stringify(body)), { providerID })
+
+    expect(result).toStrictEqual({
+      name: "APIError",
+      data: {
+        message: body.error.message,
+        isRetryable: true,
+        responseBody: JSON.stringify(body),
+        providerID,
+        providerFailure: { kind: "server_overload", code: "server_error" },
+      },
+    })
+  })
+
+  test("leaves Error-wrapped payloads with unhandled codes as UnknownError", () => {
+    // Guard against the stream parser over-matching: an Error whose JSON message
+    // carries a code the parser does not handle must stay Unknown, not become a
+    // mislabeled APIError.
+    const payload = JSON.stringify({ type: "error", error: { code: "bad_request" } })
+    const result = MessageV2.fromError(new Error(payload), { providerID })
+
+    expect(result).toStrictEqual({
+      name: "UnknownError",
+      data: { message: payload },
     })
   })
 
@@ -1860,6 +1906,112 @@ describe("session.message-v2.fromError", () => {
 
     expect(MessageV2.APIError.isInstance(result)).toBe(true)
     expect((result as MessageV2.APIError).data.isRetryable).toBe(true)
+  })
+
+  test("populates providerFailure for transport disconnects", () => {
+    const error = Object.assign(new Error("connect ECONNREFUSED"), {
+      code: "ECONNREFUSED",
+      syscall: "connect",
+    })
+
+    const result = MessageV2.fromError(error, { providerID })
+
+    expect((result as MessageV2.APIError).data.providerFailure).toStrictEqual({
+      kind: "transport_disconnect",
+      code: "ECONNREFUSED",
+    })
+  })
+
+  test("populates providerFailure for decompression failures", () => {
+    const zlibError = Object.assign(
+      new Error('ZlibError fetching "https://opencode.cloudflare.dev/anthropic/messages".'),
+      { code: "ZlibError", errno: 0, path: "" },
+    )
+
+    const result = MessageV2.fromError(zlibError, { providerID })
+
+    expect((result as MessageV2.APIError).data.providerFailure).toStrictEqual({
+      kind: "decompression",
+      code: "ZlibError",
+    })
+  })
+
+  test("classifies APICallError status codes into providerFailure kinds", () => {
+    const cases = [
+      { statusCode: 400, kind: "invalid_request" },
+      { statusCode: 401, kind: "auth" },
+      { statusCode: 403, kind: "auth" },
+      { statusCode: 422, kind: "invalid_request" },
+      { statusCode: 429, kind: "rate_limit" },
+      { statusCode: 503, kind: "server_overload" },
+    ] as const
+
+    cases.forEach(({ statusCode, kind }) => {
+      const error = new APICallError({
+        message: `${statusCode} failure`,
+        url: "https://example.com",
+        requestBodyValues: {},
+        statusCode,
+        responseHeaders: { "content-type": "application/json" },
+        isRetryable: statusCode >= 500,
+      })
+      const result = MessageV2.fromError(error, { providerID })
+
+      expect(MessageV2.APIError.isInstance(result)).toBe(true)
+      expect((result as MessageV2.APIError).data.providerFailure).toStrictEqual({
+        kind,
+        code: undefined,
+      })
+    })
+  })
+})
+
+describe("session.message-v2.APIError providerFailure back-compat", () => {
+  test("parses historical APIError rows that predate providerFailure", () => {
+    const legacyRow = {
+      name: "APIError",
+      data: {
+        message: "Server error",
+        isRetryable: true,
+        providerID,
+      },
+    }
+
+    const parsed = MessageV2.APIError.Schema.parse(legacyRow)
+
+    expect(parsed.data.providerFailure).toBeUndefined()
+  })
+
+  test("round-trips providerFailure through the persisted schema", () => {
+    const row = {
+      name: "APIError",
+      data: {
+        message: "Rate limited",
+        isRetryable: true,
+        providerID,
+        providerFailure: { kind: "rate_limit", code: "rate_limit_exceeded" },
+      },
+    }
+
+    const parsed = MessageV2.APIError.Schema.parse(row)
+
+    expect(parsed.data.providerFailure).toStrictEqual({
+      kind: "rate_limit",
+      code: "rate_limit_exceeded",
+    })
+  })
+
+  test("rejects unknown providerFailure kinds", () => {
+    const row = {
+      name: "APIError",
+      data: {
+        message: "x",
+        isRetryable: false,
+        providerFailure: { kind: "totally_made_up" },
+      },
+    }
+
+    expect(() => MessageV2.APIError.Schema.parse(row)).toThrow()
   })
 })
 

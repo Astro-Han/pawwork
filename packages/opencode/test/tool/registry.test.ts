@@ -1,13 +1,17 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test"
 import path from "path"
 import fs from "fs/promises"
+import { Effect } from "effect"
 import { tmpdir } from "../fixture/fixture"
 import { writeInstalledConfigDeps, writeMockConfigInstall } from "../shared/mock-npm-install"
 import { withConfigDepsLock } from "../shared/config-deps-lock"
 import { Instance } from "../../src/project/instance"
 import { ModelID, ProviderID } from "../../src/provider/schema"
+import { ProviderTransform } from "../../src/provider"
 import { localToolImportSpec, ToolRegistry } from "../../src/tool/registry"
 import { Settings } from "../../src/settings"
+import { MessageID, SessionID } from "../../src/session/schema"
+import * as EffectZod from "../../src/util/effect-zod"
 import { Npm } from "@opencode-ai/core/npm"
 
 afterEach(async () => {
@@ -40,7 +44,7 @@ describe("tool.registry", () => {
     })
   })
 
-  test("keeps automate hidden until the manageability UI slice", async () => {
+  test("exposes automate now that the Automations panel ships", async () => {
     await using tmp = await tmpdir()
 
     await withMockedConfigInstall(async () => {
@@ -48,19 +52,19 @@ describe("tool.registry", () => {
         directory: tmp.path,
         fn: async () => {
           const ids = await ToolRegistry.ids()
-          expect(ids).not.toContain("automate")
+          expect(ids).toContain("automate")
         },
       })
     })
   })
 
   test("keeps trash removal contract across prompt and package surfaces", async () => {
-    const bashDescription = await Bun.file(new URL("../../src/tool/bash.txt", import.meta.url)).text()
-    expect(bashDescription).not.toContain("trash tool")
-    expect(bashDescription).toContain("Avoid permanent deletion commands")
-    expect(bashDescription).toContain("gio trash")
-    expect(bashDescription).toContain("trash-put")
-    expect(bashDescription).toContain("Get-Command")
+    const shellDescription = await Bun.file(new URL("../../src/tool/shell.txt", import.meta.url)).text()
+    expect(shellDescription).not.toContain("trash tool")
+    expect(shellDescription).toContain("Avoid permanent deletion commands")
+    expect(shellDescription).toContain("gio trash")
+    expect(shellDescription).toContain("trash-put")
+    expect(shellDescription).toContain("Get-Command")
 
     const packageJson = (await Bun.file(new URL("../../package.json", import.meta.url)).json()) as {
       dependencies?: Record<string, string>
@@ -149,6 +153,76 @@ describe("tool.registry", () => {
         fn: async () => {
           const ids = await ToolRegistry.ids()
           expect(ids).toContain("hello")
+        },
+      })
+    })
+  })
+
+  test("bridges plugin ctx.ask and ctx.metadata so the framework Effects actually run", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        const toolDir = path.join(dir, ".opencode", "tool")
+        await fs.mkdir(toolDir, { recursive: true })
+        await Bun.write(
+          path.join(toolDir, "asker.ts"),
+          [
+            "export default {",
+            "  description: 'asks for permission and sets metadata then resolves',",
+            "  args: {},",
+            "  execute: async (_args: unknown, ctx: any) => {",
+            "    await ctx.ask({ permission: 'asker', patterns: [], always: [], metadata: {} })",
+            "    ctx.metadata({ title: 'asked', metadata: { ok: true } })",
+            "    return 'asked'",
+            "  },",
+            "}",
+            "",
+          ].join("\n"),
+        )
+      },
+    })
+
+    await withMockedConfigInstall(async () => {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const tools = await ToolRegistry.tools({
+            providerID: ProviderID.make("openai"),
+            modelID: ModelID.make("gpt-5"),
+            agent: { name: "build", mode: "primary", permission: [], options: {} },
+          })
+          const asker = tools.find((tool) => tool.id === "asker")
+          expect(asker).toBeDefined()
+
+          // The framework `ask`/`metadata` are Effects. Plugin tools call them as a
+          // Promise (`await ctx.ask`) and `void` (`ctx.metadata`); without the
+          // EffectBridge the `...toolCtx` spread hands over the raw Effect and it is
+          // never executed — both silent no-ops. Counting runs proves the bridge runs
+          // them: `ask` is awaited, `metadata` is fire-and-forget.
+          let askRuns = 0
+          let metadataRuns = 0
+          const ctx = {
+            sessionID: SessionID.descending(),
+            messageID: MessageID.ascending(),
+            agent: "build",
+            abort: new AbortController().signal,
+            messages: [],
+            metadata: () =>
+              Effect.sync(() => {
+                metadataRuns++
+              }),
+            ask: () =>
+              Effect.sync(() => {
+                askRuns++
+              }),
+            extra: {},
+          }
+
+          const result = await Effect.runPromise(asker!.execute({}, ctx))
+          // `metadata` is fire-and-forget; flush pending microtasks before asserting.
+          await new Promise((resolve) => setTimeout(resolve, 10))
+          expect(askRuns).toBe(1)
+          expect(metadataRuns).toBe(1)
+          expect(result.output).toBe("asked")
         },
       })
     })
@@ -680,5 +754,110 @@ describe("tool.registry", () => {
     } finally {
       await Settings.setWebSearchEnabled(true)
     }
+  })
+
+  test("defers worktree tools until activated, and advertises them via tool_info", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        // Default: deferred worktree tools are not in the surface; tool_info is,
+        // and advertises both as cards.
+        const def = await ToolRegistry.tools({
+          providerID: ProviderID.make("openai"),
+          modelID: ModelID.make("gpt-5"),
+          agent: { name: "build", mode: "primary", permission: [], options: {} },
+        })
+        const defIds = def.map((tool) => tool.id)
+        expect(defIds).not.toContain("enter-worktree")
+        expect(defIds).not.toContain("exit-worktree")
+        expect(defIds).toContain("tool_info")
+        const card = def.find((tool) => tool.id === "tool_info")!.description
+        expect(card).toContain("enter-worktree")
+        expect(card).toContain("exit-worktree")
+
+        // Activated: enter-worktree becomes callable; tool_info stops listing it.
+        const act = await ToolRegistry.tools({
+          providerID: ProviderID.make("openai"),
+          modelID: ModelID.make("gpt-5"),
+          agent: { name: "build", mode: "primary", permission: [], options: {} },
+          activatedTools: new Set(["enter-worktree"]),
+        })
+        const actIds = act.map((tool) => tool.id)
+        expect(actIds).toContain("enter-worktree")
+        expect(actIds).not.toContain("exit-worktree")
+        const actCard = act.find((tool) => tool.id === "tool_info")!.description
+        expect(actCard).not.toContain("enter-worktree")
+        expect(actCard).toContain("exit-worktree")
+
+        // Permission-disabled: even activated, it stays hidden and uncarded.
+        const denied = await ToolRegistry.tools({
+          providerID: ProviderID.make("openai"),
+          modelID: ModelID.make("gpt-5"),
+          agent: { name: "build", mode: "primary", permission: [], options: {} },
+          activatedTools: new Set(["enter-worktree"]),
+          deferredAvailable: () => false,
+        })
+        expect(denied.map((tool) => tool.id)).not.toContain("enter-worktree")
+        expect(denied.find((tool) => tool.id === "tool_info")!.description).toContain("No deferred tools")
+      },
+    })
+  })
+
+  test("tool_info hands back exactly the schema the activated tool will expose, untruncated", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const base = {
+          providerID: ProviderID.make("openai"),
+          modelID: ModelID.make("gpt-5"),
+          agent: { name: "build", mode: "primary" as const, permission: [], options: {} },
+        }
+
+        // Step 1: enter-worktree carries no full schema in the surface; only tool_info does.
+        const deferred = await ToolRegistry.tools(base)
+        expect(deferred.map((tool) => tool.id)).not.toContain("enter-worktree")
+        const toolInfo = deferred.find((tool) => tool.id === "tool_info")!
+
+        // The model in session context; tool_info must run the activated tool's raw
+        // schema through the SAME ProviderTransform the request pipeline would, so what
+        // it shows now matches what the model actually receives once the tool is live.
+        const model = {
+          id: "openai/gpt-5",
+          providerID: "openai",
+          api: { id: "gpt-5", url: "https://api.openai.com", npm: "@ai-sdk/openai" },
+        } as unknown as Parameters<typeof ProviderTransform.schema>[0]
+
+        // The schema the model will see once enter-worktree is activated, transformed.
+        const activated = await ToolRegistry.tools({ ...base, activatedTools: new Set(["enter-worktree"]) })
+        const enterWorktree = activated.find((tool) => tool.id === "enter-worktree")!
+        const expectedSchema = ProviderTransform.schema(model, EffectZod.toJsonSchema(enterWorktree.parameters))
+
+        const ctx = {
+          sessionID: SessionID.descending(),
+          messageID: MessageID.ascending(),
+          agent: "build",
+          abort: new AbortController().signal,
+          messages: [],
+          metadata: () => Effect.void,
+          ask: () => Effect.void,
+          extra: { model },
+        }
+
+        const result = await Effect.runPromise(toolInfo.execute({ name: "enter-worktree" }, ctx))
+        const json = result.output.match(/```json\n([\s\S]*?)\n```/)?.[1]
+        expect(json).toBeDefined()
+        // tool_info's loaded schema is identical to the post-activation, provider-transformed schema.
+        expect(JSON.parse(json!)).toEqual(expectedSchema)
+        expect(result.metadata.activated).toBe("enter-worktree")
+        // P3-2: the schema output opts out of truncation so a large tool never loads clipped.
+        expect(result.metadata.truncated).toBe(false)
+
+        // P3-1: a CamelCase echo still resolves to the canonical id.
+        const camel = await Effect.runPromise(toolInfo.execute({ name: "Enter-Worktree" }, ctx))
+        expect(camel.metadata.activated).toBe("enter-worktree")
+      },
+    })
   })
 })

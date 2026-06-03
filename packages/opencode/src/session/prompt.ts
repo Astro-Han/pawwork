@@ -16,6 +16,7 @@ import type { JSONSchema7 } from "@ai-sdk/provider"
 import { SessionCompaction } from "./compaction"
 import { Bus } from "../bus"
 import { ProviderTransform } from "../provider/transform"
+import { buildActivationReminder, deriveActivatedToolsFromParts, deriveNewlyActivated } from "../tool/tool-info"
 import { SystemPrompt } from "./system"
 import { Instruction } from "./instruction"
 import { Plugin } from "../plugin"
@@ -79,6 +80,13 @@ const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested struc
 
 const log = Log.create({ service: "session.prompt" })
 const elog = EffectLogger.create({ service: "session.prompt" })
+
+function isOrphanedInterruptedTool(part: MessageV2.ToolPart) {
+  // The interrupt cleanup marks abandoned tool calls as status:"error" with
+  // metadata.interrupted (see processor.ts / session.ts). They are not pending
+  // work, so they must not count as live tool calls and re-trigger the loop.
+  return part.state.status === "error" && part.state.metadata?.interrupted === true
+}
 
 export type TitleGenerationState = "not_started" | "in_flight" | "completed_before_abort" | "completed_after_abort"
 
@@ -714,12 +722,20 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       )
       const lastUserLocale = lastUserMessage?.info.locale
 
+      // Deferred-tool activation is derived from the session's tool_info parts read
+      // directly from storage (NOT the compaction-filtered `messages`), so an activation
+      // older than the retained tail still counts without hydrating the full history.
+      const activatedTools = deriveActivatedToolsFromParts(MessageV2.toolInfoParts(input.session.id))
+      const deferredRuleset = Permission.merge(input.agent.permission, input.session.permission ?? [])
+      const deferredAvailable = (id: string) =>
+        input.tools?.[id] !== false && !Permission.disabled([id], deferredRuleset).has(id)
+
       const context = (args: any, options: ToolExecutionOptions): Tool.Context => ({
         sessionID: input.session.id,
         abort: options.abortSignal!,
         messageID: input.processor.message.id,
         callID: options.toolCallId,
-        extra: { model: input.model, bypassAgentCheck: input.bypassAgentCheck, promptOps },
+        extra: { model: input.model, bypassAgentCheck: input.bypassAgentCheck, promptOps, deferredAvailable },
         agent: input.agent.name,
         messages: input.messages,
         metadata: (val) =>
@@ -839,6 +855,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         modelID: ModelID.make(input.model.api.id),
         providerID: input.model.providerID,
         agent: input.agent,
+        activatedTools,
+        deferredAvailable,
       })) {
         const schema = ProviderTransform.schema(input.model, EffectZod.toJsonSchema(item.parameters))
         const aiTool = tool({
@@ -1989,11 +2007,14 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
           if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
           // Some providers return "stop" even when the assistant message contains tool calls.
-          // Keep the loop running so tool results can be sent back to the model.
-          // Skip provider-executed tool parts — those were fully handled within the
+          // Keep the loop running so tool results can be sent back to the model, but ignore
+          // cleanup-marked interrupted orphans — those are abandoned, not pending work.
+          // Skip provider-executed tool parts too — those were fully handled within the
           // provider's stream (e.g. DWS Agent Platform) and don't need a re-loop.
           const hasToolCalls =
-            lastAssistantMsg?.parts.some((part) => part.type === "tool" && !part.metadata?.providerExecuted) ?? false
+            lastAssistantMsg?.parts.some(
+              (part) => part.type === "tool" && !part.metadata?.providerExecuted && !isOrphanedInterruptedTool(part),
+            ) ?? false
 
           if (
             lastAssistant?.finish &&
@@ -2021,6 +2042,16 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 })
                 continue
               }
+            }
+            const orphan = lastAssistantMsg?.parts.find(
+              (part): part is MessageV2.ToolPart => part.type === "tool" && isOrphanedInterruptedTool(part),
+            )
+            if (orphan) {
+              yield* slog.warn("loop exit with orphaned interrupted tool", {
+                messageID: lastAssistant.id,
+                tool: orphan.tool,
+                callID: orphan.callID,
+              })
             }
             yield* slog.info("exiting loop")
             break
@@ -2096,6 +2127,26 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             concurrency: "unbounded",
             discard: true,
           })
+
+          // Tool description self-claims of "now available" don't move small models;
+          // a <system-reminder> in the user message of the very next step does. Source the
+          // just-activated ids from the durable newest non-summary assistant (not the
+          // compaction-filtered msgs) so a compaction landing right after the tool_info
+          // call can't drop the activating turn and swallow the one-shot reminder.
+          const newlyActivated = deriveNewlyActivated(MessageV2.lastNonSummaryAssistant(sessionID))
+          if (newlyActivated.size > 0) {
+            const userMessage = msgs.findLast((msg) => msg.info.role === "user" && msg.info.id === lastUser.id)
+            for (const name of newlyActivated) {
+              userMessage?.parts.push({
+                id: PartID.ascending(),
+                messageID: lastUser.id,
+                sessionID,
+                type: "text",
+                text: buildActivationReminder(name),
+                synthetic: true,
+              })
+            }
+          }
 
           const execLive = (yield* sessions.get(sessionID)).executionContext
           const msg: MessageV2.Assistant = {
@@ -2472,7 +2523,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       // `awaitRun(existing)` and resolve to the previous run's result — the
       // requested compaction would never happen, but the route would return
       // `true`. UI callers handle the resulting `Session.BusyError` (mapped
-      // to HTTP 400 by middleware) by queuing the compact action through the
+      // to HTTP 409 by middleware) by queuing the compact action through the
       // followup machinery and auto-retrying after the session idles.
       const runLifecycle = input.traceMessageID
         ? {

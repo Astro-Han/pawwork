@@ -15,12 +15,21 @@ import { ServerAuth } from "./auth"
 const log = Log.create({ service: "server" })
 const PTY_CONNECT_PATH = /^\/pty\/[^/]+\/connect$/
 
+// Provider-auth failures the routes already declare as 400 (errors(400)) but that
+// otherwise fall through to a 500 because their NamedError names are not NotFoundError.
+const PROVIDER_AUTH_BAD_REQUEST = new Set([
+  "ProviderAuthValidationFailed",
+  "ProviderAuthOauthMissing",
+  "ProviderAuthOauthCodeMissing",
+  "ProviderAuthOauthCallbackFailed",
+])
+
 export const ErrorMiddleware: ErrorHandler = (err, c) => {
   if (err instanceof NamedError) {
     let status: ContentfulStatusCode
     if (err instanceof NotFoundError) status = 404
     else if (err instanceof Provider.ModelNotFoundError) status = 400
-    else if (err.name === "ProviderAuthValidationFailed") status = 400
+    else if (PROVIDER_AUTH_BAD_REQUEST.has(err.name)) status = 400
     else if (err.name.startsWith("Worktree")) status = 400
     else status = 500
     if (!(err instanceof NotFoundError)) {
@@ -34,7 +43,10 @@ export const ErrorMiddleware: ErrorHandler = (err, c) => {
     error: err,
   })
   if (err instanceof Session.BusyError) {
-    return c.json(new NamedError.Unknown({ message: err.message }).toObject(), { status: 400 })
+    // A busy session is a conflict (the run is still in progress), not a bad
+    // request — surface it as 409 so callers can distinguish retry-later from
+    // a malformed request (which the validators already return as 400).
+    return c.json(new NamedError.Unknown({ message: err.message }).toObject(), { status: 409 })
   }
   if (err instanceof HTTPException) return err.getResponse()
   const message = err instanceof Error && err.stack ? err.stack : err.toString()

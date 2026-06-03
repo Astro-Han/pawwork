@@ -2,6 +2,9 @@ import { describe, expect, test } from "bun:test"
 import { Hono } from "hono"
 import { Log } from "@opencode-ai/core/util/log"
 import { InvalidError, JsonError } from "../../src/config/error"
+import { OauthCallbackFailed, OauthCodeMissing, OauthMissing } from "../../src/provider/auth"
+import type { ProviderID } from "../../src/provider/schema"
+import { Session } from "../../src/session"
 import { ErrorMiddleware } from "../../src/server/middleware"
 import { WorkspaceRouterMiddleware } from "../../src/server/instance/middleware"
 import { InstanceMiddleware } from "../../src/server/routes/instance/middleware"
@@ -195,5 +198,41 @@ describe("server error middleware", () => {
 
     expect(response.status).toBe(500)
     expect(calls).toEqual([{ message: "failed", extra: { error } }])
+  })
+
+  test("maps provider oauth callback failures to 400 instead of 500", async () => {
+    const providerID = "anthropic" as ProviderID
+    const cases = [
+      new OauthMissing({ providerID }),
+      new OauthCodeMissing({ providerID }),
+      new OauthCallbackFailed({}),
+    ]
+
+    for (const error of cases) {
+      const app = new Hono().get("/boom", () => {
+        throw error
+      })
+      app.onError(ErrorMiddleware)
+
+      const response = await app.request("/boom")
+      const body = await response.json()
+
+      expect(response.status).toBe(400)
+      expect(body.name).toBe(error.name)
+    }
+  })
+
+  test("maps a busy session conflict to 409", async () => {
+    const app = new Hono().get("/boom", () => {
+      throw new Session.BusyError("ses_busy")
+    })
+    app.onError(ErrorMiddleware)
+
+    const response = await app.request("/boom")
+    const body = await response.json()
+
+    expect(response.status).toBe(409)
+    expect(body.name).toBe("UnknownError")
+    expect(body.data.message).toContain("busy")
   })
 })

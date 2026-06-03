@@ -234,10 +234,10 @@ describe("buildPawworkSidebarSessionRows", () => {
   })
 
   test("layout sidebar timestamp cache reads do not create child stores", () => {
-    const source = readFileSync(new URL("../layout.tsx", import.meta.url), "utf8")
+    const source = readFileSync(new URL("./pawwork-session-controller.ts", import.meta.url), "utf8")
 
     expect(source).not.toContain("globalSync.child(session.directory, { bootstrap: false, pin: false })")
-    expect(source).toContain("const tuple = globalSync.peekExisting(session.directory)")
+    expect(source).toContain("input.globalSync.peekExisting(session.directory)")
     expect(source).toContain("return tuple?.[0].message[session.id]")
     expect(source).toContain("return tuple?.[0].part[messageID]")
   })

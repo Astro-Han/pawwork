@@ -5,6 +5,8 @@ run-name: windows advisory @ ${{ github.ref_name }} / ${{ github.sha }}
 on:
   push:
     branches: [dev]
+  pull_request:
+    branches: [dev]
   workflow_dispatch:
 
 concurrency:
@@ -17,6 +19,9 @@ permissions:
 jobs:
   changes:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       docs_only: ${{ steps.filter.outputs.docs_only }}
     steps:
@@ -199,6 +204,7 @@ jobs:
               test/ide
               test/installation
               test/auth
+              test/automation
             report_path: packages/opencode/.artifacts/unit/junit-windows-server-tools.xml
           - package: desktop
             uses_turbo: true
@@ -253,19 +259,70 @@ jobs:
 
       - name: unit
         id: unit
+        # Windows-advisory has shown transient flake (sleep-based timing in
+        # opencode session tests and occasional Bun native crashes on
+        # `windows-latest`). Linux `ci` is the load-bearing required gate;
+        # this workflow is advisory and non-blocking. Retry once at the
+        # process level so a single transient failure does not turn the
+        # advisory red, but keep the first-attempt failure visible in the
+        # step summary so persistent regressions are not hidden by retry.
+        # Each attempt runs in a subshell so `cd packages/...` in
+        # matrix.command does not leak between attempts.
         run: |
           set +e
-          ${{ matrix.command }}
-          status=$?
-          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          attempts=2
+          first_status=
+          for attempt in $(seq 1 "$attempts"); do
+            echo "::group::Windows unit attempt $attempt of $attempts"
+            ( ${{ matrix.command }} )
+            status=$?
+            echo "::endgroup::"
 
-          if [ "$status" -ne 0 ]; then
+            if [ "$attempt" -eq 1 ]; then
+              first_status=$status
+            fi
+
+            if [ "$status" -eq 0 ]; then
+              break
+            fi
+
+            if [ "$attempt" -lt "$attempts" ]; then
+              {
+                echo "### Windows unit attempt $attempt failed (retrying)"
+                echo ""
+                echo "- package: ${{ matrix.package }}"
+                echo "- exit code: $status"
+                echo "- next attempt: $((attempt + 1)) of $attempts"
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          echo "first_exit_code=$first_status" >> "$GITHUB_OUTPUT"
+
+          if [ "$status" -eq 0 ] && [ "$first_status" -ne 0 ]; then
+            # ::notice surfaces the recovery in the run-level annotations panel
+            # and in each check's annotation list, not just buried in the
+            # collapsed step summary, so flake rate stays observable.
+            echo "::notice title=Windows unit recovered on retry::package=${{ matrix.package }}; attempt 1 exit code=$first_status; attempt 2 succeeded"
+            {
+              echo "### Windows unit recovered on retry"
+              echo ""
+              echo "- package: ${{ matrix.package }}"
+              echo "- attempt 1 exit code: $first_status"
+              echo "- attempt 2: success"
+            } >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$status" -ne 0 ]; then
+            # ::warning gives the run-level annotation a yellow icon on a red
+            # job — the step is still failing (advisory signal red), but the
+            # annotation makes the post-retry failure scannable at a glance.
+            echo "::warning title=Windows unit failed advisory signal after retry::package=${{ matrix.package }}; final exit code=$status; attempts=$attempts"
             {
               echo "### Windows unit diagnostic"
               echo ""
               echo "- package: ${{ matrix.package }}"
               echo "- exit code: $status"
-              echo "- status: failed advisory signal"
+              echo "- status: failed advisory signal after $attempts attempts"
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 

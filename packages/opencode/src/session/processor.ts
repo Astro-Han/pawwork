@@ -27,7 +27,12 @@ import { InstanceState } from "@/effect/instance-state"
 import { TurnChange } from "./turn-change"
 import { LLMTrace } from "./llm-trace"
 import { RunObservability } from "./run-observability"
-import { currentLifecycleCloseAction, lifecycleCloseActionMeta } from "./lifecycle-provenance"
+import {
+  currentLifecycleCloseAction,
+  isLifecycleClosing,
+  lifecycleCloseActionMeta,
+  whenLifecycleCloseBegins,
+} from "./lifecycle-provenance"
 
 const log = Log.create({ service: "session.processor" })
 const TOOL_CLEANUP_TIMEOUT_MS = 1_000
@@ -98,6 +103,7 @@ type Input = {
   assistantMessage: MessageV2.Assistant
   sessionID: SessionID
   model: Provider.Model
+  safeRecoveryDelay?: (attempt: number) => number
 }
 
 export interface Interface {
@@ -1231,19 +1237,34 @@ export const layer: Layer.Layer<
 
         const retryStillAllowed = Effect.fn("SessionProcessor.retryStillAllowed")(function* (stage: string) {
           const lifecycleAction = currentLifecycleCloseAction(ctx.directory)
-          if (!lifecycleAction) return { allowed: true as const }
-          ctx.runTrace.recordScopeClosed({
-            at: Date.now(),
-            monotonicMs: performance.now(),
-            source: `session.processor.safe_recovery.${stage}`,
-            reason: "lifecycle_close_before_auto_retry",
-            propagationPoint: "session.processor.safe_recovery",
-            ...lifecycleCloseActionMeta(lifecycleAction),
-          })
-          return {
-            allowed: false as const,
-            interruptionMessage: LOCAL_LIFECYCLE_CLOSE_INTERRUPTION_MESSAGE,
+          if (lifecycleAction) {
+            ctx.runTrace.recordScopeClosed({
+              at: Date.now(),
+              monotonicMs: performance.now(),
+              source: `session.processor.safe_recovery.${stage}`,
+              reason: "lifecycle_close_before_auto_retry",
+              propagationPoint: "session.processor.safe_recovery",
+              ...lifecycleCloseActionMeta(lifecycleAction),
+            })
+            return {
+              allowed: false as const,
+              interruptionMessage: LOCAL_LIFECYCLE_CLOSE_INTERRUPTION_MESSAGE,
+            }
           }
+          if (isLifecycleClosing(ctx.directory)) {
+            ctx.runTrace.recordScopeClosed({
+              at: Date.now(),
+              monotonicMs: performance.now(),
+              source: `session.processor.safe_recovery.${stage}`,
+              reason: "maintenance_lifecycle_close_pending",
+              propagationPoint: "session.processor.safe_recovery",
+            })
+            return {
+              allowed: false as const,
+              interruptionMessage: LOCAL_LIFECYCLE_CLOSE_INTERRUPTION_MESSAGE,
+            }
+          }
+          return { allowed: true as const }
         })
 
         const retrySignalFor = (error: unknown) => {
@@ -1311,6 +1332,7 @@ export const layer: Layer.Layer<
                 presentation: info.presentation,
                 reason: info.reason,
               }),
+            delay: input.safeRecoveryDelay,
           }),
         )
 
@@ -1428,13 +1450,32 @@ export const layer: Layer.Layer<
               if (beforeRetry.allowed) {
                 automaticStreamRetriesUsed += 1
                 yield* removeReasoningForAttempt(attemptID)
-                const safeRecoveryScheduled = yield* safeRecoveryStep(undefined).pipe(
-                  Effect.as(true),
-                  Effect.catchCause(() => Effect.succeed(false)),
+                const lifecycleCloseWatch = Effect.callback<"lifecycle_close">((resume) => {
+                  const handle = whenLifecycleCloseBegins(ctx.directory)
+                  handle.promise.then(() => resume(Effect.succeed("lifecycle_close" as const)))
+                  return Effect.sync(() => handle.cancel())
+                })
+                const backoffResult = yield* Effect.race(
+                  safeRecoveryStep(undefined).pipe(Effect.as("scheduled" as const)),
+                  lifecycleCloseWatch,
+                ).pipe(
                   Effect.onInterrupt(() => recordProcessInterrupt(attemptID)),
+                  Effect.catchCause((cause) =>
+                    Cause.hasInterruptsOnly(cause)
+                      ? Effect.interrupt
+                      : Effect.succeed("exhausted" as const),
+                  ),
                 )
-                if (!safeRecoveryScheduled) {
+                if (backoffResult === "exhausted") {
                   yield* writeSafeRetryFailedNotice(attemptID)
+                  break
+                }
+                if (backoffResult === "lifecycle_close") {
+                  const closeCheck = yield* retryStillAllowed("during_backoff")
+                  yield* halt(result.error, attemptID, {
+                    recordFailure: false,
+                    interruptionMessage: closeCheck.allowed ? LOCAL_LIFECYCLE_CLOSE_INTERRUPTION_MESSAGE : closeCheck.interruptionMessage,
+                  })
                   break
                 }
                 const afterRetry = yield* retryStillAllowed("after_backoff")

@@ -950,6 +950,19 @@ export const ConfigProvidersResult = Schema.Struct({
 export type ConfigProvidersResult = Types.DeepMutable<Schema.Schema.Type<typeof ConfigProvidersResult>>
 export type Language = LanguageModelV3
 
+// JSON-safe deep clone for handing provider Info to plugin hooks, so a plugin
+// mutating its argument cannot corrupt internal provider state. Drops functions,
+// symbols and undefined; stringifies bigint. Info is plain-data, so it round-trips.
+export function toPublicInfo(provider: Info): Info {
+  return JSON.parse(
+    JSON.stringify(provider, (_, value) => {
+      if (typeof value === "function" || typeof value === "symbol" || value === undefined) return undefined
+      if (typeof value === "bigint") return value.toString()
+      return value
+    }),
+  )
+}
+
 export function defaultModelID<T extends { id?: string; models: Record<string, { id: string }> }>(
   provider: T,
   fallbackID?: string,
@@ -1195,7 +1208,7 @@ const layer: Layer.Layer<
             }
 
             provider.models = yield* Effect.promise(async () => {
-              const next = await models(provider, { auth: pluginAuth })
+              const next = await models(toPublicInfo(provider), { auth: pluginAuth })
               return Object.fromEntries(
                 Object.entries(next).map(([id, model]) => [
                   id,
@@ -1352,10 +1365,11 @@ const layer: Layer.Layer<
           if (!stored) continue
           if (!plugin.auth.loader) continue
 
+          const authProvider = database[plugin.auth!.provider]
           const options = yield* Effect.promise(() =>
             plugin.auth!.loader!(
               () => bridge.promise(auth.get(providerID).pipe(Effect.orDie)) as any,
-              database[plugin.auth!.provider],
+              authProvider ? toPublicInfo(authProvider) : authProvider,
             ),
           )
           const opts = options ?? {}
@@ -1708,7 +1722,14 @@ const layer: Layer.Layer<
 
       if (cfg.small_model) {
         const parsed = parseModel(cfg.small_model)
-        return yield* getModel(parsed.providerID, parsed.modelID)
+        // getModel throws ModelNotFoundError as a defect (Effect.fn), so an invalid
+        // small_model would crash title/summary gen. Swallow only that defect and fall
+        // back to undefined; re-die anything else.
+        return yield* getModel(parsed.providerID, parsed.modelID).pipe(
+          Effect.catchDefect((defect) =>
+            ModelNotFoundError.isInstance(defect) ? Effect.succeed(undefined) : Effect.die(defect),
+          ),
+        )
       }
 
       const s = yield* currentState()

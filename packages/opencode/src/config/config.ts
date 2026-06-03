@@ -1059,7 +1059,11 @@ const rawLayer = Layer.effect(
         }
 
         if (Flag.OPENCODE_PERMISSION) {
-          result.permission = mergeDeep(result.permission ?? {}, JSON.parse(Flag.OPENCODE_PERMISSION))
+          try {
+            result.permission = mergeDeep(result.permission ?? {}, JSON.parse(Flag.OPENCODE_PERMISSION))
+          } catch (err) {
+            log.warn("OPENCODE_PERMISSION contains invalid JSON, skipping", { err })
+          }
         }
 
         if (result.tools) {
@@ -1075,7 +1079,14 @@ const rawLayer = Layer.effect(
           result.permission = mergeDeep(perms, result.permission ?? {})
         }
 
-        if (!result.username) result.username = os.userInfo().username
+        if (!result.username) {
+          try {
+            result.username = os.userInfo().username || "user"
+          } catch (err) {
+            log.warn("failed to read system username, using fallback", { err })
+            result.username = "user"
+          }
+        }
 
         if (result.autoshare === true && !result.share) {
           result.share = "auto"

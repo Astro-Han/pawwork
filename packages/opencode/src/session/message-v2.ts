@@ -6,9 +6,10 @@ import { APICallError, convertToModelMessages, LoadAPIKeyError, type ModelMessag
 import { LSP } from "../lsp"
 import { Snapshot } from "@/snapshot"
 import { SyncEvent } from "../sync"
-import { Database, NotFoundError, and, desc, eq, inArray, lt, or } from "@/storage/db"
+import { Database, NotFoundError, and, desc, eq, inArray, lt, or, sql } from "@/storage/db"
 import { MessageTable, PartTable, SessionTable } from "./session.sql"
 import { ProviderError } from "@/provider"
+import { ProviderFailureKind } from "@/provider/error"
 import { iife } from "@/util/iife"
 import { errorMessage } from "@/util/error"
 import { formatToolFailureForModel } from "./tool-failure"
@@ -162,6 +163,15 @@ export const APIError = NamedError.create(
     // Optional for backwards compat with historical JSON; classifyRetry guards on
     // providerID === ProviderID.opencode and falls to `unknown` when absent.
     providerID: z.string().optional(),
+    // Canonical provider-failure classification, computed once at fromError time.
+    // Optional for back-compat with rows persisted before this field existed;
+    // consumers fall back to message sniffing when it is absent.
+    providerFailure: z
+      .object({
+        kind: ProviderFailureKind,
+        code: z.string().optional(),
+      })
+      .optional(),
   }),
 )
 export type APIError = z.infer<typeof APIError.Schema>
@@ -1170,6 +1180,52 @@ export function* stream(sessionID: SessionID) {
   }
 }
 
+// Lightweight activation source: just the tool_info parts of a session, read straight
+// from storage without hydrating the full message history. Deferred-tool activation must
+// be derived from the COMPLETE durable history — a tool_info call older than the
+// compaction tail still counts — but it only needs these few parts, so this avoids an
+// Array.from(stream(...)) full message+parts hydration every loop. Reverted parts are
+// physically deleted (revert.cleanup, before the loop) and forks use a fresh session id,
+// so a by-session-id query sees exactly the clean active history, the same as stream().
+export function toolInfoParts(sessionID: SessionID): Part[] {
+  const rows = Database.use((db) =>
+    db
+      .select()
+      .from(PartTable)
+      .where(and(eq(PartTable.session_id, sessionID), sql`json_extract(${PartTable.data}, '$.tool') = 'tool_info'`))
+      .orderBy(PartTable.id)
+      .all(),
+  )
+  return rows.map(part)
+}
+
+// Newest non-summary assistant message of a session, read durably from storage (spans
+// compaction). The activation reminder is one-shot "the step right after a tool_info
+// activation"; that holds iff the newest REAL assistant turn (compaction summaries
+// excluded) ran tool_info. Reading from storage — not the compaction-filtered view —
+// means a summary inserted between the activation and the next step can't hide the
+// activating turn from the reminder (filterCompacted would drop or reorder it).
+export function lastNonSummaryAssistant(sessionID: SessionID): WithParts | undefined {
+  const row = Database.use((db) =>
+    db
+      .select()
+      .from(MessageTable)
+      .where(
+        and(
+          eq(MessageTable.session_id, sessionID),
+          sql`json_extract(${MessageTable.data}, '$.role') = 'assistant'`,
+          sql`(json_extract(${MessageTable.data}, '$.summary') is null or json_extract(${MessageTable.data}, '$.summary') != 1)`,
+        ),
+      )
+      .orderBy(desc(MessageTable.time_created), desc(MessageTable.id))
+      .limit(1)
+      .get(),
+  )
+  if (!row) return undefined
+  const messageParts = parts(row.id)
+  return { info: backfillCumulative(info(row), messageParts), parts: messageParts }
+}
+
 export function parts(message_id: MessageID) {
   const rows = Database.use((db) =>
     db.select().from(PartTable).where(eq(PartTable.message_id, message_id)).orderBy(PartTable.id).all(),
@@ -1290,6 +1346,7 @@ export function fromError(
             code: transport.code,
             message: (e as Error).message || "",
           },
+          providerFailure: { kind: "transport_disconnect", code: transport.code },
         },
         { cause: e },
       ).toObject()
@@ -1306,6 +1363,7 @@ export function fromError(
             code: (e as FetchDecompressionError).code,
             message: e.message,
           },
+          providerFailure: { kind: "decompression", code: (e as FetchDecompressionError).code },
         },
         { cause: e },
       ).toObject()
@@ -1333,12 +1391,15 @@ export function fromError(
           responseBody: parsed.responseBody,
           metadata: parsed.metadata,
           providerID: ctx.providerID,
+          providerFailure: parsed.kind ? { kind: parsed.kind, code: parsed.code } : undefined,
         },
         { cause: e },
       ).toObject()
-    case e instanceof Error:
-      return new NamedError.Unknown({ message: errorMessage(e) }, { cause: e }).toObject()
     default:
+      // A provider error can arrive raw or wrapped in an Error (the stream
+      // "error" part throws value.error; the iterator-throw mapper hands back a
+      // value). Run the stream parser for both before falling back to Unknown so
+      // Error-wrapped payloads still classify instead of being swallowed.
       try {
         const parsed = ProviderError.parseStreamError(e)
         if (parsed) {
@@ -1357,6 +1418,7 @@ export function fromError(
               isRetryable: parsed.isRetryable,
               responseBody: parsed.responseBody,
               providerID: ctx.providerID,
+              providerFailure: parsed.kind ? { kind: parsed.kind, code: parsed.code } : undefined,
             },
             {
               cause: e,
@@ -1364,7 +1426,10 @@ export function fromError(
           ).toObject()
         }
       } catch {}
-      return new NamedError.Unknown({ message: JSON.stringify(e) }, { cause: e }).toObject()
+      return new NamedError.Unknown(
+        { message: e instanceof Error ? errorMessage(e) : JSON.stringify(e) },
+        { cause: e },
+      ).toObject()
   }
 }
 

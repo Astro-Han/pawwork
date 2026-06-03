@@ -1,3 +1,13 @@
+import {
+  commandHead,
+  commandSegments as rawCommandSegments,
+  hasMutatingOfficeCliBatchCommand,
+  hasOfficeCliBatchDynamicInput,
+  isOfficeCli,
+  isOfficeCliWriteCommand,
+  tokenWords,
+} from "./shell-office-artifacts"
+
 const writeCommands = new Set([
   "apply_patch",
   "chmod",
@@ -26,34 +36,7 @@ function withoutQuotedText(command: string) {
 }
 
 function commandSegments(command: string) {
-  return command
-    .split(/&&|\|\||[;|]/)
-    .map((part) =>
-      part
-        .trim()
-        .split(/\s+/)
-        .filter(Boolean)
-        .map((word) => word.toLowerCase()),
-    )
-    .filter((words) => words.length > 0)
-}
-
-function commandHead(words: string[]) {
-  let index = 0
-  while (true) {
-    const word = words[index]
-    if (!word) break
-    if (word.includes("=") && !word.startsWith("-") && !word.startsWith("=")) {
-      index++
-      continue
-    }
-    if (["command", "sudo", "env"].includes(word)) {
-      index++
-      continue
-    }
-    break
-  }
-  return { head: words[index], next: words[index + 1], rest: words.slice(index + 1) }
+  return tokenWords(command)
 }
 
 export function isLikelyWriteCommand(command: string) {
@@ -66,9 +49,21 @@ export function isLikelyWriteCommand(command: string) {
   if (powershellWriteCommands.test(stripped)) return true
   if (/(^|\s)(?:&>>?|\d*>\||\d*<>|(?<!<)\d*>>?)\s*[^&\s]/.test(stripped)) return true
 
-  for (const words of commandSegments(stripped)) {
+  const rawSegments = rawCommandSegments(command)
+  const strippedSegments = commandSegments(stripped)
+  for (let index = 0; index < strippedSegments.length; index++) {
+    const words = strippedSegments[index]
     const { head, next, rest } = commandHead(words)
     if (!head) continue
+    const rawSegment = rawSegments[index]
+    if (
+      isOfficeCli(head) &&
+      next === "batch" &&
+      rawSegment &&
+      (hasMutatingOfficeCliBatchCommand(rawSegment.text) || hasOfficeCliBatchDynamicInput(rawSegment))
+    )
+      return true
+    if (isOfficeCli(head) && isOfficeCliWriteCommand(next)) return true
     if (writeCommands.has(head)) return true
     if (head === "sed" && rest.slice(0, 3).some((item) => item === "-i" || item.startsWith("-i"))) return true
     if (head === "perl" && rest.slice(0, 3).some((item) => item.includes("i"))) return true
