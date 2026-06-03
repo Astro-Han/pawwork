@@ -1938,8 +1938,10 @@ describe("session.message-v2.fromError", () => {
 
   test("classifies APICallError status codes into providerFailure kinds", () => {
     const cases = [
+      { statusCode: 400, kind: "invalid_request" },
       { statusCode: 401, kind: "auth" },
       { statusCode: 403, kind: "auth" },
+      { statusCode: 422, kind: "invalid_request" },
       { statusCode: 429, kind: "rate_limit" },
       { statusCode: 503, kind: "server_overload" },
     ] as const

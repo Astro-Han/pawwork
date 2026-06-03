@@ -28,6 +28,10 @@ function apiCallErrorKind(statusCode: number | undefined, code: string | undefin
   if (code === "server_error" || code === "server_is_overloaded") return "server_overload"
   if (statusCode === 401 || statusCode === 403) return "auth"
   if (statusCode === 429) return "rate_limit"
+  // 400/422 are client-side request rejections. Overflow 4xx is already routed
+  // to context_overflow before this runs, so what reaches here is a genuine
+  // invalid request rather than an over-long prompt.
+  if (statusCode === 400 || statusCode === 422) return "invalid_request"
   if (statusCode !== undefined && statusCode >= 500) return "server_overload"
   return "unknown"
 }
