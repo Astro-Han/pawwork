@@ -26,4 +26,12 @@ describe("CLI run finalizeRun (#26955/#27371: drain + exit code)", () => {
     const neverDrains = new Promise<string | undefined>(() => {})
     expect(await finalizeRun(neverDrains, { error: { name: "NotFoundError" } })).toBe(1)
   })
+
+  test("a successful request whose drain misses the idle event is bounded (no hang)", async () => {
+    // A live stream (e.g. a dropped/reconnected --attach SSE) can miss the idle
+    // event so the drain never resolves even though the turn finished. The
+    // bounded fallback must resolve as a clean run instead of awaiting forever.
+    const neverDrains = new Promise<string | undefined>(() => {})
+    expect(await finalizeRun(neverDrains, {}, 30)).toBeUndefined()
+  })
 })

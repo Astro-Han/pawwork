@@ -6,6 +6,7 @@ import { cmd } from "./cmd"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { bootstrap } from "../bootstrap"
 import { EOL } from "os"
+import { setTimeout as delay } from "node:timers/promises"
 import { Filesystem } from "../../util/filesystem"
 import { createOpencodeClient, type OpencodeClient, type ToolPart } from "@opencode-ai/sdk/v2"
 import { Server } from "../../server/server"
@@ -72,19 +73,28 @@ function formatRunError(error: unknown) {
   return FormatError(error) ?? FormatUnknownError(error)
 }
 
+// Idle arrives right after the turn completes, so this only trips on a broken
+// stream (e.g. a dropped/reconnected --attach SSE that missed the idle event),
+// where any lost events are unrecoverable regardless of how long we wait.
+const DRAIN_FALLBACK_MS = 10_000
+
 // Decide the exit code for a non-interactive `run` after the prompt/command
 // request resolves. A shaped SDK error (`result.error`) means the request was
 // rejected before a turn ran, so no `session.status: idle` event will arrive
 // and awaiting `drained` would hang forever (see #27371) — fail fast instead.
 // Otherwise a turn ran: wait for the event stream to finish draining trailing
 // JSON/text and the idle event (so output is not lost when the instance is torn
-// down, see #26955), then fail if it accumulated a session error.
+// down, see #26955), then fail if it accumulated a session error. The drain is
+// bounded so a missed idle event on a live stream can't hang an otherwise
+// finished run; a fallback timeout resolves as a clean (exit-zero) run, same as
+// a drain that yielded no error.
 export async function finalizeRun(
   drained: Promise<string | undefined>,
   result: { error?: unknown },
+  drainFallbackMs = DRAIN_FALLBACK_MS,
 ): Promise<1 | undefined> {
   if (result.error) return 1
-  const sessionError = await drained
+  const sessionError = await Promise.race([drained, delay(drainFallbackMs, undefined, { ref: false })])
   return sessionError ? 1 : undefined
 }
 
