@@ -34,6 +34,13 @@ import type { PromptStore } from "./store-types"
 
 const NON_EMPTY_TEXT = /[^\s\u200B]/
 
+// Position-independent slash trigger. Group 1 is the consuming boundary (start,
+// whitespace, or a CJK script char) so the picker opens mid-sentence; group 2 is
+// the query. The boundary set deliberately excludes ASCII word chars and `.`/`:`,
+// and the query class stops at `/ \ :`, so paths/URLs/fractions (foo/bar, http://,
+// 2/3) never trigger. `slashOffset = match.index + match[1].length`.
+const SLASH_TRIGGER = /(^|[\s\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}])\/([^\s\/\\:]*)$/u
+
 export interface EditorInputDeps {
   store: PromptStore
   setStore: SetStoreFunction<PromptStore>
@@ -282,14 +289,16 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
     const shellMode = store.mode === "shell"
 
     if (!shellMode) {
-      const atMatch = rawText.substring(0, cursorPosition).match(/@(\S*)$/)
-      const slashMatch = rawText.match(/^\/(\S*)$/)
+      const beforeCursor = rawText.substring(0, cursorPosition)
+      const atMatch = beforeCursor.match(/@(\S*)$/)
+      const slashMatch = beforeCursor.match(SLASH_TRIGGER)
 
       if (atMatch) {
         popovers().atOnInput(atMatch[1])
         setStore("popover", "at")
       } else if (slashMatch) {
-        popovers().slashOnInput(slashMatch[1])
+        const slashOffset = (slashMatch.index ?? 0) + slashMatch[1].length
+        popovers().slashOnInput(slashMatch[2] ?? "", slashOffset > 0)
         setStore("popover", "slash")
       } else {
         closePopover()

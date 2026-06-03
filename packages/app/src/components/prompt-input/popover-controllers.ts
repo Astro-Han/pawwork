@@ -2,7 +2,7 @@
 // instances, their select handlers, popover auto-scroll, and the
 // promptProbe testing hook (gated behind promptEnabled()).
 
-import { createEffect, createMemo, onCleanup, type Accessor, type Setter } from "solid-js"
+import { createEffect, createMemo, createSignal, onCleanup, type Accessor, type Setter } from "solid-js"
 import type { SetStoreFunction } from "solid-js/store"
 import { useFilteredList } from "@opencode-ai/ui/hooks"
 import { type ContentPart, type ImageAttachmentPart, type Prompt, type usePrompt } from "@/context/prompt"
@@ -50,7 +50,7 @@ export interface PopoverControllers {
   slashFlat: Accessor<SlashCommand[]>
   slashActive: Accessor<string | null>
   setSlashActive: Setter<string | null>
-  slashOnInput: (query: string) => void
+  slashOnInput: (query: string, triggeredMidText?: boolean) => void
   slashOnKeyDown: (event: KeyboardEvent) => void
   handleSlashSelect: (cmd: SlashCommand | undefined) => void
   selectPopoverActive: () => void
@@ -102,28 +102,43 @@ export function createPopoverControllers(deps: PopoverControllersDeps): PopoverC
     onSelect: handleAtSelect,
   })
 
-  const slashCommands = createMemo<SlashCommand[]>(() => {
-    const builtin = command.options
-      .filter((opt) => !opt.disabled && !opt.id.startsWith("suggested.") && opt.slash)
-      .map((opt) => ({
-        id: opt.id,
-        trigger: opt.slash!,
-        title: opt.title,
-        description: opt.description,
-        keybind: opt.keybind,
-        type: "builtin" as const,
-      }))
+  // Mid-text "/" triggers (picker opened anywhere but the start of an empty
+  // composer) restrict the list to inline-eligible entries: skills + simple
+  // custom commands. Action builtins (/clear, /new, ...) and arg/agent-heavy
+  // commands stay on the leading `/name args` path and only show at-start.
+  const [slashMidText, setSlashMidText] = createSignal(false)
 
-    const custom = sync.data.command.map((cmd) => ({
-      // Source is part of the id so workspace + user configs that share a
-      // command name don't collapse into one entry under useFilteredList.
-      id: `custom.${cmd.source}.${cmd.name}`,
-      trigger: cmd.name,
-      title: cmd.name,
-      description: cmd.description,
-      type: "custom" as const,
-      source: cmd.source,
-    }))
+  const slashCommands = createMemo<SlashCommand[]>(() => {
+    const midText = slashMidText()
+
+    const builtin = midText
+      ? []
+      : command.options
+          .filter((opt) => !opt.disabled && !opt.id.startsWith("suggested.") && opt.slash)
+          .map((opt) => ({
+            id: opt.id,
+            trigger: opt.slash!,
+            title: opt.title,
+            description: opt.description,
+            keybind: opt.keybind,
+            type: "builtin" as const,
+          }))
+
+    const custom = sync.data.command
+      .map((cmd) => ({
+        // Source is part of the id so workspace + user configs that share a
+        // command name don't collapse into one entry under useFilteredList.
+        id: `custom.${cmd.source}.${cmd.name}`,
+        trigger: cmd.name,
+        title: cmd.name,
+        description: cmd.description,
+        type: "custom" as const,
+        source: cmd.source,
+        // Inline-eligible when it carries no agent/model/subtask override and no
+        // required hints. Skills always satisfy this (the merge sets none).
+        simple: !cmd.agent && !cmd.model && !cmd.subtask && cmd.hints.length === 0,
+      }))
+      .filter((cmd) => !midText || cmd.simple)
 
     return [...custom, ...builtin]
   })
@@ -165,6 +180,13 @@ export function createPopoverControllers(deps: PopoverControllersDeps): PopoverC
     filterKeys: ["trigger", "title"],
     onSelect: handleSlashSelect,
   })
+
+  // Record whether the trigger fired mid-text before applying the query, so the
+  // slashCommands memo can narrow the candidate list in the same reactive pass.
+  const slashOnInput = (query: string, triggeredMidText = false) => {
+    setSlashMidText(triggeredMidText)
+    slash.onInput(query)
+  }
 
   // Auto-scroll active command into view when navigating with keyboard
   createEffect(() => {
@@ -224,7 +246,7 @@ export function createPopoverControllers(deps: PopoverControllersDeps): PopoverC
     slashFlat: slash.flat,
     slashActive: slash.active,
     setSlashActive: slash.setActive,
-    slashOnInput: slash.onInput,
+    slashOnInput,
     slashOnKeyDown: slash.onKeyDown,
     handleSlashSelect,
     selectPopoverActive,
