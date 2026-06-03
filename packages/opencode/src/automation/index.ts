@@ -1208,7 +1208,6 @@ export namespace Automation {
   }
 
   export const publishDefinitionUpdated = (definition: Definition) => Bus.publish(Event.DefinitionUpdated, definition)
-  export const publishDefinitionDeleted = (tombstone: Tombstone) => Bus.publish(Event.DefinitionDeleted, tombstone)
   export const publishRunUpdated = (run: Run) => Bus.publish(Event.RunUpdated, run)
 
   export interface Interface {
@@ -1278,7 +1277,7 @@ export namespace Automation {
         runNowExecuting: (id, options) => Effect.promise(() => runNowExecuting(id, options)),
         runs: (input) => Effect.sync(() => runs(input)),
         publishDefinitionUpdated: (definition) => Effect.promise(() => publishDefinitionUpdated(definition)),
-        publishDefinitionDeleted: (tombstone) => Effect.promise(() => publishDefinitionDeleted(tombstone)),
+        publishDefinitionDeleted: (tombstone) => Effect.promise(() => Bus.publish(Event.DefinitionDeleted, tombstone)),
         publishRunUpdated: (run) => Effect.promise(() => publishRunUpdated(run)),
         activeState: () => InstanceState.get(activeStateHandle),
       })

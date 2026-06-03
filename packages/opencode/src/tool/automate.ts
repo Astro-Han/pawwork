@@ -84,6 +84,7 @@ function sessionModel(sessionID: SessionID) {
 
 export function createAutomateDefinition(
   provider: Provider.Interface,
+  automation: Automation.Interface,
 ): Tool.DefWithoutID<typeof AutomateParameters, { automationDefinition: Automation.Definition }> {
   return {
     description:
@@ -116,7 +117,7 @@ export function createAutomateDefinition(
         // a stale instant that a crossed cron boundary turns into an already-due
         // time.
         const now = Date.now()
-        const definition = yield* Effect.try({
+        const parsed = yield* Effect.try({
           try: () => {
             const common = {
               title: params.title,
@@ -144,15 +145,18 @@ export function createAutomateDefinition(
                     rhythm: { kind: "cron" as const, expression: params.cron },
                     stop: { kind: "never" as const },
                   }
-            const parsed = Automation.CreateInput.parse(createInput)
+            const validated = Automation.CreateInput.parse(createInput)
             AutomationScheduler.current()
-            // sourceSessionID always comes from ctx, never from input, so a
-            // model cannot spoof it; automationSessionID is not on the surface.
-            return Automation.create(parsed, { now, sourceSessionID: ctx.sessionID })
+            return validated
           },
           catch: readableAutomationError,
         })
-        yield* Effect.promise(() => Automation.publishDefinitionUpdated(definition))
+        // sourceSessionID always comes from ctx, never from input, so a model
+        // cannot spoof it; automationSessionID is not on the surface.
+        const definition = yield* automation
+          .create(parsed, { now, sourceSessionID: ctx.sessionID })
+          .pipe(Effect.mapError(readableAutomationError))
+        yield* automation.publishDefinitionUpdated(definition)
         return {
           title: "Automation created",
           metadata: { automationDefinition: definition },
@@ -166,6 +170,7 @@ export const AutomateTool = Tool.define(
   "automate",
   Effect.gen(function* () {
     const provider = yield* Provider.Service
-    return createAutomateDefinition(provider)
+    const automation = yield* Automation.Service
+    return createAutomateDefinition(provider, automation)
   }),
 )

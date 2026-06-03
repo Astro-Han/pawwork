@@ -32,6 +32,7 @@ import { ApplyPatchTool } from "./apply_patch"
 import { EnterWorktreeTool } from "./enter-worktree"
 import { ExitWorktreeTool } from "./exit-worktree"
 import { AutomateTool } from "./automate"
+import { Automation } from "@/automation"
 import { Permission } from "../permission"
 import { Glob } from "../util/glob"
 import path from "path"
@@ -111,6 +112,7 @@ export namespace ToolRegistry {
     | Ripgrep.Service
     | Format.Service
     | Truncate.Service
+    | Automation.Service
   > = Layer.effect(
     Service,
     Effect.gen(function* () {
@@ -430,6 +432,7 @@ export namespace ToolRegistry {
       Layer.provide(CrossSpawnSpawner.defaultLayer),
       Layer.provide(Ripgrep.defaultLayer),
       Layer.provide(Truncate.defaultLayer),
+      Layer.provide(Automation.defaultLayer),
     ),
   )
 
