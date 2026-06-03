@@ -1,5 +1,6 @@
 export * as ConfigCommand from "./command"
 
+import path from "path"
 import { Log } from "../util"
 import { Schema } from "effect"
 import { NamedError } from "@opencode-ai/util/error"
@@ -56,8 +57,7 @@ export async function load(dir: string) {
     })
     if (!md) continue
 
-    const patterns = ["/.opencode/command/", "/.opencode/commands/", "/command/", "/commands/"]
-    const name = configEntryNameFromPath(item, patterns)
+    const name = configEntryNameFromPath(path.relative(dir, item), ["command/", "commands/"])
 
     const config = {
       ...md.data,

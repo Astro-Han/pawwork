@@ -1,5 +1,6 @@
 export * as ConfigAgent from "./agent"
 
+import path from "path"
 import { Schema } from "effect"
 import z from "zod"
 import { Bus } from "@/bus"
@@ -142,8 +143,7 @@ export async function load(dir: string) {
     })
     if (!md) continue
 
-    const patterns = ["/.opencode/agent/", "/.opencode/agents/", "/agent/", "/agents/"]
-    const name = configEntryNameFromPath(item, patterns)
+    const name = configEntryNameFromPath(path.relative(dir, item), ["agent/", "agents/"])
 
     const config = {
       ...md.data,
@@ -182,7 +182,7 @@ export async function loadMode(dir: string) {
 
     const config = {
       ...md.data,
-      name: configEntryNameFromPath(item, []),
+      name: configEntryNameFromPath(path.relative(dir, item), ["mode/", "modes/"]),
       prompt: md.content.trim(),
     }
     const parsed = Info.safeParse(config)
