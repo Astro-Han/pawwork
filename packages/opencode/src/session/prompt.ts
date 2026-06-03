@@ -16,6 +16,7 @@ import type { JSONSchema7 } from "@ai-sdk/provider"
 import { SessionCompaction } from "./compaction"
 import { Bus } from "../bus"
 import { ProviderTransform } from "../provider/transform"
+import { buildActivationReminder, deriveActivatedToolsFromParts, deriveNewlyActivated } from "../tool/tool-info"
 import { SystemPrompt } from "./system"
 import { Instruction } from "./instruction"
 import { Plugin } from "../plugin"
@@ -714,12 +715,20 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       )
       const lastUserLocale = lastUserMessage?.info.locale
 
+      // Deferred-tool activation is derived from the session's tool_info parts read
+      // directly from storage (NOT the compaction-filtered `messages`), so an activation
+      // older than the retained tail still counts without hydrating the full history.
+      const activatedTools = deriveActivatedToolsFromParts(MessageV2.toolInfoParts(input.session.id))
+      const deferredRuleset = Permission.merge(input.agent.permission, input.session.permission ?? [])
+      const deferredAvailable = (id: string) =>
+        input.tools?.[id] !== false && !Permission.disabled([id], deferredRuleset).has(id)
+
       const context = (args: any, options: ToolExecutionOptions): Tool.Context => ({
         sessionID: input.session.id,
         abort: options.abortSignal!,
         messageID: input.processor.message.id,
         callID: options.toolCallId,
-        extra: { model: input.model, bypassAgentCheck: input.bypassAgentCheck, promptOps },
+        extra: { model: input.model, bypassAgentCheck: input.bypassAgentCheck, promptOps, deferredAvailable },
         agent: input.agent.name,
         messages: input.messages,
         metadata: (val) =>
@@ -839,6 +848,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         modelID: ModelID.make(input.model.api.id),
         providerID: input.model.providerID,
         agent: input.agent,
+        activatedTools,
+        deferredAvailable,
       })) {
         const schema = ProviderTransform.schema(input.model, EffectZod.toJsonSchema(item.parameters))
         const aiTool = tool({
@@ -2096,6 +2107,26 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             concurrency: "unbounded",
             discard: true,
           })
+
+          // Tool description self-claims of "now available" don't move small models;
+          // a <system-reminder> in the user message of the very next step does. Source the
+          // just-activated ids from the durable newest non-summary assistant (not the
+          // compaction-filtered msgs) so a compaction landing right after the tool_info
+          // call can't drop the activating turn and swallow the one-shot reminder.
+          const newlyActivated = deriveNewlyActivated(MessageV2.lastNonSummaryAssistant(sessionID))
+          if (newlyActivated.size > 0) {
+            const userMessage = msgs.findLast((msg) => msg.info.role === "user" && msg.info.id === lastUser.id)
+            for (const name of newlyActivated) {
+              userMessage?.parts.push({
+                id: PartID.ascending(),
+                messageID: lastUser.id,
+                sessionID,
+                type: "text",
+                text: buildActivationReminder(name),
+                synthetic: true,
+              })
+            }
+          }
 
           const execLive = (yield* sessions.get(sessionID)).executionContext
           const msg: MessageV2.Assistant = {

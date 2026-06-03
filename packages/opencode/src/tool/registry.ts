@@ -14,6 +14,7 @@ import { WebFetchTool } from "./webfetch"
 import { WriteTool } from "./write"
 import { InvalidTool } from "./invalid"
 import { SkillTool } from "./skill"
+import { DEFERRED_TOOL_IDS, TOOL_INFO_ID, ToolInfoTool, buildCardList } from "./tool-info"
 import * as Tool from "./tool"
 import { Config } from "../config/config"
 import { type ToolContext as PluginToolContext, type ToolDefinition } from "@opencode-ai/plugin"
@@ -83,6 +84,8 @@ export namespace ToolRegistry {
       providerID: ProviderID
       modelID: ModelID
       agent: Agent.Info
+      activatedTools?: ReadonlySet<string>
+      deferredAvailable?: (id: string) => boolean
     }) => Effect.Effect<Tool.Def[]>
     readonly invalidate: () => Effect.Effect<void>
   }
@@ -144,6 +147,10 @@ export namespace ToolRegistry {
       const enterWorktree = yield* EnterWorktreeTool
       const exitWorktree = yield* ExitWorktreeTool
       const automate = yield* AutomateTool
+
+      const toolInfoInfo = yield* ToolInfoTool((toolID, output) =>
+        plugin.trigger("tool.definition", { toolID }, output),
+      )
 
       const state = yield* InstanceState.make<State>(
         Effect.fn("ToolRegistry.state")(function* (ctx) {
@@ -280,6 +287,7 @@ export namespace ToolRegistry {
             enterWorktree: Tool.init(enterWorktree),
             exitWorktree: Tool.init(exitWorktree),
             automate: Tool.init(automate),
+            toolInfo: Tool.init(toolInfoInfo),
           })
 
           return {
@@ -300,6 +308,7 @@ export namespace ToolRegistry {
               tool.todo,
               ...(webSearchEnabled ? [tool.search] : []),
               tool.skill,
+              tool.toolInfo,
               tool.patch,
               ...(lspEnabled ? [tool.lsp] : []),
               ...(Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE && Flag.OPENCODE_CLIENT === "cli" ? [tool.plan] : []),
@@ -368,8 +377,17 @@ export namespace ToolRegistry {
           if (tool.id === ApplyPatchTool.id) return usePatch
           if (tool.id === EditTool.id || tool.id === WriteTool.id) return !usePatch
 
+          if (DEFERRED_TOOL_IDS.has(tool.id)) {
+            const available = input.deferredAvailable?.(tool.id) ?? true
+            return available && (input.activatedTools?.has(tool.id) ?? false)
+          }
+
           return true
         })
+
+        const availableDeferred = [...DEFERRED_TOOL_IDS].filter(
+          (id) => (input.deferredAvailable?.(id) ?? true) && !(input.activatedTools?.has(id) ?? false),
+        )
 
         return yield* Effect.forEach(
           filtered,
@@ -386,6 +404,7 @@ export namespace ToolRegistry {
                 output.description,
                 tool.id === AgentTool.id ? yield* describeTask(input.agent) : undefined,
                 tool.id === SkillTool.id ? yield* describeSkill(input.agent) : undefined,
+                tool.id === TOOL_INFO_ID ? buildCardList(availableDeferred) : undefined,
               ]
                 .filter(Boolean)
                 .join("\n"),
@@ -446,6 +465,8 @@ export namespace ToolRegistry {
     providerID: ProviderID
     modelID: ModelID
     agent: Agent.Info
+    activatedTools?: ReadonlySet<string>
+    deferredAvailable?: (id: string) => boolean
   }): Promise<(Tool.Def & { id: string })[]> {
     return runPromise((svc) => svc.tools(input))
   }

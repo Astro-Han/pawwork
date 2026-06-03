@@ -6,7 +6,7 @@ import { APICallError, convertToModelMessages, LoadAPIKeyError, type ModelMessag
 import { LSP } from "../lsp"
 import { Snapshot } from "@/snapshot"
 import { SyncEvent } from "../sync"
-import { Database, NotFoundError, and, desc, eq, inArray, lt, or } from "@/storage/db"
+import { Database, NotFoundError, and, desc, eq, inArray, lt, or, sql } from "@/storage/db"
 import { MessageTable, PartTable, SessionTable } from "./session.sql"
 import { ProviderError } from "@/provider"
 import { iife } from "@/util/iife"
@@ -1168,6 +1168,52 @@ export function* stream(sessionID: SessionID) {
     if (!next.more || !next.cursor) break
     before = next.cursor
   }
+}
+
+// Lightweight activation source: just the tool_info parts of a session, read straight
+// from storage without hydrating the full message history. Deferred-tool activation must
+// be derived from the COMPLETE durable history — a tool_info call older than the
+// compaction tail still counts — but it only needs these few parts, so this avoids an
+// Array.from(stream(...)) full message+parts hydration every loop. Reverted parts are
+// physically deleted (revert.cleanup, before the loop) and forks use a fresh session id,
+// so a by-session-id query sees exactly the clean active history, the same as stream().
+export function toolInfoParts(sessionID: SessionID): Part[] {
+  const rows = Database.use((db) =>
+    db
+      .select()
+      .from(PartTable)
+      .where(and(eq(PartTable.session_id, sessionID), sql`json_extract(${PartTable.data}, '$.tool') = 'tool_info'`))
+      .orderBy(PartTable.id)
+      .all(),
+  )
+  return rows.map(part)
+}
+
+// Newest non-summary assistant message of a session, read durably from storage (spans
+// compaction). The activation reminder is one-shot "the step right after a tool_info
+// activation"; that holds iff the newest REAL assistant turn (compaction summaries
+// excluded) ran tool_info. Reading from storage — not the compaction-filtered view —
+// means a summary inserted between the activation and the next step can't hide the
+// activating turn from the reminder (filterCompacted would drop or reorder it).
+export function lastNonSummaryAssistant(sessionID: SessionID): WithParts | undefined {
+  const row = Database.use((db) =>
+    db
+      .select()
+      .from(MessageTable)
+      .where(
+        and(
+          eq(MessageTable.session_id, sessionID),
+          sql`json_extract(${MessageTable.data}, '$.role') = 'assistant'`,
+          sql`(json_extract(${MessageTable.data}, '$.summary') is null or json_extract(${MessageTable.data}, '$.summary') != 1)`,
+        ),
+      )
+      .orderBy(desc(MessageTable.time_created), desc(MessageTable.id))
+      .limit(1)
+      .get(),
+  )
+  if (!row) return undefined
+  const messageParts = parts(row.id)
+  return { info: backfillCumulative(info(row), messageParts), parts: messageParts }
 }
 
 export function parts(message_id: MessageID) {

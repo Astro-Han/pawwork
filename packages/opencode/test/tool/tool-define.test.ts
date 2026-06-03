@@ -177,6 +177,45 @@ describe("Tool.define", () => {
     }
   })
 
+  test("a defectified tool error rejects via runPromise as the ORIGINAL Error, not a FiberFailure", async () => {
+    // The test above proves the wrapper turns Effect.fail(new Error(...)) into a Die at the
+    // Effect layer. This pins the OTHER half of the path the model is actually on: the reject
+    // path is Effect.runPromise (via EffectBridge run.promise), which squashes that Die back to
+    // the ORIGINAL Error through causeSquash. So an expected operational mistake — e.g. tool_info
+    // called with an unknown/unavailable name, both of which return Effect.fail(new Error(...)) —
+    // surfaces as a clean error message, NOT a FiberFailure / messy stack that would read like an
+    // alert. This is the load-bearing guarantee behind keeping those paths as plain Effect.fail.
+    const info = await runtime.runPromise(
+      Tool.define(
+        "test-defect-clean-rejection",
+        Effect.succeed({
+          description: "raises generic Error",
+          parameters: params,
+          execute() {
+            return Effect.fail(new Error("clean operational message"))
+          },
+        }),
+      ),
+    )
+    const tool = await Effect.runPromise(info.init())
+    const execute = tool.execute as unknown as (
+      args: unknown,
+      ctx: Tool.Context,
+    ) => Effect.Effect<unknown, unknown>
+
+    let rejected: unknown
+    try {
+      await Effect.runPromise(execute({ input: "x" }, buildCtx()))
+      throw new Error("expected the wrapped execution to reject")
+    } catch (err) {
+      rejected = err
+    }
+    expect(rejected).toBeInstanceOf(Error)
+    expect((rejected as Error).message).toBe("clean operational message")
+    expect((rejected as Error).constructor.name).not.toBe("FiberFailure")
+    expect(String(rejected)).not.toContain("FiberFailure")
+  })
+
   test("preserves externalResult: true declaration through define/init", async () => {
     const info = await runtime.runPromise(
       Tool.define(

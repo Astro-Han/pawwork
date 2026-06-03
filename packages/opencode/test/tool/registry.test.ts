@@ -1,13 +1,17 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test"
 import path from "path"
 import fs from "fs/promises"
+import { Effect } from "effect"
 import { tmpdir } from "../fixture/fixture"
 import { writeInstalledConfigDeps, writeMockConfigInstall } from "../shared/mock-npm-install"
 import { withConfigDepsLock } from "../shared/config-deps-lock"
 import { Instance } from "../../src/project/instance"
 import { ModelID, ProviderID } from "../../src/provider/schema"
+import { ProviderTransform } from "../../src/provider"
 import { localToolImportSpec, ToolRegistry } from "../../src/tool/registry"
 import { Settings } from "../../src/settings"
+import { MessageID, SessionID } from "../../src/session/schema"
+import * as EffectZod from "../../src/util/effect-zod"
 import { Npm } from "@opencode-ai/core/npm"
 
 afterEach(async () => {
@@ -680,5 +684,110 @@ describe("tool.registry", () => {
     } finally {
       await Settings.setWebSearchEnabled(true)
     }
+  })
+
+  test("defers worktree tools until activated, and advertises them via tool_info", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        // Default: deferred worktree tools are not in the surface; tool_info is,
+        // and advertises both as cards.
+        const def = await ToolRegistry.tools({
+          providerID: ProviderID.make("openai"),
+          modelID: ModelID.make("gpt-5"),
+          agent: { name: "build", mode: "primary", permission: [], options: {} },
+        })
+        const defIds = def.map((tool) => tool.id)
+        expect(defIds).not.toContain("enter-worktree")
+        expect(defIds).not.toContain("exit-worktree")
+        expect(defIds).toContain("tool_info")
+        const card = def.find((tool) => tool.id === "tool_info")!.description
+        expect(card).toContain("enter-worktree")
+        expect(card).toContain("exit-worktree")
+
+        // Activated: enter-worktree becomes callable; tool_info stops listing it.
+        const act = await ToolRegistry.tools({
+          providerID: ProviderID.make("openai"),
+          modelID: ModelID.make("gpt-5"),
+          agent: { name: "build", mode: "primary", permission: [], options: {} },
+          activatedTools: new Set(["enter-worktree"]),
+        })
+        const actIds = act.map((tool) => tool.id)
+        expect(actIds).toContain("enter-worktree")
+        expect(actIds).not.toContain("exit-worktree")
+        const actCard = act.find((tool) => tool.id === "tool_info")!.description
+        expect(actCard).not.toContain("enter-worktree")
+        expect(actCard).toContain("exit-worktree")
+
+        // Permission-disabled: even activated, it stays hidden and uncarded.
+        const denied = await ToolRegistry.tools({
+          providerID: ProviderID.make("openai"),
+          modelID: ModelID.make("gpt-5"),
+          agent: { name: "build", mode: "primary", permission: [], options: {} },
+          activatedTools: new Set(["enter-worktree"]),
+          deferredAvailable: () => false,
+        })
+        expect(denied.map((tool) => tool.id)).not.toContain("enter-worktree")
+        expect(denied.find((tool) => tool.id === "tool_info")!.description).toContain("No deferred tools")
+      },
+    })
+  })
+
+  test("tool_info hands back exactly the schema the activated tool will expose, untruncated", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const base = {
+          providerID: ProviderID.make("openai"),
+          modelID: ModelID.make("gpt-5"),
+          agent: { name: "build", mode: "primary" as const, permission: [], options: {} },
+        }
+
+        // Step 1: enter-worktree carries no full schema in the surface; only tool_info does.
+        const deferred = await ToolRegistry.tools(base)
+        expect(deferred.map((tool) => tool.id)).not.toContain("enter-worktree")
+        const toolInfo = deferred.find((tool) => tool.id === "tool_info")!
+
+        // The model in session context; tool_info must run the activated tool's raw
+        // schema through the SAME ProviderTransform the request pipeline would, so what
+        // it shows now matches what the model actually receives once the tool is live.
+        const model = {
+          id: "openai/gpt-5",
+          providerID: "openai",
+          api: { id: "gpt-5", url: "https://api.openai.com", npm: "@ai-sdk/openai" },
+        } as unknown as Parameters<typeof ProviderTransform.schema>[0]
+
+        // The schema the model will see once enter-worktree is activated, transformed.
+        const activated = await ToolRegistry.tools({ ...base, activatedTools: new Set(["enter-worktree"]) })
+        const enterWorktree = activated.find((tool) => tool.id === "enter-worktree")!
+        const expectedSchema = ProviderTransform.schema(model, EffectZod.toJsonSchema(enterWorktree.parameters))
+
+        const ctx = {
+          sessionID: SessionID.descending(),
+          messageID: MessageID.ascending(),
+          agent: "build",
+          abort: new AbortController().signal,
+          messages: [],
+          metadata: () => Effect.void,
+          ask: () => Effect.void,
+          extra: { model },
+        }
+
+        const result = await Effect.runPromise(toolInfo.execute({ name: "enter-worktree" }, ctx))
+        const json = result.output.match(/```json\n([\s\S]*?)\n```/)?.[1]
+        expect(json).toBeDefined()
+        // tool_info's loaded schema is identical to the post-activation, provider-transformed schema.
+        expect(JSON.parse(json!)).toEqual(expectedSchema)
+        expect(result.metadata.activated).toBe("enter-worktree")
+        // P3-2: the schema output opts out of truncation so a large tool never loads clipped.
+        expect(result.metadata.truncated).toBe(false)
+
+        // P3-1: a CamelCase echo still resolves to the canonical id.
+        const camel = await Effect.runPromise(toolInfo.execute({ name: "Enter-Worktree" }, ctx))
+        expect(camel.metadata.activated).toBe("enter-worktree")
+      },
+    })
   })
 })
