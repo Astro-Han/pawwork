@@ -32,14 +32,23 @@
 //      re-creates an asset, so a clobber always yields a new URL). The PATCH is
 //      the last write — catching a clobber that lands during the publish window.
 //
-// Residual: GitHub offers no atomic compare-and-swap across assets, so the seal's
-// re-read and the PATCH are still two statements. A mixed-source publish would
-// require an asset to be clobbered, from a different commit, in the single HTTP
-// round-trip between the final re-read and the PATCH — not reachable by the CI
-// pipeline (electron-builder's overwrite takes seconds and changes the URL), only
-// by a human manually racing the publisher. Eliminating even that would need the
-// commit in the asset filenames (breaks the updater, the R2 mirror, and the
-// website links) or a single orchestrated workflow.
+// Post-publish writes happen at a different site (the build's earlier publish +
+// finalize steps), so they are fenced there, not here: electron-builder leaves an
+// already-published release untouched (releaseType defaults to draft, so its
+// publisher skips a published release), and finalize-latest-yml refuses to upload
+// to a non-draft release. Together a later same-version build from a different
+// commit cannot rewrite the published installers or their updater metadata; it
+// fails loudly instead.
+//
+// Residual: GitHub offers no atomic compare-and-swap across release assets, so
+// the finalize guard's draft-check and its upload, and this seal's re-read and
+// PATCH, are each two statements. A mixed-source publish would require a write to
+// land in the single HTTP round-trip between a check and its write, from a
+// different commit, in two builds of the same version dispatched concurrently —
+// not reachable by the normal one-dispatch pipeline (each version is built once,
+// from one commit). Eliminating even that would need the commit in the asset
+// filenames (breaks the updater, the R2 mirror, and the website links) or a
+// single orchestrated workflow.
 
 import {
   normalizeTag,
@@ -127,12 +136,18 @@ export function decidePublishAction(args: {
     return { kind: "wait", reason: `release incomplete, waiting for remaining targets: ${reasons.join("; ")}` }
   }
 
-  // Content anchor: every marker's recorded installer hash must still be in the
-  // current metadata. A drift means an asset was rebuilt from another commit
-  // after its marker was written -> mixed source, refuse.
+  // Content anchor: every marker must record at least one installer hash AND
+  // every recorded hash must still be in the current metadata. A drift means an
+  // asset was rebuilt from another commit after its marker was written; an empty
+  // record means a target could not vouch for its own installer. Either way we
+  // cannot prove single-source, so refuse -- the marker writer never emits an
+  // empty record (it fails first), so an empty one here is corruption or a
+  // stale-tool artifact and must not gate the publish open.
   const known = new Set(updaterSha512s)
   const drifted = Object.entries(provenance).flatMap(([name, marker]) =>
-    marker.sha512.filter((hash) => !known.has(hash)).map((hash) => `${name}:${hash}`),
+    marker.sha512.length === 0
+      ? [`${name}:<no recorded hash>`]
+      : marker.sha512.filter((hash) => !known.has(hash)).map((hash) => `${name}:${hash}`),
   )
   if (drifted.length > 0) {
     return {
@@ -328,6 +343,25 @@ function targetUpdater(os: string): { ext: string; metadata: "latest.yml" | "lat
   return os === "win" ? { ext: "exe", metadata: "latest.yml" } : { ext: "zip", metadata: "latest-mac.yml" }
 }
 
+// Read THIS target's installer hash from its updater metadata, re-fetching to
+// absorb read-after-write lag on the asset just finalized. Throws rather than
+// returning empty: a hashless marker would disable the content anchor for this
+// target, so a genuine miss must fail the job (re-runnable) instead.
+async function readOwnUpdaterSha(repo: string, tag: string, metadata: string, assetName: string): Promise<string> {
+  for (let attempt = 1; ; attempt += 1) {
+    const release = await findRelease(repo, tag)
+    const yml = await fetchAssetText(release, metadata)
+    const entry = yml ? parseUpdaterShaByUrl(yml).find((item) => item.name === assetName) : undefined
+    if (entry) return entry.sha512
+    if (attempt >= MARKER_UPLOAD_ATTEMPTS) {
+      throw new Error(
+        `could not read sha512 for ${assetName} from ${metadata} after ${attempt} attempts; refusing to write a hashless provenance marker`,
+      )
+    }
+    await sleep(MARKER_UPLOAD_RETRY_MS)
+  }
+}
+
 async function readEvaluationState(repo: string, tag: string, expectedProvenance: string[]) {
   const release = await findRelease(repo, tag)
   const latestYml = await fetchAssetText(release, "latest.yml")
@@ -350,13 +384,15 @@ async function main() {
 
   // Record this target's build commit AND the hash of the installer it produced,
   // before deciding, so other targets can detect both a different commit and a
-  // later clobber of this target's asset.
+  // later clobber of this target's asset. Refuse to write a hashless marker: an
+  // empty hash would silently disable the content anchor for this target, so if
+  // we cannot read our own installer hash (read-after-write lag, or finalize did
+  // not run) we fail loudly instead of vouching for nothing.
   const release = await findRelease(repo, tag)
   const { ext, metadata } = targetUpdater(os)
   const myUpdaterAsset = `pawwork-${os}-${arch}-${version}.${ext}`
-  const myYml = await fetchAssetText(release, metadata)
-  const myEntry = myYml ? parseUpdaterShaByUrl(myYml).find((entry) => entry.name === myUpdaterAsset) : undefined
-  const marker: ProvenanceMarker = { commit: buildSha, sha512: myEntry ? [myEntry.sha512] : [] }
+  const mySha512 = await readOwnUpdaterSha(repo, tag, metadata, myUpdaterAsset)
+  const marker: ProvenanceMarker = { commit: buildSha, sha512: [mySha512] }
   await putProvenanceMarker(repo, release, thisMarker, JSON.stringify(marker))
 
   for (let attempt = 1; ; attempt += 1) {
@@ -382,6 +418,14 @@ async function main() {
         process.exit(1)
         return
       case "wait":
+        // Exhausted the poll window still incomplete. Expected when other targets
+        // are genuinely still building (each will run its own publisher). If every
+        // target has in fact finished but this run only saw a stale view, the
+        // release is left a draft; re-dispatching the same version (same commit)
+        // re-runs against the still-draft release and publishes it.
+        console.warn(
+          `publish-when-complete: still incomplete after ${WAIT_POLL_ATTEMPTS} attempts; leaving the release a draft (${decision.reason})`,
+        )
         return
       case "publish": {
         // Seal + re-read: snapshot the asset URLs, let any in-flight overwrite
@@ -403,6 +447,10 @@ async function main() {
         if (recheck.kind !== "publish") {
           console.error(`publish-when-complete: release changed during seal, not publishing: ${recheck.reason}`)
           if (recheck.kind === "fail") process.exit(1)
+          // Another job won the publish race during our seal window. Its publish
+          // does not fire release:published and its own mirror dispatch may have
+          // failed, so still ensure the mirror is dispatched before we exit.
+          if (recheck.kind === "mirror-only") await dispatchMirror(repo, tag, mirrorRef)
           return
         }
         const moved = changedAssets(sealed, sealAssetUrls(reread.release, version))

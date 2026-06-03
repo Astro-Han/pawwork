@@ -134,15 +134,16 @@ describe("decidePublishAction", () => {
     expect(decision.reason).toContain("no longer matches recorded build hashes")
   })
 
-  test("content anchor tolerates an empty-hash marker (metadata read hiccup at marker time)", () => {
-    // A target that could not read its own updater entry when writing the marker
-    // records an empty hash list. That target simply isn't content-anchored; the
-    // commit-agreement + completeness gates still apply, so the release is not
-    // deadlocked into a permanent draft over a transient read miss.
+  test("content anchor: refuses an empty-hash marker (a target that vouches for nothing)", () => {
+    // The marker writer fails rather than emit an empty hash, so an empty record
+    // reaching the decision means corruption or a stale tool. It must not pass the
+    // anchor by vacuous truth (empty list -> nothing to mismatch); fail closed.
     const noHash: Record<string, ProvenanceMarker> = {
       ...allAgree,
       "pawwork-win-x64-2026.6.1.commit": { commit: BUILD_SHA, sha512: [] },
     }
-    expect(decide({ provenance: noHash }).kind).toBe("publish")
+    const decision = decide({ provenance: noHash })
+    expect(decision.kind).toBe("fail")
+    expect(decision.reason).toContain("no recorded hash")
   })
 })
