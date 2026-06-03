@@ -1,4 +1,3 @@
-import { useSpring } from "@opencode-ai/ui/motion-spring"
 import { useNavigate, useParams } from "@solidjs/router"
 import { createEffect, on, Component, For, Show, createMemo, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
@@ -9,14 +8,8 @@ import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { useComments } from "@/context/comments"
 import { DockSegmentForm } from "@opencode-ai/ui/dock-card"
-import { Icon } from "@opencode-ai/ui/icon"
-import { IconButton } from "@opencode-ai/ui/icon-button"
-import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { openModelPicker } from "@/components/prompt-input/model-picker"
-import { WorkspaceChip } from "@/components/prompt-input/workspace-chip"
-import { SessionContextUsage } from "@/components/session-context-usage"
-import { SendButton } from "./prompt-input/send-button"
 import { useCommand } from "@/context/command"
 import { usePermission } from "@/context/permission"
 import { useLanguage } from "@/context/language"
@@ -32,7 +25,7 @@ import {
   type PopoverControllers,
 } from "./prompt-input/popover-controllers"
 import { createPromptKeydownHandler } from "./prompt-input/keydown"
-import { PromptModelControl } from "./prompt-input/model-controls"
+import { PromptActionBar } from "./prompt-input/action-bar"
 import { createPromptAttachments } from "./prompt-input/attachments"
 import { ACCEPTED_FILE_TYPES } from "./prompt-input/files"
 import { promptLength } from "./prompt-input/history"
@@ -46,7 +39,6 @@ import { PromptPopover } from "./prompt-input/slash-popover"
 import { PromptContextItems } from "./prompt-input/context-items"
 import { PromptImageAttachments } from "./prompt-input/image-attachments"
 import { PromptDragOverlay } from "./prompt-input/drag-overlay"
-import { promptSendDisabled } from "./prompt-input/readiness"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
 
 interface PromptInputProps {
@@ -142,33 +134,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     actionReadyProp: () => props.actionReady?.(),
     abortReadyProp: () => props.abortReady?.(),
   })
-
-  const buttonsSpring = useSpring(() => (store.mode === "normal" ? 1 : 0), { visualDuration: 0.2, bounce: 0 })
-  const motion = (value: number) => ({
-    opacity: value,
-    transform: `scale(${0.95 + value * 0.05})`,
-    filter: `blur(${(1 - value) * 2}px)`,
-    "pointer-events": value > 0.5 ? ("auto" as const) : ("none" as const),
-  })
-  const buttons = createMemo(() => motion(buttonsSpring()))
-
-  const tip = () => {
-    if (stopping() && abortReady()) {
-      return (
-        <div class="flex items-center gap-2">
-          <span>{language.t("prompt.action.stop")}</span>
-          <span class="text-icon-base text-h3 text-[10px]!">{language.t("common.key.esc")}</span>
-        </div>
-      )
-    }
-
-    return (
-      <div class="flex items-center gap-2">
-        <span>{language.t("prompt.action.send")}</span>
-        <Icon name="enter" class="text-icon-base" />
-      </div>
-    )
-  }
 
   const { addToHistory, navigateHistory } = createHistoryNavigation({
     store,
@@ -510,61 +475,20 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             }}
           />
 
-          <div class="pointer-events-none absolute inset-x-4 bottom-3 flex items-center justify-between gap-2">
-            <div
-              aria-hidden={store.mode !== "normal"}
-              class="pointer-events-auto flex min-w-0 items-center gap-1"
-              style={{
-                "pointer-events": buttonsSpring() > 0.5 ? "auto" : "none",
-              }}
-            >
-              <TooltipKeybind
-                placement="top"
-                title={language.t("prompt.action.attachFile")}
-                keybind={command.keybind("file.attach")}
-              >
-                <IconButton
-                  icon="plus"
-                  data-action="prompt-attach"
-                  type="button"
-                  style={buttons()}
-                  onClick={pick}
-                  disabled={store.mode !== "normal" || !actionReady()}
-                  tabIndex={store.mode === "normal" ? undefined : -1}
-                  aria-label={language.t("prompt.action.attachFile")}
-                />
-              </TooltipKeybind>
-              <Show when={store.mode === "normal"}>
-                <PromptModelControl
-                  triggerStyle={buttons}
-                  actionReady={actionReady}
-                  model={local.model}
-                  language={language}
-                  command={command}
-                  onClose={restoreFocus}
-                />
-              </Show>
-              <Show when={props.homeMode && store.mode === "normal"}>
-                <WorkspaceChip style={buttons()} />
-              </Show>
-            </div>
-
-            <div class="flex items-center gap-2 pointer-events-auto">
-              <SessionContextUsage placement="top" />
-              <Tooltip placement="top" inactive={(working() ? abortReady() : actionReady()) && !working() && blank()} value={tip()}>
-                <SendButton
-                  stopping={stopping()}
-                  disabled={promptSendDisabled({
-                    stopping: stopping(),
-                    actionReady: actionReady(),
-                    abortReady: abortReady(),
-                    blank: blank(),
-                  })}
-                  aria-label={stopping() ? language.t("prompt.action.stop") : language.t("prompt.action.send")}
-                />
-              </Tooltip>
-            </div>
-          </div>
+          <PromptActionBar
+            mode={store.mode}
+            homeMode={props.homeMode}
+            language={language}
+            command={command}
+            model={local.model}
+            actionReady={actionReady}
+            working={working}
+            abortReady={abortReady}
+            blank={blank}
+            stopping={stopping}
+            pick={pick}
+            restoreFocus={restoreFocus}
+          />
         </div>
       </DockSegmentForm>
     </div>
