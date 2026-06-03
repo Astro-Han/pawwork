@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test"
 import path from "path"
 import fs from "fs/promises"
+import { fileURLToPath } from "url"
 import { Effect } from "effect"
 import { tmpdir } from "../fixture/fixture"
 import { writeInstalledConfigDeps, writeMockConfigInstall } from "../shared/mock-npm-install"
@@ -319,6 +320,86 @@ describe("tool.registry", () => {
     expect(localToolImportSpec("C:\\Users\\test\\tool.ts")).toStartWith("file://")
     expect(localToolImportSpec("C:\\Users\\test\\tool.ts")).not.toBe("C:\\Users\\test\\tool.ts")
     expect(localToolImportSpec("file:///tmp/tool.ts")).toBe("file:///tmp/tool.ts")
+  })
+
+  test("preserves Zod arg descriptions from a config-scoped plugin with its own zod (#27770)", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        const opencodeDir = path.join(dir, ".opencode")
+        const toolsDir = path.join(opencodeDir, "tools")
+        const plugin = path.join(opencodeDir, "node_modules", "@opencode-ai", "plugin")
+        await fs.mkdir(path.join(plugin, "dist"), { recursive: true })
+        await fs.mkdir(toolsDir, { recursive: true })
+
+        // Copy the real zod into the config dir so the plugin's `import { z } from 'zod'`
+        // resolves to a SEPARATE module instance with its own metadata registry — the
+        // cross-module case opencode's z.toJSONSchema otherwise can't read. Pre-creating
+        // both package.json files keeps `needsConfigDependencies` false, so no install
+        // fires to clobber this shim.
+        await fs.cp(path.dirname(fileURLToPath(import.meta.resolve("zod"))), path.join(opencodeDir, "node_modules", "zod"), {
+          dereference: true,
+          recursive: true,
+        })
+
+        await Bun.write(
+          path.join(plugin, "package.json"),
+          JSON.stringify({ name: "@opencode-ai/plugin", type: "module", exports: { ".": "./dist/index.js" } }),
+        )
+        // Older/manual plugin shim: returns the def as-is (no precomputed jsonSchema).
+        await Bun.write(
+          path.join(plugin, "dist", "index.js"),
+          ["import { z } from 'zod'", "export function tool(input) {", "  return input", "}", "tool.schema = z", ""].join(
+            "\n",
+          ),
+        )
+
+        await Bun.write(
+          path.join(toolsDir, "addition.ts"),
+          [
+            'import { tool } from "@opencode-ai/plugin"',
+            "export default tool({",
+            "  description: 'Use this tool to add two numbers and return their sum.',",
+            "  args: {",
+            "    left: tool.schema.number().describe('The first number to add'),",
+            "    right: tool.schema.number().describe('The second number to add'),",
+            "  },",
+            "  execute: async (args: { left: number; right: number }) => `${args.left + args.right}`,",
+            "})",
+            "",
+          ].join("\n"),
+        )
+      },
+    })
+
+    // Mock the auto-install (config.ts forks one on load) as a no-op so it can't
+    // overwrite the pre-placed plugin shim + zod copy — writeMockConfigInstall would.
+    await withConfigDepsLock(async () => {
+      const install = spyOn(Npm, "install").mockImplementation(async () => {})
+      try {
+        await Instance.provide({
+          directory: tmp.path,
+          fn: async () => {
+            const tools = await ToolRegistry.tools({
+              providerID: ProviderID.make("openai"),
+              modelID: ModelID.make("gpt-5"),
+              agent: { name: "build", mode: "primary", permission: [], options: {} },
+            })
+            const addition = tools.find((tool) => tool.id === "addition")
+            expect(addition).toBeDefined()
+
+            // The arg descriptions live in the plugin's own zod registry; the metadata
+            // walker in EffectZod.toJsonSchema must bridge them into the emitted schema.
+            const schema = EffectZod.toJsonSchema(addition!.parameters) as {
+              properties: Record<string, { type?: string; description?: string }>
+            }
+            expect(schema.properties.left).toMatchObject({ type: "number", description: "The first number to add" })
+            expect(schema.properties.right).toMatchObject({ type: "number", description: "The second number to add" })
+          },
+        })
+      } finally {
+        install.mockRestore()
+      }
+    })
   })
 
   test("loads tools with external dependencies without crashing", async () => {

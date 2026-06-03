@@ -64,7 +64,47 @@ function isZodType(value: unknown): value is z.ZodTypeAny {
  */
 export function toJsonSchema<S extends Schema.Top>(schema: S) {
   const derived: z.ZodTypeAny = "zod" in schema && isZodType(schema.zod) ? schema.zod : zod(schema)
-  return z.toJSONSchema(derived, { io: "input" })
+  return z.toJSONSchema(derived, { io: "input", metadata: zodMetadataRegistry(derived) })
+}
+
+/**
+ * Rebuild an opencode-side metadata registry by walking a Zod schema tree.
+ *
+ * Zod stores `.describe()` / `.meta()` metadata in a module-local registry. A
+ * config-scoped plugin that imports its own copy of `zod` writes its arg
+ * descriptions into that copy's registry, which opencode's `z.toJSONSchema`
+ * (using opencode's own zod) cannot see — so the descriptions silently vanish
+ * from the LLM-facing tool schema. Each node's `.meta()`/`.description`
+ * accessors are bound to the module that created the node, so they DO resolve
+ * cross-module; re-collecting them into a fresh registry keyed by the same node
+ * objects lets `z.toJSONSchema` emit them. Identity-based (`_zod` brand check,
+ * not `instanceof`) so foreign-module nodes are recognised. (#27770)
+ */
+function zodMetadataRegistry(schema: z.ZodType) {
+  const registry = z.registry<Record<string, unknown>>()
+  const seen = new WeakSet<object>()
+  const collect = (value: unknown) => {
+    if (typeof value !== "object" || value === null) return
+    if (seen.has(value)) return
+    seen.add(value)
+
+    if ("_zod" in value) {
+      const node = value as z.ZodType
+      const metadata = typeof node.meta === "function" ? node.meta() : undefined
+      const description = typeof node.description === "string" ? node.description : undefined
+      const merged = {
+        ...(metadata && typeof metadata === "object" ? metadata : {}),
+        ...(description ? { description } : {}),
+      }
+      if (Object.keys(merged).length) registry.add(node, merged)
+      collect((node as { _zod: { def: unknown } })._zod.def)
+      return
+    }
+
+    for (const item of Object.values(value)) collect(item)
+  }
+  collect(schema)
+  return registry
 }
 
 
