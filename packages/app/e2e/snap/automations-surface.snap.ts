@@ -49,9 +49,15 @@ test("automations-surface", async ({ page, project }) => {
   await surface.locator('[data-component="automation-detail"]').waitFor({ state: "visible", timeout: 30_000 })
   const detail = await page.screenshot()
 
-  // Manual create card: back to the list, open it, fill, and expand schedule.
+  // Split entry: back to the list, open the New automation menu, screenshot it,
+  // then Create manually, fill the card, and expand the schedule popover.
   await surface.locator('[data-action="automation-detail-back"]').click()
   await surface.locator('[data-action="automation-create-open"]').click()
+  const manualItem = page.locator('[data-action="automation-create-manual"]')
+  await manualItem.waitFor({ state: "visible", timeout: 10_000 })
+  const createMenu = await page.screenshot()
+
+  await manualItem.click()
   const card = page.locator('[data-component="automation-create"]')
   await card.waitFor({ state: "visible", timeout: 10_000 })
   await card.locator('[data-action="automation-create-title"]').fill("Release notes draft")
@@ -67,6 +73,7 @@ test("automations-surface", async ({ page, project }) => {
     { name: "list", buf: list },
     { name: "list-hover", buf: listHover },
     { name: "detail", buf: detail },
+    { name: "create-menu", buf: createMenu },
     { name: "create-card", buf: createCard },
     { name: "schedule", buf: schedulePopover },
   ]
