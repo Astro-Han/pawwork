@@ -101,8 +101,10 @@ test("@smoke W1 rendered turn locks chevron, selectability, and trow typography"
     // reasoning-body and bash-output mount lazily inside each row's collapsible,
     // so the open <details> alone is not enough — expand every inner row.
     const triggers = page.locator(TROW_INNER_TRIGGER)
+    // count() does not auto-wait, so poll until the inner rows have mounted
+    // before reading the stable count.
+    await expect.poll(async () => triggers.count()).toBeGreaterThan(1)
     const count = await triggers.count()
-    expect(count).toBeGreaterThan(1)
     for (let index = 0; index < count; index++) await triggers.nth(index).click()
     await expect(page.locator(AGENT_REASONING)).toBeVisible()
     await expect(page.locator(BASH_SCROLL)).toBeVisible()
