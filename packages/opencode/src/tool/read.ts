@@ -187,7 +187,10 @@ export const ReadTool = Tool.define(
 
       yield* ctx.ask({
         permission: "read",
-        patterns: [filepath],
+        // ba9e4b67ed: match the permission pattern against the worktree-relative path, like
+        // edit/write/apply_patch (edit.ts:86,131). The absolute filepath never matched a user's
+        // permission.read glob (which is relative), so read rules were silently inert.
+        patterns: [path.relative(Instance.worktree, filepath)],
         always: ["*"],
         metadata: {},
       })
