@@ -43,6 +43,65 @@ function rewrite(request: Request, values: { directory?: string; workspace?: str
   return next
 }
 
+/**
+ * Wrap whatever the generated client decoded from a non-2xx error body into a
+ * real `Error` so downstream formatters (TUI, CLI `run`, ACP, plugins) get a
+ * useful `.message` instead of `[object Object]` or a bare `{}`. The original
+ * parsed body and status stay under `.cause` for callers that need structured
+ * fields.
+ *
+ * Empty / unparseable bodies and network failures are wrapped unconditionally
+ * (matching the prior behavior of this interceptor). Non-empty structured or
+ * string bodies are only wrapped on the `{ throwOnError: true }` path; the
+ * result-tuple path keeps the raw parsed body so existing `result.error.<field>`
+ * reads stay byte-for-byte identical.
+ */
+export function wrapClientError(
+  error: unknown,
+  response: Response | undefined,
+  request: Request | undefined,
+  opts: { throwOnError?: boolean } | undefined,
+): unknown {
+  if (error instanceof Error) return error
+
+  const isEmpty =
+    error === undefined ||
+    error === null ||
+    error === "" ||
+    (typeof error === "object" && Object.keys(error).length === 0)
+
+  if (isEmpty) {
+    const reason = response ? "(empty response body)" : "network error (no response)"
+    return new Error(`opencode server ${describeRequest(request, response)}: ${reason}`, {
+      cause: { body: error, status: response?.status },
+    })
+  }
+
+  if (!opts?.throwOnError) return error
+
+  // opencode 4xx NamedError bodies arrive as POJOs — extract a useful message.
+  if (typeof error === "object") {
+    const obj = error as { data?: { message?: unknown }; message?: unknown; name?: unknown }
+    const message =
+      (typeof obj.data?.message === "string" && obj.data.message) ||
+      (typeof obj.message === "string" && obj.message) ||
+      (typeof obj.name === "string" && obj.name) ||
+      describeRequest(request, response)
+    return new Error(message, { cause: { body: error, status: response?.status } })
+  }
+
+  return new Error(typeof error === "string" ? error : String(error), {
+    cause: { body: error, status: response?.status },
+  })
+}
+
+function describeRequest(request: Request | undefined, response: Response | undefined) {
+  const method = request?.method ?? "?"
+  const url = request?.url ?? "?"
+  const statusText = response?.statusText ? " " + response.statusText : ""
+  return `${method} ${url}${response ? " -> " + response.status : ""}${statusText}`
+}
+
 export function createOpencodeClient(config?: Config & { directory?: string; experimental_workspaceID?: string }) {
   if (!config?.fetch) {
     const customFetch: any = (req: any) => {
@@ -84,21 +143,6 @@ export function createOpencodeClient(config?: Config & { directory?: string; exp
 
     return response
   })
-  client.interceptors.error.use((error, response, request) => {
-    const isEmpty =
-      error === undefined ||
-      error === null ||
-      error === "" ||
-      (typeof error === "object" && !(error instanceof Error) && Object.keys(error).length === 0)
-
-    if (!isEmpty) return error
-
-    const method = request?.method ?? "?"
-    const url = request?.url ?? "?"
-    if (!response) return new Error(`opencode server ${method} ${url}: network error (no response)`)
-
-    const statusText = response.statusText ? " " + response.statusText : ""
-    return new Error(`opencode server ${method} ${url} -> ${response.status}${statusText}: (empty response body)`)
-  })
+  client.interceptors.error.use(wrapClientError)
   return new OpencodeClient({ client })
 }
