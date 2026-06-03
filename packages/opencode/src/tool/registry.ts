@@ -276,7 +276,11 @@ export namespace ToolRegistry {
               // tool definition; otherwise `fromPlugin` wraps it into a bogus,
               // description-less tool (7a012cac08).
               if (!isPluginTool(def)) continue
-              custom.push(fromPlugin(id === "default" ? namespace : `${namespace}_${id}`, def))
+              const toolId = id === "default" ? namespace : `${namespace}_${id}`
+              // A non-tool sibling export keeps the coarse pre-import `ids.every(disabled)`
+              // skip from firing, so honor per-tool disables here too.
+              if (disabled.has(toolId)) continue
+              custom.push(fromPlugin(toolId, def))
             }
           }
 
