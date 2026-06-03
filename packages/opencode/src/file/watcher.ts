@@ -770,12 +770,33 @@ export namespace FileWatcher {
             }
 
             if (ctx.project.vcs === "git") {
-              const result = yield* git.run(["rev-parse", "--git-dir"], {
-                cwd: ctx.project.worktree,
+              // Resolve git metadata roots from ctx.directory (the active session dir), the same
+              // anchor Vcs.state reads the branch from. ctx.project.worktree points at the MAIN
+              // repository for a linked worktree, so its .git/HEAD never changes on a per-worktree
+              // checkout. A linked worktree keeps HEAD/index in the per-worktree --git-dir while
+              // packed-refs/refs live in the shared --git-common-dir; watch both so branch and ref
+              // events fire. They coincide in a normal repo, so dedupe to a single subscription.
+              // rev-parse may print relative paths (e.g. ".git"), so resolve each against
+              // ctx.directory rather than depending on --path-format=absolute (Git 2.31+).
+              const result = yield* git.run(["rev-parse", "--git-dir", "--git-common-dir"], {
+                cwd: ctx.directory,
               })
-              const vcsDir =
-                result.exitCode === 0 ? path.resolve(ctx.project.worktree, result.text().trim()) : undefined
-              if (vcsDir && !cfgIgnores.includes(".git") && !cfgIgnores.includes(vcsDir)) {
+              const vcsDirs =
+                result.exitCode === 0
+                  ? [
+                      ...new Set(
+                        result
+                          .text()
+                          .trim()
+                          .split("\n")
+                          .map((line) => line.trim())
+                          .filter(Boolean)
+                          .map((line) => path.resolve(ctx.directory, line)),
+                      ),
+                    ]
+                  : []
+              for (const vcsDir of vcsDirs) {
+                if (cfgIgnores.includes(".git") || cfgIgnores.includes(vcsDir)) continue
                 const ignore = vcsWatcherIgnoreEntries(yield* Effect.promise(() => readdir(vcsDir).catch(() => [])))
                 log.info(
                   "watcher subscription configured",

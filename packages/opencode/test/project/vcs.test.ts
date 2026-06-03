@@ -138,6 +138,33 @@ describeVcs("Vcs", () => {
       expect(current).toBe(branch)
     })
   })
+
+  test("publishes BranchUpdated when HEAD changes in a linked worktree", async () => {
+    // Regression for #1016: a linked worktree keeps its live HEAD at
+    // <gitcommondir>/worktrees/<name>/HEAD, not the main repository's .git/HEAD.
+    // The watcher must subscribe to the per-worktree git dir resolved from the
+    // active session directory, otherwise per-worktree checkouts never fire.
+    await using tmp = await tmpdir({ git: true })
+    await using parent = await tmpdir()
+    const dir = path.join(parent.path, "linked")
+    const branch = `wt-${Math.random().toString(36).slice(2)}`
+    await $`git branch ${branch}`.cwd(tmp.path).quiet()
+    await $`git worktree add -b wt-initial ${dir} HEAD`.cwd(tmp.path).quiet()
+
+    await withVcs(dir, async () => {
+      const pending = nextBranchUpdate(dir)
+
+      // Resolve the real per-worktree HEAD; in a linked worktree <dir>/.git is a
+      // pointer file, so never join `${dir}/.git/HEAD` directly. rev-parse may print
+      // a relative path, so resolve it against dir instead of relying on --path-format.
+      const headPath = (await $`git rev-parse --git-path HEAD`.cwd(dir).text()).trim()
+      const head = path.resolve(dir, headPath)
+      await fs.writeFile(head, `ref: refs/heads/${branch}\n`)
+
+      const updated = await pending
+      expect(updated).toBe(branch)
+    })
+  })
 })
 
 describe("Vcs diff", () => {
