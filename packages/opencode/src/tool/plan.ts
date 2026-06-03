@@ -103,7 +103,7 @@ export const PlanExitTool = Tool.define(
             }
           }
 
-          const model = getLastModel(ctx.sessionID) ?? (yield* provider.defaultModel())
+          const model = getLastModel(ctx.sessionID) ?? (yield* provider.defaultModel().pipe(Effect.orDie))
 
           const msg: MessageV2.User = {
             id: MessageID.ascending(),

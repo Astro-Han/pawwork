@@ -228,6 +228,34 @@ test("enabled_providers restricts to only listed providers", async () => {
   })
 })
 
+test("defaultModel fails with a typed NoProvidersError when config excludes every provider", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          enabled_providers: [],
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      set("ANTHROPIC_API_KEY", "test-api-key")
+    },
+    fn: async () => {
+      expect(Object.keys(await list())).toHaveLength(0)
+      // Effect.flip moves the typed failure into the success channel; a bare-Error
+      // defect (the old behavior) would reject instead, so this is red->green.
+      const error = await run((provider) => provider.defaultModel().pipe(Effect.flip))
+      expect(Provider.NoProvidersError.isInstance(error)).toBe(true)
+      expect((error as { name: string }).name).toBe("ProviderNoProvidersError")
+    },
+  })
+})
+
 test("model whitelist filters models for provider", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
