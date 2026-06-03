@@ -1,11 +1,13 @@
 import { $ } from "bun"
 import { afterEach, describe, expect, test } from "bun:test"
-import { Effect } from "effect"
+import { Deferred, Effect, Layer, ManagedRuntime } from "effect"
 import fs from "fs/promises"
 import path from "path"
 import { provideInstance, tmpdir } from "../fixture/fixture"
 import { AppRuntime } from "../../src/effect/app-runtime"
+import { Bus } from "../../src/bus"
 import { FileWatcher } from "../../src/file/watcher"
+import { Git } from "../../src/git"
 import { Instance } from "../../src/project/instance"
 import { GlobalBus } from "../../src/bus/global"
 import { Vcs } from "../../src/project/vcs"
@@ -528,4 +530,59 @@ describe("Vcs diff", () => {
       })
     }),
   )
+})
+
+describe("Vcs init", () => {
+  afterEach(async () => {
+    await Instance.disposeAll()
+  })
+
+  // Regression for #22771 (thanks upstream, Dax). init() must fork the branch
+  // resolution into the layer scope and return immediately rather than block the
+  // caller on git subprocesses. With the git latch held closed a blocking init()
+  // never resolves; a forked init() returns right away.
+  test("init() returns without waiting for git branch resolution", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const latch = await Effect.runPromise(Deferred.make<void>())
+
+    const notCalled = () => Effect.die("git method not exercised by init()")
+    const git: Git.Interface = {
+      run: notCalled,
+      branch: () => Deferred.await(latch).pipe(Effect.as("main")),
+      prefix: notCalled,
+      defaultBranch: () => Deferred.await(latch).pipe(Effect.as(undefined)),
+      hasHead: notCalled,
+      mergeBase: notCalled,
+      show: notCalled,
+      showIndex: notCalled,
+      status: notCalled,
+      diff: notCalled,
+      stats: notCalled,
+      patch: notCalled,
+      patchAll: notCalled,
+      patchAllUnstaged: notCalled,
+      patchUntracked: notCalled,
+      statUntracked: notCalled,
+      applyPatch: notCalled,
+    }
+
+    const runtime = ManagedRuntime.make(
+      Vcs.layer.pipe(Layer.provide(Layer.succeed(Git.Service, git)), Layer.provide(Bus.layer)),
+    )
+
+    try {
+      const init = Instance.provide({
+        directory: tmp.path,
+        fn: () => runtime.runPromise(Vcs.Service.use((svc) => svc.init())),
+      })
+      const outcome = await Promise.race([
+        init.then(() => "returned" as const),
+        Bun.sleep(2_000).then(() => "blocked" as const),
+      ])
+      expect(outcome).toBe("returned")
+    } finally {
+      await Effect.runPromise(Deferred.succeed(latch, void 0))
+      await runtime.dispose()
+    }
+  })
 })

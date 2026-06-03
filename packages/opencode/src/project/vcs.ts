@@ -1,4 +1,4 @@
-import { Effect, Layer, Context, Stream } from "effect"
+import { Effect, Layer, Context, Stream, Scope } from "effect"
 import { formatPatch, structuredPatch } from "diff"
 import { Bus } from "@/bus"
 import { BusEvent } from "@/bus/bus-event"
@@ -251,6 +251,7 @@ export namespace Vcs {
     Effect.gen(function* () {
       const git = yield* Git.Service
       const bus = yield* Bus.Service
+      const scope = yield* Scope.Scope
 
       const state = yield* InstanceState.make<State>(
         Effect.fn("Vcs.state")(function* (ctx) {
@@ -288,7 +289,9 @@ export namespace Vcs {
 
       return Service.of({
         init: Effect.fn("Vcs.init")(function* () {
-          yield* InstanceState.get(state)
+          // Fork the branch/default-branch materialization into the layer scope so init()
+          // returns immediately instead of blocking the caller on git subprocesses (#22771).
+          yield* InstanceState.get(state).pipe(Effect.forkIn(scope))
         }),
         branch: Effect.fn("Vcs.branch")(function* () {
           return yield* InstanceState.use(state, (x) => x.current)
