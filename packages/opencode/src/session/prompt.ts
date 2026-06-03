@@ -1463,7 +1463,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     const lastModel = Effect.fnUntraced(function* (sessionID: SessionID) {
       const match = yield* sessions.findMessage(sessionID, (m) => m.info.role === "user" && !!m.info.model)
       if (Option.isSome(match) && match.value.info.role === "user") return match.value.info.model
-      return yield* provider.defaultModel()
+      return yield* provider.defaultModel().pipe(Effect.orDie)
     })
 
     const createUserMessage = Effect.fn("SessionPrompt.createUserMessage")(function* (input: PromptInput) {

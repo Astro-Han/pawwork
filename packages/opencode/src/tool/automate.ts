@@ -102,7 +102,7 @@ export function createAutomateDefinition(
           variant = params.variant
         } else {
           const fromSession = sessionModel(ctx.sessionID)
-          const inherited = fromSession ?? (yield* provider.defaultModel())
+          const inherited = fromSession ?? (yield* provider.defaultModel().pipe(Effect.orDie))
           model = { providerID: inherited.providerID, modelID: inherited.modelID }
           variant = params.variant ?? fromSession?.variant
         }

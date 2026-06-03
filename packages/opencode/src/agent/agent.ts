@@ -312,7 +312,7 @@ export namespace Agent {
           model?: { providerID: ProviderID; modelID: ModelID }
         }) {
           const cfg = yield* config.get()
-          const model = input.model ?? (yield* provider.defaultModel())
+          const model = input.model ?? (yield* provider.defaultModel().pipe(Effect.orDie))
           const resolved = yield* provider.getModel(model.providerID, model.modelID)
           const language = yield* provider.getLanguage(resolved)
 

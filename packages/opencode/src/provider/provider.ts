@@ -991,7 +991,7 @@ export interface Interface {
     query: string[],
   ) => Effect.Effect<{ providerID: ProviderID; modelID: string } | undefined>
   readonly getSmallModel: (providerID: ProviderID) => Effect.Effect<Model | undefined>
-  readonly defaultModel: () => Effect.Effect<{ providerID: ProviderID; modelID: ModelID }>
+  readonly defaultModel: () => Effect.Effect<{ providerID: ProviderID; modelID: ModelID }, DefaultModelError>
 }
 
 interface State {
@@ -1805,10 +1805,10 @@ const layer: Layer.Layer<
       }
 
       const provider = Object.values(s.providers).find((p) => !cfg.provider || Object.keys(cfg.provider).includes(p.id))
-      if (!provider) throw new Error("no providers found")
+      if (!provider) return yield* Effect.fail(new NoProvidersError({}))
       const modelID = defaultModelID(provider)
       const model = provider.models[modelID]
-      if (!model) throw new Error("no models found")
+      if (!model) return yield* Effect.fail(new NoModelsError({ providerID: provider.id }))
       return {
         providerID: provider.id,
         modelID: model.id,
@@ -1893,6 +1893,17 @@ export const InitError = NamedError.create(
   }),
 )
 
+export const NoProvidersError = NamedError.create("ProviderNoProvidersError", z.object({}))
+
+export const NoModelsError = NamedError.create(
+  "ProviderNoModelsError",
+  z.object({
+    providerID: ProviderID.zod,
+  }),
+)
+
+export type DefaultModelError = InstanceType<typeof NoProvidersError> | InstanceType<typeof NoModelsError>
+
 const ProviderServiceValue = Service
 const ProviderDefaultLayerValue = defaultLayer
 const ProviderModelValue = Model
@@ -1913,6 +1924,8 @@ const ProviderSortValue = sort
 const ProviderParseModelValue = parseModel
 const ProviderModelNotFoundErrorValue = ModelNotFoundError
 const ProviderInitErrorValue = InitError
+const ProviderNoProvidersErrorValue = NoProvidersError
+const ProviderNoModelsErrorValue = NoModelsError
 
 export namespace Provider {
   export type Interface = import("./provider").Interface
@@ -1941,4 +1954,7 @@ export namespace Provider {
   export const parseModel = ProviderParseModelValue
   export const ModelNotFoundError = ProviderModelNotFoundErrorValue
   export const InitError = ProviderInitErrorValue
+  export const NoProvidersError = ProviderNoProvidersErrorValue
+  export const NoModelsError = ProviderNoModelsErrorValue
+  export type DefaultModelError = import("./provider").DefaultModelError
 }
