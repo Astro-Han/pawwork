@@ -64,6 +64,7 @@ export function render(input: {
   directory: string
   tmp: string
   limits: Limits
+  defaultTimeout: number
 }) {
   return DESCRIPTION.replaceAll("${directory}", input.directory)
     .replaceAll("${tmp}", input.tmp)
@@ -72,4 +73,5 @@ export function render(input: {
     .replaceAll("${chaining}", chainingFor(input.name))
     .replaceAll("${maxLines}", String(input.limits.maxLines))
     .replaceAll("${maxBytes}", String(input.limits.maxBytes))
+    .replaceAll("${defaultTimeout}", String(input.defaultTimeout))
 }
