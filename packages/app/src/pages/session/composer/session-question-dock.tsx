@@ -12,6 +12,7 @@ import { Mark, Option } from "./question-option"
 import { cache, type DraftAnswer, type QuestionAnswer, type QuestionStore } from "./question-draft"
 import { focusWithoutScrollingTimeline } from "./question-option-focus"
 import { createQuestionAnswerEditing } from "./question-answer-editing"
+import { createQuestionKeyboardNav } from "./question-keyboard-nav"
 
 type QuestionRequestFingerprint = Pick<DockQuestionRequest, "id" | "sessionID" | "messageID" | "callID">
 
@@ -50,7 +51,6 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
   let replied = false
   let locallySubmitted: QuestionRequestFingerprint | undefined
   const responseGuard = createQuestionResponseGuard(props.request.id)
-  let focusFrame: number | undefined
 
   const question = createMemo(() => questions()[store.tab])
   const options = createMemo(() => question()?.options ?? [])
@@ -70,36 +70,24 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
 
   const last = createMemo(() => store.tab >= total() - 1)
 
-  const clamp = (i: number) => Math.max(0, Math.min(count() - 1, i))
+  const canInteract = () => responseGuard.canInteract(props.request.id)
 
-  const pickFocus = (tab: number = store.tab) => {
-    const list = questions()[tab]?.options ?? []
-    const customOnTab = questions()[tab]?.custom !== false
-    if (customOnTab && store.customOn[tab] === true) return list.length
-    return Math.max(
-      0,
-      list.findIndex((item) => store.answers[tab]?.includes(item.label) ?? false),
-    )
-  }
-
-  const focus = (i: number) => {
-    const next = clamp(i)
-    setStore("focus", next)
-    if (store.editing) return
-    if (focusFrame !== undefined) cancelAnimationFrame(focusFrame)
-    focusFrame = requestAnimationFrame(() => {
-      focusFrame = undefined
-      const el = next === options().length ? customRef : optsRef[next]
-      focusWithoutScrollingTimeline(el)
-    })
-  }
+  const keyboardNav = createQuestionKeyboardNav({
+    store,
+    setStore,
+    questions,
+    count,
+    canInteract,
+    resolveFocusTarget: (index) => (index === options().length ? customRef : optsRef[index]),
+    next: () => next(),
+    reject: () => reject(),
+  })
 
   onMount(() => {
-    focus(pickFocus())
+    keyboardNav.focus(keyboardNav.pickFocus())
   })
 
   onCleanup(() => {
-    if (focusFrame !== undefined) cancelAnimationFrame(focusFrame)
     if (replied) return
     const customByTab = (i: number) => questions()[i]?.custom !== false
     cache.set(props.request.id, {
@@ -126,8 +114,6 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
     cache.delete(props.request.id)
     props.onSubmit()
   }
-
-  const canInteract = () => responseGuard.canInteract(props.request.id)
 
   const fail = (err: unknown): "completed" | "failed" => {
     const normalized = normalizeToolRespondError(err)
@@ -228,7 +214,7 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
     if (pending >= 0) {
       setStore("tab", pending)
       setStore("editing", false)
-      focus(pickFocus(pending))
+      keyboardNav.focus(keyboardNav.pickFocus(pending))
       return
     }
     // mutateAsync rethrows after onError(fail) handles the toast; swallow
@@ -245,59 +231,8 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
     multi,
     optionCount: () => options().length,
     canInteract,
-    focus,
+    focus: keyboardNav.focus,
   })
-
-  const move = (step: number) => {
-    if (store.editing || !canInteract()) return
-    focus(store.focus + step)
-  }
-
-  const nav = (event: KeyboardEvent) => {
-    if (event.defaultPrevented) return
-
-    if (event.key === "Escape") {
-      event.preventDefault()
-      reject().catch(() => {})
-      return
-    }
-
-    const mod = (event.metaKey || event.ctrlKey) && !event.altKey
-    if (mod && event.key === "Enter") {
-      if (event.repeat) return
-      event.preventDefault()
-      next()
-      return
-    }
-
-    const target =
-      event.target instanceof HTMLElement ? event.target.closest('[data-slot="question-options"]') : undefined
-    if (store.editing) return
-    if (!(target instanceof HTMLElement)) return
-    if (event.altKey || event.ctrlKey || event.metaKey) return
-
-    if (event.key === "ArrowDown" || event.key === "ArrowRight") {
-      event.preventDefault()
-      move(1)
-      return
-    }
-
-    if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
-      event.preventDefault()
-      move(-1)
-      return
-    }
-
-    if (event.key === "Home") {
-      event.preventDefault()
-      focus(0)
-      return
-    }
-
-    if (event.key !== "End") return
-    event.preventDefault()
-    focus(count() - 1)
-  }
 
   const selectOption = (optIndex: number) => {
     if (!canInteract()) return
@@ -348,7 +283,7 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
     const tab = store.tab + 1
     setStore("tab", tab)
     setStore("editing", false)
-    focus(pickFocus(tab))
+    keyboardNav.focus(keyboardNav.pickFocus(tab))
   }
 
   const back = () => {
@@ -357,7 +292,7 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
     const tab = store.tab - 1
     setStore("tab", tab)
     setStore("editing", false)
-    focus(pickFocus(tab))
+    keyboardNav.focus(keyboardNav.pickFocus(tab))
   }
 
   const skipCurrent = () => {
@@ -370,7 +305,7 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
     const action = resolveSkipAction(store.tab, settled, total())
     if (action.type === "navigate") {
       setStore("tab", action.tab)
-      focus(pickFocus(action.tab))
+      keyboardNav.focus(keyboardNav.pickFocus(action.tab))
       return
     }
 
@@ -381,14 +316,14 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
     if (!canInteract()) return
     setStore("tab", tab)
     setStore("editing", false)
-    focus(pickFocus(tab))
+    keyboardNav.focus(keyboardNav.pickFocus(tab))
   }
 
   return (
     <DockPrompt
       kind="question"
       ref={(el) => (root = el)}
-      onKeyDown={nav}
+      onKeyDown={keyboardNav.nav}
       header={
         <>
           <div data-slot="question-header-title">
@@ -512,7 +447,7 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
                     if (e.key === "Escape") {
                       e.preventDefault()
                       setStore("editing", false)
-                      focus(options().length)
+                      keyboardNav.focus(options().length)
                       return
                     }
                     if ((e.metaKey || e.ctrlKey) && !e.altKey) return
