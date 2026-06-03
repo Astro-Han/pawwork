@@ -5,13 +5,8 @@
 import { createEffect, createMemo, onCleanup, type Accessor, type Setter } from "solid-js"
 import type { SetStoreFunction } from "solid-js/store"
 import { useFilteredList } from "@opencode-ai/ui/hooks"
-import {
-  type ContentPart,
-  DEFAULT_PROMPT,
-  type ImageAttachmentPart,
-  type Prompt,
-  type usePrompt,
-} from "@/context/prompt"
+import { type ContentPart, type ImageAttachmentPart, type Prompt, type usePrompt } from "@/context/prompt"
+import { DEFAULT_PROMPT } from "@/context/prompt-equality"
 import type { useCommand } from "@/context/command"
 import type { useSync } from "@/context/sync"
 import type { useFile } from "@/context/file"

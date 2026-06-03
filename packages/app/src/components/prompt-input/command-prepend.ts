@@ -15,7 +15,7 @@
 // preserved exactly — no cloning of incoming parts.
 
 import type { ImageAttachmentPart, Prompt, TextPart } from "@/context/prompt"
-import { DEFAULT_PROMPT, isPromptEqual } from "@/context/prompt"
+import { DEFAULT_PROMPT, isPromptEqual } from "@/context/prompt-equality"
 import { createCommandTextPart, type CommandDescriptor } from "./command-text-part"
 
 // Slash trigger regex — must match `editor-input.ts:261` exactly so the

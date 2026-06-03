@@ -1,7 +1,7 @@
 import { describe, expect, test, beforeEach } from "bun:test"
 import { createPortableDraftOwner } from "./portable-draft"
 import type { PortableDraftPayload } from "./portable-draft"
-import { DEFAULT_PROMPT } from "@/context/prompt"
+import { DEFAULT_PROMPT } from "@/context/prompt-equality"
 
 // Helper: build a non-empty payload
 function makePayload(text: string): PortableDraftPayload {
