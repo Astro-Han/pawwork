@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { Effect } from "effect"
+import { Effect, ManagedRuntime } from "effect"
 import { Automation } from "../../src/automation"
 import { internalTestHooks } from "../../src/automation/__test_hooks"
 import { AutomationScheduler } from "../../src/automation/scheduler"
@@ -11,6 +11,11 @@ import { createAutomateDefinition } from "../../src/tool/automate"
 import { fakeAutomationProvider } from "../fake/provider"
 import { tmpdir } from "../fixture/fixture"
 import { Flock } from "../../src/util/flock"
+
+// createAutomateDefinition now takes the resolved Automation service; resolve it
+// once (injected in production from AppRuntime, like provider).
+const runtime = ManagedRuntime.make(Automation.defaultLayer)
+const automation = await runtime.runPromise(Effect.gen(function* () { return yield* Automation.Service }))
 
 afterEach(async () => {
   await Instance.disposeAll()
@@ -301,7 +306,7 @@ describe("automation scheduler", () => {
         clock,
         executor: async () => ({ sessionID: SessionID.descending(), result: "done", cost: 0 }),
       })
-      const tool = createAutomateDefinition(fakeProvider.interface)
+      const tool = createAutomateDefinition(fakeProvider.interface, automation)
 
       const result = await Effect.runPromise(
         tool.execute(

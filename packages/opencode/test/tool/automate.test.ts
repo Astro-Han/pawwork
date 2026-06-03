@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test"
-import { Effect, Schema } from "effect"
+import { Effect, ManagedRuntime, Schema } from "effect"
 import { AutomateParameters, createAutomateDefinition, formatAutomateValidationError } from "../../src/tool/automate"
 import { Automation } from "../../src/automation"
 import { Instance } from "../../src/project/instance"
@@ -11,6 +11,11 @@ import { tmpdir } from "../fixture/fixture"
 import { fakeAutomationProvider } from "../fake/provider"
 
 const { providerID: fakeProviderID, modelID: fakeModelID, interface: fakeProviderInterface } = fakeAutomationProvider()
+
+// createAutomateDefinition now takes the resolved Automation service (injected
+// in production from AppRuntime, like provider). Resolve it once for the tests.
+const runtime = ManagedRuntime.make(Automation.defaultLayer)
+const automation = await runtime.runPromise(Effect.gen(function* () { return yield* Automation.Service }))
 
 const ctx = (sessionID: SessionID) => ({
   sessionID,
@@ -81,7 +86,7 @@ describe("automate tool", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const tool = createAutomateDefinition(fakeProviderInterface)
+        const tool = createAutomateDefinition(fakeProviderInterface, automation)
         const sourceSessionID = SessionID.descending()
         const result = await Effect.runPromise(
           tool.execute(
@@ -114,7 +119,7 @@ describe("automate tool", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const tool = createAutomateDefinition(fakeProviderInterface)
+        const tool = createAutomateDefinition(fakeProviderInterface, automation)
         const before = Date.now()
         const result = await Effect.runPromise(
           tool.execute(
@@ -135,7 +140,7 @@ describe("automate tool", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const tool = createAutomateDefinition(fakeProviderInterface)
+        const tool = createAutomateDefinition(fakeProviderInterface, automation)
         const result = await Effect.runPromise(
           tool.execute(
             {
@@ -162,7 +167,7 @@ describe("automate tool", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const tool = createAutomateDefinition(fakeProviderInterface)
+        const tool = createAutomateDefinition(fakeProviderInterface, automation)
         let error: unknown
         try {
           await Effect.runPromise(
@@ -196,7 +201,7 @@ describe("automate tool", () => {
           throw new Error("storage corrupt")
         }) as typeof MessageV2.stream)
         try {
-          const tool = createAutomateDefinition(fakeProviderInterface)
+          const tool = createAutomateDefinition(fakeProviderInterface, automation)
           let error: unknown
           try {
             await Effect.runPromise(
@@ -227,7 +232,7 @@ describe("automate tool", () => {
           throw new NotFoundError({ message: "Session not found" })
         }) as typeof MessageV2.stream)
         try {
-          const tool = createAutomateDefinition(fakeProviderInterface)
+          const tool = createAutomateDefinition(fakeProviderInterface, automation)
           const result = await Effect.runPromise(
             tool.execute(
               { title: "Daily repo brief", prompt: "Summarize repo changes.", cron: "0 9 * * *" },
@@ -265,7 +270,7 @@ describe("automate tool", () => {
           }) as Provider.Interface["getModel"],
         }
         try {
-          const tool = createAutomateDefinition(slowProvider)
+          const tool = createAutomateDefinition(slowProvider, automation)
           const result = await Effect.runPromise(
             tool.execute(
               {
@@ -294,7 +299,7 @@ describe("automate tool", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const tool = createAutomateDefinition(fakeProviderInterface)
+        const tool = createAutomateDefinition(fakeProviderInterface, automation)
         const sourceSessionID = SessionID.descending()
         const spoof = {
           sourceSessionID: SessionID.descending(),
