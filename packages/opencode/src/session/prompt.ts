@@ -1862,6 +1862,29 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           ]
         }
 
+        if (part.type === "skill") {
+          // Inline skill chip: resolve the command/skill template and inject it as a
+          // synthetic, model-visible text part (mirrors the agent branch above). The
+          // structured skill part is persisted only to render the chip in the bubble;
+          // it is position-independent because activation reads the parts array, not the
+          // text. Argless by design — the surrounding user prose is the turn body.
+          const cmd = yield* commands.get(part.name)
+          // Unknown skill (renamed/removed): keep the chip so the bubble still renders,
+          // but inject nothing rather than throwing the whole turn.
+          if (!cmd) return [{ ...part, messageID: info.id, sessionID: input.sessionID }]
+          const template = yield* expandCommandTemplate(cmd, "")
+          return [
+            { ...part, messageID: info.id, sessionID: input.sessionID },
+            {
+              messageID: info.id,
+              sessionID: input.sessionID,
+              type: "text",
+              synthetic: true,
+              text: template,
+            },
+          ]
+        }
+
         return [{ ...part, messageID: info.id, sessionID: input.sessionID }]
       })
 
@@ -2829,6 +2852,16 @@ export const PromptInput = z.object({
         })
         .meta({
           ref: "AgentPartInput",
+        }),
+      MessageV2.SkillPart.omit({
+        messageID: true,
+        sessionID: true,
+      })
+        .partial({
+          id: true,
+        })
+        .meta({
+          ref: "SkillPartInput",
         }),
       MessageV2.SubtaskPart.omit({
         messageID: true,

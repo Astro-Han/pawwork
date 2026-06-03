@@ -1004,6 +1004,95 @@ describe("session.agent-resolution", () => {
   }, 30000)
 })
 
+describe("session.prompt inline skill parts", () => {
+  test("resolves a skill part to a chip plus synthetic template text, position-independent", async () => {
+    await using tmp = await tmpdir({
+      config: {
+        agent: { build: { model: "openai/gpt-5.2" } },
+        command: { summarize: { template: "Summarize the latest user request." } },
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: () =>
+        run(
+          Effect.gen(function* () {
+            const prompt = yield* SessionPrompt.Service
+            const sessions = yield* Session.Service
+            const session = yield* sessions.create({})
+
+            // Skill chip sits AFTER the prose — position-independent activation.
+            const msg = yield* prompt.prompt({
+              sessionID: session.id,
+              agent: "build",
+              noReply: true,
+              parts: [
+                { type: "text", text: "please" },
+                { type: "skill", name: "summarize" },
+              ],
+            })
+            if (msg.info.role !== "user") throw new Error("expected user message")
+
+            // The structured chip part is persisted (renders the chip; not sent to the model).
+            const skill = msg.parts.find((part) => part.type === "skill")
+            expect(skill).toBeDefined()
+            if (skill?.type === "skill") expect(skill.name).toBe("summarize")
+
+            // The expanded template is injected as a synthetic, model-visible text part.
+            expect(
+              msg.parts.some(
+                (part) =>
+                  part.type === "text" && part.synthetic && part.text === "Summarize the latest user request.",
+              ),
+            ).toBe(true)
+
+            // The user's own prose survives as a normal (non-synthetic) text part.
+            expect(
+              msg.parts.some((part) => part.type === "text" && !part.synthetic && part.text === "please"),
+            ).toBe(true)
+
+            yield* sessions.remove(session.id)
+          }),
+        ),
+    })
+  }, 30000)
+
+  test("keeps the chip but injects nothing when the skill name is unknown", async () => {
+    await using tmp = await tmpdir({
+      config: { agent: { build: { model: "openai/gpt-5.2" } } },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: () =>
+        run(
+          Effect.gen(function* () {
+            const prompt = yield* SessionPrompt.Service
+            const sessions = yield* Session.Service
+            const session = yield* sessions.create({})
+
+            const msg = yield* prompt.prompt({
+              sessionID: session.id,
+              agent: "build",
+              noReply: true,
+              parts: [
+                { type: "text", text: "hi" },
+                { type: "skill", name: "does-not-exist" },
+              ],
+            })
+            if (msg.info.role !== "user") throw new Error("expected user message")
+
+            // Unknown skill: the chip is preserved (so the bubble still renders) ...
+            expect(msg.parts.some((part) => part.type === "skill" && part.name === "does-not-exist")).toBe(true)
+            // ... but no synthetic template text is injected.
+            expect(msg.parts.some((part) => part.type === "text" && part.synthetic)).toBe(false)
+
+            yield* sessions.remove(session.id)
+          }),
+        ),
+    })
+  }, 30000)
+})
+
 // #26597: the prompt rebuilds session.permission from the boolean tools map, which can only
 // regenerate whole-tool ("*") rules for the keys it lists. For an agent-tool subagent it must
 // carry forward the caller's inherited rules the map can't regenerate — scoped denies,
