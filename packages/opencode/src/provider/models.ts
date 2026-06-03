@@ -94,7 +94,7 @@ export const Model = z.object({
         .optional(),
     })
     .optional(),
-  status: z.enum(["alpha", "beta", "deprecated"]).optional(),
+  status: z.enum(["alpha", "beta", "deprecated", "active"]).optional(),
   provider: z.object({ npm: z.string().optional(), api: z.string().optional() }).optional(),
 })
 export type Model = z.infer<typeof Model>
@@ -160,7 +160,7 @@ const PublishModel = z
           .optional(),
       })
       .optional(),
-    status: z.enum(["alpha", "beta", "deprecated"]).optional(),
+    status: z.enum(["alpha", "beta", "deprecated", "active"]).optional(),
     provider: z.object({ npm: z.string().optional(), api: z.string().optional() }).optional(),
   })
   .passthrough()
