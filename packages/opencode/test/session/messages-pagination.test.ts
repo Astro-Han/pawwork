@@ -4,7 +4,7 @@ import path from "path"
 import { Instance } from "../../src/project/instance"
 import { Session as SessionNs } from "../../src/session"
 import { MessageV2 } from "../../src/session/message-v2"
-import { deriveActivatedTools, deriveActivatedToolsFromParts } from "../../src/tool/tool-info"
+import { deriveActivatedTools, deriveActivatedToolsFromParts, deriveNewlyActivated } from "../../src/tool/tool-info"
 import { MessageID, PartID, type SessionID } from "../../src/session/schema"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { Log } from "../../src/util"
@@ -1122,6 +1122,42 @@ describe("MessageV2.filterCompacted", () => {
         // across compaction instead of silently re-locking mid-session.
         const fromStorage = MessageV2.toolInfoParts(session.id)
         expect(deriveActivatedToolsFromParts(fromStorage).has("enter-worktree")).toBe(true)
+
+        await svc.remove(session.id)
+      },
+    })
+  })
+
+  test("activation reminder source survives a compaction that summarises the activating turn", async () => {
+    await Instance.provide({
+      directory: root,
+      fn: async () => {
+        const session = await svc.create({})
+
+        // The activating assistant turn runs tool_info, then a compaction summarises it
+        // into the head (tail starts at the later boundary), so the activating turn is
+        // older than the retained tail — exactly the case where the reminder would be lost
+        // if it were derived from the compaction-filtered view.
+        const activateUser = await addUser(session.id, "activate")
+        const activating = await addAssistant(session.id, activateUser)
+        await addToolInfoPart(session.id, activating, "enter-worktree")
+
+        const boundary = await addUser(session.id, "compact")
+        const summary = await addAssistant(session.id, boundary, { summary: true, finish: "end_turn" })
+        await addCompactionPart(session.id, boundary, boundary)
+
+        // The compaction summary is the newest assistant and the filtered view has dropped
+        // the activating turn, so deriving the reminder from it would silently lose it.
+        const filtered = MessageV2.filterCompacted(MessageV2.stream(session.id))
+        const newestFilteredAssistant = [...filtered].reverse().find((m) => m.info.role === "assistant")
+        expect(newestFilteredAssistant?.info.id).toBe(summary)
+        expect(filtered.map((m) => m.info.id)).not.toContain(activating)
+
+        // The durable newest NON-SUMMARY assistant is still the activating turn, so the
+        // one-shot reminder is derived correctly across the compaction.
+        const lastReal = MessageV2.lastNonSummaryAssistant(session.id)
+        expect(lastReal?.info.id).toBe(activating)
+        expect(deriveNewlyActivated(lastReal).has("enter-worktree")).toBe(true)
 
         await svc.remove(session.id)
       },

@@ -2109,8 +2109,11 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           })
 
           // Tool description self-claims of "now available" don't move small models;
-          // a <system-reminder> in the user message of the very next step does.
-          const newlyActivated = deriveNewlyActivated(msgs)
+          // a <system-reminder> in the user message of the very next step does. Source the
+          // just-activated ids from the durable newest non-summary assistant (not the
+          // compaction-filtered msgs) so a compaction landing right after the tool_info
+          // call can't drop the activating turn and swallow the one-shot reminder.
+          const newlyActivated = deriveNewlyActivated(MessageV2.lastNonSummaryAssistant(sessionID))
           if (newlyActivated.size > 0) {
             const userMessage = msgs.findLast((msg) => msg.info.role === "user" && msg.info.id === lastUser.id)
             for (const name of newlyActivated) {

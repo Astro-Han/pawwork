@@ -81,13 +81,16 @@ export function deriveActivatedToolsFromParts(parts: MessageV2.Part[]): Set<stri
   return activated
 }
 
-// Identifies deferred tools whose activation lives in the MOST RECENT assistant
-// message — used to inject a one-shot reminder for exactly the next turn.
-export function deriveNewlyActivated(messages: MessageV2.WithParts[]): Set<string> {
+// Reports the deferred ids newly activated on a SINGLE assistant turn — the session's
+// newest NON-SUMMARY assistant (MessageV2.lastNonSummaryAssistant). Used to inject the
+// one-shot activation <system-reminder> on exactly the step after a tool_info call. It
+// keys on completed tool_info parts' metadata.activated, so once the model takes any real
+// (non-tool_info) turn the set is empty and the reminder stops — and a compaction summary
+// inserted in between can't suppress it, because summaries are excluded at the source.
+export function deriveNewlyActivated(lastRealAssistant: MessageV2.WithParts | undefined): Set<string> {
   const newly = new Set<string>()
-  const lastAssistant = [...messages].reverse().find((m) => m.info.role === "assistant")
-  if (!lastAssistant) return newly
-  for (const part of lastAssistant.parts) {
+  if (!lastRealAssistant) return newly
+  for (const part of lastRealAssistant.parts) {
     if (part.type !== "tool" || part.tool !== TOOL_INFO_ID) continue
     if (part.state.status !== "completed") continue
     const activated = (part.state.metadata as { activated?: unknown } | undefined)?.activated

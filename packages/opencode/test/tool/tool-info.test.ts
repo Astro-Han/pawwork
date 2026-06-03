@@ -61,18 +61,19 @@ describe("tool-info", () => {
     expect(buildCardList([])).toContain("No deferred tools")
   })
 
-  test("deriveNewlyActivated only picks the most recent assistant message", () => {
-    const messages = [
-      assistant([toolPart("tool_info", "completed", { name: "enter-worktree" }, { activated: "enter-worktree" })]),
-      { info: { role: "user" }, parts: [] } as unknown as MessageV2.WithParts,
-      assistant([toolPart("tool_info", "completed", { name: "exit-worktree" }, { activated: "exit-worktree" })]),
-    ]
-    expect([...deriveNewlyActivated(messages)]).toEqual(["exit-worktree"])
+  test("deriveNewlyActivated reports the activation on the given assistant turn", () => {
+    const turn = assistant([
+      toolPart("tool_info", "completed", { name: "exit-worktree" }, { activated: "exit-worktree" }),
+    ])
+    expect([...deriveNewlyActivated(turn)]).toEqual(["exit-worktree"])
   })
 
-  test("deriveNewlyActivated returns empty when the last assistant has no tool_info part", () => {
-    const messages = [assistant([toolPart("read", "completed", {})])]
-    expect(deriveNewlyActivated(messages).size).toBe(0)
+  test("deriveNewlyActivated returns empty when the assistant turn has no tool_info part", () => {
+    expect(deriveNewlyActivated(assistant([toolPart("read", "completed", {})])).size).toBe(0)
+  })
+
+  test("deriveNewlyActivated returns empty when there is no assistant turn", () => {
+    expect(deriveNewlyActivated(undefined).size).toBe(0)
   })
 
   test("buildActivationReminder anchors on system-reminder and rules out the bash fallback for enter-worktree", () => {
