@@ -396,7 +396,9 @@ describe("workspace router", () => {
       expect(response.status).toBe(500)
       const body = await response.json()
       expect(body.name).toBe("UnknownError")
-      expect(body.data.message).toContain("No context found for instance")
+      // The unexpected 500 body is intentionally redacted to a constant (the internal
+      // routing error stays in the server log only); see ErrorMiddleware.
+      expect(body.data.message).toBe("Unexpected server error. Check server logs for details.")
       expect(remoteHits).toBe(0)
     } finally {
       ensureSync.mockRestore()
@@ -565,7 +567,9 @@ describe("workspace router", () => {
 
       expect(response.status).toBe(500)
       expect(body.name).toBe("UnknownError")
-      expect(body.data.message).toContain(message)
+      // The Effect failure channel above still carries the real message; the HTTP body is
+      // redacted to a constant so the internal failure never leaks to clients (ErrorMiddleware).
+      expect(body.data.message).toBe("Unexpected server error. Check server logs for details.")
     } finally {
       ensureSync.mockRestore()
     }

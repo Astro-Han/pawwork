@@ -200,6 +200,28 @@ describe("server error middleware", () => {
     expect(calls).toEqual([{ message: "failed", extra: { error } }])
   })
 
+  test("hides unexpected server error details from the 500 response body", async () => {
+    const error = new Error("secret stack marker: /Users/alice/project sk-secret")
+    const app = new Hono().get("/boom", () => {
+      throw error
+    })
+    app.onError(ErrorMiddleware)
+
+    let response!: Response
+    let body!: { name: string; data: { message: string } }
+    const calls = await captureServerErrorLogs(async () => {
+      response = await app.request("/boom")
+      body = await response.json()
+    })
+
+    expect(response.status).toBe(500)
+    expect(body.name).toBe("UnknownError")
+    expect(body.data.message).toBe("Unexpected server error. Check server logs for details.")
+    // The stack trace must never leak to clients, but it must still reach the server log.
+    expect(JSON.stringify(body)).not.toContain("secret stack marker")
+    expect(calls).toEqual([{ message: "failed", extra: { error } }])
+  })
+
   test("maps provider oauth callback failures to 400 instead of 500", async () => {
     const providerID = "anthropic" as ProviderID
     const cases = [
