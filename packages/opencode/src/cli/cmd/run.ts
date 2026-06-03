@@ -469,7 +469,8 @@ export const RunCommand = cmd({
         return false
       }
 
-      const events = await sdk.event.subscribe()
+      const drainAbort = new AbortController()
+      const events = await sdk.event.subscribe(undefined, { signal: drainAbort.signal })
       let error: string | undefined
 
       async function loop() {
@@ -565,6 +566,9 @@ export const RunCommand = cmd({
               err = String(props.error.data.message)
             }
             error = error ? error + EOL + err : err
+            // Fail the exit code the moment an error is seen, so a later missed
+            // idle event (which leaves loop()/drained pending) can't exit 0.
+            process.exitCode = 1
             if (emit("error", { error: props.error })) continue
             UI.error(err)
           }
@@ -676,6 +680,9 @@ export const RunCommand = cmd({
       // can await it after the request resolves instead of letting the instance
       // be disposed mid-drain (which drops trailing JSON/text output).
       const drained = loop().catch((e) => {
+        // We aborted the subscription ourselves (fail-fast / post-drain cleanup);
+        // that surfaces as a stream error but is a clean stop, not a failure.
+        if (drainAbort.signal.aborted) return undefined
         console.error(e)
         process.exitCode = 1
         return undefined
@@ -704,6 +711,9 @@ export const RunCommand = cmd({
       if (result.error && !emit("error", { error: result.error })) UI.error(formatRunError(result.error))
 
       const exitCode = await finalizeRun(drained, result)
+      // Close the (auto-retrying) SSE subscription so the process can exit even
+      // when the turn errored before idle or the live stream missed idle.
+      drainAbort.abort()
       if (exitCode) process.exitCode = exitCode
     }
 
