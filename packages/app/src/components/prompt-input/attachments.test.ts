@@ -32,9 +32,10 @@ class TestFileReader {
 // global, persistent, non-restoring registry override that leaked this toast
 // mock into every later test file and broke suites relying on the real
 // showToast (e.g. pawwork-session-commands.test.ts).
-spyOn(uiToast, "showToast").mockImplementation(((toast: (typeof toasts)[number]) => {
-  toasts.push(toast)
-}) as never)
+spyOn(uiToast, "showToast").mockImplementation((toast) => {
+  toasts.push(toast as (typeof toasts)[number])
+  return 0
+})
 
 mock.module("@/context/language", () => ({
   useLanguage: () => ({

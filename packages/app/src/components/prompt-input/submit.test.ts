@@ -124,7 +124,7 @@ beforeAll(async () => {
   // global, persistent, non-restoring registry override, so a noop toast mock
   // here leaked into every later test file in the run and broke suites that
   // rely on the real showToast (e.g. pawwork-session-commands.test.ts).
-  spyOn(uiToast, "showToast").mockImplementation(() => 0 as never)
+  spyOn(uiToast, "showToast").mockImplementation(() => 0)
 
   mock.module("@opencode-ai/util/encode", () => ({
     base64Encode: (value: string) => value,
