@@ -1,7 +1,7 @@
 import { test, expect, describe } from "bun:test"
-import { McpOAuthProvider } from "../../src/mcp/oauth-provider"
+import { McpOAuthProvider, type McpOAuthConfig } from "../../src/mcp/oauth-provider"
 
-const makeProvider = (config: ConstructorParameters<typeof McpOAuthProvider>[2]) =>
+const makeProvider = (config: McpOAuthConfig) =>
   new McpOAuthProvider("test-server", "https://mcp.example.com/mcp", config, { onRedirect: async () => {} })
 
 describe("McpOAuthProvider.clientMetadata", () => {
