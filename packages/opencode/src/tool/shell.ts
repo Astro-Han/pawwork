@@ -47,9 +47,21 @@ const METADATA_FLUSH_BYTES = 4 * 1024
 const CONSUMER_DRAIN_TIMEOUT = Duration.seconds(1)
 const DEFAULT_TIMEOUT = Flag.OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS || 2 * 60 * 1000
 const PS = new Set(["powershell", "pwsh"])
+// CWD commands are skipped from the generic bash-command prompt below (they are
+// pure navigation builtins). Only put a command here when it is a real cwd
+// builtin on every shell that reaches it — otherwise a same-named PATH
+// executable would slip past the bash prompt (see pushd/chdir in FILES).
 const CWD = new Set(["cd", "push-location", "set-location"])
 const FILES = new Set([
   ...CWD,
+  // pushd (POSIX) and chdir (cmd.exe) change the cwd into their target, so the
+  // target argument must be scanned for external_directory the same way cd's is
+  // (#1052: `pushd /external` previously read outside the project unprompted).
+  // They stay OUT of CWD on purpose: pushd is not a builtin in sh/dash and chdir
+  // is not a POSIX builtin at all, so they must still raise the generic bash
+  // prompt — only the external-target scan is shared with cd.
+  "pushd",
+  "chdir",
   "rm",
   "cp",
   "mv",

@@ -1589,6 +1589,70 @@ describe("tool.bash permissions", () => {
     })
   })
 
+  // pushd (POSIX) and chdir (cmd.exe) change the cwd into their target, so they
+  // must scan that target for external_directory the same way cd does (#1052:
+  // `pushd /etc` previously read outside the project unprompted).
+  for (const changer of ["pushd", "chdir"]) {
+    each(`asks for external_directory when ${changer} enters an external directory`, async () => {
+      await Instance.provide({
+        directory: projectRoot,
+        fn: async () => {
+          const bash = await initBash()
+          const err = new Error("stop after permission")
+          const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+          const dir = process.platform === "win32" ? process.env.WINDIR!.replaceAll("\\", "/") : "/etc"
+          const want =
+            process.platform === "win32"
+              ? glob(path.join(process.env.WINDIR!, "*"))
+              : path.join(await fs.promises.realpath("/etc"), "*")
+          await expect(
+            Effect.runPromise(
+              bash.execute(
+                {
+                  command: `${changer} ${dir}`,
+                  description: `Change into external directory with ${changer}`,
+                },
+                capture(requests, err),
+              ),
+            ),
+          ).rejects.toThrow(err.message)
+          const extDirReq = requests.find((r) => r.permission === "external_directory")
+          expect(extDirReq).toBeDefined()
+          expect(extDirReq!.patterns).toContain(want)
+        },
+      })
+    })
+  }
+
+  // Unlike cd, pushd/chdir stay OUT of the CWD skip-set, so an in-project target
+  // (no external_directory) still raises the generic bash prompt. This guards
+  // against a same-named PATH executable slipping past unprompted — chdir is no
+  // POSIX builtin and pushd is none in sh/dash (#1052 review).
+  for (const changer of ["pushd", "chdir"]) {
+    each(`still asks for bash permission when ${changer} target stays in the project`, async () => {
+      await Instance.provide({
+        directory: projectRoot,
+        fn: async () => {
+          const bash = await initBash()
+          const err = new Error("stop after permission")
+          const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+          await expect(
+            Effect.runPromise(
+              bash.execute(
+                { command: `${changer} src`, description: `In-project ${changer}` },
+                capture(requests, err),
+              ),
+            ),
+          ).rejects.toThrow(err.message)
+          expect(requests.find((r) => r.permission === "external_directory")).toBeUndefined()
+          const bashReq = requests.find((r) => r.permission === "bash")
+          expect(bashReq).toBeDefined()
+          expect(bashReq!.always).toContain(`${changer} *`)
+        },
+      })
+    })
+  }
+
   if (process.platform === "win32") {
     if (bash) {
       test(
