@@ -1,4 +1,5 @@
 import { createMemo, createSignal, onCleanup, onMount, Show, type Accessor, type JSX } from "solid-js"
+import { Popover } from "@kobalte/core/popover"
 import type { AutomationDefinition } from "@opencode-ai/sdk/v2/client"
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
@@ -6,7 +7,6 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
-import { useProviders } from "@/hooks/use-providers"
 import { formatServerError } from "@/utils/server-errors"
 import { AutomationList } from "./automation-list"
 import { AutomationDetail } from "./automation-detail"
@@ -42,25 +42,22 @@ function AutomationsEmpty(props: { onUseTemplate: (template: AutomationTemplate)
 export function AutomationsSurface(props: {
   directory: Accessor<string>
   projectID: Accessor<string | undefined>
+  requestedID?: Accessor<string | undefined>
   onClose: () => void
   onOpenRun: (sessionID: string) => void
+  onCreateViaChat: () => void
 }): JSX.Element {
   const globalSync = useGlobalSync()
   const language = useLanguage()
   const dialog = useDialog()
-  const providers = useProviders()
   const [selectedID, setSelectedID] = createSignal<string | undefined>()
 
-  // The panel renders outside the per-directory LocalProvider, so the create
-  // card can't reuse the composer model state; seed it with the project's
-  // default model (providerID -> modelID map) instead.
-  const defaultModel = createMemo(() => {
-    const defaults = providers.default()
-    for (const providerID in defaults) {
-      const modelID = defaults[providerID]
-      if (modelID) return { providerID, modelID }
-    }
-    return undefined
+  // The panel remounts each time it opens (lazy <Show>), so a pending deep-link
+  // selection (from the automate tool's "open in Automations" jump) is read once
+  // on mount; manual opens clear the request first, so no stale row is forced.
+  onMount(() => {
+    const requested = props.requestedID?.()
+    if (requested) setSelectedID(requested)
   })
 
   // Escape returns to the list when a row is open, otherwise closes the surface.
@@ -121,12 +118,10 @@ export function AutomationsSurface(props: {
     const projectID = props.projectID()
     if (!projectID) return
     const directory = props.directory()
-    const model = defaultModel()
     dialog.show(() => (
       <AutomationCreateDialog
         directory={directory}
         projectID={projectID}
-        model={model}
         template={template}
         onCreated={(definition) => setSelectedID(definition.id)}
       />
@@ -145,9 +140,35 @@ export function AutomationsSurface(props: {
           fallback={
             <div class="flex flex-col gap-4">
               <div class="flex items-center justify-end">
-                <Button variant="primary" icon="plus" data-action="automation-create-open" onClick={() => openCreate()}>
-                  {language.t("automations.create.cta")}
-                </Button>
+                <Popover gutter={6} placement="bottom-end">
+                  <Popover.Trigger as={Button} variant="primary" icon="plus" data-action="automation-create-open">
+                    {language.t("automations.create.cta")}
+                    <Icon name="chevron-down" class="size-3.5" />
+                  </Popover.Trigger>
+                  <Popover.Portal>
+                    <Popover.Content
+                      data-component="dropdown-menu-content"
+                      class="z-50 w-56 rounded-xl border border-border-weak bg-bg-base p-1.5 shadow-lg outline-none"
+                    >
+                      <Popover.CloseButton
+                        data-action="automation-create-chat"
+                        onClick={() => props.onCreateViaChat()}
+                        class="flex h-[34px] w-full items-center gap-2.5 rounded-md px-2.5 text-body text-fg-base hover:bg-row-hover-overlay focus:outline-none"
+                      >
+                        <Icon name="new-session" class="size-4 shrink-0 text-icon-weak" />
+                        <span class="truncate">{language.t("automations.create.viaChat")}</span>
+                      </Popover.CloseButton>
+                      <Popover.CloseButton
+                        data-action="automation-create-manual"
+                        onClick={() => openCreate()}
+                        class="flex h-[34px] w-full items-center gap-2.5 rounded-md px-2.5 text-body text-fg-base hover:bg-row-hover-overlay focus:outline-none"
+                      >
+                        <Icon name="edit" class="size-4 shrink-0 text-icon-weak" />
+                        <span class="truncate">{language.t("automations.create.manually")}</span>
+                      </Popover.CloseButton>
+                    </Popover.Content>
+                  </Popover.Portal>
+                </Popover>
               </div>
               <Show when={automations().length > 0} fallback={<AutomationsEmpty onUseTemplate={openCreate} />}>
                 <AutomationList automations={automations} onSelect={setSelectedID} onToggleActive={toggleActive} />

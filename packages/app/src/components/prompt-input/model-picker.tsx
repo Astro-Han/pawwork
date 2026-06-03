@@ -2,6 +2,7 @@ import { Popover as Kobalte } from "@kobalte/core/popover"
 import { Component, ComponentProps, createMemo, createSignal, For, JSX, Show, ValidComponent } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLocal } from "@/context/local"
+import type { ModelKey } from "@/context/models"
 import { popularProviders } from "@/hooks/use-providers"
 import { Icon } from "@opencode-ai/ui/icon"
 import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
@@ -17,7 +18,23 @@ import { translateVariant } from "@/components/prompt-input/variant-label"
 const isFree = (provider: string, cost: { input: number } | undefined) =>
   provider === "opencode" && (!cost || cost.input === 0)
 
-type ModelState = ReturnType<typeof useLocal>["model"]
+// The picker reads only this slice of the local model state. Decoupling it from
+// useLocal lets the Automations create card (which renders outside the
+// per-directory LocalProvider) drive the same UI from a panel-local controller
+// (see pages/automations/automation-model-state). The full useLocal().model is
+// a structural superset, so existing composer call sites are unaffected.
+export type PickerModel = ReturnType<ReturnType<typeof useLocal>["model"]["list"]>[number]
+export interface ModelPickerState {
+  list: () => PickerModel[]
+  current: () => PickerModel | undefined
+  visible: (item: ModelKey) => boolean
+  set: (item: ModelKey | undefined, options?: { recent?: boolean }) => void
+  variant: {
+    list: () => string[]
+    current: () => string | undefined
+    set: (value: string | undefined) => void
+  }
+}
 
 const [externalOpen, setExternalOpen] = createSignal(false)
 
@@ -29,7 +46,7 @@ const ModelList: Component<{
   provider?: string
   class?: string
   onSelect: () => void
-  model?: ModelState
+  model?: ModelPickerState
 }> = (props) => {
   const model = props.model ?? useLocal().model
   const language = useLanguage()
@@ -93,7 +110,7 @@ const ModelList: Component<{
   )
 }
 
-const ThinkingLevelSection: Component<{ model?: ModelState }> = (props) => {
+const ThinkingLevelSection: Component<{ model?: ModelPickerState }> = (props) => {
   const model = props.model ?? useLocal().model
   const language = useLanguage()
   const variants = createMemo(() => model.variant.list())
@@ -151,7 +168,7 @@ const isPickerContentTarget = (target: EventTarget | null) =>
 
 export function ModelSelectorPopover(props: {
   provider?: string
-  model?: ModelState
+  model?: ModelPickerState
   children?: JSX.Element
   triggerAs?: ValidComponent
   triggerProps?: ModelSelectorTriggerProps

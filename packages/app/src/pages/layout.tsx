@@ -36,6 +36,7 @@ import { usePermission } from "@/context/permission"
 import { playSoundById } from "@/utils/sound"
 import { setNavigate } from "@/utils/notification-click"
 import { setOpenSettings } from "@/utils/settings-navigation"
+import { setOpenAutomations } from "@/utils/automations-navigation"
 import { Worktree as WorktreeState } from "@/utils/worktree"
 import { usePinnedDraft } from "@/components/prompt-input/pinned-draft"
 
@@ -95,6 +96,10 @@ export default function Layout(props: ParentProps) {
   const [activeSurface, setActiveSurface] = createSignal<"none" | "settings" | "automations">("none")
   const settingsOpen = createMemo(() => activeSurface() === "settings")
   const automationsOpen = createMemo(() => activeSurface() === "automations")
+  // Pending deep-link selection for the Automations panel; set just before the
+  // surface opens (e.g. the automate tool's jump button) and read once on its
+  // mount. Cleared on manual opens so a stale id never forces a row.
+  const [requestedAutomationID, setRequestedAutomationID] = createSignal<string | undefined>()
   const [settingsTab, setSettingsTab] = createSignal<SettingsTab>("general")
 
   const params = useParams()
@@ -480,7 +485,30 @@ export default function Layout(props: ParentProps) {
   }
 
   function toggleAutomations() {
+    setRequestedAutomationID(undefined)
     setActiveSurface((current) => (current === "automations" ? "none" : "automations"))
+  }
+
+  // Open the Automations panel focused on one automation. Wired to the
+  // module-level bridge so the automate tool card (deep in the message thread,
+  // outside this shell) can jump here. The surface reads the request on mount.
+  function openAutomationByID(automationID?: string) {
+    setRequestedAutomationID(automationID)
+    setActiveSurface("automations")
+  }
+  setOpenAutomations(openAutomationByID)
+
+  // "Create via chat" leaves the panel and starts a fresh session in the current
+  // project, prefilled with a short guiding prompt the user can edit or send.
+  // The ?prompt= bootstrap (see useSessionRoutePromptBootstrap) seeds the
+  // composer reactively, so it works whether or not we are already on the
+  // new-session route.
+  function createAutomationViaChat() {
+    closeSettings()
+    const directory = currentProject()?.worktree ?? projectRoot(currentDir())
+    if (!directory) return
+    const prompt = encodeURIComponent(language.t("automations.create.viaChatPrompt"))
+    navigate(`/${base64Encode(directory)}/session?prompt=${prompt}`)
   }
 
   function openSettings(tab?: SettingsTab) {
@@ -957,8 +985,10 @@ export default function Layout(props: ParentProps) {
               <AutomationsSurface
                 directory={() => currentProject()?.worktree ?? projectRoot(currentDir())}
                 projectID={() => currentProject()?.id}
+                requestedID={requestedAutomationID}
                 onClose={closeSettings}
                 onOpenRun={openAutomationRun}
+                onCreateViaChat={createAutomationViaChat}
               />
             ),
           }}

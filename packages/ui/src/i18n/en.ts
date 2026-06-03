@@ -197,6 +197,8 @@ export const dict: Record<string, string> = {
   "ui.tool.agent": "{{type}} Agent",
   "ui.tool.agent.default": "Agent",
   "ui.tool.skill": "Used Skill",
+  "ui.tool.automate.creating": "Creating automation",
+  "ui.tool.automate.created": "Automation created",
 
   "ui.basicTool.called": "Called `{{tool}}`",
   "ui.toolErrorCard.failed": "Failed",
