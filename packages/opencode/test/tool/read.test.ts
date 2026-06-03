@@ -84,7 +84,6 @@ const fail = Effect.fn("ReadToolTest.fail")(function* (
   throw new Error("expected read to fail")
 })
 
-const full = (p: string) => (process.platform === "win32" ? Filesystem.normalizePath(p) : p)
 const glob = (p: string) =>
   process.platform === "win32" ? Filesystem.normalizePathPattern(p) : p.replaceAll("\\", "/")
 const put = Effect.fn("ReadToolTest.put")(function* (p: string, content: string | Buffer | Uint8Array) {
@@ -145,6 +144,26 @@ describe("tool.read external_directory permission", () => {
     }),
   )
 
+  it.live("asks for read permission using the worktree-relative path (ba9e4b67ed)", () =>
+    Effect.gen(function* () {
+      // The read permission pattern must be the worktree-relative path, like
+      // edit/write/apply_patch — otherwise a user's relative permission.read glob never matches
+      // the absolute filepath and read rules are silently inert.
+      const dir = yield* tmpdirScoped({ git: true })
+      yield* put(path.join(dir, "subdir", "test.txt"), "nested content")
+
+      const { items, next } = asks()
+      const target = path.join(dir, "subdir", "test.txt")
+      yield* exec(dir, { filePath: target }, next)
+
+      const read = items.find((item) => item.permission === "read")
+      expect(read).toBeDefined()
+      expect(read!.patterns).toEqual([path.relative(dir, target)])
+      // Regression guard: not the absolute path.
+      expect(read!.patterns[0]).not.toContain(dir)
+    }),
+  )
+
   if (process.platform === "win32") {
     it.live("normalizes read permission paths on Windows", () =>
       Effect.gen(function* () {
@@ -161,7 +180,9 @@ describe("tool.read external_directory permission", () => {
         yield* exec(dir, { filePath: alt }, next)
         const read = items.find((item) => item.permission === "read")
         expect(read).toBeDefined()
-        expect(read!.patterns).toEqual([full(target)])
+        // ba9e4b67ed: a weird-cased / forward-slashed Windows input still resolves to the
+        // worktree-relative pattern (not the normalized absolute path).
+        expect(read!.patterns).toEqual([path.relative(dir, target)])
       }),
     )
   }
