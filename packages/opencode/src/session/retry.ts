@@ -3,12 +3,26 @@ import { Cause, Clock, Duration, Effect, Schedule } from "effect"
 import { MessageV2 } from "./message-v2"
 import { iife } from "@/util/iife"
 import { ProviderID } from "@/provider/schema"
+import type { ProviderFailureKind } from "@/provider/error"
 import { type RetryClassification, retryAction } from "./retry-classification"
 
 export type Err = ReturnType<NamedError["toObject"]>
 
 export { retryAction } from "./retry-classification"
 export type { RetryAction } from "./retry-classification"
+
+// providerFailure kinds (slice ②) that are terminal client-side failures —
+// retrying cannot fix them, so they never retry. The transient kinds below
+// always retry. classifyRetry reads these so the retry decision follows the
+// canonical classification instead of re-deriving it from the provider SDK's
+// isRetryable flag; `unknown` or absent kinds fall back to that legacy signal.
+const RETRY_TERMINAL_KINDS = new Set<ProviderFailureKind>(["auth", "invalid_request", "quota_exhausted"])
+const RETRY_TRANSIENT_KINDS = new Set<ProviderFailureKind>([
+  "rate_limit",
+  "server_overload",
+  "transport_disconnect",
+  "decompression",
+])
 
 export const RETRY_INITIAL_DELAY = 2000
 export const RETRY_BACKOFF_FACTOR = 2
@@ -59,9 +73,19 @@ export function classifyRetry(error: Err): RetryClassification | undefined {
   if (MessageV2.ContextOverflowError.isInstance(error)) return undefined
   if (MessageV2.APIError.isInstance(error)) {
     const status = error.data.statusCode
-    // 5xx errors are transient server failures and should always be retried,
-    // even when the provider SDK doesn't explicitly mark them as retryable.
-    if (!error.data.isRetryable && !(status !== undefined && status >= 500)) return undefined
+    const kind = error.data.providerFailure?.kind
+    // Retry/stop gate. Prefer the canonical providerFailure.kind: terminal kinds
+    // never retry, transient kinds always do. When the kind is `unknown` or the
+    // row predates providerFailure, fall back to the legacy signal — isRetryable,
+    // or a 5xx the provider SDK didn't explicitly mark retryable. The two agree
+    // for every classified kind today.
+    const retryable =
+      kind && RETRY_TERMINAL_KINDS.has(kind)
+        ? false
+        : kind && RETRY_TRANSIENT_KINDS.has(kind)
+          ? true
+          : error.data.isRetryable || (status !== undefined && status >= 500)
+    if (!retryable) return undefined
 
     // Strict 3-way AND: opencode provider + FreeUsageLimitError marker in body
     if (
