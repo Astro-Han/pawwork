@@ -1,6 +1,6 @@
 import { createMemo, For, Show } from "solid-js"
 import { createStore } from "solid-js/store"
-import type { FilePart, Part as PartType, TextPart, UserMessage } from "@opencode-ai/sdk/v2"
+import type { FilePart, Part as PartType, SkillPart, TextPart, UserMessage } from "@opencode-ai/sdk/v2"
 import { useData } from "../../context"
 import { useDialog } from "../../context/dialog"
 import { useI18n } from "../../context/i18n"
@@ -50,6 +50,8 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
   })
 
   const inlineFiles = createMemo(() => files().filter(inline))
+
+  const inlineSkills = createMemo(() => (props.parts?.filter((p) => p.type === "skill") as SkillPart[]) ?? [])
 
   const model = createMemo(() => {
     const providerID = props.message.model?.providerID
@@ -217,7 +219,7 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
               <>
                 <div data-slot="user-message-body">
                   <div data-slot="user-message-text">
-                    <HighlightedText text={text()} references={inlineFiles()} />
+                    <HighlightedText text={text()} references={inlineFiles()} skills={inlineSkills()} />
                   </div>
                 </div>
                 {renderMetaAndActions()}

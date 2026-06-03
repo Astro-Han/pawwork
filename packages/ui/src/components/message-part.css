@@ -170,6 +170,12 @@
       color: var(--syntax-type);
     }
 
+    /* Inline skill chip: same brand accent as the leading command mark
+     * (.user-message-command-prefix) so "/name" reads as a command reference. */
+    [data-highlight="skill"] {
+      color: var(--brand-primary);
+    }
+
     max-width: 100%;
   }
 
