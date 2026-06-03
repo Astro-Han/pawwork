@@ -16,7 +16,7 @@ import type { JSONSchema7 } from "@ai-sdk/provider"
 import { SessionCompaction } from "./compaction"
 import { Bus } from "../bus"
 import { ProviderTransform } from "../provider/transform"
-import { buildActivationReminder, deriveActivatedTools, deriveNewlyActivated } from "../tool/tool-info"
+import { buildActivationReminder, deriveActivatedToolsFromParts, deriveNewlyActivated } from "../tool/tool-info"
 import { SystemPrompt } from "./system"
 import { Instruction } from "./instruction"
 import { Plugin } from "../plugin"
@@ -679,11 +679,6 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       processor: SessionProcessor.Handle
       bypassAgentCheck: boolean
       messages: MessageV2.WithParts[]
-      // Full durable history for deriving deferred-tool activation. Separate from
-      // `messages` (the compaction-filtered, model-facing view) because activation must
-      // survive compaction truncation — a tool_info activation older than the retained
-      // tail is absent from `messages` but still present here.
-      activationMessages: MessageV2.WithParts[]
     }) {
       using _ = log.time("resolveTools")
       const tools: Record<string, AITool> = {}
@@ -720,7 +715,10 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       )
       const lastUserLocale = lastUserMessage?.info.locale
 
-      const activatedTools = deriveActivatedTools(input.activationMessages)
+      // Deferred-tool activation is derived from the session's tool_info parts read
+      // directly from storage (NOT the compaction-filtered `messages`), so an activation
+      // older than the retained tail still counts without hydrating the full history.
+      const activatedTools = deriveActivatedToolsFromParts(MessageV2.toolInfoParts(input.session.id))
       const deferredRuleset = Permission.merge(input.agent.permission, input.session.permission ?? [])
       const deferredAvailable = (id: string) =>
         input.tools?.[id] !== false && !Permission.disabled([id], deferredRuleset).has(id)
@@ -1981,20 +1979,14 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           yield* status.set(sessionID, { type: "busy" })
           yield* slog.info("loop", { step })
 
-          // Materialise the full durable history ONCE per loop. Both the model-facing
-          // (compaction-filtered) view and the deferred-tool activation set derive from
-          // it. Activation MUST see the complete history: filterCompacted drops messages
-          // before the retained tail, so a tool_info activation older than the tail would
-          // otherwise vanish and its deferred tool would silently re-lock mid-session.
-          const allMessages = Array.from(MessageV2.stream(sessionID))
-          let msgs = MessageV2.filterCompacted(allMessages)
+          let msgs = yield* MessageV2.filterCompactedEffect(sessionID)
 
           let lastUser: MessageV2.User | undefined
           let lastAssistant: MessageV2.Assistant | undefined
           let lastAssistantMsg: MessageV2.WithParts | undefined
           let lastFinished: MessageV2.Assistant | undefined
           let tasks: (MessageV2.CompactionPart | MessageV2.SubtaskPart)[] = []
-          for (const msg of allMessages) {
+          for (const msg of MessageV2.stream(sessionID)) {
             if (!lastUser && msg.info.role === "user") lastUser = msg.info
             if (!lastAssistant && msg.info.role === "assistant") {
               lastAssistant = msg.info
@@ -2168,7 +2160,6 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               processor: handle,
               bypassAgentCheck,
               messages: msgs,
-              activationMessages: allMessages,
             })
 
             if (lastUser.format?.type === "json_schema") {

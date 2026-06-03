@@ -50,29 +50,33 @@ export const Parameters = Schema.Struct({
   }),
 })
 
-// Activation is derived from durable conversation history, not a side state: a
-// completed tool_info(name=X) call means X is activated for the rest of that
-// history. The caller MUST pass the FULL message stream, not the compaction-filtered
-// view: filterCompacted drops every message before the retained tail, so an activation
-// older than the tail would vanish from a filtered list and its deferred tool would
-// silently re-lock mid-session. Deriving from the full durable history keeps activation
-// correct across compaction without any parallel side state. (The prune path also keeps
-// tool_info parts via compaction.ts PRUNE_PROTECTED_TOOLS, but activation no longer
-// depends on that — prune preserves the part regardless, and we read only its input.)
+// Activation is derived from durable conversation history, not a side state: a completed
+// tool_info(name=X) call means X is activated for the rest of that history. It must be
+// derived from the COMPLETE history — an activation older than the compaction tail still
+// counts — so the prompt loop feeds deriveActivatedToolsFromParts the session's tool_info
+// parts straight from storage (MessageV2.toolInfoParts), NOT the compaction-filtered
+// model-facing view (which drops messages before the retained tail and would let a
+// deferred tool silently re-lock mid-session). This overload derives the same set from
+// already-hydrated messages and is used by tests.
 export function deriveActivatedTools(messages: MessageV2.WithParts[]): Set<string> {
+  const parts: MessageV2.Part[] = []
+  for (const message of messages) parts.push(...message.parts)
+  return deriveActivatedToolsFromParts(parts)
+}
+
+// Core derivation over raw tool parts — the storage-fed path the prompt loop runs.
+export function deriveActivatedToolsFromParts(parts: MessageV2.Part[]): Set<string> {
   const activated = new Set<string>()
-  for (const message of messages) {
-    for (const part of message.parts) {
-      if (part.type !== "tool" || part.tool !== TOOL_INFO_ID) continue
-      if (part.state.status !== "completed") continue
-      // The recorded input keeps the model's raw casing (e.g. "Enter-Worktree"),
-      // so canonicalise here exactly like tool_info's own lookup does — otherwise a
-      // CamelCase echo would activate metadata-side yet never appear in the next
-      // step's tool list, leaving the model pointed at a tool that isn't exposed.
-      const name = part.state.input?.["name"]
-      const canonical = typeof name === "string" ? canonicalDeferredId(name) : undefined
-      if (canonical) activated.add(canonical)
-    }
+  for (const part of parts) {
+    if (part.type !== "tool" || part.tool !== TOOL_INFO_ID) continue
+    if (part.state.status !== "completed") continue
+    // The recorded input keeps the model's raw casing (e.g. "Enter-Worktree"), so
+    // canonicalise here exactly like tool_info's own lookup does — otherwise a CamelCase
+    // echo would activate metadata-side yet never appear in the next step's tool list,
+    // leaving the model pointed at a tool that isn't exposed.
+    const name = part.state.input?.["name"]
+    const canonical = typeof name === "string" ? canonicalDeferredId(name) : undefined
+    if (canonical) activated.add(canonical)
   }
   return activated
 }

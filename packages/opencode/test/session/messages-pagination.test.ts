@@ -4,7 +4,7 @@ import path from "path"
 import { Instance } from "../../src/project/instance"
 import { Session as SessionNs } from "../../src/session"
 import { MessageV2 } from "../../src/session/message-v2"
-import { deriveActivatedTools } from "../../src/tool/tool-info"
+import { deriveActivatedTools, deriveActivatedToolsFromParts } from "../../src/tool/tool-info"
 import { MessageID, PartID, type SessionID } from "../../src/session/schema"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { Log } from "../../src/util"
@@ -1111,17 +1111,17 @@ describe("MessageV2.filterCompacted", () => {
         const boundary = await addUser(session.id, "compact")
         await addCompactionPart(session.id, boundary, retained)
 
-        const full = Array.from(MessageV2.stream(session.id))
-        const filtered = MessageV2.filterCompacted(full)
-
         // The compaction truncates the activating turn out of the model-facing view,
-        // so activation derived from the filtered list (the old wiring) loses it.
+        // so activation derived from the filtered list would lose it.
+        const filtered = MessageV2.filterCompacted(MessageV2.stream(session.id))
         expect(filtered.map((m) => m.info.id)).not.toContain(activateAssistant)
         expect(deriveActivatedTools(filtered).has("enter-worktree")).toBe(false)
 
-        // Deriving from the full durable history still sees the activation, so the
-        // deferred tool stays unlocked instead of silently re-locking mid-session.
-        expect(deriveActivatedTools(full).has("enter-worktree")).toBe(true)
+        // The prompt loop instead derives activation from tool_info parts read straight
+        // from storage, which span the whole session, so the deferred tool stays unlocked
+        // across compaction instead of silently re-locking mid-session.
+        const fromStorage = MessageV2.toolInfoParts(session.id)
+        expect(deriveActivatedToolsFromParts(fromStorage).has("enter-worktree")).toBe(true)
 
         await svc.remove(session.id)
       },
