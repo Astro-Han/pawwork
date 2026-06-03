@@ -40,6 +40,7 @@ export type RetrySafety = {
     | "tool_execution_started"
     | "unsafe_side_effect_started"
     | "local_abort_or_lifecycle_close"
+    | "provider_terminal_failure"
     | "unknown"
   safety_scope: "user_visible_and_tool_side_effects"
 }
