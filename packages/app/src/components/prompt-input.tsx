@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from "@solidjs/router"
-import { createEffect, on, Component, For, Show, createMemo, createSignal } from "solid-js"
+import { createEffect, on, Component, For, createMemo, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLocal } from "@/context/local"
 import { useFile } from "@/context/file"
@@ -27,7 +27,7 @@ import {
 import { createPromptKeydownHandler } from "./prompt-input/keydown"
 import { PromptActionBar } from "./prompt-input/action-bar"
 import { createPromptAttachments } from "./prompt-input/attachments"
-import { ACCEPTED_FILE_TYPES } from "./prompt-input/files"
+import { PromptEditorSurface } from "./prompt-input/editor-surface"
 import { promptLength } from "./prompt-input/history"
 import { createPromptDerivedState } from "./prompt-input/derived-state"
 import { createPromptCommandsAndMode } from "./prompt-input/commands-mode"
@@ -396,83 +396,26 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             editorRef?.focus()
           }}
         >
-          <div
-            class="relative min-h-[100px] max-h-[240px] overflow-y-auto no-scrollbar"
-            ref={(el) => (scrollRef = el)}
-            style={{ "scroll-padding-bottom": space }}
-          >
-            <div
-              data-component="prompt-input"
-              ref={(el) => {
-                editorRef = el
-                props.ref?.(el)
-              }}
-              role="textbox"
-              aria-multiline="true"
-              aria-label={placeholder()}
-              contenteditable="true"
-              autocapitalize={store.mode === "normal" ? "sentences" : "off"}
-              autocorrect={store.mode === "normal" ? "on" : "off"}
-              spellcheck={store.mode === "normal"}
-              inputMode="text"
-              // @ts-expect-error
-              autocomplete="off"
-              onInput={handleInput}
-              onCopy={handleCopy}
-              onPaste={(event) => {
-                const hasFiles = Array.from(event.clipboardData?.items ?? []).some((item) => item.kind === "file")
-                if (!actionReady() && hasFiles) {
-                  event.preventDefault()
-                  return
-                }
-                handlePaste(event)
-              }}
-              onCompositionStart={handleCompositionStart}
-              onCompositionEnd={handleCompositionEnd}
-              onBlur={handleBlur}
-              onKeyDown={handleKeyDown}
-              classList={{
-                "select-text": true,
-                "w-full pl-4 pr-4 pt-4 text-body text-fg-strong focus:outline-none whitespace-pre-wrap": true,
-                "[&_[data-type=file]]:text-syntax-property": true,
-                "[&_[data-type=agent]]:text-syntax-type": true,
-                "font-mono!": store.mode === "shell",
-              }}
-              style={{ "padding-bottom": space }}
-            />
-            <Show when={!prompt.dirty()}>
-              <div
-                data-component="prompt-placeholder"
-                class="absolute top-0 inset-x-0 pl-4 pr-4 pt-4 text-body text-fg-weak pointer-events-none whitespace-nowrap truncate"
-                classList={{ "font-mono!": store.mode === "shell" }}
-                style={{ "padding-bottom": space }}
-              >
-                {placeholder()}
-              </div>
-            </Show>
-          </div>
-
-          <div
-            aria-hidden="true"
-            class="pointer-events-none absolute inset-x-0 bottom-0"
-            style={{
-              height: space,
-              background:
-                "linear-gradient(to top, var(--surface-raised) calc(100% - 20px), transparent)",
+          <PromptEditorSurface
+            setScrollRef={(el) => (scrollRef = el)}
+            setEditorRef={(el) => {
+              editorRef = el
+              props.ref?.(el)
             }}
-          />
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept={ACCEPTED_FILE_TYPES.join(",")}
-            class="hidden"
-            onChange={(e) => {
-              const list = e.currentTarget.files
-              if (list && actionReady()) void addAttachments(Array.from(list))
-              e.currentTarget.value = ""
-            }}
+            setFileInputRef={(el) => (fileInputRef = el)}
+            mode={store.mode}
+            placeholder={placeholder}
+            dirty={prompt.dirty}
+            space={space}
+            actionReady={actionReady}
+            onInput={handleInput}
+            onCopy={handleCopy}
+            onCompositionStart={handleCompositionStart}
+            onCompositionEnd={handleCompositionEnd}
+            onBlur={handleBlur}
+            onKeyDown={handleKeyDown}
+            handlePaste={handlePaste}
+            addAttachments={addAttachments}
           />
 
           <PromptActionBar
