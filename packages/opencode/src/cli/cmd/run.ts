@@ -481,6 +481,9 @@ export const RunCommand = cmd({
       }
 
       const drainAbort = new AbortController()
+      // event.subscribe(parameters, options): the signal goes in the second
+      // (options) arg, which is spread into the underlying fetch; the first arg
+      // is the (unused) directory/workspace query params.
       const events = await sdk.event.subscribe(undefined, { signal: drainAbort.signal })
       let error: string | undefined
       let lastEventAt = performance.now()
