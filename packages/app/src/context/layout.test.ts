@@ -12,7 +12,7 @@ import {
   MAX_RIGHT_PANEL_WIDTH,
   MIN_RIGHT_PANEL_WIDTH,
   pruneSessionKeys,
-} from "./layout-state"
+} from "./layout"
 
 describe("layout session-key helpers", () => {
   test("couples touch and scroll seed in order", () => {

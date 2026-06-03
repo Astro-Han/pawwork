@@ -40,7 +40,19 @@ import {
   sessionPath,
   type ReviewDiffStyle,
 } from "./layout-state"
-export { MAX_RIGHT_PANEL_WIDTH, MIN_RIGHT_PANEL_WIDTH } from "./layout-state"
+export {
+  clampRightPanelWidth,
+  createDefaultLayoutState,
+  createSessionKeyReader,
+  DEFAULT_RIGHT_PANEL_WIDTH,
+  defaultSidePanelTab,
+  ensureSessionKey,
+  legacyRightPanelOpened,
+  MAX_RIGHT_PANEL_WIDTH,
+  migrateStoredLayout,
+  MIN_RIGHT_PANEL_WIDTH,
+  pruneSessionKeys,
+} from "./layout-state"
 
 const AVATAR_COLOR_KEYS = ["pink", "mint", "orange", "purple", "cyan", "lime"] as const
 export type AvatarColorKey = (typeof AVATAR_COLOR_KEYS)[number]
