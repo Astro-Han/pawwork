@@ -2,7 +2,7 @@ import { Cause, Effect, Layer, Scope, Context } from "effect"
 // @ts-ignore
 import { createWrapper } from "@parcel/watcher/wrapper"
 import type ParcelWatcher from "@parcel/watcher"
-import { readdir, stat } from "fs/promises"
+import { readdir, realpath, stat } from "fs/promises"
 import path from "path"
 import z from "zod"
 import { Bus } from "@/bus"
@@ -781,7 +781,7 @@ export namespace FileWatcher {
               const result = yield* git.run(["rev-parse", "--git-dir", "--git-common-dir"], {
                 cwd: ctx.directory,
               })
-              const vcsDirs =
+              const resolvedVcsDirs =
                 result.exitCode === 0
                   ? [
                       ...new Set(
@@ -795,8 +795,18 @@ export namespace FileWatcher {
                       ),
                     ]
                   : []
-              for (const vcsDir of vcsDirs) {
-                if (cfgIgnores.includes(".git") || cfgIgnores.includes(vcsDir)) continue
+              const subscribedVcsDirs = new Set<string>()
+              for (const resolvedVcsDir of resolvedVcsDirs) {
+                // Canonicalize a possibly-symlinked git dir (a symlinked .git, or a worktree
+                // reached through a symlinked path such as macOS /tmp -> /private/tmp): parcel
+                // emits events at the realpath, so an unresolved vcsDir makes path.relative in
+                // shouldPublishVcsWatcherPath traverse out (..) and drop every HEAD/ref event.
+                // Fall back to the unresolved path when realpath fails (dir may be absent).
+                const vcsDir = yield* Effect.promise(() => realpath(resolvedVcsDir).catch(() => resolvedVcsDir))
+                if (cfgIgnores.includes(".git") || cfgIgnores.includes(resolvedVcsDir) || cfgIgnores.includes(vcsDir))
+                  continue
+                if (subscribedVcsDirs.has(vcsDir)) continue
+                subscribedVcsDirs.add(vcsDir)
                 const ignore = vcsWatcherIgnoreEntries(yield* Effect.promise(() => readdir(vcsDir).catch(() => [])))
                 log.info(
                   "watcher subscription configured",

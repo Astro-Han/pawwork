@@ -159,7 +159,6 @@ function noUpdate<E>(
 
 function ready(directory: string) {
   const file = path.join(directory, `.watcher-${Math.random().toString(36).slice(2)}`)
-  const head = path.join(directory, ".git", "HEAD")
 
   return Effect.gen(function* () {
     yield* nextUpdate(
@@ -167,6 +166,13 @@ function ready(directory: string) {
       (evt) => evt.file === file && evt.event === "add",
       Effect.promise(() => fs.writeFile(file, "ready")),
     ).pipe(Effect.ensuring(Effect.promise(() => fs.rm(file, { force: true }).catch(() => undefined))), Effect.asVoid)
+
+    // Resolve a possibly-symlinked .git so the HEAD readiness probe waits on the same
+    // realpath'd path parcel emits events at (a real .git dir resolves to itself).
+    const gitDir = yield* Effect.promise(() =>
+      fs.realpath(path.join(directory, ".git")).catch(() => path.join(directory, ".git")),
+    )
+    const head = path.join(gitDir, "HEAD")
 
     const git = yield* Effect.promise(() =>
       fs
@@ -182,7 +188,7 @@ function ready(directory: string) {
       directory,
       (evt) => evt.file === head && evt.event !== "unlink",
       Effect.promise(async () => {
-        await fs.writeFile(path.join(directory, ".git", "refs", "heads", branch), hash.trim() + "\n")
+        await fs.writeFile(path.join(gitDir, "refs", "heads", branch), hash.trim() + "\n")
         await fs.writeFile(head, `ref: refs/heads/${branch}\n`)
       }),
     ).pipe(Effect.asVoid)
@@ -640,5 +646,41 @@ describeWatcher("FileWatcher", () => {
         ),
       ),
     )
+  })
+
+  // Symlink creation needs privileges on Windows; skip there (matches upstream #27016).
+  const symlinkTest = process.platform === "win32" ? test.skip : test
+  symlinkTest("publishes .git/HEAD events through a symlinked .git directory", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const dir = tmp.path
+    // Move .git to a sibling and replace it with a symlink. git rev-parse still reports ".git",
+    // so without realpath the watcher subscribes to the symlink and drops parcel's realpath'd events.
+    const actualGit = path.join(dir, "..", `actual-git-${Math.random().toString(36).slice(2)}`)
+    await fs.rename(path.join(dir, ".git"), actualGit)
+    await fs.symlink(actualGit, path.join(dir, ".git"))
+
+    try {
+      const head = path.join(actualGit, "HEAD")
+      const branch = `watch-${Math.random().toString(36).slice(2)}`
+      await $`git branch ${branch}`.cwd(dir).quiet()
+
+      await withWatcher(
+        dir,
+        nextUpdate(
+          dir,
+          (evt) => evt.file === head && evt.event !== "unlink",
+          Effect.promise(() => fs.writeFile(head, `ref: refs/heads/${branch}\n`)),
+        ).pipe(
+          Effect.tap((evt) =>
+            Effect.sync(() => {
+              expect(evt.file).toBe(head)
+              expect(["add", "change"]).toContain(evt.event)
+            }),
+          ),
+        ),
+      )
+    } finally {
+      await fs.rm(actualGit, { recursive: true, force: true }).catch(() => undefined)
+    }
   })
 })
