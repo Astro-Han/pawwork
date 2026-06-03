@@ -79,6 +79,12 @@ export function toJsonSchema<S extends Schema.Top>(schema: S) {
  * cross-module; re-collecting them into a fresh registry keyed by the same node
  * objects lets `z.toJSONSchema` emit them. Identity-based (`_zod` brand check,
  * not `instanceof`) so foreign-module nodes are recognised. (#27770)
+ *
+ * Passing `metadata` REPLACES zod's `globalRegistry` for the conversion, so the
+ * walk must capture everything the global lookup would have. A cloned schema
+ * (`base.meta({ id }).describe(...)`) keeps the reusable `id` on `_zod.parent`,
+ * which `toJSONSchema` follows to emit `$defs`/`$ref`; walk that link too or the
+ * refs silently vanish.
  */
 function zodMetadataRegistry(schema: z.ZodType) {
   const registry = z.registry<Record<string, unknown>>()
@@ -97,7 +103,9 @@ function zodMetadataRegistry(schema: z.ZodType) {
         ...(description ? { description } : {}),
       }
       if (Object.keys(merged).length) registry.add(node, merged)
-      collect((node as { _zod: { def: unknown } })._zod.def)
+      const internals = (node as { _zod: { def: unknown; parent?: unknown } })._zod
+      collect(internals.def)
+      collect(internals.parent)
       return
     }
 
