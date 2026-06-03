@@ -1191,6 +1191,13 @@ export function options(input: {
     result["enable_thinking"] = true
   }
 
+  // Azure's gpt-5.5 completions API rejects reasoningEffort; only reasoningSummary is accepted.
+  // Return early so the shared gpt-5 block below never sets reasoningEffort for this provider.
+  if (input.model.api.npm === "@ai-sdk/azure" && input.model.api.id.includes("gpt-5.5")) {
+    result["reasoningSummary"] = "auto"
+    return result
+  }
+
   if (input.model.api.id.includes("gpt-5") && !input.model.api.id.includes("gpt-5-chat")) {
     if (!input.model.api.id.includes("gpt-5-pro")) {
       result["reasoningEffort"] = "medium"

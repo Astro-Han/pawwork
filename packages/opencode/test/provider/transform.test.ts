@@ -396,6 +396,46 @@ describe("ProviderTransform.options - gpt-5 textVerbosity", () => {
   })
 })
 
+describe("ProviderTransform.options - azure gpt-5.5 reasoningEffort", () => {
+  const sessionID = "test-session-123"
+
+  const createAzureModel = (apiId: string) =>
+    ({
+      id: `azure/${apiId}`,
+      providerID: "azure",
+      api: {
+        id: apiId,
+        url: "https://azure.com",
+        npm: "@ai-sdk/azure",
+      },
+      name: apiId,
+      capabilities: {
+        temperature: true,
+        reasoning: true,
+        attachment: true,
+        toolcall: true,
+        input: { text: true, audio: false, image: true, video: false, pdf: false },
+        output: { text: true, audio: false, image: false, video: false, pdf: false },
+        interleaved: false,
+      },
+      cost: { input: 0.03, output: 0.06, cache: { read: 0.001, write: 0.002 } },
+      limit: { context: 128000, output: 4096 },
+      status: "active",
+      options: {},
+      headers: {},
+    }) as any
+
+  test("azure gpt-5.5 should NOT set reasoningEffort (Azure rejects it)", () => {
+    const result = ProviderTransform.options({
+      model: createAzureModel("gpt-5.5"),
+      sessionID,
+      providerOptions: {},
+    })
+    expect(result.reasoningEffort).toBeUndefined()
+    expect(result.reasoningSummary).toBe("auto")
+  })
+})
+
 describe("ProviderTransform.options - gateway", () => {
   const sessionID = "test-session-123"
 
