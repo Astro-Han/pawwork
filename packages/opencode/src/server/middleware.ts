@@ -49,8 +49,9 @@ export const ErrorMiddleware: ErrorHandler = (err, c) => {
     return c.json(new NamedError.Unknown({ message: err.message }).toObject(), { status: 409 })
   }
   if (err instanceof HTTPException) return err.getResponse()
-  const message = err instanceof Error && err.stack ? err.stack : err.toString()
-  return c.json(new NamedError.Unknown({ message }).toObject(), {
+  // Never serialize err.stack/message into the response: it leaks internal paths and
+  // implementation detail to any client. The full error is already in the server log above.
+  return c.json(new NamedError.Unknown({ message: "Unexpected server error. Check server logs for details." }).toObject(), {
     status: 500,
   })
 }
