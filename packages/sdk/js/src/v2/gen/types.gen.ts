@@ -237,6 +237,18 @@ export type ApiError = {
       [key: string]: string
     }
     providerID?: string
+    providerFailure?: {
+      kind:
+        | "auth"
+        | "rate_limit"
+        | "quota_exhausted"
+        | "server_overload"
+        | "invalid_request"
+        | "transport_disconnect"
+        | "decompression"
+        | "unknown"
+      code?: string
+    }
   }
 }
 
@@ -1196,6 +1208,19 @@ export type AgentPart = {
   }
 }
 
+export type SkillPart = {
+  id: string
+  sessionID: string
+  messageID: string
+  type: "skill"
+  name: string
+  source?: {
+    value: string
+    start: number
+    end: number
+  }
+}
+
 export type RetryPart = {
   id: string
   sessionID: string
@@ -1233,6 +1258,7 @@ export type Part =
   | SnapshotPart
   | PatchPart
   | AgentPart
+  | SkillPart
   | RetryPart
   | CompactionPart
 
@@ -1684,11 +1710,11 @@ export type ProviderConfig = {
         output: number
       }
       modalities?: {
-        input: Array<"text" | "audio" | "image" | "video" | "pdf">
-        output: Array<"text" | "audio" | "image" | "video" | "pdf">
+        input?: Array<"text" | "audio" | "image" | "video" | "pdf">
+        output?: Array<"text" | "audio" | "image" | "video" | "pdf">
       }
       experimental?: boolean
-      status?: "alpha" | "beta" | "deprecated"
+      status?: "alpha" | "beta" | "deprecated" | "active"
       provider?: {
         npm?: string
         api?: string
@@ -2286,6 +2312,17 @@ export type FilePartInput = {
 export type AgentPartInput = {
   id?: string
   type: "agent"
+  name: string
+  source?: {
+    value: string
+    start: number
+    end: number
+  }
+}
+
+export type SkillPartInput = {
+  id?: string
+  type: "skill"
   name: string
   source?: {
     value: string
@@ -5034,7 +5071,7 @@ export type SessionPromptData = {
     format?: OutputFormat
     system?: string
     variant?: string
-    parts: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
+    parts: Array<TextPartInput | FilePartInput | AgentPartInput | SkillPartInput | SubtaskPartInput>
   }
   path: {
     sessionID: string
@@ -5239,7 +5276,7 @@ export type SessionPromptAsyncData = {
     format?: OutputFormat
     system?: string
     variant?: string
-    parts: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
+    parts: Array<TextPartInput | FilePartInput | AgentPartInput | SkillPartInput | SubtaskPartInput>
   }
   path: {
     sessionID: string
