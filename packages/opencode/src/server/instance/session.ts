@@ -35,6 +35,16 @@ import { Env } from "@/env"
 
 const log = Log.create({ service: "server" })
 const AbortSource = z.string().regex(/^[A-Za-z0-9._-]{1,80}$/)
+
+// tool/respond returns route-local failure bodies ({ error } for not-found /
+// already-resolved, plus optional decoder { details } on 422) rather than the
+// shared NotFoundError/BadRequest envelopes, so it declares them inline. The
+// schema is left un-refed (no .meta ref) so it inlines directly into each
+// response instead of a shared component.
+const ToolRespondFailure = z.object({
+  error: z.string(),
+  details: z.unknown().optional(),
+})
 const e2eSessionRoutesEnabled = () => Env.get("OPENCODE_E2E_ENABLED") === "true" && !!Env.get("OPENCODE_E2E_LLM_URL")
 
 function publishTurnChangeFiles(display: TurnChangeDisplay, mode: "undo" | "redo", mutatedPaths?: string[]) {
@@ -487,7 +497,19 @@ export const SessionRoutes = lazy(() =>
             description: "Resolved",
             content: { "application/json": { schema: resolver(z.object({ status: z.literal("ok") })) } },
           },
-          ...errors(400, 404, 409, 422),
+          ...errors(400),
+          404: {
+            description: "No pending tool call for the given (session, message, call)",
+            content: { "application/json": { schema: resolver(ToolRespondFailure) } },
+          },
+          409: {
+            description: "The pending tool call was already resolved",
+            content: { "application/json": { schema: resolver(ToolRespondFailure) } },
+          },
+          422: {
+            description: "The submitted payload failed the tool-owned decoder",
+            content: { "application/json": { schema: resolver(ToolRespondFailure) } },
+          },
         },
       }),
       validator("param", z.object({ sessionID: SessionID.zod })),
