@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
-import { decidePublishAction } from "./publish-when-complete"
+import { decidePublishAction, type ProvenanceMarker } from "./publish-when-complete"
 import { releaseProvenanceAssetNames, type GithubRelease } from "./verify-release"
 
 const BUILD_SHA = "1111111111111111111111111111111111111111"
@@ -30,8 +30,14 @@ const latestYml = "files:\n  - url: pawwork-win-x64-2026.6.1.exe\n"
 const latestMacYml = "files:\n  - url: pawwork-mac-arm64-2026.6.1.zip\n  - url: pawwork-mac-x64-2026.6.1.zip\n"
 
 const expectedProvenance = releaseProvenanceAssetNames("2026.6.1")
-// Every target's marker present and agreeing on BUILD_SHA.
-const allAgree: Record<string, string> = Object.fromEntries(expectedProvenance.map((name) => [name, BUILD_SHA]))
+
+// One distinct installer hash per target, recorded both in that target's marker
+// and in the updater metadata, so the content anchor holds when nothing drifted.
+const shaFor = (markerName: string) => `sha-${markerName}`
+const allAgree: Record<string, ProvenanceMarker> = Object.fromEntries(
+  expectedProvenance.map((name) => [name, { commit: BUILD_SHA, sha512: [shaFor(name)] }]),
+)
+const updaterSha512s = expectedProvenance.map(shaFor)
 
 const decide = (overrides: Partial<Parameters<typeof decidePublishAction>[0]> = {}) =>
   decidePublishAction({
@@ -41,6 +47,7 @@ const decide = (overrides: Partial<Parameters<typeof decidePublishAction>[0]> = 
     buildSha: BUILD_SHA,
     provenance: allAgree,
     expectedProvenance,
+    updaterSha512s,
     ...overrides,
   })
 
@@ -55,7 +62,7 @@ describe("releaseProvenanceAssetNames", () => {
 })
 
 describe("decidePublishAction", () => {
-  test("publishes a complete release when every marker agrees", () => {
+  test("publishes a complete release when every marker agrees and matches the metadata", () => {
     expect(decide().kind).toBe("publish")
   })
 
@@ -91,7 +98,9 @@ describe("decidePublishAction", () => {
   })
 
   test("refuses to publish when a marker disagrees on the build commit", () => {
-    const decision = decide({ provenance: { ...allAgree, "pawwork-win-x64-2026.6.1.commit": OTHER_SHA } })
+    const decision = decide({
+      provenance: { ...allAgree, "pawwork-win-x64-2026.6.1.commit": { commit: OTHER_SHA, sha512: ["sha-win"] } },
+    })
     expect(decision.kind).toBe("fail")
     expect(decision.reason).toContain("mixed-source release")
   })
@@ -104,8 +113,36 @@ describe("decidePublishAction", () => {
     // Two targets built from different commits never converge to "all agree":
     // the mismatch is fatal regardless of how complete the draft looks, so the
     // race where a last writer could publish a mixed release cannot occur.
-    expect(decide({ release: partial, provenance: { ...allAgree, "pawwork-mac-x64-2026.6.1.commit": OTHER_SHA } }).kind).toBe(
-      "fail",
-    )
+    expect(
+      decide({
+        release: partial,
+        provenance: { ...allAgree, "pawwork-mac-x64-2026.6.1.commit": { commit: OTHER_SHA, sha512: ["sha-x64"] } },
+      }).kind,
+    ).toBe("fail")
+  })
+
+  test("content anchor: refuses when a marker's installer hash drifted out of the metadata", () => {
+    // A target rebuilt from another commit (same version, agreeing commit field
+    // by accident) produces a different installer hash; that hash is no longer in
+    // latest*.yml, so the content anchor catches a clobber the commit field misses.
+    const drifted: Record<string, ProvenanceMarker> = {
+      ...allAgree,
+      "pawwork-win-x64-2026.6.1.commit": { commit: BUILD_SHA, sha512: ["sha-rebuilt-from-another-commit"] },
+    }
+    const decision = decide({ provenance: drifted })
+    expect(decision.kind).toBe("fail")
+    expect(decision.reason).toContain("no longer matches recorded build hashes")
+  })
+
+  test("content anchor tolerates an empty-hash marker (metadata read hiccup at marker time)", () => {
+    // A target that could not read its own updater entry when writing the marker
+    // records an empty hash list. That target simply isn't content-anchored; the
+    // commit-agreement + completeness gates still apply, so the release is not
+    // deadlocked into a permanent draft over a transient read miss.
+    const noHash: Record<string, ProvenanceMarker> = {
+      ...allAgree,
+      "pawwork-win-x64-2026.6.1.commit": { commit: BUILD_SHA, sha512: [] },
+    }
+    expect(decide({ provenance: noHash }).kind).toBe("publish")
   })
 })

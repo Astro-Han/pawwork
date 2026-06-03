@@ -91,6 +91,33 @@ export function parseUpdaterFileUrls(source: string) {
   return urls
 }
 
+// Pair each updater file entry with its content sha512, keyed by asset basename.
+// Used by the auto-publisher's single-source guard: a marker records the sha512
+// the target produced, and publishing requires it to still match the metadata —
+// so an asset rebuilt from another commit (different hash) is caught. Same
+// deliberately-narrow scanner as parseUpdaterFileUrls; ignores the top-level
+// `sha512:` (the `path:` digest), which has no preceding `- url:` entry.
+export function parseUpdaterShaByUrl(source: string): Array<{ name: string; sha512: string }> {
+  const entries: Array<{ name: string; sha512: string }> = []
+  let currentName: string | undefined
+
+  for (const line of source.split(/\r?\n/)) {
+    const fileMatch = line.match(/^\s*-\s+url:\s*(.+?)\s*$/)
+    if (fileMatch) {
+      currentName = assetNameFromUrl(parseYamlScalar(fileMatch[1]))
+      continue
+    }
+
+    const shaMatch = line.match(/^\s*sha512:\s*(.+?)\s*$/)
+    if (shaMatch && currentName) {
+      entries.push({ name: currentName, sha512: parseYamlScalar(shaMatch[1]) })
+      currentName = undefined
+    }
+  }
+
+  return entries
+}
+
 function parseYamlScalar(value: string) {
   const trimmed = stripInlineComment(value).trim()
   const quote = trimmed[0]

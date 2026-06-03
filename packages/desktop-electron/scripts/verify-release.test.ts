@@ -9,6 +9,7 @@ import {
   fetchText,
   normalizeTag,
   parseUpdaterFileUrls,
+  parseUpdaterShaByUrl,
   readStartupLogFile,
   releaseAssetNames,
   releaseUpdaterAssetNames,
@@ -510,5 +511,42 @@ path: pawwork-win-x64-2026.4.28.exe
     await expect(fetchJson("https://api.github.com/example")).rejects.toThrow(
       "Failed to parse JSON from https://api.github.com/example",
     )
+  })
+})
+
+describe("parseUpdaterShaByUrl", () => {
+  test("pairs each updater file with its content sha512, keyed by asset basename", () => {
+    const yml = [
+      "version: 2026.6.1",
+      "files:",
+      "  - url: pawwork-mac-arm64-2026.6.1.zip",
+      "    sha512: HASH_ARM64",
+      "    size: 123",
+      "  - url: pawwork-mac-x64-2026.6.1.zip",
+      "    sha512: HASH_X64",
+      "    size: 456",
+      "path: pawwork-mac-arm64-2026.6.1.zip",
+      "sha512: HASH_ARM64",
+      "releaseDate: '2026-06-01T00:00:00.000Z'",
+    ].join("\n")
+
+    expect(parseUpdaterShaByUrl(yml)).toEqual([
+      { name: "pawwork-mac-arm64-2026.6.1.zip", sha512: "HASH_ARM64" },
+      { name: "pawwork-mac-x64-2026.6.1.zip", sha512: "HASH_X64" },
+    ])
+  })
+
+  test("reduces a full download URL to its basename and ignores the trailing path digest", () => {
+    const yml = [
+      "files:",
+      "  - url: https://example.com/download/pawwork-win-x64-2026.6.1.exe",
+      "    sha512: HASH_WIN",
+      "path: pawwork-win-x64-2026.6.1.exe",
+      "sha512: HASH_WIN",
+    ].join("\n")
+
+    // The top-level `sha512:` after `path:` has no preceding `- url:` entry, so it
+    // is not emitted as a phantom hash.
+    expect(parseUpdaterShaByUrl(yml)).toEqual([{ name: "pawwork-win-x64-2026.6.1.exe", sha512: "HASH_WIN" }])
   })
 })
