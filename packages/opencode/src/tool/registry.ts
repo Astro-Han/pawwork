@@ -46,6 +46,7 @@ import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Ripgrep } from "../file/ripgrep"
 import { Format } from "../format"
 import { InstanceState } from "@/effect/instance-state"
+import { EffectBridge } from "@/effect"
 import { makeRuntime } from "@/effect/run-service"
 import { Env } from "../env"
 import { Todo } from "../session/todo"
@@ -173,9 +174,23 @@ export namespace ToolRegistry {
               description: def.description,
               execute: (args, toolCtx) =>
                 Effect.gen(function* () {
+                  // Plugin tools see `ask`/`metadata` as Promise/void (see
+                  // @opencode-ai/plugin), but the framework versions are Effects.
+                  // Without bridging, the `...toolCtx` spread hands the plugin the raw
+                  // Effect: an awaited `ctx.ask(...)` resolves it unexecuted and a
+                  // `ctx.metadata(...)` discards it — both silent no-ops. Bridge them
+                  // so they actually run.
+                  const bridge = yield* EffectBridge.make()
                   const pluginCtx: PluginToolContext = {
                     ...toolCtx,
-                    ask: (req) => toolCtx.ask(req),
+                    ask: (req) => bridge.promise(toolCtx.ask(req)),
+                    metadata: (input) => {
+                      // `metadata` returns void in the plugin contract, so fire the
+                      // bridged Effect and log on failure rather than dropping it.
+                      void bridge.promise(toolCtx.metadata(input)).catch((err) => {
+                        log.warn("failed to set plugin tool metadata", { error: String(err) })
+                      })
+                    },
                     directory: ctx.directory,
                     worktree: ctx.worktree,
                   }

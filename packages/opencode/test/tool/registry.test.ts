@@ -158,6 +158,76 @@ describe("tool.registry", () => {
     })
   })
 
+  test("bridges plugin ctx.ask and ctx.metadata so the framework Effects actually run", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        const toolDir = path.join(dir, ".opencode", "tool")
+        await fs.mkdir(toolDir, { recursive: true })
+        await Bun.write(
+          path.join(toolDir, "asker.ts"),
+          [
+            "export default {",
+            "  description: 'asks for permission and sets metadata then resolves',",
+            "  args: {},",
+            "  execute: async (_args: unknown, ctx: any) => {",
+            "    await ctx.ask({ permission: 'asker', patterns: [], always: [], metadata: {} })",
+            "    ctx.metadata({ title: 'asked', metadata: { ok: true } })",
+            "    return 'asked'",
+            "  },",
+            "}",
+            "",
+          ].join("\n"),
+        )
+      },
+    })
+
+    await withMockedConfigInstall(async () => {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const tools = await ToolRegistry.tools({
+            providerID: ProviderID.make("openai"),
+            modelID: ModelID.make("gpt-5"),
+            agent: { name: "build", mode: "primary", permission: [], options: {} },
+          })
+          const asker = tools.find((tool) => tool.id === "asker")
+          expect(asker).toBeDefined()
+
+          // The framework `ask`/`metadata` are Effects. Plugin tools call them as a
+          // Promise (`await ctx.ask`) and `void` (`ctx.metadata`); without the
+          // EffectBridge the `...toolCtx` spread hands over the raw Effect and it is
+          // never executed — both silent no-ops. Counting runs proves the bridge runs
+          // them: `ask` is awaited, `metadata` is fire-and-forget.
+          let askRuns = 0
+          let metadataRuns = 0
+          const ctx = {
+            sessionID: SessionID.descending(),
+            messageID: MessageID.ascending(),
+            agent: "build",
+            abort: new AbortController().signal,
+            messages: [],
+            metadata: () =>
+              Effect.sync(() => {
+                metadataRuns++
+              }),
+            ask: () =>
+              Effect.sync(() => {
+                askRuns++
+              }),
+            extra: {},
+          }
+
+          const result = await Effect.runPromise(asker!.execute({}, ctx))
+          // `metadata` is fire-and-forget; flush pending microtasks before asserting.
+          await new Promise((resolve) => setTimeout(resolve, 10))
+          expect(askRuns).toBe(1)
+          expect(metadataRuns).toBe(1)
+          expect(result.output).toBe("asked")
+        },
+      })
+    })
+  })
+
   test("local tool import spec normalizes filesystem paths to file URLs", () => {
     const toolPath = path.resolve("pawwork-tools", "marked.ts")
     expect(localToolImportSpec(toolPath)).toStartWith("file://")
