@@ -939,6 +939,9 @@ jobs:
           # the phase so a full run can never pass a source_sha that disagrees
           # with what it actually built.
           BUILD_SHA: ${{ inputs.phase == 'finalize' && inputs.source_sha || github.sha }}
+          # Identify this target so it can upload its own provenance marker.
+          RELEASE_OS: ${{ runner.os == 'macOS' && 'mac' || 'win' }}
+          RELEASE_ARCH: ${{ matrix.arch_label }}
           MIRROR_REF: dev
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

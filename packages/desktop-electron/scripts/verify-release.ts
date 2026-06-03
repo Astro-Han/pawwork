@@ -8,10 +8,6 @@ export type GithubRelease = {
   tag_name: string
   draft: boolean
   prerelease: boolean
-  // The commit/branch the release points at. A fresh electron-builder draft
-  // carries the default branch name here; the auto-publisher pins it to the
-  // build commit. Optional because the verifier itself does not need it.
-  target_commitish?: string
   assets: GithubAsset[]
 }
 
@@ -49,6 +45,19 @@ export function releaseAssetNames(version: string) {
       "latest-mac.yml",
     ]),
   ]
+}
+
+// Per-target build-provenance marker. Each build target uploads one of these
+// (containing its build commit) so the auto-publisher can confirm every target
+// of a release was built from the same commit before publishing. One distinct
+// asset per target — never a shared mutable field — so concurrent targets cannot
+// race on it. Not part of releaseAssetNames, so the R2 mirror never copies them.
+export function releaseProvenanceAssetName(os: string, arch: string, version: string) {
+  return `pawwork-${os}-${arch}-${version}.commit`
+}
+
+export function releaseProvenanceAssetNames(version: string) {
+  return RELEASE_TARGETS.map((target) => releaseProvenanceAssetName(target.os, target.arch, version))
 }
 
 export function releaseUpdaterAssetNames(version: string): Record<MetadataFile, string[]> {

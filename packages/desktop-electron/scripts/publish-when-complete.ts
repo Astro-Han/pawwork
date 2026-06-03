@@ -10,27 +10,23 @@
 // `application/octet-stream` Accept header, not browser_download_url.
 //
 // Single-source guard (the assets for one version are assembled across several
-// independent build runs — mac arm64/x64 finalize + win full — each with its own
-// source commit). The verifier only checks file names and updater metadata, so a
-// version could otherwise be published with mac and win installers built from
-// DIFFERENT commits. We use the draft's `target_commitish` as a provenance
-// ledger: electron-builder creates the draft with the branch name there and
-// never rewrites an existing draft, so the first target pins it to its build
-// commit and every later target refuses to publish unless its own commit matches.
-//
-// This closes the realistic case (dev advances between dispatches, so a later
-// target is built from a newer commit — caught because the targets run, and
-// finish, sequentially). It does NOT fully close a concurrent race: the two mac
-// arches serialize via the build concurrency group, but mac-finalize and win-full
-// can run at once, and if both were built from different commits AND reach the
-// claim within the same window, the last writer can still publish a mixed-source
-// release (the loser detects the mismatch on its re-read and fails loudly, which
-// surfaces the problem). Fully closing that requires per-asset commit provenance
-// (stamping each target's build commit into the release and cross-checking) —
-// deliberately out of scope here; the asymmetric build durations make a same-
-// instant, different-commit finish unlikely.
+// independent, sometimes concurrent build runs — mac arm64/x64 finalize + win
+// full — each with its own source commit). The installers carry only the version
+// in their names, so the verifier alone cannot tell whether mac and win were
+// built from the same commit. Each target therefore uploads a small per-target
+// provenance marker (`pawwork-<os>-<arch>-<version>.commit`) holding its build
+// commit. The publisher publishes only when EVERY expected marker is present and
+// they all agree. Because each target writes its own distinct marker — never a
+// shared mutable field — there is no claim race: concurrent targets built from
+// different commits leave disagreeing markers, and no run ever sees "all agree".
 
-import { normalizeTag, verifyReleasePayload, type GithubRelease } from "./verify-release"
+import {
+  normalizeTag,
+  releaseProvenanceAssetName,
+  releaseProvenanceAssetNames,
+  verifyReleasePayload,
+  type GithubRelease,
+} from "./verify-release"
 
 const GITHUB_API = "https://api.github.com"
 const FETCH_TIMEOUT_MS = 30_000
@@ -39,10 +35,9 @@ const FETCH_TIMEOUT_MS = 30_000
 // and leave the release a draft with no later run to retry the publish.
 const WAIT_POLL_ATTEMPTS = 6
 const WAIT_POLL_INTERVAL_MS = 5_000
-const FULL_SHA = /^[0-9a-f]{40}$/
 
 type ApiAsset = { name: string; url: string; browser_download_url: string }
-type ApiRelease = GithubRelease & { id: number; assets: ApiAsset[] }
+type ApiRelease = GithubRelease & { id: number; upload_url: string; assets: ApiAsset[] }
 
 export type PublishDecision =
   | { kind: "publish"; reason: string }
@@ -51,17 +46,18 @@ export type PublishDecision =
   | { kind: "fail"; reason: string }
 
 // Pure policy: decide what to do from the current release state. Kept free of
-// I/O so it is unit-testable without GitHub. `recordedSha` is the build commit
-// already claimed on the draft (normalized to a full SHA, or undefined when the
-// draft is still unclaimed); `buildSha` is this target's build commit.
+// I/O so it is unit-testable without GitHub. `provenance` maps each PRESENT
+// marker asset name to the build commit it records; `expectedProvenance` is the
+// full set of marker names a complete release must carry.
 export function decidePublishAction(args: {
   release: GithubRelease
   latestYml?: string
   latestMacYml?: string
   buildSha: string
-  recordedSha?: string
+  provenance: Record<string, string>
+  expectedProvenance: string[]
 }): PublishDecision {
-  const { release, latestYml, latestMacYml, buildSha, recordedSha } = args
+  const { release, latestYml, latestMacYml, buildSha, provenance, expectedProvenance } = args
 
   // A prerelease is a bad state for this pipeline: fail loudly instead of
   // waiting forever for a "completion" that publishing would never reach.
@@ -69,23 +65,28 @@ export function decidePublishAction(args: {
     return { kind: "fail", reason: `release ${release.tag_name} is marked as a prerelease` }
   }
 
-  // Provenance gate, checked before completeness: if the draft was already
-  // claimed by a different build commit, this target's assets came from a
-  // divergent source. Refuse regardless of completeness so a mixed-source
-  // release is never published (and a complete-but-mixed draft is never mirrored).
-  if (recordedSha && recordedSha !== buildSha) {
+  // Provenance gate, checked before completeness: any present marker that does
+  // not match this target's build commit means the release is being assembled
+  // from more than one commit. Refuse regardless of completeness, so a
+  // mixed-source draft is never published (or mirrored).
+  const mismatched = Object.entries(provenance).filter(([, sha]) => sha !== buildSha)
+  if (mismatched.length > 0) {
+    const detail = mismatched.map(([name, sha]) => `${name}=${sha}`).join(", ")
     return {
       kind: "fail",
-      reason: `release ${release.tag_name} was assembled from ${recordedSha}, but this target was built from ${buildSha}; refusing to publish a mixed-source release`,
+      reason: `release ${release.tag_name} has targets built from different commits (this target ${buildSha}; ${detail}); refusing to publish a mixed-source release`,
     }
   }
 
-  // Completeness reuses the exact verifier logic; allowDraft so the draft state
-  // itself is not counted as a failure here. Any failure now means a target's
-  // assets/updater metadata are not in yet -> keep waiting (no-op, exit 0).
+  // Completeness: every installer + updater metadata (the verifier) AND every
+  // per-target provenance marker must be present. Any gap means a target has not
+  // finished yet -> keep waiting (no-op, exit 0). allowDraft so the draft state
+  // itself is not counted as a failure here.
   const failures = verifyReleasePayload({ release, latestYml, latestMacYml }, { allowDraft: true })
-  if (failures.length > 0) {
-    return { kind: "wait", reason: `release incomplete, waiting for remaining targets: ${failures.join("; ")}` }
+  const missingMarkers = expectedProvenance.filter((name) => !(name in provenance))
+  if (failures.length > 0 || missingMarkers.length > 0) {
+    const reasons = [...failures, ...missingMarkers.map((name) => `missing provenance marker ${name}`)]
+    return { kind: "wait", reason: `release incomplete, waiting for remaining targets: ${reasons.join("; ")}` }
   }
 
   if (release.draft) {
@@ -101,36 +102,35 @@ export function decidePublishAction(args: {
   return { kind: "mirror-only", reason: "release already published; ensuring the mirror is dispatched" }
 }
 
-// The build commit currently claimed on the draft, or undefined when the draft
-// is unclaimed (electron-builder leaves the default branch name there).
-export function recordedBuildSha(release: GithubRelease): string | undefined {
-  const value = release.target_commitish
-  return value && FULL_SHA.test(value) ? value : undefined
-}
-
 function requireEnv(name: string): string {
   const value = process.env[name]
   if (!value) throw new Error(`${name} is required`)
   return value
 }
 
-function githubHeaders(accept: string) {
+function githubHeaders(accept: string, contentType?: string) {
   const headers = new Headers({ Accept: accept, "X-GitHub-Api-Version": "2022-11-28" })
   const token = process.env.GH_TOKEN
   if (token) headers.set("Authorization", `Bearer ${token}`)
+  if (contentType) headers.set("Content-Type", contentType)
   return headers
 }
 
-async function ghFetch(url: string, accept: string) {
+async function ghFetch(url: string, init: RequestInit & { accept: string; contentType?: string }) {
+  const { accept, contentType, ...rest } = init
   try {
-    return await fetch(url, { headers: githubHeaders(accept), signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
+    return await fetch(url, {
+      ...rest,
+      headers: githubHeaders(accept, contentType),
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    })
   } catch (error) {
     throw new Error(`request to ${url} failed: ${error instanceof Error ? error.message : String(error)}`)
   }
 }
 
 async function fetchReleases(repo: string): Promise<ApiRelease[]> {
-  const res = await ghFetch(`${GITHUB_API}/repos/${repo}/releases?per_page=100`, "application/vnd.github+json")
+  const res = await ghFetch(`${GITHUB_API}/repos/${repo}/releases?per_page=100`, { accept: "application/vnd.github+json" })
   if (!res.ok) throw new Error(`failed to list releases: ${res.status} ${res.statusText}`)
   return (await res.json()) as ApiRelease[]
 }
@@ -148,9 +148,51 @@ async function findRelease(repo: string, tag: string): Promise<ApiRelease> {
 async function fetchAssetText(release: ApiRelease, name: string): Promise<string | undefined> {
   const asset = release.assets.find((entry) => entry.name === name)
   if (!asset) return undefined
-  const res = await ghFetch(asset.url, "application/octet-stream")
+  const res = await ghFetch(asset.url, { accept: "application/octet-stream" })
   if (!res.ok) throw new Error(`failed to download ${name}: ${res.status} ${res.statusText}`)
   return res.text()
+}
+
+// Upload this target's provenance marker via the release upload_url (draft-safe:
+// the by-tag asset endpoints 404 on drafts, the release id/upload_url do not).
+// Delete any existing same-named asset first so a re-run overwrites cleanly.
+async function putProvenanceMarker(repo: string, release: ApiRelease, name: string, sha: string) {
+  const existing = release.assets.find((entry) => entry.name === name)
+  if (existing) {
+    const del = await ghFetch(existing.url, { method: "DELETE", accept: "application/vnd.github+json" })
+    if (!del.ok && del.status !== 404) throw new Error(`failed to replace marker ${name}: ${del.status} ${del.statusText}`)
+  }
+  const uploadBase = release.upload_url.replace(/\{[^}]*\}$/, "")
+  const res = await ghFetch(`${uploadBase}?name=${encodeURIComponent(name)}`, {
+    method: "POST",
+    accept: "application/vnd.github+json",
+    contentType: "text/plain",
+    body: sha,
+  })
+  if (!res.ok) throw new Error(`failed to upload marker ${name}: ${res.status} ${res.statusText}`)
+}
+
+async function readProvenance(release: ApiRelease, expected: string[]): Promise<Record<string, string>> {
+  const entries: Record<string, string> = {}
+  for (const name of expected) {
+    const text = await fetchAssetText(release, name)
+    if (text !== undefined) entries[name] = text.trim()
+  }
+  return entries
+}
+
+// Publish via the release id (draft-safe: the by-tag edit endpoints can fail to
+// resolve drafts), pinning the tag to the agreed build commit and marking it
+// latest. A GITHUB_TOKEN publish does not fire release:published, so the caller
+// still dispatches the mirror explicitly.
+async function publishRelease(repo: string, release: ApiRelease, buildSha: string) {
+  const res = await ghFetch(`${GITHUB_API}/repos/${repo}/releases/${release.id}`, {
+    method: "PATCH",
+    accept: "application/vnd.github+json",
+    contentType: "application/json",
+    body: JSON.stringify({ draft: false, prerelease: false, make_latest: "true", target_commitish: buildSha }),
+  })
+  if (!res.ok) throw new Error(`failed to publish ${release.tag_name}: ${res.status} ${res.statusText}`)
 }
 
 async function gh(args: string[]) {
@@ -165,38 +207,36 @@ async function dispatchMirror(repo: string, tag: string, ref: string) {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
-// Re-read the release (and its updater metadata) and decide. Pulled out so the
-// wait-poll can re-evaluate against fresh GitHub state on each attempt.
-async function evaluate(repo: string, tag: string, buildSha: string): Promise<PublishDecision> {
-  const release = await findRelease(repo, tag)
-  const latestYml = await fetchAssetText(release, "latest.yml")
-  const latestMacYml = await fetchAssetText(release, "latest-mac.yml")
-  return decidePublishAction({ release, latestYml, latestMacYml, buildSha, recordedSha: recordedBuildSha(release) })
-}
-
 async function main() {
   const repo = requireEnv("GH_REPO")
   const tag = normalizeTag(requireEnv("RELEASE_TAG"))
   const buildSha = requireEnv("BUILD_SHA")
+  const os = requireEnv("RELEASE_OS")
+  const arch = requireEnv("RELEASE_ARCH")
   const mirrorRef = process.env.MIRROR_REF ?? "dev"
 
-  // Claim provenance up front: pin the still-unclaimed draft to this build's
-  // commit so any later target built from a different commit is detected. If a
-  // different commit already claimed it, fail now without publishing/mirroring.
-  const initial = await findRelease(repo, tag)
-  const recorded = recordedBuildSha(initial)
-  if (recorded && recorded !== buildSha) {
-    console.error(
-      `publish-when-complete: release ${tag} was assembled from ${recorded}, but this target was built from ${buildSha}; refusing to publish a mixed-source release`,
-    )
-    process.exit(1)
-  }
-  if (!recorded && initial.draft) {
-    await gh(["release", "edit", tag, "--repo", repo, "--target", buildSha])
-  }
+  const version = tag.replace(/^v/, "")
+  const expectedProvenance = releaseProvenanceAssetNames(version)
+  const thisMarker = releaseProvenanceAssetName(os, arch, version)
+
+  // Record this target's build commit before deciding, so any other target
+  // built from a different commit will find a disagreeing marker.
+  const release = await findRelease(repo, tag)
+  await putProvenanceMarker(repo, release, thisMarker, buildSha)
 
   for (let attempt = 1; ; attempt += 1) {
-    const decision = await evaluate(repo, tag, buildSha)
+    const current = await findRelease(repo, tag)
+    const latestYml = await fetchAssetText(current, "latest.yml")
+    const latestMacYml = await fetchAssetText(current, "latest-mac.yml")
+    const provenance = await readProvenance(current, expectedProvenance)
+    const decision = decidePublishAction({
+      release: current,
+      latestYml,
+      latestMacYml,
+      buildSha,
+      provenance,
+      expectedProvenance,
+    })
     console.log(`publish-when-complete (attempt ${attempt}/${WAIT_POLL_ATTEMPTS}): ${decision.reason}`)
 
     if (decision.kind === "wait" && attempt < WAIT_POLL_ATTEMPTS) {
@@ -211,18 +251,7 @@ async function main() {
       case "wait":
         return
       case "publish":
-        await gh([
-          "release",
-          "edit",
-          tag,
-          "--repo",
-          repo,
-          "--target",
-          buildSha,
-          "--draft=false",
-          "--latest",
-          "--prerelease=false",
-        ])
+        await publishRelease(repo, current, buildSha)
         await dispatchMirror(repo, tag, mirrorRef)
         return
       case "mirror-only":

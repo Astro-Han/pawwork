@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 
-import { decidePublishAction, recordedBuildSha } from "./publish-when-complete"
-import type { GithubRelease } from "./verify-release"
+import { decidePublishAction } from "./publish-when-complete"
+import { releaseProvenanceAssetNames, type GithubRelease } from "./verify-release"
 
 const BUILD_SHA = "1111111111111111111111111111111111111111"
 const OTHER_SHA = "2222222222222222222222222222222222222222"
@@ -12,7 +12,6 @@ const completeRelease: GithubRelease = {
   tag_name: "v2026.6.1",
   draft: true,
   prerelease: false,
-  target_commitish: BUILD_SHA,
   assets: [
     "pawwork-mac-arm64-2026.6.1.dmg",
     "pawwork-mac-arm64-2026.6.1.zip",
@@ -30,26 +29,37 @@ const completeRelease: GithubRelease = {
 const latestYml = "files:\n  - url: pawwork-win-x64-2026.6.1.exe\n"
 const latestMacYml = "files:\n  - url: pawwork-mac-arm64-2026.6.1.zip\n  - url: pawwork-mac-x64-2026.6.1.zip\n"
 
+const expectedProvenance = releaseProvenanceAssetNames("2026.6.1")
+// Every target's marker present and agreeing on BUILD_SHA.
+const allAgree: Record<string, string> = Object.fromEntries(expectedProvenance.map((name) => [name, BUILD_SHA]))
+
 const decide = (overrides: Partial<Parameters<typeof decidePublishAction>[0]> = {}) =>
   decidePublishAction({
     release: completeRelease,
     latestYml,
     latestMacYml,
     buildSha: BUILD_SHA,
-    recordedSha: BUILD_SHA,
+    provenance: allAgree,
+    expectedProvenance,
     ...overrides,
   })
 
+describe("releaseProvenanceAssetNames", () => {
+  test("derives one .commit marker per release target", () => {
+    expect(releaseProvenanceAssetNames("2026.6.1")).toEqual([
+      "pawwork-mac-arm64-2026.6.1.commit",
+      "pawwork-mac-x64-2026.6.1.commit",
+      "pawwork-win-x64-2026.6.1.commit",
+    ])
+  })
+})
+
 describe("decidePublishAction", () => {
-  test("publishes a complete, single-source draft and pins it to the build commit", () => {
+  test("publishes a complete release when every marker agrees", () => {
     expect(decide().kind).toBe("publish")
   })
 
-  test("publishes when the draft is not yet claimed (first target)", () => {
-    expect(decide({ recordedSha: undefined }).kind).toBe("publish")
-  })
-
-  test("waits when a target's assets have not landed yet", () => {
+  test("waits when a target's installer has not landed yet", () => {
     const partial: GithubRelease = {
       ...completeRelease,
       assets: completeRelease.assets.filter((asset) => asset.name !== "pawwork-win-x64-2026.6.1.exe"),
@@ -60,10 +70,14 @@ describe("decidePublishAction", () => {
   })
 
   test("waits when the updater metadata asset is not uploaded yet", () => {
-    // latest.yml exists as an asset but has not been fetched (a missing target);
-    // the metadata cross-check must fail, keeping us in wait rather than publish.
-    const decision = decide({ latestYml: undefined })
+    expect(decide({ latestYml: undefined }).kind).toBe("wait")
+  })
+
+  test("waits when a target has not uploaded its provenance marker yet", () => {
+    const { "pawwork-win-x64-2026.6.1.commit": _omit, ...rest } = allAgree
+    const decision = decide({ provenance: rest })
     expect(decision.kind).toBe("wait")
+    expect(decision.reason).toContain("pawwork-win-x64-2026.6.1.commit")
   })
 
   test("only mirrors when the release is already published (no re-publish)", () => {
@@ -76,8 +90,8 @@ describe("decidePublishAction", () => {
     expect(decision.reason).toContain("prerelease")
   })
 
-  test("refuses to publish when the draft was claimed by a different build commit", () => {
-    const decision = decide({ recordedSha: OTHER_SHA })
+  test("refuses to publish when a marker disagrees on the build commit", () => {
+    const decision = decide({ provenance: { ...allAgree, "pawwork-win-x64-2026.6.1.commit": OTHER_SHA } })
     expect(decision.kind).toBe("fail")
     expect(decision.reason).toContain("mixed-source release")
   })
@@ -87,22 +101,11 @@ describe("decidePublishAction", () => {
       ...completeRelease,
       assets: completeRelease.assets.filter((asset) => asset.name !== "pawwork-win-x64-2026.6.1.exe"),
     }
-    // A divergent source is fatal regardless of how complete the draft is, so we
-    // never reach the wait branch.
-    expect(decide({ release: partial, recordedSha: OTHER_SHA }).kind).toBe("fail")
-  })
-})
-
-describe("recordedBuildSha", () => {
-  test("returns the commit when target_commitish is a full SHA", () => {
-    expect(recordedBuildSha({ ...completeRelease, target_commitish: BUILD_SHA })).toBe(BUILD_SHA)
-  })
-
-  test("treats a branch name as unclaimed", () => {
-    expect(recordedBuildSha({ ...completeRelease, target_commitish: "dev" })).toBeUndefined()
-  })
-
-  test("treats a missing target_commitish as unclaimed", () => {
-    expect(recordedBuildSha({ ...completeRelease, target_commitish: undefined })).toBeUndefined()
+    // Two targets built from different commits never converge to "all agree":
+    // the mismatch is fatal regardless of how complete the draft looks, so the
+    // race where a last writer could publish a mixed release cannot occur.
+    expect(decide({ release: partial, provenance: { ...allAgree, "pawwork-mac-x64-2026.6.1.commit": OTHER_SHA } }).kind).toBe(
+      "fail",
+    )
   })
 })
