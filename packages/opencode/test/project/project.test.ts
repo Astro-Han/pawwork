@@ -342,7 +342,10 @@ describe("Project.update", () => {
         projectID: ProjectID.make("nonexistent-project-id"),
         name: "Should Fail",
       }),
-    ).rejects.toThrow("Project not found: nonexistent-project-id")
+    ).rejects.toMatchObject({
+      name: "NotFoundError",
+      data: { message: "Project not found: nonexistent-project-id" },
+    })
   })
 
   test("should emit GlobalBus event on update", async () => {
