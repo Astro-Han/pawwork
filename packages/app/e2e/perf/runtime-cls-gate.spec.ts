@@ -26,6 +26,10 @@ const RUNTIME_CLS_SEED_TURNS = 60
 const RUNTIME_CLS_MINIMUM_ROWS = 52
 const RUNTIME_CLS_MAXIMUM_MOUNTED_MESSAGES = 48
 const COMPOSER_GROWTH_TEXT = Array.from({ length: 8 }, (_, index) => `composer growth line ${index + 1}`).join("\n")
+const QUESTION_CUSTOM_GROWTH_TEXT = Array.from(
+  { length: 8 },
+  (_, index) => `question custom growth line ${index + 1}`,
+).join("\n")
 
 const QUESTION = [
   {
@@ -302,6 +306,12 @@ async function readPromptHeight(page: Page) {
   return box?.height ?? 0
 }
 
+async function readDockHeight(page: Page) {
+  const box = await page.locator(questionDockSelector).first().boundingBox()
+  expect(box).toBeTruthy()
+  return box?.height ?? 0
+}
+
 async function assertNoPrimaryRuntimeClsFailures(result: RuntimeClsResult) {
   const failures = collectRuntimeClsFailures(result.entries)
   const primaryEntries = result.entries.filter(isRuntimeClsPrimaryEntry)
@@ -546,6 +556,57 @@ test.describe("runtime CLS source gate", () => {
         await dock.getByRole("button", { name: /submit/i }).click()
         await expect(dock).toHaveCount(0)
         await expect(page.locator(promptSelector).first()).toBeVisible()
+        await settleFrames(page, 6)
+        return await stopRuntimeClsProbe(page)
+      })
+
+      await assertNoPrimaryRuntimeClsFailures(result)
+    })
+  })
+
+  test("question dock growth does not move visible timeline primary sources", async ({ page, project, llm }) => {
+    // #818 owns the question dock open/growth path. Mounting the dock from absent
+    // is too noisy to measure deterministically (seeding side effects + async
+    // option render), so this gate keeps seeding + parent hydration OUTSIDE the
+    // probe window and measures only the dock growing taller — a real user typing
+    // a multi-line custom answer — which is the controlled dock-height transaction
+    // the gate owns. Asserts the visible parent timeline primary sources hold.
+    await installRuntimeClsProbe(page)
+    await project.open()
+    await withSession(project.sdk, `runtime cls question growth ${Date.now()}`, async (session) => {
+      await seedRuntimeClsSession(project, session.id)
+      const child = await project.sdk.session
+        .create({ title: `runtime cls child question growth ${Date.now()}`, parentID: session.id })
+        .then((response) => response.data)
+      if (!child?.id) throw new Error("Child session create did not return an id")
+      project.trackSession(child.id)
+      const dock = page.locator(questionDockSelector)
+      const customInput = dock.locator('[data-slot="question-custom-input"]')
+      await test.step("seed child question dock outside the measured window", async () => {
+        await llm.toolMatch(inputMatch({ questions: QUESTION }), "question", { questions: QUESTION })
+        await seedSessionQuestion(project.sdk, { sessionID: child.id, questions: QUESTION })
+      })
+      const targetMessageID = await test.step(
+        "reveal a long visible parent timeline window with the dock open",
+        async () => {
+          const target = await prepareRuntimeClsWindow(page, project, session.id)
+          await expect(dock).toBeVisible({ timeout: 30_000 })
+          // Enter custom-answer editing mode (button -> textarea) outside the
+          // window, so the measured growth is only the textarea getting taller
+          // from typing, not the one-time edit-mode swap.
+          await dock.locator('[data-slot="question-option"][data-custom="true"]').click()
+          await expect(customInput).toBeVisible()
+          await settleFrames(page, 6)
+          return target
+        },
+      )
+      const beforeHeight = await readDockHeight(page)
+
+      const result = await test.step("grow the question dock with a multi-line custom answer under the probe", async () => {
+        await startRuntimeClsProbe(page, "question-dock-growth", { targetMessageID })
+        await customInput.click()
+        await customInput.fill(QUESTION_CUSTOM_GROWTH_TEXT)
+        await expect.poll(async () => readDockHeight(page)).toBeGreaterThan(beforeHeight + 16)
         await settleFrames(page, 6)
         return await stopRuntimeClsProbe(page)
       })
