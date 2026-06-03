@@ -1,4 +1,5 @@
 import type {
+  AutomationCreateInput,
   Config,
   OpencodeClient,
   Path,
@@ -389,6 +390,20 @@ function createGlobalSync() {
     }
   }
 
+  // create echoes the resolved definition (with normalizationWarnings); apply it
+  // immediately so the panel reflects the new automation before the SSE event.
+  async function createAutomation(directory: string, input: AutomationCreateInput) {
+    children.pin(directory)
+    try {
+      const [store, setStore] = children.peek(directory, { bootstrap: false })
+      const res = await sdkFor(directory).automation.create({ automationCreateInput: input })
+      if (res.data) applyAutomationDefinition(store, setStore, res.data)
+      return res.data
+    } finally {
+      children.unpin(directory)
+    }
+  }
+
   async function bootstrapInstance(directory: string) {
     if (!directory) return
     const pending = booting.get(directory)
@@ -642,6 +657,7 @@ function createGlobalSync() {
     updateConfig,
     project: projectApi,
     automation: {
+      create: createAutomation,
       loadRuns: loadAutomationRuns,
       pause: pauseAutomation,
       resume: resumeAutomation,

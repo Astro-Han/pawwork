@@ -956,6 +956,7 @@ export default function Layout(props: ParentProps) {
             content: () => (
               <AutomationsSurface
                 directory={() => currentProject()?.worktree ?? projectRoot(currentDir())}
+                projectID={() => currentProject()?.id}
                 onClose={closeSettings}
                 onOpenRun={openAutomationRun}
               />
