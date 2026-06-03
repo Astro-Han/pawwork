@@ -586,9 +586,13 @@ const live: Layer.Layer<
 
             // This is a silent-stream timeout: it limits how long we wait for
             // the next provider event, not the total model runtime.
-            return Stream.fromAsyncIterable(failOnTimeout(result.fullStream, request), (e) =>
-              e instanceof Error ? e : new Error(String(e)),
-            ).pipe(Stream.tap((event) => Effect.sync(() => request.resetTimeout(event))))
+            //
+            // Preserve the raw thrown value instead of coercing to new Error(String(e)):
+            // a structured provider error payload (object/string) would otherwise be
+            // crushed to "[object Object]", losing what fromError's stream parser needs.
+            return Stream.fromAsyncIterable(failOnTimeout(result.fullStream, request), (e) => e).pipe(
+              Stream.tap((event) => Effect.sync(() => request.resetTimeout(event))),
+            )
           }),
         ),
       )

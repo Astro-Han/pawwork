@@ -1718,6 +1718,46 @@ describe("session.message-v2.fromError", () => {
     })
   })
 
+  test("classifies Error-wrapped stream error payloads, not just plain objects", () => {
+    const body = {
+      type: "error",
+      sequence_number: 2,
+      error: {
+        type: "server_error",
+        code: "server_error",
+        message: "An error occurred while processing your request.",
+        param: null,
+      },
+    }
+    // Same payload as the plain-object case above, but wrapped in an Error
+    // instance — the shape it actually arrives in from the stream "error" part
+    // (processor throws value.error) and the iterator-throw mapper in llm.ts.
+    const result = MessageV2.fromError(new Error(JSON.stringify(body)), { providerID })
+
+    expect(result).toStrictEqual({
+      name: "APIError",
+      data: {
+        message: body.error.message,
+        isRetryable: true,
+        responseBody: JSON.stringify(body),
+        providerID,
+      },
+    })
+  })
+
+  test("leaves Error-wrapped payloads with unhandled codes as UnknownError", () => {
+    // Guard against the stream parser over-matching: an Error whose JSON message
+    // carries a code the parser does not handle must stay Unknown, not become a
+    // mislabeled APIError.
+    const payload = JSON.stringify({ type: "error", error: { code: "bad_request" } })
+    const result = MessageV2.fromError(new Error(payload), { providerID })
+
+    expect(result).toStrictEqual({
+      name: "UnknownError",
+      data: { message: payload },
+    })
+  })
+
   test("detects context overflow from APICallError provider messages", () => {
     const cases = [
       "prompt is too long: 213462 tokens > 200000 maximum",
