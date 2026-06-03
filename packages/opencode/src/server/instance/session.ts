@@ -1331,6 +1331,17 @@ export const SessionRoutes = lazy(() =>
         await AppRuntime.runPromise(
           Effect.gen(function* () {
             const sessions = yield* Session.Service
+            // Surface the route's declared 404 instead of silently succeeding:
+            // deleting a part that does not exist is a not-found, not a no-op.
+            // The check lives in the route, not Session.removePart, because
+            // removePart is also called internally by the message processor,
+            // which must stay a tolerant no-op for an already-gone part.
+            const part = yield* sessions.getPart({
+              sessionID: params.sessionID,
+              messageID: params.messageID,
+              partID: params.partID,
+            })
+            if (!part) throw new NotFoundError({ message: `Part not found: ${params.partID}` })
             yield* sessions.removePart({
               sessionID: params.sessionID,
               messageID: params.messageID,
