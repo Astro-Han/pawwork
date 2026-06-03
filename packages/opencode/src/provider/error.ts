@@ -1,7 +1,36 @@
 import { APICallError } from "ai"
 import { STATUS_CODES } from "http"
+import z from "zod"
 import { iife } from "@/util/iife"
 import type { ProviderID } from "./schema"
+
+// Canonical, serializable classification of a provider/API failure. Populated
+// once where the payload is parsed and carried on APIError.data.providerFailure
+// so retry/UI/observability read one field instead of re-sniffing strings.
+// (free_quota_exhausted stays a retry-time concept — it depends on retry-after
+// headers and wall-clock resetAt — and is intentionally not a providerFailure
+// kind; context overflow keeps its own ContextOverflowError name.)
+export const ProviderFailureKind = z.enum([
+  "auth",
+  "rate_limit",
+  "quota_exhausted",
+  "server_overload",
+  "invalid_request",
+  "transport_disconnect",
+  "decompression",
+  "unknown",
+])
+export type ProviderFailureKind = z.infer<typeof ProviderFailureKind>
+
+function apiCallErrorKind(statusCode: number | undefined, code: string | undefined): ProviderFailureKind {
+  if (code === "insufficient_quota" || code === "usage_not_included") return "quota_exhausted"
+  if (code === "invalid_prompt") return "invalid_request"
+  if (code === "server_error" || code === "server_is_overloaded") return "server_overload"
+  if (statusCode === 401 || statusCode === 403) return "auth"
+  if (statusCode === 429) return "rate_limit"
+  if (statusCode !== undefined && statusCode >= 500) return "server_overload"
+  return "unknown"
+}
 
 // Adapted from overflow detection patterns in:
 // https://github.com/badlogic/pi-mono/blob/main/packages/ai/src/utils/overflow.ts
@@ -117,6 +146,8 @@ export type ParsedStreamError =
       message: string
       isRetryable: boolean
       responseBody: string
+      kind?: ProviderFailureKind
+      code?: string
     }
 
 export function parseStreamError(input: unknown): ParsedStreamError | undefined {
@@ -132,6 +163,7 @@ export function parseStreamError(input: unknown): ParsedStreamError | undefined 
   if (body.type !== "error") return
 
   const error = isRecord(body.error) ? body.error : undefined
+  const code = typeof error?.code === "string" ? error.code : undefined
   switch (error?.code) {
     case "context_length_exceeded":
       return {
@@ -145,6 +177,8 @@ export function parseStreamError(input: unknown): ParsedStreamError | undefined 
         message: "Quota exceeded. Check your plan and billing details.",
         isRetryable: false,
         responseBody,
+        kind: "quota_exhausted",
+        code,
       }
     case "usage_not_included":
       return {
@@ -152,6 +186,8 @@ export function parseStreamError(input: unknown): ParsedStreamError | undefined 
         message: "To use Codex with your ChatGPT plan, upgrade to Plus: https://chatgpt.com/explore/plus.",
         isRetryable: false,
         responseBody,
+        kind: "quota_exhausted",
+        code,
       }
     case "invalid_prompt":
       return {
@@ -159,6 +195,8 @@ export function parseStreamError(input: unknown): ParsedStreamError | undefined 
         message: typeof error.message === "string" ? error.message : "Invalid prompt.",
         isRetryable: false,
         responseBody,
+        kind: "invalid_request",
+        code,
       }
     case "server_is_overloaded":
     case "server_error":
@@ -167,6 +205,8 @@ export function parseStreamError(input: unknown): ParsedStreamError | undefined 
         message: typeof error.message === "string" ? error.message : "Server error.",
         isRetryable: true,
         responseBody,
+        kind: "server_overload",
+        code,
       }
   }
 }
@@ -185,6 +225,8 @@ export type ParsedAPICallError =
       responseHeaders?: Record<string, string>
       responseBody?: string
       metadata?: Record<string, string>
+      kind?: ProviderFailureKind
+      code?: string
     }
 
 export function parseAPICallError(input: { providerID: ProviderID; error: APICallError }): ParsedAPICallError {
@@ -199,6 +241,7 @@ export function parseAPICallError(input: { providerID: ProviderID; error: APICal
   }
 
   const metadata = input.error.url ? { url: input.error.url } : undefined
+  const code = typeof body?.error?.code === "string" ? body.error.code : undefined
   return {
     type: "api_error",
     message: m,
@@ -207,6 +250,8 @@ export function parseAPICallError(input: { providerID: ProviderID; error: APICal
     responseHeaders: input.error.responseHeaders,
     responseBody: input.error.responseBody,
     metadata,
+    kind: apiCallErrorKind(input.error.statusCode, code),
+    code,
   }
 }
 
