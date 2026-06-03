@@ -46,7 +46,6 @@ import { useServer } from "@/context/server"
 import { useLanguage } from "@/context/language"
 import {
   displayName,
-  errorMessage,
   startupAutoselectDirectory,
   sortedRootSessions,
   workspaceKey,
@@ -58,6 +57,7 @@ import { findPawworkSessionNavigationTarget } from "./layout/pawwork-session-nav
 import { createShellNavigation } from "./layout/shell-navigation"
 import { useUpdatePolling } from "./layout/layout-update-polling"
 import { useHomepageMigration } from "./layout/layout-homepage-migration"
+import { createOpenGlobalConfigFolder } from "./layout/layout-open-global-config"
 import { sessionNotificationHref, useSDKNotificationToasts } from "./layout/layout-sdk-event-effects"
 import { registerLayoutCommands } from "./layout/layout-commands"
 import { LayoutShellFrame } from "./layout/layout-shell-frame"
@@ -529,27 +529,7 @@ export default function Layout(props: ParentProps) {
     shellNavigation.openSettings(tab)
   }
 
-  async function openGlobalConfigFolder() {
-    const target = await globalSDK.client.path
-      .get({ ensureConfig: true })
-      .then((x) => x.data?.config)
-      .catch((err) => {
-        showToast({
-          title: language.t("toast.settings.openGlobalConfigFolderFailed.title"),
-          description: errorMessage(err, language.t("common.requestFailed")),
-          variant: "error",
-        })
-        return undefined
-      })
-    if (!target) return
-    await platform.openPath?.(target).catch((err) => {
-      showToast({
-        title: language.t("toast.settings.openGlobalConfigFolderFailed.title"),
-        description: errorMessage(err, language.t("common.requestFailed")),
-        variant: "error",
-      })
-    })
-  }
+  const openGlobalConfigFolder = createOpenGlobalConfigFolder({ globalSDK, platform, language })
 
   createEffect(() => {
     command.setModalOpen(activeSurface() !== "none")
