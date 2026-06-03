@@ -355,15 +355,6 @@ export const ExperimentalRoutes = lazy(() =>
       validator("json", Worktree.RemoveInput),
       async (c) => {
         const body = c.req.valid("json")
-        const session = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const sessions = yield* Session.Service
-            return yield* sessions.findActiveWorktreeBinding(body.directory)
-          }),
-        )
-        if (session) {
-          throw new Error(`Worktree is in use by session "${session.title}". Call ExitWorktree from that session first.`)
-        }
         await AppRuntime.runPromise(
           Effect.gen(function* () {
             const worktrees = yield* Worktree.Service
