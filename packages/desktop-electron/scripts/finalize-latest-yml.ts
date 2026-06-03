@@ -147,6 +147,30 @@ async function downloadExisting(tag: string, filename: string) {
   return mergeLatest(cached, live)
 }
 
+// Refuse to rewrite a release that is already published. In the normal flow the
+// release stays a draft until the auto-publisher flips it at the very end, after
+// every target's finalize has run; a published release here therefore means a
+// later same-version build (from a different commit) — clobbering its latest*.yml
+// would point the published metadata at hashes that no longer match the published
+// installers, breaking auto-update. Fail loudly instead (re-release with a bumped
+// version). A missing release is fine: nothing to clobber yet.
+async function assertReleaseIsDraft(releaseTag: string) {
+  let isDraft: boolean
+  try {
+    const out = await $`gh release view ${releaseTag} --json isDraft --jq .isDraft --repo ${repo}`.quiet().text()
+    isDraft = out.trim() === "true"
+  } catch (error) {
+    const message = shellErrorText(error)
+    if (/release not found|not found/i.test(message)) return
+    throw new Error(`Failed to read release state for ${releaseTag}: ${message}`)
+  }
+  if (!isDraft) {
+    throw new Error(
+      `Release ${releaseTag} is already published; refusing to overwrite its updater metadata from a later build`,
+    )
+  }
+}
+
 const output: Record<string, string> = {}
 const tag = `v${version}`
 const tmp = process.env.RUNNER_TEMP ?? "/tmp"
@@ -187,7 +211,9 @@ if (macX64 || macArm64) {
   )
 }
 
-// Upload to release
+// Upload to release. Re-checked right before the writes to shrink the window
+// between observing a draft and clobbering it.
+await assertReleaseIsDraft(tag)
 for (const [filename, content] of Object.entries(output)) {
   const filepath = path.join(tmp, filename)
   await Bun.write(filepath, content)
