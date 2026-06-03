@@ -416,6 +416,14 @@ describe("session messages endpoint", () => {
           expect(await remove.json()).toBe(true)
           expect((await svc.messages({ sessionID: session.id }))[0].parts).toHaveLength(0)
 
+          // The route's declared 404 is now real: deleting an already-removed
+          // part surfaces NotFoundError instead of silently succeeding.
+          const missing = await app.request(`/session/${session.id}/message/${messageID}/part/${partID}`, {
+            method: "DELETE",
+          })
+          expect(missing.status).toBe(404)
+          expect((await missing.json()).name).toBe("NotFoundError")
+
           await svc.remove(session.id)
         },
       }),
