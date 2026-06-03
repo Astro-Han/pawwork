@@ -42,9 +42,11 @@ async function newestTimestamp(entry: string): Promise<number> {
 /**
  * Remove scratch entries whose whole subtree has gone untouched for longer than
  * `maxAgeMs`. Best-effort and idempotent: a missing directory is a no-op and a
- * per-entry removal failure is swallowed so it never blocks startup. Because it
- * is age-based it is cross-process safe — a concurrently running opencode
- * process's recent scratch files keep a fresh timestamp and are never deleted.
+ * per-entry removal failure is swallowed so it never blocks startup. This is a
+ * lock-free cleanup for per-command `${tmp}` artifacts: recent writes keep an
+ * entry fresh, but a process that starts writing into an already-stale subtree
+ * after the freshness check can still race with removal. A cooperative
+ * ownership/liveness protocol is intentionally out of scope for this P3 cleanup.
  */
 export async function sweepScratch(options: { dir: string; now: number; maxAgeMs: number }): Promise<void> {
   const { dir, now, maxAgeMs } = options

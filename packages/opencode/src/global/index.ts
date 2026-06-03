@@ -25,8 +25,8 @@ if (version !== CACHE_VERSION) {
   await Filesystem.write(path.join(Path.cache, "version"), CACHE_VERSION)
 }
 
-// Drop agent ${tmp} scratch artifacts left untouched past the retention window so
+// Drop per-command ${tmp} artifacts left untouched past the retention window so
 // the scratch dir does not grow without bound (#945). Not awaited: startup must
-// not block on it, and it is age-based, so a concurrently running opencode
-// process's recent files are never swept.
+// not block on best-effort cleanup. The sweep relies on ${tmp} being short-lived
+// scratch, not long-lived session-owned directories.
 void sweepScratch({ dir: Path.tmp, now: Date.now(), maxAgeMs: SCRATCH_MAX_AGE_MS }).catch(() => {})
