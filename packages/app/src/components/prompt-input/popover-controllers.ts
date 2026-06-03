@@ -150,7 +150,24 @@ export function createPopoverControllers(deps: PopoverControllersDeps): PopoverC
     closePopover()
     const images = imageAttachments()
 
+    // Inline-eligible (skill or simple command): insert a position-independent
+    // chip at the typed "/query", mirroring @-file/@-agent. The server expands
+    // the command template into synthetic, model-visible text on send.
+    if (cmd.type === "custom" && cmd.simple) {
+      addPart({
+        type: "skill",
+        name: cmd.trigger,
+        source: cmd.source ?? "command",
+        content: "/" + cmd.trigger,
+        start: 0,
+        end: 0,
+      })
+      return
+    }
+
     if (cmd.type === "custom") {
+      // Arg/agent-heavy command: keep the leading marked TextPart path so the
+      // user can type "/name args" after the pill.
       // Build a marked TextPart (pill) and prepend it to the current prompt.
       // source is always present on custom commands (set in slashCommands memo).
       // icon is not stored on SlashCommand; default to "command" per spec.

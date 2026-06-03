@@ -332,20 +332,30 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
     const range = selection.getRangeAt(0)
     if (!editor.contains(range.startContainer)) return false
 
-    if (part.type === "file" || part.type === "agent") {
+    if (part.type === "file" || part.type === "agent" || part.type === "skill") {
       const cursorPosition = getCursorPosition(editor)
       const rawText = prompt
         .current()
         .map((p) => ("content" in p ? p.content : ""))
         .join("")
       const textBeforeCursor = rawText.substring(0, cursorPosition)
-      const atMatch = textBeforeCursor.match(/@(\S*)$/)
       const pill = createPill(part)
       const gap = document.createTextNode(" ")
 
-      if (atMatch) {
-        const start = atMatch.index ?? cursorPosition - atMatch[0].length
-        setRangeEdge(editor, range, "start", start)
+      // Replace the typed trigger token with the pill: "@query" for file/agent,
+      // "/query" for skill. For skill the SLASH_TRIGGER group 1 boundary char
+      // (space / CJK) is left in place — only the slash and query are replaced.
+      let replaceStart: number | undefined
+      if (part.type === "skill") {
+        const slashMatch = textBeforeCursor.match(SLASH_TRIGGER)
+        if (slashMatch) replaceStart = (slashMatch.index ?? 0) + slashMatch[1].length
+      } else {
+        const atMatch = textBeforeCursor.match(/@(\S*)$/)
+        if (atMatch) replaceStart = atMatch.index ?? cursorPosition - atMatch[0].length
+      }
+
+      if (replaceStart !== undefined) {
+        setRangeEdge(editor, range, "start", replaceStart)
         setRangeEdge(editor, range, "end", cursorPosition)
       }
 
