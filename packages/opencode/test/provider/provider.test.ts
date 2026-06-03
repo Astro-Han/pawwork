@@ -1207,6 +1207,29 @@ test("getSmallModel respects config small_model override", async () => {
   })
 })
 
+test("getSmallModel ignores invalid config small_model", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          small_model: "anthropic/not-a-real-model",
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      set("ANTHROPIC_API_KEY", "test-api-key")
+    },
+    fn: async () => {
+      expect(await getSmallModel(ProviderID.anthropic)).toBeUndefined()
+    },
+  })
+})
+
 test("provider.sort prioritizes preferred models", () => {
   const models = [
     { id: "random-model", name: "Random" },
