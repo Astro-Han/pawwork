@@ -489,7 +489,6 @@ export const RunCommand = cmd({
         const toggles = new Map<string, boolean>()
 
         for await (const event of events.stream) {
-          lastEventAt = performance.now()
           if (
             event.type === "message.updated" &&
             event.properties.info.role === "assistant" &&
@@ -505,6 +504,9 @@ export const RunCommand = cmd({
           if (event.type === "message.part.updated") {
             const part = event.properties.part
             if (part.sessionID !== sessionID) continue
+            // Count only this session's part output as drain progress — heartbeats
+            // and other-session events must not keep the watchdog alive (#1154).
+            lastEventAt = performance.now()
 
             if (part.type === "tool" && (part.state.status === "completed" || part.state.status === "error")) {
               if (emit("tool_use", { part })) continue
