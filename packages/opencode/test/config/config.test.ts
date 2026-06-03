@@ -24,6 +24,7 @@ const infra = CrossSpawnSpawner.defaultLayer.pipe(
 )
 import path from "path"
 import fs from "fs/promises"
+import os from "os"
 import { pathToFileURL } from "url"
 import { Global } from "../../src/global"
 import { ProjectID } from "../../src/project/schema"
@@ -3196,6 +3197,46 @@ describe("OPENCODE_PERMISSION env var", () => {
     } finally {
       if (original === undefined) delete process.env["OPENCODE_PERMISSION"]
       else process.env["OPENCODE_PERMISSION"] = original
+    }
+  })
+})
+
+// Regression for #29332: os.userInfo() can throw on minimal hosts with no
+// passwd entry (e.g. some containers), which used to crash config load.
+// The loader should fall back to a generic "user" instead of throwing.
+describe("system username fallback", () => {
+  test("falls back to 'user' when os.userInfo() throws", async () => {
+    const userInfo = spyOn(os, "userInfo").mockImplementation(() => {
+      throw Object.assign(new Error("missing passwd entry"), { code: "ENOENT" })
+    })
+    try {
+      await using tmp = await tmpdir()
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const config = await load()
+          expect(config.username).toBe("user")
+        },
+      })
+    } finally {
+      userInfo.mockRestore()
+    }
+  })
+
+  test("readManagedPreferences does not throw when os.userInfo() throws on darwin", async () => {
+    const originalPlatform = process.platform
+    const userInfo = spyOn(os, "userInfo").mockImplementation(() => {
+      throw Object.assign(new Error("missing passwd entry"), { code: "ENOENT" })
+    })
+    Object.defineProperty(process, "platform", { value: "darwin" })
+    try {
+      // The macOS managed-preferences paths do not exist on CI hosts, so the
+      // lookup returns undefined; the regression is that the username fallback
+      // must not let os.userInfo() throw out of readManagedPreferences().
+      await expect(ConfigManaged.readManagedPreferences()).resolves.toBeUndefined()
+    } finally {
+      Object.defineProperty(process, "platform", { value: originalPlatform })
+      userInfo.mockRestore()
     }
   })
 })
