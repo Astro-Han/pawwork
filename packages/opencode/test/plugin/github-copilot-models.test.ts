@@ -451,3 +451,46 @@ test("sets anthropic beta header only for github copilot anthropic chat headers"
   expect(copilotOpenAI.headers).not.toHaveProperty("anthropic-beta")
   expect(anthropic.headers).not.toHaveProperty("anthropic-beta")
 })
+
+test("excludes models disabled by org/enterprise policy", async () => {
+  const model = (id: string, extra: Record<string, unknown>) => ({
+    model_picker_enabled: true,
+    id,
+    name: id,
+    version: `${id}-2026-04-01`,
+    capabilities: {
+      family: "gpt",
+      limits: {
+        max_context_window_tokens: 32000,
+        max_output_tokens: 8192,
+        max_prompt_tokens: 32000,
+      },
+      supports: {
+        streaming: true,
+        tool_calls: true,
+      },
+    },
+    ...extra,
+  })
+
+  globalThis.fetch = mock(() =>
+    Promise.resolve(
+      new Response(
+        JSON.stringify({
+          data: [
+            model("allowed-no-policy", {}),
+            model("allowed-enabled", { policy: { state: "enabled" } }),
+            model("blocked-by-policy", { policy: { state: "disabled" } }),
+          ],
+        }),
+        { status: 200 },
+      ),
+    ),
+  ) as unknown as typeof fetch
+
+  const models = await CopilotModels.get("https://api.githubcopilot.com")
+
+  expect(models["allowed-no-policy"]).toBeDefined()
+  expect(models["allowed-enabled"]).toBeDefined()
+  expect(models["blocked-by-policy"]).toBeUndefined()
+})
