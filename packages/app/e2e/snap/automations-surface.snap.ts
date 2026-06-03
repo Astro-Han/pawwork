@@ -49,11 +49,26 @@ test("automations-surface", async ({ page, project }) => {
   await surface.locator('[data-component="automation-detail"]').waitFor({ state: "visible", timeout: 30_000 })
   const detail = await page.screenshot()
 
+  // Manual create card: back to the list, open it, fill, and expand schedule.
+  await surface.locator('[data-action="automation-detail-back"]').click()
+  await surface.locator('[data-action="automation-create-open"]').click()
+  const card = page.locator('[data-component="automation-create"]')
+  await card.waitFor({ state: "visible", timeout: 10_000 })
+  await card.locator('[data-action="automation-create-title"]').fill("Release notes draft")
+  await card.locator('[data-action="automation-create-prompt"]').fill("Draft release notes from PRs merged since the last tag.")
+  const createCard = await page.screenshot()
+
+  await card.locator('[data-action="automation-schedule-trigger"]').click()
+  await page.locator('[data-action="automation-frequency-trigger"]').waitFor({ state: "visible", timeout: 10_000 })
+  const schedulePopover = await page.screenshot()
+
   const shots: Shot[] = [
     { name: "empty", buf: empty },
     { name: "list", buf: list },
     { name: "list-hover", buf: listHover },
     { name: "detail", buf: detail },
+    { name: "create-card", buf: createCard },
+    { name: "schedule", buf: schedulePopover },
   ]
   const out = snapOutputPath("automations-surface")
   await composeGrid(shots, out)

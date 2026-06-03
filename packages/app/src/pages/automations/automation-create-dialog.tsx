@@ -1,43 +1,38 @@
 import { Popover } from "@kobalte/core/popover"
-import { createMemo, createSignal, For, Show, type JSX } from "solid-js"
+import { createMemo, createSignal, For, type JSX } from "solid-js"
 import type { AutomationCreateInput, AutomationDefinition } from "@opencode-ai/sdk/v2/client"
 import { Button } from "@opencode-ai/ui/button"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Icon } from "@opencode-ai/ui/icon"
-import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { getFilename } from "@opencode-ai/util/path"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
-import { useLocal } from "@/context/local"
-import { resolveModelVariant } from "@/context/model-variant"
-import { ModelSelectorPopover } from "@/components/prompt-input/model-picker"
-import { translateVariant } from "@/components/prompt-input/variant-label"
 import { formatServerError } from "@/utils/server-errors"
 import { AutomationSchedulePicker } from "./automation-schedule-picker"
 import { buildScheduleInput, DEFAULT_SCHEDULE, type ScheduleDraft } from "./automation-schedule-form"
 import { AUTOMATION_TEMPLATES, type AutomationTemplate } from "./automation-templates"
-
-type ModelState = ReturnType<typeof useLocal>["model"]
 
 const KNOB_CLASS =
   "flex h-[30px] items-center gap-1.5 rounded-lg border border-border-weak bg-bg-base px-2.5 text-body text-fg-base"
 
 // Manual create card (issue #950 PR7). Title + prompt + a Project | Schedule |
 // Model bottom bar; context, stop, and worktree are pinned to fresh / never /
-// none (see handoff). Model reuses the composer picker but on an independent
-// state so picking here never rewrites the composer's selection.
+// none (see handoff). The Automations surface renders outside the per-directory
+// LocalProvider, so the composer model picker (which needs useLocal) can't be
+// reused here; the model is the project default, resolved by the surface and
+// shown read-only. A panel-local model/variant picker is a follow-up.
 export function AutomationCreateDialog(props: {
   directory: string
   projectID: string
+  model: { providerID: string; modelID: string } | undefined
   template?: AutomationTemplate
   onCreated: (definition: AutomationDefinition) => void
 }): JSX.Element {
   const globalSync = useGlobalSync()
   const language = useLanguage()
   const dialog = useDialog()
-  const local = useLocal()
   const t = language.t
 
   const [title, setTitle] = createSignal(props.template ? t(props.template.titleKey) : "")
@@ -45,45 +40,16 @@ export function AutomationCreateDialog(props: {
   const [schedule, setSchedule] = createSignal<ScheduleDraft>(props.template?.schedule ?? DEFAULT_SCHEDULE)
   const [creating, setCreating] = createSignal(false)
 
-  // Independent model selection seeded from the composer's current model.
-  const seed = local.model.current()
-  const [modelKey, setModelKey] = createSignal<{ providerID: string; modelID: string } | undefined>(
-    seed ? { providerID: seed.provider.id, modelID: seed.id } : undefined,
-  )
-  const [variant, setVariant] = createSignal<string | undefined>(local.model.variant.current() ?? undefined)
-  const currentModel = createMemo(() => {
-    const key = modelKey()
-    if (!key) return undefined
-    return local.model.list().find((item) => item.provider.id === key.providerID && item.id === key.modelID)
-  })
-  const modelState: ModelState = {
-    ...local.model,
-    current: currentModel,
-    set: (item) => setModelKey(item ? { providerID: item.providerID, modelID: item.modelID } : undefined),
-    variant: {
-      ...local.model.variant,
-      selected: variant,
-      list: () => Object.keys(currentModel()?.variants ?? {}),
-      current: () =>
-        resolveModelVariant({
-          variants: Object.keys(currentModel()?.variants ?? {}),
-          selected: variant(),
-          configured: undefined,
-        }),
-      set: (value) => setVariant(value),
-    },
-  }
-
   const applyTemplate = (template: AutomationTemplate) => {
     setTitle(t(template.titleKey))
     setPrompt(t(template.promptKey))
     setSchedule(template.schedule)
   }
 
-  const canCreate = createMemo(() => title().trim().length > 0 && prompt().trim().length > 0 && !!currentModel())
+  const canCreate = createMemo(() => title().trim().length > 0 && prompt().trim().length > 0 && !!props.model)
 
   const create = async () => {
-    const model = currentModel()
+    const model = props.model
     if (creating() || !canCreate() || !model) return
     setCreating(true)
     try {
@@ -95,8 +61,7 @@ export function AutomationCreateDialog(props: {
         context: "fresh" as const,
         where: { projectID: props.projectID },
         timezone,
-        model: { providerID: model.provider.id, modelID: model.id },
-        ...(variant() ? { variant: variant() } : {}),
+        model,
       }
       const input: AutomationCreateInput =
         scheduled.kind === "oneshot"
@@ -178,40 +143,32 @@ export function AutomationCreateDialog(props: {
         />
 
         <div class="flex items-center gap-2 border-t border-border-weak pt-3">
-          <span class={KNOB_CLASS} title={props.directory}>
-            <Icon name="folder" class="size-4 text-icon-weak" />
-            <span class="max-w-[140px] truncate">{getFilename(props.directory)}</span>
-          </span>
+          <div class="flex min-w-0 flex-1 items-center gap-2">
+            <span class={`${KNOB_CLASS} min-w-0`} title={props.directory}>
+              <Icon name="folder" class="size-4 shrink-0 text-icon-weak" />
+              <span class="truncate">{getFilename(props.directory)}</span>
+            </span>
 
-          <AutomationSchedulePicker value={schedule()} onChange={setSchedule} t={t} />
+            <AutomationSchedulePicker value={schedule()} onChange={setSchedule} t={t} />
 
-          <ModelSelectorPopover
-            model={modelState}
-            triggerAs={Button}
-            triggerProps={{
-              variant: "ghost",
-              size: "normal",
-              class: "h-[30px] gap-1.5 rounded-lg border border-border-weak px-2.5 text-body text-fg-base font-normal",
-              "data-action": "automation-create-model",
-            }}
+            <span class={`${KNOB_CLASS} shrink-0`} title={`${props.model?.providerID ?? ""}/${props.model?.modelID ?? ""}`}>
+              <Icon name="models" class="size-4 text-icon-weak" />
+              <span class="max-w-[140px] truncate">{props.model?.modelID ?? t("dialog.model.select.title")}</span>
+            </span>
+          </div>
+
+          <Button
+            variant="ghost"
+            class="shrink-0"
+            data-action="automation-create-cancel"
+            onClick={() => dialog.close()}
+            disabled={creating()}
           >
-            <Show when={currentModel()?.provider?.id}>
-              <ProviderIcon id={currentModel()?.provider?.id ?? ""} class="size-4 shrink-0" />
-            </Show>
-            <span class="truncate">{currentModel()?.name ?? t("dialog.model.select.title")}</span>
-            <Show when={variant()}>
-              {(value) => <span class="ms-1 shrink-0 text-fg-weak">{translateVariant(t, value())}</span>}
-            </Show>
-            <Icon name="chevron-down" class="size-3.5 shrink-0 text-icon-weak" />
-          </ModelSelectorPopover>
-
-          <span class="flex-1" />
-
-          <Button variant="ghost" data-action="automation-create-cancel" onClick={() => dialog.close()} disabled={creating()}>
             {t("common.cancel")}
           </Button>
           <Button
             variant="primary"
+            class="shrink-0"
             data-action="automation-create-submit"
             onClick={create}
             disabled={!canCreate() || creating()}

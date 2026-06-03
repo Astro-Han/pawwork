@@ -6,6 +6,7 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
+import { useProviders } from "@/hooks/use-providers"
 import { formatServerError } from "@/utils/server-errors"
 import { AutomationList } from "./automation-list"
 import { AutomationDetail } from "./automation-detail"
@@ -47,7 +48,20 @@ export function AutomationsSurface(props: {
   const globalSync = useGlobalSync()
   const language = useLanguage()
   const dialog = useDialog()
+  const providers = useProviders()
   const [selectedID, setSelectedID] = createSignal<string | undefined>()
+
+  // The panel renders outside the per-directory LocalProvider, so the create
+  // card can't reuse the composer model state; seed it with the project's
+  // default model (providerID -> modelID map) instead.
+  const defaultModel = createMemo(() => {
+    const defaults = providers.default()
+    for (const providerID in defaults) {
+      const modelID = defaults[providerID]
+      if (modelID) return { providerID, modelID }
+    }
+    return undefined
+  })
 
   // Escape returns to the list when a row is open, otherwise closes the surface.
   // The capture listener bails while a transient overlay is open; unlike the
@@ -107,10 +121,12 @@ export function AutomationsSurface(props: {
     const projectID = props.projectID()
     if (!projectID) return
     const directory = props.directory()
+    const model = defaultModel()
     dialog.show(() => (
       <AutomationCreateDialog
         directory={directory}
         projectID={projectID}
+        model={model}
         template={template}
         onCreated={(definition) => setSelectedID(definition.id)}
       />
