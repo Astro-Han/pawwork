@@ -28,3 +28,4 @@ harness:
   - changed-files:
       - any-glob-to-any-file:
           - "packages/opencode/**"
+          - "packages/sdk/**"
