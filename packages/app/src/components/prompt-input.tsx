@@ -20,7 +20,7 @@ import { SendButton } from "./prompt-input/send-button"
 import { useCommand } from "@/context/command"
 import { usePermission } from "@/context/permission"
 import { useLanguage } from "@/context/language"
-import { canUseNativeFilePicker, usePlatform } from "@/context/platform"
+import { usePlatform } from "@/context/platform"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { setCursorPosition } from "./prompt-input/editor-dom"
 import { createEditorImperatives } from "./prompt-input/editor-imperatives"
@@ -34,10 +34,10 @@ import {
 import { createPromptKeydownHandler } from "./prompt-input/keydown"
 import { PromptModelControl } from "./prompt-input/model-controls"
 import { createPromptAttachments } from "./prompt-input/attachments"
-import { pickAttachments } from "./prompt-input/pick-attachments"
 import { ACCEPTED_FILE_TYPES } from "./prompt-input/files"
 import { promptLength } from "./prompt-input/history"
 import { createPromptDerivedState } from "./prompt-input/derived-state"
+import { createPromptCommandsAndMode } from "./prompt-input/commands-mode"
 import type { PromptStore } from "./prompt-input/store-types"
 import type { FollowupDraft } from "./prompt-input/followup-draft"
 import { createPromptSubmit } from "./prompt-input/submit"
@@ -186,53 +186,17 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     ),
   )
 
-  const pick = () => {
-    if (!actionReady()) return
-    const openFilePickerDialog = platform.openFilePickerDialog
-    void pickAttachments({
-      openFilePickerDialog: canUseNativeFilePicker(platform) ? openFilePickerDialog : undefined,
-      addPickedPaths,
-      fallbackInputClick: () => fileInputRef?.click(),
-      isReady: actionReady,
-    })
-  }
-
-  const setMode = (mode: "normal" | "shell") => {
-    if (!actionReady()) return
-    setStore("mode", mode)
-    setStore("popover", null)
-    requestAnimationFrame(() => editorRef?.focus())
-  }
-
-  const shellModeKey = "mod+shift+x"
-  const normalModeKey = "mod+shift+e"
-
-  command.register("prompt-input", () => [
-    {
-      id: "file.attach",
-      title: language.t("prompt.action.attachFile"),
-      category: language.t("command.category.file"),
-      keybind: "mod+u",
-      disabled: store.mode !== "normal" || !actionReady(),
-      onSelect: pick,
-    },
-    {
-      id: "prompt.mode.shell",
-      title: language.t("command.prompt.mode.shell"),
-      category: language.t("command.category.session"),
-      keybind: shellModeKey,
-      disabled: store.mode === "shell" || !actionReady(),
-      onSelect: () => setMode("shell"),
-    },
-    {
-      id: "prompt.mode.normal",
-      title: language.t("command.prompt.mode.normal"),
-      category: language.t("command.category.session"),
-      keybind: normalModeKey,
-      disabled: store.mode === "normal" || !actionReady(),
-      onSelect: () => setMode("normal"),
-    },
-  ])
+  const { pick } = createPromptCommandsAndMode({
+    command,
+    language,
+    platform,
+    store,
+    setStore,
+    actionReady,
+    addPickedPaths: () => addPickedPaths,
+    editorRef: () => editorRef,
+    fallbackInputClick: () => fileInputRef?.click(),
+  })
 
   const closePopover = () => setStore("popover", null)
 
