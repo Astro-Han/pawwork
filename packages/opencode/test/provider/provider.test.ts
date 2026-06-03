@@ -1230,6 +1230,49 @@ test("getSmallModel ignores invalid config small_model", async () => {
   })
 })
 
+test("plugin provider.models hook cannot mutate internal provider state", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      const pluginDir = path.join(dir, ".opencode", "plugin")
+      await mkdir(pluginDir, { recursive: true })
+      await Bun.write(
+        path.join(pluginDir, "provider-models-mutation.ts"),
+        [
+          "export default {",
+          '  id: "test.provider-models-mutation",',
+          "  server: async () => ({",
+          "    provider: {",
+          '      id: "anthropic",',
+          "      models: async (provider) => {",
+          '        provider.name = "mutated-by-plugin"',
+          "        provider.options = { ...provider.options, mutatedByPlugin: true }",
+          "        return provider.models ?? {}",
+          "      },",
+          "    },",
+          "  }),",
+          "}",
+          "",
+        ].join("\n"),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      set("ANTHROPIC_API_KEY", "test-api-key")
+    },
+    fn: async () => {
+      const anthropic = await getProvider(ProviderID.anthropic)
+      // The hook mutated its argument; with a deep-cloned input that must not leak
+      // into internal provider state.
+      expect(anthropic.name).not.toBe("mutated-by-plugin")
+      expect((anthropic.options as Record<string, unknown> | undefined)?.mutatedByPlugin).not.toBe(true)
+      // Models still resolve normally after the hook runs.
+      expect(Object.keys(anthropic.models).length).toBeGreaterThan(0)
+    },
+  })
+}, 30000)
+
 test("provider.sort prioritizes preferred models", () => {
   const models = [
     { id: "random-model", name: "Random" },
