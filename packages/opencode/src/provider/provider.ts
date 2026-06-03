@@ -1708,7 +1708,14 @@ const layer: Layer.Layer<
 
       if (cfg.small_model) {
         const parsed = parseModel(cfg.small_model)
-        return yield* getModel(parsed.providerID, parsed.modelID)
+        // getModel throws ModelNotFoundError as a defect (Effect.fn), so an invalid
+        // small_model would crash title/summary gen. Swallow only that defect and fall
+        // back to undefined; re-die anything else.
+        return yield* getModel(parsed.providerID, parsed.modelID).pipe(
+          Effect.catchDefect((defect) =>
+            ModelNotFoundError.isInstance(defect) ? Effect.succeed(undefined) : Effect.die(defect),
+          ),
+        )
       }
 
       const s = yield* currentState()
