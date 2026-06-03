@@ -192,6 +192,9 @@ export namespace Installation {
             return { code, stdout, stderr }
           },
           Effect.scoped,
+          // The user only sees the sanitized message; log the raw cause for diagnostics. The curl
+          // path only fetches the public install script and spawns bash, so no user token is at risk.
+          Effect.tapError((error) => Effect.sync(() => log.error("upgrade curl failed", { error }))),
           Effect.mapError(() => new UpgradeFailedError({ stderr: upgradeFailure("curl") })),
         )
 
