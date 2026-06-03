@@ -658,6 +658,7 @@ export const ShellTool = Tool.define(
           directory,
           tmp: Global.Path.tmp,
           limits,
+          defaultTimeout: DEFAULT_TIMEOUT,
         })
 
         const deps: ArtifactDeps = {

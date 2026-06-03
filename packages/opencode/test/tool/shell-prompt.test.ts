@@ -7,6 +7,7 @@ const DEFAULTS = {
   directory: "/tmp/pawwork-test",
   tmp: "/tmp/global",
   limits: LIMITS,
+  defaultTimeout: 120_000,
 }
 
 describe("bash prompt", () => {
@@ -54,6 +55,18 @@ describe("bash prompt", () => {
       expect(out).toContain("OS: darwin")
       expect(out).toContain("2000 lines")
       expect(out).toContain("51200 bytes")
+    })
+
+    test("interpolates the configured default timeout, not the old hardcoded 120000ms / '2 minutes'", () => {
+      // Regression for the shell.txt usage note that hardcoded "120000ms (2
+      // minutes)" even though the default is configurable via
+      // OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS (shell.ts:48). The rendered
+      // prompt must reflect the real DEFAULT_TIMEOUT threaded in by the caller.
+      // Adapted from upstream opencode #28998.
+      const out = render({ ...DEFAULTS, name: "bash", defaultTimeout: 30_000 })
+      expect(out).toContain("time out after 30000ms")
+      expect(out).not.toContain("120000ms")
+      expect(out).not.toContain("2 minutes")
     })
 
     test("no unreplaced template placeholders", () => {
