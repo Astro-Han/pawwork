@@ -7,6 +7,7 @@ import {
   transformShareData,
   type ShareData,
 } from "../../src/cli/cmd/import"
+import { sameDirectory } from "../../src/session/execution-context"
 
 // parseShareUrl tests
 test("parses valid share URLs", () => {
@@ -85,9 +86,12 @@ test("re-homes an imported session onto the local instance, dropping every forei
   // foreign workspace binding is dropped (a foreign id would break workspace routing)
   expect(localized.workspaceID).toBeUndefined()
   // executionContext (the real shell/tool cwd source) is reseeded at the local owner;
-  // the exporter's absolute paths and worktree are gone
-  expect(localized.executionContext.ownerDirectory).toBe("/exporter-test/importer/local-project")
-  expect(localized.executionContext.activeDirectory).toBe("/exporter-test/importer/local-project")
+  // the exporter's absolute paths and worktree are gone. rootContext canonicalizes the
+  // owner dir (path.resolve + normalize), so assert directory identity, not a literal
+  // string — a hardcoded POSIX path drive-prefixes to D:\... on Windows.
+  expect(sameDirectory(localized.executionContext.ownerDirectory, "/exporter-test/importer/local-project")).toBe(true)
+  expect(sameDirectory(localized.executionContext.activeDirectory, "/exporter-test/importer/local-project")).toBe(true)
+  expect(sameDirectory(localized.executionContext.ownerDirectory, exported.executionContext.ownerDirectory)).toBe(false)
   expect(localized.executionContext.activeWorktree).toBeUndefined()
   // unrelated fields preserved; input not mutated
   expect(localized.id).toBe("sess-1")
