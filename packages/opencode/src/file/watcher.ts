@@ -2,7 +2,7 @@ import { Cause, Effect, Layer, Scope, Context } from "effect"
 // @ts-ignore
 import { createWrapper } from "@parcel/watcher/wrapper"
 import type ParcelWatcher from "@parcel/watcher"
-import { readdir, stat } from "fs/promises"
+import { readdir, realpath, stat } from "fs/promises"
 import path from "path"
 import z from "zod"
 import { Bus } from "@/bus"
@@ -505,6 +505,39 @@ export namespace FileWatcher {
     return VCS_REFRESH_PREFIXES.some((prefix) => relative.startsWith(prefix))
   }
 
+  // Turn raw `git rev-parse --git-dir/--git-common-dir` lines into the canonical directories to
+  // subscribe. Each line is resolved against `directory` (rev-parse may print relative paths like
+  // ".git"), then realpath-canonicalized: a possibly-symlinked git dir (a symlinked .git, or a
+  // worktree reached through a symlinked path such as macOS /tmp -> /private/tmp) makes parcel emit
+  // events at the realpath, so an unresolved vcsDir makes path.relative in shouldPublishVcsWatcherPath
+  // traverse out (..) and drop every HEAD/ref event. Fall back to the unresolved path when realpath
+  // fails (dir may be absent). The `watcher.ignore` config skips a dir matched by either form, and
+  // the result is deduped (--git-dir and --git-common-dir coincide in a normal repo).
+  export async function resolveVcsWatchDirs(input: {
+    directory: string
+    gitDirs: string[]
+    cfgIgnores: string[]
+    resolveLink?: (target: string) => Promise<string>
+  }): Promise<string[]> {
+    const resolveLink = input.resolveLink ?? ((target) => realpath(target))
+    const resolved = [
+      ...new Set(
+        input.gitDirs
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .map((line) => path.resolve(input.directory, line)),
+      ),
+    ]
+    const subscribed = new Set<string>()
+    for (const resolvedVcsDir of resolved) {
+      const vcsDir = await resolveLink(resolvedVcsDir).catch(() => resolvedVcsDir)
+      if (input.cfgIgnores.includes(".git") || input.cfgIgnores.includes(resolvedVcsDir) || input.cfgIgnores.includes(vcsDir))
+        continue
+      subscribed.add(vcsDir)
+    }
+    return [...subscribed]
+  }
+
   export interface Interface {
     readonly init: () => Effect.Effect<void>
   }
@@ -776,27 +809,23 @@ export namespace FileWatcher {
               // checkout. A linked worktree keeps HEAD/index in the per-worktree --git-dir while
               // packed-refs/refs live in the shared --git-common-dir; watch both so branch and ref
               // events fire. They coincide in a normal repo, so dedupe to a single subscription.
-              // rev-parse may print relative paths (e.g. ".git"), so resolve each against
-              // ctx.directory rather than depending on --path-format=absolute (Git 2.31+).
+              // rev-parse may print relative paths (e.g. ".git"); resolveVcsWatchDirs resolves each
+              // against ctx.directory (rather than depending on --path-format=absolute, Git 2.31+),
+              // realpath-canonicalizes symlinked git dirs, applies watcher.ignore, and dedupes.
               const result = yield* git.run(["rev-parse", "--git-dir", "--git-common-dir"], {
                 cwd: ctx.directory,
               })
               const vcsDirs =
                 result.exitCode === 0
-                  ? [
-                      ...new Set(
-                        result
-                          .text()
-                          .trim()
-                          .split("\n")
-                          .map((line) => line.trim())
-                          .filter(Boolean)
-                          .map((line) => path.resolve(ctx.directory, line)),
-                      ),
-                    ]
+                  ? yield* Effect.promise(() =>
+                      resolveVcsWatchDirs({
+                        directory: ctx.directory,
+                        gitDirs: result.text().trim().split("\n"),
+                        cfgIgnores,
+                      }),
+                    )
                   : []
               for (const vcsDir of vcsDirs) {
-                if (cfgIgnores.includes(".git") || cfgIgnores.includes(vcsDir)) continue
                 const ignore = vcsWatcherIgnoreEntries(yield* Effect.promise(() => readdir(vcsDir).catch(() => [])))
                 log.info(
                   "watcher subscription configured",
