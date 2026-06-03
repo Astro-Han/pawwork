@@ -4,6 +4,7 @@ import { Session } from "../session"
 import { SessionID, MessageID } from "../session/schema"
 import { MessageV2 } from "../session/message-v2"
 import { Agent } from "../agent/agent"
+import type { Permission } from "../permission"
 import type { SessionPrompt } from "../session/prompt"
 import { Config } from "../config"
 import { SubagentRun } from "../session/subagent-run"
@@ -299,6 +300,56 @@ export const AgentTool = Tool.define(
             const parent = yield* sessions.get(ctx.sessionID)
             const parentExec = parent.executionContext
 
+            // #26597: a subagent must not use a tool its caller is denied, otherwise a restricted
+            // agent (Plan Mode's edit-deny, or a read-only "*": deny agent) could escalate by
+            // spawning a more-capable subagent. Resolve the caller's agent so its deny rules can be
+            // forwarded onto the child session below. The caller is ctx.agent on a normal LLM
+            // dispatch; for a subtask command SessionPrompt.handleSubtask runs the agent tool as the
+            // child and passes the real caller via ctx.extra.callerAgent (PawWork sessions don't
+            // store their agent). agent.get returns undefined for an unknown name (handled by the
+            // optional chaining below); do NOT catch a genuine resolution failure — letting it
+            // propagate fails the dispatch closed rather than silently dropping the caller's deny
+            // rules, which would re-open the escalation this fix closes.
+            const callerAgentName = (ctx.extra?.callerAgent as string | undefined) ?? ctx.agent
+            const callerAgent = yield* agent.get(callerAgentName)
+
+            // #26597: the subagent's inherited permission — the single source of truth for what it
+            // may do. Forward the caller's deny rules with patterns intact so they bind the child
+            // the same way they bind the caller: the caller agent's restrictions (scoped denies
+            // like edit on one path, or a wildcard "*" deny) live on its agent ruleset, not the
+            // session, so they're forwarded explicitly alongside the caller session's denies +
+            // external_directory. The rebuild in SessionPrompt.prompt carries these forward
+            // verbatim — it only regenerates the per-tool "*" denies the tools map below lists. The
+            // trailing rules are the subagent's own structural shape (no nested dispatch, no todos
+            // unless its agent allows them, primary-tool allows).
+            const inheritedPermission: Permission.Ruleset = [
+              ...(parent.permission ?? []).filter(
+                (rule) => rule.permission === "external_directory" || rule.action === "deny",
+              ),
+              ...(callerAgent?.permission ?? []).filter((rule) => rule.action === "deny"),
+              // v1 nested-deny: agent is denied unconditionally so a subagent cannot recursively
+              // dispatch its own subagents (#283 non-goal: nested subagents).
+              {
+                permission: id,
+                pattern: "*" as const,
+                action: "deny" as const,
+              },
+              ...(canTodo
+                ? []
+                : [
+                    {
+                      permission: "todowrite" as const,
+                      pattern: "*" as const,
+                      action: "deny" as const,
+                    },
+                  ]),
+              ...(cfg.experimental?.primary_tools?.map((item) => ({
+                pattern: "*",
+                action: "allow" as const,
+                permission: item,
+              })) ?? []),
+            ]
+
             const nextSession =
               session ??
               (yield* sessions.create({
@@ -306,33 +357,17 @@ export const AgentTool = Tool.define(
                 title: params.description + ` (@${next.name} subagent)`,
                 createdByAgentTool: true,
                 subagentType: params.subagent_type,
-                permission: [
-                  ...(parent.permission ?? []).filter(
-                    (rule) => rule.permission === "external_directory" || rule.action === "deny",
-                  ),
-                  // v1 nested-deny: agent is denied unconditionally so a subagent cannot
-                  // recursively dispatch its own subagents (#283 non-goal: nested subagents).
-                  {
-                    permission: id,
-                    pattern: "*" as const,
-                    action: "deny" as const,
-                  },
-                  ...(canTodo
-                    ? []
-                    : [
-                        {
-                          permission: "todowrite" as const,
-                          pattern: "*" as const,
-                          action: "deny" as const,
-                        },
-                      ]),
-                  ...(cfg.experimental?.primary_tools?.map((item) => ({
-                    pattern: "*",
-                    action: "allow" as const,
-                    permission: item,
-                  })) ?? []),
-                ],
+                permission: inheritedPermission,
               }))
+
+            // #26597: resume (subagent_session_id) skips sessions.create, so re-forward the CURRENT
+            // caller's inherited permission onto the existing child. Otherwise a caller that became
+            // more restrictive after the child was created — e.g. switched to Plan Mode — could
+            // resume it and regain the denied tools, since the child still carried its original
+            // creator's permission. The rebuild then carries this forward as on a fresh dispatch.
+            if (session) {
+              yield* sessions.setPermission({ sessionID: nextSession.id, permission: inheritedPermission })
+            }
 
             const childExec = nextSession.executionContext
             const sameWorktree =
@@ -441,6 +476,10 @@ export const AgentTool = Tool.define(
                       sessionID: nextSession.id,
                       model: { modelID: model.modelID, providerID: model.providerID },
                       agent: next.name,
+                      // Availability-only: structural constraints on the subagent (no nested
+                      // dispatch, no worktree switching, no todos unless its agent allows them, no
+                      // primary-only tools). Caller-inherited denies ride on session.permission
+                      // (forwarded above), not this map. See #26597.
                       tools: {
                         agent: false,
                         "enter-worktree": false,

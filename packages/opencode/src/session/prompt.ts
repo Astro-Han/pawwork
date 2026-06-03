@@ -1126,7 +1126,9 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           sessionID,
           abort: taskAbort.signal,
           callID: part.callID,
-          extra: { bypassAgentCheck: true, promptOps },
+          // #26597: ctx.agent here is the subtask's (child) agent, not the dispatcher.
+          // Pass the real caller so the agent tool can honor its edit restriction.
+          extra: { bypassAgentCheck: true, promptOps, callerAgent: lastUser.agent },
           messages: msgs,
           metadata: (val: { title?: string; metadata?: Record<string, any> }) =>
             Effect.gen(function* () {
@@ -1877,8 +1879,30 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         permissions.push({ permission: t, action: enabled ? "allow" : "deny", pattern: "*" })
       }
       if (permissions.length > 0) {
-        session.permission = permissions
-        yield* sessions.setPermission({ sessionID: session.id, permission: permissions })
+        // #26597: the boolean tools map is availability-only — it lists the subagent's structural
+        // denies (agent, worktree, todowrite, primary_tools), not what it inherited from its
+        // caller. The caller's deny rules are the single source of truth for inheritance and live
+        // on session.permission, forwarded at dispatch (tool/agent.ts). Rebuilding from the map
+        // alone would drop them, letting a caller regain access through the child. For agent-tool
+        // children, carry forward external_directory rules plus every caller deny the map does NOT
+        // regenerate: scoped (non-"*") denies (e.g. edit on one path) and whole-tool denies for
+        // keys absent from the map — the wildcard "*" and any tool not listed (automate, MCP,
+        // custom). Per-tool "*" denies for keys the map lists are regenerated each turn, so
+        // dropping them keeps this stable instead of accumulating.
+        // NOTE: like upstream #26597 this is forward-deny only — a caller's allow exception (e.g.
+        // a read-only "*": deny agent that also allows read) is not preserved, so its subagent
+        // loses those tools too. Matching upstream's deriveSubagentSessionPermission; toward deny.
+        const toolKeys = new Set(Object.keys(input.tools ?? {}))
+        const preserved = session.createdByAgentTool
+          ? (session.permission ?? []).filter(
+              (rule) =>
+                rule.permission === "external_directory" ||
+                (rule.action === "deny" && (rule.pattern !== "*" || !toolKeys.has(rule.permission))),
+            )
+          : []
+        const next = [...preserved, ...permissions]
+        session.permission = next
+        yield* sessions.setPermission({ sessionID: session.id, permission: next })
       }
 
       yield* throwIfAborted(options)
