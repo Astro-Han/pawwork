@@ -363,7 +363,18 @@ export async function CopilotAuthPlugin(input: PluginInput): Promise<Hooks> {
         })
         .catch(() => undefined)
 
-      if (parts?.data.parts?.some((part) => part.type === "compaction")) {
+      // Auto-compaction resumes the turn via a synthetic user text part marked
+      // metadata.compaction_continue (written in session/compaction.ts); that
+      // follow-up request carries no `compaction`-type part, so match it explicitly
+      // to keep x-initiator: agent on the resumed turn. Manual post-compaction
+      // prompts are not synthetic and stay user-initiated.
+      if (
+        parts?.data.parts?.some(
+          (part) =>
+            part.type === "compaction" ||
+            (part.type === "text" && part.synthetic && part.metadata?.compaction_continue === true),
+        )
+      ) {
         output.headers["x-initiator"] = "agent"
         return
       }
