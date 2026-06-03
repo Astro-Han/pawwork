@@ -422,6 +422,36 @@ describe("session messages endpoint", () => {
     )
   })
 
+  test("deletes a message through the route runtime and 404s a missing one", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await withoutWatcher(() =>
+      Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const session = await svc.create({})
+          const [messageID] = await fill(session.id, 1)
+          const app = Server.Default().app
+
+          // An existing message still deletes with 200 and is gone afterwards.
+          const ok = await app.request(`/session/${session.id}/message/${messageID}`, { method: "DELETE" })
+          expect(ok.status).toBe(200)
+          expect(await ok.json()).toBe(true)
+          expect(await svc.messages({ sessionID: session.id })).toHaveLength(0)
+
+          // The route's declared 404 is now real: deleting a message that does
+          // not exist surfaces NotFoundError instead of silently succeeding.
+          const miss = await app.request(`/session/${session.id}/message/${MessageID.ascending()}`, {
+            method: "DELETE",
+          })
+          expect(miss.status).toBe(404)
+          expect((await miss.json()).name).toBe("NotFoundError")
+
+          await svc.remove(session.id)
+        },
+      }),
+    )
+  })
+
   test("rejects a part update whose body does not match the path with a 400", async () => {
     await using tmp = await tmpdir({ git: true })
     await withoutWatcher(() =>
