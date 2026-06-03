@@ -22,6 +22,7 @@ import { SessionID } from "@/session/schema"
 import { Auth } from "@/auth"
 import { Installation } from "@/installation"
 import { EffectBridge } from "@/effect"
+import { aiSdkTracer } from "@opencode-ai/core/effect/observability"
 import * as Option from "effect/Option"
 import { LLMTrace } from "./llm-trace"
 import { ExternalResult } from "@/tool/external-result"
@@ -331,7 +332,10 @@ const live: Layer.Layer<
         })
       }
 
-      const tracer = undefined
+      // Resolve the registered OTel tracer so AI-SDK spans export; without it the
+      // SDK falls back to the no-op global tracer (NodeSdk never registers a
+      // global TracerProvider). Only on the opt-in openTelemetry path.
+      const tracer = cfg.experimental?.openTelemetry ? yield* aiSdkTracer : undefined
       const activeToolNames = Object.keys(tools).filter((x) => x !== "invalid")
 
       input.trace?.request(
