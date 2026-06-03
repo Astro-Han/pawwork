@@ -11,32 +11,35 @@ import path from "path"
 export const SCRATCH_MAX_AGE_MS = 24 * 60 * 60 * 1000
 
 /**
- * Newest modify/change time across an entry's subtree, following no symlinks.
- * Uses `max(mtimeMs, ctimeMs)` so a file whose mtime was restored to the past
- * (`cp -p`, unzip) but was actually just created still reads as recent. Returns
- * `Infinity` when anything cannot be stat-ed, so an uncertain entry is treated
- * as fresh and left in place; a future timestamp is likewise large and kept.
+ * Whether every node in an entry's subtree is older than `cutoff`, following no
+ * symlinks. Short-circuits on the first node at or after `cutoff` — one recent
+ * file keeps the whole entry — so a large kept tree (a cloned repo, a build dir)
+ * is not walked in full on startup. Freshness uses `max(mtimeMs, ctimeMs)` so a
+ * file whose mtime was restored to the past (`cp -p`, unzip) but was actually
+ * just created still reads as recent. A node that cannot be stat-ed is treated
+ * as fresh (returns `false`) so an uncertain entry is left in place; a future
+ * timestamp is likewise recent and keeps the entry.
  */
-async function newestTimestamp(entry: string): Promise<number> {
+async function isSubtreeStale(entry: string, cutoff: number): Promise<boolean> {
   let stat
   try {
     stat = await fs.lstat(entry)
   } catch {
-    return Infinity
+    return false
   }
-  let newest = Math.max(stat.mtimeMs, stat.ctimeMs)
+  if (Math.max(stat.mtimeMs, stat.ctimeMs) >= cutoff) return false
   if (stat.isDirectory()) {
     let children: string[]
     try {
       children = await fs.readdir(entry)
     } catch {
-      return Infinity
+      return false
     }
     for (const child of children) {
-      newest = Math.max(newest, await newestTimestamp(path.join(entry, child)))
+      if (!(await isSubtreeStale(path.join(entry, child), cutoff))) return false
     }
   }
-  return newest
+  return true
 }
 
 /**
@@ -59,7 +62,9 @@ export async function sweepScratch(options: { dir: string; now: number; maxAgeMs
   }
   for (const name of entries) {
     const entry = path.join(dir, name)
-    if ((await newestTimestamp(entry)) >= cutoff) continue
-    await fs.rm(entry, { recursive: true, force: true }).catch(() => {})
+    if (!(await isSubtreeStale(entry, cutoff))) continue
+    // maxRetries rides out transient Windows locks (AV / indexer) on otherwise
+    // stale entries; force ignores a concurrent delete.
+    await fs.rm(entry, { recursive: true, force: true, maxRetries: 30, retryDelay: 100 }).catch(() => {})
   }
 }
