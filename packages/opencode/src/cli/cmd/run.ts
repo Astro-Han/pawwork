@@ -27,6 +27,7 @@ import { TodoWriteTool } from "../../tool/todo"
 import { Locale } from "../../util/locale"
 import { AppRuntime } from "@/effect/app-runtime"
 import { ServerAuth } from "../../server/auth"
+import { FormatError, FormatUnknownError } from "../error"
 
 type ToolProps<T> = {
   input: Tool.InferParameters<T>
@@ -66,6 +67,26 @@ function block(info: Inline, output?: string) {
 // render after the tool id flip. Keep in sync with agent-rename:legacy-render sweep (Task 18).
 export const isAgentToolPart = (tool: string): boolean =>
   tool === "task" || tool === "agent" // agent-rename:legacy-render
+
+function formatRunError(error: unknown) {
+  return FormatError(error) ?? FormatUnknownError(error)
+}
+
+// Decide the exit code for a non-interactive `run` after the prompt/command
+// request resolves. A shaped SDK error (`result.error`) means the request was
+// rejected before a turn ran, so no `session.status: idle` event will arrive
+// and awaiting `drained` would hang forever (see #27371) — fail fast instead.
+// Otherwise a turn ran: wait for the event stream to finish draining trailing
+// JSON/text and the idle event (so output is not lost when the instance is torn
+// down, see #26955), then fail if it accumulated a session error.
+export async function finalizeRun(
+  drained: Promise<string | undefined>,
+  result: { error?: unknown },
+): Promise<1 | undefined> {
+  if (result.error) return 1
+  const sessionError = await drained
+  return sessionError ? 1 : undefined
+}
 
 function fallback(part: ToolPart) {
   const state = part.state
@@ -568,6 +589,7 @@ export const RunCommand = cmd({
             }
           }
         }
+        return error
       }
 
       // Validate agent if specified
@@ -640,30 +662,39 @@ export const RunCommand = cmd({
       }
       await share(sdk, sessionID)
 
-      loop().catch((e) => {
+      // Drain the SSE event stream in the background; capture the promise so we
+      // can await it after the request resolves instead of letting the instance
+      // be disposed mid-drain (which drops trailing JSON/text output).
+      const drained = loop().catch((e) => {
         console.error(e)
-        process.exit(1)
+        process.exitCode = 1
+        return undefined
       })
 
-      if (args.command) {
-        await sdk.session.command({
-          sessionID,
-          agent: agentName,
-          model: args.model,
-          command: args.command,
-          arguments: message,
-          variant: args.variant,
-        })
-      } else {
-        const model = args.model ? Provider.parseModel(args.model) : undefined
-        await sdk.session.prompt({
-          sessionID,
-          agent: agentName,
-          model,
-          variant: args.variant,
-          parts: [...files, { type: "text", text: message }],
-        })
-      }
+      const result = args.command
+        ? await sdk.session.command({
+            sessionID,
+            agent: agentName,
+            model: args.model,
+            command: args.command,
+            arguments: message,
+            variant: args.variant,
+          })
+        : await sdk.session.prompt({
+            sessionID,
+            agent: agentName,
+            model: args.model ? Provider.parseModel(args.model) : undefined,
+            variant: args.variant,
+            parts: [...files, { type: "text", text: message }],
+          })
+
+      // Surface a shaped request error: in-turn errors arrive on the SSE bus,
+      // but a request rejected before the turn ran (e.g. unknown command/model)
+      // only shows up here.
+      if (result.error && !emit("error", { error: result.error })) UI.error(formatRunError(result.error))
+
+      const exitCode = await finalizeRun(drained, result)
+      if (exitCode) process.exitCode = exitCode
     }
 
     if (args.attach) {
