@@ -6,6 +6,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js"
 import {
   CallToolResultSchema,
+  ToolSchema,
   type Tool as MCPToolDef,
   ToolListChangedNotificationSchema,
 } from "@modelcontextprotocol/sdk/types.js"
@@ -165,12 +166,55 @@ export namespace MCP {
     })
   }
 
-  function defs(key: string, client: MCPClient, timeout?: number) {
+  // Some MCP servers (e.g. Google Stitch) ship tool output schemas with $refs the
+  // SDK can't resolve, so the strict listTools() decode throws. Re-list with output
+  // schema validation relaxed instead of marking the whole server failed.
+  const TolerantToolSchema = ToolSchema.extend({
+    outputSchema: z.unknown().optional(),
+  })
+
+  const TolerantListToolsResultSchema = z.looseObject({
+    tools: z.array(TolerantToolSchema),
+    nextCursor: z.string().optional(),
+  })
+
+  function isOutputSchemaValidationError(error: Error) {
+    return /can't resolve reference|resolves to more than one schema|outputSchema|schema.*reference|reference.*schema/i.test(
+      error.message,
+    )
+  }
+
+  function listTools(key: string, client: MCPClient, timeout: number) {
     return Effect.tryPromise({
-      try: () => withTimeout(client.listTools(), timeout ?? DEFAULT_TIMEOUT),
+      try: () => withTimeout(client.listTools(), timeout),
       catch: (err) => (err instanceof Error ? err : new Error(String(err))),
     }).pipe(
       Effect.map((result) => result.tools),
+      Effect.catch((error) => {
+        if (!isOutputSchemaValidationError(error)) return Effect.fail(error)
+
+        log.warn("failed to validate MCP tool output schemas, retrying without output schema validation", {
+          key,
+          error,
+        })
+        return Effect.tryPromise({
+          try: () => withTimeout(client.request({ method: "tools/list" }, TolerantListToolsResultSchema), timeout),
+          catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+        }).pipe(
+          Effect.map((result) =>
+            result.tools.map((tool) => ({
+              name: tool.name,
+              description: tool.description,
+              inputSchema: tool.inputSchema,
+            })),
+          ),
+        )
+      }),
+    )
+  }
+
+  function defs(key: string, client: MCPClient, timeout?: number) {
+    return listTools(key, client, timeout ?? DEFAULT_TIMEOUT).pipe(
       Effect.catch((err) => {
         log.error("failed to get tools from client", { key, error: err })
         return Effect.succeed(undefined)
