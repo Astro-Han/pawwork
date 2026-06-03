@@ -155,8 +155,10 @@ describeVcs("Vcs", () => {
       const pending = nextBranchUpdate(dir)
 
       // Resolve the real per-worktree HEAD; in a linked worktree <dir>/.git is a
-      // pointer file, so never join `${dir}/.git/HEAD` directly.
-      const head = (await $`git rev-parse --path-format=absolute --git-path HEAD`.cwd(dir).text()).trim()
+      // pointer file, so never join `${dir}/.git/HEAD` directly. rev-parse may print
+      // a relative path, so resolve it against dir instead of relying on --path-format.
+      const headPath = (await $`git rev-parse --git-path HEAD`.cwd(dir).text()).trim()
+      const head = path.resolve(dir, headPath)
       await fs.writeFile(head, `ref: refs/heads/${branch}\n`)
 
       const updated = await pending

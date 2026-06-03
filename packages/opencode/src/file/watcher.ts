@@ -776,13 +776,24 @@ export namespace FileWatcher {
               // checkout. A linked worktree keeps HEAD/index in the per-worktree --git-dir while
               // packed-refs/refs live in the shared --git-common-dir; watch both so branch and ref
               // events fire. They coincide in a normal repo, so dedupe to a single subscription.
-              const result = yield* git.run(
-                ["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"],
-                { cwd: ctx.directory },
-              )
+              // rev-parse may print relative paths (e.g. ".git"), so resolve each against
+              // ctx.directory rather than depending on --path-format=absolute (Git 2.31+).
+              const result = yield* git.run(["rev-parse", "--git-dir", "--git-common-dir"], {
+                cwd: ctx.directory,
+              })
               const vcsDirs =
                 result.exitCode === 0
-                  ? [...new Set(result.text().trim().split("\n").map((line) => line.trim()).filter(Boolean))]
+                  ? [
+                      ...new Set(
+                        result
+                          .text()
+                          .trim()
+                          .split("\n")
+                          .map((line) => line.trim())
+                          .filter(Boolean)
+                          .map((line) => path.resolve(ctx.directory, line)),
+                      ),
+                    ]
                   : []
               for (const vcsDir of vcsDirs) {
                 if (cfgIgnores.includes(".git") || cfgIgnores.includes(vcsDir)) continue
