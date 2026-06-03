@@ -64,6 +64,10 @@ export function localToolImportSpec(input: string) {
   return input.startsWith("file://") ? input : pathToFileURL(input).href
 }
 
+function isPluginTool(value: unknown): value is ToolDefinition {
+  return typeof value === "object" && value !== null && "args" in value && "description" in value && "execute" in value
+}
+
 export namespace ToolRegistry {
   const log = Log.create({ service: "tool.registry" })
 
@@ -266,8 +270,17 @@ export namespace ToolRegistry {
               }
             }
             const mod = yield* Effect.promise(() => import(spec))
-            for (const [id, def] of Object.entries<ToolDefinition>(mod)) {
-              custom.push(fromPlugin(id === "default" ? namespace : `${namespace}_${id}`, def))
+            for (const [id, def] of Object.entries(mod)) {
+              // A `.opencode/tool/*.ts` file can export non-tool values alongside its
+              // tool(s) (helper consts, re-exported types). Skip anything that isn't a
+              // tool definition; otherwise `fromPlugin` wraps it into a bogus,
+              // description-less tool (7a012cac08).
+              if (!isPluginTool(def)) continue
+              const toolId = id === "default" ? namespace : `${namespace}_${id}`
+              // A non-tool sibling export keeps the coarse pre-import `ids.every(disabled)`
+              // skip from firing, so honor per-tool disables here too.
+              if (disabled.has(toolId)) continue
+              custom.push(fromPlugin(toolId, def))
             }
           }
 

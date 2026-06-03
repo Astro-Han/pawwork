@@ -158,6 +158,90 @@ describe("tool.registry", () => {
     })
   })
 
+  test("ignores non-tool exports in .opencode/tool files (7a012cac08)", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        const toolDir = path.join(dir, ".opencode", "tool")
+        await fs.mkdir(toolDir, { recursive: true })
+
+        await Bun.write(
+          path.join(toolDir, "mixed.ts"),
+          [
+            "export const helper = 'not a tool'",
+            "export default {",
+            "  description: 'mixed tool',",
+            "  args: {},",
+            "  execute: async () => 'ok',",
+            "}",
+            "",
+          ].join("\n"),
+        )
+      },
+    })
+
+    await withMockedConfigInstall(async () => {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const ids = await ToolRegistry.ids()
+          // The valid default export still loads.
+          expect(ids).toContain("mixed")
+          // The non-tool string export must not be wrapped into a phantom tool —
+          // it has no `args`/`description`/`execute`, so `fromPlugin` would build a
+          // bogus, description-less tool keyed `mixed_helper`.
+          expect(ids).not.toContain("mixed_helper")
+        },
+      })
+    })
+  })
+
+  test("honors a per-tool disable for a mixed-export local tool file (7a012cac08)", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        const opencodeDir = path.join(dir, ".opencode")
+        await fs.mkdir(opencodeDir, { recursive: true })
+
+        const toolDir = path.join(opencodeDir, "tool")
+        await fs.mkdir(toolDir, { recursive: true })
+
+        await Bun.write(
+          path.join(opencodeDir, "opencode.json"),
+          JSON.stringify({
+            $schema: "https://opencode.ai/config.json",
+            tools: { mixed: false },
+          }),
+        )
+
+        // A non-tool sibling export keeps the coarse pre-import `ids.every(disabled)`
+        // skip from firing (mixed_helper is not disabled), so the file is imported.
+        // The disabled real tool must still not register.
+        await Bun.write(
+          path.join(toolDir, "mixed.ts"),
+          [
+            "export const helper = 'not a tool'",
+            "export default {",
+            "  description: 'mixed tool',",
+            "  args: {},",
+            "  execute: async () => 'ok',",
+            "}",
+            "",
+          ].join("\n"),
+        )
+      },
+    })
+
+    await withMockedConfigInstall(async () => {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const ids = await ToolRegistry.ids()
+          expect(ids).not.toContain("mixed")
+          expect(ids).not.toContain("mixed_helper")
+        },
+      })
+    })
+  })
+
   test("bridges plugin ctx.ask and ctx.metadata so the framework Effects actually run", async () => {
     await using tmp = await tmpdir({
       init: async (dir) => {
