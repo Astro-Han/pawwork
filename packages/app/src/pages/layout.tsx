@@ -574,6 +574,7 @@ export default function Layout(props: ParentProps) {
     releaseTransientLocks: releaseTransientShellLocks,
     resolveProjectRoot: projectRoot,
     currentProjectRoot: () => currentProject()?.worktree ?? projectRoot(currentDir()),
+    directStartRoot: () => globalSync.data.path.directory,
     chooseProject,
     openSettingsSurface,
     closeSettingsSurface: closeSettings,
