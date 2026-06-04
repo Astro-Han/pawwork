@@ -49,7 +49,7 @@ export function HighlightedText(props: { text: string; references: FilePart[]; s
           <Show when={segment.type === "skill"}>
             <CommandIcon icon="skill" />
           </Show>
-          {segment.text}
+          {segment.type === "skill" ? segment.text.replace(/^\//, "") : segment.text}
         </span>
       )}
     </For>
