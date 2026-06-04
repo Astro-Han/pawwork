@@ -147,10 +147,16 @@ export namespace Permission {
     resolved: Set<PermissionID>
   }
 
-  // Bounded FIFO; the tombstone only needs to outlive the gap between a
-  // cascade-resolve and the client's own reply (milliseconds), so a modest cap
-  // keeps memory flat without ever evicting an entry that is still in play.
-  const RESOLVED_TOMBSTONE_LIMIT = 1000
+  // Bounded FIFO memory backstop for the tombstone. The cap only needs to keep
+  // an entry alive across the gap between a cascade-resolve and the client's own
+  // follow-up reply (sub-second), so eviction by insertion order is fine — as
+  // long as the cap stays well above the most requests one reply can resolve at
+  // once. A single "always"/"reject" cascade resolves at most the pending count
+  // of one session; permission asks are human-paced (auto-approved rules never
+  // pend), so that count is realistically dozens. This cap sits far above it, so
+  // a cascade can never evict its own freshly-resolved siblings and turn their
+  // legitimate follow-up reply into a false 404.
+  const RESOLVED_TOMBSTONE_LIMIT = 10_000
   function markResolved(resolved: Set<PermissionID>, id: PermissionID) {
     resolved.add(id)
     if (resolved.size > RESOLVED_TOMBSTONE_LIMIT) {
