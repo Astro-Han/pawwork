@@ -780,6 +780,7 @@ export const dict = {
   "sidebar.pawwork.empty.description": "打开一个项目后，即可使用以会话为中心的侧边栏。",
   "sidebar.pawwork.pinned": "已置顶",
   "sidebar.pawwork.all": "全部会话",
+  "sidebar.pawwork.directStart": "直接开始",
   "sidebar.pawwork.pinSession": "置顶会话",
   "sidebar.pawwork.unpinSession": "取消置顶",
   "sidebar.pawwork.dragToPin": "拖到这里置顶",

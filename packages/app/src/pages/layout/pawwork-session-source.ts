@@ -49,6 +49,8 @@ type SidebarRowSessionLike = SessionTimeLike & {
   project?: SessionProjectLike | null
 }
 
+export const PAWWORK_DIRECT_START_PROJECT_KEY = "pawwork:direct-start"
+
 const isFiniteNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value)
 
 const shortenHome = (value: string, home?: string) => {
@@ -83,7 +85,20 @@ export function sortPawworkSidebarSessions<T extends SessionLike>(sessions: T[])
   })
 }
 
-export function resolvePawworkSessionProjectKey(session: { directory: string }) {
+export function isPawworkDirectStartProjectKey(projectKey: string) {
+  return projectKey === PAWWORK_DIRECT_START_PROJECT_KEY
+}
+
+const isDirectStartSessionDirectory = (directory: string, directStartDirectory?: string) =>
+  !!directStartDirectory && workspaceKey(directory) === workspaceKey(directStartDirectory)
+
+export function resolvePawworkSessionProjectKey(
+  session: { directory: string },
+  input?: { directStartDirectory?: string },
+) {
+  if (isDirectStartSessionDirectory(session.directory, input?.directStartDirectory)) {
+    return PAWWORK_DIRECT_START_PROJECT_KEY
+  }
   return workspaceKey(session.directory)
 }
 
@@ -91,9 +106,15 @@ export function resolvePawworkSessionProjectLabel<T extends { directory: string;
   session: T,
   input: {
     projects: ProjectLike[]
+    directStartDirectory?: string
+    directStartLabel?: string
     workspaceName?: (directory: string, projectId?: string, branch?: string) => string | undefined
   },
 ) {
+  if (isDirectStartSessionDirectory(session.directory, input.directStartDirectory)) {
+    return input.directStartLabel ?? "Direct start"
+  }
+
   const directName = input.workspaceName?.(session.directory)
   if (directName) return directName
 
@@ -115,6 +136,8 @@ export function resolvePawworkProjectRenameTarget<TProject extends ProjectLike, 
     sessions: TSession[]
   },
 ): { type: "project"; project: TProject } | { type: "workspace"; directory: string } | undefined {
+  if (isPawworkDirectStartProjectKey(projectKey)) return undefined
+
   const project = input.projects.find((item) => workspaceKey(item.worktree) === projectKey)
   if (project) return { type: "project", project }
 

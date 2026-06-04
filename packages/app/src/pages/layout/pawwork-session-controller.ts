@@ -33,6 +33,7 @@ export type PawworkSessionControllerInput = {
   params: { readonly id?: string }
   visibleSessionDirs: () => string[]
   projects: () => LocalProject[]
+  directStartDirectory: () => string | undefined
   workspaceName: (directory: string, projectId?: string, branch?: string) => string | undefined
   store: LayoutPageState
   setStore: SetStoreFunction<LayoutPageState>
@@ -87,12 +88,14 @@ export function createPawworkSessionController(input: PawworkSessionControllerIn
   }
 
   const projectKeyForSession = (session: Session | GlobalSession) => {
-    return resolvePawworkSessionProjectKey(session)
+    return resolvePawworkSessionProjectKey(session, { directStartDirectory: input.directStartDirectory() })
   }
 
   const projectLabelForSession = (session: Session | GlobalSession) => {
     return resolvePawworkSessionProjectLabel(session, {
       projects: input.projects(),
+      directStartDirectory: input.directStartDirectory(),
+      directStartLabel: input.language.t("sidebar.pawwork.directStart"),
       workspaceName: input.workspaceName,
     })
   }

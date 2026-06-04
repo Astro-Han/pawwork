@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs"
 import { describe, expect, test } from "bun:test"
 import {
   buildPawworkSidebarSessionRows,
+  PAWWORK_DIRECT_START_PROJECT_KEY,
   pawworkSessionRouteUnhideKeys,
   resolvePawworkProjectRenameTarget,
   resolvePawworkSessionProjectKey,
@@ -89,6 +90,30 @@ describe("buildPawworkSidebarSessionRows", () => {
 
     expect(result[0].projectKey).toBe("/repo")
     expect(result[0].projectLabel).toBe("Repo")
+  })
+
+  test("labels default-directory sessions as direct start instead of the backing folder", () => {
+    const session = {
+      id: "session-direct",
+      directory: "/Users/demo/.pawwork",
+      time: { created: 100, updated: 100 },
+    }
+
+    const result = buildPawworkSidebarSessionRows([session], {
+      slugForDirectory: (directory) => `slug:${directory}`,
+      projectKeyForSession: (item) =>
+        resolvePawworkSessionProjectKey(item, { directStartDirectory: "/Users/demo/.pawwork" }),
+      projectLabelForSession: (item) =>
+        resolvePawworkSessionProjectLabel(item, {
+          projects: [],
+          directStartDirectory: "/Users/demo/.pawwork",
+          directStartLabel: "Direct start",
+        }),
+    })
+
+    expect(result[0].slug).toBe("slug:/Users/demo/.pawwork")
+    expect(result[0].projectKey).toBe(PAWWORK_DIRECT_START_PROJECT_KEY)
+    expect(result[0].projectLabel).toBe("Direct start")
   })
 
   test("uses API activity time before loaded message cache for sidebar rows", () => {

@@ -353,6 +353,7 @@ export default function Layout(props: ParentProps) {
     params,
     visibleSessionDirs,
     projects: () => layout.projects.list(),
+    directStartDirectory: () => globalSync.data.path.directory,
     workspaceName,
     store,
     setStore,
