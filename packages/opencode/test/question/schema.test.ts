@@ -22,14 +22,12 @@ test("Option.label accepts exactly 50 chars", () => {
   expect(() => Option({ label: "x".repeat(50), description: "ok" })).not.toThrow()
 })
 
-test("Option.description accepts long explanations", () => {
-  expect(() =>
-    Option({
-      label: "ok",
-      description:
-        "Use this when you want the model to explain the user-facing tradeoff without counting characters or failing the tool call.",
-    }),
-  ).not.toThrow()
+test("Option.description rejects > 120 chars", () => {
+  expect(() => Option({ label: "ok", description: "x".repeat(121) })).toThrow()
+})
+
+test("Option.description accepts exactly 120 chars", () => {
+  expect(() => Option({ label: "ok", description: "x".repeat(120) })).not.toThrow()
 })
 
 test("Option.description rejects empty / whitespace-only", () => {
