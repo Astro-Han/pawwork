@@ -124,15 +124,18 @@ describe("inline skill pill", () => {
     expect(pill.getAttribute("contenteditable")).toBe("false")
   })
 
-  test("createPill skill keeps textContent === '/name' so caret math is unaffected", () => {
+  test("createPill skill label shows bare name; caret math uses data-name", () => {
     const pill = createPill(makeSkill("summarize"))
-    // The icon child adds no visible text; the label child carries "/summarize".
-    expect(pill.textContent).toBe("/summarize")
+    // The label shows the bare name (no "/") since the glyph already signals
+    // "slash command". editor-dom computes logical length as 1 + data-name.length,
+    // not from textContent, so caret math stays correct.
+    expect(pill.textContent).toBe("summarize")
     const icon = pill.querySelector("[data-cmd-icon]") as HTMLElement
     expect(icon).not.toBeNull()
     expect(icon.className).toBe("command-icon")
     const label = pill.querySelector("[data-cmd-label]") as HTMLElement
-    expect(label.textContent).toBe("/summarize")
+    expect(label.textContent).toBe("summarize")
+    expect(pill.dataset.name).toBe("summarize")
   })
 
   test("round-trips prose + skill + prose, recovering name/source/content", () => {

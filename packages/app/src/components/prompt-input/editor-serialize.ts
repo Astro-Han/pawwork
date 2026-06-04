@@ -54,7 +54,7 @@ export function createPill(part: FileAttachmentPart | AgentPart | SkillAttachmen
     pill.appendChild(iconSpan)
     const labelSpan = document.createElement("span")
     labelSpan.setAttribute("data-cmd-label", "true")
-    labelSpan.textContent = part.content
+    labelSpan.textContent = part.content.replace(/^\//, "")
     pill.appendChild(labelSpan)
   } else {
     pill.textContent = part.content
@@ -164,7 +164,10 @@ export function parseEditorToParts(editor: HTMLElement): Prompt {
   }
 
   const pushSkill = (skill: HTMLElement) => {
-    const content = skill.textContent ?? ""
+    // The pill label displays the bare name (no "/") since the glyph already
+    // signals "this is a slash command". Rebuild the canonical "/<name>" token
+    // from data-name so the flattened text and source offsets stay correct.
+    const content = `/${skill.dataset.name!}`
     parts.push({
       type: "skill",
       name: skill.dataset.name!,
