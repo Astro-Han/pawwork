@@ -324,6 +324,37 @@ test("automations panel: the automate tool card jumps into the panel", async ({ 
   await expect(detail.getByRole("heading", { name: "Nightly digest" })).toBeVisible()
 })
 
+test("automations panel: a second tool card jump opens its own automation", async ({ page, project, assistant }) => {
+  test.setTimeout(120_000)
+
+  await project.open()
+
+  // First card → panel focused on Alpha.
+  await assistant.tool("automate", { title: "Alpha digest", prompt: "Summarize A.", cron: "0 9 * * *" })
+  await project.prompt("Set up alpha.")
+  const cardA = page.locator('[data-component="automate-tool-card"]').filter({ hasText: "Alpha digest" })
+  await expect(cardA).toBeVisible()
+  await cardA.locator('[data-component="automate-tool-action"]').click()
+  const surface = page.locator('[data-component="automations-page"]')
+  const detail = surface.locator('[data-component="automation-detail"]')
+  await expect(detail.getByRole("heading", { name: "Alpha digest" })).toBeVisible()
+
+  // Close the panel (the surface takes over main, so the chat — and the next
+  // tool card — is only reachable once it's closed), then jump from a second
+  // card. The surface is <Show>-gated, so it remounts and must focus Bravo, not
+  // re-show the stale Alpha selection.
+  await page.keyboard.press("Escape")
+  await page.keyboard.press("Escape")
+  await expect(surface).toHaveCount(0)
+
+  await assistant.tool("automate", { title: "Bravo digest", prompt: "Summarize B.", cron: "0 10 * * *" })
+  await project.prompt("Set up bravo.")
+  const cardB = page.locator('[data-component="automate-tool-card"]').filter({ hasText: "Bravo digest" })
+  await expect(cardB).toBeVisible()
+  await cardB.locator('[data-component="automate-tool-action"]').click()
+  await expect(detail.getByRole("heading", { name: "Bravo digest" })).toBeVisible()
+})
+
 test("automations panel: escape unwinds detail then closes the surface", async ({ page, project }) => {
   test.setTimeout(120_000)
 

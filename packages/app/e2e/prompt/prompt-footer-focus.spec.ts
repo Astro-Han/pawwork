@@ -133,6 +133,26 @@ test("model picker escape returns focus to the prompt", async ({ page, gotoSessi
   await expect.poll(() => body(prompt)).toContain("focus esc")
 })
 
+test("model picker outside dismiss leaves focus where the pointer went", async ({ page, gotoSession }) => {
+  await gotoSession()
+
+  const prompt = await ready(page)
+
+  await page.locator(`${promptModelSelector} [data-action="prompt-model"]`).first().click()
+  await expect(page.locator('[data-slot="list-item"]').first()).toBeVisible()
+
+  // Click into the prompt to dismiss the picker. An outside dismiss must leave
+  // focus on the prompt the user clicked, not snap it back to the model trigger.
+  // The dismiss refactor delegates outside handling to Kobalte, which already
+  // keeps focus off the trigger on outside interaction; this guards that the
+  // refactor didn't regress it.
+  await prompt.click()
+  await expect(page.locator('[data-slot="list-item"]').first()).toBeHidden()
+  await expect(prompt).toBeFocused()
+  await prompt.pressSequentially(" outside")
+  await expect.poll(() => body(prompt)).toContain("focus outside")
+})
+
 test("home selected model is used for the first prompt", async ({ page, project }) => {
   await project.open()
 
