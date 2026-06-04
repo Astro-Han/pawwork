@@ -7,8 +7,8 @@ type HighlightSegment = { text: string; type?: "file" | "skill" }
 export function HighlightedText(props: { text: string; references: FilePart[]; skills?: SkillPart[] }) {
   // PawWork issue #239: `agents` prop removed — past AgentPart mentions render as
   // plain text because the picker concept is gone. Inline skill chips, by
-  // contrast, ARE highlighted: the "/name" token is colored like the leading
-  // command mark, keyed off the skill part's source span in the flattened text.
+  // contrast, ARE highlighted: the bare name is colored in brand accent with a
+  // skill glyph, keyed off the skill part's source span in the flattened text.
   const segments = createMemo(() => {
     const text = props.text
 

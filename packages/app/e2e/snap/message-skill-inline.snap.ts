@@ -5,8 +5,8 @@ test.use({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 })
 
 // Seed a user message that carries a structured skill part alongside prose, the
 // shape buildRequestParts produces for an inline skill chip. The bubble must
-// render the "/name" span as a skill chip (glyph + brand-accent token) inside
-// the prose, NOT suppress the body the way the leading commandInvocation does.
+// render the skill as a chip (glyph + bare name in brand accent) inside the
+// prose, NOT suppress the body the way the leading commandInvocation does.
 // noReply keeps the snap fast and independent of a fake-LLM round-trip.
 async function seedSkillMessage(
   sdk: ReturnType<typeof import("../utils").createSdk>,

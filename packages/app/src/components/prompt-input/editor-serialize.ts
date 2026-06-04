@@ -42,10 +42,9 @@ export function createPill(part: FileAttachmentPart | AgentPart | SkillAttachmen
   if (part.type === "skill") {
     pill.setAttribute("data-name", part.name)
     pill.setAttribute("data-source", part.source)
-    // Skill chips carry the skill glyph. The label span keeps textContent ===
-    // "/name" so caret/length math in editor-dom is unaffected; the icon span
-    // contributes no text. The persisted SkillPart drops the source kind, so the
-    // sent bubble uses the same glyph — keep both surfaces consistent here.
+    // Skill chips carry the skill glyph + the bare name (no leading "/").
+    // editor-dom computes logical length as 1 + data-name.length, not from
+    // textContent, so caret math is unaffected by the stripped slash.
     const iconSpan = document.createElement("span")
     iconSpan.setAttribute("data-cmd-icon", "true")
     iconSpan.setAttribute("aria-hidden", "true")
