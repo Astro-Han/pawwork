@@ -1869,9 +1869,10 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           // it is position-independent because activation reads the parts array, not the
           // text. Argless by design — the surrounding user prose is the turn body.
           const cmd = yield* commands.get(part.name)
-          // Unknown skill (renamed/removed): keep the chip so the bubble still renders,
-          // but inject nothing rather than throwing the whole turn.
-          if (!cmd) return [{ ...part, messageID: info.id, sessionID: input.sessionID }]
+          // Unknown skill, or a command/MCP entry masquerading as a skill (the
+          // command registry is a shared namespace): keep the chip for the bubble
+          // but inject nothing — the full command pipeline handles non-skill entries.
+          if (!cmd || cmd.source !== "skill") return [{ ...part, messageID: info.id, sessionID: input.sessionID }]
           const template = yield* expandCommandTemplate(cmd, "")
           return [
             { ...part, messageID: info.id, sessionID: input.sessionID },

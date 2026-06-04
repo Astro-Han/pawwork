@@ -1,3 +1,4 @@
+import fs from "fs/promises"
 import path from "path"
 import { describe, expect, test } from "bun:test"
 import { NamedError } from "@opencode-ai/util/error"
@@ -1009,7 +1010,17 @@ describe("session.prompt inline skill parts", () => {
     await using tmp = await tmpdir({
       config: {
         agent: { build: { model: "openai/gpt-5.2" } },
-        command: { summarize: { template: "Summarize the latest user request." } },
+        skills: { paths: ["skills"] },
+      },
+      async init(dir) {
+        const skillDir = path.join(dir, "skills", "summarize")
+        await fs.mkdir(skillDir, { recursive: true })
+        await fs.writeFile(
+          path.join(skillDir, "SKILL.md"),
+          ["---", "name: summarize", "description: Summarize the thread", "---", "", "Summarize the latest user request."].join(
+            "\n",
+          ),
+        )
       },
     })
     await Instance.provide({
@@ -1084,6 +1095,42 @@ describe("session.prompt inline skill parts", () => {
             // Unknown skill: the chip is preserved (so the bubble still renders) ...
             expect(msg.parts.some((part) => part.type === "skill" && part.name === "does-not-exist")).toBe(true)
             // ... but no synthetic template text is injected.
+            expect(msg.parts.some((part) => part.type === "text" && part.synthetic)).toBe(false)
+
+            yield* sessions.remove(session.id)
+          }),
+        ),
+    })
+  }, 30000)
+
+  test("does not expand a non-skill command delivered as a SkillPart", async () => {
+    await using tmp = await tmpdir({
+      config: {
+        agent: { build: { model: "openai/gpt-5.2" } },
+        command: { brainstorm: { template: "Start a brainstorming session." } },
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: () =>
+        run(
+          Effect.gen(function* () {
+            const prompt = yield* SessionPrompt.Service
+            const sessions = yield* Session.Service
+            const session = yield* sessions.create({})
+
+            const msg = yield* prompt.prompt({
+              sessionID: session.id,
+              agent: "build",
+              noReply: true,
+              parts: [
+                { type: "text", text: "go" },
+                { type: "skill", name: "brainstorm" },
+              ],
+            })
+            if (msg.info.role !== "user") throw new Error("expected user message")
+
+            expect(msg.parts.some((part) => part.type === "skill" && part.name === "brainstorm")).toBe(true)
             expect(msg.parts.some((part) => part.type === "text" && part.synthetic)).toBe(false)
 
             yield* sessions.remove(session.id)

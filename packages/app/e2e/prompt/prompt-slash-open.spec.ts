@@ -112,9 +112,12 @@ test("slash mid-sentence opens the picker and inserts an inline skill chip", asy
   await command.click()
 
   // Selection replaces the typed "/summarize" with a position-independent chip.
+  // Assert the label sub-element (not the whole chip, which also contains the
+  // icon SVG) to catch regressions that re-add the leading "/".
   const chip = page.locator('[data-type="skill"][data-name="summarize"]')
   await expect(chip).toBeVisible()
-  await expect(chip).toContainText("summarize")
+  const label = chip.locator("[data-cmd-label]")
+  await expect(label).toHaveText("summarize")
   await expect(popover).toHaveCount(0)
 })
 
