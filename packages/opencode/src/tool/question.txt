@@ -37,7 +37,7 @@ BAD (stuffs context into the question field; should stream context first then as
 - `question`: short prompt (max 200 chars). If you need more context, stream it as normal assistant output BEFORE invoking this tool, then keep the question short.
 - `options`: 2–4 distinct choices; keep them mutually exclusive unless `multiple: true`.
 - `options[].label`: 1–5 words (max 50 chars).
-- `options[].description`: one-line explanation (max 50 chars). Longer per-option detail belongs in the streamed context above.
+- `options[].description`: brief explanation of choice. Longer trade-off context belongs in the streamed context above.
 - `multiple: true` only when choices aren't mutually exclusive (e.g. feature toggles).
 - `custom`: defaults to true; the dock adds a "Type your own answer" slot. Set false only when the options are exhaustive.
 - `questions`: 1–4 per invocation. If you have more, split.

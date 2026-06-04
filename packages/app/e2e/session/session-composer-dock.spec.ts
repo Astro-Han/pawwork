@@ -1064,7 +1064,10 @@ test("overflow question dock keeps keyboard focus visible without moving timelin
       custom: false,
       options: Array.from({ length: 4 }, (_, index) => ({
         label: `Option ${index + 1}`,
-        description: `Long option ${index + 1} description that fills the row.`,
+        description:
+          index === 0
+            ? `Long option ${index + 1} description that fills the row. ${"This extra explanation keeps going so the option description itself must scroll instead of making the whole dock too tall. ".repeat(10)}`
+            : `Long option ${index + 1} description that fills the row.`,
       })),
     },
   ]
@@ -1094,6 +1097,13 @@ test("overflow question dock keeps keyboard focus visible without moving timelin
         await seedSessionQuestion(project.sdk, { sessionID: session.id, questions: overflowQuestions })
         await expectQuestionBlocked(page)
         await expectQuestionOptionsOverflow(page)
+
+        const firstDescription = page.locator(`${questionDockSelector} [data-slot="option-description"]`).first()
+        const descriptionMetrics = await firstDescription.evaluate((el) => {
+          const target = el as HTMLElement
+          return { clientHeight: target.clientHeight, scrollHeight: target.scrollHeight }
+        })
+        expect(descriptionMetrics.clientHeight).toBeLessThan(descriptionMetrics.scrollHeight)
 
         await page.locator(`${questionDockSelector} [data-slot="question-option"]`).first().focus()
         await page.keyboard.press("End")

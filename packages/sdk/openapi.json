@@ -7796,7 +7796,7 @@
             "type": "string"
           },
           "description": {
-            "description": "One-line explanation of choice (max 50 chars)",
+            "description": "Brief explanation of choice",
             "type": "string"
           }
         },

@@ -3,26 +3,27 @@ import { zod } from "@/util/effect-zod"
 import { withStatics } from "@/util/schema"
 
 export namespace Question {
-  // PawWork-specific length/trim guards: keep label/description/header/question
-  // bounded so chips and prompts render well, and so models can't smuggle empty
-  // strings through whitespace padding. The hint wording is contracted with
-  // tests so the LLM-facing error guidance stays stable across refactors.
+  // PawWork-specific trim guards: keep compact fields bounded so chips and
+  // prompts render well, and so models can't smuggle empty strings through
+  // whitespace padding. The hint wording is contracted with tests so the
+  // LLM-facing error guidance stays stable across refactors.
   const TrimmedString = (max: number, opts: { emptyMsg: string; tooLongMsg: string }) =>
     Schema.Trim.pipe(
       Schema.check(Schema.isMinLength(1, { message: opts.emptyMsg })),
       Schema.check(Schema.isMaxLength(max, { message: opts.tooLongMsg })),
     )
 
+  const TrimmedNonEmptyString = (opts: { emptyMsg: string }) =>
+    Schema.Trim.pipe(Schema.check(Schema.isMinLength(1, { message: opts.emptyMsg })))
+
   export class Option extends Schema.Class<Option>("QuestionOption")({
     label: TrimmedString(50, {
       emptyMsg: "Option label cannot be empty.",
       tooLongMsg: "Option label is too long (max 50 chars). Keep labels to 1–5 words; put detail in description.",
     }).annotate({ description: "Display text (1–5 words, max 50 chars)" }),
-    description: TrimmedString(50, {
+    description: TrimmedNonEmptyString({
       emptyMsg: "Option description cannot be empty.",
-      tooLongMsg:
-        "Option description is too long (max 50 chars). Keep it to one line; longer trade-off context belongs in the question or in normal streamed output before the tool call.",
-    }).annotate({ description: "One-line explanation of choice (max 50 chars)" }),
+    }).annotate({ description: "Brief explanation of choice" }),
   }) {
     static readonly zod = zod(this)
   }

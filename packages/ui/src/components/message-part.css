@@ -1130,6 +1130,8 @@
     line-height: var(--line-height-h3);
     color: var(--fg-base);
     min-width: 0;
+    max-height: 4lh;
+    overflow-y: auto;
     overflow-wrap: anywhere;
     white-space: normal;
   }
