@@ -1,7 +1,7 @@
 import { useGlobalSync } from "@/context/global-sync"
 import { decode64 } from "@/utils/base64"
 import { useParams } from "@solidjs/router"
-import { createMemo } from "solid-js"
+import { createMemo, type Accessor } from "solid-js"
 
 export const popularProviders = [
   "opencode",
@@ -17,10 +17,14 @@ export const popularProviders = [
 ]
 const popularProviderSet = new Set(popularProviders)
 
-export function useProviders() {
+export function useProviders(dirOverride?: Accessor<string | undefined>) {
   const globalSync = useGlobalSync()
   const params = useParams()
-  const dir = createMemo(() => decode64(params.dir) ?? "")
+  // dirOverride is a raw directory (e.g. the Automations create card's selected
+  // folder, which can differ from the current route). When provided it fully
+  // replaces the route's encoded dir param, so providers/models can be scoped to
+  // a directory other than the one in the URL.
+  const dir = createMemo(() => (dirOverride ? (dirOverride() ?? "") : (decode64(params.dir) ?? "")))
   const providers = () => {
     if (dir()) {
       const [projectStore] = globalSync.child(dir())

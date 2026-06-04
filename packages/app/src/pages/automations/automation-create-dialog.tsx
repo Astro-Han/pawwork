@@ -1,5 +1,5 @@
 import { Popover } from "@kobalte/core/popover"
-import { createMemo, createSignal, For, Show, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, For, on, Show, type JSX } from "solid-js"
 import type { AutomationCreateInput, AutomationDefinition } from "@opencode-ai/sdk/v2/client"
 import { Button } from "@opencode-ai/ui/button"
 import { Dialog } from "@opencode-ai/ui/dialog"
@@ -12,7 +12,7 @@ import { translateVariant } from "@/components/prompt-input/variant-label"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
-import { useModels, type ModelKey } from "@/context/models"
+import { useScopedModels, type ModelKey } from "@/context/models"
 import { useProviders } from "@/hooks/use-providers"
 import { formatServerError } from "@/utils/server-errors"
 import { AutomationScheduleControls } from "./automation-schedule-controls"
@@ -42,9 +42,17 @@ export function AutomationCreateDialog(props: {
   const language = useLanguage()
   const layout = useLayout()
   const dialog = useDialog()
-  const models = useModels()
-  const providers = useProviders()
   const t = language.t
+
+  // The folder picker can file the automation against any open project, so the
+  // model list, default and validation must follow the *selected* directory, not
+  // the current route — otherwise we'd offer/seed a model the target project
+  // can't run (#950 PR7 P1). Declared before the scoped model/provider views so
+  // they react to folder switches.
+  const [directory, setDirectory] = createSignal(props.directory)
+  const [projectID, setProjectID] = createSignal(props.projectID)
+  const models = useScopedModels(directory)
+  const providers = useProviders(directory)
 
   // Open projects the automation can be filed against (excludes the synthetic
   // "global" project). Each carries the projectID the create input needs.
@@ -72,11 +80,21 @@ export function AutomationCreateDialog(props: {
   const [title, setTitle] = createSignal(props.template ? t(props.template.titleKey) : "")
   const [prompt, setPrompt] = createSignal(props.template ? t(props.template.promptKey) : "")
   const [schedule, setSchedule] = createSignal<ScheduleDraft>(props.template?.schedule ?? DEFAULT_SCHEDULE)
-  const [directory, setDirectory] = createSignal(props.directory)
-  const [projectID, setProjectID] = createSignal(props.projectID)
   const [model, setModel] = createSignal<ModelKey | undefined>(seedModel())
   const [variant, setVariant] = createSignal<string | undefined>()
   const [creating, setCreating] = createSignal(false)
+
+  // When the folder changes, the model list reflects the new project. If the
+  // current pick isn't available there, re-seed (and drop the variant) so we
+  // never submit a model the target project can't run.
+  createEffect(
+    on(directory, () => {
+      const selected = model()
+      if (selected && models.find(selected)) return
+      setModel(seedModel())
+      setVariant(undefined)
+    }, { defer: true }),
+  )
 
   const modelState = createAutomationModelState({ models, model, setModel, variant, setVariant })
 
@@ -86,8 +104,14 @@ export function AutomationCreateDialog(props: {
     setSchedule(template.schedule)
   }
 
+  // The model must be valid for the *selected* project, not just set.
+  const validModel = createMemo(() => {
+    const selected = model()
+    return selected ? models.find(selected) : undefined
+  })
+
   const canCreate = createMemo(
-    () => title().trim().length > 0 && prompt().trim().length > 0 && !!model() && !!projectID(),
+    () => title().trim().length > 0 && prompt().trim().length > 0 && !!validModel() && !!projectID(),
   )
 
   const create = async () => {
