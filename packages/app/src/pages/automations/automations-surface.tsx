@@ -1,4 +1,4 @@
-import { createMemo, createSignal, onCleanup, onMount, Show, type Accessor, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, onCleanup, onMount, Show, type Accessor, type JSX } from "solid-js"
 import { Popover } from "@kobalte/core/popover"
 import type { AutomationDefinition } from "@opencode-ai/sdk/v2/client"
 import { Button } from "@opencode-ai/ui/button"
@@ -52,10 +52,11 @@ export function AutomationsSurface(props: {
   const dialog = useDialog()
   const [selectedID, setSelectedID] = createSignal<string | undefined>()
 
-  // The panel remounts each time it opens (lazy <Show>), so a pending deep-link
-  // selection (from the automate tool's "open in Automations" jump) is read once
-  // on mount; manual opens clear the request first, so no stale row is forced.
-  onMount(() => {
+  // A pending deep-link selection (the automate tool's "open in Automations"
+  // jump) is tracked reactively rather than read once on mount, so it applies
+  // whether the panel was freshly mounted or already open. Manual opens clear
+  // the request first, so an empty request never overrides the current row.
+  createEffect(() => {
     const requested = props.requestedID?.()
     if (requested) setSelectedID(requested)
   })
