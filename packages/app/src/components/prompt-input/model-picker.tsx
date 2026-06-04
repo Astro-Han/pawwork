@@ -110,7 +110,7 @@ const ModelList: Component<{
   )
 }
 
-const ThinkingLevelSection: Component<{ model?: ModelPickerState }> = (props) => {
+const ThinkingLevelSection: Component<{ model?: ModelPickerState; modal?: boolean }> = (props) => {
   const model = props.model ?? useLocal().model
   const language = useLanguage()
   const variants = createMemo(() => model.variant.list())
@@ -121,7 +121,12 @@ const ThinkingLevelSection: Component<{ model?: ModelPickerState }> = (props) =>
 
   return (
     <div class="border-t border-border-weaker pt-3 pb-1">
-      <Kobalte modal={false} placement="right-start" gutter={4}>
+      {/* Inherit the outer picker's modality. A non-modal nested popover opened
+          inside a modal outer would lose focus to the outer's trap the instant
+          it autofocuses and dismiss itself (the #950 PR7 thinking-submenu flash);
+          a modal inner traps focus into itself and stays open. Composer keeps the
+          outer (and so this) non-modal. */}
+      <Kobalte modal={props.modal ?? false} placement="right-start" gutter={4}>
         <Kobalte.Trigger
           disabled={!supported()}
           data-action="prompt-model-thinking-trigger"
@@ -228,7 +233,7 @@ export function ModelSelectorPopover(props: {
         >
           <Kobalte.Title class="sr-only">{language.t("dialog.model.select.title")}</Kobalte.Title>
           <ModelList provider={props.provider} model={props.model} onSelect={selectAndClose} />
-          <ThinkingLevelSection model={props.model} />
+          <ThinkingLevelSection model={props.model} modal={props.modal} />
         </Kobalte.Content>
       </Kobalte.Portal>
     </Kobalte>

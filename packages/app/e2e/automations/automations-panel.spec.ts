@@ -1,5 +1,30 @@
+import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures"
 import { openSidebar } from "../actions"
+
+type ModelKey = { providerID: string; modelID: string }
+
+// Discover an e2e model that actually exposes thinking variants (most opencode
+// mock models don't), via the composer probe, mirroring model-picker-thinking.
+async function findVariantModel(page: Page): Promise<ModelKey | undefined> {
+  const models = (await page.evaluate(() => {
+    const win = window as Window & { __opencode_e2e?: { model?: { current?: { models?: Array<ModelKey & { name: string }> } } } }
+    return win.__opencode_e2e?.model?.current?.models ?? []
+  })) as Array<ModelKey & { name: string }>
+  for (const model of models) {
+    const variants = await page.evaluate((value) => {
+      const win = window as Window & {
+        __opencode_e2e?: {
+          model?: { controls?: { setModel?: (v: ModelKey) => void }; current?: { variants?: string[] } }
+        }
+      }
+      win.__opencode_e2e?.model?.controls?.setModel?.(value)
+      return win.__opencode_e2e?.model?.current?.variants ?? []
+    }, model)
+    if (variants.length > 0) return model
+  }
+  return undefined
+}
 
 const recurring = (projectID: string, title: string, prompt: string, expression: string) => ({
   automationCreateInput: {
@@ -176,6 +201,70 @@ test("automations panel: model picker survives the dialog focus trap and reopens
   // And it reopens — the wedged-shut state is gone.
   await trigger.click()
   await expect(picker).toBeVisible()
+})
+
+test("automations panel: thinking submenu stays open inside the modal create card", async ({ page, project }) => {
+  test.setTimeout(120_000)
+
+  await project.open()
+
+  // The thinking submenu only renders for models that expose variants; discover
+  // one via the composer probe before navigating to the panel.
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const win = window as Window & { __opencode_e2e?: { model?: { current?: { models?: unknown[] } } } }
+          return win.__opencode_e2e?.model?.current?.models?.length ?? 0
+        }),
+      { timeout: 30_000 },
+    )
+    .toBeGreaterThan(0)
+  const model = await findVariantModel(page)
+  test.skip(!model, "no e2e model with thinking variants")
+  if (!model) return
+
+  const surface = await openAutomations(page)
+  await surface.locator('[data-action="automation-create-open"]').click()
+  await page.locator('[data-action="automation-create-manual"]').click()
+  const card = page.locator('[data-component="automation-create"]')
+  await expect(card).toBeVisible()
+
+  // Select the variant-capable model so the thinking trigger is enabled.
+  await page.locator('[data-action="automation-model-trigger"]').click()
+  const picker = page.locator("[data-picker-content]")
+  await expect(picker).toBeVisible()
+  await picker
+    .locator(`[data-slot="list-item"][data-key="${model.providerID}:${model.modelID}"]`)
+    .first()
+    .click({ force: true })
+
+  // Reopen the picker and open the thinking submenu.
+  await page.locator('[data-action="automation-model-trigger"]').click()
+  const thinkingTrigger = page.locator('[data-action="prompt-model-thinking-trigger"]').first()
+  await expect(thinkingTrigger).toBeVisible()
+  await expect(thinkingTrigger).toBeEnabled()
+  await thinkingTrigger.click()
+
+  // The nested thinking popover is non-modal; inside the modal outer picker the
+  // outer's focus trap used to steal focus the instant the submenu autofocused,
+  // flashing it shut (#950 PR7). A single auto-retrying toBeVisible can catch the
+  // brief open frame and pass anyway, so sample the option count over time and
+  // assert it is still open after the focus hand-off would have fired.
+  const option = page.locator('[data-action="prompt-model-thinking-option"]').first()
+  await expect(option).toBeVisible()
+  await expect
+    .poll(() => page.locator('[data-action="prompt-model-thinking-option"]').count(), { timeout: 2_000 })
+    .toBeGreaterThan(0)
+  await page.waitForTimeout(300)
+  await expect(option).toBeVisible()
+
+  // And it is usable: picking a non-default level applies the selection (the
+  // option marks itself selected) without tearing down the outer picker or card.
+  const level = page.locator('[data-action="prompt-model-thinking-option"]').nth(1)
+  await level.click()
+  await expect(level).toHaveAttribute("data-selected", "")
+  await expect(card).toBeVisible()
 })
 
 test("automations panel: template prefills the create card", async ({ page, project }) => {
