@@ -7,6 +7,7 @@ import { PermissionID } from "../../src/permission/schema"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 import { MessageID, SessionID } from "../../src/session/schema"
+import { NotFoundError } from "../../src/storage/db"
 
 afterEach(async () => {
   await Instance.disposeAll()
@@ -1301,16 +1302,59 @@ test("pending permission rejects on instance reload", async () => {
   expect(await result).toBeInstanceOf(Permission.RejectedError)
 })
 
-test("reply - does nothing for unknown requestID", async () => {
+test("reply - throws NotFoundError for an unknown requestID", async () => {
   await using tmp = await tmpdir({ git: true })
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      await Permission.reply({
-        requestID: PermissionID.make("per_unknown"),
-        reply: "once",
-      })
+      await expect(
+        Permission.reply({
+          requestID: PermissionID.make("per_unknown"),
+          reply: "once",
+        }),
+      ).rejects.toBeInstanceOf(NotFoundError)
       expect(await Permission.list()).toHaveLength(0)
+    },
+  })
+})
+
+test("reply - is idempotent for a cascade-resolved sibling", async () => {
+  await using tmp = await tmpdir({ git: true })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const a = Permission.ask({
+        id: PermissionID.make("per_idem_a"),
+        sessionID: SessionID.make("session_same"),
+        permission: "bash",
+        patterns: ["ls"],
+        metadata: {},
+        always: ["ls"],
+        ruleset: [],
+      })
+
+      const b = Permission.ask({
+        id: PermissionID.make("per_idem_b"),
+        sessionID: SessionID.make("session_same"),
+        permission: "bash",
+        patterns: ["ls"],
+        metadata: {},
+        always: [],
+        ruleset: [],
+      })
+
+      await waitForPending(2)
+
+      // Replying "always" to a cascade-resolves the matching sibling b.
+      await Permission.reply({ requestID: PermissionID.make("per_idem_a"), reply: "always" })
+      await expect(a).resolves.toBeUndefined()
+      await expect(b).resolves.toBeUndefined()
+
+      // The client legitimately saw b and replies to it; that repeat reply must
+      // be an idempotent success, not a NotFoundError.
+      await expect(
+        Permission.reply({ requestID: PermissionID.make("per_idem_b"), reply: "once" }),
+      ).resolves.toBeUndefined()
     },
   })
 })
