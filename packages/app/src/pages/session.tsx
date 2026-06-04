@@ -17,8 +17,8 @@ import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
 import { buildDesktopContext } from "@/utils/desktop-context"
 import { createSessionComposerState, HomeComposerRegion } from "@/pages/session/composer"
-import { createExecutionScopeTracker, type ExecutionScope } from "@/pages/session/execution-scope"
 import { createSizing } from "@/pages/session/helpers"
+import { createSessionExecutionState } from "@/pages/session/session-execution-directory"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { SessionPageComposerRegion } from "@/pages/session/session-composer-region"
 import { SessionMainView } from "@/pages/session/session-main-view"
@@ -178,12 +178,12 @@ export default function Page() {
   const wantsReview = createMemo(() =>
     isDesktop() ? desktopSidePanelOpen() && view().sidePanel.tab() === "review" : mobileChanges(),
   )
-  const executionScopeTracker = createExecutionScopeTracker()
-  const currentExecutionScope = (): ExecutionScope =>
-    executionScopeTracker({
-      serverKey: server.key,
-      directory: sdk.directory,
-    })
+  const executionState = createSessionExecutionState({
+    serverKey: () => server.key,
+    routeDirectory: () => sdk.directory,
+    session: timeline.sessionInfo,
+  })
+  const currentExecutionScope = executionState.scope
   const reviewState = createSessionReviewState({
     directory: () => sdk.directory,
     executionScope: currentExecutionScope,
@@ -226,7 +226,7 @@ export default function Page() {
   })
 
   useSessionVcsRefresh({
-    directory: () => sdk.directory,
+    directory: executionState.directory,
     event: sdk.event,
     branch: () => sync.data.vcs?.branch,
     defaultBranch: () => sync.data.vcs?.default_branch,
