@@ -143,7 +143,7 @@ export function AutomationsSurface(props: {
                 <Popover gutter={6} placement="bottom-end">
                   <Popover.Trigger as={Button} variant="primary" icon="plus-small" data-action="automation-create-open">
                     {language.t("automations.create.cta")}
-                    <Icon name="chevron-down" class="size-3" />
+                    <Icon name="chevron-down" />
                   </Popover.Trigger>
                   <Popover.Portal>
                     <Popover.Content
