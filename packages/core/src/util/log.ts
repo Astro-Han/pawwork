@@ -49,6 +49,7 @@ export namespace Log {
     level?: Level
   }
 
+  const initializedRunID = "OPENCODE_LOG_INITIALIZED_RUN_ID"
   let logpath = ""
   export function file() {
     return logpath
@@ -66,7 +67,14 @@ export namespace Log {
       Global.Path.log,
       options.dev ? "dev.log" : new Date().toISOString().split(".")[0].replace(/:/g, "") + ".log",
     )
-    await fs.truncate(logpath).catch(() => {})
+    // Truncate dev.log only once per run: a single OPENCODE_RUN_ID may init the
+    // logger multiple times (re-entry, subprocesses), and wiping it on every
+    // init drops earlier lines from the same run. Non-dev (timestamped) files
+    // and runs without a run id keep the original truncate-on-init behavior.
+    const runID = process.env.OPENCODE_RUN_ID
+    const shouldTruncate = !options.dev || !runID || process.env[initializedRunID] !== runID
+    if (shouldTruncate) await fs.truncate(logpath).catch(() => {})
+    if (options.dev && runID) process.env[initializedRunID] = runID
     const stream = createWriteStream(logpath, { flags: "a" })
     write = async (msg: any) => {
       return new Promise((resolve, reject) => {
