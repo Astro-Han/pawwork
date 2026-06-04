@@ -11,24 +11,27 @@ import { ModelSelectorPopover } from "@/components/prompt-input/model-picker"
 import { translateVariant } from "@/components/prompt-input/variant-label"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
+import { useLayout } from "@/context/layout"
 import { useModels, type ModelKey } from "@/context/models"
 import { useProviders } from "@/hooks/use-providers"
 import { formatServerError } from "@/utils/server-errors"
-import { AutomationSchedulePicker } from "./automation-schedule-picker"
+import { AutomationScheduleControls } from "./automation-schedule-controls"
+import { AutomationFolderPicker, type AutomationProject } from "./automation-folder-picker"
 import { buildScheduleInput, DEFAULT_SCHEDULE, type ScheduleDraft } from "./automation-schedule-form"
 import { createAutomationModelState } from "./automation-model-state"
 import { AUTOMATION_TEMPLATES, type AutomationTemplate } from "./automation-templates"
 
 const KNOB_CLASS =
-  "flex h-[30px] items-center gap-1.5 rounded-lg border border-border-weak bg-bg-base px-2.5 text-body text-fg-base"
+  "flex h-[30px] min-w-0 items-center gap-1.5 rounded-lg border border-border-weak px-2.5 text-body text-fg-base hover:bg-row-hover-overlay focus:outline-none cursor-pointer"
 
-// Manual create card (issue #950 PR7). Title + prompt + a Schedule | Model
-// bottom bar; project, context, stop, and worktree are pinned to the surface's
-// directory / fresh / never / none (see handoff). The Automations surface
-// renders outside the per-directory LocalProvider, so the composer's
-// useLocal-backed model state can't be reused; a panel-local controller (see
-// automation-model-state) drives the same picker UI from useModels(), seeded
-// with the last-used / default model.
+// Manual create card (issue #950 PR7). Title + prompt, then an inline schedule
+// row (frequency segmented switch + time), then a Folder | Model bottom bar.
+// context, stop, and worktree are pinned to fresh / never / none (see handoff);
+// the folder picker lets the automation be filed against any open project. The
+// Automations surface renders outside the per-directory LocalProvider, so the
+// composer's useLocal-backed model state can't be reused; a panel-local
+// controller (see automation-model-state) drives the same picker UI from
+// useModels(), seeded with the last-used / default model.
 export function AutomationCreateDialog(props: {
   directory: string
   projectID: string
@@ -37,10 +40,20 @@ export function AutomationCreateDialog(props: {
 }): JSX.Element {
   const globalSync = useGlobalSync()
   const language = useLanguage()
+  const layout = useLayout()
   const dialog = useDialog()
   const models = useModels()
   const providers = useProviders()
   const t = language.t
+
+  // Open projects the automation can be filed against (excludes the synthetic
+  // "global" project). Each carries the projectID the create input needs.
+  const projects = createMemo<AutomationProject[]>(() =>
+    layout.projects
+      .list()
+      .filter((project) => project.id && project.id !== "global" && project.worktree)
+      .map((project) => ({ id: project.id!, worktree: project.worktree, name: project.name })),
+  )
 
   // Seed with the same priority the composer uses: last-used model, then the
   // configured project default, then the first connected model. Resolved once;
@@ -59,6 +72,8 @@ export function AutomationCreateDialog(props: {
   const [title, setTitle] = createSignal(props.template ? t(props.template.titleKey) : "")
   const [prompt, setPrompt] = createSignal(props.template ? t(props.template.promptKey) : "")
   const [schedule, setSchedule] = createSignal<ScheduleDraft>(props.template?.schedule ?? DEFAULT_SCHEDULE)
+  const [directory, setDirectory] = createSignal(props.directory)
+  const [projectID, setProjectID] = createSignal(props.projectID)
   const [model, setModel] = createSignal<ModelKey | undefined>(seedModel())
   const [variant, setVariant] = createSignal<string | undefined>()
   const [creating, setCreating] = createSignal(false)
@@ -71,7 +86,9 @@ export function AutomationCreateDialog(props: {
     setSchedule(template.schedule)
   }
 
-  const canCreate = createMemo(() => title().trim().length > 0 && prompt().trim().length > 0 && !!model())
+  const canCreate = createMemo(
+    () => title().trim().length > 0 && prompt().trim().length > 0 && !!model() && !!projectID(),
+  )
 
   const create = async () => {
     const selected = model()
@@ -84,7 +101,7 @@ export function AutomationCreateDialog(props: {
         title: title().trim(),
         prompt: prompt().trim(),
         context: "fresh" as const,
-        where: { projectID: props.projectID },
+        where: { projectID: projectID() },
         timezone,
         model: selected,
         ...(variant() ? { variant: variant() } : {}),
@@ -93,7 +110,7 @@ export function AutomationCreateDialog(props: {
         scheduled.kind === "oneshot"
           ? { kind: "oneshot", ...common, fireAt: scheduled.fireAt }
           : { kind: "recurring", ...common, rhythm: scheduled.rhythm, stop: { kind: "never" } }
-      const definition = await globalSync.automation.create(props.directory, input)
+      const definition = await globalSync.automation.create(directory(), input)
       dialog.close()
       if (definition) props.onCreated(definition)
     } catch (error) {
@@ -108,7 +125,7 @@ export function AutomationCreateDialog(props: {
   }
 
   return (
-    <Dialog fit class="w-full max-w-[660px] mx-auto">
+    <Dialog fit class="w-full max-w-[600px] mx-auto">
       <div data-component="automation-create" class="flex flex-col gap-3 p-4">
         <div class="flex items-start gap-2">
           <input
@@ -123,7 +140,7 @@ export function AutomationCreateDialog(props: {
           <Popover gutter={6} placement="bottom-end">
             <Popover.Trigger
               data-action="automation-use-template"
-              class="flex h-[30px] shrink-0 items-center gap-1.5 rounded-lg border border-border-weak bg-bg-base px-3 text-body text-fg-base hover:bg-row-hover-overlay focus:outline-none"
+              class="flex h-[30px] shrink-0 items-center gap-1.5 rounded-lg border border-border-weak px-3 text-body text-fg-base hover:bg-row-hover-overlay focus:outline-none"
             >
               {t("automations.create.useTemplate")}
             </Popover.Trigger>
@@ -168,15 +185,25 @@ export function AutomationCreateDialog(props: {
           class="min-h-[132px] w-full resize-none bg-transparent text-body text-fg-base placeholder:text-fg-weak focus:outline-none"
         />
 
+        <AutomationScheduleControls value={schedule()} onChange={setSchedule} t={t} />
+
         <div class="flex items-center gap-2 border-t border-border-weak pt-3">
           <div class="flex min-w-0 flex-1 items-center gap-2">
-            <AutomationSchedulePicker value={schedule()} onChange={setSchedule} t={t} />
+            <AutomationFolderPicker
+              projects={projects()}
+              current={directory()}
+              onSelect={(project) => {
+                setDirectory(project.worktree)
+                setProjectID(project.id)
+              }}
+            />
 
             <ModelSelectorPopover
+              modal
               model={modelState}
               triggerProps={{
                 "data-action": "automation-model-trigger",
-                class: `${KNOB_CLASS} min-w-0 cursor-pointer hover:bg-row-hover-overlay focus:outline-none`,
+                class: KNOB_CLASS,
               }}
             >
               <Show
@@ -198,7 +225,7 @@ export function AutomationCreateDialog(props: {
                   </>
                 )}
               </Show>
-              <Icon name="chevron-down" class="size-3 shrink-0 text-icon-weak" />
+              <Icon name="chevron-down" class="shrink-0 text-icon-weak" />
             </ModelSelectorPopover>
           </div>
 
