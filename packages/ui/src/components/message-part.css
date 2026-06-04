@@ -170,15 +170,6 @@
       color: var(--syntax-type);
     }
 
-    /* Inline skill chip: glyph + bare name in brand accent. */
-    [data-highlight="skill"] {
-      color: var(--brand-primary);
-    }
-
-    [data-highlight="skill"] .command-icon {
-      margin-right: 2px;
-    }
-
     max-width: 100%;
   }
 
