@@ -19,6 +19,7 @@ import { buildDesktopContext } from "@/utils/desktop-context"
 import { createSessionComposerState, HomeComposerRegion } from "@/pages/session/composer"
 import { createExecutionScopeTracker, type ExecutionScope } from "@/pages/session/execution-scope"
 import { createSizing } from "@/pages/session/helpers"
+import { sessionExecutionDirectory } from "@/pages/session/session-execution-directory"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { SessionPageComposerRegion } from "@/pages/session/session-composer-region"
 import { SessionMainView } from "@/pages/session/session-main-view"
@@ -179,10 +180,13 @@ export default function Page() {
     isDesktop() ? desktopSidePanelOpen() && view().sidePanel.tab() === "review" : mobileChanges(),
   )
   const executionScopeTracker = createExecutionScopeTracker()
+  const currentExecutionDirectory = createMemo(() =>
+    sessionExecutionDirectory({ routeDirectory: sdk.directory, session: timeline.sessionInfo() }),
+  )
   const currentExecutionScope = (): ExecutionScope =>
     executionScopeTracker({
       serverKey: server.key,
-      directory: sdk.directory,
+      directory: currentExecutionDirectory(),
     })
   const reviewState = createSessionReviewState({
     directory: () => sdk.directory,
@@ -226,7 +230,7 @@ export default function Page() {
   })
 
   useSessionVcsRefresh({
-    directory: () => sdk.directory,
+    directory: currentExecutionDirectory,
     event: sdk.event,
     branch: () => sync.data.vcs?.branch,
     defaultBranch: () => sync.data.vcs?.default_branch,
