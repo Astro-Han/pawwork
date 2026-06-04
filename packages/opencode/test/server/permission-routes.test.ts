@@ -5,6 +5,7 @@ import { AppRuntime } from "../../src/effect/app-runtime"
 import { Permission } from "../../src/permission"
 import { PermissionID } from "../../src/permission/schema"
 import { Instance } from "../../src/project/instance"
+import { ErrorMiddleware } from "../../src/server/middleware"
 import { PermissionRoutes } from "../../src/server/instance/permission"
 import { SessionID } from "../../src/session/schema"
 import { tmpdir } from "../fixture/fixture"
@@ -15,7 +16,9 @@ afterEach(async () => {
 
 describe("permission routes", () => {
   function app() {
-    return new Hono().route("/permission", PermissionRoutes())
+    const instance = new Hono().route("/permission", PermissionRoutes())
+    instance.onError(ErrorMiddleware)
+    return instance
   }
 
   test("replies to a pending permission through the route runtime", async () => {
@@ -51,6 +54,22 @@ describe("permission routes", () => {
         expect(response.status).toBe(200)
         expect(await response.json()).toBe(true)
         await expect(asked).resolves.toBeUndefined()
+      },
+    })
+  })
+
+  test("returns 404 for an unknown permission request", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const response = await app().request(`/permission/${PermissionID.ascending()}/reply`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ reply: "once" }),
+        })
+
+        expect(response.status).toBe(404)
       },
     })
   })

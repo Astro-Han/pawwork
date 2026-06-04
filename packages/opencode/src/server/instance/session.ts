@@ -1646,7 +1646,9 @@ export const SessionRoutes = lazy(() =>
       validator("json", z.object({ response: Permission.Reply })),
       async (c) => {
         const params = c.req.valid("param")
-        Permission.reply({
+        // Await so an unknown permission surfaces this route's documented 404
+        // instead of being swallowed by a fire-and-forget rejection.
+        await Permission.reply({
           requestID: params.permissionID,
           reply: c.req.valid("json").response,
         })

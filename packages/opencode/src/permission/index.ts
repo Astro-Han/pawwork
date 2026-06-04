@@ -7,7 +7,7 @@ import { ProjectID } from "@/project/schema"
 import { Instance } from "@/project/instance"
 import { MessageID, SessionID } from "@/session/schema"
 import { PermissionTable } from "@/session/session.sql"
-import { Database, eq } from "@/storage/db"
+import { Database, NotFoundError, eq } from "@/storage/db"
 import { Log } from "@opencode-ai/core/util/log"
 import { Wildcard } from "@/util/wildcard"
 import { Deferred, Effect, Layer, Schema, Context } from "effect"
@@ -139,6 +139,30 @@ export namespace Permission {
   interface State {
     pending: Map<PermissionID, PendingEntry>
     approved: Ruleset
+    // Tombstone of recently-resolved request IDs. A reply can cascade-resolve
+    // sibling pending requests, so a client's own follow-up reply to one of
+    // those would otherwise miss `pending` and look unknown. Remembering the ID
+    // briefly lets that repeat reply be an idempotent success instead of a
+    // misleading 404, while a genuinely unknown ID still surfaces as not-found.
+    resolved: Set<PermissionID>
+  }
+
+  // Bounded FIFO memory backstop for the tombstone. The cap only needs to keep
+  // an entry alive across the gap between a cascade-resolve and the client's own
+  // follow-up reply (sub-second), so eviction by insertion order is fine — as
+  // long as the cap stays well above the most requests one reply can resolve at
+  // once. A single "always"/"reject" cascade resolves at most the pending count
+  // of one session; permission asks are human-paced (auto-approved rules never
+  // pend), so that count is realistically dozens. This cap sits far above it, so
+  // a cascade can never evict its own freshly-resolved siblings and turn their
+  // legitimate follow-up reply into a false 404.
+  const RESOLVED_TOMBSTONE_LIMIT = 10_000
+  function markResolved(resolved: Set<PermissionID>, id: PermissionID) {
+    resolved.add(id)
+    if (resolved.size > RESOLVED_TOMBSTONE_LIMIT) {
+      const oldest = resolved.values().next().value
+      if (oldest !== undefined) resolved.delete(oldest)
+    }
   }
 
   export function evaluate(permission: string, pattern: string, ...rulesets: Ruleset[]): Rule {
@@ -160,6 +184,7 @@ export namespace Permission {
           const state = {
             pending: new Map<PermissionID, PendingEntry>(),
             approved: row?.data ?? [],
+            resolved: new Set<PermissionID>(),
           }
 
           yield* Effect.addFinalizer(() =>
@@ -176,7 +201,7 @@ export namespace Permission {
       )
 
       const ask = Effect.fn("Permission.ask")(function* (input: AskOptions) {
-        const { approved, pending } = yield* InstanceState.get(state)
+        const { approved, pending, resolved } = yield* InstanceState.get(state)
         const { ruleset, onPending, ...request } = input
         let needsAsk = false
         const denied: Array<{ pattern: string; rule: Rule }> = []
@@ -232,16 +257,24 @@ export namespace Permission {
           Deferred.await(deferred),
           Effect.sync(() => {
             pending.delete(id)
+            markResolved(resolved, id)
           }),
         )
       })
 
       const reply = Effect.fn("Permission.reply")(function* (input: z.infer<typeof ReplyInput>) {
-        const { approved, pending } = yield* InstanceState.get(state)
+        const { approved, pending, resolved } = yield* InstanceState.get(state)
         const existing = pending.get(input.requestID)
-        if (!existing) return
+        if (!existing) {
+          // Already handled (most often as a cascade sibling of an earlier
+          // reply) -> idempotent success. Genuinely unknown -> surface the
+          // route's documented 404 via ErrorMiddleware's NotFoundError mapping.
+          if (resolved.has(input.requestID)) return
+          throw new NotFoundError({ message: `Permission request not found: ${input.requestID}` })
+        }
 
         pending.delete(input.requestID)
+        markResolved(resolved, input.requestID)
         yield* bus.publish(Event.Replied, {
           sessionID: existing.info.sessionID,
           requestID: existing.info.id,
@@ -257,6 +290,7 @@ export namespace Permission {
           for (const [id, item] of pending.entries()) {
             if (item.info.sessionID !== existing.info.sessionID) continue
             pending.delete(id)
+            markResolved(resolved, id)
             yield* bus.publish(Event.Replied, {
               sessionID: item.info.sessionID,
               requestID: item.info.id,
@@ -285,6 +319,7 @@ export namespace Permission {
           )
           if (!ok) continue
           pending.delete(id)
+          markResolved(resolved, id)
           yield* bus.publish(Event.Replied, {
             sessionID: item.info.sessionID,
             requestID: item.info.id,
@@ -298,10 +333,11 @@ export namespace Permission {
         sessionID: SessionID,
         _reason: "session_deleted" | "session_archived" | "dangling_session",
       ) {
-        const { pending } = yield* InstanceState.get(state)
+        const { pending, resolved } = yield* InstanceState.get(state)
         for (const [id, item] of Array.from(pending.entries())) {
           if (item.info.sessionID !== sessionID) continue
           pending.delete(id)
+          markResolved(resolved, id)
           yield* bus.publish(Event.Replied, {
             sessionID: item.info.sessionID,
             requestID: item.info.id,
