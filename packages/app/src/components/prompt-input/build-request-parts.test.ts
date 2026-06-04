@@ -50,6 +50,43 @@ describe("buildRequestParts", () => {
     expect(result.optimisticParts.every((part) => part.sessionID === "ses_1" && part.messageID === "msg_1")).toBe(true)
   })
 
+  test("emits a SkillPartInput and a matching optimistic skill part", () => {
+    const prompt: Prompt = [
+      { type: "text", content: "please ", start: 0, end: 7 },
+      { type: "skill", name: "summarize", source: "skill", content: "/summarize", start: 7, end: 17 },
+    ]
+
+    const result = buildRequestParts({
+      prompt,
+      context: [],
+      images: [],
+      text: "please /summarize",
+      messageID: "msg_skill",
+      sessionID: "ses_skill",
+      sessionDirectory: "/repo",
+    })
+
+    const skill = result.requestParts.find((part) => part.type === "skill")
+    expect(skill).toBeDefined()
+    if (skill?.type === "skill") {
+      expect(skill.name).toBe("summarize")
+      // The "/summarize" span is tagged so the bubble can render it as a chip.
+      expect(skill.source).toEqual({ value: "/summarize", start: 7, end: 17 })
+    }
+
+    // The optimistic part must mirror the persisted SkillPart so the bubble
+    // does not flicker — and NOT degrade into an agent part via the fallthrough.
+    const optimisticSkill = result.optimisticParts.find((part) => part.type === "skill")
+    expect(optimisticSkill).toBeDefined()
+    if (optimisticSkill?.type === "skill") {
+      expect(optimisticSkill.name).toBe("summarize")
+      expect(optimisticSkill.sessionID).toBe("ses_skill")
+      expect(optimisticSkill.messageID).toBe("msg_skill")
+      expect(optimisticSkill.source).toEqual({ value: "/summarize", start: 7, end: 17 })
+    }
+    expect(result.optimisticParts.some((part) => part.type === "agent")).toBe(false)
+  })
+
   test("keeps multiple uploaded attachments in order", () => {
     const result = buildRequestParts({
       prompt: [{ type: "text", content: "check these", start: 0, end: 11 }],

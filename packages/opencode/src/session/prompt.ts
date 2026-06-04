@@ -1466,6 +1466,53 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       return yield* provider.defaultModel().pipe(Effect.orDie)
     })
 
+    // Expand a command/skill template: positional ($1..$n) + $ARGUMENTS substitution +
+    // inline shell interpolation, then trim. A pure text transform shared by the command()
+    // endpoint and the inline-skill resolvePart branch. It deliberately does NOT touch
+    // agent/model/subtask selection, plugin hooks, or command events — those stay in command().
+    const expandCommandTemplate = Effect.fn("SessionPrompt.expandCommandTemplate")(function* (
+      cmd: Command.Info,
+      args: string,
+    ) {
+      const raw = args.match(argsRegex) ?? []
+      const parsedArgs = raw.map((arg) => arg.replace(quoteTrimRegex, ""))
+      const templateCommand = yield* Effect.promise(async () => cmd.template)
+
+      const placeholders = templateCommand.match(placeholderRegex) ?? []
+      let last = 0
+      for (const item of placeholders) {
+        const value = Number(item.slice(1))
+        if (value > last) last = value
+      }
+
+      const withArgs = templateCommand.replaceAll(placeholderRegex, (_, index) => {
+        const position = Number(index)
+        const argIndex = position - 1
+        if (argIndex >= parsedArgs.length) return ""
+        if (position === last) return parsedArgs.slice(argIndex).join(" ")
+        return parsedArgs[argIndex]
+      })
+      const usesArgumentsPlaceholder = templateCommand.includes("$ARGUMENTS")
+      let template = withArgs.replaceAll("$ARGUMENTS", args)
+
+      if (placeholders.length === 0 && !usesArgumentsPlaceholder && args.trim()) {
+        template = template + "\n\n" + args
+      }
+
+      const shellMatches = ConfigMarkdown.shell(template)
+      if (shellMatches.length > 0) {
+        const sh = Shell.preferred()
+        const results = yield* Effect.promise(() =>
+          Promise.all(
+            shellMatches.map(async ([, shellCmd]) => (await Process.text([shellCmd], { shell: sh, nothrow: true })).text),
+          ),
+        )
+        let index = 0
+        template = template.replace(bashRegex, () => results[index++])
+      }
+      return template.trim()
+    })
+
     const createUserMessage = Effect.fn("SessionPrompt.createUserMessage")(function* (input: PromptInput) {
       const agentName = input.agent || (yield* agents.defaultAgent())
       const ag = yield* agents.get(agentName)
@@ -1811,6 +1858,30 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 " Use the above message and context to generate a prompt and call the agent tool with subagent: " +
                 part.name +
                 hint,
+            },
+          ]
+        }
+
+        if (part.type === "skill") {
+          // Inline skill chip: resolve the command/skill template and inject it as a
+          // synthetic, model-visible text part (mirrors the agent branch above). The
+          // structured skill part is persisted only to render the chip in the bubble;
+          // it is position-independent because activation reads the parts array, not the
+          // text. Argless by design — the surrounding user prose is the turn body.
+          const cmd = yield* commands.get(part.name)
+          // Unknown skill, or a command/MCP entry masquerading as a skill (the
+          // command registry is a shared namespace): keep the chip for the bubble
+          // but inject nothing — the full command pipeline handles non-skill entries.
+          if (!cmd || cmd.source !== "skill") return [{ ...part, messageID: info.id, sessionID: input.sessionID }]
+          const template = yield* expandCommandTemplate(cmd, "")
+          return [
+            { ...part, messageID: info.id, sessionID: input.sessionID },
+            {
+              messageID: info.id,
+              sessionID: input.sessionID,
+              type: "text",
+              synthetic: true,
+              text: template,
             },
           ]
         }
@@ -2588,43 +2659,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       }
       const agentName = cmd.agent ?? input.agent ?? (yield* agents.defaultAgent())
 
-      const raw = input.arguments.match(argsRegex) ?? []
-      const args = raw.map((arg) => arg.replace(quoteTrimRegex, ""))
-      const templateCommand = yield* Effect.promise(async () => cmd.template)
-
-      const placeholders = templateCommand.match(placeholderRegex) ?? []
-      let last = 0
-      for (const item of placeholders) {
-        const value = Number(item.slice(1))
-        if (value > last) last = value
-      }
-
-      const withArgs = templateCommand.replaceAll(placeholderRegex, (_, index) => {
-        const position = Number(index)
-        const argIndex = position - 1
-        if (argIndex >= args.length) return ""
-        if (position === last) return args.slice(argIndex).join(" ")
-        return args[argIndex]
-      })
-      const usesArgumentsPlaceholder = templateCommand.includes("$ARGUMENTS")
-      let template = withArgs.replaceAll("$ARGUMENTS", input.arguments)
-
-      if (placeholders.length === 0 && !usesArgumentsPlaceholder && input.arguments.trim()) {
-        template = template + "\n\n" + input.arguments
-      }
-
-      const shellMatches = ConfigMarkdown.shell(template)
-      if (shellMatches.length > 0) {
-        const sh = Shell.preferred()
-        const results = yield* Effect.promise(() =>
-          Promise.all(
-            shellMatches.map(async ([, cmd]) => (await Process.text([cmd], { shell: sh, nothrow: true })).text),
-          ),
-        )
-        let index = 0
-        template = template.replace(bashRegex, () => results[index++])
-      }
-      template = template.trim()
+      const template = yield* expandCommandTemplate(cmd, input.arguments)
 
       const taskModel = yield* Effect.gen(function* () {
         if (cmd.model) return Provider.parseModel(cmd.model)
@@ -2818,6 +2853,16 @@ export const PromptInput = z.object({
         })
         .meta({
           ref: "AgentPartInput",
+        }),
+      MessageV2.SkillPart.omit({
+        messageID: true,
+        sessionID: true,
+      })
+        .partial({
+          id: true,
+        })
+        .meta({
+          ref: "SkillPartInput",
         }),
       MessageV2.SubtaskPart.omit({
         messageID: true,

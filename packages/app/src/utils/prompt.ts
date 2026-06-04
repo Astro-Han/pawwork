@@ -1,7 +1,7 @@
-import type { FilePart, Part, TextPart } from "@opencode-ai/sdk/v2"
+import type { FilePart, Part, SkillPart, TextPart } from "@opencode-ai/sdk/v2"
 import { deriveCommandInvocation } from "@opencode-ai/ui/lib/command-invocation"
 import { createCommandTextPart } from "@/components/prompt-input/command-text-part"
-import type { FileAttachmentPart, ImageAttachmentPart, Prompt } from "@/context/prompt"
+import type { FileAttachmentPart, ImageAttachmentPart, Prompt, SkillAttachmentPart } from "@/context/prompt"
 
 type Inline =
   | {
@@ -19,6 +19,13 @@ type Inline =
     }
   | {
       type: "agent"
+      start: number
+      end: number
+      value: string
+      name: string
+    }
+  | {
+      type: "skill"
       start: number
       end: number
       value: string
@@ -144,6 +151,24 @@ export function extractPromptFromParts(parts: Part[], opts?: { directory?: strin
     // already in the surrounding text part, so it restores as plain text.
     // This single point also defuses buildRequestParts (no AgentPartInput
     // submitted) and renderEditor (no pill).
+
+    // Skills, unlike agents, ARE structured + persisted with a source span and
+    // expand server-side, so restore them as inline chips — otherwise fork/undo
+    // would resubmit a literal "/name" that no longer expands (and a leading one
+    // would reroute to the legacy command endpoint).
+    if (part.type === "skill") {
+      const skillPart = part as SkillPart
+      const source = skillPart.source
+      if (source?.value && source.start !== undefined && source.end !== undefined) {
+        inline.push({
+          type: "skill",
+          start: source.start,
+          end: source.end,
+          value: source.value,
+          name: skillPart.name,
+        })
+      }
+    }
   }
 
   inline.sort((a, b) => {
@@ -180,6 +205,22 @@ export function extractPromptFromParts(parts: Part[], opts?: { directory?: strin
     position += content.length
   }
 
+  const pushSkill = (item: Extract<Inline, { type: "skill" }>) => {
+    const content = item.value
+    // The persisted SkillPart drops the source kind; default to "skill" (the
+    // chip glyph is uniform across sources anyway).
+    const attachment: SkillAttachmentPart = {
+      type: "skill",
+      name: item.name,
+      source: "skill",
+      content,
+      start: position,
+      end: position + content.length,
+    }
+    result.push(attachment)
+    position += content.length
+  }
+
   for (const item of inline) {
     if (item.start < 0 || item.end < item.start) continue
 
@@ -194,6 +235,7 @@ export function extractPromptFromParts(parts: Part[], opts?: { directory?: strin
     pushText(text.slice(cursor, start))
 
     if (item.type === "file") pushFile(item)
+    if (item.type === "skill") pushSkill(item)
 
     cursor = end
   }

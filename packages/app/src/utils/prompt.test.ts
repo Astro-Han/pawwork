@@ -144,6 +144,36 @@ describe("extractPromptFromParts", () => {
     expect(text).toContain("@bot")
   })
 
+  test("skill part in history restores as an inline skill chip", () => {
+    // Unlike agents (#239), skills are structured + persisted with a source span
+    // and expand server-side, so fork/undo/revert must rebuild the chip — not
+    // leave a literal "/name" that would no longer expand on resubmit.
+    const parts = [
+      {
+        id: "text_1",
+        type: "text",
+        text: "please /summarize this",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+      },
+      {
+        id: "skill_1",
+        type: "skill",
+        name: "summarize",
+        source: { value: "/summarize", start: 7, end: 17 },
+        sessionID: "ses_1",
+        messageID: "msg_1",
+      },
+    ] satisfies Part[]
+
+    const result = extractPromptFromParts(parts)
+
+    expect(result.map((p) => p.type)).toEqual(["text", "skill", "text"])
+    expect(result[0]).toMatchObject({ type: "text", content: "please " })
+    expect(result[1]).toMatchObject({ type: "skill", name: "summarize", content: "/summarize", start: 7, end: 17 })
+    expect(result[2]).toMatchObject({ type: "text", content: " this" })
+  })
+
   test("command mode: restores `/<cmd> <args>` and preserves user attachments", () => {
     // A command invocation produces a TextPart carrying commandInvocation
     // metadata (its body is the expanded template) plus any template-side files

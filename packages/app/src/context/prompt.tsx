@@ -38,6 +38,15 @@ export interface AgentPart extends PartBase {
   name: string
 }
 
+// Inline skill chip: a structured, position-independent reference (mirrors AgentPart).
+// `name` is the command/skill name; `source` drives the chip badge/icon. On send it
+// becomes a SkillPartInput; the server expands the template into model-visible text.
+export interface SkillAttachmentPart extends PartBase {
+  type: "skill"
+  name: string
+  source: CommandSource
+}
+
 export interface ImageAttachmentPart {
   type: "image"
   id: string
@@ -46,7 +55,7 @@ export interface ImageAttachmentPart {
   dataUrl: string
 }
 
-export type ContentPart = TextPart | FileAttachmentPart | AgentPart | ImageAttachmentPart
+export type ContentPart = TextPart | FileAttachmentPart | AgentPart | SkillAttachmentPart | ImageAttachmentPart
 export type Prompt = ContentPart[]
 
 export type FileContextItem = {
@@ -72,6 +81,7 @@ function clonePart(part: ContentPart): ContentPart {
   if (part.type === "text") return { ...part }
   if (part.type === "image") return { ...part }
   if (part.type === "agent") return { ...part }
+  if (part.type === "skill") return { ...part }
   return {
     ...part,
     selection: cloneSelection(part.selection),

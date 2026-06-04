@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test"
-import { createCommandMark, isNormalizedEditor, parseEditorToParts, renderPartsToEditor } from "./editor-serialize"
-import type { TextPart } from "@/context/prompt"
+import {
+  createCommandMark,
+  createPill,
+  isNormalizedEditor,
+  parseEditorToParts,
+  renderPartsToEditor,
+} from "./editor-serialize"
+import type { Prompt, SkillAttachmentPart, TextPart } from "@/context/prompt"
 
 // Helper: build a leading-command TextPart
 function makeCommandPart(name: string, tail: string): TextPart {
@@ -102,6 +108,77 @@ describe("renderPartsToEditor + parseEditorToParts round-trips", () => {
 
     const textPart = result[0] as TextPart
     expect(textPart.command).toEqual({ name: "brainstorming", source: "skill", icon: "command" })
+  })
+})
+
+describe("inline skill pill", () => {
+  function makeSkill(name: string, source: SkillAttachmentPart["source"] = "skill"): SkillAttachmentPart {
+    return { type: "skill", name, source, content: "/" + name, start: 0, end: 1 + name.length }
+  }
+
+  test("createPill skill carries data-type, data-name, data-source, contenteditable=false", () => {
+    const pill = createPill(makeSkill("summarize"))
+    expect(pill.dataset.type).toBe("skill")
+    expect(pill.dataset.name).toBe("summarize")
+    expect(pill.dataset.source).toBe("skill")
+    expect(pill.getAttribute("contenteditable")).toBe("false")
+  })
+
+  test("createPill skill label shows bare name; caret math uses data-name", () => {
+    const pill = createPill(makeSkill("summarize"))
+    // The label shows the bare name (no "/") since the glyph already signals
+    // "slash command". editor-dom computes logical length as 1 + data-name.length,
+    // not from textContent, so caret math stays correct.
+    expect(pill.textContent).toBe("summarize")
+    const icon = pill.querySelector("[data-cmd-icon]") as HTMLElement
+    expect(icon).not.toBeNull()
+    expect(icon.className).toBe("command-icon")
+    const label = pill.querySelector("[data-cmd-label]") as HTMLElement
+    expect(label.textContent).toBe("summarize")
+    expect(pill.dataset.name).toBe("summarize")
+  })
+
+  test("round-trips prose + skill + prose, recovering name/source/content", () => {
+    const parts: Prompt = [
+      { type: "text", content: "hello ", start: 0, end: 6 },
+      makeSkill("summarize"),
+      { type: "text", content: " world", start: 0, end: 6 },
+    ]
+    const editor = document.createElement("div")
+    renderPartsToEditor(editor, parts)
+    const result = parseEditorToParts(editor)
+
+    expect(result.map((p) => p.type)).toEqual(["text", "skill", "text"])
+    const skill = result[1] as SkillAttachmentPart
+    expect(skill.name).toBe("summarize")
+    expect(skill.source).toBe("skill")
+    expect(skill.content).toBe("/summarize")
+    // Position is recomputed against the flattened text "hello /summarize world".
+    expect(skill.start).toBe(6)
+    expect(skill.end).toBe(16)
+    expect((result[0] as TextPart).content).toBe("hello ")
+    expect((result[2] as TextPart).content).toBe(" world")
+  })
+
+  test("defaults missing data-source to skill on parse", () => {
+    const editor = document.createElement("div")
+    const pill = document.createElement("span")
+    pill.dataset.type = "skill"
+    pill.dataset.name = "summarize"
+    pill.textContent = "/summarize"
+    editor.appendChild(pill)
+    const result = parseEditorToParts(editor)
+    expect((result[0] as SkillAttachmentPart).source).toBe("skill")
+  })
+})
+
+describe("isNormalizedEditor skill-pill position independence", () => {
+  test("a skill pill mid-stream stays normalized (no rebuild)", () => {
+    const editor = document.createElement("div")
+    editor.appendChild(document.createTextNode("prefix "))
+    editor.appendChild(createPill({ type: "skill", name: "go", source: "skill", content: "/go", start: 0, end: 3 }))
+    editor.appendChild(document.createTextNode(" suffix"))
+    expect(isNormalizedEditor(editor)).toBe(true)
   })
 })
 

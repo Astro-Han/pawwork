@@ -15,6 +15,7 @@ import { usePortableDraft } from "./portable-draft"
 import { usePinnedDraft } from "./pinned-draft"
 import { buildSlashRegistry } from "./command-text-part"
 import { tryPathBConversion } from "./command-space-trigger"
+import { matchSlashTrigger } from "./slash-trigger"
 import { rewriteRangeForCommandCopy, selectionTouchesCommandMark } from "./command-copy"
 import {
   createTextFragment,
@@ -282,14 +283,20 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
     const shellMode = store.mode === "shell"
 
     if (!shellMode) {
-      const atMatch = rawText.substring(0, cursorPosition).match(/@(\S*)$/)
-      const slashMatch = rawText.match(/^\/(\S*)$/)
+      const beforeCursor = rawText.substring(0, cursorPosition)
+      const atMatch = beforeCursor.match(/@(\S*)$/)
+      const slashMatch = matchSlashTrigger(beforeCursor)
+      // When a leading marked command owns the turn (Path D / session.command),
+      // a "/" in its args must NOT open the skill picker: that submit path drops
+      // structured skill parts, so an inserted chip would silently vanish. The
+      // slash stays literal command-argument text instead.
+      const leadingCommand = rawParts[0]?.type === "text" && !!rawParts[0].command
 
       if (atMatch) {
         popovers().atOnInput(atMatch[1])
         setStore("popover", "at")
-      } else if (slashMatch) {
-        popovers().slashOnInput(slashMatch[1])
+      } else if (slashMatch && !leadingCommand) {
+        popovers().slashOnInput(slashMatch.query, slashMatch.offset > 0)
         setStore("popover", "slash")
       } else {
         closePopover()
@@ -323,20 +330,30 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
     const range = selection.getRangeAt(0)
     if (!editor.contains(range.startContainer)) return false
 
-    if (part.type === "file" || part.type === "agent") {
+    if (part.type === "file" || part.type === "agent" || part.type === "skill") {
       const cursorPosition = getCursorPosition(editor)
       const rawText = prompt
         .current()
         .map((p) => ("content" in p ? p.content : ""))
         .join("")
       const textBeforeCursor = rawText.substring(0, cursorPosition)
-      const atMatch = textBeforeCursor.match(/@(\S*)$/)
       const pill = createPill(part)
       const gap = document.createTextNode(" ")
 
-      if (atMatch) {
-        const start = atMatch.index ?? cursorPosition - atMatch[0].length
-        setRangeEdge(editor, range, "start", start)
+      // Replace the typed trigger token with the pill: "@query" for file/agent,
+      // "/query" for skill. For skill the SLASH_TRIGGER group 1 boundary char
+      // (space / CJK) is left in place — only the slash and query are replaced.
+      let replaceStart: number | undefined
+      if (part.type === "skill") {
+        const slashMatch = matchSlashTrigger(textBeforeCursor)
+        if (slashMatch) replaceStart = slashMatch.offset
+      } else {
+        const atMatch = textBeforeCursor.match(/@(\S*)$/)
+        if (atMatch) replaceStart = atMatch.index ?? cursorPosition - atMatch[0].length
+      }
+
+      if (replaceStart !== undefined) {
+        setRangeEdge(editor, range, "start", replaceStart)
         setRangeEdge(editor, range, "end", cursorPosition)
       }
 

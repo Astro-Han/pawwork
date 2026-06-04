@@ -12,6 +12,9 @@ export interface SlashCommand {
   keybind?: string
   type: "builtin" | "custom"
   source?: "command" | "mcp" | "skill"
+  // "Simple" = inline-eligible: a skill or custom command with no agent/model/
+  // subtask override and no required hints. Mid-text triggers offer only these.
+  simple?: boolean
 }
 
 type PromptPopoverProps = {

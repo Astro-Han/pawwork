@@ -34,6 +34,8 @@ function isPartEqual(partA: ContentPart, partB: ContentPart) {
       return partB.type === "file" && partA.path === partB.path && isSelectionEqual(partA.selection, partB.selection)
     case "agent":
       return partB.type === "agent" && partA.name === partB.name
+    case "skill":
+      return partB.type === "skill" && partA.name === partB.name && partA.source === partB.source
     case "image":
       return partB.type === "image" && partA.id === partB.id
   }

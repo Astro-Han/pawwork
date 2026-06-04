@@ -1,15 +1,21 @@
 import { getFilename } from "@opencode-ai/util/path"
-import { type AgentPartInput, type FilePartInput, type Part, type TextPartInput } from "@opencode-ai/sdk/v2/client"
+import {
+  type AgentPartInput,
+  type FilePartInput,
+  type Part,
+  type SkillPartInput,
+  type TextPartInput,
+} from "@opencode-ai/sdk/v2/client"
 import type { FileSelection } from "@/context/file"
 import { encodeFilePath } from "@/context/file/path"
-import type { AgentPart, FileAttachmentPart, ImageAttachmentPart, Prompt } from "@/context/prompt"
+import type { AgentPart, FileAttachmentPart, ImageAttachmentPart, Prompt, SkillAttachmentPart } from "@/context/prompt"
 import { Identifier } from "@/utils/id"
 import { createCommentMetadata, formatCommentNote } from "@/utils/comment-note"
 import { toAbsoluteFilePath } from "./path-canonical"
 import type { ResolvedMention } from "./mention-metadata"
 import { resolveCommentMentions } from "./mention-metadata"
 
-type PromptRequestPart = (TextPartInput | FilePartInput | AgentPartInput) & { id: string }
+type PromptRequestPart = (TextPartInput | FilePartInput | AgentPartInput | SkillPartInput) & { id: string }
 
 type ContextFile = {
   key: string
@@ -44,6 +50,7 @@ const fileURL = (path: string, selection?: FileSelection) => {
 
 const isFileAttachment = (part: Prompt[number]): part is FileAttachmentPart => part.type === "file"
 const isAgentAttachment = (part: Prompt[number]): part is AgentPart => part.type === "agent"
+const isSkillAttachment = (part: Prompt[number]): part is SkillAttachmentPart => part.type === "skill"
 
 const toOptimisticPart = (part: PromptRequestPart, sessionID: string, messageID: string): Part => {
   if (part.type === "text") {
@@ -66,6 +73,19 @@ const toOptimisticPart = (part: PromptRequestPart, sessionID: string, messageID:
       mime: part.mime,
       filename: part.filename,
       url: part.url,
+      source: part.source,
+      sessionID,
+      messageID,
+    }
+  }
+  // Skill must be handled before the agent fallthrough: the optimistic chip has
+  // to match the server-persisted structured SkillPart so the bubble does not
+  // flicker when the real message arrives.
+  if (part.type === "skill") {
+    return {
+      id: part.id,
+      type: "skill",
+      name: part.name,
       source: part.source,
       sessionID,
       messageID,
@@ -115,6 +135,21 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
       id: Identifier.ascending("part"),
       type: "agent",
       name: attachment.name,
+      source: {
+        value: attachment.content,
+        start: attachment.start,
+        end: attachment.end,
+      },
+    } satisfies PromptRequestPart
+  })
+
+  const skills = input.prompt.filter(isSkillAttachment).map((attachment) => {
+    return {
+      id: Identifier.ascending("part"),
+      type: "skill",
+      name: attachment.name,
+      // source.{value,start,end} marks the "/name" span in the flattened text so
+      // the sent bubble can render it as a chip; the server expands the template.
       source: {
         value: attachment.content,
         start: attachment.start,
@@ -190,7 +225,7 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
     } satisfies PromptRequestPart
   })
 
-  requestParts.push(...files, ...context, ...agents, ...images)
+  requestParts.push(...files, ...context, ...agents, ...skills, ...images)
 
   return {
     requestParts,
