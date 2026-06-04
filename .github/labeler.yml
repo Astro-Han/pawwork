@@ -29,3 +29,4 @@ harness:
       - any-glob-to-any-file:
           - "packages/opencode/**"
           - "packages/sdk/**"
+          - "packages/core/**"
