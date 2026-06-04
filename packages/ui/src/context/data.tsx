@@ -37,6 +37,8 @@ export type NavigateToSessionFn = (sessionID: string) => void
 
 export type SessionHrefFn = (sessionID: string) => string
 
+export type NavigateToAutomationFn = (automationID: string) => void
+
 export const { use: useData, provider: DataProvider } = createSimpleContext({
   name: "Data",
   init: (props: {
@@ -44,6 +46,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
     directory: string
     onNavigateToSession?: NavigateToSessionFn
     onSessionHref?: SessionHrefFn
+    onNavigateToAutomation?: NavigateToAutomationFn
   }) => {
     return {
       get store() {
@@ -54,6 +57,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
       },
       navigateToSession: props.onNavigateToSession,
       sessionHref: props.onSessionHref,
+      navigateToAutomation: props.onNavigateToAutomation,
     }
   },
 })

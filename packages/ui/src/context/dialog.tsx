@@ -1,6 +1,5 @@
 import {
   createContext,
-  createEffect,
   createRoot,
   createSignal,
   getOwner,
@@ -12,7 +11,6 @@ import {
   type JSX,
 } from "solid-js"
 import { Dialog as Kobalte } from "@kobalte/core/dialog"
-import { makeEventListener } from "@solid-primitives/event-listener"
 
 type DialogElement = () => JSX.Element
 
@@ -58,19 +56,6 @@ function init() {
       lock.value = false
     }, 100)
   }
-
-  createEffect(() => {
-    if (!active()) return
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return
-      close()
-      event.preventDefault()
-      event.stopPropagation()
-    }
-
-    makeEventListener(window, "keydown", onKeyDown, { capture: true })
-  })
 
   const show = (element: DialogElement, owner: Owner, onClose?: () => void) => {
     // Immediately dispose any existing dialog when showing a new one

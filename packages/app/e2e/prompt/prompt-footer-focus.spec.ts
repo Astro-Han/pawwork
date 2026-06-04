@@ -115,6 +115,44 @@ test("model select returns focus to the prompt", async ({ page, gotoSession }) =
   await expect.poll(() => body(prompt)).toContain("focus model")
 })
 
+test("model picker escape returns focus to the prompt", async ({ page, gotoSession }) => {
+  await gotoSession()
+
+  const prompt = await ready(page)
+
+  await page.locator(`${promptModelSelector} [data-action="prompt-model"]`).first().click()
+  await expect(page.locator('[data-slot="list-item"]').first()).toBeVisible()
+
+  // Escape closes the picker and hands focus back to the prompt (the dismiss
+  // refactor delegates the close to Kobalte but still reports the cause so the
+  // composer can restore focus — see ModelSelectorPopover.onClose).
+  await page.keyboard.press("Escape")
+  await expect(page.locator('[data-slot="list-item"]').first()).toBeHidden()
+  await expect(prompt).toBeFocused()
+  await prompt.pressSequentially(" esc")
+  await expect.poll(() => body(prompt)).toContain("focus esc")
+})
+
+test("model picker outside dismiss leaves focus where the pointer went", async ({ page, gotoSession }) => {
+  await gotoSession()
+
+  const prompt = await ready(page)
+
+  await page.locator(`${promptModelSelector} [data-action="prompt-model"]`).first().click()
+  await expect(page.locator('[data-slot="list-item"]').first()).toBeVisible()
+
+  // Click into the prompt to dismiss the picker. An outside dismiss must leave
+  // focus on the prompt the user clicked, not snap it back to the model trigger.
+  // The dismiss refactor delegates outside handling to Kobalte, which already
+  // keeps focus off the trigger on outside interaction; this guards that the
+  // refactor didn't regress it.
+  await prompt.click()
+  await expect(page.locator('[data-slot="list-item"]').first()).toBeHidden()
+  await expect(prompt).toBeFocused()
+  await prompt.pressSequentially(" outside")
+  await expect.poll(() => body(prompt)).toContain("focus outside")
+})
+
 test("home selected model is used for the first prompt", async ({ page, project }) => {
   await project.open()
 

@@ -1,5 +1,30 @@
+import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures"
 import { openSidebar } from "../actions"
+
+type ModelKey = { providerID: string; modelID: string }
+
+// Discover an e2e model that actually exposes thinking variants (most opencode
+// mock models don't), via the composer probe, mirroring model-picker-thinking.
+async function findVariantModel(page: Page): Promise<ModelKey | undefined> {
+  const models = (await page.evaluate(() => {
+    const win = window as Window & { __opencode_e2e?: { model?: { current?: { models?: Array<ModelKey & { name: string }> } } } }
+    return win.__opencode_e2e?.model?.current?.models ?? []
+  })) as Array<ModelKey & { name: string }>
+  for (const model of models) {
+    const variants = await page.evaluate((value) => {
+      const win = window as Window & {
+        __opencode_e2e?: {
+          model?: { controls?: { setModel?: (v: ModelKey) => void }; current?: { variants?: string[] } }
+        }
+      }
+      win.__opencode_e2e?.model?.controls?.setModel?.(value)
+      return win.__opencode_e2e?.model?.current?.variants ?? []
+    }, model)
+    if (variants.length > 0) return model
+  }
+  return undefined
+}
 
 const recurring = (projectID: string, title: string, prompt: string, expression: string) => ({
   automationCreateInput: {
@@ -60,6 +85,274 @@ test("@smoke automations panel: list, detail, pause, delete", async ({ page, pro
 
   await expect(surface.locator('[data-component="automations-empty"]')).toBeVisible()
   await expect(rows).toHaveCount(0)
+})
+
+async function openAutomations(page: Parameters<typeof openSidebar>[0]) {
+  await openSidebar(page)
+  await page.locator('[data-action="pawwork-automations-open"]').click()
+  const surface = page.locator('[data-component="automations-page"]')
+  await expect(surface).toBeVisible()
+  return surface
+}
+
+test("automations panel: create manually adds an automation", async ({ page, project }) => {
+  test.setTimeout(120_000)
+
+  await project.open()
+  const surface = await openAutomations(page)
+  await expect(surface.locator('[data-component="automations-empty"]')).toBeVisible()
+
+  // Split entry: open the New automation menu, then Create manually.
+  await surface.locator('[data-action="automation-create-open"]').click()
+  await page.locator('[data-action="automation-create-manual"]').click()
+
+  const card = page.locator('[data-component="automation-create"]')
+  await expect(card).toBeVisible()
+  await card.locator('[data-action="automation-create-title"]').fill("Release notes draft")
+  await card.locator('[data-action="automation-create-prompt"]').fill("Draft release notes from the latest merges.")
+  // Model seeds from the last-used model, so Create is enabled with no extra step.
+  await card.locator('[data-action="automation-create-submit"]').click()
+
+  // Lands on the new automation's detail; it also shows up in the list.
+  const detail = surface.locator('[data-component="automation-detail"]')
+  await expect(detail).toBeVisible()
+  await expect(detail.getByRole("heading", { name: "Release notes draft" })).toBeVisible()
+
+  await detail.locator('[data-action="automation-detail-back"]').click()
+  await expect(surface.locator('[data-action="automation-row"]')).toHaveCount(1)
+})
+
+test("automations panel: schedule picker opens, selects, and layers escape", async ({ page, project }) => {
+  test.setTimeout(120_000)
+
+  await project.open()
+  const surface = await openAutomations(page)
+
+  await surface.locator('[data-action="automation-create-open"]').click()
+  await page.locator('[data-action="automation-create-manual"]').click()
+
+  const card = page.locator('[data-component="automation-create"]')
+  await expect(card).toBeVisible()
+
+  // The time token opens a UI Popover portalled to <body>. Inside the modal
+  // dialog it must mount and stay — not flash shut as the focus scope hands off
+  // from the dialog's trap (issue #950 PR7).
+  await card.locator('[data-action="automation-time"]').click()
+  const popover = page.locator('[data-component="popover-content"]')
+  await expect(popover).toBeVisible()
+
+  // The visible flash is a real-OS focus race that synthetic input can't trigger,
+  // so assert the fix's mechanism instead. Shove focus back into the dialog (what
+  // the modal Dialog's focus trap does on open): with a non-modal popover focus
+  // escapes and stays on the title — the same outside-focus that, in the real
+  // window, lets the dialog dismiss the picker (the #950 PR7 flash). The modal
+  // popover traps focus back into itself, so it can never see an outside-focus
+  // dismiss. The visible flash itself is verified manually in the Electron window.
+  await card.locator('[data-action="automation-create-title"]').focus()
+  await expect(popover).toBeVisible()
+  await expect
+    .poll(() => page.evaluate(() => !!document.activeElement?.closest('[data-component="popover-content"]')))
+    .toBe(true)
+
+  // Picking a value works and never dismisses the parent dialog.
+  await popover.locator('[data-action="automation-time-minute"][data-value="30"]').click()
+  await expect(card.locator('[data-action="automation-time"]')).toContainText("09:30")
+  await expect(popover).toBeVisible()
+  await expect(card).toBeVisible()
+
+  // Escape is layer-aware: the first press closes only the top-most popover and
+  // the card stays; the second press closes the card. Guards against the shared
+  // dialog stealing Escape from the picker layer.
+  await page.keyboard.press("Escape")
+  await expect(popover).toHaveCount(0)
+  await expect(card).toBeVisible()
+  await page.keyboard.press("Escape")
+  await expect(card).toHaveCount(0)
+})
+
+test("automations panel: model picker survives the dialog focus trap and reopens", async ({ page, project }) => {
+  test.setTimeout(120_000)
+
+  await project.open()
+  const surface = await openAutomations(page)
+  await surface.locator('[data-action="automation-create-open"]').click()
+  await page.locator('[data-action="automation-create-manual"]').click()
+  const card = page.locator('[data-component="automation-create"]')
+  await expect(card).toBeVisible()
+
+  const trigger = page.locator('[data-action="automation-model-trigger"]')
+  const picker = page.locator("[data-picker-content]")
+
+  // The model picker is the shared composer popover. Inside the modal dialog its
+  // hand-rolled focus-outside dismiss used to fire when the dialog's focus trap
+  // stole focus on open — flashing the picker shut, then wedging it permanently
+  // closed because focus stayed trapped on the title (#950 PR7). Shoving focus
+  // back into the dialog must NOT dismiss it.
+  await trigger.click()
+  await expect(picker).toBeVisible()
+  await card.locator('[data-action="automation-create-title"]').focus()
+  await expect(picker).toBeVisible()
+
+  // Escape is layer-aware: it closes only the picker, the card stays.
+  await page.keyboard.press("Escape")
+  await expect(picker).toHaveCount(0)
+  await expect(card).toBeVisible()
+
+  // And it reopens — the wedged-shut state is gone.
+  await trigger.click()
+  await expect(picker).toBeVisible()
+})
+
+test("automations panel: thinking submenu stays open inside the modal create card", async ({ page, project }) => {
+  test.setTimeout(120_000)
+
+  await project.open()
+
+  // The thinking submenu only renders for models that expose variants; discover
+  // one via the composer probe before navigating to the panel.
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const win = window as Window & { __opencode_e2e?: { model?: { current?: { models?: unknown[] } } } }
+          return win.__opencode_e2e?.model?.current?.models?.length ?? 0
+        }),
+      { timeout: 30_000 },
+    )
+    .toBeGreaterThan(0)
+  const model = await findVariantModel(page)
+  test.skip(!model, "no e2e model with thinking variants")
+  if (!model) return
+
+  const surface = await openAutomations(page)
+  await surface.locator('[data-action="automation-create-open"]').click()
+  await page.locator('[data-action="automation-create-manual"]').click()
+  const card = page.locator('[data-component="automation-create"]')
+  await expect(card).toBeVisible()
+
+  // Select the variant-capable model so the thinking trigger is enabled.
+  await page.locator('[data-action="automation-model-trigger"]').click()
+  const picker = page.locator("[data-picker-content]")
+  await expect(picker).toBeVisible()
+  await picker
+    .locator(`[data-slot="list-item"][data-key="${model.providerID}:${model.modelID}"]`)
+    .first()
+    .click({ force: true })
+
+  // Reopen the picker and open the thinking submenu.
+  await page.locator('[data-action="automation-model-trigger"]').click()
+  const thinkingTrigger = page.locator('[data-action="prompt-model-thinking-trigger"]').first()
+  await expect(thinkingTrigger).toBeVisible()
+  await expect(thinkingTrigger).toBeEnabled()
+  await thinkingTrigger.click()
+
+  // The nested thinking popover is non-modal; inside the modal outer picker the
+  // outer's focus trap used to steal focus the instant the submenu autofocused,
+  // flashing it shut (#950 PR7). A single auto-retrying toBeVisible can catch the
+  // brief open frame and pass anyway, so sample the option count over time and
+  // assert it is still open after the focus hand-off would have fired.
+  const option = page.locator('[data-action="prompt-model-thinking-option"]').first()
+  await expect(option).toBeVisible()
+  await expect
+    .poll(() => page.locator('[data-action="prompt-model-thinking-option"]').count(), { timeout: 2_000 })
+    .toBeGreaterThan(0)
+  await page.waitForTimeout(300)
+  await expect(option).toBeVisible()
+
+  // And it is usable: picking a non-default level applies the selection (the
+  // option marks itself selected) without tearing down the outer picker or card.
+  const level = page.locator('[data-action="prompt-model-thinking-option"]').nth(1)
+  await level.click()
+  await expect(level).toHaveAttribute("data-selected", "")
+  await expect(card).toBeVisible()
+})
+
+test("automations panel: template prefills the create card", async ({ page, project }) => {
+  test.setTimeout(120_000)
+
+  await project.open()
+  const surface = await openAutomations(page)
+  const empty = surface.locator('[data-component="automations-empty"]')
+  await expect(empty).toBeVisible()
+
+  // Empty-state quick-starts open the create card pre-filled with the template.
+  await empty.locator('[data-action="automation-template"]').first().click()
+  const card = page.locator('[data-component="automation-create"]')
+  await expect(card).toBeVisible()
+  await expect(card.locator('[data-action="automation-create-title"]')).not.toHaveValue("")
+  await expect(card.locator('[data-action="automation-create-prompt"]')).not.toHaveValue("")
+})
+
+test("automations panel: create via chat opens a prefilled session", async ({ page, project }) => {
+  test.setTimeout(120_000)
+
+  await project.open()
+  const surface = await openAutomations(page)
+
+  await surface.locator('[data-action="automation-create-open"]').click()
+  await page.locator('[data-action="automation-create-chat"]').click()
+
+  // Leaves the panel for a fresh session whose composer carries the guiding prompt.
+  await expect(surface).toHaveCount(0)
+  await expect(page.getByText("set up an automation", { exact: false })).toBeVisible()
+})
+
+test("automations panel: the automate tool card jumps into the panel", async ({ page, project, assistant }) => {
+  test.setTimeout(120_000)
+
+  await project.open()
+
+  // The agent creates an automation in chat; the backend executes the tool for
+  // real and echoes the resolved definition in the tool part metadata.
+  await assistant.tool("automate", {
+    title: "Nightly digest",
+    prompt: "Summarize the day's changes every morning.",
+    cron: "0 9 * * *",
+  })
+  await project.prompt("Set up a nightly digest automation.")
+
+  const card = page.locator('[data-component="automate-tool-card"]')
+  await expect(card).toBeVisible()
+  await expect(card.getByText("Nightly digest")).toBeVisible()
+
+  // The jump opens the Automations panel focused on the new automation.
+  await card.locator('[data-component="automate-tool-action"]').click()
+  const surface = page.locator('[data-component="automations-page"]')
+  await expect(surface).toBeVisible()
+  const detail = surface.locator('[data-component="automation-detail"]')
+  await expect(detail).toBeVisible()
+  await expect(detail.getByRole("heading", { name: "Nightly digest" })).toBeVisible()
+})
+
+test("automations panel: a second tool card jump opens its own automation", async ({ page, project, assistant }) => {
+  test.setTimeout(120_000)
+
+  await project.open()
+
+  // First card → panel focused on Alpha.
+  await assistant.tool("automate", { title: "Alpha digest", prompt: "Summarize A.", cron: "0 9 * * *" })
+  await project.prompt("Set up alpha.")
+  const cardA = page.locator('[data-component="automate-tool-card"]').filter({ hasText: "Alpha digest" })
+  await expect(cardA).toBeVisible()
+  await cardA.locator('[data-component="automate-tool-action"]').click()
+  const surface = page.locator('[data-component="automations-page"]')
+  const detail = surface.locator('[data-component="automation-detail"]')
+  await expect(detail.getByRole("heading", { name: "Alpha digest" })).toBeVisible()
+
+  // Close the panel (the surface takes over main, so the chat — and the next
+  // tool card — is only reachable once it's closed), then jump from a second
+  // card. The surface is <Show>-gated, so it remounts and must focus Bravo, not
+  // re-show the stale Alpha selection.
+  await page.keyboard.press("Escape")
+  await page.keyboard.press("Escape")
+  await expect(surface).toHaveCount(0)
+
+  await assistant.tool("automate", { title: "Bravo digest", prompt: "Summarize B.", cron: "0 10 * * *" })
+  await project.prompt("Set up bravo.")
+  const cardB = page.locator('[data-component="automate-tool-card"]').filter({ hasText: "Bravo digest" })
+  await expect(cardB).toBeVisible()
+  await cardB.locator('[data-component="automate-tool-action"]').click()
+  await expect(detail.getByRole("heading", { name: "Bravo digest" })).toBeVisible()
 })
 
 test("automations panel: escape unwinds detail then closes the surface", async ({ page, project }) => {

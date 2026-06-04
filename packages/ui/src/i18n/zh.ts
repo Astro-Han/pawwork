@@ -238,6 +238,8 @@ export const dict = {
   "ui.fileSearch.nextMatch": "下一个",
   "ui.fileSearch.close": "关闭搜索",
   "ui.tool.skill": "使用技能",
+  "ui.tool.automate.creating": "正在创建定时任务",
+  "ui.tool.automate.created": "已创建定时任务",
   "ui.basicTool.called": "调用了 `{{tool}}`",
   "ui.toolErrorCard.failed": "失败",
   "ui.toolErrorCard.copyError": "复制错误",
