@@ -138,7 +138,7 @@ export function createPopoverControllers(deps: PopoverControllersDeps): PopoverC
         // required hints. Skills always satisfy this (the merge sets none).
         simple: !cmd.agent && !cmd.model && !cmd.subtask && cmd.hints.length === 0,
       }))
-      .filter((cmd) => !midText || cmd.simple)
+      .filter((cmd) => !midText || (cmd.simple && cmd.source === "skill"))
 
     return [...custom, ...builtin]
   })
@@ -150,10 +150,10 @@ export function createPopoverControllers(deps: PopoverControllersDeps): PopoverC
     closePopover()
     const images = imageAttachments()
 
-    // Inline-eligible (skill or simple command): insert a position-independent
-    // chip at the typed "/query", mirroring @-file/@-agent. The server expands
-    // the command template into synthetic, model-visible text on send.
-    if (cmd.type === "custom" && cmd.simple) {
+    // Inline skill chip: only actual skills (source === "skill") get a
+    // position-independent chip. Custom/MCP commands stay on the leading
+    // command path to preserve resolvePromptParts, hooks, and events.
+    if (cmd.type === "custom" && cmd.source === "skill") {
       addPart({
         type: "skill",
         name: cmd.trigger,
