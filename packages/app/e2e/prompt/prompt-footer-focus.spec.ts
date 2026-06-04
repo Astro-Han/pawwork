@@ -115,6 +115,24 @@ test("model select returns focus to the prompt", async ({ page, gotoSession }) =
   await expect.poll(() => body(prompt)).toContain("focus model")
 })
 
+test("model picker escape returns focus to the prompt", async ({ page, gotoSession }) => {
+  await gotoSession()
+
+  const prompt = await ready(page)
+
+  await page.locator(`${promptModelSelector} [data-action="prompt-model"]`).first().click()
+  await expect(page.locator('[data-slot="list-item"]').first()).toBeVisible()
+
+  // Escape closes the picker and hands focus back to the prompt (the dismiss
+  // refactor delegates the close to Kobalte but still reports the cause so the
+  // composer can restore focus — see ModelSelectorPopover.onClose).
+  await page.keyboard.press("Escape")
+  await expect(page.locator('[data-slot="list-item"]').first()).toBeHidden()
+  await expect(prompt).toBeFocused()
+  await prompt.pressSequentially(" esc")
+  await expect.poll(() => body(prompt)).toContain("focus esc")
+})
+
 test("home selected model is used for the first prompt", async ({ page, project }) => {
   await project.open()
 

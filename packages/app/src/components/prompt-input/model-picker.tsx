@@ -161,10 +161,6 @@ const ThinkingLevelSection: Component<{ model?: ModelPickerState }> = (props) =>
 }
 
 type ModelSelectorTriggerProps = Omit<ComponentProps<typeof Kobalte.Trigger>, "as" | "ref">
-type Dismiss = "escape" | "outside" | "select"
-
-const isPickerContentTarget = (target: EventTarget | null) =>
-  target instanceof Element && !!target.closest("[data-picker-content]")
 
 export function ModelSelectorPopover(props: {
   provider?: string
@@ -173,56 +169,39 @@ export function ModelSelectorPopover(props: {
   triggerAs?: ValidComponent
   triggerProps?: ModelSelectorTriggerProps
   onClose?: (cause: "escape" | "select") => void
+  // Inside a modal dialog (the Automations create card) the picker must be modal
+  // too: the parent dialog's focus trap steals focus on open, and a non-modal
+  // popover treats that as a focus-outside and dismisses (the #950 PR7 flash).
+  // Kobalte only preventDefaults focus-outside for modal content. Default false
+  // keeps the composer behaviour (close when keyboard focus leaves) intact.
+  modal?: boolean
 }) {
-  const [store, setStore] = createStore<{
-    open: boolean
-    dismiss: Dismiss | null
-  }>({
-    open: false,
-    dismiss: null,
-  })
+  const [store, setStore] = createStore<{ open: boolean }>({ open: false })
   const language = useLanguage()
 
   const open = createMemo(() => store.open || externalOpen())
 
-  const close = (dismiss: Dismiss) => {
-    setStore("dismiss", dismiss)
+  // Dismiss is delegated to Kobalte's native, layer-aware DismissableLayer: the
+  // parent dialog is recognised as an ancestor layer and the nested Thinking
+  // popover registers as a child layer, so neither trips an outside-dismiss. We
+  // only track *why* the picker closed, so the composer can restore focus to the
+  // prompt on escape/select — an outside dismiss must leave focus where it went.
+  let closeCause: "escape" | "select" | null = null
+
+  const selectAndClose = () => {
+    closeCause = "select"
     setStore("open", false)
     setExternalOpen(false)
-  }
-  let ignoreFocusOutsideForPointerInside = false
-
-  const handlePointerDownInside = () => {
-    ignoreFocusOutsideForPointerInside = true
-    window.setTimeout(() => {
-      ignoreFocusOutsideForPointerInside = false
-    }, 0)
-  }
-
-  const handleFocusOutside = (
-    event: Parameters<NonNullable<ComponentProps<typeof Kobalte.Content>["onFocusOutside"]>>[0],
-  ) => {
-    if (isPickerContentTarget(event.target)) {
-      event.preventDefault()
-      return
-    }
-    if (ignoreFocusOutsideForPointerInside) {
-      ignoreFocusOutsideForPointerInside = false
-      event.preventDefault()
-      return
-    }
-    close("outside")
   }
 
   return (
     <Kobalte
       open={open()}
       onOpenChange={(next) => {
-        if (next) setStore("dismiss", null)
         setStore("open", next)
         if (!next) setExternalOpen(false)
       }}
-      modal={false}
+      modal={props.modal ?? false}
       placement="bottom-start"
       gutter={4}
     >
@@ -233,41 +212,22 @@ export function ModelSelectorPopover(props: {
         <Kobalte.Content
           data-picker-content=""
           class="w-[240px] max-h-[400px] flex flex-col z-50 outline-none overflow-hidden"
-          onEscapeKeyDown={(event) => {
-            close("escape")
-            event.preventDefault()
-            event.stopPropagation()
+          onEscapeKeyDown={() => {
+            // Record the cause and let Kobalte's top-most-layer Escape do the
+            // close; don't preventDefault, so a parent dialog stays open.
+            closeCause = "escape"
           }}
-          onPointerDown={handlePointerDownInside}
-          onPointerDownOutside={(event) => {
-            // The nested ThinkingLevel popover renders into Kobalte.Portal, so
-            // its Content sits outside this outer Content's DOM subtree. Without
-            // this guard, clicks inside the inner picker satisfy "outside" for
-            // the outer popover and dismiss the model picker before the inner
-            // button click runs.
-            if (isPickerContentTarget(event.target)) {
-              event.preventDefault()
-              return
-            }
-            close("outside")
-          }}
-          onFocusOutside={handleFocusOutside}
           onCloseAutoFocus={(event) => {
-            const dismiss = store.dismiss
-            if (dismiss === "outside") event.preventDefault()
-            if (dismiss === "escape" || dismiss === "select") {
+            const cause = closeCause
+            closeCause = null
+            if (cause) {
               event.preventDefault()
-              props.onClose?.(dismiss)
+              props.onClose?.(cause)
             }
-            setStore("dismiss", null)
           }}
         >
           <Kobalte.Title class="sr-only">{language.t("dialog.model.select.title")}</Kobalte.Title>
-          <ModelList
-            provider={props.provider}
-            model={props.model}
-            onSelect={() => close("select")}
-          />
+          <ModelList provider={props.provider} model={props.model} onSelect={selectAndClose} />
           <ThinkingLevelSection model={props.model} />
         </Kobalte.Content>
       </Kobalte.Portal>
