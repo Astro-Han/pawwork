@@ -68,6 +68,28 @@ const todoToolPart = (id: string, sessionID: string, messageID: string, metadata
     },
   }) as Part
 
+const questionToolPart = (
+  id: string,
+  sessionID: string,
+  messageID: string,
+  status: "running" | "completed" | "error" = "running",
+) =>
+  ({
+    id,
+    sessionID,
+    messageID,
+    type: "tool",
+    callID: `call_${id}`,
+    tool: "question",
+    state: {
+      status,
+      input: { questions: [{ header: "Question", question: "Continue?", options: [] }] },
+      title: "",
+      metadata: { externalResultReady: true },
+      time: { start: 1 },
+    },
+  }) as Part
+
 const permissionRequest = (id: string, sessionID: string, title = id) =>
   ({
     id,
@@ -122,6 +144,7 @@ const baseState = (input: Partial<State> = {}) =>
     turn_change_aggregate: {},
     todo: {},
     permission: {},
+    external_result_question: {},
     mcp: {},
     lsp: [],
     vcs: undefined,
@@ -340,6 +363,18 @@ describe("applyDirectoryEvent", () => {
         turn_change_aggregate: { ses_1: emptyAggregate("ses_1") },
         todo: { ses_1: [] },
         permission: { ses_1: [] },
+        external_result_question: {
+          ses_1: [
+            {
+              id: `${message.id}:call_1`,
+              sessionID: "ses_1",
+              questions: [{ question: "Continue?" }],
+              messageID: message.id,
+              callID: "call_1",
+              partID: "prt_1",
+            },
+          ],
+        },
         session_status: { ses_1: { type: "busy" } },
       }),
     )
@@ -360,6 +395,7 @@ describe("applyDirectoryEvent", () => {
     expect(store.turn_change_aggregate.ses_1).toBeUndefined()
     expect(store.todo.ses_1).toBeUndefined()
     expect(store.permission.ses_1).toBeUndefined()
+    expect(store.external_result_question.ses_1).toBeUndefined()
     expect(store.session_status.ses_1).toBeUndefined()
   })
 
@@ -384,6 +420,18 @@ describe("applyDirectoryEvent", () => {
           turn_change_aggregate: { [item.info.id]: emptyAggregate(item.info.id) },
           todo: { [item.info.id]: [] },
           permission: { [item.info.id]: [] },
+          external_result_question: {
+            [item.info.id]: [
+              {
+                id: `${message.id}:call_1`,
+                sessionID: item.info.id,
+                questions: [{ question: "Continue?" }],
+                messageID: message.id,
+                callID: "call_1",
+                partID: "prt_1",
+              },
+            ],
+          },
           session_status: { [item.info.id]: { type: "busy" } },
         }),
       )
@@ -404,6 +452,7 @@ describe("applyDirectoryEvent", () => {
       expect(store.turn_change_aggregate[item.info.id]).toBeUndefined()
       expect(store.todo[item.info.id]).toBeUndefined()
       expect(store.permission[item.info.id]).toBeUndefined()
+      expect(store.external_result_question[item.info.id]).toBeUndefined()
       expect(store.session_status[item.info.id]).toBeUndefined()
     }
   })
@@ -610,6 +659,132 @@ describe("applyDirectoryEvent", () => {
     })
 
     expect(store.part[messageID]).toBeUndefined()
+  })
+
+  test("indexes ready question parts even when the owning message row is missing", () => {
+    const sessionID = "ses_1"
+    const messageID = "msg_missing"
+    const [store, setStore] = createStore(baseState())
+
+    applyDirectoryEvent({
+      event: {
+        type: "message.part.updated",
+        properties: { part: questionToolPart("prt_question", sessionID, messageID) },
+      },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+    })
+
+    expect(store.external_result_question[sessionID]?.[0]).toMatchObject({
+      id: "msg_missing:call_prt_question",
+      sessionID,
+      messageID,
+      callID: "call_prt_question",
+      partID: "prt_question",
+    })
+  })
+
+  test("clears indexed question blockers on terminal update and part removal", () => {
+    const sessionID = "ses_1"
+    const messageID = "msg_missing"
+    const [store, setStore] = createStore(baseState())
+    const running = questionToolPart("prt_question", sessionID, messageID)
+
+    applyDirectoryEvent({
+      event: { type: "message.part.updated", properties: { part: running } },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+    })
+    expect(store.external_result_question[sessionID]?.length).toBe(1)
+
+    applyDirectoryEvent({
+      event: {
+        type: "message.part.updated",
+        properties: { part: questionToolPart("prt_question", sessionID, messageID, "error") },
+      },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+    })
+    expect(store.external_result_question[sessionID]).toBeUndefined()
+
+    applyDirectoryEvent({
+      event: { type: "message.part.updated", properties: { part: running } },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+    })
+    applyDirectoryEvent({
+      event: { type: "message.part.removed", properties: { messageID, partID: "prt_question" } },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+    })
+    expect(store.external_result_question[sessionID]).toBeUndefined()
+  })
+
+  test("keeps sibling question blockers from the same message when one part settles", () => {
+    const sessionID = "ses_1"
+    const messageID = "msg_multi_question"
+    const [store, setStore] = createStore(baseState())
+    const first = questionToolPart("prt_first", sessionID, messageID)
+    const second = questionToolPart("prt_second", sessionID, messageID)
+
+    applyDirectoryEvent({
+      event: { type: "message.part.updated", properties: { part: first } },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+    })
+    applyDirectoryEvent({
+      event: { type: "message.part.updated", properties: { part: second } },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+    })
+    expect(store.external_result_question[sessionID]?.map((question) => question.partID)).toEqual([
+      "prt_first",
+      "prt_second",
+    ])
+
+    applyDirectoryEvent({
+      event: {
+        type: "message.part.updated",
+        properties: { part: questionToolPart("prt_first", sessionID, messageID, "completed") },
+      },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+    })
+    expect(store.external_result_question[sessionID]?.map((question) => question.partID)).toEqual(["prt_second"])
+
+    applyDirectoryEvent({
+      event: { type: "message.part.removed", properties: { messageID, partID: "prt_second" } },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+    })
+    expect(store.external_result_question[sessionID]).toBeUndefined()
   })
 
   test("completed live todowrite metadata writes canonical todo before part storage returns", () => {

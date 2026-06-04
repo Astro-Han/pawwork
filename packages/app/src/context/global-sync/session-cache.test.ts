@@ -7,6 +7,7 @@ import type {
   SessionStatus,
   Todo,
 } from "@opencode-ai/sdk/v2/client"
+import type { PendingExternalResultQuestion } from "./external-result-question"
 import { dropSessionCaches, pickSessionCacheEvictions } from "./session-cache"
 
 const msg = (id: string, sessionID: string) =>
@@ -35,6 +36,7 @@ type CacheShape = {
   message: Record<string, Message[] | undefined>
   part: Record<string, Part[] | undefined>
   permission: Record<string, PermissionRequest[] | undefined>
+  external_result_question: Record<string, PendingExternalResultQuestion[] | undefined>
 }
 
 const emptyAggregate = (sessionID: string): SessionDiffResponse => ({ kind: "empty", sessionID })
@@ -48,6 +50,18 @@ describe("app session cache", () => {
       message: {},
       part: { msg_1: [part("prt_1", "ses_1", "msg_1")] },
       permission: { ses_1: [] as PermissionRequest[] },
+      external_result_question: {
+        ses_1: [
+          {
+            id: "msg_1:call_1",
+            sessionID: "ses_1",
+            questions: [{ question: "Continue?" }],
+            messageID: "msg_1",
+            callID: "call_1",
+            partID: "prt_1",
+          },
+        ],
+      },
     }
 
     dropSessionCaches(store, ["ses_1"])
@@ -58,6 +72,7 @@ describe("app session cache", () => {
     expect(store.turn_change_aggregate.ses_1).toBeUndefined()
     expect(store.session_status.ses_1).toBeUndefined()
     expect(store.permission.ses_1).toBeUndefined()
+    expect(store.external_result_question.ses_1).toBeUndefined()
   })
 
   test("dropSessionCaches clears message-backed parts", () => {
@@ -69,6 +84,7 @@ describe("app session cache", () => {
       message: { ses_1: [m] },
       part: { [m.id]: [part("prt_1", "ses_1", m.id)] },
       permission: {},
+      external_result_question: {},
     }
 
     dropSessionCaches(store, ["ses_1"])

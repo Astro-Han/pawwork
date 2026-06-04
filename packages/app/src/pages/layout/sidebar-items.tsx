@@ -113,6 +113,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
       findDescendantExternalResultQuestion({
         sessions: sessionStore.session,
         rootSessionID: props.session.id,
+        pendingQuestions: sessionStore.external_result_question,
         messages: sessionStore.message,
         partsByMessageID: sessionStore.part,
       }) !== undefined

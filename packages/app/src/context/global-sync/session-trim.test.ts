@@ -50,7 +50,7 @@ describe("trimSessions", () => {
     expect(result.map((x) => x.id)).toEqual(["a", "b", "c", "d"])
   })
 
-  test("keeps children when root is kept, permission exists, or child is recent", () => {
+  test("keeps children when root is kept, blocker exists, or child is recent", () => {
     const now = 1_000_000
     const list = [
       session({ id: "root-1", created: now - 1000 }),
@@ -58,6 +58,7 @@ describe("trimSessions", () => {
       session({ id: "z-root", created: now - 30_000_000 }),
       session({ id: "child-kept-by-root", parentID: "root-1", created: now - 20_000_000 }),
       session({ id: "child-kept-by-permission", parentID: "z-root", created: now - 20_000_000 }),
+      session({ id: "child-kept-by-question", parentID: "z-root", created: now - 20_000_000 }),
       session({ id: "child-kept-by-recency", parentID: "z-root", created: now - 500 }),
       session({ id: "child-trimmed", parentID: "z-root", created: now - 20_000_000 }),
     ]
@@ -67,11 +68,24 @@ describe("trimSessions", () => {
       permission: {
         "child-kept-by-permission": [{ id: "perm-1" } as PermissionRequest],
       },
+      externalResultQuestion: {
+        "child-kept-by-question": [
+          {
+            id: "msg_question:call_question",
+            sessionID: "child-kept-by-question",
+            questions: [{ question: "Continue?" }],
+            messageID: "msg_question",
+            callID: "call_question",
+            partID: "prt_question",
+          },
+        ],
+      },
       now,
     })
 
     expect(result.map((x) => x.id)).toEqual([
       "child-kept-by-permission",
+      "child-kept-by-question",
       "child-kept-by-recency",
       "child-kept-by-root",
       "root-1",

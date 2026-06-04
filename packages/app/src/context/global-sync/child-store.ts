@@ -192,6 +192,7 @@ export function createChildStoreManager(input: {
             turn_change_aggregate: {},
             todo: {},
             permission: {},
+            external_result_question: {},
             mcp_ready: false,
             mcp: {},
             lsp_ready: false,

@@ -19,6 +19,7 @@ import type {
 } from "@opencode-ai/sdk/v2/client"
 import type { Accessor } from "solid-js"
 import type { SetStoreFunction, Store } from "solid-js/store"
+import type { PendingExternalResultQuestion } from "./external-result-question"
 
 export type ProjectMeta = {
   name?: string
@@ -60,6 +61,9 @@ export type State = {
   }
   permission: {
     [sessionID: string]: PermissionRequest[]
+  }
+  external_result_question: {
+    [sessionID: string]: PendingExternalResultQuestion[]
   }
   mcp_ready: boolean
   mcp: {

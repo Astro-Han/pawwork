@@ -95,6 +95,7 @@ describe("findRunningExternalResultQuestion", () => {
       questions,
       messageID: "m1",
       callID: "c1",
+      partID: "p1",
     })
   })
 
@@ -144,6 +145,105 @@ describe("findRunningExternalResultQuestion", () => {
 })
 
 describe("findDescendantExternalResultQuestion", () => {
+  test("returns an active session question from the pending blocker index without an owning message row", () => {
+    const result = findDescendantExternalResultQuestion({
+      sessions: [session("parent")],
+      rootSessionID: "parent",
+      pendingQuestions: {
+        parent: [
+          {
+            id: "m-orphan:c-parent",
+            sessionID: "parent",
+            questions,
+            messageID: "m-orphan",
+            callID: "c-parent",
+            partID: "p-orphan",
+          },
+        ],
+      },
+      messages: {},
+      partsByMessageID: {},
+    })
+    expect(result?.sessionID).toBe("parent")
+    expect(result?.callID).toBe("c-parent")
+  })
+
+  test("ignores a pending blocker index entry when the local part is already terminal", () => {
+    const result = findDescendantExternalResultQuestion({
+      sessions: [session("parent")],
+      rootSessionID: "parent",
+      pendingQuestions: {
+        parent: [
+          {
+            id: "m1:c-parent",
+            sessionID: "parent",
+            questions,
+            messageID: "m1",
+            callID: "c-parent",
+            partID: "p1",
+          },
+        ],
+      },
+      messages: { parent: [message("m1")] },
+      partsByMessageID: {
+        m1: [
+          toolPart(
+            "p1",
+            "question",
+            toolState("completed", { externalResultReady: true }, { questions }),
+            { messageID: "m1", callID: "c-parent" },
+          ),
+        ],
+      },
+    })
+    expect(result).toBeUndefined()
+  })
+
+  test("returns a child session question from the pending blocker index without an owning message row", () => {
+    const result = findDescendantExternalResultQuestion({
+      sessions: [session("parent"), session("child", "parent")],
+      rootSessionID: "parent",
+      pendingQuestions: {
+        child: [
+          {
+            id: "m-child-orphan:c-child",
+            sessionID: "child",
+            questions,
+            messageID: "m-child-orphan",
+            callID: "c-child",
+            partID: "p-child-orphan",
+          },
+        ],
+      },
+      messages: {},
+      partsByMessageID: {},
+    })
+    expect(result?.sessionID).toBe("child")
+    expect(result?.callID).toBe("c-child")
+  })
+
+  test("ignores pending blocker index entries outside the active session tree", () => {
+    const result = findDescendantExternalResultQuestion({
+      sessions: [session("parent"), session("other")],
+      rootSessionID: "parent",
+      pendingQuestions: {
+        other: [
+          {
+            id: "m-other:c-other",
+            sessionID: "other",
+            questions,
+            messageID: "m-other",
+            callID: "c-other",
+            partID: "p-other",
+          },
+        ],
+      },
+      messages: {},
+      partsByMessageID: {},
+    })
+    expect(result).toBeUndefined()
+  })
+
   test("returns the request from the active session when present", () => {
     const result = findDescendantExternalResultQuestion({
       sessions: [session("parent"), session("child", "parent")],

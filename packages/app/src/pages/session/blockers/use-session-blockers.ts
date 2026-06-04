@@ -35,6 +35,7 @@ export function createSessionBlockers(input: {
     return findDescendantExternalResultQuestion({
       sessions: sync.data.session,
       rootSessionID: sid,
+      pendingQuestions: sync.data.external_result_question,
       messages: sync.data.message,
       partsByMessageID: sync.data.part,
     })
