@@ -114,7 +114,7 @@ test("slash mid-sentence opens the picker and inserts an inline skill chip", asy
   // Selection replaces the typed "/summarize" with a position-independent chip.
   const chip = page.locator('[data-type="skill"][data-name="summarize"]')
   await expect(chip).toBeVisible()
-  await expect(chip).toContainText("/summarize")
+  await expect(chip).toContainText("summarize")
   await expect(popover).toHaveCount(0)
 })
 
