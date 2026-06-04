@@ -12,7 +12,7 @@ const pad = (value: number) => value.toString().padStart(2, "0")
 
 // A click-to-edit token: reads like a word in the schedule sentence, no chevron.
 const TOKEN_CLASS =
-  "inline-flex h-[30px] items-center rounded-md px-2 text-body text-fg-strong tabular-nums hover:bg-row-hover-overlay focus:outline-none cursor-pointer"
+  "inline-flex h-[30px] items-center rounded-md px-2 text-body text-fg-strong tabular-nums hover:bg-row-hover-overlay focus:outline-none cursor-default"
 
 // One scrollable column inside the time popover (hour or minute). Dense numeric
 // list, so it uses a compact 28px row rather than the 30px picker-item contract.

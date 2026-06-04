@@ -22,7 +22,7 @@ import { createAutomationModelState } from "./automation-model-state"
 import { AUTOMATION_TEMPLATES, type AutomationTemplate } from "./automation-templates"
 
 const KNOB_CLASS =
-  "flex h-[30px] min-w-0 items-center gap-1.5 rounded-lg border border-border-weak px-2.5 text-body text-fg-base hover:bg-row-hover-overlay focus:outline-none cursor-pointer"
+  "flex h-[30px] min-w-0 items-center gap-1.5 rounded-lg border border-border-weak px-2.5 text-body text-fg-base hover:bg-row-hover-overlay focus:outline-none cursor-default"
 
 // Manual create card (issue #950 PR7). Title + prompt, then an inline schedule
 // row (frequency segmented switch + time), then a Folder | Model bottom bar.

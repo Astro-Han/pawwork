@@ -40,7 +40,7 @@ export function AutomationFolderPicker(props: {
           "data-picker-trigger": "",
           "aria-haspopup": "menu",
           class:
-            "inline-flex h-[30px] min-w-0 items-center gap-1.5 rounded-lg border border-border-weak px-2.5 text-body text-fg-base hover:bg-row-hover-overlay focus:outline-none cursor-pointer",
+            "inline-flex h-[30px] min-w-0 items-center gap-1.5 rounded-lg border border-border-weak px-2.5 text-body text-fg-base hover:bg-row-hover-overlay focus:outline-none cursor-default",
         } as never
       }
       trigger={
