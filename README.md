@@ -34,7 +34,7 @@ PawWork is built for people who want AI agents to do real desktop work, not only
 | Free without subscription | Yes (OpenCode Zen) | Limited (ChatGPT Free) | No (Pro $20/mo required) |
 | Desktop app | macOS + Windows | macOS + Windows | macOS + Windows |
 | Local file access | Full workspace access | Sandboxed by default | User-selected folders |
-| Local models | Yes (Ollama, LM Studio, etc.) | Yes (Ollama) | Yes (Ollama, gateway) |
+| Local models | Yes (Ollama, LM Studio, etc.) | CLI only (Ollama) | Via gateway (Requesty) |
 | Office files (Word/Excel/PPT) | Yes (via OfficeCLI) | No | No |
 | Non-technical user focus | Yes (task cards, no terminal) | Developer-focused | Knowledge work + coding |
 
