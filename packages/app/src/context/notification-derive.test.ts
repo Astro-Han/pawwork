@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { questionCallKey, questionNotificationAction, resolveRootSessionID, unreadSessionCount } from "./notification-derive"
+import { questionCallKey, questionNotificationAction, resolveRootSessionIDAsync, unreadSessionCount } from "./notification-derive"
 
 describe("unreadSessionCount", () => {
   test("counts distinct unseen sessions, not the total notification count", () => {
@@ -43,30 +43,28 @@ describe("unreadSessionCount", () => {
   })
 })
 
-describe("resolveRootSessionID", () => {
-  test("walks the parent chain to the root session", () => {
-    const sessions = [
-      { id: "ses_root" },
-      { id: "ses_child", parentID: "ses_root" },
-      { id: "ses_leaf", parentID: "ses_child" },
-    ]
-    expect(resolveRootSessionID(sessions, "ses_leaf")).toBe("ses_root")
+describe("resolveRootSessionIDAsync", () => {
+  // getParentID is injected so the same walk works whether the parent comes
+  // from the in-memory session list or an async network lookup (the latter is
+  // what kicks in when a background project's sessions were never bootstrapped).
+  const parentLookup = (chain: Record<string, string | undefined>) => async (id: string) => chain[id]
+
+  test("walks the parent chain to the root session", async () => {
+    const getParentID = parentLookup({ ses_leaf: "ses_child", ses_child: "ses_root", ses_root: undefined })
+    expect(await resolveRootSessionIDAsync("ses_leaf", getParentID)).toBe("ses_root")
   })
 
-  test("returns the session itself when it has no parent", () => {
-    expect(resolveRootSessionID([{ id: "ses_root" }], "ses_root")).toBe("ses_root")
+  test("returns the session itself when it has no parent", async () => {
+    expect(await resolveRootSessionIDAsync("ses_root", async () => undefined)).toBe("ses_root")
   })
 
-  test("returns the id unchanged when the session is unknown", () => {
-    expect(resolveRootSessionID([{ id: "ses_other" }], "ses_missing")).toBe("ses_missing")
+  test("returns the id unchanged when the parent lookup yields nothing", async () => {
+    expect(await resolveRootSessionIDAsync("ses_missing", async () => undefined)).toBe("ses_missing")
   })
 
-  test("breaks parent cycles instead of looping forever", () => {
-    const sessions = [
-      { id: "ses_a", parentID: "ses_b" },
-      { id: "ses_b", parentID: "ses_a" },
-    ]
-    expect(resolveRootSessionID(sessions, "ses_a")).toBe("ses_a")
+  test("breaks parent cycles instead of looping forever", async () => {
+    const getParentID = parentLookup({ ses_a: "ses_b", ses_b: "ses_a" })
+    expect(await resolveRootSessionIDAsync("ses_a", getParentID)).toBe("ses_a")
   })
 })
 

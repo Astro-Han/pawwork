@@ -19,7 +19,7 @@ import { workspaceKey } from "@/pages/layout/helpers"
 import {
   questionCallKey,
   questionNotificationAction,
-  resolveRootSessionID,
+  resolveRootSessionIDAsync,
   unreadSessionCount,
 } from "./notification-derive"
 
@@ -306,7 +306,22 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
     // running (see questionNotificationAction) or is removed.
     const alertedQuestionCalls = new Set<string>()
 
-    const handleQuestionPart = (directory: string, sessionID: string, part: Part, time: number) => {
+    // Resolve a session's parentID from the in-memory list, falling back to a
+    // network lookup when the project's sessions were never bootstrapped — the
+    // global event stream delivers questions for background projects too, so the
+    // in-memory list can be empty here.
+    const fetchParentID = async (directory: string, sessionID: string): Promise<string | undefined> => {
+      const [syncStore] = globalSync.child(directory, { bootstrap: false })
+      const match = Binary.search(syncStore.session, sessionID, (s) => s.id)
+      if (match.found) return syncStore.session[match.index].parentID
+      const session = await globalSDK.client.session
+        .get({ directory, sessionID })
+        .then((x) => x.data)
+        .catch(() => undefined)
+      return session?.parentID
+    }
+
+    const handleQuestionPart = async (directory: string, sessionID: string, part: Part, time: number) => {
       const action = questionNotificationAction(part)
       if (action === "ignore") return
 
@@ -320,9 +335,12 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
 
       // A child agent's question surfaces on (and is answered from) its root
       // session's page, and only root sessions show in the sidebar — attribute
-      // the notification to the root, not the asking child.
+      // the notification to the root, not the asking child. Resolving the root
+      // may hit the network for an unbootstrapped background project, so async.
+      const rootID = await resolveRootSessionIDAsync(sessionID, (id) => fetchParentID(directory, id))
+      if (meta.disposed) return
+
       const [syncStore] = globalSync.child(directory, { bootstrap: false })
-      const rootID = resolveRootSessionID(syncStore.session, sessionID)
       const rootMatch = Binary.search(syncStore.session, rootID, (s) => s.id)
       const rootTitle = rootMatch.found ? syncStore.session[rootMatch.index].title : undefined
 
@@ -371,7 +389,7 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
       const directory = e.name
 
       if (event.type === "message.part.updated") {
-        handleQuestionPart(directory, event.properties.sessionID, event.properties.part, Date.now())
+        void handleQuestionPart(directory, event.properties.sessionID, event.properties.part, Date.now())
         return
       }
       if (event.type === "message.part.removed") {

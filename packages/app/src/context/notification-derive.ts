@@ -62,23 +62,26 @@ export function unreadSessionCount(
 }
 
 /**
- * Walk a session's parent chain to its root.
+ * Walk a session's parent chain to its root via an injected parent lookup.
  *
  * A child agent's question is surfaced on (and answered from) its root
  * session's page, and only root sessions appear in the sidebar — so a question
- * notification must attribute to the root, not the asking child. Returns the
- * input id unchanged when the session has no parent or is unknown to `sessions`.
+ * notification must attribute to the root, not the asking child. `getParentID`
+ * is async so the walk can fall back to a network lookup: the global event
+ * stream delivers a question even for a background project whose session list
+ * was never bootstrapped, where a purely in-memory walk would stop short and
+ * mis-attribute the notification to the child. Returns the input id when it has
+ * no parent, is unknown, or the chain cycles.
  */
-export function resolveRootSessionID(
-  sessions: readonly { id: string; parentID?: string }[],
+export async function resolveRootSessionIDAsync(
   sessionID: string,
-): string {
-  const byID = new Map(sessions.map((session) => [session.id, session]))
+  getParentID: (id: string) => Promise<string | undefined>,
+): Promise<string> {
   const seen = new Set<string>()
   let current = sessionID
   while (!seen.has(current)) {
     seen.add(current)
-    const parent = byID.get(current)?.parentID
+    const parent = await getParentID(current)
     if (!parent) break
     current = parent
   }
