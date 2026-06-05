@@ -19,6 +19,11 @@ import { batch } from "solid-js"
 import { produce, reconcile, type SetStoreFunction, type Store } from "solid-js/store"
 import type { State, VcsCache } from "./types"
 import { mergeAutomationList } from "./automation-store"
+import {
+  pendingExternalResultQuestionFromPart,
+  type PendingExternalResultQuestion,
+  upsertPendingExternalResultQuestion,
+} from "./external-result-question"
 import { cmp, normalizeAgentList, normalizeProviderList } from "./utils"
 import { formatServerError } from "@/utils/server-errors"
 import { QueryClient, queryOptions } from "@tanstack/solid-query"
@@ -242,14 +247,29 @@ export function hydratePendingExternalResults(input: {
   store: Store<State>
   setStore: SetStoreFunction<State>
   entries: ReadonlyArray<{ session: Session; message: Message; part: Part }>
+  pruneQuestionIDs?: ReadonlySet<string>
 }) {
   batch(() => {
+    const activeQuestionIDs = new Set<string>()
     for (const entry of input.entries) {
       const session = entry.session
       const message = entry.message
       const part = entry.part
       if (!session?.id || !message?.id || !part?.id || !part.messageID) continue
       mergeSession(input.setStore, session)
+      const pendingQuestion = pendingExternalResultQuestionFromPart(part)
+      const localPart = input.store.part[part.messageID]?.find((item) => item.id === part.id)
+      const localTerminalQuestion =
+        pendingQuestion &&
+        localPart?.type === "tool" &&
+        localPart.tool === "question" &&
+        localPart.state.status !== "running"
+      if (pendingQuestion && !localTerminalQuestion) {
+        activeQuestionIDs.add(pendingQuestion.id)
+        input.setStore("external_result_question", pendingQuestion.sessionID, (list) =>
+          upsertPendingExternalResultQuestion(list, pendingQuestion),
+        )
+      }
 
       const messages = input.store.message[session.id]
       if (!messages) {
@@ -269,6 +289,7 @@ export function hydratePendingExternalResults(input: {
         }
       }
 
+      if (localTerminalQuestion) continue
       const parts = input.store.part[part.messageID]
       if (!parts) {
         input.setStore("part", part.messageID, [part])
@@ -287,7 +308,53 @@ export function hydratePendingExternalResults(input: {
         }
       }
     }
+    if (input.pruneQuestionIDs?.size) {
+      input.setStore(
+        produce((draft) => {
+          const prunedQuestions: PendingExternalResultQuestion[] = []
+          for (const sessionID of Object.keys(draft.external_result_question)) {
+            const questions = draft.external_result_question[sessionID]
+            if (!questions) {
+              delete draft.external_result_question[sessionID]
+              continue
+            }
+            const next: PendingExternalResultQuestion[] = []
+            for (const question of questions) {
+              if (input.pruneQuestionIDs!.has(question.id) && !activeQuestionIDs.has(question.id)) {
+                prunedQuestions.push(question)
+                continue
+              }
+              next.push(question)
+            }
+            if (next.length > 0) draft.external_result_question[sessionID] = next
+            else delete draft.external_result_question[sessionID]
+          }
+          for (const question of prunedQuestions) {
+            const parts = draft.part[question.messageID]
+            if (!parts) continue
+            const next = parts.filter((part) => {
+              if (part.id !== question.partID) return true
+              if (part.type !== "tool" || part.tool !== "question") return true
+              if (part.callID !== question.callID) return true
+              if (part.state.status !== "running") return true
+              return part.state.metadata?.externalResultReady !== true
+            })
+            if (next.length > 0) draft.part[question.messageID] = next
+            else delete draft.part[question.messageID]
+          }
+        }),
+      )
+    }
   })
+}
+
+function snapshotExternalResultQuestionIDs(store: Store<State>) {
+  const ids = new Set<string>()
+  for (const list of Object.values(store.external_result_question)) {
+    if (!list) continue
+    for (const question of list) ids.add(question.id)
+  }
+  return ids
 }
 
 const inactiveQueryFn = async () => null
@@ -472,20 +539,22 @@ export async function bootstrapDirectory(input: {
           }),
         ),
       () =>
-        retry(() =>
-          input.sdk.externalResult.list().then((x) => {
+        retry(() => {
+          const pruneQuestionIDs = snapshotExternalResultQuestionIDs(input.store)
+          return input.sdk.externalResult.list().then((x) => {
             const entries = (x.data ?? []).filter(
               (entry): entry is { session: Session; message: Message; part: Part } =>
                 !!entry?.session?.id && !!entry.message?.id && !!entry.part?.id,
             )
-            if (entries.length === 0) return
+            if (entries.length === 0 && pruneQuestionIDs.size === 0) return
             hydratePendingExternalResults({
               store: input.store,
               setStore: input.setStore,
               entries,
+              pruneQuestionIDs,
             })
-          }),
-        ).catch((err) => {
+          })
+        }).catch((err) => {
           // Hydrate is best-effort: a transient failure should not surface
           // the project-level "reloadFailed" toast. The dock recovers on
           // the next SSE message.part.updated for live questions, or on

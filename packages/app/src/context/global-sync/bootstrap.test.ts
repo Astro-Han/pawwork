@@ -32,6 +32,7 @@ function createState(): State {
     turn_change_aggregate: {},
     todo: {},
     permission: {},
+    external_result_question: {},
     mcp_ready: false,
     mcp: {},
     lsp_ready: false,
@@ -115,6 +116,75 @@ describe("bootstrapDirectory", () => {
       stale: { type: "idle" },
       fresh: { type: "busy" },
     })
+  })
+
+  test("tolerates undefined pending question slots while pruning stale questions", async () => {
+    const directory = "/repo"
+    const queryClient = new QueryClient()
+    const [store, setStore] = createStore(createState())
+    setStore("external_result_question", "ses_undefined", undefined as never)
+    setStore("external_result_question", "ses_stale", [
+      {
+        id: "msg_stale:call_stale",
+        sessionID: "ses_stale",
+        questions: [{ question: "Continue?" }],
+        messageID: "msg_stale",
+        callID: "call_stale",
+        partID: "part_stale",
+      },
+    ])
+    let externalResultCalls = 0
+    const warnings: unknown[] = []
+    const originalWarn = console.warn
+    console.warn = mock((...args: unknown[]) => {
+      warnings.push(args)
+    }) as typeof console.warn
+    const sdk = {
+      app: { agents: async () => ({ data: [] }) },
+      config: { get: async () => ({ data: {} as Config }) },
+      session: {
+        status: async () => ({ data: {} }),
+        get: async () => ({ data: undefined }),
+      },
+      project: { current: async () => ({ data: { id: "project-1" } }) },
+      path: { get: async () => ({ data: { state: "", config: "", worktree: "", directory, home: "" } as Path }) },
+      vcs: { get: async () => ({ data: undefined }) },
+      command: { list: async () => ({ data: [] }) },
+      permission: { list: async () => ({ data: [] }) },
+      externalResult: {
+        list: async () => {
+          externalResultCalls += 1
+          return { data: [] }
+        },
+      },
+      mcp: { status: async () => ({ data: {} }) },
+      automation: { list: async () => ({ data: { items: [] } }) },
+      provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
+    } as any
+
+    try {
+      await bootstrapDirectory({
+        directory,
+        sdk,
+        store,
+        setStore,
+        vcsCache: createVcsCache(),
+        loadSessions: () => undefined,
+        translate: (key) => key,
+        global: {
+          config: {} as Config,
+          path: { state: "", config: "", worktree: "", directory: "", home: "" } as Path,
+          project: [] as Project[],
+          provider: { all: [], connected: [], default: {} },
+        },
+        queryClient,
+      })
+      await waitFor(() => externalResultCalls === 1)
+      await waitFor(() => store.external_result_question.ses_stale === undefined)
+      expect(warnings).toEqual([])
+    } finally {
+      console.warn = originalWarn
+    }
   })
 
   test("refreshes directory providers even when sessions query cache is already populated", async () => {
@@ -709,6 +779,87 @@ describe("hydratePendingExternalResults", () => {
     expect(store.session.map((s) => s.id)).toEqual(["ses_child"])
     expect(store.message.ses_child?.map((m) => m.id)).toEqual(["msg_child"])
     expect(store.part.msg_child?.map((p) => p.id)).toEqual(["part_child"])
+    expect(store.external_result_question.ses_child?.[0]).toMatchObject({
+      id: "msg_child:call_child",
+      sessionID: "ses_child",
+      messageID: "msg_child",
+      callID: "call_child",
+      partID: "part_child",
+    })
+  })
+
+  test("prunes indexed pending questions that are absent from the pending hydrate snapshot", () => {
+    const [store, setStore] = createStore(createState())
+    setStore("external_result_question", "ses_child", [
+      {
+        id: "msg_child:call_child",
+        sessionID: "ses_child",
+        questions: [{ header: "h", question: "q?", options: [] }],
+        messageID: "msg_child",
+        callID: "call_child",
+        partID: "part_child",
+      },
+    ])
+    hydratePendingExternalResults({
+      store,
+      setStore,
+      entries: [],
+      pruneQuestionIDs: new Set(["msg_child:call_child"]),
+    })
+    expect(store.external_result_question.ses_child).toBeUndefined()
+  })
+
+  test("removes pruned ready question parts so fallback traversal cannot reopen the dock", () => {
+    const [store, setStore] = createStore(createState())
+    setStore("message", "ses_child", [childMessage])
+    setStore("part", "msg_child", [childPart])
+    setStore("external_result_question", "ses_child", [
+      {
+        id: "msg_child:call_child",
+        sessionID: "ses_child",
+        questions: [{ header: "h", question: "q?", options: [] }],
+        messageID: "msg_child",
+        callID: "call_child",
+        partID: "part_child",
+      },
+    ])
+    hydratePendingExternalResults({
+      store,
+      setStore,
+      entries: [],
+      pruneQuestionIDs: new Set(["msg_child:call_child"]),
+    })
+    expect(store.external_result_question.ses_child).toBeUndefined()
+    expect(store.part.msg_child).toBeUndefined()
+  })
+
+  test("does not prune questions added after the pending hydrate request snapshot", () => {
+    const [store, setStore] = createStore(createState())
+    setStore("external_result_question", "ses_child", [
+      {
+        id: "msg_old:call_old",
+        sessionID: "ses_child",
+        questions: [{ header: "h", question: "old?", options: [] }],
+        messageID: "msg_old",
+        callID: "call_old",
+        partID: "part_old",
+      },
+      {
+        id: "msg_new:call_new",
+        sessionID: "ses_child",
+        questions: [{ header: "h", question: "new?", options: [] }],
+        messageID: "msg_new",
+        callID: "call_new",
+        partID: "part_new",
+      },
+    ])
+    hydratePendingExternalResults({
+      store,
+      setStore,
+      entries: [],
+      pruneQuestionIDs: new Set(["msg_old:call_old"]),
+    })
+    expect(store.external_result_question.ses_child?.map((question) => question.id)).toEqual(["msg_new:call_new"])
   })
 
   test("merges into existing session list and existing message list without duplicating", () => {
@@ -742,6 +893,26 @@ describe("hydratePendingExternalResults", () => {
     expect(store.part.msg_child?.length).toBe(1)
     const updated = store.part.msg_child?.[0] as any
     expect(updated?.state?.metadata?.externalResultReady).toBe(true)
+  })
+
+  test("does not let a stale pending hydrate response revert a local terminal question part", () => {
+    const [store, setStore] = createStore(createState())
+    const terminalPart = {
+      ...childPart,
+      state: { ...childPart.state, status: "completed" },
+    } as any
+    setStore("part", "msg_child", [terminalPart])
+    hydratePendingExternalResults({
+      store,
+      setStore,
+      entries: [{ session: childSession, message: childMessage, part: childPart }],
+      pruneQuestionIDs: new Set(["msg_child:call_child"]),
+    })
+    expect(store.session.map((s) => s.id)).toEqual(["ses_child"])
+    expect(store.message.ses_child?.map((m) => m.id)).toEqual(["msg_child"])
+    expect(store.external_result_question.ses_child).toBeUndefined()
+    const updated = store.part.msg_child?.[0] as any
+    expect(updated?.state?.status).toBe("completed")
   })
 
   test("skips entries that are missing identifiers", () => {

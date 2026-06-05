@@ -1,27 +1,29 @@
 import type { Message, Part, Session } from "@opencode-ai/sdk/v2/client"
+import type { PendingExternalResultQuestion, QuestionInfo } from "@/context/global-sync/external-result-question"
 
-// QuestionInfo / QuestionRequest used to live in @opencode-ai/sdk/v2 when the
-// question tool was driven by a dedicated server route. The external-result
-// migration deleted those exports; define the dock-facing shapes locally.
-export type QuestionInfo = {
-  question: string
-  header?: string
-  options?: ReadonlyArray<{ label: string; description?: string }>
-  multiple?: boolean
-  custom?: boolean
-}
+export type { QuestionInfo }
 
 /**
  * Dock request shape: a synthetic representation of a running question tool
  * part. The dock branches its submit handler on the presence of messageID and
  * callID; this matches the route at POST /session/:sessionID/tool/respond.
  */
-export type DockQuestionRequest = {
-  id: string
-  sessionID: string
-  questions: QuestionInfo[]
-  messageID: string
-  callID: string
+export type DockQuestionRequest = PendingExternalResultQuestion
+
+function isKnownStalePendingQuestion(input: {
+  pending: DockQuestionRequest
+  partsByMessageID: { [messageID: string]: Part[] | undefined }
+}) {
+  const part = input.partsByMessageID[input.pending.messageID]?.find((item) => item.id === input.pending.partID)
+  // If the part never reached the local cache, keep the index entry; bootstrap
+  // prune reconciles already-answered questions whose terminal event was missed.
+  if (!part) return false
+  if (part.type !== "tool") return true
+  if (part.tool !== "question") return true
+  if (part.state.status !== "running") return true
+  if (part.state.metadata?.externalResultReady !== true) return true
+  const partInput = part.state.input as { questions?: QuestionInfo[] } | undefined
+  return !Array.isArray(partInput?.questions) || partInput.questions.length === 0
 }
 
 /**
@@ -60,6 +62,7 @@ export function findRunningExternalResultQuestion(input: {
         questions: partInput!.questions,
         messageID: part.messageID,
         callID: part.callID,
+        partID: part.id,
       }
     }
   }
@@ -77,10 +80,11 @@ export function findRunningExternalResultQuestion(input: {
 export function findDescendantExternalResultQuestion(input: {
   sessions: Session[]
   rootSessionID: string
+  pendingQuestions?: { [sessionID: string]: DockQuestionRequest[] | undefined }
   messages: { [sessionID: string]: Message[] | undefined }
   partsByMessageID: { [messageID: string]: Part[] | undefined }
 }): DockQuestionRequest | undefined {
-  const { sessions, rootSessionID, messages, partsByMessageID } = input
+  const { sessions, rootSessionID, pendingQuestions, messages, partsByMessageID } = input
   const childMap = sessions.reduce((acc, item) => {
     if (!item.parentID) return acc
     const list = acc.get(item.parentID)
@@ -93,6 +97,10 @@ export function findDescendantExternalResultQuestion(input: {
   const stack = [rootSessionID]
   while (stack.length > 0) {
     const sid = stack.pop()!
+    const pending = pendingQuestions?.[sid]?.find(
+      (item) => !isKnownStalePendingQuestion({ pending: item, partsByMessageID }),
+    )
+    if (pending) return pending
     const found = findRunningExternalResultQuestion({
       sessionID: sid,
       messages: messages[sid],

@@ -261,6 +261,7 @@ function createGlobalSync() {
       const next = trimSessions(store.session, {
         limit: store.limit,
         permission: store.permission,
+        externalResultQuestion: store.external_result_question,
       })
       if (next.length !== store.session.length) {
         cleanupDroppedSessionCaches(store, setStore, next, {
@@ -292,6 +293,7 @@ function createGlobalSync() {
               const sessions = trimSessions([...nonArchived, ...childSessions], {
                 limit,
                 permission: store.permission,
+                externalResultQuestion: store.external_result_question,
               })
               setStore(
                 "sessionTotal",
