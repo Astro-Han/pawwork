@@ -87,3 +87,31 @@ export async function resolveRootSessionIDAsync(
   }
   return current
 }
+
+/**
+ * Resolve a question's root session, then fire its alert — but only if the
+ * provider is still mounted and the question is still pending once the async
+ * resolution returns.
+ *
+ * `resolveRoot` may await the network (a background project whose sessions were
+ * never bootstrapped), which yields the event loop. In that gap a
+ * `message.part.removed` or a terminal `reset` update for the same question can
+ * land and clear its dedupe claim — the question is already answered or gone.
+ * Re-checking `isPending` after the await (alongside `disposed`) stops a stale
+ * alert: an unread dot, badge bump, or Dock bounce for a question that no longer
+ * needs the user. `alert` carries the resolved root id and owns the actual
+ * notification / sound / attention side effects. Returns the root id when it
+ * alerted, or undefined when it bailed.
+ */
+export async function resolveAndAlertQuestion(opts: {
+  resolveRoot: () => Promise<string>
+  disposed: () => boolean
+  isPending: () => boolean
+  alert: (rootID: string) => void
+}): Promise<string | undefined> {
+  const rootID = await opts.resolveRoot()
+  if (opts.disposed()) return undefined
+  if (!opts.isPending()) return undefined
+  opts.alert(rootID)
+  return rootID
+}

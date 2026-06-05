@@ -19,6 +19,7 @@ import { workspaceKey } from "@/pages/layout/helpers"
 import {
   questionCallKey,
   questionNotificationAction,
+  resolveAndAlertQuestion,
   resolveRootSessionIDAsync,
   unreadSessionCount,
 } from "./notification-derive"
@@ -333,36 +334,44 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
       if (alertedQuestionCalls.has(callKey)) return
       alertedQuestionCalls.add(callKey)
 
-      // A child agent's question surfaces on (and is answered from) its root
-      // session's page, and only root sessions show in the sidebar — attribute
-      // the notification to the root, not the asking child. Resolving the root
-      // may hit the network for an unbootstrapped background project, so async.
-      const rootID = await resolveRootSessionIDAsync(sessionID, (id) => fetchParentID(directory, id))
-      if (meta.disposed) return
+      await resolveAndAlertQuestion({
+        // A child agent's question surfaces on (and is answered from) its root
+        // session's page, and only root sessions show in the sidebar —
+        // attribute the notification to the root, not the asking child.
+        // Resolving the root may hit the network for an unbootstrapped
+        // background project, so async.
+        resolveRoot: () => resolveRootSessionIDAsync(sessionID, (id) => fetchParentID(directory, id)),
+        disposed: () => meta.disposed,
+        // Re-check the dedupe claim after the async root resolution: a
+        // message.part.removed or terminal reset for this same call may have
+        // cleared it mid-await, meaning the question is gone — don't alert.
+        isPending: () => alertedQuestionCalls.has(callKey),
+        alert: (rootID) => {
+          const [syncStore] = globalSync.child(directory, { bootstrap: false })
+          const rootMatch = Binary.search(syncStore.session, rootID, (s) => s.id)
+          const rootTitle = rootMatch.found ? syncStore.session[rootMatch.index].title : undefined
 
-      const [syncStore] = globalSync.child(directory, { bootstrap: false })
-      const rootMatch = Binary.search(syncStore.session, rootID, (s) => s.id)
-      const rootTitle = rootMatch.found ? syncStore.session[rootMatch.index].title : undefined
+          const visible = viewedInCurrentSession(directory, rootID)
+          append({
+            directory,
+            time,
+            viewed: visible,
+            type: "question",
+            session: rootID,
+          })
 
-      const visible = viewedInCurrentSession(directory, rootID)
-      append({
-        directory,
-        time,
-        viewed: visible,
-        type: "question",
-        session: rootID,
+          const level = settings.notify.level()
+          const shouldAlert = level !== "never" && (level === "always" || !visible)
+          if (shouldAlert) {
+            void playSoundById("notify")
+            const href = `/${base64Encode(directory)}/session/${rootID}`
+            void platform.notify(language.t("notification.question.title"), rootTitle ?? rootID, href)
+            // A question blocks the agent on the user, so it bounces the Dock /
+            // flashes the taskbar. turn-complete and error (above) only notify.
+            void platform.requestAttention?.()
+          }
+        },
       })
-
-      const level = settings.notify.level()
-      const shouldAlert = level !== "never" && (level === "always" || !visible)
-      if (shouldAlert) {
-        void playSoundById("notify")
-        const href = `/${base64Encode(directory)}/session/${rootID}`
-        void platform.notify(language.t("notification.question.title"), rootTitle ?? rootID, href)
-        // A question blocks the agent on the user, so it bounces the Dock /
-        // flashes the taskbar. turn-complete and error (above) only notify.
-        void platform.requestAttention?.()
-      }
     }
 
     const markSessionViewed = (session: string) => {

@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test"
-import { questionCallKey, questionNotificationAction, resolveRootSessionIDAsync, unreadSessionCount } from "./notification-derive"
+import {
+  questionCallKey,
+  questionNotificationAction,
+  resolveAndAlertQuestion,
+  resolveRootSessionIDAsync,
+  unreadSessionCount,
+} from "./notification-derive"
 
 describe("unreadSessionCount", () => {
   test("counts distinct unseen sessions, not the total notification count", () => {
@@ -65,6 +71,61 @@ describe("resolveRootSessionIDAsync", () => {
   test("breaks parent cycles instead of looping forever", async () => {
     const getParentID = parentLookup({ ses_a: "ses_b", ses_b: "ses_a" })
     expect(await resolveRootSessionIDAsync("ses_a", getParentID)).toBe("ses_a")
+  })
+})
+
+describe("resolveAndAlertQuestion", () => {
+  test("alerts with the resolved root when the question is still pending", async () => {
+    let alerted: string | undefined
+    const root = await resolveAndAlertQuestion({
+      resolveRoot: async () => "ses_root",
+      disposed: () => false,
+      isPending: () => true,
+      alert: (id) => {
+        alerted = id
+      },
+    })
+    expect(root).toBe("ses_root")
+    expect(alerted).toBe("ses_root")
+  })
+
+  test("skips the alert when the question is removed during root resolution", async () => {
+    // The dedupe claim is cleared (message.part.removed / terminal reset) while
+    // resolveRoot is still awaiting the network. The alert must not fire, or it
+    // would strand a stale unread dot / badge bump / Dock bounce for a question
+    // that no longer needs the user.
+    let pending = true
+    let resolveRoot: (id: string) => void = () => {}
+    const rootResolved = new Promise<string>((resolve) => {
+      resolveRoot = resolve
+    })
+    let alerted = false
+    const done = resolveAndAlertQuestion({
+      resolveRoot: () => rootResolved,
+      disposed: () => false,
+      isPending: () => pending,
+      alert: () => {
+        alerted = true
+      },
+    })
+    pending = false // message.part.removed lands mid-await
+    resolveRoot("ses_root")
+    expect(await done).toBeUndefined()
+    expect(alerted).toBe(false)
+  })
+
+  test("skips the alert when the provider is disposed during root resolution", async () => {
+    let alerted = false
+    const root = await resolveAndAlertQuestion({
+      resolveRoot: async () => "ses_root",
+      disposed: () => true,
+      isPending: () => true,
+      alert: () => {
+        alerted = true
+      },
+    })
+    expect(root).toBeUndefined()
+    expect(alerted).toBe(false)
   })
 })
 
