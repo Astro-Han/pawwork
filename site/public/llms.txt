@@ -34,7 +34,7 @@ PawWork includes a free tier powered by OpenCode Zen with built-in web search. U
 ## Platforms
 
 - macOS: Apple Silicon and Intel, signed and notarized.
-- Windows: x64, signed installer.
+- Windows: x64, currently unsigned installer (SmartScreen may appear on first launch).
 
 ## Positioning
 

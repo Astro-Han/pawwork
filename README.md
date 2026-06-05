@@ -2,7 +2,7 @@
 
 **PawWork is a free, open-source desktop AI agent for macOS and Windows that handles documents, spreadsheets, research, writing, code, and local file tasks using 75+ AI model providers.**
 
-Open-source alternative to [Codex App](https://openai.com/index/introducing-codex/) and [Claude Cowork](https://www.anthropic.com/research/building-effective-agents). Bring your own key. Works with any model — including ChatGPT OAuth.
+Open-source alternative to [Codex App](https://openai.com/codex/) and [Claude Cowork](https://www.anthropic.com/product/claude-cowork). Bring your own key. Works with any model — including ChatGPT OAuth.
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![macOS](https://img.shields.io/badge/macOS-signed_and_notarized-black.svg)](https://github.com/Astro-Han/pawwork/releases/latest)
