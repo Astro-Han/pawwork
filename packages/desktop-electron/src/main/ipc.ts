@@ -456,8 +456,12 @@ export function registerIpcHandlers(deps: Deps) {
     if (!win) return
 
     if (process.platform === "darwin") {
-      // macOS: bounce the Dock icon once
-      app.dock?.bounce()
+      // macOS: bounce the Dock icon until the app is activated. "critical" (vs
+      // the default "informational" single bounce) is the "reliable bounce" the
+      // notification polish calls for — a lone informational bounce is trivial
+      // to miss. macOS never bounces the foreground app, so this is a no-op when
+      // the user is already looking, and auto-cancels the moment they click back.
+      app.dock?.bounce("critical")
     } else {
       // Windows/Linux: flash the taskbar button
       // Clear any existing timer for this window
