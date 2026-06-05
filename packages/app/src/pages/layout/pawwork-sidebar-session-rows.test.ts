@@ -28,6 +28,17 @@ describe("filterPawworkRowsByOpenProjects", () => {
     expect(result).toHaveLength(1)
   })
 
+  test("keeps a subfolder session resolved via executionContext.ownerDirectory when project is absent", () => {
+    // session.get backfill (active / pinned sessions off the first page) returns
+    // a plain Session with no `project` field; ownerDirectory still points at the
+    // open root, so the row must survive.
+    const result = filterPawworkRowsByOpenProjects(
+      [{ session: { id: "s1", directory: "/repo/packages/app", executionContext: { ownerDirectory: "/repo" } } }],
+      [{ worktree: "/repo" }],
+    )
+    expect(result).toHaveLength(1)
+  })
+
   test("keeps a sandbox session matched by sandbox path when project worktree is absent", () => {
     const result = filterPawworkRowsByOpenProjects(
       [row("/repo-worktree")],
