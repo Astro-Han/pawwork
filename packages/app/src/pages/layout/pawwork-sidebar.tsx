@@ -411,7 +411,12 @@ export const PawworkSidebar = (props: {
           data-component="pawwork-side-scroll"
           class="flex-1 min-h-0 overflow-y-auto px-3 pb-3"
         >
-          <Show when={props.sessions().length > 0}>
+          {/* Keep the nav (and its Show more / search-history entries) mounted
+            * whenever the window can still load or has hit the cap, even if the
+            * current filtered list is empty — otherwise a page of closed-project
+            * sessions filters to nothing and the only way to load deeper would
+            * vanish with the list. */}
+          <Show when={props.sessions().length > 0 || props.sessionWindow().canShowMore || props.sessionWindow().capReached}>
             <nav class="flex flex-col">
               {/* Pinned section is visible when it has items, or transiently
                 * during any drag (按需浮现 — empty drop target). Sortable attaches

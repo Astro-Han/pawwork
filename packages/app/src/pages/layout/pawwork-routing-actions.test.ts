@@ -12,15 +12,10 @@ type Calls = {
   adopt: unknown[]
   openSession: unknown[]
   openNewSession: (string | undefined)[]
-  unhideProject: string[]
   projectsOpen: string[]
-  // Cross-function call order so tests can pin unhide-then-open ordering.
-  order: string[]
 }
 
-function setup(
-  storeOverride: { pawworkProjectHidden?: Record<string, boolean>; workspaceExpanded?: Record<string, boolean> } = {},
-) {
+function setup(storeOverride: { workspaceExpanded?: Record<string, boolean> } = {}) {
   const calls: Calls = {
     navigate: [],
     setStore: [],
@@ -30,12 +25,9 @@ function setup(
     adopt: [],
     openSession: [],
     openNewSession: [],
-    unhideProject: [],
     projectsOpen: [],
-    order: [],
   }
   const store = {
-    pawworkProjectHidden: storeOverride.pawworkProjectHidden ?? {},
     workspaceExpanded: storeOverride.workspaceExpanded ?? {},
   }
   const input = {
@@ -51,54 +43,32 @@ function setup(
     projectRoot: (directory: string) => `/resolved${directory}`,
     activeProjectRoot: (directory: string) => `root:${directory}`,
     shellNavigation: {
-      openSession: (session: unknown) => {
-        calls.openSession.push(session)
-        calls.order.push("openSession")
-      },
-      openNewSession: (directory: string | undefined) => {
-        calls.openNewSession.push(directory)
-        calls.order.push(`openNewSession:${directory}`)
-      },
+      openSession: (session: unknown) => calls.openSession.push(session),
+      openNewSession: (directory: string | undefined) => calls.openNewSession.push(directory),
     },
-    unhideProject: (key: string) => {
-      calls.unhideProject.push(key)
-      calls.order.push(`unhide:${key}`)
-    },
-    projectKeyForSession: (session: { directory: string }) => session.directory,
     layout: { projects: { open: (directory: string) => calls.projectsOpen.push(directory) } },
   } as unknown as PawworkRoutingActionsInput
   return { input, calls, store }
 }
 
 describe("createPawworkRoutingActions", () => {
-  test("navigateToSession unhides a hidden project BEFORE opening the session", () => {
+  test("navigateToSession opens the session", () => {
     createRoot((dispose) => {
-      const { input, calls } = setup({ pawworkProjectHidden: { "/repo": true } })
+      const { input, calls } = setup()
       const actions = createPawworkRoutingActions(input)
       const session = { id: "s1", directory: "/repo" }
       actions.navigateToSession(session as never)
-      expect(calls.order).toEqual(["unhide:/repo", "openSession"])
       expect(calls.openSession).toEqual([session])
       dispose()
     })
   })
 
-  test("navigateToSession does not unhide a visible project", () => {
+  test("openPawworkHome opens a new session for the directory", () => {
     createRoot((dispose) => {
       const { input, calls } = setup()
       const actions = createPawworkRoutingActions(input)
-      actions.navigateToSession({ id: "s1", directory: "/repo" } as never)
-      expect(calls.order).toEqual(["openSession"])
-      dispose()
-    })
-  })
-
-  test("openPawworkHome unhides a hidden directory BEFORE opening a new session", () => {
-    createRoot((dispose) => {
-      const { input, calls } = setup({ pawworkProjectHidden: { "/repo": true } })
-      const actions = createPawworkRoutingActions(input)
       actions.openPawworkHome("/repo")
-      expect(calls.order).toEqual(["unhide:/repo", "openNewSession:/repo"])
+      expect(calls.openNewSession).toEqual(["/repo"])
       dispose()
     })
   })

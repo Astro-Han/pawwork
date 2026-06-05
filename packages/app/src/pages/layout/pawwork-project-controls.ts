@@ -1,5 +1,4 @@
-import { produce, reconcile, type SetStoreFunction } from "solid-js/store"
-import { showToast } from "@opencode-ai/ui/toast"
+import { reconcile, type SetStoreFunction } from "solid-js/store"
 import type { LocalProject } from "@/context/layout"
 import { reorderPawworkPinnedByVisible, unpinPawworkSession } from "./pawwork-session-nav"
 import { resolvePawworkProjectRenameTarget } from "./pawwork-session-source"
@@ -10,7 +9,6 @@ type LayoutPageState = ReturnType<typeof createDefaultLayoutPageState>
 export type PawworkProjectControlsInput = {
   store: LayoutPageState
   setStore: SetStoreFunction<LayoutPageState>
-  language: { t: (key: string, params?: Record<string, string | number | boolean>) => string }
   projects: () => LocalProject[]
   sessions: () => { directory: string }[]
   renameProject: (project: LocalProject, next: string) => Promise<void>
@@ -88,31 +86,6 @@ export function createPawworkProjectControls(input: PawworkProjectControlsInput)
     input.setStore("pawworkProjectCollapsed", reconcile(next))
   }
 
-  function hideProject(projectKey: string) {
-    if (input.store.pawworkProjectHidden[projectKey]) return
-    input.setStore("pawworkProjectHidden", projectKey, true)
-    showToast({
-      title: input.language.t("project.remove.toast.title"),
-      description: input.language.t("project.remove.toast.description"),
-      actions: [
-        {
-          label: input.language.t("common.undo"),
-          onClick: () => unhideProject(projectKey),
-        },
-      ],
-    })
-  }
-
-  function unhideProject(projectKey: string) {
-    if (!input.store.pawworkProjectHidden[projectKey]) return
-    input.setStore(
-      "pawworkProjectHidden",
-      produce((draft) => {
-        delete draft[projectKey]
-      }),
-    )
-  }
-
   async function handleRenameProject(projectKey: string, next: string) {
     const target = resolvePawworkProjectRenameTarget(projectKey, {
       projects: input.projects(),
@@ -143,8 +116,6 @@ export function createPawworkProjectControls(input: PawworkProjectControlsInput)
     movePinnedSessionByOne,
     setPawworkSortMode,
     toggleProjectCollapsed,
-    hideProject,
-    unhideProject,
     handleRenameProject,
     expandPawworkProjectGroup,
   }

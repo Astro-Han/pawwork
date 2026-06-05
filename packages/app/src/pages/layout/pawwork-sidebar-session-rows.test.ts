@@ -2,24 +2,69 @@ import { readFileSync } from "node:fs"
 import { describe, expect, test } from "bun:test"
 import {
   buildPawworkSidebarSessionRows,
+  filterPawworkRowsByOpenProjects,
   PAWWORK_DIRECT_START_PROJECT_KEY,
-  pawworkSessionRouteUnhideKeys,
   resolvePawworkProjectRenameTarget,
   resolvePawworkSessionProjectKey,
   resolvePawworkSessionProjectLabel,
 } from "./pawwork-session-source"
 
-describe("buildPawworkSidebarSessionRows", () => {
-  test("keeps the parent root group hidden when syncing a subfolder session route", () => {
-    const hidden: Record<string, boolean> = { "/repo/packages/app": true, "/repo": true }
-
-    for (const key of pawworkSessionRouteUnhideKeys("/repo/packages/app")) {
-      delete hidden[key]
-    }
-
-    expect(hidden).toEqual({ "/repo": true })
+describe("filterPawworkRowsByOpenProjects", () => {
+  const row = (directory: string, projectWorktree?: string) => ({
+    session: { id: `s:${directory}`, directory, project: projectWorktree ? { worktree: projectWorktree } : undefined },
   })
 
+  test("keeps a row whose owning project root is open", () => {
+    const result = filterPawworkRowsByOpenProjects([row("/repo", "/repo")], [{ worktree: "/repo" }])
+    expect(result).toHaveLength(1)
+  })
+
+  test("drops a row whose owning project is not in the open project list", () => {
+    const result = filterPawworkRowsByOpenProjects([row("/repo", "/repo")], [{ worktree: "/other" }])
+    expect(result).toHaveLength(0)
+  })
+
+  test("keeps a subfolder session of an open project", () => {
+    const result = filterPawworkRowsByOpenProjects([row("/repo/packages/app", "/repo")], [{ worktree: "/repo" }])
+    expect(result).toHaveLength(1)
+  })
+
+  test("keeps a subfolder session resolved via executionContext.ownerDirectory when project is absent", () => {
+    // session.get backfill (active / pinned sessions off the first page) returns
+    // a plain Session with no `project` field; ownerDirectory still points at the
+    // open root, so the row must survive.
+    const result = filterPawworkRowsByOpenProjects(
+      [{ session: { id: "s1", directory: "/repo/packages/app", executionContext: { ownerDirectory: "/repo" } } }],
+      [{ worktree: "/repo" }],
+    )
+    expect(result).toHaveLength(1)
+  })
+
+  test("keeps a sandbox session matched by sandbox path when project worktree is absent", () => {
+    const result = filterPawworkRowsByOpenProjects(
+      [row("/repo-worktree")],
+      [{ worktree: "/repo", sandboxes: ["/repo-worktree"] }],
+    )
+    expect(result).toHaveLength(1)
+  })
+
+  test("drops every row when no project is open", () => {
+    const result = filterPawworkRowsByOpenProjects([row("/repo", "/repo"), row("/other", "/other")], [])
+    expect(result).toHaveLength(0)
+  })
+
+  test("keeps a direct-start row even when its directory is not an open project", () => {
+    // Direct-start sessions live in the server cwd and belong to no managed
+    // project — their key marks them exempt so they survive even with 0 projects open.
+    const result = filterPawworkRowsByOpenProjects(
+      [{ projectKey: PAWWORK_DIRECT_START_PROJECT_KEY, session: { id: "s1", directory: "/server-cwd" } }],
+      [],
+    )
+    expect(result).toHaveLength(1)
+  })
+})
+
+describe("buildPawworkSidebarSessionRows", () => {
   test("renames sandbox session groups as local workspace labels", () => {
     const project = { id: "proj_repo", name: "Repo", worktree: "/repo", sandboxes: ["/repo-worktree"] }
     let renamedProject: typeof project | undefined

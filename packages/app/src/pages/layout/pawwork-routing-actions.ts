@@ -8,14 +8,13 @@ import type { useNotification } from "@/context/notification"
 import type { useLayout } from "@/context/layout"
 import type { usePinnedDraft } from "@/components/prompt-input/pinned-draft"
 import { setSessionHandoff } from "@/pages/session/handoff"
-import { openProjectRoute, workspaceKey } from "./helpers"
+import { openProjectRoute } from "./helpers"
 import {
   collectNewSessionDeepLinks,
   collectOpenProjectDeepLinks,
   deepLinkEvent,
   drainPendingDeepLinks,
 } from "./deep-links"
-import { pawworkSessionRouteUnhideKeys } from "./pawwork-session-source"
 import type { createShellNavigation } from "./shell-navigation"
 import { createDefaultLayoutPageState } from "./layout-page-store"
 
@@ -32,17 +31,11 @@ export type PawworkRoutingActionsInput = {
   projectRoot: (directory: string) => string
   activeProjectRoot: (directory: string) => string
   shellNavigation: Pick<ReturnType<typeof createShellNavigation>, "openSession" | "openNewSession">
-  unhideProject: (projectKey: string) => void
-  projectKeyForSession: (session: Session) => string
   layout: Pick<ReturnType<typeof useLayout>, "projects">
 }
 
 export function createPawworkRoutingActions(input: PawworkRoutingActionsInput) {
   function syncSessionRoute(directory: string, id: string, root = input.activeProjectRoot(directory)) {
-    for (const key of pawworkSessionRouteUnhideKeys(directory)) {
-      if (!input.store.pawworkProjectHidden[key]) continue
-      input.unhideProject(key)
-    }
     input.notification.session.markViewed(id)
     const expanded = untrack(() => input.store.workspaceExpanded[directory])
     if (expanded === false) {
@@ -60,22 +53,10 @@ export function createPawworkRoutingActions(input: PawworkRoutingActionsInput) {
   }
 
   function navigateToSession(session: Session | undefined) {
-    if (session) {
-      const key = input.projectKeyForSession(session)
-      if (input.store.pawworkProjectHidden[key]) {
-        input.unhideProject(key)
-      }
-    }
     input.shellNavigation.openSession(session)
   }
 
   function openPawworkHome(directory?: string) {
-    if (directory) {
-      const key = workspaceKey(directory)
-      if (input.store.pawworkProjectHidden[key]) {
-        input.unhideProject(key)
-      }
-    }
     input.shellNavigation.openNewSession(directory)
   }
 

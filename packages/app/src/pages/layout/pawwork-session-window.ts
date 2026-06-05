@@ -21,6 +21,34 @@ export function nextPawworkSessionWindowLimit(current: number) {
   )
 }
 
+/**
+ * The session window is fetched globally (activity-sorted, paginated) and then
+ * filtered to open projects client-side, so a page of closed-project sessions
+ * can filter to nothing while the window still has more pages. This decides when
+ * to auto-advance the window one page so an open project's older sessions surface
+ * instead of leaving the sidebar blank.
+ *
+ * Guards: only with open projects (the zero-project empty state is deliberate),
+ * only when nothing is visible, only when more pages exist below the cap, and
+ * only once the current limit's request has settled (`loadedLimit === limit`) —
+ * so it steps one page at a time and never fires mid-load or retries a failed load.
+ */
+export function shouldAutoExpandPawworkSessionWindow(input: {
+  openProjectCount: number
+  visibleCount: number
+  loading: boolean
+  hasMore: boolean
+  limit: number
+  loadedLimit: number
+}) {
+  if (input.openProjectCount === 0) return false
+  if (input.visibleCount > 0) return false
+  if (input.loading) return false
+  if (!input.hasMore) return false
+  if (input.limit >= PAWWORK_SESSION_WINDOW_MAX) return false
+  return input.loadedLimit === input.limit
+}
+
 export function mergeSessionsByID(...lists: Array<PawworkWindowSession[] | undefined>) {
   const map = new Map<string, PawworkWindowSession>()
   for (const list of lists) {
