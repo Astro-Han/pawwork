@@ -73,6 +73,7 @@ import { createPawworkWorkspaceDialogs } from "./layout/pawwork-workspace-dialog
 import { type WorkspaceSidebarContext } from "./layout/sidebar-workspace"
 import { PawworkSidebar, type PawworkSidebarSession } from "./layout/pawwork-sidebar"
 import { AutomationsSurface } from "@/pages/automations/automations-surface"
+import { SkillsSurface } from "@/pages/skills/skills-surface"
 import { createDefaultLayoutPageState, createLayoutPagePersistTarget } from "./layout/layout-page-store"
 import { SettingsContent, SettingsNav, isSettingsTab, type SettingsTab } from "@/pages/settings/settings-shell"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
@@ -93,9 +94,13 @@ export default function Layout(props: ParentProps) {
   let dialogDead = false
   // One mutually-exclusive shell surface at a time. Settings replaces the
   // sidebar + main; automations only takes over main (sidebar stays live).
-  const [activeSurface, setActiveSurface] = createSignal<"none" | "settings" | "automations">("none")
+  const [activeSurface, setActiveSurface] = createSignal<"none" | "settings" | "automations" | "skills">("none")
   const settingsOpen = createMemo(() => activeSurface() === "settings")
   const automationsOpen = createMemo(() => activeSurface() === "automations")
+  const skillsOpen = createMemo(() => activeSurface() === "skills")
+  // Any main-region takeover is open. Chrome belonging to the covered session
+  // (titlebar portals, the right-panel rail, sidebar route-active) reads this.
+  const mainSurfaceOpen = createMemo(() => activeSurface() !== "none")
   // Pending deep-link selection for the Automations panel; set just before the
   // surface opens (e.g. the automate tool's jump button) and read once on its
   // mount. Cleared on manual opens so a stale id never forces a row.
@@ -486,6 +491,10 @@ export default function Layout(props: ParentProps) {
     setActiveSurface((current) => (current === "automations" ? "none" : "automations"))
   }
 
+  function toggleSkills() {
+    setActiveSurface((current) => (current === "skills" ? "none" : "skills"))
+  }
+
   // Open the Automations panel focused on one automation. Wired to the
   // module-level bridge so the automate tool card (deep in the message thread,
   // outside this shell) can jump here. The surface reads the request on mount.
@@ -506,6 +515,28 @@ export default function Layout(props: ParentProps) {
     if (!directory) return
     const prompt = encodeURIComponent(language.t("automations.create.viaChatPrompt"))
     navigate(`/${base64Encode(directory)}/session?prompt=${prompt}`)
+  }
+
+  // Skills resolve per active directory, exactly like the composer's slash
+  // picker (which queries the route's SDK directory = `currentDir()`). Use the
+  // active route dir — not the owner project root — so the gallery and "Use in
+  // chat" match the skills the composer would actually offer, including a
+  // sandbox/workspace's own `.agents/skills`, and "Use in chat" stays in the
+  // directory the user was working in instead of jumping to the project root.
+  // Falls back to the project root only when no directory is active (gallery
+  // opened with no project selected). This deliberately diverges from the
+  // Automations surface above, which is correctly project-scoped (it also keys
+  // off `projectID`); skills are directory-resolved, not project entities.
+  const skillsDirectory = () => currentDir() || currentProject()?.worktree || ""
+
+  // "Use in chat" from the Skills gallery leaves the surface and starts a fresh
+  // session in the active directory. The ?skill= bootstrap seeds the composer with
+  // the structured skill chip, so the picked skill activates deterministically.
+  function useSkillInChat(name: string) {
+    closeSettings()
+    const directory = skillsDirectory()
+    if (!directory) return
+    navigate(`/${base64Encode(directory)}/session?skill=${encodeURIComponent(name)}`)
   }
 
   function openSettings(tab?: SettingsTab) {
@@ -942,6 +973,9 @@ export default function Layout(props: ParentProps) {
       onNew={() => openPawworkHome(options?.directory)}
       onSearch={() => command.show()}
       onOpenProject={chooseProject}
+      onOpenSkills={toggleSkills}
+      skillsActive={skillsOpen}
+      skillsLabel={() => language.t("sidebar.pawwork.skills")}
       onOpenAutomations={toggleAutomations}
       automationsActive={automationsOpen}
       automationsLabel={() => language.t("sidebar.pawwork.automations")}
@@ -976,10 +1010,14 @@ export default function Layout(props: ParentProps) {
         value={{
           settingsOpen,
           automationsOpen,
+          skillsOpen,
+          mainSurfaceOpen,
           openNewSession: openPawworkHome,
           openSession: navigateToSession,
           openSettings,
           closeSettings,
+          openSkills: () => setActiveSurface("skills"),
+          closeSkills: () => setActiveSurface("none"),
         }}
       >
         <LayoutShellFrame
@@ -1016,6 +1054,17 @@ export default function Layout(props: ParentProps) {
                 onClose={closeSettings}
                 onOpenRun={openAutomationRun}
                 onCreateViaChat={createAutomationViaChat}
+              />
+            ),
+          }}
+          skills={{
+            open: skillsOpen,
+            title: () => language.t("skills.title"),
+            content: () => (
+              <SkillsSurface
+                directory={skillsDirectory}
+                onClose={closeSettings}
+                onUseSkill={useSkillInChat}
               />
             ),
           }}

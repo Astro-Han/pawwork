@@ -1,5 +1,5 @@
 import { expect, test } from "../fixtures"
-import { openRightPanel } from "../actions"
+import { openRightPanel, openSettings, openSidebar } from "../actions"
 import { modKey } from "../utils"
 
 // Contract for the titlebar's right rail — the flex row inside the titlebar's
@@ -140,6 +140,57 @@ test.describe("titlebar right rail contract", () => {
         { timeout: 2_000 },
       )
       .toEqual({ width: 0, borderLeft: "0px" })
+  })
+
+  test("a main-takeover surface hides the right-rail chrome (border-l, reserved width, portalled tabs)", async ({
+    page,
+    gotoSession,
+  }) => {
+    // Regression: settings / automations / skills are main-region takeovers that
+    // cover the (still-mounted) session and its right panel. The rail's width +
+    // border-l and the tab-strip portal are the right panel's chrome inside the
+    // titlebar; when a surface covers the panel, that chrome must retract too.
+    // Before the mainSurfaceOpen() guard, automations/skills left an empty rail
+    // reserving panel-width with a 1px border-l, and settings additionally left
+    // the portalled tabs ("状态") mounted. One assertion covers all three.
+    await gotoSession()
+    await openRightPanel(page)
+    await openSidebar(page)
+
+    const railState = () =>
+      page.evaluate(() => {
+        const tabs = document.getElementById("pawwork-titlebar-tabs") as HTMLElement | null
+        const cs = tabs ? getComputedStyle(tabs) : null
+        return {
+          width: tabs ? Math.round(tabs.getBoundingClientRect().width) : null,
+          borderLeft: cs?.borderLeftWidth ?? null,
+          children: tabs ? tabs.childElementCount : null,
+        }
+      })
+
+    // Sanity: panel open, no surface → rail reserves width with its border-l.
+    expect((await railState()).width).toBeGreaterThan(0)
+
+    const expectRetracted = async () =>
+      expect.poll(railState, { timeout: 2_000 }).toEqual({ width: 0, borderLeft: "0px", children: 0 })
+
+    // Automations (sidebar stays live, so the entry is clickable to toggle).
+    await page.locator('[data-action="pawwork-automations-open"]').click()
+    await page.locator('[data-component="automations-page"]').waitFor({ state: "visible", timeout: 30_000 })
+    await expectRetracted()
+    await page.locator('[data-action="pawwork-automations-open"]').click()
+
+    // Skills.
+    await page.locator('[data-action="pawwork-skills-open"]').click()
+    await page.locator('[data-component="skills-page"]').waitFor({ state: "visible", timeout: 30_000 })
+    await expectRetracted()
+    await page.locator('[data-action="pawwork-skills-open"]').click()
+
+    // Settings (replaces the sidebar; open it last). This is the leg the empty
+    // automations/skills gate missed — the tab-strip portal was not gated here.
+    await openSettings(page)
+    await page.locator('[data-component="settings-page"]').first().waitFor({ state: "visible", timeout: 30_000 })
+    await expectRetracted()
   })
 
   test("tabs slot border-l spans the full titlebar height (no top/bottom seam break)", async ({
