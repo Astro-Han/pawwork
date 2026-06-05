@@ -118,7 +118,7 @@ describe("timeline scroll reconciler", () => {
     const viewport = makeViewport({ scrollTop: 400, clientHeight: 400, scrollHeight: 1400, rect: { top: 100, bottom: 500 } })
     const revealed: string[] = []
     const anchor: TimelineSafePosition = { kind: "reading", anchorMessageID: "msg_anchor", offsetFromViewportTop: 24, renderedStart: 0, renderedCount: 10 }
-    const { reconciler, frames, sink } = setup({
+    const { reconciler, frames, sink, diagnostics } = setup({
       viewport,
       anchor: () => anchor,
       requestReveal: (p) => revealed.push(p.kind),
@@ -135,6 +135,29 @@ describe("timeline scroll reconciler", () => {
     frames.runFrame() // now mounted -> pins
     expect(viewport.scrollTop).toBe(456)
     expect(reconciler.active()).toBe(false)
+    // The settle diagnostic keeps the real retry count, not the post-reset 0.
+    expect(diagnostics.at(-1)).toMatchObject({ outcome: "pinned", revealAttempts: 1 })
+  })
+
+  test("defers to the reveal-stage writer: an in-view target produces no competing write", () => {
+    // The hash scroller owns the initial scrollTo for explicit navigation; once
+    // the target is settled in view, a later layout flush must not re-position it
+    // (single authoritative writer — the reconciler defers, it does not fight).
+    const viewport = makeViewport({ scrollTop: 300, clientHeight: 400, scrollHeight: 1400, rect: { top: 0, bottom: 400 } })
+    appendMessage(viewport, "msg_target", { top: 120, bottom: 260 })
+    const anchor: TimelineSafePosition = {
+      kind: "target_message",
+      messageID: "msg_target",
+      align: "nearest",
+      loadPolicy: "load_until_visible",
+    }
+    const { reconciler, frames, sink, diagnostics } = setup({ viewport, anchor: () => anchor })
+
+    reconciler.markDirty("content-resize")
+    frames.runFrame()
+    expect(sink.records()).toHaveLength(0)
+    expect(viewport.scrollTop).toBe(300)
+    expect(diagnostics.at(-1)).toMatchObject({ outcome: "noop", anchorKind: "target_message" })
   })
 
   test("never falls back to latest: exhausts the reveal budget and keeps scrollTop", () => {

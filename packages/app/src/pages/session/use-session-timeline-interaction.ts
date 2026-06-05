@@ -267,6 +267,10 @@ export function createSessionTimelineInteraction(input: {
     if (!selection || selection.toString().length === 0) return
     const viewport = scrollDock.scroller()
     if (!viewport) return
+    // Only pause follow when the selection actually lives inside the timeline.
+    // A selection left over in the composer or sidebar must not stop auto-follow
+    // just because the user clicked back into the timeline.
+    if (!viewport.contains(selection.anchorNode) || !viewport.contains(selection.focusNode)) return
     onTimelineScrollIntent({
       type: "scrollbar_drag_start",
       source: "scroll_view",
@@ -353,7 +357,14 @@ export function createSessionTimelineInteraction(input: {
         reason: "hash-target-not-mounted",
       }),
     onMessageNavigation: (messageID) => {
-      onTimelineScrollIntent({ type: "target_message", messageID, align: "nearest" })
+      // Explicit hash / message navigation enters targeting mode so later layout
+      // changes re-pin the target through the reconciler, but it must NOT markDirty
+      // here: the hash scroller owns the initial reveal + scrollTo (keeping smooth
+      // behavior and the sticky-title inset), and a reconciler pin on this frame
+      // would be a second, competing final writer racing that scroll. Once the
+      // target is settled in view, computeTargetTop no-ops, so the reconciler
+      // simply defers to where the hash scroller placed it.
+      scrollController.intent({ type: "target_message", messageID, align: "nearest" })
     },
     onMessageHashCleared: () => historyWindow.clearHashTarget(),
   })

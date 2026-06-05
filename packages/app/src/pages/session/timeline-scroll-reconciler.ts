@@ -105,6 +105,9 @@ export function createTimelineScrollReconciler(input: {
     position: TimelineSafePosition,
     delta?: number,
   ): TimelineReconcileOutcome => {
+    // Capture the attempt count before clearing it — the diagnostic must report
+    // how many reveal retries this anchor needed, not the post-reset 0.
+    const attempts = revealAttempts
     dirty = false
     snapshot = undefined
     revealAttempts = 0
@@ -114,7 +117,7 @@ export function createTimelineScrollReconciler(input: {
       outcome,
       anchorKind: position.kind,
       anchorMessageID: anchorMessageID(position),
-      revealAttempts,
+      revealAttempts: attempts,
       delta,
     })
     return outcome
