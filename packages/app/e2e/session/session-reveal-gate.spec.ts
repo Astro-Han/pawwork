@@ -101,9 +101,19 @@ test("does not expose a premature-bottom jump when opening a follow-latest sessi
     await expect(page.locator(sessionMessageItemSelector)).toHaveCount(INITIAL_SESSION_WINDOW_MESSAGES, {
       timeout: 30_000,
     })
-    // Let the open fully settle so the probe captures the reveal transition and
-    // any trailing re-pin.
-    await page.waitForTimeout(1000)
+    // Poll the probe instead of a fixed sleep: wait until it has captured a run
+    // of visible (uncovered) overflowing frames, which only exist once the reveal
+    // transition has completed. Several post-reveal frames are enough to expose a
+    // trailing re-pin to the jump assertions below.
+    await expect
+      .poll(
+        async () => {
+          const captured = await readRevealSamples(page)
+          return captured.filter((sample) => sample.height > sample.client + 200 && !sample.covered).length
+        },
+        { timeout: 5_000 },
+      )
+      .toBeGreaterThan(5)
 
     const samples = await readRevealSamples(page)
     expect(samples.length, "reveal probe should have captured frames").toBeGreaterThan(0)
