@@ -40,6 +40,19 @@ const recurring = (projectID: string, title: string, prompt: string, expression:
   },
 })
 
+const oneshot = (projectID: string, title: string, prompt: string, fireAt: number) => ({
+  automationCreateInput: {
+    kind: "oneshot" as const,
+    title,
+    prompt,
+    context: "fresh" as const,
+    where: { projectID },
+    timezone: "UTC",
+    model: { providerID: "opencode", modelID: "big-pickle" },
+    fireAt,
+  },
+})
+
 test("@smoke automations panel: list, detail, pause, delete", async ({ page, project }) => {
   test.setTimeout(120_000)
 
@@ -353,6 +366,29 @@ test("automations panel: a second tool card jump opens its own automation", asyn
   await expect(cardB).toBeVisible()
   await cardB.locator('[data-component="automate-tool-action"]').click()
   await expect(detail.getByRole("heading", { name: "Bravo digest" })).toBeVisible()
+})
+
+test("automations panel: a pending one-shot shows its next run time", async ({ page, project }) => {
+  test.setTimeout(120_000)
+
+  await project.open()
+  const surface = await openAutomations(page)
+
+  // A day out so the scheduler leaves it pending. One-shots used to hide the next
+  // run entirely (only recurring surfaced it), so the detail showed no fire time.
+  const projectID = (await project.sdk.project.current()).data!.id
+  const fireAt = Date.now() + 24 * 60 * 60 * 1000
+  await project.sdk.automation.create(oneshot(projectID, "Rehearsal reminder", "Remind me to rehearse the duet.", fireAt))
+
+  const rows = surface.locator('[data-action="automation-row"]')
+  await expect(rows).toHaveCount(1)
+  await rows.first().click()
+
+  const detail = surface.locator('[data-component="automation-detail"]')
+  await expect(detail).toBeVisible()
+  // It reads as a one-shot, yet still surfaces a Next run row before any run.
+  await expect(detail.getByText("Once")).toBeVisible()
+  await expect(detail.getByText("Next run")).toBeVisible()
 })
 
 test("automations panel: escape unwinds detail then closes the surface", async ({ page, project }) => {

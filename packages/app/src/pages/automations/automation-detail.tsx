@@ -133,8 +133,14 @@ export function AutomationDetail(props: {
 
   const nextRunLabel = createMemo(() => {
     const automation = props.automation()
-    if (automation.kind !== "recurring" || automation.paused || automation.nextFireAt == null) return undefined
-    return formatTimestamp(automation.nextFireAt, automation.timezone)
+    if (automation.paused) return undefined
+    if (automation.kind === "recurring") {
+      if (automation.nextFireAt == null) return undefined
+      return formatTimestamp(automation.nextFireAt, automation.timezone)
+    }
+    // A one-shot only has a next run until it fires; once a run exists it is spent.
+    if (runs().length > 0) return undefined
+    return formatTimestamp(automation.fireAt, automation.timezone)
   })
 
   const reasoningLabel = createMemo(() => props.automation().variant)
