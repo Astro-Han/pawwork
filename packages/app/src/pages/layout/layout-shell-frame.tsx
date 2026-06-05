@@ -36,6 +36,11 @@ type LayoutShellFrameProps = {
     title: Accessor<string>
     content: () => JSXElement
   }
+  skills: {
+    open: Accessor<boolean>
+    title: Accessor<string>
+    content: () => JSXElement
+  }
   main: () => JSXElement
 }
 
@@ -50,8 +55,14 @@ export function LayoutShellFrame(props: LayoutShellFrameProps) {
 
   // Settings replaces both sidebar and main; automations only takes over main
   // and keeps the session sidebar interactive. mainSurfaceOpen covers either.
-  const mainSurfaceOpen = createMemo(() => props.settings.open() || props.automations.open())
-  const surfaceTitle = createMemo(() => (props.automations.open() ? props.automations.title() : props.settings.title()))
+  const mainSurfaceOpen = createMemo(() => props.settings.open() || props.automations.open() || props.skills.open())
+  const surfaceTitle = createMemo(() =>
+    props.automations.open()
+      ? props.automations.title()
+      : props.skills.open()
+        ? props.skills.title()
+        : props.settings.title(),
+  )
 
   createEffect(() => {
     const dialogLeftMargin = props.sidebar.visible() ? sidebarWidth() : 0
@@ -158,6 +169,9 @@ export function LayoutShellFrame(props: LayoutShellFrameProps) {
                     </Show>
                     <Show when={props.automations.open()}>
                       <div class="absolute inset-0 z-10">{props.automations.content()}</div>
+                    </Show>
+                    <Show when={props.skills.open()}>
+                      <div class="absolute inset-0 z-10">{props.skills.content()}</div>
                     </Show>
                   </div>
                 </main>
