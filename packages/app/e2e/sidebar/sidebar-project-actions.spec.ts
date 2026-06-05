@@ -1,6 +1,11 @@
 import { test, expect } from "../fixtures"
 import { openSidebar, withSession, clickMenuItem } from "../actions"
-import { pawworkSidebarSelector, contextMenuContentSelector, dropdownMenuContentSelector } from "../selectors"
+import {
+  pawworkSidebarSelector,
+  contextMenuContentSelector,
+  dropdownMenuContentSelector,
+  pawworkSessionNewSelector,
+} from "../selectors"
 import type { TestInfo } from "@playwright/test"
 
 async function capture(page: any, testInfo: TestInfo, name: string) {
@@ -136,10 +141,10 @@ test("project group can be removed from sidebar", async ({ page, sdk, gotoSessio
   })
 })
 
-test("hidden project restores on direct navigation", async ({ page, sdk, gotoSession }) => {
+test("removed project stays removed when starting a new session", async ({ page, sdk, gotoSession }) => {
   const stamp = Date.now()
-  await withSession(sdk, `restore nav ${stamp}`, async (a) => {
-    await withSession(sdk, `restore nav b ${stamp}`, async () => {
+  await withSession(sdk, `remove stays ${stamp}`, async (a) => {
+    await withSession(sdk, `remove stays b ${stamp}`, async () => {
       await gotoSession(a.id)
       await openSidebar(page)
 
@@ -165,24 +170,19 @@ test("hidden project restores on direct navigation", async ({ page, sdk, gotoSes
       await expect(dialog).toBeVisible()
       await dialog.locator('button').filter({ hasText: /Remove/ }).first().click()
 
-      // Group should be hidden
-      const countAfterRemove = await groups.count()
-      expect(countAfterRemove).toBeLessThan(initialCount)
+      // The only project is gone, so the sidebar falls back to the empty state.
+      await expect.poll(async () => await groups.count()).toBeLessThan(initialCount)
+      await expect(sidebar).toContainText(/No projects open/i)
 
-      // Navigate directly to session via URL (triggers syncSessionRoute → unhideProject)
-      await gotoSession(a.id)
-
-      // Wait for sidebar to load content
-      await expect(sidebar.locator('[data-session-id]')).not.toHaveCount(0, { timeout: 5000 })
+      // Start a new session (client-side navigation). This is the reported
+      // regression path: previously the new-session flow silently un-hid the
+      // project and it reappeared. Removal is now a real close, so the empty
+      // state must persist across new-session navigation.
+      await page.locator(pawworkSessionNewSelector).first().click()
       await openSidebar(page)
 
-      // Switch to project sort again
-      await sidebar.locator('[data-action="pawwork-sort-trigger"]').click()
-      await page.locator('[data-action="pawwork-sort-option"][data-value="project"]').click()
-
-      // Group should be back
-      const groupsAfter = sidebar.locator('[data-action="pawwork-group-toggle"]')
-      await expect.poll(async () => await groupsAfter.count()).toBeGreaterThan(countAfterRemove)
+      await expect(sidebar).toContainText(/No projects open/i)
+      await expect(sidebar.locator('[data-action="pawwork-group-toggle"]')).toHaveCount(0)
     })
   })
 })

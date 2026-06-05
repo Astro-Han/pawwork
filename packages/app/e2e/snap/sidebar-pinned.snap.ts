@@ -35,7 +35,6 @@ test("sidebar-pinned", async ({ page, sdk, directory, gotoSession }) => {
             pawworkPinnedSessions: [pinnedID],
             pawworkSortMode: "time",
             pawworkProjectCollapsed: {},
-            pawworkProjectHidden: {},
           })
           window.localStorage.setItem("pawwork.global.dat:layout-page", stored)
         },

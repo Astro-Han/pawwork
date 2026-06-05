@@ -18,6 +18,7 @@ import {
 } from "./pawwork-session-window"
 import {
   buildPawworkSidebarSessionRows,
+  filterPawworkRowsByOpenProjects,
   resolvePawworkSessionProjectKey,
   resolvePawworkSessionProjectLabel,
   sortPawworkSidebarSessions,
@@ -121,8 +122,7 @@ export function createPawworkSessionController(input: PawworkSessionControllerIn
         return tuple?.[0].part[messageID]
       },
     })
-    const hidden = input.store.pawworkProjectHidden
-    const filtered = rows.filter((row) => !hidden[row.projectKey])
+    const filtered = filterPawworkRowsByOpenProjects(rows, input.projects())
     return sortPawworkSidebarSessions(filtered.map((item) => ({ ...item, id: item.session.id }))).map(
       ({ id: _, ...item }) => item,
     )

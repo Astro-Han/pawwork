@@ -124,10 +124,6 @@ export function resolvePawworkProjectRenameTarget<TProject extends ProjectLike, 
   return undefined
 }
 
-export function pawworkSessionRouteUnhideKeys(directory: string) {
-  return [workspaceKey(directory)]
-}
-
 const isActivityEligibleUserMessage = (parts: PartTimeLike[] | undefined) => {
   if (!parts) return false
   if (parts.some((part) => part.type === "compaction")) return false
@@ -196,6 +192,24 @@ export function buildPawworkSidebarSessionRows<T extends SidebarRowSessionLike>(
       input.partsForMessage ? (messageID) => input.partsForMessage?.(session, messageID) : undefined,
     ),
   }))
+}
+
+/**
+ * Keep only the sidebar rows whose owning project is currently open. The sidebar
+ * window is a global root-session list, so visibility has to be derived from the
+ * single source of truth (`server.projects`) — a row belongs to an open project
+ * when its session's project root, or its own directory, matches an open
+ * worktree or one of that project's sandboxes.
+ */
+export function filterPawworkRowsByOpenProjects<
+  T extends { session: { directory: string; project?: SessionProjectLike | null } },
+>(rows: T[], projects: Pick<ProjectLike, "worktree" | "sandboxes">[]): T[] {
+  const openKeys = new Set<string>()
+  for (const project of projects) {
+    openKeys.add(workspaceKey(project.worktree))
+    for (const sandbox of project.sandboxes ?? []) openKeys.add(workspaceKey(sandbox))
+  }
+  return rows.filter((row) => openKeys.has(workspaceKey(row.session.project?.worktree ?? row.session.directory)))
 }
 
 export function pawworkSessionDirectories(input: {

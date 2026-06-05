@@ -344,7 +344,6 @@ export default function Layout(props: ParentProps) {
     sessionByID: pawworkSessionByID,
     loadSessionByID,
     navigationSessions: pawworkNavigationSessions,
-    projectKeyForSession,
     windowLoading: pawworkSessionWindowLoading,
     showMore: showMorePawworkSessions,
   } = createPawworkSessionController({
@@ -420,14 +419,11 @@ export default function Layout(props: ParentProps) {
     movePinnedSessionByOne,
     setPawworkSortMode,
     toggleProjectCollapsed,
-    hideProject,
-    unhideProject,
     handleRenameProject,
     expandPawworkProjectGroup,
   } = createPawworkProjectControls({
     store,
     setStore,
-    language,
     projects: () => layout.projects.list(),
     sessions: () => pawworkSessionWindow().sessions,
     renameProject,
@@ -599,8 +595,6 @@ export default function Layout(props: ParentProps) {
     projectRoot,
     activeProjectRoot,
     shellNavigation,
-    unhideProject,
-    projectKeyForSession,
     layout,
   })
 
@@ -688,6 +682,29 @@ export default function Layout(props: ParentProps) {
     layout.projects.close(directory)
     queueMicrotask(() => {
       void navigateToProject(next.worktree)
+    })
+  }
+
+  // Sidebar "Remove project" closes the working directory from the single source
+  // of truth (`server.projects`), so it disappears from the sidebar, the
+  // workspace chip, and survives new sessions. The group key may be a subfolder
+  // or sandbox, so resolve it to the open project root before closing; undo
+  // simply reopens it.
+  function removeProject(projectKey: string) {
+    const root = projectRoot(projectKey)
+    const entry = layout.projects.list().find((x) => workspaceKey(x.worktree) === workspaceKey(root))
+    if (!entry) return
+    const worktree = entry.worktree
+    closeProject(worktree)
+    showToast({
+      title: language.t("project.remove.toast.title"),
+      description: language.t("project.remove.toast.description"),
+      actions: [
+        {
+          label: language.t("common.undo"),
+          onClick: () => layout.projects.open(worktree),
+        },
+      ],
     })
   }
 
@@ -902,7 +919,7 @@ export default function Layout(props: ParentProps) {
       onOpenSession={navigateToSession}
       onRenameSession={renamePawworkSession}
       onRenameProject={handleRenameProject}
-      onRemoveProject={hideProject}
+      onRemoveProject={removeProject}
       onTogglePinnedSession={togglePinnedSession}
       onDragSession={dragPawworkSession}
       onMovePinnedSession={movePinnedSessionByOne}
