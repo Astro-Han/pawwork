@@ -797,7 +797,7 @@ export const dict = {
   "sidebar.pawwork.skills": "Skills",
   "sidebar.pawwork.automations": "Automations",
   "skills.title": "Skills",
-  "skills.subtitle": "What PawWork can do. Open one to see when it fires and how.",
+  "skills.subtitle": "What PawWork can do. Open a skill to see when it helps and how it works.",
   "skills.search.placeholder": "Search skills",
   "skills.empty.title": "No skills match your search",
   "skills.error.title": "Couldn't load skills",

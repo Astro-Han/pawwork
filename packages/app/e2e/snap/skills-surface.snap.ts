@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises"
 import { join } from "node:path"
-import { test } from "../fixtures"
+import { test, expect } from "../fixtures"
 import { openSidebar } from "../actions"
 import { composeGrid, snapOutputPath, type Shot } from "./_compose"
 
@@ -76,7 +76,7 @@ test("skills-surface", async ({ page, project }) => {
 
   const rows = surface.locator('[data-action="skill-open"]')
   await rows.first().waitFor({ state: "visible", timeout: 30_000 })
-  await page.waitForFunction(() => document.querySelectorAll('[data-action="skill-open"]').length >= 6)
+  await expect.poll(() => rows.count()).toBeGreaterThanOrEqual(6)
   const gallery = await page.screenshot()
 
   // Open one capability to read its detail modal: humanized title, verbatim
@@ -93,9 +93,7 @@ test("skills-surface", async ({ page, project }) => {
   await detail.waitFor({ state: "detached", timeout: 10_000 })
   await surface.locator('[data-action="skill-search"]').fill("xlsx")
   await surface.locator('[data-action="skill-open"][data-skill="officecli-xlsx"]').waitFor({ state: "visible", timeout: 10_000 })
-  await page.waitForFunction(
-    () => document.querySelectorAll('[data-action="skill-open"][data-skill="web-research"]').length === 0,
-  )
+  await expect(page.locator('[data-action="skill-open"][data-skill="web-research"]')).toHaveCount(0)
   const filtered = await page.screenshot()
 
   const shots: Shot[] = [

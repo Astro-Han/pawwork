@@ -707,7 +707,7 @@ export const dict = {
   "sidebar.pawwork.skills": "技能",
   "sidebar.pawwork.automations": "定时任务",
   "skills.title": "技能",
-  "skills.subtitle": "PawWork 能做的事。点开任意一项看它何时触发、如何工作。",
+  "skills.subtitle": "爪印能帮你做这些事。点开任意一项，看看它适合什么场景。",
   "skills.search.placeholder": "搜索技能",
   "skills.empty.title": "没有匹配的技能",
   "skills.error.title": "技能加载失败",
