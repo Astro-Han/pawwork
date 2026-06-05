@@ -26,16 +26,17 @@ PawWork is built for people who want AI agents to do real desktop work, not only
 
 ## How PawWork Compares
 
-| | PawWork | Codex App | Claude Cowork |
+| | PawWork | Codex App | Claude Desktop (Cowork) |
 |---|---|---|---|
 | Open-source | Yes (Apache-2.0) | No | No |
-| Bring your own key | Yes, 75+ providers | OpenAI only | Anthropic only |
+| Bring your own key | Yes, 75+ providers | OpenAI only | Anthropic only (gateway for others) |
 | ChatGPT OAuth | Yes | No | No |
-| Free tier included | Yes (OpenCode Zen) | Limited | Limited |
-| Native desktop app | macOS + Windows | Browser-based | Browser-based |
-| Local file access | Full workspace access | Sandboxed | Sandboxed |
-| Local models | Yes (Ollama, LM Studio, etc.) | No | No |
+| Free without subscription | Yes (OpenCode Zen) | Limited (ChatGPT Free) | No (Pro $20/mo required) |
+| Desktop app | macOS + Windows | macOS + Windows | macOS + Windows |
+| Local file access | Full workspace access | Sandboxed by default | User-selected folders |
+| Local models | Yes (Ollama, LM Studio, etc.) | Yes (Ollama) | Yes (Ollama, gateway) |
 | Office files (Word/Excel/PPT) | Yes (via OfficeCLI) | No | No |
+| Non-technical user focus | Yes (task cards, no terminal) | Developer-focused | Knowledge work + coding |
 
 ## What You Can Ask PawWork To Do
 

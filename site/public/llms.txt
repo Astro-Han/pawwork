@@ -38,7 +38,7 @@ PawWork includes a free tier powered by OpenCode Zen with built-in web search. U
 
 ## Positioning
 
-PawWork is an open-source alternative to Codex App and Claude Cowork. It offers desktop-native local workspace control, bring-your-own-key model choice across 75+ providers, ChatGPT OAuth support, and reviewable agent outputs — all without requiring a terminal or paid subscription.
+PawWork is an open-source alternative to Codex App and Claude Desktop (Cowork). All three have desktop apps for macOS and Windows. PawWork differentiates with: open-source (Apache-2.0), free without a subscription (no $20/month plan required), native BYOK across 75+ providers (not just one vendor), ChatGPT OAuth support, Office file handling (Word/Excel/PPT via OfficeCLI), and a non-technical user focus with task cards instead of a terminal.
 
 ## Built On
 
