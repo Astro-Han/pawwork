@@ -73,10 +73,16 @@ export default function Page() {
     send: window.api?.setDesktopContext,
   })
 
+  // `?skill=` and `?prompt=` are seeded by two independent bootstraps that both
+  // write the composer. They never coexist via the in-app entry points ("Use in
+  // chat" sets only skill, "Create via chat" sets only prompt), but a hand-built
+  // deep link could carry both. Make the precedence explicit — skill wins — so a
+  // combined link inserts the deterministic skill chip instead of letting bootstrap
+  // definition order silently decide which one survives.
   useSessionRoutePromptBootstrap({
     ready: prompt.ready,
     sessionID: () => params.id,
-    prompt: () => searchParams.prompt,
+    prompt: () => (searchParams.skill ? undefined : searchParams.prompt),
     setPrompt: (text) => prompt.set([{ type: "text", content: text, start: 0, end: text.length }], text.length),
     clearPrompt: () => setSearchParams({ ...searchParams, prompt: undefined }),
   })
