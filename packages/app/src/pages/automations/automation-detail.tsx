@@ -1,4 +1,4 @@
-import { createMemo, createSignal, For, onMount, Show, type Accessor, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, For, Show, type Accessor, type JSX } from "solid-js"
 import type { AutomationDefinition, AutomationRun } from "@opencode-ai/sdk/v2/client"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Button } from "@opencode-ai/ui/button"
@@ -110,9 +110,12 @@ export function AutomationDetail(props: {
   const t = language.t
   const [busy, setBusy] = createSignal(false)
 
-  onMount(() => {
-    // Load only the most recent page; the "Recent runs" heading scopes the list
-    // to that page, so the returned nextCursor is intentionally not paged.
+  // Reload whenever the shown automation changes, not just on mount: a deep-link
+  // jump can swap props.automation in place without remounting (the detail Show is
+  // non-keyed), and the next-run/last-run rows derive from runs(). Load only the
+  // most recent page; the "Recent runs" heading scopes the list to that page, so
+  // the returned nextCursor is intentionally not paged.
+  createEffect(() => {
     void globalSync.automation.loadRuns(props.directory(), props.automation().id)
   })
 
@@ -133,8 +136,16 @@ export function AutomationDetail(props: {
 
   const nextRunLabel = createMemo(() => {
     const automation = props.automation()
-    if (automation.kind !== "recurring" || automation.paused || automation.nextFireAt == null) return undefined
-    return formatTimestamp(automation.nextFireAt, automation.timezone)
+    if (automation.paused) return undefined
+    if (automation.kind === "recurring") {
+      if (automation.nextFireAt == null) return undefined
+      return formatTimestamp(automation.nextFireAt, automation.timezone)
+    }
+    // A one-shot is spent only once a run actually fired at or after its scheduled
+    // time, matching the scheduler's hasRunTriggeredAtOrAfter(fireAt). A manual
+    // "Run now" before fireAt does not consume it, so the next run still stands.
+    if (runs().some((run) => run.triggeredAt >= automation.fireAt)) return undefined
+    return formatTimestamp(automation.fireAt, automation.timezone)
   })
 
   const reasoningLabel = createMemo(() => props.automation().variant)
