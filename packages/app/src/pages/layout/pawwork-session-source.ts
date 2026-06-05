@@ -49,6 +49,8 @@ type SidebarRowSessionLike = SessionTimeLike & {
   project?: SessionProjectLike | null
 }
 
+export const PAWWORK_DIRECT_START_PROJECT_KEY = "pawwork:direct-start"
+
 const isFiniteNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value)
 
 const shortenHome = (value: string, home?: string) => {
@@ -83,7 +85,32 @@ export function sortPawworkSidebarSessions<T extends SessionLike>(sessions: T[])
   })
 }
 
-export function resolvePawworkSessionProjectKey(session: { directory: string }) {
+export function isPawworkDirectStartProjectKey(projectKey: string) {
+  return projectKey === PAWWORK_DIRECT_START_PROJECT_KEY
+}
+
+const isDirectStartSessionDirectory = (directory: string, directStartDirectory?: string) =>
+  !!directStartDirectory && workspaceKey(directory) === workspaceKey(directStartDirectory)
+
+const isOpenedProjectDirectory = (directory: string, projects: ProjectLike[] | undefined) => {
+  const sessionKey = workspaceKey(directory)
+  if (projects?.some((project) => workspaceKey(project.worktree) === sessionKey)) return true
+  if (projects?.some((project) => project.sandboxes?.some((sandbox) => workspaceKey(sandbox) === sessionKey))) {
+    return true
+  }
+  return false
+}
+
+export function resolvePawworkSessionProjectKey(
+  session: { directory: string; project?: SessionProjectLike | null },
+  input?: { directStartDirectory?: string; projects?: ProjectLike[] },
+) {
+  if (
+    isDirectStartSessionDirectory(session.directory, input?.directStartDirectory) &&
+    !isOpenedProjectDirectory(session.directory, input?.projects)
+  ) {
+    return PAWWORK_DIRECT_START_PROJECT_KEY
+  }
   return workspaceKey(session.directory)
 }
 
@@ -91,6 +118,8 @@ export function resolvePawworkSessionProjectLabel<T extends { directory: string;
   session: T,
   input: {
     projects: ProjectLike[]
+    directStartDirectory?: string
+    directStartLabel?: string
     workspaceName?: (directory: string, projectId?: string, branch?: string) => string | undefined
   },
 ) {
@@ -100,6 +129,10 @@ export function resolvePawworkSessionProjectLabel<T extends { directory: string;
   const sessionKey = workspaceKey(session.directory)
   const localProject = input.projects.find((project) => workspaceKey(project.worktree) === sessionKey)
   if (localProject) return localProject.name || getFilename(localProject.worktree)
+
+  if (isDirectStartSessionDirectory(session.directory, input.directStartDirectory)) {
+    return input.directStartLabel ?? "Direct start"
+  }
 
   if (session.project?.worktree && workspaceKey(session.project.worktree) === sessionKey) {
     return session.project.name || getFilename(session.project.worktree)
@@ -115,6 +148,8 @@ export function resolvePawworkProjectRenameTarget<TProject extends ProjectLike, 
     sessions: TSession[]
   },
 ): { type: "project"; project: TProject } | { type: "workspace"; directory: string } | undefined {
+  if (isPawworkDirectStartProjectKey(projectKey)) return undefined
+
   const project = input.projects.find((item) => workspaceKey(item.worktree) === projectKey)
   if (project) return { type: "project", project }
 
@@ -206,9 +241,13 @@ export function buildPawworkSidebarSessionRows<T extends SidebarRowSessionLike>(
  * the list endpoint's GlobalInfo, and a `session.get` backfill (active / pinned
  * sessions outside the first page) returns a plain Session with neither — so the
  * bare `directory` is the last resort.
+ *
+ * Direct-start rows are exempt: they belong to no open project by design (their
+ * key is `PAWWORK_DIRECT_START_PROJECT_KEY`), so they always survive the filter.
  */
 export function filterPawworkRowsByOpenProjects<
   T extends {
+    projectKey?: string
     session: {
       directory: string
       project?: SessionProjectLike | null
@@ -222,6 +261,7 @@ export function filterPawworkRowsByOpenProjects<
     for (const sandbox of project.sandboxes ?? []) openKeys.add(workspaceKey(sandbox))
   }
   return rows.filter((row) => {
+    if (row.projectKey === PAWWORK_DIRECT_START_PROJECT_KEY) return true
     const session = row.session
     const owner = session.executionContext?.ownerDirectory ?? session.project?.worktree ?? session.directory
     return openKeys.has(workspaceKey(owner))

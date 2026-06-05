@@ -13,13 +13,14 @@ export function createShellNavigation(input: {
   releaseTransientLocks: (reason: ShellNavigationReleaseReason) => void
   resolveProjectRoot: (directory: string) => string | undefined
   currentProjectRoot: () => string | undefined
+  directStartRoot?: () => string | undefined
   chooseProject: () => void
   openSettingsSurface: (tab?: SettingsTab) => void
   closeSettingsSurface: () => void
 }) {
   const resolveNewSessionRoot = (directory?: string) => {
     if (directory) return input.resolveProjectRoot(directory)
-    return input.currentProjectRoot()
+    return input.currentProjectRoot() || input.directStartRoot?.()
   }
 
   const openNewSession = (directory?: string) => {
