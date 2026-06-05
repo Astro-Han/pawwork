@@ -410,10 +410,12 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
     // blurred (e.g. a turn finishing in the background) land unviewed even for
     // the active route, and route-change is the only other thing that marks
     // them viewed — so without this the dot lingers until you navigate away.
-    makeEventListener(window, "focus", () => {
-      const session = currentSession()
-      if (session) markSessionViewed(session)
-    })
+    if (typeof window !== "undefined") {
+      makeEventListener(window, "focus", () => {
+        const session = currentSession()
+        if (session) markSessionViewed(session)
+      })
+    }
 
     return {
       ready,
