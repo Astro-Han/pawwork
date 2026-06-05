@@ -475,6 +475,15 @@ export function registerIpcHandlers(deps: Deps) {
     }
   })
 
+  ipcMain.handle("set-badge-count", (_event: IpcMainInvokeEvent, count: number) => {
+    // Dock badge (macOS) / Unity launcher (Linux). `app.setBadgeCount` is
+    // @platform linux,darwin — a no-op on Windows, where taskbar attention is
+    // already covered by flash-frame above. Setting 0 hides the badge. A
+    // Windows overlay-icon badge can follow later if it proves worth it.
+    const next = Number.isFinite(count) && count > 0 ? Math.floor(count) : 0
+    app.setBadgeCount(next)
+  })
+
   ipcMain.handle("get-window-count", () => BrowserWindow.getAllWindows().length)
 
   ipcMain.handle("get-window-focused", (event: IpcMainInvokeEvent) => {

@@ -274,6 +274,10 @@ const createPlatform = (): Platform => {
       void window.api.flashFrame()
     },
 
+    setBadgeCount: async (count) => {
+      await window.api.setBadgeCount(count)
+    },
+
     fetch: (input, init) => {
       if (input instanceof Request) return fetch(input)
       return fetch(input, init)

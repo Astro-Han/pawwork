@@ -3,31 +3,11 @@ import {
   createSDKNotificationEventHandler,
   isCurrentOrDescendantSession,
   permissionSessionKey,
-  questionCallKey,
-  questionNotificationAction,
   sessionNotificationHref,
   shouldThrottlePermissionAlert,
 } from "./layout-sdk-event-effects"
 
 type TestEvent = Parameters<ReturnType<typeof createSDKNotificationEventHandler>>[0]
-
-function questionUpdatedEvent(directory: string, sessionID: string, partID = "prt_1"): TestEvent {
-  return {
-    name: directory,
-    details: {
-      type: "message.part.updated",
-      properties: {
-        sessionID,
-        part: {
-          id: partID,
-          type: "tool",
-          tool: "question",
-          state: { status: "running", metadata: { externalResultReady: true } },
-        },
-      },
-    },
-  } as unknown as TestEvent
-}
 
 function permissionAskedEvent(directory: string, sessionID: string): TestEvent {
   return {
@@ -162,58 +142,14 @@ describe("layout sdk event effects", () => {
     ).toBe(false)
   })
 
-  test("builds stable cleanup keys", () => {
+  test("builds a stable permission cleanup key", () => {
     expect(permissionSessionKey("/repo", "ses_1")).toBe("/repo:ses_1")
-    expect(questionCallKey("/repo", "ses_1", "prt_1")).toBe("/repo:ses_1:prt_1")
-  })
-
-  test("resets question dedupe when the question part is no longer running", () => {
-    expect(
-      questionNotificationAction({
-        type: "tool",
-        tool: "question",
-        state: { status: "completed", metadata: { externalResultReady: true } },
-      }),
-    ).toBe("reset")
-  })
-
-  test("notifies only after an external question route is ready", () => {
-    expect(
-      questionNotificationAction({
-        type: "tool",
-        tool: "question",
-        state: { status: "running", metadata: { externalResultReady: true } },
-      }),
-    ).toBe("notify")
-    expect(
-      questionNotificationAction({
-        type: "tool",
-        tool: "question",
-        state: { status: "running", metadata: { externalResultReady: false } },
-      }),
-    ).toBe("ignore")
   })
 
   test("throttles permission alerts within cooldown only", () => {
     expect(shouldThrottlePermissionAlert(1000, 5999, 5000)).toBe(true)
     expect(shouldThrottlePermissionAlert(1000, 6000, 5000)).toBe(false)
     expect(shouldThrottlePermissionAlert(undefined, 1000, 5000)).toBe(false)
-  })
-
-  test("does not look up sessions for current-route question notifications", () => {
-    const hook = createSDKNotificationHarness({ currentSessionID: "ses_root" })
-    hook.emit(questionUpdatedEvent("/repo", "ses_root"))
-
-    expect(hook.sessionsCalls()).toBe(0)
-    expect(hook.notifications).toHaveLength(0)
-  })
-
-  test("does not look up sessions when question notifications are disabled", () => {
-    const hook = createSDKNotificationHarness({ notifyLevel: "never" })
-    hook.emit(questionUpdatedEvent("/repo", "ses_other"))
-
-    expect(hook.sessionsCalls()).toBe(0)
-    expect(hook.notifications).toHaveLength(0)
   })
 
   test("does not look up permission title while cooldown applies", () => {
@@ -225,41 +161,6 @@ describe("layout sdk event effects", () => {
 
     expect(hook.sessionsCalls()).toBe(1)
     expect(hook.notifications).toHaveLength(1)
-  })
-
-  test("reuses one session snapshot when notifying for a question", () => {
-    const hook = createSDKNotificationHarness({ currentSessionID: "ses_root" })
-    hook.emit(questionUpdatedEvent("/repo", "ses_other"))
-
-    expect(hook.sessionsCalls()).toBe(1)
-    expect(hook.notifications).toEqual([
-      {
-        title: "notification.question.title::",
-        description: "notification.question.description:Other session:repo",
-        href: sessionNotificationHref("/repo", "ses_other"),
-      },
-    ])
-  })
-
-  test("plays notify sound for question alerts", () => {
-    const hook = createSDKNotificationHarness({ currentSessionID: "ses_root" })
-    hook.emit(questionUpdatedEvent("/repo", "ses_other"))
-
-    expect(hook.sounds).toEqual(["notify"])
-  })
-
-  test("does not play sound for question when notify is never", () => {
-    const hook = createSDKNotificationHarness({ notifyLevel: "never" })
-    hook.emit(questionUpdatedEvent("/repo", "ses_other"))
-
-    expect(hook.sounds).toHaveLength(0)
-  })
-
-  test("does not play sound for question on the visible session", () => {
-    const hook = createSDKNotificationHarness({ currentSessionID: "ses_root" })
-    hook.emit(questionUpdatedEvent("/repo", "ses_root"))
-
-    expect(hook.sounds).toHaveLength(0)
   })
 
   test("plays notify sound for permission alerts", () => {

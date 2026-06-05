@@ -565,8 +565,7 @@ export const dict = {
 
   "notification.permission.title": "Permission required",
   "notification.permission.description": "{{sessionTitle}} in {{projectName}} needs permission",
-  "notification.question.title": "Question",
-  "notification.question.description": "{{sessionTitle}} in {{projectName}} has a question",
+  "notification.question.title": "Needs your input",
   "notification.action.goToSession": "Go to session",
 
   "notification.session.responseReady.title": "Response ready",

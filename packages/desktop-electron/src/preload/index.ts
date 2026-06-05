@@ -98,6 +98,7 @@ const api: ElectronAPI = {
     }
   },
   flashFrame: () => ipcRenderer.invoke("flash-frame"),
+  setBadgeCount: (count: number) => ipcRenderer.invoke("set-badge-count", count),
 }
 
 contextBridge.exposeInMainWorld("api", api)

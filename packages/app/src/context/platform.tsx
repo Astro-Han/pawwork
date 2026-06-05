@@ -101,6 +101,9 @@ export type Platform = {
   /** Send a system notification (optional deep link) */
   notify(title: string, description?: string, href?: string): Promise<void>
 
+  /** Set the Dock/taskbar unread badge count; 0 hides it (desktop only) */
+  setBadgeCount?(count: number): Promise<void>
+
   /** Open directory picker dialog (native on desktop, server-backed on web) */
   openDirectoryPickerDialog?(opts?: OpenDirectoryPickerOptions): Promise<PickerPaths>
 
