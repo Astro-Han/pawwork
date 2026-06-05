@@ -9,7 +9,12 @@ import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { useLayoutPage } from "@/context/layout-page"
 import { useSessionLayout } from "@/pages/session/session-layout"
-import { isDirectStartWorkspacePath, workspaceChipChoices, workspaceChipLabel } from "./workspace-chip-helpers"
+import {
+  isDirectStartWorkspacePath,
+  workspaceChipChoices,
+  workspaceChipIconName,
+  workspaceChipLabel,
+} from "./workspace-chip-helpers"
 import { workspaceKey } from "@/pages/layout/helpers"
 import { decode64 } from "@/utils/base64"
 
@@ -62,7 +67,10 @@ export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}
       trigger={
         <>
           <Icon
-            name={!current() || directStartActive() ? "bubble-5" : "folder"}
+            name={workspaceChipIconName({
+              directory: current(),
+              directStartDirectory: directStartDirectory(),
+            })}
             class="shrink-0 text-fg-weak"
           />
           <span class="max-w-[120px] truncate transition-[max-width] duration-200 ease-out @max-[24rem]/composer:max-w-0">{label()}</span>

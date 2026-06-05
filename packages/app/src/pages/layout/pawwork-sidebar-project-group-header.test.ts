@@ -18,5 +18,9 @@ describe("projectGroupHeaderPresentation", () => {
       icon: "bubble-5",
       canManage: false,
     })
+    expect(projectGroupHeaderPresentation({ kind: "direct-start", collapsed: true })).toEqual({
+      icon: "bubble-5",
+      canManage: false,
+    })
   })
 })

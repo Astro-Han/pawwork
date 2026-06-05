@@ -82,3 +82,9 @@ export function workspaceChipLabel(input: {
   }
   return getFilename(input.directory) || input.emptyLabel
 }
+
+export function workspaceChipIconName(input: { directory?: string; directStartDirectory?: string }) {
+  if (isDirectStartWorkspacePath(input.directory, input.directStartDirectory)) return "bubble-5"
+  if (!input.directory && input.directStartDirectory) return "bubble-5"
+  return "folder"
+}

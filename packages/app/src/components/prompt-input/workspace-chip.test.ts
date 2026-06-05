@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test"
 
-import { findWorkspaceProject, workspaceChipChoices, workspaceChipLabel } from "./workspace-chip-helpers"
+import {
+  findWorkspaceProject,
+  workspaceChipChoices,
+  workspaceChipIconName,
+  workspaceChipLabel,
+} from "./workspace-chip-helpers"
 
 test("findWorkspaceProject matches sandboxes with normalized workspace keys", () => {
   const project = findWorkspaceProject(
@@ -136,4 +141,15 @@ test("workspaceChipLabel names the empty and default-directory state as direct s
       emptyLabel: "No workspace",
     }),
   ).toBe("Direct start")
+})
+
+test("workspaceChipIconName keeps the empty no-directory state folder-shaped", () => {
+  expect(workspaceChipIconName({ directory: "", directStartDirectory: "" })).toBe("folder")
+  expect(workspaceChipIconName({ directory: "", directStartDirectory: "/Users/demo/.pawwork" })).toBe("bubble-5")
+  expect(
+    workspaceChipIconName({
+      directory: "/Users/demo/.pawwork",
+      directStartDirectory: "/Users/demo/.pawwork/",
+    }),
+  ).toBe("bubble-5")
 })
