@@ -18,6 +18,7 @@ import { PawworkSidebarAllHeader } from "./pawwork-sidebar-all-header"
 import { PawworkSidebarFoot } from "./pawwork-sidebar-foot"
 import { PawworkSidebarTop } from "./pawwork-sidebar-top"
 import { ProjectGroupHeader } from "./pawwork-sidebar-project-group-header"
+import { isPawworkDirectStartProjectKey } from "./pawwork-session-source"
 import { buildSessionMenuActions, type SessionMenuAction } from "./session-menu-actions"
 import { SessionItem, type SessionSwitchPaint } from "./sidebar-items"
 import { shouldUseShellOwnerForLink } from "./sidebar-item-navigation"
@@ -476,6 +477,7 @@ export const PawworkSidebar = (props: {
                         {(current) => (
                           <section class={`${index() > 0 ? "mt-0.5 " : ""}flex flex-col gap-0.5`}>
                             <ProjectGroupHeader
+                              kind={isPawworkDirectStartProjectKey(groupKey) ? "direct-start" : "project"}
                               projectKey={groupKey}
                               label={current().label}
                               collapsed={collapsed()}
