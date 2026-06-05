@@ -63,6 +63,8 @@ describe("nextRevealGateState", () => {
     events.reduce((acc, event) => nextRevealGateState(acc, event, opts), state)
   const inactive = (n: number): RevealGateEvent[] =>
     Array.from({ length: n }, () => ({ type: "frame", reconcilerActive: false }))
+  // Drive session "a" all the way to revealed via the normal settle path.
+  const revealedA = () => reduce(open("a"), [{ type: "ready", ready: true }, ...inactive(2)])
 
   test("a freshly opened session starts covered while loading", () => {
     const state = open("a")
@@ -136,15 +138,8 @@ describe("nextRevealGateState", () => {
     expect(revealGateCovered(state)).toBe(true)
   })
 
-  test("release reveals immediately so a user gesture is never hidden behind the cover", () => {
-    const fromLoading = reduce(open("a"), [{ type: "release" }])
-    expect(fromLoading.phase).toBe("revealed")
-    const fromSettling = reduce(open("a"), [{ type: "ready", ready: true }, { type: "release" }])
-    expect(fromSettling.phase).toBe("revealed")
-  })
-
   test("switching to a new session re-covers and restarts loading", () => {
-    const revealed = reduce(open("a"), [{ type: "ready", ready: true }, { type: "release" }])
+    const revealed = revealedA()
     expect(revealed.phase).toBe("revealed")
     const next = nextRevealGateState(revealed, { type: "session", sessionKey: "b" })
     expect(next.sessionKey).toBe("b")
@@ -153,14 +148,14 @@ describe("nextRevealGateState", () => {
   })
 
   test("re-emitting the same session key does not re-cover an already revealed timeline", () => {
-    const revealed = reduce(open("a"), [{ type: "ready", ready: true }, { type: "release" }])
+    const revealed = revealedA()
     const same = nextRevealGateState(revealed, { type: "session", sessionKey: "a" })
     expect(same.phase).toBe("revealed")
     expect(revealGateCovered(same)).toBe(false)
   })
 
   test("once revealed, later ready/frame/timeout events keep it revealed", () => {
-    const revealed = reduce(open("a"), [{ type: "ready", ready: true }, { type: "release" }])
+    const revealed = revealedA()
     const after = reduce(revealed, [
       { type: "ready", ready: false },
       { type: "frame", reconcilerActive: true },
@@ -250,19 +245,6 @@ describe("createRevealGateMachine", () => {
     ctx.timers.fire() // failsafe → reveal
     expect(ctx.covered()).toBe(false)
     expect(ctx.frames.size()).toBe(0)
-  })
-
-  test("release lifts the cover and stops the loop and timer", () => {
-    const ctx = makeMachine({ settleFrames: 2 })
-    ctx.machine.session("a")
-    ctx.setReady(true)
-    ctx.machine.notifyReady()
-    expect(ctx.frames.size()).toBe(1)
-
-    ctx.machine.release()
-    expect(ctx.covered()).toBe(false)
-    expect(ctx.frames.size()).toBe(0)
-    expect(ctx.timers.size()).toBe(0)
   })
 
   test("switching sessions re-covers and re-arms the settle watch when already ready", () => {

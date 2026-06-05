@@ -13,7 +13,6 @@ export type RevealGateEvent =
   | { type: "ready"; ready: boolean }
   | { type: "frame"; reconcilerActive: boolean }
   | { type: "timeout" }
-  | { type: "release" }
 
 export type RevealGateOptions = {
   /** Consecutive reconciler-inactive frames required before the cover lifts. */
@@ -60,12 +59,6 @@ export function nextRevealGateState(
     if (state.phase === "settling") return { ...state, phase: "revealed" }
     return state
   }
-  if (event.type === "release") {
-    // A user gesture (scroll, hash/message navigation) must never sit behind the
-    // cover — reveal now regardless of settle progress.
-    if (state.phase === "revealed") return state
-    return { ...state, phase: "revealed" }
-  }
   return state
 }
 
@@ -92,8 +85,6 @@ export type RevealGateMachine = {
   session: (sessionKey: string) => void
   /** Re-evaluate readiness (messages-ready signal changed). */
   notifyReady: () => void
-  /** Force-reveal now (a user gesture took over). */
-  release: () => void
   dispose: () => void
 }
 
@@ -160,11 +151,6 @@ export function createRevealGateMachine(input: RevealGateMachineInput): RevealGa
       syncReady()
     },
     notifyReady: syncReady,
-    release: () => {
-      dispatch({ type: "release" })
-      stopLoop()
-      stopTimer()
-    },
     dispose: () => {
       stopLoop()
       stopTimer()
@@ -190,8 +176,6 @@ export type TimelineRevealGateInput = {
 export type TimelineRevealGate = {
   /** True while the opening cover should stay up. */
   covered: () => boolean
-  /** Force-reveal now (user gesture took over). */
-  release: () => void
 }
 
 /**
@@ -220,6 +204,5 @@ export function createTimelineRevealGate(input: TimelineRevealGateInput): Timeli
 
   return {
     covered: () => revealGateCovered(state()),
-    release: machine.release,
   }
 }
