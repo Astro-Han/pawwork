@@ -17,14 +17,6 @@ export function skillTitle(name: string): string {
     .join(" ")
 }
 
-// Row subtitle. This is the single seam where a future generic summary
-// derivation can land (strip "Use this skill…" / "Trigger on…" boilerplate
-// mechanically, no per-skill curation). v1 is an identity passthrough on the
-// raw description so the gallery stays fully format-driven.
-export function skillSummary(skill: Pick<SkillInfo, "description">): string {
-  return skill.description?.trim() ?? ""
-}
-
 // Case-insensitive match across title, raw name, and description.
 export function skillMatches(skill: SkillInfo, query: string): boolean {
   const needle = query.trim().toLowerCase()

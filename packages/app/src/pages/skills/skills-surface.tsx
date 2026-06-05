@@ -5,26 +5,28 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useLanguage } from "@/context/language"
 import { SkillDetail } from "./skill-detail"
-import { skillMatches, skillSummary, skillTitle, type SkillInfo } from "./skill-presentation"
+import { skillMatches, skillTitle, type SkillInfo } from "./skill-presentation"
 
-// One capability row: cream tile + brand glyph, humanized title, one-line
-// (clamped) description. Borderless; the hover tint is the only affordance.
+// One capability row: brand-tinted tile + humanized title + the raw description
+// clamped to two lines. Two-up rows keep the band compact while the description
+// stays legible; borderless, the hover tint is the only affordance.
 function SkillRow(props: { skill: SkillInfo; onOpen: () => void }): JSX.Element {
+  const description = () => props.skill.description?.trim()
   return (
     <button
       type="button"
       data-action="skill-open"
       data-skill={props.skill.name}
       onClick={props.onOpen}
-      class="flex w-full items-center gap-3 rounded-lg px-2.5 py-2.5 text-left hover:bg-row-hover-overlay focus:outline-none focus-visible:bg-row-hover-overlay"
+      class="flex w-full items-start gap-3 rounded-md px-2 py-2.5 text-left hover:bg-row-hover-overlay focus:outline-none focus-visible:bg-row-hover-overlay"
     >
       <span class="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-surface-interactive-base">
         <Icon name="skill" class="size-[18px] text-brand-primary" />
       </span>
       <span class="min-w-0 flex-1">
-        <span class="block truncate text-body text-fg-strong">{skillTitle(props.skill.name)}</span>
-        <Show when={skillSummary(props.skill)}>
-          {(summary) => <span class="mt-0.5 block truncate text-caption text-fg-weak">{summary()}</span>}
+        <span class="block truncate text-h3 text-fg-strong">{skillTitle(props.skill.name)}</span>
+        <Show when={description()}>
+          {(summary) => <span class="mt-0.5 line-clamp-2 text-caption text-fg-weak">{summary()}</span>}
         </Show>
       </span>
     </button>
@@ -153,7 +155,7 @@ export function SkillsSurface(props: {
             </div>
           </Match>
           <Match when={view() === "list"}>
-            <div class="mt-6 grid grid-cols-1 gap-x-6 gap-y-0.5 sm:grid-cols-2">
+            <div class="mt-6 grid grid-cols-1 gap-x-8 gap-y-1 sm:grid-cols-2">
               <For each={filtered()}>{(skill) => <SkillRow skill={skill} onOpen={() => openDetail(skill)} />}</For>
             </div>
           </Match>
