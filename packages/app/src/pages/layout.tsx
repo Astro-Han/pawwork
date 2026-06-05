@@ -520,12 +520,24 @@ export default function Layout(props: ParentProps) {
     navigate(`/${base64Encode(directory)}/session?prompt=${prompt}`)
   }
 
+  // Skills resolve per active directory, exactly like the composer's slash
+  // picker (which queries the route's SDK directory = `currentDir()`). Use the
+  // active route dir — not the owner project root — so the gallery and "Use in
+  // chat" match the skills the composer would actually offer, including a
+  // sandbox/workspace's own `.agents/skills`, and "Use in chat" stays in the
+  // directory the user was working in instead of jumping to the project root.
+  // Falls back to the project root only when no directory is active (gallery
+  // opened with no project selected). This deliberately diverges from the
+  // Automations surface above, which is correctly project-scoped (it also keys
+  // off `projectID`); skills are directory-resolved, not project entities.
+  const skillsDirectory = () => currentDir() || currentProject()?.worktree || ""
+
   // "Use in chat" from the Skills gallery leaves the surface and starts a fresh
-  // session in the current project. The ?skill= bootstrap seeds the composer with
+  // session in the active directory. The ?skill= bootstrap seeds the composer with
   // the structured skill chip, so the picked skill activates deterministically.
   function useSkillInChat(name: string) {
     closeSettings()
-    const directory = currentProject()?.worktree ?? projectRoot(currentDir())
+    const directory = skillsDirectory()
     if (!directory) return
     navigate(`/${base64Encode(directory)}/session?skill=${encodeURIComponent(name)}`)
   }
@@ -1023,7 +1035,7 @@ export default function Layout(props: ParentProps) {
             title: () => language.t("skills.title"),
             content: () => (
               <SkillsSurface
-                directory={() => currentProject()?.worktree ?? projectRoot(currentDir())}
+                directory={skillsDirectory}
                 onClose={closeSettings}
                 onUseSkill={useSkillInChat}
               />
