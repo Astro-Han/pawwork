@@ -85,7 +85,7 @@ export function RightPanelTabStrip(props: {
     return map
   })
   return (
-    <Show when={!shellSurface.automationsOpen() && props.tabsPortalMount()}>
+    <Show when={!shellSurface.automationsOpen() && !shellSurface.skillsOpen() && props.tabsPortalMount()}>
       {(mount) => (
         <Portal mount={mount()}>
           {/* Tabs.List portals into <Titlebar>'s `pawwork-titlebar-tabs` slot so the

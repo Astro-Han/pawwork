@@ -79,7 +79,7 @@ export function SessionHeader() {
 
   return (
     <>
-      <Show when={!shellSurface.settingsOpen() && !shellSurface.automationsOpen() && leftMount()}>
+      <Show when={!shellSurface.settingsOpen() && !shellSurface.automationsOpen() && !shellSurface.skillsOpen() && leftMount()}>
         {(mount) => (
           <Portal mount={mount()}>
             <div class="hidden md:flex w-full min-w-0 max-w-[720px] items-center overflow-hidden text-h3">
@@ -118,7 +118,7 @@ export function SessionHeader() {
           </Portal>
         )}
       </Show>
-      <Show when={!shellSurface.settingsOpen() && !shellSurface.automationsOpen() && rightMount()}>
+      <Show when={!shellSurface.settingsOpen() && !shellSurface.automationsOpen() && !shellSurface.skillsOpen() && rightMount()}>
         {(mount) => (
           <Portal mount={mount()}>
             <Show
