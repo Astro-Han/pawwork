@@ -42,6 +42,26 @@ type CacheShape = {
 const emptyAggregate = (sessionID: string): SessionDiffResponse => ({ kind: "empty", sessionID })
 
 describe("app session cache", () => {
+  test("dropSessionCaches tolerates legacy cache shape without external_result_question", () => {
+    const legacyStore = {
+      session_status: { ses_1: { type: "busy" } as SessionStatus },
+      turn_change_aggregate: { ses_1: emptyAggregate("ses_1") },
+      todo: { ses_1: [] as Todo[] },
+      message: { ses_1: [msg("msg_1", "ses_1")] },
+      part: { msg_1: [part("prt_1", "ses_1", "msg_1")] },
+      permission: { ses_1: [] as PermissionRequest[] },
+    } as Omit<CacheShape, "external_result_question">
+    const store = legacyStore as unknown as CacheShape
+
+    expect(() => dropSessionCaches(store, ["ses_1"])).not.toThrow()
+    expect(store.message.ses_1).toBeUndefined()
+    expect(store.part.msg_1).toBeUndefined()
+    expect(store.todo.ses_1).toBeUndefined()
+    expect(store.turn_change_aggregate.ses_1).toBeUndefined()
+    expect(store.session_status.ses_1).toBeUndefined()
+    expect(store.permission.ses_1).toBeUndefined()
+  })
+
   test("dropSessionCaches clears orphaned parts without message rows", () => {
     const store: CacheShape = {
       session_status: { ses_1: { type: "busy" } as SessionStatus },

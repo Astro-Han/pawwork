@@ -313,8 +313,13 @@ export function hydratePendingExternalResults(input: {
         produce((draft) => {
           const prunedQuestions: PendingExternalResultQuestion[] = []
           for (const sessionID of Object.keys(draft.external_result_question)) {
+            const questions = draft.external_result_question[sessionID]
+            if (!questions) {
+              delete draft.external_result_question[sessionID]
+              continue
+            }
             const next: PendingExternalResultQuestion[] = []
-            for (const question of draft.external_result_question[sessionID]) {
+            for (const question of questions) {
               if (input.pruneQuestionIDs!.has(question.id) && !activeQuestionIDs.has(question.id)) {
                 prunedQuestions.push(question)
                 continue
@@ -346,6 +351,7 @@ export function hydratePendingExternalResults(input: {
 function snapshotExternalResultQuestionIDs(store: Store<State>) {
   const ids = new Set<string>()
   for (const list of Object.values(store.external_result_question)) {
+    if (!list) continue
     for (const question of list) ids.add(question.id)
   }
   return ids

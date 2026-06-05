@@ -17,7 +17,7 @@ type SessionCache = {
   message: Record<string, Message[] | undefined>
   part: Record<string, Part[] | undefined>
   permission: Record<string, PermissionRequest[] | undefined>
-  external_result_question: Record<string, PendingExternalResultQuestion[] | undefined>
+  external_result_question?: Record<string, PendingExternalResultQuestion[] | undefined>
 }
 
 export function dropSessionCaches(store: SessionCache, sessionIDs: Iterable<string>) {
@@ -36,7 +36,7 @@ export function dropSessionCaches(store: SessionCache, sessionIDs: Iterable<stri
     delete store.turn_change_aggregate[sessionID]
     delete store.session_status[sessionID]
     delete store.permission[sessionID]
-    delete store.external_result_question[sessionID]
+    if (store.external_result_question) delete store.external_result_question[sessionID]
   }
 }
 

@@ -118,6 +118,75 @@ describe("bootstrapDirectory", () => {
     })
   })
 
+  test("tolerates undefined pending question slots while pruning stale questions", async () => {
+    const directory = "/repo"
+    const queryClient = new QueryClient()
+    const [store, setStore] = createStore(createState())
+    setStore("external_result_question", "ses_undefined", undefined as never)
+    setStore("external_result_question", "ses_stale", [
+      {
+        id: "msg_stale:call_stale",
+        sessionID: "ses_stale",
+        questions: [{ question: "Continue?" }],
+        messageID: "msg_stale",
+        callID: "call_stale",
+        partID: "part_stale",
+      },
+    ])
+    let externalResultCalls = 0
+    const warnings: unknown[] = []
+    const originalWarn = console.warn
+    console.warn = mock((...args: unknown[]) => {
+      warnings.push(args)
+    }) as typeof console.warn
+    const sdk = {
+      app: { agents: async () => ({ data: [] }) },
+      config: { get: async () => ({ data: {} as Config }) },
+      session: {
+        status: async () => ({ data: {} }),
+        get: async () => ({ data: undefined }),
+      },
+      project: { current: async () => ({ data: { id: "project-1" } }) },
+      path: { get: async () => ({ data: { state: "", config: "", worktree: "", directory, home: "" } as Path }) },
+      vcs: { get: async () => ({ data: undefined }) },
+      command: { list: async () => ({ data: [] }) },
+      permission: { list: async () => ({ data: [] }) },
+      externalResult: {
+        list: async () => {
+          externalResultCalls += 1
+          return { data: [] }
+        },
+      },
+      mcp: { status: async () => ({ data: {} }) },
+      automation: { list: async () => ({ data: { items: [] } }) },
+      provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
+    } as any
+
+    try {
+      await bootstrapDirectory({
+        directory,
+        sdk,
+        store,
+        setStore,
+        vcsCache: createVcsCache(),
+        loadSessions: () => undefined,
+        translate: (key) => key,
+        global: {
+          config: {} as Config,
+          path: { state: "", config: "", worktree: "", directory: "", home: "" } as Path,
+          project: [] as Project[],
+          provider: { all: [], connected: [], default: {} },
+        },
+        queryClient,
+      })
+      await waitFor(() => externalResultCalls === 1)
+      await waitFor(() => store.external_result_question.ses_stale === undefined)
+      expect(warnings).toEqual([])
+    } finally {
+      console.warn = originalWarn
+    }
+  })
+
   test("refreshes directory providers even when sessions query cache is already populated", async () => {
     const directory = "/tmp/project"
     const queryClient = new QueryClient()
