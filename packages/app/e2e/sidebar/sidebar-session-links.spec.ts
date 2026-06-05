@@ -295,9 +295,12 @@ test("opening a delayed sidebar session never shows the previous session as load
           `${sessionComposerDockSelector}[data-state="opening-placeholder"]`,
         )
         await expect(openingDock).toHaveCount(1)
-        const openingDockBox = await openingDock.boundingBox()
-        if (!openingDockBox) throw new Error("Opening composer placeholder did not expose a bounding box")
-        expect(Math.abs(openingDockBox.height - sourceDockBox.height)).toBeLessThanOrEqual(2)
+        await expect
+          .poll(async () => {
+            const openingDockBox = await openingDock.boundingBox()
+            return openingDockBox ? Math.abs(openingDockBox.height - sourceDockBox.height) : Infinity
+          })
+          .toBeLessThanOrEqual(2)
 
         releaseMessages?.()
         releaseMessages = undefined
