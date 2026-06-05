@@ -64,7 +64,13 @@ export type TimelineScrollReconciler = {
 export function createTimelineScrollReconciler(input: {
   viewport: () => HTMLElement | undefined
   scrollCommandSink: TimelineScrollCommandSink
+  /** The anchor to re-pin to on a normal flush — the stored, pre-change anchor. */
   resolveAnchor: () => TimelineSafePosition
+  /**
+   * A fresh anchor sample for withAnchorSnapshot, captured *before* a known
+   * layout mutation (e.g. history prepend). Defaults to resolveAnchor.
+   */
+  sampleAnchor?: () => TimelineSafePosition
   bottomSentinel?: () => HTMLElement | null | undefined
   requestReveal?: (position: TimelineSafePosition) => void
   scheduleFrame?: (callback: () => void) => number
@@ -191,7 +197,7 @@ export function createTimelineScrollReconciler(input: {
       scheduleFlush()
     },
     withAnchorSnapshot: (reason, mutate) => {
-      snapshot = input.resolveAnchor()
+      snapshot = (input.sampleAnchor ?? input.resolveAnchor)()
       pendingReason = reason
       dirty = true
       setActive(true)

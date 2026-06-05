@@ -94,6 +94,7 @@ export function createSessionTimelineInteraction(input: {
     viewport: () => scrollDock.scroller(),
     scrollCommandSink,
     resolveAnchor: () => scrollController.state().lastSafePosition,
+    sampleAnchor,
     setActive: setReconcilerActive,
     requestReveal: (position) => {
       const messageID =
@@ -218,7 +219,7 @@ export function createSessionTimelineInteraction(input: {
     userScrolled: userScrolledForHistory,
     isAtBottom: () => scrollDock.scroll.bottom,
     scroller: scrollDock.scroller,
-    scrollCommandSink,
+    preserveAnchor: (mutate) => reconciler.withAnchorSnapshot("history-prepend", mutate),
   })
   const virtualRows = createMemo(() =>
     createTimelineVirtualRows({
