@@ -391,6 +391,34 @@ test("automations panel: a pending one-shot shows its next run time", async ({ p
   await expect(detail.getByText("Next run")).toBeVisible()
 })
 
+test("automations panel: a manual run before fireAt keeps the one-shot's next run", async ({ page, project }) => {
+  test.setTimeout(120_000)
+
+  await project.open()
+  const surface = await openAutomations(page)
+
+  // Scheduled a day out; a manual Run now fires a run at "now", before fireAt.
+  // The scheduler only treats a one-shot as spent once a run lands at/after
+  // fireAt, so this early run must NOT hide the still-pending next run.
+  const projectID = (await project.sdk.project.current()).data!.id
+  const fireAt = Date.now() + 24 * 60 * 60 * 1000
+  await project.sdk.automation.create(oneshot(projectID, "Dress rehearsal", "Run the dress rehearsal.", fireAt))
+
+  const rows = surface.locator('[data-action="automation-row"]')
+  await expect(rows).toHaveCount(1)
+  await rows.first().click()
+
+  const detail = surface.locator('[data-component="automation-detail"]')
+  await expect(detail).toBeVisible()
+  await expect(detail.getByText("Next run")).toBeVisible()
+
+  // Fire it manually, then wait for the run to land (the Last run row appears).
+  await detail.locator('[data-action="automation-run-now"]').click()
+  await expect(detail.getByText("Last run")).toBeVisible()
+  // The early run's triggeredAt is before fireAt, so the next run still stands.
+  await expect(detail.getByText("Next run")).toBeVisible()
+})
+
 test("automations panel: escape unwinds detail then closes the surface", async ({ page, project }) => {
   test.setTimeout(120_000)
 

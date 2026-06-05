@@ -138,8 +138,10 @@ export function AutomationDetail(props: {
       if (automation.nextFireAt == null) return undefined
       return formatTimestamp(automation.nextFireAt, automation.timezone)
     }
-    // A one-shot only has a next run until it fires; once a run exists it is spent.
-    if (runs().length > 0) return undefined
+    // A one-shot is spent only once a run actually fired at or after its scheduled
+    // time, matching the scheduler's hasRunTriggeredAtOrAfter(fireAt). A manual
+    // "Run now" before fireAt does not consume it, so the next run still stands.
+    if (runs().some((run) => run.triggeredAt >= automation.fireAt)) return undefined
     return formatTimestamp(automation.fireAt, automation.timezone)
   })
 
