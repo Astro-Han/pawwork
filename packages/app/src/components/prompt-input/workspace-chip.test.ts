@@ -123,6 +123,26 @@ test("workspaceChipChoices does not expose the direct-start backing folder as an
   ])
 })
 
+test("workspaceChip treats the direct-start backing folder as a project when it is opened", () => {
+  const directStartDirectory = "/Users/demo/PawWork"
+  const project = { name: "Default Project", worktree: directStartDirectory }
+  const source = {
+    directory: directStartDirectory,
+    directStartDirectory: `${directStartDirectory}/`,
+    projects: [project],
+  }
+
+  expect(workspaceChipChoices(source)).toEqual([{ path: directStartDirectory, kind: "workspace" }])
+  expect(
+    workspaceChipLabel({
+      ...source,
+      directStartLabel: "Direct start",
+      emptyLabel: "No workspace",
+    }),
+  ).toBe("Default Project")
+  expect(workspaceChipIconName(source)).toBe("folder")
+})
+
 test("workspaceChipLabel names the empty and default-directory state as direct start", () => {
   expect(
     workspaceChipLabel({

@@ -4,6 +4,7 @@ import { getFilename } from "@opencode-ai/util/path"
 export type WorkspaceEntry = string | { directory: string }
 
 export type WorkspaceProject = {
+  name?: string
   worktree: string
   sandboxes?: WorkspaceEntry[]
 }
@@ -40,7 +41,8 @@ export function workspaceChipChoices(input: {
 }): WorkspaceChoice[] {
   const directory = input.directory
 
-  const currentIsDirectStart = isDirectStartWorkspacePath(directory, input.directStartDirectory)
+  const currentIsDirectStart =
+    isDirectStartWorkspacePath(directory, input.directStartDirectory) && !findWorkspaceProject(input.projects, directory)
   const current = currentIsDirectStart ? undefined : findWorkspaceProject(input.projects, directory)
   const seen = new Set<string>()
   const choices: WorkspaceChoice[] = []
@@ -53,7 +55,9 @@ export function workspaceChipChoices(input: {
     choices.push({ path, kind })
   }
 
-  if (input.directStartDirectory) append(input.directStartDirectory, "direct-start")
+  if (input.directStartDirectory && !findWorkspaceProject(input.projects, input.directStartDirectory)) {
+    append(input.directStartDirectory, "direct-start")
+  }
   if (!directory) {
     for (const project of input.projects) append(project.worktree)
     return choices
@@ -73,18 +77,29 @@ export function workspaceChipLabel(input: {
   directStartDirectory?: string
   directStartLabel: string
   emptyLabel: string
+  projects?: WorkspaceProject[]
 }) {
+  const matchingProject = findWorkspaceProject(input.projects ?? [], input.directory || input.directStartDirectory)
   if (!input.directory) {
+    if (matchingProject) return matchingProject.name || getFilename(matchingProject.worktree)
     return input.directStartDirectory ? input.directStartLabel : input.emptyLabel
   }
-  if (isDirectStartWorkspacePath(input.directory, input.directStartDirectory)) {
+  if (isDirectStartWorkspacePath(input.directory, input.directStartDirectory) && matchingProject) {
+    return matchingProject.name || getFilename(matchingProject.worktree)
+  }
+  if (isDirectStartWorkspacePath(input.directory, input.directStartDirectory) && !matchingProject) {
     return input.directStartLabel
   }
   return getFilename(input.directory) || input.emptyLabel
 }
 
-export function workspaceChipIconName(input: { directory?: string; directStartDirectory?: string }) {
-  if (isDirectStartWorkspacePath(input.directory, input.directStartDirectory)) return "bubble-5"
-  if (!input.directory && input.directStartDirectory) return "bubble-5"
+export function workspaceChipIconName(input: {
+  directory?: string
+  directStartDirectory?: string
+  projects?: WorkspaceProject[]
+}) {
+  const matchingProject = findWorkspaceProject(input.projects ?? [], input.directory || input.directStartDirectory)
+  if (isDirectStartWorkspacePath(input.directory, input.directStartDirectory) && !matchingProject) return "bubble-5"
+  if (!input.directory && input.directStartDirectory && !matchingProject) return "bubble-5"
   return "folder"
 }

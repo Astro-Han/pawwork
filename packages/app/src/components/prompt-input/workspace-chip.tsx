@@ -10,7 +10,6 @@ import { useLayout } from "@/context/layout"
 import { useLayoutPage } from "@/context/layout-page"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import {
-  isDirectStartWorkspacePath,
   workspaceChipChoices,
   workspaceChipIconName,
   workspaceChipLabel,
@@ -36,13 +35,13 @@ export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}
       projects: layout.projects.list(),
     })
   })
-  const directStartActive = createMemo(() => isDirectStartWorkspacePath(current(), directStartDirectory()))
   const label = createMemo(() => {
     return workspaceChipLabel({
       directory: current(),
       directStartDirectory: directStartDirectory(),
       directStartLabel: language.t("workspace.chip.directStart"),
       emptyLabel: language.t("workspace.chip.empty"),
+      projects: layout.projects.list(),
     })
   })
 
@@ -70,6 +69,7 @@ export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}
             name={workspaceChipIconName({
               directory: current(),
               directStartDirectory: directStartDirectory(),
+              projects: layout.projects.list(),
             })}
             class="shrink-0 text-fg-weak"
           />

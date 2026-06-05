@@ -88,7 +88,10 @@ export function createPawworkSessionController(input: PawworkSessionControllerIn
   }
 
   const projectKeyForSession = (session: Session | GlobalSession) => {
-    return resolvePawworkSessionProjectKey(session, { directStartDirectory: input.directStartDirectory() })
+    return resolvePawworkSessionProjectKey(session, {
+      directStartDirectory: input.directStartDirectory(),
+      projects: input.projects(),
+    })
   }
 
   const projectLabelForSession = (session: Session | GlobalSession) => {

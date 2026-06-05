@@ -92,11 +92,23 @@ export function isPawworkDirectStartProjectKey(projectKey: string) {
 const isDirectStartSessionDirectory = (directory: string, directStartDirectory?: string) =>
   !!directStartDirectory && workspaceKey(directory) === workspaceKey(directStartDirectory)
 
+const isOpenedProjectDirectory = (directory: string, projects: ProjectLike[] | undefined) => {
+  const sessionKey = workspaceKey(directory)
+  if (projects?.some((project) => workspaceKey(project.worktree) === sessionKey)) return true
+  if (projects?.some((project) => project.sandboxes?.some((sandbox) => workspaceKey(sandbox) === sessionKey))) {
+    return true
+  }
+  return false
+}
+
 export function resolvePawworkSessionProjectKey(
-  session: { directory: string },
-  input?: { directStartDirectory?: string },
+  session: { directory: string; project?: SessionProjectLike | null },
+  input?: { directStartDirectory?: string; projects?: ProjectLike[] },
 ) {
-  if (isDirectStartSessionDirectory(session.directory, input?.directStartDirectory)) {
+  if (
+    isDirectStartSessionDirectory(session.directory, input?.directStartDirectory) &&
+    !isOpenedProjectDirectory(session.directory, input?.projects)
+  ) {
     return PAWWORK_DIRECT_START_PROJECT_KEY
   }
   return workspaceKey(session.directory)
@@ -111,16 +123,16 @@ export function resolvePawworkSessionProjectLabel<T extends { directory: string;
     workspaceName?: (directory: string, projectId?: string, branch?: string) => string | undefined
   },
 ) {
-  if (isDirectStartSessionDirectory(session.directory, input.directStartDirectory)) {
-    return input.directStartLabel ?? "Direct start"
-  }
-
   const directName = input.workspaceName?.(session.directory)
   if (directName) return directName
 
   const sessionKey = workspaceKey(session.directory)
   const localProject = input.projects.find((project) => workspaceKey(project.worktree) === sessionKey)
   if (localProject) return localProject.name || getFilename(localProject.worktree)
+
+  if (isDirectStartSessionDirectory(session.directory, input.directStartDirectory)) {
+    return input.directStartLabel ?? "Direct start"
+  }
 
   if (session.project?.worktree && workspaceKey(session.project.worktree) === sessionKey) {
     return session.project.name || getFilename(session.project.worktree)
