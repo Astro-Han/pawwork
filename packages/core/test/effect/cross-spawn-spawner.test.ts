@@ -119,7 +119,7 @@ describe("cross-spawn spawner", () => {
       "fails for invalid cwd",
       Effect.gen(function* () {
         const exit = yield* Effect.exit(
-          ChildProcess.make("echo", ["test"], { cwd: "/nonexistent/directory/path" }).asEffect(),
+          ChildProcess.make("echo", ["test"], { cwd: "/nonexistent/directory/path" }),
         )
         expect(Exit.isFailure(exit)).toBe(true)
       }),
