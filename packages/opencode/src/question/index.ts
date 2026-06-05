@@ -18,11 +18,11 @@ export namespace Question {
       emptyMsg: "Option label cannot be empty.",
       tooLongMsg: "Option label is too long (max 50 chars). Keep labels to 1–5 words; put detail in description.",
     }).annotate({ description: "Display text (1–5 words, max 50 chars)" }),
-    description: TrimmedString(50, {
+    description: TrimmedString(120, {
       emptyMsg: "Option description cannot be empty.",
       tooLongMsg:
-        "Option description is too long (max 50 chars). Keep it to one line; longer trade-off context belongs in the question or in normal streamed output before the tool call.",
-    }).annotate({ description: "One-line explanation of choice (max 50 chars)" }),
+        "Option description is too long (max 120 chars). Keep it to a brief option explanation; longer trade-off context belongs in the question or in normal streamed output before the tool call.",
+    }).annotate({ description: "Brief option explanation (max 120 chars)" }),
   }) {
     static readonly zod = zod(this)
   }
