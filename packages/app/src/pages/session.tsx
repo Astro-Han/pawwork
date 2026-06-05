@@ -76,9 +76,11 @@ export default function Page() {
   // `?skill=` and `?prompt=` are seeded by two independent bootstraps that both
   // write the composer. They never coexist via the in-app entry points ("Use in
   // chat" sets only skill, "Create via chat" sets only prompt), but a hand-built
-  // deep link could carry both. Make the precedence explicit — skill wins — so a
-  // combined link inserts the deterministic skill chip instead of letting bootstrap
-  // definition order silently decide which one survives.
+  // deep link could carry both. Skill wins, via two guards that must work
+  // together: (1) while a skill is present this prompt accessor yields undefined
+  // so the text never seeds; and (2) the skill bootstrap below clears BOTH
+  // params. Clearing only skill would flip guard (1) back on — the now-visible
+  // prompt would re-seed and overwrite the skill chip a beat later.
   useSessionRoutePromptBootstrap({
     ready: prompt.ready,
     sessionID: () => params.id,
@@ -90,13 +92,15 @@ export default function Page() {
   // "Use in chat" from the Skills gallery lands here with ?skill=<name>. Seed the
   // composer with the same structured skill chip the slash picker inserts, so
   // activation is deterministic (this exact skill loads, not a description match).
+  // Clears prompt too — see guard (2) above — so a combined deep link can't let
+  // a stray ?prompt= overwrite the chip once skill is consumed.
   useSessionRoutePromptBootstrap({
     ready: prompt.ready,
     sessionID: () => params.id,
     prompt: () => searchParams.skill,
     setPrompt: (name) =>
       prompt.set([{ type: "skill", name, source: "skill", content: `/${name}`, start: 0, end: name.length + 1 }], name.length + 1),
-    clearPrompt: () => setSearchParams({ ...searchParams, skill: undefined }),
+    clearPrompt: () => setSearchParams({ ...searchParams, skill: undefined, prompt: undefined }),
   })
 
   const isDesktop = createMediaQuery("(min-width: 768px)")
