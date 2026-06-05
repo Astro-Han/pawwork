@@ -812,7 +812,7 @@ export const dict = {
   "settings.tab.memory": "记忆",
   "settings.backToApp": "返回应用",
   "settings.remote.placeholder": "远程访问设置即将在此处提供。",
-  "settings.integrations.description": "PawWork 连接的服务器，以及当前项目可用的 MCP、语言服务器、插件。",
+  "settings.integrations.description": "爪印连接的服务器，以及当前项目可用的 MCP、语言服务器、插件。",
   "settings.integrations.empty": "尚未配置。",
   "connectionHealth.toast.server.title": "服务器连接异常",
   "connectionHealth.toast.server.description": "{{count}} 个服务器的健康检查失败，打开集成查看是哪一个。",

@@ -23,4 +23,14 @@ describe("zh branding copy", () => {
       expect(zh[key]).not.toContain("PawWork")
     }
   })
+
+  test("never ships a standalone PawWork anywhere in the Chinese dict", () => {
+    // The curated list above only spot-checks a few surfaces; the brand rule is
+    // global — every Chinese string says 爪印, never PawWork. Scan the whole dict
+    // so a new key can't reintroduce the English name unnoticed.
+    const offenders = Object.entries(zh)
+      .filter(([, value]) => typeof value === "string" && value.includes("PawWork"))
+      .map(([key]) => key)
+    expect(offenders).toEqual([])
+  })
 })
