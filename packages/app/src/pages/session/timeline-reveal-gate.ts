@@ -75,8 +75,8 @@ export type RevealGateMachineInput = {
   cancelFrame: (handle: number) => void
   setTimer: (callback: () => void, ms: number) => number
   clearTimer: (handle: number) => void
-  /** Called whenever the gate state changes (e.g. to drive a signal). */
-  onChange?: (state: RevealGateState) => void
+  /** Called only when the covered boolean flips (e.g. to drive a signal). */
+  onCoveredChange?: (covered: boolean) => void
 }
 
 export type RevealGateMachine = {
@@ -98,12 +98,21 @@ export type RevealGateMachine = {
  */
 export function createRevealGateMachine(input: RevealGateMachineInput): RevealGateMachine {
   let current: RevealGateState = { sessionKey: "", phase: "loading", stableFrames: 0 }
+  let lastCovered = revealGateCovered(current)
   let frameHandle: number | undefined
   let timerHandle: number | undefined
 
   const dispatch = (event: RevealGateEvent) => {
-    current = nextRevealGateState(current, event, { settleFrames: input.settleFrames })
-    input.onChange?.(current)
+    const next = nextRevealGateState(current, event, { settleFrames: input.settleFrames })
+    if (next === current) return
+    current = next
+    // Only surface a change when the cover boolean actually flips, so a busy
+    // settle (state churning between stable-frame counts while still covered)
+    // does not re-notify the UI and reset the opening skeleton's visible timer.
+    const covered = revealGateCovered(current)
+    if (covered === lastCovered) return
+    lastCovered = covered
+    input.onCoveredChange?.(covered)
   }
   const stopLoop = () => {
     if (frameHandle !== undefined) {
@@ -185,7 +194,9 @@ export type TimelineRevealGate = {
  * machine; this is thin reactive glue.
  */
 export function createTimelineRevealGate(input: TimelineRevealGateInput): TimelineRevealGate {
-  const [state, setState] = createSignal<RevealGateState>({ sessionKey: "", phase: "loading", stableFrames: 0 })
+  // The machine emits only on cover flips, so this signal re-renders the opening
+  // cover exactly when it must — never on the intermediate settle churn.
+  const [covered, setCovered] = createSignal(true)
   const machine = createRevealGateMachine({
     settleFrames: input.settleFrames ?? DEFAULT_SETTLE_FRAMES,
     timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
@@ -195,14 +206,12 @@ export function createTimelineRevealGate(input: TimelineRevealGateInput): Timeli
     cancelFrame: input.cancelFrame ?? ((handle) => cancelAnimationFrame(handle)),
     setTimer: input.setTimer ?? ((callback, ms) => setTimeout(callback, ms) as unknown as number),
     clearTimer: input.clearTimer ?? ((handle) => clearTimeout(handle)),
-    onChange: setState,
+    onCoveredChange: setCovered,
   })
 
   createEffect(on(input.sessionKey, (sessionKey) => machine.session(sessionKey)))
   createEffect(on(input.ready, () => machine.notifyReady(), { defer: true }))
   onCleanup(() => machine.dispose())
 
-  return {
-    covered: () => revealGateCovered(state()),
-  }
+  return { covered }
 }

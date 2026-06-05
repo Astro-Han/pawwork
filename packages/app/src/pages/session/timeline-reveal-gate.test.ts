@@ -171,6 +171,7 @@ describe("createRevealGateMachine", () => {
     const timers = makeTimerQueue()
     let active = false
     let ready = false
+    const coveredChanges: boolean[] = []
     const machine = createRevealGateMachine({
       settleFrames: over?.settleFrames ?? 2,
       timeoutMs: over?.timeoutMs ?? 400,
@@ -180,11 +181,13 @@ describe("createRevealGateMachine", () => {
       cancelFrame: frames.cancel,
       setTimer: timers.set,
       clearTimer: timers.clear,
+      onCoveredChange: (value) => coveredChanges.push(value),
     })
     return {
       machine,
       frames,
       timers,
+      coveredChanges,
       setActive: (value: boolean) => {
         active = value
       },
@@ -214,6 +217,34 @@ describe("createRevealGateMachine", () => {
     expect(ctx.covered()).toBe(false)
     expect(ctx.frames.size()).toBe(0)
     expect(ctx.timers.size()).toBe(0)
+  })
+
+  test("emits covered once on a flip, not on every frame of a busy oscillating settle", () => {
+    // A reconciler that flips active/inactive without ever stringing together
+    // settleFrames quiet frames keeps the gate covered. The covered boolean must
+    // not be re-emitted on those churning frames, or the opening skeleton's
+    // visible-delay timer would reset every frame and never show.
+    const ctx = makeMachine({ settleFrames: 2 })
+    ctx.machine.session("a")
+    ctx.setReady(true)
+    ctx.machine.notifyReady()
+
+    ctx.setActive(true)
+    ctx.frames.step()
+    ctx.setActive(false)
+    ctx.frames.step()
+    ctx.setActive(true)
+    ctx.frames.step()
+    expect(ctx.covered()).toBe(true)
+    expect(ctx.coveredChanges).toEqual([]) // still covered → nothing emitted yet
+
+    // Two consecutive quiet frames finally settle it.
+    ctx.setActive(false)
+    ctx.frames.step()
+    ctx.setActive(false)
+    ctx.frames.step()
+    expect(ctx.covered()).toBe(false)
+    expect(ctx.coveredChanges).toEqual([false]) // exactly one flip
   })
 
   test("keeps the cover while the reconciler is active, then lifts once it goes quiet", () => {
