@@ -258,6 +258,9 @@ export function createSessionTimelineInteraction(input: {
 
   // Selecting text in the timeline while following should stop the auto-follow
   // so the selection does not get yanked to the bottom by streaming content.
+  // Sample the reading anchor immediately — text selection does not produce a
+  // scroll event, so the normal observe(scroll_sample) path would not run and
+  // lastSafePosition would remain `latest`.
   const onTimelineInteraction = () => {
     if (scrollController.state().mode !== "following_latest") return
     const selection = typeof window === "undefined" ? null : window.getSelection()
@@ -269,6 +272,11 @@ export function createSessionTimelineInteraction(input: {
       source: "scroll_view",
       metrics: collectTimelineScrollMetrics(viewport),
     })
+    scrollController.observe({
+      type: "scroll_sample",
+      metrics: collectTimelineScrollMetrics(viewport),
+      safePosition: sampleAnchor(),
+    })
   }
 
   const onTimelineScrollIntent = (intent: TimelineScrollIntent): TimelineScrollControllerResult => {
@@ -279,7 +287,7 @@ export function createSessionTimelineInteraction(input: {
       activeMessage.clearActiveMessage()
       clearMessageHash()
     }
-    reconciler.markDirty("intent")
+    if (result.anchorChanged) reconciler.markDirty("intent")
     return result
   }
 
