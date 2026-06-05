@@ -800,6 +800,7 @@ export const dict = {
   "skills.subtitle": "What PawWork can do. Open one to see when it fires and how.",
   "skills.search.placeholder": "Search skills",
   "skills.empty.title": "No skills match your search",
+  "skills.error.title": "Couldn't load skills",
   "skills.detail.suffix": "Skill",
   "skills.detail.useInChat": "Use in chat",
   "automations.title": "Automations",

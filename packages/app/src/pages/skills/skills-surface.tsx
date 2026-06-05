@@ -1,4 +1,16 @@
-import { type Accessor, createMemo, createResource, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js"
+import {
+  type Accessor,
+  createMemo,
+  createResource,
+  createSignal,
+  For,
+  type JSX,
+  Match,
+  onCleanup,
+  onMount,
+  Show,
+  Switch,
+} from "solid-js"
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { useGlobalSDK } from "@/context/global-sdk"
@@ -54,6 +66,18 @@ export function SkillsSurface(props: {
     return needle ? all.filter((skill) => skillMatches(skill, needle)) : all
   })
 
+  // While the resource is still resolving its first batch, `skills()` is
+  // undefined and `filtered()` is empty — rendering the empty-state copy then
+  // would flash "no skills" on every normal load and mislabel a load failure as
+  // "no skills". Key the body off the resource state so the empty copy only
+  // shows once we actually have a (filtered-to-zero) result, and load failures
+  // get their own message.
+  const view = createMemo<"loading" | "error" | "empty" | "list">(() => {
+    if (skills.state === "errored") return "error"
+    if (skills.state === "pending" || skills.state === "unresolved") return "loading"
+    return filtered().length > 0 ? "list" : "empty"
+  })
+
   // Escape closes the open detail first, then the surface. The sidebar stays
   // live behind this surface, so transient overlays get Escape ahead of us.
   onMount(() => {
@@ -101,18 +125,29 @@ export function SkillsSurface(props: {
           </label>
         </div>
 
-        <Show
-          when={filtered().length > 0}
-          fallback={
+        <Switch>
+          {/* Reserve the row band's height so the layout doesn't jump when the
+              list lands; no "Loading…" copy (local skills resolve fast, and the
+              label would just flicker). */}
+          <Match when={view() === "loading"}>
+            <div data-component="skills-loading" class="px-2.5 py-16" aria-hidden="true" />
+          </Match>
+          <Match when={view() === "error"}>
+            <div data-component="skills-error" class="px-2.5 py-16 text-center text-body text-fg-weak">
+              {language.t("skills.error.title")}
+            </div>
+          </Match>
+          <Match when={view() === "empty"}>
             <div data-component="skills-empty" class="px-2.5 py-16 text-center text-body text-fg-weak">
               {language.t("skills.empty.title")}
             </div>
-          }
-        >
-          <div class="mt-6 grid grid-cols-1 gap-x-6 gap-y-0.5 sm:grid-cols-2">
-            <For each={filtered()}>{(skill) => <SkillRow skill={skill} onOpen={() => setSelected(skill)} />}</For>
-          </div>
-        </Show>
+          </Match>
+          <Match when={view() === "list"}>
+            <div class="mt-6 grid grid-cols-1 gap-x-6 gap-y-0.5 sm:grid-cols-2">
+              <For each={filtered()}>{(skill) => <SkillRow skill={skill} onOpen={() => setSelected(skill)} />}</For>
+            </div>
+          </Match>
+        </Switch>
       </div>
 
       <Show when={selected()}>

@@ -710,6 +710,7 @@ export const dict = {
   "skills.subtitle": "PawWork 能做的事。点开任意一项看它何时触发、如何工作。",
   "skills.search.placeholder": "搜索技能",
   "skills.empty.title": "没有匹配的技能",
+  "skills.error.title": "技能加载失败",
   "skills.detail.suffix": "技能",
   "skills.detail.useInChat": "在对话中使用",
   "automations.title": "定时任务",
