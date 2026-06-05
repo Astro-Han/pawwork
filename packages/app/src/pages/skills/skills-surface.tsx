@@ -40,39 +40,29 @@ export function SkillsSurface(props: {
   const language = useLanguage()
   const dialog = useDialog()
   const [query, setQuery] = createSignal("")
-  // Tracks whether the detail reader owns the screen. Driven by useDialog's
-  // onClose, which fires synchronously the moment the dialog starts closing —
-  // unlike `dialog.active`, which lingers through the ~100ms exit animation and
-  // would let an immediately-following Escape fall through to closing the
-  // surface while the dialog is still visually unwinding.
-  const [detailOpen, setDetailOpen] = createSignal(false)
 
   // The detail reader is a modal in the shared dialog stack; opening it there
   // gets focus trap / initial focus / focus restore / background inert for free
   // instead of re-deriving them on a hand-rolled overlay. "Use in chat" closes
   // the dialog before navigating so the stack unwinds cleanly.
   const openDetail = (skill: SkillInfo) => {
-    setDetailOpen(true)
-    dialog.show(
-      () => (
-        <SkillDetail
-          skill={skill}
-          footer={
-            <Button
-              variant="primary"
-              data-action="skill-use-in-chat"
-              onClick={() => {
-                dialog.close()
-                props.onUseSkill(skill.name)
-              }}
-            >
-              {language.t("skills.detail.useInChat")}
-            </Button>
-          }
-        />
-      ),
-      () => setDetailOpen(false),
-    )
+    dialog.show(() => (
+      <SkillDetail
+        skill={skill}
+        footer={
+          <Button
+            variant="primary"
+            data-action="skill-use-in-chat"
+            onClick={() => {
+              dialog.close()
+              props.onUseSkill(skill.name)
+            }}
+          >
+            {language.t("skills.detail.useInChat")}
+          </Button>
+        }
+      />
+    ))
   }
 
   const [skills] = createResource(
@@ -101,15 +91,18 @@ export function SkillsSurface(props: {
     return filtered().length > 0 ? "list" : "empty"
   })
 
-  // Escape closes the surface — but only when the detail reader isn't up. While
-  // it is, let Kobalte consume Escape to close the dialog first (we just bail,
-  // without preventing default, so the event reaches it). `detailOpen()` is the
-  // single source of truth for "a modal is up", replacing the old sniff of the
-  // DOM for overlay components.
+  // Escape closes the surface — but only when nothing in the shared dialog stack
+  // owns it. That covers the skill-detail reader AND a command palette opened
+  // from the still-live sidebar (its search calls command.show() directly,
+  // bypassing the keybind gate that otherwise suppresses palettes behind a
+  // surface). `dialog.active` is the single source of truth for "a modal owns
+  // Escape", so we defer to it instead of sniffing the DOM for overlay
+  // components; we bail without preventing default so the event still reaches
+  // whatever modal is up. Only when the stack is empty do we close the surface.
   onMount(() => {
     const onEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return
-      if (detailOpen()) return
+      if (dialog.active) return
       event.preventDefault()
       props.onClose()
     }
