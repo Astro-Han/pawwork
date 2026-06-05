@@ -1,6 +1,7 @@
 ---
-// Page shell: basic SEO tags in <head> plus the anti-flash theme script.
-// Language switching happens on the client; first paint renders English.
+// Page shell: head SEO/meta tags plus the anti-flash theme script.
+// Language is fixed per static route: the `lang` prop sets html lang,
+// canonical, hreflang, and og:locale. There is no client-side swap.
 import "../styles/global.css";
 import type { Lang } from "../i18n";
 
