@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import {
+  partitionRetractedQuestions,
   questionCallKey,
   questionNotificationAction,
   resolveAndAlertQuestion,
@@ -126,6 +127,64 @@ describe("resolveAndAlertQuestion", () => {
     })
     expect(root).toBeUndefined()
     expect(alerted).toBe(false)
+  })
+})
+
+describe("partitionRetractedQuestions", () => {
+  const question = (id: string, ask: { sessionID: string; messageID: string; partID: string }) => ({
+    type: "question" as const,
+    directory: "/repo",
+    session: "ses_root",
+    id,
+    ask,
+  })
+
+  test("retracts the question matching the removed part, keeps the rest", () => {
+    const target = question("a", { sessionID: "ses_child", messageID: "msg_1", partID: "prt_1" })
+    const other = question("b", { sessionID: "ses_child", messageID: "msg_1", partID: "prt_2" })
+    const event = { type: "turn-complete" as const, directory: "/repo", id: "c" }
+    const { kept, removed } = partitionRetractedQuestions([target, other, event], {
+      directory: "/repo",
+      sessionID: "ses_child",
+      partID: "prt_1",
+    })
+    expect(removed).toEqual([target])
+    expect(kept).toEqual([other, event])
+  })
+
+  test("retracts every question in a message when the whole message is removed", () => {
+    const a = question("a", { sessionID: "ses_child", messageID: "msg_1", partID: "prt_1" })
+    const b = question("b", { sessionID: "ses_child", messageID: "msg_1", partID: "prt_2" })
+    const elsewhere = question("c", { sessionID: "ses_child", messageID: "msg_2", partID: "prt_3" })
+    const { kept, removed } = partitionRetractedQuestions([a, b, elsewhere], {
+      directory: "/repo",
+      sessionID: "ses_child",
+      messageID: "msg_1",
+    })
+    expect(removed).toEqual([a, b])
+    expect(kept).toEqual([elsewhere])
+  })
+
+  test("does not cross directory or session boundaries", () => {
+    const otherDir = { ...question("a", { sessionID: "ses_child", messageID: "msg_1", partID: "prt_1" }), directory: "/other" }
+    const otherSession = question("b", { sessionID: "ses_sibling", messageID: "msg_1", partID: "prt_1" })
+    const { removed } = partitionRetractedQuestions([otherDir, otherSession], {
+      directory: "/repo",
+      sessionID: "ses_child",
+      partID: "prt_1",
+    })
+    expect(removed).toEqual([])
+  })
+
+  test("keeps legacy question notifications that have no ask identity", () => {
+    const legacy = { type: "question" as const, directory: "/repo", session: "ses_root", id: "a" }
+    const { kept, removed } = partitionRetractedQuestions([legacy], {
+      directory: "/repo",
+      sessionID: "ses_child",
+      partID: "prt_1",
+    })
+    expect(removed).toEqual([])
+    expect(kept).toEqual([legacy])
   })
 })
 

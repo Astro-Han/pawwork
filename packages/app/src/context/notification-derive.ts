@@ -115,3 +115,44 @@ export async function resolveAndAlertQuestion(opts: {
   opts.alert(rootID)
   return rootID
 }
+
+type RetractableQuestion = {
+  type: string
+  directory?: string
+  ask?: { sessionID: string; messageID: string; partID: string }
+}
+
+/**
+ * Split a notification list into the question notifications a removal event
+ * retracts and everything kept.
+ *
+ * A question is a live condition, not a point-in-time event: once its part
+ * leaves `running` (a terminal `reset`), the part is removed, or its whole
+ * message is removed, the appended notification must be retracted or the unread
+ * dot / Dock badge keeps claiming the session needs input. Matching is by the
+ * *asking* question identity recorded in `ask` (directory + asking sessionID,
+ * plus `partID` or `messageID`) — the notification's own `session` is the root
+ * session used for display, not for matching. `partID` and `messageID` are each
+ * matched only when provided, so a part removal targets one part while a message
+ * removal sweeps every question in that message. Question notifications without
+ * an `ask` identity (legacy persisted entries) never match and are kept.
+ */
+export function partitionRetractedQuestions<T extends RetractableQuestion>(
+  list: readonly T[],
+  match: { directory: string; sessionID: string; partID?: string; messageID?: string },
+): { kept: T[]; removed: T[] } {
+  const kept: T[] = []
+  const removed: T[] = []
+  for (const notification of list) {
+    const ask = notification.type === "question" ? notification.ask : undefined
+    const matches =
+      ask !== undefined &&
+      notification.directory === match.directory &&
+      ask.sessionID === match.sessionID &&
+      (match.partID === undefined || ask.partID === match.partID) &&
+      (match.messageID === undefined || ask.messageID === match.messageID)
+    if (matches) removed.push(notification)
+    else kept.push(notification)
+  }
+  return { kept, removed }
+}

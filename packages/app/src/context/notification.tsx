@@ -17,6 +17,7 @@ import { Persist, persisted } from "@/utils/persist"
 import { playSoundById } from "@/utils/sound"
 import { workspaceKey } from "@/pages/layout/helpers"
 import {
+  partitionRetractedQuestions,
   questionCallKey,
   questionNotificationAction,
   resolveAndAlertQuestion,
@@ -43,6 +44,13 @@ type ErrorNotification = NotificationBase & {
 
 type QuestionNotification = NotificationBase & {
   type: "question"
+  // Identity of the originating question call (the *asking* session/message/part,
+  // not the root `session` recorded above for display). A question is a live
+  // condition: this lets a terminal reset, a removed part, or a removed message
+  // retract the notification so the unread dot / badge stops claiming the session
+  // needs input. Optional so legacy persisted entries (written before this field)
+  // still load — they simply never match a retraction.
+  ask?: { sessionID: string; messageID: string; partID: string }
 }
 
 export type Notification = TurnCompleteNotification | ErrorNotification | QuestionNotification
@@ -219,6 +227,19 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
       })
     }
 
+    // Retract the persisted question notification(s) a removal event resolves —
+    // a question is a live condition, so when its part leaves `running` (reset),
+    // its part is removed, or its whole message is removed, the unread dot /
+    // badge must stop claiming the session needs input.
+    const dropQuestions = (match: { directory: string; sessionID: string; partID?: string; messageID?: string }) => {
+      const { kept, removed } = partitionRetractedQuestions(store.list, match)
+      if (!removed.length) return
+      batch(() => {
+        removed.forEach((n) => removeFromIndex(n))
+        setStore("list", kept)
+      })
+    }
+
     const lookup = async (directory: string, sessionID?: string) => {
       if (!sessionID) return undefined
       const [syncStore] = globalSync.child(directory, { bootstrap: false })
@@ -329,6 +350,7 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
       const callKey = questionCallKey(directory, sessionID, part.id)
       if (action === "reset") {
         alertedQuestionCalls.delete(callKey)
+        dropQuestions({ directory, sessionID, partID: part.id })
         return
       }
       if (alertedQuestionCalls.has(callKey)) return
@@ -358,6 +380,7 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
             viewed: visible,
             type: "question",
             session: rootID,
+            ask: { sessionID, messageID: part.messageID, partID: part.id },
           })
 
           const level = settings.notify.level()
@@ -402,7 +425,15 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
         return
       }
       if (event.type === "message.part.removed") {
-        alertedQuestionCalls.delete(questionCallKey(directory, event.properties.sessionID, event.properties.partID))
+        const { sessionID, partID } = event.properties
+        alertedQuestionCalls.delete(questionCallKey(directory, sessionID, partID))
+        dropQuestions({ directory, sessionID, partID })
+        return
+      }
+      if (event.type === "message.removed") {
+        // removeMessage / revert emit only `message.removed`, not a per-part
+        // `message.part.removed`, so sweep every question in the message.
+        dropQuestions({ directory, sessionID: event.properties.sessionID, messageID: event.properties.messageID })
         return
       }
       if (event.type !== "session.idle" && event.type !== "session.error") return
