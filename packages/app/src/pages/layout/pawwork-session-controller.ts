@@ -13,6 +13,7 @@ import {
   nextPawworkSessionWindowLimit,
   PAWWORK_SESSION_WINDOW_INITIAL,
   pawworkSessionWindowActiveRoot,
+  shouldAutoExpandPawworkSessionWindow,
   sortPawworkSessionWindowSessions,
   type PawworkWindowSession,
 } from "./pawwork-session-window"
@@ -46,6 +47,10 @@ export type PawworkSessionControllerInput = {
 export function createPawworkSessionController(input: PawworkSessionControllerInput) {
   const [pawworkSessionWindowState, setPawworkSessionWindowState] = createStore({
     limit: PAWWORK_SESSION_WINDOW_INITIAL,
+    // Limit of the last successfully loaded page. The auto-expand effect only
+    // advances once this catches up to `limit`, so it steps one page at a time
+    // and never retries a failed load.
+    loadedLimit: 0,
     normal: [] as PawworkWindowSession[],
     pinned: [] as PawworkWindowSession[],
     active: undefined as PawworkWindowSession | undefined,
@@ -232,6 +237,7 @@ export function createPawworkSessionController(input: PawworkSessionControllerIn
         setPawworkSessionWindowState("pinned", reconcile(pinned, { key: "id" }))
         setPawworkSessionWindowState("active", activeRoot)
         setPawworkSessionWindowState("hasMore", !!response.response?.headers.get("x-next-cursor"))
+        setPawworkSessionWindowState("loadedLimit", pawworkSessionWindowState.limit)
         setPawworkSessionWindowState("loading", false)
       })
     } catch (error) {
@@ -316,6 +322,25 @@ export function createPawworkSessionController(input: PawworkSessionControllerIn
     if (pawworkSessionWindowState.loading) return
     setPawworkSessionWindowState("limit", (limit) => nextPawworkSessionWindowLimit(limit))
   }
+
+  // Auto-expand the window one page when the visible (open-project) list is empty
+  // but the global window still has pages below the cap, so an open project's
+  // older sessions surface instead of leaving the sidebar blank. See
+  // shouldAutoExpandPawworkSessionWindow for the guard rationale.
+  createEffect(() => {
+    if (
+      shouldAutoExpandPawworkSessionWindow({
+        openProjectCount: input.projects().length,
+        visibleCount: pawworkSessions().length,
+        loading: pawworkSessionWindowState.loading,
+        hasMore: pawworkSessionWindowState.hasMore,
+        limit: pawworkSessionWindowState.limit,
+        loadedLimit: pawworkSessionWindowState.loadedLimit,
+      })
+    ) {
+      showMore()
+    }
+  })
 
   const windowLoading = () => pawworkSessionWindowState.loading
 
