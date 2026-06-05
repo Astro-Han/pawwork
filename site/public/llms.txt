@@ -1,0 +1,45 @@
+# PawWork
+
+> PawWork is a free, open-source desktop AI agent for macOS and Windows that helps people complete real work with local files, documents, spreadsheets, research, writing, code, and tools — no terminal, no API key required.
+
+Last updated: 2026-06-05
+
+## Key Links
+
+- Website: https://pawwork.ai/
+- Source code: https://github.com/Astro-Han/pawwork
+- Download: https://github.com/Astro-Han/pawwork/releases/latest
+- English README: https://github.com/Astro-Han/pawwork#readme
+- Chinese README: https://github.com/Astro-Han/pawwork/blob/dev/README_CN.md
+- License: Apache-2.0 — https://github.com/Astro-Han/pawwork/blob/dev/LICENSE
+
+## About
+
+PawWork brings AI agent work into a native desktop workflow. Users choose a workspace folder, describe a task in plain language, and review the steps, outputs, and generated files before using the result.
+
+PawWork is built for everyday desktop work, not only browser chat or IDE coding. It supports documents, spreadsheets, PDFs, research, writing, code review, debugging, and local file tasks.
+
+PawWork includes a free tier powered by OpenCode Zen with built-in web search. Users can also connect their own accounts through API keys, OAuth (including ChatGPT Plus/Pro), OpenAI-compatible providers, and local models. Over 75 model providers are supported, including OpenAI, Claude, Gemini, DeepSeek, Kimi, and GLM.
+
+## What PawWork Can Do
+
+- Extract invoice fields from PDFs into a reviewable spreadsheet draft.
+- Summarize CSV data files and create short reports.
+- Merge, split, and organize PDF and document files.
+- Search the web and collect sources for research tasks.
+- Turn notes and attachments into written drafts.
+- Inspect code projects, review pull requests, and debug issues with logs and source files.
+- Handle Word, Excel, and PowerPoint files through bundled OfficeCLI.
+
+## Platforms
+
+- macOS: Apple Silicon and Intel, signed and notarized.
+- Windows: x64, signed installer.
+
+## Positioning
+
+PawWork is an open-source alternative to Codex App and Claude Cowork. It offers desktop-native local workspace control, bring-your-own-key model choice across 75+ providers, ChatGPT OAuth support, and reviewable agent outputs — all without requiring a terminal or paid subscription.
+
+## Built On
+
+PawWork is built on a fork of OpenCode (open-source AI coding agent) and bundles OfficeCLI for local Word, Excel, and PowerPoint file handling.

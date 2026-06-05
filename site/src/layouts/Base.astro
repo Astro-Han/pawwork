@@ -9,7 +9,7 @@ interface Props {
   image?: string;
 }
 
-const { title, description, image = "/app-icon.svg" } = Astro.props;
+const { title, description, image = "/og-image.png" } = Astro.props;
 const canonical = new URL(Astro.url.pathname, Astro.site).href;
 const ogImage = new URL(image, Astro.site).href;
 ---
@@ -30,12 +30,32 @@ const ogImage = new URL(image, Astro.site).href;
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:url" content={canonical} />
-    {/* TODO: replace with a dedicated 1200×630 share image; app icon is a placeholder */}
     <meta property="og:image" content={ogImage} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={ogImage} />
+    <meta name="twitter:image:alt" content="PawWork — open-source desktop AI agent" />
+
+    <link rel="alternate" type="text/markdown" href="/llms.txt" />
+
+    <script type="application/ld+json" set:html={JSON.stringify({
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "PawWork",
+      "applicationCategory": "ProductivityApplication",
+      "operatingSystem": "macOS, Windows",
+      "description": description,
+      "url": "https://pawwork.ai",
+      "downloadUrl": "https://github.com/Astro-Han/pawwork/releases/latest",
+      "license": "https://github.com/Astro-Han/pawwork/blob/dev/LICENSE",
+      "author": { "@type": "Organization", "name": "Astro-Han", "url": "https://github.com/Astro-Han" },
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+      "softwareVersion": "2026.6",
+      "isAccessibleForFree": true
+    })} />
 
     {/* Set the theme before first paint so dark-mode users don't see a light flash */}
     <script is:inline>
