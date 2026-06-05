@@ -484,7 +484,7 @@ export function MessageTimeline(props: {
                 viewport={virtualizerViewport()}
                 virtualizerBridge={props.virtualizerBridge}
                 shift={frameMutation() === "prepend"}
-                transactionActive={props.reconcilerActive()}
+                reconcilerActive={props.reconcilerActive()}
                 renderRow={renderTimelineRow}
               />
             </div>
