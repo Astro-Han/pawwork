@@ -33,36 +33,17 @@ export type TimelineSafePosition =
 
 export type TimelineScrollReason =
   | "submit_follow_latest"
-  | "submit_restore_latest_after_top_reset"
   | "explicit_top_navigation"
   | "explicit_bottom_navigation"
-  | "follow_latest_preserved"
   | "user_upward_navigation"
   | "strong_downward_navigation"
+  | "reached_bottom_follow_latest"
+  | "reading_anchor_sampled"
   | "weak_scroll_observed"
   | "scrollbar_drag_started"
-  | "scrollbar_drag_preserve_reading"
-  | "reading_anchor_preserved"
-  | "content_resize_preserve_reading"
-  | "dock_resize_preserve_anchor"
-  | "window_changed_preserve_target"
   | "target_message_requested"
-  | "target_load_exhausted_fallback"
-  | "owner_mismatch_cancelled"
   | "owner_detached"
-  | "anchor_unrecoverable_fallback"
-
-export type TimelineRecovery =
-  | { type: "none" }
-  | {
-      type: "restore_anchor"
-      reason: TimelineScrollReason
-      anchor: TimelineSafePosition
-    }
-  | {
-      type: "restore_latest"
-      reason: TimelineScrollReason
-    }
+  | "owner_mismatch_cancelled"
 
 export type TimelineScrollIntent =
   | {
@@ -126,21 +107,24 @@ export type TimelineScrollObservation =
       viewportOwner: string
     }
 
+/**
+ * The controller is a pure anchor-intent reducer. It decides *which anchor* the
+ * timeline should be pinned to (the mode + `lastSafePosition`); the reconciler
+ * is the single authoritative writer that makes the viewport match it. The
+ * reducer never writes `scrollTop` and never emits a recovery command.
+ */
 export type TimelineScrollControllerResult = {
   accepted: boolean
-  recovery: TimelineRecovery
+  mode: TimelineScrollMode
+  anchorChanged: boolean
   reason: TimelineScrollReason
 }
 
 export type TimelineScrollControllerState = {
   mode: TimelineScrollMode
   lastSafePosition: TimelineSafePosition
-  lastIntent?: TimelineScrollIntent
-  pendingRecovery: TimelineRecovery
   sessionOwner: string
   viewportOwner: string
-  submitOriginMode?: TimelineScrollMode
-  latestProtected: boolean
 }
 
 export type TimelineScrollDiagnosticData = {
@@ -150,17 +134,14 @@ export type TimelineScrollDiagnosticData = {
   intent_source?: string
   observation_type?: string
   accepted: boolean
-  recovery: boolean
+  anchor_changed: boolean
   reason: TimelineScrollReason
   anchor_kind?: TimelineSafePosition["kind"]
   anchor_message_id?: string
-  submit_origin_mode?: TimelineScrollMode
   near_top?: boolean
   near_bottom?: boolean
-  near_anchor?: boolean
   session_owner: string
   viewport_owner: string
-  coalesced_count?: number
 }
 
 export type TimelineScrollDiagnosticEvent = RendererDiagnosticInput & {
@@ -208,17 +189,8 @@ export function classifyTimelineScrollGesture(input: {
   }
 }
 
-const noRecovery: TimelineRecovery = { type: "none" }
-
 function cloneState(state: TimelineScrollControllerState): TimelineScrollControllerState {
-  return {
-    ...state,
-    lastSafePosition: { ...state.lastSafePosition },
-    pendingRecovery:
-      state.pendingRecovery.type === "restore_anchor"
-        ? { ...state.pendingRecovery, anchor: { ...state.pendingRecovery.anchor } }
-        : { ...state.pendingRecovery },
-  }
+  return { ...state, lastSafePosition: { ...state.lastSafePosition } }
 }
 
 function anchorKind(position: TimelineSafePosition | undefined) {
@@ -230,57 +202,6 @@ function anchorMessageID(position: TimelineSafePosition | undefined) {
   if (position.kind === "latest") return position.messageID
   if (position.kind === "reading") return position.anchorMessageID
   return position.messageID
-}
-
-function diagnosticData(input: {
-  before: TimelineScrollControllerState
-  after: TimelineScrollControllerState
-  intent?: TimelineScrollIntent
-  observation?: TimelineScrollObservation
-  accepted: boolean
-  recovery: TimelineRecovery
-  reason: TimelineScrollReason
-  coalescedCount?: number
-}): TimelineScrollDiagnosticData {
-  const observation = input.observation
-  const metrics = observation && "metrics" in observation ? observation.metrics : undefined
-  const intent = input.intent
-  const intentSource = intent && "source" in intent ? intent.source : undefined
-  const anchor = input.recovery.type === "restore_anchor" ? input.recovery.anchor : input.after.lastSafePosition
-  return {
-    mode_before: input.before.mode,
-    mode_after: input.after.mode,
-    intent_type: input.intent?.type,
-    intent_source: intentSource,
-    observation_type: input.observation?.type,
-    accepted: input.accepted,
-    recovery: input.recovery.type !== "none",
-    reason: input.reason,
-    anchor_kind: anchorKind(anchor),
-    anchor_message_id: anchorMessageID(anchor),
-    submit_origin_mode: input.after.submitOriginMode,
-    near_top: metrics?.nearTop,
-    near_bottom: metrics?.nearBottom,
-    near_anchor: input.recovery.type === "restore_anchor",
-    session_owner: input.after.sessionOwner,
-    viewport_owner: input.after.viewportOwner,
-    coalesced_count: input.coalescedCount,
-  }
-}
-
-export function createTimelineScrollControllerDiagnostic(input: {
-  routeSessionID?: string
-  visibleSessionID?: string
-  timelineSessionID?: string
-  data: TimelineScrollDiagnosticData
-}): TimelineScrollDiagnosticEvent {
-  return {
-    name: "session.timeline.scroll_controller",
-    route_session_id: input.routeSessionID,
-    visible_session_id: input.visibleSessionID,
-    timeline_session_id: input.timelineSessionID,
-    data: input.data,
-  }
 }
 
 function isExplicitTopIntent(intent: TimelineScrollIntent) {
@@ -300,22 +221,19 @@ function isExplicitBottomIntent(intent: TimelineScrollIntent) {
   return false
 }
 
-function updateSafePosition(state: TimelineScrollControllerState, safePosition: TimelineSafePosition | undefined) {
-  if (safePosition) state.lastSafePosition = safePosition
-}
-
-function updateObservedSafePosition(
-  state: TimelineScrollControllerState,
-  safePosition: TimelineSafePosition | undefined,
-) {
-  if (
-    state.mode === "targeting_message" &&
-    state.lastSafePosition.kind === "target_message" &&
-    safePosition?.kind !== "target_message"
-  ) {
-    return
+export function createTimelineScrollControllerDiagnostic(input: {
+  routeSessionID?: string
+  visibleSessionID?: string
+  timelineSessionID?: string
+  data: TimelineScrollDiagnosticData
+}): TimelineScrollDiagnosticEvent {
+  return {
+    name: "session.timeline.scroll_controller",
+    route_session_id: input.routeSessionID,
+    visible_session_id: input.visibleSessionID,
+    timeline_session_id: input.timelineSessionID,
+    data: input.data,
   }
-  updateSafePosition(state, safePosition)
 }
 
 export function createSessionTimelineScrollController(
@@ -324,10 +242,8 @@ export function createSessionTimelineScrollController(
   const state: TimelineScrollControllerState = {
     mode: "following_latest",
     lastSafePosition: { kind: "latest" },
-    pendingRecovery: noRecovery,
     sessionOwner: options.sessionOwner,
     viewportOwner: options.viewportOwner,
-    latestProtected: false,
   }
 
   const emit = (input: {
@@ -335,15 +251,33 @@ export function createSessionTimelineScrollController(
     intent?: TimelineScrollIntent
     observation?: TimelineScrollObservation
     accepted: boolean
-    recovery: TimelineRecovery
+    anchorChanged: boolean
     reason: TimelineScrollReason
   }) => {
+    const observation = input.observation
+    const metrics = observation && "metrics" in observation ? observation.metrics : undefined
+    const intentSource = input.intent && "source" in input.intent ? input.intent.source : undefined
     options.emitDiagnostic?.(
       createTimelineScrollControllerDiagnostic({
         routeSessionID: options.routeSessionID,
         visibleSessionID: options.visibleSessionID,
         timelineSessionID: options.timelineSessionID,
-        data: diagnosticData({ ...input, after: cloneState(state) }),
+        data: {
+          mode_before: input.before.mode,
+          mode_after: state.mode,
+          intent_type: input.intent?.type,
+          intent_source: intentSource,
+          observation_type: input.observation?.type,
+          accepted: input.accepted,
+          anchor_changed: input.anchorChanged,
+          reason: input.reason,
+          anchor_kind: anchorKind(state.lastSafePosition),
+          anchor_message_id: anchorMessageID(state.lastSafePosition),
+          near_top: metrics?.nearTop,
+          near_bottom: metrics?.nearBottom,
+          session_owner: state.sessionOwner,
+          viewport_owner: state.viewportOwner,
+        },
       }),
     )
   }
@@ -353,80 +287,56 @@ export function createSessionTimelineScrollController(
     intent?: TimelineScrollIntent
     observation?: TimelineScrollObservation
     accepted: boolean
-    recovery: TimelineRecovery
+    anchorChanged: boolean
     reason: TimelineScrollReason
   }): TimelineScrollControllerResult => {
-    state.pendingRecovery = input.recovery
     emit(input)
-    return {
-      accepted: input.accepted,
-      recovery: input.recovery,
-      reason: input.reason,
-    }
+    return { accepted: input.accepted, mode: state.mode, anchorChanged: input.anchorChanged, reason: input.reason }
+  }
+
+  const followLatest = (
+    before: TimelineScrollControllerState,
+    intent: TimelineScrollIntent | undefined,
+    observation: TimelineScrollObservation | undefined,
+    reason: TimelineScrollReason,
+  ) => {
+    state.mode = "following_latest"
+    state.lastSafePosition = { kind: "latest" }
+    return result({ before, intent, observation, accepted: true, anchorChanged: true, reason })
   }
 
   return {
     state: () => cloneState(state),
     intent(intent) {
       const before = cloneState(state)
-      state.lastIntent = intent
 
       if (intent.type === "submit") {
-        state.mode = "following_latest"
-        state.submitOriginMode = intent.originMode
-        state.latestProtected = true
-        state.lastSafePosition = { kind: "latest" }
-        return result({
-          before,
-          intent,
-          accepted: true,
-          recovery: { type: "restore_latest", reason: "submit_follow_latest" },
-          reason: "submit_follow_latest",
-        })
+        return followLatest(before, intent, undefined, "submit_follow_latest")
       }
 
       if (intent.type === "target_message") {
         state.mode = "targeting_message"
-        state.latestProtected = false
         state.lastSafePosition = {
           kind: "target_message",
           messageID: intent.messageID,
           align: intent.align,
           loadPolicy: "load_until_visible",
         }
-        return result({
-          before,
-          intent,
-          accepted: true,
-          recovery: { type: "restore_anchor", reason: "target_message_requested", anchor: state.lastSafePosition },
-          reason: "target_message_requested",
-        })
+        return result({ before, intent, accepted: true, anchorChanged: true, reason: "target_message_requested" })
       }
 
       if (isExplicitBottomIntent(intent)) {
-        state.mode = "following_latest"
-        state.latestProtected = true
-        state.lastSafePosition = { kind: "latest" }
-        return result({
-          before,
-          intent,
-          accepted: true,
-          recovery: { type: "restore_latest", reason: "explicit_bottom_navigation" },
-          reason: "explicit_bottom_navigation",
-        })
+        return followLatest(before, intent, undefined, "explicit_bottom_navigation")
       }
 
       if (isExplicitTopIntent(intent)) {
+        // Any upward navigation leaves follow mode immediately, regardless of
+        // gesture strength. The reading anchor is sampled by the host on the
+        // scroll event that accompanies this gesture.
+        const wasReading = state.mode === "reading_history"
         state.mode = "reading_history"
-        state.latestProtected = false
         const reason = intent.type === "keyboard_scroll" ? "explicit_top_navigation" : "user_upward_navigation"
-        return result({
-          before,
-          intent,
-          accepted: true,
-          recovery: noRecovery,
-          reason,
-        })
+        return result({ before, intent, accepted: true, anchorChanged: !wasReading, reason })
       }
 
       if (
@@ -435,34 +345,16 @@ export function createSessionTimelineScrollController(
         intent.strength === "strong" &&
         !intent.nestedScrollable
       ) {
-        return result({
-          before,
-          intent,
-          accepted: true,
-          recovery: noRecovery,
-          reason: "strong_downward_navigation",
-        })
+        return result({ before, intent, accepted: true, anchorChanged: false, reason: "strong_downward_navigation" })
       }
 
       if (intent.type === "scrollbar_drag_start") {
+        const wasReading = state.mode === "reading_history"
         state.mode = "reading_history"
-        state.latestProtected = false
-        return result({
-          before,
-          intent,
-          accepted: true,
-          recovery: noRecovery,
-          reason: "scrollbar_drag_started",
-        })
+        return result({ before, intent, accepted: true, anchorChanged: !wasReading, reason: "scrollbar_drag_started" })
       }
 
-      return result({
-        before,
-        intent,
-        accepted: true,
-        recovery: noRecovery,
-        reason: "weak_scroll_observed",
-      })
+      return result({ before, intent, accepted: true, anchorChanged: false, reason: "weak_scroll_observed" })
     },
     observe(observation) {
       const before = cloneState(state)
@@ -470,129 +362,48 @@ export function createSessionTimelineScrollController(
       if (observation.type === "owner_detached") {
         const ownerMatches =
           observation.sessionOwner === state.sessionOwner && observation.viewportOwner === state.viewportOwner
-        if (ownerMatches) {
-          state.pendingRecovery = noRecovery
-          state.latestProtected = false
-        }
         return result({
           before,
           observation,
           accepted: ownerMatches,
-          recovery: noRecovery,
+          anchorChanged: false,
           reason: ownerMatches ? "owner_detached" : "owner_mismatch_cancelled",
         })
       }
 
       if (observation.type === "scroll_sample") {
+        // Reaching the bottom is the signal to resume following the latest output,
+        // mirroring the old auto-scroll "distance < threshold" behavior.
         if (observation.metrics.nearBottom) {
-          updateObservedSafePosition(state, observation.safePosition ?? { kind: "latest" })
-          if (state.lastIntent && isExplicitBottomIntent(state.lastIntent)) {
-            state.mode = "following_latest"
-            state.latestProtected = true
-            return result({
-              before,
-              observation,
-              accepted: true,
-              recovery: noRecovery,
-              reason: "explicit_bottom_navigation",
-            })
-          }
+          return followLatest(before, undefined, observation, "reached_bottom_follow_latest")
         }
 
-        if (
-          state.mode === "following_latest" &&
-          state.latestProtected &&
-          observation.metrics.nearTop &&
-          !observation.metrics.nearBottom &&
-          !(state.lastIntent && isExplicitTopIntent(state.lastIntent))
-        ) {
+        if (state.mode === "reading_history" && observation.safePosition?.kind === "reading") {
+          state.lastSafePosition = observation.safePosition
           return result({
             before,
             observation,
-            accepted: false,
-            recovery: { type: "restore_latest", reason: "submit_restore_latest_after_top_reset" },
-            reason: "submit_restore_latest_after_top_reset",
+            accepted: true,
+            anchorChanged: true,
+            reason: "reading_anchor_sampled",
           })
         }
 
-        updateObservedSafePosition(state, observation.safePosition)
-        return result({
-          before,
-          observation,
-          accepted: true,
-          recovery: noRecovery,
-          reason: state.mode === "reading_history" ? "reading_anchor_preserved" : "weak_scroll_observed",
-        })
+        return result({ before, observation, accepted: true, anchorChanged: false, reason: "weak_scroll_observed" })
       }
 
-      if (state.mode === "reading_history" && state.lastSafePosition.kind === "reading") {
-        const reason =
-          observation.type === "content_resize"
-            ? "content_resize_preserve_reading"
-            : observation.type === "dock_resize"
-              ? "dock_resize_preserve_anchor"
-              : "reading_anchor_preserved"
-        return result({
-          before,
-          observation,
-          accepted: true,
-          recovery: {
-            type: "restore_anchor",
-            reason,
-            anchor: state.lastSafePosition,
-          },
-          reason,
-        })
-      }
-
-      if (state.mode === "targeting_message" && state.lastSafePosition.kind === "target_message") {
-        return result({
-          before,
-          observation,
-          accepted: true,
-          recovery: {
-            type: "restore_anchor",
-            reason: "window_changed_preserve_target",
-            anchor: state.lastSafePosition,
-          },
-          reason: "window_changed_preserve_target",
-        })
-      }
-
-      if (state.mode === "following_latest") {
-        return result({
-          before,
-          observation,
-          accepted: true,
-          recovery: { type: "restore_latest", reason: "follow_latest_preserved" },
-          reason: "follow_latest_preserved",
-        })
-      }
-
-      return result({
-        before,
-        observation,
-        accepted: true,
-        recovery: noRecovery,
-        reason: "weak_scroll_observed",
-      })
+      // content_resize / dock_resize / window_changed do not change intent.
+      // The host marks the reconciler dirty so the current anchor is re-pinned.
+      return result({ before, observation, accepted: true, anchorChanged: false, reason: "weak_scroll_observed" })
     },
     detach(owner) {
       const before = cloneState(state)
       const ownerMatches = owner.sessionOwner === state.sessionOwner && owner.viewportOwner === state.viewportOwner
-      if (ownerMatches) {
-        state.pendingRecovery = noRecovery
-        state.latestProtected = false
-      }
       return result({
         before,
-        observation: {
-          type: "owner_detached",
-          sessionOwner: owner.sessionOwner,
-          viewportOwner: owner.viewportOwner,
-        },
+        observation: { type: "owner_detached", sessionOwner: owner.sessionOwner, viewportOwner: owner.viewportOwner },
         accepted: ownerMatches,
-        recovery: noRecovery,
+        anchorChanged: false,
         reason: ownerMatches ? "owner_detached" : "owner_mismatch_cancelled",
       })
     },

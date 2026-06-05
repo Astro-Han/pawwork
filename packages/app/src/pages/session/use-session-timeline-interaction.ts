@@ -1,10 +1,8 @@
 import type { UserMessage } from "@opencode-ai/sdk/v2"
-import { createEffect, createMemo, on, onCleanup } from "solid-js"
-import { createStore } from "solid-js/store"
+import { createEffect, createMemo, createSignal, on, onCleanup } from "solid-js"
 import { emitRendererDiagnostic } from "@/context/renderer-diagnostics"
 import {
   collectTimelineScrollMetrics,
-  restoreTimelineSafePosition,
   sampleTimelineSafePosition,
 } from "@/pages/session/session-timeline-scroll-anchors"
 import { createSessionActiveMessage } from "@/pages/session/use-session-active-message"
@@ -14,14 +12,10 @@ import { createSessionHistoryWindow } from "@/pages/session/use-session-history-
 import { createSessionScrollDock } from "@/pages/session/use-session-scroll-dock"
 import { createTimelineVirtualRows } from "@/pages/session/timeline-virtual-rows"
 import { createTimelineVirtualizerBridge } from "@/pages/session/timeline-virtualizer-bridge"
-import {
-  createTimelineLayoutTransactionCoordinator,
-  type TimelineLayoutTransactionKind,
-} from "@/pages/session/timeline-layout-transaction"
-import { shouldApplyTimelineRecoveryForObservation } from "@/pages/session/timeline-layout-recovery-policy"
+import { createTimelineScrollReconciler } from "@/pages/session/timeline-scroll-reconciler"
 import {
   createSessionTimelineScrollController,
-  type TimelineRecovery,
+  type TimelineSafePosition,
   type TimelineScrollControllerResult,
   type TimelineScrollIntent,
   type TimelineScrollObservation,
@@ -45,12 +39,10 @@ export function createSessionTimelineInteraction(input: {
   let activeMessage!: ReturnType<typeof createSessionActiveMessage>
   let historyBackfill: ReturnType<typeof createSessionHistoryBackfill> | undefined
   let historyWindow!: ReturnType<typeof createSessionHistoryWindow>
-  let recoveryFrame: number | undefined
-  const [layoutTransactionState, setLayoutTransactionState] = createStore({
-    active: false,
-    transactionID: undefined as string | undefined,
-    kind: undefined as TimelineLayoutTransactionKind | undefined,
-  })
+  let scrollDock!: ReturnType<typeof createSessionScrollDock>
+  let virtualizerBridge!: ReturnType<typeof createTimelineVirtualizerBridge>
+  const [reconcilerActive, setReconcilerActive] = createSignal(false)
+
   const createScrollController = () =>
     createSessionTimelineScrollController({
       sessionOwner: input.sessionKey(),
@@ -63,14 +55,8 @@ export function createSessionTimelineInteraction(input: {
       },
     })
   let scrollController = createScrollController()
+
   const scrollCommandSink = createTimelineScrollCommandSink({
-    activeTransaction: () =>
-      layoutTransactionState.active && layoutTransactionState.transactionID && layoutTransactionState.kind
-        ? {
-            transactionID: layoutTransactionState.transactionID,
-            transactionKind: layoutTransactionState.kind,
-          }
-        : undefined,
     emitDiagnostic: (event) => {
       void emitRendererDiagnostic(event).catch(() => {})
     },
@@ -86,92 +72,71 @@ export function createSessionTimelineInteraction(input: {
     }),
   })
 
-  const layoutTransactionCoordinator = createTimelineLayoutTransactionCoordinator({
-    scheduleFrame: (callback) => requestAnimationFrame(callback),
-    cancelFrame: (handle) => cancelAnimationFrame(handle),
-    readMode: () => scrollController.state().mode,
-    sampleAnchor: () => {
-      const viewport = scrollDock.scroller()
-      const controllerState = scrollController.state()
-      const targetMessageID =
-        controllerState.lastSafePosition.kind === "target_message"
-          ? controllerState.lastSafePosition.messageID
-          : undefined
-      if (!viewport) return controllerState.lastSafePosition
-      return sampleTimelineSafePosition({
-        viewport,
-        mode: controllerState.mode,
-        renderedStart: historyWindow.turnStart(),
-        renderedCount: historyWindow.renderedUserMessages().length,
-        newestMessageID: input.visibleUserMessages().at(-1)?.id,
-        targetMessageID,
+  const sampleAnchor = (): TimelineSafePosition => {
+    const viewport = scrollDock.scroller()
+    const controllerState = scrollController.state()
+    const targetMessageID =
+      controllerState.lastSafePosition.kind === "target_message"
+        ? controllerState.lastSafePosition.messageID
+        : undefined
+    if (!viewport) return controllerState.lastSafePosition
+    return sampleTimelineSafePosition({
+      viewport,
+      mode: controllerState.mode,
+      renderedStart: historyWindow.turnStart(),
+      renderedCount: historyWindow.renderedUserMessages().length,
+      newestMessageID: input.visibleUserMessages().at(-1)?.id,
+      targetMessageID,
+    })
+  }
+
+  const reconciler = createTimelineScrollReconciler({
+    viewport: () => scrollDock.scroller(),
+    scrollCommandSink,
+    resolveAnchor: () => scrollController.state().lastSafePosition,
+    setActive: setReconcilerActive,
+    requestReveal: (position) => {
+      const messageID =
+        position.kind === "reading"
+          ? position.anchorMessageID
+          : position.kind === "target_message"
+            ? position.messageID
+            : undefined
+      if (!messageID) return
+      virtualizerBridge.scrollMessageNearTop({
+        messageID,
+        viewport: scrollDock.scroller(),
+        behavior: "auto",
+        sink: scrollCommandSink,
+        source: "use-session-timeline-interaction/reconcilerReveal",
+        reason: "anchor-not-mounted",
       })
     },
-    restoreAnchor: (position, transactionID) => {
-      const viewport = scrollDock.scroller()
-      const restored = restoreTimelineSafePosition({
-        viewport,
-        position,
-        scrollCommandSink: scrollCommandSink.withTransaction({
-          transactionID,
-          transactionKind: layoutTransactionState.kind ?? "content-resize",
-        }),
-      })
-      if (restored.ok && viewport) scrollDock.scheduleScrollState(viewport)
-      return restored.ok
-    },
-    restoreLatest: () => false,
-    setStableBandActive: (active) => {
-      if (!active) setLayoutTransactionState({ active: false, transactionID: undefined, kind: undefined })
-    },
-    setTransactionState: (state) => {
-      if (state.active) {
-        setLayoutTransactionState({ active: true, transactionID: state.transactionID, kind: state.kind })
-        return
-      }
-      setLayoutTransactionState({ active: false, transactionID: undefined, kind: undefined })
-    },
-    emitDiagnostic: (event) => {
+    emitDiagnostic: (diagnostic) => {
       void emitRendererDiagnostic({
-        name: "session.timeline.layout_transaction",
+        name: "session.timeline.reconcile",
         route_session_id: input.routeSessionID(),
         visible_session_id: input.sessionID(),
         timeline_session_id: input.sessionID(),
-        monotonic_ms: event.monotonicMs,
         data: {
-          transaction_id: event.transactionID,
-          transaction_kind: event.kind,
-          transaction_phase: event.phase,
-          transaction_status: event.violation ? "violation" : undefined,
-          mode: event.mode,
-          source: event.source,
-          reason: event.reason,
-          anchor_kind: event.anchorKind,
-          anchor_message_id: event.anchorMessageID,
-          fallback_frames: event.fallbackFrames,
-          violation: event.violation,
+          reason: diagnostic.reason,
+          outcome: diagnostic.outcome,
+          anchor_kind: diagnostic.anchorKind,
+          anchor_message_id: diagnostic.anchorMessageID,
+          reveal_attempts: diagnostic.revealAttempts,
+          delta: diagnostic.delta,
         },
       }).catch(() => {})
     },
   })
 
-  const cancelRecoveryFrame = () => {
-    if (recoveryFrame === undefined) return
-    cancelAnimationFrame(recoveryFrame)
-    recoveryFrame = undefined
-  }
-
   createEffect(
     on(
       () => [input.sessionKey(), input.sessionID()] as const,
       () => {
-        layoutTransactionCoordinator.cancel()
-        cancelRecoveryFrame()
+        reconciler.cancel()
         const previous = scrollController.state()
-        scrollController.detach({
-          sessionOwner: previous.sessionOwner,
-          viewportOwner: previous.viewportOwner,
-        })
+        scrollController.detach({ sessionOwner: previous.sessionOwner, viewportOwner: previous.viewportOwner })
         scrollController = createScrollController()
       },
       { defer: true },
@@ -179,40 +144,30 @@ export function createSessionTimelineInteraction(input: {
   )
 
   onCleanup(() => {
-    layoutTransactionCoordinator.cancel()
-    cancelRecoveryFrame()
+    reconciler.cancel()
     const owner = scrollController.state()
-    scrollController.detach({
-      sessionOwner: owner.sessionOwner,
-      viewportOwner: owner.viewportOwner,
-    })
+    scrollController.detach({ sessionOwner: owner.sessionOwner, viewportOwner: owner.viewportOwner })
   })
 
-  let scrollDock!: ReturnType<typeof createSessionScrollDock>
   scrollDock = createSessionScrollDock({
-    clearMessageHash: () => clearMessageHash(),
-    clearActiveMessage: () => activeMessage?.clearActiveMessage(),
     fill: () => historyBackfill?.fill(),
-    scrollCommandSink,
     onContentResize: () => {
       const viewport = scrollDock.scroller()
       if (!viewport) return
-      onTimelineScrollObservation({
-        type: "content_resize",
-        metrics: collectTimelineScrollMetrics(viewport),
-      })
+      scrollController.observe({ type: "content_resize", metrics: collectTimelineScrollMetrics(viewport) })
+      reconciler.markDirty("content-resize")
     },
     onDockHeightChange: (event) => {
       const viewport = scrollDock.scroller()
       if (viewport) {
-        onTimelineScrollObservation({
+        scrollController.observe({
           type: "dock_resize",
           dockKind: event.dockKind,
           previousDockHeight: event.previousComposerHeight,
           nextDockHeight: event.composerHeight,
           metrics: collectTimelineScrollMetrics(viewport),
-          layoutTransactionHandled: event.layoutTransactionHandled,
         })
+        reconciler.markDirty("dock-resize")
       }
       void emitRendererDiagnostic({
         name: "session.layout.composer_dock",
@@ -228,21 +183,20 @@ export function createSessionTimelineInteraction(input: {
         },
       })
     },
-    runLayoutTransaction: (event) => {
-      layoutTransactionCoordinator.run({
-        kind: event.kind,
-        source: event.source,
-        reason: event.reason,
-        mode: event.stickToBottom ? "following_latest" : undefined,
-        mutate: event.mutate,
-        restoreLatest: event.restoreLatest,
-      })
-    },
   })
-  const autoScroll = scrollDock.autoScroll
-  const lockOwner = () => input.sessionKey()
-  const resumeScroll = () => scrollDock.resumeScroll(lockOwner())
-  const userScrolledForHistory = () => (scrollDock.bottomFollowLocked(lockOwner()) ? false : autoScroll.userScrolled())
+
+  const userScrolledForHistory = () => scrollController.state().mode !== "following_latest"
+
+  // Resume following the latest output: jump-to-latest intent + reconcile.
+  const resumeScroll = () => {
+    scrollController.intent({ type: "jump_latest", source: "submit" })
+    historyWindow.resumeLatestWindow()
+    reconciler.markDirty("intent")
+  }
+
+  // Pause auto-follow before navigating to a specific message (cancels any
+  // in-flight latest re-pin; the subsequent target intent takes over synchronously).
+  const pauseFollow = () => reconciler.cancel()
 
   activeMessage = createSessionActiveMessage({
     sessionKey: input.sessionKey,
@@ -250,7 +204,7 @@ export function createSessionTimelineInteraction(input: {
     lastUserMessageID: () => input.visibleUserMessages().at(-1)?.id,
     scroller: scrollDock.scroller,
     resumeScroll,
-    pauseAutoScroll: autoScroll.pause,
+    pauseAutoScroll: pauseFollow,
   })
 
   historyWindow = createSessionHistoryWindow({
@@ -273,12 +227,12 @@ export function createSessionTimelineInteraction(input: {
       turnStart: historyWindow.turnStart(),
     }),
   )
-  const virtualizerBridge = createTimelineVirtualizerBridge({ rows: virtualRows })
+  virtualizerBridge = createTimelineVirtualizerBridge({ rows: virtualRows })
 
   const resumeLatest = () => {
-    const result = scrollController.intent({ type: "jump_latest", source: "button" })
+    scrollController.intent({ type: "jump_latest", source: "button" })
     historyWindow.resumeLatestWindow()
-    applyTimelineRecovery(result.recovery)
+    reconciler.markDirty("intent")
   }
 
   historyBackfill = createSessionHistoryBackfill({
@@ -289,65 +243,42 @@ export function createSessionTimelineInteraction(input: {
     historyMore: input.historyMore,
     historyLoading: input.historyLoading,
     visibleUserMessagesLength: () => input.visibleUserMessages().length,
-    userScrolled: autoScroll.userScrolled,
+    userScrolled: userScrolledForHistory,
     scroller: scrollDock.scroller,
   })
 
   const markScrollGesture = (target?: EventTarget | null) => {
-    layoutTransactionCoordinator.cancel()
-    scrollDock.cancelBottomFollowLock()
     activeMessage.markScrollGesture(target)
   }
 
-  const shouldCancelBottomFollowLockForIntent = (intent: TimelineScrollIntent) => {
-    if (intent.type === "scrollbar_drag_start" || intent.type === "target_message") return true
-    if (intent.type === "keyboard_scroll") {
-      return intent.key === "ArrowUp" || intent.key === "PageUp" || intent.key === "Home"
-    }
-    if (intent.type === "wheel_scroll" || intent.type === "touch_scroll") {
-      return intent.direction === "up" && !intent.nestedScrollable
-    }
-    return false
-  }
-
   const navigateMessageByOffset = (offset: number) => {
-    layoutTransactionCoordinator.cancel()
-    scrollDock.cancelBottomFollowLock()
     activeMessage.navigateMessageByOffset(offset)
   }
 
-  const applyTimelineRecovery = (recovery: TimelineRecovery) => {
-    if (recovery.type === "none") return
-    cancelRecoveryFrame()
-    const owner = scrollController.state()
-    recoveryFrame = requestAnimationFrame(() => {
-      recoveryFrame = undefined
-      const current = scrollController.state()
-      if (current.sessionOwner !== owner.sessionOwner || current.viewportOwner !== owner.viewportOwner) return
-
-      if (recovery.type === "restore_latest") {
-        if (current.mode !== "following_latest") return
-        resumeScroll()
-        return
-      }
-
-      const viewport = scrollDock.scroller()
-      const restored = restoreTimelineSafePosition({
-        viewport,
-        position: recovery.anchor,
-        scrollCommandSink,
-      })
-      if (restored.ok && viewport) scrollDock.scheduleScrollState(viewport)
+  // Selecting text in the timeline while following should stop the auto-follow
+  // so the selection does not get yanked to the bottom by streaming content.
+  const onTimelineInteraction = () => {
+    if (scrollController.state().mode !== "following_latest") return
+    const selection = typeof window === "undefined" ? null : window.getSelection()
+    if (!selection || selection.toString().length === 0) return
+    const viewport = scrollDock.scroller()
+    if (!viewport) return
+    onTimelineScrollIntent({
+      type: "scrollbar_drag_start",
+      source: "scroll_view",
+      metrics: collectTimelineScrollMetrics(viewport),
     })
   }
 
   const onTimelineScrollIntent = (intent: TimelineScrollIntent): TimelineScrollControllerResult => {
-    if (shouldCancelBottomFollowLockForIntent(intent)) {
-      layoutTransactionCoordinator.cancel()
-      scrollDock.cancelBottomFollowLock()
-    }
+    const before = scrollController.state().mode
     const result = scrollController.intent(intent)
-    applyTimelineRecovery(result.recovery)
+    // Leaving follow mode via a user gesture drops the latest highlight + hash.
+    if (before === "following_latest" && result.mode === "reading_history") {
+      activeMessage.clearActiveMessage()
+      clearMessageHash()
+    }
+    reconciler.markDirty("intent")
     return result
   }
 
@@ -355,52 +286,23 @@ export function createSessionTimelineInteraction(input: {
     let next = observation
     if (observation.type === "scroll_sample" && !observation.safePosition) {
       const viewport = scrollDock.scroller()
-      if (viewport) {
-        const controllerState = scrollController.state()
-        const targetMessageID =
-          controllerState.lastSafePosition.kind === "target_message"
-            ? controllerState.lastSafePosition.messageID
-            : undefined
-        next = {
-          ...observation,
-          safePosition: sampleTimelineSafePosition({
-            viewport,
-            mode: controllerState.mode,
-            renderedStart: historyWindow.turnStart(),
-            renderedCount: historyWindow.renderedUserMessages().length,
-            newestMessageID: input.visibleUserMessages().at(-1)?.id,
-            targetMessageID,
-          }),
-        }
-      }
+      if (viewport) next = { ...observation, safePosition: sampleAnchor() }
     }
-    const result = scrollController.observe(next)
-    if (
-      shouldApplyTimelineRecoveryForObservation({
-        layoutTransactionActive: layoutTransactionState.active,
-        layoutTransactionHandled:
-          "layoutTransactionHandled" in observation ? observation.layoutTransactionHandled : undefined,
-        observationType: observation.type,
-      })
-    ) {
-      applyTimelineRecovery(result.recovery)
-    }
-    return result
+    return scrollController.observe(next)
   }
 
   const submitLatest = () => {
-    const result = scrollController.intent({
-      type: "submit",
-      originMode: scrollController.state().mode,
-    })
-    applyTimelineRecovery(result.recovery)
+    scrollController.intent({ type: "submit", originMode: scrollController.state().mode })
+    reconciler.markDirty("intent")
   }
 
+  // New turns / window shifts re-pin the current anchor (bottom-follow while
+  // streaming, stable reading position while reading).
   createEffect(
     on(
       () => [input.sessionID(), input.visibleUserMessages().at(-1)?.id, historyWindow.turnStart()] as const,
       () => {
-        scrollDock.restoreBottomIfLocked(lockOwner())
+        reconciler.markDirty("frame-changed")
       },
       { defer: true },
     ),
@@ -420,7 +322,10 @@ export function createSessionTimelineInteraction(input: {
     setPendingMessage: activeMessage.setPendingMessage,
     setActiveMessage: activeMessage.setActiveMessage,
     markHashTarget: historyWindow.markHashTarget,
-    autoScroll,
+    autoScroll: {
+      pause: pauseFollow,
+      forceScrollToBottom: resumeScroll,
+    },
     scroller: scrollDock.scroller,
     anchor,
     scheduleScrollState: scrollDock.scheduleScrollState,
@@ -436,12 +341,7 @@ export function createSessionTimelineInteraction(input: {
         reason: "hash-target-not-mounted",
       }),
     onMessageNavigation: (messageID) => {
-      scrollDock.cancelBottomFollowLock()
-      onTimelineScrollIntent({
-        type: "target_message",
-        messageID,
-        align: "nearest",
-      })
+      onTimelineScrollIntent({ type: "target_message", messageID, align: "nearest" })
     },
     onMessageHashCleared: () => historyWindow.clearHashTarget(),
   })
@@ -450,7 +350,6 @@ export function createSessionTimelineInteraction(input: {
 
   return {
     activeMessage,
-    autoScroll,
     anchor,
     historyWindow,
     virtualizerBridge,
@@ -458,12 +357,11 @@ export function createSessionTimelineInteraction(input: {
     submitLatest,
     scheduleScrollState: scrollDock.scheduleScrollState,
     scrollDock,
-    layoutTransactionActive: () => layoutTransactionState.active,
-    layoutTransactionID: () => layoutTransactionState.transactionID,
-    layoutTransactionKind: () => layoutTransactionState.kind,
+    reconcilerActive,
     setScrollRef: scrollDock.setScrollRef,
     markScrollGesture,
     navigateMessageByOffset,
+    onTimelineInteraction,
     onTimelineScrollIntent,
     onTimelineScrollObservation,
   }

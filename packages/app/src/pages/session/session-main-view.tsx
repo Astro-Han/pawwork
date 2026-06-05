@@ -38,7 +38,7 @@ export function SessionMainView(props: {
   resumeScroll: () => void
   setScrollRef: TimelineProps["setScrollRef"]
   scheduleScrollState: TimelineProps["onScheduleScrollState"]
-  autoScroll: ReturnType<typeof createSessionScrollDock>["autoScroll"]
+  onTimelineInteraction: TimelineProps["onTimelineInteraction"]
   markScrollGesture: TimelineProps["onMarkScrollGesture"]
   hasScrollGesture: TimelineProps["hasScrollGesture"]
   markUserScroll: TimelineProps["onUserScroll"]
@@ -51,9 +51,7 @@ export function SessionMainView(props: {
   historyLoading: boolean
   anchor: TimelineProps["anchor"]
   virtualizerBridge: TimelineProps["virtualizerBridge"]
-  layoutTransactionActive: TimelineProps["layoutTransactionActive"]
-  layoutTransactionID: TimelineProps["layoutTransactionID"]
-  layoutTransactionKind: TimelineProps["layoutTransactionKind"]
+  reconcilerActive: TimelineProps["reconcilerActive"]
   composerSession: JSX.Element
   composerHome: (ctx: { onModeChange: (mode: "normal" | "shell") => void }) => JSX.Element
   canReview: () => boolean
@@ -155,14 +153,13 @@ export function SessionMainView(props: {
                   onResumeScroll={props.resumeScroll}
                   setScrollRef={props.setScrollRef}
                   onScheduleScrollState={props.scheduleScrollState}
-                  onAutoScrollHandleScroll={props.autoScroll.handleScroll}
                   onMarkScrollGesture={props.markScrollGesture}
                   hasScrollGesture={props.hasScrollGesture}
                   onUserScroll={props.markUserScroll}
                   onTimelineScrollIntent={props.onTimelineScrollIntent}
                   onTimelineScrollObservation={props.onTimelineScrollObservation}
                   onTurnBackfillScroll={props.historyWindow.onScrollerScroll}
-                  onAutoScrollInteraction={props.autoScroll.handleInteraction}
+                  onTimelineInteraction={props.onTimelineInteraction}
                   centered={props.centered}
                   setContentRef={props.setContentRef}
                   turnStart={props.historyWindow.turnStart()}
@@ -174,9 +171,7 @@ export function SessionMainView(props: {
                   renderedUserMessages={props.historyWindow.renderedUserMessages()}
                   anchor={props.anchor}
                   virtualizerBridge={props.virtualizerBridge}
-                  layoutTransactionActive={props.layoutTransactionActive}
-                  layoutTransactionID={props.layoutTransactionID}
-                  layoutTransactionKind={props.layoutTransactionKind}
+                  reconcilerActive={props.reconcilerActive}
                 />
               </Match>
               <Match when={!props.activeSessionID}>

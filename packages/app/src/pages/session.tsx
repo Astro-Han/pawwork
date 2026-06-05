@@ -282,7 +282,6 @@ export default function Page() {
     consumePendingMessage: layout.pendingMessage.consume,
   })
   const activeMessage = timelineInteraction.activeMessage
-  const autoScroll = timelineInteraction.autoScroll
   const historyWindow = timelineInteraction.historyWindow
   const resumeScroll = timelineInteraction.resumeScroll
   const scheduleScrollState = timelineInteraction.scheduleScrollState
@@ -468,7 +467,7 @@ export default function Page() {
       resumeScroll={resumeScroll}
       setScrollRef={setScrollRef}
       scheduleScrollState={scheduleScrollState}
-      autoScroll={autoScroll}
+      onTimelineInteraction={timelineInteraction.onTimelineInteraction}
       markScrollGesture={timelineInteraction.markScrollGesture}
       hasScrollGesture={activeMessage.hasScrollGesture}
       markUserScroll={activeMessage.markUserScroll}
@@ -481,9 +480,7 @@ export default function Page() {
       historyLoading={timelineHistoryLoading()}
       anchor={timelineInteraction.anchor}
       virtualizerBridge={timelineInteraction.virtualizerBridge}
-      layoutTransactionActive={timelineInteraction.layoutTransactionActive}
-      layoutTransactionID={timelineInteraction.layoutTransactionID}
-      layoutTransactionKind={timelineInteraction.layoutTransactionKind}
+      reconcilerActive={timelineInteraction.reconcilerActive}
       composerSession={renderComposerRegion()}
       composerHome={renderHomeComposerRegion}
       canReview={canReview}

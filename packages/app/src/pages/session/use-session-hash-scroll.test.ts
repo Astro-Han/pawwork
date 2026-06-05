@@ -33,16 +33,18 @@ describe("useSessionHashScroll", () => {
     expect(source).toContain("historyWindow.clearHashTarget()")
   })
 
-  test("timeline cancels bottom follow before hash or active-message navigation", async () => {
+  test("timeline leaves follow mode before hash or active-message navigation", async () => {
     const hashSource = await Bun.file(new URL("./use-session-hash-scroll-core.ts", import.meta.url)).text()
     const timelineSource = await Bun.file(new URL("./use-session-timeline-interaction.ts", import.meta.url)).text()
     const sessionSource = await Bun.file(new URL("../session.tsx", import.meta.url)).text()
 
     expect(hashSource).toContain("onMessageNavigation")
     expect(hashSource).toContain("input.onMessageNavigation?.(message.id)")
+    // Hash navigation issues a target_message intent (which leaves follow mode),
+    // and keyboard navigation pauses auto-follow via the reconciler.
     expect(timelineSource).toContain('type: "target_message"')
     expect(timelineSource).toContain("const navigateMessageByOffset")
-    expect(timelineSource).toContain("scrollDock.cancelBottomFollowLock()")
+    expect(timelineSource).toContain("const pauseFollow = () => reconciler.cancel()")
     expect(sessionSource).toContain("markScrollGesture: timelineInteraction.markScrollGesture")
     expect(sessionSource).toContain("navigateMessageByOffset: timelineInteraction.navigateMessageByOffset")
   })
