@@ -20,6 +20,7 @@ import { createSessionComposerState, HomeComposerRegion } from "@/pages/session/
 import { createSizing } from "@/pages/session/helpers"
 import { createSessionExecutionState } from "@/pages/session/session-execution-directory"
 import { useSessionLayout } from "@/pages/session/session-layout"
+import { shouldShowSessionOpeningState } from "@/pages/session/session-main-view-state"
 import { SessionPageComposerRegion } from "@/pages/session/session-composer-region"
 import { SessionMainView } from "@/pages/session/session-main-view"
 import { createSessionRunning, isSessionRunning } from "@/pages/session/session-running-state"
@@ -123,6 +124,14 @@ export default function Page() {
   const timelineHistoryMore = timeline.historyMore
   const timelineHistoryLoading = timeline.historyLoading
   const lastUserMessage = timeline.lastUserMessage
+  const sessionOpening = createMemo(() =>
+    shouldShowSessionOpeningState({
+      activeSessionID: params.id,
+      routeSessionID: params.id,
+      routeReady: timelineMessagesReady(),
+      timelineSessionID: timelineSessionID(),
+    }),
+  )
   const turnChangeController = createSessionTurnChanges({ sessionID: timelineSessionID, sessionMessages: timelineMessages })
   const diagnostics = createSessionPageDiagnostics({
     routeSessionID: () => params.id,
@@ -379,6 +388,7 @@ export default function Page() {
   const renderComposerRegion = (ctx?: { onModeChange: (mode: "normal" | "shell") => void }) => (
     <SessionPageComposerRegion
       state={composer}
+      opening={sessionOpening()}
       ready={!deferRender() && sessionActionReady()}
       actionReady={submitReady()}
       abortReady={sessionActionReady()}
@@ -453,8 +463,7 @@ export default function Page() {
       mobileTab={mobileTab()}
       setMobileTab={setMobileTab}
       language={language}
-      routeSessionID={params.id}
-      routeReady={timelineMessagesReady()}
+      sessionOpening={sessionOpening()}
       transitioning={timeline.transitioning()}
       timelineSessionID={timelineSessionID()}
       timelineSessionKey={timelineSessionKey()}

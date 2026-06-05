@@ -1,7 +1,7 @@
 import type { Page, Route } from "@playwright/test"
 import { test, expect } from "../fixtures"
 import { cleanupSession, cleanupTestProject, createTestProject, openSidebar, waitSession, withSession } from "../actions"
-import { promptSelector, sessionTurnListSelector } from "../selectors"
+import { promptSelector, sessionComposerDockSelector, sessionTurnListSelector } from "../selectors"
 import type { createSdk } from "../utils"
 
 async function sessionRowPaint(page: Page, sessionID: string) {
@@ -279,6 +279,8 @@ test("opening a delayed sidebar session never shows the previous session as load
       try {
         await gotoSession(source.id)
         await expect(page.locator(sessionTurnListSelector).getByText(sourceText)).toBeVisible()
+        const sourceDockBox = await page.locator(sessionComposerDockSelector).boundingBox()
+        if (!sourceDockBox) throw new Error("Source composer dock did not expose a bounding box")
         await openSidebar(page)
         await expect.poll(() => targetMessageRequests, { timeout: 10_000 }).toBeGreaterThan(0)
 
@@ -289,10 +291,22 @@ test("opening a delayed sidebar session never shows the previous session as load
         await expect(page.locator(sessionTurnListSelector).getByText(sourceText)).toHaveCount(0)
         await expect(page.locator(sessionTurnListSelector).getByText(targetText)).toHaveCount(0)
         await expect(page.locator(promptSelector)).toHaveCount(0)
+        const openingDock = page.locator(
+          `${sessionComposerDockSelector}[data-state="opening-placeholder"]`,
+        )
+        await expect(openingDock).toHaveCount(1)
+        await expect
+          .poll(async () => {
+            const openingDockBox = await openingDock.boundingBox()
+            return openingDockBox ? Math.abs(openingDockBox.height - sourceDockBox.height) : Infinity
+          })
+          .toBeLessThanOrEqual(2)
 
-        await page.locator('[data-component="session-opening-state"]').getByRole("button", { name: "New session" }).click()
-        await expect(page).toHaveURL(new RegExp(`/${slug}/session(?:\\?|#|$)`))
-        await expect(page.locator('[data-component="session-new-home"]')).toBeVisible()
+        releaseMessages?.()
+        releaseMessages = undefined
+        await expect(page.locator(sessionTurnListSelector).getByText(targetText)).toBeVisible()
+        await expect(page.locator(promptSelector)).toHaveCount(1)
+        await expect(openingDock).toHaveCount(0)
       } finally {
         releaseMessages?.()
         await page.unroute(`**/session/${target.id}/message*`, delayTargetMessages)
