@@ -697,6 +697,10 @@ export default function Layout(props: ParentProps) {
     const entry = layout.projects.list().find((x) => workspaceKey(x.worktree) === workspaceKey(root))
     if (!entry) return
     const worktree = entry.worktree
+    // closeProject navigates away when the removed project is the active one, so
+    // Undo has to restore focus there too — a bare reopen would leave the user
+    // wherever the close sent them.
+    const wasActive = workspaceKey(currentProject()?.worktree ?? "") === workspaceKey(worktree)
     closeProject(worktree)
     showToast({
       title: language.t("project.remove.toast.title"),
@@ -704,7 +708,7 @@ export default function Layout(props: ParentProps) {
       actions: [
         {
           label: language.t("common.undo"),
-          onClick: () => layout.projects.open(worktree),
+          onClick: () => (wasActive ? openProject(worktree, true) : layout.projects.open(worktree)),
         },
       ],
     })
