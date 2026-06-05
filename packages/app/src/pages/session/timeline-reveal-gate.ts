@@ -42,7 +42,12 @@ export function nextRevealGateState(
   }
   if (event.type === "frame") {
     if (state.phase !== "settling") return state
-    if (event.reconcilerActive) return { ...state, stableFrames: 0 }
+    if (event.reconcilerActive) {
+      // Keep the same object while the reconciler stays busy at zero stable
+      // frames so the downstream signal does not churn every frame.
+      if (state.stableFrames === 0) return state
+      return { ...state, stableFrames: 0 }
+    }
     const settleFrames = options?.settleFrames ?? DEFAULT_SETTLE_FRAMES
     const stableFrames = state.stableFrames + 1
     if (stableFrames >= settleFrames) return { ...state, phase: "revealed", stableFrames }

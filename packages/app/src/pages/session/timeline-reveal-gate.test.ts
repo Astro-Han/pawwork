@@ -111,6 +111,16 @@ describe("nextRevealGateState", () => {
     expect(revealGateCovered(state)).toBe(true)
   })
 
+  test("an active reconcile frame at zero stable frames keeps the same state object", () => {
+    // While the reconciler stays busy the gate sits in settling with stableFrames
+    // already 0; re-deriving an identical object every frame would churn the
+    // downstream signal for nothing.
+    const settling = reduce(open("a"), [{ type: "ready", ready: true }])
+    expect(settling.stableFrames).toBe(0)
+    const after = nextRevealGateState(settling, { type: "frame", reconcilerActive: true })
+    expect(after).toBe(settling)
+  })
+
   test("timeout reveals once ready even if the reconciler never goes quiet", () => {
     const settled = reduce(open("a"), [
       { type: "ready", ready: true },
