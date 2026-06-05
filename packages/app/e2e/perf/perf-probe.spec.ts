@@ -641,7 +641,7 @@ test.describe("PR0.1 perf probe baseline", () => {
       const prompt = page.locator(promptSelector).first()
       await expect(prompt).toBeVisible()
       await prompt.click()
-      await page.getByRole("button", { name: /Choose start location|选择开始方式/i }).click()
+      await page.locator('[data-action="prompt-workspace"]').click()
       await settleFrames(page, 3)
       await page.keyboard.press("Escape")
       runs.push(await snapshotPerfProbe(page))
