@@ -297,12 +297,15 @@ export function createSessionTimelineInteraction(input: {
     reconciler.markDirty("intent")
   }
 
-  // New turns / window shifts re-pin the current anchor (bottom-follow while
-  // streaming, stable reading position while reading).
+  // New turns / window shifts re-pin the current anchor. In following_latest
+  // mode this scrolls the viewport to keep the newest output visible. In
+  // reading mode the virtualizer's shift compensation already keeps the reading
+  // position stable, so a reconciler flush would fight virtua's own correction.
   createEffect(
     on(
       () => [input.sessionID(), input.visibleUserMessages().at(-1)?.id, historyWindow.turnStart()] as const,
       () => {
+        if (scrollController.state().mode === "reading_history") return
         reconciler.markDirty("frame-changed")
       },
       { defer: true },
