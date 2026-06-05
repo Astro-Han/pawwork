@@ -6,7 +6,6 @@ import type { createSizing } from "@/pages/session/helpers"
 import { MessageTimeline } from "@/pages/session/message-timeline"
 import { SessionOpeningSkeleton } from "@/pages/session/session-opening-skeleton"
 import { SessionSidePanel } from "@/pages/session/session-side-panel"
-import { shouldShowSessionOpeningState } from "@/pages/session/session-main-view-state"
 import type { createSessionHistoryWindow } from "@/pages/session/use-session-history-window"
 import type { createSessionReviewState } from "@/pages/session/use-session-review-state"
 import type { createSessionScrollDock } from "@/pages/session/use-session-scroll-dock"
@@ -23,8 +22,7 @@ export function SessionMainView(props: {
   mobileTab: "session" | "changes"
   setMobileTab: (tab: "session" | "changes") => void
   language: ReturnType<typeof useLanguage>
-  routeSessionID?: string
-  routeReady: boolean
+  sessionOpening: boolean
   transitioning: boolean
   timelineSessionID?: string
   timelineSessionKey: string
@@ -64,14 +62,8 @@ export function SessionMainView(props: {
   files: ReturnType<typeof createSessionReviewState>["artifactFiles"]
   size: ReturnType<typeof createSizing>
 }) {
-  const showSessionOpeningState = () =>
-    shouldShowSessionOpeningState({
-      activeSessionID: props.activeSessionID,
-      routeSessionID: props.routeSessionID,
-      routeReady: props.routeReady,
-      timelineSessionID: props.timelineSessionID,
-    })
-  const [openingSkeletonMounted, setOpeningSkeletonMounted] = createSignal(showSessionOpeningState())
+  const showSessionOpeningState = () => props.sessionOpening
+  const [openingSkeletonMounted, setOpeningSkeletonMounted] = createSignal(props.sessionOpening)
   const [openingSkeletonVisible, setOpeningSkeletonVisible] = createSignal(false)
   let openingShowTimer: ReturnType<typeof setTimeout> | undefined
   let openingHideTimer: ReturnType<typeof setTimeout> | undefined
