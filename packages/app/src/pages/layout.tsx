@@ -910,6 +910,10 @@ export default function Layout(props: ParentProps) {
         capReached: pawworkSessionWindow().capReached,
         loading: pawworkSessionWindowLoading(),
       })}
+      // Intentionally keyed on open projects only: with zero projects we show
+      // the "open a project" empty state even if direct-start rows survive the
+      // session filter. The sidebar lists only open projects; direct-start
+      // sessions stay reachable once any project is open (or by reopening).
       showProjectEmptyState={projects().length === 0}
       activeSessionID={() => params.id}
       pinnedIDs={() => store.pawworkPinnedSessions}
