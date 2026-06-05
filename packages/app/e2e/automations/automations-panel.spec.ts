@@ -389,6 +389,21 @@ test("automations panel: a pending one-shot shows its next run time", async ({ p
   // It reads as a one-shot, yet still surfaces a Next run row before any run.
   await expect(detail.getByText("Once")).toBeVisible()
   await expect(detail.getByText("Next run")).toBeVisible()
+  // The value must be fireAt formatted in the automation's UTC timezone, not just
+  // a present row: compute the expectation with the same Intl call the component
+  // uses, so a wrong timezone or a broken formatter regresses this assertion.
+  const expected = await page.evaluate(
+    (ms) =>
+      new Intl.DateTimeFormat(undefined, {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZone: "UTC",
+      }).format(new Date(ms)),
+    fireAt,
+  )
+  await expect(detail.getByText(expected)).toBeVisible()
 })
 
 test("automations panel: a manual run before fireAt keeps the one-shot's next run", async ({ page, project }) => {
