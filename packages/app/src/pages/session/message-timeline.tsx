@@ -77,12 +77,11 @@ export function MessageTimeline(props: {
   onResumeScroll: () => void
   setScrollRef: (el: HTMLDivElement | undefined) => void
   onScheduleScrollState: (el: HTMLDivElement) => void
-  onAutoScrollHandleScroll: () => void
   onMarkScrollGesture: (target?: EventTarget | null) => void
   hasScrollGesture: () => boolean
   onUserScroll: () => void
   onTurnBackfillScroll: () => void
-  onAutoScrollInteraction: (event: MouseEvent) => void
+  onTimelineInteraction: (event: MouseEvent) => void
   onTimelineScrollIntent: (intent: TimelineScrollIntent) => void
   onTimelineScrollObservation: (observation: TimelineScrollObservation) => TimelineScrollControllerResult
   centered: boolean
@@ -94,9 +93,7 @@ export function MessageTimeline(props: {
   renderedUserMessages: UserMessage[]
   anchor: (id: string) => string
   virtualizerBridge: TimelineVirtualizerBridge
-  layoutTransactionActive: () => boolean
-  layoutTransactionID: () => string | undefined
-  layoutTransactionKind: () => string | undefined
+  reconcilerActive: () => boolean
 }) {
   let touchGesture: number | undefined
   let scrollSampleFrame: number | undefined
@@ -449,10 +446,9 @@ export function MessageTimeline(props: {
             props.onTurnBackfillScroll()
             if (!props.hasScrollGesture()) return
             props.onUserScroll()
-            props.onAutoScrollHandleScroll()
             props.onMarkScrollGesture(e.currentTarget)
           }}
-          onClick={props.onAutoScrollInteraction}
+          onClick={props.onTimelineInteraction}
           class="relative min-w-0 w-full h-full"
           style={{
             "--session-title-height": "0px",
@@ -473,9 +469,7 @@ export function MessageTimeline(props: {
               data-slot="session-turn-list"
               data-render-mode={frameRenderMode()}
               data-total-rows={frameRows().length}
-              data-layout-transaction-active={props.layoutTransactionActive() ? "true" : "false"}
-              data-layout-transaction-id={props.layoutTransactionID()}
-              data-layout-transaction-kind={props.layoutTransactionKind()}
+              data-reconciler-active={props.reconcilerActive() ? "true" : "false"}
               class="transition-[margin]"
               classList={{
                 "w-full": true,
@@ -490,7 +484,7 @@ export function MessageTimeline(props: {
                 viewport={virtualizerViewport()}
                 virtualizerBridge={props.virtualizerBridge}
                 shift={frameMutation() === "prepend"}
-                transactionActive={props.layoutTransactionActive()}
+                reconcilerActive={props.reconcilerActive()}
                 renderRow={renderTimelineRow}
               />
             </div>

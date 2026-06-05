@@ -9,6 +9,10 @@ export type TimelineAnchorRestoreResult =
   | { ok: true; restoredTo: TimelineSafePosition }
   | { ok: false; reason: "anchor_not_mounted" | "viewport_missing" | "invalid_anchor" }
 
+export type TimelineAnchorTopResult =
+  | { ok: true; top: number; reason: string }
+  | { ok: false; reason: "anchor_not_mounted" | "viewport_missing" | "invalid_anchor" }
+
 function messageElements(viewport: HTMLElement) {
   return Array.from(viewport.querySelectorAll("[data-message-id]")).filter(
     (el): el is HTMLElement => el instanceof HTMLElement,
@@ -92,116 +96,86 @@ export function sampleTimelineSafePosition(args: {
   }
 }
 
-function restoreLatest(
-  viewport: HTMLElement,
-  bottomSentinel: HTMLElement | null | undefined,
-  sink: TimelineScrollCommandSink,
-) {
+function computeLatestTop(viewport: HTMLElement, bottomSentinel: HTMLElement | null | undefined): TimelineAnchorTopResult {
   if (bottomSentinel) {
     const viewportRect = viewport.getBoundingClientRect()
     const sentinelRect = bottomSentinel.getBoundingClientRect()
-    setTimelineScrollTop({
-      viewport,
-      sink,
-      top: viewport.scrollTop + sentinelRect.bottom - viewportRect.bottom,
-      source: "session-timeline-scroll-anchors/restoreLatest",
-      reason: "bottom-sentinel",
-    })
-    return
+    return { ok: true, top: viewport.scrollTop + sentinelRect.bottom - viewportRect.bottom, reason: "bottom-sentinel" }
   }
-  setTimelineScrollTop({
-    viewport,
-    sink,
-    top: viewport.scrollHeight - viewport.clientHeight,
-    source: "session-timeline-scroll-anchors/restoreLatest",
-    reason: "scroll-height-bottom",
-  })
+  return { ok: true, top: viewport.scrollHeight - viewport.clientHeight, reason: "scroll-height-bottom" }
 }
 
-function restoreReading(
+function computeReadingTop(
   viewport: HTMLElement,
   position: Extract<TimelineSafePosition, { kind: "reading" }>,
-  sink: TimelineScrollCommandSink,
-) {
+): TimelineAnchorTopResult {
   const anchor = messageElementByID(viewport, position.anchorMessageID)
-  if (!anchor) return false
+  if (!anchor) return { ok: false, reason: "anchor_not_mounted" }
   const viewportRect = viewport.getBoundingClientRect()
   const anchorRect = anchor.getBoundingClientRect()
-  setTimelineScrollTop({
-    viewport,
-    sink,
+  return {
+    ok: true,
     top: viewport.scrollTop + anchorRect.top - viewportRect.top - position.offsetFromViewportTop,
-    source: "session-timeline-scroll-anchors/restoreReading",
     reason: "reading-anchor",
-  })
-  return true
+  }
 }
 
-function restoreTarget(
+function computeTargetTop(
   viewport: HTMLElement,
   position: Extract<TimelineSafePosition, { kind: "target_message" }>,
-  sink: TimelineScrollCommandSink,
-) {
+): TimelineAnchorTopResult {
   const target = messageElementByID(viewport, position.messageID)
-  if (!target) return false
+  if (!target) return { ok: false, reason: "anchor_not_mounted" }
 
   const viewportRect = viewport.getBoundingClientRect()
   const targetRect = target.getBoundingClientRect()
   const offset = position.offsetFromViewportTop
 
   if (typeof offset === "number") {
-    setTimelineScrollTop({
-      viewport,
-      sink,
-      top: viewport.scrollTop + targetRect.top - viewportRect.top - offset,
-      source: "session-timeline-scroll-anchors/restoreTarget",
-      reason: "target-offset",
-    })
-    return true
+    return { ok: true, top: viewport.scrollTop + targetRect.top - viewportRect.top - offset, reason: "target-offset" }
   }
 
   if (position.align === "nearest") {
-    if (targetRect.top >= viewportRect.top && targetRect.bottom <= viewportRect.bottom) return true
-    if (targetRect.top < viewportRect.top) {
-      setTimelineScrollTop({
-        viewport,
-        sink,
-        top: viewport.scrollTop + targetRect.top - viewportRect.top,
-        source: "session-timeline-scroll-anchors/restoreTarget",
-        reason: "target-nearest-top",
-      })
-      return true
+    // Already fully in view: desired top equals current top so the <1px skip no-ops the write.
+    if (targetRect.top >= viewportRect.top && targetRect.bottom <= viewportRect.bottom) {
+      return { ok: true, top: viewport.scrollTop, reason: "target-nearest-visible" }
     }
-    setTimelineScrollTop({
-      viewport,
-      sink,
-      top: viewport.scrollTop + targetRect.bottom - viewportRect.bottom,
-      source: "session-timeline-scroll-anchors/restoreTarget",
-      reason: "target-nearest-bottom",
-    })
-    return true
+    if (targetRect.top < viewportRect.top) {
+      return { ok: true, top: viewport.scrollTop + targetRect.top - viewportRect.top, reason: "target-nearest-top" }
+    }
+    return { ok: true, top: viewport.scrollTop + targetRect.bottom - viewportRect.bottom, reason: "target-nearest-bottom" }
   }
 
   if (position.align === "center") {
     const targetHeight = Math.max(0, targetRect.bottom - targetRect.top)
-    setTimelineScrollTop({
-      viewport,
-      sink,
+    return {
+      ok: true,
       top: viewport.scrollTop + targetRect.top - viewportRect.top - (viewport.clientHeight - targetHeight) / 2,
-      source: "session-timeline-scroll-anchors/restoreTarget",
       reason: "target-center",
-    })
-    return true
+    }
   }
 
-  setTimelineScrollTop({
-    viewport,
-    sink,
-    top: viewport.scrollTop + targetRect.top - viewportRect.top,
-    source: "session-timeline-scroll-anchors/restoreTarget",
-    reason: "target-start",
-  })
-  return true
+  return { ok: true, top: viewport.scrollTop + targetRect.top - viewportRect.top, reason: "target-start" }
+}
+
+/**
+ * Pure read pass: computes the desired `scrollTop` for a safe position without
+ * writing. Callers (the reconciler) compare against the current scrollTop, apply
+ * a min-delta skip, and issue a single sink write — keeping reads before writes.
+ */
+export function computeTimelineSafePositionTop(args: {
+  viewport: HTMLElement | undefined
+  position: TimelineSafePosition
+  bottomSentinel?: HTMLElement | null
+}): TimelineAnchorTopResult {
+  if (!args.viewport) return { ok: false, reason: "viewport_missing" }
+  if (args.position.kind === "latest") return computeLatestTop(args.viewport, args.bottomSentinel)
+  if (args.position.kind === "reading") {
+    if (!args.position.anchorMessageID) return { ok: false, reason: "invalid_anchor" }
+    return computeReadingTop(args.viewport, args.position)
+  }
+  if (!args.position.messageID) return { ok: false, reason: "invalid_anchor" }
+  return computeTargetTop(args.viewport, args.position)
 }
 
 export function restoreTimelineSafePosition(args: {
@@ -210,23 +184,20 @@ export function restoreTimelineSafePosition(args: {
   bottomSentinel?: HTMLElement | null
   scrollCommandSink?: TimelineScrollCommandSink
 }): TimelineAnchorRestoreResult {
-  if (!args.viewport) return { ok: false, reason: "viewport_missing" }
-  const sink = args.scrollCommandSink ?? fallbackTimelineScrollCommandSink
-
-  if (args.position.kind === "latest") {
-    restoreLatest(args.viewport, args.bottomSentinel, sink)
-    return { ok: true, restoredTo: args.position }
-  }
-
-  if (args.position.kind === "reading") {
-    if (!args.position.anchorMessageID) return { ok: false, reason: "invalid_anchor" }
-    return restoreReading(args.viewport, args.position, sink)
-      ? { ok: true, restoredTo: args.position }
-      : { ok: false, reason: "anchor_not_mounted" }
-  }
-
-  if (!args.position.messageID) return { ok: false, reason: "invalid_anchor" }
-  return restoreTarget(args.viewport, args.position, sink)
-    ? { ok: true, restoredTo: args.position }
-    : { ok: false, reason: "anchor_not_mounted" }
+  const computed = computeTimelineSafePositionTop(args)
+  if (!computed.ok) return computed
+  const source =
+    args.position.kind === "latest"
+      ? "session-timeline-scroll-anchors/restoreLatest"
+      : args.position.kind === "reading"
+        ? "session-timeline-scroll-anchors/restoreReading"
+        : "session-timeline-scroll-anchors/restoreTarget"
+  setTimelineScrollTop({
+    viewport: args.viewport as HTMLElement,
+    sink: args.scrollCommandSink ?? fallbackTimelineScrollCommandSink,
+    top: computed.top,
+    source,
+    reason: computed.reason,
+  })
+  return { ok: true, restoredTo: args.position }
 }
