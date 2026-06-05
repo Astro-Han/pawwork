@@ -1,18 +1,7 @@
-import {
-  type Accessor,
-  createMemo,
-  createResource,
-  createSignal,
-  For,
-  type JSX,
-  Match,
-  onCleanup,
-  onMount,
-  Show,
-  Switch,
-} from "solid-js"
+import { type Accessor, createMemo, createResource, createSignal, For, type JSX, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useLanguage } from "@/context/language"
 import { SkillDetail } from "./skill-detail"
@@ -49,8 +38,42 @@ export function SkillsSurface(props: {
 }): JSX.Element {
   const globalSDK = useGlobalSDK()
   const language = useLanguage()
+  const dialog = useDialog()
   const [query, setQuery] = createSignal("")
-  const [selected, setSelected] = createSignal<SkillInfo | undefined>()
+  // Tracks whether the detail reader owns the screen. Driven by useDialog's
+  // onClose, which fires synchronously the moment the dialog starts closing —
+  // unlike `dialog.active`, which lingers through the ~100ms exit animation and
+  // would let an immediately-following Escape fall through to closing the
+  // surface while the dialog is still visually unwinding.
+  const [detailOpen, setDetailOpen] = createSignal(false)
+
+  // The detail reader is a modal in the shared dialog stack; opening it there
+  // gets focus trap / initial focus / focus restore / background inert for free
+  // instead of re-deriving them on a hand-rolled overlay. "Use in chat" closes
+  // the dialog before navigating so the stack unwinds cleanly.
+  const openDetail = (skill: SkillInfo) => {
+    setDetailOpen(true)
+    dialog.show(
+      () => (
+        <SkillDetail
+          skill={skill}
+          footer={
+            <Button
+              variant="primary"
+              data-action="skill-use-in-chat"
+              onClick={() => {
+                dialog.close()
+                props.onUseSkill(skill.name)
+              }}
+            >
+              {language.t("skills.detail.useInChat")}
+            </Button>
+          }
+        />
+      ),
+      () => setDetailOpen(false),
+    )
+  }
 
   const [skills] = createResource(
     () => props.directory(),
@@ -78,22 +101,16 @@ export function SkillsSurface(props: {
     return filtered().length > 0 ? "list" : "empty"
   })
 
-  // Escape closes the open detail first, then the surface. The sidebar stays
-  // live behind this surface, so transient overlays get Escape ahead of us.
+  // Escape closes the surface — but only when the detail reader isn't up. While
+  // it is, let Kobalte consume Escape to close the dialog first (we just bail,
+  // without preventing default, so the event reaches it). `detailOpen()` is the
+  // single source of truth for "a modal is up", replacing the old sniff of the
+  // DOM for overlay components.
   onMount(() => {
     const onEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return
-      if (
-        document.querySelector(
-          '[data-component="dialog-overlay"], [data-component="select-content"], [data-component="dropdown-menu-content"], [data-component="context-menu-content"]',
-        )
-      )
-        return
+      if (detailOpen()) return
       event.preventDefault()
-      if (selected()) {
-        setSelected(undefined)
-        return
-      }
       props.onClose()
     }
     document.addEventListener("keydown", onEscape, true)
@@ -144,25 +161,11 @@ export function SkillsSurface(props: {
           </Match>
           <Match when={view() === "list"}>
             <div class="mt-6 grid grid-cols-1 gap-x-6 gap-y-0.5 sm:grid-cols-2">
-              <For each={filtered()}>{(skill) => <SkillRow skill={skill} onOpen={() => setSelected(skill)} />}</For>
+              <For each={filtered()}>{(skill) => <SkillRow skill={skill} onOpen={() => openDetail(skill)} />}</For>
             </div>
           </Match>
         </Switch>
       </div>
-
-      <Show when={selected()}>
-        {(skill) => (
-          <SkillDetail
-            skill={skill()}
-            onClose={() => setSelected(undefined)}
-            footer={
-              <Button variant="primary" data-action="skill-use-in-chat" onClick={() => props.onUseSkill(skill().name)}>
-                {language.t("skills.detail.useInChat")}
-              </Button>
-            }
-          />
-        )}
-      </Show>
     </section>
   )
 }

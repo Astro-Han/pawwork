@@ -89,7 +89,8 @@ test("skills-surface", async ({ page, project }) => {
   // Close and filter: the search box narrows the grid to matching capabilities.
   // "xlsx" keeps the spreadsheet skill (and any whose description mentions it)
   // and drops the unrelated ones, e.g. the seeded web-research capability.
-  await page.locator('[data-action="skill-detail-close"]').click()
+  await page.locator('[data-slot="dialog-close-button"]').click()
+  await detail.waitFor({ state: "detached", timeout: 10_000 })
   await surface.locator('[data-action="skill-search"]').fill("xlsx")
   await surface.locator('[data-action="skill-open"][data-skill="officecli-xlsx"]').waitFor({ state: "visible", timeout: 10_000 })
   await page.waitForFunction(
