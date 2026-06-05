@@ -246,4 +246,4 @@ footer { margin-top: clamp(64px, 7vw, 96px); border-top: 1px solid var(--border)
   .nav a.lk { display: none; }
   .foot { padding: 24px 18px 44px; }
 }
-@media (prefers-reduced-motion: reduce) { *, html { animation-duration: 0.001ms !important; scroll-behavior: auto; } }
+@media (prefers-reduced-motion: reduce) { *, html { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; scroll-behavior: auto !important; } }
