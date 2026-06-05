@@ -711,6 +711,7 @@ export const dict = {
   "skills.search.placeholder": "搜索技能",
   "skills.empty.title": "没有匹配的技能",
   "skills.detail.suffix": "技能",
+  "skills.detail.useInChat": "在对话中使用",
   "automations.title": "定时任务",
   "automations.empty.title": "还没有定时任务",
   "automations.empty.description": "在对话里让助手把当前项目的某个任务设为自动运行。",

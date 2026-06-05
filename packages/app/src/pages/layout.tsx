@@ -517,6 +517,16 @@ export default function Layout(props: ParentProps) {
     navigate(`/${base64Encode(directory)}/session?prompt=${prompt}`)
   }
 
+  // "Use in chat" from the Skills gallery leaves the surface and starts a fresh
+  // session in the current project. The ?skill= bootstrap seeds the composer with
+  // the structured skill chip, so the picked skill activates deterministically.
+  function useSkillInChat(name: string) {
+    closeSettings()
+    const directory = currentProject()?.worktree ?? projectRoot(currentDir())
+    if (!directory) return
+    navigate(`/${base64Encode(directory)}/session?skill=${encodeURIComponent(name)}`)
+  }
+
   function openSettings(tab?: SettingsTab) {
     shellNavigation.openSettings(tab)
   }
@@ -1011,6 +1021,7 @@ export default function Layout(props: ParentProps) {
               <SkillsSurface
                 directory={() => currentProject()?.worktree ?? projectRoot(currentDir())}
                 onClose={closeSettings}
+                onUseSkill={useSkillInChat}
               />
             ),
           }}

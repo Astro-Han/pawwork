@@ -1,4 +1,5 @@
 import { type Accessor, createMemo, createResource, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js"
+import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useLanguage } from "@/context/language"
@@ -29,7 +30,11 @@ function SkillRow(props: { skill: SkillInfo; onOpen: () => void }): JSX.Element 
   )
 }
 
-export function SkillsSurface(props: { directory: Accessor<string>; onClose: () => void }): JSX.Element {
+export function SkillsSurface(props: {
+  directory: Accessor<string>
+  onClose: () => void
+  onUseSkill: (name: string) => void
+}): JSX.Element {
   const globalSDK = useGlobalSDK()
   const language = useLanguage()
   const [query, setQuery] = createSignal("")
@@ -111,7 +116,17 @@ export function SkillsSurface(props: { directory: Accessor<string>; onClose: () 
       </div>
 
       <Show when={selected()}>
-        {(skill) => <SkillDetail skill={skill()} onClose={() => setSelected(undefined)} />}
+        {(skill) => (
+          <SkillDetail
+            skill={skill()}
+            onClose={() => setSelected(undefined)}
+            footer={
+              <Button variant="primary" data-action="skill-use-in-chat" onClick={() => props.onUseSkill(skill().name)}>
+                {language.t("skills.detail.useInChat")}
+              </Button>
+            }
+          />
+        )}
       </Show>
     </section>
   )

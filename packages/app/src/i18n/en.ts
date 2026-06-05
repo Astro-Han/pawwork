@@ -801,6 +801,7 @@ export const dict = {
   "skills.search.placeholder": "Search skills",
   "skills.empty.title": "No skills match your search",
   "skills.detail.suffix": "Skill",
+  "skills.detail.useInChat": "Use in chat",
   "automations.title": "Automations",
   "automations.empty.title": "No automations yet",
   "automations.empty.description": "Ask the assistant in a chat to automate a task for this project.",

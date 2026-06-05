@@ -59,7 +59,7 @@ export default function Page() {
   const comments = useComments()
   const terminal = useTerminal()
   const location = useLocation()
-  const [searchParams, setSearchParams] = useSearchParams<{ prompt?: string }>()
+  const [searchParams, setSearchParams] = useSearchParams<{ prompt?: string; skill?: string }>()
   const { params, tabs, view } = useSessionLayout()
 
   useSessionDesktopContext({
@@ -79,6 +79,18 @@ export default function Page() {
     prompt: () => searchParams.prompt,
     setPrompt: (text) => prompt.set([{ type: "text", content: text, start: 0, end: text.length }], text.length),
     clearPrompt: () => setSearchParams({ ...searchParams, prompt: undefined }),
+  })
+
+  // "Use in chat" from the Skills gallery lands here with ?skill=<name>. Seed the
+  // composer with the same structured skill chip the slash picker inserts, so
+  // activation is deterministic (this exact skill loads, not a description match).
+  useSessionRoutePromptBootstrap({
+    ready: prompt.ready,
+    sessionID: () => params.id,
+    prompt: () => searchParams.skill,
+    setPrompt: (name) =>
+      prompt.set([{ type: "skill", name, source: "skill", content: `/${name}`, start: 0, end: name.length + 1 }], name.length + 1),
+    clearPrompt: () => setSearchParams({ ...searchParams, skill: undefined }),
   })
 
   const isDesktop = createMediaQuery("(min-width: 768px)")
