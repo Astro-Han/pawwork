@@ -40,7 +40,7 @@ test("@smoke session composer matches home structure without docktray or agent c
     await expect(page.locator('[data-component="prompt-agent-control"]')).toHaveCount(0)
 
     // WorkspaceChip hidden in session (breadcrumb replaces it)
-    await expect(page.getByRole("button", { name: /Choose start location|选择开始方式/i })).toHaveCount(0)
+    await expect(page.getByRole("button", { name: /Choose workspace|选择工作目录/i })).toHaveCount(0)
 
     // Model control is inside the unified bar; variant selection is now folded
     // into the model picker popover (see prompt-input/model-controls.tsx) and

@@ -7,7 +7,7 @@ test("@smoke home renders hero composer with updated welcome heading", async ({ 
 
   const home = page.locator('[data-component="session-new-home"]')
   const composer = home.locator(sessionComposerDockSelector)
-  const workspaceChip = page.getByRole("button", { name: /Choose start location|选择开始方式/i })
+  const workspaceChip = page.getByRole("button", { name: /Choose workspace|选择工作目录/i })
   await expect(home).toBeVisible()
   await expect(page.getByRole("heading", { name: /今天我们做点什么|What should we work on/ })).toBeVisible()
   await expect(page.locator(sessionComposerDockSelector)).toHaveCount(1)
@@ -92,7 +92,7 @@ test("@smoke home composer shows unified single-row bar with brand orange send",
   await expect(send).toBeDisabled()
 
   // WorkspaceChip present on home
-  const workspaceChip = page.getByRole("button", { name: /Choose start location|选择开始方式/i })
+  const workspaceChip = page.getByRole("button", { name: /Choose workspace|选择工作目录/i })
   await expect(workspaceChip).toBeVisible()
 })
 
@@ -103,7 +103,7 @@ test("home model chip keeps the single-row controls visible", async ({ page, pro
   const composer = home.locator(sessionComposerDockSelector)
   const attach = composer.locator('[data-action="prompt-attach"]').first()
   const chip = composer.locator('[data-component="prompt-model-control"] [data-action="prompt-model"]').first()
-  const workspace = composer.getByRole("button", { name: /Choose start location|选择开始方式/i })
+  const workspace = composer.getByRole("button", { name: /Choose workspace|选择工作目录/i })
   const send = composer.locator('[data-action="prompt-submit"]').first()
 
   await expect(chip).toBeVisible()

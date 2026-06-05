@@ -2,7 +2,7 @@ import { test, expect } from "../fixtures"
 
 test("WorkspaceChip renders in home, absent in session", async ({ page, project }) => {
   await project.open()
-  const chip = page.getByRole("button", { name: /Choose start location|选择开始方式/i })
+  const chip = page.getByRole("button", { name: /Choose workspace|选择工作目录/i })
   await expect(chip).toBeVisible()
 
   await project.prompt("Start a session from home")
@@ -12,10 +12,10 @@ test("WorkspaceChip renders in home, absent in session", async ({ page, project 
 
 test("WorkspaceChip selection navigates to the chosen workspace", async ({ page, project }) => {
   await project.open()
-  const chip = page.getByRole("button", { name: /Choose start location|选择开始方式/i })
+  const chip = page.getByRole("button", { name: /Choose workspace|选择工作目录/i })
 
   await chip.click()
-  const menu = page.getByRole("menu", { name: /Start from|开始方式/i })
+  const menu = page.getByRole("menu", { name: /Workspace|工作目录/i })
   await expect(menu).toBeVisible()
   const options = menu.locator('[role="menuitemradio"][aria-checked="false"]')
   const optionCount = await options.count()
@@ -34,11 +34,11 @@ test("WorkspaceChip selection navigates to the chosen workspace", async ({ page,
 
 test("WorkspaceChip popover ESC + outside-click dismiss", async ({ page, project }) => {
   await project.open()
-  const chip = page.getByRole("button", { name: /Choose start location|选择开始方式/i })
+  const chip = page.getByRole("button", { name: /Choose workspace|选择工作目录/i })
 
   await chip.focus()
   await page.keyboard.press("Enter")
-  const menu = page.getByRole("menu", { name: /Start from|开始方式/i })
+  const menu = page.getByRole("menu", { name: /Workspace|工作目录/i })
   await expect(menu).toBeVisible()
   await page.keyboard.press("Escape")
   await expect(menu).toHaveCount(0)
