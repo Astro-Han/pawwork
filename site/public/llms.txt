@@ -6,12 +6,12 @@ Last updated: 2026-06-05
 
 ## Key Links
 
-- Website: https://pawwork.ai/
-- Source code: https://github.com/Astro-Han/pawwork
-- Download: https://github.com/Astro-Han/pawwork/releases/latest
-- English README: https://github.com/Astro-Han/pawwork#readme
-- Chinese README: https://github.com/Astro-Han/pawwork/blob/dev/README_CN.md
-- License: Apache-2.0 — https://github.com/Astro-Han/pawwork/blob/dev/LICENSE
+- [Website](https://pawwork.ai/): Official landing page and download links.
+- [Source code](https://github.com/Astro-Han/pawwork): GitHub repository (Apache-2.0).
+- [Download](https://github.com/Astro-Han/pawwork/releases/latest): Latest macOS and Windows builds.
+- [English README](https://github.com/Astro-Han/pawwork#readme): Full feature overview and FAQ.
+- [Chinese README](https://github.com/Astro-Han/pawwork/blob/dev/README_CN.md): 中文说明.
+- [License](https://github.com/Astro-Han/pawwork/blob/dev/LICENSE): Apache-2.0.
 
 ## About
 
