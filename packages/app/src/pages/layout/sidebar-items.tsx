@@ -67,7 +67,7 @@ const SessionRow = (props: {
       // a no-op while a main-takeover surface is open so sidebar selection stays
       // mutually exclusive with it. The row overlay + text emphasis both key off
       // `.active` (sidebar.css `:has(.active)`), so this clears them in one move.
-      activeClass={shellSurface.automationsOpen() || shellSurface.skillsOpen() ? "pw-route-active-suppressed" : "active"}
+      activeClass={shellSurface.mainSurfaceOpen() ? "pw-route-active-suppressed" : "active"}
       class="flex items-center min-w-0 w-full text-left focus:outline-none"
       onPointerDown={props.warmPress}
       onFocus={props.warmFocus}
@@ -296,7 +296,7 @@ export const NewSessionItem = (props: {
     <A
       href={defaultNewSessionHref(props.slug)}
       end
-      activeClass={shellSurface.automationsOpen() || shellSurface.skillsOpen() ? "pw-route-active-suppressed" : "active"}
+      activeClass={shellSurface.mainSurfaceOpen() ? "pw-route-active-suppressed" : "active"}
       class={`flex items-center gap-2 min-w-0 w-full text-left focus:outline-none leading-[1.4] ${props.dense ? "py-1" : "py-[5px]"}`}
       onClick={(event) => {
         if (!props.onOpenNewSession) return

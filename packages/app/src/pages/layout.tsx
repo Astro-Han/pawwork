@@ -98,6 +98,9 @@ export default function Layout(props: ParentProps) {
   const settingsOpen = createMemo(() => activeSurface() === "settings")
   const automationsOpen = createMemo(() => activeSurface() === "automations")
   const skillsOpen = createMemo(() => activeSurface() === "skills")
+  // Any main-region takeover is open. Chrome belonging to the covered session
+  // (titlebar portals, the right-panel rail, sidebar route-active) reads this.
+  const mainSurfaceOpen = createMemo(() => activeSurface() !== "none")
   // Pending deep-link selection for the Automations panel; set just before the
   // surface opens (e.g. the automate tool's jump button) and read once on its
   // mount. Cleared on manual opens so a stale id never forces a row.
@@ -969,6 +972,7 @@ export default function Layout(props: ParentProps) {
           settingsOpen,
           automationsOpen,
           skillsOpen,
+          mainSurfaceOpen,
           openNewSession: openPawworkHome,
           openSession: navigateToSession,
           openSettings,
