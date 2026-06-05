@@ -65,10 +65,12 @@ Disallow: /
 User-agent: Meta-ExternalAgent
 Disallow: /
 
-# Undeclared bulk crawlers
+# ByteDance crawler — allowed: it powers Doubao search (a major CN AI search surface)
+# and does not separate retrieval from training, so blocking it drops us from CN AI search.
 User-agent: Bytespider
-Disallow: /
+Allow: /
 
+# Undeclared bulk crawlers
 User-agent: PetalBot
 Disallow: /
 
