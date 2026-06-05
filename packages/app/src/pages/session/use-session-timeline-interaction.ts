@@ -11,6 +11,7 @@ import { createSessionHistoryBackfill } from "@/pages/session/use-session-histor
 import { createSessionHistoryWindow } from "@/pages/session/use-session-history-window"
 import { createSessionScrollDock } from "@/pages/session/use-session-scroll-dock"
 import { createTimelineVirtualRows } from "@/pages/session/timeline-virtual-rows"
+import { chooseTimelineRowRenderMode } from "@/pages/session/timeline-virtualization-strategy"
 import { createTimelineVirtualizerBridge } from "@/pages/session/timeline-virtualizer-bridge"
 import { createTimelineScrollReconciler } from "@/pages/session/timeline-scroll-reconciler"
 import {
@@ -94,7 +95,6 @@ export function createSessionTimelineInteraction(input: {
     viewport: () => scrollDock.scroller(),
     scrollCommandSink,
     resolveAnchor: () => scrollController.state().lastSafePosition,
-    sampleAnchor,
     setActive: setReconcilerActive,
     requestReveal: (position) => {
       const messageID =
@@ -219,7 +219,19 @@ export function createSessionTimelineInteraction(input: {
     userScrolled: userScrolledForHistory,
     isAtBottom: () => scrollDock.scroll.bottom,
     scroller: scrollDock.scroller,
-    preserveAnchor: (mutate) => reconciler.withAnchorSnapshot("history-prepend", mutate),
+    preserveAnchor: (mutate) => {
+      // Prepend (older history loaded at the top). In the virtualized list,
+      // virtua's shift=true already keeps the reading position by absorbing the
+      // prepended height as an internal offset — an app-level write here would
+      // fight it and is expensive (anchor rect walk + widened overscan). Let
+      // virtua own it. In plain mode there is no virtualizer, so compensate with
+      // the cheap scrollHeight delta.
+      if (chooseTimelineRowRenderMode({ rowCount: virtualRows().length }) === "virtualized") {
+        mutate()
+        return
+      }
+      reconciler.preserveByHeightDelta(mutate)
+    },
   })
   const virtualRows = createMemo(() =>
     createTimelineVirtualRows({

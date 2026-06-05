@@ -51,8 +51,12 @@ function anchorMessageID(position: TimelineSafePosition): string | undefined {
 export type TimelineScrollReconciler = {
   /** Mark the viewport dirty after a layout change; coalesced into one flush per frame. */
   markDirty: (reason: TimelineReconcileReason) => void
-  /** Capture the current anchor, run a layout mutation, then re-pin to the captured anchor. */
-  withAnchorSnapshot: (reason: TimelineReconcileReason, mutate: () => void) => void
+  /**
+   * Preserve the reading position across a prepend in PLAIN (non-virtualized)
+   * mode by compensating with the scrollHeight delta. In virtualized mode the
+   * caller lets virtua's `shift` absorb the prepend instead — no app-level write.
+   */
+  preserveByHeightDelta: (mutate: () => void) => void
   /** Run the coalesced reconcile pass now (normally scheduled). Returns the outcome. */
   flush: () => TimelineReconcileOutcome
   /** True while a reconcile is dirty or awaiting a reveal — drives virtualizer overscan. */
@@ -64,13 +68,8 @@ export type TimelineScrollReconciler = {
 export function createTimelineScrollReconciler(input: {
   viewport: () => HTMLElement | undefined
   scrollCommandSink: TimelineScrollCommandSink
-  /** The anchor to re-pin to on a normal flush — the stored, pre-change anchor. */
+  /** The anchor to re-pin to on a flush — the controller's current safe position. */
   resolveAnchor: () => TimelineSafePosition
-  /**
-   * A fresh anchor sample for withAnchorSnapshot, captured *before* a known
-   * layout mutation (e.g. history prepend). Defaults to resolveAnchor.
-   */
-  sampleAnchor?: () => TimelineSafePosition
   bottomSentinel?: () => HTMLElement | null | undefined
   requestReveal?: (position: TimelineSafePosition) => void
   scheduleFrame?: (callback: () => void) => number
@@ -90,7 +89,6 @@ export function createTimelineScrollReconciler(input: {
   let dirty = false
   let active = false
   let revealAttempts = 0
-  let snapshot: TimelineSafePosition | undefined
   let pendingReason: TimelineReconcileReason = "intent"
 
   const setActive = (next: boolean) => {
@@ -109,7 +107,6 @@ export function createTimelineScrollReconciler(input: {
     // how many reveal retries this anchor needed, not the post-reset 0.
     const attempts = revealAttempts
     dirty = false
-    snapshot = undefined
     revealAttempts = 0
     setActive(false)
     input.emitDiagnostic?.({
@@ -139,7 +136,7 @@ export function createTimelineScrollReconciler(input: {
       frameHandle = undefined
     }
     const reason = pendingReason
-    const position = snapshot ?? input.resolveAnchor()
+    const position = input.resolveAnchor()
     const viewport = input.viewport()
     if (!viewport) return settle("cancelled", reason, position)
 
@@ -175,7 +172,6 @@ export function createTimelineScrollReconciler(input: {
           revealAttempts,
         })
         dirty = false
-        snapshot = undefined
         revealAttempts = 0
         setActive(false)
         return "exhausted"
@@ -199,16 +195,34 @@ export function createTimelineScrollReconciler(input: {
       setActive(true)
       scheduleFlush()
     },
-    withAnchorSnapshot: (reason, mutate) => {
-      snapshot = (input.sampleAnchor ?? input.resolveAnchor)()
-      pendingReason = reason
-      dirty = true
-      setActive(true)
-      try {
+    preserveByHeightDelta: (mutate) => {
+      // PLAIN-mode prepend compensation (no virtualizer). One scalar read of
+      // scrollHeight before/after, one sink write next frame — cheap and robust,
+      // no DOM rect walk. Virtualized prepend must NOT call this: virtua's `shift`
+      // owns the position there, and a write here would fight it.
+      const viewport = input.viewport()
+      if (!viewport) {
         mutate()
-      } finally {
-        scheduleFlush()
+        return
       }
+      const beforeTop = viewport.scrollTop
+      const beforeHeight = viewport.scrollHeight
+      const scheduledGeneration = generation
+      mutate()
+      scheduleFrame(() => {
+        if (scheduledGeneration !== generation) return
+        const vp = input.viewport()
+        if (!vp) return
+        const delta = vp.scrollHeight - beforeHeight
+        if (Math.abs(delta) < minDelta) return
+        input.scrollCommandSink.setScrollTop({
+          element: vp,
+          top: Math.max(0, beforeTop + delta),
+          type: "anchor-restore",
+          source: "timeline-scroll-reconciler/prepend-delta",
+          reason: "history-prepend-height-delta",
+        })
+      })
     },
     flush,
     active: () => active,
@@ -219,7 +233,6 @@ export function createTimelineScrollReconciler(input: {
         frameHandle = undefined
       }
       dirty = false
-      snapshot = undefined
       revealAttempts = 0
       setActive(false)
     },

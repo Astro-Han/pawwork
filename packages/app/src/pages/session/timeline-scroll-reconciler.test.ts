@@ -176,22 +176,34 @@ describe("timeline scroll reconciler", () => {
     expect(frames.pendingCount()).toBe(0)
   })
 
-  test("withAnchorSnapshot re-pins to the pre-mutation anchor after a layout mutation", () => {
-    const viewport = makeViewport({ scrollTop: 400, clientHeight: 400, scrollHeight: 1400, rect: { top: 100, bottom: 500 } })
-    const anchorEl = appendMessage(viewport, "msg_anchor", { top: 156, bottom: 280 })
-    // Anchor is 56px below the viewport top right now; snapshot should capture that offset.
-    let anchor: TimelineSafePosition = { kind: "reading", anchorMessageID: "msg_anchor", offsetFromViewportTop: 56, renderedStart: 0, renderedCount: 10 }
-    const { reconciler, frames } = setup({ viewport, anchor: () => anchor })
+  test("preserveByHeightDelta compensates a plain-mode prepend by the scrollHeight delta", () => {
+    // Plain mode has no virtualizer to absorb the prepend, so the reconciler
+    // bumps scrollTop by the height the prepend added — one scalar read, no rect
+    // walk — keeping the viewport content visually put.
+    const viewport = makeViewport({ scrollTop: 400, clientHeight: 400, scrollHeight: 1400 })
+    const { reconciler, frames, sink } = setup({ viewport, anchor: () => ({ kind: "latest" }) })
 
-    reconciler.withAnchorSnapshot("history-prepend", () => {
-      // Simulate prepend pushing the anchor down by 200px (content added above).
-      stubRect(anchorEl, { top: 356, bottom: 480 })
-      // resolveAnchor would now sample a different position; snapshot must win.
-      anchor = { kind: "latest" }
+    reconciler.preserveByHeightDelta(() => {
+      // Simulate prepend adding 200px of older content above the viewport.
+      ;(viewport as unknown as { scrollHeight: number }).scrollHeight = 1600
     })
+    // Nothing written synchronously — the delta is applied on the next frame.
+    expect(sink.records()).toHaveLength(0)
+
     frames.runFrame()
-    // Re-pin keeps the captured anchor at offset 56: scrollTop += (356 - 100) - 56 = 600 - 100 = 600
     expect(viewport.scrollTop).toBe(600)
+    expect(sink.records()).toHaveLength(1)
+    expect(sink.records()[0]).toMatchObject({ top: 600, type: "anchor-restore" })
+  })
+
+  test("preserveByHeightDelta skips the write when the prepend added no height", () => {
+    const viewport = makeViewport({ scrollTop: 400, clientHeight: 400, scrollHeight: 1400 })
+    const { reconciler, frames, sink } = setup({ viewport, anchor: () => ({ kind: "latest" }) })
+
+    reconciler.preserveByHeightDelta(() => {})
+    frames.runFrame()
+    expect(sink.records()).toHaveLength(0)
+    expect(viewport.scrollTop).toBe(400)
   })
 
   test("cancel() drops a pending flush via the generation guard", () => {
