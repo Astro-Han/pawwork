@@ -1,4 +1,4 @@
-import { createMemo, createSignal, For, onMount, Show, type Accessor, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, For, Show, type Accessor, type JSX } from "solid-js"
 import type { AutomationDefinition, AutomationRun } from "@opencode-ai/sdk/v2/client"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Button } from "@opencode-ai/ui/button"
@@ -110,9 +110,12 @@ export function AutomationDetail(props: {
   const t = language.t
   const [busy, setBusy] = createSignal(false)
 
-  onMount(() => {
-    // Load only the most recent page; the "Recent runs" heading scopes the list
-    // to that page, so the returned nextCursor is intentionally not paged.
+  // Reload whenever the shown automation changes, not just on mount: a deep-link
+  // jump can swap props.automation in place without remounting (the detail Show is
+  // non-keyed), and the next-run/last-run rows derive from runs(). Load only the
+  // most recent page; the "Recent runs" heading scopes the list to that page, so
+  // the returned nextCursor is intentionally not paged.
+  createEffect(() => {
     void globalSync.automation.loadRuns(props.directory(), props.automation().id)
   })
 
