@@ -35,18 +35,28 @@ export function questionNotificationAction(part: QuestionNotificationPart): "ign
 }
 
 /**
- * Number of distinct sessions that currently have unseen notifications.
+ * Number of distinct sessions with unseen notifications created at or after
+ * `since`.
  *
  * This is the Dock/taskbar badge number: it counts *sessions* waiting for the
  * user, not the total notification count. One session with three unseen
  * notifications still contributes a single unit, matching how the user reasons
- * about "how many things need me". Derived straight from the notification list
- * (the persisted source of truth) so a memo over it tracks reactively.
+ * about "how many things need me". The `since` cutoff scopes the badge to the
+ * current app run — notifications persist across restarts to drive the sidebar,
+ * but a fresh launch should show zero on the Dock instead of resurfacing a
+ * stale backlog whose sessions the user may have long since dealt with (or that
+ * no longer exist). Derived straight from the notification list (the persisted
+ * source of truth) so a memo over it tracks reactively.
  */
-export function unreadSessionCount(notifications: readonly { session?: string; viewed: boolean }[]): number {
+export function unreadSessionCount(
+  notifications: readonly { session?: string; viewed: boolean; time: number }[],
+  since = 0,
+): number {
   const sessions = new Set<string>()
   for (const notification of notifications) {
-    if (!notification.viewed && notification.session) sessions.add(notification.session)
+    if (!notification.viewed && notification.session && notification.time >= since) {
+      sessions.add(notification.session)
+    }
   }
   return sessions.size
 }

@@ -389,10 +389,14 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
       unsub()
     })
 
-    // Dock/taskbar badge: how many sessions are waiting for the user. Follows
-    // the notify level — when notifications are off, the badge is suppressed
-    // too. macOS/Linux only (platform.setBadgeCount is undefined elsewhere).
-    const badgeCount = createMemo(() => unreadSessionCount(store.list))
+    // Dock/taskbar badge: how many sessions from *this* app run are waiting for
+    // the user. Scoped to launch time so a fresh start shows zero instead of
+    // resurfacing the persisted backlog on the Dock — notifications survive
+    // restarts to drive the sidebar, but the badge should only nag about what
+    // arrived this session. Follows the notify level (suppressed when off).
+    // macOS/Linux only (platform.setBadgeCount is undefined elsewhere).
+    const launchTime = Date.now()
+    const badgeCount = createMemo(() => unreadSessionCount(store.list, launchTime))
     createEffect(() => {
       const count = settings.notify.level() === "never" ? 0 : badgeCount()
       void platform.setBadgeCount?.(count)

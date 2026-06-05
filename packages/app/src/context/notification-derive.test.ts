@@ -4,27 +4,42 @@ import { questionCallKey, questionNotificationAction, resolveRootSessionID, unre
 describe("unreadSessionCount", () => {
   test("counts distinct unseen sessions, not the total notification count", () => {
     const notifications = [
-      { session: "ses_a", viewed: false },
-      { session: "ses_a", viewed: false },
-      { session: "ses_b", viewed: false },
+      { session: "ses_a", viewed: false, time: 10 },
+      { session: "ses_a", viewed: false, time: 11 },
+      { session: "ses_b", viewed: false, time: 12 },
     ]
     expect(unreadSessionCount(notifications)).toBe(2)
   })
 
   test("excludes sessions whose notifications have all been viewed", () => {
     const notifications = [
-      { session: "ses_a", viewed: false },
-      { session: "ses_b", viewed: true },
+      { session: "ses_a", viewed: false, time: 10 },
+      { session: "ses_b", viewed: true, time: 11 },
     ]
     expect(unreadSessionCount(notifications)).toBe(1)
   })
 
   test("ignores notifications with no session", () => {
-    expect(unreadSessionCount([{ viewed: false }])).toBe(0)
+    expect(unreadSessionCount([{ viewed: false, time: 10 }])).toBe(0)
   })
 
   test("is zero when nothing is unseen", () => {
     expect(unreadSessionCount([])).toBe(0)
+  })
+
+  test("ignores notifications created before the since cutoff", () => {
+    const notifications = [
+      { session: "ses_old", viewed: false, time: 5 },
+      { session: "ses_new", viewed: false, time: 20 },
+    ]
+    // Persisted backlog from a previous run (older timestamps) must not surface
+    // on the Dock badge at launch; only this run's notifications count.
+    expect(unreadSessionCount(notifications, 10)).toBe(1)
+  })
+
+  test("counts notifications at exactly the since cutoff", () => {
+    const notifications = [{ session: "ses_a", viewed: false, time: 10 }]
+    expect(unreadSessionCount(notifications, 10)).toBe(1)
   })
 })
 
