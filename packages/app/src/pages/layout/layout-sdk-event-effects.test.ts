@@ -32,6 +32,7 @@ function createSDKNotificationHarness(input?: {
   now?: () => number
 }) {
   let sessionsCalls = 0
+  let attentions = 0
   const notifications: Array<{ title: string; description?: string; href?: string }> = []
   const sounds: string[] = []
   const sessions = [
@@ -68,6 +69,7 @@ function createSDKNotificationHarness(input?: {
       setBusy: () => undefined,
       worktreeReady: () => undefined,
       worktreeFailed: () => undefined,
+      requestAttention: () => { attentions += 1 },
     },
     copy: {
       t: (key, params) => `${key}:${params?.sessionTitle ?? ""}:${params?.projectName ?? ""}`,
@@ -82,6 +84,7 @@ function createSDKNotificationHarness(input?: {
     notifications,
     sounds,
     sessionsCalls: () => sessionsCalls,
+    attentions: () => attentions,
   }
 }
 
@@ -161,6 +164,8 @@ describe("layout sdk event effects", () => {
 
     expect(hook.sessionsCalls()).toBe(1)
     expect(hook.notifications).toHaveLength(1)
+    // The throttled second ask must not re-bounce the Dock either.
+    expect(hook.attentions()).toBe(1)
   })
 
   test("plays notify sound for permission alerts", () => {
@@ -168,5 +173,15 @@ describe("layout sdk event effects", () => {
     hook.emit(permissionAskedEvent("/repo", "ses_other"))
 
     expect(hook.sounds).toEqual(["notify"])
+  })
+
+  test("requests attention for permission alerts", () => {
+    // A permission request blocks the agent on the user, same as a question, so
+    // it bounces the Dock / flashes the taskbar — unlike a turn-complete, which
+    // only notifies.
+    const hook = createSDKNotificationHarness()
+    hook.emit(permissionAskedEvent("/repo", "ses_other"))
+
+    expect(hook.attentions()).toBe(1)
   })
 })

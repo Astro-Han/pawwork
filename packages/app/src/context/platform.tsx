@@ -101,6 +101,14 @@ export type Platform = {
   /** Send a system notification (optional deep link) */
   notify(title: string, description?: string, href?: string): Promise<void>
 
+  /**
+   * Request user attention without stealing focus: bounce the Dock (macOS) or
+   * flash the taskbar (Windows). Reserved for events that block the agent on
+   * the user — a question or permission request — not passive turn-complete or
+   * error notices. Desktop only; no-op on web.
+   */
+  requestAttention?(): Promise<void>
+
   /** Set the Dock/taskbar unread badge count; 0 hides it (desktop only) */
   setBadgeCount?(count: number): Promise<void>
 

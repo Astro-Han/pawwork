@@ -269,9 +269,12 @@ const createPlatform = (): Platform => {
         // Fallback to IPC-based notification if native Notification fails
         window.api.showNotification(title, description)
       }
+    },
 
-      // Flash Dock/taskbar to attract attention
-      void window.api.flashFrame()
+    requestAttention: async () => {
+      // Bounce the Dock (macOS) / flash the taskbar (Windows). Only events that
+      // block the agent on the user call this — see Platform.requestAttention.
+      await window.api.flashFrame()
     },
 
     setBadgeCount: async (count) => {

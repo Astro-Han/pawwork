@@ -41,6 +41,7 @@ type LayoutSdkEventEffectsInput = {
   }
   effects: {
     notify: (title: string, description?: string, href?: string) => Promise<void> | void
+    requestAttention: () => Promise<void> | void
     playSound: (soundID: string) => unknown
     setBusy: (directory: string, value: boolean) => void
     worktreeReady: (directory: string) => void
@@ -186,6 +187,10 @@ export function createSDKNotificationEventHandler(input: LayoutSdkEventEffectsIn
       input.copy.t("notification.permission.description", { sessionTitle, projectName }),
       input.route.sessionHref(directory, props.sessionID),
     )
+    // A permission request blocks the agent on the user, so it earns a Dock
+    // bounce / taskbar flash — the same attention a question gets, unlike a
+    // turn-complete or error which only notify.
+    void input.effects.requestAttention()
   }
 }
 

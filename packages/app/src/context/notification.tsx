@@ -341,6 +341,9 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
         void playSoundById("notify")
         const href = `/${base64Encode(directory)}/session/${rootID}`
         void platform.notify(language.t("notification.question.title"), rootTitle ?? rootID, href)
+        // A question blocks the agent on the user, so it bounces the Dock /
+        // flashes the taskbar. turn-complete and error (above) only notify.
+        void platform.requestAttention?.()
       }
     }
 
