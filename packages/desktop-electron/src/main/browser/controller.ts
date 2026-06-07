@@ -1,11 +1,9 @@
 import { WebContentsView, shell, type BrowserWindow } from "electron"
 import type { BrowserState, BrowserViewLayout } from "@opencode-ai/app/desktop-api"
 import { browserViewWebPreferences } from "./options"
-import { computeViewBounds, deriveBrowserState, parseNavigable } from "./logic"
+import { computeViewBounds, deriveBrowserState, parseNavigable, safeExternalUrl } from "./logic"
 
 export const BROWSER_STATE_CHANNEL = "browser:state"
-
-const NON_WEB_SCHEME = /^[a-z][a-z0-9+.-]*:/i
 
 /**
  * Owns one embedded browser per window: a WebContentsView painted over the
@@ -72,7 +70,8 @@ export class BrowserViewController {
   }
 
   private openExternal(url: string) {
-    if (NON_WEB_SCHEME.test(url) && !url.startsWith("about:")) void shell.openExternal(url).catch(() => {})
+    const safe = safeExternalUrl(url)
+    if (safe) void shell.openExternal(safe).catch(() => {})
   }
 
   private async loadInternal(url: string) {
@@ -140,11 +139,11 @@ export class BrowserViewController {
     this.view.setVisible(true)
   }
 
-  async clearData() {
-    await this.wc.session.clearStorageData()
-    await this.wc.session.clearCache()
-    // Reload so the page reflects the signed-out state immediately.
-    if (!this.wc.isDestroyed() && this.state().hasPage) this.wc.reload()
+  // Reflect a partition-wide data clear: reload so the page shows its
+  // signed-out state immediately. No-op when no real page is loaded.
+  reloadIfLoaded() {
+    if (this.destroyed || this.wc.isDestroyed()) return
+    if (this.state().hasPage) this.wc.reload()
   }
 
   destroy() {

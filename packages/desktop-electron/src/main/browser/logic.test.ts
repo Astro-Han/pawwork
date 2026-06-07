@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { computeViewBounds, deriveBrowserState, parseNavigable, type BrowserStateSnapshot } from "./logic"
+import { computeViewBounds, deriveBrowserState, parseNavigable, safeExternalUrl, type BrowserStateSnapshot } from "./logic"
 
 describe("parseNavigable", () => {
   test("accepts http and https and normalizes", () => {
@@ -14,6 +14,22 @@ describe("parseNavigable", () => {
     expect(parseNavigable("ftp://files.example.com")).toBeNull()
     expect(parseNavigable("not a url")).toBeNull()
     expect(parseNavigable("")).toBeNull()
+  })
+})
+
+describe("safeExternalUrl", () => {
+  test("allows mailto and tel (case-insensitive)", () => {
+    expect(safeExternalUrl("mailto:a@b.com")).toBe("mailto:a@b.com")
+    expect(safeExternalUrl("tel:+15551234")).toBe("tel:+15551234")
+    expect(safeExternalUrl("MAILTO:a@b.com")).toBe("MAILTO:a@b.com")
+  })
+
+  test("drops file, custom app, javascript, and schemeless inputs", () => {
+    expect(safeExternalUrl("file:///etc/passwd")).toBeNull()
+    expect(safeExternalUrl("javascript:alert(1)")).toBeNull()
+    expect(safeExternalUrl("slack://open?team=T1")).toBeNull()
+    expect(safeExternalUrl("example.com")).toBeNull()
+    expect(safeExternalUrl("")).toBeNull()
   })
 })
 

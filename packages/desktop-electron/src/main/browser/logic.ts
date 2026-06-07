@@ -17,6 +17,21 @@ export function parseNavigable(input: string): string | null {
   return null
 }
 
+// Page-provided non-web links are handed to the OS only for this tight set of
+// schemes. Everything else (file:, javascript:, custom app protocols) is dropped
+// so a hostile page can't launch local files or arbitrary registered handlers.
+const EXTERNAL_SCHEMES = new Set(["mailto:", "tel:"])
+
+/**
+ * The page-provided URL to hand to the system handler, or null to drop it. Only
+ * a small allow-list of safe schemes escapes; navigable http/https links are
+ * handled in-place by parseNavigable and never reach here.
+ */
+export function safeExternalUrl(url: string): string | null {
+  const scheme = url.slice(0, url.indexOf(":") + 1).toLowerCase()
+  return EXTERNAL_SCHEMES.has(scheme) ? url : null
+}
+
 /**
  * Convert a CSS-pixel viewport rect (reported by the renderer) into the
  * device-independent pixel bounds a WebContentsView expects. The renderer is

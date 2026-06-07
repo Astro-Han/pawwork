@@ -1,6 +1,7 @@
-import { BrowserWindow, ipcMain, type IpcMainInvokeEvent } from "electron"
+import { BrowserWindow, ipcMain, session, type IpcMainInvokeEvent } from "electron"
 import type { BrowserViewLayout } from "@opencode-ai/app/desktop-api"
 import { BrowserViewController } from "../browser/controller"
+import { BROWSER_PARTITION } from "../browser/options"
 
 /**
  * Wires the embedded-browser IPC. One controller per window, created lazily and
@@ -46,6 +47,15 @@ export function registerBrowserIpc() {
     const controller = layout.visible ? ensure(event) : existing(event)
     controller?.setView(layout)
   })
-  ipcMain.handle("browser:clear-data", (event) => existing(event)?.clearData())
+  // Browsing data lives in the shared persistent partition, not in any one view,
+  // so clear the session directly — this works even before a view exists (e.g.
+  // opening the tab fresh after restart). Then reload any live views so they
+  // reflect the signed-out state immediately.
+  ipcMain.handle("browser:clear-data", async () => {
+    const partition = session.fromPartition(BROWSER_PARTITION)
+    await partition.clearStorageData()
+    await partition.clearCache()
+    for (const controller of controllers.values()) controller.reloadIfLoaded()
+  })
   ipcMain.handle("browser:get-state", (event) => existing(event)?.state() ?? null)
 }
