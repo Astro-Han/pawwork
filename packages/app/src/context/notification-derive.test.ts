@@ -1,5 +1,50 @@
 import { describe, expect, test } from "bun:test"
-import { badgeSessionCount } from "./notification-derive"
+import { badgeSessionCount, buildNotificationIndex, isLiveNotification } from "./notification-derive"
+import type { Notification } from "./notification"
+
+describe("isLiveNotification", () => {
+  test("keeps turn-complete and error, drops legacy question", () => {
+    expect(isLiveNotification({ type: "turn-complete" })).toBe(true)
+    expect(isLiveNotification({ type: "error" })).toBe(true)
+    expect(isLiveNotification({ type: "question" })).toBe(false)
+  })
+})
+
+describe("buildNotificationIndex", () => {
+  test("drops legacy persisted question entries so they never strand an unread dot", () => {
+    // Simulates a notification.v1 store written by an older build: an
+    // already-answered question persisted as type:"question", viewed:false.
+    const list = [
+      { type: "question", session: "ses_q", directory: "/repo", viewed: false, time: 10 },
+      { type: "turn-complete", session: "ses_done", directory: "/repo", viewed: false, time: 20 },
+    ] as unknown as Notification[]
+
+    const index = buildNotificationIndex(list)
+
+    // The legacy question contributes nothing to session or project unread.
+    expect(index.session.unseenCount["ses_q"]).toBeUndefined()
+    expect(index.session.all["ses_q"]).toBeUndefined()
+    expect(index.project.unseen["/repo"]?.some((n) => n.type !== "turn-complete" && n.type !== "error")).toBeFalsy()
+    // The live turn-complete still counts.
+    expect(index.session.unseenCount["ses_done"]).toBe(1)
+    expect(index.project.unseenCount["/repo"]).toBe(1)
+  })
+
+  test("counts unseen turn-complete and error, flags error, skips viewed", () => {
+    const list = [
+      { type: "turn-complete", session: "ses_a", directory: "/r", viewed: false, time: 1 },
+      { type: "error", session: "ses_a", directory: "/r", viewed: false, time: 2 },
+      { type: "turn-complete", session: "ses_b", directory: "/r", viewed: true, time: 3 },
+    ] as unknown as Notification[]
+
+    const index = buildNotificationIndex(list)
+
+    expect(index.session.unseenCount["ses_a"]).toBe(2)
+    expect(index.session.unseenHasError["ses_a"]).toBe(true)
+    expect(index.session.unseenCount["ses_b"]).toBeUndefined()
+    expect(index.project.unseenCount["/r"]).toBe(2)
+  })
+})
 
 describe("badgeSessionCount", () => {
   test("counts distinct unseen sessions, not the total notification count", () => {

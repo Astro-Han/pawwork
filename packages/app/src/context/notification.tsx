@@ -15,7 +15,12 @@ import { EventSessionError } from "@opencode-ai/sdk/v2"
 import { Persist, persisted } from "@/utils/persist"
 import { playSoundById } from "@/utils/sound"
 import { workspaceKey } from "@/pages/layout/helpers"
-import { badgeSessionCount } from "./notification-derive"
+import {
+  badgeSessionCount,
+  buildNotificationIndex,
+  isLiveNotification,
+  type NotificationIndex,
+} from "./notification-derive"
 import { pendingRootSessionIDs } from "./global-sync/pending-question-index"
 
 type NotificationBase = {
@@ -37,76 +42,16 @@ type ErrorNotification = NotificationBase & {
 
 export type Notification = TurnCompleteNotification | ErrorNotification
 
-type NotificationIndex = {
-  session: {
-    all: Record<string, Notification[]>
-    unseen: Record<string, Notification[]>
-    unseenCount: Record<string, number>
-    unseenHasError: Record<string, boolean>
-  }
-  project: {
-    all: Record<string, Notification[]>
-    unseen: Record<string, Notification[]>
-    unseenCount: Record<string, number>
-    unseenHasError: Record<string, boolean>
-  }
-}
-
 const MAX_NOTIFICATIONS = 500
 const NOTIFICATION_TTL_MS = 1000 * 60 * 60 * 24 * 30
 
 function pruneNotifications(list: Notification[]) {
   const cutoff = Date.now() - NOTIFICATION_TTL_MS
-  const pruned = list.filter((n) => n.time >= cutoff)
+  // isLiveNotification drops legacy persisted `type:"question"` entries on load
+  // (see #1199) so an already-answered question can never strand an unread dot.
+  const pruned = list.filter((n) => isLiveNotification(n) && n.time >= cutoff)
   if (pruned.length <= MAX_NOTIFICATIONS) return pruned
   return pruned.slice(pruned.length - MAX_NOTIFICATIONS)
-}
-
-function createNotificationIndex(): NotificationIndex {
-  return {
-    session: {
-      all: {},
-      unseen: {},
-      unseenCount: {},
-      unseenHasError: {},
-    },
-    project: {
-      all: {},
-      unseen: {},
-      unseenCount: {},
-      unseenHasError: {},
-    },
-  }
-}
-
-function buildNotificationIndex(list: Notification[]) {
-  const index = createNotificationIndex()
-
-  list.forEach((notification) => {
-    if (notification.session) {
-      const all = index.session.all[notification.session] ?? []
-      index.session.all[notification.session] = [...all, notification]
-      if (!notification.viewed) {
-        const unseen = index.session.unseen[notification.session] ?? []
-        index.session.unseen[notification.session] = [...unseen, notification]
-        index.session.unseenCount[notification.session] = unseen.length + 1
-        if (notification.type === "error") index.session.unseenHasError[notification.session] = true
-      }
-    }
-
-    if (notification.directory) {
-      const all = index.project.all[notification.directory] ?? []
-      index.project.all[notification.directory] = [...all, notification]
-      if (!notification.viewed) {
-        const unseen = index.project.unseen[notification.directory] ?? []
-        index.project.unseen[notification.directory] = [...unseen, notification]
-        index.project.unseenCount[notification.directory] = unseen.length + 1
-        if (notification.type === "error") index.project.unseenHasError[notification.directory] = true
-      }
-    }
-  })
-
-  return index
 }
 
 export const { use: useNotification, provider: NotificationProvider } = createSimpleContext({
