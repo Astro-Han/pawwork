@@ -456,8 +456,12 @@ export function registerIpcHandlers(deps: Deps) {
     if (!win) return
 
     if (process.platform === "darwin") {
-      // macOS: bounce the Dock icon once
-      app.dock?.bounce()
+      // macOS: bounce the Dock icon until the app is activated. "critical" (vs
+      // the default "informational" single bounce) is the "reliable bounce" the
+      // notification polish calls for — a lone informational bounce is trivial
+      // to miss. macOS never bounces the foreground app, so this is a no-op when
+      // the user is already looking, and auto-cancels the moment they click back.
+      app.dock?.bounce("critical")
     } else {
       // Windows/Linux: flash the taskbar button
       // Clear any existing timer for this window
@@ -473,6 +477,15 @@ export function registerIpcHandlers(deps: Deps) {
         }, 1000),
       )
     }
+  })
+
+  ipcMain.handle("set-badge-count", (_event: IpcMainInvokeEvent, count: number) => {
+    // Dock badge (macOS) / Unity launcher (Linux). `app.setBadgeCount` is
+    // @platform linux,darwin — a no-op on Windows, where taskbar attention is
+    // already covered by flash-frame above. Setting 0 hides the badge. A
+    // Windows overlay-icon badge can follow later if it proves worth it.
+    const next = Number.isFinite(count) && count > 0 ? Math.floor(count) : 0
+    app.setBadgeCount(next)
   })
 
   ipcMain.handle("get-window-count", () => BrowserWindow.getAllWindows().length)

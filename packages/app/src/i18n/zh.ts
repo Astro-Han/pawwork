@@ -533,10 +533,9 @@ export const dict = {
 
   "notification.permission.title": "需要权限",
   "notification.permission.description": "{{sessionTitle}}（{{projectName}}）需要权限",
-  "notification.question.title": "问题",
-  "notification.question.description": "{{sessionTitle}}（{{projectName}}）有一个问题",
+  "notification.question.title": "等你回答",
   "notification.action.goToSession": "前往会话",
-  "notification.session.responseReady.title": "回复已就绪",
+  "notification.session.responseReady.title": "任务完成",
   "notification.session.error.title": "会话错误",
   "notification.session.error.fallbackDescription": "发生错误",
 

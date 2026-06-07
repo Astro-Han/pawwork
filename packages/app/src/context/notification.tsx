@@ -1,6 +1,7 @@
 import { createStore, reconcile } from "solid-js/store"
 import { batch, createEffect, createMemo, onCleanup } from "solid-js"
 import { useParams } from "@solidjs/router"
+import { makeEventListener } from "@solid-primitives/event-listener"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { useGlobalSDK } from "./global-sdk"
 import { useGlobalSync } from "./global-sync"
@@ -11,8 +12,18 @@ import { Binary } from "@opencode-ai/util/binary"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { decode64 } from "@/utils/base64"
 import { EventSessionError } from "@opencode-ai/sdk/v2"
+import type { Part } from "@opencode-ai/sdk/v2/client"
 import { Persist, persisted } from "@/utils/persist"
 import { playSoundById } from "@/utils/sound"
+import { workspaceKey } from "@/pages/layout/helpers"
+import {
+  partitionRetractedQuestions,
+  questionCallKey,
+  questionNotificationAction,
+  resolveAndAlertQuestion,
+  resolveRootSessionIDAsync,
+  unreadSessionCount,
+} from "./notification-derive"
 
 type NotificationBase = {
   directory?: string
@@ -31,7 +42,18 @@ type ErrorNotification = NotificationBase & {
   error: EventSessionError["properties"]["error"]
 }
 
-export type Notification = TurnCompleteNotification | ErrorNotification
+type QuestionNotification = NotificationBase & {
+  type: "question"
+  // Identity of the originating question call (the *asking* session/message/part,
+  // not the root `session` recorded above for display). A question is a live
+  // condition: this lets a terminal reset, a removed part, or a removed message
+  // retract the notification so the unread dot / badge stops claiming the session
+  // needs input. Optional so legacy persisted entries (written before this field)
+  // still load — they simply never match a retraction.
+  ask?: { sessionID: string; messageID: string; partID: string }
+}
+
+export type Notification = TurnCompleteNotification | ErrorNotification | QuestionNotification
 
 type NotificationIndex = {
   session: {
@@ -205,6 +227,19 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
       })
     }
 
+    // Retract the persisted question notification(s) a removal event resolves —
+    // a question is a live condition, so when its part leaves `running` (reset),
+    // its part is removed, or its whole message is removed, the unread dot /
+    // badge must stop claiming the session needs input.
+    const dropQuestions = (match: { directory: string; sessionID: string; partID?: string; messageID?: string }) => {
+      const { kept, removed } = partitionRetractedQuestions(store.list, match)
+      if (!removed.length) return
+      batch(() => {
+        removed.forEach((n) => removeFromIndex(n))
+        setStore("list", kept)
+      })
+    }
+
     const lookup = async (directory: string, sessionID?: string) => {
       if (!sessionID) return undefined
       const [syncStore] = globalSync.child(directory, { bootstrap: false })
@@ -223,7 +258,11 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
       if (!activeDirectory) return false
       if (!activeSession) return false
       if (!sessionID) return false
-      if (directory !== activeDirectory) return false
+      // Normalize before comparing: the event directory and the routed
+      // directory can be the same workspace yet differ by a trailing slash or
+      // slash direction (notably on Windows), which would otherwise alert for a
+      // session the user is already viewing.
+      if (workspaceKey(directory) !== workspaceKey(activeDirectory)) return false
       return sessionID === activeSession
     }
 
@@ -284,11 +323,121 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
       })
     }
 
+    // Questions stream as repeated `message.part.updated` events; dedupe so a
+    // single question alerts once. The entry is cleared when the part stops
+    // running (see questionNotificationAction) or is removed.
+    const alertedQuestionCalls = new Set<string>()
+
+    // Resolve a session's parentID from the in-memory list, falling back to a
+    // network lookup when the project's sessions were never bootstrapped — the
+    // global event stream delivers questions for background projects too, so the
+    // in-memory list can be empty here.
+    const fetchParentID = async (directory: string, sessionID: string): Promise<string | undefined> => {
+      const [syncStore] = globalSync.child(directory, { bootstrap: false })
+      const match = Binary.search(syncStore.session, sessionID, (s) => s.id)
+      if (match.found) return syncStore.session[match.index].parentID
+      const session = await globalSDK.client.session
+        .get({ directory, sessionID })
+        .then((x) => x.data)
+        .catch(() => undefined)
+      return session?.parentID
+    }
+
+    const handleQuestionPart = async (directory: string, sessionID: string, part: Part, time: number) => {
+      const action = questionNotificationAction(part)
+      if (action === "ignore") return
+
+      const callKey = questionCallKey(directory, sessionID, part.id)
+      if (action === "reset") {
+        alertedQuestionCalls.delete(callKey)
+        dropQuestions({ directory, sessionID, partID: part.id })
+        return
+      }
+      if (alertedQuestionCalls.has(callKey)) return
+      alertedQuestionCalls.add(callKey)
+
+      await resolveAndAlertQuestion({
+        // A child agent's question surfaces on (and is answered from) its root
+        // session's page, and only root sessions show in the sidebar —
+        // attribute the notification to the root, not the asking child.
+        // Resolving the root may hit the network for an unbootstrapped
+        // background project, so async.
+        resolveRoot: () => resolveRootSessionIDAsync(sessionID, (id) => fetchParentID(directory, id)),
+        disposed: () => meta.disposed,
+        // Re-check the dedupe claim after the async root resolution: a
+        // message.part.removed or terminal reset for this same call may have
+        // cleared it mid-await, meaning the question is gone — don't alert.
+        isPending: () => alertedQuestionCalls.has(callKey),
+        alert: (rootID) => {
+          const [syncStore] = globalSync.child(directory, { bootstrap: false })
+          const rootMatch = Binary.search(syncStore.session, rootID, (s) => s.id)
+          const rootTitle = rootMatch.found ? syncStore.session[rootMatch.index].title : undefined
+
+          const visible = viewedInCurrentSession(directory, rootID)
+          append({
+            directory,
+            time,
+            viewed: visible,
+            type: "question",
+            session: rootID,
+            ask: { sessionID, messageID: part.messageID, partID: part.id },
+          })
+
+          const level = settings.notify.level()
+          const shouldAlert = level !== "never" && (level === "always" || !visible)
+          if (shouldAlert) {
+            void playSoundById("notify")
+            const href = `/${base64Encode(directory)}/session/${rootID}`
+            void platform.notify(language.t("notification.question.title"), rootTitle ?? rootID, href)
+            // A question blocks the agent on the user, so it bounces the Dock /
+            // flashes the taskbar. turn-complete and error (above) only notify.
+            void platform.requestAttention?.()
+          }
+        },
+      })
+    }
+
+    const markSessionViewed = (session: string) => {
+      const unseen = index.session.unseen[session] ?? empty
+      if (!unseen.length) return
+
+      const projects = [
+        ...new Set(unseen.flatMap((notification) => (notification.directory ? [notification.directory] : []))),
+      ]
+      batch(() => {
+        setStore("list", (n) => n.session === session && !n.viewed, "viewed", true)
+        updateUnseen("session", session, [])
+        projects.forEach((directory) => {
+          const next = (index.project.unseen[directory] ?? empty).filter(
+            (notification) => notification.session !== session,
+          )
+          updateUnseen("project", directory, next)
+        })
+      })
+    }
+
     const unsub = globalSDK.event.listen((e) => {
       const event = e.details
+      const directory = e.name
+
+      if (event.type === "message.part.updated") {
+        void handleQuestionPart(directory, event.properties.sessionID, event.properties.part, Date.now())
+        return
+      }
+      if (event.type === "message.part.removed") {
+        const { sessionID, partID } = event.properties
+        alertedQuestionCalls.delete(questionCallKey(directory, sessionID, partID))
+        dropQuestions({ directory, sessionID, partID })
+        return
+      }
+      if (event.type === "message.removed") {
+        // removeMessage / revert emit only `message.removed`, not a per-part
+        // `message.part.removed`, so sweep every question in the message.
+        dropQuestions({ directory, sessionID: event.properties.sessionID, messageID: event.properties.messageID })
+        return
+      }
       if (event.type !== "session.idle" && event.type !== "session.error") return
 
-      const directory = e.name
       const time = Date.now()
       if (event.type === "session.idle") {
         handleSessionIdle(directory, event, time)
@@ -300,6 +449,31 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
       meta.disposed = true
       unsub()
     })
+
+    // Dock/taskbar badge: how many sessions from *this* app run are waiting for
+    // the user. Scoped to launch time so a fresh start shows zero instead of
+    // resurfacing the persisted backlog on the Dock — notifications survive
+    // restarts to drive the sidebar, but the badge should only nag about what
+    // arrived this session. Follows the notify level (suppressed when off).
+    // macOS/Linux only (platform.setBadgeCount is undefined elsewhere).
+    const launchTime = Date.now()
+    const badgeCount = createMemo(() => unreadSessionCount(store.list, launchTime))
+    createEffect(() => {
+      const count = settings.notify.level() === "never" ? 0 : badgeCount()
+      void platform.setBadgeCount?.(count)
+    })
+
+    // Returning focus to the window should clear the unread dot of the session
+    // you're already looking at. Notifications created while the window was
+    // blurred (e.g. a turn finishing in the background) land unviewed even for
+    // the active route, and route-change is the only other thing that marks
+    // them viewed — so without this the dot lingers until you navigate away.
+    if (typeof window !== "undefined") {
+      makeEventListener(window, "focus", () => {
+        const session = currentSession()
+        if (session) markSessionViewed(session)
+      })
+    }
 
     return {
       ready,
@@ -316,24 +490,7 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
         unseenHasError(session: string) {
           return index.session.unseenHasError[session] ?? false
         },
-        markViewed(session: string) {
-          const unseen = index.session.unseen[session] ?? empty
-          if (!unseen.length) return
-
-          const projects = [
-            ...new Set(unseen.flatMap((notification) => (notification.directory ? [notification.directory] : []))),
-          ]
-          batch(() => {
-            setStore("list", (n) => n.session === session && !n.viewed, "viewed", true)
-            updateUnseen("session", session, [])
-            projects.forEach((directory) => {
-              const next = (index.project.unseen[directory] ?? empty).filter(
-                (notification) => notification.session !== session,
-              )
-              updateUnseen("project", directory, next)
-            })
-          })
-        },
+        markViewed: markSessionViewed,
       },
       project: {
         all(directory: string) {

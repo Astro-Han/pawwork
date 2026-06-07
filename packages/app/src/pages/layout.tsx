@@ -225,6 +225,7 @@ export default function Layout(props: ParentProps) {
     },
     effects: {
       notify: (title, description, href) => platform.notify(title, description, href),
+      requestAttention: () => platform.requestAttention?.(),
       playSound: playSoundById,
       setBusy,
       worktreeReady: (directory) => WorktreeState.ready(directory),
