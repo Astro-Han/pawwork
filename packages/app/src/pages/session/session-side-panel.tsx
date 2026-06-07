@@ -212,6 +212,19 @@ export function SessionSidePanel(props: {
       view().sidePanel.closeTab(tab)
     }
   })
+  // Stale browser selector guard (sibling to the dangling-terminal guard
+  // above): browser is desktop/Electron only, so a session persisted with the
+  // tab open can be restored where the platform lacks it — the feature
+  // flag-disabled or rolled back. Its chip is already filtered out, but a
+  // persisted active "browser" tab would leave the panel on a value whose
+  // <Tabs.Content> never mounts (blank body). Drop it so the selection falls
+  // back to a real tab.
+  createEffect(() => {
+    if (canUseBrowser(platform)) return
+    if (!view().sidePanel.openTabs().includes("browser")) return
+    view().sidePanel.closeTab("browser")
+  })
+
   const showAllFiles = () => {
     if (view().sidePanel.explorer.tab() !== "changes") return
     view().sidePanel.explorer.setTab("all")
