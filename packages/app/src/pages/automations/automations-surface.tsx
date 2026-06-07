@@ -5,11 +5,10 @@ import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { getFilename } from "@opencode-ai/util/path"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
-import { workspaceKey } from "@/pages/layout/helpers"
+import { displayName, workspaceKey } from "@/pages/layout/helpers"
 import { formatServerError } from "@/utils/server-errors"
 import { AutomationList } from "./automation-list"
 import { AutomationDetail } from "./automation-detail"
@@ -44,6 +43,11 @@ function AutomationsEmpty(props: { onUseTemplate: (template: AutomationTemplate)
 
 type AutomationItem = {
   definition: AutomationDefinition
+  directory: string
+  projectName: string
+}
+
+type AutomationDirectory = {
   directory: string
   projectName: string
 }
@@ -96,19 +100,19 @@ export function AutomationsSurface(props: {
   })
 
   const automationDirectories = createMemo(() => {
-    const directories: string[] = []
+    const directories: AutomationDirectory[] = []
     const seen = new Set<string>()
-    const add = (directory: string | undefined) => {
+    const add = (directory: string | undefined, projectName?: string) => {
       if (!directory) return
       const key = workspaceKey(directory)
       if (seen.has(key)) return
       seen.add(key)
-      directories.push(directory)
+      directories.push({ directory, projectName: projectName ?? displayName({ worktree: directory }) })
     }
 
     for (const project of layout.projects.list()) {
       if (project.id === "global") continue
-      add(project.worktree)
+      add(project.worktree, displayName(project))
     }
     add(props.directory())
     return directories
@@ -116,10 +120,10 @@ export function AutomationsSurface(props: {
 
   const automationItems = createMemo(() => {
     const items: AutomationItem[] = []
-    for (const directory of automationDirectories()) {
+    for (const { directory, projectName } of automationDirectories()) {
       const [store] = globalSync.child(directory)
       for (const definition of Object.values(store.automation)) {
-        items.push({ definition, directory, projectName: getFilename(directory) })
+        items.push({ definition, directory, projectName })
       }
     }
     return items.sort((a, b) =>
@@ -220,6 +224,7 @@ export function AutomationsSurface(props: {
             <AutomationDetail
               automation={() => item().definition}
               directory={() => item().directory}
+              projectName={() => item().projectName}
               onBack={() => setSelectedID(undefined)}
               onOpenRun={props.onOpenRun}
             />

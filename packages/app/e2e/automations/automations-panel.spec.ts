@@ -145,6 +145,8 @@ test("automations panel: lists automations from every open project", async ({ pa
 
     const otherSDK = backend.sdk(other)
     const otherProjectID = (await otherSDK.project.current()).data!.id
+    const otherProjectName = "External Automation Project"
+    await otherSDK.project.update({ projectID: otherProjectID, name: otherProjectName })
     const created = (await otherSDK.automation.create(
       recurring(otherProjectID, "Cross-project digest", "Summarize the other project.", "0 9 * * 1-5"),
     )).data!
@@ -154,7 +156,8 @@ test("automations panel: lists automations from every open project", async ({ pa
     await expect(rows).toHaveCount(1)
     const row = rows.first()
     await expect(row).toContainText("Cross-project digest")
-    await expect(row).toContainText(getFilename(other))
+    await expect(row).toContainText(otherProjectName)
+    await expect(row).not.toContainText(getFilename(other))
 
     await surface.locator(`[data-action="automation-toggle-active"][data-automation-id="${created.id}"]`).click({ force: true })
     await expect
@@ -175,7 +178,7 @@ test("automations panel: lists automations from every open project", async ({ pa
     await row.click()
     const detail = surface.locator('[data-component="automation-detail"]')
     await expect(detail.getByRole("heading", { name: "Cross-project digest" })).toBeVisible()
-    await expect(detail.getByText(getFilename(other))).toBeVisible()
+    await expect(detail.getByText(otherProjectName)).toBeVisible()
     await expect(detail.getByText("Paused")).toBeVisible()
     await expect.poll(() => runListRequests).toBe(1)
 
