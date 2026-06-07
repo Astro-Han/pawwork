@@ -145,19 +145,36 @@ test("automations panel: lists automations from every open project", async ({ pa
 
     const otherSDK = backend.sdk(other)
     const otherProjectID = (await otherSDK.project.current()).data!.id
-    await otherSDK.automation.create(
+    const created = (await otherSDK.automation.create(
       recurring(otherProjectID, "Cross-project digest", "Summarize the other project.", "0 9 * * 1-5"),
-    )
+    )).data!
 
     const surface = await openAutomations(page)
     const rows = surface.locator('[data-action="automation-row"]')
     await expect(rows).toHaveCount(1)
     await expect(rows.first()).toContainText("Cross-project digest")
 
+    await surface.locator(`[data-action="automation-toggle-active"][data-automation-id="${created.id}"]`).click({ force: true })
+    await expect
+      .poll(async () => {
+        const items = (await otherSDK.automation.list()).data?.items ?? []
+        return items.find((automation) => automation.id === created.id)?.paused ?? false
+      })
+      .toBe(true)
+
     await rows.first().click()
     const detail = surface.locator('[data-component="automation-detail"]')
     await expect(detail.getByRole("heading", { name: "Cross-project digest" })).toBeVisible()
     await expect(detail.getByText(getFilename(other))).toBeVisible()
+    await expect(detail.getByText("Paused")).toBeVisible()
+
+    await detail.locator('[data-action="automation-toggle-active"]').click()
+    await expect
+      .poll(async () => {
+        const items = (await otherSDK.automation.list()).data?.items ?? []
+        return items.find((automation) => automation.id === created.id)?.paused ?? true
+      })
+      .toBe(false)
   } finally {
     await cleanupTestProject(other, { serverUrl: backend.url })
   }
