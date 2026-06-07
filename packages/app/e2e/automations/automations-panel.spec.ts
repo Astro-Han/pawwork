@@ -164,11 +164,20 @@ test("automations panel: lists automations from every open project", async ({ pa
       })
       .toBe(true)
 
+    // Opening detail loads the run history once. Toggling pause/resume updates
+    // the definition, but should not reload runs unless the shown automation
+    // identity changes.
+    let runListRequests = 0
+    page.on("request", (request) => {
+      if (request.url().includes(`/automation/${created.id}/runs`)) runListRequests++
+    })
+
     await row.click()
     const detail = surface.locator('[data-component="automation-detail"]')
     await expect(detail.getByRole("heading", { name: "Cross-project digest" })).toBeVisible()
     await expect(detail.getByText(getFilename(other))).toBeVisible()
     await expect(detail.getByText("Paused")).toBeVisible()
+    await expect.poll(() => runListRequests).toBe(1)
 
     await detail.locator('[data-action="automation-toggle-active"]').click()
     await expect
@@ -177,6 +186,8 @@ test("automations panel: lists automations from every open project", async ({ pa
         return items.find((automation) => automation.id === created.id)?.paused ?? true
       })
       .toBe(false)
+    await page.waitForTimeout(250)
+    expect(runListRequests).toBe(1)
   } finally {
     await cleanupTestProject(other, { serverUrl: backend.url })
   }
