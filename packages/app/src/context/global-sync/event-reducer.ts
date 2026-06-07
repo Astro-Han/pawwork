@@ -17,11 +17,6 @@ import type { State, VcsCache } from "./types"
 import { applyAutomationDefinition, applyAutomationRun, applyAutomationTombstone } from "./automation-store"
 import { trimSessions } from "./session-trim"
 import { dropSessionCaches } from "./session-cache"
-import {
-  pendingExternalResultQuestionFromPart,
-  removePendingExternalResultQuestion,
-  upsertPendingExternalResultQuestion,
-} from "./external-result-question"
 import { message as clean } from "@/utils/diffs"
 import type { createBlockerTerminalCache } from "./blocker-terminal-cache"
 import type { TodoHydrateCoordinator } from "./todo-hydrate-coordinator"
@@ -124,7 +119,6 @@ export function cleanupDroppedSessionCaches(
   const stale = [
     ...dropped,
     ...Object.keys(store.message),
-    ...Object.keys(store.external_result_question),
     ...Object.keys(store.turn_change_aggregate),
     ...Object.keys(store.todo),
     ...Object.keys(store.permission),
@@ -320,13 +314,6 @@ export function applyDirectoryEvent(input: {
             if (result.found) messages.splice(result.index, 1)
           }
           delete draft.part[props.messageID]
-          for (const sessionID of Object.keys(draft.external_result_question)) {
-            const next = removePendingExternalResultQuestion(draft.external_result_question[sessionID], {
-              messageID: props.messageID,
-            })
-            if (next) draft.external_result_question[sessionID] = next
-            else delete draft.external_result_question[sessionID]
-          }
         }),
       )
       break
@@ -344,27 +331,6 @@ export function applyDirectoryEvent(input: {
           todoHydrate: input.todoHydrate,
         })
         if (accepted) input.setStore("todo", todo.sessionID, reconcile(todo.snapshot.todos, { key: "id" }))
-      }
-      const pendingQuestion = pendingExternalResultQuestionFromPart(part)
-      if (pendingQuestion) {
-        input.setStore("external_result_question", pendingQuestion.sessionID, (list) =>
-          upsertPendingExternalResultQuestion(list, pendingQuestion),
-        )
-      } else if (part.type === "tool" && part.tool === "question") {
-        input.setStore(
-          "external_result_question",
-          produce((draft) => {
-            const sessionIDs = part.sessionID ? [part.sessionID] : Object.keys(draft)
-            for (const sessionID of sessionIDs) {
-              const next = removePendingExternalResultQuestion(draft[sessionID], {
-                messageID: part.messageID,
-                partID: part.id,
-              })
-              if (next) draft[sessionID] = next
-              else delete draft[sessionID]
-            }
-          }),
-        )
       }
       const parts = input.store.part[part.messageID]
       if (!parts) {
@@ -387,19 +353,6 @@ export function applyDirectoryEvent(input: {
     }
     case "message.part.removed": {
       const props = event.properties as { messageID: string; partID: string }
-      input.setStore(
-        "external_result_question",
-        produce((draft) => {
-          for (const sessionID of Object.keys(draft)) {
-            const next = removePendingExternalResultQuestion(draft[sessionID], {
-              messageID: props.messageID,
-              partID: props.partID,
-            })
-            if (next) draft[sessionID] = next
-            else delete draft[sessionID]
-          }
-        }),
-      )
       const parts = input.store.part[props.messageID]
       if (!parts) break
       const result = Binary.search(parts, props.partID, (p) => p.id)

@@ -12,18 +12,16 @@ import { Binary } from "@opencode-ai/util/binary"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { decode64 } from "@/utils/base64"
 import { EventSessionError } from "@opencode-ai/sdk/v2"
-import type { Part } from "@opencode-ai/sdk/v2/client"
 import { Persist, persisted } from "@/utils/persist"
 import { playSoundById } from "@/utils/sound"
 import { workspaceKey } from "@/pages/layout/helpers"
 import {
-  partitionRetractedQuestions,
-  questionCallKey,
-  questionNotificationAction,
-  resolveAndAlertQuestion,
-  resolveRootSessionIDAsync,
-  unreadSessionCount,
+  badgeSessionCount,
+  buildNotificationIndex,
+  isLiveNotification,
+  type NotificationIndex,
 } from "./notification-derive"
+import { pendingRootSessionIDs } from "./global-sync/pending-question-index"
 
 type NotificationBase = {
   directory?: string
@@ -42,89 +40,18 @@ type ErrorNotification = NotificationBase & {
   error: EventSessionError["properties"]["error"]
 }
 
-type QuestionNotification = NotificationBase & {
-  type: "question"
-  // Identity of the originating question call (the *asking* session/message/part,
-  // not the root `session` recorded above for display). A question is a live
-  // condition: this lets a terminal reset, a removed part, or a removed message
-  // retract the notification so the unread dot / badge stops claiming the session
-  // needs input. Optional so legacy persisted entries (written before this field)
-  // still load — they simply never match a retraction.
-  ask?: { sessionID: string; messageID: string; partID: string }
-}
-
-export type Notification = TurnCompleteNotification | ErrorNotification | QuestionNotification
-
-type NotificationIndex = {
-  session: {
-    all: Record<string, Notification[]>
-    unseen: Record<string, Notification[]>
-    unseenCount: Record<string, number>
-    unseenHasError: Record<string, boolean>
-  }
-  project: {
-    all: Record<string, Notification[]>
-    unseen: Record<string, Notification[]>
-    unseenCount: Record<string, number>
-    unseenHasError: Record<string, boolean>
-  }
-}
+export type Notification = TurnCompleteNotification | ErrorNotification
 
 const MAX_NOTIFICATIONS = 500
 const NOTIFICATION_TTL_MS = 1000 * 60 * 60 * 24 * 30
 
 function pruneNotifications(list: Notification[]) {
   const cutoff = Date.now() - NOTIFICATION_TTL_MS
-  const pruned = list.filter((n) => n.time >= cutoff)
+  // isLiveNotification drops legacy persisted `type:"question"` entries on load
+  // (see #1199) so an already-answered question can never strand an unread dot.
+  const pruned = list.filter((n) => isLiveNotification(n) && n.time >= cutoff)
   if (pruned.length <= MAX_NOTIFICATIONS) return pruned
   return pruned.slice(pruned.length - MAX_NOTIFICATIONS)
-}
-
-function createNotificationIndex(): NotificationIndex {
-  return {
-    session: {
-      all: {},
-      unseen: {},
-      unseenCount: {},
-      unseenHasError: {},
-    },
-    project: {
-      all: {},
-      unseen: {},
-      unseenCount: {},
-      unseenHasError: {},
-    },
-  }
-}
-
-function buildNotificationIndex(list: Notification[]) {
-  const index = createNotificationIndex()
-
-  list.forEach((notification) => {
-    if (notification.session) {
-      const all = index.session.all[notification.session] ?? []
-      index.session.all[notification.session] = [...all, notification]
-      if (!notification.viewed) {
-        const unseen = index.session.unseen[notification.session] ?? []
-        index.session.unseen[notification.session] = [...unseen, notification]
-        index.session.unseenCount[notification.session] = unseen.length + 1
-        if (notification.type === "error") index.session.unseenHasError[notification.session] = true
-      }
-    }
-
-    if (notification.directory) {
-      const all = index.project.all[notification.directory] ?? []
-      index.project.all[notification.directory] = [...all, notification]
-      if (!notification.viewed) {
-        const unseen = index.project.unseen[notification.directory] ?? []
-        index.project.unseen[notification.directory] = [...unseen, notification]
-        index.project.unseenCount[notification.directory] = unseen.length + 1
-        if (notification.type === "error") index.project.unseenHasError[notification.directory] = true
-      }
-    }
-  })
-
-  return index
 }
 
 export const { use: useNotification, provider: NotificationProvider } = createSimpleContext({
@@ -227,19 +154,6 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
       })
     }
 
-    // Retract the persisted question notification(s) a removal event resolves —
-    // a question is a live condition, so when its part leaves `running` (reset),
-    // its part is removed, or its whole message is removed, the unread dot /
-    // badge must stop claiming the session needs input.
-    const dropQuestions = (match: { directory: string; sessionID: string; partID?: string; messageID?: string }) => {
-      const { kept, removed } = partitionRetractedQuestions(store.list, match)
-      if (!removed.length) return
-      batch(() => {
-        removed.forEach((n) => removeFromIndex(n))
-        setStore("list", kept)
-      })
-    }
-
     const lookup = async (directory: string, sessionID?: string) => {
       if (!sessionID) return undefined
       const [syncStore] = globalSync.child(directory, { bootstrap: false })
@@ -323,78 +237,33 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
       })
     }
 
-    // Questions stream as repeated `message.part.updated` events; dedupe so a
-    // single question alerts once. The entry is cleared when the part stops
-    // running (see questionNotificationAction) or is removed.
-    const alertedQuestionCalls = new Set<string>()
+    // A live question's OS alert (sound / notification / Dock attention) is
+    // driven by the global pending-question controller, which fires exactly once
+    // on the rising edge — when a `question` part first becomes ready — and never
+    // on hydrate/reconnect, so a restart with an outstanding question does not
+    // re-nag. The controller has already resolved the root session it should be
+    // attributed to; we only decide whether to surface it and how.
+    const alertQuestion = (alert: {
+      directory: string
+      askSessionID: string
+      rootSessionID: string
+    }) => {
+      if (meta.disposed) return
+      const level = settings.notify.level()
+      if (level === "never") return
+      const visible = viewedInCurrentSession(alert.directory, alert.rootSessionID)
+      if (level !== "always" && visible) return
 
-    // Resolve a session's parentID from the in-memory list, falling back to a
-    // network lookup when the project's sessions were never bootstrapped — the
-    // global event stream delivers questions for background projects too, so the
-    // in-memory list can be empty here.
-    const fetchParentID = async (directory: string, sessionID: string): Promise<string | undefined> => {
-      const [syncStore] = globalSync.child(directory, { bootstrap: false })
-      const match = Binary.search(syncStore.session, sessionID, (s) => s.id)
-      if (match.found) return syncStore.session[match.index].parentID
-      const session = await globalSDK.client.session
-        .get({ directory, sessionID })
-        .then((x) => x.data)
-        .catch(() => undefined)
-      return session?.parentID
-    }
+      const [syncStore] = globalSync.child(alert.directory, { bootstrap: false })
+      const match = Binary.search(syncStore.session, alert.rootSessionID, (s) => s.id)
+      const rootTitle = match.found ? syncStore.session[match.index].title : undefined
 
-    const handleQuestionPart = async (directory: string, sessionID: string, part: Part, time: number) => {
-      const action = questionNotificationAction(part)
-      if (action === "ignore") return
-
-      const callKey = questionCallKey(directory, sessionID, part.id)
-      if (action === "reset") {
-        alertedQuestionCalls.delete(callKey)
-        dropQuestions({ directory, sessionID, partID: part.id })
-        return
-      }
-      if (alertedQuestionCalls.has(callKey)) return
-      alertedQuestionCalls.add(callKey)
-
-      await resolveAndAlertQuestion({
-        // A child agent's question surfaces on (and is answered from) its root
-        // session's page, and only root sessions show in the sidebar —
-        // attribute the notification to the root, not the asking child.
-        // Resolving the root may hit the network for an unbootstrapped
-        // background project, so async.
-        resolveRoot: () => resolveRootSessionIDAsync(sessionID, (id) => fetchParentID(directory, id)),
-        disposed: () => meta.disposed,
-        // Re-check the dedupe claim after the async root resolution: a
-        // message.part.removed or terminal reset for this same call may have
-        // cleared it mid-await, meaning the question is gone — don't alert.
-        isPending: () => alertedQuestionCalls.has(callKey),
-        alert: (rootID) => {
-          const [syncStore] = globalSync.child(directory, { bootstrap: false })
-          const rootMatch = Binary.search(syncStore.session, rootID, (s) => s.id)
-          const rootTitle = rootMatch.found ? syncStore.session[rootMatch.index].title : undefined
-
-          const visible = viewedInCurrentSession(directory, rootID)
-          append({
-            directory,
-            time,
-            viewed: visible,
-            type: "question",
-            session: rootID,
-            ask: { sessionID, messageID: part.messageID, partID: part.id },
-          })
-
-          const level = settings.notify.level()
-          const shouldAlert = level !== "never" && (level === "always" || !visible)
-          if (shouldAlert) {
-            void playSoundById("notify")
-            const href = `/${base64Encode(directory)}/session/${rootID}`
-            void platform.notify(language.t("notification.question.title"), rootTitle ?? rootID, href)
-            // A question blocks the agent on the user, so it bounces the Dock /
-            // flashes the taskbar. turn-complete and error (above) only notify.
-            void platform.requestAttention?.()
-          }
-        },
-      })
+      void playSoundById("notify")
+      const href = `/${base64Encode(alert.directory)}/session/${alert.rootSessionID}`
+      void platform.notify(language.t("notification.question.title"), rootTitle ?? alert.rootSessionID, href)
+      // A question blocks the agent on the user, so it bounces the Dock /
+      // flashes the taskbar. turn-complete and error only notify.
+      void platform.requestAttention?.()
     }
 
     const markSessionViewed = (session: string) => {
@@ -420,22 +289,6 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
       const event = e.details
       const directory = e.name
 
-      if (event.type === "message.part.updated") {
-        void handleQuestionPart(directory, event.properties.sessionID, event.properties.part, Date.now())
-        return
-      }
-      if (event.type === "message.part.removed") {
-        const { sessionID, partID } = event.properties
-        alertedQuestionCalls.delete(questionCallKey(directory, sessionID, partID))
-        dropQuestions({ directory, sessionID, partID })
-        return
-      }
-      if (event.type === "message.removed") {
-        // removeMessage / revert emit only `message.removed`, not a per-part
-        // `message.part.removed`, so sweep every question in the message.
-        dropQuestions({ directory, sessionID: event.properties.sessionID, messageID: event.properties.messageID })
-        return
-      }
       if (event.type !== "session.idle" && event.type !== "session.error") return
 
       const time = Date.now()
@@ -445,19 +298,25 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
       }
       handleSessionError(directory, event, time)
     })
+    const unsubQuestionAlert = globalSync.onQuestionAlert(alertQuestion)
     onCleanup(() => {
       meta.disposed = true
       unsub()
+      unsubQuestionAlert()
     })
 
-    // Dock/taskbar badge: how many sessions from *this* app run are waiting for
-    // the user. Scoped to launch time so a fresh start shows zero instead of
-    // resurfacing the persisted backlog on the Dock — notifications survive
-    // restarts to drive the sidebar, but the badge should only nag about what
-    // arrived this session. Follows the notify level (suppressed when off).
-    // macOS/Linux only (platform.setBadgeCount is undefined elsewhere).
+    // Dock/taskbar badge: how many sessions are waiting for the user. Two
+    // sources unioned by session (see badgeSessionCount): unseen turn-complete /
+    // error notifications from *this* app run (launch-scoped so a fresh start
+    // shows zero instead of resurfacing the persisted backlog), plus the root
+    // sessions of every live pending question (a current condition, so never
+    // launch-scoped — a question still outstanding across a restart should
+    // badge). Follows the notify level (suppressed when off). macOS/Linux only
+    // (platform.setBadgeCount is undefined elsewhere).
     const launchTime = Date.now()
-    const badgeCount = createMemo(() => unreadSessionCount(store.list, launchTime))
+    const badgeCount = createMemo(() =>
+      badgeSessionCount(store.list, pendingRootSessionIDs(globalSync.data.pendingQuestions), launchTime),
+    )
     createEffect(() => {
       const count = settings.notify.level() === "never" ? 0 : badgeCount()
       void platform.setBadgeCount?.(count)

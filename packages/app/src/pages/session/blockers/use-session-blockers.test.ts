@@ -144,102 +144,41 @@ describe("findRunningExternalResultQuestion", () => {
   })
 })
 
+// The dock walks the session tree and renders purely from the local
+// message/part cache — a running, ready question part IS the request. There is
+// no pending index to consult: reload recovers via hydrate writing the part
+// back, and a terminal part simply stops matching `findRunningExternalResultQuestion`.
 describe("findDescendantExternalResultQuestion", () => {
-  test("returns an active session question from the pending blocker index without an owning message row", () => {
+  test("ignores a running question outside the active session tree", () => {
     const result = findDescendantExternalResultQuestion({
-      sessions: [session("parent")],
+      sessions: [session("parent"), session("other")],
       rootSessionID: "parent",
-      pendingQuestions: {
-        parent: [
-          {
-            id: "m-orphan:c-parent",
-            sessionID: "parent",
-            questions,
-            messageID: "m-orphan",
-            callID: "c-parent",
-            partID: "p-orphan",
-          },
-        ],
-      },
-      messages: {},
-      partsByMessageID: {},
-    })
-    expect(result?.sessionID).toBe("parent")
-    expect(result?.callID).toBe("c-parent")
-  })
-
-  test("ignores a pending blocker index entry when the local part is already terminal", () => {
-    const result = findDescendantExternalResultQuestion({
-      sessions: [session("parent")],
-      rootSessionID: "parent",
-      pendingQuestions: {
-        parent: [
-          {
-            id: "m1:c-parent",
-            sessionID: "parent",
-            questions,
-            messageID: "m1",
-            callID: "c-parent",
-            partID: "p1",
-          },
-        ],
-      },
-      messages: { parent: [message("m1")] },
+      messages: { other: [message("m-other")] },
       partsByMessageID: {
-        m1: [
-          toolPart(
-            "p1",
-            "question",
-            toolState("completed", { externalResultReady: true }, { questions }),
-            { messageID: "m1", callID: "c-parent" },
-          ),
+        "m-other": [
+          toolPart("p-other", "question", toolState("running", { externalResultReady: true }, { questions }), {
+            messageID: "m-other",
+            callID: "c-other",
+          }),
         ],
       },
     })
     expect(result).toBeUndefined()
   })
 
-  test("returns a child session question from the pending blocker index without an owning message row", () => {
+  test("ignores a terminal question part in the tree", () => {
     const result = findDescendantExternalResultQuestion({
-      sessions: [session("parent"), session("child", "parent")],
+      sessions: [session("parent")],
       rootSessionID: "parent",
-      pendingQuestions: {
-        child: [
-          {
-            id: "m-child-orphan:c-child",
-            sessionID: "child",
-            questions,
-            messageID: "m-child-orphan",
-            callID: "c-child",
-            partID: "p-child-orphan",
-          },
+      messages: { parent: [message("m1")] },
+      partsByMessageID: {
+        m1: [
+          toolPart("p1", "question", toolState("completed", { externalResultReady: true }, { questions }), {
+            messageID: "m1",
+            callID: "c-parent",
+          }),
         ],
       },
-      messages: {},
-      partsByMessageID: {},
-    })
-    expect(result?.sessionID).toBe("child")
-    expect(result?.callID).toBe("c-child")
-  })
-
-  test("ignores pending blocker index entries outside the active session tree", () => {
-    const result = findDescendantExternalResultQuestion({
-      sessions: [session("parent"), session("other")],
-      rootSessionID: "parent",
-      pendingQuestions: {
-        other: [
-          {
-            id: "m-other:c-other",
-            sessionID: "other",
-            questions,
-            messageID: "m-other",
-            callID: "c-other",
-            partID: "p-other",
-          },
-        ],
-      },
-      messages: {},
-      partsByMessageID: {},
     })
     expect(result).toBeUndefined()
   })

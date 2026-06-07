@@ -32,6 +32,8 @@ import { createRefreshQueue } from "./global-sync/queue"
 import { clearSessionPrefetchDirectory } from "./global-sync/session-prefetch"
 import { estimateRootSessionTotal, loadRootSessionsWithFallback } from "./global-sync/session-load"
 import { trimSessions } from "./global-sync/session-trim"
+import { createPendingQuestionController } from "./global-sync/pending-question-controller"
+import { pendingSessionIDsForDirectory, type PendingQuestionIndex } from "./global-sync/pending-question-index"
 import {
   applyAutomationDefinition,
   applyAutomationRun,
@@ -77,6 +79,11 @@ export type GlobalStore = {
   session_todo: {
     [sessionID: string]: SessionTodoSnapshot
   }
+  // The single live index of question tool calls awaiting the user, across every
+  // directory the global event stream touches. Non-persisted (a condition, not a
+  // log); the dock/sidebar render from parts, this feeds the Dock badge,
+  // session-trim preserve, and the rising-edge alert.
+  pendingQuestions: PendingQuestionIndex
   provider: ProviderListResponse
   provider_auth: ProviderAuthResponse
   config: Config
@@ -111,6 +118,7 @@ function createGlobalSync() {
     path: { state: "", config: "", worktree: "", directory: "", home: "" },
     project: projectCache.value,
     session_todo: {},
+    pendingQuestions: {},
     provider: { all: [], connected: [], default: {} },
     provider_auth: {},
     config: {},
@@ -239,6 +247,24 @@ function createGlobalSync() {
     translate: language.t,
   })
 
+  // Owns the global pending-question index (see GlobalStore.pendingQuestions).
+  // resolveParentID walks one step up the session tree to attribute a question
+  // to its root session: in-memory for an open project, falling back to the
+  // network for a background project whose sessions were never bootstrapped.
+  const questions = createPendingQuestionController({
+    read: () => globalStore.pendingQuestions,
+    write: (mutate) => setGlobalStore("pendingQuestions", produce(mutate)),
+    resolveParentID: (directory, sessionID) => {
+      const existing = children.peekExisting(directory)
+      const local = existing?.[0].session.find((session) => session.id === sessionID)
+      if (local) return local.parentID
+      return globalSDK.client.session
+        .get({ directory, sessionID })
+        .then((result) => result.data?.parentID)
+        .catch(() => undefined)
+    },
+  })
+
   const sdkFor = (directory: string) => {
     const cached = sdkCache.get(directory)
     if (cached) return cached
@@ -261,7 +287,7 @@ function createGlobalSync() {
       const next = trimSessions(store.session, {
         limit: store.limit,
         permission: store.permission,
-        externalResultQuestion: store.external_result_question,
+        preserveSessionIDs: pendingSessionIDsForDirectory(globalStore.pendingQuestions, directory),
       })
       if (next.length !== store.session.length) {
         cleanupDroppedSessionCaches(store, setStore, next, {
@@ -293,7 +319,7 @@ function createGlobalSync() {
               const sessions = trimSessions([...nonArchived, ...childSessions], {
                 limit,
                 permission: store.permission,
-                externalResultQuestion: store.external_result_question,
+                preserveSessionIDs: pendingSessionIDsForDirectory(globalStore.pendingQuestions, directory),
               })
               setStore(
                 "sessionTotal",
@@ -432,6 +458,7 @@ function createGlobalSync() {
         loadSessions,
         translate: language.t,
         queryClient,
+        pendingQuestions: { reconcile: questions.reconcile },
       })
     })
 
@@ -473,6 +500,10 @@ function createGlobalSync() {
       }
       return
     }
+
+    // Maintain the global pending-question index for every directory event,
+    // including detached background projects that have no child store.
+    questions.applyEvent(directory, event)
 
     const targets = directoryEventTargets({
       directory,
@@ -655,6 +686,9 @@ function createGlobalSync() {
     peek: children.peek,
     peekExisting: children.peekExisting,
     retainDirectory,
+    // Register a rising-edge side effect for live question arrivals (the
+    // notification provider hooks OS notify / sound / Dock attention here).
+    onQuestionAlert: questions.onAlert,
     bootstrap,
     updateConfig,
     project: projectApi,

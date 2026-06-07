@@ -34,30 +34,3 @@ export function pendingExternalResultQuestionFromPart(part: Part): PendingExtern
     partID: part.id,
   }
 }
-
-export function upsertPendingExternalResultQuestion(
-  list: PendingExternalResultQuestion[] | undefined,
-  next: PendingExternalResultQuestion,
-) {
-  const current = list ?? []
-  const index = current.findIndex((item) => item.id === next.id)
-  if (index === -1) return [...current, next].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-  const out = current.slice()
-  out[index] = next
-  return out
-}
-
-export function removePendingExternalResultQuestion(
-  list: PendingExternalResultQuestion[] | undefined,
-  match: { id?: string; messageID?: string; partID?: string },
-) {
-  if (!list) return list
-  const next = list.filter((item) => {
-    const matches =
-      (!match.id || item.id === match.id) &&
-      (!match.partID || item.partID === match.partID) &&
-      (!match.messageID || item.messageID === match.messageID)
-    return !matches
-  })
-  return next.length > 0 ? next : undefined
-}
