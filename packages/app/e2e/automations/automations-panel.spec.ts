@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test"
+import { getFilename } from "@opencode-ai/util/path"
 import { test, expect } from "../fixtures"
-import { openSidebar } from "../actions"
+import { cleanupTestProject, createTestProject, openSidebar } from "../actions"
 
 type ModelKey = { providerID: string; modelID: string }
 
@@ -133,6 +134,33 @@ test("automations panel: create manually adds an automation", async ({ page, pro
 
   await detail.locator('[data-action="automation-detail-back"]').click()
   await expect(surface.locator('[data-action="automation-row"]')).toHaveCount(1)
+})
+
+test("automations panel: lists automations from every open project", async ({ page, project, backend }) => {
+  test.setTimeout(120_000)
+
+  const other = await createTestProject({ serverUrl: backend.url })
+  try {
+    await project.open({ extra: [other] })
+
+    const otherSDK = backend.sdk(other)
+    const otherProjectID = (await otherSDK.project.current()).data!.id
+    await otherSDK.automation.create(
+      recurring(otherProjectID, "Cross-project digest", "Summarize the other project.", "0 9 * * 1-5"),
+    )
+
+    const surface = await openAutomations(page)
+    const rows = surface.locator('[data-action="automation-row"]')
+    await expect(rows).toHaveCount(1)
+    await expect(rows.first()).toContainText("Cross-project digest")
+
+    await rows.first().click()
+    const detail = surface.locator('[data-component="automation-detail"]')
+    await expect(detail.getByRole("heading", { name: "Cross-project digest" })).toBeVisible()
+    await expect(detail.getByText(getFilename(other))).toBeVisible()
+  } finally {
+    await cleanupTestProject(other, { serverUrl: backend.url })
+  }
 })
 
 test("automations panel: schedule picker opens, selects, and layers escape", async ({ page, project }) => {
