@@ -366,7 +366,6 @@ export function SessionSidePanel(props: {
                 <RightPanelTabStrip
                   tabsPortalMount={tabsPortalMount}
                   shellTabs={shellTabs}
-                  activeTab={activeTab}
                   openShellTabs={() =>
                     [
                       ...view().sidePanel.openTabs(),

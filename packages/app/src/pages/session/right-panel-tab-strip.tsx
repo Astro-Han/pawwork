@@ -22,7 +22,7 @@ interface ShellTabDef {
 }
 
 /** Maps right-panel tab names to their shell icon components. */
-function RightPanelShellIcon(props: { icon: ShellTabIcon; active?: boolean }) {
+function RightPanelShellIcon(props: { icon: ShellTabIcon }) {
   return (
     <Switch>
       <Match when={props.icon.kind === "indicator"}>
@@ -32,10 +32,10 @@ function RightPanelShellIcon(props: { icon: ShellTabIcon; active?: boolean }) {
         <Icon name="status" class="text-fg-weaker" />
       </Match>
       <Match when={props.icon.kind === "icon" && props.icon.name === "review"}>
-        <Icon name={props.active ? "review-active" : "review"} class="text-fg-weaker" />
+        <Icon name="review" class="text-fg-weaker" />
       </Match>
       <Match when={props.icon.kind === "icon" && props.icon.name === "terminal"}>
-        <Icon name={props.active ? "terminal-active" : "terminal"} class="text-fg-weaker" />
+        <Icon name="terminal" class="text-fg-weaker" />
       </Match>
     </Switch>
   )
@@ -49,7 +49,6 @@ function RightPanelShellIcon(props: { icon: ShellTabIcon; active?: boolean }) {
 export function RightPanelTabStrip(props: {
   tabsPortalMount: () => HTMLElement | undefined
   shellTabs: () => ShellTabDef[]
-  activeTab: () => string | undefined
   openShellTabs: () => RightPanelTab[]
   closeTab: (tab: RightPanelTab) => void
   openTab: (tab: RightPanelTab) => void
@@ -112,10 +111,7 @@ export function RightPanelTabStrip(props: {
                               closable={t().closable}
                               onClose={props.closeTab}
                               icon={
-                                <RightPanelShellIcon
-                                  icon={t().icon}
-                                  active={props.activeTab() === t().value}
-                                />
+                                <RightPanelShellIcon icon={t().icon} />
                               }
                             />
                           }
@@ -126,10 +122,7 @@ export function RightPanelTabStrip(props: {
                             closable={t().closable}
                             onClose={props.closeTab}
                             icon={
-                              <RightPanelShellIcon
-                                icon={t().icon}
-                                active={props.activeTab() === t().value}
-                              />
+                              <RightPanelShellIcon icon={t().icon} />
                             }
                           />
                         </Show>
