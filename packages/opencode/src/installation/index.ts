@@ -63,7 +63,13 @@ export namespace Installation {
   export const CHANNEL = channel
   export const HTTP_VERSION = InstallationHTTPVersion
   export const USER_AGENT = `opencode/${CHANNEL}/${VERSION}/${Flag.OPENCODE_CLIENT}`
+  // Four-segment identity for the models.dev catalog fetch, matching upstream
+  // packages/core/src/models-dev.ts.
   export const HTTP_USER_AGENT = `opencode/latest/${HTTP_VERSION}/${Flag.OPENCODE_CLIENT}`
+  // Two-segment identity for LLM requests (incl. OpenCode Zen), matching upstream
+  // packages/opencode/src/session/llm/request.ts. The client is conveyed via the
+  // x-opencode-client header, not the User-Agent.
+  export const LLM_USER_AGENT = `opencode/${HTTP_VERSION}`
 
   export function httpIdentity(): Record<string, string> {
     return {

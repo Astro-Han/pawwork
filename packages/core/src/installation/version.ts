@@ -2,7 +2,6 @@ declare global {
   const OPENCODE_VERSION: string
   const OPENCODE_CHANNEL: string
   const OPENCODE_PLUGIN_VERSION: string | undefined
-  const OPENCODE_HTTP_VERSION: string | undefined
 }
 
 export const InstallationVersion = typeof OPENCODE_VERSION === "string" ? OPENCODE_VERSION : "local"
@@ -16,7 +15,8 @@ if (!InstallationLocal && !DefinedInstallationPluginVersion) {
 export const InstallationPluginVersion =
   DefinedInstallationPluginVersion ?? "latest"
 
-export const InstallationHTTPVersion =
-  typeof OPENCODE_HTTP_VERSION === "string" && OPENCODE_HTTP_VERSION.trim()
-    ? OPENCODE_HTTP_VERSION.trim()
-    : InstallationVersion
+// Upstream opencode version this build follows for its OpenCode Zen HTTP identity
+// (the User-Agent sent on LLM and models.dev requests). We share the OpenCode Zen
+// backend with upstream opencode, so this keeps our outbound HTTP identity aligned
+// with it. Bumped manually to track upstream releases.
+export const InstallationHTTPVersion = "1.16.2"

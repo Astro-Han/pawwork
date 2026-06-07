@@ -210,4 +210,19 @@ describe("installation", () => {
       expect(error.stderr).not.toContain("raw choco failure detail")
     })
   })
+
+  describe("http identity", () => {
+    // LLM requests (incl. OpenCode Zen) follow upstream's two-segment User-Agent;
+    // the client is carried by the x-opencode-client header, not the User-Agent.
+    test("LLM requests use upstream's two-segment User-Agent", () => {
+      expect(Installation.LLM_USER_AGENT).toBe(`opencode/${Installation.HTTP_VERSION}`)
+      expect(Installation.LLM_USER_AGENT.split("/")).toHaveLength(2)
+    })
+
+    // The models.dev catalog fetch keeps upstream's four-segment form.
+    test("models.dev catalog fetch keeps upstream's four-segment User-Agent", () => {
+      expect(Installation.HTTP_USER_AGENT.split("/")).toHaveLength(4)
+      expect(Installation.HTTP_USER_AGENT.startsWith(`opencode/latest/${Installation.HTTP_VERSION}/`)).toBe(true)
+    })
+  })
 })
