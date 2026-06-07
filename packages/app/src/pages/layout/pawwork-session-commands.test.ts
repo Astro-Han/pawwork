@@ -50,7 +50,6 @@ function setup(opts: SetupOpts = {}) {
     message: Record<string, unknown>
     part: Record<string, unknown>
     permission: Record<string, unknown>
-    external_result_question: Record<string, unknown>
   }>({
     session: opts.sessions ?? [],
     session_status: {},
@@ -59,7 +58,6 @@ function setup(opts: SetupOpts = {}) {
     message: {},
     part: {},
     permission: {},
-    external_result_question: {},
   })
   const defaultExport = ((id: string, dir: string, name: string, label: string) => {
     calls.exportArgs.push([id, dir, name, label])

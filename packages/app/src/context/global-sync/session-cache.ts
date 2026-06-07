@@ -6,7 +6,6 @@ import type {
   SessionStatus,
   Todo,
 } from "@opencode-ai/sdk/v2/client"
-import type { PendingExternalResultQuestion } from "./external-result-question"
 
 export const SESSION_CACHE_LIMIT = 40
 
@@ -17,7 +16,6 @@ type SessionCache = {
   message: Record<string, Message[] | undefined>
   part: Record<string, Part[] | undefined>
   permission: Record<string, PermissionRequest[] | undefined>
-  external_result_question?: Record<string, PendingExternalResultQuestion[] | undefined>
 }
 
 export function dropSessionCaches(store: SessionCache, sessionIDs: Iterable<string>) {
@@ -36,7 +34,6 @@ export function dropSessionCaches(store: SessionCache, sessionIDs: Iterable<stri
     delete store.turn_change_aggregate[sessionID]
     delete store.session_status[sessionID]
     delete store.permission[sessionID]
-    if (store.external_result_question) delete store.external_result_question[sessionID]
   }
 }
 

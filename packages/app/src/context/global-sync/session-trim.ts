@@ -1,5 +1,4 @@
 import type { PermissionRequest, Session } from "@opencode-ai/sdk/v2/client"
-import type { PendingExternalResultQuestion } from "./external-result-question"
 import { cmp, compareSessionsByCreated } from "./utils"
 import { SESSION_RECENT_LIMIT, SESSION_RECENT_WINDOW } from "./types"
 
@@ -36,7 +35,10 @@ export function trimSessions(
   options: {
     limit: number
     permission: Record<string, PermissionRequest[] | undefined>
-    externalResultQuestion?: Record<string, PendingExternalResultQuestion[] | undefined>
+    // Asking sessions to keep regardless of recency: a child agent waiting on a
+    // pending question must stay in the list so its parts survive and the
+    // part-derived dock does not collapse. Fed from the global pending index.
+    preserveSessionIDs?: ReadonlySet<string>
     now?: number
   },
 ) {
@@ -56,8 +58,7 @@ export function trimSessions(
     if (s.parentID && keepRootIds.has(s.parentID)) return true
     const perms = options.permission[s.id] ?? []
     if (perms.length > 0) return true
-    const questions = options.externalResultQuestion?.[s.id] ?? []
-    if (questions.length > 0) return true
+    if (options.preserveSessionIDs?.has(s.id)) return true
     return sessionUpdatedAt(s) > cutoff
   })
   return [...keepRoots, ...keepChildren].sort((a, b) => cmp(a.id, b.id))

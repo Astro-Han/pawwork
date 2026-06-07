@@ -7,10 +7,8 @@ import type {
   Path,
   PermissionRequest,
   Project,
-  ProviderAuthResponse,
   ProviderListResponse,
   Session,
-  TodoSnapshot,
 } from "@opencode-ai/sdk/v2/client"
 import { showToast } from "@opencode-ai/ui/toast"
 import { getFilename } from "@opencode-ai/util/path"
@@ -19,28 +17,11 @@ import { batch } from "solid-js"
 import { produce, reconcile, type SetStoreFunction, type Store } from "solid-js/store"
 import type { State, VcsCache } from "./types"
 import { mergeAutomationList } from "./automation-store"
-import {
-  pendingExternalResultQuestionFromPart,
-  type PendingExternalResultQuestion,
-  upsertPendingExternalResultQuestion,
-} from "./external-result-question"
+import { pendingExternalResultQuestionFromPart, type PendingExternalResultQuestion } from "./external-result-question"
 import { cmp, normalizeAgentList, normalizeProviderList } from "./utils"
 import { formatServerError } from "@/utils/server-errors"
 import { QueryClient, queryOptions } from "@tanstack/solid-query"
-import { loadSessionsQuery } from "../global-sync"
-
-type GlobalStore = {
-  ready: boolean
-  path: Path
-  project: Project[]
-  session_todo: {
-    [sessionID: string]: TodoSnapshot
-  }
-  provider: ProviderListResponse
-  provider_auth: ProviderAuthResponse
-  config: Config
-  reload: undefined | "pending" | "complete"
-}
+import { loadSessionsQuery, type GlobalStore } from "../global-sync"
 
 function waitForPaint() {
   return new Promise<void>((resolve) => {
@@ -238,19 +219,27 @@ function filterGroupedByWarmSessions<T>(grouped: Record<string, T[]>, result: { 
   return filtered
 }
 
-// Hydrate session/message/part trios returned by GET /external-result. The
-// dock walks `sync.data.session` + `sync.data.message[child]` + `part[msg]`
-// to surface a pending question on a parent route. SSE message.part.updated
-// is intentionally not in the replay buffer (high-volume), so a reload after
-// the SSE cursor expires loses the dock without this hydrate.
+// Hydrate session/message/part trios returned by GET /external-result so the
+// dock — which renders purely from parts — recovers after a reload (SSE
+// message.part.updated is intentionally not in the replay buffer). Returns the
+// questions the server still lists as pending, for the caller to reconcile into
+// the global condition index.
+//
+// `pruneCandidateIDs` is the set of running-ready question part identities known
+// locally *before* the fetch. Any of those the server no longer lists is a
+// question answered while the app was away whose terminal event was missed; its
+// stale local part is dropped here so the part-derived dock stops showing it.
+// Scoping the prune to the pre-fetch snapshot keeps a question that arrived
+// during the fetch from being pruned by a slightly older server view.
 export function hydratePendingExternalResults(input: {
   store: Store<State>
   setStore: SetStoreFunction<State>
   entries: ReadonlyArray<{ session: Session; message: Message; part: Part }>
-  pruneQuestionIDs?: ReadonlySet<string>
-}) {
+  pruneCandidateIDs?: ReadonlySet<string>
+}): PendingExternalResultQuestion[] {
+  const active: PendingExternalResultQuestion[] = []
   batch(() => {
-    const activeQuestionIDs = new Set<string>()
+    const activeIDs = new Set<string>()
     for (const entry of input.entries) {
       const session = entry.session
       const message = entry.message
@@ -265,10 +254,8 @@ export function hydratePendingExternalResults(input: {
         localPart.tool === "question" &&
         localPart.state.status !== "running"
       if (pendingQuestion && !localTerminalQuestion) {
-        activeQuestionIDs.add(pendingQuestion.id)
-        input.setStore("external_result_question", pendingQuestion.sessionID, (list) =>
-          upsertPendingExternalResultQuestion(list, pendingQuestion),
-        )
+        activeIDs.add(pendingQuestion.id)
+        active.push(pendingQuestion)
       }
 
       const messages = input.store.message[session.id]
@@ -308,51 +295,44 @@ export function hydratePendingExternalResults(input: {
         }
       }
     }
-    if (input.pruneQuestionIDs?.size) {
+    if (input.pruneCandidateIDs?.size) {
       input.setStore(
         produce((draft) => {
-          const prunedQuestions: PendingExternalResultQuestion[] = []
-          for (const sessionID of Object.keys(draft.external_result_question)) {
-            const questions = draft.external_result_question[sessionID]
-            if (!questions) {
-              delete draft.external_result_question[sessionID]
-              continue
-            }
-            const next: PendingExternalResultQuestion[] = []
-            for (const question of questions) {
-              if (input.pruneQuestionIDs!.has(question.id) && !activeQuestionIDs.has(question.id)) {
-                prunedQuestions.push(question)
-                continue
-              }
-              next.push(question)
-            }
-            if (next.length > 0) draft.external_result_question[sessionID] = next
-            else delete draft.external_result_question[sessionID]
-          }
-          for (const question of prunedQuestions) {
-            const parts = draft.part[question.messageID]
+          for (const messageID of Object.keys(draft.part)) {
+            const parts = draft.part[messageID]
             if (!parts) continue
             const next = parts.filter((part) => {
-              if (part.id !== question.partID) return true
               if (part.type !== "tool" || part.tool !== "question") return true
-              if (part.callID !== question.callID) return true
               if (part.state.status !== "running") return true
-              return part.state.metadata?.externalResultReady !== true
+              if (part.state.metadata?.externalResultReady !== true) return true
+              const id = `${part.messageID}:${part.callID}`
+              if (!input.pruneCandidateIDs!.has(id)) return true
+              return activeIDs.has(id)
             })
-            if (next.length > 0) draft.part[question.messageID] = next
-            else delete draft.part[question.messageID]
+            if (next.length === parts.length) continue
+            if (next.length > 0) draft.part[messageID] = next
+            else delete draft.part[messageID]
           }
         }),
       )
     }
   })
+  return active
 }
 
-function snapshotExternalResultQuestionIDs(store: Store<State>) {
+// Identities (messageID:callID) of running-ready question parts in the local
+// cache, captured before a GET /external-result fetch so the reconcile can tell
+// an answered-while-away question (drop its stale part) from one that arrived
+// mid-fetch (keep).
+function snapshotRunningQuestionPartIDs(store: Store<State>) {
   const ids = new Set<string>()
-  for (const list of Object.values(store.external_result_question)) {
-    if (!list) continue
-    for (const question of list) ids.add(question.id)
+  for (const parts of Object.values(store.part)) {
+    for (const part of parts ?? []) {
+      if (part.type !== "tool" || part.tool !== "question") continue
+      if (part.state.status !== "running") continue
+      if (part.state.metadata?.externalResultReady !== true) continue
+      ids.add(`${part.messageID}:${part.callID}`)
+    }
   }
   return ids
 }
@@ -380,6 +360,7 @@ export async function bootstrapDirectory(input: {
     provider: ProviderListResponse
   }
   queryClient: QueryClient
+  pendingQuestions: { reconcile: (directory: string, entries: PendingExternalResultQuestion[]) => void }
 }) {
   const loading = input.store.status !== "complete"
   const seededProject = projectID(input.directory, input.global.project)
@@ -540,19 +521,19 @@ export async function bootstrapDirectory(input: {
         ),
       () =>
         retry(() => {
-          const pruneQuestionIDs = snapshotExternalResultQuestionIDs(input.store)
+          const pruneCandidateIDs = snapshotRunningQuestionPartIDs(input.store)
           return input.sdk.externalResult.list().then((x) => {
             const entries = (x.data ?? []).filter(
               (entry): entry is { session: Session; message: Message; part: Part } =>
                 !!entry?.session?.id && !!entry.message?.id && !!entry.part?.id,
             )
-            if (entries.length === 0 && pruneQuestionIDs.size === 0) return
-            hydratePendingExternalResults({
+            const active = hydratePendingExternalResults({
               store: input.store,
               setStore: input.setStore,
               entries,
-              pruneQuestionIDs,
+              pruneCandidateIDs,
             })
+            input.pendingQuestions.reconcile(input.directory, active)
           })
         }).catch((err) => {
           // Hydrate is best-effort: a transient failure should not surface

@@ -68,18 +68,7 @@ describe("trimSessions", () => {
       permission: {
         "child-kept-by-permission": [{ id: "perm-1" } as PermissionRequest],
       },
-      externalResultQuestion: {
-        "child-kept-by-question": [
-          {
-            id: "msg_question:call_question",
-            sessionID: "child-kept-by-question",
-            questions: [{ question: "Continue?" }],
-            messageID: "msg_question",
-            callID: "call_question",
-            partID: "prt_question",
-          },
-        ],
-      },
+      preserveSessionIDs: new Set(["child-kept-by-question"]),
       now,
     })
 

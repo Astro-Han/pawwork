@@ -10,6 +10,7 @@ const globalStoreFixture = (): GlobalStore => ({
   path: { state: "", config: "", worktree: "", directory: "", home: "" },
   project: [],
   session_todo: {},
+  pendingQuestions: {},
   provider: { all: [], connected: [], default: {} },
   provider_auth: {},
   config: {},
