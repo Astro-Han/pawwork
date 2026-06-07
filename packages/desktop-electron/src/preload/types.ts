@@ -1,4 +1,5 @@
 import type {
+  BrowserBridge,
   DesktopContext,
   RendererDiagnosticInput,
   RendererDiagnosticsExportResult,
@@ -125,4 +126,5 @@ export type ElectronAPI = {
   onAboutOpen: (handler: () => void) => () => void
   flashFrame: () => Promise<void>
   setBadgeCount: (count: number) => Promise<void>
+  browser: BrowserBridge
 }

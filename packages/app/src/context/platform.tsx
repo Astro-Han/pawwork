@@ -64,6 +64,49 @@ export type RendererDiagnosticInput = {
 
 export type RendererDiagnosticsExportResult = { ok: true; path: string } | { ok: false; error: string }
 
+/** A viewport rect in CSS pixels (the renderer's coordinate space). */
+export type BrowserViewRect = { x: number; y: number; width: number; height: number }
+
+/** Desired presentation of the embedded browser overlay, sent as one unit so
+ *  visibility and bounds never race. `rect` is ignored when `visible` is false. */
+export type BrowserViewLayout = { visible: boolean; rect: BrowserViewRect }
+
+/** Snapshot of the embedded browser pushed from the main process on every
+ *  navigation/loading change. `hasPage` is false before any successful load,
+ *  which keeps the DOM empty state showing and the native view hidden. */
+export type BrowserState = {
+  url: string
+  title: string
+  canGoBack: boolean
+  canGoForward: boolean
+  loading: boolean
+  favicon: string | null
+  secure: boolean
+  hasPage: boolean
+}
+
+/**
+ * Control surface for the embedded browser (a single app-owned WebContentsView
+ * with a persistent partition). Desktop/Electron only — undefined on web, where
+ * there is no native view to drive. Gate usage with `canUseBrowser`.
+ */
+export type BrowserBridge = {
+  navigate(url: string): Promise<void>
+  goBack(): Promise<void>
+  goForward(): Promise<void>
+  reload(): Promise<void>
+  stop(): Promise<void>
+  /** Report desired visibility + bounds (CSS px). The main process converts to
+   *  device-independent pixels using the window's zoom factor. */
+  setView(layout: BrowserViewLayout): Promise<void>
+  /** Sign out of every site: clear cookies, storage, and cache. */
+  clearData(): Promise<void>
+  /** Read the current state once (used to seed a freshly mounted panel). */
+  getState(): Promise<BrowserState | null>
+  /** Subscribe to state pushes; returns an unsubscribe function. */
+  onState(cb: (state: BrowserState) => void): () => void
+}
+
 export type Platform = {
   /** Platform discriminator */
   platform: "web" | "desktop"
@@ -185,6 +228,9 @@ export type Platform = {
 
   /** Read image from clipboard (desktop only) */
   readClipboardImage?(): Promise<File | null>
+
+  /** Embedded browser control surface (desktop only). Gate with `canUseBrowser`. */
+  browser?: BrowserBridge
 }
 
 export type DisplayBackend = "auto" | "wayland"
@@ -235,6 +281,10 @@ export function canUseDisplayBackend(platform: Pick<Platform, "getDisplayBackend
 
 export function canUseNativeFilePicker(platform: Pick<Platform, "openFilePickerDialog">) {
   return !!platform.openFilePickerDialog
+}
+
+export function canUseBrowser(platform: Pick<Platform, "browser">) {
+  return !!platform.browser
 }
 
 export const { use: usePlatform, provider: PlatformProvider } = createSimpleContext({

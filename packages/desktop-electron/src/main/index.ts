@@ -76,6 +76,7 @@ import { createDesktopContextStore } from "./desktop-context-store"
 import { createFeedbackHandler, feedbackDialogLabels } from "./feedback"
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigrationProgress } from "./ipc"
 import { registerAboutIpc, triggerAbout } from "./ipc/about"
+import { registerBrowserIpc } from "./ipc/browser"
 import { filePath, initLogging, tail } from "./logging"
 import { parseMarkdown } from "./markdown"
 import { createMenu } from "./menu"
@@ -652,6 +653,7 @@ registerIpcHandlers({
 })
 
 registerAboutIpc()
+registerBrowserIpc()
 
 function killSidecar() {
   if (!server) return

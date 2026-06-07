@@ -37,6 +37,9 @@ function RightPanelShellIcon(props: { icon: ShellTabIcon }) {
       <Match when={props.icon.kind === "icon" && props.icon.name === "terminal"}>
         <Icon name="terminal" class="text-fg-weaker" />
       </Match>
+      <Match when={props.icon.kind === "icon" && props.icon.name === "browser"}>
+        <Icon name="browser" class="text-fg-weaker" />
+      </Match>
     </Switch>
   )
 }

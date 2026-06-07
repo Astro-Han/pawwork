@@ -334,6 +334,10 @@ const createPlatform = (): Platform => {
         type: "image/png",
       })
     },
+
+    // Embedded browser: a thin passthrough to the locked-down WebContentsView
+    // bridge. Present only on desktop, which is what `canUseBrowser` keys off.
+    browser: window.api.browser,
   }
 }
 

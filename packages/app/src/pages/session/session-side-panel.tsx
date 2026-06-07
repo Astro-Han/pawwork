@@ -14,6 +14,7 @@ import { useCommand } from "@/context/command"
 import { useFile, type SelectedLineRange } from "@/context/file"
 import { useLanguage } from "@/context/language"
 import { MAX_RIGHT_PANEL_WIDTH, MIN_RIGHT_PANEL_WIDTH, useLayout } from "@/context/layout"
+import { canUseBrowser, usePlatform } from "@/context/platform"
 import { useTerminal } from "@/context/terminal"
 import type { TerminalTabID } from "@/context/terminal-types"
 import type { FilesTabEntry } from "@/pages/session/files-tab-state"
@@ -30,6 +31,7 @@ import {
 } from "@/pages/session/helpers"
 
 import { setSessionHandoff } from "@/pages/session/handoff"
+import { BrowserPanel } from "@/pages/session/browser/browser-panel"
 import { RightPanelReviewBody } from "@/pages/session/right-panel-review-body"
 import { RightPanelTabStrip } from "@/pages/session/right-panel-tab-strip"
 import {
@@ -67,6 +69,7 @@ export function SessionSidePanel(props: {
   const command = useCommand()
   const dialog = useDialog()
   const terminal = useTerminal()
+  const platform = usePlatform()
   const { layoutRouteKey, params, tabs, view } = useSessionLayout()
 
   const isDesktop = createMediaQuery("(min-width: 768px)")
@@ -137,6 +140,8 @@ export function SessionSidePanel(props: {
   const shellTabs = createMemo(() => {
     const staticTabs = view()
       .sidePanel.openTabs()
+      // Browser is desktop/Electron only; drop a persisted chip on web.
+      .filter((value) => value !== "browser" || canUseBrowser(platform))
       .map((value) => {
         const meta = RIGHT_PANEL_TAB_META[value]
         return {
@@ -161,7 +166,9 @@ export function SessionSidePanel(props: {
 
   const closableMissingTabs = createMemo(() => {
     const open = new Set(view().sidePanel.openTabs())
-    return RIGHT_PANEL_TAB_VALUES.filter((tab) => tab !== "status" && !open.has(tab)).map((value) => {
+    return RIGHT_PANEL_TAB_VALUES.filter(
+      (tab) => tab !== "status" && !open.has(tab) && (tab !== "browser" || canUseBrowser(platform)),
+    ).map((value) => {
       const meta = RIGHT_PANEL_TAB_META[value]
       const iconName: RightPanelShellIconName = meta.icon.kind === "icon" ? meta.icon.name : meta.icon.fallbackIcon
       const keybind = meta.commandId ? command.keybind(meta.commandId) : undefined
@@ -425,6 +432,18 @@ export function SessionSidePanel(props: {
                     <SessionContextTab />
                   </Show>
                 </Tabs.Content>
+
+                <Show when={platform.browser}>
+                  {(bridge) => (
+                    <Tabs.Content value="browser" class="min-h-0 flex-1 overflow-hidden">
+                      <BrowserPanel
+                        bridge={bridge()}
+                        active={() => sidePanelTab() === "browser"}
+                        panelOpen={open}
+                      />
+                    </Tabs.Content>
+                  )}
+                </Show>
               </Tabs>
             </DragDropProvider>
           </div>
