@@ -204,7 +204,6 @@ for (const item of targets) {
       OPENCODE_PLUGIN_VERSION: `'${pluginPkg.version}'`,
       OPENCODE_MIGRATIONS: JSON.stringify(migrations),
       OPENCODE_CHANNEL: `'${Script.channel}'`,
-      OPENCODE_HTTP_VERSION: `'${Script.httpVersion}'`,
       OPENCODE_LIBC: item.os === "linux" ? `'${item.abi ?? "glibc"}'` : "",
     },
   })

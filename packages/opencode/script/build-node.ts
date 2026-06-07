@@ -61,7 +61,6 @@ await Bun.build({
     OPENCODE_PLUGIN_VERSION: `'${pluginPkg.version}'`,
     OPENCODE_MIGRATIONS: JSON.stringify(migrations),
     OPENCODE_CHANNEL: `'${Script.channel}'`,
-    OPENCODE_HTTP_VERSION: `'${Script.httpVersion}'`,
   },
   files: {
     "opencode-web-ui.gen.ts": "",
