@@ -10,22 +10,6 @@ export type { QuestionInfo }
  */
 export type DockQuestionRequest = PendingExternalResultQuestion
 
-function isKnownStalePendingQuestion(input: {
-  pending: DockQuestionRequest
-  partsByMessageID: { [messageID: string]: Part[] | undefined }
-}) {
-  const part = input.partsByMessageID[input.pending.messageID]?.find((item) => item.id === input.pending.partID)
-  // If the part never reached the local cache, keep the index entry; bootstrap
-  // prune reconciles already-answered questions whose terminal event was missed.
-  if (!part) return false
-  if (part.type !== "tool") return true
-  if (part.tool !== "question") return true
-  if (part.state.status !== "running") return true
-  if (part.state.metadata?.externalResultReady !== true) return true
-  const partInput = part.state.input as { questions?: QuestionInfo[] } | undefined
-  return !Array.isArray(partInput?.questions) || partInput.questions.length === 0
-}
-
 /**
  * Selector: find the first running `question` tool part for the active session
  * whose `state.metadata.externalResultReady === true`. The `=== true` check is
@@ -76,15 +60,19 @@ export function findRunningExternalResultQuestion(input: {
  * stay in lock-step). The returned `sessionID` points at the session that
  * actually owns the running tool part, so /tool/respond hits the correct
  * Deferred.
+ *
+ * Derived purely from the local `message`/`part` cache: a running, ready
+ * question part IS the renderable truth. Reload / cold-open recovers it because
+ * `hydratePendingExternalResults` writes the `/external-result` trio's parts
+ * back into the cache; there is no separate pending index to consult.
  */
 export function findDescendantExternalResultQuestion(input: {
   sessions: Session[]
   rootSessionID: string
-  pendingQuestions?: { [sessionID: string]: DockQuestionRequest[] | undefined }
   messages: { [sessionID: string]: Message[] | undefined }
   partsByMessageID: { [messageID: string]: Part[] | undefined }
 }): DockQuestionRequest | undefined {
-  const { sessions, rootSessionID, pendingQuestions, messages, partsByMessageID } = input
+  const { sessions, rootSessionID, messages, partsByMessageID } = input
   const childMap = sessions.reduce((acc, item) => {
     if (!item.parentID) return acc
     const list = acc.get(item.parentID)
@@ -97,10 +85,6 @@ export function findDescendantExternalResultQuestion(input: {
   const stack = [rootSessionID]
   while (stack.length > 0) {
     const sid = stack.pop()!
-    const pending = pendingQuestions?.[sid]?.find(
-      (item) => !isKnownStalePendingQuestion({ pending: item, partsByMessageID }),
-    )
-    if (pending) return pending
     const found = findRunningExternalResultQuestion({
       sessionID: sid,
       messages: messages[sid],
