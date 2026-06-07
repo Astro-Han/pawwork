@@ -152,7 +152,9 @@ test("automations panel: lists automations from every open project", async ({ pa
     const surface = await openAutomations(page)
     const rows = surface.locator('[data-action="automation-row"]')
     await expect(rows).toHaveCount(1)
-    await expect(rows.first()).toContainText("Cross-project digest")
+    const row = rows.first()
+    await expect(row).toContainText("Cross-project digest")
+    await expect(row).toContainText(getFilename(other))
 
     await surface.locator(`[data-action="automation-toggle-active"][data-automation-id="${created.id}"]`).click({ force: true })
     await expect
@@ -162,7 +164,7 @@ test("automations panel: lists automations from every open project", async ({ pa
       })
       .toBe(true)
 
-    await rows.first().click()
+    await row.click()
     const detail = surface.locator('[data-component="automation-detail"]')
     await expect(detail.getByRole("heading", { name: "Cross-project digest" })).toBeVisible()
     await expect(detail.getByText(getFilename(other))).toBeVisible()

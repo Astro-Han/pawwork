@@ -5,6 +5,7 @@ import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { getFilename } from "@opencode-ai/util/path"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
@@ -44,6 +45,7 @@ function AutomationsEmpty(props: { onUseTemplate: (template: AutomationTemplate)
 type AutomationItem = {
   definition: AutomationDefinition
   directory: string
+  projectName: string
 }
 
 export function AutomationsSurface(props: {
@@ -117,7 +119,7 @@ export function AutomationsSurface(props: {
     for (const directory of automationDirectories()) {
       const [store] = globalSync.child(directory)
       for (const definition of Object.values(store.automation)) {
-        items.push({ definition, directory })
+        items.push({ definition, directory, projectName: getFilename(directory) })
       }
     }
     return items.sort((a, b) =>
@@ -128,8 +130,6 @@ export function AutomationsSurface(props: {
           : -1,
     )
   })
-
-  const automations = createMemo(() => automationItems().map((item) => item.definition))
 
   const itemForAutomation = (id: string) => automationItems().find((item) => item.definition.id === id)
 
@@ -210,8 +210,8 @@ export function AutomationsSurface(props: {
                   </Popover.Portal>
                 </Popover>
               </div>
-              <Show when={automations().length > 0} fallback={<AutomationsEmpty onUseTemplate={openCreate} />}>
-                <AutomationList automations={automations} onSelect={setSelectedID} onToggleActive={toggleActive} />
+              <Show when={automationItems().length > 0} fallback={<AutomationsEmpty onUseTemplate={openCreate} />}>
+                <AutomationList items={automationItems} onSelect={setSelectedID} onToggleActive={toggleActive} />
               </Show>
             </div>
           }
