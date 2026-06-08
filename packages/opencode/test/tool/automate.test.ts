@@ -81,6 +81,17 @@ describe("automate tool", () => {
     expect(decoded).toEqual({ title: "Daily repo brief", prompt: "Summarize repo changes.", cron: "0 9 * * *" })
   })
 
+  test("decode keeps continueSession on the surface", () => {
+    const decoded = Schema.decodeUnknownSync(AutomateParameters)({
+      title: "Daily repo brief",
+      prompt: "Summarize repo changes.",
+      cron: "0 9 * * *",
+      continueSession: true,
+    })
+
+    expect(decoded.continueSession).toBe(true)
+  })
+
   test("creates a recurring cron automation, defaulting project/timezone/model to the session", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
@@ -314,6 +325,53 @@ describe("automate tool", () => {
 
         const definition = result.metadata.automationDefinition
         expect(definition.sourceSessionID).toBe(sourceSessionID)
+        expect(definition.automationSessionID).toBeUndefined()
+      },
+    })
+  })
+
+  test("defaults to a fresh session per run when continueSession is omitted", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const tool = createAutomateDefinition(fakeProviderInterface, automation)
+        const result = await Effect.runPromise(
+          tool.execute(
+            { title: "Daily repo brief", prompt: "Summarize repo changes.", cron: "0 9 * * *" },
+            ctx(SessionID.descending()),
+          ),
+        )
+
+        expect(result.metadata.automationDefinition.context).toBe("fresh")
+      },
+    })
+  })
+
+  test("continueSession:true continues in its own session and still ignores a spoofed automationSessionID", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const tool = createAutomateDefinition(fakeProviderInterface, automation)
+        const spoof = { automationSessionID: SessionID.descending() } as Record<string, unknown>
+        const result = await Effect.runPromise(
+          tool.execute(
+            {
+              title: "Standup digest",
+              prompt: "Continue the running digest.",
+              cron: "0 9 * * *",
+              continueSession: true,
+              ...spoof,
+            },
+            ctx(SessionID.descending()),
+          ),
+        )
+
+        const definition = result.metadata.automationDefinition
+        expect(definition.context).toBe("continue")
+        // continue picks the reuse path at run time; the persistent session ID is
+        // bound by the runner after the first run, never from tool input.
         expect(definition.automationSessionID).toBeUndefined()
       },
     })
