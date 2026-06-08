@@ -57,6 +57,8 @@ export type TimelineScrollReconciler = {
    * caller lets virtua's `shift` absorb the prepend instead — no app-level write.
    */
   preserveByHeightDelta: (mutate: () => void) => void
+  /** Restore an anchor in the current layout pass. Falls back to reveal retry if needed. */
+  restoreNow: (reason: TimelineReconcileReason, position?: TimelineSafePosition) => TimelineReconcileOutcome
   /** Run the coalesced reconcile pass now (normally scheduled). Returns the outcome. */
   flush: () => TimelineReconcileOutcome
   /** True while a reconcile is dirty or awaiting a reveal — drives virtualizer overscan. */
@@ -130,13 +132,13 @@ export function createTimelineScrollReconciler(input: {
     })
   }
 
-  const flush = (): TimelineReconcileOutcome => {
+  const flush = (positionOverride?: TimelineSafePosition): TimelineReconcileOutcome => {
     if (frameHandle !== undefined) {
       cancelFrame(frameHandle)
       frameHandle = undefined
     }
     const reason = pendingReason
-    const position = input.resolveAnchor()
+    const position = positionOverride ?? input.resolveAnchor()
     const viewport = input.viewport()
     if (!viewport) return settle("cancelled", reason, position)
 
@@ -194,6 +196,12 @@ export function createTimelineScrollReconciler(input: {
       dirty = true
       setActive(true)
       scheduleFlush()
+    },
+    restoreNow: (reason, position) => {
+      pendingReason = reason
+      dirty = true
+      setActive(true)
+      return flush(position)
     },
     preserveByHeightDelta: (mutate) => {
       // PLAIN-mode prepend compensation (no virtualizer). One scalar read of
