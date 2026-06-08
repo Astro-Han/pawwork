@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test"
-import { computeViewBounds, deriveBrowserState, parseNavigable, safeExternalUrl, type BrowserStateSnapshot } from "./logic"
+import {
+  clearDataReloadAction,
+  computeViewBounds,
+  deriveBrowserState,
+  parseNavigable,
+  safeExternalUrl,
+  type BrowserStateSnapshot,
+} from "./logic"
 
 describe("parseNavigable", () => {
   test("accepts http and https and normalizes", () => {
@@ -85,5 +92,22 @@ describe("deriveBrowserState", () => {
       snap({ url: "https://a.com/", title: "A", canGoBack: true, canGoForward: false, loading: true, favicon: "f" }),
     )
     expect(state).toMatchObject({ title: "A", canGoBack: true, canGoForward: false, loading: true, favicon: "f" })
+  })
+})
+
+describe("clearDataReloadAction", () => {
+  test("reloads immediately when a page is loaded", () => {
+    expect(clearDataReloadAction({ hasPage: true, loading: false })).toBe("now")
+    expect(clearDataReloadAction({ hasPage: true, loading: true })).toBe("now")
+  })
+
+  test("defers one reload when the first navigation is still in flight", () => {
+    // hasPage stays false until the first load commits; the in-flight request
+    // carries the pre-clear cookies, so it must reload once it settles.
+    expect(clearDataReloadAction({ hasPage: false, loading: true })).toBe("defer")
+  })
+
+  test("does nothing when idle with no page", () => {
+    expect(clearDataReloadAction({ hasPage: false, loading: false })).toBe("none")
   })
 })

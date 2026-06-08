@@ -1,7 +1,7 @@
 import { WebContentsView, shell, type BrowserWindow } from "electron"
 import type { BrowserState, BrowserViewLayout } from "@opencode-ai/app/desktop-api"
 import { browserViewWebPreferences } from "./options"
-import { computeViewBounds, deriveBrowserState, parseNavigable, safeExternalUrl } from "./logic"
+import { clearDataReloadAction, computeViewBounds, deriveBrowserState, parseNavigable, safeExternalUrl } from "./logic"
 
 export const BROWSER_STATE_CHANNEL = "browser:state"
 
@@ -139,11 +139,21 @@ export class BrowserViewController {
     this.view.setVisible(true)
   }
 
-  // Reflect a partition-wide data clear: reload so the page shows its
-  // signed-out state immediately. No-op when no real page is loaded.
+  // Reflect a partition-wide data clear: reload so the page shows its signed-out
+  // state immediately. A first navigation still in flight was sent with the
+  // pre-clear cookies, so defer one reload until it commits — otherwise it lands
+  // as stale signed-in content with no follow-up. No-op when idle with no page.
   reloadIfLoaded() {
     if (this.destroyed || this.wc.isDestroyed()) return
-    if (this.state().hasPage) this.wc.reload()
+    const action = clearDataReloadAction({ hasPage: this.state().hasPage, loading: this.wc.isLoading() })
+    if (action === "now") {
+      this.wc.reload()
+    } else if (action === "defer") {
+      this.wc.once("did-stop-loading", () => {
+        if (this.destroyed || this.wc.isDestroyed()) return
+        this.wc.reload()
+      })
+    }
   }
 
   destroy() {

@@ -60,6 +60,23 @@ export type BrowserStateSnapshot = {
   favicon: string | null
 }
 
+export type ClearDataReloadAction = "now" | "defer" | "none"
+
+/**
+ * After a partition-wide data clear, decide how the embedded view should refresh
+ * so it reflects the cleared (signed-out) cookies:
+ *   - "now": a page is loaded → reload it immediately.
+ *   - "defer": the first navigation is still in flight (no committed page yet, so
+ *     hasPage is false) → it was sent with the pre-clear cookies, so reload once
+ *     it settles instead of leaving stale signed-in content with no follow-up.
+ *   - "none": nothing is loaded or loading → nothing to refresh.
+ */
+export function clearDataReloadAction(snapshot: { hasPage: boolean; loading: boolean }): ClearDataReloadAction {
+  if (snapshot.hasPage) return "now"
+  if (snapshot.loading) return "defer"
+  return "none"
+}
+
 /**
  * Derive the renderer-facing state from a raw webContents snapshot. `hasPage` is
  * false until a real page is loaded (empty or about: URL), which keeps the DOM
