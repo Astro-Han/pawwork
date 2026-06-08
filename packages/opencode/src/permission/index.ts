@@ -408,11 +408,23 @@ export namespace Permission {
   }
 
   const EDIT_TOOLS = ["edit", "write", "apply_patch"]
+  // The embedded-browser tools (#1186) all gate on the shared `browser`
+  // permission key, so a wildcard `browser: deny` must hide every one of them —
+  // map their tool ids to `browser` the same way edit tools map to `edit`.
+  // (Source of truth for these ids: tool/browser/tools.ts.)
+  const BROWSER_TOOLS = [
+    "browser_navigate",
+    "browser_screenshot",
+    "browser_extract",
+    "browser_wait",
+    "browser_click",
+    "browser_type",
+  ]
 
   export function disabled(tools: string[], ruleset: Ruleset): Set<string> {
     const result = new Set<string>()
     for (const tool of tools) {
-      const permission = EDIT_TOOLS.includes(tool) ? "edit" : tool
+      const permission = EDIT_TOOLS.includes(tool) ? "edit" : BROWSER_TOOLS.includes(tool) ? "browser" : tool
       const rule = ruleset.findLast((rule) => Wildcard.match(permission, rule.permission))
       if (!rule) continue
       if (rule.pattern === "*" && rule.action === "deny") result.add(tool)

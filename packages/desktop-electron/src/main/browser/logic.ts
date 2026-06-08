@@ -137,10 +137,13 @@ export function buildWaitScript(selector?: string, text?: string): string {
  * center. Returns null when nothing matches.
  */
 export function buildClickRectScript(selector: string): string {
+  // behavior "instant" overrides a page's CSS `scroll-behavior: smooth`, so the
+  // scroll completes synchronously and getBoundingClientRect reads the final
+  // position — otherwise a smooth scroll would leave us clicking a stale rect.
   return `(() => {
     const el = document.querySelector(${JSON.stringify(selector)});
     if (!el) return null;
-    el.scrollIntoView({ block: "center", inline: "center" });
+    el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
     const r = el.getBoundingClientRect();
     return { x: r.x, y: r.y, width: r.width, height: r.height };
   })()`

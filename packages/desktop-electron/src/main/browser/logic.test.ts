@@ -156,6 +156,12 @@ describe("buildClickRectScript / buildFocusScript", () => {
     expect(buildFocusScript("#field")).toContain(`querySelector(${JSON.stringify("#field")})`)
     expect(buildFocusScript("#field")).toContain("document.activeElement === el")
   })
+
+  test("click scroll is instant so the rect is read after the scroll settles", () => {
+    // A page's CSS `scroll-behavior: smooth` would otherwise make scrollIntoView
+    // async, leaving getBoundingClientRect on a stale rect.
+    expect(buildClickRectScript("#go")).toContain('behavior: "instant"')
+  })
 })
 
 describe("clickPointFromRect", () => {
