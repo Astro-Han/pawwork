@@ -7,6 +7,7 @@ import { IconButton } from "@opencode-ai/ui/icon-button"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
+import { useShellSurface } from "@/context/shell-surface"
 import type { BrowserBridge, BrowserState, BrowserViewRect } from "@/context/platform"
 import { formatAddress, normalizeAddressInput } from "./url"
 import { rectsEqual, shouldShowBrowserView } from "./view-state"
@@ -28,6 +29,7 @@ export function BrowserPanel(props: {
   const language = useLanguage()
   const dialog = useDialog()
   const platform = usePlatform()
+  const shell = useShellSurface()
   const bridge = props.bridge
 
   const [state, setState] = createSignal<BrowserState | null>(null)
@@ -61,6 +63,9 @@ export function BrowserPanel(props: {
       active: props.active(),
       hasPage: hasPage(),
       suppressed: suppressed(),
+      // A settings / automations / skills takeover keeps the session mounted but
+      // hidden; the native overlay ignores that CSS and would bleed through.
+      coveredBySurface: shell.mainSurfaceOpen(),
     }),
   )
 
