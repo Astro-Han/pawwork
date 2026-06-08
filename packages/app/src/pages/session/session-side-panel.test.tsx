@@ -234,3 +234,25 @@ describe("right-panel inactive-tab gating contract", () => {
     expect(source).toContain("<TerminalPanel tab={t}")
   })
 })
+
+// Browser-overlay suppression contract: the embedded browser paints a native
+// WebContentsView over its content region, and a native layer ignores DOM
+// stacking — so any chrome that should sit above it must hide it explicitly. The
+// titlebar add-tab "+" menu opens down over that region, so its open state is
+// lifted into SessionSidePanel and threaded to the strip (to report it) and to
+// BrowserPanel (to suppress the overlay). A render test would need the whole
+// context surface; this grep guards the wiring from silent removal, matching the
+// gating-contract pattern above.
+describe("embedded browser overlay suppression contract", () => {
+  test("add-tab menu open state is lifted and threaded to the strip and browser panel", async () => {
+    const source = await fs.readFile(SOURCE_PATH, "utf8")
+    expect(source).toContain("setAddTabMenuOpen")
+    expect(source).toContain("onMenuOpenChange={setAddTabMenuOpen}")
+    expect(source).toContain("panelChromeMenuOpen={addTabMenuOpen}")
+  })
+
+  test("the strip's add-tab menu reports its open state via onOpenChange", async () => {
+    const stripSource = await fs.readFile(path.join(__dirname, "right-panel-tab-strip.tsx"), "utf8")
+    expect(stripSource).toContain("onOpenChange={props.onMenuOpenChange}")
+  })
+})

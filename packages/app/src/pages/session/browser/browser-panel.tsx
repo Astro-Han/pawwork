@@ -25,6 +25,9 @@ export function BrowserPanel(props: {
   bridge: BrowserBridge
   active: () => boolean
   panelOpen: () => boolean
+  // True while a right-panel chrome menu (the titlebar add-tab "+" menu) is open.
+  // It lives in a sibling component but its dropdown overlaps this content rect.
+  panelChromeMenuOpen: () => boolean
 }) {
   const language = useLanguage()
   const dialog = useDialog()
@@ -54,9 +57,11 @@ export function BrowserPanel(props: {
   const secure = () => state()?.secure ?? false
   const address = createMemo(() => formatAddress(url()))
 
-  // Hide the native overlay whenever an app modal or this tab's own menu is open,
-  // since the view would otherwise paint over them.
-  const suppressed = () => !!dialog.active || menuOpen()
+  // Hide the native overlay whenever something must paint above it: an app modal,
+  // this tab's own overflow menu, or a right-panel chrome menu (the titlebar
+  // add-tab "+" menu opens downward over this content region). The view is a
+  // native layer, so DOM stacking can't lift those above it — it must be hidden.
+  const suppressed = () => !!dialog.active || menuOpen() || props.panelChromeMenuOpen()
   const shouldShow = createMemo(() =>
     shouldShowBrowserView({
       panelOpen: props.panelOpen(),

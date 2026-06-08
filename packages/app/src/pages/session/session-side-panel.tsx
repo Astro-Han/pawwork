@@ -88,6 +88,10 @@ export function SessionSidePanel(props: {
   onMount(() => {
     setTabsPortalMount(document.getElementById("pawwork-titlebar-tabs") ?? undefined)
   })
+  // The titlebar add-tab "+" menu lives in RightPanelTabStrip but its dropdown
+  // overlaps the embedded browser's content region. Lift its open state here so
+  // the sibling BrowserPanel can hide its native overlay while the menu is up.
+  const [addTabMenuOpen, setAddTabMenuOpen] = createSignal(false)
   let bodyUnmountTimer: number | undefined
 
   const clearBodyUnmountTimer = () => {
@@ -397,6 +401,7 @@ export function SessionSidePanel(props: {
                   closableMissingTabs={closableMissingTabs}
                   openFilePicker={openFilePicker}
                   showAllFiles={showAllFiles}
+                  onMenuOpenChange={setAddTabMenuOpen}
                 />
 
                 <Tabs.Content value="status" class="min-h-0 flex-1 overflow-hidden">
@@ -453,6 +458,7 @@ export function SessionSidePanel(props: {
                         bridge={bridge()}
                         active={() => sidePanelTab() === "browser"}
                         panelOpen={open}
+                        panelChromeMenuOpen={addTabMenuOpen}
                       />
                     </Tabs.Content>
                   )}

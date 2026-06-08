@@ -63,6 +63,10 @@ export function RightPanelTabStrip(props: {
   }[]
   openFilePicker: (onOpenFile?: () => void) => void
   showAllFiles: () => void
+  // Reported so the embedded browser can hide its native overlay while this
+  // menu is open — the dropdown opens down over the browser content region and
+  // a native layer ignores DOM stacking, so it would otherwise be occluded.
+  onMenuOpenChange: (open: boolean) => void
 }) {
   const language = useLanguage()
   const command = useCommand()
@@ -139,7 +143,7 @@ export function RightPanelTabStrip(props: {
                 the chip strip reads left-justified and `+` lives at the
                 end of the rail (matching docs/design/ui_kits/desktop/RightPanel.jsx). */}
             <div class="flex-1" />
-            <DropdownMenu gutter={4} placement="bottom-end">
+            <DropdownMenu gutter={4} placement="bottom-end" onOpenChange={props.onMenuOpenChange}>
               <DropdownMenu.Trigger
                 as={IconButton}
                 icon="plus-small"
