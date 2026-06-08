@@ -19,8 +19,24 @@ describe("normalizeAddressInput", () => {
   })
 
   test("treats host:port as a host, not a scheme", () => {
-    expect(normalizeAddressInput("localhost:3000")).toBe("https://localhost:3000")
+    // No `//`, so host:port is a host (not a scheme) and gets a scheme prefixed.
     expect(normalizeAddressInput("192.168.0.1:8080/p?q=1")).toBe("https://192.168.0.1:8080/p?q=1")
+  })
+
+  test("defaults loopback hosts to http so local dev servers just work", () => {
+    expect(normalizeAddressInput("localhost:3000")).toBe("http://localhost:3000")
+    expect(normalizeAddressInput("127.0.0.1:8080/p?q=1")).toBe("http://127.0.0.1:8080/p?q=1")
+    expect(normalizeAddressInput("api.localhost")).toBe("http://api.localhost")
+    expect(normalizeAddressInput("[::1]:5173")).toBe("http://[::1]:5173")
+    expect(normalizeAddressInput("0.0.0.0:5173")).toBe("http://0.0.0.0:5173")
+  })
+
+  test("keeps https for non-loopback hosts, including private LAN IPs", () => {
+    // Private LAN may sit on a hostile shared network, so a bare host keeps the
+    // https default; the user can type http:// to opt into plaintext.
+    expect(normalizeAddressInput("192.168.0.1:8080")).toBe("https://192.168.0.1:8080")
+    expect(normalizeAddressInput("10.0.0.5:3000")).toBe("https://10.0.0.5:3000")
+    expect(normalizeAddressInput("myserver:8080")).toBe("https://myserver:8080")
   })
 
   test("passes through other schemes for the main process to validate/reject", () => {
