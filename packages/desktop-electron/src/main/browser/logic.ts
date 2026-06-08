@@ -94,3 +94,81 @@ export function deriveBrowserState(snapshot: BrowserStateSnapshot): BrowserState
     hasPage: snapshot.url !== "" && !snapshot.url.startsWith("about:"),
   }
 }
+
+// --- Agent automation page scripts ---
+// Built here as pure strings so they can be unit-tested without Electron, and so
+// the only dynamic part — a CSS selector or target text — is always JSON-encoded
+// and can never break out of the string literal into the surrounding script.
+
+/**
+ * Script for browser_extract: return the visible text of a CSS selector, or the
+ * whole document body when no selector is given. Returns "" when the selector
+ * matches nothing so the tool reports "no text" instead of failing.
+ */
+export function buildExtractScript(selector?: string): string {
+  const sel = selector ? JSON.stringify(selector) : "null"
+  return `(() => {
+    const sel = ${sel};
+    const root = sel ? document.querySelector(sel) : document.body;
+    if (!root) return "";
+    return root.innerText || root.textContent || "";
+  })()`
+}
+
+/**
+ * Predicate for browser_wait: true once a CSS selector matches, or once the body
+ * text contains the target string. Selector wins when both are supplied.
+ */
+export function buildWaitScript(selector?: string, text?: string): string {
+  const sel = selector ? JSON.stringify(selector) : "null"
+  const txt = text ? JSON.stringify(text) : "null"
+  return `(() => {
+    const sel = ${sel};
+    const txt = ${txt};
+    if (sel) return !!document.querySelector(sel);
+    if (txt) return ((document.body && document.body.innerText) || "").includes(txt);
+    return false;
+  })()`
+}
+
+/**
+ * Script for browser_click: scroll the first match into view and return its
+ * viewport rect (CSS px) so the controller can dispatch a real mouse event at its
+ * center. Returns null when nothing matches.
+ */
+export function buildClickRectScript(selector: string): string {
+  return `(() => {
+    const el = document.querySelector(${JSON.stringify(selector)});
+    if (!el) return null;
+    el.scrollIntoView({ block: "center", inline: "center" });
+    const r = el.getBoundingClientRect();
+    return { x: r.x, y: r.y, width: r.width, height: r.height };
+  })()`
+}
+
+/**
+ * Script for browser_type's targeting step: focus the first match and report
+ * whether it became the active element. Returns false when nothing matches or the
+ * element refused focus (e.g. disabled), so the tool can say so.
+ */
+export function buildFocusScript(selector: string): string {
+  return `(() => {
+    const el = document.querySelector(${JSON.stringify(selector)});
+    if (!el) return false;
+    if (typeof el.focus === "function") el.focus();
+    return document.activeElement === el;
+  })()`
+}
+
+export type ClickRect = { x: number; y: number; width: number; height: number }
+
+/**
+ * Center point (rounded, viewport CSS px) of an element rect for a synthetic mouse
+ * click, or null when the rect is missing or has no area — a zero-size element is
+ * not a real click target.
+ */
+export function clickPointFromRect(rect: ClickRect | null): { x: number; y: number } | null {
+  if (!rect) return null
+  if (rect.width <= 0 || rect.height <= 0) return null
+  return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) }
+}

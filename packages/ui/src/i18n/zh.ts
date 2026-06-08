@@ -175,6 +175,12 @@ export const dict = {
   "ui.tool.websearch.failure.unknown.title": "网络搜索失败",
   "ui.tool.websearch.failure.unknown":
     "PawWork 联系 Exa 时失败了。请稍后再试；如果一直失败，可以在设置里更新 Exa API Key。",
+  "ui.tool.browser.navigate": "打开网页",
+  "ui.tool.browser.screenshot": "网页截图",
+  "ui.tool.browser.extract": "提取文本",
+  "ui.tool.browser.wait": "等待",
+  "ui.tool.browser.click": "点击",
+  "ui.tool.browser.type": "输入",
   "ui.tool.worktree.enter": "进入工作树",
   "ui.tool.worktree.enter.fromProject": "{{project}} → {{target}}",
   "ui.tool.worktree.exit": "退出工作树",

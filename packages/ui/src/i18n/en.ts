@@ -184,6 +184,12 @@ export const dict: Record<string, string> = {
   "ui.tool.websearch.failure.unknown.title": "Web Search failed",
   "ui.tool.websearch.failure.unknown":
     "Web Search failed while contacting Exa. Try again later. If it keeps happening, update your Exa API key in Settings.",
+  "ui.tool.browser.navigate": "Open Page",
+  "ui.tool.browser.screenshot": "Screenshot",
+  "ui.tool.browser.extract": "Read Page",
+  "ui.tool.browser.wait": "Wait",
+  "ui.tool.browser.click": "Click",
+  "ui.tool.browser.type": "Type",
   "ui.tool.worktree.enter": "Enter worktree",
   "ui.tool.worktree.enter.fromProject": "{{project}} → {{target}}",
   "ui.tool.worktree.exit": "Exit worktree",

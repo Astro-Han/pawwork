@@ -4,14 +4,55 @@ import { BrowserViewController } from "../browser/controller"
 import { BROWSER_PARTITION } from "../browser/options"
 
 /**
- * Wires the embedded-browser IPC. One controller per window, created lazily and
- * keyed by window id so each window drives its own WebContentsView, and torn
- * down when the window closes. Channels mirror the BrowserBridge in the app's
- * platform contract.
+ * One controller per window, keyed by window id. Module-scoped (not closed over
+ * registerBrowserIpc) so both the renderer IPC handlers and the agent automation
+ * bridge resolve the same controllers — the agent drives the window the user sees.
+ */
+const controllers = new Map<number, BrowserViewController>()
+
+/** No window to attach the embedded browser to — surfaced to the agent verbatim. */
+export class NoBrowserWindowError extends Error {
+  constructor() {
+    super("No PawWork window is open to drive the embedded browser.")
+    this.name = "NoBrowserWindowError"
+  }
+}
+
+// Create on first real use (navigate, a visible set-view, or an agent action) so
+// windows that never open the browser pay nothing; torn down with the window.
+function ensureControllerForWindow(win: BrowserWindow): BrowserViewController {
+  let controller = controllers.get(win.id)
+  if (!controller) {
+    controller = new BrowserViewController(win)
+    controllers.set(win.id, controller)
+    win.once("closed", () => {
+      controllers.get(win.id)?.destroy()
+      controllers.delete(win.id)
+    })
+  }
+  return controller
+}
+
+/**
+ * Pick the window the agent's browser tools should drive: the focused window, or
+ * the only window when exactly one is open. Anything ambiguous (no window, or
+ * several with none focused) is a typed error the tool surfaces rather than
+ * guessing which window the user meant.
+ */
+export function resolveAutomationController(): BrowserViewController {
+  const focused = BrowserWindow.getFocusedWindow()
+  if (focused && !focused.isDestroyed()) return ensureControllerForWindow(focused)
+  const windows = BrowserWindow.getAllWindows().filter((win) => !win.isDestroyed())
+  if (windows.length === 1) return ensureControllerForWindow(windows[0]!)
+  throw new NoBrowserWindowError()
+}
+
+/**
+ * Wires the embedded-browser IPC. Channels mirror the BrowserBridge in the app's
+ * platform contract. Controllers are shared with the agent automation bridge via
+ * the module-scoped map above.
  */
 export function registerBrowserIpc() {
-  const controllers = new Map<number, BrowserViewController>()
-
   const windowFor = (event: IpcMainInvokeEvent) => BrowserWindow.fromWebContents(event.sender)
 
   const existing = (event: IpcMainInvokeEvent) => {
@@ -19,21 +60,9 @@ export function registerBrowserIpc() {
     return win ? controllers.get(win.id) : undefined
   }
 
-  // Create on first real use (navigate, or a visible set-view) so windows that
-  // never open the browser pay nothing.
   const ensure = (event: IpcMainInvokeEvent) => {
     const win = windowFor(event)
-    if (!win) return undefined
-    let controller = controllers.get(win.id)
-    if (!controller) {
-      controller = new BrowserViewController(win)
-      controllers.set(win.id, controller)
-      win.once("closed", () => {
-        controllers.get(win.id)?.destroy()
-        controllers.delete(win.id)
-      })
-    }
-    return controller
+    return win ? ensureControllerForWindow(win) : undefined
   }
 
   ipcMain.handle("browser:navigate", (event, url: string) => ensure(event)?.navigate(url))

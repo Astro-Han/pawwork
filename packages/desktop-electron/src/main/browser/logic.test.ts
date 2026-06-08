@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import {
+  buildClickRectScript,
+  buildExtractScript,
+  buildFocusScript,
+  buildWaitScript,
   clearDataReloadAction,
+  clickPointFromRect,
   computeViewBounds,
   deriveBrowserState,
   parseNavigable,
@@ -109,5 +114,59 @@ describe("clearDataReloadAction", () => {
 
   test("does nothing when idle with no page", () => {
     expect(clearDataReloadAction({ hasPage: false, loading: false })).toBe("none")
+  })
+})
+
+describe("buildExtractScript", () => {
+  test("reads the whole body when no selector is given", () => {
+    const script = buildExtractScript()
+    expect(script).toContain("const sel = null;")
+    expect(script).toContain("document.body")
+  })
+
+  test("JSON-encodes the selector so page-supplied input can't escape the literal", () => {
+    const hostile = 'a"]); alert(1); ("'
+    const script = buildExtractScript(hostile)
+    // The selector only ever appears as a fully-quoted JSON string, never spliced
+    // in raw (which would let a stray `"` close the literal and inject code).
+    expect(script).toContain(`const sel = ${JSON.stringify(hostile)};`)
+    expect(script).not.toContain('const sel = a"')
+  })
+})
+
+describe("buildWaitScript", () => {
+  test("uses a selector predicate when a selector is given", () => {
+    const script = buildWaitScript(".ready")
+    expect(script).toContain(`const sel = ${JSON.stringify(".ready")};`)
+    expect(script).toContain("querySelector(sel)")
+  })
+
+  test("falls back to a body-text predicate when only text is given", () => {
+    const script = buildWaitScript(undefined, "Done")
+    expect(script).toContain("const sel = null;")
+    expect(script).toContain(`const txt = ${JSON.stringify("Done")};`)
+    expect(script).toContain("includes(txt)")
+  })
+})
+
+describe("buildClickRectScript / buildFocusScript", () => {
+  test("encode the selector and return the rect / focus result", () => {
+    expect(buildClickRectScript("#go")).toContain(`querySelector(${JSON.stringify("#go")})`)
+    expect(buildClickRectScript("#go")).toContain("getBoundingClientRect()")
+    expect(buildFocusScript("#field")).toContain(`querySelector(${JSON.stringify("#field")})`)
+    expect(buildFocusScript("#field")).toContain("document.activeElement === el")
+  })
+})
+
+describe("clickPointFromRect", () => {
+  test("returns the rounded center of a real rect", () => {
+    expect(clickPointFromRect({ x: 10, y: 20, width: 30, height: 40 })).toEqual({ x: 25, y: 40 })
+    expect(clickPointFromRect({ x: 0.5, y: 0.5, width: 3, height: 3 })).toEqual({ x: 2, y: 2 })
+  })
+
+  test("returns null for a missing or zero-area rect", () => {
+    expect(clickPointFromRect(null)).toBeNull()
+    expect(clickPointFromRect({ x: 0, y: 0, width: 0, height: 10 })).toBeNull()
+    expect(clickPointFromRect({ x: 0, y: 0, width: 10, height: 0 })).toBeNull()
   })
 })

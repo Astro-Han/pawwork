@@ -33,6 +33,14 @@ import { ApplyPatchTool } from "./apply_patch"
 import { EnterWorktreeTool } from "./enter-worktree"
 import { ExitWorktreeTool } from "./exit-worktree"
 import { AutomateTool } from "./automate"
+import {
+  BrowserClickTool,
+  BrowserExtractTool,
+  BrowserNavigateTool,
+  BrowserScreenshotTool,
+  BrowserTypeTool,
+  BrowserWaitTool,
+} from "./browser/tools"
 import { Automation } from "@/automation"
 import { Permission } from "../permission"
 import { Glob } from "../util/glob"
@@ -152,6 +160,12 @@ export namespace ToolRegistry {
       const enterWorktree = yield* EnterWorktreeTool
       const exitWorktree = yield* ExitWorktreeTool
       const automate = yield* AutomateTool
+      const browserNavigate = yield* BrowserNavigateTool
+      const browserScreenshot = yield* BrowserScreenshotTool
+      const browserExtract = yield* BrowserExtractTool
+      const browserWait = yield* BrowserWaitTool
+      const browserClick = yield* BrowserClickTool
+      const browserType = yield* BrowserTypeTool
 
       const toolInfoInfo = yield* ToolInfoTool((toolID, output) =>
         plugin.trigger("tool.definition", { toolID }, output),
@@ -315,6 +329,12 @@ export namespace ToolRegistry {
             enterWorktree: Tool.init(enterWorktree),
             exitWorktree: Tool.init(exitWorktree),
             automate: Tool.init(automate),
+            browserNavigate: Tool.init(browserNavigate),
+            browserScreenshot: Tool.init(browserScreenshot),
+            browserExtract: Tool.init(browserExtract),
+            browserWait: Tool.init(browserWait),
+            browserClick: Tool.init(browserClick),
+            browserType: Tool.init(browserType),
             toolInfo: Tool.init(toolInfoInfo),
           })
 
@@ -343,6 +363,19 @@ export namespace ToolRegistry {
               tool.automate,
               tool.enterWorktree,
               tool.exitWorktree,
+              // Embedded-browser tools drive an Electron WebContentsView, so they
+              // only exist in the desktop app; cli/app/headless never register the
+              // BrowserBridge implementation they call.
+              ...(Flag.OPENCODE_CLIENT === "desktop"
+                ? [
+                    tool.browserNavigate,
+                    tool.browserScreenshot,
+                    tool.browserExtract,
+                    tool.browserWait,
+                    tool.browserClick,
+                    tool.browserType,
+                  ]
+                : []),
             ],
             agent: tool.agent,
             read: tool.read,

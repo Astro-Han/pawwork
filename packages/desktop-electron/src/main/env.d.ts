@@ -53,6 +53,28 @@ declare module "virtual:opencode-server" {
     export function removeKey(): Promise<Status>
   }
 
+  export namespace BrowserBridge {
+    export type NavigateResult = { url: string; title: string }
+    export type ScreenshotResult = { mime: string; base64: string; width: number; height: number }
+    export type ExtractResult = { url: string; title: string; text: string; truncated: boolean }
+    export type WaitResult = { found: boolean; waitedMs: number; reason: "selector" | "text" | "timeout" }
+    export type ClickResult = { matched: boolean; x: number; y: number }
+    export type TypeResult = { matched: boolean; submitted: boolean }
+
+    export interface Impl {
+      navigate(input: { url: string }): Promise<NavigateResult>
+      screenshot(): Promise<ScreenshotResult>
+      extract(input: { selector?: string; maxChars: number }): Promise<ExtractResult>
+      waitFor(input: { selector?: string; text?: string; timeoutMs: number }): Promise<WaitResult>
+      click(input: { selector: string }): Promise<ClickResult>
+      type(input: { selector?: string; text: string; submit: boolean }): Promise<TypeResult>
+    }
+
+    export function register(value: Impl): void
+    export function unregister(): void
+    export function available(): boolean
+  }
+
   export namespace LSP {
     export function shutdownAll(): Promise<void>
     export function invalidate(): Promise<void>

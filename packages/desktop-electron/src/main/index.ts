@@ -77,6 +77,7 @@ import { createFeedbackHandler, feedbackDialogLabels } from "./feedback"
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigrationProgress } from "./ipc"
 import { registerAboutIpc, triggerAbout } from "./ipc/about"
 import { registerBrowserIpc } from "./ipc/browser"
+import { registerBrowserAutomationBridge } from "./browser/automation-bridge"
 import { filePath, initLogging, tail } from "./logging"
 import { parseMarkdown } from "./markdown"
 import { createMenu } from "./menu"
@@ -500,6 +501,9 @@ async function initialize() {
   logger.log("spawning sidecar", { url })
   const { listener, health } = await spawnLocalServer(hostname, port, password)
   server = listener
+  // The server module is loaded now; inject the controller-backed browser
+  // automation so the agent's browser_* tools resolve before any session runs.
+  await registerBrowserAutomationBridge()
   serverReady.resolve({
     url,
     username: PAWWORK_RUNTIME.serverUsername,

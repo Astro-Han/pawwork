@@ -41,6 +41,9 @@ const InputObject = Schema.StructWithRest(
     question: Schema.optional(Action),
     webfetch: Schema.optional(Action),
     websearch: Schema.optional(Action),
+    // Embedded-browser tools (#1186). A Rule, not a bare Action, so users can
+    // scope by per-action pattern (URL, selector, "screenshot") if they want.
+    browser: Schema.optional(Rule),
     lsp: Schema.optional(Rule),
     doom_loop: Schema.optional(Action),
     skill: Schema.optional(Rule),
@@ -75,6 +78,7 @@ const InfoZod = z
         question: zod(Action).optional(),
         webfetch: zod(Action).optional(),
         websearch: zod(Action).optional(),
+        browser: zod(Rule).optional(),
         lsp: zod(Rule).optional(),
         doom_loop: zod(Action).optional(),
         skill: zod(Rule).optional(),

@@ -5,6 +5,12 @@ import type { IconProps } from "./icon"
 import {
   TOOL_AGENT,
   TOOL_AGENT_LEGACY,
+  TOOL_BROWSER_CLICK,
+  TOOL_BROWSER_EXTRACT,
+  TOOL_BROWSER_NAVIGATE,
+  TOOL_BROWSER_SCREENSHOT,
+  TOOL_BROWSER_TYPE,
+  TOOL_BROWSER_WAIT,
   TOOL_QUESTION,
   TOOL_TODOWRITE,
   TOOL_WEBFETCH,
@@ -38,6 +44,13 @@ export function toolIcon(tool: string): IconProps["name"] {
     case TOOL_WEBFETCH:
     case TOOL_WEBSEARCH:
       return "window-cursor"
+    case TOOL_BROWSER_NAVIGATE:
+    case TOOL_BROWSER_SCREENSHOT:
+    case TOOL_BROWSER_EXTRACT:
+    case TOOL_BROWSER_WAIT:
+    case TOOL_BROWSER_CLICK:
+    case TOOL_BROWSER_TYPE:
+      return "browser"
     case "enter-worktree":
     case "exit-worktree":
       return "worktree"
@@ -161,6 +174,18 @@ export function toolInfoForInput(
         title: i18n.t("ui.tool.websearch"),
         subtitle: input.query,
       }
+    case TOOL_BROWSER_NAVIGATE:
+      return { icon, title: i18n.t("ui.tool.browser.navigate"), subtitle: input.url }
+    case TOOL_BROWSER_SCREENSHOT:
+      return { icon, title: i18n.t("ui.tool.browser.screenshot") }
+    case TOOL_BROWSER_EXTRACT:
+      return { icon, title: i18n.t("ui.tool.browser.extract"), subtitle: input.selector }
+    case TOOL_BROWSER_WAIT:
+      return { icon, title: i18n.t("ui.tool.browser.wait"), subtitle: input.selector || input.text }
+    case TOOL_BROWSER_CLICK:
+      return { icon, title: i18n.t("ui.tool.browser.click"), subtitle: input.selector }
+    case TOOL_BROWSER_TYPE:
+      return { icon, title: i18n.t("ui.tool.browser.type"), subtitle: input.selector }
     case "enter-worktree": {
       return {
         icon,

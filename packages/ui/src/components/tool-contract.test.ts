@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "bun:test"
 import {
+  BROWSER_TOOL_NAMES,
   TOOL_AGENT,
   TOOL_AGENT_LEGACY,
   TOOL_QUESTION,
@@ -27,6 +28,15 @@ describe("tool contract names", () => {
     it(`keeps "${tool}" compatible with packages/opencode/src/tool/${filename}`, () => {
       const source = readFileSync(join(OPENCODE_TOOL_DIR, filename), "utf8")
       expect(source).toMatch(pattern)
+    })
+  }
+
+  // The embedded-browser tools all live in one file and the UI keys its icon /
+  // title casing off these ids, so pin each id to its Tool.define call.
+  const browserSource = readFileSync(join(OPENCODE_TOOL_DIR, "browser/tools.ts"), "utf8")
+  for (const tool of BROWSER_TOOL_NAMES) {
+    it(`keeps "${tool}" compatible with packages/opencode/src/tool/browser/tools.ts`, () => {
+      expect(browserSource).toMatch(toolDefinePattern(tool))
     })
   }
 

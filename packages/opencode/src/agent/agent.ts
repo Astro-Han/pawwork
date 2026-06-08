@@ -109,6 +109,13 @@ export namespace Agent {
             external_directory: {
               "*": "allow",
             },
+            // Embedded-browser tools (#1186) default to allow: blocking the agent
+            // from the browser the user opened for it would defeat the feature.
+            // The local-self-use threat model (loopback, visible view, one-click
+            // disconnect) lives in the app, not in a per-call gate.
+            browser: {
+              "*": "allow",
+            },
           })
 
           const user = Permission.fromConfig(cfg.permission ?? {})

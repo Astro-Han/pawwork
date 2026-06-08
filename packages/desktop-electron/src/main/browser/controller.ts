@@ -1,9 +1,26 @@
 import { WebContentsView, shell, type BrowserWindow } from "electron"
 import type { BrowserState, BrowserViewLayout } from "@opencode-ai/app/desktop-api"
 import { browserViewWebPreferences } from "./options"
-import { clearDataReloadAction, computeViewBounds, deriveBrowserState, parseNavigable, safeExternalUrl } from "./logic"
+import {
+  buildClickRectScript,
+  buildExtractScript,
+  buildFocusScript,
+  buildWaitScript,
+  clearDataReloadAction,
+  clickPointFromRect,
+  computeViewBounds,
+  deriveBrowserState,
+  parseNavigable,
+  safeExternalUrl,
+} from "./logic"
 
 export const BROWSER_STATE_CHANNEL = "browser:state"
+
+// How often browser_wait re-checks its page predicate. Human-paced page loads
+// don't need tighter polling, and each tick is a round-trip into the page.
+const WAIT_POLL_INTERVAL_MS = 200
+
+const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
 /**
  * Owns one embedded browser per window: a WebContentsView painted over the
@@ -154,6 +171,83 @@ export class BrowserViewController {
         this.wc.reload()
       })
     }
+  }
+
+  // --- Agent automation (BrowserBridge) ---
+  // These drive the same WebContentsView the user sees: the agent acts on the
+  // live, logged-in page (page scripts via executeJavaScript, synthetic input via
+  // sendInputEvent), not a separate headless fetch. Return shapes are plain JSON so
+  // they cross the in-process bridge into the opencode server unchanged.
+
+  async navigateAndReport(input: string): Promise<{ url: string; title: string }> {
+    const url = parseNavigable(input)
+    if (!url) throw new Error("URL must start with http:// or https://")
+    await this.loadInternal(url)
+    return { url: this.wc.getURL(), title: this.wc.getTitle() }
+  }
+
+  async captureScreenshot(): Promise<{ mime: string; base64: string; width: number; height: number }> {
+    const image = await this.wc.capturePage()
+    const size = image.getSize()
+    return { mime: "image/png", base64: image.toPNG().toString("base64"), width: size.width, height: size.height }
+  }
+
+  async extractText(
+    selector: string | undefined,
+    maxChars: number,
+  ): Promise<{ url: string; title: string; text: string; truncated: boolean }> {
+    const raw = await this.wc.executeJavaScript(buildExtractScript(selector), true)
+    const text = typeof raw === "string" ? raw : ""
+    const truncated = text.length > maxChars
+    return {
+      url: this.wc.getURL(),
+      title: this.wc.getTitle(),
+      text: truncated ? text.slice(0, maxChars) : text,
+      truncated,
+    }
+  }
+
+  async waitFor(
+    selector: string | undefined,
+    text: string | undefined,
+    timeoutMs: number,
+  ): Promise<{ found: boolean; waitedMs: number; reason: "selector" | "text" | "timeout" }> {
+    const script = buildWaitScript(selector, text)
+    const start = Date.now()
+    const deadline = start + timeoutMs
+    while (Date.now() < deadline) {
+      if (this.destroyed || this.wc.isDestroyed()) break
+      const hit = await this.wc.executeJavaScript(script, true).catch(() => false)
+      if (hit === true) return { found: true, waitedMs: Date.now() - start, reason: selector ? "selector" : "text" }
+      await delay(WAIT_POLL_INTERVAL_MS)
+    }
+    return { found: false, waitedMs: Date.now() - start, reason: "timeout" }
+  }
+
+  async clickSelector(selector: string): Promise<{ matched: boolean; x: number; y: number }> {
+    const rect = await this.wc.executeJavaScript(buildClickRectScript(selector), true)
+    const point = clickPointFromRect(rect)
+    if (!point) return { matched: false, x: 0, y: 0 }
+    this.wc.sendInputEvent({ type: "mouseDown", x: point.x, y: point.y, button: "left", clickCount: 1 })
+    this.wc.sendInputEvent({ type: "mouseUp", x: point.x, y: point.y, button: "left", clickCount: 1 })
+    return { matched: true, x: point.x, y: point.y }
+  }
+
+  async typeText(
+    selector: string | undefined,
+    text: string,
+    submit: boolean,
+  ): Promise<{ matched: boolean; submitted: boolean }> {
+    if (selector) {
+      const focused = await this.wc.executeJavaScript(buildFocusScript(selector), true).catch(() => false)
+      if (focused !== true) return { matched: false, submitted: false }
+    }
+    for (const char of text) this.wc.sendInputEvent({ type: "char", keyCode: char })
+    if (submit) {
+      this.wc.sendInputEvent({ type: "keyDown", keyCode: "Return" })
+      this.wc.sendInputEvent({ type: "keyUp", keyCode: "Return" })
+    }
+    return { matched: true, submitted: submit }
   }
 
   destroy() {
