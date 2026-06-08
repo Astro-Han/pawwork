@@ -12,7 +12,7 @@ import { FileIcon } from "../../file-icon"
 import { Icon } from "../../icon"
 import { StickyAccordionHeader } from "../../sticky-accordion-header"
 import { TextShimmer } from "../../text-shimmer"
-import { patchFiles } from "../../apply-patch-file"
+import { patchFiles, type ApplyPatchFile } from "../../apply-patch-file"
 import { getDirectory } from "../markdown-render"
 import { ToolRegistry } from "../registry"
 import { ToolFileAccordion } from "./_file-accordion"
@@ -52,20 +52,70 @@ ToolRegistry.register({
       return `${count} ${i18n.t(count > 1 ? "ui.common.file.other" : "ui.common.file.one")}`
     })
 
+    const fileActions = (file: ApplyPatchFile) => (
+      <Switch>
+        <Match when={file.type === "add"}>
+          <span data-slot="apply-patch-change" data-type="added">
+            {i18n.t("ui.patch.action.created")}
+          </span>
+        </Match>
+        <Match when={file.type === "delete"}>
+          <span data-slot="apply-patch-change" data-type="removed">
+            {i18n.t("ui.patch.action.deleted")}
+          </span>
+        </Match>
+        <Match when={file.type === "move"}>
+          <span data-slot="apply-patch-change" data-type="modified">
+            {i18n.t("ui.patch.action.moved")}
+          </span>
+        </Match>
+        <Match when={true}>
+          <DiffChanges changes={{ additions: file.additions, deletions: file.deletions }} />
+        </Match>
+      </Switch>
+    )
+
+    const singleTrigger = (file: ApplyPatchFile) => (
+      <div data-component="edit-trigger">
+        <div data-slot="message-part-title-area">
+          <div data-slot="message-part-title">
+            <span data-slot="message-part-title-text">
+              <TextShimmer text={i18n.t("ui.tool.patch")} active={pending()} />
+            </span>
+            <Show when={!pending()}>
+              <span data-slot="message-part-title-filename">{getFilename(file.relativePath)}</span>
+            </Show>
+          </div>
+          <Show when={!pending() && file.relativePath.includes("/")}>
+            <div data-slot="message-part-path">
+              <span data-slot="message-part-directory">{getDirectory(file.relativePath)}</span>
+            </div>
+          </Show>
+        </div>
+        <div data-slot="message-part-actions">
+          <Show when={!pending()}>{fileActions(file)}</Show>
+        </div>
+      </div>
+    )
+
     return (
-      <Show
-        when={single()}
-        fallback={
-          <div data-component="apply-patch-tool">
-            <BasicTool
-              {...props}
-              icon={toolIcon("apply_patch")}
-              defer
-              trigger={{
-                title: i18n.t("ui.tool.patch"),
-                subtitle: subtitle(),
-              }}
-            >
+      <div data-component="apply-patch-tool">
+        <BasicTool
+          {...props}
+          icon={toolIcon("apply_patch")}
+          defer
+          trigger={
+            single()
+              ? singleTrigger(single()!)
+              : {
+                  title: i18n.t("ui.tool.patch"),
+                  subtitle: subtitle(),
+                }
+          }
+        >
+          <Show
+            when={single()}
+            fallback={
               <Show when={files().length > 0}>
                 <Accordion
                   multiple
@@ -88,13 +138,11 @@ ToolRegistry.register({
                           setVisible(false)
                           return
                         }
-
                         requestAnimationFrame(() => {
                           if (!active()) return
                           setVisible(true)
                         })
                       })
-
                       return (
                         <Accordion.Item value={file.filePath} data-type={file.type}>
                           <StickyAccordionHeader>
@@ -110,26 +158,7 @@ ToolRegistry.register({
                                   </div>
                                 </div>
                                 <div data-slot="apply-patch-trigger-actions">
-                                  <Switch>
-                                    <Match when={file.type === "add"}>
-                                      <span data-slot="apply-patch-change" data-type="added">
-                                        {i18n.t("ui.patch.action.created")}
-                                      </span>
-                                    </Match>
-                                    <Match when={file.type === "delete"}>
-                                      <span data-slot="apply-patch-change" data-type="removed">
-                                        {i18n.t("ui.patch.action.deleted")}
-                                      </span>
-                                    </Match>
-                                    <Match when={file.type === "move"}>
-                                      <span data-slot="apply-patch-change" data-type="modified">
-                                        {i18n.t("ui.patch.action.moved")}
-                                      </span>
-                                    </Match>
-                                    <Match when={true}>
-                                      <DiffChanges changes={{ additions: file.additions, deletions: file.deletions }} />
-                                    </Match>
-                                  </Switch>
+                                  {fileActions(file)}
                                   <Icon name="chevron-grabber-vertical" />
                                 </div>
                               </div>
@@ -148,72 +177,18 @@ ToolRegistry.register({
                   </For>
                 </Accordion>
               </Show>
-            </BasicTool>
-          </div>
-        }
-      >
-        <div data-component="apply-patch-tool">
-          <BasicTool
-            {...props}
-            icon={toolIcon("apply_patch")}
-            defer
-            trigger={
-              <div data-component="edit-trigger">
-                <div data-slot="message-part-title-area">
-                  <div data-slot="message-part-title">
-                    <span data-slot="message-part-title-text">
-                      <TextShimmer text={i18n.t("ui.tool.patch")} active={pending()} />
-                    </span>
-                    <Show when={!pending()}>
-                      <span data-slot="message-part-title-filename">{getFilename(single()!.relativePath)}</span>
-                    </Show>
-                  </div>
-                  <Show when={!pending() && single()!.relativePath.includes("/")}>
-                    <div data-slot="message-part-path">
-                      <span data-slot="message-part-directory">{getDirectory(single()!.relativePath)}</span>
-                    </div>
-                  </Show>
-                </div>
-                <div data-slot="message-part-actions">
-                  <Show when={!pending()}>
-                    <DiffChanges changes={{ additions: single()!.additions, deletions: single()!.deletions }} />
-                  </Show>
-                </div>
-              </div>
             }
           >
-            <ToolFileAccordion
-              path={single()!.relativePath}
-              actions={
-                <Switch>
-                  <Match when={single()!.type === "add"}>
-                    <span data-slot="apply-patch-change" data-type="added">
-                      {i18n.t("ui.patch.action.created")}
-                    </span>
-                  </Match>
-                  <Match when={single()!.type === "delete"}>
-                    <span data-slot="apply-patch-change" data-type="removed">
-                      {i18n.t("ui.patch.action.deleted")}
-                    </span>
-                  </Match>
-                  <Match when={single()!.type === "move"}>
-                    <span data-slot="apply-patch-change" data-type="modified">
-                      {i18n.t("ui.patch.action.moved")}
-                    </span>
-                  </Match>
-                  <Match when={true}>
-                    <DiffChanges changes={{ additions: single()!.additions, deletions: single()!.deletions }} />
-                  </Match>
-                </Switch>
-              }
-            >
-              <div data-component="apply-patch-file-diff">
-                <Dynamic component={fileComponent} mode="diff" fileDiff={single()!.view.fileDiff} />
-              </div>
-            </ToolFileAccordion>
-          </BasicTool>
-        </div>
-      </Show>
+            {(file) => (
+              <ToolFileAccordion path={file().relativePath} actions={fileActions(file())}>
+                <div data-component="apply-patch-file-diff">
+                  <Dynamic component={fileComponent} mode="diff" fileDiff={file().view.fileDiff} />
+                </div>
+              </ToolFileAccordion>
+            )}
+          </Show>
+        </BasicTool>
+      </div>
     )
   },
 })
