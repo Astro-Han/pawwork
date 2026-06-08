@@ -1,10 +1,27 @@
 import { contextBridge, ipcRenderer } from "electron"
 import { buildDesktopContext } from "@opencode-ai/app/desktop-api"
+import type { BrowserState } from "@opencode-ai/app/desktop-api"
 import type { DesktopContext, ElectronAPI, InitStep, SqliteMigrationProgress } from "./types"
 import { getRuntimeFlags } from "./runtime-flags"
 
 const runtimeFlags = getRuntimeFlags(process.env)
 const invokeSetDesktopContext = (context: DesktopContext) => ipcRenderer.invoke("set-desktop-context", context)
+
+const browser: ElectronAPI["browser"] = {
+  navigate: (url) => ipcRenderer.invoke("browser:navigate", url),
+  goBack: () => ipcRenderer.invoke("browser:back"),
+  goForward: () => ipcRenderer.invoke("browser:forward"),
+  reload: () => ipcRenderer.invoke("browser:reload"),
+  stop: () => ipcRenderer.invoke("browser:stop"),
+  setView: (layout) => ipcRenderer.invoke("browser:set-view", layout),
+  clearData: () => ipcRenderer.invoke("browser:clear-data"),
+  getState: () => ipcRenderer.invoke("browser:get-state"),
+  onState: (cb) => {
+    const handler = (_: unknown, state: BrowserState) => cb(state)
+    ipcRenderer.on("browser:state", handler)
+    return () => ipcRenderer.removeListener("browser:state", handler)
+  },
+}
 
 const api: ElectronAPI = {
   ciSmokeEnabled: runtimeFlags.ciSmokeEnabled,
@@ -99,6 +116,7 @@ const api: ElectronAPI = {
   },
   flashFrame: () => ipcRenderer.invoke("flash-frame"),
   setBadgeCount: (count: number) => ipcRenderer.invoke("set-badge-count", count),
+  browser,
 }
 
 contextBridge.exposeInMainWorld("api", api)

@@ -8,6 +8,7 @@ import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { useLocal } from "@/context/local"
 import { usePermission } from "@/context/permission"
+import { canUseBrowser, usePlatform } from "@/context/platform"
 import { usePrompt } from "@/context/prompt"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
@@ -52,6 +53,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   const sync = useSync()
   const terminal = useTerminal()
   const layout = useLayout()
+  const platform = usePlatform()
   const navigate = useNavigate()
   const { params, tabs, view } = useSessionLayout()
   const isDesktop = createMediaQuery("(min-width: 768px)")
@@ -442,6 +444,19 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       keybind: "mod+shift+r",
       onSelect: () => view().sidePanel.toggleTab("review"),
     }),
+    // Embedded browser is desktop/Electron only (WebContentsView); like
+    // terminal it has no host on web or narrow layouts, so don't register the
+    // command or its keybind there. Reactive, so it re-registers across 768px.
+    ...(isDesktop() && canUseBrowser(platform)
+      ? [
+          viewCommand({
+            id: "browser.toggle",
+            title: language.t("command.browser.toggle"),
+            keybind: "mod+shift+b",
+            onSelect: () => view().sidePanel.toggleTab("browser"),
+          }),
+        ]
+      : []),
     viewCommand({
       id: "panel.toggle",
       title: language.t("command.panel.toggle"),

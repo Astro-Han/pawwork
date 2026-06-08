@@ -14,7 +14,7 @@
  * slot is dropped via migrateLegacyRightPanelTab / coerceLegacySidePanelTab.
  */
 
-export type RightPanelStaticTab = "status" | "review" | "context"
+export type RightPanelStaticTab = "status" | "review" | "context" | "browser"
 export type RightPanelTerminalTab = `terminal:${string}`
 export type RightPanelTab = RightPanelStaticTab | RightPanelTerminalTab
 
@@ -22,9 +22,10 @@ export const RIGHT_PANEL_TAB_VALUES: readonly RightPanelStaticTab[] = [
   "status",
   "review",
   "context",
+  "browser",
 ] as const
 
-export type RightPanelShellIconName = "status" | "review" | "terminal"
+export type RightPanelShellIconName = "status" | "review" | "terminal" | "browser"
 
 export type ShellTabIcon =
   | { kind: "icon"; name: RightPanelShellIconName }
@@ -34,6 +35,7 @@ export type RightPanelTabLabelKey =
   | "status.popover.trigger"
   | "session.tab.review"
   | "session.tab.context"
+  | "session.tab.browser"
 
 export interface RightPanelTabMeta {
   icon: ShellTabIcon
@@ -54,6 +56,13 @@ export const RIGHT_PANEL_TAB_META: Record<RightPanelStaticTab, RightPanelTabMeta
   context: {
     icon: { kind: "indicator", fallbackIcon: "status" },
     labelKey: "session.tab.context",
+    closable: true,
+  },
+  // Desktop/Electron only — surfaced when canUseBrowser(platform) is true.
+  browser: {
+    icon: { kind: "icon", name: "browser" },
+    labelKey: "session.tab.browser",
+    commandId: "browser.toggle",
     closable: true,
   },
 }
