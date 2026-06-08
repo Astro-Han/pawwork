@@ -64,8 +64,8 @@ test("automations-surface", async ({ page, project }) => {
   await card.locator('[data-action="automation-create-prompt"]').fill("Draft release notes from PRs merged since the last tag.")
   const createCard = await page.screenshot()
 
-  await card.locator('[data-action="automation-schedule-trigger"]').click()
-  await page.locator('[data-action="automation-frequency-trigger"]').waitFor({ state: "visible", timeout: 10_000 })
+  await card.locator('[data-action="automation-time"]').click()
+  await page.locator('[data-action="automation-time-hour"]').first().waitFor({ state: "visible", timeout: 10_000 })
   const schedulePopover = await page.screenshot()
 
   const shots: Shot[] = [

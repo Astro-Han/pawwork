@@ -7,6 +7,8 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
+import { useLayout } from "@/context/layout"
+import { displayName, workspaceKey } from "@/pages/layout/helpers"
 import { formatServerError } from "@/utils/server-errors"
 import { AutomationList } from "./automation-list"
 import { AutomationDetail } from "./automation-detail"
@@ -39,6 +41,17 @@ function AutomationsEmpty(props: { onUseTemplate: (template: AutomationTemplate)
   )
 }
 
+type AutomationItem = {
+  definition: AutomationDefinition
+  directory: string
+  projectName: string
+}
+
+type AutomationDirectory = {
+  directory: string
+  projectName: string
+}
+
 export function AutomationsSurface(props: {
   directory: Accessor<string>
   projectID: Accessor<string | undefined>
@@ -49,6 +62,7 @@ export function AutomationsSurface(props: {
 }): JSX.Element {
   const globalSync = useGlobalSync()
   const language = useLanguage()
+  const layout = useLayout()
   const dialog = useDialog()
   const [selectedID, setSelectedID] = createSignal<string | undefined>()
 
@@ -85,27 +99,56 @@ export function AutomationsSurface(props: {
     onCleanup(() => document.removeEventListener("keydown", onEscape, true))
   })
 
-  const automations = createMemo(() => {
-    const directory = props.directory()
-    if (!directory) return []
-    const [store] = globalSync.child(directory, { bootstrap: false })
-    return Object.values(store.automation).sort((a, b) =>
-      a.updatedAt !== b.updatedAt ? b.updatedAt - a.updatedAt : a.id < b.id ? 1 : -1,
+  const automationDirectories = createMemo(() => {
+    const directories: AutomationDirectory[] = []
+    const seen = new Set<string>()
+    const add = (directory: string | undefined, projectName?: string) => {
+      if (!directory) return
+      const key = workspaceKey(directory)
+      if (seen.has(key)) return
+      seen.add(key)
+      directories.push({ directory, projectName: projectName ?? displayName({ worktree: directory }) })
+    }
+
+    for (const project of layout.projects.list()) {
+      if (project.id === "global") continue
+      add(project.worktree, displayName(project))
+    }
+    add(props.directory())
+    return directories
+  })
+
+  const automationItems = createMemo(() => {
+    const items: AutomationItem[] = []
+    for (const { directory, projectName } of automationDirectories()) {
+      const [store] = globalSync.child(directory)
+      for (const definition of Object.values(store.automation)) {
+        items.push({ definition, directory, projectName })
+      }
+    }
+    return items.sort((a, b) =>
+      a.definition.updatedAt !== b.definition.updatedAt
+        ? b.definition.updatedAt - a.definition.updatedAt
+        : a.definition.id < b.definition.id
+          ? 1
+          : -1,
     )
   })
+
+  const itemForAutomation = (id: string) => automationItems().find((item) => item.definition.id === id)
 
   const selected = createMemo(() => {
     const id = selectedID()
     if (!id) return undefined
-    return automations().find((automation) => automation.id === id)
+    return itemForAutomation(id)
   })
 
   const toggleActive = async (automation: AutomationDefinition) => {
-    const directory = props.directory()
-    if (!directory) return
+    const item = itemForAutomation(automation.id)
+    if (!item) return
     try {
-      if (automation.paused) await globalSync.automation.resume(directory, automation.id)
-      else await globalSync.automation.pause(directory, automation.id)
+      if (automation.paused) await globalSync.automation.resume(item.directory, automation.id)
+      else await globalSync.automation.pause(item.directory, automation.id)
     } catch (error) {
       showToast({
         variant: "error",
@@ -171,16 +214,17 @@ export function AutomationsSurface(props: {
                   </Popover.Portal>
                 </Popover>
               </div>
-              <Show when={automations().length > 0} fallback={<AutomationsEmpty onUseTemplate={openCreate} />}>
-                <AutomationList automations={automations} onSelect={setSelectedID} onToggleActive={toggleActive} />
+              <Show when={automationItems().length > 0} fallback={<AutomationsEmpty onUseTemplate={openCreate} />}>
+                <AutomationList items={automationItems} onSelect={setSelectedID} onToggleActive={toggleActive} />
               </Show>
             </div>
           }
         >
-          {(automation) => (
+          {(item) => (
             <AutomationDetail
-              automation={automation}
-              directory={props.directory}
+              automation={() => item().definition}
+              directory={() => item().directory}
+              projectName={() => item().projectName}
               onBack={() => setSelectedID(undefined)}
               onOpenRun={props.onOpenRun}
             />

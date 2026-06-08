@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test"
+import { getFilename } from "@opencode-ai/util/path"
 import { test, expect } from "../fixtures"
-import { openSidebar } from "../actions"
+import { cleanupTestProject, createTestProject, openSidebar } from "../actions"
 
 type ModelKey = { providerID: string; modelID: string }
 
@@ -133,6 +134,66 @@ test("automations panel: create manually adds an automation", async ({ page, pro
 
   await detail.locator('[data-action="automation-detail-back"]').click()
   await expect(surface.locator('[data-action="automation-row"]')).toHaveCount(1)
+})
+
+test("automations panel: lists automations from every open project", async ({ page, project, backend }) => {
+  test.setTimeout(120_000)
+
+  const other = await createTestProject({ serverUrl: backend.url })
+  try {
+    await project.open({ extra: [other] })
+
+    const otherSDK = backend.sdk(other)
+    const otherProjectID = (await otherSDK.project.current()).data!.id
+    const otherProjectName = "External Automation Project"
+    await otherSDK.project.update({ projectID: otherProjectID, name: otherProjectName })
+    const created = (await otherSDK.automation.create(
+      recurring(otherProjectID, "Cross-project digest", "Summarize the other project.", "0 9 * * 1-5"),
+    )).data!
+
+    const surface = await openAutomations(page)
+    const rows = surface.locator('[data-action="automation-row"]')
+    await expect(rows).toHaveCount(1)
+    const row = rows.first()
+    await expect(row).toContainText("Cross-project digest")
+    await expect(row).toContainText(otherProjectName)
+    await expect(row).not.toContainText(getFilename(other))
+
+    await surface.locator(`[data-action="automation-toggle-active"][data-automation-id="${created.id}"]`).click({ force: true })
+    await expect
+      .poll(async () => {
+        const items = (await otherSDK.automation.list()).data?.items ?? []
+        return items.find((automation) => automation.id === created.id)?.paused ?? false
+      })
+      .toBe(true)
+
+    // Opening detail loads the run history once. Toggling pause/resume updates
+    // the definition, but should not reload runs unless the shown automation
+    // identity changes.
+    let runListRequests = 0
+    page.on("request", (request) => {
+      if (request.url().includes(`/automation/${created.id}/runs`)) runListRequests++
+    })
+
+    await row.click()
+    const detail = surface.locator('[data-component="automation-detail"]')
+    await expect(detail.getByRole("heading", { name: "Cross-project digest" })).toBeVisible()
+    await expect(detail.getByText(otherProjectName)).toBeVisible()
+    await expect(detail.getByText("Paused")).toBeVisible()
+    await expect.poll(() => runListRequests).toBe(1)
+
+    await detail.locator('[data-action="automation-toggle-active"]').click()
+    await expect
+      .poll(async () => {
+        const items = (await otherSDK.automation.list()).data?.items ?? []
+        return items.find((automation) => automation.id === created.id)?.paused ?? true
+      })
+      .toBe(false)
+    await page.waitForTimeout(250)
+    expect(runListRequests).toBe(1)
+  } finally {
+    await cleanupTestProject(other, { serverUrl: backend.url })
+  }
 })
 
 test("automations panel: schedule picker opens, selects, and layers escape", async ({ page, project }) => {

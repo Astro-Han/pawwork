@@ -4,7 +4,6 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { Button } from "@opencode-ai/ui/button"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { getFilename } from "@opencode-ai/util/path"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { formatServerError } from "@/utils/server-errors"
@@ -101,6 +100,7 @@ function PreviousRuns(props: {
 export function AutomationDetail(props: {
   automation: Accessor<AutomationDefinition>
   directory: Accessor<string>
+  projectName: Accessor<string>
   onBack: () => void
   onOpenRun: (sessionID: string) => void
 }): JSX.Element {
@@ -264,7 +264,7 @@ export function AutomationDetail(props: {
           </DetailGroup>
 
           <DetailGroup heading={t("automations.detail.detailsHeading")}>
-            <InfoRow label={t("automations.detail.project")} value={getFilename(props.directory())} />
+            <InfoRow label={t("automations.detail.project")} value={props.projectName()} />
             <InfoRow label={t("automations.detail.repeats")} value={formatScheduleSummary(props.automation(), t)} />
             <InfoRow label={t("automations.detail.model")} value={props.automation().model.modelID} />
             <Show when={reasoningLabel()}>
