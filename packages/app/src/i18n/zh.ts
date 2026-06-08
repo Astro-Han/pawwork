@@ -559,7 +559,7 @@ export const dict = {
   "session.tab.browser": "浏览器",
   "browser.address.placeholder": "输入网址，或粘贴链接",
   "browser.empty.title": "还没有打开网页",
-  "browser.empty.description": "在上面输入网址，或让 agent 替你打开。登录后的网站会保持登录，下次免登录。",
+  "browser.empty.description": "在上面输入网址开始浏览。登录后的网站会保持登录，下次免登录。",
   "browser.action.back": "后退",
   "browser.action.forward": "前进",
   "browser.action.reload": "刷新",

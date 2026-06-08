@@ -592,7 +592,7 @@ export const dict = {
   "session.tab.browser": "Browser",
   "browser.address.placeholder": "Enter a URL or paste a link",
   "browser.empty.title": "Nothing open yet",
-  "browser.empty.description": "Enter a URL above, or let the agent open one. Sites you sign in to stay signed in next time.",
+  "browser.empty.description": "Enter a URL above to start browsing. Sites you sign in to stay signed in next time.",
   "browser.action.back": "Back",
   "browser.action.forward": "Forward",
   "browser.action.reload": "Reload",
