@@ -4,12 +4,18 @@ import { composeGrid, snapOutputPath, type Shot } from "./_compose"
 
 test.use({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 })
 
-const recurring = (projectID: string, title: string, prompt: string, expression: string) => ({
+const recurring = (
+  projectID: string,
+  title: string,
+  prompt: string,
+  expression: string,
+  context: "fresh" | "continue" = "fresh",
+) => ({
   automationCreateInput: {
     kind: "recurring" as const,
     title,
     prompt,
-    context: "fresh" as const,
+    context,
     where: { projectID },
     timezone: "UTC",
     model: { providerID: "opencode", modelID: "big-pickle" },
@@ -34,10 +40,15 @@ test("automations-surface", async ({ page, project }) => {
   const projectID = (await project.sdk.project.current()).data!.id
   await project.sdk.automation.create(recurring(projectID, "Daily standup digest", "Summarize overnight changes and list open PRs.", "0 9 * * *"))
   await project.sdk.automation.create(recurring(projectID, "Hourly build watch", "Check CI and flag a red main build.", "0 * * * *"))
+  // A continue automation so the detail view can show the "Continues its own
+  // session" row next to the default fresh-each-run automations.
+  await project.sdk.automation.create(
+    recurring(projectID, "Inbox triage loop", "Pick up triage where the last run left off.", "0 8 * * *", "continue"),
+  )
 
   const rows = surface.locator('[data-action="automation-row"]')
   await rows.first().waitFor({ state: "visible", timeout: 30_000 })
-  await page.waitForFunction(() => document.querySelectorAll('[data-action="automation-row"]').length >= 2)
+  await page.waitForFunction(() => document.querySelectorAll('[data-action="automation-row"]').length >= 3)
   const list = await page.screenshot()
 
   // Hover a row to reveal the one-click pause/resume action.
@@ -45,13 +56,21 @@ test("automations-surface", async ({ page, project }) => {
   await surface.locator('[data-action="automation-toggle-active"]').first().waitFor({ state: "visible", timeout: 10_000 })
   const listHover = await page.screenshot()
 
-  await rows.first().click()
-  await surface.locator('[data-component="automation-detail"]').waitFor({ state: "visible", timeout: 30_000 })
-  const detail = await page.screenshot()
+  // Open a detail by title (row order is not load-stable once a third seed is
+  // added), screenshot, then return to the list.
+  const openDetail = async (title: string) => {
+    await surface.locator('[data-action="automation-row"]', { hasText: title }).first().click()
+    await surface.locator('[data-component="automation-detail"]').waitFor({ state: "visible", timeout: 30_000 })
+    const shot = await page.screenshot()
+    await surface.locator('[data-action="automation-detail-back"]').click()
+    await rows.first().waitFor({ state: "visible", timeout: 10_000 })
+    return shot
+  }
+  const detail = await openDetail("Daily standup digest")
+  const detailContinue = await openDetail("Inbox triage loop")
 
-  // Split entry: back to the list, open the New automation menu, screenshot it,
-  // then Create manually, fill the card, and expand the schedule popover.
-  await surface.locator('[data-action="automation-detail-back"]').click()
+  // Split entry: open the New automation menu, screenshot it, then Create
+  // manually, fill the card, and expand the schedule popover.
   await surface.locator('[data-action="automation-create-open"]').click()
   const manualItem = page.locator('[data-action="automation-create-manual"]')
   await manualItem.waitFor({ state: "visible", timeout: 10_000 })
@@ -73,6 +92,7 @@ test("automations-surface", async ({ page, project }) => {
     { name: "list", buf: list },
     { name: "list-hover", buf: listHover },
     { name: "detail", buf: detail },
+    { name: "detail-continue", buf: detailContinue },
     { name: "create-menu", buf: createMenu },
     { name: "create-card", buf: createCard },
     { name: "schedule", buf: schedulePopover },

@@ -17,7 +17,8 @@ const renderAutomateToolPart: ToolComponent = (props) => {
 
   const definition = createMemo(() => {
     const value = props.metadata.automationDefinition
-    if (value && typeof value === "object") return value as { id?: string; title?: string }
+    if (value && typeof value === "object")
+      return value as { id?: string; title?: string; context?: "continue" | "fresh" }
     return undefined
   })
   const automationID = createMemo(() => {
@@ -29,6 +30,16 @@ const renderAutomateToolPart: ToolComponent = (props) => {
     if (typeof title === "string" && title) return title
     const input = props.input.title
     return typeof input === "string" && input ? input : undefined
+  })
+  // Once the definition resolves, flag whether this automation reuses its own
+  // persistent session ("continue") or starts fresh each run, so the chat echo
+  // does not hide that a continue automation accumulates context across runs.
+  const sessionMode = createMemo(() => {
+    const context = definition()?.context
+    if (context !== "continue" && context !== "fresh") return undefined
+    return context === "continue"
+      ? i18n.t("ui.tool.automate.session.continue")
+      : i18n.t("ui.tool.automate.session.fresh")
   })
   const running = createMemo(() => props.status === "pending" || props.status === "running")
   const clickable = createMemo(() => !!(automationID() && data.navigateToAutomation))
@@ -61,6 +72,11 @@ const renderAutomateToolPart: ToolComponent = (props) => {
             <span data-slot="basic-tool-tool-subtitle">{subtitle()}</span>
           </Show>
         </div>
+        <Show when={sessionMode()}>
+          <span data-component="automate-tool-session" style={{ color: "var(--fg-weak)" }}>
+            {sessionMode()}
+          </span>
+        </Show>
       </div>
       <Show when={clickable()}>
         <div data-component="automate-tool-action">

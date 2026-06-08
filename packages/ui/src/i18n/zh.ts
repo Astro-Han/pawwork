@@ -240,6 +240,8 @@ export const dict = {
   "ui.tool.skill": "使用技能",
   "ui.tool.automate.creating": "正在创建定时任务",
   "ui.tool.automate.created": "已创建定时任务",
+  "ui.tool.automate.session.fresh": "每次新会话",
+  "ui.tool.automate.session.continue": "继续自己的会话",
   "ui.basicTool.called": "调用了 `{{tool}}`",
   "ui.toolErrorCard.failed": "失败",
   "ui.toolErrorCard.copyError": "复制错误",

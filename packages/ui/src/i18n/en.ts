@@ -199,6 +199,8 @@ export const dict: Record<string, string> = {
   "ui.tool.skill": "Used Skill",
   "ui.tool.automate.creating": "Creating automation",
   "ui.tool.automate.created": "Automation created",
+  "ui.tool.automate.session.fresh": "New session each run",
+  "ui.tool.automate.session.continue": "Continues its own session",
 
   "ui.basicTool.called": "Called `{{tool}}`",
   "ui.toolErrorCard.failed": "Failed",

@@ -150,6 +150,15 @@ export function AutomationDetail(props: {
 
   const reasoningLabel = createMemo(() => props.automation().variant)
 
+  // Whether each run reuses the automation's own persistent session ("continue")
+  // or starts a new one ("fresh"). The field is on every definition; surface it
+  // so a continue automation reads as one that accumulates context across runs.
+  const sessionLabel = createMemo(() =>
+    props.automation().context === "continue"
+      ? t("automations.detail.session.continue")
+      : t("automations.detail.session.fresh"),
+  )
+
   const notifyFailure = (error: unknown) => {
     showToast({
       variant: "error",
@@ -266,6 +275,7 @@ export function AutomationDetail(props: {
           <DetailGroup heading={t("automations.detail.detailsHeading")}>
             <InfoRow label={t("automations.detail.project")} value={props.projectName()} />
             <InfoRow label={t("automations.detail.repeats")} value={formatScheduleSummary(props.automation(), t)} />
+            <InfoRow label={t("automations.detail.session")} value={sessionLabel()} />
             <InfoRow label={t("automations.detail.model")} value={props.automation().model.modelID} />
             <Show when={reasoningLabel()}>
               {(value) => <InfoRow label={t("automations.detail.reasoning")} value={value()} />}
