@@ -55,9 +55,17 @@ export function createPromptDraftLifecycle(input: PromptDraftLifecycleInput) {
     }
   }
 
+  const submittedCommentKeys = new Set(commentItems.map((item) => item.key))
+  const withoutSubmittedComments = (items: (ContextItem & { key: string })[]) => {
+    if (submittedCommentKeys.size === 0) return items
+    return items.filter((item) => !submittedCommentKeys.has(item.key))
+  }
+
   const submittedDraftStillCurrent = (scope: PromptRouteScope) => {
     if (!isPromptEqual(prompt.current(scope), currentPrompt)) return false
-    return JSON.stringify(prompt.context.items(scope)) === JSON.stringify(submittedDraft.context)
+    const currentContext = prompt.context.items(scope)
+    if (JSON.stringify(currentContext) === JSON.stringify(submittedDraft.context)) return true
+    return JSON.stringify(currentContext) === JSON.stringify(withoutSubmittedComments(submittedDraft.context))
   }
 
   // Submitted owner-backed drafts leave the live draft owner before the async
