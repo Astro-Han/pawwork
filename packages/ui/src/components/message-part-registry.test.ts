@@ -123,7 +123,7 @@ test("split keeps hidden tools and deferred heavy tool bodies explicit", () => {
     "bash.tsx": 1,
     "edit.tsx": 1,
     "write.tsx": 1,
-    "apply-patch.tsx": 1,
+    "apply-patch.tsx": 2,
   } as const
 
   for (const [file, count] of Object.entries(deferredHeavyTools)) {
