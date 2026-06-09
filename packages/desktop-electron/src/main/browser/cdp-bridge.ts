@@ -1,0 +1,214 @@
+import { randomBytes, timingSafeEqual } from "node:crypto"
+import { createServer, type IncomingMessage, type Server as HttpServer } from "node:http"
+import type { Duplex } from "node:stream"
+import type { WebContents } from "electron"
+import { WebSocket, WebSocketServer } from "ws"
+import { CDP_BRIDGE_SECRET_LENGTH, DEBUGGER_ATTACH_TIMEOUT_MS } from "./options"
+
+export type CdpBridgeErrorCode = "target-busy" | "target-destroyed" | "bridge-start-timeout"
+
+/** Typed failure so callers branch on a code instead of matching message text. */
+export class CdpBridgeError extends Error {
+  constructor(
+    readonly code: CdpBridgeErrorCode,
+    message: string,
+  ) {
+    super(message)
+    this.name = "CdpBridgeError"
+  }
+}
+
+type IncomingCommand = { id?: number; method?: string; params?: unknown; sessionId?: string }
+
+export type AutomationEndpoint = { cdpEndpoint: string }
+
+/**
+ * Exposes one WebContents' CDP surface over a sealed local endpoint
+ * `ws://127.0.0.1:<random-port>/<secret>`, relaying ws CDP traffic to and from
+ * `webContents.debugger`. Security contract — each rule is covered by a test:
+ *
+ *  1. loopback only + OS-assigned random port (`listen(0, "127.0.0.1")`);
+ *  2. the per-bridge secret is matched at the HTTP upgrade with a constant-time
+ *     compare; a wrong secret is destroyed there and never consumes the single
+ *     connection slot (so it can't be used to starve the real client);
+ *  3. Host is pinned to the loopback authority and any browser `Origin` is
+ *     rejected, defeating DNS rebinding;
+ *  4. exactly one connection at a time;
+ *  5. the secret lives only in main-process memory — never logged
+ *     (`redactedEndpoint` is the only loggable form), never returned in errors;
+ *  6. only the single WebContents passed in is attached — never the main window,
+ *     never a global `--remote-debugging-port`.
+ *
+ * Rule 7 (endpoint/secret never leave main via renderer IPC / preload) is the
+ * caller's contract: `start()` hands the endpoint back as a same-process value.
+ */
+export class CdpBridge {
+  private http: HttpServer | null = null
+  private wss: WebSocketServer | null = null
+  private socket: WebSocket | null = null
+  private port = 0
+  private started = false
+
+  private readonly secret = randomBytes(CDP_BRIDGE_SECRET_LENGTH).toString("hex")
+  private readonly path = `/${this.secret}`
+
+  constructor(private readonly wc: WebContents) {}
+
+  /** Loggable endpoint with the secret redacted; never log `cdpEndpoint`. */
+  get redactedEndpoint(): string | null {
+    return this.started ? `ws://127.0.0.1:${this.port}/<secret>` : null
+  }
+
+  async start(): Promise<AutomationEndpoint> {
+    if (this.started) return { cdpEndpoint: this.endpointUrl() }
+    if (this.wc.isDestroyed()) throw new CdpBridgeError("target-destroyed", "WebContents is gone")
+    // Rule 6: refuse if anything else already owns the debugger (DevTools or
+    // another client) instead of fighting over it.
+    if (this.wc.debugger.isAttached())
+      throw new CdpBridgeError("target-busy", "debugger is already attached to this target")
+
+    this.wc.debugger.attach("1.3")
+    this.wc.debugger.on("message", this.onDebuggerMessage)
+    this.wc.debugger.on("detach", this.onDebuggerDetach)
+
+    // The HTTP server exists only to host the ws upgrade; it never serves plain HTTP.
+    const http = createServer((_req, res) => {
+      res.writeHead(426)
+      res.end()
+    })
+    http.on("upgrade", this.onUpgrade)
+    this.http = http
+    this.wss = new WebSocketServer({ noServer: true })
+
+    try {
+      await this.listen(http)
+    } catch (err) {
+      await this.stop()
+      throw err
+    }
+    this.port = (http.address() as { port: number }).port
+    this.started = true
+    return { cdpEndpoint: this.endpointUrl() }
+  }
+
+  async stop(): Promise<void> {
+    this.started = false
+    this.socket?.close()
+    this.socket = null
+    this.wss?.close()
+    this.wss = null
+    if (this.http) {
+      const http = this.http
+      this.http = null
+      // Free any upgraded/half-open sockets so close()'s callback can fire; an
+      // open client would otherwise keep the server from ever closing.
+      http.closeAllConnections()
+      await new Promise<void>((resolve) => http.close(() => resolve()))
+    }
+    if (!this.wc.isDestroyed()) {
+      this.wc.debugger.off("message", this.onDebuggerMessage)
+      this.wc.debugger.off("detach", this.onDebuggerDetach)
+      if (this.wc.debugger.isAttached()) {
+        try {
+          this.wc.debugger.detach()
+        } catch {
+          /* already detached (e.g. DevTools took it) */
+        }
+      }
+    }
+  }
+
+  private endpointUrl(): string {
+    return `ws://127.0.0.1:${this.port}${this.path}`
+  }
+
+  private listen(http: HttpServer): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new CdpBridgeError("bridge-start-timeout", "ws bridge did not come up in time")),
+        DEBUGGER_ATTACH_TIMEOUT_MS,
+      )
+      http.once("error", (err) => {
+        clearTimeout(timer)
+        reject(err)
+      })
+      http.listen(0, "127.0.0.1", () => {
+        clearTimeout(timer)
+        resolve()
+      })
+    })
+  }
+
+  private readonly onUpgrade = (req: IncomingMessage, socket: Duplex, head: Buffer) => {
+    // Rules 2/3: gate at the upgrade, BEFORE handing the socket to ws, so a
+    // rejected attempt never occupies the single connection slot.
+    if (!this.authorized(req)) {
+      socket.destroy()
+      return
+    }
+    // Rule 4: one connection at a time.
+    if (this.socket) {
+      socket.destroy()
+      return
+    }
+    this.wss?.handleUpgrade(req, socket, head, (ws) => this.adopt(ws))
+  }
+
+  private authorized(req: IncomingMessage): boolean {
+    // Rule 2: exact, constant-time secret match (the path carries the secret).
+    const provided = Buffer.from(req.url ?? "")
+    const expected = Buffer.from(this.path)
+    if (provided.length !== expected.length || !timingSafeEqual(provided, expected)) return false
+    // Rule 3: pin Host to the loopback authority; reject any browser Origin
+    // (a real CDP client is not a browser and sends none).
+    if (req.headers.host !== `127.0.0.1:${this.port}`) return false
+    if (req.headers.origin !== undefined) return false
+    return true
+  }
+
+  private adopt(ws: WebSocket) {
+    this.socket = ws
+    ws.on("message", this.onClientMessage)
+    ws.on("close", () => {
+      if (this.socket === ws) this.socket = null
+    })
+  }
+
+  private readonly onClientMessage = async (data: unknown) => {
+    let cmd: IncomingCommand
+    try {
+      cmd = JSON.parse(String(data)) as IncomingCommand
+    } catch {
+      return
+    }
+    if (typeof cmd.id !== "number" || typeof cmd.method !== "string") return
+    const sessionId = cmd.sessionId
+    try {
+      const result = await this.wc.debugger.sendCommand(cmd.method, cmd.params ?? {}, sessionId)
+      this.send({ id: cmd.id, result, ...(sessionId ? { sessionId } : {}) })
+    } catch (err) {
+      this.send({
+        id: cmd.id,
+        error: { code: -32000, message: err instanceof Error ? err.message : String(err) },
+        ...(sessionId ? { sessionId } : {}),
+      })
+    }
+  }
+
+  // CDP events from the attached target are pushed straight to the client.
+  private readonly onDebuggerMessage = (_event: unknown, method: string, params: unknown, sessionId?: string) => {
+    this.send({ method, params, ...(sessionId ? { sessionId } : {}) })
+  }
+
+  // DevTools opening (or any external detach) forcibly detaches the debugger;
+  // tear the bridge down so the client sees a clean close instead of a hang.
+  private readonly onDebuggerDetach = () => {
+    void this.stop()
+  }
+
+  private send(payload: Record<string, unknown>) {
+    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+      this.socket.send(JSON.stringify(payload))
+    }
+  }
+}

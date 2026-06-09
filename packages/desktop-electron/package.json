@@ -37,7 +37,8 @@
     "electron-window-state": "^5.0.3",
     "marked": "^15",
     "semver": "^7.6.0",
-    "undici": "7.24.7"
+    "undici": "7.24.7",
+    "ws": "8.20.0"
   },
   "devDependencies": {
     "@lydell/node-pty": "catalog:",
@@ -51,6 +52,7 @@
     "@types/semver": "catalog:",
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
+    "@types/ws": "^8.18.1",
     "@typescript/native-preview": "catalog:",
     "@valibot/to-json-schema": "1.6.0",
     "electron": "40.8.0",
