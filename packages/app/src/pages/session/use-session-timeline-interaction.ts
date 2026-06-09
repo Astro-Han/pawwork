@@ -317,7 +317,7 @@ export function createSessionTimelineInteraction(input: {
     const result = scrollController.observe(next)
     if (
       next.type === "scroll_sample" &&
-      !next.userInitiated &&
+      next.userInitiated === false &&
       !next.metrics.nearBottom &&
       result.mode === "following_latest"
     ) {
