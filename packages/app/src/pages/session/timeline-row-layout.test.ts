@@ -2,11 +2,14 @@ import { describe, expect, test } from "bun:test"
 import { timelineMessageRowStyle } from "./timeline-row-layout"
 
 describe("timeline row layout", () => {
-  test("keeps inactive plain rows fully laid out", () => {
-    expect(timelineMessageRowStyle({ mode: "plain", active: false })).toBeUndefined()
+  test("keeps browser lazy layout on inactive plain rows", () => {
+    expect(timelineMessageRowStyle({ mode: "plain", active: false })).toEqual({
+      "content-visibility": "auto",
+      "contain-intrinsic-size": "auto 500px",
+    })
   })
 
-  test("keeps active plain rows fully laid out", () => {
+  test("does not lazy-layout active plain rows", () => {
     expect(timelineMessageRowStyle({ mode: "plain", active: true })).toBeUndefined()
   })
 

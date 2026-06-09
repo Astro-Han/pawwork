@@ -14,7 +14,6 @@ import { createTimelineVirtualRows } from "@/pages/session/timeline-virtual-rows
 import { chooseTimelineRowRenderMode } from "@/pages/session/timeline-virtualization-strategy"
 import { createTimelineVirtualizerBridge } from "@/pages/session/timeline-virtualizer-bridge"
 import { createTimelineScrollReconciler } from "@/pages/session/timeline-scroll-reconciler"
-import { createTimelineLayoutStabilizer } from "@/pages/session/timeline-layout-stabilizer"
 import {
   createSessionTimelineScrollController,
   type TimelineSafePosition,
@@ -132,11 +131,6 @@ export function createSessionTimelineInteraction(input: {
     },
   })
 
-  const layoutStabilizer = createTimelineLayoutStabilizer({
-    sampleAnchor,
-    restoreNow: (reason, position) => reconciler.restoreNow(reason, position),
-  })
-
   createEffect(
     on(
       () => [input.sessionKey(), input.sessionID()] as const,
@@ -162,6 +156,7 @@ export function createSessionTimelineInteraction(input: {
       const viewport = scrollDock.scroller()
       if (!viewport) return
       scrollController.observe({ type: "content_resize", metrics: collectTimelineScrollMetrics(viewport) })
+      reconciler.markDirty("content-resize")
     },
     onDockHeightChange: (event) => {
       const viewport = scrollDock.scroller()
@@ -173,6 +168,7 @@ export function createSessionTimelineInteraction(input: {
           nextDockHeight: event.composerHeight,
           metrics: collectTimelineScrollMetrics(viewport),
         })
+        reconciler.markDirty("dock-resize")
       }
       void emitRendererDiagnostic({
         name: "session.layout.composer_dock",
@@ -187,9 +183,6 @@ export function createSessionTimelineInteraction(input: {
           distance_from_bottom: event.distanceFromBottom,
         },
       })
-    },
-    stabilizeLayout: ({ reason, mutate }) => {
-      layoutStabilizer.stabilize({ reason, mutate })
     },
   })
 
@@ -337,7 +330,7 @@ export function createSessionTimelineInteraction(input: {
       () => [input.sessionID(), input.visibleUserMessages().at(-1)?.id, historyWindow.turnStart()] as const,
       () => {
         if (scrollController.state().mode === "reading_history") return
-        layoutStabilizer.restore("frame-changed")
+        reconciler.markDirty("frame-changed")
       },
       { defer: true },
     ),

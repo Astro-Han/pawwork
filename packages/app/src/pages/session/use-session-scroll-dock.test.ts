@@ -162,38 +162,6 @@ describe("createSessionScrollDock", () => {
     })
   })
 
-  test("stabilizes content resize around the resize callback and refill", () => {
-    withResizeObserver((trigger) => {
-      createRoot((dispose) => {
-        const order: string[] = []
-        const dock = createSessionScrollDock({
-          fill: () => order.push("fill"),
-          onContentResize: () => order.push("content-resize"),
-          stabilizeLayout: ({ reason, mutate }) => {
-            order.push(`stabilize:${reason}:start`)
-            mutate()
-            order.push(`stabilize:${reason}:end`)
-          },
-        })
-        const scroller = makeScroller({ clientHeight: 400, scrollHeight: 1200, scrollTop: 300 })
-        const content = makeMeasuredDiv(1200)
-        dock.setScrollRef(scroller.el)
-        dock.setContentRef(content.el)
-        order.length = 0
-
-        trigger(content.el)
-
-        expect(order).toEqual([
-          "stabilize:content-resize:start",
-          "content-resize",
-          "fill",
-          "stabilize:content-resize:end",
-        ])
-        dispose()
-      })
-    })
-  })
-
   test("reports dock height changes with the dock kind and sets the css variable", () => {
     withResizeObserver(() => {
       createRoot((dispose) => {
@@ -214,38 +182,6 @@ describe("createSessionScrollDock", () => {
 
         expect(events).toEqual([{ dockKind: "question", composerHeight: 120, previousComposerHeight: 0, scrollTop: 0, distanceFromBottom: 600 }])
         expect(document.documentElement.style.getPropertyValue("--composer-dock-height")).toBe("120px")
-        dispose()
-      })
-    })
-  })
-
-  test("stabilizes dock resize around height sync and event reporting", () => {
-    withResizeObserver(() => {
-      createRoot((dispose) => {
-        const order: string[] = []
-        const dock = createSessionScrollDock({
-          fill: () => order.push("fill"),
-          onDockHeightChange: () => order.push("dock-resize"),
-          stabilizeLayout: ({ reason, mutate }) => {
-            order.push(`stabilize:${reason}:start`)
-            mutate()
-            order.push(`stabilize:${reason}:end`)
-          },
-        })
-        const scroller = makeScroller({ clientHeight: 400, scrollHeight: 1000, scrollTop: 0 })
-        dock.setScrollRef(scroller.el)
-        order.length = 0
-
-        const promptDock = makeMeasuredDiv(120)
-        promptDock.el.dataset.dockKind = "question"
-        dock.setPromptDockRef(promptDock.el)
-
-        expect(order).toEqual([
-          "stabilize:dock-resize:start",
-          "fill",
-          "dock-resize",
-          "stabilize:dock-resize:end",
-        ])
         dispose()
       })
     })

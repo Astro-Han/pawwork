@@ -21,13 +21,6 @@ export type SessionContentResizeEvent = {
   distanceFromBottom?: number
 }
 
-export type SessionLayoutStabilizeReason = "content-resize" | "dock-resize"
-
-export type SessionLayoutStabilizeInput = {
-  reason: SessionLayoutStabilizeReason
-  mutate: () => void
-}
-
 export function calculateSessionScrollState(input: {
   clientHeight: number
   scrollHeight: number
@@ -61,15 +54,15 @@ export function syncComposerDockHeight(input: {
 
 /**
  * Owns timeline viewport refs, dock-height measurement, and the jump-button
- * scroll state (overflow / bottom / jump). It observes height-changing layout
- * work and lets the host wrap that work in a stabilizer. The reconciler remains
- * the single authoritative scroll writer.
+ * scroll state (overflow / bottom / jump). It observes layout changes and
+ * reports them; it does NOT decide or write scroll position. The reconciler is
+ * the single authoritative writer — this hook only fires `onContentResize` /
+ * `onDockHeightChange` so the host can mark the reconciler dirty.
  */
 export function createSessionScrollDock(input: {
   fill: () => void
   onDockHeightChange?: (event: SessionDockResizeEvent) => void
   onContentResize?: (event: SessionContentResizeEvent) => void
-  stabilizeLayout?: (input: SessionLayoutStabilizeInput) => void
 }) {
   const [scroll, setScroll] = createStore<SessionScrollState>({
     overflow: false,
@@ -130,14 +123,9 @@ export function createSessionScrollDock(input: {
     if (el && scroller) scheduleScrollState(scroller)
     if (!el) return
     contentObserver = new ResizeObserver(() => {
-      const mutate = () => {
-        input.onContentResize?.({ scrollTop: scroller?.scrollTop, distanceFromBottom: distanceFromBottom() })
-        if (scroller) scheduleScrollState(scroller)
-        input.fill()
-      }
-
-      if (input.stabilizeLayout && scroller) input.stabilizeLayout({ reason: "content-resize", mutate })
-      else mutate()
+      input.onContentResize?.({ scrollTop: scroller?.scrollTop, distanceFromBottom: distanceFromBottom() })
+      if (scroller) scheduleScrollState(scroller)
+      input.fill()
     })
     contentObserver.observe(el)
   }
@@ -164,36 +152,28 @@ export function createSessionScrollDock(input: {
     const scrollTop = scroller?.scrollTop
     const distance = distanceFromBottom()
 
-    const mutate = () => {
-      dockHeight = syncComposerDockHeight({
-        el: scroller,
-        previousDockHeight,
-        nextDockHeight: next,
-        setCssHeight: (value) => document.documentElement.style.setProperty("--composer-dock-height", `${value}px`),
-        scheduleScrollState,
-        fill: input.fill,
-      })
+    dockHeight = syncComposerDockHeight({
+      el: scroller,
+      previousDockHeight,
+      nextDockHeight: next,
+      setCssHeight: (value) => document.documentElement.style.setProperty("--composer-dock-height", `${value}px`),
+      scheduleScrollState,
+      fill: input.fill,
+    })
 
-      if (dockHeight !== previousDockHeight) {
-        try {
-          input.onDockHeightChange?.({
-            dockKind,
-            composerHeight: dockHeight,
-            previousComposerHeight: previousDockHeight,
-            scrollTop,
-            distanceFromBottom: distance,
-          })
-        } catch (error) {
-          if (import.meta.env.DEV) console.warn("[session-scroll-dock] onDockHeightChange failed", error)
-        }
+    if (dockHeight !== previousDockHeight) {
+      try {
+        input.onDockHeightChange?.({
+          dockKind,
+          composerHeight: dockHeight,
+          previousComposerHeight: previousDockHeight,
+          scrollTop,
+          distanceFromBottom: distance,
+        })
+      } catch (error) {
+        if (import.meta.env.DEV) console.warn("[session-scroll-dock] onDockHeightChange failed", error)
       }
     }
-
-    if (next !== previousDockHeight && input.stabilizeLayout && scroller) {
-      input.stabilizeLayout({ reason: "dock-resize", mutate })
-      return
-    }
-    mutate()
   }
 
   const setPromptDockRef = (el: HTMLDivElement | undefined) => {
