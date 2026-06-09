@@ -1,4 +1,5 @@
 import type {
+  AboutInfo,
   BrowserBridge,
   DesktopContext,
   RendererDiagnosticInput,
@@ -8,7 +9,7 @@ import type {
   UpdateInfo,
 } from "@opencode-ai/app/desktop-api"
 
-export type { DesktopContext }
+export type { AboutInfo, DesktopContext }
 export type { RendererDiagnosticInput, RendererDiagnosticsExportResult, ReportProblemInput, ReportProblemResult, UpdateInfo }
 
 export type InitStep = { phase: "server_waiting" } | { phase: "sqlite_waiting" } | { phase: "done" }
@@ -35,13 +36,6 @@ export type WebSearchStatus = {
   configured: boolean
   needsAttention: boolean
   quotaExceeded: boolean
-}
-
-export type AboutInfo = {
-  version: string
-  electronVersion: string
-  chromeVersion: string
-  buildSha: string
 }
 
 export type ElectronAPI = {

@@ -15,18 +15,7 @@ export type RendererDiagnosticsStatus =
   | "disabled"
   | "write_failed"
 
-export type RendererDiagnosticInput = {
-  name: string
-  level?: "info" | "warn"
-  monotonic_ms?: number
-  trace_id?: string
-  route_session_id?: string
-  visible_session_id?: string
-  timeline_session_id?: string
-  message_id?: string
-  part_id?: string
-  data?: Record<string, unknown>
-}
+export type { RendererDiagnosticInput } from "@opencode-ai/app/desktop-api"
 
 export type RendererDiagnosticEvent = {
   time: string

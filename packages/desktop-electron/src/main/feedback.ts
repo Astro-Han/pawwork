@@ -1,11 +1,11 @@
 import { dirname } from "node:path"
+import type { RendererErrorDetails } from "@opencode-ai/app/desktop-api"
 import {
   buildProblemReport,
   buildProblemReportSummary,
   DEFAULT_PROBLEM_REPORT_MAX_BYTES,
   defaultReportId,
   type ProblemReportDiagnostics,
-  type RendererErrorDetails,
   type SessionExport,
 } from "./problem-report"
 import { emptyRendererDiagnosticsSlice, type RendererDiagnosticsSlice } from "./renderer-diagnostics"
