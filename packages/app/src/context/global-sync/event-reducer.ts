@@ -20,8 +20,7 @@ import { dropSessionCaches } from "./session-cache"
 import { message as clean } from "@/utils/diffs"
 import type { createBlockerTerminalCache } from "./blocker-terminal-cache"
 import type { TodoHydrateCoordinator } from "./todo-hydrate-coordinator"
-
-const SKIP_PARTS = new Set(["patch", "step-start", "step-finish"])
+import { shouldStoreMessagePart } from "../message-part-storage"
 
 // A recurring automation that fails this many times in a row earns one subtle
 // toast on the rising edge. The threshold and the rising-edge gate keep SSE
@@ -320,7 +319,7 @@ export function applyDirectoryEvent(input: {
     }
     case "message.part.updated": {
       const part = (event.properties as { part: Part }).part
-      if (SKIP_PARTS.has(part.type)) break
+      if (!shouldStoreMessagePart(part)) break
       const todo = todoSnapshotFromPart(part)
       if (todo) {
         const accepted = acceptLiveTodo({
