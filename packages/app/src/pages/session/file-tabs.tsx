@@ -251,6 +251,7 @@ export function FileTabContent(props: { tab: string }) {
     prompt.context.add({
       type: "file",
       path: contextPath,
+      commentPath: input.file,
       selection,
       comment: input.comment,
       commentID: saved.id,

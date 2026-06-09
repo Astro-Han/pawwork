@@ -60,7 +60,10 @@ export type Prompt = ContentPart[]
 
 export type FileContextItem = {
   type: "file"
+  /** File path used for model/file attachment resolution. May be absolute across workspace switches. */
   path: string
+  /** Path key used by the comments store and file UI. Usually workspace-relative. */
+  commentPath?: string
   selection?: FileSelection
   comment?: string
   commentID?: string

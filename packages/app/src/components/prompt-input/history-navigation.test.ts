@@ -12,7 +12,11 @@
 
 import { describe, expect, test } from "bun:test"
 import { Persist, PersistTesting } from "@/utils/persist"
-import { buildCommentByIDMap } from "./history-comment-map"
+import {
+  buildCommentByIDMap,
+  buildPromptHistoryCommentRestore,
+  buildPromptHistoryComments,
+} from "./history-comment-map"
 
 /** Mirrors the target-building logic in createDirectoryHistoryStore. */
 function buildHistoryTarget(directory: string, mode: "normal" | "shell") {
@@ -98,5 +102,84 @@ describe("buildCommentByIDMap", () => {
   test("returns empty map when no comments given", () => {
     const map = buildCommentByIDMap([])
     expect(map.size).toBe(0)
+  })
+})
+
+describe("buildPromptHistoryComments", () => {
+  test("uses commentPath for comment metadata while preserving absolute prompt path", () => {
+    const result = buildPromptHistoryComments(
+      [
+        {
+          key: "ctx",
+          type: "file",
+          path: "/repo-A/src/a.ts",
+          commentPath: "src/a.ts",
+          selection: { startLine: 1, startChar: 1, endLine: 1, endChar: 1 },
+          comment: "review this",
+          commentID: "c-1",
+          commentOrigin: "review",
+          preview: "fallback preview",
+        },
+      ],
+      [
+        {
+          file: "src/a.ts",
+          id: "c-1",
+          selection: { start: 5, end: 7 },
+          time: 1234,
+          comment: "review this",
+        },
+      ],
+    )
+
+    expect(result).toEqual([
+      {
+        id: "c-1",
+        path: "/repo-A/src/a.ts",
+        commentPath: "src/a.ts",
+        selection: { start: 5, end: 7 },
+        comment: "review this",
+        time: 1234,
+        origin: "review",
+        preview: "fallback preview",
+        resolvedMentions: undefined,
+      },
+    ])
+  })
+})
+
+describe("buildPromptHistoryCommentRestore", () => {
+  test("restores comments by commentPath while keeping prompt context path absolute", () => {
+    const result = buildPromptHistoryCommentRestore([
+      {
+        id: "c-1",
+        path: "/repo-A/src/a.ts",
+        commentPath: "src/a.ts",
+        selection: { start: 5, end: 7 },
+        comment: "review this",
+        time: 1234,
+        origin: "review",
+        preview: "preview",
+      },
+    ])
+
+    expect(result.comments).toEqual([
+      {
+        id: "c-1",
+        file: "src/a.ts",
+        selection: { start: 5, end: 7 },
+        comment: "review this",
+        time: 1234,
+      },
+    ])
+    expect(result.context[0]).toMatchObject({
+      type: "file",
+      path: "/repo-A/src/a.ts",
+      commentPath: "src/a.ts",
+      comment: "review this",
+      commentID: "c-1",
+      commentOrigin: "review",
+      preview: "preview",
+    })
   })
 })

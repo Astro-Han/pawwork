@@ -7,7 +7,6 @@
 
 import { createEffect, createSignal, on } from "solid-js"
 import { createStore, type SetStoreFunction } from "solid-js/store"
-import { selectionFromLines } from "@/context/file"
 import type { Prompt, usePrompt } from "@/context/prompt"
 import type { useComments } from "@/context/comments"
 import { useSDK } from "@/context/sdk"
@@ -23,7 +22,7 @@ import {
 } from "./history"
 import type { HistoryStore, PromptStore } from "./store-types"
 import { createDirectoryHistoryStore, MAX_DIRECTORY_CACHE } from "./history-store-factory"
-import { buildCommentByIDMap } from "./history-comment-map"
+import { buildPromptHistoryCommentRestore, buildPromptHistoryComments } from "./history-comment-map"
 
 // --- Per-directory cache types ---
 
@@ -129,60 +128,13 @@ export function createHistoryNavigation(deps: HistoryNavigationDeps): HistoryNav
   // --- Comment helpers ---
 
   const historyComments = () => {
-    const byID = buildCommentByIDMap(comments.all())
-    return prompt.context.items().flatMap((item) => {
-      if (item.type !== "file") return []
-      const comment = item.comment?.trim()
-      if (!comment) return []
-
-      const selection = item.commentID ? byID.get(`${item.path}\n${item.commentID}`)?.selection : undefined
-      const nextSelection =
-        selection ??
-        (item.selection
-          ? {
-              start: item.selection.startLine,
-              end: item.selection.endLine,
-            }
-          : undefined)
-      if (!nextSelection) return []
-
-      return [
-        {
-          id: item.commentID ?? item.key,
-          path: item.path,
-          selection: { ...nextSelection },
-          comment,
-          time: item.commentID ? (byID.get(`${item.path}\n${item.commentID}`)?.time ?? Date.now()) : Date.now(),
-          origin: item.commentOrigin,
-          preview: item.preview,
-          resolvedMentions: item.resolvedMentions,
-        } satisfies PromptHistoryComment,
-      ]
-    })
+    return buildPromptHistoryComments(prompt.context.items(), comments.all())
   }
 
   const applyHistoryComments = (items: PromptHistoryComment[]) => {
-    comments.replace(
-      items.map((item) => ({
-        id: item.id,
-        file: item.path,
-        selection: { ...item.selection },
-        comment: item.comment,
-        time: item.time,
-      })),
-    )
-    prompt.context.replaceComments(
-      items.map((item) => ({
-        type: "file" as const,
-        path: item.path,
-        selection: selectionFromLines(item.selection),
-        comment: item.comment,
-        commentID: item.id,
-        commentOrigin: item.origin,
-        preview: item.preview,
-        resolvedMentions: item.resolvedMentions,
-      })),
-    )
+    const restored = buildPromptHistoryCommentRestore(items)
+    comments.replace(restored.comments)
+    prompt.context.replaceComments(restored.context)
   }
 
   // --- rAF stale guard ---
