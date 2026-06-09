@@ -437,6 +437,27 @@ describe("automation runNow execution", () => {
     })
   })
 
+  test("a continue automation whose source conversation is gone stops instead of spawning a detached session", async () => {
+    await withAutomation(async (projectID) => {
+      // Bind to a sourceSessionID that was never created. Session.get throws
+      // NotFound, which resolveRunSession treats as "the conversation is gone"
+      // (a DB or decode fault would instead propagate as its real error).
+      const missingSource = SessionID.descending()
+      const definition = Automation.create(input(projectID, { context: "continue" }), {
+        sourceSessionID: missingSource,
+      })
+
+      await Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
+
+      const stopped = await waitForRun(definition.id, "stopped")
+      if (stopped.state !== "stopped") throw new Error("expected stopped run")
+      expect(stopped.stopReason).toBe("cancelled")
+      // The point of the guard: a missing source must not fall back to a fresh
+      // "Automation: …" session the user can never find — the old mystery one.
+      expect(automationSessionsForTitle(definition.title)).toEqual([])
+    })
+  })
+
   test("aborts an active run when its automation is deleted", async () => {
     await withAutomation(async (projectID) => {
       const definition = Automation.create(input(projectID))

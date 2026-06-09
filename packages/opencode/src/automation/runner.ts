@@ -4,7 +4,7 @@ import { AutomationRunTable } from "./automation.sql"
 import { Instance } from "@/project/instance"
 import { Session } from "@/session"
 import { SessionPrompt } from "@/session/prompt"
-import { Database, and, eq, sql } from "@/storage/db"
+import { Database, NotFoundError, and, eq, sql } from "@/storage/db"
 import { AutomationRunContext, type AutomationRunBlocker } from "./run-context"
 import { Worktree } from "@/worktree"
 
@@ -52,11 +52,16 @@ async function prepareWorktreePlacement(definition: Automation.Definition) {
 // automations get their own session per run. If a continue automation's source
 // conversation is gone (the user deleted it, or it was never recorded), fail
 // loudly instead of silently spawning a detached session the user can't find —
-// the old "mystery new session" behaviour.
+// the old "mystery new session" behaviour. Only a genuine NotFound counts as
+// "gone": a DB or decode fault must surface its real error, not be mislabelled
+// as a missing conversation.
 async function resolveRunSession(definition: Automation.Definition) {
   if (definition.context === "continue") {
     const source = definition.sourceSessionID
-      ? await Session.get(definition.sourceSessionID).catch(() => undefined)
+      ? await Session.get(definition.sourceSessionID).catch((error) => {
+          if (NotFoundError.isInstance(error)) return undefined
+          throw error
+        })
       : undefined
     if (!source) {
       throw new Error(`automation "${definition.title}" continues a conversation that no longer exists`)
