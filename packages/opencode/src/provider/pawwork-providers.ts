@@ -66,13 +66,13 @@ export const PAWWORK_PROVIDER_OVERLAYS: Record<string, ModelsDev.Provider> = {
         interleaved: { field: "reasoning_content" },
       }),
       [VOLCENGINE_PLAN_VISIBLE_MODEL_IDS[8]]: textModel("deepseek-v3.2", "DeepSeek V3.2", 128000, 4096),
-      [VOLCENGINE_PLAN_VISIBLE_MODEL_IDS[9]]: textModel("kimi-k2.6", "Kimi K2.6", 262144, 32768, {
+      [VOLCENGINE_PLAN_VISIBLE_MODEL_IDS[9]]: textModel("kimi-k2.6", "Kimi K2.6", 1048576, 32768, {
         attachment: true,
         reasoning: true,
         interleaved: { field: "reasoning_content" },
         modalities: { input: ["text", "image", "video"], output: ["text"] },
       }),
-      [VOLCENGINE_PLAN_VISIBLE_MODEL_IDS[10]]: textModel("kimi-k2.5", "Kimi K2.5", 262144, 32768, {
+      [VOLCENGINE_PLAN_VISIBLE_MODEL_IDS[10]]: textModel("kimi-k2.5", "Kimi K2.5", 1048576, 32768, {
         attachment: true,
         reasoning: true,
         interleaved: { field: "reasoning_content" },
