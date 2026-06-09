@@ -204,7 +204,10 @@
   [data-slot="user-message-meta"] {
     user-select: none;
     text-align: right;
-    flex: 1 1 auto;
+    /* Shrink-only (grow 0) so the gap-separated tokens pack tight against the
+     * right edge; a long agent/model name ellipsis-truncates via shrink while
+     * the shorter tokens hold their width. */
+    flex: 0 1 auto;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -215,10 +218,12 @@
     flex: 1 1 auto;
     min-width: 0;
     display: flex;
-    align-items: center;
+    align-items: baseline;
     justify-content: flex-end;
     overflow: hidden;
-    gap: 0;
+    /* No middle-dot separators (DESIGN.md no-`·` rule): a gap divides the
+     * tokens and the time renders in mono for sans-vs-mono contrast. */
+    gap: var(--space-md);
   }
 
   [data-slot="user-message-meta-tail"] {
@@ -226,6 +231,10 @@
     flex: 0 0 auto;
     white-space: nowrap;
     text-align: right;
+    /* colon-time contrast: mono + tabular sets the timestamp apart from the
+     * sans agent/model tokens without a separator glyph. */
+    font-family: var(--font-family-mono);
+    font-variant-numeric: tabular-nums;
   }
 
   &:hover [data-slot="user-message-copy-wrapper"],

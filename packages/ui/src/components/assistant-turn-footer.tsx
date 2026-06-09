@@ -1,4 +1,4 @@
-import { createMemo, createSignal, Show } from "solid-js"
+import { createMemo, createSignal, For, Show } from "solid-js"
 import type { AssistantMessage } from "@opencode-ai/sdk/v2"
 import { useData } from "../context"
 import { useI18n } from "../context/i18n"
@@ -41,16 +41,9 @@ export function AssistantTurnFooter(props: {
     })
   })
 
-  const meta = createMemo(() => {
-    const agent = props.message.agent
-    const items = [
-      agent ? agent[0]?.toUpperCase() + agent.slice(1) : "",
-      model(),
-      duration(),
-      interrupted() ? i18n.t("ui.message.interrupted") : "",
-    ]
-    return items.filter((x) => !!x).join(" · ")
-  })
+  const metaItems = createMemo(() =>
+    [model(), duration(), interrupted() ? i18n.t("ui.message.interrupted") : ""].filter((x) => !!x),
+  )
 
   const handleCopy = async () => {
     const content = props.text
@@ -80,9 +73,9 @@ export function AssistantTurnFooter(props: {
           aria-label={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copyResponse")}
         />
       </Tooltip>
-      <Show when={meta()}>
+      <Show when={metaItems().length > 0}>
         <span data-slot="assistant-turn-footer-meta" class="text-body text-fg-weak cursor-default">
-          {meta()}
+          <For each={metaItems()}>{(item) => <span>{item}</span>}</For>
         </span>
       </Show>
     </div>
