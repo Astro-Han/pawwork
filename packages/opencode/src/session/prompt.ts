@@ -2884,7 +2884,12 @@ export const PromptInput = z.object({
 export type PromptInput = z.infer<typeof PromptInput>
 
 export async function prompt(input: PromptInput) {
-  return runPromise((svc) => svc.prompt(PromptInput.parse(input)))
+  // automationID is automation-run provenance, set only by the runner through
+  // promptWithAutomationContext (which also provides the trusted
+  // AutomationRunContext). Strip any client-supplied value here so HTTP callers
+  // (POST /:sessionID/message, /prompt_async both route through this) cannot
+  // forge the "sent via automation" attribution.
+  return runPromise((svc) => svc.prompt(PromptInput.parse({ ...input, automationID: undefined })))
 }
 
 export async function promptWithAutomationContext(
