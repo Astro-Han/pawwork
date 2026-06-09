@@ -406,6 +406,14 @@ export namespace Automation {
 
   export function validateUpdateInput(previous: Definition, patch: UpdateInput, now?: number) {
     const details: ValidationErrorDetail[] = []
+    // context is fixed at creation. A continue automation is bound to the chat it
+    // loops inside (sourceSessionID); the public update API has no session to bind
+    // a fresh->continue switch to, and no clean way to drop the stale source on a
+    // continue->fresh switch. So changing context is unsupported rather than
+    // silently producing an unbindable continue or a fresh with a dangling source.
+    if (patch.context !== undefined && patch.context !== previous.context) {
+      addDetail(details, "context", "unsupported_context_change")
+    }
     if (previous.kind === "recurring" && Object.hasOwn(patch, "fireAt")) {
       addDetail(details, "fireAt", "unsupported_for_recurring_automation")
     }
@@ -434,6 +442,14 @@ export namespace Automation {
     input = normalizeDefinitionInput(input)
     const now = options?.now ?? Date.now()
     const details = validateCreateInput(input, Instance.project.id, now)
+    // A continue automation loops inside an existing conversation, so it must be
+    // bound to one at creation. Only the automate tool can supply that source
+    // (from its session context); the public HTTP create cannot, so reject a
+    // source-less continue here instead of storing a definition the runner can
+    // only fail at Run-now.
+    if (input.context === "continue" && !options?.sourceSessionID) {
+      addDetail(details, "context", "unsupported_continue_without_source")
+    }
     if (details.length) throw new ValidationError(details)
     const base = {
       id: AutomationID.Definition.ascending(),
@@ -450,11 +466,11 @@ export namespace Automation {
       model: input.model,
       ...(input.variant ? { variant: input.variant } : {}),
       // sourceSessionID is the continue binding: the chat a continue automation
-      // loops inside. Only continue automations carry it; a fresh automation
-      // mints its own session per run, so it records none even if a caller
-      // passes one. Enforced here (the single materialization point) so the
-      // field's presence always means "continue", which deleteBySourceSession
-      // and the runner rely on.
+      // loops inside. Only continue automations carry it; a fresh one mints its
+      // own session per run and records none even if a caller passes one. With
+      // context fixed at creation (update() forbids changing it), the field's
+      // presence always means "continue", which deleteBySourceSession and the
+      // runner rely on.
       ...(options?.sourceSessionID && input.context === "continue"
         ? { sourceSessionID: options.sourceSessionID }
         : {}),

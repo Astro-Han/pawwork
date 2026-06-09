@@ -415,7 +415,9 @@ describe("automation runNow execution", () => {
 
   test("does not revive a continue automation deleted during execution", async () => {
     await withAutomation(async (projectID) => {
-      const definition = Automation.create(input(projectID, { context: "continue" }))
+      const definition = Automation.create(input(projectID, { context: "continue" }), {
+        sourceSessionID: SessionID.descending(),
+      })
       const definitionEvents: Automation.Definition[] = []
       const unsubscribeDefinition = Bus.subscribe(Automation.Event.DefinitionUpdated, (event) => {
         definitionEvents.push(event.properties)
