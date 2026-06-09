@@ -449,7 +449,15 @@ export namespace Automation {
       normalizationWarnings: [],
       model: input.model,
       ...(input.variant ? { variant: input.variant } : {}),
-      ...(options?.sourceSessionID ? { sourceSessionID: options.sourceSessionID } : {}),
+      // sourceSessionID is the continue binding: the chat a continue automation
+      // loops inside. Only continue automations carry it; a fresh automation
+      // mints its own session per run, so it records none even if a caller
+      // passes one. Enforced here (the single materialization point) so the
+      // field's presence always means "continue", which deleteBySourceSession
+      // and the runner rely on.
+      ...(options?.sourceSessionID && input.context === "continue"
+        ? { sourceSessionID: options.sourceSessionID }
+        : {}),
     }
     let definition: Definition =
       input.kind === "oneshot"

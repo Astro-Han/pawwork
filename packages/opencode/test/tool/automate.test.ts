@@ -136,8 +136,9 @@ describe("automate tool", () => {
           paused: false,
           where: { projectID: Instance.project.id },
           model: { providerID: fakeProviderID, modelID: fakeModelID },
-          sourceSessionID,
         })
+        // Defaults to a fresh automation, which records no source binding.
+        expect(definition.sourceSessionID).toBeUndefined()
         expect(definition.kind === "recurring" && definition.rhythm).toEqual({ kind: "cron", expression: "0 9 * * *" })
         expect(Automation.isValidTimezone(definition.timezone)).toBe(true)
         expect(Automation.list()).toHaveLength(1)
@@ -325,7 +326,7 @@ describe("automate tool", () => {
     })
   })
 
-  test("binds sourceSessionID to the tool context and ignores any spoofed identity fields", async () => {
+  test("a fresh automation records no sourceSessionID, ignoring any spoofed identity field", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
       directory: tmp.path,
@@ -342,10 +343,12 @@ describe("automate tool", () => {
           ),
         )
 
-        // The spoofed sourceSessionID in input is ignored; the binding comes
-        // from the tool context (which conversation the model is running in).
+        // A fresh automation runs in its own new session each time, so it binds
+        // to no conversation: neither the tool context nor a spoofed input value
+        // is recorded. (Continue's spoof-stripping is covered above and below.)
         const definition = result.metadata.automationDefinition
-        expect(definition.sourceSessionID).toBe(sourceSessionID)
+        expect(definition.context).toBe("fresh")
+        expect(definition.sourceSessionID).toBeUndefined()
       },
     })
   })
@@ -364,6 +367,7 @@ describe("automate tool", () => {
         )
 
         expect(result.metadata.automationDefinition.context).toBe("fresh")
+        expect(result.metadata.automationDefinition.sourceSessionID).toBeUndefined()
       },
     })
   })
