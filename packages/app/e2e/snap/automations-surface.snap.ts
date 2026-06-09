@@ -4,18 +4,15 @@ import { composeGrid, snapOutputPath, type Shot } from "./_compose"
 
 test.use({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 })
 
-const recurring = (
-  projectID: string,
-  title: string,
-  prompt: string,
-  expression: string,
-  context: "fresh" | "continue" = "fresh",
-) => ({
+// The public HTTP create can only mint fresh automations; a continue one is
+// born from a chat through the automate tool (see the seed below), so this
+// SDK helper is fresh-only.
+const recurring = (projectID: string, title: string, prompt: string, expression: string) => ({
   automationCreateInput: {
     kind: "recurring" as const,
     title,
     prompt,
-    context,
+    context: "fresh" as const,
     where: { projectID },
     timezone: "UTC",
     model: { providerID: "opencode", modelID: "big-pickle" },
@@ -24,7 +21,7 @@ const recurring = (
   },
 })
 
-test("automations-surface", async ({ page, project }) => {
+test("automations-surface", async ({ page, project, assistant }) => {
   test.setTimeout(180_000)
 
   await project.open()
@@ -40,11 +37,27 @@ test("automations-surface", async ({ page, project }) => {
   const projectID = (await project.sdk.project.current()).data!.id
   await project.sdk.automation.create(recurring(projectID, "Daily standup digest", "Summarize overnight changes and list open PRs.", "0 9 * * *"))
   await project.sdk.automation.create(recurring(projectID, "Hourly build watch", "Check CI and flag a red main build.", "0 * * * *"))
-  // A continue automation so the detail view shows it loops inside the
-  // conversation it was created in, next to the default fresh-each-run ones.
-  await project.sdk.automation.create(
-    recurring(projectID, "Inbox triage loop", "Pick up triage where the last run left off.", "0 8 * * *", "continue"),
-  )
+
+  // A continue automation can only be born from a chat: it loops inside the
+  // conversation it was created in, so the public HTTP create now rejects a
+  // source-less continue. Seed it through the real automate tool instead. The
+  // surface takes over the main area and hides the composer, so close it first
+  // (Escape), let the mock model emit the tool call, and have the backend run
+  // it for real, binding the source to this conversation as a user would.
+  await page.keyboard.press("Escape")
+  await surface.waitFor({ state: "detached", timeout: 10_000 })
+  await assistant.tool("automate", {
+    title: "Inbox triage loop",
+    prompt: "Pick up triage where the last run left off.",
+    cron: "0 8 * * *",
+    continueSession: true,
+  })
+  await project.prompt("Loop my inbox triage every morning.")
+
+  // Re-open the surface; all three automations are now in the synced store.
+  await openSidebar(page)
+  await page.locator('[data-action="pawwork-automations-open"]').click()
+  await surface.waitFor({ state: "visible", timeout: 30_000 })
 
   const rows = surface.locator('[data-action="automation-row"]')
   await rows.first().waitFor({ state: "visible", timeout: 30_000 })
