@@ -26,13 +26,16 @@ const Prompt = Schema.NonEmptyString.check(Schema.isMaxLength(Automation.MAX_PRO
 // old `where` and `rhythm` unions triggered in function-calling schemas).
 // execute() translates this into the frozen Automation.CreateInput. Only
 // title/prompt/cron are required; project, timezone, and model fall back to the
-// calling session's context. Interval/sub-minute cadence stays a UI/SDK
-// power-user feature and is intentionally off the AI surface.
+// calling session's context. recurring and continueSession are the two
+// orthogonal behavioral opt-ins; both default to the safe side (recurring on,
+// continueSession off). Interval/sub-minute cadence stays a UI/SDK power-user
+// feature and is intentionally off the AI surface.
 export const AutomateParameters = Schema.Struct({
   title: Title,
   prompt: Prompt,
   cron: CronExpression,
   recurring: Schema.optional(Schema.Boolean),
+  continueSession: Schema.optional(Schema.Boolean),
   timezone: Schema.optional(Timezone),
   model: Schema.optional(Schema.NonEmptyString),
   variant: Schema.optional(Schema.NonEmptyString),
@@ -45,8 +48,9 @@ export function formatAutomateValidationError(error: unknown) {
       : String(error)
   return [
     "Invalid automate input.",
-    "Expected: { title, prompt, cron, recurring?, timezone?, model?, variant? }.",
+    "Expected: { title, prompt, cron, recurring?, continueSession?, timezone?, model?, variant? }.",
     'cron is a 5-field cron expression (e.g. "0 9 * * *" = 09:00 daily). recurring defaults to true; set it false for a one-shot that fires at the next cron match.',
+    "continueSession defaults to false (each run starts a fresh session); set it true so a recurring automation continues in its own persistent session and remembers prior runs.",
     'timezone defaults to the host timezone. model, when given, is a "providerID/modelID" string and otherwise defaults to this session\'s model; variant is an optional reasoning-effort key for that model.',
     'Example: { title: "Daily repo brief", prompt: "Summarize repo changes.", cron: "0 9 * * *" }.',
     detail,
@@ -88,7 +92,7 @@ export function createAutomateDefinition(
 ): Tool.DefWithoutID<typeof AutomateParameters, { automationDefinition: Automation.Definition }> {
   return {
     description:
-      "Create an Automation that re-runs a prompt on a schedule. Provide a title, the prompt, and a 5-field cron expression; project, timezone, and model default to the current session. Each run starts a fresh session and repeats until the user pauses or deletes it in the Automations panel. This only stores the definition; it does not run the prompt now.",
+      "Create an Automation that re-runs a prompt on a schedule. Provide a title, the prompt, and a 5-field cron expression; project, timezone, and model default to the current session. By default each run starts a fresh session; set continueSession true so a recurring automation keeps working in one persistent session that remembers prior runs (the automation's own working thread, not this chat). It repeats until the user pauses or deletes it in the Automations panel. This only stores the definition; it does not run the prompt now.",
     parameters: AutomateParameters,
     formatValidationError: formatAutomateValidationError,
     execute: (params, ctx) =>
@@ -119,10 +123,15 @@ export function createAutomateDefinition(
         const now = Date.now()
         const parsed = yield* Effect.try({
           try: () => {
+            // context defaults to "fresh" (a new session per run). continueSession
+            // opts into "continue", reusing the automation's own persistent
+            // session so a recurring run remembers prior runs. Default-fresh is
+            // the safe side: defaulting to continue would let a recurring
+            // automation silently grow its session unbounded across many fires.
             const common = {
               title: params.title,
               prompt: params.prompt,
-              context: "fresh" as const,
+              context: params.continueSession ? ("continue" as const) : ("fresh" as const),
               where: { projectID: Instance.project.id },
               timezone,
               model,

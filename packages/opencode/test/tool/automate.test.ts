@@ -81,6 +81,37 @@ describe("automate tool", () => {
     expect(decoded).toEqual({ title: "Daily repo brief", prompt: "Summarize repo changes.", cron: "0 9 * * *" })
   })
 
+  test("decode keeps continueSession on the surface", () => {
+    const decoded = Schema.decodeUnknownSync(AutomateParameters)({
+      title: "Daily repo brief",
+      prompt: "Summarize repo changes.",
+      cron: "0 9 * * *",
+      continueSession: true,
+    })
+
+    expect(decoded.continueSession).toBe(true)
+  })
+
+  test("decode strips a spoofed automationSessionID even alongside continueSession", () => {
+    const decoded = Schema.decodeUnknownSync(AutomateParameters)({
+      title: "Standup digest",
+      prompt: "Continue the running digest.",
+      cron: "0 9 * * *",
+      continueSession: true,
+      automationSessionID: SessionID.descending(),
+    })
+
+    // continueSession is on the surface; automationSessionID is not. Decode is
+    // the boundary tool.ts runs before execute, so the spoof is dropped here —
+    // a model that opts into continue still cannot name the session to reuse.
+    expect(decoded).toEqual({
+      title: "Standup digest",
+      prompt: "Continue the running digest.",
+      cron: "0 9 * * *",
+      continueSession: true,
+    })
+  })
+
   test("creates a recurring cron automation, defaulting project/timezone/model to the session", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
@@ -315,6 +346,82 @@ describe("automate tool", () => {
         const definition = result.metadata.automationDefinition
         expect(definition.sourceSessionID).toBe(sourceSessionID)
         expect(definition.automationSessionID).toBeUndefined()
+      },
+    })
+  })
+
+  test("defaults to a fresh session per run when continueSession is omitted", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const tool = createAutomateDefinition(fakeProviderInterface, automation)
+        const result = await Effect.runPromise(
+          tool.execute(
+            { title: "Daily repo brief", prompt: "Summarize repo changes.", cron: "0 9 * * *" },
+            ctx(SessionID.descending()),
+          ),
+        )
+
+        expect(result.metadata.automationDefinition.context).toBe("fresh")
+      },
+    })
+  })
+
+  test("continueSession:true maps to context continue and leaves the session unbound at creation", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const tool = createAutomateDefinition(fakeProviderInterface, automation)
+        const result = await Effect.runPromise(
+          tool.execute(
+            {
+              title: "Standup digest",
+              prompt: "Continue the running digest.",
+              cron: "0 9 * * *",
+              continueSession: true,
+            },
+            ctx(SessionID.descending()),
+          ),
+        )
+
+        const definition = result.metadata.automationDefinition
+        expect(definition.context).toBe("continue")
+        // The persistent session is bound by the runner after the first run, never
+        // at creation, so a brand-new continue definition has no session yet. (The
+        // decode test above proves a model cannot smuggle one in via the surface.)
+        expect(definition.automationSessionID).toBeUndefined()
+      },
+    })
+  })
+
+  test("continueSession on a one-shot is allowed and maps to a continue one-shot (orthogonal, not rejected)", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const tool = createAutomateDefinition(fakeProviderInterface, automation)
+        const result = await Effect.runPromise(
+          tool.execute(
+            {
+              title: "One-off digest",
+              prompt: "Summarize once.",
+              cron: "0 9 * * *",
+              recurring: false,
+              continueSession: true,
+            },
+            ctx(SessionID.descending()),
+          ),
+        )
+
+        const definition = result.metadata.automationDefinition
+        // continueSession stays orthogonal to recurring: the flat surface adds no
+        // cross-field rule. A one-shot fires once with no prior session, so the
+        // runner creates fresh anyway — harmless, so the combo is intentionally
+        // not rejected. Pinned here to guard against a regression that adds one.
+        expect(definition.kind).toBe("oneshot")
+        expect(definition.context).toBe("continue")
       },
     })
   })
