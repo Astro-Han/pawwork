@@ -26,6 +26,7 @@ import { useSessionLayout } from "@/pages/session/session-layout"
 import { emitRendererDiagnostic, sessionAbortDiagnosticEvent } from "@/context/renderer-diagnostics"
 import { shareSessionCommand, unshareSessionCommand } from "@/pages/session/session-share-command"
 import { rendererAbortDiagnosticSource } from "@/session/abort-source"
+import { toAbsoluteFilePath } from "@/components/prompt-input/path-canonical"
 
 export type SessionCommandContext = {
   navigateMessageByOffset: (offset: number) => void
@@ -104,7 +105,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
 
   const addSelectionToContext = (path: string, selection: FileSelection) => {
     const preview = selectionPreview(path, selection)
-    prompt.context.add({ type: "file", path, selection, preview })
+    prompt.context.add({ type: "file", path: toAbsoluteFilePath(sdk.directory, path), selection, preview })
   }
 
   const canAddSelectionContext = () => {
