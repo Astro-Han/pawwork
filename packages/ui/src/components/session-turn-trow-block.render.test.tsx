@@ -85,3 +85,25 @@ test("updates an existing trow row without remounting it", async () => {
 
   block.dispose()
 })
+
+test("resets expanded state when a reused trow row points at a different block", async () => {
+  const { mountTrowBlock, tool } = await loadFixture()
+  const block = mountTrowBlock([tool("first"), tool("second")])
+
+  expect(block.details()?.open).toBe(false)
+  const details = block.details()
+  expect(details).not.toBeNull()
+  details!.open = true
+  details!.dispatchEvent(new Event("toggle"))
+  await Promise.resolve()
+  expect(block.details()?.open).toBe(true)
+
+  block.setParts([tool("third"), tool("fourth")])
+  await Promise.resolve()
+
+  expect(block.details()?.open).toBe(false)
+  expect(block.tool("third")?.textContent).toBe("third:done")
+  expect(block.tool("first")).toBeNull()
+
+  block.dispose()
+})

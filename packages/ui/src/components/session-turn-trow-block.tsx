@@ -1,4 +1,4 @@
-import { Index, Match, Show, Switch, createMemo, createSignal, type Accessor, type JSX } from "solid-js"
+import { Index, Match, Show, Switch, createEffect, createMemo, createSignal, on, type Accessor, type JSX } from "solid-js"
 import type { ReasoningPart, ToolPart } from "@opencode-ai/sdk/v2"
 import { patchFiles } from "./apply-patch-file"
 import { Icon, type IconName } from "./icon"
@@ -168,6 +168,19 @@ export function TrowBlock(props: TrowBlockProps) {
   const single = createMemo(() => props.parts.length === 1)
   const [expanded, setExpanded] = createSignal(single() || (props.defaultOpen ?? false))
   const open = () => single() || expanded()
+  let previousBlockID = props.parts[0]?.id
+
+  createEffect(
+    on(
+      () => props.parts[0]?.id,
+      (id) => {
+        if (id === previousBlockID) return
+        previousBlockID = id
+        setExpanded(single() || (props.defaultOpen ?? false))
+      },
+      { defer: true },
+    ),
+  )
 
   const summaryText = createMemo(() => {
     const s = summary()
