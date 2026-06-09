@@ -13,7 +13,7 @@ import { Instance } from "../../src/project/instance"
 import { Plugin } from "../../src/plugin"
 import { Server } from "../../src/server/server"
 import { WorkspaceRouterMiddleware } from "../../src/server/instance/middleware"
-import { resolveWorkspaceRoute } from "../../src/server/instance/workspace-routing"
+import { resolveWorkspaceRoute, WorkspaceRoutingError } from "../../src/server/instance/workspace-routing"
 import { WorkspaceID } from "../../src/control-plane/schema"
 import { Workspace } from "../../src/control-plane/workspace"
 import { WorkspaceTable } from "../../src/control-plane/workspace.sql"
@@ -554,8 +554,9 @@ describe("workspace router", () => {
         expect(Cause.hasFails(exit.cause)).toBe(true)
         expect(Cause.hasDies(exit.cause)).toBe(false)
         const error = Cause.squash(exit.cause)
-        expect(error).toBeInstanceOf(Error)
-        expect((error as Error).message).toContain(message)
+        expect(error).toBeInstanceOf(WorkspaceRoutingError)
+        expect((error as WorkspaceRoutingError).reason).toBe("workspace-target")
+        expect((error as WorkspaceRoutingError).message).toContain(message)
       }
 
       const response = await Server.Default().app.request(`/path?workspace=${workspace.id}`, {
@@ -570,6 +571,7 @@ describe("workspace router", () => {
       // The Effect failure channel above still carries the real message; the HTTP body is
       // redacted to a constant so the internal failure never leaks to clients (ErrorMiddleware).
       expect(body.data.message).toBe("Unexpected server error. Check server logs for details.")
+      expect(JSON.stringify(body)).not.toContain(message)
     } finally {
       ensureSync.mockRestore()
     }
