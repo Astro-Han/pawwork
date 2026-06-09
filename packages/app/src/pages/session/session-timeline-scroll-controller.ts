@@ -81,6 +81,7 @@ export type TimelineScrollObservation =
   | {
       type: "scroll_sample"
       metrics: TimelineScrollMetrics
+      userInitiated?: boolean
       safePosition?: TimelineSafePosition
     }
   | {

@@ -14,6 +14,7 @@ import { createTimelineVirtualRows } from "@/pages/session/timeline-virtual-rows
 import { chooseTimelineRowRenderMode } from "@/pages/session/timeline-virtualization-strategy"
 import { createTimelineVirtualizerBridge } from "@/pages/session/timeline-virtualizer-bridge"
 import { createTimelineScrollReconciler } from "@/pages/session/timeline-scroll-reconciler"
+import { handleTimelineScrollObservation } from "@/pages/session/timeline-scroll-observation"
 import {
   createSessionTimelineScrollController,
   type TimelineSafePosition,
@@ -308,12 +309,13 @@ export function createSessionTimelineInteraction(input: {
   }
 
   const onTimelineScrollObservation = (observation: TimelineScrollObservation): TimelineScrollControllerResult => {
-    let next = observation
-    if (observation.type === "scroll_sample" && !observation.safePosition) {
-      const viewport = scrollDock.scroller()
-      if (viewport) next = { ...observation, safePosition: sampleAnchor() }
-    }
-    return scrollController.observe(next)
+    return handleTimelineScrollObservation({
+      observation,
+      viewport: scrollDock.scroller(),
+      sampleAnchor,
+      observe: (next) => scrollController.observe(next),
+      restoreNow: (reason, position) => reconciler.restoreNow(reason, position),
+    })
   }
 
   const submitLatest = () => {
