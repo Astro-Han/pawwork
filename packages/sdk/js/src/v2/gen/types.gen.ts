@@ -412,7 +412,6 @@ export type AutomationDefinition =
       updatedAt: number
       timezone: string
       sourceSessionID?: string
-      automationSessionID?: string
       normalizationWarnings: Array<string>
       model: AutomationModel
       variant?: string
@@ -431,7 +430,6 @@ export type AutomationDefinition =
       updatedAt: number
       timezone: string
       sourceSessionID?: string
-      automationSessionID?: string
       normalizationWarnings: Array<string>
       model: AutomationModel
       variant?: string
@@ -690,6 +688,7 @@ export type UserMessage = {
     diffs?: Array<SnapshotFileDiff>
   }
   agent: string
+  automationID?: string
   model: {
     providerID: string
     modelID: string

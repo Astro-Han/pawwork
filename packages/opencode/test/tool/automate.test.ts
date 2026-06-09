@@ -73,7 +73,6 @@ describe("automate tool", () => {
       prompt: "Summarize repo changes.",
       cron: "0 9 * * *",
       where: { projectID: "spoofed" },
-      automationSessionID: SessionID.descending(),
       sourceSessionID: SessionID.descending(),
       rhythm: { kind: "interval", everyMs: 60_000 },
     })
@@ -92,18 +91,19 @@ describe("automate tool", () => {
     expect(decoded.continueSession).toBe(true)
   })
 
-  test("decode strips a spoofed automationSessionID even alongside continueSession", () => {
+  test("decode strips a spoofed sourceSessionID even alongside continueSession", () => {
     const decoded = Schema.decodeUnknownSync(AutomateParameters)({
       title: "Standup digest",
       prompt: "Continue the running digest.",
       cron: "0 9 * * *",
       continueSession: true,
-      automationSessionID: SessionID.descending(),
+      sourceSessionID: SessionID.descending(),
     })
 
-    // continueSession is on the surface; automationSessionID is not. Decode is
-    // the boundary tool.ts runs before execute, so the spoof is dropped here —
-    // a model that opts into continue still cannot name the session to reuse.
+    // continueSession is on the surface; sourceSessionID is not. Decode is the
+    // boundary tool.ts runs before execute, so the spoof is dropped here — a
+    // model that opts into continue still cannot name which conversation it
+    // runs in; sourceSessionID always comes from the tool context.
     expect(decoded).toEqual({
       title: "Standup digest",
       prompt: "Continue the running digest.",
@@ -136,8 +136,9 @@ describe("automate tool", () => {
           paused: false,
           where: { projectID: Instance.project.id },
           model: { providerID: fakeProviderID, modelID: fakeModelID },
-          sourceSessionID,
         })
+        // Defaults to a fresh automation, which records no source binding.
+        expect(definition.sourceSessionID).toBeUndefined()
         expect(definition.kind === "recurring" && definition.rhythm).toEqual({ kind: "cron", expression: "0 9 * * *" })
         expect(Automation.isValidTimezone(definition.timezone)).toBe(true)
         expect(Automation.list()).toHaveLength(1)
@@ -325,7 +326,7 @@ describe("automate tool", () => {
     })
   })
 
-  test("binds sourceSessionID to the tool context and ignores any spoofed identity fields", async () => {
+  test("a fresh automation records no sourceSessionID, ignoring any spoofed identity field", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
       directory: tmp.path,
@@ -334,7 +335,6 @@ describe("automate tool", () => {
         const sourceSessionID = SessionID.descending()
         const spoof = {
           sourceSessionID: SessionID.descending(),
-          automationSessionID: SessionID.descending(),
         } as Record<string, unknown>
         const result = await Effect.runPromise(
           tool.execute(
@@ -343,9 +343,12 @@ describe("automate tool", () => {
           ),
         )
 
+        // A fresh automation runs in its own new session each time, so it binds
+        // to no conversation: neither the tool context nor a spoofed input value
+        // is recorded. (Continue's spoof-stripping is covered above and below.)
         const definition = result.metadata.automationDefinition
-        expect(definition.sourceSessionID).toBe(sourceSessionID)
-        expect(definition.automationSessionID).toBeUndefined()
+        expect(definition.context).toBe("fresh")
+        expect(definition.sourceSessionID).toBeUndefined()
       },
     })
   })
@@ -364,16 +367,18 @@ describe("automate tool", () => {
         )
 
         expect(result.metadata.automationDefinition.context).toBe("fresh")
+        expect(result.metadata.automationDefinition.sourceSessionID).toBeUndefined()
       },
     })
   })
 
-  test("continueSession:true maps to context continue and leaves the session unbound at creation", async () => {
+  test("continueSession:true maps to context continue and binds the source conversation", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
         const tool = createAutomateDefinition(fakeProviderInterface, automation)
+        const sourceSessionID = SessionID.descending()
         const result = await Effect.runPromise(
           tool.execute(
             {
@@ -382,16 +387,16 @@ describe("automate tool", () => {
               cron: "0 9 * * *",
               continueSession: true,
             },
-            ctx(SessionID.descending()),
+            ctx(sourceSessionID),
           ),
         )
 
         const definition = result.metadata.automationDefinition
         expect(definition.context).toBe("continue")
-        // The persistent session is bound by the runner after the first run, never
-        // at creation, so a brand-new continue definition has no session yet. (The
-        // decode test above proves a model cannot smuggle one in via the surface.)
-        expect(definition.automationSessionID).toBeUndefined()
+        // A continue automation runs inside the conversation it was created in,
+        // so it is bound to that source session at creation (from the tool
+        // context). Every run then appends to that same conversation.
+        expect(definition.sourceSessionID).toBe(sourceSessionID)
       },
     })
   })

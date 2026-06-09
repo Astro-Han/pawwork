@@ -553,6 +553,9 @@ export const User = Base.extend({
     })
     .optional(),
   agent: z.string(),
+  // Set when an automation run produced this message instead of the user
+  // typing it; the UI labels it "sent via automation" and links to the source.
+  automationID: z.string().optional(),
   model: z.object({
     providerID: ProviderID.zod,
     modelID: ModelID.zod,

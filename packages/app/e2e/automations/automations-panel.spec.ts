@@ -388,6 +388,10 @@ test("automations panel: the automate tool card jumps into the panel", async ({ 
   const card = page.locator('[data-component="automate-tool-card"]')
   await expect(card).toBeVisible()
   await expect(card.getByText("Nightly digest")).toBeVisible()
+  // The card names the session mode. A model-created automation defaults to
+  // fresh here (continue rides on the automate tool's continueSession field,
+  // which would instead loop the runs inside this conversation).
+  await expect(card.locator('[data-component="automate-tool-session"]')).toHaveText("New session each run")
 
   // The jump opens the Automations panel focused on the new automation.
   await card.locator('[data-component="automate-tool-action"]').click()

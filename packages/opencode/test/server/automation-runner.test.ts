@@ -385,40 +385,39 @@ describe("automation runNow execution", () => {
     })
   })
 
-  test("publishes continue-session definition updates from the latest definition", async () => {
+  test("deleteBySourceSession removes continue automations bound to it and leaves others", async () => {
     await withAutomation(async (projectID) => {
-      const definition = Automation.create(input(projectID, { context: "continue" }))
-      const sessionID = SessionID.descending()
-      const definitionEvents: Automation.Definition[] = []
-      const unsubscribe = Bus.subscribe(Automation.Event.DefinitionUpdated, (event) => {
-        definitionEvents.push(event.properties)
+      const sourceSessionID = SessionID.descending()
+      const otherSessionID = SessionID.descending()
+      const continueHere = Automation.create(input(projectID, { context: "continue" }), { sourceSessionID })
+      const continueElsewhere = Automation.create(input(projectID, { context: "continue" }), {
+        sourceSessionID: otherSessionID,
+      })
+      const fresh = Automation.create(input(projectID, { context: "fresh" }))
+
+      const deletedEvents: Automation.Tombstone[] = []
+      const unsubscribe = Bus.subscribe(Automation.Event.DefinitionDeleted, (event) => {
+        deletedEvents.push(event.properties)
       })
 
-      await Automation.runNowExecuting(definition.id, {
-        executor: async () => {
-          Automation.update(definition.id, { title: "Updated repo brief", prompt: "Use the latest prompt." })
-          return { sessionID, result: "done", cost: 0 }
-        },
-      })
-
-      await waitForRun(definition.id, "succeeded")
+      await Automation.deleteBySourceSession(sourceSessionID)
       unsubscribe()
-      const updated = Automation.get(definition.id)
-      expect(updated.title).toBe("Updated repo brief")
-      expect(updated.prompt).toBe("Use the latest prompt.")
-      expect(updated.automationSessionID).toBe(sessionID)
-      expect(definitionEvents.at(-1)).toMatchObject({
-        id: definition.id,
-        title: "Updated repo brief",
-        prompt: "Use the latest prompt.",
-        automationSessionID: sessionID,
-      })
+
+      // The continue automation that lives in the deleted conversation is gone;
+      // a continue automation bound to a different conversation and any fresh
+      // automation are untouched.
+      expect(() => Automation.get(continueHere.id)).toThrow()
+      expect(Automation.get(continueElsewhere.id).id).toBe(continueElsewhere.id)
+      expect(Automation.get(fresh.id).id).toBe(fresh.id)
+      expect(deletedEvents.map((tombstone) => tombstone.id)).toEqual([continueHere.id])
     })
   })
 
   test("does not revive a continue automation deleted during execution", async () => {
     await withAutomation(async (projectID) => {
-      const definition = Automation.create(input(projectID, { context: "continue" }))
+      const definition = Automation.create(input(projectID, { context: "continue" }), {
+        sourceSessionID: SessionID.descending(),
+      })
       const definitionEvents: Automation.Definition[] = []
       const unsubscribeDefinition = Bus.subscribe(Automation.Event.DefinitionUpdated, (event) => {
         definitionEvents.push(event.properties)
@@ -437,6 +436,27 @@ describe("automation runNow execution", () => {
       expect(removed.stoppedRun).toMatchObject({ state: "stopped", stopReason: "cancelled" })
       expect(() => Automation.get(definition.id)).toThrow()
       expect(definitionEvents).toHaveLength(0)
+    })
+  })
+
+  test("a continue automation whose source conversation is gone stops instead of spawning a detached session", async () => {
+    await withAutomation(async (projectID) => {
+      // Bind to a sourceSessionID that was never created. Session.get throws
+      // NotFound, which resolveRunSession treats as "the conversation is gone"
+      // (a DB or decode fault would instead propagate as its real error).
+      const missingSource = SessionID.descending()
+      const definition = Automation.create(input(projectID, { context: "continue" }), {
+        sourceSessionID: missingSource,
+      })
+
+      await Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
+
+      const stopped = await waitForRun(definition.id, "stopped")
+      if (stopped.state !== "stopped") throw new Error("expected stopped run")
+      expect(stopped.stopReason).toBe("cancelled")
+      // The point of the guard: a missing source must not fall back to a fresh
+      // "Automation: …" session the user can never find — the old mystery one.
+      expect(automationSessionsForTitle(definition.title)).toEqual([])
     })
   })
 

@@ -150,6 +150,15 @@ export function AutomationDetail(props: {
 
   const reasoningLabel = createMemo(() => props.automation().variant)
 
+  // A "continue" automation loops inside the conversation it was created in
+  // (every run appends to that chat); a "fresh" one runs in its own new session
+  // each time. Surface which, and for continue let the user jump to that chat.
+  const sessionLabel = createMemo(() =>
+    props.automation().context === "continue"
+      ? t("automations.detail.session.continue")
+      : t("automations.detail.session.fresh"),
+  )
+
   const notifyFailure = (error: unknown) => {
     showToast({
       variant: "error",
@@ -266,6 +275,24 @@ export function AutomationDetail(props: {
           <DetailGroup heading={t("automations.detail.detailsHeading")}>
             <InfoRow label={t("automations.detail.project")} value={props.projectName()} />
             <InfoRow label={t("automations.detail.repeats")} value={formatScheduleSummary(props.automation(), t)} />
+            <Show
+              when={props.automation().context === "continue" && props.automation().sourceSessionID}
+              fallback={<InfoRow label={t("automations.detail.session")} value={sessionLabel()} />}
+            >
+              {(sourceSessionID) => (
+                <div class="flex items-baseline justify-between gap-3">
+                  <span class="shrink-0 text-caption text-fg-weak">{t("automations.detail.session")}</span>
+                  <button
+                    type="button"
+                    data-action="automation-open-source"
+                    onClick={() => props.onOpenRun(sourceSessionID())}
+                    class="min-w-0 truncate text-right text-body text-fg-base hover:text-fg-strong hover:underline focus-visible:text-fg-strong focus-visible:underline focus:outline-none"
+                  >
+                    {sessionLabel()}
+                  </button>
+                </div>
+              )}
+            </Show>
             <InfoRow label={t("automations.detail.model")} value={props.automation().model.modelID} />
             <Show when={reasoningLabel()}>
               {(value) => <InfoRow label={t("automations.detail.reasoning")} value={value()} />}

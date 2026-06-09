@@ -117,6 +117,11 @@
 
   [data-slot="assistant-turn-footer-meta"] {
     user-select: none;
+    /* No middle-dot separators (DESIGN.md no-`·` rule): a gap divides the
+     * model / duration / interrupted tokens. */
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--space-md);
   }
 
   [data-slot="session-turn-message-container"]:hover [data-slot="assistant-turn-footer"],

@@ -1,12 +1,15 @@
 import { Effect } from "effect"
+import { Log } from "@opencode-ai/core/util/log"
 import { Automation } from "."
 import { AutomationRunTable } from "./automation.sql"
 import { Instance } from "@/project/instance"
 import { Session } from "@/session"
 import { SessionPrompt } from "@/session/prompt"
-import { Database, and, eq, sql } from "@/storage/db"
+import { Database, NotFoundError, and, eq, sql } from "@/storage/db"
 import { AutomationRunContext, type AutomationRunBlocker } from "./run-context"
 import { Worktree } from "@/worktree"
+
+const log = Log.create({ service: "automation.runner" })
 
 function isAutomationOwnedSession(sessionID: string) {
   return Boolean(
@@ -48,14 +51,42 @@ async function prepareWorktreePlacement(definition: Automation.Definition) {
   return Worktree.createReady({ name: placement, exactName: true })
 }
 
+// Continue automations append to the conversation they were created in; fresh
+// automations get their own session per run. If a continue automation's source
+// conversation is gone (the user deleted it, or it was never recorded), fail
+// loudly instead of silently spawning a detached session the user can't find —
+// the old "mystery new session" behaviour. Only a genuine NotFound counts as
+// "gone": a DB or decode fault must surface its real error, not be mislabelled
+// as a missing conversation.
+async function resolveRunSession(definition: Automation.Definition) {
+  if (definition.context === "continue") {
+    const source = definition.sourceSessionID
+      ? await Session.get(definition.sourceSessionID).catch((error) => {
+          if (NotFoundError.isInstance(error)) return undefined
+          // A real DB/decode fault, not a deleted source. The run still ends as
+          // a silent cancel downstream, so leave a trail here or the fault is
+          // invisible to anyone debugging it.
+          log.error("automation continue source lookup failed", {
+            error,
+            automationID: definition.id,
+            sourceSessionID: definition.sourceSessionID,
+          })
+          throw error
+        })
+      : undefined
+    if (!source) {
+      throw new Error(`automation "${definition.title}" continues a conversation that no longer exists`)
+    }
+    return source.id
+  }
+  return (await Session.create({ title: `Automation: ${definition.title}` })).id
+}
+
 export const sessionPromptExecutor: Automation.RunExecutor = async ({ definition, run, attendance, signal }) => {
   signal.throwIfAborted()
   const worktree = await prepareWorktreePlacement(definition)
   signal.throwIfAborted()
-  const sessionID =
-    definition.context === "continue" && definition.automationSessionID
-      ? definition.automationSessionID
-      : (await Session.create({ title: `Automation: ${definition.title}` })).id
+  const sessionID = await resolveRunSession(definition)
   if (worktree) {
     await Session.updateExecutionContext({
       sessionID,
@@ -96,6 +127,7 @@ export const sessionPromptExecutor: Automation.RunExecutor = async ({ definition
     const message = await SessionPrompt.promptWithAutomationContext(
       {
         sessionID,
+        automationID: definition.id,
         model: definition.model,
         ...(definition.variant ? { variant: definition.variant } : {}),
         parts: [{ type: "text", text: definition.prompt }],

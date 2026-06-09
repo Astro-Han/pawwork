@@ -557,7 +557,12 @@ describe("automation routes", () => {
       const body = await response.json()
 
       expect(response.status).toBe(422)
-      expect(body.details).toEqual([{ field: "context", message: "unsupported_continue_with_worktree" }])
+      // Via HTTP a continue create is doubly invalid: it cannot combine a worktree
+      // with continue, and it has no bindable source. Both reasons are reported.
+      expect(body.details).toEqual([
+        { field: "context", message: "unsupported_continue_with_worktree" },
+        { field: "context", message: "unsupported_continue_without_source" },
+      ])
     })
   })
 
@@ -622,14 +627,14 @@ describe("automation routes", () => {
           [{ field: "stop.condition", message: "condition_too_long_4000" }],
         ],
         [
-          "externally supplied automation session",
-          { ...recurringInput(projectID), automationSessionID: SessionID.descending() },
-          [{ field: "automationSessionID", message: "unsupported_automation_field" }],
-        ],
-        [
           "externally supplied source session",
           { ...recurringInput(projectID), sourceSessionID: SessionID.descending() },
           [{ field: "sourceSessionID", message: "unsupported_automation_field" }],
+        ],
+        [
+          "continue without a bindable source",
+          recurringInput(projectID, { context: "continue" }),
+          [{ field: "context", message: "unsupported_continue_without_source" }],
         ],
         [
           "oneshot fireAt in the past",
@@ -749,26 +754,13 @@ describe("automation routes", () => {
     })
   })
 
-  test("rejects externally supplied automation session on update", async () => {
+  test("rejects externally supplied source session on update", async () => {
     await withAutomationApp(async ({ app, projectID }) => {
       const created = await json(app, "/automation", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(recurringInput(projectID)),
       })
-      const response = await app.request(`/automation/${created.id}`, {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ automationSessionID: SessionID.descending() }),
-      })
-
-      expect(response.status).toBe(422)
-      expect(await response.json()).toEqual({
-        error: "invalid_automation",
-        details: [{ field: "automationSessionID", message: "unsupported_automation_field" }],
-      })
-      expect(Automation.get(created.id)).not.toHaveProperty("automationSessionID")
-
       const sourceResponse = await app.request(`/automation/${created.id}`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
@@ -781,6 +773,53 @@ describe("automation routes", () => {
         details: [{ field: "sourceSessionID", message: "unsupported_automation_field" }],
       })
       expect(Automation.get(created.id)).not.toHaveProperty("sourceSessionID")
+    })
+  })
+
+  test("rejects switching a fresh automation to continue on update", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const created = await json(app, "/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(recurringInput(projectID)),
+      })
+      const response = await app.request(`/automation/${created.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ context: "continue" }),
+      })
+      expect(response.status).toBe(422)
+      expect(await response.json()).toEqual({
+        error: "invalid_automation",
+        details: [{ field: "context", message: "unsupported_context_change" }],
+      })
+      expect(Automation.get(created.id).context).toBe("fresh")
+    })
+  })
+
+  test("rejects switching a continue automation to fresh on update and keeps the source binding", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      // A continue automation can only be created with a source (the tool path),
+      // so seed one directly rather than through the source-less HTTP create.
+      const sourceSessionID = SessionID.descending()
+      const created = Automation.create(recurringInput(projectID, { context: "continue" }), { sourceSessionID })
+      expect(created.sourceSessionID).toBe(sourceSessionID)
+
+      const response = await app.request(`/automation/${created.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ context: "fresh" }),
+      })
+
+      expect(response.status).toBe(422)
+      expect(await response.json()).toEqual({
+        error: "invalid_automation",
+        details: [{ field: "context", message: "unsupported_context_change" }],
+      })
+      // The rejected switch must not strip the source the continue run depends on.
+      const after = Automation.get(created.id)
+      expect(after.context).toBe("continue")
+      expect(after.sourceSessionID).toBe(sourceSessionID)
     })
   })
 

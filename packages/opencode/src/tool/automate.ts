@@ -50,7 +50,7 @@ export function formatAutomateValidationError(error: unknown) {
     "Invalid automate input.",
     "Expected: { title, prompt, cron, recurring?, continueSession?, timezone?, model?, variant? }.",
     'cron is a 5-field cron expression (e.g. "0 9 * * *" = 09:00 daily). recurring defaults to true; set it false for a one-shot that fires at the next cron match.',
-    "continueSession defaults to false (each run starts a fresh session); set it true so a recurring automation continues in its own persistent session and remembers prior runs.",
+    "continueSession defaults to false (each run executes in its own fresh background session); set it true to run the automation as a loop inside this conversation, appending every run to the current chat so it remembers prior runs.",
     'timezone defaults to the host timezone. model, when given, is a "providerID/modelID" string and otherwise defaults to this session\'s model; variant is an optional reasoning-effort key for that model.',
     'Example: { title: "Daily repo brief", prompt: "Summarize repo changes.", cron: "0 9 * * *" }.',
     detail,
@@ -92,7 +92,7 @@ export function createAutomateDefinition(
 ): Tool.DefWithoutID<typeof AutomateParameters, { automationDefinition: Automation.Definition }> {
   return {
     description:
-      "Create an Automation that re-runs a prompt on a schedule. Provide a title, the prompt, and a 5-field cron expression; project, timezone, and model default to the current session. By default each run starts a fresh session; set continueSession true so a recurring automation keeps working in one persistent session that remembers prior runs (the automation's own working thread, not this chat). It repeats until the user pauses or deletes it in the Automations panel. This only stores the definition; it does not run the prompt now.",
+      "Create an Automation that re-runs a prompt on a schedule. Provide a title, the prompt, and a 5-field cron expression; project, timezone, and model default to the current session. By default each run executes in its own fresh background session. Set continueSession true to instead run it as a loop inside THIS conversation: every run is appended to the current chat and sees the previous ones, so the user follows it here and pauses or deletes it from the Automations panel — and deleting this conversation deletes the automation with it. It repeats until paused or deleted. This only stores the definition; it does not run the prompt now.",
     parameters: AutomateParameters,
     formatValidationError: formatAutomateValidationError,
     execute: (params, ctx) =>
@@ -123,11 +123,12 @@ export function createAutomateDefinition(
         const now = Date.now()
         const parsed = yield* Effect.try({
           try: () => {
-            // context defaults to "fresh" (a new session per run). continueSession
-            // opts into "continue", reusing the automation's own persistent
-            // session so a recurring run remembers prior runs. Default-fresh is
-            // the safe side: defaulting to continue would let a recurring
-            // automation silently grow its session unbounded across many fires.
+            // context defaults to "fresh" (each run gets its own background
+            // session). continueSession opts into "continue", which runs the
+            // automation inside THIS conversation (sourceSessionID): every run
+            // appends to the current chat and sees prior runs. Default-fresh is
+            // the safe side: defaulting to continue would attach every automation
+            // the model creates to the live conversation.
             const common = {
               title: params.title,
               prompt: params.prompt,
@@ -160,8 +161,8 @@ export function createAutomateDefinition(
           },
           catch: readableAutomationError,
         })
-        // sourceSessionID always comes from ctx, never from input, so a model
-        // cannot spoof it; automationSessionID is not on the surface.
+        // sourceSessionID always comes from ctx (this conversation), never from
+        // input, so a model cannot spoof which chat a continue automation runs in.
         const definition = yield* automation
           .create(parsed, { now, sourceSessionID: ctx.sessionID })
           .pipe(Effect.mapError(readableAutomationError))

@@ -199,6 +199,8 @@ export const dict: Record<string, string> = {
   "ui.tool.skill": "Used Skill",
   "ui.tool.automate.creating": "Creating automation",
   "ui.tool.automate.created": "Automation created",
+  "ui.tool.automate.session.fresh": "New session each run",
+  "ui.tool.automate.session.continue": "Loops in this conversation",
 
   "ui.basicTool.called": "Called `{{tool}}`",
   "ui.toolErrorCard.failed": "Failed",
@@ -230,6 +232,7 @@ export const dict: Record<string, string> = {
   "ui.message.copyMessage": "Copy message",
   "ui.message.forkMessage": "Fork to new session",
   "ui.message.revertMessage": "Revert message",
+  "ui.message.automationTag": "Auto-sent",
   "ui.message.copyResponse": "Copy response",
   "ui.message.copied": "Copied",
   "ui.message.duration.seconds": "{{count}}s",

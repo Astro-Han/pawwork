@@ -1541,6 +1541,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         time: { created: createdAt },
         tools: input.tools,
         agent: ag.name,
+        ...(input.automationID ? { automationID: input.automationID } : {}),
         model: {
           providerID: model.providerID,
           modelID: model.modelID,
@@ -2806,6 +2807,9 @@ const { runPromise } = makeRuntime(Service, defaultLayer)
 export const PromptInput = z.object({
   sessionID: SessionID.zod,
   messageID: MessageID.zod.optional(),
+  // Stamped onto the user message when an automation run drives this prompt, so
+  // the conversation can mark which turns it sent rather than the user typing.
+  automationID: z.string().optional(),
   model: z
     .object({
       providerID: ProviderID.zod,
@@ -2880,7 +2884,12 @@ export const PromptInput = z.object({
 export type PromptInput = z.infer<typeof PromptInput>
 
 export async function prompt(input: PromptInput) {
-  return runPromise((svc) => svc.prompt(PromptInput.parse(input)))
+  // automationID is automation-run provenance, set only by the runner through
+  // promptWithAutomationContext (which also provides the trusted
+  // AutomationRunContext). Strip any client-supplied value here so HTTP callers
+  // (POST /:sessionID/message, /prompt_async both route through this) cannot
+  // forge the "sent via automation" attribution.
+  return runPromise((svc) => svc.prompt(PromptInput.parse({ ...input, automationID: undefined })))
 }
 
 export async function promptWithAutomationContext(

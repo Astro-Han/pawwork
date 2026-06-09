@@ -66,13 +66,19 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
     return new Intl.DateTimeFormat(i18n.locale(), { timeStyle: "short" }).format(created)
   })
 
-  const metaHead = createMemo(() => {
-    const agent = props.message.agent
-    const items = [agent ? agent[0]?.toUpperCase() + agent.slice(1) : "", model()]
-    return items.filter((x) => !!x).join(" · ")
+  // An automation run produced this message rather than the user typing it.
+  // Tag it in the footer meta, emphasized above the weak model/time (value
+  // contrast, no separator glyph) so the source reads at a glance, and link the
+  // tag back to the automation (it brightens to brand on hover).
+  const sentViaAutomation = createMemo(() => {
+    const id = props.message.automationID
+    return typeof id === "string" && id ? id : undefined
   })
-
-  const metaTail = stamp
+  const clickableAutomation = createMemo(() => !!(sentViaAutomation() && data.navigateToAutomation))
+  const openAutomation = () => {
+    const id = sentViaAutomation()
+    if (id && data.navigateToAutomation) data.navigateToAutomation(id)
+  }
 
   const openImagePreview = (url: string, alt?: string) => {
     dialog.show(() => <ImagePreview src={url} alt={alt} />)
@@ -153,21 +159,43 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
 
   const renderMetaAndActions = () => (
     <div data-slot="user-message-copy-wrapper">
-      <Show when={metaHead() || metaTail()}>
+      <Show when={sentViaAutomation() || model() || stamp()}>
         <span data-slot="user-message-meta-wrap">
-          <Show when={metaHead()}>
+          <Show when={sentViaAutomation()}>
+            <Show
+              when={clickableAutomation()}
+              fallback={
+                <span
+                  data-slot="user-message-automation-badge"
+                  class="text-body text-fg-strong font-emphasis cursor-default"
+                >
+                  {i18n.t("ui.message.automationTag")}
+                </span>
+              }
+            >
+              <button
+                type="button"
+                data-slot="user-message-automation-badge"
+                data-clickable="true"
+                class="text-body text-fg-strong font-emphasis hover:text-brand-primary cursor-pointer"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  openAutomation()
+                }}
+              >
+                {i18n.t("ui.message.automationTag")}
+              </button>
+            </Show>
+          </Show>
+          <Show when={model()}>
             <span data-slot="user-message-meta" class="text-body text-fg-weak cursor-default">
-              {metaHead()}
+              {model()}
             </span>
           </Show>
-          <Show when={metaHead() && metaTail()}>
-            <span data-slot="user-message-meta-sep" class="text-body text-fg-weak cursor-default">
-              {" · "}
-            </span>
-          </Show>
-          <Show when={metaTail()}>
+          <Show when={stamp()}>
             <span data-slot="user-message-meta-tail" class="text-body text-fg-weak cursor-default">
-              {metaTail()}
+              {stamp()}
             </span>
           </Show>
         </span>
