@@ -30,7 +30,6 @@ import {
   type TimelineFrame,
 } from "@/pages/session/timeline-frame"
 import { TimelineRowRenderer } from "@/pages/session/timeline-row-renderer"
-import { timelineMessageRowStyle } from "@/pages/session/timeline-row-layout"
 import type { TimelineVirtualizerBridge } from "@/pages/session/timeline-virtualizer-bridge"
 import {
   areMessageCommentsEqual,
@@ -300,7 +299,6 @@ export function MessageTimeline(props: {
           "min-w-0 w-full max-w-full": true,
           "md:max-w-[800px] 2xl:max-w-[1000px]": props.centered,
         }}
-        style={timelineMessageRowStyle({ mode: frameRenderMode(), active: active() })}
       >
         <SessionMessageComments comments={comments()} />
         <SessionTurn
@@ -412,9 +410,11 @@ export function MessageTimeline(props: {
           onScroll={(e) => {
             const el = e.currentTarget
             const metrics = collectTimelineScrollMetrics(el)
+            const userInitiated = props.hasScrollGesture()
             const controllerResult = props.onTimelineScrollObservation({
               type: "scroll_sample",
               metrics,
+              userInitiated,
             })
             if (!controllerResult.accepted) return
             const max = Math.max(0, el.scrollHeight - el.clientHeight)
@@ -423,7 +423,7 @@ export function MessageTimeline(props: {
               scroll_height: el.scrollHeight,
               client_height: el.clientHeight,
               distance_from_bottom: Math.max(0, max - el.scrollTop),
-              user_scrolled: props.hasScrollGesture(),
+              user_scrolled: userInitiated,
               jump_button_visible: props.scroll.overflow && props.scroll.jump && !staging.isStaging(),
             }
             if (scrollSampleFrame === undefined) {
@@ -444,7 +444,7 @@ export function MessageTimeline(props: {
             }
             props.onScheduleScrollState(e.currentTarget)
             props.onTurnBackfillScroll()
-            if (!props.hasScrollGesture()) return
+            if (!userInitiated) return
             props.onUserScroll()
             props.onMarkScrollGesture(e.currentTarget)
           }}

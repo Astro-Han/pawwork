@@ -313,7 +313,17 @@ export function createSessionTimelineInteraction(input: {
       const viewport = scrollDock.scroller()
       if (viewport) next = { ...observation, safePosition: sampleAnchor() }
     }
-    return scrollController.observe(next)
+
+    const result = scrollController.observe(next)
+    if (
+      next.type === "scroll_sample" &&
+      next.userInitiated === false &&
+      !next.metrics.nearBottom &&
+      result.mode === "following_latest"
+    ) {
+      reconciler.restoreNow("scroll-drift", next.safePosition)
+    }
+    return result
   }
 
   const submitLatest = () => {

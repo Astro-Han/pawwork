@@ -24,14 +24,17 @@ function readMessagePartSources() {
   ].join("\n")
 }
 
-test("assistant part renderers capture item values before passing them to Part", () => {
+test("assistant part renderers keep standalone parts stable and trow slots reactive", () => {
   const source = readMessagePartSources()
 
   expect(source).toContain("function latestDefined")
   expect(source).not.toContain("<Show when={item()} keyed>")
   expect(source).not.toMatch(/part=\{item\(\)!?\}/)
   expect(source).not.toMatch(/defaultOpen=\{partDefaultOpen\(item\(\)!?/)
-  expect(source).not.toMatch(/message=\{message\(\)!?\}/)
+  expect(source).toContain("const renderPart = (part: Accessor<TrowPart>)")
+  expect(source).toContain("renderPart={renderPart}")
+  expect(source).toContain("part={part()}")
+  expect(source).toContain("defaultOpen={defaultOpen()}")
 })
 
 test("tool file accordions account for tool content gap in sticky offset", () => {

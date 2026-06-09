@@ -104,6 +104,19 @@ describe("timeline scroll reconciler", () => {
     expect(sink.records()).toHaveLength(1)
   })
 
+  test("restores an anchor immediately without scheduling a frame", () => {
+    const viewport = makeViewport({ scrollTop: 120, clientHeight: 400, scrollHeight: 1000 })
+    const { reconciler, frames, sink, diagnostics } = setup({ viewport, anchor: () => ({ kind: "latest" }) })
+
+    expect(reconciler.restoreNow("scroll-drift", { kind: "latest" })).toBe("pinned")
+
+    expect(frames.pendingCount()).toBe(0)
+    expect(viewport.scrollTop).toBe(600)
+    expect(sink.records()).toHaveLength(1)
+    expect(sink.records()[0]).toMatchObject({ type: "bottom-follow", top: 600 })
+    expect(diagnostics.at(-1)).toMatchObject({ reason: "scroll-drift", outcome: "pinned" })
+  })
+
   test("skips the write when already within minDelta of the anchor", () => {
     const viewport = makeViewport({ scrollTop: 600, clientHeight: 400, scrollHeight: 1000 })
     const { reconciler, frames, sink, diagnostics } = setup({ viewport, anchor: () => ({ kind: "latest" }) })
