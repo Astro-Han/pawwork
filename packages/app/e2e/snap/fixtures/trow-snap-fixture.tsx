@@ -63,10 +63,15 @@ function renderCommandPart(prefix: string, openTool?: string) {
     return (
       <Show when={tool()}>
         {(tool) => {
-          const input = tool().state.input ?? {}
-          const command = typeof input.command === "string" ? input.command : ""
-          const description = typeof input.description === "string" ? input.description : undefined
-          const output = tool().state.status === "completed" ? tool().state.output : ""
+          const command = () => {
+            const input = tool().state.input ?? {}
+            return typeof input.command === "string" ? input.command : ""
+          }
+          const description = () => {
+            const input = tool().state.input ?? {}
+            return typeof input.description === "string" ? input.description : undefined
+          }
+          const output = () => tool().state.status === "completed" ? tool().state.output : ""
           return (
             <div data-slot="trow-result-body" data-timeline-anchor={`tool:${tool().id}`}>
               <BasicTool
@@ -74,9 +79,9 @@ function renderCommandPart(prefix: string, openTool?: string) {
                 status={tool().state.status}
                 defaultOpen={tool().id === openTool}
                 stateKey={`${prefix}:${tool().id}`}
-                trigger={{ title: "执行命令", subtitle: description }}
+                trigger={{ title: "执行命令", subtitle: description() }}
               >
-                <BashOutput command={command} output={output} />
+                <BashOutput command={command()} output={output()} />
               </BasicTool>
             </div>
           )
@@ -104,23 +109,22 @@ function renderRegisteredTool(prefix: string, openTool?: string | readonly strin
     return (
       <Show when={tool()}>
         {(tool) => {
-          const component = ToolRegistry.render(tool().tool)
-          const state = tool().state
-          const input = state.input ?? {}
-          const output = state.status === "completed" ? state.output : undefined
-          const metadata = state.status === "completed" ? (state.metadata ?? {}) : {}
-          const open =
+          const component = () => ToolRegistry.render(tool().tool)
+          const input = () => tool().state.input ?? {}
+          const output = () => tool().state.status === "completed" ? tool().state.output : undefined
+          const metadata = () => tool().state.status === "completed" ? (tool().state.metadata ?? {}) : {}
+          const open = () =>
             Array.isArray(openTool) ? openTool.includes(tool().id) : tool().id === (openTool ?? "websearch-real")
           return (
             <div data-slot="trow-result-body" data-timeline-anchor={`tool:${tool().id}`}>
               <Dynamic
-                component={component}
-                input={input}
+                component={component()}
+                input={input()}
                 tool={tool().tool}
-                metadata={metadata}
-                output={output}
-                status={state.status}
-                defaultOpen={open}
+                metadata={metadata()}
+                output={output()}
+                status={tool().state.status}
+                defaultOpen={open()}
                 stateKey={`${prefix}:${tool().id}`}
               />
             </div>
