@@ -70,6 +70,37 @@ test("keeps the same body mounted when a single trow grows into a group", async 
   block.dispose()
 })
 
+test("keeps single trow summary out of keyboard and assistive paths", async () => {
+  const { mountTrowBlock, tool } = await loadFixture()
+  const block = mountTrowBlock([tool("first", "bash")])
+
+  const bodyBefore = block.body()
+  const summaryBefore = block.summary()
+  expect(bodyBefore).not.toBeNull()
+  expect(summaryBefore).not.toBeNull()
+  expect(summaryBefore?.getAttribute("aria-hidden")).toBe("true")
+  expect(summaryBefore?.getAttribute("tabindex")).toBe("-1")
+  expect(summaryBefore?.tabIndex).toBe(-1)
+
+  const click = new MouseEvent("click", { bubbles: true, cancelable: true })
+  expect(summaryBefore!.dispatchEvent(click)).toBe(false)
+  expect(block.details()?.open).toBe(true)
+
+  const enter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })
+  expect(summaryBefore!.dispatchEvent(enter)).toBe(false)
+  expect(block.details()?.open).toBe(true)
+
+  block.setParts([tool("first", "bash"), tool("second", "grep")])
+  await Promise.resolve()
+
+  expect(block.body()).toBe(bodyBefore)
+  expect(block.summary()).toBe(summaryBefore)
+  expect(block.summary()?.getAttribute("aria-hidden")).toBeNull()
+  expect(block.summary()?.getAttribute("tabindex")).toBeNull()
+
+  block.dispose()
+})
+
 test("updates an existing trow row without remounting it", async () => {
   const { mountTrowBlock, tool } = await loadFixture()
   const block = mountTrowBlock([tool("first", "bash", "before")])

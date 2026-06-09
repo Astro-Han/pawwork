@@ -210,6 +210,11 @@ export function TrowBlock(props: TrowBlockProps) {
       </Switch>
     )
   }
+  const preventSingleSummaryToggle = (event: MouseEvent | KeyboardEvent) => {
+    if (!single()) return
+    event.preventDefault()
+    event.stopPropagation()
+  }
 
   return (
     <div
@@ -222,12 +227,21 @@ export function TrowBlock(props: TrowBlockProps) {
         open={open()}
         onToggle={(event) => {
           const el = event.currentTarget as HTMLDetailsElement
+          if (single()) {
+            if (!el.open) el.open = true
+            setExpanded(true)
+            return
+          }
           setExpanded(el.open)
         }}
       >
         <summary
           data-slot="trow-summary"
           data-timeline-anchor={trowBlockAnchor(props.parts)}
+          aria-hidden={single() || undefined}
+          tabIndex={single() ? -1 : undefined}
+          onClick={preventSingleSummaryToggle}
+          onKeyDown={preventSingleSummaryToggle}
         >
           <span data-slot="trow-summary-icon">
             <Icon name={leadingIcon()} />

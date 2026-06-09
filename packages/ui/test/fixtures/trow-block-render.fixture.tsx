@@ -56,6 +56,7 @@ export function mountTrowBlock(initialParts: TrowPart[]) {
     setParts,
     body: () => host.querySelector("[data-slot='trow-body']"),
     details: () => host.querySelector("details") as HTMLDetailsElement | null,
+    summary: () => host.querySelector("[data-slot='trow-summary']") as HTMLElement | null,
     tool: (id: string) => host.querySelector(`[data-testid='trow-tool-${id}']`),
     dispose: () => {
       disposeRoot()
