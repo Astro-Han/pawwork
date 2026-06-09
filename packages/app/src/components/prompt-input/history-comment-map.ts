@@ -1,5 +1,5 @@
 import type { ContextItem } from "@/context/prompt"
-import { selectionFromLines } from "@/context/file"
+import { selectionFromLines } from "@/context/file/types"
 import type { PromptHistoryComment } from "./history"
 
 /**
