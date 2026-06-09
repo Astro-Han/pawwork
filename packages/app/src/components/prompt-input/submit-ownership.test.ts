@@ -38,7 +38,6 @@ describe("detectSubmitOwnership", () => {
     const result = detectSubmitOwnership({
       isHomepage: false,
       pinned,
-      portable,
       sourceFilesystemDirectory: "/repo/main",
       routeScope: ROUTE_SCOPE,
     })
@@ -48,31 +47,24 @@ describe("detectSubmitOwnership", () => {
     }
   })
 
-  test("returns portable when on homepage and portable matches directory", () => {
+  test("returns route when on homepage and a migration snapshot matches directory", () => {
     portable.record({ sourceFilesystemDirectory: "/repo/main", ...nonEmptyPayload("hello") })
-    const snapAtCapture = portable.snapshot()
     const result = detectSubmitOwnership({
       isHomepage: true,
       pinned,
-      portable,
       sourceFilesystemDirectory: "/repo/main",
       routeScope: ROUTE_SCOPE,
     })
-    expect(result.kind).toBe("portable")
-    if (result.kind === "portable") {
-      expect(result.revision).toBe(snapAtCapture!.revision)
-      expect(result.sourceFilesystemDirectory).toBe("/repo/main")
-    }
+    expect(result.kind).toBe("route")
   })
 
-  test("returns pinned when on homepage and pinned matches directory (pinned beats portable)", () => {
+  test("returns pinned when on homepage and pinned matches directory", () => {
     portable.record({ sourceFilesystemDirectory: "/repo/main", ...nonEmptyPayload("portable") })
     pinned.adopt({ directory: "/repo/main", prompt: "deep-link" })
     const pinnedAtCapture = pinned.current()
     const result = detectSubmitOwnership({
       isHomepage: true,
       pinned,
-      portable,
       sourceFilesystemDirectory: "/repo/main",
       routeScope: ROUTE_SCOPE,
     })
@@ -83,13 +75,12 @@ describe("detectSubmitOwnership", () => {
     }
   })
 
-  test("returns route when on homepage but neither owner matches directory", () => {
-    // Portable snapshot bound to a DIFFERENT directory should not be claimed.
+  test("returns route when on homepage but no pinned owner matches directory", () => {
+    // Migration snapshots never own submit, even when bound to a different directory.
     portable.record({ sourceFilesystemDirectory: "/repo/other", ...nonEmptyPayload("elsewhere") })
     const result = detectSubmitOwnership({
       isHomepage: true,
       pinned,
-      portable,
       sourceFilesystemDirectory: "/repo/main",
       routeScope: ROUTE_SCOPE,
     })
@@ -100,27 +91,25 @@ describe("detectSubmitOwnership", () => {
     const result = detectSubmitOwnership({
       isHomepage: true,
       pinned,
-      portable,
       sourceFilesystemDirectory: "/repo/main",
       routeScope: ROUTE_SCOPE,
     })
     expect(result.kind).toBe("route")
   })
 
-  test("captured ownership is a snapshot value, not a live reference", () => {
-    portable.record({ sourceFilesystemDirectory: "/repo/main", ...nonEmptyPayload("v1") })
+  test("captured pinned ownership is a snapshot value, not a live reference", () => {
+    pinned.adopt({ directory: "/repo/main", prompt: "v1" })
     const result: SubmitOwnership = detectSubmitOwnership({
       isHomepage: true,
       pinned,
-      portable,
       sourceFilesystemDirectory: "/repo/main",
       routeScope: ROUTE_SCOPE,
     })
-    const capturedRevision = result.kind === "portable" ? result.revision : -1
+    const capturedRevision = result.kind === "pinned" ? result.revision : -1
     // Simulate user typing during the submit's await.
-    portable.record({ sourceFilesystemDirectory: "/repo/main", ...nonEmptyPayload("v2") })
+    pinned.recordEdit({ directory: "/repo/main", ...nonEmptyPayload("v2") })
     // Captured revision is frozen and now diverges from the live owner.
-    expect(portable.snapshot()!.revision).not.toBe(capturedRevision)
+    expect(pinned.current()!.revision).not.toBe(capturedRevision)
     expect(capturedRevision).toBeGreaterThan(0)
   })
 })
@@ -134,7 +123,7 @@ describe("revision-guarded clear and restore", () => {
     pinned = createPinnedDraftOwner()
   })
 
-  test("portable.clear returns true and empties owner when revision matches", () => {
+  test("migration owner clear returns true and empties owner when revision matches", () => {
     portable.record({ sourceFilesystemDirectory: "/repo/main", ...nonEmptyPayload("hello") })
     const captured = portable.snapshot()!.revision
     const cleared = portable.clear(captured)
@@ -142,7 +131,7 @@ describe("revision-guarded clear and restore", () => {
     expect(portable.snapshot()).toBeNull()
   })
 
-  test("portable.clear returns false and leaves owner when revision diverged", () => {
+  test("migration owner clear returns false and leaves owner when revision diverged", () => {
     portable.record({ sourceFilesystemDirectory: "/repo/main", ...nonEmptyPayload("hello") })
     const captured = portable.snapshot()!.revision
     // User types new content during the submit await.
@@ -178,7 +167,7 @@ describe("revision-guarded clear and restore", () => {
     expect(pinned.current()!.prompt[0]).toMatchObject({ content: "typed-new" })
   })
 
-  test("portable revision moves monotonically across record/clear cycles", () => {
+  test("migration owner revision moves monotonically across record cycles", () => {
     portable.record({ sourceFilesystemDirectory: "/repo/main", ...nonEmptyPayload("v1") })
     const r1 = portable.snapshot()!.revision
     portable.record({ sourceFilesystemDirectory: "/repo/main", ...nonEmptyPayload("v2") })

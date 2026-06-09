@@ -1,22 +1,20 @@
-// Owner mirror effect — single source of truth for portable/pinned draft
-// recording. Extracted from editor-input.ts so the decision logic can be
-// exercised end-to-end in isolation.
+// Owner mirror effect — single source of truth for pinned draft recording.
+// Extracted from editor-input.ts so the decision logic can be exercised
+// end-to-end in isolation.
 //
 // The mirror folds three protections into one place:
 //
 // 1. {defer: true} skips the mount-time invocation. At mount the prompt is
-//    typically DEFAULT_PROMPT (empty payload) — without defer this would call
-//    portable.record() / pinned.recordEdit() with empty before the hydration
-//    logic in editor-input.ts has a chance to apply pinned prefill or consume
-//    a portable carry. defer is a SolidJS framework primitive; the unit test
-//    trusts SolidJS to honor it and only exercises applyOwnerMirrorTick.
+//    typically DEFAULT_PROMPT (empty payload) — without defer this could call
+//    pinned.recordEdit() with empty before the hydration logic in
+//    editor-input.ts has a chance to apply pinned prefill. defer is a SolidJS
+//    framework primitive; the unit test trusts SolidJS to honor it and only
+//    exercises applyOwnerMirrorTick.
 //
 // 2. lastSeenDir / lastSeenSessionID skip the first fire after a route scope
-//    change. prompt.current() in the binding is session-keyed by {dir, id};
-//    a homepage A → homepage B navigation flips it to the new session's
-//    empty default, which would otherwise wake this effect and record an
-//    empty payload against the NEW directory, destroying the snapshot held
-//    for the OLD directory before the hydration effect can move it.
+//    change. Pinned deep-link hydration runs in a sibling effect; skipping the
+//    scope-change tick prevents an empty homepage from overwriting the pinned
+//    slot before hydration can project it.
 //
 // 3. composing() is tracked so the false→true and true→false transitions
 //    both wake the effect. Most browsers emit an additional input event
@@ -29,7 +27,6 @@ import { createEffect, on } from "solid-js"
 import type { ContextItem, ImageAttachmentPart, Prompt } from "@/context/prompt"
 import type { ResolvedMention } from "./mention-metadata"
 import type { PinnedDraftOwner } from "./pinned-draft"
-import type { PortableDraftOwner } from "./portable-draft"
 
 export interface OwnerMirrorState {
   lastSeenDir: string
@@ -47,7 +44,7 @@ export interface OwnerMirrorTickInputs {
 
 export type OwnerMirrorTickOutcome =
   | "recorded-pinned"
-  | "recorded-portable"
+  | "skip-unpinned-homepage"
   | "skip-composing"
   | "skip-session"
   | "skip-scope"
@@ -63,7 +60,6 @@ export function applyOwnerMirrorTick(
   inputs: OwnerMirrorTickInputs,
   state: OwnerMirrorState,
   pinned: PinnedDraftOwner,
-  portable: PortableDraftOwner,
 ): OwnerMirrorTickOutcome {
   if (inputs.compose) return "skip-composing"
 
@@ -92,14 +88,7 @@ export function applyOwnerMirrorTick(
     })
     return "recorded-pinned"
   }
-  portable.record({
-    sourceFilesystemDirectory: inputs.dir,
-    prompt: inputs.parts,
-    context: inputs.contextItems.slice(),
-    images: [...inputs.images],
-    resolvedMentions: resolvedMentionsMap,
-  })
-  return "recorded-portable"
+  return "skip-unpinned-homepage"
 }
 
 export interface OwnerMirrorDeps {
@@ -109,7 +98,6 @@ export interface OwnerMirrorDeps {
   directory: () => string
   sessionID: () => string | undefined
   composing: () => boolean
-  portable: PortableDraftOwner
   pinned: PinnedDraftOwner
 }
 
@@ -134,7 +122,6 @@ export function createOwnerMirrorEffect(deps: OwnerMirrorDeps): void {
           { parts, contextItems, images, dir, sessionID, compose },
           state,
           deps.pinned,
-          deps.portable,
         )
       },
       { defer: true },

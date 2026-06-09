@@ -365,11 +365,12 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
           items={contextItems()}
           active={(item) => {
             const active = comments.active()
-            return !!item.commentID && item.commentID === active?.id && item.path === active?.file
+            const commentPath = item.commentPath ?? item.path
+            return !!item.commentID && item.commentID === active?.id && commentPath === active?.file
           }}
           openComment={openComment}
           remove={(item) => {
-            if (item.commentID) comments.remove(item.path, item.commentID)
+            if (item.commentID) comments.remove(item.commentPath ?? item.path, item.commentID)
             prompt.context.remove(item.key)
           }}
           t={(key) => language.t(key as Parameters<typeof language.t>[0])}

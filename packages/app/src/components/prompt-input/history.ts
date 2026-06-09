@@ -8,7 +8,10 @@ export const MAX_HISTORY = 100
 
 export type PromptHistoryComment = {
   id: string
+  /** File path used for model/file attachment resolution. May be absolute across workspace switches. */
   path: string
+  /** Path key used by the comments store and file UI. Usually workspace-relative. */
+  commentPath?: string
   selection: SelectedLineRange
   comment: string
   time: number
@@ -111,6 +114,7 @@ export function prependHistoryEntry(
 function isCommentEqual(commentA: PromptHistoryComment, commentB: PromptHistoryComment) {
   return (
     commentA.path === commentB.path &&
+    commentA.commentPath === commentB.commentPath &&
     commentA.comment === commentB.comment &&
     commentA.origin === commentB.origin &&
     commentA.preview === commentB.preview &&

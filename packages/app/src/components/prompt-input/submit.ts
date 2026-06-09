@@ -19,7 +19,6 @@ import { reportInvariantBreach } from "./invariant"
 import { formatServerError } from "@/utils/server-errors"
 import { canSubmitPrompt } from "@/pages/session/session-action-readiness"
 import { type PromptRouteScope, promptScopeForSession } from "@/pages/session/prompt-route-scope"
-import { usePortableDraft } from "./portable-draft"
 import { usePinnedDraft } from "./pinned-draft"
 import type { FollowupDraft } from "./followup-draft"
 import { detectSubmitOwnership, type SubmitOwnership } from "./submit-ownership"
@@ -67,7 +66,6 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   const layout = useLayout()
   const language = useLanguage()
   const params: Accessor<{ dir?: string; id?: string }> = input.routeParams ?? (() => ({}))
-  const portable = usePortableDraft()
   const pinned = usePinnedDraft()
   const sessionID = input.sessionID ?? (() => params().id)
   const isNewSession = input.isNewSession ?? (() => !sessionID())
@@ -164,15 +162,12 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       id: routeParams.id,
     }
 
-    // Capture submit ownership BEFORE any await. Reading pinned.current() and
-    // portable.snapshot() here freezes the revision at submit time; if the user
-    // types into the editor during the await, the owner's live revision bumps
-    // past this value and confirmOwnerCleared will refuse to wipe under that
-    // mismatch — preserving the post-submit typing.
+    // Capture submit ownership BEFORE any await. Reading pinned.current() here
+    // freezes the revision at submit time; if the user edits a pinned prefill
+    // during the await, confirmOwnerCleared refuses to wipe under that mismatch.
     const ownership: SubmitOwnership = detectSubmitOwnership({
       isHomepage: submittedIsHomepage,
       pinned,
-      portable,
       sourceFilesystemDirectory: projectDirectory,
       routeScope: sourcePromptScope,
     })
@@ -297,7 +292,6 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const lifecycle = createPromptDraftLifecycle({
       prompt,
       pinned,
-      portable,
       params,
       ownership,
       sourcePromptScope,
@@ -314,15 +308,14 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     })
 
     if (!creatingNewSession && mode === "normal" && input.shouldQueue?.()) {
-      // Queue path is unreachable for portable/pinned homepage submits because
-      // shouldQueue only fires when !creatingNewSession — homepage submits always
-      // create a new session. SubmitOwnership.kind is always "route" here.
+      // Queue path is unreachable for homepage submits because shouldQueue only
+      // fires when !creatingNewSession — homepage submits always create a new
+      // session. SubmitOwnership.kind is always "route" here.
       input.onQueue?.(draft)
       lifecycle.clearContext()
       lifecycle.clearInput()
-      // Queue path is synchronous; tear down owner snapshot immediately.
-      // ownership.kind is "route" here (see comment above), so this is a no-op
-      // for the only kind reachable, but the call is kept for parity.
+      // Queue path is synchronous; confirm immediately for parity with the
+      // asynchronous send paths.
       lifecycle.confirmOwnerCleared()
       return
     }

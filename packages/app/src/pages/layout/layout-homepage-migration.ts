@@ -24,7 +24,7 @@ export function useHomepageMigration(input: { currentDir: () => string; platform
 
     const portable = usePortableDraft()
     const sentinelTarget = Persist.global(HOMEPAGE_MIGRATION_SENTINEL_KEY)
-    const { read: readRaw, write: writeRaw, remove: removeRaw } = createMigrationStorageIO(input.platform)
+    const { read: readRaw, write: writeRaw } = createMigrationStorageIO(input.platform)
 
     void runHomepageMigration({
       portable,
@@ -50,13 +50,6 @@ export function useHomepageMigration(input: { currentDir: () => string; platform
         } catch {
           return null
         }
-      },
-      clearLegacyHomepage: async (dir) => {
-        // Must await: desktop removeItem is async and a rejection here must
-        // propagate up to homepage-migration's failed-sentinel path. Without
-        // the await, the migration would write status: "complete" even if
-        // the legacy store delete failed.
-        await removeRaw(Persist.workspace(dir, "prompt"))
       },
     }).catch((err) => {
       // Log diagnostic; migration retries automatically on next boot.

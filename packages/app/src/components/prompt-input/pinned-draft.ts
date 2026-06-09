@@ -1,15 +1,15 @@
 /**
- * Pinned draft owner (PR #750 T6).
+ * Pinned draft owner.
  *
  * Holds a directory-bound draft created exclusively by deep-link prefill.
- * Unlike the portable owner (which floats between homepages), the pinned slot
- * stays bound to one directory until explicitly released.
+ * It stays bound to one directory until explicitly released, separate from
+ * ordinary homepage drafts in the global prompt store.
  *
  * Key rules:
  * - Only adopt() creates a pinned slot. recordEdit() never auto-creates one.
  * - Empty content does NOT release the slot; the directory binding persists.
  * - release() / clearAll() are the only ways to destroy the slot.
- * - Submit lifecycle (T7) calls clearAll(expectedRevision) for stale-safe teardown.
+ * - Submit lifecycle calls clearAll(expectedRevision) for stale-safe teardown.
  */
 
 import { createSignal } from "solid-js"
@@ -47,7 +47,7 @@ export interface PinnedDraftOwner {
   recordEdit(input: { directory: string } & PinnedDraftPayload): void
   /**
    * Release the slot entirely. After this, current() returns null.
-   * Used by submit-success and explicit discard actions (T7).
+   * Used by submit-success and explicit discard actions.
    * Returns false if `expectedRevision` was passed and did not match (caller used stale revision).
    */
   clearAll(expectedRevision?: number): boolean

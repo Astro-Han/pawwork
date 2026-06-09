@@ -139,12 +139,11 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
     ),
   )
 
-  // Homepage owner mirror — single source of truth for portable/pinned draft
-  // recording. Runs as an effect on the prompt store so EVERY path that mutates
-  // the prompt (normal text input, Path A popover select, Path B Space-trigger,
-  // Path C paste, Backspace ladder, history navigation, attachment add/remove)
-  // automatically records into the active owner. See owner-mirror.ts for the
-  // defer / scopeChanged / composing guard semantics.
+  // Homepage owner mirror — single source of truth for pinned draft recording.
+  // Normal homepage drafts live in the global PromptProvider store; the mirror
+  // only keeps explicit deep-link pinned slots in sync while the user edits
+  // them. See owner-mirror.ts for the defer / scopeChanged / composing guard
+  // semantics.
   createOwnerMirrorEffect({
     prompt: () => prompt.current(),
     contextItems: () => prompt.context.items(),
@@ -152,7 +151,6 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
     directory: () => sdk.directory,
     sessionID: () => params.id,
     composing,
-    portable,
     pinned,
   })
 
@@ -160,7 +158,7 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
   // The prompt store, the context-item store, AND the imageAttachments accessor
   // are three independent surfaces. A homepage with chips or images is NOT
   // empty even if the text part is whitespace — using a text-only check would
-  // overwrite those surfaces on pinned/portable hydration (Bug 4).
+  // overwrite those surfaces on pinned or migration hydration.
   const isHomepageDraftEmpty = () => {
     const parts = prompt.current()
     const textIsEmpty =
@@ -178,14 +176,13 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
       ([dir, ready, sessionID]) => {
         if (!ready || !dir) return
         if (sessionID) {
-          // Concrete session route: do nothing with the portable owner.
-          portable.hide()
+          // Concrete session route: homepage draft owners do not hydrate here.
           return
         }
 
-        // Homepage route: check pinned scope BEFORE portable.
+        // Homepage route: check pinned scope before migration adoption.
         // If a pinned slot is bound to this directory, project it into the
-        // displayed prompt and suppress portable consumption for this homepage.
+        // displayed prompt and suppress migration adoption for this homepage.
         const pinnedSlot = pinned.current()
         if (pinnedSlot && pinnedSlot.directory === dir) {
           const isEmpty = isHomepageDraftEmpty()
@@ -196,26 +193,21 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
             prompt.set(pinnedSlot.prompt, undefined)
             prompt.context.replaceAll(pinnedSlot.context.map(({ key: _omit, ...rest }) => rest))
           }
-          // Do NOT fall through to portable consumption while pinned is active.
+          // Do NOT fall through to migration adoption while pinned is active.
           return
         }
 
-        // Homepage route: attempt to consume a snapshot that moved here from another homepage.
+        // Homepage route: adopt a one-shot migrated homepage draft for this
+        // directory. This preserves legacy route-scoped homepage drafts without
+        // moving ordinary drafts between workspaces.
         const isEmpty = isHomepageDraftEmpty()
-        const carry = portable.consumeForHomepage(dir, isEmpty)
-        if (!carry) return
-        // Replay the full Prompt array from the snapshot, preserving file/agent
-        // attachment parts (Bug 6). Previously this filtered to text-only and
-        // joined into a single text part, which dropped attachments.
-        prompt.set(carry.prompt, undefined)
-        // Hydrate context items atomically. Strip keys so contextItemKey regenerates
-        // them for the target route, avoiding collisions with pre-existing items.
+        const migrated = portable.restore()
+        if (!isEmpty || !migrated || migrated.sourceFilesystemDirectory !== dir) return
+        prompt.set(migrated.prompt, undefined)
         prompt.context.replaceAll(
-          carry.context.map(({ key: _omitKey, ...rest }) => rest),
+          migrated.context.map(({ key: _omitKey, ...rest }) => rest),
         )
-        // Image hydration: imageAttachments is fed by an external signal in the
-        // parent component and does not expose a setter here. File/agent parts
-        // hydrate via prompt.set above; image parts remain a follow-up.
+        portable.clear(migrated.revision)
       },
     ),
   )
@@ -273,10 +265,8 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
         prompt.set(DEFAULT_PROMPT, 0)
       }
       imperatives.queueScroll()
-      // Owner clear is handled by the homepage owner mirror effect above —
-      // setting prompt to DEFAULT_PROMPT with no context/images flips
-      // isPayloadEmpty=true, which makes portable.record() tear down the
-      // snapshot (Bug 3 still covered, just centralized).
+      // Owner clear is handled by the prompt store for ordinary homepage
+      // drafts; pinned slots are mirrored by the homepage owner effect above.
       return
     }
 

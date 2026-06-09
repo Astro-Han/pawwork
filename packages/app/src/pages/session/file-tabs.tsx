@@ -21,6 +21,7 @@ import { usePrompt } from "@/context/prompt"
 import { getSessionHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { createSessionTabs } from "@/pages/session/helpers"
+import { toAbsoluteFilePath } from "@/components/prompt-input/path-canonical"
 
 function FileCommentMenu(props: {
   moreLabel: string
@@ -246,9 +247,11 @@ export function FileTabContent(props: { tab: string }) {
       comment: input.comment,
       sourceFilesystemDirectory: sdk.directory,
     })
+    const contextPath = toAbsoluteFilePath(sdk.directory, input.file)
     prompt.context.add({
       type: "file",
-      path: input.file,
+      path: contextPath,
+      commentPath: input.file,
       selection,
       comment: input.comment,
       commentID: saved.id,
@@ -273,7 +276,7 @@ export function FileTabContent(props: { tab: string }) {
       comment: input.comment,
       sourceFilesystemDirectory: sdk.directory,
     })
-    prompt.context.updateComment(input.file, input.id, {
+    prompt.context.updateComment(toAbsoluteFilePath(sdk.directory, input.file), input.id, {
       comment: input.comment,
       resolvedMentions,
       ...(preview ? { preview } : {}),
@@ -282,7 +285,7 @@ export function FileTabContent(props: { tab: string }) {
 
   const removeCommentFromContext = (input: { id: string; file: string }) => {
     comments.remove(input.file, input.id)
-    prompt.context.removeComment(input.file, input.id)
+    prompt.context.removeComment(toAbsoluteFilePath(sdk.directory, input.file), input.id)
   }
 
   const fileComments = createMemo(() => {

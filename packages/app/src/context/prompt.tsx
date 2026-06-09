@@ -60,7 +60,10 @@ export type Prompt = ContentPart[]
 
 export type FileContextItem = {
   type: "file"
+  /** File path used for model/file attachment resolution. May be absolute across workspace switches. */
   path: string
+  /** Path key used by the comments store and file UI. Usually workspace-relative. */
+  commentPath?: string
   selection?: FileSelection
   comment?: string
   commentID?: string
@@ -139,6 +142,8 @@ function createPromptActions(
 }
 
 const WORKSPACE_KEY = "__workspace__"
+export const GLOBAL_HOMEPAGE_PROMPT_STORAGE_KEY = "prompt-homepage"
+const GLOBAL_HOMEPAGE_PROMPT_DIR = "__homepage__"
 const MAX_PROMPT_SESSIONS = 20
 
 type PromptSession = ReturnType<typeof createPromptSession>
@@ -166,7 +171,7 @@ type PromptBindingSession = {
     removeComment: (path: string, commentID: string) => void
     updateComment: (path: string, commentID: string, next: Partial<FileContextItem> & { comment?: string }) => void
     replaceComments: (items: FileContextItem[]) => void
-    /** Atomic full-replace: swaps ALL context items at once. Used by carry hydration and failure restore. */
+    /** Atomic full-replace: swaps ALL context items at once. Used by migration hydration and failure restore. */
     replaceAll: (items: ContextItem[]) => void
   }
   set: (prompt: Prompt, cursorPosition?: number) => void
@@ -177,21 +182,30 @@ export function createPromptBinding(
   scope: () => Scope | undefined,
   load: (dir: string, id: string | undefined) => PromptBindingSession,
 ) {
+  const loadScope = (current: Scope): Scope => {
+    if (current.id) return current
+    return { dir: GLOBAL_HOMEPAGE_PROMPT_DIR }
+  }
   const session = () => {
     const current = scope()
     if (!current) return
-    return load(current.dir, current.id)
+    const normalized = loadScope(current)
+    return load(normalized.dir, normalized.id)
   }
-  const pick = (target?: Scope) => (target ? load(target.dir, target.id) : session())
+  const pick = (target?: Scope) => {
+    if (!target) return session()
+    const normalized = loadScope(target)
+    return load(normalized.dir, normalized.id)
+  }
 
   return {
     ready: () => session()?.ready() ?? false,
-    current: () => session()?.current() ?? clonePrompt(DEFAULT_PROMPT),
+    current: (target?: Scope) => pick(target)?.current() ?? clonePrompt(DEFAULT_PROMPT),
     cursor: () => session()?.cursor(),
     dirty: () => session()?.dirty() ?? false,
     hasDraft: (target?: Scope) => pick(target)?.hasDraft() ?? false,
     context: {
-      items: () => session()?.context.items() ?? [],
+      items: (target?: Scope) => pick(target)?.context.items() ?? [],
       add: (item: ContextItem) => session()?.context.add(item),
       remove: (key: string) => session()?.context.remove(key),
       removeComment: (path: string, commentID: string) => session()?.context.removeComment(path, commentID),
@@ -207,9 +221,13 @@ export function createPromptBinding(
 
 function createPromptSession(dir: string, id: string | undefined) {
   const legacy = `${dir}/prompt${id ? "/" + id : ""}.v2`
+  const target =
+    !id && dir === GLOBAL_HOMEPAGE_PROMPT_DIR
+      ? Persist.global(GLOBAL_HOMEPAGE_PROMPT_STORAGE_KEY)
+      : Persist.scoped(dir, id, "prompt", [legacy])
 
   const [store, setStore, _, ready] = persisted(
-    Persist.scoped(dir, id, "prompt", [legacy]),
+    target,
     createStore<{
       prompt: Prompt
       cursor?: number
@@ -264,7 +282,7 @@ function createPromptSession(dir: string, id: string | undefined) {
         ])
       },
       replaceAll(items: ContextItem[]) {
-        // Atomic full-replace used by carry hydration (portable snapshot).
+        // Atomic full-replace used by migration hydration and failure restore.
         // Regenerates keys so snapshot keys do not collide with the target route.
         setStore("context", "items", items.map((item) => ({ ...item, key: contextItemKey(item) })))
       },

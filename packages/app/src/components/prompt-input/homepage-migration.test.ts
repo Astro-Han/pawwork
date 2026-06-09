@@ -49,12 +49,10 @@ function makeDeps(overrides: Partial<HomepageMigrationDeps> & { legacy?: LegacyH
   deps: HomepageMigrationDeps
   sentinelStore: { value: MigrationSentinel | null }
   legacyStore: { value: LegacyHomepagePromptStore | null }
-  cleared: string[]
   portable: ReturnType<typeof createPortableDraftOwner>
 } {
   const sentinelStore: { value: MigrationSentinel | null } = { value: null }
   const legacyStore: { value: LegacyHomepagePromptStore | null } = { value: overrides.legacy ?? null }
-  const cleared: string[] = []
   const portable = createPortableDraftOwner()
 
   const deps: HomepageMigrationDeps = {
@@ -62,9 +60,6 @@ function makeDeps(overrides: Partial<HomepageMigrationDeps> & { legacy?: LegacyH
     currentDirectory: "/workspace/my-project",
     now: () => 1000,
     loadLegacyHomepage: async (_dir) => legacyStore.value,
-    clearLegacyHomepage: async (dir) => {
-      cleared.push(dir)
-    },
     readSentinel: async () => sentinelStore.value,
     writeSentinel: async (s) => {
       sentinelStore.value = s
@@ -72,7 +67,7 @@ function makeDeps(overrides: Partial<HomepageMigrationDeps> & { legacy?: LegacyH
     ...overrides,
   }
 
-  return { deps, sentinelStore, legacyStore, cleared, portable }
+  return { deps, sentinelStore, legacyStore, portable }
 }
 
 // ---------------------------------------------------------------------------
@@ -86,7 +81,7 @@ describe("runHomepageMigration", () => {
       attemptedAt: 500,
       adoptedDirectory: "/workspace/my-project",
     }
-    const { deps, sentinelStore, cleared, portable } = makeDeps({
+    const { deps, sentinelStore, portable } = makeDeps({
       legacy: legacyStoreWithText("hello"),
     })
     sentinelStore.value = existingSentinel
@@ -95,11 +90,10 @@ describe("runHomepageMigration", () => {
 
     expect(result).toBe(existingSentinel)
     expect(portable.snapshot()).toBeNull()
-    expect(cleared).toHaveLength(0)
   })
 
   test("subsequent calls with complete sentinel skip the work entirely", async () => {
-    const { deps, sentinelStore, cleared, portable } = makeDeps({
+    const { deps, sentinelStore, portable } = makeDeps({
       legacy: legacyStoreWithText("some draft"),
     })
 
@@ -108,10 +102,8 @@ describe("runHomepageMigration", () => {
     expect(first.status).toBe("complete")
     const snapshotAfterFirst = portable.snapshot()
     expect(snapshotAfterFirst).not.toBeNull()
-    expect(cleared).toHaveLength(1)
 
-    // Reset cleared array but keep sentinel as complete.
-    cleared.length = 0
+    // Keep sentinel as complete.
     // Simulate portal state being reset (new boot simulation).
     const portable2 = createPortableDraftOwner()
     const deps2: HomepageMigrationDeps = {
@@ -122,11 +114,11 @@ describe("runHomepageMigration", () => {
     const second = await runHomepageMigration(deps2)
     expect(second).toBe(sentinelStore.value!) // same sentinel object returned
     expect(portable2.snapshot()).toBeNull() // no adoption on second call
-    expect(cleared).toHaveLength(0)
   })
 
-  test("adopts legacy content into portable when non-empty", async () => {
-    const { deps, portable } = makeDeps({ legacy: legacyStoreWithText("write a test") })
+  test("copies legacy content into portable when non-empty without mutating the legacy store", async () => {
+    const legacy = legacyStoreWithText("write a test")
+    const { deps, legacyStore, portable } = makeDeps({ legacy })
 
     await runHomepageMigration(deps)
 
@@ -136,14 +128,7 @@ describe("runHomepageMigration", () => {
     expect(snap?.prompt).toEqual([{ type: "text", content: "write a test", start: 0, end: 12 }])
     expect(snap?.context).toEqual([])
     expect(snap?.images).toEqual([])
-  })
-
-  test("clears the legacy store after successful adoption", async () => {
-    const { deps, cleared } = makeDeps({ legacy: legacyStoreWithText("draft content") })
-
-    await runHomepageMigration(deps)
-
-    expect(cleared).toEqual(["/workspace/my-project"])
+    expect(legacyStore.value).toBe(legacy)
   })
 
   test("writes sentinel as complete with adoptedDirectory set when content existed", async () => {
@@ -167,33 +152,13 @@ describe("runHomepageMigration", () => {
   })
 
   test("writes sentinel as complete with adoptedDirectory undefined when store is empty", async () => {
-    const { deps, sentinelStore, portable, cleared } = makeDeps({ legacy: emptyLegacyStore() })
+    const { deps, sentinelStore, portable } = makeDeps({ legacy: emptyLegacyStore() })
 
     await runHomepageMigration(deps)
 
     expect(sentinelStore.value?.status).toBe("complete")
     expect(sentinelStore.value?.adoptedDirectory).toBeUndefined()
     expect(portable.snapshot()).toBeNull()
-    // Nothing to clear when store was empty.
-    expect(cleared).toHaveLength(0)
-  })
-
-  test("does not write sentinel as complete when clearLegacy throws (status: failed, failedReason set)", async () => {
-    const { deps, sentinelStore, portable } = makeDeps({
-      legacy: legacyStoreWithText("important draft"),
-      clearLegacyHomepage: async () => {
-        throw new Error("disk full")
-      },
-    })
-
-    const result = await runHomepageMigration(deps)
-
-    expect(result.status).toBe("failed")
-    expect(result.failedReason).toBe("disk full")
-    expect(sentinelStore.value?.status).toBe("failed")
-    // Adoption was attempted before clear failed; portable may or may not have content —
-    // the key invariant is the sentinel is NOT complete.
-    expect(sentinelStore.value?.status).not.toBe("complete")
   })
 
   test("does not call portable.record when no legacy content exists", async () => {
@@ -205,23 +170,21 @@ describe("runHomepageMigration", () => {
   })
 
   test("does not call portable.record when only whitespace text exists", async () => {
-    const { deps, portable, cleared } = makeDeps({ legacy: legacyStoreWithText("   ") })
+    const { deps, portable } = makeDeps({ legacy: legacyStoreWithText("   ") })
 
     await runHomepageMigration(deps)
 
     expect(portable.snapshot()).toBeNull()
-    expect(cleared).toHaveLength(0)
   })
 
   test("adopts legacy content when context items are present even with empty prompt", async () => {
-    const { deps, portable, cleared } = makeDeps({ legacy: legacyStoreWithContext() })
+    const { deps, portable } = makeDeps({ legacy: legacyStoreWithContext() })
 
     await runHomepageMigration(deps)
 
     const snap = portable.snapshot()
     expect(snap).not.toBeNull()
     expect(snap?.context).toHaveLength(1)
-    expect(cleared).toHaveLength(1)
   })
 
   test("sets failed status and failedReason when loadLegacyHomepage throws", async () => {

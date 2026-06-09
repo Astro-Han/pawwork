@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, mock, spyOn, test } 
 import * as uiToast from "@opencode-ai/ui/toast"
 import type { Prompt } from "@/context/prompt"
 import type { createPromptSubmit as createPromptSubmitType } from "./submit"
-import { _portableDraftTesting, usePortableDraft } from "./portable-draft"
+import { _portableDraftTesting } from "./portable-draft"
 import { _pinnedDraftTesting, usePinnedDraft } from "./pinned-draft"
 
 type PromptSubmitInput = Parameters<typeof createPromptSubmitType>[0]
@@ -33,6 +33,7 @@ const commandDefinitions: Array<{ name: string }> = []
 let commandsReady = true
 let promptAsyncFailure: Error | undefined
 let promptAsyncGate: Promise<void> | undefined
+let sessionCreateGate: Promise<void> | undefined
 const abortedSessions: Array<{ sessionID: string; source?: string }> = []
 const globalTodoSets: Array<{ sessionID: string; todos: unknown }> = []
 const childTodoSets: Array<{ directory: string; sessionID: string; todos: unknown }> = []
@@ -72,6 +73,7 @@ const clientFor = (directory: string) => {
     session: {
       create: async () => {
         createdSessions.push(directory)
+        await sessionCreateGate
         return {
           data: {
             id: `session-${createdSessions.length}`,
@@ -294,6 +296,7 @@ beforeEach(() => {
   commandsReady = true
   promptAsyncFailure = undefined
   promptAsyncGate = undefined
+  sessionCreateGate = undefined
   abortedSessions.length = 0
   globalTodoSets.length = 0
   childTodoSets.length = 0
@@ -827,6 +830,27 @@ describe("prompt submit worktree selection", () => {
     expect(promptResetCalls.at(-1)?.target?.id).toBeUndefined()
   })
 
+  test("does not clear homepage global draft if it changed before new-session clear", async () => {
+    params = { dir: "/repo/main" }
+    promptValue = [{ type: "text", content: "old draft", start: 0, end: 9 }]
+    let releaseSessionCreate!: () => void
+    sessionCreateGate = new Promise<void>((resolve) => {
+      releaseSessionCreate = resolve
+    })
+
+    const submit = createHomepageSubmit()
+
+    const submitted = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => createdSessions.length > 0)
+
+    promptValue = [{ type: "text", content: "new draft", start: 0, end: 9 }]
+    releaseSessionCreate()
+    await submitted
+    await waitForAsyncSubmitSettled()
+
+    expect(promptResetCalls).toEqual([])
+  })
+
   const createHomepageSubmit = (overrides: Partial<PromptSubmitInput> = {}) =>
     createPromptSubmit({
       navigate: (path) => navigateImpl(path),
@@ -848,17 +872,9 @@ describe("prompt submit worktree selection", () => {
       ...overrides,
     })
 
-  test("detaches submitted portable draft before async prompt settles", async () => {
+  test("clears submitted global homepage draft before async prompt settles", async () => {
     params = { dir: "/repo/main" }
     promptValue = [{ type: "text", content: "already sent", start: 0, end: 12 }]
-    const portable = usePortableDraft()
-    portable.record({
-      sourceFilesystemDirectory: "/repo/main",
-      prompt: promptValue,
-      context: [],
-      images: [],
-      resolvedMentions: {},
-    })
 
     let releasePromptAsync!: () => void
     promptAsyncGate = new Promise<void>((resolve) => {
@@ -870,24 +886,15 @@ describe("prompt submit worktree selection", () => {
     const submitted = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
     await waitForCall(() => promptResetCalls.length > 0)
 
-    expect(portable.snapshot()).toBeNull()
-    expect(portable.consumeForHomepage("/repo/other", true)).toBeNull()
+    expect(promptResetCalls.at(-1)?.target).toEqual({ dir: "/repo/main", id: undefined })
 
     releasePromptAsync()
     await submitted
   })
 
-  test("restores submitted portable draft on async prompt failure when no new draft exists", async () => {
+  test("restores submitted global homepage draft on async prompt failure when no new draft exists", async () => {
     params = { dir: "/repo/main" }
     promptValue = [{ type: "text", content: "restore me", start: 0, end: 10 }]
-    const portable = usePortableDraft()
-    portable.record({
-      sourceFilesystemDirectory: "/repo/main",
-      prompt: promptValue,
-      context: [],
-      images: [],
-      resolvedMentions: {},
-    })
     promptAsyncFailure = new Error("network down")
 
     const submit = createHomepageSubmit()
@@ -895,7 +902,6 @@ describe("prompt submit worktree selection", () => {
     await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
     await waitForCall(() => promptSetCalls.length > 0)
 
-    expect(portable.snapshot()).toBeNull()
     expect(promptSetCalls.at(-1)).toMatchObject({
       prompt: promptValue,
       cursor: 10,
@@ -903,64 +909,9 @@ describe("prompt submit worktree selection", () => {
     })
   })
 
-  test("restores submitted portable draft while preserving a different homepage owner draft", async () => {
-    params = { dir: "/repo/main" }
-    promptValue = [{ type: "text", content: "old submit", start: 0, end: 10 }]
-    const portable = usePortableDraft()
-    portable.record({
-      sourceFilesystemDirectory: "/repo/main",
-      prompt: promptValue,
-      context: [],
-      images: [],
-      resolvedMentions: {},
-    })
-
-    let releasePromptAsync!: () => void
-    promptAsyncGate = new Promise<void>((resolve) => {
-      releasePromptAsync = resolve
-    })
-    promptAsyncFailure = new Error("network down")
-
-    const submit = createHomepageSubmit()
-
-    const submitted = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
-    await waitForCall(() => promptResetCalls.length > 0)
-
-    params = { dir: "/repo/other" }
-    const otherDraft = [{ type: "text" as const, content: "new draft", start: 0, end: 9 }]
-    portable.record({
-      sourceFilesystemDirectory: "/repo/other",
-      prompt: otherDraft,
-      context: [],
-      images: [],
-      resolvedMentions: {},
-    })
-    releasePromptAsync()
-    await submitted
-    await waitForAsyncSubmitSettled()
-
-    expect(promptSetCalls.at(-1)).toMatchObject({
-      prompt: promptValue,
-      cursor: 10,
-      target: { dir: "/repo/main", id: "session-1" },
-    })
-    expect(portable.snapshot()).toMatchObject({
-      sourceFilesystemDirectory: "/repo/other",
-      prompt: otherDraft,
-    })
-  })
-
-  test("restores submitted portable draft when a different active route is dirty", async () => {
+  test("restores submitted global homepage draft when a different active route is dirty", async () => {
     params = { dir: "/repo/main" }
     promptValue = [{ type: "text", content: "background fail", start: 0, end: 15 }]
-    const portable = usePortableDraft()
-    portable.record({
-      sourceFilesystemDirectory: "/repo/main",
-      prompt: promptValue,
-      context: [],
-      images: [],
-      resolvedMentions: {},
-    })
 
     let releasePromptAsync!: () => void
     promptAsyncGate = new Promise<void>((resolve) => {
@@ -986,7 +937,7 @@ describe("prompt submit worktree selection", () => {
     })
   })
 
-  test("restores submitted portable draft in background without changing active composer UI", async () => {
+  test("restores submitted global homepage draft in background without changing active composer UI", async () => {
     const originalRequestAnimationFrame = globalThis.requestAnimationFrame
     globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) => {
       callback(0)
@@ -995,14 +946,6 @@ describe("prompt submit worktree selection", () => {
     try {
       params = { dir: "/repo/main" }
       promptValue = [{ type: "text", content: "background ui", start: 0, end: 13 }]
-      const portable = usePortableDraft()
-      portable.record({
-        sourceFilesystemDirectory: "/repo/main",
-        prompt: promptValue,
-        context: [],
-        images: [],
-        resolvedMentions: {},
-      })
 
       const editor = document.createElement("div")
       editor.textContent = "active composer"
@@ -1042,19 +985,11 @@ describe("prompt submit worktree selection", () => {
     }
   })
 
-  test("restores submitted portable context to target scope when a different active route is dirty", async () => {
+  test("restores submitted global homepage context to target scope when a different active route is dirty", async () => {
     params = { dir: "/repo/main" }
     promptValue = [{ type: "text", content: "background context", start: 0, end: 18 }]
     const submittedContext = [{ key: "old", type: "file" as const, path: "/repo/main/old.ts", comment: "old note" }]
     promptContextItems = submittedContext
-    const portable = usePortableDraft()
-    portable.record({
-      sourceFilesystemDirectory: "/repo/main",
-      prompt: promptValue,
-      context: submittedContext,
-      images: [],
-      resolvedMentions: {},
-    })
 
     let releasePromptAsync!: () => void
     promptAsyncGate = new Promise<void>((resolve) => {
@@ -1080,17 +1015,9 @@ describe("prompt submit worktree selection", () => {
     })
   })
 
-  test("does not restore submitted portable draft over dirty active target route", async () => {
+  test("does not restore submitted global homepage draft over dirty active target route", async () => {
     params = { dir: "/repo/main" }
     promptValue = [{ type: "text", content: "same route fail", start: 0, end: 15 }]
-    const portable = usePortableDraft()
-    portable.record({
-      sourceFilesystemDirectory: "/repo/main",
-      prompt: promptValue,
-      context: [],
-      images: [],
-      resolvedMentions: {},
-    })
 
     let releasePromptAsync!: () => void
     promptAsyncGate = new Promise<void>((resolve) => {
@@ -1113,17 +1040,9 @@ describe("prompt submit worktree selection", () => {
     expect(promptSetCalls).toEqual([])
   })
 
-  test("does not restore submitted portable draft over context-only active target route", async () => {
+  test("does not restore submitted global homepage draft over context-only active target route", async () => {
     params = { dir: "/repo/main" }
     promptValue = [{ type: "text", content: "same route context", start: 0, end: 18 }]
-    const portable = usePortableDraft()
-    portable.record({
-      sourceFilesystemDirectory: "/repo/main",
-      prompt: promptValue,
-      context: [],
-      images: [],
-      resolvedMentions: {},
-    })
 
     let releasePromptAsync!: () => void
     promptAsyncGate = new Promise<void>((resolve) => {
@@ -1148,17 +1067,9 @@ describe("prompt submit worktree selection", () => {
     expect(promptHasDraftCalls.at(-1)?.target).toEqual({ dir: "/repo/main", id: "session-1" })
   })
 
-  test("does not restore submitted portable draft over inactive target route with a newer draft", async () => {
+  test("does not restore submitted global homepage draft over inactive target route with a newer draft", async () => {
     params = { dir: "/repo/main" }
     promptValue = [{ type: "text", content: "old submit", start: 0, end: 10 }]
-    const portable = usePortableDraft()
-    portable.record({
-      sourceFilesystemDirectory: "/repo/main",
-      prompt: promptValue,
-      context: [],
-      images: [],
-      resolvedMentions: {},
-    })
 
     let releasePromptAsync!: () => void
     promptAsyncGate = new Promise<void>((resolve) => {
