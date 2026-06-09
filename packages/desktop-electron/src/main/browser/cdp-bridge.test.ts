@@ -170,6 +170,23 @@ describe("CdpBridge", () => {
     expect(wc.debugger.attached).toBe(false)
   })
 
+  test("teardown fails in-flight commands instead of leaving them to time out", async () => {
+    const { wc, asWebContents } = makeWc()
+    let release: (value: unknown) => void = () => {}
+    // A command the debugger never answers on its own.
+    wc.debugger.impl = () => new Promise((resolve) => (release = resolve))
+    const { bridge, cdpEndpoint } = await startBridge(asWebContents)
+    const ws = await open(cdpEndpoint)
+    const errored = nextMessage(ws)
+    ws.send(JSON.stringify({ id: 99, method: "Page.navigate", params: {} }))
+    await new Promise((resolve) => setTimeout(resolve, 20)) // let the command register as pending
+    await bridge.stop()
+    const msg = (await errored) as { id: number; error?: { message: string } }
+    expect(msg.id).toBe(99)
+    expect(msg.error?.message).toBe("bridge closed")
+    release({}) // resolve the dangling promise so nothing leaks
+  })
+
   test("an external debugger detach tears the bridge down", async () => {
     const { wc, asWebContents } = makeWc()
     const { cdpEndpoint } = await startBridge(asWebContents)

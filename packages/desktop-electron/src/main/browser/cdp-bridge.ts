@@ -48,9 +48,13 @@ export class CdpBridge {
   private socket: WebSocket | null = null
   private port = 0
   private started = false
-
-  private readonly secret = randomBytes(CDP_BRIDGE_SECRET_LENGTH).toString("hex")
-  private readonly path = `/${this.secret}`
+  // A fresh secret per start() so a reused bridge (e.g. after DevTools stole the
+  // debugger) never re-serves an old path.
+  private secret = ""
+  private path = ""
+  // Outstanding client command ids, so teardown can fail them immediately
+  // instead of leaving the client to wait out its own ~30s CDP timeout.
+  private readonly pending = new Set<number>()
 
   constructor(private readonly wc: WebContents) {}
 
@@ -67,6 +71,8 @@ export class CdpBridge {
     if (this.wc.debugger.isAttached())
       throw new CdpBridgeError("target-busy", "debugger is already attached to this target")
 
+    this.secret = randomBytes(CDP_BRIDGE_SECRET_LENGTH).toString("hex")
+    this.path = `/${this.secret}`
     this.wc.debugger.attach("1.3")
     this.wc.debugger.on("message", this.onDebuggerMessage)
     this.wc.debugger.on("detach", this.onDebuggerDetach)
@@ -93,6 +99,15 @@ export class CdpBridge {
 
   async stop(): Promise<void> {
     this.started = false
+    // Fail every in-flight client command before closing, so a CDP client
+    // (opencli has no remote-close handler) fails fast instead of hanging until
+    // its own ~30s timeout.
+    if (this.socket?.readyState === WebSocket.OPEN) {
+      for (const id of this.pending) {
+        this.socket.send(JSON.stringify({ id, error: { code: -32000, message: "bridge closed" } }))
+      }
+    }
+    this.pending.clear()
     this.socket?.close()
     this.socket = null
     this.wss?.close()
@@ -100,8 +115,10 @@ export class CdpBridge {
     if (this.http) {
       const http = this.http
       this.http = null
-      // Free any upgraded/half-open sockets so close()'s callback can fire; an
-      // open client would otherwise keep the server from ever closing.
+      // The graceful socket.close() above flushes the error + close frames so a
+      // well-behaved client tears down; this frees anything still half-open so
+      // close()'s callback always fires (it does not, by itself, terminate the
+      // upgraded ws).
       http.closeAllConnections()
       await new Promise<void>((resolve) => http.close(() => resolve()))
     }
@@ -182,16 +199,19 @@ export class CdpBridge {
       return
     }
     if (typeof cmd.id !== "number" || typeof cmd.method !== "string") return
-    const sessionId = cmd.sessionId
+    const { id, sessionId } = cmd
+    this.pending.add(id)
     try {
       const result = await this.wc.debugger.sendCommand(cmd.method, cmd.params ?? {}, sessionId)
-      this.send({ id: cmd.id, result, ...(sessionId ? { sessionId } : {}) })
+      // pending.delete is false if teardown already failed this id — don't double-send.
+      if (this.pending.delete(id)) this.send({ id, result, ...(sessionId ? { sessionId } : {}) })
     } catch (err) {
-      this.send({
-        id: cmd.id,
-        error: { code: -32000, message: err instanceof Error ? err.message : String(err) },
-        ...(sessionId ? { sessionId } : {}),
-      })
+      if (this.pending.delete(id))
+        this.send({
+          id,
+          error: { code: -32000, message: err instanceof Error ? err.message : String(err) },
+          ...(sessionId ? { sessionId } : {}),
+        })
     }
   }
 
