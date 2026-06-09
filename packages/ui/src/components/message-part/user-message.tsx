@@ -162,19 +162,31 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
       <Show when={sentViaAutomation() || model() || stamp()}>
         <span data-slot="user-message-meta-wrap">
           <Show when={sentViaAutomation()}>
-            <button
-              type="button"
-              data-slot="user-message-automation-badge"
-              data-clickable={clickableAutomation() ? "true" : undefined}
-              class="text-body text-fg-strong font-emphasis hover:text-brand-primary cursor-default data-[clickable=true]:cursor-pointer"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={(event) => {
-                event.stopPropagation()
-                openAutomation()
-              }}
+            <Show
+              when={clickableAutomation()}
+              fallback={
+                <span
+                  data-slot="user-message-automation-badge"
+                  class="text-body text-fg-strong font-emphasis cursor-default"
+                >
+                  {i18n.t("ui.message.automationTag")}
+                </span>
+              }
             >
-              {i18n.t("ui.message.automationTag")}
-            </button>
+              <button
+                type="button"
+                data-slot="user-message-automation-badge"
+                data-clickable="true"
+                class="text-body text-fg-strong font-emphasis hover:text-brand-primary cursor-pointer"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  openAutomation()
+                }}
+              >
+                {i18n.t("ui.message.automationTag")}
+              </button>
+            </Show>
           </Show>
           <Show when={model()}>
             <span data-slot="user-message-meta" class="text-body text-fg-weak cursor-default">

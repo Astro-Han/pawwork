@@ -286,7 +286,7 @@ export function AutomationDetail(props: {
                     type="button"
                     data-action="automation-open-source"
                     onClick={() => props.onOpenRun(sourceSessionID())}
-                    class="min-w-0 truncate text-right text-body text-fg-base hover:text-fg-strong hover:underline focus:outline-none"
+                    class="min-w-0 truncate text-right text-body text-fg-base hover:text-fg-strong hover:underline focus-visible:text-fg-strong focus-visible:underline focus:outline-none"
                   >
                     {sessionLabel()}
                   </button>
