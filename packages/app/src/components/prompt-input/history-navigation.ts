@@ -7,7 +7,6 @@
 
 import { createEffect, createSignal, on } from "solid-js"
 import { createStore, type SetStoreFunction } from "solid-js/store"
-import { useParams } from "@solidjs/router"
 import { selectionFromLines } from "@/context/file"
 import type { Prompt, usePrompt } from "@/context/prompt"
 import type { useComments } from "@/context/comments"
@@ -25,7 +24,6 @@ import {
 import type { HistoryStore, PromptStore } from "./store-types"
 import { createDirectoryHistoryStore, MAX_DIRECTORY_CACHE } from "./history-store-factory"
 import { buildCommentByIDMap } from "./history-comment-map"
-import { usePortableDraft } from "./portable-draft"
 
 // --- Per-directory cache types ---
 
@@ -58,8 +56,6 @@ export interface HistoryNavigation {
 export function createHistoryNavigation(deps: HistoryNavigationDeps): HistoryNavigation {
   const { store, setStore, prompt, comments, editorRef, queueScroll } = deps
   const sdk = useSDK()
-  const portable = usePortableDraft()
-  const params = useParams()
 
   // --- Per-directory store cache (LRU, capped at MAX_DIRECTORY_CACHE) ---
 
@@ -133,13 +129,7 @@ export function createHistoryNavigation(deps: HistoryNavigationDeps): HistoryNav
   // --- Comment helpers ---
 
   const historyComments = () => {
-    // The portable byID gate (Bug 5) is only meaningful on a HOMEPAGE route.
-    // On a session route the route-scoped useComments() store IS the correct
-    // source even when a portable snapshot exists for some other homepage;
-    // disabling the byID map there would lose comment selection/time metadata
-    // for the active session.
-    const portableActive = portable.snapshot() !== null && !params.id
-    const byID = buildCommentByIDMap(comments.all(), portableActive)
+    const byID = buildCommentByIDMap(comments.all())
     return prompt.context.items().flatMap((item) => {
       if (item.type !== "file") return []
       const comment = item.comment?.trim()

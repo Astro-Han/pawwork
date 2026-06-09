@@ -113,6 +113,37 @@ describe("createPromptBinding", () => {
     expect(binding.context.items().map((item) => item.path)).toEqual(["a.ts"])
   })
 
+  test("shares homepage draft across workspace route changes without sharing session drafts", () => {
+    let route: { dir: string; id?: string } = { dir: "repo-a" }
+    const sessions = new Map<string, ReturnType<typeof promptSession>>()
+    const binding = createPromptBinding(
+      () => route,
+      (dir, id) => {
+        const key = `${dir}:${id ?? "homepage"}`
+        const existing = sessions.get(key)
+        if (existing) return existing
+        const next = promptSession()
+        next.reset()
+        sessions.set(key, next)
+        return next
+      },
+    )
+
+    const homepageDraft: Prompt = [{ type: "text", content: "keep me visible", start: 0, end: 15 }]
+    binding.set(homepageDraft, 15)
+    binding.context.add({ type: "file", path: "src/app.ts" })
+
+    route = { dir: "repo-b" }
+
+    expect(binding.current()).toEqual(homepageDraft)
+    expect(binding.context.items().map((item) => item.path)).toEqual(["src/app.ts"])
+
+    route = { dir: "repo-b", id: "session-b" }
+
+    expect(binding.current()).toEqual(DEFAULT_PROMPT)
+    expect(binding.context.items()).toEqual([])
+  })
+
   test("checks whether an explicit target session has a structural draft", () => {
     const current = promptSession()
     const target = promptSession()

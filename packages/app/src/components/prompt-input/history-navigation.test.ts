@@ -75,28 +75,19 @@ describe("directory-scoped prompt history targets", () => {
 })
 
 // ---------------------------------------------------------------------------
-// buildCommentByIDMap — portable-active gate (Task 5 of PR #750)
+// buildCommentByIDMap
 // ---------------------------------------------------------------------------
-//
-// When portable is active (the homepage received a carried snapshot from
-// another workspace), the byID cross-reference to route-scoped useComments()
-// must be skipped so that wrong-workspace comment metadata is never used.
 
 type FakeComment = { file: string; id: string; selection: { start: number; end: number }; time: number; comment: string }
 
-describe("buildCommentByIDMap — portable-active gate", () => {
+describe("buildCommentByIDMap", () => {
   const comments: FakeComment[] = [
     { file: "/a/foo.ts", id: "c-1", selection: { start: 1, end: 5 }, time: 1000, comment: "hello" },
     { file: "/a/bar.ts", id: "c-2", selection: { start: 2, end: 3 }, time: 2000, comment: "world" },
   ]
 
-  test("returns empty map when portableActive is true", () => {
-    const map = buildCommentByIDMap(comments, true)
-    expect(map.size).toBe(0)
-  })
-
-  test("returns populated map when portableActive is false and comments exist", () => {
-    const map = buildCommentByIDMap(comments, false)
+  test("returns populated map when comments exist", () => {
+    const map = buildCommentByIDMap(comments)
     expect(map.size).toBe(2)
     // Key format: "${file}\n${id}"
     expect(map.has("/a/foo.ts\nc-1")).toBe(true)
@@ -104,8 +95,8 @@ describe("buildCommentByIDMap — portable-active gate", () => {
     expect(map.get("/a/foo.ts\nc-1")?.selection.start).toBe(1)
   })
 
-  test("returns empty map when portableActive is false but no comments given", () => {
-    const map = buildCommentByIDMap([], false)
+  test("returns empty map when no comments given", () => {
+    const map = buildCommentByIDMap([])
     expect(map.size).toBe(0)
   })
 })

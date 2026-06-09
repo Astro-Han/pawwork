@@ -1,27 +1,14 @@
 import type { Accessor } from "solid-js"
-import type { FileSelection } from "@/context/file"
 import type { ContextItem, Prompt, usePrompt } from "@/context/prompt"
+import { isPromptEqual } from "@/context/prompt-equality"
 import type { PromptRouteScope } from "@/pages/session/prompt-route-scope"
 import { setCursorPosition } from "./editor-dom"
-import type { ResolvedMention } from "./mention-metadata"
 import type { usePinnedDraft } from "./pinned-draft"
-import type { usePortableDraft } from "./portable-draft"
 import type { SubmitOwnership } from "./submit-ownership"
-
-type CommentItem = {
-  path: string
-  selection?: FileSelection
-  comment?: string
-  commentID?: string
-  commentOrigin?: "review" | "file"
-  preview?: string
-  resolvedMentions?: ResolvedMention[]
-}
 
 type PromptDraftLifecycleInput = {
   prompt: ReturnType<typeof usePrompt>
   pinned: ReturnType<typeof usePinnedDraft>
-  portable: ReturnType<typeof usePortableDraft>
   params: Accessor<{ dir?: string; id?: string }>
   ownership: SubmitOwnership
   sourcePromptScope: PromptRouteScope
@@ -41,7 +28,6 @@ export function createPromptDraftLifecycle(input: PromptDraftLifecycleInput) {
   const {
     prompt,
     pinned,
-    portable,
     params,
     ownership,
     sourcePromptScope,
@@ -57,21 +43,6 @@ export function createPromptDraftLifecycle(input: PromptDraftLifecycleInput) {
     setPopover,
   } = input
 
-  const restoreCommentItems = (items: CommentItem[]) => {
-    for (const item of items) {
-      prompt.context.add({
-        type: "file",
-        path: item.path,
-        selection: item.selection,
-        comment: item.comment,
-        commentID: item.commentID,
-        commentOrigin: item.commentOrigin,
-        preview: item.preview,
-        resolvedMentions: item.resolvedMentions,
-      })
-    }
-  }
-
   const removeSubmittedCommentItems = () => {
     for (const item of commentItems) {
       prompt.context.remove(item.key)
@@ -84,6 +55,11 @@ export function createPromptDraftLifecycle(input: PromptDraftLifecycleInput) {
     }
   }
 
+  const submittedDraftStillCurrent = (scope: PromptRouteScope) => {
+    if (!isPromptEqual(prompt.current(scope), currentPrompt)) return false
+    return JSON.stringify(prompt.context.items(scope)) === JSON.stringify(submittedDraft.context)
+  }
+
   // Submitted owner-backed drafts leave the live draft owner before the async
   // send settles. The owner only represents editable unsent draft state;
   // failure recovery uses submittedDraft captured above.
@@ -93,12 +69,10 @@ export function createPromptDraftLifecycle(input: PromptDraftLifecycleInput) {
         prompt.reset(sourcePromptScope)
         pinned.clearAll(ownership.revision)
         break
-      case "portable":
-        prompt.reset(sourcePromptScope)
-        portable.clear(ownership.revision)
-        break
       case "route":
-        prompt.reset(ownership.scope)
+        if (submittedDraftStillCurrent(ownership.scope)) {
+          prompt.reset(ownership.scope)
+        }
         break
     }
     setMode("normal")
@@ -107,9 +81,6 @@ export function createPromptDraftLifecycle(input: PromptDraftLifecycleInput) {
 
   const confirmOwnerCleared = () => {
     switch (ownership.kind) {
-      case "portable":
-        portable.clear(ownership.revision)
-        break
       case "pinned":
         pinned.clearAll(ownership.revision)
         break
@@ -144,19 +115,15 @@ export function createPromptDraftLifecycle(input: PromptDraftLifecycleInput) {
 
   const restoreInput = () => {
     switch (ownership.kind) {
-      case "portable":
-        if (!shouldRestoreOwnerDraft()) return
-        prompt.set(submittedDraft.prompt, promptLength(submittedDraft.prompt), promptScope)
-        prompt.context.replaceAll(submittedDraft.context.map(({ key: _omit, ...rest }) => rest), promptScope)
-        break
       case "pinned":
         if (!shouldRestoreOwnerDraft()) return
         prompt.set(submittedDraft.prompt, promptLength(submittedDraft.prompt), promptScope)
         prompt.context.replaceAll(submittedDraft.context.map(({ key: _omit, ...rest }) => rest), promptScope)
         break
       case "route": {
+        if (!shouldRestoreOwnerDraft()) return
         prompt.set(currentPrompt, promptLength(currentPrompt), promptScope)
-        restoreCommentItems(commentItems)
+        prompt.context.replaceAll(submittedDraft.context.map(({ key: _omit, ...rest }) => rest), promptScope)
         break
       }
     }

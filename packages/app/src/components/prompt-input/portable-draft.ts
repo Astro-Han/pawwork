@@ -1,15 +1,15 @@
 /**
- * Portable homepage runtime owner (PR #750 v7).
+ * Legacy homepage migration runtime owner.
  *
- * Holds at most ONE snapshot of the user's currently-active homepage draft.
- * Runtime only — NOT persisted to localStorage or anywhere else.
+ * Holds at most ONE snapshot adopted from a legacy per-workspace homepage
+ * prompt store until the homepage editor can project it into the global
+ * homepage prompt store. Runtime only — NOT persisted to localStorage or
+ * anywhere else.
  *
  * Key rules:
- * - A session route NEVER reads or writes this owner.
- * - A homepage route writes-mirrors its draft here on every edit.
- * - On homepage→homepage navigation with an empty target, the snapshot "moves"
- *   (sourceFilesystemDirectory becomes the new homepage's dir).
- * - `revision` is a monotonic counter; submit lifecycle can guard stale clears.
+ * - Normal homepage editing does NOT write to this owner.
+ * - The snapshot never moves between directories.
+ * - `revision` is a monotonic counter for stale-safe migration clears.
  */
 
 import { createSignal } from "solid-js"
@@ -28,7 +28,7 @@ export interface PortableDraftPayload {
 export interface PortableDraftSnapshot extends PortableDraftPayload {
   /** True filesystem directory the snapshot is currently anchored to. */
   sourceFilesystemDirectory: string
-  /** Monotonic revision counter. Increments on every content change AND on every successful move. */
+  /** Monotonic revision counter. Increments on every content change and clear. */
   revision: number
 }
 
@@ -38,7 +38,7 @@ export interface PortableDraftOwner {
   /** Returns the current revision, or 0 when no snapshot exists. Reactive. */
   revision(): number
   /**
-   * Mirror the active homepage's draft into the owner.
+   * Copy a legacy homepage draft into the migration owner.
    * - If the payload is "empty" (no meaningful prompt text, no context, no images,
    *   no resolvedMentions), the snapshot is cleared.
    * - If unchanged from the last record (deep-equal payload AND same sourceFilesystemDirectory),
@@ -46,17 +46,6 @@ export interface PortableDraftOwner {
    * - Otherwise revision is incremented.
    */
   record(input: { sourceFilesystemDirectory: string } & PortableDraftPayload): void
-  /**
-   * Consume the snapshot for a new homepage target. Returns the snapshot only if:
-   * - A snapshot exists.
-   * - `targetSourceFilesystemDirectory !== snapshot.sourceFilesystemDirectory`.
-   * - `targetIsEmpty === true`.
-   * After consumption, the snapshot's `sourceFilesystemDirectory` becomes
-   * `targetSourceFilesystemDirectory` and revision is incremented. (It "moved".)
-   */
-  consumeForHomepage(targetSourceFilesystemDirectory: string, targetIsEmpty: boolean): PortableDraftSnapshot | null
-  /** Marker for "current route is not a homepage"; snapshot is preserved (currently a no-op). */
-  hide(): void
   /** Returns current snapshot without mutating it. */
   restore(): PortableDraftSnapshot | null
   /**
@@ -100,10 +89,10 @@ export function createPortableDraftOwner(): PortableDraftOwner {
       return
     }
 
-    // Canonicalize relative file-bearing paths against the source filesystem
-    // directory so the snapshot is portable across workspaces. After a move,
-    // build-request-parts will receive absolute paths and won't re-anchor them
-    // to the destination workspace's sessionDirectory.
+    // Canonicalize file-bearing payload as it enters the owner, while the source
+    // directory is still known. The editor later projects this migration snapshot
+    // into the global homepage store, so buildRequestParts sees absolute paths
+    // and never re-roots them under the target session directory.
     const canonicalPrompt: Prompt = input.prompt.map((part) =>
       part.type === "file" ? { ...part, path: toAbsoluteFilePath(input.sourceFilesystemDirectory, part.path) } : part,
     )
@@ -144,30 +133,6 @@ export function createPortableDraftOwner(): PortableDraftOwner {
     })
   }
 
-  function consumeForHomepage(
-    targetSourceFilesystemDirectory: string,
-    targetIsEmpty: boolean,
-  ): PortableDraftSnapshot | null {
-    const current = snapshot()
-    if (!current) return null
-    if (current.sourceFilesystemDirectory === targetSourceFilesystemDirectory) return null
-    if (!targetIsEmpty) return null
-
-    // Move: update source dir and bump revision.
-    const moved: PortableDraftSnapshot = {
-      ...current,
-      sourceFilesystemDirectory: targetSourceFilesystemDirectory,
-      revision: current.revision + 1,
-    }
-    setSnapshot(moved)
-    return moved
-  }
-
-  function hide(): void {
-    // Currently a no-op — snapshot is preserved across route changes.
-    // Future tasks may track a hidden flag here.
-  }
-
   function restore(): PortableDraftSnapshot | null {
     return snapshot()
   }
@@ -190,7 +155,7 @@ export function createPortableDraftOwner(): PortableDraftOwner {
     return true
   }
 
-  return { snapshot, revision, record, consumeForHomepage, hide, restore, clear }
+  return { snapshot, revision, record, restore, clear }
 }
 
 // ---------------------------------------------------------------------------
@@ -199,7 +164,7 @@ export function createPortableDraftOwner(): PortableDraftOwner {
 
 const owner = createPortableDraftOwner()
 
-/** Access the app-wide portable homepage draft owner. */
+/** Access the app-wide legacy homepage migration owner. */
 export function usePortableDraft(): PortableDraftOwner {
   return owner
 }

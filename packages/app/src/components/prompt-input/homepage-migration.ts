@@ -1,15 +1,16 @@
 /**
- * One-shot v7 homepage draft migration (PR #750 T8).
+ * One-shot homepage draft migration.
  *
- * On the first boot after upgrading to v7, the user's existing per-workspace
- * homepage draft (stored under the route-scoped workspace store) is adopted
- * into the in-memory portable owner, and the original route-scoped slot is
- * cleared so future portable carries are not clobbered.
+ * On the first boot after upgrading to the global homepage draft model, the
+ * user's existing per-workspace homepage draft (stored under the route-scoped
+ * workspace store) is copied into the in-memory migration owner. The homepage
+ * editor then projects that snapshot into the global homepage prompt store.
  *
  * Scope (PR1): only the CURRENTLY OPENED directory is handled. Other
- * workspaces' old homepage drafts remain in their route-scoped stores and will
- * appear when the user next visits those workspaces. The portable owner
- * self-heals through subsequent record() calls.
+ * workspaces' old homepage drafts remain in their route-scoped stores, and the
+ * current directory's legacy store is preserved too. Those old stores are inert
+ * after the sentinel is complete, but keeping them avoids deleting drafts before
+ * the global store has definitely persisted.
  */
 
 import type { Prompt, ContextItem } from "@/context/prompt"
@@ -42,8 +43,6 @@ export interface LegacyHomepagePromptStore {
 export interface HomepageMigrationDeps {
   /** Load the legacy route-scoped homepage store for the given directory. Returns null when absent. */
   loadLegacyHomepage: (directory: string) => Promise<LegacyHomepagePromptStore | null>
-  /** Remove the legacy route-scoped homepage store for the given directory. */
-  clearLegacyHomepage: (directory: string) => Promise<void>
   /** Read the global migration sentinel. Returns null when not yet written. */
   readSentinel: () => Promise<MigrationSentinel | null>
   /** Persist the migration sentinel globally. */
@@ -75,14 +74,15 @@ function hasLegacyContent(store: LegacyHomepagePromptStore): boolean {
 }
 
 /**
- * Run the one-shot v7 homepage draft migration.
+ * Run the one-shot homepage draft migration.
  *
  * Idempotent: returns immediately if the sentinel is already "complete".
- * On any failure during adoption or quarantine, sets sentinel to "failed"
- * and returns — allowing retry on the next boot.
+ * On legacy-load failure, sets sentinel to "failed" where possible and returns,
+ * allowing retry on the next boot. Final sentinel-write failures bubble to the
+ * caller so layout can log them.
  */
 export async function runHomepageMigration(deps: HomepageMigrationDeps): Promise<MigrationSentinel> {
-  const { loadLegacyHomepage, clearLegacyHomepage, readSentinel, writeSentinel, portable, currentDirectory } = deps
+  const { loadLegacyHomepage, readSentinel, writeSentinel, portable, currentDirectory } = deps
   const now = deps.now ?? (() => Date.now())
 
   // 1. Check sentinel — if already complete, no-op.
@@ -108,7 +108,7 @@ export async function runHomepageMigration(deps: HomepageMigrationDeps): Promise
   const hasContent = legacy !== null && hasLegacyContent(legacy)
 
   if (hasContent && legacy !== null) {
-    // 4a. Adopt into the portable owner.
+    // 4. Copy into the in-memory migration owner.
     portable.record({
       sourceFilesystemDirectory: currentDirectory,
       prompt: legacy.prompt,
@@ -116,19 +116,9 @@ export async function runHomepageMigration(deps: HomepageMigrationDeps): Promise
       images: [],
       resolvedMentions: {},
     })
-
-    // 4b. Quarantine — clear the legacy route-scoped store.
-    try {
-      await clearLegacyHomepage(currentDirectory)
-    } catch (err) {
-      const failedReason = err instanceof Error ? err.message : String(err)
-      const sentinel: MigrationSentinel = { status: "failed", attemptedAt, failedReason }
-      await writeSentinel(sentinel).catch(() => undefined)
-      return sentinel
-    }
   }
 
-  // 5. Write complete sentinel.
+  // 5. Write complete sentinel. Once complete, the route-scoped legacy store is ignored.
   const sentinel: MigrationSentinel = {
     status: "complete",
     attemptedAt,
