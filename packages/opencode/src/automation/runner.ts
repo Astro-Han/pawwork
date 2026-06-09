@@ -1,4 +1,5 @@
 import { Effect } from "effect"
+import { Log } from "@opencode-ai/core/util/log"
 import { Automation } from "."
 import { AutomationRunTable } from "./automation.sql"
 import { Instance } from "@/project/instance"
@@ -7,6 +8,8 @@ import { SessionPrompt } from "@/session/prompt"
 import { Database, NotFoundError, and, eq, sql } from "@/storage/db"
 import { AutomationRunContext, type AutomationRunBlocker } from "./run-context"
 import { Worktree } from "@/worktree"
+
+const log = Log.create({ service: "automation.runner" })
 
 function isAutomationOwnedSession(sessionID: string) {
   return Boolean(
@@ -60,6 +63,14 @@ async function resolveRunSession(definition: Automation.Definition) {
     const source = definition.sourceSessionID
       ? await Session.get(definition.sourceSessionID).catch((error) => {
           if (NotFoundError.isInstance(error)) return undefined
+          // A real DB/decode fault, not a deleted source. The run still ends as
+          // a silent cancel downstream, so leave a trail here or the fault is
+          // invisible to anyone debugging it.
+          log.error("automation continue source lookup failed", {
+            error,
+            automationID: definition.id,
+            sourceSessionID: definition.sourceSessionID,
+          })
           throw error
         })
       : undefined
