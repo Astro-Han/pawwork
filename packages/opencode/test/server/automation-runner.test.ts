@@ -385,34 +385,31 @@ describe("automation runNow execution", () => {
     })
   })
 
-  test("publishes continue-session definition updates from the latest definition", async () => {
+  test("deleteBySourceSession removes continue automations bound to it and leaves others", async () => {
     await withAutomation(async (projectID) => {
-      const definition = Automation.create(input(projectID, { context: "continue" }))
-      const sessionID = SessionID.descending()
-      const definitionEvents: Automation.Definition[] = []
-      const unsubscribe = Bus.subscribe(Automation.Event.DefinitionUpdated, (event) => {
-        definitionEvents.push(event.properties)
+      const sourceSessionID = SessionID.descending()
+      const otherSessionID = SessionID.descending()
+      const continueHere = Automation.create(input(projectID, { context: "continue" }), { sourceSessionID })
+      const continueElsewhere = Automation.create(input(projectID, { context: "continue" }), {
+        sourceSessionID: otherSessionID,
+      })
+      const fresh = Automation.create(input(projectID, { context: "fresh" }))
+
+      const deletedEvents: Automation.Tombstone[] = []
+      const unsubscribe = Bus.subscribe(Automation.Event.DefinitionDeleted, (event) => {
+        deletedEvents.push(event.properties)
       })
 
-      await Automation.runNowExecuting(definition.id, {
-        executor: async () => {
-          Automation.update(definition.id, { title: "Updated repo brief", prompt: "Use the latest prompt." })
-          return { sessionID, result: "done", cost: 0 }
-        },
-      })
-
-      await waitForRun(definition.id, "succeeded")
+      await Automation.deleteBySourceSession(sourceSessionID)
       unsubscribe()
-      const updated = Automation.get(definition.id)
-      expect(updated.title).toBe("Updated repo brief")
-      expect(updated.prompt).toBe("Use the latest prompt.")
-      expect(updated.automationSessionID).toBe(sessionID)
-      expect(definitionEvents.at(-1)).toMatchObject({
-        id: definition.id,
-        title: "Updated repo brief",
-        prompt: "Use the latest prompt.",
-        automationSessionID: sessionID,
-      })
+
+      // The continue automation that lives in the deleted conversation is gone;
+      // a continue automation bound to a different conversation and any fresh
+      // automation are untouched.
+      expect(() => Automation.get(continueHere.id)).toThrow()
+      expect(Automation.get(continueElsewhere.id).id).toBe(continueElsewhere.id)
+      expect(Automation.get(fresh.id).id).toBe(fresh.id)
+      expect(deletedEvents.map((tombstone) => tombstone.id)).toEqual([continueHere.id])
     })
   })
 

@@ -766,7 +766,7 @@ export const dict = {
   "automations.detail.repeats": "重复",
   "automations.detail.session": "会话",
   "automations.detail.session.fresh": "每次新会话",
-  "automations.detail.session.continue": "继续自己的会话",
+  "automations.detail.session.continue": "在此对话中循环",
   "automations.detail.model": "模型",
   "automations.detail.reasoning": "推理",
   "automations.detail.previousRuns": "最近运行",

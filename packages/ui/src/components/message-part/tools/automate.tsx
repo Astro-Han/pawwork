@@ -31,9 +31,9 @@ const renderAutomateToolPart: ToolComponent = (props) => {
     const input = props.input.title
     return typeof input === "string" && input ? input : undefined
   })
-  // Once the definition resolves, flag whether this automation reuses its own
-  // persistent session ("continue") or starts fresh each run, so the chat echo
-  // does not hide that a continue automation accumulates context across runs.
+  // Once the definition resolves, flag whether this automation loops inside this
+  // conversation ("continue", every run appends to this chat) or runs in its own
+  // fresh session each time ("fresh"), so the chat echo names which it created.
   const sessionMode = createMemo(() => {
     const context = definition()?.context
     if (context !== "continue" && context !== "fresh") return undefined

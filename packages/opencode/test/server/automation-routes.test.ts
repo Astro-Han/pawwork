@@ -622,11 +622,6 @@ describe("automation routes", () => {
           [{ field: "stop.condition", message: "condition_too_long_4000" }],
         ],
         [
-          "externally supplied automation session",
-          { ...recurringInput(projectID), automationSessionID: SessionID.descending() },
-          [{ field: "automationSessionID", message: "unsupported_automation_field" }],
-        ],
-        [
           "externally supplied source session",
           { ...recurringInput(projectID), sourceSessionID: SessionID.descending() },
           [{ field: "sourceSessionID", message: "unsupported_automation_field" }],
@@ -749,26 +744,13 @@ describe("automation routes", () => {
     })
   })
 
-  test("rejects externally supplied automation session on update", async () => {
+  test("rejects externally supplied source session on update", async () => {
     await withAutomationApp(async ({ app, projectID }) => {
       const created = await json(app, "/automation", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(recurringInput(projectID)),
       })
-      const response = await app.request(`/automation/${created.id}`, {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ automationSessionID: SessionID.descending() }),
-      })
-
-      expect(response.status).toBe(422)
-      expect(await response.json()).toEqual({
-        error: "invalid_automation",
-        details: [{ field: "automationSessionID", message: "unsupported_automation_field" }],
-      })
-      expect(Automation.get(created.id)).not.toHaveProperty("automationSessionID")
-
       const sourceResponse = await app.request(`/automation/${created.id}`, {
         method: "PUT",
         headers: { "content-type": "application/json" },

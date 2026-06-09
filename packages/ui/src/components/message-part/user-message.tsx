@@ -5,6 +5,7 @@ import { useData } from "../../context"
 import { useDialog } from "../../context/dialog"
 import { useI18n } from "../../context/i18n"
 import { FileIcon } from "../file-icon"
+import { Icon } from "../icon"
 import { IconButton } from "../icon-button"
 import { ImagePreview } from "../image-preview"
 import { Tooltip } from "../tooltip"
@@ -73,6 +74,19 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
   })
 
   const metaTail = stamp
+
+  // An automation run produced this message rather than the user typing it.
+  // Label it so the run reads as the loop's, not a message you sent — and link
+  // back to the automation (Codex's "sent via automation" affordance).
+  const sentViaAutomation = createMemo(() => {
+    const id = props.message.automationID
+    return typeof id === "string" && id ? id : undefined
+  })
+  const clickableAutomation = createMemo(() => !!(sentViaAutomation() && data.navigateToAutomation))
+  const openAutomation = () => {
+    const id = sentViaAutomation()
+    if (id && data.navigateToAutomation) data.navigateToAutomation(id)
+  }
 
   const openImagePreview = (url: string, alt?: string) => {
     dialog.show(() => <ImagePreview src={url} alt={alt} />)
@@ -153,8 +167,29 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
 
   const renderMetaAndActions = () => (
     <div data-slot="user-message-copy-wrapper">
-      <Show when={metaHead() || metaTail()}>
+      <Show when={sentViaAutomation() || metaHead() || metaTail()}>
         <span data-slot="user-message-meta-wrap">
+          <Show when={sentViaAutomation()}>
+            <button
+              type="button"
+              data-slot="user-message-automation-badge"
+              data-clickable={clickableAutomation() ? "true" : undefined}
+              class="inline-flex items-center gap-1 text-body text-fg-weak hover:text-fg-base cursor-default data-[clickable=true]:cursor-pointer"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={(event) => {
+                event.stopPropagation()
+                openAutomation()
+              }}
+            >
+              <Icon name="automation" class="w-3 h-3" />
+              {i18n.t("ui.message.sentViaAutomation")}
+            </button>
+          </Show>
+          <Show when={sentViaAutomation() && (metaHead() || metaTail())}>
+            <span data-slot="user-message-meta-sep" class="text-body text-fg-weak cursor-default">
+              {" · "}
+            </span>
+          </Show>
           <Show when={metaHead()}>
             <span data-slot="user-message-meta" class="text-body text-fg-weak cursor-default">
               {metaHead()}

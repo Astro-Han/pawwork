@@ -134,7 +134,6 @@ export namespace Automation {
     updatedAt: z.number().int().nonnegative(),
     timezone: z.string().min(1),
     sourceSessionID: SessionID.zod.optional(),
-    automationSessionID: SessionID.zod.optional(),
     normalizationWarnings: z.array(z.string()),
     model: Model,
     variant: z.string().min(1).optional(),
@@ -704,6 +703,26 @@ export namespace Automation {
     return { tombstone: { id: previous.id, deleted: true, revision: previous.revision + 1 }, stoppedRun }
   }
 
+  // A continue automation lives inside the conversation it was created in
+  // (sourceSessionID): every run appends to that thread. When the user deletes
+  // the conversation, those automations have nowhere left to run, so they are
+  // removed alongside it. Fresh automations carry no sourceSessionID and never
+  // cascade. Best-effort per automation: a single failure must not strand the
+  // rest, and the run-time guard catches any straggler whose source is gone.
+  export async function deleteBySourceSession(sessionID: SessionID): Promise<void> {
+    for (const definition of list()) {
+      if (definition.context !== "continue" || definition.sourceSessionID !== sessionID) continue
+      try {
+        const removed = await remove(definition.id)
+        await Bus.publish(Event.DefinitionDeleted, removed.tombstone)
+        if (removed.stoppedRun) await publishRunUpdated(removed.stoppedRun)
+      } catch (error) {
+        if (NotFoundError.isInstance(error) || error instanceof ActiveRunStillRunningError) continue
+        throw error
+      }
+    }
+  }
+
   function replaceRun(previous: Run, next: Run) {
     return Database.transaction(
       (db) => {
@@ -818,29 +837,6 @@ export namespace Automation {
       result: null,
       error: null,
     })
-  }
-
-  function setDefinitionAutomationSession(definition: Definition, sessionID: SessionID) {
-    let current = definition
-    if (current.automationSessionID === sessionID) return current
-    const buildNext = (source: Definition) =>
-      Definition.parse({
-        ...source,
-        automationSessionID: sessionID,
-        revision: source.revision + 1,
-        updatedAt: Date.now(),
-      })
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        return replaceDefinition(current, buildNext(current))
-      } catch (error) {
-        if (!(error instanceof ConflictError)) throw error
-        const latest = getOptional(definition.id)
-        if (!latest || latest.context !== "continue" || latest.automationSessionID === sessionID) return latest ?? definition
-        current = latest
-      }
-    }
-    return current
   }
 
   export function markRunBlocked(run: Run, blocker: AutomationRunBlocker): Run {
@@ -1121,11 +1117,6 @@ export namespace Automation {
       const running = latest.state === "scheduled" ? markRunStarted(latest, prepared.sessionID) : latest
       current = running
       if (running !== latest) await publishRunUpdated(running)
-      const latestDefinition = getOptional(initial.automationID)
-      if (latestDefinition?.context === "continue") {
-        const updatedDefinition = setDefinitionAutomationSession(latestDefinition, prepared.sessionID)
-        if (updatedDefinition !== latestDefinition) await publishDefinitionUpdated(updatedDefinition)
-      }
       const succeeded = reviseRun(running, {
         state: "succeeded",
         completedAt: Date.now(),

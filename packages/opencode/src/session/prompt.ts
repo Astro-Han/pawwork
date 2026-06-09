@@ -1541,6 +1541,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         time: { created: createdAt },
         tools: input.tools,
         agent: ag.name,
+        ...(input.automationID ? { automationID: input.automationID } : {}),
         model: {
           providerID: model.providerID,
           modelID: model.modelID,
@@ -2806,6 +2807,9 @@ const { runPromise } = makeRuntime(Service, defaultLayer)
 export const PromptInput = z.object({
   sessionID: SessionID.zod,
   messageID: MessageID.zod.optional(),
+  // Stamped onto the user message when an automation run drives this prompt, so
+  // the conversation can mark which turns it sent rather than the user typing.
+  automationID: z.string().optional(),
   model: z
     .object({
       providerID: ProviderID.zod,

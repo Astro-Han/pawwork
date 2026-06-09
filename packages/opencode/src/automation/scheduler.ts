@@ -4,6 +4,7 @@ import { Log } from "@opencode-ai/core/util/log"
 import { Automation } from "."
 import { Bus } from "@/bus"
 import { Instance, type InstanceContext } from "@/project/instance"
+import { Session } from "@/session"
 import { NotFoundError } from "@/storage/db"
 import { Flock } from "@/util/flock"
 import { cronMatches, parseCronSchedule } from "./cron"
@@ -366,6 +367,19 @@ export namespace AutomationScheduler {
       if (!running) return
       cancel(event.properties.id)
     })
+    // A continue automation runs inside the conversation it was created in.
+    // When that conversation is deleted, cascade-delete those automations so
+    // they don't linger pointing at a thread that no longer exists. Not gated
+    // on timer ownership — it's a local data cleanup, not a scheduling action.
+    const unsubscribeSessionDeletes = Bus.subscribe(Session.Event.Deleted, (event) => {
+      if (!running) return
+      void Automation.deleteBySourceSession(event.properties.sessionID).catch((error) =>
+        log.error("automation cascade-delete on session delete failed", {
+          error,
+          sessionID: event.properties.sessionID,
+        }),
+      )
+    })
 
     const scan = async () => {
       if (!running || !ownsTimers) return
@@ -426,6 +440,7 @@ export namespace AutomationScheduler {
         unsubscribeRunUpdates()
         unsubscribeDefinitionUpdates()
         unsubscribeDefinitionDeletes()
+        unsubscribeSessionDeletes()
         stopOwnedRuns()
         for (const automationID of [...tasks.keys()]) cancel(automationID)
         if (ownerLease) void ownerLease.release().catch(() => undefined)

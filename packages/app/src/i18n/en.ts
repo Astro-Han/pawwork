@@ -856,7 +856,7 @@ export const dict = {
   "automations.detail.repeats": "Repeats",
   "automations.detail.session": "Session",
   "automations.detail.session.fresh": "New session each run",
-  "automations.detail.session.continue": "Continues its own session",
+  "automations.detail.session.continue": "Loops in this conversation",
   "automations.detail.model": "Model",
   "automations.detail.reasoning": "Reasoning",
   "automations.detail.previousRuns": "Recent runs",

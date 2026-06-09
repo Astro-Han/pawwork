@@ -40,8 +40,8 @@ test("automations-surface", async ({ page, project }) => {
   const projectID = (await project.sdk.project.current()).data!.id
   await project.sdk.automation.create(recurring(projectID, "Daily standup digest", "Summarize overnight changes and list open PRs.", "0 9 * * *"))
   await project.sdk.automation.create(recurring(projectID, "Hourly build watch", "Check CI and flag a red main build.", "0 * * * *"))
-  // A continue automation so the detail view can show the "Continues its own
-  // session" row next to the default fresh-each-run automations.
+  // A continue automation so the detail view shows it loops inside the
+  // conversation it was created in, next to the default fresh-each-run ones.
   await project.sdk.automation.create(
     recurring(projectID, "Inbox triage loop", "Pick up triage where the last run left off.", "0 8 * * *", "continue"),
   )

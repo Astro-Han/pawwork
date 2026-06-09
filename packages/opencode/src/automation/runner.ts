@@ -48,14 +48,29 @@ async function prepareWorktreePlacement(definition: Automation.Definition) {
   return Worktree.createReady({ name: placement, exactName: true })
 }
 
+// Continue automations append to the conversation they were created in; fresh
+// automations get their own session per run. If a continue automation's source
+// conversation is gone (the user deleted it, or it was never recorded), fail
+// loudly instead of silently spawning a detached session the user can't find —
+// the old "mystery new session" behaviour.
+async function resolveRunSession(definition: Automation.Definition) {
+  if (definition.context === "continue") {
+    const source = definition.sourceSessionID
+      ? await Session.get(definition.sourceSessionID).catch(() => undefined)
+      : undefined
+    if (!source) {
+      throw new Error(`automation "${definition.title}" continues a conversation that no longer exists`)
+    }
+    return source.id
+  }
+  return (await Session.create({ title: `Automation: ${definition.title}` })).id
+}
+
 export const sessionPromptExecutor: Automation.RunExecutor = async ({ definition, run, attendance, signal }) => {
   signal.throwIfAborted()
   const worktree = await prepareWorktreePlacement(definition)
   signal.throwIfAborted()
-  const sessionID =
-    definition.context === "continue" && definition.automationSessionID
-      ? definition.automationSessionID
-      : (await Session.create({ title: `Automation: ${definition.title}` })).id
+  const sessionID = await resolveRunSession(definition)
   if (worktree) {
     await Session.updateExecutionContext({
       sessionID,
@@ -96,6 +111,7 @@ export const sessionPromptExecutor: Automation.RunExecutor = async ({ definition
     const message = await SessionPrompt.promptWithAutomationContext(
       {
         sessionID,
+        automationID: definition.id,
         model: definition.model,
         ...(definition.variant ? { variant: definition.variant } : {}),
         parts: [{ type: "text", text: definition.prompt }],
