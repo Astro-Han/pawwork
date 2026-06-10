@@ -97,6 +97,18 @@ describe("resolveLoadMessagePage", () => {
     expect(result.map((x) => x.id)).toEqual(["msg_5", "msg_6"])
   })
 
+  test("reverse non-overlapping partial replace refresh uses the fetched page", () => {
+    const stored = [m("msg_5", "old"), m("msg_6", "old")]
+    const fetched = [m("msg_1", "current"), m("msg_2", "current")]
+    const result = resolveLoadMessagePage<TestMsg>({
+      stored,
+      fetched,
+      fetchedComplete: false,
+    })
+
+    expect(result.map((x) => x.id)).toEqual(["msg_1", "msg_2"])
+  })
+
   test("complete prepend keeps the existing newer page", () => {
     const stored = [m("msg_3", "newer")]
     const fetched = [m("msg_1", "older")]
@@ -147,6 +159,7 @@ describe("resolveLoadMessagePage", () => {
     const stored = [m("msg_3", "existing"), m("msg_4", "existing")]
     const fetched = [m("msg_1", "older"), m("msg_2", "older")]
     const result = resolveLoadMessagePage<TestMsg>({
+      mode: "prepend",
       stored,
       fetched,
     })

@@ -56,6 +56,14 @@ function createdAtOrAfter(item: { id: string }, threshold: number | undefined) {
   return typeof created === "number" && created >= threshold
 }
 
+function idRange<T extends { id: string }>(items: readonly T[]) {
+  return items.reduce<{ min?: string; max?: string }>((range, item) => {
+    if (range.min === undefined || cmp(item.id, range.min) < 0) range.min = item.id
+    if (range.max === undefined || cmp(range.max, item.id) < 0) range.max = item.id
+    return range
+  }, {})
+}
+
 export function resolveLoadMessagePage<T extends { id: string }>(params: {
   mode?: "prepend" | "replace"
   stored: readonly T[] | undefined
@@ -66,16 +74,12 @@ export function resolveLoadMessagePage<T extends { id: string }>(params: {
   const { stored, fetched } = params
   if (stored && stored.length > 0) {
     const merged = merge(stored, fetched)
-    const minFetchedID = fetched.reduce<string | undefined>(
-      (min, item) => (min === undefined || cmp(item.id, min) < 0 ? item.id : min),
-      undefined,
-    )
-    const maxStoredID = stored.reduce<string | undefined>(
-      (max, item) => (max === undefined || cmp(max, item.id) < 0 ? item.id : max),
-      undefined,
-    )
-    if (params.mode !== "prepend" && !params.fetchedComplete && minFetchedID && maxStoredID) {
-      if (cmp(maxStoredID, minFetchedID) < 0) return fetched as T[]
+    const storedRange = idRange(stored)
+    const fetchedRange = idRange(fetched)
+    if (params.mode !== "prepend" && !params.fetchedComplete && storedRange.min && fetchedRange.min) {
+      if (cmp(storedRange.max!, fetchedRange.min) < 0 || cmp(fetchedRange.max!, storedRange.min) < 0) {
+        return fetched as T[]
+      }
     }
     if (params.mode !== "prepend" && params.fetchedComplete) {
       const fetchedIDs = new Set(fetched.map((item) => item.id))
