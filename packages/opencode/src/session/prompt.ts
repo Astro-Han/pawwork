@@ -729,6 +729,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       const deferredRuleset = Permission.merge(input.agent.permission, input.session.permission ?? [])
       const deferredAvailable = (id: string) =>
         input.tools?.[id] !== false && !Permission.disabled([id], deferredRuleset).has(id)
+      const availableDeferredTools = yield* registry.availableDeferred({ deferredAvailable })
 
       const context = (args: any, options: ToolExecutionOptions): Tool.Context => ({
         sessionID: input.session.id,
@@ -1039,7 +1040,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         tools[key] = item
       }
 
-      return tools
+      return { tools, availableDeferredTools }
     })
 
     const handleSubtask = Effect.fn("SessionPrompt.handleSubtask")(function* (input: {
@@ -2269,7 +2270,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             const lastUserMsg = msgs.findLast((m) => m.info.role === "user")
             const bypassAgentCheck = lastUserMsg?.parts.some((p) => p.type === "agent") ?? false
 
-            const tools = yield* resolveTools({
+            const resolvedTools = yield* resolveTools({
               agent,
               session,
               model,
@@ -2278,6 +2279,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               bypassAgentCheck,
               messages: msgs,
             })
+            const tools = resolvedTools.tools
 
             if (lastUser.format?.type === "json_schema") {
               tools["StructuredOutput"] = createStructuredOutputTool({
@@ -2379,6 +2381,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               system,
               messages: [...modelMsgs, ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS }] : [])],
               tools,
+              availableDeferredTools: resolvedTools.availableDeferredTools,
               model,
               toolChoice: format.type === "json_schema" ? "required" : undefined,
             })

@@ -85,6 +85,9 @@ export namespace ToolRegistry {
     readonly ids: () => Effect.Effect<string[]>
     readonly all: () => Effect.Effect<Tool.Def[]>
     readonly named: () => Effect.Effect<{ agent: AgentDef; read: ReadDef }>
+    readonly availableDeferred: (input: {
+      deferredAvailable?: (id: string) => boolean
+    }) => Effect.Effect<ReadonlySet<string>>
     readonly tools: (model: {
       providerID: ProviderID
       modelID: ModelID
@@ -373,12 +376,27 @@ export namespace ToolRegistry {
         return ["Available agent types and the tools they have access to:", description].join("\n")
       })
 
-      const tools: Interface["tools"] = Effect.fn("ToolRegistry.tools")(function* (input) {
-        const webSearchEnabled = yield* settings.webSearchEnabled()
+      const deferredAvailability = Effect.fn("ToolRegistry.deferredAvailability")(function* (input: {
+        deferredAvailable?: (id: string) => boolean
+      }) {
         const allTools = yield* all()
         const registeredToolIDs = new Set(allTools.map((tool) => tool.id))
         const isDeferredAvailable = (id: string) =>
           registeredToolIDs.has(id) && (input.deferredAvailable?.(id) ?? true)
+        const availableDeferred = [...DEFERRED_TOOL_IDS].filter(isDeferredAvailable)
+        return { allTools, availableDeferred, isDeferredAvailable }
+      })
+
+      const availableDeferred: Interface["availableDeferred"] = Effect.fn("ToolRegistry.availableDeferred")(function* (
+        input,
+      ) {
+        const availability = yield* deferredAvailability(input)
+        return new Set(availability.availableDeferred)
+      })
+
+      const tools: Interface["tools"] = Effect.fn("ToolRegistry.tools")(function* (input) {
+        const webSearchEnabled = yield* settings.webSearchEnabled()
+        const { allTools, isDeferredAvailable } = yield* deferredAvailability(input)
         const filtered = allTools.filter((tool) => {
           if (tool.id === WebSearchTool.id) return webSearchEnabled
 
@@ -395,7 +413,7 @@ export namespace ToolRegistry {
           return true
         })
 
-        const availableDeferred = [...DEFERRED_TOOL_IDS].filter(
+        const availableDeferredTools = [...DEFERRED_TOOL_IDS].filter(
           (id) => isDeferredAvailable(id) && !(input.activatedTools?.has(id) ?? false),
         )
 
@@ -427,7 +445,7 @@ export namespace ToolRegistry {
               description: [
                 output.description,
                 tool.id === AgentTool.id ? yield* describeTask(input.agent) : undefined,
-                tool.id === TOOL_INFO_ID ? buildCardList(availableDeferred) : undefined,
+                tool.id === TOOL_INFO_ID ? buildCardList(availableDeferredTools) : undefined,
               ]
                 .filter(Boolean)
                 .join("\n"),
@@ -449,7 +467,7 @@ export namespace ToolRegistry {
         yield* InstanceState.invalidate(state)
       })
 
-      return Service.of({ ids, all, named, tools, invalidate })
+      return Service.of({ ids, all, named, availableDeferred, tools, invalidate })
     }),
   )
 
@@ -492,6 +510,12 @@ export namespace ToolRegistry {
     deferredAvailable?: (id: string) => boolean
   }): Promise<(Tool.Def & { id: string })[]> {
     return runPromise((svc) => svc.tools(input))
+  }
+
+  export async function availableDeferred(input: {
+    deferredAvailable?: (id: string) => boolean
+  }): Promise<ReadonlySet<string>> {
+    return runPromise((svc) => svc.availableDeferred(input))
   }
 
   export async function invalidate() {

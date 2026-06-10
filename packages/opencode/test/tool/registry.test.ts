@@ -12,6 +12,8 @@ import { ProviderTransform } from "../../src/provider"
 import { localToolImportSpec, ToolRegistry } from "../../src/tool/registry"
 import { Settings } from "../../src/settings"
 import { MessageID, SessionID } from "../../src/session/schema"
+import type { MessageV2 } from "../../src/session/message-v2"
+import { LLM } from "../../src/session/llm"
 import * as EffectZod from "../../src/util/effect-zod"
 import { Npm } from "@opencode-ai/core/npm"
 
@@ -984,6 +986,33 @@ describe("tool.registry", () => {
         await expect(Effect.runPromise(toolInfo.execute({ name: "lsp" }, ctx))).rejects.toThrow(
           'Deferred tool "lsp" is not available in this context.',
         )
+      },
+    })
+  })
+
+  test("omits deferred repair hint for lsp when Settings.lspEnabled=false", async () => {
+    await using tmp = await tmpdir()
+    await Settings.setLspEnabled(false)
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const availableDeferredTools = await ToolRegistry.availableDeferred({
+          deferredAvailable: () => true,
+        })
+        const repair = JSON.parse(
+          LLM.buildInvalidToolRepairInput(
+            {
+              agent: { name: "build", mode: "primary", permission: [], options: {} },
+              availableDeferredTools,
+              permission: [],
+              user: { tools: {} } as MessageV2.User,
+            },
+            "lsp",
+            "Unknown tool: lsp",
+          ),
+        ) as { error: string }
+
+        expect(repair.error).not.toContain('call tool_info with name="lsp"')
       },
     })
   })
