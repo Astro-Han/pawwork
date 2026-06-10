@@ -404,6 +404,9 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
           loadPreview={platform.readFileDataUrl}
           removeLabel={language.t("prompt.attachment.remove")}
           revealLabel={language.t("prompt.attachment.showInFolder")}
+          model={() => local.model.current()}
+          unsupportedImageLabel={language.t("prompt.attachment.unsupported.image")}
+          unsupportedPdfLabel={language.t("prompt.attachment.unsupported.pdf")}
         />
         <div
           class="relative overflow-hidden rounded-b-[var(--radius-lg)]"

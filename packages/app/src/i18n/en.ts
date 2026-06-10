@@ -286,6 +286,8 @@ export const dict = {
   "prompt.action.attachFile": "Add files",
   "prompt.attachment.remove": "Remove attachment",
   "prompt.attachment.showInFolder": "Show in folder",
+  "prompt.attachment.unsupported.image": "This model can't view images, so it won't see this one. Switch models to share it.",
+  "prompt.attachment.unsupported.pdf": "This model can't read PDFs, so it won't see this file. Switch models to share it.",
   "prompt.action.send": "Send",
   "prompt.action.stop": "Stop",
 

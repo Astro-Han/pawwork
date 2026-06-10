@@ -1,5 +1,7 @@
+import { createSignal } from "solid-js"
 import { render } from "solid-js/web"
 import { PromptAttachmentChips } from "@/components/prompt-input/attachment-chips"
+import type { ModelInputSupport } from "@/components/prompt-input/attachment-routing"
 import type { FloatingAttachment } from "@/context/prompt"
 
 // Inline SVG thumbnail stands in for a real screenshot so the snap needs no
@@ -72,7 +74,10 @@ async function loadPreview(path: string): Promise<string | null> {
   return THUMB_SVG
 }
 
-function Block(props: { snap: string; attachments: FloatingAttachment[] }) {
+const textOnlyModel: ModelInputSupport = { capabilities: { input: { text: true, image: false, pdf: false } } }
+const visionModel: ModelInputSupport = { capabilities: { input: { text: true, image: true, pdf: false } } }
+
+function Block(props: { snap: string; attachments: FloatingAttachment[]; model?: () => ModelInputSupport }) {
   return (
     <div data-snap={props.snap} style={{ width: "560px", background: "var(--bg-base)", "padding-bottom": "12px" }}>
       <PromptAttachmentChips
@@ -86,12 +91,16 @@ function Block(props: { snap: string; attachments: FloatingAttachment[] }) {
         loadPreview={loadPreview}
         removeLabel="Remove attachment"
         revealLabel="Show in folder"
+        model={props.model}
+        unsupportedImageLabel="This model can't view images"
+        unsupportedPdfLabel="This model can't read PDFs"
       />
     </div>
   )
 }
 
 function AttachmentChipsFixture() {
+  const [capabilityModel, setCapabilityModel] = createSignal(textOnlyModel)
   return (
     <div style={{ display: "grid", gap: "20px", padding: "24px", background: "var(--bg-base)" }}>
       {/* Path-backed chips: image thumbnail via loadPreview, pdf card with size, long-name truncation. */}
@@ -100,6 +109,12 @@ function AttachmentChipsFixture() {
       <Block snap="legacy" attachments={[legacyImage, legacyText]} />
       {/* Image whose preview fails falls back to the file-card body. */}
       <Block snap="preview-fallback" attachments={[brokenPreviewImage]} />
+      {/* Media chips warn when the active model cannot see them; the badge
+          follows model switches reactively. */}
+      <Block snap="capability" attachments={[pathImage, pathPdf, pathLongName]} model={capabilityModel} />
+      <button type="button" onClick={() => setCapabilityModel((m) => (m === textOnlyModel ? visionModel : textOnlyModel))}>
+        toggle vision
+      </button>
     </div>
   )
 }

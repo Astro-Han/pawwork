@@ -301,6 +301,8 @@ export const dict = {
   "prompt.action.attachFile": "附加文件",
   "prompt.attachment.remove": "移除附件",
   "prompt.attachment.showInFolder": "在文件夹中显示",
+  "prompt.attachment.unsupported.image": "当前模型不支持图片输入，发送后将看不到这张图。换个支持图片的模型即可。",
+  "prompt.attachment.unsupported.pdf": "当前模型不支持 PDF 输入，发送后将看不到这个文件。换个支持 PDF 的模型即可。",
   "prompt.action.send": "发送",
   "prompt.action.stop": "停止",
   "prompt.toast.attachmentMissing.title": "找不到文件",

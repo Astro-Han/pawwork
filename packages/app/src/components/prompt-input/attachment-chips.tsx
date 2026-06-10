@@ -4,6 +4,7 @@ import { FileIcon } from "@opencode-ai/ui/file-icon"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import type { FloatingAttachment } from "@/context/prompt"
 import { attachmentChipModel, type AttachmentChipModel } from "./attachment-chips-model"
+import { attachmentCapabilityWarning, type ModelInputSupport } from "./attachment-routing"
 import { cachedPreview, loadPreviewCached } from "./attachment-preview-cache"
 
 type PromptAttachmentChipsProps = {
@@ -15,6 +16,10 @@ type PromptAttachmentChipsProps = {
   loadPreview?: (path: string, mime: string) => Promise<string | null>
   removeLabel: string
   revealLabel: string
+  /** Current model accessor; media chips it cannot see get a warning badge. */
+  model?: () => ModelInputSupport
+  unsupportedImageLabel: string
+  unsupportedPdfLabel: string
 }
 
 const removeButtonClass =
@@ -115,8 +120,12 @@ export const PromptAttachmentChips: Component<PromptAttachmentChipsProps> = (pro
         <For each={props.attachments}>
           {(attachment) => {
             const model = attachmentChipModel(attachment)
+            const warning = () => attachmentCapabilityWarning(props.model?.(), model.mime)
+            const warningLabel = () =>
+              warning() === "image" ? props.unsupportedImageLabel : props.unsupportedPdfLabel
+            const tooltip = () => (warning() ? `${model.tooltip}\n${warningLabel()}` : model.tooltip)
             return (
-              <Tooltip value={model.tooltip} placement="top" contentClass="break-all whitespace-pre-line">
+              <Tooltip value={tooltip()} placement="top" contentClass="break-all whitespace-pre-line">
                 <div class="relative">
                   <Show
                     when={model.kind === "image"}
@@ -133,6 +142,16 @@ export const PromptAttachmentChips: Component<PromptAttachmentChipsProps> = (pro
                     />
                   </Show>
                   <RemoveButton id={model.id} onRemove={props.onRemove} label={props.removeLabel} />
+                  <Show when={warning()}>
+                    <span
+                      data-slot="attachment-warning"
+                      role="img"
+                      aria-label={warningLabel()}
+                      class="absolute -bottom-1.5 -right-1.5 size-[18px] rounded-full bg-surface-base border border-border-base flex items-center justify-center"
+                    >
+                      <Icon name="warning" class="size-3 text-warning" />
+                    </span>
+                  </Show>
                 </div>
               </Tooltip>
             )
