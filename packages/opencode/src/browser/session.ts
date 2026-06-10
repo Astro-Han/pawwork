@@ -130,6 +130,17 @@ function invalidate(conn: Connection) {
   byEndpoint.delete(conn.endpoint)
   for (const id of conn.sessions) bySession.delete(id)
   void conn.bridge.close().catch(() => {})
+  // Tell the main process to drop its attachment now: with the bySession
+  // mapping gone, a later session delete/archive can no longer do it, and the
+  // host would keep a stale session→window claim (and possibly a live bridge)
+  // forever. Best-effort — a re-acquire re-attaches regardless.
+  if (BrowserBridge.available()) {
+    for (const id of conn.sessions) {
+      void BrowserBridge.host()
+        .releaseSession({ sessionID: id })
+        .catch(() => {})
+    }
+  }
 }
 
 /** Single-flight connect per endpoint: concurrent racers await the same attempt. */

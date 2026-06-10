@@ -140,6 +140,30 @@ describe("withBrowserPage", () => {
     expect(result).toBe("ok")
   }, 10_000)
 
+  test("a lost connection still tells the host to release its sessions, exactly once", async () => {
+    const server = makeServer()
+    scriptCurrentUrl(server, "about:blank")
+    const released = provideFakeHost(server)
+
+    await withBrowserPage("ses_a", "snapshot", async () => {})
+
+    server.handlers.set("Runtime.evaluate", HANG)
+    const inflight = withBrowserPage("ses_a", "extract", (page) => page.evaluate("location.href"))
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    server.failInflightAndClose()
+    await expect(inflight).rejects.toThrow(/CDP connection closed|bridge closed|CDP connection is not open/)
+
+    // invalidate() notified the host so the main process detaches its stale
+    // bridge (fire-and-forget; give the microtask a beat).
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(released).toEqual(["ses_a"])
+
+    // The session's later delete/archive finds no mapping and must not
+    // release a second time.
+    await releaseBrowserSession("ses_a")
+    expect(released).toEqual(["ses_a"])
+  }, 10_000)
+
   test("release closes the connection and notifies the host once the last session lets go", async () => {
     const server = makeServer()
     scriptCurrentUrl(server, "about:blank")
