@@ -114,6 +114,22 @@ describe("tool.registry", () => {
     expect(systemPrompt).toContain("by writing files")
   })
 
+  // Web tasks must route to the embedded browser tools, never to curl/wget
+  // sessions or a premature "can't access the web". The tools are deferred
+  // (one tool_info card), so the resident surfaces carry the routing: the
+  // system prompt names the trigger intents and the bash redirect list
+  // catches the entry point models drift into.
+  test("keeps browsing routing contract across prompt surfaces", async () => {
+    const shellDescription = await Bun.file(new URL("../../src/tool/shell.txt", import.meta.url)).text()
+    expect(shellDescription).toContain("Browsing or operating websites: Use the browser tools, activated via tool_info")
+
+    const systemPrompt = await Bun.file(new URL("../../src/session/prompt/pawwork.txt", import.meta.url)).text()
+    expect(systemPrompt).toContain("# Browsing and operating websites")
+    expect(systemPrompt).toContain("`browser` tool group via `tool_info`")
+    expect(systemPrompt).toContain("Never simulate a browser session with `curl` or `wget`")
+    expect(systemPrompt).toContain("never declare a web task impossible")
+  })
+
   test("loads tools from .opencode/tool (singular)", async () => {
     await using tmp = await tmpdir({
       init: async (dir) => {
