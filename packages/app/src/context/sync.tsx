@@ -99,12 +99,11 @@ export function resolveLoadMessagePageMeta(params: {
 }) {
   const previous = params.previous
   const limit = Math.max(previous?.limit ?? 0, params.messageCount)
-  const retainedExistingPage =
+  if (
     params.mode !== "prepend" &&
-    previous !== undefined &&
-    previous.limit !== undefined &&
+    previous?.limit !== undefined &&
     (params.retainedPreviousPage ?? params.messageCount > params.fetchedCount)
-  if (retainedExistingPage) {
+  ) {
     const complete = previous.complete || params.fetchedComplete
     return {
       limit,
