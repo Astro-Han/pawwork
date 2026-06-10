@@ -1585,6 +1585,13 @@ describe("tool.bash permissions", () => {
         const extDirReq = requests.find((r) => r.permission === "external_directory")
         expect(extDirReq).toBeDefined()
         expect(extDirReq!.patterns).toContain(want)
+        const directory = process.platform === "win32" ? process.env.WINDIR!.replaceAll("\\", "/") : await fs.promises.realpath("/etc")
+        expect(extDirReq!.metadata).toMatchObject({
+          command: `cat ${file}`,
+          description: "Read wildcard path",
+          directories: [directory],
+          patterns: [want],
+        })
       },
     })
   })
