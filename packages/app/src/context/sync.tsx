@@ -15,8 +15,7 @@ import type { Message, Part } from "@opencode-ai/sdk/v2/client"
 import { dropSessionCaches } from "./global-sync/session-cache"
 import type { TodoHydrateReason } from "./global-sync/todo-hydrate-coordinator"
 import { diffs as list, message as clean } from "@/utils/diffs"
-
-const SKIP_PARTS = new Set(["patch", "step-start", "step-finish"])
+import { shouldStoreMessagePart } from "./message-part-storage"
 
 function sortParts(parts: Part[]) {
   return parts.filter((part) => !!part?.id).sort((a, b) => cmp(a.id, b.id))
@@ -405,7 +404,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           batch(() => {
             input.setStore("message", input.sessionID, reconcile(message, { key: "id" }))
             for (const p of next.part) {
-              const filtered = p.part.filter((x) => !SKIP_PARTS.has(x.type))
+              const filtered = p.part.filter(shouldStoreMessagePart)
               if (filtered.length) input.setStore("part", p.id, filtered)
             }
             setMeta("limit", key, message.length)
