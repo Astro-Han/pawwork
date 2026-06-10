@@ -97,16 +97,18 @@ export function resolveLoadMessagePageMeta(params: {
   fetchedComplete: boolean
   retainedPreviousPage?: boolean
 }) {
-  const limit = Math.max(params.previous?.limit ?? 0, params.messageCount)
+  const previous = params.previous
+  const limit = Math.max(previous?.limit ?? 0, params.messageCount)
   const retainedExistingPage =
     params.mode !== "prepend" &&
-    params.previous?.limit !== undefined &&
+    previous !== undefined &&
+    previous.limit !== undefined &&
     (params.retainedPreviousPage ?? params.messageCount > params.fetchedCount)
   if (retainedExistingPage) {
-    const complete = params.previous?.complete || params.fetchedComplete
+    const complete = previous.complete || params.fetchedComplete
     return {
       limit,
-      cursor: complete ? undefined : (params.previous?.cursor ?? params.fetchedCursor),
+      cursor: complete ? undefined : (previous.cursor ?? params.fetchedCursor),
       complete,
     }
   }
