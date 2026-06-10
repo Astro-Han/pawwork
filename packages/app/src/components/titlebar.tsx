@@ -1,5 +1,5 @@
 import { createEffect, createMemo, Show, untrack } from "solid-js"
-import { createStore } from "solid-js/store"
+import { createStore, unwrap } from "solid-js/store"
 import { createMediaQuery } from "@solid-primitives/media"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { Icon } from "@opencode-ai/ui/icon"
@@ -11,7 +11,7 @@ import { isDesktopShell, isMacShell, isWindowsShell, shellAttrs, usePlatform } f
 import { useCommand } from "@/context/command"
 import { useLanguage } from "@/context/language"
 import { useShellSurface } from "@/context/shell-surface"
-import { applyPath, backPath, forwardPath } from "./titlebar-history"
+import { applyPath, backPath, forwardPath, type TitlebarEntry } from "./titlebar-history"
 
 export function Titlebar() {
   const layout = useLayout()
@@ -58,7 +58,7 @@ export function Titlebar() {
   })
 
   const [history, setHistory] = createStore({
-    stack: [] as string[],
+    stack: [] as TitlebarEntry[],
     index: 0,
     action: undefined as "back" | "forward" | undefined,
   })
@@ -66,7 +66,9 @@ export function Titlebar() {
   const path = () => `${location.pathname}${location.search}${location.hash}`
 
   createEffect(() => {
-    const current = path()
+    // Track state as well as path: replaying an entry without its navigation
+    // state would break the surface routes' close-to-origin contract.
+    const current = { to: path(), state: location.state }
 
     untrack(() => {
       const next = applyPath(history, current)
@@ -79,14 +81,18 @@ export function Titlebar() {
     const next = backPath(history)
     if (!next) return
     setHistory(next.state)
-    navigate(next.to)
+    // unwrap: a store-proxied state would fail the web router's pushState
+    // structured clone (proxies are not cloneable).
+    const entry = unwrap(next.entry)
+    navigate(entry.to, { state: entry.state })
   }
 
   const forward = () => {
     const next = forwardPath(history)
     if (!next) return
     setHistory(next.state)
-    navigate(next.to)
+    const entry = unwrap(next.entry)
+    navigate(entry.to, { state: entry.state })
   }
 
   command.register(() => [

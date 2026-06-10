@@ -10,6 +10,7 @@ function layoutCommandCatalog(input?: {
   canToggleWorkspace?: boolean
   canSwitchColorScheme?: boolean
   canOpenFiles?: boolean
+  canMoveSession?: boolean
 }) {
   let catalog: CommandOption[] = []
   registerLayoutCommands({
@@ -48,6 +49,7 @@ function layoutCommandCatalog(input?: {
       moveProject: () => undefined,
       moveSession: () => undefined,
       moveUnseenSession: () => undefined,
+      canMoveSession: () => input?.canMoveSession ?? true,
     },
     settingsActions: {
       open: () => undefined,
@@ -127,6 +129,7 @@ describe("registerLayoutCommands", () => {
       canToggleWorkspace: false,
       canSwitchColorScheme: false,
       canOpenFiles: false,
+      canMoveSession: false,
     })
 
     expect(catalog.find((command) => command.id === "settings.openGlobalConfigFolder")?.disabled).toBe(true)
@@ -135,6 +138,12 @@ describe("registerLayoutCommands", () => {
     // Zero projects: the file picker has no directory to list, so file.open
     // disappears from the keymap, the palette list, and the suggested rows.
     expect(catalog.find((command) => command.id === "file.open")?.disabled).toBe(true)
+    // Surface routes: session-relative navigation has no anchor session, so
+    // alt+arrow keybinds must not yank the user off the page.
+    expect(catalog.find((command) => command.id === "session.previous")?.disabled).toBe(true)
+    expect(catalog.find((command) => command.id === "session.next")?.disabled).toBe(true)
+    expect(catalog.find((command) => command.id === "session.previous.unseen")?.disabled).toBe(true)
+    expect(catalog.find((command) => command.id === "session.next.unseen")?.disabled).toBe(true)
     expect(catalog.some((command) => command.id.startsWith("theme.scheme."))).toBe(false)
   })
 })

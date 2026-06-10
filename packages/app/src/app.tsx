@@ -48,6 +48,9 @@ import { AboutModal } from "@/components/about-modal"
 import type { AboutInfo, RendererDiagnosticInput, RendererDiagnosticsExportResult, WebSearchStatus } from "@/desktop-api-contract"
 import DirectoryLayout from "@/pages/directory-layout"
 import Layout from "@/pages/layout"
+import AutomationsRoute from "@/pages/automations/automations-route"
+import SettingsRoute from "@/pages/settings/settings-route"
+import SkillsRoute from "@/pages/skills/skills-route"
 import { ErrorPage } from "./pages/error"
 import { buildDesktopContext, desktopWindowTitle, type DesktopContext } from "./utils/desktop-context"
 import { useCheckServerHealth } from "./utils/server-health"
@@ -429,6 +432,12 @@ export function AppInterface(props: {
                 root={(routerProps) => <RouterRoot appChildren={props.children}>{routerProps.children}</RouterRoot>}
               >
                 <Route path="/" component={HomeRedirectRoute} />
+                {/* Global surface routes: siblings of the session routes, not
+                    nested under /:dir. Static segments outrank the /:dir
+                    param, so these never resolve as a directory slug. */}
+                <Route path="/settings" component={SettingsRoute} />
+                <Route path="/automations" component={AutomationsRoute} />
+                <Route path="/skills" component={SkillsRoute} />
                 <Route path="/:dir" component={DirectoryLayout}>
                   <Route path="/" component={SessionIndexRoute} />
                   <Route path="/session/:id?" component={SessionRoute} />

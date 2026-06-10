@@ -87,7 +87,10 @@ export function SkillsSurface(props: {
   // "no skills". Key the body off the resource state so the empty copy only
   // shows once we actually have a (filtered-to-zero) result, and load failures
   // get their own message.
-  const view = createMemo<"loading" | "error" | "empty" | "list">(() => {
+  const view = createMemo<"no-directory" | "loading" | "error" | "empty" | "list">(() => {
+    // No resolvable directory (zero projects): the gallery cannot list and
+    // "Use in chat" has no destination — say so instead of loading forever.
+    if (!props.directory()) return "no-directory"
     if (skills.state === "errored") return "error"
     if (skills.state === "pending" || skills.state === "unresolved") return "loading"
     return filtered().length > 0 ? "list" : "empty"
@@ -138,6 +141,11 @@ export function SkillsSurface(props: {
         </div>
 
         <Switch>
+          <Match when={view() === "no-directory"}>
+            <div data-component="skills-need-project" class="px-2.5 py-16 text-center text-body text-fg-weak">
+              {language.t("skills.needProject.title")}
+            </div>
+          </Match>
           {/* Reserve the row band's height so the layout doesn't jump when the
               list lands; no "Loading…" copy (local skills resolve fast, and the
               label would just flicker). */}

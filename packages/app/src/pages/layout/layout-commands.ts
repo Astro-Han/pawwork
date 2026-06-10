@@ -28,6 +28,9 @@ type LayoutCommandRegistration = {
     moveProject: (offset: number) => void
     moveSession: (offset: number) => void
     moveUnseenSession: (offset: number) => void
+    // Session-relative navigation needs a current session as its anchor; on
+    // surface routes it would jump to an arbitrary session.
+    canMoveSession: Accessor<boolean>
   }
   settingsActions: {
     open: () => void
@@ -181,6 +184,7 @@ export function registerLayoutCommands(input: LayoutCommandRegistration) {
         title: copy.t("command.session.previous"),
         category: copy.t("command.category.session"),
         keybind: "alt+arrowup",
+        disabled: !navigationActions.canMoveSession(),
         onSelect: () => navigationActions.moveSession(-1),
       },
       {
@@ -188,6 +192,7 @@ export function registerLayoutCommands(input: LayoutCommandRegistration) {
         title: copy.t("command.session.next"),
         category: copy.t("command.category.session"),
         keybind: "alt+arrowdown",
+        disabled: !navigationActions.canMoveSession(),
         onSelect: () => navigationActions.moveSession(1),
       },
       {
@@ -195,6 +200,7 @@ export function registerLayoutCommands(input: LayoutCommandRegistration) {
         title: copy.t("command.session.previous.unseen"),
         category: copy.t("command.category.session"),
         keybind: "shift+alt+arrowup",
+        disabled: !navigationActions.canMoveSession(),
         onSelect: () => navigationActions.moveUnseenSession(-1),
       },
       {
@@ -202,6 +208,7 @@ export function registerLayoutCommands(input: LayoutCommandRegistration) {
         title: copy.t("command.session.next.unseen"),
         category: copy.t("command.category.session"),
         keybind: "shift+alt+arrowdown",
+        disabled: !navigationActions.canMoveSession(),
         onSelect: () => navigationActions.moveUnseenSession(1),
       },
       {
