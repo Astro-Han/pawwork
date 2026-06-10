@@ -90,6 +90,9 @@ export function fileUrlToPath(url: string): string | undefined {
   const decoded = decodeFilePath(stripQueryAndHash(stripFileProtocol(url)))
   // encodeFilePath writes Windows drive paths as /D:/...; undo that.
   if (/^\/[A-Za-z]:/.test(decoded)) return decoded.slice(1)
+  // fileURL puts UNC paths (//server/share) in the URL host position,
+  // stripping the leading slashes; restore them.
+  if (decoded && !decoded.startsWith("/")) return "//" + decoded
   return decoded
 }
 
