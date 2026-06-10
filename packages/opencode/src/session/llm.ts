@@ -15,7 +15,7 @@ import { SystemPrompt } from "./system"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { Permission } from "@/permission"
 import { PermissionID } from "@/permission/schema"
-import { buildDeferredHint } from "../tool/tool-info"
+import { TOOL_INFO_ID, buildDeferredHint } from "../tool/tool-info"
 import { Bus } from "@/bus"
 import { Wildcard } from "@/util/wildcard"
 import { SessionID } from "@/session/schema"
@@ -686,12 +686,14 @@ export function resolveTools(input: Pick<StreamInput, "tools" | "agent" | "permi
 }
 
 export function buildInvalidToolRepairInput(
-  input: Pick<StreamInput, "agent" | "availableDeferredTools" | "permission" | "user">,
+  input: Pick<StreamInput, "agent" | "availableDeferredTools" | "permission" | "tools" | "user">,
   toolName: string,
   errorMessage: string,
 ) {
   const deferredRuleset = Permission.merge(input.agent.permission, input.permission ?? [])
+  const toolInfoAvailable = input.tools[TOOL_INFO_ID] !== undefined
   const deferredAvailable = (id: string) =>
+    toolInfoAvailable &&
     (input.availableDeferredTools?.has(id) ?? true) &&
     input.user.tools?.[id] !== false &&
     !Permission.disabled([id], deferredRuleset).has(id)

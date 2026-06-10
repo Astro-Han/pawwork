@@ -86,6 +86,7 @@ export namespace ToolRegistry {
     readonly all: () => Effect.Effect<Tool.Def[]>
     readonly named: () => Effect.Effect<{ agent: AgentDef; read: ReadDef }>
     readonly availableDeferred: (input: {
+      activatedTools?: ReadonlySet<string>
       deferredAvailable?: (id: string) => boolean
     }) => Effect.Effect<ReadonlySet<string>>
     readonly tools: (model: {
@@ -377,13 +378,16 @@ export namespace ToolRegistry {
       })
 
       const deferredAvailability = Effect.fn("ToolRegistry.deferredAvailability")(function* (input: {
+        activatedTools?: ReadonlySet<string>
         deferredAvailable?: (id: string) => boolean
       }) {
         const allTools = yield* all()
         const registeredToolIDs = new Set(allTools.map((tool) => tool.id))
         const isDeferredAvailable = (id: string) =>
           registeredToolIDs.has(id) && (input.deferredAvailable?.(id) ?? true)
-        const availableDeferred = [...DEFERRED_TOOL_IDS].filter(isDeferredAvailable)
+        const availableDeferred = [...DEFERRED_TOOL_IDS].filter(
+          (id) => isDeferredAvailable(id) && !(input.activatedTools?.has(id) ?? false),
+        )
         return { allTools, availableDeferred, isDeferredAvailable }
       })
 
@@ -396,7 +400,7 @@ export namespace ToolRegistry {
 
       const tools: Interface["tools"] = Effect.fn("ToolRegistry.tools")(function* (input) {
         const webSearchEnabled = yield* settings.webSearchEnabled()
-        const { allTools, isDeferredAvailable } = yield* deferredAvailability(input)
+        const { allTools, availableDeferred, isDeferredAvailable } = yield* deferredAvailability(input)
         const filtered = allTools.filter((tool) => {
           if (tool.id === WebSearchTool.id) return webSearchEnabled
 
@@ -412,10 +416,6 @@ export namespace ToolRegistry {
 
           return true
         })
-
-        const availableDeferredTools = [...DEFERRED_TOOL_IDS].filter(
-          (id) => isDeferredAvailable(id) && !(input.activatedTools?.has(id) ?? false),
-        )
 
         return yield* Effect.forEach(
           filtered,
@@ -445,7 +445,7 @@ export namespace ToolRegistry {
               description: [
                 output.description,
                 tool.id === AgentTool.id ? yield* describeTask(input.agent) : undefined,
-                tool.id === TOOL_INFO_ID ? buildCardList(availableDeferredTools) : undefined,
+                tool.id === TOOL_INFO_ID ? buildCardList(availableDeferred) : undefined,
               ]
                 .filter(Boolean)
                 .join("\n"),
@@ -513,6 +513,7 @@ export namespace ToolRegistry {
   }
 
   export async function availableDeferred(input: {
+    activatedTools?: ReadonlySet<string>
     deferredAvailable?: (id: string) => boolean
   }): Promise<ReadonlySet<string>> {
     return runPromise((svc) => svc.availableDeferred(input))

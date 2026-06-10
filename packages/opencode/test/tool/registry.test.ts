@@ -1005,6 +1005,7 @@ describe("tool.registry", () => {
               agent: { name: "build", mode: "primary", permission: [], options: {} },
               availableDeferredTools,
               permission: [],
+              tools: { tool_info: {} as never },
               user: { tools: {} } as MessageV2.User,
             },
             "lsp",
@@ -1015,6 +1016,39 @@ describe("tool.registry", () => {
         expect(repair.error).not.toContain('call tool_info with name="lsp"')
       },
     })
+  })
+
+  test("omits deferred repair hint for lsp after it is activated", async () => {
+    await using tmp = await tmpdir()
+    await Settings.setLspEnabled(true)
+    try {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const availableDeferredTools = await ToolRegistry.availableDeferred({
+            activatedTools: new Set(["lsp"]),
+            deferredAvailable: () => true,
+          })
+          const repair = JSON.parse(
+            LLM.buildInvalidToolRepairInput(
+              {
+                agent: { name: "build", mode: "primary", permission: [], options: {} },
+                availableDeferredTools,
+                permission: [],
+                tools: { tool_info: {} as never },
+                user: { tools: {} } as MessageV2.User,
+              },
+              "lsp",
+              "Invalid input",
+            ),
+          ) as { error: string }
+
+          expect(repair.error).not.toContain('call tool_info with name="lsp"')
+        },
+      })
+    } finally {
+      await Settings.setLspEnabled(false)
+    }
   })
 
   test("defers lsp and worktree tools until activated, and advertises them via tool_info", async () => {

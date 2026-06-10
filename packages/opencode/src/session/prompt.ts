@@ -729,7 +729,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       const deferredRuleset = Permission.merge(input.agent.permission, input.session.permission ?? [])
       const deferredAvailable = (id: string) =>
         input.tools?.[id] !== false && !Permission.disabled([id], deferredRuleset).has(id)
-      const availableDeferredTools = yield* registry.availableDeferred({ deferredAvailable })
+      const availableDeferredTools = yield* registry.availableDeferred({ activatedTools, deferredAvailable })
 
       const context = (args: any, options: ToolExecutionOptions): Tool.Context => ({
         sessionID: input.session.id,
