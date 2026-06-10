@@ -30,6 +30,7 @@ import type { SQL } from "../storage/db"
 import { MessageTable, PartTable, SessionTable } from "./session.sql"
 import { ProjectTable } from "../project/project.sql"
 import { Storage } from "@/storage/storage"
+import { releaseBrowserSession } from "@/browser/session"
 import { Log } from "@opencode-ai/core/util/log"
 import { updateSchema } from "../util/update-schema"
 import { MessageV2 } from "./message-v2"
@@ -603,6 +604,10 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
       // module-level and `remove()` explicitly supports cleanup on broken
       // sessions that have no InstanceState.
       yield* ExternalResult.onSessionDestroyed(sessionID)
+      // Release the session's embedded-browser connection (close the CDP ws
+      // and detach the main-process bridge once the last claim goes). Keyed by
+      // root session id inside, so child-session deletes are no-ops here.
+      yield* Effect.promise(() => releaseBrowserSession(sessionID))
       if (!(yield* hasInstanceContext())) return
       yield* Permission.Service.use((svc) => svc.clearSession(sessionID, reason)).pipe(
         Effect.provide(Permission.defaultLayer),
