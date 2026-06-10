@@ -54,11 +54,12 @@ export class CdpBridge {
   private secret = ""
   private path = ""
   // Outstanding client command ids, each keyed to the connection that issued
-  // it: teardown can fail them immediately (instead of leaving the client to
-  // wait out its own ~30s CDP timeout), and a completion is only delivered to
-  // its own connection — a reconnecting client reusing the same ids must never
-  // receive a stale result from the previous connection.
-  private readonly pending = new Map<number, WebSocket>()
+  // it (and the CDP sessionId it was sent on): teardown can fail them
+  // immediately (instead of leaving the client to wait out its own ~30s CDP
+  // timeout) with a response the client can route, and a completion is only
+  // delivered to its own connection — a reconnecting client reusing the same
+  // ids must never receive a stale result from the previous connection.
+  private readonly pending = new Map<number, { ws: WebSocket; sessionId?: string }>()
 
   constructor(private readonly wc: WebContents) {}
 
@@ -117,8 +118,14 @@ export class CdpBridge {
     // (opencli has no remote-close handler) fails fast instead of hanging until
     // its own ~30s timeout.
     if (this.socket?.readyState === WebSocket.OPEN) {
-      for (const id of this.pending.keys()) {
-        this.socket.send(JSON.stringify({ id, error: { code: -32000, message: "bridge closed" } }))
+      for (const [id, entry] of this.pending) {
+        this.socket.send(
+          JSON.stringify({
+            id,
+            error: { code: -32000, message: "bridge closed" },
+            ...(entry.sessionId ? { sessionId: entry.sessionId } : {}),
+          }),
+        )
       }
     }
     this.pending.clear()
@@ -210,7 +217,7 @@ export class CdpBridge {
       // This connection's commands can no longer be answered; drop them so
       // their late completions are discarded instead of being delivered to a
       // future connection that happens to reuse the same ids.
-      for (const [id, owner] of this.pending) if (owner === ws) this.pending.delete(id)
+      for (const [id, entry] of this.pending) if (entry.ws === ws) this.pending.delete(id)
     })
   }
 
@@ -223,7 +230,7 @@ export class CdpBridge {
     }
     if (typeof cmd.id !== "number" || typeof cmd.method !== "string") return
     const { id, sessionId } = cmd
-    this.pending.set(id, ws)
+    this.pending.set(id, { ws, sessionId })
     try {
       const result = await this.wc.debugger.sendCommand(cmd.method, cmd.params ?? {}, sessionId)
       if (this.takePending(id, ws)) this.send({ id, result, ...(sessionId ? { sessionId } : {}) })
@@ -241,7 +248,7 @@ export class CdpBridge {
   // teardown already failed it (don't double-send) or after the issuing
   // connection went away (don't leak a stale result to its successor).
   private takePending(id: number, ws: WebSocket): boolean {
-    if (this.pending.get(id) !== ws) return false
+    if (this.pending.get(id)?.ws !== ws) return false
     this.pending.delete(id)
     return true
   }

@@ -187,6 +187,23 @@ describe("CdpBridge", () => {
     release({}) // resolve the dangling promise so nothing leaks
   })
 
+  test("teardown failure responses carry the command's sessionId", async () => {
+    const { wc, asWebContents } = makeWc()
+    let release: (value: unknown) => void = () => {}
+    wc.debugger.impl = () => new Promise((resolve) => (release = resolve))
+    const { bridge, cdpEndpoint } = await startBridge(asWebContents)
+    const ws = await open(cdpEndpoint)
+    const errored = nextMessage(ws)
+    ws.send(JSON.stringify({ id: 5, method: "Page.navigate", params: {}, sessionId: "session-a" }))
+    await new Promise((resolve) => setTimeout(resolve, 20)) // let the command register as pending
+    await bridge.stop()
+    const msg = (await errored) as { id: number; sessionId?: string; error?: { message: string } }
+    expect(msg.id).toBe(5)
+    expect(msg.sessionId).toBe("session-a")
+    expect(msg.error?.message).toBe("bridge closed")
+    release({})
+  })
+
   test("a reconnecting client reusing a command id never sees the previous client's result", async () => {
     const { wc, asWebContents } = makeWc()
     const resolvers: Array<(value: unknown) => void> = []
