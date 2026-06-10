@@ -348,6 +348,20 @@ describe("browser_wait", () => {
     const result = await exec(BrowserWaitTool, { time: 0.05 })
     expect(result.output).toContain("Done")
   })
+
+  test("a wait that is the takeover's first action surfaces the reload note once", async () => {
+    const server = makeServer()
+    // The user already had a page open: connecting reloads it for stealth,
+    // and a wait whose condition was met on that fresh document must say so.
+    server.url = "https://example.com/already-open"
+    scriptCurrentUrl(server, "https://example.com/already-open")
+    provideFakeHost(server)
+
+    const first = await exec(BrowserWaitTool, { time: 0.05 })
+    expect(first.output).toContain("reloaded once")
+    const second = await exec(BrowserWaitTool, { time: 0.05 })
+    expect(second.output).not.toContain("reloaded once")
+  })
 })
 
 describe("browser_screenshot", () => {

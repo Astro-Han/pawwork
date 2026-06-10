@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect"
 import * as Tool from "./tool"
 import DESCRIPTION from "./browser-wait.txt"
-import { runBrowserAction } from "./browser-shared"
+import { runBrowserAction, takeoverNote } from "./browser-shared"
 
 const MAX_WAIT_SECONDS = 120
 
@@ -54,27 +54,31 @@ export const BrowserWaitTool = Tool.define(
             : params.selector
               ? `selector ${JSON.stringify(params.selector)}`
               : `${requested}s pause`
-          yield* runBrowserAction({
+          const info = yield* runBrowserAction({
             ctx,
             label: "wait",
             metadata: { condition },
             // The page-side wait owns the deadline; give the tool wrapper room past it.
             timeoutMs: (requested + 5) * 1000,
-            run: async (page) => {
+            run: async (page, info) => {
               if (params.time !== undefined) {
                 await page.wait({ time: requested })
-                return
+                return info
               }
               await page.wait({
                 ...(params.text ? { text: params.text } : {}),
                 ...(params.selector ? { selector: params.selector } : {}),
                 timeout: requested,
               })
+              return info
             },
           })
           return {
             title: `Waited for ${condition}`,
-            output: `Done: ${condition}.`,
+            // When taking over an already-open page reloaded it, say so — a
+            // wait may be the takeover's first action, and the condition it
+            // just satisfied happened on the freshly reloaded document.
+            output: `Done: ${condition}.` + takeoverNote(info),
             metadata: { condition },
           }
         }),
