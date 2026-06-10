@@ -1,4 +1,5 @@
 import { randomBytes } from "crypto"
+import { randomBase62 } from "./base62"
 
 export namespace Identifier {
   const LENGTH = 26
@@ -12,20 +13,6 @@ export namespace Identifier {
 
   export function descending() {
     return create(true)
-  }
-
-  function randomBase62(length: number): string {
-    const chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-    let result = ""
-    while (result.length < length) {
-      const bytes = randomBytes(length - result.length)
-      for (const byte of bytes) {
-        if (byte >= 248) continue
-        result += chars[byte % 62]
-        if (result.length === length) break
-      }
-    }
-    return result
   }
 
   export function create(descending: boolean, timestamp?: number): string {
@@ -46,6 +33,6 @@ export namespace Identifier {
       timeBytes[i] = Number((now >> BigInt(40 - 8 * i)) & BigInt(0xff))
     }
 
-    return timeBytes.toString("hex") + randomBase62(LENGTH - 12)
+    return timeBytes.toString("hex") + randomBase62(LENGTH - 12, randomBytes)
   }
 }

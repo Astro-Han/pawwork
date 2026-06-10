@@ -282,6 +282,43 @@ describe("tool.edit", () => {
       ),
     )
 
+    it.live("preserves $-patterns in newString with replaceAll", () =>
+      provideTmpdirInstance((dir) =>
+        Effect.gen(function* () {
+          const filepath = path.join(dir, "file.txt")
+          yield* Effect.promise(() => fs.writeFile(filepath, "kill PID\nwait PID", "utf-8"))
+
+          yield* run({
+            filePath: filepath,
+            oldString: "PID",
+            newString: "$$PID",
+            replaceAll: true,
+          })
+
+          const content = yield* Effect.promise(() => fs.readFile(filepath, "utf-8"))
+          expect(content).toBe("kill $$PID\nwait $$PID")
+        }),
+      ),
+    )
+
+    it.live("preserves $& in newString for single replacement", () =>
+      provideTmpdirInstance((dir) =>
+        Effect.gen(function* () {
+          const filepath = path.join(dir, "file.txt")
+          yield* Effect.promise(() => fs.writeFile(filepath, "const re = X", "utf-8"))
+
+          yield* run({
+            filePath: filepath,
+            oldString: "X",
+            newString: '"$&-suffix"',
+          })
+
+          const content = yield* Effect.promise(() => fs.readFile(filepath, "utf-8"))
+          expect(content).toBe('const re = "$&-suffix"')
+        }),
+      ),
+    )
+
     it.live("emits change event for existing files", () =>
       provideTmpdirInstance((dir) =>
         Effect.gen(function* () {

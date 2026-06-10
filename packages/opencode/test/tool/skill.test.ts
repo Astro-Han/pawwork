@@ -29,7 +29,7 @@ afterEach(async () => {
 })
 
 describe("tool.skill", () => {
-  test("description lists skill location URL", async () => {
+  test("description does not duplicate the available skill catalog", async () => {
     await using tmp = await tmpdir({
       git: true,
       init: async (dir) => {
@@ -59,7 +59,9 @@ description: Skill for tool tests.
             modelID: "gpt-5" as any,
             agent: { name: "build", mode: "primary" as const, permission: [], options: {} },
           }).then((tools) => tools.find((tool) => tool.id === SkillTool.id)?.description ?? "")
-          expect(desc).toContain(`**tool-skill**: Skill for tool tests.`)
+          expect(desc).toContain("Load a specialized skill")
+          expect(desc).not.toContain("tool-skill")
+          expect(desc).not.toContain("Skill for tool tests.")
         },
       })
     } finally {
@@ -67,7 +69,7 @@ description: Skill for tool tests.
     }
   })
 
-  test("description sorts skills by name and is stable across calls", async () => {
+  test("description is stable across calls without listing available skills", async () => {
     await using tmp = await tmpdir({
       git: true,
       init: async (dir) => {
@@ -109,14 +111,9 @@ description: ${description}
           const second = await load()
 
           expect(first).toBe(second)
-
-          const alpha = first.indexOf("**alpha-skill**: Alpha skill.")
-          const middle = first.indexOf("**middle-skill**: Middle skill.")
-          const zeta = first.indexOf("**zeta-skill**: Zeta skill.")
-
-          expect(alpha).toBeGreaterThan(-1)
-          expect(middle).toBeGreaterThan(alpha)
-          expect(zeta).toBeGreaterThan(middle)
+          expect(first).not.toContain("alpha-skill")
+          expect(first).not.toContain("middle-skill")
+          expect(first).not.toContain("zeta-skill")
         },
       })
     } finally {
@@ -124,7 +121,7 @@ description: ${description}
     }
   })
 
-  test("description uses empty state when only manual skills are available", async () => {
+  test("description omits manual-only skills without appending an empty catalog", async () => {
     await using tmp = await tmpdir({
       git: true,
       init: async (dir) => {
@@ -163,7 +160,8 @@ name: manual-skill
             agent,
           }).then((tools) => tools.find((tool) => tool.id === SkillTool.id)?.description ?? "")
 
-          expect(desc).toContain("No skills are currently available.")
+          expect(desc).toContain("Load a specialized skill")
+          expect(desc).not.toContain("No skills are currently available.")
           expect(desc).not.toContain("manual-skill")
           expect(desc).not.toContain("The following skills provide specialized sets of instructions")
         },

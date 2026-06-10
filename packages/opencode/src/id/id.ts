@@ -1,5 +1,6 @@
 import z from "zod"
 import { randomBytes } from "crypto"
+import { randomBase62 } from "@opencode-ai/core/util/base62"
 
 export namespace Identifier {
   const prefixes = {
@@ -37,7 +38,6 @@ export namespace Identifier {
 
   const LENGTH = 26
 
-  // State for monotonic ID generation
   let lastTimestamp = 0
   let counter = 0
 
@@ -60,16 +60,6 @@ export namespace Identifier {
     return given
   }
 
-  function randomBase62(length: number): string {
-    const chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-    let result = ""
-    const bytes = randomBytes(length)
-    for (let i = 0; i < length; i++) {
-      result += chars[bytes[i] % 62]
-    }
-    return result
-  }
-
   export function create(prefix: Prefix, descending: boolean, timestamp?: number): string {
     const currentTimestamp = timestamp ?? Date.now()
 
@@ -88,7 +78,7 @@ export namespace Identifier {
       timeBytes[i] = Number((now >> BigInt(40 - 8 * i)) & BigInt(0xff))
     }
 
-    return prefixes[prefix] + "_" + timeBytes.toString("hex") + randomBase62(LENGTH - 12)
+    return prefixes[prefix] + "_" + timeBytes.toString("hex") + randomBase62(LENGTH - 12, randomBytes)
   }
 
   /** Extract timestamp from an ascending ID. Does not work with descending IDs. */

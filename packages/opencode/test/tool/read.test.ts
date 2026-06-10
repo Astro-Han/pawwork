@@ -332,9 +332,19 @@ describe("tool.read truncation", () => {
       const dir = yield* tmpdirScoped()
       yield* put(path.join(dir, "small.txt"), "hello world")
 
-      const result = yield* exec(dir, { filePath: path.join(dir, "small.txt") })
+      const filePath = path.join(dir, "small.txt")
+      const result = yield* exec(dir, { filePath })
       expect(result.metadata.truncated).toBe(false)
       expect(result.output).toContain("End of file")
+      expect(result.metadata.display).toEqual({
+        type: "file",
+        path: filePath,
+        text: "hello world",
+        lineStart: 1,
+        lineEnd: 1,
+        totalLines: 1,
+        truncated: false,
+      })
     }),
   )
 
@@ -411,9 +421,18 @@ describe("tool.read truncation", () => {
         },
       )
 
-      const result = yield* exec(dir, { filePath: path.join(dir, "dir"), offset: 6, limit: 5 })
+      const filePath = path.join(dir, "dir")
+      const result = yield* exec(dir, { filePath, offset: 6, limit: 5 })
       expect(result.metadata.truncated).toBe(false)
       expect(result.output).not.toContain("Showing 5 of 10 entries")
+      expect(result.metadata.display).toEqual({
+        type: "directory",
+        path: filePath,
+        entries: ["file-5.txt", "file-6.txt", "file-7.txt", "file-8.txt", "file-9.txt"],
+        offset: 6,
+        totalEntries: 10,
+        truncated: false,
+      })
     }),
   )
 

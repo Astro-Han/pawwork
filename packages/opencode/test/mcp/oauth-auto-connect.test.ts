@@ -21,6 +21,7 @@ let simulateAuthFlow = true
 // When true, the mock transport connects without a 401 — simulating stored
 // tokens still being valid so OAuth completes with no browser redirect.
 let connectSucceedsImmediately = false
+let serverCapabilities: { tools?: object; resources?: object } = { tools: {} }
 
 // Mock the transport constructors to simulate OAuth auto-auth on 401
 mock.module("@modelcontextprotocol/sdk/client/streamableHttp.js", () => ({
@@ -91,6 +92,10 @@ mock.module("@modelcontextprotocol/sdk/client/index.js", () => ({
 
     setNotificationHandler() {}
 
+    getServerCapabilities() {
+      return serverCapabilities
+    }
+
     async listTools() {
       return { tools: [{ name: "test_tool", inputSchema: { type: "object", properties: {} } }] }
     }
@@ -108,6 +113,7 @@ beforeEach(() => {
   transportCalls.length = 0
   simulateAuthFlow = true
   connectSucceedsImmediately = false
+  serverCapabilities = { tools: {} }
 })
 
 // Import modules after mocking
