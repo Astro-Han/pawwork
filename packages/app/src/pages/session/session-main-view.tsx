@@ -46,8 +46,8 @@ export function SessionMainView(props: {
   historyWindow: ReturnType<typeof createSessionHistoryWindow>
   centered: boolean
   setContentRef: TimelineProps["setContentRef"]
-  historyMore: boolean
   historyLoading: boolean
+  timelineFrame: TimelineProps["timelineFrame"]
   anchor: TimelineProps["anchor"]
   virtualizerBridge: TimelineProps["virtualizerBridge"]
   reconcilerActive: TimelineProps["reconcilerActive"]
@@ -175,13 +175,11 @@ export function SessionMainView(props: {
                     onTimelineInteraction={props.onTimelineInteraction}
                     centered={props.centered}
                     setContentRef={props.setContentRef}
-                    turnStart={props.historyWindow.turnStart()}
-                    historyMore={props.historyMore}
                     historyLoading={props.historyLoading}
                     onLoadEarlier={() => {
                       void props.historyWindow.loadAndReveal()
                     }}
-                    renderedUserMessages={props.historyWindow.renderedUserMessages()}
+                    timelineFrame={props.timelineFrame}
                     anchor={props.anchor}
                     virtualizerBridge={props.virtualizerBridge}
                     reconcilerActive={props.reconcilerActive}

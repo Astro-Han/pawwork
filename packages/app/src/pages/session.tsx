@@ -507,8 +507,8 @@ export default function Page() {
       historyWindow={historyWindow}
       centered={centered()}
       setContentRef={scrollDock.setContentRef}
-      historyMore={timelineHistoryMore()}
       historyLoading={timelineHistoryLoading()}
+      timelineFrame={timelineInteraction.timelineFrame}
       anchor={timelineInteraction.anchor}
       virtualizerBridge={timelineInteraction.virtualizerBridge}
       reconcilerActive={timelineInteraction.reconcilerActive}
