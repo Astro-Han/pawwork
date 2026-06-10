@@ -9,7 +9,6 @@ import {
   DEFERRED_GROUP_IDS,
   DEFERRED_TOOL_IDS,
   deferredGroupMembers,
-  deferredSupportsClient,
   deriveActivatedTools,
   deriveNewlyActivated,
 } from "../../src/tool/tool-info"
@@ -45,14 +44,6 @@ describe("tool-info", () => {
     )
     expect([...DEFERRED_GROUP_IDS]).toEqual(["browser"])
     expect(deferredGroupMembers("browser").sort()).toEqual([...BROWSER_TOOLS].sort())
-  })
-
-  test("browser tools are desktop-only; worktree tools are client-agnostic", () => {
-    for (const id of BROWSER_TOOLS) {
-      expect(deferredSupportsClient(id, "desktop")).toBe(true)
-      expect(deferredSupportsClient(id, "cli")).toBe(false)
-    }
-    expect(deferredSupportsClient("enter-worktree", "cli")).toBe(true)
   })
 
   test("deriveActivatedTools picks only completed tool_info calls for deferred tools", () => {

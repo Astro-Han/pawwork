@@ -16,12 +16,7 @@ import type { JSONSchema7 } from "@ai-sdk/provider"
 import { SessionCompaction } from "./compaction"
 import { Bus } from "../bus"
 import { ProviderTransform } from "../provider/transform"
-import {
-  buildActivationReminder,
-  deferredSupportsClient,
-  deriveActivatedToolsFromParts,
-  deriveNewlyActivated,
-} from "../tool/tool-info"
+import { buildActivationReminder, deriveActivatedToolsFromParts, deriveNewlyActivated } from "../tool/tool-info"
 import { SystemPrompt } from "./system"
 import { Instruction } from "./instruction"
 import { Plugin } from "../plugin"
@@ -731,11 +726,12 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       // directly from storage (NOT the compaction-filtered `messages`), so an activation
       // older than the retained tail still counts without hydrating the full history.
       const activatedTools = deriveActivatedToolsFromParts(MessageV2.toolInfoParts(input.session.id))
+      // No client rule here: a client that doesn't support a deferred tool never
+      // registers it, and the registry intersects with the registered set before
+      // carding or activating anything.
       const deferredRuleset = Permission.merge(input.agent.permission, input.session.permission ?? [])
       const deferredAvailable = (id: string) =>
-        deferredSupportsClient(id, Flag.OPENCODE_CLIENT) &&
-        input.tools?.[id] !== false &&
-        !Permission.disabled([id], deferredRuleset).has(id)
+        input.tools?.[id] !== false && !Permission.disabled([id], deferredRuleset).has(id)
       const availableDeferredTools = yield* registry.availableDeferred({ activatedTools, deferredAvailable })
 
       const context = (args: any, options: ToolExecutionOptions): Tool.Context => ({

@@ -34,8 +34,6 @@ type DeferredEntry = {
   parameters: Tool.Def["parameters"]
   /** Group activation: tool_info(name=<group>) loads and activates every member at once. */
   group?: string
-  /** Client gate; undefined means every client. The registry filters cards and builtins with this. */
-  clients?: readonly string[]
 }
 
 // Single source of truth for deferred tools. id + card + description + parameters
@@ -69,7 +67,6 @@ const DEFERRED: DeferredEntry[] = [
     description: BrowserNavigateDescription,
     parameters: BrowserNavigateParameters as unknown as Tool.Def["parameters"],
     group: "browser",
-    clients: ["desktop"],
   },
   {
     id: "browser_snapshot",
@@ -77,7 +74,6 @@ const DEFERRED: DeferredEntry[] = [
     description: BrowserSnapshotDescription,
     parameters: BrowserSnapshotParameters as unknown as Tool.Def["parameters"],
     group: "browser",
-    clients: ["desktop"],
   },
   {
     id: "browser_click",
@@ -85,7 +81,6 @@ const DEFERRED: DeferredEntry[] = [
     description: BrowserClickDescription,
     parameters: BrowserClickParameters as unknown as Tool.Def["parameters"],
     group: "browser",
-    clients: ["desktop"],
   },
   {
     id: "browser_type",
@@ -93,7 +88,6 @@ const DEFERRED: DeferredEntry[] = [
     description: BrowserTypeDescription,
     parameters: BrowserTypeParameters as unknown as Tool.Def["parameters"],
     group: "browser",
-    clients: ["desktop"],
   },
   {
     id: "browser_wait",
@@ -101,7 +95,6 @@ const DEFERRED: DeferredEntry[] = [
     description: BrowserWaitDescription,
     parameters: BrowserWaitParameters as unknown as Tool.Def["parameters"],
     group: "browser",
-    clients: ["desktop"],
   },
   {
     id: "browser_screenshot",
@@ -109,7 +102,6 @@ const DEFERRED: DeferredEntry[] = [
     description: BrowserScreenshotDescription,
     parameters: BrowserScreenshotParameters as unknown as Tool.Def["parameters"],
     group: "browser",
-    clients: ["desktop"],
   },
   {
     id: "browser_extract",
@@ -117,7 +109,6 @@ const DEFERRED: DeferredEntry[] = [
     description: BrowserExtractDescription,
     parameters: BrowserExtractParameters as unknown as Tool.Def["parameters"],
     group: "browser",
-    clients: ["desktop"],
   },
 ] as const
 
@@ -136,13 +127,6 @@ export const DEFERRED_CARDS: Record<string, string> = Object.fromEntries(DEFERRE
 
 export function deferredGroupMembers(group: string): string[] {
   return DEFERRED.filter((d) => d.group === group).map((d) => d.id)
-}
-
-/** Client gate for a deferred tool id (used by the registry for cards; builtins are gated where they register). */
-export function deferredSupportsClient(id: string, client: string): boolean {
-  const entry = BY_ID[id]
-  if (!entry?.clients) return true
-  return entry.clients.includes(client)
 }
 
 const PREFACE = [
