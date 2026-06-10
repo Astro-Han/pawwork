@@ -65,7 +65,7 @@ describe("resolveLoadMessagePage", () => {
       stored,
       fetched,
       fetchedComplete: true,
-      retainStoredCreatedAtOrAfter: 100,
+      storedIDsBeforeFetch: new Set(["msg_1", "msg_2"]),
     })
 
     expect(result.map((x) => x.id)).toEqual(["msg_1", "msg_3", "msg_5"])
@@ -79,7 +79,7 @@ describe("resolveLoadMessagePage", () => {
       stored,
       fetched,
       fetchedComplete: true,
-      retainStoredCreatedAtOrAfter: 100,
+      storedIDsBeforeFetch: new Set(["msg_1", "msg_4"]),
     })
 
     expect(result.map((x) => x.id)).toEqual(["msg_1", "msg_3"])
@@ -109,6 +109,19 @@ describe("resolveLoadMessagePage", () => {
     expect(result.map((x) => x.id)).toEqual(["msg_1", "msg_2"])
   })
 
+  test("non-overlapping partial replace keeps only messages added during the request", () => {
+    const stored = [m("msg_001", "old"), m("msg_002", "old"), m("msg_100", "live-tail")]
+    const fetched = [m("msg_050", "current"), m("msg_099", "current")]
+    const result = resolveLoadMessagePage<TestMsg>({
+      stored,
+      fetched,
+      fetchedComplete: false,
+      storedIDsBeforeFetch: new Set(["msg_001", "msg_002"]),
+    })
+
+    expect(result.map((x) => x.id)).toEqual(["msg_050", "msg_099", "msg_100"])
+  })
+
   test("complete prepend keeps the existing newer page", () => {
     const stored = [m("msg_3", "newer")]
     const fetched = [m("msg_1", "older")]
@@ -128,7 +141,7 @@ describe("resolveLoadMessagePage", () => {
       stored,
       fetched: [],
       fetchedComplete: true,
-      retainStoredCreatedAtOrAfter: 100,
+      storedIDsBeforeFetch: new Set(),
     })
 
     expect(result.map((x) => x.id)).toEqual(["msg_1"])
@@ -140,7 +153,7 @@ describe("resolveLoadMessagePage", () => {
       stored,
       fetched: [],
       fetchedComplete: true,
-      retainStoredCreatedAtOrAfter: 100,
+      storedIDsBeforeFetch: new Set(["msg_1"]),
     })
 
     expect(result.map((x) => x.id)).toEqual([])
@@ -241,6 +254,20 @@ describe("resolveLoadMessagePageMeta", () => {
     })
 
     expect(result).toEqual({ limit: 100, cursor: "msg_120", complete: false })
+  })
+
+  test("replace refresh with only in-flight retained messages uses the fetched pagination boundary", () => {
+    const result = resolveLoadMessagePageMeta({
+      mode: "replace",
+      previous: { limit: 100, cursor: "msg_001", complete: false },
+      messageCount: 3,
+      fetchedCount: 2,
+      fetchedCursor: "msg_050",
+      fetchedComplete: false,
+      retainedPreviousPage: false,
+    })
+
+    expect(result).toEqual({ limit: 100, cursor: "msg_050", complete: false })
   })
 
   test("prepend history load advances the pagination boundary", () => {

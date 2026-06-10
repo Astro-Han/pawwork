@@ -50,18 +50,8 @@ function merge<T extends { id: string }>(a: readonly T[], b: readonly T[]) {
   return [...map.values()].sort((x, y) => cmp(x.id, y.id))
 }
 
-function createdAtOrAfter(item: { id: string }, threshold: number | undefined) {
-  if (threshold === undefined) return false
-  const created = (item as { time?: { created?: unknown } }).time?.created
-  return typeof created === "number" && created >= threshold
-}
-
-function idRange<T extends { id: string }>(items: readonly T[]) {
-  return items.reduce<{ min?: string; max?: string }>((range, item) => {
-    if (range.min === undefined || cmp(item.id, range.min) < 0) range.min = item.id
-    if (range.max === undefined || cmp(range.max, item.id) < 0) range.max = item.id
-    return range
-  }, {})
+function storedAfterFetchStarted<T extends { id: string }>(item: T, storedIDsBeforeFetch: ReadonlySet<string> | undefined) {
+  return storedIDsBeforeFetch !== undefined && !storedIDsBeforeFetch.has(item.id)
 }
 
 export function resolveLoadMessagePage<T extends { id: string }>(params: {
@@ -69,21 +59,25 @@ export function resolveLoadMessagePage<T extends { id: string }>(params: {
   stored: readonly T[] | undefined
   fetched: readonly T[]
   fetchedComplete?: boolean
-  retainStoredCreatedAtOrAfter?: number
+  storedIDsBeforeFetch?: ReadonlySet<string>
 }): T[] {
   const { stored, fetched } = params
   if (stored && stored.length > 0) {
     const merged = merge(stored, fetched)
-    const storedRange = idRange(stored)
-    const fetchedRange = idRange(fetched)
-    if (params.mode !== "prepend" && !params.fetchedComplete && storedRange.min && fetchedRange.min) {
-      if (cmp(storedRange.max!, fetchedRange.min) < 0 || cmp(fetchedRange.max!, storedRange.min) < 0) {
-        return fetched as T[]
-      }
+    const fetchedIDs = new Set(fetched.map((item) => item.id))
+    const hasStableOverlap = stored.some((item) => {
+      if (!fetchedIDs.has(item.id)) return false
+      if (!params.storedIDsBeforeFetch) return true
+      return params.storedIDsBeforeFetch.has(item.id)
+    })
+    if (params.mode !== "prepend" && !params.fetchedComplete && fetched.length > 0 && !hasStableOverlap) {
+      return merge(
+        stored.filter((item) => storedAfterFetchStarted(item, params.storedIDsBeforeFetch)),
+        fetched,
+      )
     }
     if (params.mode !== "prepend" && params.fetchedComplete) {
-      const fetchedIDs = new Set(fetched.map((item) => item.id))
-      return merged.filter((item) => fetchedIDs.has(item.id) || createdAtOrAfter(item, params.retainStoredCreatedAtOrAfter))
+      return merged.filter((item) => fetchedIDs.has(item.id) || storedAfterFetchStarted(item, params.storedIDsBeforeFetch))
     }
     return merged
   }
@@ -101,10 +95,13 @@ export function resolveLoadMessagePageMeta(params: {
   fetchedCount: number
   fetchedCursor: string | undefined
   fetchedComplete: boolean
+  retainedPreviousPage?: boolean
 }) {
   const limit = Math.max(params.previous?.limit ?? 0, params.messageCount)
   const retainedExistingPage =
-    params.mode !== "prepend" && params.previous?.limit !== undefined && params.messageCount > params.fetchedCount
+    params.mode !== "prepend" &&
+    params.previous?.limit !== undefined &&
+    (params.retainedPreviousPage ?? params.messageCount > params.fetchedCount)
   if (retainedExistingPage) {
     const complete = params.previous?.complete || params.fetchedComplete
     return {
@@ -437,7 +434,8 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       const key = keyFor(input.directory, input.sessionID)
       if (meta.loading[key]) return
 
-      const requestedAt = Date.now()
+      const [initialStore] = globalSync.child(input.directory, { bootstrap: false })
+      const storedIDsBeforeFetch = new Set((initialStore.message[input.sessionID] ?? []).map((message) => message.id))
       setMeta("loading", key, true)
       await fetchMessages(input)
         .then((page) => {
@@ -452,8 +450,13 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
             stored: store.message[input.sessionID],
             fetched: next.session,
             fetchedComplete: next.complete,
-            retainStoredCreatedAtOrAfter: requestedAt,
+            storedIDsBeforeFetch,
           })
+          const fetchedIDs = new Set(next.session.map((item) => item.id))
+          const messageIDs = new Set(message.map((item) => item.id))
+          const retainedPreviousPage = (store.message[input.sessionID] ?? []).some(
+            (item) => storedIDsBeforeFetch.has(item.id) && !fetchedIDs.has(item.id) && messageIDs.has(item.id),
+          )
           const pageMeta = resolveLoadMessagePageMeta({
             mode: input.mode,
             previous: {
@@ -465,6 +468,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
             fetchedCount: next.session.length,
             fetchedCursor: next.cursor,
             fetchedComplete: next.complete,
+            retainedPreviousPage,
           })
           batch(() => {
             input.setStore("message", input.sessionID, reconcile(message, { key: "id" }))
