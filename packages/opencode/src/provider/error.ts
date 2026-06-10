@@ -139,6 +139,14 @@ function isRecord(input: unknown): input is Record<string, unknown> {
   return typeof input === "object" && input !== null && !Array.isArray(input)
 }
 
+function isBareProviderError(input: unknown): input is Record<string, unknown> {
+  return isRecord(input) && typeof input.code === "string"
+}
+
+function isStreamErrorBody(input: unknown): input is Record<string, unknown> {
+  return isRecord(input) && (input.type === "error" || isBareProviderError(input))
+}
+
 export type ParsedStreamError =
   | {
       type: "context_overflow"
@@ -159,14 +167,16 @@ export function parseStreamError(input: unknown): ParsedStreamError | undefined 
   if (!isRecord(raw)) return
 
   const inner = typeof raw.message === "string" ? json(raw.message) : undefined
+  const cause = isRecord(raw.cause) ? raw.cause : undefined
+  const causeBody = cause ? json(cause.body) : undefined
   // OpenAI stream errors can arrive wrapped in an Error-like object. Use the
   // inner provider payload so responseBody matches the payload users need.
-  const body = isRecord(inner) && inner.type === "error" ? inner : raw
+  const body = isStreamErrorBody(inner) ? inner : isStreamErrorBody(causeBody) ? causeBody : raw
 
   const responseBody = JSON.stringify(body)
-  if (body.type !== "error") return
+  const error = body.type === "error" && isRecord(body.error) ? body.error : isBareProviderError(body) ? body : undefined
+  if (!error) return
 
-  const error = isRecord(body.error) ? body.error : undefined
   const code = typeof error?.code === "string" ? error.code : undefined
   switch (error?.code) {
     case "context_length_exceeded":
