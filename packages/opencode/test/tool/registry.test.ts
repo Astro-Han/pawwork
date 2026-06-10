@@ -12,6 +12,8 @@ import { ProviderTransform } from "../../src/provider"
 import { localToolImportSpec, ToolRegistry } from "../../src/tool/registry"
 import { Settings } from "../../src/settings"
 import { MessageID, SessionID } from "../../src/session/schema"
+import type { MessageV2 } from "../../src/session/message-v2"
+import { LLM } from "../../src/session/llm"
 import * as EffectZod from "../../src/util/effect-zod"
 import { Npm } from "@opencode-ai/core/npm"
 
@@ -45,7 +47,7 @@ describe("tool.registry", () => {
     })
   })
 
-  test("exposes automate now that the Automations panel ships", async () => {
+  test("keeps automate on the default model surface", async () => {
     await using tmp = await tmpdir()
 
     await withMockedConfigInstall(async () => {
@@ -54,6 +56,16 @@ describe("tool.registry", () => {
         fn: async () => {
           const ids = await ToolRegistry.ids()
           expect(ids).toContain("automate")
+
+          const tools = await ToolRegistry.tools({
+            providerID: ProviderID.make("openai"),
+            modelID: ModelID.make("gpt-5"),
+            agent: { name: "build", mode: "primary", permission: [], options: {} },
+          })
+          const surface = tools.map((tool) => tool.id)
+          expect(surface).toContain("automate")
+          const card = tools.find((tool) => tool.id === "tool_info")!.description
+          expect(card).not.toContain("automate")
         },
       })
     })
@@ -85,6 +97,21 @@ describe("tool.registry", () => {
     const opencodeWorkspaceLockfileSection = lockfile.slice(opencodeWorkspaceStart, opencodeWorkspaceEnd)
     expect(opencodeWorkspaceLockfileSection).not.toContain('"trash": "10"')
     expect(opencodeWorkspaceLockfileSection).not.toContain('"trash": ["trash@')
+  })
+
+  // Scheduling requests must route to the automate tool, never to OS schedulers.
+  // Two resident prompt surfaces carry that routing: the bash redirect list
+  // (the entry point models drift into) and the system prompt (the only layer
+  // that also covers writing scheduler files via write/edit).
+  test("keeps scheduling routing contract across prompt surfaces", async () => {
+    const shellDescription = await Bun.file(new URL("../../src/tool/shell.txt", import.meta.url)).text()
+    expect(shellDescription).toContain("Scheduled or delayed tasks: Use the automate tool")
+
+    const systemPrompt = await Bun.file(new URL("../../src/session/prompt/pawwork.txt", import.meta.url)).text()
+    expect(systemPrompt).toContain("# Scheduling, reminders, and recurring work")
+    expect(systemPrompt).toContain("`automate` tool")
+    expect(systemPrompt).toContain("launchd")
+    expect(systemPrompt).toContain("by writing files")
   })
 
   test("loads tools from .opencode/tool (singular)", async () => {
@@ -813,7 +840,7 @@ describe("tool.registry", () => {
     })
   })
 
-  test("includes lsp tool when Settings.lspEnabled=true", async () => {
+  test("registers lsp when Settings.lspEnabled=true but defers it out of the default model surface", async () => {
     await using tmp = await tmpdir()
     await Settings.setLspEnabled(true)
     try {
@@ -822,6 +849,16 @@ describe("tool.registry", () => {
         fn: async () => {
           const ids = await ToolRegistry.ids()
           expect(ids).toContain("lsp")
+
+          const tools = await ToolRegistry.tools({
+            providerID: ProviderID.make("openai"),
+            modelID: ModelID.make("gpt-5"),
+            agent: { name: "build", mode: "primary", permission: [], options: {} },
+          })
+          const surface = tools.map((tool) => tool.id)
+          expect(surface).not.toContain("lsp")
+          const card = tools.find((tool) => tool.id === "tool_info")!.description
+          expect(card).toContain("lsp")
         },
       })
     } finally {
@@ -921,52 +958,175 @@ describe("tool.registry", () => {
     }
   })
 
-  test("defers worktree tools until activated, and advertises them via tool_info", async () => {
+  test("does not advertise lsp as deferred when Settings.lspEnabled=false", async () => {
     await using tmp = await tmpdir()
+    await Settings.setLspEnabled(false)
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        // Default: deferred worktree tools are not in the surface; tool_info is,
-        // and advertises both as cards.
-        const def = await ToolRegistry.tools({
+        const tools = await ToolRegistry.tools({
           providerID: ProviderID.make("openai"),
           modelID: ModelID.make("gpt-5"),
           agent: { name: "build", mode: "primary", permission: [], options: {} },
         })
-        const defIds = def.map((tool) => tool.id)
-        expect(defIds).not.toContain("enter-worktree")
-        expect(defIds).not.toContain("exit-worktree")
-        expect(defIds).toContain("tool_info")
-        const card = def.find((tool) => tool.id === "tool_info")!.description
-        expect(card).toContain("enter-worktree")
-        expect(card).toContain("exit-worktree")
-
-        // Activated: enter-worktree becomes callable; tool_info stops listing it.
-        const act = await ToolRegistry.tools({
-          providerID: ProviderID.make("openai"),
-          modelID: ModelID.make("gpt-5"),
-          agent: { name: "build", mode: "primary", permission: [], options: {} },
-          activatedTools: new Set(["enter-worktree"]),
-        })
-        const actIds = act.map((tool) => tool.id)
-        expect(actIds).toContain("enter-worktree")
-        expect(actIds).not.toContain("exit-worktree")
-        const actCard = act.find((tool) => tool.id === "tool_info")!.description
-        expect(actCard).not.toContain("enter-worktree")
-        expect(actCard).toContain("exit-worktree")
-
-        // Permission-disabled: even activated, it stays hidden and uncarded.
-        const denied = await ToolRegistry.tools({
-          providerID: ProviderID.make("openai"),
-          modelID: ModelID.make("gpt-5"),
-          agent: { name: "build", mode: "primary", permission: [], options: {} },
-          activatedTools: new Set(["enter-worktree"]),
-          deferredAvailable: () => false,
-        })
-        expect(denied.map((tool) => tool.id)).not.toContain("enter-worktree")
-        expect(denied.find((tool) => tool.id === "tool_info")!.description).toContain("No deferred tools")
+        const card = tools.find((tool) => tool.id === "tool_info")!.description
+        expect(card).not.toContain("lsp")
       },
     })
+  })
+
+  test("rejects direct tool_info activation for lsp when Settings.lspEnabled=false", async () => {
+    await using tmp = await tmpdir()
+    await Settings.setLspEnabled(false)
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const tools = await ToolRegistry.tools({
+          providerID: ProviderID.make("openai"),
+          modelID: ModelID.make("gpt-5"),
+          agent: { name: "build", mode: "primary", permission: [], options: {} },
+        })
+        const toolInfo = tools.find((tool) => tool.id === "tool_info")!
+        const ctx = {
+          sessionID: SessionID.descending(),
+          messageID: MessageID.ascending(),
+          agent: "build",
+          abort: new AbortController().signal,
+          messages: [],
+          metadata: () => Effect.void,
+          ask: () => Effect.void,
+          extra: {},
+        }
+
+        await expect(Effect.runPromise(toolInfo.execute({ name: "lsp" }, ctx))).rejects.toThrow(
+          'Deferred tool "lsp" is not available in this context.',
+        )
+      },
+    })
+  })
+
+  test("omits deferred repair hint for lsp when Settings.lspEnabled=false", async () => {
+    await using tmp = await tmpdir()
+    await Settings.setLspEnabled(false)
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const availableDeferredTools = await ToolRegistry.availableDeferred({
+          deferredAvailable: () => true,
+        })
+        const repair = JSON.parse(
+          LLM.buildInvalidToolRepairInput(
+            {
+              agent: { name: "build", mode: "primary", permission: [], options: {} },
+              availableDeferredTools,
+              permission: [],
+              tools: { tool_info: {} as never },
+              user: { tools: {} } as MessageV2.User,
+            },
+            "lsp",
+            "Unknown tool: lsp",
+          ),
+        ) as { error: string }
+
+        expect(repair.error).not.toContain('call tool_info with name="lsp"')
+      },
+    })
+  })
+
+  test("omits deferred repair hint for lsp after it is activated", async () => {
+    await using tmp = await tmpdir()
+    await Settings.setLspEnabled(true)
+    try {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const availableDeferredTools = await ToolRegistry.availableDeferred({
+            activatedTools: new Set(["lsp"]),
+            deferredAvailable: () => true,
+          })
+          const repair = JSON.parse(
+            LLM.buildInvalidToolRepairInput(
+              {
+                agent: { name: "build", mode: "primary", permission: [], options: {} },
+                availableDeferredTools,
+                permission: [],
+                tools: { tool_info: {} as never },
+                user: { tools: {} } as MessageV2.User,
+              },
+              "lsp",
+              "Invalid input",
+            ),
+          ) as { error: string }
+
+          expect(repair.error).not.toContain('call tool_info with name="lsp"')
+        },
+      })
+    } finally {
+      await Settings.setLspEnabled(false)
+    }
+  })
+
+  test("defers lsp and worktree tools until activated, and advertises them via tool_info", async () => {
+    await using tmp = await tmpdir()
+    await Settings.setLspEnabled(true)
+    try {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          // Default: deferred tools are not in the surface; tool_info is,
+          // and advertises each available tool as a card.
+          const def = await ToolRegistry.tools({
+            providerID: ProviderID.make("openai"),
+            modelID: ModelID.make("gpt-5"),
+            agent: { name: "build", mode: "primary", permission: [], options: {} },
+          })
+          const defIds = def.map((tool) => tool.id)
+          expect(defIds).toContain("automate")
+          expect(defIds).not.toContain("enter-worktree")
+          expect(defIds).not.toContain("exit-worktree")
+          expect(defIds).not.toContain("lsp")
+          expect(defIds).toContain("tool_info")
+          const card = def.find((tool) => tool.id === "tool_info")!.description
+          expect(card).not.toContain("automate")
+          expect(card).toContain("enter-worktree")
+          expect(card).toContain("exit-worktree")
+          expect(card).toContain("lsp")
+
+          // Activated: selected tools become callable; tool_info stops listing them.
+          const act = await ToolRegistry.tools({
+            providerID: ProviderID.make("openai"),
+            modelID: ModelID.make("gpt-5"),
+            agent: { name: "build", mode: "primary", permission: [], options: {} },
+            activatedTools: new Set(["enter-worktree", "lsp"]),
+          })
+          const actIds = act.map((tool) => tool.id)
+          expect(actIds).toContain("automate")
+          expect(actIds).toContain("enter-worktree")
+          expect(actIds).not.toContain("exit-worktree")
+          expect(actIds).toContain("lsp")
+          const actCard = act.find((tool) => tool.id === "tool_info")!.description
+          expect(actCard).not.toContain("automate")
+          expect(actCard).not.toContain("enter-worktree")
+          expect(actCard).toContain("exit-worktree")
+          expect(actCard).not.toContain("lsp")
+
+          // Permission-disabled: even activated, it stays hidden and uncarded.
+          const denied = await ToolRegistry.tools({
+            providerID: ProviderID.make("openai"),
+            modelID: ModelID.make("gpt-5"),
+            agent: { name: "build", mode: "primary", permission: [], options: {} },
+            activatedTools: new Set(["enter-worktree", "lsp"]),
+            deferredAvailable: () => false,
+          })
+          expect(denied.map((tool) => tool.id)).toContain("automate")
+          expect(denied.map((tool) => tool.id)).not.toContain("enter-worktree")
+          expect(denied.map((tool) => tool.id)).not.toContain("lsp")
+          expect(denied.find((tool) => tool.id === "tool_info")!.description).toContain("No deferred tools")
+        },
+      })
+    } finally {
+      await Settings.setLspEnabled(false)
+    }
   })
 
   test("tool_info hands back exactly the schema the activated tool will expose, untruncated", async () => {

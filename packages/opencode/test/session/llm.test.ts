@@ -120,6 +120,52 @@ describe("session.llm.hasToolCalls", () => {
   })
 })
 
+describe("session.llm.buildInvalidToolRepairInput", () => {
+  const agent = {
+    name: "build",
+    mode: "primary",
+    permission: [],
+    options: {},
+  } satisfies Agent.Info
+  const user = { tools: {} } as MessageV2.User
+
+  test("omits deferred hint when tool_info is not available", () => {
+    const repair = JSON.parse(
+      LLM.buildInvalidToolRepairInput(
+        {
+          agent,
+          availableDeferredTools: new Set(["lsp"]),
+          permission: [],
+          tools: {},
+          user,
+        },
+        "lsp",
+        "Unknown tool: lsp",
+      ),
+    ) as { error: string }
+
+    expect(repair.error).not.toContain('call tool_info with name="lsp"')
+  })
+
+  test("includes deferred hint when tool_info can load the deferred tool", () => {
+    const repair = JSON.parse(
+      LLM.buildInvalidToolRepairInput(
+        {
+          agent,
+          availableDeferredTools: new Set(["lsp"]),
+          permission: [],
+          tools: { tool_info: {} as never },
+          user,
+        },
+        "lsp",
+        "Unknown tool: lsp",
+      ),
+    ) as { error: string }
+
+    expect(repair.error).toContain('call tool_info with name="lsp"')
+  })
+})
+
 type Capture = {
   url: URL
   headers: Headers

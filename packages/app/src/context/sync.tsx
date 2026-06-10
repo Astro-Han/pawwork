@@ -49,24 +49,73 @@ function merge<T extends { id: string }>(a: readonly T[], b: readonly T[]) {
   return [...map.values()].sort((x, y) => cmp(x.id, y.id))
 }
 
+function storedAfterFetchStarted<T extends { id: string }>(item: T, storedIDsBeforeFetch: ReadonlySet<string> | undefined) {
+  return storedIDsBeforeFetch !== undefined && !storedIDsBeforeFetch.has(item.id)
+}
+
 export function resolveLoadMessagePage<T extends { id: string }>(params: {
   mode?: "prepend" | "replace"
   stored: readonly T[] | undefined
   fetched: readonly T[]
-  hasCachedMeta: boolean
+  fetchedComplete?: boolean
+  storedIDsBeforeFetch?: ReadonlySet<string>
 }): T[] {
-  const { mode, stored, fetched, hasCachedMeta } = params
-  if (mode === "prepend") return merge(stored ?? [], fetched)
-  // Race window: SSE events (from the same request that triggered this load)
-  // have populated the store but page metadata has not been established yet.
-  // Merge rather than replace so event data survives a stale GET response.
-  // When the same message ID exists in both, fetched wins — this is safe
-  // because GET data comes from the DB after the same shell execution that
-  // produced the SSE events, so it is at least as fresh.
-  if (stored && stored.length > 0 && !hasCachedMeta) {
-    return merge(stored, fetched)
+  const { stored, fetched } = params
+  if (stored && stored.length > 0) {
+    const merged = merge(stored, fetched)
+    const fetchedIDs = new Set(fetched.map((item) => item.id))
+    const hasStableOverlap = stored.some((item) => {
+      if (!fetchedIDs.has(item.id)) return false
+      if (!params.storedIDsBeforeFetch) return true
+      return params.storedIDsBeforeFetch.has(item.id)
+    })
+    if (params.mode !== "prepend" && !params.fetchedComplete && fetched.length > 0 && !hasStableOverlap) {
+      return merge(
+        stored.filter((item) => storedAfterFetchStarted(item, params.storedIDsBeforeFetch)),
+        fetched,
+      )
+    }
+    if (params.mode !== "prepend" && params.fetchedComplete) {
+      return merged.filter((item) => fetchedIDs.has(item.id) || storedAfterFetchStarted(item, params.storedIDsBeforeFetch))
+    }
+    return merged
   }
   return fetched as T[]
+}
+
+export function resolveLoadMessagePageMeta(params: {
+  mode?: "prepend" | "replace"
+  previous?: {
+    limit?: number
+    cursor?: string
+    complete?: boolean
+  }
+  messageCount: number
+  fetchedCount: number
+  fetchedCursor: string | undefined
+  fetchedComplete: boolean
+  retainedPreviousPage?: boolean
+}) {
+  const previous = params.previous
+  const limit = Math.max(previous?.limit ?? 0, params.messageCount)
+  if (
+    params.mode !== "prepend" &&
+    previous?.limit !== undefined &&
+    (params.retainedPreviousPage ?? params.messageCount > params.fetchedCount)
+  ) {
+    const complete = previous.complete || params.fetchedComplete
+    return {
+      limit,
+      cursor: complete ? undefined : (previous.cursor ?? params.fetchedCursor),
+      complete,
+    }
+  }
+
+  return {
+    limit,
+    cursor: params.fetchedCursor,
+    complete: params.fetchedComplete,
+  }
 }
 
 type OptimisticStore = {
@@ -385,6 +434,8 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       const key = keyFor(input.directory, input.sessionID)
       if (meta.loading[key]) return
 
+      const [initialStore] = globalSync.child(input.directory, { bootstrap: false })
+      const storedIDsBeforeFetch = new Set((initialStore.message[input.sessionID] ?? []).map((message) => message.id))
       setMeta("loading", key, true)
       await fetchMessages(input)
         .then((page) => {
@@ -394,12 +445,30 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
             clearOptimistic(input.directory, input.sessionID, messageID)
           }
           const [store] = globalSync.child(input.directory, { bootstrap: false })
-          const hasCachedMeta = meta.limit[key] !== undefined
           const message = resolveLoadMessagePage({
             mode: input.mode,
             stored: store.message[input.sessionID],
             fetched: next.session,
-            hasCachedMeta,
+            fetchedComplete: next.complete,
+            storedIDsBeforeFetch,
+          })
+          const fetchedIDs = new Set(next.session.map((item) => item.id))
+          const messageIDs = new Set(message.map((item) => item.id))
+          const retainedPreviousPage = (store.message[input.sessionID] ?? []).some(
+            (item) => storedIDsBeforeFetch.has(item.id) && !fetchedIDs.has(item.id) && messageIDs.has(item.id),
+          )
+          const pageMeta = resolveLoadMessagePageMeta({
+            mode: input.mode,
+            previous: {
+              limit: meta.limit[key],
+              cursor: meta.cursor[key],
+              complete: meta.complete[key],
+            },
+            messageCount: message.length,
+            fetchedCount: next.session.length,
+            fetchedCursor: next.cursor,
+            fetchedComplete: next.complete,
+            retainedPreviousPage,
           })
           batch(() => {
             input.setStore("message", input.sessionID, reconcile(message, { key: "id" }))
@@ -407,15 +476,15 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
               const filtered = p.part.filter(shouldStoreMessagePart)
               if (filtered.length) input.setStore("part", p.id, filtered)
             }
-            setMeta("limit", key, message.length)
-            setMeta("cursor", key, next.cursor)
-            setMeta("complete", key, next.complete)
+            setMeta("limit", key, pageMeta.limit)
+            setMeta("cursor", key, pageMeta.cursor)
+            setMeta("complete", key, pageMeta.complete)
             setSessionPrefetch({
               directory: input.directory,
               sessionID: input.sessionID,
-              limit: message.length,
-              cursor: next.cursor,
-              complete: next.complete,
+              limit: pageMeta.limit,
+              cursor: pageMeta.cursor,
+              complete: pageMeta.complete,
             })
           })
         })

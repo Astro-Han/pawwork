@@ -85,6 +85,10 @@ export namespace ToolRegistry {
     readonly ids: () => Effect.Effect<string[]>
     readonly all: () => Effect.Effect<Tool.Def[]>
     readonly named: () => Effect.Effect<{ agent: AgentDef; read: ReadDef }>
+    readonly availableDeferred: (input: {
+      activatedTools?: ReadonlySet<string>
+      deferredAvailable?: (id: string) => boolean
+    }) => Effect.Effect<ReadonlySet<string>>
     readonly tools: (model: {
       providerID: ProviderID
       modelID: ModelID
@@ -373,9 +377,31 @@ export namespace ToolRegistry {
         return ["Available agent types and the tools they have access to:", description].join("\n")
       })
 
+      const deferredAvailability = Effect.fn("ToolRegistry.deferredAvailability")(function* (input: {
+        activatedTools?: ReadonlySet<string>
+        deferredAvailable?: (id: string) => boolean
+      }) {
+        const allTools = yield* all()
+        const registeredToolIDs = new Set(allTools.map((tool) => tool.id))
+        const isDeferredAvailable = (id: string) =>
+          registeredToolIDs.has(id) && (input.deferredAvailable?.(id) ?? true)
+        const availableDeferred = [...DEFERRED_TOOL_IDS].filter(
+          (id) => isDeferredAvailable(id) && !(input.activatedTools?.has(id) ?? false),
+        )
+        return { allTools, availableDeferred, isDeferredAvailable }
+      })
+
+      const availableDeferred: Interface["availableDeferred"] = Effect.fn("ToolRegistry.availableDeferred")(function* (
+        input,
+      ) {
+        const availability = yield* deferredAvailability(input)
+        return new Set(availability.availableDeferred)
+      })
+
       const tools: Interface["tools"] = Effect.fn("ToolRegistry.tools")(function* (input) {
         const webSearchEnabled = yield* settings.webSearchEnabled()
-        const filtered = (yield* all()).filter((tool) => {
+        const { allTools, availableDeferred, isDeferredAvailable } = yield* deferredAvailability(input)
+        const filtered = allTools.filter((tool) => {
           if (tool.id === WebSearchTool.id) return webSearchEnabled
 
           const usePatch =
@@ -385,16 +411,11 @@ export namespace ToolRegistry {
           if (tool.id === EditTool.id || tool.id === WriteTool.id) return !usePatch
 
           if (DEFERRED_TOOL_IDS.has(tool.id)) {
-            const available = input.deferredAvailable?.(tool.id) ?? true
-            return available && (input.activatedTools?.has(tool.id) ?? false)
+            return isDeferredAvailable(tool.id) && (input.activatedTools?.has(tool.id) ?? false)
           }
 
           return true
         })
-
-        const availableDeferred = [...DEFERRED_TOOL_IDS].filter(
-          (id) => (input.deferredAvailable?.(id) ?? true) && !(input.activatedTools?.has(id) ?? false),
-        )
 
         return yield* Effect.forEach(
           filtered,
@@ -405,6 +426,20 @@ export namespace ToolRegistry {
               parameters: tool.parameters,
             }
             yield* plugin.trigger("tool.definition", { toolID: tool.id }, output)
+            const execute: Tool.Def["execute"] =
+              tool.id === TOOL_INFO_ID
+                ? ((args, ctx) => {
+                    const contextDeferredAvailable = ctx.extra?.["deferredAvailable"] as
+                      | ((id: string) => boolean)
+                      | undefined
+                    const deferredAvailable = (id: string) =>
+                      isDeferredAvailable(id) && (contextDeferredAvailable?.(id) ?? true)
+                    return tool.execute(args, {
+                      ...ctx,
+                      extra: { ...ctx.extra, deferredAvailable },
+                    })
+                  })
+                : tool.execute
             return {
               id: tool.id,
               description: [
@@ -415,7 +450,7 @@ export namespace ToolRegistry {
                 .filter(Boolean)
                 .join("\n"),
               parameters: output.parameters,
-              execute: tool.execute,
+              execute,
               formatValidationError: tool.formatValidationError,
             }
           }),
@@ -432,7 +467,7 @@ export namespace ToolRegistry {
         yield* InstanceState.invalidate(state)
       })
 
-      return Service.of({ ids, all, named, tools, invalidate })
+      return Service.of({ ids, all, named, availableDeferred, tools, invalidate })
     }),
   )
 
@@ -475,6 +510,13 @@ export namespace ToolRegistry {
     deferredAvailable?: (id: string) => boolean
   }): Promise<(Tool.Def & { id: string })[]> {
     return runPromise((svc) => svc.tools(input))
+  }
+
+  export async function availableDeferred(input: {
+    activatedTools?: ReadonlySet<string>
+    deferredAvailable?: (id: string) => boolean
+  }): Promise<ReadonlySet<string>> {
+    return runPromise((svc) => svc.availableDeferred(input))
   }
 
   export async function invalidate() {

@@ -31,14 +31,32 @@ const Prompt = Schema.NonEmptyString.check(Schema.isMaxLength(Automation.MAX_PRO
 // continueSession off). Interval/sub-minute cadence stays a UI/SDK power-user
 // feature and is intentionally off the AI surface.
 export const AutomateParameters = Schema.Struct({
-  title: Title,
-  prompt: Prompt,
-  cron: CronExpression,
-  recurring: Schema.optional(Schema.Boolean),
-  continueSession: Schema.optional(Schema.Boolean),
-  timezone: Schema.optional(Timezone),
-  model: Schema.optional(Schema.NonEmptyString),
-  variant: Schema.optional(Schema.NonEmptyString),
+  title: Title.annotate({ description: "Short name shown in the Automations panel." }),
+  prompt: Prompt.annotate({
+    description:
+      "The instruction PawWork runs at the scheduled time. Include the action, recipient, data source, and any context needed then.",
+  }),
+  cron: CronExpression.annotate({
+    description:
+      '5-field cron expression, evaluated in the automation\'s timezone. Examples: "0 15 * * *" = 15:00 daily; "0 11 * * 1-5" = 11:00 on weekdays; "0 15 24 12 *" = 15:00 on Dec 24.',
+  }),
+  recurring: Schema.optional(Schema.Boolean).annotate({
+    description:
+      "Omit or true for a repeating schedule. Set false for a one-time task: it fires once at the next cron match. For a one-time task on a specific date, pin day-of-month and month in the cron expression and leave day-of-week as * — when both day fields are restricted, cron fires on either match, so the task would fire prematurely.",
+  }),
+  continueSession: Schema.optional(Schema.Boolean).annotate({
+    description:
+      "Set true only when the user explicitly wants this same conversation to continue on the schedule: every run is appended to this chat and sees prior runs, and deleting this conversation deletes the automation. Otherwise omit it; each run starts its own fresh background session.",
+  }),
+  timezone: Schema.optional(Timezone).annotate({
+    description: 'IANA timezone, e.g. "Asia/Shanghai". Defaults to the host timezone.',
+  }),
+  model: Schema.optional(Schema.NonEmptyString).annotate({
+    description: 'Optional "providerID/modelID" override. Defaults to this session\'s model.',
+  }),
+  variant: Schema.optional(Schema.NonEmptyString).annotate({
+    description: "Optional reasoning-effort variant for the chosen model. Usually omit.",
+  }),
 })
 
 export function formatAutomateValidationError(error: unknown) {
@@ -91,8 +109,13 @@ export function createAutomateDefinition(
   automation: Automation.Interface,
 ): Tool.DefWithoutID<typeof AutomateParameters, { automationDefinition: Automation.Definition }> {
   return {
-    description:
-      "Create an Automation that re-runs a prompt on a schedule. Provide a title, the prompt, and a 5-field cron expression; project, timezone, and model default to the current session. By default each run executes in its own fresh background session. Set continueSession true to instead run it as a loop inside THIS conversation: every run is appended to the current chat and sees the previous ones, so the user follows it here and pauses or deletes it from the Automations panel — and deleting this conversation deletes the automation with it. It repeats until paused or deleted. This only stores the definition; it does not run the prompt now.",
+    // Routing-first description: weak models match the user's own words ("remind
+    // me", "later", "every weekday") against the first sentences, so triggers
+    // lead and behavioral detail lives in the field descriptions above.
+    description: [
+      "Create a PawWork Automation: a scheduled task, reminder, or recurring job that PawWork runs for the user. Use this whenever the user asks to do something later, at a specific time or date, one time, daily, weekly, on weekdays, or on any other schedule — including scheduled messages and reminders. Never set up OS schedulers (at, cron, launchd, schtasks) for these requests unless the user explicitly asks for an OS-level scheduler outside PawWork.",
+      "Automations appear in PawWork's Automations panel, where the user can pause or delete them, and each run uses this session's project context, model, and credentials. Creating the definition schedules the future run; it does not run the prompt now. After creating one, tell the user when it will fire (the result includes the schedule).",
+    ].join("\n\n"),
     parameters: AutomateParameters,
     formatValidationError: formatAutomateValidationError,
     execute: (params, ctx) =>

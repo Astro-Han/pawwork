@@ -5,6 +5,8 @@ import { Parameters as EnterWorktreeParameters } from "./enter-worktree"
 import EnterWorktreeDescription from "./enter-worktree.txt"
 import { Parameters as ExitWorktreeParameters } from "./exit-worktree"
 import ExitWorktreeDescription from "./exit-worktree.txt"
+import { Parameters as LspParameters } from "./lsp"
+import LspDescription from "./lsp.txt"
 import { ProviderTransform } from "../provider/transform"
 import type { Provider } from "../provider/provider"
 import type { MessageV2 } from "../session/message-v2"
@@ -28,6 +30,12 @@ const DEFERRED = [
     card: "Leave the current worktree and return the session to the project root.",
     description: ExitWorktreeDescription,
     parameters: ExitWorktreeParameters as unknown as Tool.Def["parameters"],
+  },
+  {
+    id: "lsp" as const,
+    card: "Use language-server code intelligence for definitions, references, hover, and symbol navigation.",
+    description: LspDescription,
+    parameters: LspParameters as unknown as Tool.Def["parameters"],
   },
 ] as const
 
