@@ -27,6 +27,16 @@ describe("attachment IPC source contract", () => {
     expect(renderer).toMatch(/await window\.api\.filePathForBrowserFile/)
   })
 
+  test("file path recovery degrades to an explicit null, never a falsy string", () => {
+    // The app-side Platform contract is Promise<string | null>: synthetic
+    // browser Files have no path, and an approval failure must not leak an
+    // unapproved path. Both degrade to null so callers fall back to the
+    // save-attachment copy route.
+    expect(preloadTypes).toMatch(/filePathForBrowserFile.*Promise<string \| null>/)
+    expect(preload).toMatch(/if \(!path\) return null/)
+    expect(preload).toMatch(/approve-attachment-path"[\s\S]{0,200}?catch[\s\S]{0,80}?null/)
+  })
+
   test("registers managed attachment saving through preload, renderer, and main IPC", () => {
     expect(mainIpc).toContain('"save-attachment-file"')
     expect(mainIpc).toContain("ArrayBuffer.isView")

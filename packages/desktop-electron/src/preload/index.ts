@@ -77,10 +77,16 @@ const api: ElectronAPI = {
   readFileDataUrl: (path, mime) => ipcRenderer.invoke("read-file-data-url", path, mime),
   filePathForBrowserFile: async (file) => {
     const path = webUtils.getPathForFile(file)
-    if (!path) return path
+    if (!path) return null
     // Approval must land before the renderer sees the path, or the first
-    // thumbnail read races the allowlist insert.
-    await ipcRenderer.invoke("approve-attachment-path", path)
+    // thumbnail read races the allowlist insert. An approval failure must not
+    // leak an unapproved path — degrade to null so callers fall back to the
+    // save-attachment copy route.
+    try {
+      await ipcRenderer.invoke("approve-attachment-path", path)
+    } catch {
+      return null
+    }
     return path
   },
   saveAttachmentFile: (name, mime, buffer) => ipcRenderer.invoke("save-attachment-file", name, mime, buffer),

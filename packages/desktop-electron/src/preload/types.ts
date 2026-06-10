@@ -76,7 +76,7 @@ export type ElectronAPI = {
     extensions?: string[]
   }) => Promise<string | string[] | null>
   readFileDataUrl: (path: string, mime: string) => Promise<string | null>
-  filePathForBrowserFile: (file: File) => Promise<string>
+  filePathForBrowserFile: (file: File) => Promise<string | null>
   saveAttachmentFile: (name: string, mime: string, buffer: ArrayBuffer) => Promise<string | null>
   saveFilePicker: (opts?: { title?: string; defaultPath?: string }) => Promise<string | null>
   exportSession: (
