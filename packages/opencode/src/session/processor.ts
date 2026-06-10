@@ -118,6 +118,8 @@ type ToolCall = {
   attemptID?: RunObservability.AttemptID
   materialized?: boolean
   executionStarted?: boolean
+  executionCompleted?: boolean
+  executionFailed?: boolean
 }
 
 type ToolInterruptionPhase = "tool_input_generation" | "tool_call_materialized_without_execution" | "tool_execution"
@@ -377,11 +379,12 @@ export const layer: Layer.Layer<
       }) {
         const call = ctx.toolcalls[input.toolCallID]
         const attemptID = toolCallAttemptID(input.toolCallID)
+        const alreadyStarted = call?.executionStarted === true
         if (call) {
           call.executionStarted = true
           call.attemptID ??= ctx.currentAttemptID
         }
-        if (!attemptID) return
+        if (!attemptID || alreadyStarted) return
         ctx.runTrace.recordToolExecutionStarted({
           attemptID,
           at: Date.now(),
@@ -393,8 +396,11 @@ export const layer: Layer.Layer<
 
       const recordToolExecutionCompleted = Effect.fn("SessionProcessor.recordToolExecutionCompleted")(
         function* (input: { toolCallID: string }) {
+          const call = ctx.toolcalls[input.toolCallID]
           const attemptID = toolCallAttemptID(input.toolCallID)
-          if (!attemptID) return
+          const alreadyCompleted = call?.executionCompleted === true
+          if (call) call.executionCompleted = true
+          if (!attemptID || alreadyCompleted) return
           ctx.runTrace.recordToolCompleted({
             attemptID,
             at: Date.now(),
@@ -407,8 +413,11 @@ export const layer: Layer.Layer<
         toolCallID: string
         error?: unknown
       }) {
+        const call = ctx.toolcalls[input.toolCallID]
         const attemptID = toolCallAttemptID(input.toolCallID)
-        if (!attemptID) return
+        const alreadyFailed = call?.executionFailed === true
+        if (call) call.executionFailed = true
+        if (!attemptID || alreadyFailed) return
         ctx.runTrace.recordToolFailed({
           attemptID,
           at: Date.now(),
@@ -1101,9 +1110,15 @@ export const layer: Layer.Layer<
         }
         ctx.reasoningMap = {}
 
+        const callsToDrain = Object.values(ctx.toolcalls).filter(
+          (call) => aborted || (call.materialized === true && call.executionStarted === true),
+        )
         yield* Effect.forEach(
-          Object.values(ctx.toolcalls),
-          (call) => Deferred.await(call.done).pipe(Effect.timeout(`${TOOL_CLEANUP_TIMEOUT_MS} millis`), Effect.ignore),
+          callsToDrain,
+          (call) => {
+            const wait = Deferred.await(call.done)
+            return aborted ? wait.pipe(Effect.timeout(`${TOOL_CLEANUP_TIMEOUT_MS} millis`), Effect.ignore) : wait
+          },
           { concurrency: "unbounded" },
         )
 
@@ -1239,8 +1254,10 @@ export const layer: Layer.Layer<
 
       const recordProcessInterrupt = Effect.fn("SessionProcessor.recordProcessInterrupt")(function* (
         attemptID: RunObservability.AttemptID | undefined,
+        options?: { toolAbortController?: AbortController },
       ) {
         aborted = true
+        options?.toolAbortController?.abort()
         const lifecycleAction = currentLifecycleCloseAction(ctx.directory)
         ctx.runTrace.recordScopeClosed({
           at: Date.now(),
@@ -1265,6 +1282,7 @@ export const layer: Layer.Layer<
         slog.info("process")
         ctx.needsCompaction = false
         ctx.shouldBreak = (yield* config.get()).experimental?.continue_loop_on_deny !== true
+        const toolAbortController = new AbortController()
         let processAttemptID: RunObservability.AttemptID | undefined
         let automaticStreamRetriesUsed = 0
         let safeRetryNoticeWritten = false
@@ -1404,6 +1422,24 @@ export const layer: Layer.Layer<
               ...sessionTimeouts,
               tools: activeTools,
               trace: ctx.trace,
+              toolAbortSignal: toolAbortController.signal,
+              toolLifecycle: {
+                started: (input) => Effect.runPromise(recordToolExecutionStarted(input)),
+                completed: (input) =>
+                  Effect.runPromise(
+                    Effect.gen(function* () {
+                      yield* recordToolExecutionCompleted({ toolCallID: input.toolCallID })
+                      yield* completeToolCall(input.toolCallID, input.output)
+                    }),
+                  ),
+                failed: (input) =>
+                  Effect.runPromise(
+                    Effect.gen(function* () {
+                      yield* recordToolExecutionFailed(input)
+                      yield* failToolCall(input.toolCallID, input.error)
+                    }),
+                  ),
+              },
             })
           } catch (error) {
             ctx.runTrace.recordSetupFailure({ at: Date.now(), monotonicMs: performance.now(), error })
@@ -1423,7 +1459,7 @@ export const layer: Layer.Layer<
         return yield* Effect.gen(function* () {
           while (true) {
             const result = yield* runAttempt().pipe(
-              Effect.onInterrupt(() => recordProcessInterrupt(processAttemptID)),
+              Effect.onInterrupt(() => recordProcessInterrupt(processAttemptID, { toolAbortController })),
               Effect.catchCauseIf(
                 (cause) => !Cause.hasInterruptsOnly(cause),
                 (cause) => Effect.fail(Cause.squash(cause)),
@@ -1493,7 +1529,7 @@ export const layer: Layer.Layer<
                   safeRecoveryStep(undefined).pipe(Effect.as("scheduled" as const)),
                   lifecycleCloseWatch,
                 ).pipe(
-                  Effect.onInterrupt(() => recordProcessInterrupt(attemptID)),
+                  Effect.onInterrupt(() => recordProcessInterrupt(attemptID, { toolAbortController })),
                   Effect.catchCause((cause) =>
                     Cause.hasInterruptsOnly(cause)
                       ? Effect.interrupt
