@@ -181,19 +181,40 @@ describe("withBrowserPage", () => {
     expect(server.methods.filter((m) => m === "Page.addScriptToEvaluateOnNewDocument").length).toBe(1)
   }, 10_000)
 
-  test("a cached connection bound to another window rejects a mismatched lease but serves a matching one", async () => {
-    const server = makeServer()
-    scriptCurrentUrl(server, "about:blank")
-    provideFakeHost(server)
+  test("a mismatched lease drops the cached connection so the retry converges on the new window", async () => {
+    const winOne = makeServer()
+    scriptCurrentUrl(winOne, "about:blank")
+    const winTwo = makeServer()
+    scriptCurrentUrl(winTwo, "about:blank")
+    const released: string[] = []
+    BrowserBridge.provideHost({
+      resolveEndpoint: async ({ windowID }) => ({ cdpEndpoint: windowID === 2 ? winTwo.endpoint : winOne.endpoint }),
+      probeWindow: async () => ({ windowID: 1, url: null }),
+      releaseSession: async ({ sessionID }) => {
+        released.push(sessionID)
+      },
+    })
 
     await withBrowserPage("ses_a", "snapshot", async () => {}, { windowID: 1 })
-
-    await expect(
-      withBrowserPage("ses_a", "click", async () => "unreachable", { windowID: 2 }),
-    ).rejects.toThrow(/window for this session changed/)
+    // A matching lease reuses the cached connection.
     await expect(withBrowserPage("ses_a", "click", async () => "same-window", { windowID: 1 })).resolves.toBe(
       "same-window",
     )
+    expect(winOne.methods.filter((m) => m === "Page.addScriptToEvaluateOnNewDocument").length).toBe(1)
+
+    // Window 1 died while the session was idle: with no command in flight the
+    // dead socket is never noticed, so the connection-loss invalidation never
+    // fires. The next action leases the surviving window 2 — the stale cached
+    // connection must be dropped with the failure, not just rejected, or
+    // every retry would hit it again forever.
+    await expect(
+      withBrowserPage("ses_a", "click", async () => "unreachable", { windowID: 2 }),
+    ).rejects.toThrow(/window for this session changed/)
+    expect(released).toEqual(["ses_a"])
+
+    // The retry the error message asks for now connects to the leased window.
+    await expect(withBrowserPage("ses_a", "click", async () => "window-2", { windowID: 2 })).resolves.toBe("window-2")
+    expect(winTwo.methods.filter((m) => m === "Page.addScriptToEvaluateOnNewDocument").length).toBe(1)
   })
 
   test("a release landing during a pending acquire still cleans up after it settles", async () => {

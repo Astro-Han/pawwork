@@ -181,7 +181,17 @@ async function acquire(sessionID: string, windowID?: number): Promise<Connection
   // caller retry, which re-probes and re-asks against the surviving window.
   const cached = bySession.get(root)
   if (cached && !cached.closed) {
-    if (windowID !== undefined && cached.windowID !== windowID) throw leaseMismatch()
+    if (windowID !== undefined && cached.windowID !== windowID) {
+      // A live cached connection can only mismatch when its window stopped
+      // serving this session — typically it closed while idle, and with no
+      // command in flight the dead socket is never noticed (the CDP client
+      // has no close callback; loss only surfaces on the next send). Drop it
+      // here: throwing alone would pin the zombie in bySession and fail every
+      // retry forever, because this check runs before any command could hit
+      // the dead connection and trigger the connection-loss invalidation.
+      invalidate(cached)
+      throw leaseMismatch()
+    }
     return cached
   }
 

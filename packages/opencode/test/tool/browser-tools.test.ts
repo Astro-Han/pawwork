@@ -205,6 +205,34 @@ describe("permission gate", () => {
     expect(resolved).toEqual([1])
     expect(winTwo.methods).toEqual([])
   }, 10_000)
+
+  test("an action recovers when the session's window closed while idle", async () => {
+    const winOne = makeServer()
+    winOne.handlers.set("Runtime.evaluate", () => ({ result: { type: "string", value: "[1] <button> One" } }))
+    const winTwo = makeServer()
+    winTwo.handlers.set("Runtime.evaluate", () => ({ result: { type: "string", value: "[2] <button> Two" } }))
+    // Window 1 closes while nothing is in flight, so the dead connection is
+    // never noticed; the host's probe then leases the surviving window 2.
+    const probes = [
+      { windowID: 1, url: null },
+      { windowID: 2, url: null },
+      { windowID: 2, url: null },
+    ]
+    BrowserBridge.provideHost({
+      probeWindow: async () => probes.shift()!,
+      resolveEndpoint: async ({ windowID }) => ({ cdpEndpoint: windowID === 2 ? winTwo.endpoint : winOne.endpoint }),
+      releaseSession: async () => {},
+    })
+
+    const first = await exec(BrowserSnapshotTool, {})
+    expect(first.output).toContain("[1] <button> One")
+
+    // The mismatch drops the stale window-1 connection along with the error,
+    // so the retry the message asks for actually converges on window 2.
+    await expect(exec(BrowserSnapshotTool, {})).rejects.toThrow(/window for this session changed/)
+    const retried = await exec(BrowserSnapshotTool, {})
+    expect(retried.output).toContain("[2] <button> Two")
+  })
 })
 
 describe("browser_navigate", () => {
