@@ -227,6 +227,14 @@ describe("CdpBridge", () => {
     expect(ws.readyState).toBeGreaterThanOrEqual(WebSocket.CLOSING)
   })
 
+  test("concurrent start() calls share one bridge instead of misreporting target-busy", async () => {
+    const { asWebContents } = makeWc()
+    const bridge = new CdpBridge(asWebContents)
+    cleanups.push(() => bridge.stop())
+    const [first, second] = await Promise.all([bridge.start(), bridge.start()])
+    expect(first.cdpEndpoint).toBe(second.cdpEndpoint)
+  })
+
   test("start() throws target-busy when the debugger is already attached", async () => {
     const { wc, asWebContents } = makeWc()
     wc.debugger.attached = true

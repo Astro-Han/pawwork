@@ -48,6 +48,7 @@ export class CdpBridge {
   private socket: WebSocket | null = null
   private port = 0
   private started = false
+  private starting: Promise<AutomationEndpoint> | null = null
   // A fresh secret per start() so a reused bridge (e.g. after DevTools stole the
   // debugger) never re-serves an old path.
   private secret = ""
@@ -68,6 +69,16 @@ export class CdpBridge {
 
   async start(): Promise<AutomationEndpoint> {
     if (this.started) return { cdpEndpoint: this.endpointUrl() }
+    // Share an in-flight start: a second caller arriving mid-start would see
+    // its own bridge's freshly attached debugger and misreport target-busy.
+    if (!this.starting)
+      this.starting = this.doStart().finally(() => {
+        this.starting = null
+      })
+    return this.starting
+  }
+
+  private async doStart(): Promise<AutomationEndpoint> {
     if (this.wc.isDestroyed()) throw new CdpBridgeError("target-destroyed", "WebContents is gone")
     // Rule 6: refuse if anything else already owns the debugger (DevTools or
     // another client) instead of fighting over it.
