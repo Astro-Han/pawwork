@@ -7,6 +7,7 @@ export type {
   ReportProblemInput,
   ReportProblemResult,
   UpdateInfo,
+  WebSearchStatus,
 } from "./desktop-api-contract"
 export type {
   BrowserBridge,

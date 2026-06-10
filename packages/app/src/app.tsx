@@ -45,7 +45,7 @@ import { SettingsProvider } from "@/context/settings"
 import { TerminalProvider } from "@/context/terminal"
 import { AppStartupPending } from "@/components/app-startup-pending"
 import { AboutModal } from "@/components/about-modal"
-import type { AboutInfo, RendererDiagnosticInput, RendererDiagnosticsExportResult } from "@/desktop-api-contract"
+import type { AboutInfo, RendererDiagnosticInput, RendererDiagnosticsExportResult, WebSearchStatus } from "@/desktop-api-contract"
 import DirectoryLayout from "@/pages/directory-layout"
 import Layout from "@/pages/layout"
 import { ErrorPage } from "./pages/error"
@@ -86,13 +86,6 @@ const HomeRedirectRoute = () => {
       {(directory) => <Navigate href={`/${base64Encode(directory())}/session`} />}
     </Show>
   )
-}
-
-type WebSearchStatus = {
-  source: "saved" | "env" | "anonymous"
-  configured: boolean
-  needsAttention: boolean
-  quotaExceeded: boolean
 }
 
 function UiI18nBridge(props: ParentProps) {

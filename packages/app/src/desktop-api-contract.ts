@@ -62,3 +62,10 @@ export type RendererDiagnosticInput = {
 }
 
 export type RendererDiagnosticsExportResult = { ok: true; path: string } | { ok: false; error: string }
+
+export type WebSearchStatus = {
+  source: "saved" | "env" | "anonymous"
+  configured: boolean
+  needsAttention: boolean
+  quotaExceeded: boolean
+}

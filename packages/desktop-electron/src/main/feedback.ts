@@ -1,5 +1,5 @@
 import { dirname } from "node:path"
-import type { RendererErrorDetails } from "@opencode-ai/app/desktop-api"
+import type { ReportProblemInput, ReportProblemResult } from "@opencode-ai/app/desktop-api"
 import {
   buildProblemReport,
   buildProblemReportSummary,
@@ -49,36 +49,8 @@ type FeedbackDeps = {
   onError?: (error: unknown) => Promise<void> | void
 }
 
-type FeedbackInput = {
-  confirm?: boolean
-  rendererError?: RendererErrorDetails
-}
-
-export type FeedbackResult =
-  | {
-      status: "ready"
-      summaryCopied: true
-      feedbackOpened: true
-      fullReport: { status: "ready"; fileName: string; locationHint: string }
-    }
-  | {
-      status: "summary-only"
-      summaryCopied: true
-      feedbackOpened: true
-      fullReport: { status: "failed" }
-    }
-  | {
-      status: "form-fallback"
-      summaryCopied: true
-      feedbackOpened: false
-      feedbackUrl: string
-      fullReport:
-        | { status: "ready"; fileName: string; locationHint: string }
-        | { status: "failed" }
-    }
-  | { status: "cancelled"; summaryCopied: false; feedbackOpened: false; fullReport: { status: "none" } }
-  | { status: "unavailable"; summaryCopied: false; feedbackOpened: false; fullReport: { status: "none" } }
-  | { status: "failed"; summaryCopied: false; feedbackOpened: false; fullReport: { status: "failed" } }
+type FeedbackInput = ReportProblemInput
+export type FeedbackResult = ReportProblemResult
 
 export function feedbackDialogLabels(locale: MenuLocale) {
   const labels = {
