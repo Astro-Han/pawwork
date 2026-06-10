@@ -10,8 +10,7 @@ import { useSessionHashScroll } from "@/pages/session/use-session-hash-scroll"
 import { createSessionHistoryBackfill } from "@/pages/session/use-session-history-backfill"
 import { createSessionHistoryWindow } from "@/pages/session/use-session-history-window"
 import { createSessionScrollDock } from "@/pages/session/use-session-scroll-dock"
-import { createTimelineVirtualRows } from "@/pages/session/timeline-virtual-rows"
-import { chooseTimelineRowRenderMode } from "@/pages/session/timeline-virtualization-strategy"
+import { createTimelineFrame, emptyTimelineFrame, type TimelineFrame } from "@/pages/session/timeline-frame"
 import { createTimelineVirtualizerBridge } from "@/pages/session/timeline-virtualizer-bridge"
 import { createTimelineScrollReconciler } from "@/pages/session/timeline-scroll-reconciler"
 import {
@@ -226,21 +225,24 @@ export function createSessionTimelineInteraction(input: {
       // fight it and is expensive (anchor rect walk + widened overscan). Let
       // virtua own it. In plain mode there is no virtualizer, so compensate with
       // the cheap scrollHeight delta.
-      if (chooseTimelineRowRenderMode({ rowCount: virtualRows().length }) === "virtualized") {
+      if (timelineFrame().renderMode === "virtualized") {
         mutate()
         return
       }
       reconciler.preserveByHeightDelta(mutate)
     },
   })
-  const virtualRows = createMemo(() =>
-    createTimelineVirtualRows({
-      messages: historyWindow.renderedUserMessages(),
-      historyMore: input.historyMore(),
-      turnStart: historyWindow.turnStart(),
-    }),
+  const timelineFrame = createMemo<TimelineFrame>(
+    (previous) =>
+      createTimelineFrame({
+        previous,
+        messages: historyWindow.renderedUserMessages(),
+        historyMore: input.historyMore(),
+        turnStart: historyWindow.turnStart(),
+      }),
+    emptyTimelineFrame,
   )
-  virtualizerBridge = createTimelineVirtualizerBridge({ rows: virtualRows })
+  virtualizerBridge = createTimelineVirtualizerBridge({ rows: () => timelineFrame().rows })
 
   const resumeLatest = () => {
     scrollController.intent({ type: "jump_latest", source: "button" })
@@ -397,6 +399,7 @@ export function createSessionTimelineInteraction(input: {
     activeMessage,
     anchor,
     historyWindow,
+    timelineFrame,
     virtualizerBridge,
     resumeScroll: resumeLatest,
     submitLatest,

@@ -23,7 +23,6 @@ import {
 } from "@/pages/session/session-timeline-scroll-intents"
 import type { TimelineVirtualRow } from "@/pages/session/timeline-virtual-rows"
 import {
-  createTimelineFrame,
   emptyTimelineFrame,
   visibleRangeDataFromFrame,
   type TimelineFrame,
@@ -84,11 +83,9 @@ export function MessageTimeline(props: {
   onTimelineScrollObservation: (observation: TimelineScrollObservation) => TimelineScrollControllerResult
   centered: boolean
   setContentRef: (el: HTMLDivElement) => void
-  turnStart: number
-  historyMore: boolean
   historyLoading: boolean
   onLoadEarlier: () => void
-  renderedUserMessages: UserMessage[]
+  timelineFrame: () => TimelineFrame
   anchor: (id: string) => string
   virtualizerBridge: TimelineVirtualizerBridge
   reconcilerActive: () => boolean
@@ -119,26 +116,16 @@ export function MessageTimeline(props: {
     if (scrollSampleFrame !== undefined) cancelAnimationFrame(scrollSampleFrame)
   })
 
-  const timelineFrame = createMemo<TimelineFrame>(
-    (previous) =>
-      createTimelineFrame({
-        previous,
-        messages: props.renderedUserMessages,
-        historyMore: props.historyMore,
-        turnStart: props.turnStart,
-      }),
-    emptyTimelineFrame,
-  )
-  const frameRows = createMemo(() => timelineFrame().rows, emptyTimelineFrame.rows)
-  const frameMutation = createMemo(() => timelineFrame().mutation, emptyTimelineFrame.mutation)
-  const frameRenderMode = createMemo(() => timelineFrame().renderMode, emptyTimelineFrame.renderMode)
-  const currentVisibleRangeData = () => visibleRangeDataFromFrame(timelineFrame())
+  const frameRows = () => props.timelineFrame().rows
+  const frameMutation = () => props.timelineFrame().mutation
+  const frameRenderMode = () => props.timelineFrame().renderMode
+  const currentVisibleRangeData = () => visibleRangeDataFromFrame(props.timelineFrame())
   let lastTimelineFrame = emptyTimelineFrame
 
   // Cleanup can run while Solid is disposing derived memos, so diagnostics use
   // the last stable frame instead of recomputing through live reactive chains.
   createEffect(() => {
-    lastTimelineFrame = timelineFrame()
+    lastTimelineFrame = props.timelineFrame()
   })
 
   const sessionKey = createMemo(() => props.sessionKey)
@@ -171,7 +158,7 @@ export function MessageTimeline(props: {
 
   createEffect(
     on(
-      () => timelineFrame().visibleRange.signature,
+      () => props.timelineFrame().visibleRange.signature,
       () => {
         void emitRendererDiagnostic({
           name: "session.timeline.visible",
