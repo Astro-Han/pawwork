@@ -7,6 +7,7 @@ import { Provider } from "../../src/provider/provider"
 import { MessageV2 } from "../../src/session/message-v2"
 import { MessageID, SessionID } from "../../src/session/schema"
 import { NotFoundError } from "../../src/storage/db"
+import { toJsonSchema } from "../../src/util/effect-zod"
 import { tmpdir } from "../fixture/fixture"
 import { fakeAutomationProvider } from "../fake/provider"
 
@@ -32,6 +33,31 @@ afterEach(async () => {
 })
 
 describe("automate tool", () => {
+  // Routing contract: weak models pick tools by name, first description sentence,
+  // and field descriptions. These strings are what keep "schedule a task" requests
+  // from drifting into bash at/cron/launchd — do not weaken them without rerunning
+  // the weak-model scheduling scenarios.
+  test("description and schema carry the scheduling routing contract", () => {
+    const tool = createAutomateDefinition(fakeProviderInterface, automation)
+    expect(tool.description).toContain("reminder")
+    expect(tool.description).toContain("one time")
+    expect(tool.description).toContain("Never set up OS schedulers")
+    expect(tool.description).toContain("Automations panel")
+
+    // Field descriptions must survive the real LLM-facing schema conversion
+    // (toJsonSchema is the exact path session/prompt.ts serves to providers).
+    const schema = toJsonSchema(AutomateParameters) as {
+      properties: Record<string, { description?: string }>
+    }
+    expect(schema.properties.cron.description).toContain("5-field")
+    expect(schema.properties.cron.description).toContain("on weekdays")
+    expect(schema.properties.recurring.description).toContain("one-time")
+    expect(schema.properties.continueSession.description).toContain("deleting this conversation deletes the automation")
+    for (const field of ["title", "prompt", "cron", "recurring", "continueSession", "timezone", "model", "variant"]) {
+      expect(schema.properties[field].description).toBeTruthy()
+    }
+  })
+
   test("decode rejects a missing required field and shows the flat shape", () => {
     const decode = Schema.decodeUnknownSync(AutomateParameters)
     let error: unknown
