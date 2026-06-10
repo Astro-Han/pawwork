@@ -1,4 +1,4 @@
-import { batch, createMemo, onCleanup, onMount, type Accessor } from "solid-js"
+import { batch, createMemo, createRoot, onCleanup, onMount, type Accessor } from "solid-js"
 import { createStore } from "solid-js/store"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import { same } from "@/utils/same"
@@ -293,4 +293,21 @@ export function subscribeAutomationAttached(
 ): () => void {
   if (!bridge) return () => {}
   return bridge.onAutomationAttached(({ sessionID }) => openBrowserTab(sessionID))
+}
+
+/**
+ * Open the browser tab in an arbitrary session's persisted layout state, from
+ * outside any component reactive scope (event callbacks, the submit flow).
+ * layout.view() builds memos, so it needs its own root; disposal is deferred
+ * one microtask so openTab's deferred selection write still runs against live
+ * state. `sessionKey` is the layout route key, `<dir>/<sessionID>`.
+ */
+export function openBrowserTabInSessionLayout(
+  layout: { view(sessionKey: string): { sidePanel: { openTab(tab: "browser"): void } } },
+  sessionKey: string,
+) {
+  createRoot((dispose) => {
+    layout.view(sessionKey).sidePanel.openTab("browser")
+    queueMicrotask(dispose)
+  })
 }

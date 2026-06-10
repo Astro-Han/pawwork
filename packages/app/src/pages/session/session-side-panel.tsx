@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createMemo, createRoot, createSignal, onCleanup, onMount, type JSX } from "solid-js"
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type JSX } from "solid-js"
 import { createMediaQuery } from "@solid-primitives/media"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
@@ -23,6 +23,7 @@ import {
   createSessionTabs,
   formatRightPanelWidth,
   makeRightPanelResizeHandler,
+  openBrowserTabInSessionLayout,
   openReviewShellTab,
   planShellTabReorder,
   shouldShowReviewFileOpenButton,
@@ -232,18 +233,12 @@ export function SessionSidePanel(props: {
 
   // The agent attached browser automation: surface the driven page by opening
   // the browser tab in the DRIVEN conversation's layout state — the user sees
-  // it now if they are looking at that conversation, or when they next open it.
-  // Other conversations' panels are never touched. Writing another session's
-  // layout needs its own reactive root (view() builds memos); dispose is
-  // deferred one microtask so openTab's deferred selection write still runs
-  // against live state.
+  // it now if they are looking at that conversation, or when they next open
+  // it. Other conversations' panels are never touched.
   onCleanup(
-    subscribeAutomationAttached(platform.browser, (sessionID) => {
-      createRoot((dispose) => {
-        layout.view(`${params.dir}/${sessionID}`).sidePanel.openTab("browser")
-        queueMicrotask(dispose)
-      })
-    }),
+    subscribeAutomationAttached(platform.browser, (sessionID) =>
+      openBrowserTabInSessionLayout(layout, `${params.dir}/${sessionID}`),
+    ),
   )
 
   const showAllFiles = () => {
