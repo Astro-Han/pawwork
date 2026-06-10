@@ -991,29 +991,11 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 }),
               )
 
-              const textParts: string[] = []
-              const attachments: Omit<MessageV2.FilePart, "id" | "sessionID" | "messageID">[] = []
-              for (const contentItem of result.content) {
-                if (contentItem.type === "text") textParts.push(contentItem.text)
-                else if (contentItem.type === "image") {
-                  attachments.push({
-                    type: "file",
-                    mime: contentItem.mimeType,
-                    url: `data:${contentItem.mimeType};base64,${contentItem.data}`,
-                  })
-                } else if (contentItem.type === "resource") {
-                  const { resource } = contentItem
-                  if (resource.text) textParts.push(resource.text)
-                  if (resource.blob) {
-                    attachments.push({
-                      type: "file",
-                      mime: resource.mimeType ?? "application/octet-stream",
-                      url: `data:${resource.mimeType ?? "application/octet-stream"};base64,${resource.blob}`,
-                      filename: resource.uri,
-                    })
-                  }
-                }
+              const parsed = parseMcpToolResult(key, result)
+              if (parsed.kind === "error") {
+                return yield* Effect.fail(new Error(parsed.message))
               }
+              const { textParts, attachments } = parsed
 
               const truncated = yield* truncate.output(textParts.join("\n\n"), {}, input.agent)
               const metadata = {
@@ -2979,6 +2961,62 @@ export type CommandInput = z.infer<typeof CommandInput>
 
 export async function command(input: CommandInput) {
   return runPromise((svc) => svc.command(CommandInput.parse(input)))
+}
+
+type McpContentItem =
+  | { type: "text"; text: string }
+  | { type: "image"; mimeType: string; data: string }
+  | { type: "resource"; resource: { text?: string; blob?: string; mimeType?: string; uri: string } }
+  | { type: string }
+
+export type McpToolOutcome =
+  | { kind: "error"; message: string }
+  | {
+      kind: "ok"
+      textParts: string[]
+      attachments: Omit<MessageV2.FilePart, "id" | "sessionID" | "messageID">[]
+    }
+
+// MCP signals tool failure via `isError` on a normally-returned result — the SDK
+// client does not throw for it, and the AI SDK only emits tool-error for thrown
+// errors. Surfacing it as an error outcome here routes the call into the regular
+// tool-error channel (error-state part, error fingerprint for the loop gate)
+// instead of recording a completed success.
+/** @internal Exported for testing */
+export function parseMcpToolResult(
+  key: string,
+  result: { isError?: boolean; content: McpContentItem[] },
+): McpToolOutcome {
+  const textParts: string[] = []
+  const attachments: Omit<MessageV2.FilePart, "id" | "sessionID" | "messageID">[] = []
+  for (const contentItem of result.content) {
+    if (contentItem.type === "text" && "text" in contentItem) textParts.push(contentItem.text)
+    else if (contentItem.type === "image" && "data" in contentItem) {
+      attachments.push({
+        type: "file",
+        mime: contentItem.mimeType,
+        url: `data:${contentItem.mimeType};base64,${contentItem.data}`,
+      })
+    } else if (contentItem.type === "resource" && "resource" in contentItem) {
+      const { resource } = contentItem
+      if (resource.text) textParts.push(resource.text)
+      if (resource.blob) {
+        attachments.push({
+          type: "file",
+          mime: resource.mimeType ?? "application/octet-stream",
+          url: `data:${resource.mimeType ?? "application/octet-stream"};base64,${resource.blob}`,
+          filename: resource.uri,
+        })
+      }
+    }
+  }
+  if (result.isError === true) {
+    return {
+      kind: "error",
+      message: textParts.join("\n\n").trim() || `MCP tool ${key} reported an error without details`,
+    }
+  }
+  return { kind: "ok", textParts, attachments }
 }
 
 /** @internal Exported for testing */
