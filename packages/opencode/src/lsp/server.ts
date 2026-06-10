@@ -103,6 +103,84 @@ export namespace LSPServer {
     }
   }
 
+  const NearestFile = (includePatterns: string[], excludePatterns?: string[]) => {
+    return async (file: string) => {
+      if (excludePatterns) {
+        const excludedFiles = Filesystem.up({
+          targets: excludePatterns,
+          start: path.dirname(file),
+          stop: Instance.directory,
+        })
+        const excluded = await excludedFiles.next()
+        await excludedFiles.return()
+        if (excluded.value) return undefined
+      }
+      const files = Filesystem.up({
+        targets: includePatterns,
+        start: path.dirname(file),
+        stop: Instance.directory,
+      })
+      const first = await files.next()
+      await files.return()
+      return first.value
+    }
+  }
+
+  function normalizeMavenModulePath(modulePath: string) {
+    let normalized = modulePath.replace(/\\/g, "/")
+    if (normalized.startsWith("./")) normalized = normalized.slice(2)
+    if (normalized.endsWith("/")) normalized = normalized.slice(0, -1)
+    return normalized
+  }
+
+  function xmlCommentRanges(content: string) {
+    const ranges: Array<{ start: number; end: number }> = []
+    let start = content.indexOf("<!--")
+    while (start !== -1) {
+      const close = content.indexOf("-->", start + 4)
+      const end = close === -1 ? content.length : close + 3
+      ranges.push({ start, end })
+      if (close === -1) break
+      start = content.indexOf("<!--", end)
+    }
+    return ranges
+  }
+
+  function isInsideRange(position: number, ranges: Array<{ start: number; end: number }>) {
+    return ranges.some((range) => position >= range.start && position < range.end)
+  }
+
+  function declaresMavenModule(pomContent: string, modulePath: string) {
+    const normalizedModulePath = normalizeMavenModulePath(modulePath)
+    if (!normalizedModulePath) return false
+    const comments = xmlCommentRanges(pomContent)
+    for (const blockMatch of pomContent.matchAll(/<modules>([\s\S]*?)<\/modules>/g)) {
+      const blockStart = blockMatch.index ?? 0
+      if (isInsideRange(blockStart, comments)) continue
+      const blockBody = blockMatch[1]
+      const blockBodyStart = blockStart + blockMatch[0].indexOf(blockBody)
+      for (const match of blockBody.matchAll(/<module>\s*([^<]+?)\s*<\/module>/g)) {
+        if (isInsideRange(blockBodyStart + (match.index ?? 0), comments)) continue
+        const declaredModule = normalizeMavenModulePath(match[1].trim())
+        if (declaredModule === normalizedModulePath) return true
+      }
+    }
+    return false
+  }
+
+  async function topmostMavenRoot(nearestPom: string) {
+    let root = path.dirname(nearestPom)
+    const pomFiles = await Filesystem.findUp("pom.xml", root, Instance.directory)
+    for (const parentPom of pomFiles.slice(1)) {
+      const parentRoot = path.dirname(parentPom)
+      const modulePath = path.relative(parentRoot, root)
+      const content = await fs.readFile(parentPom, "utf-8").catch(() => undefined)
+      if (!content || !declaresMavenModule(content, modulePath)) break
+      root = parentRoot
+    }
+    return root
+  }
+
   export interface Info {
     id: string
     extensions: string[]
@@ -1135,8 +1213,8 @@ export namespace LSPServer {
       const gradleMarkers = ["gradlew", "gradlew.bat"]
       const exclusionsForMonorepos = gradleMarkers.concat(settingsMarkers)
 
-      const [projectRoot, wrapperRoot, settingsRoot] = await Promise.all([
-        NearestRoot(
+      const [projectMarker, wrapperRoot, settingsRoot] = await Promise.all([
+        NearestFile(
           ["pom.xml", "build.gradle", "build.gradle.kts", ".project", ".classpath"],
           exclusionsForMonorepos,
         )(file),
@@ -1144,9 +1222,12 @@ export namespace LSPServer {
         NearestRoot(settingsMarkers)(file),
       ])
 
-      // If projectRoot is undefined we know we are in a monorepo or no project at all.
+      // If projectMarker is undefined we know we are in a monorepo or no project at all.
       // So can safely fall through to the other roots
-      if (projectRoot) return projectRoot
+      if (projectMarker) {
+        if (path.basename(projectMarker) === "pom.xml") return topmostMavenRoot(projectMarker)
+        return path.dirname(projectMarker)
+      }
       if (wrapperRoot) return wrapperRoot
       if (settingsRoot) return settingsRoot
     },
