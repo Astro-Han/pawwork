@@ -183,7 +183,7 @@ export const layer = Layer.effect(
     const cancel = Effect.fn("SessionRunState.cancel")(function* (sessionID: SessionID, meta?: InterruptMeta) {
       const data = yield* InstanceState.get(state)
       const existing = data.runners.get(sessionID)
-      if (!existing || !existing.busy) {
+      if (!existing) {
         yield* status.set(sessionID, { type: "idle" })
         return
       }
