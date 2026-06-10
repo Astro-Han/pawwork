@@ -77,6 +77,7 @@ import { createFeedbackHandler, feedbackDialogLabels } from "./feedback"
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigrationProgress } from "./ipc"
 import { registerAboutIpc, triggerAbout } from "./ipc/about"
 import { registerBrowserIpc } from "./ipc/browser"
+import { createDesktopBrowserBridgeHost } from "./browser/automation-host"
 import { diagnosticsLogTail, filePath, initLogging } from "./logging"
 import { parseMarkdown } from "./markdown"
 import { createMenu } from "./menu"
@@ -502,6 +503,16 @@ async function initialize() {
   logger.log("spawning sidecar", { url })
   const { listener, health } = await spawnLocalServer(hostname, port, password)
   server = listener
+
+  // Hand the in-process server its browser-automation host. Same-process
+  // injection by design: the CDP endpoint/secret must never cross renderer
+  // IPC or preload (PR1 security contract rule 7).
+  const { BrowserBridge } = await import("virtual:opencode-server")
+  BrowserBridge.provideHost(
+    createDesktopBrowserBridgeHost({
+      sessionIDForWindow: (windowID) => desktopContexts.current(windowID).sessionID,
+    }),
+  )
   serverReady.resolve({
     url,
     username: PAWWORK_RUNTIME.serverUsername,

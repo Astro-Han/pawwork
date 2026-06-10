@@ -70,4 +70,13 @@ declare module "virtual:opencode-server" {
       fn: () => R
     }): Promise<R>
   }
+
+  export namespace BrowserBridge {
+    export type Endpoint = { cdpEndpoint: string }
+    export interface Host {
+      resolveEndpoint(input: { sessionID: string }): Promise<Endpoint>
+      releaseSession(input: { sessionID: string }): Promise<void>
+    }
+    export function provideHost(host: Host | null): void
+  }
 }
