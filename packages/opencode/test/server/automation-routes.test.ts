@@ -50,16 +50,6 @@ async function json(app: Hono, input: string, init?: RequestInit) {
   return response.json()
 }
 
-async function waitForRunCount(automationID: string, count: number) {
-  const deadline = Date.now() + 2_000
-  while (Date.now() < deadline) {
-    const items = Automation.runs({ automationID, limit: 100 }).items
-    if (items.length >= count) return items
-    await Bun.sleep(5)
-  }
-  throw new Error(`Timed out waiting for automation run count: ${count}`)
-}
-
 async function waitForRunState(automationID: string, state: Automation.Run["state"]) {
   const deadline = Date.now() + 2_000
   while (Date.now() < deadline) {
@@ -476,17 +466,39 @@ describe("automation routes", () => {
     })
   })
 
-  test("create lazily starts the scheduler before publishing definition updates", async () => {
+  test("create settles the scheduler before publishing definition updates", async () => {
     await withAutomationApp(async ({ app, projectID }) => {
-      const created = await json(app, "/automation", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(oneshotInput(projectID, { fireAt: Date.now() + 20 })),
+      const publication = deferred<boolean>()
+      let publishedID: string | undefined
+      let settled = false
+      const unsubscribe = Bus.subscribe(Automation.Event.DefinitionUpdated, (event) => {
+        publishedID = event.properties.id
+        publication.resolve(settled)
+      })
+      AutomationScheduler.install({
+        stop: () => undefined,
+        stopOwnedRuns: () => undefined,
+        settleOwner: async () => {
+          settled = true
+        },
+        reschedule: () => undefined,
+        cancel: () => undefined,
+        computeNextFireAt: () => null,
       })
 
-      const runs = await waitForRunCount(created.id, 1)
+      try {
+        const created = await json(app, "/automation", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(oneshotInput(projectID)),
+        })
+        const wasSettledBeforePublish = await publication.promise
 
-      expect(runs[0]?.automationID).toBe(created.id)
+        expect(publishedID).toBe(created.id)
+        expect(wasSettledBeforePublish).toBe(true)
+      } finally {
+        unsubscribe()
+      }
     })
   })
 
