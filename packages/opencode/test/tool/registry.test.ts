@@ -87,6 +87,21 @@ describe("tool.registry", () => {
     expect(opencodeWorkspaceLockfileSection).not.toContain('"trash": ["trash@')
   })
 
+  // Scheduling requests must route to the automate tool, never to OS schedulers.
+  // Two resident prompt surfaces carry that routing: the bash redirect list
+  // (the entry point models drift into) and the system prompt (the only layer
+  // that also covers writing scheduler files via write/edit).
+  test("keeps scheduling routing contract across prompt surfaces", async () => {
+    const shellDescription = await Bun.file(new URL("../../src/tool/shell.txt", import.meta.url)).text()
+    expect(shellDescription).toContain("Scheduled or delayed tasks: Use the automate tool")
+
+    const systemPrompt = await Bun.file(new URL("../../src/session/prompt/pawwork.txt", import.meta.url)).text()
+    expect(systemPrompt).toContain("# Scheduling, reminders, and recurring work")
+    expect(systemPrompt).toContain("`automate` tool")
+    expect(systemPrompt).toContain("launchd")
+    expect(systemPrompt).toContain("by writing files")
+  })
+
   test("loads tools from .opencode/tool (singular)", async () => {
     await using tmp = await tmpdir({
       init: async (dir) => {

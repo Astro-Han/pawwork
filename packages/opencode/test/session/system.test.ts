@@ -58,6 +58,7 @@ describe("session.system", () => {
     expect(prompt).toContain("recurring background context")
     expect(prompt).toContain("nearest relevant AGENTS.md")
     expect(prompt).toContain("ask for confirmation before writing")
+    expect(prompt).toContain("`automate` tool")
     expect(prompt).not.toContain("opencode.ai")
     expect(prompt).not.toContain("anomalyco/opencode")
     expect(prompt).not.toContain("Get help with using opencode")
