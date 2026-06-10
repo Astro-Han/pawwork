@@ -310,6 +310,42 @@ describe("extractPromptFromParts", () => {
     expect(result[1]).toMatchObject({ type: "attachment", path: "/Users/me/report.pdf", filename: "report.pdf" })
   })
 
+  test("command mode: skips inline-pill file parts already carried by the args text", () => {
+    // `/summarize @guide.pdf` submits the inline pill as a file part WITH
+    // source.text, while the mention text itself stays inside the args. The
+    // engine re-derives a file part from that text on every command submit
+    // (resolvePromptParts), so restoring the pill part as a chip would show the
+    // same reference twice in the composer.
+    const parts = [
+      {
+        id: "text_1",
+        type: "text",
+        text: "# Summarize\n\n...body...",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+        metadata: {
+          commandInvocation: { name: "summarize", args: "@guide.pdf", source: "command" },
+          commandTemplate: true,
+        },
+      },
+      {
+        id: "file_pill",
+        type: "file",
+        mime: "text/plain",
+        url: "file:///Users/me/guide.pdf",
+        filename: "guide.pdf",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+        source: { type: "file", path: "/Users/me/guide.pdf", text: { value: "@guide.pdf", start: 11, end: 21 } },
+      },
+    ] satisfies Part[]
+
+    const result = extractPromptFromParts(parts)
+
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({ type: "text", content: "/summarize @guide.pdf" })
+  })
+
   test("command mode without args: restores `/<cmd> ` with trailing space and no body", () => {
     // restoreText keeps a trailing space when args are empty so the editor
     // caret lands ready for typing without re-triggering completion.

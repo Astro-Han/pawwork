@@ -104,6 +104,11 @@ export function extractPromptFromParts(parts: Part[], opts?: { directory?: strin
       if (part.type !== "file") continue
       const filePart = part as FilePart
       if (invocation.suppressFilePartIds.includes(filePart.id)) continue
+      // Inline `@file` pills inside the command args submit with source.text.
+      // The mention text survives inside the restored args, and the engine
+      // re-derives a file part from it on every command submit
+      // (resolvePromptParts), so a chip here would duplicate the reference.
+      if (filePart.source?.text) continue
       if (filePart.url.startsWith("data:")) {
         const image: ImageAttachmentPart = {
           type: "image",
