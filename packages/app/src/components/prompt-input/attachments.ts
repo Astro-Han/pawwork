@@ -1,8 +1,14 @@
 import { onMount } from "solid-js"
 import { makeEventListener } from "@solid-primitives/event-listener"
-import { pathBasename } from "@opencode-ai/util/file-extensions"
+import { IMAGE_EXTS, pathBasename, pathSuffix } from "@opencode-ai/util/file-extensions"
 import { showToast } from "@opencode-ai/ui/toast"
-import { usePrompt, type ContentPart, type ImageAttachmentPart } from "@/context/prompt"
+import {
+  usePrompt,
+  type AttachmentPart,
+  type ContentPart,
+  type FloatingAttachment,
+  type ImageAttachmentPart,
+} from "@/context/prompt"
 import { useLanguage } from "@/context/language"
 import type { useSync } from "@/context/sync"
 import { uuid } from "@/utils/uuid"
@@ -73,7 +79,7 @@ type PromptAttachmentsInput = {
   // Path C (paste of `/<known-name> args` into structurally-empty input)
   // dependencies. Default to empty/false so callers that do not need pill
   // paste behaviour (e.g. legacy tests) can omit them.
-  imageAttachments?: () => readonly ImageAttachmentPart[]
+  imageAttachments?: () => readonly FloatingAttachment[]
   composing?: () => boolean
   sync?: ReturnType<typeof useSync>
   externalReady?: () => boolean
@@ -142,12 +148,32 @@ export function createPromptAttachments(input: PromptAttachmentsInput) {
     return stat?.exists ? stat.size : undefined
   }
 
+  const pathMime = (path: string) => {
+    const suffix = pathSuffix(path)
+    const image = IMAGE_EXTS.get(suffix)
+    if (image) return image
+    if (suffix === "pdf") return "application/pdf"
+    return undefined
+  }
+
+  // Entry-point attachments float as composer chips; same-path re-adds are
+  // no-ops against both chips and inline `@` pills.
   const routePathFallback = async (path: string) => {
-    if (prompt.current().some((part) => part.type === "file" && part.path === path)) return true
-    input.focusEditor()
-    const content = "@" + pathBasename(path)
+    const duplicate = prompt
+      .current()
+      .some((part) => (part.type === "attachment" || part.type === "file") && part.path === path)
+    if (duplicate) return true
     const size = await attachmentSize(path)
-    return input.addPart({ type: "file", path, content, start: 0, end: content.length, size })
+    const attachment: AttachmentPart = {
+      type: "attachment",
+      id: uuid(),
+      path,
+      filename: pathBasename(path),
+      mime: pathMime(path),
+      size,
+    }
+    prompt.set([...prompt.current(), attachment], prompt.cursor())
+    return true
   }
 
   const add = async (file: File, toast = true): Promise<AddResult> => {
@@ -251,7 +277,7 @@ export function createPromptAttachments(input: PromptAttachmentsInput) {
 
   const removeAttachment = (id: string) => {
     const current = prompt.current()
-    const next = current.filter((part) => part.type !== "image" || part.id !== id)
+    const next = current.filter((part) => (part.type !== "image" && part.type !== "attachment") || part.id !== id)
     prompt.set(next, prompt.cursor())
   }
 

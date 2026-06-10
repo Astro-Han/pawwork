@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, mock, test } from "bun:test"
-import type { ContextItem, ImageAttachmentPart, Prompt } from "./prompt"
+import type { AttachmentPart, ContextItem, ImageAttachmentPart, Prompt } from "./prompt"
 
 let createPromptBinding: typeof import("./prompt").createPromptBinding
 let DEFAULT_PROMPT: typeof import("./prompt").DEFAULT_PROMPT
@@ -236,6 +236,30 @@ describe("isPartEqual with command field", () => {
   })
 })
 
+describe("isPartEqual with attachment parts", () => {
+  const chip = (overrides?: Partial<AttachmentPart>): AttachmentPart => ({
+    type: "attachment",
+    id: "att_1",
+    path: "/Users/me/shot.png",
+    filename: "shot.png",
+    mime: "image/png",
+    ...overrides,
+  })
+
+  test("two attachment parts with same id+path are equal", () => {
+    expect(isPromptEqual([chip()], [chip()])).toBe(true)
+  })
+
+  test("attachment parts with different paths are NOT equal", () => {
+    expect(isPromptEqual([chip()], [chip({ path: "/Users/me/other.png" })])).toBe(false)
+  })
+
+  test("attachment vs image part are NOT equal", () => {
+    const image: ImageAttachmentPart = { type: "image", id: "att_1", filename: "shot.png", mime: "image/png", dataUrl: "data:" }
+    expect(isPromptEqual([chip()], [image])).toBe(false)
+  })
+})
+
 describe("isStructurallyEmpty", () => {
   test("DEFAULT_PROMPT + no context + no images → true", () => {
     expect(isStructurallyEmpty(DEFAULT_PROMPT, [], [])).toBe(true)
@@ -255,5 +279,9 @@ describe("isStructurallyEmpty", () => {
   test("image attachments present → false", () => {
     const image: ImageAttachmentPart = { type: "image", id: "1", filename: "a.png", mime: "image/png", dataUrl: "data:" }
     expect(isStructurallyEmpty(DEFAULT_PROMPT, [], [image])).toBe(false)
+  })
+  test("attachment chips present → false", () => {
+    const chip: AttachmentPart = { type: "attachment", id: "1", path: "/a/b.pdf", filename: "b.pdf" }
+    expect(isStructurallyEmpty(DEFAULT_PROMPT, [], [chip])).toBe(false)
   })
 })

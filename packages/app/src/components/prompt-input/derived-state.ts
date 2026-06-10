@@ -1,6 +1,6 @@
 import { createMemo, type Accessor } from "solid-js"
 import { isWorkInFlightStatus } from "@opencode-ai/ui/util/session-status"
-import { type ImageAttachmentPart, type usePrompt } from "@/context/prompt"
+import { isFloatingAttachment, type usePrompt } from "@/context/prompt"
 import type { useSync } from "@/context/sync"
 import type { useSDK } from "@/context/sdk"
 import type { usePermission } from "@/context/permission"
@@ -31,9 +31,10 @@ export function createPromptDerivedState(deps: PromptDerivedStateDeps) {
       },
   )
   const working = createMemo(() => isWorkInFlightStatus(status()))
-  const imageAttachments = createMemo(() =>
-    prompt.current().filter((part): part is ImageAttachmentPart => part.type === "image"),
-  )
+  // All floating composer chips: legacy data-URL images plus path-backed
+  // attachment parts, in prompt (= add) order. Kept under the historical name
+  // because every consumer treats it as "the floating attachment set".
+  const imageAttachments = createMemo(() => prompt.current().filter(isFloatingAttachment))
   const actionReady = createMemo(() => actionReadyProp() ?? true)
   const abortReady = createMemo(() => abortReadyProp() ?? actionReady())
 

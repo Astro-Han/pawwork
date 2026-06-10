@@ -37,10 +37,11 @@ import type { FollowupDraft } from "./prompt-input/followup-draft"
 import { createPromptSubmit } from "./prompt-input/submit"
 import { PromptPopover } from "./prompt-input/slash-popover"
 import { PromptContextItems } from "./prompt-input/context-items"
-import { PromptImageAttachments } from "./prompt-input/image-attachments"
+import { PromptAttachmentChips } from "./prompt-input/attachment-chips"
 import { PromptDragOverlay } from "./prompt-input/drag-overlay"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
 import { showAttachmentInFolder } from "./prompt-input/attachment-reveal"
+import { showToast } from "@opencode-ai/ui/toast"
 
 interface PromptInputProps {
   class?: string
@@ -249,6 +250,21 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     onEditLoaded: () => props.onEditLoaded?.(),
   })
 
+  // Default chip action: reveal in the OS file manager. Saved screenshots can
+  // be cleaned up out-of-band, so check existence first and explain instead of
+  // silently doing nothing.
+  const revealAttachmentPath = async (path: string) => {
+    const stats = await platform.statPaths?.([path]).catch(() => undefined)
+    if (stats && stats[path]?.exists === false) {
+      showToast({
+        title: language.t("prompt.toast.attachmentMissing.title"),
+        description: language.t("prompt.toast.attachmentMissing.description"),
+      })
+      return
+    }
+    showAttachmentInFolder({ platform, directory: sdk.directory, path })
+  }
+
   const { addAttachments, addPickedPaths, removeAttachment, handlePaste } = createPromptAttachments({
     editor: () => editorRef,
     isDialogActive: () => !!dialog.active,
@@ -380,13 +396,14 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
           t={(key) => language.t(key as Parameters<typeof language.t>[0])}
           sourceFilesystemDirectory={sdk.directory}
         />
-        <PromptImageAttachments
+        <PromptAttachmentChips
           attachments={imageAttachments()}
-          onOpen={(attachment) =>
-            dialog.show(() => <ImagePreview src={attachment.dataUrl} alt={attachment.filename} />)
-          }
+          onOpenImage={(image) => dialog.show(() => <ImagePreview src={image.src} alt={image.alt} />)}
+          onReveal={revealAttachmentPath}
           onRemove={removeAttachment}
+          loadPreview={platform.readFileDataUrl}
           removeLabel={language.t("prompt.attachment.remove")}
+          revealLabel={language.t("prompt.attachment.showInFolder")}
         />
         <div
           class="relative overflow-hidden rounded-b-[var(--radius-lg)]"

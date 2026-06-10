@@ -4,7 +4,7 @@
 // server-side test env). Runtime imports here must stay empty / type-only.
 
 import type { FileSelection } from "@/context/file"
-import type { ContentPart, ContextItem, ImageAttachmentPart, Prompt, TextPart } from "./prompt"
+import type { ContentPart, ContextItem, FloatingAttachment, Prompt, TextPart } from "./prompt"
 
 export const DEFAULT_PROMPT: Prompt = [{ type: "text", content: "", start: 0, end: 0 }]
 
@@ -38,6 +38,8 @@ function isPartEqual(partA: ContentPart, partB: ContentPart) {
       return partB.type === "skill" && partA.name === partB.name && partA.source === partB.source
     case "image":
       return partB.type === "image" && partA.id === partB.id
+    case "attachment":
+      return partB.type === "attachment" && partA.id === partB.id && partA.path === partB.path
   }
 }
 
@@ -52,7 +54,7 @@ export function isPromptEqual(promptA: Prompt, promptB: Prompt): boolean {
 export function isStructurallyEmpty(
   prompt: Prompt,
   contextItems: readonly ContextItem[],
-  imageAttachments: readonly ImageAttachmentPart[],
+  imageAttachments: readonly FloatingAttachment[],
 ): boolean {
   if (contextItems.length > 0) return false
   if (imageAttachments.length > 0) return false

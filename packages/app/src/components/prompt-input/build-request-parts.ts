@@ -8,7 +8,14 @@ import {
 } from "@opencode-ai/sdk/v2/client"
 import type { FileSelection } from "@/context/file"
 import { encodeFilePath } from "@/context/file/path"
-import type { AgentPart, FileAttachmentPart, ImageAttachmentPart, Prompt, SkillAttachmentPart } from "@/context/prompt"
+import type {
+  AgentPart,
+  AttachmentPart,
+  FileAttachmentPart,
+  FloatingAttachment,
+  Prompt,
+  SkillAttachmentPart,
+} from "@/context/prompt"
 import { Identifier } from "@/utils/id"
 import { createCommentMetadata, formatCommentNote } from "@/utils/comment-note"
 import { toAbsoluteFilePath } from "./path-canonical"
@@ -32,7 +39,7 @@ type ContextFile = {
 type BuildRequestPartsInput = {
   prompt: Prompt
   context: ContextFile[]
-  images: ImageAttachmentPart[]
+  images: FloatingAttachment[]
   text: string
   messageID: string
   sessionID: string
@@ -49,6 +56,7 @@ const fileURL = (path: string, selection?: FileSelection) => {
 }
 
 const isFileAttachment = (part: Prompt[number]): part is FileAttachmentPart => part.type === "file"
+const isChipAttachment = (part: Prompt[number]): part is AttachmentPart => part.type === "attachment"
 const isAgentAttachment = (part: Prompt[number]): part is AgentPart => part.type === "agent"
 const isSkillAttachment = (part: Prompt[number]): part is SkillAttachmentPart => part.type === "skill"
 
@@ -74,24 +82,57 @@ function buildPromptFileParts(prompt: Prompt, sessionDirectory: string) {
   })
 }
 
-function buildLegacyImageParts(images: ImageAttachmentPart[]) {
-  return images.map((attachment) => {
-    return {
-      id: Identifier.ascending("part"),
-      type: "file",
-      mime: attachment.mime,
-      url: attachment.dataUrl,
-      filename: attachment.filename,
-    } satisfies PromptRequestPart
+// Floating chips submit exactly like context-item file references: a path-backed
+// file:// part with text/plain mime (the engine resolves it through the Read
+// tool and upgrades media per model capability). `exclude` carries URLs already
+// emitted by inline pills so a chip and a pill for the same path collapse.
+function buildChipAttachmentParts(prompt: Prompt, sessionDirectory: string, exclude?: Set<string>) {
+  return prompt.filter(isChipAttachment).flatMap((attachment) => {
+    const path = toAbsoluteFilePath(sessionDirectory, attachment.path)
+    const url = fileURL(path)
+    if (exclude?.has(url)) return []
+    exclude?.add(url)
+    return [
+      {
+        id: Identifier.ascending("part"),
+        type: "file",
+        mime: "text/plain",
+        url,
+        filename: attachment.filename,
+      } satisfies PromptRequestPart,
+    ]
+  })
+}
+
+// Accepts the full floating set; only legacy data-URL image parts map here.
+// Path-backed chips are emitted by buildChipAttachmentParts from the prompt.
+function buildLegacyImageParts(images: FloatingAttachment[]) {
+  return images.flatMap((attachment) => {
+    if (attachment.type !== "image") return []
+    return [
+      {
+        id: Identifier.ascending("part"),
+        type: "file",
+        mime: attachment.mime,
+        url: attachment.dataUrl,
+        filename: attachment.filename,
+      } satisfies PromptRequestPart,
+    ]
   })
 }
 
 export function buildAttachmentRequestParts(input: {
   prompt: Prompt
-  images: ImageAttachmentPart[]
+  images: FloatingAttachment[]
   sessionDirectory: string
 }) {
-  return [...buildPromptFileParts(input.prompt, input.sessionDirectory), ...buildLegacyImageParts(input.images)]
+  const files = buildPromptFileParts(input.prompt, input.sessionDirectory)
+  const used = new Set(files.map((part) => part.url))
+  return [
+    ...files,
+    ...buildChipAttachmentParts(input.prompt, input.sessionDirectory, used),
+    ...buildLegacyImageParts(input.images),
+  ]
 }
 
 const toOptimisticPart = (part: PromptRequestPart, sessionID: string, messageID: string): Part => {
@@ -183,6 +224,7 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
   })
 
   const used = new Set(files.map((part) => part.url))
+  const chips = buildChipAttachmentParts(input.prompt, input.sessionDirectory, used)
   const context = input.context.flatMap((item) => {
     const path = toAbsoluteFilePath(input.sessionDirectory, item.path)
     const url = fileURL(path, item.selection)
@@ -241,7 +283,7 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
 
   const images = buildLegacyImageParts(input.images)
 
-  requestParts.push(...files, ...context, ...agents, ...skills, ...images)
+  requestParts.push(...files, ...chips, ...context, ...agents, ...skills, ...images)
 
   return {
     requestParts,

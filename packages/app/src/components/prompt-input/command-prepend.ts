@@ -14,7 +14,7 @@
 // Non-text part identity (FilePart / AgentPart / ImagePart references) is
 // preserved exactly — no cloning of incoming parts.
 
-import type { ImageAttachmentPart, Prompt, TextPart } from "@/context/prompt"
+import type { FloatingAttachment, Prompt, TextPart } from "@/context/prompt"
 import { DEFAULT_PROMPT, isPromptEqual } from "@/context/prompt-equality"
 import { createCommandTextPart, type CommandDescriptor } from "./command-text-part"
 
@@ -56,7 +56,7 @@ function leadingArgs(current: Prompt): string {
  */
 export function prependCommandMark(
   current: Prompt,
-  images: ImageAttachmentPart[],
+  images: FloatingAttachment[],
   cmd: CommandDescriptor,
 ): Prompt {
   const marked = createCommandTextPart(cmd, "")

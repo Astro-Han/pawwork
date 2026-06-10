@@ -6,7 +6,13 @@
 import { createEffect, createSignal, on, type Accessor } from "solid-js"
 import { createOwnerMirrorEffect } from "./owner-mirror"
 import type { SetStoreFunction } from "solid-js/store"
-import { type ContentPart, type ImageAttachmentPart, type Prompt, type usePrompt } from "@/context/prompt"
+import {
+  isFloatingAttachment,
+  type ContentPart,
+  type FloatingAttachment,
+  type Prompt,
+  type usePrompt,
+} from "@/context/prompt"
 import { DEFAULT_PROMPT, isPromptEqual } from "@/context/prompt-equality"
 import type { useSDK } from "@/context/sdk"
 import type { useSync } from "@/context/sync"
@@ -41,7 +47,7 @@ export interface EditorInputDeps {
   prompt: ReturnType<typeof usePrompt>
   sdk: ReturnType<typeof useSDK>
   sync: ReturnType<typeof useSync>
-  imageAttachments: Accessor<ImageAttachmentPart[]>
+  imageAttachments: Accessor<FloatingAttachment[]>
   editorRef: () => HTMLDivElement
   mirror: { input: boolean }
   imperatives: Pick<EditorImperatives, "queueScroll" | "renderEditorWithCursor">
@@ -125,7 +131,7 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
     setComposing(false)
     requestAnimationFrame(() => {
       if (composing()) return
-      reconcile(prompt.current().filter((part) => part.type !== "image"))
+      reconcile(prompt.current().filter((part) => !isFloatingAttachment(part)))
     })
   }
 
@@ -134,7 +140,7 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
       () => prompt.current(),
       (parts) => {
         if (composing()) return
-        reconcile(parts.filter((part) => part.type !== "image"))
+        reconcile(parts.filter((part) => !isFloatingAttachment(part)))
       },
     ),
   )
@@ -304,7 +310,7 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
   }
 
   const addPart = (part: ContentPart) => {
-    if (part.type === "image") return false
+    if (isFloatingAttachment(part)) return false
 
     const editor = editorRef()
     const selection = window.getSelection()

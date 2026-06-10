@@ -47,6 +47,25 @@ describe("PortableDraftOwner.record", () => {
     expect(owner.snapshot()?.revision).toBe(2)
   })
 
+  test("deep-equal chip payloads do not bump revision; chip changes do", () => {
+    const chipPayload = (path: string): PortableDraftPayload => ({
+      prompt: [
+        { type: "text", content: "", start: 0, end: 0 },
+        { type: "attachment", id: "att_1", path, filename: "shot.png", mime: "image/png" },
+      ],
+      context: [],
+      images: [],
+      resolvedMentions: {},
+    })
+
+    owner.record({ sourceFilesystemDirectory: "/a", ...chipPayload("/Users/me/shot.png") })
+    owner.record({ sourceFilesystemDirectory: "/a", ...chipPayload("/Users/me/shot.png") })
+    expect(owner.snapshot()?.revision).toBe(1)
+
+    owner.record({ sourceFilesystemDirectory: "/a", ...chipPayload("/Users/me/other.png") })
+    expect(owner.snapshot()?.revision).toBe(2)
+  })
+
   test("clears snapshot when payload becomes empty", () => {
     owner.record({ sourceFilesystemDirectory: "/a", ...makePayload("hello") })
     owner.record({ sourceFilesystemDirectory: "/a", ...emptyPayload() })

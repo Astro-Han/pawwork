@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { Prompt } from "@/context/prompt"
-import { buildRequestParts } from "./build-request-parts"
+import { buildAttachmentRequestParts, buildRequestParts } from "./build-request-parts"
 import { captureCommentMentions } from "./mention-metadata"
 
 describe("buildRequestParts", () => {
@@ -476,5 +476,82 @@ describe("buildRequestParts", () => {
       // Should preserve .. segments (backend normalizes)
       expect(filePart.url).toContain("/..")
     }
+  })
+})
+
+describe("attachment chips", () => {
+  test("maps a chip to a path-backed file request part", () => {
+    const prompt: Prompt = [
+      { type: "text", content: "look at this", start: 0, end: 12 },
+      {
+        type: "attachment",
+        id: "att_1",
+        path: "/Users/me/photo.png",
+        filename: "photo.png",
+        mime: "image/png",
+        size: 2048,
+      },
+    ]
+
+    const parts = buildAttachmentRequestParts({ prompt, images: [], sessionDirectory: "/repo" })
+
+    expect(parts).toHaveLength(1)
+    expect(parts[0]).toMatchObject({
+      type: "file",
+      mime: "text/plain",
+      url: "file:///Users/me/photo.png",
+      filename: "photo.png",
+    })
+  })
+
+  test("collapses a chip and an inline pill that reference the same path", () => {
+    const prompt: Prompt = [
+      { type: "file", path: "/Users/me/notes.md", content: "@notes.md", start: 0, end: 9 },
+      { type: "attachment", id: "att_1", path: "/Users/me/notes.md", filename: "notes.md" },
+    ]
+
+    const parts = buildAttachmentRequestParts({ prompt, images: [], sessionDirectory: "/repo" })
+
+    expect(parts.filter((part) => part.type === "file")).toHaveLength(1)
+  })
+
+  test("includes chips in full request builds", () => {
+    const prompt: Prompt = [
+      { type: "text", content: "hi", start: 0, end: 2 },
+      { type: "attachment", id: "att_1", path: "/Users/me/guide.pdf", filename: "guide.pdf" },
+    ]
+
+    const result = buildRequestParts({
+      prompt,
+      context: [],
+      images: [],
+      text: "hi",
+      messageID: "msg_1",
+      sessionID: "ses_1",
+      sessionDirectory: "/repo",
+    })
+
+    const fileParts = result.requestParts.filter((part) => part.type === "file")
+    expect(fileParts).toHaveLength(1)
+    expect(fileParts[0]).toMatchObject({ url: "file:///Users/me/guide.pdf", filename: "guide.pdf" })
+  })
+
+  test("dedupes context items against chips in full request builds", () => {
+    const prompt: Prompt = [
+      { type: "text", content: "hi", start: 0, end: 2 },
+      { type: "attachment", id: "att_1", path: "/Users/me/guide.pdf", filename: "guide.pdf" },
+    ]
+
+    const result = buildRequestParts({
+      prompt,
+      context: [{ key: "ctx:1", type: "file", path: "/Users/me/guide.pdf" }],
+      images: [],
+      text: "hi",
+      messageID: "msg_1",
+      sessionID: "ses_1",
+      sessionDirectory: "/repo",
+    })
+
+    expect(result.requestParts.filter((part) => part.type === "file")).toHaveLength(1)
   })
 })

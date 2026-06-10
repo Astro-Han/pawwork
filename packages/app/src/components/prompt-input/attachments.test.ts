@@ -45,6 +45,7 @@ mock.module("@/context/language", () => ({
 
 mock.module("@/context/prompt", () => ({
   DEFAULT_PROMPT: [{ type: "text", content: "", start: 0, end: 0 }],
+  isFloatingAttachment: (part: { type: string }) => part.type === "image" || part.type === "attachment",
   isStructurallyEmpty: (parts: unknown[], contextItems: unknown[], imageAttachments: unknown[]) =>
     (parts.length === 0 ||
       (parts.length === 1 &&
@@ -128,7 +129,7 @@ describe("pasteMode", () => {
 })
 
 describe("createPromptAttachments", () => {
-  test("adds picked media paths as deduped file attachments instead of data URL attachments", async () => {
+  test("adds picked media paths as deduped attachment chips instead of inline pills", async () => {
     const addedParts: unknown[] = []
     const attachments = createPromptAttachments({
       editor: () => ({}) as HTMLDivElement,
@@ -158,11 +159,11 @@ describe("createPromptAttachments", () => {
     ])
 
     expect(result).toBe(true)
-    expect(addedParts).toEqual([
-      { type: "file", path: "/Users/me/image.png", content: "@image.png", start: 0, end: 10 },
-      { type: "file", path: "/Users/me/report.pdf", content: "@report.pdf", start: 0, end: 11 },
+    expect(addedParts).toHaveLength(0)
+    expect(promptParts).toMatchObject([
+      { type: "attachment", path: "/Users/me/image.png", filename: "image.png", mime: "image/png" },
+      { type: "attachment", path: "/Users/me/report.pdf", filename: "report.pdf", mime: "application/pdf" },
     ])
-    expect(promptParts).toHaveLength(0)
     expect(toasts).toHaveLength(0)
   })
 
@@ -191,10 +192,10 @@ describe("createPromptAttachments", () => {
     const result = await attachments.addAttachments([new File(["%PDF-1.7"], "guide.pdf", { type: "application/pdf" })])
 
     expect(result).toBe(true)
-    expect(addedParts).toEqual([
-      { type: "file", path: "/Users/me/guide.pdf", content: "@guide.pdf", start: 0, end: 10 },
+    expect(addedParts).toHaveLength(0)
+    expect(promptParts).toMatchObject([
+      { type: "attachment", path: "/Users/me/guide.pdf", filename: "guide.pdf", mime: "application/pdf" },
     ])
-    expect(promptParts).toHaveLength(0)
     expect(toasts).toHaveLength(0)
   })
 
@@ -217,8 +218,9 @@ describe("createPromptAttachments", () => {
     const result = await attachments.addPickedPath("/Users/me/guide.pdf")
 
     expect(result).toBe(true)
-    expect(addedParts).toEqual([
-      { type: "file", path: "/Users/me/guide.pdf", content: "@guide.pdf", start: 0, end: 10, size: 1536 },
+    expect(addedParts).toHaveLength(0)
+    expect(promptParts).toMatchObject([
+      { type: "attachment", path: "/Users/me/guide.pdf", filename: "guide.pdf", size: 1536 },
     ])
   })
 
@@ -247,16 +249,15 @@ describe("createPromptAttachments", () => {
     const result = await attachments.addAttachment(new File(["image"], "pasted-image.png", { type: "image/png" }))
 
     expect(result).toBe(true)
-    expect(addedParts).toEqual([
+    expect(addedParts).toHaveLength(0)
+    expect(promptParts).toMatchObject([
       {
-        type: "file",
+        type: "attachment",
         path: "/Users/me/Library/Application Support/PawWork/attachments/pasted-image.png",
-        content: "@pasted-image.png",
-        start: 0,
-        end: 17,
+        filename: "pasted-image.png",
+        mime: "image/png",
       },
     ])
-    expect(promptParts).toHaveLength(0)
     expect(toasts).toHaveLength(0)
   })
 
@@ -311,9 +312,10 @@ describe("createPromptAttachments", () => {
     const result = await attachments.addPickedPaths(["/Users/me/report.docx", "/Users/me/image.png"])
 
     expect(result).toBe(true)
-    expect(addedParts).toEqual([
-      { type: "file", path: "/Users/me/report.docx", content: "@report.docx", start: 0, end: 12 },
-      { type: "file", path: "/Users/me/image.png", content: "@image.png", start: 0, end: 10 },
+    expect(addedParts).toHaveLength(0)
+    expect(promptParts).toMatchObject([
+      { type: "attachment", path: "/Users/me/report.docx", filename: "report.docx" },
+      { type: "attachment", path: "/Users/me/image.png", filename: "image.png" },
     ])
     expect(toasts).toHaveLength(0)
   })
@@ -348,10 +350,10 @@ describe("createPromptAttachments", () => {
 
     expect(result).toBe(true)
     expect(readCalls).toBe(0)
-    expect(addedParts).toEqual([
-      { type: "file", path: "/Users/me/image.png", content: "@image.png", start: 0, end: 10 },
+    expect(addedParts).toHaveLength(0)
+    expect(promptParts).toMatchObject([
+      { type: "attachment", path: "/Users/me/image.png", filename: "image.png", mime: "image/png" },
     ])
-    expect(promptParts).toHaveLength(0)
     expect(toasts).toHaveLength(0)
   })
 
@@ -380,11 +382,54 @@ describe("createPromptAttachments", () => {
     const result = await attachments.addPickedPaths(["/Users/me/report.docx", "/Users/me/image.png"])
 
     expect(result).toBe(true)
-    expect(addedParts).toEqual([
-      { type: "file", path: "/Users/me/report.docx", content: "@report.docx", start: 0, end: 12 },
-      { type: "file", path: "/Users/me/image.png", content: "@image.png", start: 0, end: 10 },
+    expect(addedParts).toHaveLength(0)
+    expect(promptParts).toMatchObject([
+      { type: "attachment", path: "/Users/me/report.docx", filename: "report.docx" },
+      { type: "attachment", path: "/Users/me/image.png", filename: "image.png" },
     ])
     expect(toasts).toHaveLength(0)
+  })
+
+  test("skips adding a chip when an inline pill already references the same path", async () => {
+    promptParts = [{ type: "file", path: "/Users/me/guide.pdf", content: "@guide.pdf", start: 0, end: 10 }]
+    const attachments = createPromptAttachments({
+      editor: () => ({}) as HTMLDivElement,
+      isDialogActive: () => false,
+      setDraggingType: () => undefined,
+      focusEditor: () => undefined,
+      addPart: () => true,
+      model: () => undefined,
+      openModelSelector: () => undefined,
+    })
+
+    const result = await attachments.addPickedPath("/Users/me/guide.pdf")
+
+    expect(result).toBe(true)
+    expect(promptParts).toHaveLength(1)
+    expect(toasts).toHaveLength(0)
+  })
+
+  test("removeAttachment removes chip parts by id", async () => {
+    promptParts = [
+      { type: "text", content: "hi", start: 0, end: 2 },
+      { type: "attachment", id: "att_1", path: "/Users/me/a.pdf", filename: "a.pdf" },
+      { type: "image", id: "img_1", filename: "b.png", mime: "image/png", dataUrl: "data:image/png;base64,AAA" },
+    ]
+    const attachments = createPromptAttachments({
+      editor: () => ({}) as HTMLDivElement,
+      isDialogActive: () => false,
+      setDraggingType: () => undefined,
+      focusEditor: () => undefined,
+      addPart: () => true,
+      model: () => undefined,
+      openModelSelector: () => undefined,
+    })
+
+    attachments.removeAttachment("att_1")
+    expect(promptParts.map((part) => (part as { id?: string }).id ?? "text")).toEqual(["text", "img_1"])
+
+    attachments.removeAttachment("img_1")
+    expect(promptParts).toHaveLength(1)
   })
 
   test("accepts empty FileReader MIME when the routed MIME is known", async () => {

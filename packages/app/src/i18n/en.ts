@@ -285,9 +285,12 @@ export const dict = {
   "prompt.context.externalFile": "External",
   "prompt.action.attachFile": "Add files",
   "prompt.attachment.remove": "Remove attachment",
+  "prompt.attachment.showInFolder": "Show in folder",
   "prompt.action.send": "Send",
   "prompt.action.stop": "Stop",
 
+  "prompt.toast.attachmentMissing.title": "File not found",
+  "prompt.toast.attachmentMissing.description": "It may have been moved or deleted. Add the file again to attach it.",
   "prompt.toast.pasteUnsupported.title": "Unsupported attachment",
   "prompt.toast.pasteUnsupported.description": "Only images, PDFs, or text files can be attached here.",
   "prompt.toast.imageUnsupported.title": "This model cannot read images",
