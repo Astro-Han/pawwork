@@ -51,11 +51,24 @@ function merge<T extends { id: string }>(a: readonly T[], b: readonly T[]) {
 }
 
 export function resolveLoadMessagePage<T extends { id: string }>(params: {
+  mode?: "prepend" | "replace"
   stored: readonly T[] | undefined
   fetched: readonly T[]
+  fetchedComplete?: boolean
 }): T[] {
   const { stored, fetched } = params
-  if (stored && stored.length > 0) return merge(stored, fetched)
+  if (stored && stored.length > 0) {
+    const merged = merge(stored, fetched)
+    const maxFetchedID = fetched.reduce<string | undefined>(
+      (max, item) => (max === undefined || cmp(max, item.id) < 0 ? item.id : max),
+      undefined,
+    )
+    if (params.mode !== "prepend" && params.fetchedComplete && maxFetchedID !== undefined) {
+      const fetchedIDs = new Set(fetched.map((item) => item.id))
+      return merged.filter((item) => fetchedIDs.has(item.id) || cmp(maxFetchedID, item.id) < 0)
+    }
+    return merged
+  }
   return fetched as T[]
 }
 
@@ -75,10 +88,11 @@ export function resolveLoadMessagePageMeta(params: {
   const retainedExistingPage =
     params.mode !== "prepend" && params.previous?.limit !== undefined && params.messageCount > params.fetchedCount
   if (retainedExistingPage) {
+    const complete = params.previous?.complete || params.fetchedComplete
     return {
       limit,
-      cursor: params.previous?.complete ? undefined : (params.previous?.cursor ?? params.fetchedCursor),
-      complete: params.previous?.complete ?? false,
+      cursor: complete ? undefined : (params.previous?.cursor ?? params.fetchedCursor),
+      complete,
     }
   }
 
@@ -415,8 +429,10 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           }
           const [store] = globalSync.child(input.directory, { bootstrap: false })
           const message = resolveLoadMessagePage({
+            mode: input.mode,
             stored: store.message[input.sessionID],
             fetched: next.session,
+            fetchedComplete: next.complete,
           })
           const pageMeta = resolveLoadMessagePageMeta({
             mode: input.mode,

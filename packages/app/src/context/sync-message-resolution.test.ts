@@ -54,6 +54,43 @@ describe("resolveLoadMessagePage", () => {
     expect(result.map((x) => x.text)).toEqual(["current", "visible"])
   })
 
+  test("complete replace refresh removes stored-only messages covered by the fetched snapshot", () => {
+    const stored = [m("msg_1", "old"), m("msg_2", "deleted"), m("msg_5", "live-tail")]
+    const fetched = [m("msg_1", "current"), m("msg_3", "current")]
+    const result = resolveLoadMessagePage<TestMsg>({
+      stored,
+      fetched,
+      fetchedComplete: true,
+    })
+
+    expect(result.map((x) => x.id)).toEqual(["msg_1", "msg_3", "msg_5"])
+    expect(result.map((x) => x.text)).toEqual(["current", "current", "live-tail"])
+  })
+
+  test("complete prepend keeps the existing newer page", () => {
+    const stored = [m("msg_3", "newer")]
+    const fetched = [m("msg_1", "older")]
+    const result = resolveLoadMessagePage<TestMsg>({
+      mode: "prepend",
+      stored,
+      fetched,
+      fetchedComplete: true,
+    })
+
+    expect(result.map((x) => x.id)).toEqual(["msg_1", "msg_3"])
+  })
+
+  test("complete empty refresh still preserves stored messages from a race window", () => {
+    const stored = [m("msg_1", "shell-user")]
+    const result = resolveLoadMessagePage<TestMsg>({
+      stored,
+      fetched: [],
+      fetchedComplete: true,
+    })
+
+    expect(result.map((x) => x.id)).toEqual(["msg_1"])
+  })
+
   test("normal refresh without stored data returns fetched as-is", () => {
     const fetched = [m("msg_1", "hello")]
     const result = resolveLoadMessagePage<TestMsg>({
@@ -122,6 +159,19 @@ describe("resolveLoadMessagePageMeta", () => {
     })
 
     expect(result).toEqual({ limit: 11, cursor: "msg_03", complete: false })
+  })
+
+  test("complete replace refresh with retained messages closes the pagination boundary", () => {
+    const result = resolveLoadMessagePageMeta({
+      mode: "replace",
+      previous: { limit: 11, cursor: "msg_03", complete: false },
+      messageCount: 12,
+      fetchedCount: 11,
+      fetchedCursor: undefined,
+      fetchedComplete: true,
+    })
+
+    expect(result).toEqual({ limit: 12, cursor: undefined, complete: true })
   })
 
   test("prepend history load advances the pagination boundary", () => {
