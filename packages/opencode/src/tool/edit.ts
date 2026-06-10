@@ -356,7 +356,6 @@ export const BlockAnchorReplacer: Replacer = function* (content, find) {
   const firstLineSearch = searchLines[0].trim()
   const lastLineSearch = searchLines[searchLines.length - 1].trim()
   const searchBlockSize = searchLines.length
-  const maxLineDelta = Math.max(1, Math.floor(searchBlockSize * 0.25))
 
   // Collect all candidate positions where both anchors match
   const candidates: Array<{ startLine: number; endLine: number }> = []
@@ -369,7 +368,7 @@ export const BlockAnchorReplacer: Replacer = function* (content, find) {
     for (let j = i + 2; j < originalLines.length; j++) {
       if (originalLines[j].trim() === lastLineSearch) {
         const actualBlockSize = j - i + 1
-        if (Math.abs(actualBlockSize - searchBlockSize) <= maxLineDelta) {
+        if (actualBlockSize === searchBlockSize) {
           candidates.push({ startLine: i, endLine: j })
           break // Only match the first valid occurrence of the last line
         }

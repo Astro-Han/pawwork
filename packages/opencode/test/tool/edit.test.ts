@@ -439,6 +439,47 @@ describe("tool.edit", () => {
       ),
     )
 
+    it.live("rejects nested block-anchor candidates with shorter line counts", () =>
+      provideTmpdirInstance((dir) =>
+        Effect.gen(function* () {
+          const filepath = path.join(dir, "nested-short-candidate.ts")
+          const original = [
+            "function configure() {",
+            "  if (enabled) {",
+            "    keepImportantState()",
+            "  }",
+            "  finalize()",
+            "}",
+          ].join("\n")
+          yield* Effect.promise(() => fs.writeFile(filepath, original, "utf-8"))
+
+          yield* expectRunFailure(
+            {
+              filePath: filepath,
+              oldString: [
+                "function configure() {",
+                "  if (enabled) {",
+                "    keepImportantState()",
+                "  cleanup()",
+                "}",
+              ].join("\n"),
+              newString: [
+                "function configure() {",
+                "  if (enabled) {",
+                "    keepImportantState()",
+                "  done()",
+                "}",
+              ].join("\n"),
+            },
+            "Could not find oldString",
+          )
+
+          const content = yield* Effect.promise(() => fs.readFile(filepath, "utf-8"))
+          expect(content).toBe(original)
+        }),
+      ),
+    )
+
     it.live("replaces all occurrences with replaceAll option", () =>
       provideTmpdirInstance((dir) =>
         Effect.gen(function* () {
