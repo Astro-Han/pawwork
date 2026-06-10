@@ -91,6 +91,9 @@ export class CdpBridge {
     this.wc.debugger.attach("1.3")
     this.wc.debugger.on("message", this.onDebuggerMessage)
     this.wc.debugger.on("detach", this.onDebuggerDetach)
+    // A directly destroyed WebContents is not guaranteed to emit a debugger
+    // 'detach' first; without this the ws server (and its port) would leak.
+    this.wc.once("destroyed", this.onDebuggerDetach)
 
     // The HTTP server exists only to host the ws upgrade; it never serves plain HTTP.
     const http = createServer((_req, res) => {
@@ -145,6 +148,7 @@ export class CdpBridge {
       await new Promise<void>((resolve) => http.close(() => resolve()))
     }
     if (!this.wc.isDestroyed()) {
+      this.wc.off("destroyed", this.onDebuggerDetach)
       this.wc.debugger.off("message", this.onDebuggerMessage)
       this.wc.debugger.off("detach", this.onDebuggerDetach)
       if (this.wc.debugger.isAttached()) {
@@ -268,7 +272,8 @@ export class CdpBridge {
     this.send({ method, params, ...(sessionId ? { sessionId } : {}) })
   }
 
-  // DevTools opening (or any external detach) forcibly detaches the debugger;
+  // DevTools opening (or any external detach) forcibly detaches the debugger,
+  // and a destroyed WebContents takes the target away entirely; either way,
   // tear the bridge down so the client sees a clean close instead of a hang.
   private readonly onDebuggerDetach = () => {
     void this.stop()

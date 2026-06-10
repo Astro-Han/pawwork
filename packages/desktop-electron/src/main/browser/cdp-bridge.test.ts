@@ -25,7 +25,7 @@ class MockDebugger extends EventEmitter {
   }
 }
 
-class MockWebContents {
+class MockWebContents extends EventEmitter {
   destroyed = false
   debugger = new MockDebugger()
   isDestroyed() {
@@ -257,6 +257,19 @@ describe("CdpBridge", () => {
     cleanups.push(() => bridge.stop())
     const [first, second] = await Promise.all([bridge.start(), bridge.start()])
     expect(first.cdpEndpoint).toBe(second.cdpEndpoint)
+  })
+
+  test("destroying the WebContents tears the bridge down", async () => {
+    const { wc, asWebContents } = makeWc()
+    const { cdpEndpoint } = await startBridge(asWebContents)
+    const ws = await open(cdpEndpoint)
+    const closed = new Promise<void>((resolve) => ws.once("close", () => resolve()))
+    // A directly destroyed WebContents is not guaranteed to emit a debugger
+    // 'detach' first — the 'destroyed' listener must tear the bridge down.
+    wc.destroyed = true
+    wc.emit("destroyed")
+    await closed
+    expect(ws.readyState).toBeGreaterThanOrEqual(WebSocket.CLOSING)
   })
 
   test("start() throws target-busy when the debugger is already attached", async () => {
