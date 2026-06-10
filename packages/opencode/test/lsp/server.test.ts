@@ -42,3 +42,92 @@ describe("Typescript root resolution", () => {
     ),
   )
 })
+
+describe("JDTLS root resolution", () => {
+  it.live("resolves Maven module files to the topmost declared parent pom.xml", () =>
+    provideTmpdirInstance((root) =>
+      Effect.gen(function* () {
+        fs.writeFileSync(
+          path.join(root, "pom.xml"),
+          `
+<project>
+  <modules>
+    <module>modules/core</module>
+  </modules>
+</project>
+`,
+        )
+        fs.mkdirSync(path.join(root, "modules/core/src/main/java/app"), { recursive: true })
+        fs.writeFileSync(path.join(root, "modules/core/pom.xml"), "<project />")
+        fs.writeFileSync(path.join(root, "modules/core/src/main/java/app/App.java"), "")
+
+        const resolved = yield* Effect.promise(() =>
+          LSPServer.JDTLS.root(path.join(root, "modules/core/src/main/java/app/App.java")),
+        )
+        expect(resolved).toBe(root)
+      }),
+    ),
+  )
+
+  it.live("keeps independent nested Maven projects at their nearest pom.xml", () =>
+    provideTmpdirInstance((root) =>
+      Effect.gen(function* () {
+        fs.writeFileSync(path.join(root, "pom.xml"), "<project />")
+        fs.mkdirSync(path.join(root, "samples/tool/src/main/java/app"), { recursive: true })
+        fs.writeFileSync(path.join(root, "samples/tool/pom.xml"), "<project />")
+        fs.writeFileSync(path.join(root, "samples/tool/src/main/java/app/App.java"), "")
+
+        const resolved = yield* Effect.promise(() =>
+          LSPServer.JDTLS.root(path.join(root, "samples/tool/src/main/java/app/App.java")),
+        )
+        expect(resolved).toBe(path.join(root, "samples/tool"))
+      }),
+    ),
+  )
+
+  it.live("keeps Gradle settings root ahead of Maven subproject markers", () =>
+    provideTmpdirInstance((root) =>
+      Effect.gen(function* () {
+        fs.writeFileSync(path.join(root, "settings.gradle"), "include 'app'")
+        fs.mkdirSync(path.join(root, "app/src/main/java/app"), { recursive: true })
+        fs.writeFileSync(path.join(root, "app/pom.xml"), "<project />")
+        fs.writeFileSync(path.join(root, "app/src/main/java/app/App.java"), "")
+
+        const resolved = yield* Effect.promise(() =>
+          LSPServer.JDTLS.root(path.join(root, "app/src/main/java/app/App.java")),
+        )
+        expect(resolved).toBe(root)
+      }),
+    ),
+  )
+
+  it.live("keeps Eclipse project markers ahead of ancestor Maven markers", () =>
+    provideTmpdirInstance((root) =>
+      Effect.gen(function* () {
+        fs.writeFileSync(path.join(root, "pom.xml"), "<project />")
+        fs.mkdirSync(path.join(root, "legacy/src/app"), { recursive: true })
+        fs.writeFileSync(path.join(root, "legacy/.project"), "")
+        fs.writeFileSync(path.join(root, "legacy/src/app/App.java"), "")
+
+        const resolved = yield* Effect.promise(() =>
+          LSPServer.JDTLS.root(path.join(root, "legacy/src/app/App.java")),
+        )
+        expect(resolved).toBe(path.join(root, "legacy"))
+      }),
+    ),
+  )
+
+  it.live("keeps no-marker Java files at the instance root", () =>
+    provideTmpdirInstance((root) =>
+      Effect.gen(function* () {
+        fs.mkdirSync(path.join(root, "src/main/java/app"), { recursive: true })
+        fs.writeFileSync(path.join(root, "src/main/java/app/App.java"), "")
+
+        const resolved = yield* Effect.promise(() =>
+          LSPServer.JDTLS.root(path.join(root, "src/main/java/app/App.java")),
+        )
+        expect(resolved).toBe(root)
+      }),
+    ),
+  )
+})
