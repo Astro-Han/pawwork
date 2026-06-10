@@ -2,7 +2,7 @@ import { Effect, Schema } from "effect"
 import * as Tool from "./tool"
 import DESCRIPTION from "./browser-navigate.txt"
 import { parseNavigableUrl } from "@/browser/session"
-import { runBrowserAction, takeoverNote } from "./browser-shared"
+import { browserAlwaysPatterns, runBrowserAction, takeoverNote } from "./browser-shared"
 
 // Above opencli's internal 30s CDP guard so a slow load surfaces the CDP
 // command timeout (which names the navigation) rather than our generic one.
@@ -39,11 +39,29 @@ export const BrowserNavigateTool = Tool.define(
             timeoutMs: NAVIGATE_TIMEOUT_MS,
             run: async (page, info) => {
               await page.goto(url, { waitUntil: "load" })
-              const landed = (await page.getCurrentUrl?.()) ?? url
+              // Read the document's real location: goto caches the REQUESTED
+              // url, so getCurrentUrl() would just echo it back and a redirect
+              // would never be visible — to the user or to the re-judge below.
+              const landed = await page.evaluate<string>("window.location.href").catch(() => url)
               const title = await page.evaluate<string>("document.title").catch(() => "")
-              return { landed, title, info }
+              return { landed: typeof landed === "string" && landed ? landed : url, title, info }
             },
           })
+          // A redirect can land on a different URL than the one the permission
+          // was granted for; re-judge the landing so a configured deny on the
+          // destination still applies. The page has loaded by now (a redirect
+          // can't be vetoed without intercepting the request), but the action
+          // fails loudly and every later action probes the denied page anyway.
+          // Same-string landings — the common case — skip this entirely.
+          const landed = parseNavigableUrl(result.landed)
+          if (landed && landed !== url) {
+            yield* ctx.ask({
+              permission: "browser",
+              patterns: [landed],
+              always: browserAlwaysPatterns([landed]),
+              metadata: { action: "navigate", url: landed, redirectedFrom: url },
+            })
+          }
           return {
             title: result.title || result.landed,
             output:

@@ -78,9 +78,15 @@ export class FakeCdpServer {
 /** Sentinel handler: swallow the command and never respond. */
 export const HANG = (() => {}) as unknown as (params: unknown) => unknown
 
-/** CDPPage's evaluate-based reads (getCurrentUrl etc.) go through Runtime.evaluate; script its return. */
+/**
+ * CDPPage's evaluate-based reads (location.href etc.) go through
+ * Runtime.evaluate; script them to track the fake's url like a real document
+ * would (Page.navigate updates `server.url`, so a post-navigate read sees the
+ * landed page, not the script's initial value).
+ */
 export function scriptCurrentUrl(server: FakeCdpServer, url: string | null) {
-  server.handlers.set("Runtime.evaluate", () => ({ result: { type: "string", value: url } }))
+  server.url = url
+  server.handlers.set("Runtime.evaluate", () => ({ result: { type: "string", value: server.url } }))
 }
 
 /** Inject a BrowserBridge host that always resolves to this fake server; returns the released-session log. */

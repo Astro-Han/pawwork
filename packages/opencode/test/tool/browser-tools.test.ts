@@ -257,6 +257,49 @@ describe("browser_navigate", () => {
       { permission: "browser", patterns: ["https://example.com/page"], always: ["https://example.com/*"] },
     ])
   })
+
+  test("a redirect's real landing is reported and re-judged, not the requested URL", async () => {
+    const server = makeServer()
+    provideFakeHost(server)
+    // The site redirects: the document's location reads differently from the
+    // requested URL (goto's own cache would just echo the request back).
+    server.handlers.set("Runtime.evaluate", () => ({
+      result: { type: "string", value: "https://ok.example/final" },
+    }))
+    const result = await exec(BrowserNavigateTool, { url: "https://ok.example/start" })
+    expect(result.output).toContain("Loaded https://ok.example/final")
+    expect(askLog).toEqual([
+      { permission: "browser", patterns: ["https://ok.example/start"], always: ["https://ok.example/*"] },
+      { permission: "browser", patterns: ["https://ok.example/final"], always: ["https://ok.example/*"] },
+    ])
+  })
+
+  test("a cross-site redirect onto a denied site fails the navigate", async () => {
+    const server = makeServer()
+    provideFakeHost(server)
+    server.handlers.set("Runtime.evaluate", () => ({
+      result: { type: "string", value: "https://blocked.example/landing" },
+    }))
+    // The user's rules deny blocked.example; the requested site is fine. The
+    // permission was granted for the request, so the landing must be re-judged
+    // or the deny is bypassed by a redirect.
+    const denyBlocked = {
+      ...ctx,
+      ask: (input: { permission: string; patterns: string[]; always: string[] }) => {
+        askLog.push({ permission: input.permission, patterns: input.patterns, always: input.always })
+        return input.patterns.some((p) => p.startsWith("https://blocked.example"))
+          ? Effect.fail(new Permission.RejectedError())
+          : Effect.void
+      },
+    } as unknown as typeof ctx
+    await expect(execWith(denyBlocked, BrowserNavigateTool, { url: "https://ok.example/start" })).rejects.toThrow(
+      /rejected permission/,
+    )
+    expect(askLog).toEqual([
+      { permission: "browser", patterns: ["https://ok.example/start"], always: ["https://ok.example/*"] },
+      { permission: "browser", patterns: ["https://blocked.example/landing"], always: ["https://blocked.example/*"] },
+    ])
+  })
 })
 
 describe("browser_snapshot", () => {
