@@ -83,6 +83,14 @@ describe("desktop server runtime namespace", () => {
     expect(env.XDG_STATE_HOME).toBe(serverRoots.state)
   })
 
+  test("tracks the backend log file after server log init", async () => {
+    const { backendLogFilePathForTest, setBackendLogFilePathForTest } = await import("./server")
+
+    setBackendLogFilePathForTest("/tmp/pawwork-backend.log")
+
+    expect(backendLogFilePathForTest()).toBe("/tmp/pawwork-backend.log")
+  })
+
   test("uses process GitHub CLI config directory before shell config directory", async () => {
     process.env.GH_CONFIG_DIR = "/process/gh"
     mockShellEnv = { GH_CONFIG_DIR: "/shell/gh", XDG_CONFIG_HOME: "/shell/config" }
@@ -321,7 +329,8 @@ describe("desktop server runtime namespace", () => {
     globalThis.fetch = (async () => new Response(null, { status: 200 })) as typeof fetch
 
     try {
-      const { spawnLocalServer } = await import("./server")
+      const { backendLogFilePathForTest, setBackendLogFilePathForTest, spawnLocalServer } = await import("./server")
+      setBackendLogFilePathForTest("/tmp/stale-opencode.log")
       await spawnLocalServer("127.0.0.1", 4096, "secret")
       expect(captured).toEqual({
         XDG_DATA_HOME: serverRoots.data,
@@ -335,6 +344,7 @@ describe("desktop server runtime namespace", () => {
       expect(listenOptions).toMatchObject({
         cors: [rendererOrigin],
       })
+      expect(backendLogFilePathForTest()).toBe("")
     } finally {
       globalThis.fetch = previousFetch
     }

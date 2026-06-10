@@ -148,10 +148,10 @@ describe("createPawworkSessionCommands", () => {
     })
   })
 
-  test("exportSessionAvailable requires platform export and a sidecar server", () => {
+  test("exportSessionAvailable no longer exposes raw session JSON export", () => {
     createRoot((dispose) => {
       const sidecar = setup({ exportSession: (() => Promise.resolve({ ok: true, path: "" })) as never, serverCurrent: { type: "sidecar" } })
-      expect(createPawworkSessionCommands(sidecar.input).exportSessionAvailable()).toBe(true)
+      expect(createPawworkSessionCommands(sidecar.input).exportSessionAvailable()).toBe(false)
 
       const remote = setup({ exportSession: (() => Promise.resolve({ ok: true, path: "" })) as never, serverCurrent: { type: "remote" } })
       expect(createPawworkSessionCommands(remote.input).exportSessionAvailable()).toBe(false)

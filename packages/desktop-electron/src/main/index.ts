@@ -77,7 +77,7 @@ import { createFeedbackHandler, feedbackDialogLabels } from "./feedback"
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigrationProgress } from "./ipc"
 import { registerAboutIpc, triggerAbout } from "./ipc/about"
 import { registerBrowserIpc } from "./ipc/browser"
-import { filePath, initLogging, tail } from "./logging"
+import { diagnosticsLogTail, filePath, initLogging } from "./logging"
 import { parseMarkdown } from "./markdown"
 import { createMenu } from "./menu"
 import { menuLabel, type MenuLocale } from "./menu-labels"
@@ -89,7 +89,7 @@ import {
   rendererDiagnosticsRoot,
   SESSION_EXPORT_RENDERER_DIAGNOSTICS_MAX_BYTES,
 } from "./renderer-diagnostics"
-import { getDefaultServerUrl, getWslConfig, setDefaultServerUrl, setWslConfig, spawnLocalServer } from "./server"
+import { backendLogFilePath, getDefaultServerUrl, getWslConfig, setDefaultServerUrl, setWslConfig, spawnLocalServer } from "./server"
 import { PAWWORK_RUNTIME } from "./runtime-namespace"
 import { createUpdaterController, createUpdateFeed, githubFeed, r2Feed, type FeedTarget } from "./updater"
 import { pendingUpdateCacheDir } from "./updater-cache"
@@ -303,7 +303,9 @@ const reportProblem = createFeedbackHandler({
   reportRoot: problemReportRoot,
   context: currentFeedbackRuntimeContext,
   confirm: async (context) => {
-    const labels = feedbackDialogLabels(context === undefined ? menuLocale : feedbackContext(context).locale)
+    const labels = feedbackDialogLabels(context === undefined ? menuLocale : feedbackContext(context).locale, {
+      withForm: Boolean(FEEDBACK_FORM_URL),
+    })
     const response = await dialog.showMessageBox({
       type: "warning",
       title: labels.title,
@@ -333,7 +335,7 @@ const reportProblem = createFeedbackHandler({
   cleanupReports: (currentPath) => cleanupProblemReports({ root: problemReportRoot, keep: 10, currentPath }),
   sessionExportTimeoutMs: FEEDBACK_SESSION_EXPORT_TIMEOUT_MS,
   diagnostics: (context) => diagnostics(feedbackContext(context)),
-  logTail: tail,
+  logTail: () => diagnosticsLogTail({ backendLogPath: backendLogFilePath() }),
   sessionExport: (context, signal) => sessionExport(feedbackContext(context), signal),
   rendererDiagnostics: (context) => {
     const runtimeContext = feedbackRuntimeContext(context)

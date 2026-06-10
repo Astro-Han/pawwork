@@ -52,30 +52,33 @@ type FeedbackDeps = {
 type FeedbackInput = ReportProblemInput
 export type FeedbackResult = ReportProblemResult
 
-export function feedbackDialogLabels(locale: MenuLocale) {
+export function feedbackDialogLabels(locale: MenuLocale, options: { withForm?: boolean } = {}) {
+  const withForm = options.withForm ?? true
   const labels = {
     en: {
-      title: "Prepare problem report?",
-      message:
-        "PawWork will copy a short summary to your clipboard, save a full problem report file locally, and open the feedback form.\n\nUpload the full problem report file if the form asks for details. You can delete the local full report file after submission.",
-      confirm: "Copy summary and open form",
+      title: "Prepare diagnostics package?",
+      message: withForm
+        ? "PawWork will save one diagnostics package locally, copy a short summary, and open the feedback form.\n\nThe package can include session content, renderer diagnostics, app logs, local paths, and environment information. Review it before uploading. You can delete the local package after submission."
+        : "PawWork will save one diagnostics package locally and copy a short summary.\n\nThe package can include session content, renderer diagnostics, app logs, local paths, and environment information. Review it before sharing. This build does not have a feedback form configured.",
+      confirm: withForm ? "Prepare package and open form" : "Prepare package",
       cancel: "Cancel",
-      failedTitle: "Problem Report Failed",
-      failedMessage: "Could not prepare the problem report. You can try Report a Problem again.",
+      failedTitle: "Diagnostics Package Failed",
+      failedMessage: "Could not prepare the diagnostics package. You can try preparing it again.",
       formOpenFailedTitle: "Feedback Form Did Not Open",
       formOpenFailedMessage:
-        "PawWork prepared the problem report, but could not open the feedback form. Open this URL manually to finish submitting feedback.",
+        "PawWork prepared the diagnostics package, but could not open the feedback form. Open this URL manually to finish submitting feedback.",
     },
     zh: {
-      title: "准备问题报告？",
-      message:
-        "应用会复制一份简短摘要到剪贴板，保存完整问题报告文件到本地，并打开反馈表单。\n\n如果表单需要更多细节，可以上传完整问题报告文件。提交后可以删除本地完整报告文件。",
-      confirm: "复制摘要并打开表单",
+      title: "准备诊断包？",
+      message: withForm
+        ? "应用会在本地保存一份诊断包，复制简短摘要，并打开反馈表单。\n\n诊断包可能包含会话内容、界面诊断、应用日志、本地路径和环境信息。上传前可以先检查，提交后也可以删除本地诊断包。"
+        : "应用会在本地保存一份诊断包，并复制简短摘要。\n\n诊断包可能包含会话内容、界面诊断、应用日志、本地路径和环境信息。分享前可以先检查。当前构建没有配置反馈表单。",
+      confirm: withForm ? "准备诊断包并打开表单" : "准备诊断包",
       cancel: "取消",
-      failedTitle: "问题报告失败",
-      failedMessage: "无法准备问题报告。你可以重新点击“报告问题”再试一次。",
+      failedTitle: "诊断包准备失败",
+      failedMessage: "无法准备诊断包。你可以重新准备一次。",
       formOpenFailedTitle: "反馈表单未打开",
-      formOpenFailedMessage: "问题报告已准备好，但无法打开反馈表单。请手动打开这个链接继续提交反馈。",
+      formOpenFailedMessage: "诊断包已准备好，但无法打开反馈表单。请手动打开这个链接继续提交反馈。",
     },
   } satisfies Record<
     MenuLocale,
@@ -173,9 +176,6 @@ export function createFeedbackHandler(deps: FeedbackDeps) {
     input: FeedbackInput = {},
     contextOverride?: FeedbackContextOverride,
   ): Promise<FeedbackResult> {
-    if (!deps.feedbackUrl) {
-      return { status: "unavailable", summaryCopied: false, feedbackOpened: false, fullReport: { status: "none" } }
-    }
     const context = deps.context?.(contextOverride)
     const needsConfirm = input.confirm ?? true
     if (needsConfirm) {
@@ -263,6 +263,17 @@ export function createFeedbackHandler(deps: FeedbackDeps) {
         await deps.cleanupReports(savedReport.path)
       } catch (error) {
         deps.onHandledError?.("problem report cleanup failed", error)
+      }
+    }
+
+    if (!deps.feedbackUrl) {
+      return {
+        status: "package-only",
+        summaryCopied: true,
+        feedbackOpened: false,
+        fullReport: savedReport
+          ? { status: "ready", fileName: savedReport.fileName, locationHint: savedReport.locationHint }
+          : { status: "failed" },
       }
     }
 

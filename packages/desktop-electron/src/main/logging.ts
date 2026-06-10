@@ -14,8 +14,24 @@ export function initLogging() {
 }
 
 export function tail(): string {
+  return tailFile(filePath())
+}
+
+export function diagnosticsLogTail(input: { backendLogPath?: string | null } = {}): string {
+  const mainPath = filePath()
+  const sections = [`== Main process log: ${mainPath} ==\n${tailFile(mainPath) || "(empty)"}`]
+  const backendLogPath = input.backendLogPath
+  sections.push(
+    backendLogPath
+      ? `== Backend log: ${backendLogPath} ==\n${tailFile(backendLogPath) || "(empty)"}`
+      : "== Backend log: unavailable ==",
+  )
+  return sections.join("\n\n")
+}
+
+function tailFile(path: string): string {
   try {
-    const contents = readFileSync(filePath(), "utf8")
+    const contents = readFileSync(path, "utf8")
     const lines = contents.split("\n")
     return lines.slice(Math.max(0, lines.length - TAIL_LINES)).join("\n")
   } catch {

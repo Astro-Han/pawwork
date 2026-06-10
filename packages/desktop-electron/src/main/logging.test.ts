@@ -1,5 +1,5 @@
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test"
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 
@@ -120,5 +120,25 @@ describe("desktop logging", () => {
     second.initLogging()
 
     expect(consoleTransport.wrapCount).toBe(1)
+  })
+
+  test("builds a diagnostics log tail from main and backend logs", async () => {
+    logDir = mkdtempSync(join(tmpdir(), "pawwork-logging-test-"))
+    const mainPath = join(logDir, "main.log")
+    const backendPath = join(logDir, "backend.log")
+    writeFileSync(mainPath, "main ok\nmain failed\n")
+    writeFileSync(backendPath, "backend ok\nbackend failed\n")
+    fakeLog.transports.file = {
+      maxSize: 0,
+      getFile: () => ({ path: mainPath }),
+    }
+
+    const { diagnosticsLogTail } = await import(`./logging?logging-test=${crypto.randomUUID()}`)
+    const tail = diagnosticsLogTail({ backendLogPath: backendPath })
+
+    expect(tail).toContain("Main process log")
+    expect(tail).toContain("main failed")
+    expect(tail).toContain("Backend log")
+    expect(tail).toContain("backend failed")
   })
 })
