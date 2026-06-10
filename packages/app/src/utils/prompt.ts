@@ -64,6 +64,9 @@ function selectionFromFileUrl(url: string): Extract<Inline, { type: "file" }>["s
  * apart). Size is unknown after the round-trip and stays unset.
  */
 function attachmentFromFilePart(filePart: FilePart): AttachmentPart | undefined {
+  // A ?start=&end= query means a line-scoped context reference; a path-only
+  // chip would widen it to the whole file on resubmit, so drop it instead.
+  if (selectionFromFileUrl(filePart.url)) return undefined
   const path = fileUrlToPath(filePart.url)
   if (!path) return undefined
   return {

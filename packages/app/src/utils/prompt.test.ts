@@ -76,8 +76,9 @@ describe("extractPromptFromParts", () => {
     expect(result[0]).toMatchObject({ type: "text", content: "summarize this" })
     expect(result.slice(1)).toMatchObject([
       // mime re-derived from the suffix so the chip renders its thumbnail again.
+      // The selection-scoped part (?start=&end=) is deliberately absent: see
+      // "skips selection-scoped file parts" below.
       { type: "attachment", path: "/Users/me/Desktop/shot 2026.png", filename: "shot 2026.png", mime: "image/png" },
-      { type: "attachment", path: "/Users/me/report.pdf", filename: "report.pdf" },
     ])
   })
 
@@ -308,6 +309,30 @@ describe("extractPromptFromParts", () => {
     expect(result).toHaveLength(2)
     expect(result[0]).toMatchObject({ type: "text", content: "/brainstorming fold the bubble" })
     expect(result[1]).toMatchObject({ type: "attachment", path: "/Users/me/report.pdf", filename: "report.pdf" })
+  })
+
+  test("skips selection-scoped file parts instead of widening them to whole-file chips", () => {
+    // Context items with a line selection submit as source-less file parts
+    // whose only selection carrier is the ?start=&end= query. Restoring them
+    // as path-only chips would silently expand a few-line reference into the
+    // whole file on resubmit.
+    const parts = [
+      { id: "text_1", type: "text", text: "check this", sessionID: "ses_1", messageID: "msg_1" },
+      {
+        id: "file_ctx",
+        type: "file",
+        mime: "text/plain",
+        url: "file:///Users/me/big-module.ts?start=120&end=132",
+        filename: "big-module.ts",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+      },
+    ] satisfies Part[]
+
+    const result = extractPromptFromParts(parts)
+
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({ type: "text", content: "check this" })
   })
 
   test("command mode: skips inline-pill file parts already carried by the args text", () => {
