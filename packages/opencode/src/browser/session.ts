@@ -191,11 +191,8 @@ export async function withBrowserPage<T>(
   opts?: { timeoutMs?: number; abort?: AbortSignal },
 ): Promise<T> {
   if (opts?.abort?.aborted) throw new BrowserActionCanceledError(label)
-  const conn = await acquire(sessionID)
-  const takeoverReloaded = conn.takeoverReloaded
-  // One-shot flag: only the first action after a takeover mentions the reload.
-  conn.takeoverReloaded = false
   const ms = opts?.timeoutMs ?? BROWSER_TOOL_TIMEOUT_MS
+  let conn: Connection | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
   let onAbort: (() => void) | undefined
   // Abort and timeout don't just stop the wait — they sever the connection.
@@ -204,21 +201,38 @@ export async function withBrowserPage<T>(
   // reported failure). Closing the socket fails its in-flight and subsequent
   // commands locally; the next action re-probes and reconnects (which may
   // stealth-reload an already-loaded page, like any fresh takeover).
+  //
+  // The race covers acquire() too — the first action's endpoint resolution and
+  // CDP connect answer to the same budget and the same stop button. The abort
+  // listener registers BEFORE acquire on purpose: a signal that fires mid-
+  // acquire would never fire a listener added after it ("abort" does not
+  // re-fire on already-aborted signals), and the canceled action would run
+  // anyway. Severing is conditional because there is no connection until
+  // acquire returns; an abandoned in-flight acquire settles in the background
+  // and only fills the cache for the next action.
   const interrupted = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
-      invalidate(conn)
+      if (conn) invalidate(conn)
       reject(new BrowserToolTimeoutError(label, ms))
     }, ms)
     onAbort = () => {
-      invalidate(conn)
+      if (conn) invalidate(conn)
       reject(new BrowserActionCanceledError(label))
     }
     opts?.abort?.addEventListener("abort", onAbort, { once: true })
   })
   try {
+    const acquiring = acquire(sessionID)
+    // The race abandons this promise when interrupted wins; its eventual
+    // rejection must not surface as an unhandled error.
+    acquiring.catch(() => {})
+    conn = await Promise.race([acquiring, interrupted])
+    const takeoverReloaded = conn.takeoverReloaded
+    // One-shot flag: only the first action after a takeover mentions the reload.
+    conn.takeoverReloaded = false
     return await Promise.race([run(conn.page, { takeoverReloaded }), interrupted])
   } catch (err) {
-    if (isConnectionLoss(err)) invalidate(conn)
+    if (conn && isConnectionLoss(err)) invalidate(conn)
     throw err
   } finally {
     clearTimeout(timer)

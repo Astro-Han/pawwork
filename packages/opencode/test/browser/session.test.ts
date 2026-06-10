@@ -157,6 +157,50 @@ describe("withBrowserPage", () => {
     expect(server.methods.filter((m) => m === "Page.addScriptToEvaluateOnNewDocument").length).toBe(2)
   }, 10_000)
 
+  test("the tool timeout covers endpoint resolution, not just the action", async () => {
+    BrowserBridge.provideHost({
+      resolveEndpoint: () => new Promise(() => {}),
+      probeSession: async () => ({ url: null }),
+      releaseSession: async () => {},
+    })
+
+    await expect(
+      withBrowserPage("ses_a", "click", async () => "unreachable", { timeoutMs: 80 }),
+    ).rejects.toBeInstanceOf(BrowserToolTimeoutError)
+  })
+
+  test("an abort during connect cancels the action even though the connect completes later", async () => {
+    const server = makeServer()
+    scriptCurrentUrl(server, "about:blank")
+    BrowserBridge.provideHost({
+      resolveEndpoint: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 120))
+        return { cdpEndpoint: server.endpoint }
+      },
+      probeSession: async () => ({ url: null }),
+      releaseSession: async () => {},
+    })
+
+    const controller = new AbortController()
+    let ran = false
+    const pending = withBrowserPage(
+      "ses_a",
+      "click",
+      async () => {
+        ran = true
+      },
+      { abort: controller.signal },
+    )
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    controller.abort()
+    await expect(pending).rejects.toBeInstanceOf(BrowserActionCanceledError)
+
+    // The abandoned connect settles in the background and only fills the cache
+    // for the NEXT action; the canceled one must never have driven the page.
+    await new Promise((resolve) => setTimeout(resolve, 180))
+    expect(ran).toBe(false)
+  })
+
   test("an already-aborted signal fails before connecting at all", async () => {
     const server = makeServer()
     scriptCurrentUrl(server, "about:blank")
