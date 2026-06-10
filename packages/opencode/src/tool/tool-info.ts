@@ -264,8 +264,14 @@ export function buildDeferredHint(rawToolName: string, isAvailable?: (id: string
   if (!target) return ""
   if (target.kind === "group") {
     const members = deferredGroupMembers(target.id)
-    if (isAvailable && !members.some(isAvailable)) return ""
-    const member = canonicalDeferredId(rawToolName) ?? canonicalDeferredId(rawToolName.toLowerCase()) ?? members[0]
+    const callable = isAvailable ? members.filter(isAvailable) : members
+    if (callable.length === 0) return ""
+    const echoed = canonicalDeferredId(rawToolName) ?? canonicalDeferredId(rawToolName.toLowerCase())
+    // The model named a specific member: activation only helps if THAT member
+    // will be exposed afterwards. A disabled member must get the plain
+    // invalid-tool error, not a hint promising a tool the registry filters out.
+    if (echoed && !callable.includes(echoed)) return ""
+    const member = echoed ?? callable[0]
     return ` "${member}" is part of the deferred "${target.id}" tool group: call tool_info with name="${target.id}" to load and activate the whole group, then call ${member} on your next step.`
   }
   if (isAvailable && !isAvailable(target.id)) return ""

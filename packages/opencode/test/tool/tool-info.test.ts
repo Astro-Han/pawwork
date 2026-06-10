@@ -219,4 +219,17 @@ describe("tool-info", () => {
     expect(buildDeferredHint("browser_click", () => false)).toBe("")
     expect(buildDeferredHint("browser_click", (id) => id === "browser_click")).toContain(`name="browser"`)
   })
+
+  test("buildDeferredHint stays silent when the called member itself is unavailable", () => {
+    // Other members being available is not enough: activating the group would
+    // never expose the member the model actually called.
+    expect(buildDeferredHint("browser_screenshot", (id) => id !== "browser_screenshot")).toBe("")
+  })
+
+  test("buildDeferredHint picks an available exemplar for a group-name call", () => {
+    const hint = buildDeferredHint("browser", (id) => id === "browser_click")
+    expect(hint).toContain(`name="browser"`)
+    expect(hint).toContain("browser_click")
+    expect(hint).not.toContain("browser_navigate")
+  })
 })
