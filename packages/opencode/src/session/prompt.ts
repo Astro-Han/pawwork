@@ -2634,6 +2634,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       return yield* state.ensureRunning(input.sessionID, onInterrupt, work, {
         rejectIfBusy: input.prelude !== undefined,
         runLifecycle,
+        onCancel: () => processor.abortTools(input.sessionID),
       })
     })
 
