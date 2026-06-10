@@ -63,11 +63,6 @@ export class BrowserViewController {
     this.target = target
   }
 
-  /** The window currently displaying this view, if any. */
-  displayWindowID(): number | null {
-    return this.host && !this.host.isDestroyed() ? this.host.id : null
-  }
-
   private wireEvents() {
     const wc = this.wc
     wc.on("did-start-loading", () => this.emitState())
