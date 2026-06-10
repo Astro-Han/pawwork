@@ -231,6 +231,26 @@ interface ProcessorContext extends Input {
 
 type StreamEvent = Event
 
+// Collect the current turn's window from a newest-first message stream, stopping at
+// the first message at or below the parent user message. Message IDs ascend, so every
+// assistant with `parentID === parent` has a larger id than the parent — once the
+// stream reaches the parent (or anything older) no further match can exist. This
+// bounds the per-tool-call loop-context scans below to the turn instead of hydrating
+// the entire session history (#1223 Finding 4). Returned order is newest-first,
+// matching the stream.
+/** @internal Exported for testing */
+export function turnWindow(
+  messages: Iterable<MessageV2.WithParts>,
+  parent: NonNullable<MessageV2.Assistant["parentID"]>,
+): MessageV2.WithParts[] {
+  const out: MessageV2.WithParts[] = []
+  for (const message of messages) {
+    if (message.info.id <= parent) break
+    out.push(message)
+  }
+  return out
+}
+
 export class Service extends Context.Service<Service, Interface>()("@opencode/SessionProcessor") {}
 
 export const layer: Layer.Layer<
@@ -433,10 +453,14 @@ export const layer: Layer.Layer<
         return diagnostics as SessionDiagnostics.Metadata["diagnostics"]
       }
 
+      // Newest-first, bounded to the current turn (see turnWindow above).
+      const turnMessages = (parentID: NonNullable<MessageV2.Assistant["parentID"]>) =>
+        turnWindow(MessageV2.stream(ctx.sessionID), parentID)
+
       const loopRecords = (parentID: MessageV2.Assistant["parentID"]) => {
         if (!parentID) return []
         const out: SessionDiagnostics.ToolCallRecord[] = []
-        for (const message of Array.from(MessageV2.stream(ctx.sessionID)).reverse()) {
+        for (const message of turnMessages(parentID).reverse()) {
           if (message.info.role !== "assistant" || message.info.parentID !== parentID) continue
           for (const part of message.parts) {
             // patch parts are skipped so they cannot consume the tool-record path or
@@ -469,7 +493,7 @@ export const layer: Layer.Layer<
       // errorFingerprint.
       const errorRecords = (parentID: MessageV2.Assistant["parentID"]) => {
         if (!parentID) return []
-        return Array.from(MessageV2.stream(ctx.sessionID)).flatMap((message) => {
+        return turnMessages(parentID).flatMap((message) => {
           if (message.info.role !== "assistant" || message.info.parentID !== parentID) return []
           return message.parts.flatMap((part) => {
             if (part.type !== "tool") return []
@@ -498,7 +522,7 @@ export const layer: Layer.Layer<
       const syntheticBlockSigKeys = (parentID: MessageV2.Assistant["parentID"]): string[] => {
         if (!parentID) return []
         const out: string[] = []
-        for (const message of Array.from(MessageV2.stream(ctx.sessionID))) {
+        for (const message of turnMessages(parentID)) {
           if (message.info.role !== "assistant" || message.info.parentID !== parentID) continue
           for (const part of message.parts) {
             if (part.type !== "tool") continue
@@ -512,7 +536,7 @@ export const layer: Layer.Layer<
 
       const hasStopped = (parentID: MessageV2.Assistant["parentID"]): boolean => {
         if (!parentID) return false
-        for (const message of Array.from(MessageV2.stream(ctx.sessionID))) {
+        for (const message of turnMessages(parentID)) {
           if (message.info.role !== "assistant" || message.info.parentID !== parentID) continue
           for (const part of message.parts) {
             if (part.type !== "tool") continue
@@ -538,7 +562,7 @@ export const layer: Layer.Layer<
             currentStepIndex,
           }
         }
-        for (const message of Array.from(MessageV2.stream(ctx.sessionID)).reverse()) {
+        for (const message of turnMessages(parentID).reverse()) {
           if (message.info.role !== "assistant" || message.info.parentID !== parentID) continue
           let stepIndex = 0
           let sawStepStart = false
