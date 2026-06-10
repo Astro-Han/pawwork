@@ -35,6 +35,10 @@ test("build agent uses PawWork permission defaults", async () => {
       expect(Permission.evaluate("bash", "rd folder", build!.permission).action).toBe("deny")
       expect(Permission.evaluate("bash", "sudo rm -rf /", build!.permission).action).toBe("ask")
       expect(Permission.evaluate("doom_loop", "*", build!.permission).action).toBe("ask")
+      // Deliberate design ruling (browser design doc §9): every browser action
+      // defaults to allow — the embedded browser is local and fully visible,
+      // which is the safety net; permission.browser rules tighten per URL.
+      expect(Permission.evaluate("browser", "https://example.com/page", build!.permission).action).toBe("allow")
       expect(Permission.evaluate("question", "*", build!.permission).action).toBe("allow")
       expect(Permission.evaluate("plan_enter", "*", build!.permission).action).toBe("allow")
       expect(Permission.evaluate("plan_exit", "*", build!.permission).action).toBe("deny")
