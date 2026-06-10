@@ -5,7 +5,7 @@ const layout = readFileSync(new URL("./layout.tsx", import.meta.url), "utf8")
 const updatePolling = readFileSync(new URL("./layout/layout-update-polling.ts", import.meta.url), "utf8")
 const errorPage = readFileSync(new URL("./error.tsx", import.meta.url), "utf8")
 const settingsUpdates = readFileSync(new URL("../components/settings-updates-section.tsx", import.meta.url), "utf8")
-const platform = readFileSync(new URL("../context/platform.tsx", import.meta.url), "utf8")
+const desktopApiContract = readFileSync(new URL("../desktop-api-contract.ts", import.meta.url), "utf8")
 
 describe("update install renderer contracts", () => {
   test("renderer install actions do not relaunch after platform update", () => {
@@ -27,6 +27,6 @@ describe("update install renderer contracts", () => {
   })
 
   test("cache update failures are part of the renderer-facing type", () => {
-    expect(platform).toContain('"check" | "download" | "metadata" | "cache"')
+    expect(desktopApiContract).toContain('"check" | "download" | "metadata" | "cache"')
   })
 })

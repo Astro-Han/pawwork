@@ -1,4 +1,5 @@
 import type {
+  AboutInfo,
   BrowserBridge,
   DesktopContext,
   RendererDiagnosticInput,
@@ -6,9 +7,10 @@ import type {
   ReportProblemInput,
   ReportProblemResult,
   UpdateInfo,
+  WebSearchStatus,
 } from "@opencode-ai/app/desktop-api"
 
-export type { DesktopContext }
+export type { AboutInfo, DesktopContext, WebSearchStatus }
 export type { RendererDiagnosticInput, RendererDiagnosticsExportResult, ReportProblemInput, ReportProblemResult, UpdateInfo }
 
 export type InitStep = { phase: "server_waiting" } | { phase: "sqlite_waiting" } | { phase: "done" }
@@ -29,20 +31,6 @@ export type WindowConfig = {
 }
 
 export type LinuxDisplayBackend = "wayland" | "auto"
-
-export type WebSearchStatus = {
-  source: "saved" | "env" | "anonymous"
-  configured: boolean
-  needsAttention: boolean
-  quotaExceeded: boolean
-}
-
-export type AboutInfo = {
-  version: string
-  electronVersion: string
-  chromeVersion: string
-  buildSha: string
-}
 
 export type ElectronAPI = {
   ciSmokeEnabled: boolean

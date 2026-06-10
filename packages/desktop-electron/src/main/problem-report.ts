@@ -1,5 +1,6 @@
 // Bound full report payloads while preserving recent logs and session snippets for diagnosis.
 // Default full report payload limit: 5 MB.
+import type { RendererErrorDetails } from "@opencode-ai/app/desktop-api"
 import type { RendererDiagnosticEvent, RendererDiagnosticsSlice } from "./renderer-diagnostics"
 
 export const DEFAULT_PROBLEM_REPORT_MAX_BYTES = 5 * 1024 * 1024
@@ -26,11 +27,6 @@ export type ProblemReportDiagnostics = {
 }
 
 type JsonValue = string | number | boolean | null | { [key: string]: JsonValue } | JsonValue[]
-
-export type RendererErrorDetails = {
-  summary: string
-  details: string
-}
 
 export type SessionExport =
   | { status: "none" }
