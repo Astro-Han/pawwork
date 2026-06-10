@@ -145,6 +145,22 @@ export default function Layout(props: ParentProps) {
     }
   })
   const currentDir = createMemo(() => route().dir)
+  // Last directory a /:dir route was visited in. Global surfaces (settings /
+  // automations / skills) and the command palette read activeDirectory for
+  // directory context when no project route is active. The trailing fallbacks
+  // mirror HomeRedirectRoute: first open project, then first synced project.
+  const [lastRouteDir, setLastRouteDir] = createSignal("")
+  createEffect(() => {
+    const dir = currentDir()
+    if (dir) setLastRouteDir(dir)
+  })
+  const activeDirectory = createMemo(
+    () =>
+      currentDir() ||
+      lastRouteDir() ||
+      layout.projects.list()[0]?.worktree ||
+      (globalSync.ready ? (globalSync.data.project[0]?.worktree ?? "") : ""),
+  )
   const pawworkSidebar = createMemo(() => globalSync.data.project.length <= 1)
 
   const [state, setState] = createStore({
@@ -602,7 +618,10 @@ export default function Layout(props: ParentProps) {
     navigate,
     releaseTransientLocks: releaseTransientShellLocks,
     resolveProjectRoot: projectRoot,
-    currentProjectRoot: () => currentProject()?.worktree ?? projectRoot(currentDir()),
+    // activeDirectory equals currentDir on /:dir routes; elsewhere it falls
+    // back to the last visited directory so shell navigation (e.g. "new
+    // session" from a global page) still resolves a project.
+    currentProjectRoot: () => currentProject()?.worktree ?? projectRoot(activeDirectory()),
     directStartRoot: () => globalSync.data.path.directory,
     chooseProject,
     openSettingsSurface,
@@ -878,12 +897,59 @@ export default function Layout(props: ParentProps) {
     })
   }
 
+  // dialog.show renders the dialog under this body's owner, which sits above
+  // the LayoutPageContext.Provider in the JSX below — so the palette element
+  // wraps the provider explicitly instead of relying on the owner chain.
+  const layoutPageValue = {
+    pinnedIDs: () => store.pawworkPinnedSessions,
+    workspaceOrderFor: (worktree: string) => store.workspaceOrder[worktree],
+    openProject: () => {
+      void chooseProject()
+    },
+    activeDirectory,
+  }
+
+  function openCommandPalette(source?: "palette" | "keybind" | "slash") {
+    const run = ++dialogRun
+    void import("@/components/dialog-select-file")
+      .then((x) => {
+        if (dialogDead || dialogRun !== run) return
+        dialog.show(() => (
+          <LayoutPageContext.Provider value={layoutPageValue}>
+            <x.DialogSelectFile mode={source === "slash" ? "files" : undefined} />
+          </LayoutPageContext.Provider>
+        ))
+      })
+      .catch(() => {
+        // Chunk failed to load — ignore; user can retry
+      })
+  }
+
+  function openNewSessionCommand() {
+    // On a /:dir route, preserve the previous session-page behavior exactly:
+    // stay in the current route directory (a workspace keeps its own home).
+    // Elsewhere, resolve through the shell (active project, else picker).
+    const slug = params.dir
+    if (slug) {
+      navigate(`/${slug}/session`)
+      return
+    }
+    openPawworkHome()
+  }
+
   registerLayoutCommands({
     registry: command,
     copy: language,
     appearance: theme,
     viewActions: {
       toggleSidebar: layout.sidebar.toggle,
+    },
+    paletteActions: {
+      open: openCommandPalette,
+      canOpenFiles: () => !!activeDirectory(),
+    },
+    sessionActions: {
+      openNew: openNewSessionCommand,
     },
     navigationActions: {
       openProject: chooseProject,
@@ -973,6 +1039,9 @@ export default function Layout(props: ParentProps) {
       onSearchOlderSessions={() => command.show()}
       onNew={() => openPawworkHome(options?.directory)}
       onSearch={() => command.show()}
+      // The palette dialog mounts directory-bound providers; with zero
+      // projects there is nothing to search, so the button shows as disabled.
+      searchAvailable={() => !!activeDirectory()}
       onOpenProject={chooseProject}
       onOpenSkills={toggleSkills}
       skillsActive={skillsOpen}
@@ -998,15 +1067,7 @@ export default function Layout(props: ParentProps) {
   }
 
   return (
-    <LayoutPageContext.Provider
-      value={{
-        pinnedIDs: () => store.pawworkPinnedSessions,
-        workspaceOrderFor: (worktree: string) => store.workspaceOrder[worktree],
-        openProject: () => {
-          void chooseProject()
-        },
-      }}
-    >
+    <LayoutPageContext.Provider value={layoutPageValue}>
       <ShellSurfaceContext.Provider
         value={{
           settingsOpen,

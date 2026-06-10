@@ -130,7 +130,15 @@ function AppShellProviders(props: ParentProps) {
               <CommandProvider>
                 <HighlightsProvider>
                   <ConnectionHealthProvider>
-                    <Layout>{props.children}</Layout>
+                    {/* Terminal runtimes (PTY handles) must outlive the session
+                        route: leaving a session and coming back has to reattach
+                        to the same server-side PTY instead of orphaning it and
+                        spawning a fresh shell. The provider is route-aware via
+                        useParams but holds its per-workspace cache here, above
+                        any route swap. */}
+                    <TerminalProvider>
+                      <Layout>{props.children}</Layout>
+                    </TerminalProvider>
                   </ConnectionHealthProvider>
                 </HighlightsProvider>
               </CommandProvider>
@@ -144,13 +152,11 @@ function AppShellProviders(props: ParentProps) {
 
 function SessionProviders(props: ParentProps) {
   return (
-    <TerminalProvider>
-      <FileProvider>
-        <PromptProvider>
-          <CommentsProvider>{props.children}</CommentsProvider>
-        </PromptProvider>
-      </FileProvider>
-    </TerminalProvider>
+    <FileProvider>
+      <PromptProvider>
+        <CommentsProvider>{props.children}</CommentsProvider>
+      </PromptProvider>
+    </FileProvider>
   )
 }
 

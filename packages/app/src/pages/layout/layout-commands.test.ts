@@ -9,6 +9,7 @@ function layoutCommandCatalog(input?: {
   canCreateWorkspace?: boolean
   canToggleWorkspace?: boolean
   canSwitchColorScheme?: boolean
+  canOpenFiles?: boolean
 }) {
   let catalog: CommandOption[] = []
   registerLayoutCommands({
@@ -34,6 +35,13 @@ function layoutCommandCatalog(input?: {
     } as unknown as ReturnType<typeof useTheme>,
     viewActions: {
       toggleSidebar: () => undefined,
+    },
+    paletteActions: {
+      open: () => undefined,
+      canOpenFiles: () => input?.canOpenFiles ?? true,
+    },
+    sessionActions: {
+      openNew: () => undefined,
     },
     navigationActions: {
       openProject: () => undefined,
@@ -65,6 +73,8 @@ describe("registerLayoutCommands", () => {
     const catalog = layoutCommandCatalog()
 
     expect(catalog.map((command) => command.id)).toEqual([
+      "session.new",
+      "file.open",
       "sidebar.toggle",
       "project.open",
       "project.previous",
@@ -89,6 +99,10 @@ describe("registerLayoutCommands", () => {
     ])
 
     expect(Object.fromEntries(catalog.map((command) => [command.id, command.keybind ?? null]))).toMatchObject({
+      // session.new shares mod+shift+s with theme.scheme.cycle; the runtime
+      // keymap resolves by first occurrence, so session.new must come first.
+      "session.new": "mod+shift+s",
+      "file.open": "mod+k,mod+p",
       "sidebar.toggle": "mod+b",
       "project.open": "mod+o",
       "project.previous": "mod+alt+arrowup",
@@ -102,6 +116,8 @@ describe("registerLayoutCommands", () => {
       "theme.scheme.cycle": "mod+shift+s",
     })
     expect(catalog.find((command) => command.id === "workspace.toggle")?.slash).toBe("workspace")
+    expect(catalog.find((command) => command.id === "session.new")?.slash).toBe("new")
+    expect(catalog.find((command) => command.id === "file.open")?.slash).toBe("open")
   })
 
   test("reflects command availability from layout capabilities", () => {
@@ -110,11 +126,15 @@ describe("registerLayoutCommands", () => {
       canCreateWorkspace: false,
       canToggleWorkspace: false,
       canSwitchColorScheme: false,
+      canOpenFiles: false,
     })
 
     expect(catalog.find((command) => command.id === "settings.openGlobalConfigFolder")?.disabled).toBe(true)
     expect(catalog.find((command) => command.id === "workspace.new")?.disabled).toBe(true)
     expect(catalog.find((command) => command.id === "workspace.toggle")?.disabled).toBe(true)
+    // Zero projects: the file picker has no directory to list, so file.open
+    // disappears from the keymap, the palette list, and the suggested rows.
+    expect(catalog.find((command) => command.id === "file.open")?.disabled).toBe(true)
     expect(catalog.some((command) => command.id.startsWith("theme.scheme."))).toBe(false)
   })
 })

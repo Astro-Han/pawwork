@@ -105,6 +105,15 @@ export function upsertCommandRegistration(registrations: CommandRegistration[], 
   return [entry, ...registrations.filter((x) => x.key !== entry.key)]
 }
 
+// Every dispatch path funnels here (trigger(), the palette keybind, sidebar
+// search). A disabled command must not execute: the keymap and option lists
+// already hide it, and its onSelect assumes the prerequisite the flag encodes
+// (e.g. file.open without a directory would mount an empty picker dialog).
+export function dispatchCommand(option: CommandOption | undefined, source?: CommandSource) {
+  if (!option || option.disabled) return
+  option.onSelect?.(source)
+}
+
 export function parseKeybind(config: string): Keybind[] {
   if (!config || config === "none") return []
 
@@ -348,8 +357,7 @@ export const { use: useCommand, provider: CommandProvider } = createSimpleContex
     })
 
     const run = (id: string, source?: CommandSource) => {
-      const option = optionMap().get(id)
-      option?.onSelect?.(source)
+      dispatchCommand(optionMap().get(id), source)
     }
 
     const showPalette = () => {

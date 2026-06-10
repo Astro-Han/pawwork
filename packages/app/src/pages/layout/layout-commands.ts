@@ -11,6 +11,18 @@ type LayoutCommandRegistration = {
   viewActions: {
     toggleSidebar: () => void
   }
+  // Shell-wide commands that must work on every page, not just session routes:
+  // the command palette and "new session" are registered here with handlers
+  // that are safe without a mounted session page.
+  paletteActions: {
+    open: (source?: "palette" | "keybind" | "slash") => void
+    // The file picker needs a directory to list; without one (zero projects)
+    // `file.open` is disabled so it cannot open an empty picker.
+    canOpenFiles: Accessor<boolean>
+  }
+  sessionActions: {
+    openNew: () => void
+  }
   navigationActions: {
     openProject: () => void
     moveProject: (offset: number) => void
@@ -47,6 +59,8 @@ export function registerLayoutCommands(input: LayoutCommandRegistration) {
     copy,
     appearance,
     viewActions,
+    paletteActions,
+    sessionActions,
     navigationActions,
     settingsActions,
     workspaceActions,
@@ -87,6 +101,27 @@ export function registerLayoutCommands(input: LayoutCommandRegistration) {
 
   registry.register("layout", () => {
     const commands: CommandOption[] = [
+      // session.new must precede the theme commands pushed below: it shares
+      // mod+shift+s with theme.scheme.cycle and the keymap resolves collisions
+      // by first occurrence.
+      {
+        id: "session.new",
+        title: copy.t("command.session.new"),
+        category: copy.t("command.category.session"),
+        keybind: "mod+shift+s",
+        slash: "new",
+        onSelect: () => sessionActions.openNew(),
+      },
+      {
+        id: "file.open",
+        title: copy.t("command.file.open"),
+        description: copy.t("palette.search.placeholder"),
+        category: copy.t("command.category.file"),
+        keybind: "mod+k,mod+p",
+        slash: "open",
+        disabled: !paletteActions.canOpenFiles(),
+        onSelect: (source) => paletteActions.open(source),
+      },
       {
         id: "sidebar.toggle",
         title: copy.t("command.sidebar.toggle"),
