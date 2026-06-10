@@ -487,6 +487,20 @@ test("disabled - does not disable when partially denied", () => {
   expect(result.has("bash")).toBe(false)
 })
 
+test("disabled - disables every browser_* tool when the browser key is denied", () => {
+  const result = Permission.disabled(
+    ["browser_navigate", "browser_click", "browser_extract", "bash"],
+    [
+      { permission: "*", pattern: "*", action: "allow" },
+      { permission: "browser", pattern: "*", action: "deny" },
+    ],
+  )
+  expect(result.has("browser_navigate")).toBe(true)
+  expect(result.has("browser_click")).toBe(true)
+  expect(result.has("browser_extract")).toBe(true)
+  expect(result.has("bash")).toBe(false)
+})
+
 test("disabled - does not disable when action is ask", () => {
   const result = Permission.disabled(["bash", "edit"], [{ permission: "*", pattern: "*", action: "ask" }])
   expect(result.size).toBe(0)

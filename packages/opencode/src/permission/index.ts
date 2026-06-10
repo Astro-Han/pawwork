@@ -412,7 +412,10 @@ export namespace Permission {
   export function disabled(tools: string[], ruleset: Ruleset): Set<string> {
     const result = new Set<string>()
     for (const tool of tools) {
-      const permission = EDIT_TOOLS.includes(tool) ? "edit" : tool
+      // browser_* tools all ask the `browser` permission key, so a configured
+      // `permission.browser: deny` disables the whole set (hiding their
+      // deferred cards and repair hints, not just denying the eventual ask).
+      const permission = EDIT_TOOLS.includes(tool) ? "edit" : tool.startsWith("browser_") ? "browser" : tool
       const rule = ruleset.findLast((rule) => Wildcard.match(permission, rule.permission))
       if (!rule) continue
       if (rule.pattern === "*" && rule.action === "deny") result.add(tool)
