@@ -10,6 +10,7 @@ import { resetBrowserSessionsForTest } from "../../src/browser/session"
 import { BrowserNavigateTool } from "../../src/tool/browser-navigate"
 import { BrowserSnapshotTool } from "../../src/tool/browser-snapshot"
 import { BrowserClickTool } from "../../src/tool/browser-click"
+import { normalizeElementRef } from "../../src/tool/browser-shared"
 import { BrowserTypeTool } from "../../src/tool/browser-type"
 import { BrowserWaitTool } from "../../src/tool/browser-wait"
 import { BrowserScreenshotTool } from "../../src/tool/browser-screenshot"
@@ -396,15 +397,35 @@ describe("browser_click", () => {
     const server = setupServer()
     // click runs several in-page steps (resolve → bounding rect → click); one
     // combined object satisfies each step's reads.
-    server.handlers.set("Runtime.evaluate", () => ({
-      result: {
-        type: "object",
-        value: { ok: true, matches_n: 1, match_level: "exact", visible: true, x: 10, y: 10 },
-      },
-    }))
+    const expressions: string[] = []
+    server.handlers.set("Runtime.evaluate", (params) => {
+      expressions.push((params as { expression?: string })?.expression ?? "")
+      return {
+        result: {
+          type: "object",
+          value: { ok: true, matches_n: 1, match_level: "exact", visible: true, x: 10, y: 10 },
+        },
+      }
+    })
     const result = await exec(BrowserClickTool, { ref: "[1]" })
     expect(result.output).toContain("Clicked [1]")
     expect(result.metadata?.matches).toBe(1)
+    // opencli's resolver treats only a bare number as a snapshot ref: "[1]"
+    // must be normalized before it reaches the page or it parses as a CSS
+    // selector and fails.
+    expect(expressions.join("\n")).toContain('const ref = "1"')
+    expect(expressions.join("\n")).not.toContain('"[1]"')
+  })
+})
+
+describe("normalizeElementRef", () => {
+  test("maps the snapshot spelling to opencli's bare-number ref and leaves selectors alone", () => {
+    expect(normalizeElementRef("[12]")).toBe("12")
+    expect(normalizeElementRef(" [12] ")).toBe("12")
+    expect(normalizeElementRef("12")).toBe("12")
+    expect(normalizeElementRef("a[href]")).toBe("a[href]")
+    expect(normalizeElementRef("[data-x]")).toBe("[data-x]")
+    expect(normalizeElementRef("#main [12]")).toBe("#main [12]")
   })
 })
 

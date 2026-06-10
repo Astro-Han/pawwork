@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect"
 import * as Tool from "./tool"
 import DESCRIPTION from "./browser-type.txt"
-import { runBrowserAction, takeoverNote } from "./browser-shared"
+import { normalizeElementRef, runBrowserAction, takeoverNote } from "./browser-shared"
 
 export const Parameters = Schema.Struct({
   ref: Schema.String.annotate({
@@ -28,7 +28,7 @@ export const BrowserTypeTool = Tool.define(
             label: "type",
             metadata: { ref: params.ref },
             run: async (page, info) => {
-              const outcome = await page.fillText(params.ref, params.text)
+              const outcome = await page.fillText(normalizeElementRef(params.ref), params.text)
               if (params.submit) await page.pressKey("Enter")
               return { outcome, info }
             },

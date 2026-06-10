@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect"
 import * as Tool from "./tool"
 import DESCRIPTION from "./browser-click.txt"
-import { runBrowserAction, takeoverNote } from "./browser-shared"
+import { normalizeElementRef, runBrowserAction, takeoverNote } from "./browser-shared"
 
 export const Parameters = Schema.Struct({
   ref: Schema.String.annotate({
@@ -21,7 +21,7 @@ export const BrowserClickTool = Tool.define(
             ctx,
             label: "click",
             metadata: { ref: params.ref },
-            run: async (page, info) => ({ outcome: await page.click(params.ref), info }),
+            run: async (page, info) => ({ outcome: await page.click(normalizeElementRef(params.ref)), info }),
           })
           const { matches_n, match_level } = result.outcome
           return {

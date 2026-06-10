@@ -80,3 +80,16 @@ export function browserAlwaysPatterns(patterns: string[]): string[] {
 export function takeoverNote(info: { takeoverReloaded: boolean }): string {
   return info.takeoverReloaded ? "\n\nNote: attached to the page that was already open; it was reloaded once to apply automation hardening." : ""
 }
+
+/**
+ * opencli's target resolver treats ONLY a bare number as a snapshot ref —
+ * "[12]" falls through to querySelectorAll and fails as an invalid CSS
+ * selector. But browser_snapshot prints refs as "[12]" and the tool
+ * descriptions teach that spelling, so models echo it. Accept the bracketed
+ * form here and hand opencli the number; anything else passes through as a
+ * CSS selector.
+ */
+export function normalizeElementRef(ref: string): string {
+  const match = /^\s*\[(\d+)\]\s*$/.exec(ref)
+  return match ? match[1] : ref
+}
