@@ -97,20 +97,12 @@ export const EditTool = Tool.define(
               if (params.oldString === "") {
                 const existed = yield* afs.existsSafe(filePath)
                 existedBefore = existed
-                // Reject directory targets up front instead of failing inside
-                // Bom.readFile / writeWithDirs with an opaque internal error.
                 if (existed) {
-                  const stat = yield* afs.stat(filePath).pipe(
-                    Effect.catchIf(
-                      (err) => "reason" in err && err.reason._tag === "NotFound",
-                      () => Effect.succeed(undefined),
-                    ),
+                  throw new Error(
+                    "oldString cannot be empty when editing an existing file. Provide the exact text to replace, or use write for an intentional full-file replacement.",
                   )
-                  if (stat?.type === "Directory") {
-                    return yield* Effect.fail(new Error(`Path is a directory, not a file: ${filePath}`))
-                  }
                 }
-                const source = existed ? yield* Bom.readFile(afs, filePath) : { bom: false, text: "" }
+                const source = { bom: false, text: "" }
                 const next = Bom.split(params.newString)
                 // Only preserve the existing file's BOM. Letting `next.bom` add
                 // a new one would mutate file bytes the diff preview cannot
@@ -281,8 +273,8 @@ export const EditTool = Tool.define(
 export type Replacer = (content: string, find: string) => Generator<string, void, unknown>
 
 // Similarity thresholds for block anchor fallback matching
-const SINGLE_CANDIDATE_SIMILARITY_THRESHOLD = 0.0
-const MULTIPLE_CANDIDATES_SIMILARITY_THRESHOLD = 0.3
+const SINGLE_CANDIDATE_SIMILARITY_THRESHOLD = 0.65
+const MULTIPLE_CANDIDATES_SIMILARITY_THRESHOLD = 0.65
 
 /**
  * Levenshtein distance algorithm implementation
@@ -375,8 +367,11 @@ export const BlockAnchorReplacer: Replacer = function* (content, find) {
     // Look for the matching last line after this first line
     for (let j = i + 2; j < originalLines.length; j++) {
       if (originalLines[j].trim() === lastLineSearch) {
-        candidates.push({ startLine: i, endLine: j })
-        break // Only match the first occurrence of the last line
+        const actualBlockSize = j - i + 1
+        if (actualBlockSize === searchBlockSize) {
+          candidates.push({ startLine: i, endLine: j })
+          break // Only match the first valid occurrence of the last line
+        }
       }
     }
   }
@@ -392,7 +387,7 @@ export const BlockAnchorReplacer: Replacer = function* (content, find) {
     const actualBlockSize = endLine - startLine + 1
 
     let similarity = 0
-    let linesToCheck = Math.min(searchBlockSize - 2, actualBlockSize - 2) // Middle lines only
+    const linesToCheck = Math.min(searchBlockSize - 2, actualBlockSize - 2) // Middle lines only
 
     if (linesToCheck > 0) {
       for (let j = 1; j < searchBlockSize - 1 && j < actualBlockSize - 1; j++) {
@@ -441,7 +436,7 @@ export const BlockAnchorReplacer: Replacer = function* (content, find) {
     const actualBlockSize = endLine - startLine + 1
 
     let similarity = 0
-    let linesToCheck = Math.min(searchBlockSize - 2, actualBlockSize - 2) // Middle lines only
+    const linesToCheck = Math.min(searchBlockSize - 2, actualBlockSize - 2) // Middle lines only
 
     if (linesToCheck > 0) {
       for (let j = 1; j < searchBlockSize - 1 && j < actualBlockSize - 1; j++) {
@@ -674,8 +669,7 @@ export const ContextAwareReplacer: Replacer = function* (content, find) {
         const blockLines = contentLines.slice(i, j + 1)
         const block = blockLines.join("\n")
 
-        // Check if the middle content has reasonable similarity
-        // (simple heuristic: at least 50% of non-empty lines should match when trimmed)
+        // Check if the middle content has reasonable similarity.
         if (blockLines.length === findLines.length) {
           let matchingLines = 0
           let totalNonEmptyLines = 0
@@ -692,7 +686,10 @@ export const ContextAwareReplacer: Replacer = function* (content, find) {
             }
           }
 
-          if (totalNonEmptyLines === 0 || matchingLines / totalNonEmptyLines >= 0.5) {
+          if (
+            totalNonEmptyLines === 0 ||
+            matchingLines / totalNonEmptyLines >= MULTIPLE_CANDIDATES_SIMILARITY_THRESHOLD
+          ) {
             yield block
             break // Only match the first occurrence
           }
@@ -743,6 +740,11 @@ export function replace(content: string, oldString: string, newString: string, r
   if (oldString === newString) {
     throw new Error("No changes to apply: oldString and newString are identical.")
   }
+  if (oldString === "") {
+    throw new Error(
+      "oldString cannot be empty when editing an existing file. Provide the exact text to replace, or use write for an intentional full-file replacement.",
+    )
+  }
 
   let notFound = true
 
@@ -761,6 +763,11 @@ export function replace(content: string, oldString: string, newString: string, r
       const index = content.indexOf(search)
       if (index === -1) continue
       notFound = false
+      if (isDisproportionateMatch(search, oldString)) {
+        throw new Error(
+          "Refusing replacement because the matched span is much larger than oldString. Re-read the file and provide the full exact oldString for the intended replacement.",
+        )
+      }
       if (replaceAll) {
         // Function replacer: a string replacement argument has its $-patterns
         // ($$, $&, $`, $') interpreted, silently corrupting newString.
@@ -778,4 +785,11 @@ export function replace(content: string, oldString: string, newString: string, r
     )
   }
   throw new Error("Found multiple matches for oldString. Provide more surrounding context to make the match unique.")
+}
+
+function isDisproportionateMatch(search: string, oldString: string) {
+  const oldLines = oldString.split("\n").length
+  const searchLines = search.split("\n").length
+  if (searchLines >= Math.max(oldLines + 3, oldLines * 2)) return true
+  return search.trim().length > Math.max(oldString.trim().length + 500, oldString.trim().length * 4)
 }
