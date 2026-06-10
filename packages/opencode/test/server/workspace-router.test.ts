@@ -89,6 +89,7 @@ async function writeRemoteWorkspacePlugin(input: {
   url: string
   branch?: string | null
   targetError?: string
+  targetValue?: string
 }) {
   const type = `plug-${Math.random().toString(36).slice(2)}`
   const file = path.join(input.dir, "plugin.ts")
@@ -106,6 +107,8 @@ async function writeRemoteWorkspacePlugin(input: {
       "    target() {",
       input.targetError
         ? `      throw new Error(${JSON.stringify(input.targetError)})`
+        : input.targetValue
+          ? `      return ${input.targetValue}`
         : `      return { type: "remote", url: ${JSON.stringify(input.url)} }`,
       "    },",
       "  })",
@@ -572,6 +575,40 @@ describe("workspace router", () => {
       // redacted to a constant so the internal failure never leaks to clients (ErrorMiddleware).
       expect(body.data.message).toBe("Unexpected server error. Check server logs for details.")
       expect(JSON.stringify(body)).not.toContain(message)
+    } finally {
+      ensureSync.mockRestore()
+    }
+  })
+
+  test("keeps malformed remote targets in the Effect failure channel", async () => {
+    await using tmp = await tmpdir({
+      init: (dir) => writeRemoteWorkspacePlugin({ dir, url: "http://127.0.0.1:9", targetValue: "undefined" }),
+    })
+    const workspace = await persistRemoteWorkspace({ directory: tmp.path, type: tmp.extra.type })
+    await Instance.disposeAll()
+
+    const ensureSync = disableWorkspaceSync()
+
+    try {
+      const exit = await AppRuntime.runPromiseExit(
+        resolveWorkspaceRoute({
+          method: "GET",
+          pathname: "/path",
+          directory: tmp.path,
+          workspaceID: workspace.id,
+          ensureConfig: false,
+          isPawWork: true,
+        }),
+      )
+
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (Exit.isFailure(exit)) {
+        expect(Cause.hasFails(exit.cause)).toBe(true)
+        expect(Cause.hasDies(exit.cause)).toBe(false)
+        const error = Cause.squash(exit.cause)
+        expect(error).toBeInstanceOf(WorkspaceRoutingError)
+        expect((error as WorkspaceRoutingError).reason).toBe("workspace-target")
+      }
     } finally {
       ensureSync.mockRestore()
     }

@@ -155,7 +155,13 @@ export function resolveWorkspaceRoute(input: {
       catch: workspaceRoutingFailure("workspace-adaptor", `Failed to resolve workspace adaptor: ${id}`),
     })
     const target = yield* Effect.tryPromise({
-      try: async () => adaptor.target(workspace),
+      try: async () => {
+        const next = await adaptor.target(workspace)
+        if (!next || (next.type !== "local" && next.type !== "remote")) {
+          throw new Error("Workspace adaptor returned an invalid target")
+        }
+        return next
+      },
       catch: workspaceRoutingFailure("workspace-target", `Failed to resolve workspace target: ${id}`),
     })
 
