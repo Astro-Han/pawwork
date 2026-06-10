@@ -227,10 +227,11 @@ export function canonicalDeferredId(rawName: string): string | undefined {
 // "activate as one set" contract holds no matter which name the model echoes), or
 // nothing.
 export function canonicalActivationTarget(rawName: string): { kind: "tool" | "group"; id: string } | undefined {
+  // Group ids follow the same lowercase convention canonicalDeferredId assumes
+  // for tool ids, so one lowercased lookup covers the canonical spelling too.
   const lower = rawName.toLowerCase()
-  if (DEFERRED_GROUP_IDS.has(rawName)) return { kind: "group", id: rawName }
   if (DEFERRED_GROUP_IDS.has(lower)) return { kind: "group", id: lower }
-  const tool = canonicalDeferredId(rawName) ?? canonicalDeferredId(lower)
+  const tool = canonicalDeferredId(rawName)
   if (!tool) return undefined
   const group = BY_ID[tool]?.group
   return group ? { kind: "group", id: group } : { kind: "tool", id: tool }
@@ -250,7 +251,7 @@ export function buildDeferredHint(rawToolName: string, isAvailable?: (id: string
     const members = deferredGroupMembers(target.id)
     const callable = isAvailable ? members.filter(isAvailable) : members
     if (callable.length === 0) return ""
-    const echoed = canonicalDeferredId(rawToolName) ?? canonicalDeferredId(rawToolName.toLowerCase())
+    const echoed = canonicalDeferredId(rawToolName)
     // The model named a specific member: activation only helps if THAT member
     // will be exposed afterwards. A disabled member must get the plain
     // invalid-tool error, not a hint promising a tool the registry filters out.
