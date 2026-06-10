@@ -1,4 +1,5 @@
-import { IMAGE_EXTS, OFFICE_EXTS, TEXT_EXTS, pathSuffix } from "@opencode-ai/util/file-extensions"
+import { OFFICE_EXTS, TEXT_EXTS, pathSuffix } from "@opencode-ai/util/file-extensions"
+import { attachmentMimeForPath } from "./attachment-chips-model"
 import { attachmentMime } from "./files"
 
 type DirectInputKind = "image" | "pdf"
@@ -50,10 +51,10 @@ export async function routeBrowserFile(file: File, model: ModelInputSupport): Pr
 }
 
 export function routePickedPath(path: string, model: ModelInputSupport): AttachRoute {
+  const mime = attachmentMimeForPath(path)
+  if (mime?.startsWith("image/")) return routeMedia(mime, "image", model)
+  if (mime === "application/pdf") return routeMedia(mime, "pdf", model)
   const suffix = pathSuffix(path)
-  const image = IMAGE_EXTS.get(suffix)
-  if (image) return routeMedia(image, "image", model)
-  if (suffix === "pdf") return routeMedia("application/pdf", "pdf", model)
   if (OFFICE_EXTS.has(suffix)) return { type: "path", reason: "office" }
   if (TEXT_EXTS.has(suffix)) return { type: "path", reason: "text" }
   return { type: "path", reason: "unknown" }
