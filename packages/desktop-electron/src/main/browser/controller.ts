@@ -164,7 +164,21 @@ export class BrowserViewController {
    * the constructor, so the debugger attaches before the agent's first
    * navigation — leaving room for PR2 to inject stealth on the first document.
    */
-  attachAutomation(): Promise<AutomationEndpoint> {
+  async attachAutomation(): Promise<AutomationEndpoint> {
+    // A lazily-created view that has never loaded a document has no renderer
+    // process, and debugger commands stall forever instead of failing — the
+    // client's connect-time Page.enable would eat its whole 30s CDP timeout.
+    // Commit about:blank first so the CDP session always has a live target
+    // (the UI treats about: as "no page", and the probe maps it to no URL).
+    // Direct loadURL: loadInternal is for page navigations and rejects
+    // non-web schemes.
+    if (!this.wc.getURL() && !this.wc.isDestroyed()) {
+      try {
+        await this.wc.loadURL("about:blank")
+      } catch {
+        /* a racing real navigation superseding this provides a document too */
+      }
+    }
     if (!this.automation) this.automation = new CdpBridge(this.wc)
     return this.automation.start()
   }
