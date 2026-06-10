@@ -10,6 +10,7 @@ import {
   planShellTabReorder,
   sizingStopEvents,
   shouldFocusTerminalOnKeyDown,
+  subscribeAutomationAttached,
 } from "./helpers"
 
 describe("createOpenReviewFile", () => {
@@ -297,5 +298,38 @@ describe("createSessionTabs", () => {
       expect(result.closableTab()).toBeUndefined()
       dispose()
     })
+  })
+})
+
+describe("subscribeAutomationAttached", () => {
+  test("opens the browser tab when the agent attaches automation, and unsubscribes cleanly", () => {
+    const opened: string[] = []
+    let fire: (() => void) | undefined
+    let unsubscribed = false
+    const unsubscribe = subscribeAutomationAttached(
+      {
+        onAutomationAttached: (cb) => {
+          fire = cb
+          return () => {
+            unsubscribed = true
+          }
+        },
+      },
+      { openTab: (tab) => opened.push(tab) },
+    )
+    fire?.()
+    fire?.()
+    expect(opened).toEqual(["browser", "browser"])
+    unsubscribe()
+    expect(unsubscribed).toBe(true)
+  })
+
+  test("no-ops on platforms without the embedded browser", () => {
+    const unsubscribe = subscribeAutomationAttached(undefined, {
+      openTab: () => {
+        throw new Error("must not open")
+      },
+    })
+    expect(unsubscribe()).toBeUndefined()
   })
 })

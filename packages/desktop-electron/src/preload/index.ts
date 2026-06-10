@@ -21,6 +21,11 @@ const browser: ElectronAPI["browser"] = {
     ipcRenderer.on("browser:state", handler)
     return () => ipcRenderer.removeListener("browser:state", handler)
   },
+  onAutomationAttached: (cb) => {
+    const handler = () => cb()
+    ipcRenderer.on("browser:automation-attached", handler)
+    return () => ipcRenderer.removeListener("browser:automation-attached", handler)
+  },
 }
 
 const api: ElectronAPI = {

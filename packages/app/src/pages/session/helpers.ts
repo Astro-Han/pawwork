@@ -280,3 +280,18 @@ export function planShellTabReorder(input: {
 export function openReviewShellTab(sidePanel: { openTab: (tab: "review") => void }) {
   sidePanel.openTab("review")
 }
+
+/**
+ * Wires "the agent attached browser automation" to the side panel: open the
+ * browser tab so the driven page is on screen. Agent browsing is contractually
+ * visible, and the visible panel is also what gives the native view its bounds
+ * (a 0×0 hidden view cannot render, so e.g. screenshots would time out).
+ * No-op unsubscribe on platforms without the embedded browser.
+ */
+export function subscribeAutomationAttached(
+  bridge: { onAutomationAttached(cb: () => void): () => void } | undefined,
+  sidePanel: { openTab: (tab: "browser") => void },
+): () => void {
+  if (!bridge) return () => {}
+  return bridge.onAutomationAttached(() => sidePanel.openTab("browser"))
+}

@@ -5,6 +5,7 @@ import { clearDataReloadAction, computeViewBounds, deriveBrowserState, parseNavi
 import { CdpBridge, type AutomationEndpoint } from "./cdp-bridge"
 
 export const BROWSER_STATE_CHANNEL = "browser:state"
+export const BROWSER_AUTOMATION_ATTACHED_CHANNEL = "browser:automation-attached"
 
 /**
  * Owns one embedded browser per window: a WebContentsView painted over the
@@ -180,7 +181,15 @@ export class BrowserViewController {
       }
     }
     if (!this.automation) this.automation = new CdpBridge(this.wc)
-    return this.automation.start()
+    const endpoint = await this.automation.start()
+    // Surface the takeover: the renderer opens the browser tab so the driven
+    // page is on screen — the product contract is that agent browsing stays
+    // visible, and the visible panel is also what gives this native view its
+    // bounds (a 0×0 view cannot render, so e.g. screenshots would time out).
+    if (!this.destroyed && !this.win.isDestroyed()) {
+      this.win.webContents.send(BROWSER_AUTOMATION_ATTACHED_CHANNEL)
+    }
+    return endpoint
   }
 
   async detachAutomation() {

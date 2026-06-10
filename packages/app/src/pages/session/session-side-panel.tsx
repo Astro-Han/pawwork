@@ -27,6 +27,7 @@ import {
   planShellTabReorder,
   shouldShowReviewFileOpenButton,
   sortableShellTabIds,
+  subscribeAutomationAttached,
   type Sizing,
 } from "@/pages/session/helpers"
 
@@ -227,6 +228,13 @@ export function SessionSidePanel(props: {
     if (canUseBrowser(platform)) return
     if (!view().sidePanel.openTabs().includes("browser")) return
     view().sidePanel.closeTab("browser")
+  })
+
+  // The agent attached browser automation: surface the driven page (openTab
+  // pops the panel open when closed and activates the tab). See the helper
+  // for why this is load-bearing beyond UX.
+  createEffect(() => {
+    onCleanup(subscribeAutomationAttached(platform.browser, view().sidePanel))
   })
 
   const showAllFiles = () => {

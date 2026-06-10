@@ -65,6 +65,10 @@ export type BrowserBridge = {
   getState(): Promise<BrowserState | null>
   /** Subscribe to state pushes; returns an unsubscribe function. */
   onState(cb: (state: BrowserState) => void): () => void
+  /** Subscribe to "the agent attached browser automation" pushes — the UI
+   *  surfaces the browser tab so the driven page is on screen. Returns an
+   *  unsubscribe function. */
+  onAutomationAttached(cb: () => void): () => void
 }
 
 export type Platform = {
