@@ -175,7 +175,20 @@ async function acquire(sessionID: string): Promise<Connection> {
         .catch((err) => {
           throw toBrowserBridgeError(err)
         })
-      const conn = await connectOnce(endpoint.cdpEndpoint)
+      let conn: Connection
+      try {
+        conn = await connectOnce(endpoint.cdpEndpoint)
+      } catch (err) {
+        // resolveEndpoint already attached the host's bridge, but nothing on
+        // this side maps the session yet — a later release would no-op and
+        // leak the attachment. Undo it now. Safe even with other sessions on
+        // the same window: a failed connect means that window has no live
+        // connection to lose.
+        await BrowserBridge.host()
+          .releaseSession({ sessionID: root })
+          .catch(() => {})
+        throw err
+      }
       conn.sessions.add(root)
       bySession.set(root, conn)
       return conn
@@ -225,6 +238,13 @@ export async function withBrowserPage<T>(
  * child never tears down the conversation's live connection.
  */
 export async function releaseBrowserSession(sessionID: string): Promise<void> {
+  // A delete/archive can land while the session's first acquire is still in
+  // flight; wait for it to settle so the cleanup below sees its mappings
+  // instead of returning early and orphaning the fresh connection. A failed
+  // acquire rolled its host attachment back itself, so falling through to the
+  // no-op return is right.
+  const pending = pendingAcquires.get(sessionID)
+  if (pending) await pending.then(() => {}, () => {})
   const conn = bySession.get(sessionID)
   if (!conn) return
   bySession.delete(sessionID)

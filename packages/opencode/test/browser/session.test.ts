@@ -140,6 +140,51 @@ describe("withBrowserPage", () => {
     expect(result).toBe("ok")
   }, 10_000)
 
+  test("rolls back the host attachment when the connect after a successful resolve fails", async () => {
+    const released: string[] = []
+    BrowserBridge.provideHost({
+      // The host attaches successfully, but the endpoint it hands back is
+      // dead — connect fails after the attachment exists.
+      resolveEndpoint: async () => ({ cdpEndpoint: "ws://127.0.0.1:9/nobody-listens" }),
+      currentUrl: async () => null,
+      releaseSession: async ({ sessionID }) => {
+        released.push(sessionID)
+      },
+    })
+
+    await expect(withBrowserPage("ses_a", "snapshot", async () => "unreachable")).rejects.toThrow()
+    expect(released).toEqual(["ses_a"])
+  }, 10_000)
+
+  test("a release landing during a pending acquire still cleans up after it settles", async () => {
+    const server = makeServer()
+    scriptCurrentUrl(server, "about:blank")
+    const released: string[] = []
+    BrowserBridge.provideHost({
+      resolveEndpoint: async () => {
+        // Keep the acquire in flight long enough for the release to land first.
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        return { cdpEndpoint: server.endpoint }
+      },
+      currentUrl: async () => null,
+      releaseSession: async ({ sessionID }) => {
+        released.push(sessionID)
+      },
+    })
+
+    const inflight = withBrowserPage("ses_a", "snapshot", async () => "ok")
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    await releaseBrowserSession("ses_a")
+
+    // The release waited for the acquire to settle, then tore it down.
+    expect(released).toEqual(["ses_a"])
+    await expect(inflight).resolves.toBe("ok")
+
+    // No stale mapping survived: the next call reconnects from scratch.
+    await withBrowserPage("ses_a", "snapshot", async () => "again")
+    expect(server.methods.filter((m) => m === "Page.addScriptToEvaluateOnNewDocument").length).toBe(2)
+  }, 10_000)
+
   test("a lost connection still tells the host to release its sessions, exactly once", async () => {
     const server = makeServer()
     scriptCurrentUrl(server, "about:blank")
