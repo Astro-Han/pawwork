@@ -7,6 +7,14 @@ import { runBrowserAction, takeoverNote } from "./browser-shared"
 /** Per-call markdown budget; long pages page through `start`/`next_start_char`. */
 const EXTRACT_CHAR_LIMIT = 16_000
 
+/**
+ * Page-side ceiling on the raw HTML read. Without it a huge DOM serializes
+ * fully over CDP and feeds htmlToMarkdown whole — a synchronous conversion no
+ * timeout can interrupt. ~2M HTML chars still yields far more markdown than
+ * anyone pages through, while keeping transfer and conversion bounded.
+ */
+const HTML_CHAR_LIMIT = 2_000_000
+
 export const Parameters = Schema.Struct({
   selector: Schema.optional(Schema.String).annotate({
     description: "CSS selector to extract from; omit for the whole page body.",
@@ -22,7 +30,8 @@ const READ_HTML_JS = (selectorJson: string) => `(() => {
   const selector = ${selectorJson};
   const el = selector ? document.querySelector(selector) : document.body;
   if (!el) return null;
-  return el.outerHTML;
+  const html = el.outerHTML;
+  return { html: html.slice(0, ${HTML_CHAR_LIMIT}), truncated: html.length > ${HTML_CHAR_LIMIT} };
 })()`
 
 export const BrowserExtractTool = Tool.define(
@@ -43,12 +52,14 @@ export const BrowserExtractTool = Tool.define(
               // concatenated), so it cannot inject. evaluateWithArgs is avoided
               // on purpose: it injects each arg as a top-level const (the var is
               // `selector`, not `args.selector`), which is easy to get wrong.
-              const html = await page.evaluate<string | null>(READ_HTML_JS(JSON.stringify(params.selector ?? null)))
+              const read = await page.evaluate<{ html: string; truncated: boolean } | null>(
+                READ_HTML_JS(JSON.stringify(params.selector ?? null)),
+              )
               const url = (await page.getCurrentUrl?.()) ?? ""
-              return { html, url, info }
+              return { read, url, info }
             },
           })
-          if (typeof result.html !== "string") {
+          if (typeof result.read?.html !== "string") {
             return yield* Effect.fail(
               new Error(
                 params.selector
@@ -57,7 +68,7 @@ export const BrowserExtractTool = Tool.define(
               ),
             )
           }
-          const markdown = htmlToMarkdown(result.html)
+          const markdown = htmlToMarkdown(result.read.html)
           const chunk = markdown.slice(start, start + EXTRACT_CHAR_LIMIT)
           const nextStart = start + chunk.length
           const hasMore = nextStart < markdown.length
@@ -68,6 +79,9 @@ export const BrowserExtractTool = Tool.define(
               (hasMore
                 ? `\n\n(Content continues — call browser_extract again with start=${nextStart}. next_start_char: ${nextStart})`
                 : "") +
+              (result.read.truncated
+                ? "\n\n(The page's HTML was larger than the extraction ceiling; trailing content was dropped before conversion. Use `selector` to target the part you need.)"
+                : "") +
               takeoverNote(result.info),
             metadata: {
               url: result.url,
@@ -75,6 +89,7 @@ export const BrowserExtractTool = Tool.define(
               start,
               next_start_char: hasMore ? nextStart : undefined,
               total_chars: markdown.length,
+              html_truncated: result.read.truncated || undefined,
             },
           }
         }),

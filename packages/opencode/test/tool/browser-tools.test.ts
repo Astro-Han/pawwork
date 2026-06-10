@@ -364,24 +364,37 @@ describe("browser_screenshot", () => {
 })
 
 describe("browser_extract", () => {
+  function scriptPageHtml(server: FakeCdpServer, html: string, truncated = false) {
+    server.handlers.set("Runtime.evaluate", () => ({ result: { type: "object", value: { html, truncated } } }))
+  }
+
   test("converts page HTML to markdown", async () => {
     const server = setupServer()
-    server.handlers.set("Runtime.evaluate", () => ({
-      result: { type: "string", value: "<h1>Hello</h1><p>World with <a href='https://example.com'>link</a></p>" },
-    }))
+    scriptPageHtml(server, "<h1>Hello</h1><p>World with <a href='https://example.com'>link</a></p>")
     const result = await exec(BrowserExtractTool, {})
     expect(result.output).toContain("Hello")
     expect(result.output).toContain("[link](https://example.com)")
+    expect(result.metadata?.html_truncated).toBeUndefined()
   })
 
   test("pages long content through start/next_start_char", async () => {
     const server = setupServer()
-    const long = `<p>${"word ".repeat(8000)}</p>`
-    server.handlers.set("Runtime.evaluate", () => ({ result: { type: "string", value: long } }))
+    scriptPageHtml(server, `<p>${"word ".repeat(8000)}</p>`)
     const first = await exec(BrowserExtractTool, {})
     expect(first.metadata?.next_start_char).toBeGreaterThan(0)
     const second = await exec(BrowserExtractTool, { start: first.metadata?.next_start_char as number })
     expect((second.output as string).length).toBeGreaterThan(0)
+  })
+
+  test("reports when the page-side HTML ceiling dropped trailing content", async () => {
+    const server = setupServer()
+    // The page-side script capped the HTML before it crossed CDP; the tool
+    // must say so instead of presenting a silently incomplete page.
+    scriptPageHtml(server, "<p>visible part</p>", true)
+    const result = await exec(BrowserExtractTool, {})
+    expect(result.output).toContain("visible part")
+    expect(result.output).toContain("larger than the extraction ceiling")
+    expect(result.metadata?.html_truncated).toBe(true)
   })
 
   test("errors clearly when the selector matches nothing", async () => {
