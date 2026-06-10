@@ -187,6 +187,35 @@ describe("CdpBridge", () => {
     release({}) // resolve the dangling promise so nothing leaks
   })
 
+  test("a reconnecting client reusing a command id never sees the previous client's result", async () => {
+    const { wc, asWebContents } = makeWc()
+    const resolvers: Array<(value: unknown) => void> = []
+    wc.debugger.impl = () => new Promise((resolve) => resolvers.push(resolve))
+    const { cdpEndpoint } = await startBridge(asWebContents)
+
+    const first = await open(cdpEndpoint)
+    first.send(JSON.stringify({ id: 1, method: "Page.navigate", params: {} }))
+    await new Promise((resolve) => setTimeout(resolve, 20)) // let id 1 register as pending
+    first.terminate()
+
+    // The single slot frees only once the server has processed the close.
+    let second: WebSocket | null = null
+    for (let attempt = 0; attempt < 50 && !second; attempt++) {
+      second = await open(cdpEndpoint).catch(() => null)
+      if (!second) await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    if (!second) throw new Error("could not reconnect after terminate")
+
+    const answered = nextMessage(second)
+    second.send(JSON.stringify({ id: 1, method: "Runtime.evaluate", params: {} }))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    resolvers[0]?.({ stale: true }) // the dead connection's command completes late
+    resolvers[1]?.({ fresh: true })
+    const msg = (await answered) as { id: number; result: Record<string, unknown> }
+    expect(msg.id).toBe(1)
+    expect(msg.result).toEqual({ fresh: true })
+  })
+
   test("an external debugger detach tears the bridge down", async () => {
     const { wc, asWebContents } = makeWc()
     const { cdpEndpoint } = await startBridge(asWebContents)

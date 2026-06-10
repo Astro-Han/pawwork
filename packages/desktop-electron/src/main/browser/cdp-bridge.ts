@@ -52,9 +52,12 @@ export class CdpBridge {
   // debugger) never re-serves an old path.
   private secret = ""
   private path = ""
-  // Outstanding client command ids, so teardown can fail them immediately
-  // instead of leaving the client to wait out its own ~30s CDP timeout.
-  private readonly pending = new Set<number>()
+  // Outstanding client command ids, each keyed to the connection that issued
+  // it: teardown can fail them immediately (instead of leaving the client to
+  // wait out its own ~30s CDP timeout), and a completion is only delivered to
+  // its own connection — a reconnecting client reusing the same ids must never
+  // receive a stale result from the previous connection.
+  private readonly pending = new Map<number, WebSocket>()
 
   constructor(private readonly wc: WebContents) {}
 
@@ -103,7 +106,7 @@ export class CdpBridge {
     // (opencli has no remote-close handler) fails fast instead of hanging until
     // its own ~30s timeout.
     if (this.socket?.readyState === WebSocket.OPEN) {
-      for (const id of this.pending) {
+      for (const id of this.pending.keys()) {
         this.socket.send(JSON.stringify({ id, error: { code: -32000, message: "bridge closed" } }))
       }
     }
@@ -189,13 +192,17 @@ export class CdpBridge {
     // 'error' on the adopted socket; with no listener that is an uncaught
     // exception that kills the whole main process. Drop the connection instead.
     ws.on("error", () => ws.terminate())
-    ws.on("message", this.onClientMessage)
+    ws.on("message", (data) => void this.onClientMessage(ws, data))
     ws.on("close", () => {
       if (this.socket === ws) this.socket = null
+      // This connection's commands can no longer be answered; drop them so
+      // their late completions are discarded instead of being delivered to a
+      // future connection that happens to reuse the same ids.
+      for (const [id, owner] of this.pending) if (owner === ws) this.pending.delete(id)
     })
   }
 
-  private readonly onClientMessage = async (data: unknown) => {
+  private async onClientMessage(ws: WebSocket, data: unknown) {
     let cmd: IncomingCommand
     try {
       cmd = JSON.parse(String(data)) as IncomingCommand
@@ -204,19 +211,27 @@ export class CdpBridge {
     }
     if (typeof cmd.id !== "number" || typeof cmd.method !== "string") return
     const { id, sessionId } = cmd
-    this.pending.add(id)
+    this.pending.set(id, ws)
     try {
       const result = await this.wc.debugger.sendCommand(cmd.method, cmd.params ?? {}, sessionId)
-      // pending.delete is false if teardown already failed this id — don't double-send.
-      if (this.pending.delete(id)) this.send({ id, result, ...(sessionId ? { sessionId } : {}) })
+      if (this.takePending(id, ws)) this.send({ id, result, ...(sessionId ? { sessionId } : {}) })
     } catch (err) {
-      if (this.pending.delete(id))
+      if (this.takePending(id, ws))
         this.send({
           id,
           error: { code: -32000, message: err instanceof Error ? err.message : String(err) },
           ...(sessionId ? { sessionId } : {}),
         })
     }
+  }
+
+  // True only while `id` is still pending AND still owned by `ws` — false after
+  // teardown already failed it (don't double-send) or after the issuing
+  // connection went away (don't leak a stale result to its successor).
+  private takePending(id: number, ws: WebSocket): boolean {
+    if (this.pending.get(id) !== ws) return false
+    this.pending.delete(id)
+    return true
   }
 
   // CDP events from the attached target are pushed straight to the client.
