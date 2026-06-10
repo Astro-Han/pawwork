@@ -49,4 +49,17 @@ describe("turnWindow", () => {
     const stream = [msg("msg_06", "assistant"), msg("msg_05", "user")]
     expect(turnWindow(stream, MessageID.make("msg_01")).length).toBe(2)
   })
+
+  test("keeps the turn when a client-supplied parent ID sorts above its children", () => {
+    // the stream is ordered by creation time, not lexically — the prompt API lets
+    // clients supply custom message IDs that sort above the generated IDs that follow
+    const stream = [
+      msg("msg_01J2", "assistant"),
+      msg("msg_01J1", "assistant"),
+      msg("msg_zzz-custom", "user"),
+      msg("msg_01H9", "assistant"),
+    ]
+    const window = turnWindow(stream, MessageID.make("msg_zzz-custom"))
+    expect(window.map((m) => m.info.id)).toEqual([MessageID.make("msg_01J2"), MessageID.make("msg_01J1")])
+  })
 })

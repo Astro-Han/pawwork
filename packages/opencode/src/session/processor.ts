@@ -231,13 +231,17 @@ interface ProcessorContext extends Input {
 
 type StreamEvent = Event
 
-// Collect the current turn's window from a newest-first message stream, stopping at
-// the first message at or below the parent user message. Message IDs ascend, so every
-// assistant with `parentID === parent` has a larger id than the parent — once the
-// stream reaches the parent (or anything older) no further match can exist. This
-// bounds the per-tool-call loop-context scans below to the turn instead of hydrating
-// the entire session history (#1223 Finding 4). Returned order is newest-first,
-// matching the stream.
+// Collect the current turn's window from a newest-first (by creation time) message
+// stream, stopping when the stream reaches the parent user message itself. The turn's
+// assistant messages are always created after their parent, so everything past the
+// parent is older history that cannot match `parentID === parent`. This bounds the
+// per-tool-call loop-context scans below to the turn instead of hydrating the entire
+// session history (#1223 Finding 4). The boundary is identity, not `id <= parent`:
+// the prompt API lets clients supply custom message IDs, so the parent's id may sort
+// lexically above its children — an ordering comparison would empty the window and
+// blind the loop gate for those turns. Returned order is newest-first, matching the
+// stream; if the parent is absent the whole stream is scanned, matching pre-#1223
+// behavior.
 /** @internal Exported for testing */
 export function turnWindow(
   messages: Iterable<MessageV2.WithParts>,
@@ -245,7 +249,7 @@ export function turnWindow(
 ): MessageV2.WithParts[] {
   const out: MessageV2.WithParts[] = []
   for (const message of messages) {
-    if (message.info.id <= parent) break
+    if (message.info.id === parent) break
     out.push(message)
   }
   return out
