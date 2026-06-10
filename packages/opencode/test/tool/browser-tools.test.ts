@@ -329,6 +329,12 @@ describe("browser_navigate", () => {
       { permission: "browser", patterns: ["https://ok.example/start"], always: ["https://ok.example/*"] },
       { permission: "browser", patterns: ["https://blocked.example/landing"], always: ["https://blocked.example/*"] },
     ])
+    // The deny here is a SOFT contract: the navigation had already committed
+    // when the landing was re-judged (vetoing a redirect before it loads needs
+    // request-phase CDP interception — a documented follow-up). What the deny
+    // guarantees is that the action fails loudly and later actions re-probe
+    // the denied page; it does not prevent the document from loading.
+    expect(server.methods).toContain("Page.navigate")
   })
 })
 
