@@ -114,6 +114,7 @@ type ToolCall = {
   partID: MessageV2.ToolPart["id"]
   messageID: MessageV2.ToolPart["messageID"]
   sessionID: MessageV2.ToolPart["sessionID"]
+  ready: Deferred.Deferred<void>
   done: Deferred.Deferred<void>
   attemptID?: RunObservability.AttemptID
   materialized?: boolean
@@ -350,8 +351,11 @@ export const layer: Layer.Layer<
         })
 
       const settleToolCall = Effect.fn("SessionProcessor.settleToolCall")(function* (toolCallID: string) {
-        const done = ctx.toolcalls[toolCallID]?.done
+        const call = ctx.toolcalls[toolCallID]
+        const ready = call?.ready
+        const done = call?.done
         delete ctx.toolcalls[toolCallID]
+        if (ready) yield* Deferred.succeed(ready, undefined).pipe(Effect.ignore)
         if (done) yield* Deferred.succeed(done, undefined).pipe(Effect.ignore)
       })
 
@@ -372,6 +376,14 @@ export const layer: Layer.Layer<
 
       const toolCallAttemptID = (toolCallID: string, fallbackAttemptID = ctx.currentAttemptID) =>
         ctx.toolcalls[toolCallID]?.attemptID ?? fallbackAttemptID
+
+      const waitForToolCallReady = Effect.fn("SessionProcessor.waitForToolCallReady")(function* (
+        toolCallID: string,
+      ) {
+        const call = ctx.toolcalls[toolCallID]
+        if (!call) return
+        yield* Deferred.await(call.ready)
+      })
 
       const recordToolExecutionStarted = Effect.fn("SessionProcessor.recordToolExecutionStarted")(function* (input: {
         tool: string
@@ -873,6 +885,7 @@ export const layer: Layer.Layer<
               metadata: value.providerExecuted ? { providerExecuted: true } : undefined,
             } satisfies MessageV2.ToolPart)
             ctx.toolcalls[value.id] = {
+              ready: yield* Deferred.make<void>(),
               done: yield* Deferred.make<void>(),
               partID: part.id,
               messageID: part.messageID,
@@ -912,8 +925,12 @@ export const layer: Layer.Layer<
             }))
             yield* applyPendingToolUpdates(value.toolCallId)
             const refreshed = yield* readToolCall(value.toolCallId)
-            if (refreshed) running = refreshed.part
-            if (!ctx.assistantMessage.parentID) return
+            running = refreshed?.part
+            const ready = ctx.toolcalls[value.toolCallId]?.ready
+            if (!ctx.assistantMessage.parentID) {
+              if (ready) yield* Deferred.succeed(ready, undefined).pipe(Effect.ignore)
+              return
+            }
             const info = yield* session.get(ctx.sessionID)
             const observed = SessionDiagnostics.observeToolCall({
               records: loopRecords(ctx.assistantMessage.parentID),
@@ -935,6 +952,7 @@ export const layer: Layer.Layer<
             })
             if (running) yield* session.updatePart(withDiagnostics(running))
             else yield* updateToolCall(value.toolCallId, withDiagnostics)
+            if (ready) yield* Deferred.succeed(ready, undefined).pipe(Effect.ignore)
             return
           }
 
@@ -1428,6 +1446,7 @@ export const layer: Layer.Layer<
                 completed: (input) =>
                   Effect.runPromise(
                     Effect.gen(function* () {
+                      yield* waitForToolCallReady(input.toolCallID)
                       yield* recordToolExecutionCompleted({ toolCallID: input.toolCallID })
                       yield* completeToolCall(input.toolCallID, input.output)
                     }),
@@ -1436,6 +1455,8 @@ export const layer: Layer.Layer<
                   Effect.runPromise(
                     Effect.gen(function* () {
                       yield* recordToolExecutionFailed(input)
+                      if (toolAbortController.signal.aborted) return
+                      yield* waitForToolCallReady(input.toolCallID)
                       yield* failToolCall(input.toolCallID, input.error)
                     }),
                   ),
@@ -1542,6 +1563,8 @@ export const layer: Layer.Layer<
                 }
                 if (backoffResult === "lifecycle_close") {
                   const closeCheck = yield* retryStillAllowed("during_backoff")
+                  aborted = true
+                  toolAbortController.abort()
                   yield* halt(result.error, attemptID, {
                     recordFailure: false,
                     interruptionMessage: closeCheck.allowed ? LOCAL_LIFECYCLE_CLOSE_INTERRUPTION_MESSAGE : closeCheck.interruptionMessage,
