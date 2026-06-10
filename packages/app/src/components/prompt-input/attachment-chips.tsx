@@ -1,9 +1,10 @@
-import { Component, For, Show, createResource } from "solid-js"
+import { Component, For, Show, createSignal, onCleanup } from "solid-js"
 import { Icon } from "@opencode-ai/ui/icon"
 import { FileIcon } from "@opencode-ai/ui/file-icon"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import type { FloatingAttachment } from "@/context/prompt"
 import { attachmentChipModel, type AttachmentChipModel } from "./attachment-chips-model"
+import { cachedPreview, loadPreviewCached } from "./attachment-preview-cache"
 
 type PromptAttachmentChipsProps = {
   attachments: FloatingAttachment[]
@@ -56,10 +57,22 @@ const ImageChip: Component<{
   revealLabel: string
   onReveal: (path: string) => void
 }> = (props) => {
-  const [preview] = createResource(
-    () => (props.model.legacyDataUrl ? undefined : props.model.path),
-    async (path) => (await props.loadPreview?.(path, props.model.mime ?? "image/png")) ?? null,
-  )
+  // Deliberately NOT createResource: chips remount on every keystroke, and a
+  // pending Resource read under the router-level Suspense boundary detaches the
+  // whole route content, dropping editor focus. The module cache makes remounts
+  // render synchronously and keeps one IPC read per path.
+  const path = props.model.legacyDataUrl ? undefined : props.model.path
+  const mime = props.model.mime ?? "image/png"
+  const [preview, setPreview] = createSignal<string | null>(path ? (cachedPreview(path, mime) ?? null) : null)
+  if (path && cachedPreview(path, mime) === undefined) {
+    let disposed = false
+    onCleanup(() => {
+      disposed = true
+    })
+    void loadPreviewCached(path, mime, async (p, m) => (await props.loadPreview?.(p, m)) ?? null).then((result) => {
+      if (!disposed) setPreview(result)
+    })
+  }
   const src = () => props.model.legacyDataUrl ?? preview() ?? undefined
 
   return (
