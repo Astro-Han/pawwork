@@ -87,6 +87,50 @@ describe("Export.session", () => {
     }
   })
 
+  test("removeDirectoryWithBusyRetry does not retry non-transient removal errors", async () => {
+    let attempts = 0
+    const expected = new Error("invalid") as NodeJS.ErrnoException
+    expected.code = "EINVAL"
+
+    try {
+      await removeDirectoryWithBusyRetry("invalid-dir", {
+        attempts: 3,
+        delayMs: 0,
+        remove: async () => {
+          attempts++
+          throw expected
+        },
+        wait: async () => {},
+      })
+      throw new Error("expected removal to fail")
+    } catch (error) {
+      expect(error).toBe(expected)
+      expect(attempts).toBe(1)
+    }
+  })
+
+  test("removeDirectoryWithBusyRetry throws after transient removal retries are exhausted", async () => {
+    let attempts = 0
+    const expected = new Error("busy") as NodeJS.ErrnoException
+    expected.code = "EBUSY"
+
+    try {
+      await removeDirectoryWithBusyRetry("busy-dir", {
+        attempts: 3,
+        delayMs: 0,
+        remove: async () => {
+          attempts++
+          throw expected
+        },
+        wait: async () => {},
+      })
+      throw new Error("expected removal to fail")
+    } catch (error) {
+      expect(error).toBe(expected)
+      expect(attempts).toBe(3)
+    }
+  })
+
   test("exports a single root session with empty messages and stub runtime_context", async () => {
     await Instance.provide({
       directory: projectRoot,
