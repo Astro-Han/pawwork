@@ -115,6 +115,13 @@ describe("CdpBridge", () => {
     expect(msg.error.message).toBe("boom")
   })
 
+  test("a query string after the secret path does not break authorization", async () => {
+    const { asWebContents } = makeWc()
+    const { cdpEndpoint } = await startBridge(asWebContents)
+    const ws = await open(`${cdpEndpoint}?v=1`)
+    expect(ws.readyState).toBe(WebSocket.OPEN)
+  })
+
   test("rejects a wrong secret at the upgrade", async () => {
     const { asWebContents } = makeWc()
     const { cdpEndpoint } = await startBridge(asWebContents)

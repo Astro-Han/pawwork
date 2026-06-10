@@ -194,8 +194,10 @@ export class CdpBridge {
   }
 
   private authorized(req: IncomingMessage): boolean {
-    // Rule 2: exact, constant-time secret match (the path carries the secret).
-    const provided = Buffer.from(req.url ?? "")
+    // Rule 2: exact, constant-time secret match on the pathname (the path
+    // carries the secret; a query string is allowed and ignored so a CDP
+    // client appending parameters is not misrejected).
+    const provided = Buffer.from(this.pathname(req))
     const expected = Buffer.from(this.path)
     if (provided.length !== expected.length || !timingSafeEqual(provided, expected)) return false
     // Rule 3: pin Host to the loopback authority; reject any browser Origin
@@ -203,6 +205,14 @@ export class CdpBridge {
     if (req.headers.host !== `127.0.0.1:${this.port}`) return false
     if (req.headers.origin !== undefined) return false
     return true
+  }
+
+  private pathname(req: IncomingMessage): string {
+    try {
+      return new URL(req.url ?? "", "ws://127.0.0.1").pathname
+    } catch {
+      return ""
+    }
   }
 
   private adopt(ws: WebSocket) {
