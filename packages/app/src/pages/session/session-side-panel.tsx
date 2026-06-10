@@ -15,6 +15,7 @@ import { useFile, type SelectedLineRange } from "@/context/file"
 import { useLanguage } from "@/context/language"
 import { MAX_RIGHT_PANEL_WIDTH, MIN_RIGHT_PANEL_WIDTH, useLayout } from "@/context/layout"
 import { canUseBrowser, usePlatform } from "@/context/platform"
+import { useSDK } from "@/context/sdk"
 import { useTerminal } from "@/context/terminal"
 import type { TerminalTabID } from "@/context/terminal-types"
 import type { FilesTabEntry } from "@/pages/session/files-tab-state"
@@ -72,6 +73,7 @@ export function SessionSidePanel(props: {
   const dialog = useDialog()
   const terminal = useTerminal()
   const platform = usePlatform()
+  const sdk = useSDK()
   const { layoutRouteKey, params, tabs, view } = useSessionLayout()
 
   const isDesktop = createMediaQuery("(min-width: 768px)")
@@ -234,10 +236,14 @@ export function SessionSidePanel(props: {
   // The agent attached browser automation: surface the driven page by opening
   // the browser tab in the DRIVEN conversation's layout state — the user sees
   // it now if they are looking at that conversation, or when they next open
-  // it. Other conversations' panels are never touched.
+  // it. Other conversations' panels are never touched. The layout key comes
+  // from the driven session itself, not this window's route — the broadcast
+  // also reaches windows watching a different project.
   onCleanup(
-    subscribeAutomationAttached(platform.browser, (sessionID) =>
-      openBrowserTabInSessionLayout(layout, `${params.dir}/${sessionID}`),
+    subscribeAutomationAttached(
+      platform.browser,
+      (sessionID) => sdk.client.session.get({ sessionID }).then((res) => res.data?.directory),
+      (sessionKey) => openBrowserTabInSessionLayout(layout, sessionKey),
     ),
   )
 

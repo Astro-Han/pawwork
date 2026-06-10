@@ -1,6 +1,7 @@
 import { batch, createMemo, createRoot, onCleanup, onMount, type Accessor } from "solid-js"
 import { createStore } from "solid-js/store"
 import { makeEventListener } from "@solid-primitives/event-listener"
+import { base64Encode } from "@opencode-ai/util/encode"
 import { same } from "@/utils/same"
 import type { RightPanelStaticTab, RightPanelTab } from "@/pages/session/right-panel-tabs"
 import { TERMINAL_TAB_PREFIX } from "@/pages/session/right-panel-tabs"
@@ -285,14 +286,26 @@ export function openReviewShellTab(sidePanel: { openTab: (tab: "review") => void
  * Wires "the agent attached browser automation" to the side panel: open the
  * browser tab of the DRIVEN conversation — and only that one — so the takeover
  * surfaces where it belongs, never on whichever panel the user happens to be
- * looking at. No-op unsubscribe on platforms without the embedded browser.
+ * looking at. The broadcast reaches every window, so the layout key is built
+ * from the driven session's OWN directory (resolved per event): keying by the
+ * viewer's route would mint a dirty `<wrongDir>/<sessionID>` entry whenever the
+ * watching window sits on a different project. A session that fails to resolve
+ * (deleted mid-flight) opens nothing. No-op unsubscribe on platforms without
+ * the embedded browser.
  */
 export function subscribeAutomationAttached(
   bridge: { onAutomationAttached(cb: (payload: { sessionID: string }) => void): () => void } | undefined,
-  openBrowserTab: (sessionID: string) => void,
+  resolveDirectory: (sessionID: string) => Promise<string | undefined>,
+  openBrowserTab: (sessionKey: string) => void,
 ): () => void {
   if (!bridge) return () => {}
-  return bridge.onAutomationAttached(({ sessionID }) => openBrowserTab(sessionID))
+  return bridge.onAutomationAttached(({ sessionID }) => {
+    void resolveDirectory(sessionID)
+      .then((directory) => {
+        if (directory) openBrowserTab(`${base64Encode(directory)}/${sessionID}`)
+      })
+      .catch(() => {})
+  })
 }
 
 /**

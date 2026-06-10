@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { createMemo, createRoot } from "solid-js"
 import { createStore } from "solid-js/store"
+import { base64Encode } from "@opencode-ai/util/encode"
 import {
   createOpenReviewFile,
   createOpenSessionFileTab,
@@ -302,7 +303,7 @@ describe("createSessionTabs", () => {
 })
 
 describe("subscribeAutomationAttached", () => {
-  test("opens the driven conversation's browser tab — and only that one — then unsubscribes cleanly", () => {
+  test("keys the layout write by the driven session's own directory, then unsubscribes cleanly", async () => {
     const opened: string[] = []
     let fire: ((payload: { sessionID: string }) => void) | undefined
     let unsubscribed = false
@@ -315,19 +316,41 @@ describe("subscribeAutomationAttached", () => {
           }
         },
       },
-      (sessionID) => opened.push(sessionID),
+      // The watching window may sit on another project: the key must come from
+      // the session's resolved directory, never the viewer's route.
+      async (sessionID) => (sessionID === "ses_a" ? "/project/a" : "/project/b"),
+      (sessionKey) => opened.push(sessionKey),
     )
     fire?.({ sessionID: "ses_a" })
     fire?.({ sessionID: "ses_b" })
-    expect(opened).toEqual(["ses_a", "ses_b"])
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(opened).toEqual([`${base64Encode("/project/a")}/ses_a`, `${base64Encode("/project/b")}/ses_b`])
     unsubscribe()
     expect(unsubscribed).toBe(true)
   })
 
+  test("opens nothing when the session does not resolve (deleted mid-flight or lookup failure)", async () => {
+    let fire: ((payload: { sessionID: string }) => void) | undefined
+    subscribeAutomationAttached(
+      { onAutomationAttached: (cb) => ((fire = cb), () => {}) },
+      async (sessionID) => (sessionID === "ses_gone" ? undefined : Promise.reject(new Error("boom"))),
+      () => {
+        throw new Error("must not open")
+      },
+    )
+    fire?.({ sessionID: "ses_gone" })
+    fire?.({ sessionID: "ses_err" })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+
   test("no-ops on platforms without the embedded browser", () => {
-    const unsubscribe = subscribeAutomationAttached(undefined, () => {
-      throw new Error("must not open")
-    })
+    const unsubscribe = subscribeAutomationAttached(
+      undefined,
+      async () => "/project/a",
+      () => {
+        throw new Error("must not open")
+      },
+    )
     expect(unsubscribe()).toBeUndefined()
   })
 })
