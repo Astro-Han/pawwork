@@ -16,6 +16,7 @@ import type {
   WindowConfig,
   WslConfig,
 } from "../preload/types"
+import { safeAttachmentName } from "./attachment-filename"
 import { attachmentPathMime } from "./attachment-mime"
 import { getStore } from "./store"
 import { attachRendererDiagnosticsToSessionExport, fetchExport } from "./server-client"
@@ -41,13 +42,6 @@ function normalizeAttachmentPath(filepath: unknown) {
   if (typeof filepath !== "string" || filepath.length === 0) return
   if (/^[\\/]{2}[^\\/]+[\\/][^\\/]+/.test(filepath)) return filepath
   return path.resolve(filepath)
-}
-
-function safeAttachmentName(name: unknown) {
-  const fallback = "attachment"
-  if (typeof name !== "string" || name.trim().length === 0) return fallback
-  const base = path.basename(name).replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_")
-  return base.length > 0 ? base.slice(0, 160) : fallback
 }
 
 function attachmentBuffer(payload: unknown) {
