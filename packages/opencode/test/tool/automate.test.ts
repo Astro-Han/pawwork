@@ -42,6 +42,9 @@ describe("automate tool", () => {
     expect(tool.description).toContain("reminder")
     expect(tool.description).toContain("one time")
     expect(tool.description).toContain("Never set up OS schedulers")
+    // The exception must stay aligned with pawwork.txt's scheduling section:
+    // an explicit user request for a system-level scheduler is legitimate work.
+    expect(tool.description).toContain("unless the user explicitly asks for an OS-level scheduler")
     expect(tool.description).toContain("Automations panel")
 
     // Field descriptions must survive the real LLM-facing schema conversion

@@ -113,7 +113,7 @@ export function createAutomateDefinition(
     // me", "later", "every weekday") against the first sentences, so triggers
     // lead and behavioral detail lives in the field descriptions above.
     description: [
-      "Create a PawWork Automation: a scheduled task, reminder, or recurring job that PawWork runs for the user. Use this whenever the user asks to do something later, at a specific time or date, one time, daily, weekly, on weekdays, or on any other schedule — including scheduled messages and reminders. Never set up OS schedulers (at, cron, launchd, schtasks) for these requests.",
+      "Create a PawWork Automation: a scheduled task, reminder, or recurring job that PawWork runs for the user. Use this whenever the user asks to do something later, at a specific time or date, one time, daily, weekly, on weekdays, or on any other schedule — including scheduled messages and reminders. Never set up OS schedulers (at, cron, launchd, schtasks) for these requests unless the user explicitly asks for an OS-level scheduler outside PawWork.",
       "Automations appear in PawWork's Automations panel, where the user can pause or delete them, and each run uses this session's project context, model, and credentials. Creating the definition schedules the future run; it does not run the prompt now. After creating one, tell the user when it will fire (the result includes the schedule).",
     ].join("\n\n"),
     parameters: AutomateParameters,
