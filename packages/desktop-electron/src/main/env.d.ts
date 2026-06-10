@@ -75,6 +75,7 @@ declare module "virtual:opencode-server" {
     export type Endpoint = { cdpEndpoint: string }
     export interface Host {
       resolveEndpoint(input: { sessionID: string }): Promise<Endpoint>
+      currentUrl(input: { sessionID: string }): Promise<string | null>
       releaseSession(input: { sessionID: string }): Promise<void>
     }
     export function provideHost(host: Host | null): void

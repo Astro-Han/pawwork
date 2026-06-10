@@ -28,9 +28,6 @@ export const BROWSER_TOOL_TIMEOUT_MS = 25_000
 /** Best-effort wait for the takeover reload to settle; navigation state events keep flowing afterwards either way. */
 const TAKEOVER_RELOAD_TIMEOUT_MS = 10_000
 
-/** Short budget for the permission URL probe so a stuck page can't eat the full action timeout. */
-const URL_PROBE_TIMEOUT_MS = 5_000
-
 export class BrowserToolTimeoutError extends Error {
   constructor(label: string, ms: number) {
     super(`Browser ${label} timed out after ${Math.round(ms / 1000)}s. The page may still be loading; try browser_wait or a simpler action.`)
@@ -208,15 +205,19 @@ export async function releaseBrowserSession(sessionID: string): Promise<void> {
 
 /**
  * The page's current navigable URL, for scoping a browser permission to where
- * the page actually is. Reuses the cached connection (and opencli's cached
- * `_lastUrl` after a navigation), so the common flow adds no CDP round-trip.
- * Returns null when unavailable — bridge down, blank page, or a slow probe —
- * which the caller maps to the `*` pattern so the baseline rule still applies.
+ * the page actually is. Read from the main process's view state (the same
+ * window pick acquire() will use later) — deliberately NOT through the CDP
+ * connection: this runs BEFORE the permission ask, and connecting would
+ * already stealth-reload a page the user has open. Returns null when
+ * unavailable — no bridge, no window, blank page — which the caller maps to
+ * the `*` pattern so the baseline rule still applies.
  */
 export async function browserPageUrl(sessionID: string): Promise<string | null> {
-  const url = await withBrowserPage(sessionID, "permission-url", (page) => currentPageUrl(page), {
-    timeoutMs: URL_PROBE_TIMEOUT_MS,
-  }).catch(() => null)
+  if (!BrowserBridge.available()) return null
+  const root = await rootSessionID(sessionID)
+  const url = await BrowserBridge.host()
+    .currentUrl({ sessionID: root })
+    .catch(() => null)
   return url && parseNavigableUrl(url) ? url : null
 }
 

@@ -15,6 +15,7 @@ import { BrowserWaitTool } from "../../src/tool/browser-wait"
 import { BrowserScreenshotTool } from "../../src/tool/browser-screenshot"
 import { BrowserExtractTool } from "../../src/tool/browser-extract"
 import { SessionID, MessageID } from "../../src/session/schema"
+import { Permission } from "../../src/permission"
 import { FakeCdpServer, provideFakeHost, scriptCurrentUrl } from "../fake/cdp-server"
 
 const askLog: Array<{ permission: string; patterns: string[] }> = []
@@ -39,17 +40,21 @@ const projectRoot = path.join(import.meta.dir, "../..")
 // helper only needs init/execute.
 type AnyToolEffect = Effect.Effect<Tool.Info<Schema.Decoder<unknown>, Record<string, unknown>>, never, never>
 
-function exec(tool: unknown, args: unknown) {
+function execWith(customCtx: typeof ctx, tool: unknown, args: unknown) {
   return Instance.provide({
     directory: projectRoot,
     fn: () =>
       (tool as AnyToolEffect).pipe(
         Effect.flatMap((info) => info.init()),
-        Effect.flatMap((t) => t.execute(args as never, ctx as never)),
+        Effect.flatMap((t) => t.execute(args as never, customCtx as never)),
         Effect.provide(Layer.mergeAll(Truncate.defaultLayer, Agent.defaultLayer)),
         Effect.runPromise,
       ),
   })
+}
+
+function exec(tool: unknown, args: unknown) {
+  return execWith(ctx, tool, args)
 }
 
 let servers: FakeCdpServer[] = []
@@ -73,6 +78,30 @@ afterEach(async () => {
   for (const server of servers) await server.close()
   servers = []
   askLog.length = 0
+})
+
+describe("permission gate", () => {
+  test("a denied permission leaves the user's already-open page completely untouched", async () => {
+    const server = makeServer()
+    // The user already has a page open; a deny must not connect, register the
+    // stealth script, or reload it — the probe reads main-process state only.
+    server.url = "https://example.com/already-open"
+    provideFakeHost(server)
+    const denyCtx = { ...ctx, ask: () => Effect.fail(new Permission.RejectedError()) } as unknown as typeof ctx
+    const calls: Array<[unknown, unknown]> = [
+      [BrowserNavigateTool, { url: "https://example.com/next" }],
+      [BrowserSnapshotTool, {}],
+      [BrowserClickTool, { ref: "[1]" }],
+      [BrowserTypeTool, { ref: "[1]", text: "x", submit: true }],
+      [BrowserWaitTool, { text: "done" }],
+      [BrowserScreenshotTool, {}],
+      [BrowserExtractTool, {}],
+    ]
+    for (const [tool, args] of calls) {
+      await expect(execWith(denyCtx, tool, args)).rejects.toThrow(/rejected permission/)
+    }
+    expect(server.methods).toEqual([])
+  })
 })
 
 describe("browser_navigate", () => {
@@ -108,8 +137,9 @@ describe("browser_snapshot", () => {
 
   test("scopes the permission to the page's current URL, not '*'", async () => {
     const server = setupServer()
-    // navigate sets the page URL; opencli caches it, so the next action's
-    // permission must ask against that URL (URL-scoped rules decide per site).
+    // navigate moves the window's webContents URL; the next action's permission
+    // must ask against that URL (URL-scoped rules decide per site). The probe
+    // reads main-process view state, never the CDP connection.
     await exec(BrowserNavigateTool, { url: "https://example.com/page" })
     server.handlers.set("Runtime.evaluate", () => ({ result: { type: "string", value: "[1] <button> Go" } }))
     askLog.length = 0

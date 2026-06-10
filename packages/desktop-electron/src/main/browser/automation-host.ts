@@ -26,5 +26,8 @@ export function createDesktopBrowserBridgeHost(deps: {
       return browserControllers.attachForWindow(win)
     },
     detachWindow: (windowID) => browserControllers.detachForWindow(windowID),
+    // get(), never ensure(): the URL probe must not create a view as a side
+    // effect. No controller yet means no embedded browser page — null.
+    windowUrl: (windowID) => browserControllers.get(windowID)?.state().url || null,
   })
 }

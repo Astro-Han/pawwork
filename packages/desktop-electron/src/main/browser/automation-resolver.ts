@@ -51,6 +51,7 @@ function hostError(code: "no-window" | "window-ambiguous"): Error & { code: stri
 
 export type BrowserBridgeHost = {
   resolveEndpoint(input: { sessionID: string }): Promise<AutomationEndpoint>
+  currentUrl(input: { sessionID: string }): Promise<string | null>
   releaseSession(input: { sessionID: string }): Promise<void>
 }
 
@@ -59,6 +60,8 @@ export type BrowserBridgeHostDeps = {
   focusedWindowID(): number | null
   attachWindow(windowID: number): Promise<AutomationEndpoint>
   detachWindow(windowID: number): Promise<void>
+  /** Embedded-browser URL of a window's existing view; null when none. Must not create a view. */
+  windowUrl(windowID: number): string | null
 }
 
 /**
@@ -80,6 +83,19 @@ export function createBrowserBridgeHost(deps: BrowserBridgeHostDeps): BrowserBri
       const endpoint = await deps.attachWindow(pick.windowID)
       attached.set(sessionID, pick.windowID)
       return endpoint
+    },
+
+    // Side-effect-free by contract (browser-bridge.ts Host.currentUrl): the
+    // server calls this BEFORE the permission ask, so it only picks a window
+    // and reads its existing view's URL — never attaches or creates anything.
+    async currentUrl({ sessionID }) {
+      const pick = pickAutomationWindow({
+        sessionID,
+        candidates: deps.windows(),
+        focusedWindowID: deps.focusedWindowID(),
+      })
+      if ("error" in pick) return null
+      return deps.windowUrl(pick.windowID)
     },
 
     async releaseSession({ sessionID }) {

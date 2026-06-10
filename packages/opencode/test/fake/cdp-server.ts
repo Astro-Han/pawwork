@@ -13,6 +13,12 @@ export class FakeCdpServer {
   private sockets = new Set<WebSocket>()
   private hung: Array<{ ws: WebSocket; id: number }> = []
   port = 0
+  /**
+   * What the real window's webContents URL would be: tests preset it for
+   * takeover scenarios, and Page.navigate keeps it current. Served by the
+   * fake host's side-effect-free currentUrl probe.
+   */
+  url: string | null = null
 
   constructor() {
     this.wss = new WebSocketServer({ port: 0, host: "127.0.0.1" })
@@ -23,6 +29,9 @@ export class FakeCdpServer {
       ws.on("message", (data: unknown) => {
         const cmd = JSON.parse(String(data)) as { id: number; method: string; params?: unknown }
         this.methods.push(cmd.method)
+        if (cmd.method === "Page.navigate") {
+          this.url = (cmd.params as { url?: string } | undefined)?.url ?? null
+        }
         const handler = this.handlers.get(cmd.method)
         if (handler === HANG) {
           this.hung.push({ ws, id: cmd.id })
@@ -79,6 +88,7 @@ export function provideFakeHost(server: FakeCdpServer): string[] {
   const released: string[] = []
   BrowserBridge.provideHost({
     resolveEndpoint: async () => ({ cdpEndpoint: server.endpoint }),
+    currentUrl: async () => server.url,
     releaseSession: async ({ sessionID }) => {
       released.push(sessionID)
     },

@@ -85,8 +85,8 @@ describe("pickAutomationWindow", () => {
   })
 })
 
-function makeHost(overrides?: { windows?: () => AutomationWindowCandidate[] }) {
-  const calls = { attach: [] as number[], detach: [] as number[] }
+function makeHost(overrides?: { windows?: () => AutomationWindowCandidate[]; windowUrl?: (id: number) => string | null }) {
+  const calls = { attach: [] as number[], detach: [] as number[], url: [] as number[] }
   const host = createBrowserBridgeHost({
     windows: overrides?.windows ?? (() => [{ windowID: 1, sessionID: "ses_a" }]),
     focusedWindowID: () => null,
@@ -96,6 +96,10 @@ function makeHost(overrides?: { windows?: () => AutomationWindowCandidate[] }) {
     },
     detachWindow: async (windowID) => {
       calls.detach.push(windowID)
+    },
+    windowUrl: (windowID) => {
+      calls.url.push(windowID)
+      return overrides?.windowUrl ? overrides.windowUrl(windowID) : null
     },
   })
   return { host, calls }
@@ -122,6 +126,21 @@ describe("createBrowserBridgeHost", () => {
     const { host, calls } = makeHost({ windows: () => [] })
     await expect(host.resolveEndpoint({ sessionID: "ses_a" })).rejects.toMatchObject({ code: "no-window" })
     expect(calls.attach).toEqual([])
+  })
+
+  test("currentUrl reads the picked window's view URL without attaching anything", async () => {
+    const { host, calls } = makeHost({ windowUrl: () => "https://example.com/open" })
+    const url = await host.currentUrl({ sessionID: "ses_a" })
+    expect(url).toBe("https://example.com/open")
+    expect(calls.url).toEqual([1])
+    expect(calls.attach).toEqual([])
+  })
+
+  test("currentUrl is null when no window can serve the session", async () => {
+    const { host, calls } = makeHost({ windows: () => [] })
+    expect(await host.currentUrl({ sessionID: "ses_a" })).toBeNull()
+    expect(calls.attach).toEqual([])
+    expect(calls.url).toEqual([])
   })
 
   test("a second session taking over the same window invalidates the first session's claim", async () => {

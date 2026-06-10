@@ -67,6 +67,13 @@ export namespace BrowserBridge {
      */
     resolveEndpoint(input: { sessionID: string }): Promise<Endpoint>
     /**
+     * The embedded browser's current URL in the window that would serve
+     * `sessionID`, or null when there is no window, view, or page. MUST be
+     * side-effect free — it runs BEFORE the permission ask, so it may not
+     * attach a bridge, create a view, or send any CDP command.
+     */
+    currentUrl(input: { sessionID: string }): Promise<string | null>
+    /**
      * Detach the window bridge that was attached on behalf of `sessionID`.
      * Called when the last server-side user of the connection goes away
      * (session deleted/archived); a no-op for sessions that never attached.
