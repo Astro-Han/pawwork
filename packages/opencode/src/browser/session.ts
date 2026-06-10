@@ -55,15 +55,26 @@ type Connection = {
   closed: boolean
   /** True when connect() found an already-loaded page and reloaded it to apply stealth. */
   takeoverReloaded: boolean
+  /** The window lease this connection was acquired under; undefined for un-leased (test) callers. */
+  windowID?: number
 }
 
 const byEndpoint = new Map<string, Connection>()
 const bySession = new Map<string, Connection>()
 // In-flight first acquires/connects: the underlying ws bridge accepts a single
 // client, so two concurrent first calls must share one attempt instead of
-// racing into a second connection (which the bridge would reject).
-const pendingAcquires = new Map<string, Promise<Connection>>()
+// racing into a second connection (which the bridge would reject). Each
+// pending acquire remembers its window lease so a concurrent caller holding a
+// DIFFERENT lease fails instead of silently running in the first caller's
+// window (its permission was judged against its own window's URL).
+const pendingAcquires = new Map<string, { windowID?: number; promise: Promise<Connection> }>()
 const pendingConnects = new Map<string, Promise<Connection>>()
+
+function leaseMismatch(): Error {
+  return new Error(
+    "The browser window for this session changed between the permission check and the connection. Retry the action.",
+  )
+}
 
 // Every way the underlying connection reports being gone: opencli's send()
 // pre-check ("CDP connection is not open"), its close() ("CDP connection
@@ -162,40 +173,52 @@ function connectOnce(endpoint: string): Promise<Connection> {
 
 async function acquire(sessionID: string, windowID?: number): Promise<Connection> {
   const root = await rootSessionID(sessionID)
+  // Reusing a connection (live or in flight) is only sound when it is bound to
+  // THIS action's leased window — the permission was asked for that window's
+  // URL. A mismatch means the window landscape moved between two actions
+  // (e.g. the leased window closed before the loss was noticed, or two
+  // concurrent first actions probed different windows): fail fast and let the
+  // caller retry, which re-probes and re-asks against the surviving window.
   const cached = bySession.get(root)
-  if (cached && !cached.closed) return cached
+  if (cached && !cached.closed) {
+    if (windowID !== undefined && cached.windowID !== windowID) throw leaseMismatch()
+    return cached
+  }
 
   // Single-flight per root: a failed attempt clears itself so the next call
   // retries fresh; concurrent callers share the same outcome either way.
-  let pending = pendingAcquires.get(root)
-  if (!pending) {
-    pending = (async () => {
-      const endpoint = await BrowserBridge.host()
-        .resolveEndpoint({ sessionID: root, ...(windowID !== undefined ? { windowID } : {}) })
-        .catch((err) => {
-          throw toBrowserBridgeError(err)
-        })
-      let conn: Connection
-      try {
-        conn = await connectOnce(endpoint.cdpEndpoint)
-      } catch (err) {
-        // resolveEndpoint already attached the host's bridge, but nothing on
-        // this side maps the session yet — a later release would no-op and
-        // leak the attachment. Undo it now. Safe even with other sessions on
-        // the same window: a failed connect means that window has no live
-        // connection to lose.
-        await BrowserBridge.host()
-          .releaseSession({ sessionID: root })
-          .catch(() => {})
-        throw err
-      }
-      conn.sessions.add(root)
-      bySession.set(root, conn)
-      return conn
-    })().finally(() => pendingAcquires.delete(root))
-    pendingAcquires.set(root, pending)
+  const inflight = pendingAcquires.get(root)
+  if (inflight) {
+    if (windowID !== undefined && inflight.windowID !== windowID) throw leaseMismatch()
+    return inflight.promise
   }
-  return pending
+  const promise = (async () => {
+    const endpoint = await BrowserBridge.host()
+      .resolveEndpoint({ sessionID: root, ...(windowID !== undefined ? { windowID } : {}) })
+      .catch((err) => {
+        throw toBrowserBridgeError(err)
+      })
+    let conn: Connection
+    try {
+      conn = await connectOnce(endpoint.cdpEndpoint)
+    } catch (err) {
+      // resolveEndpoint already attached the host's bridge, but nothing on
+      // this side maps the session yet — a later release would no-op and
+      // leak the attachment. Undo it now. Safe even with other sessions on
+      // the same window: a failed connect means that window has no live
+      // connection to lose.
+      await BrowserBridge.host()
+        .releaseSession({ sessionID: root })
+        .catch(() => {})
+      throw err
+    }
+    if (windowID !== undefined) conn.windowID = windowID
+    conn.sessions.add(root)
+    bySession.set(root, conn)
+    return conn
+  })().finally(() => pendingAcquires.delete(root))
+  pendingAcquires.set(root, { windowID, promise })
+  return promise
 }
 
 export type BrowserPageRun<T> = (page: IPage, info: { takeoverReloaded: boolean }) => Promise<T>
@@ -244,7 +267,7 @@ export async function releaseBrowserSession(sessionID: string): Promise<void> {
   // acquire rolled its host attachment back itself, so falling through to the
   // no-op return is right.
   const pending = pendingAcquires.get(sessionID)
-  if (pending) await pending.then(() => {}, () => {})
+  if (pending) await pending.promise.then(() => {}, () => {})
   const conn = bySession.get(sessionID)
   if (!conn) return
   bySession.delete(sessionID)

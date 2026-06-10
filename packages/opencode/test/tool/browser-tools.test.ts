@@ -166,6 +166,45 @@ describe("permission gate", () => {
     expect(leased.methods).toContain("Page.navigate")
     expect(focused.methods).toEqual([])
   })
+
+  test("concurrent first actions leased to different windows never share a connection", async () => {
+    const winOne = makeServer()
+    winOne.handlers.set("Runtime.evaluate", () => ({ result: { type: "string", value: "[1] <button> Ok" } }))
+    const winTwo = makeServer()
+    const resolved: Array<number | undefined> = []
+    // The window landscape moves between the two probes: each action leases a
+    // different window and asks against that window's URL.
+    const probes = [
+      { windowID: 1, url: "https://example.com/win-1" },
+      { windowID: 2, url: "https://example.com/win-2" },
+    ]
+    BrowserBridge.provideHost({
+      probeWindow: async () => probes.shift()!,
+      resolveEndpoint: async ({ windowID }) => {
+        resolved.push(windowID)
+        // Keep the first acquire in flight so the second action arrives while
+        // it is still pending.
+        await new Promise((resolve) => setTimeout(resolve, 100))
+        return { cdpEndpoint: windowID === 1 ? winOne.endpoint : winTwo.endpoint }
+      },
+      releaseSession: async () => {},
+    })
+
+    const first = exec(BrowserSnapshotTool, {})
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    const second = exec(BrowserSnapshotTool, {})
+
+    // The second action's permission was granted for window 2; joining the
+    // pending window-1 acquire would run it where that grant never applied.
+    await expect(second).rejects.toThrow(/window for this session changed/)
+    await expect(first).resolves.toMatchObject({ output: expect.stringContaining("[1] <button> Ok") })
+    expect(askLog).toEqual([
+      { permission: "browser", patterns: ["https://example.com/win-1"] },
+      { permission: "browser", patterns: ["https://example.com/win-2"] },
+    ])
+    expect(resolved).toEqual([1])
+    expect(winTwo.methods).toEqual([])
+  }, 10_000)
 })
 
 describe("browser_navigate", () => {

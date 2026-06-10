@@ -156,6 +156,46 @@ describe("withBrowserPage", () => {
     expect(released).toEqual(["ses_a"])
   }, 10_000)
 
+  test("a concurrent action holding a different window lease fails instead of joining the pending acquire", async () => {
+    const server = makeServer()
+    scriptCurrentUrl(server, "about:blank")
+    BrowserBridge.provideHost({
+      resolveEndpoint: async () => {
+        // Keep the first acquire in flight long enough for the second action
+        // (leased to a different window) to arrive while it is pending.
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        return { cdpEndpoint: server.endpoint }
+      },
+      probeWindow: async () => ({ windowID: 1, url: null }),
+      releaseSession: async () => {},
+    })
+
+    const first = withBrowserPage("ses_a", "snapshot", async () => "window-1", { windowID: 1 })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    const second = withBrowserPage("ses_a", "click", async () => "window-2", { windowID: 2 })
+
+    // The second action's permission was judged against window 2's URL; it
+    // must not silently run over the window-1 connection.
+    await expect(second).rejects.toThrow(/window for this session changed/)
+    await expect(first).resolves.toBe("window-1")
+    expect(server.methods.filter((m) => m === "Page.addScriptToEvaluateOnNewDocument").length).toBe(1)
+  }, 10_000)
+
+  test("a cached connection bound to another window rejects a mismatched lease but serves a matching one", async () => {
+    const server = makeServer()
+    scriptCurrentUrl(server, "about:blank")
+    provideFakeHost(server)
+
+    await withBrowserPage("ses_a", "snapshot", async () => {}, { windowID: 1 })
+
+    await expect(
+      withBrowserPage("ses_a", "click", async () => "unreachable", { windowID: 2 }),
+    ).rejects.toThrow(/window for this session changed/)
+    await expect(withBrowserPage("ses_a", "click", async () => "same-window", { windowID: 1 })).resolves.toBe(
+      "same-window",
+    )
+  })
+
   test("a release landing during a pending acquire still cleans up after it settles", async () => {
     const server = makeServer()
     scriptCurrentUrl(server, "about:blank")
