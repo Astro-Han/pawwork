@@ -99,6 +99,9 @@ function buildChipAttachmentParts(prompt: Prompt, sessionDirectory: string, excl
         mime: "text/plain",
         url,
         filename: attachment.filename,
+        // Lets the sent bubble show the chip; context items share this wire
+        // shape and stay untagged (hidden).
+        metadata: { attachment: true },
       } satisfies PromptRequestPart,
     ]
   })
@@ -157,6 +160,7 @@ const toOptimisticPart = (part: PromptRequestPart, sessionID: string, messageID:
       filename: part.filename,
       url: part.url,
       source: part.source,
+      metadata: part.metadata,
       sessionID,
       messageID,
     }

@@ -501,7 +501,30 @@ describe("attachment chips", () => {
       mime: "text/plain",
       url: "file:///Users/me/photo.png",
       filename: "photo.png",
+      // The tag is what lets the sent bubble show the chip — context items
+      // share this wire shape and must stay untagged.
+      metadata: { attachment: true },
     })
+  })
+
+  test("optimistic parts keep the chip attachment tag", () => {
+    const prompt: Prompt = [
+      { type: "text", content: "hi", start: 0, end: 2 },
+      { type: "attachment", id: "att_1", path: "/Users/me/guide.pdf", filename: "guide.pdf" },
+    ]
+
+    const result = buildRequestParts({
+      prompt,
+      context: [],
+      images: [],
+      text: "hi",
+      messageID: "msg_1",
+      sessionID: "ses_1",
+      sessionDirectory: "/repo",
+    })
+
+    const optimisticFile = result.optimisticParts.find((part) => part.type === "file")
+    expect(optimisticFile).toMatchObject({ metadata: { attachment: true } })
   })
 
   test("collapses a chip and an inline pill that reference the same path", () => {
