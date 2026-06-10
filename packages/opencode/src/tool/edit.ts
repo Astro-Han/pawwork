@@ -670,8 +670,7 @@ export const ContextAwareReplacer: Replacer = function* (content, find) {
         const blockLines = contentLines.slice(i, j + 1)
         const block = blockLines.join("\n")
 
-        // Check if the middle content has reasonable similarity
-        // (simple heuristic: at least 50% of non-empty lines should match when trimmed)
+        // Check if the middle content has reasonable similarity.
         if (blockLines.length === findLines.length) {
           let matchingLines = 0
           let totalNonEmptyLines = 0
@@ -688,7 +687,10 @@ export const ContextAwareReplacer: Replacer = function* (content, find) {
             }
           }
 
-          if (totalNonEmptyLines === 0 || matchingLines / totalNonEmptyLines >= 0.5) {
+          if (
+            totalNonEmptyLines === 0 ||
+            matchingLines / totalNonEmptyLines >= MULTIPLE_CANDIDATES_SIMILARITY_THRESHOLD
+          ) {
             yield block
             break // Only match the first occurrence
           }
@@ -790,6 +792,5 @@ function isDisproportionateMatch(search: string, oldString: string) {
   const oldLines = oldString.split("\n").length
   const searchLines = search.split("\n").length
   if (searchLines >= Math.max(oldLines + 3, oldLines * 2)) return true
-  if (oldLines === 1) return false
   return search.trim().length > Math.max(oldString.trim().length + 500, oldString.trim().length * 4)
 }

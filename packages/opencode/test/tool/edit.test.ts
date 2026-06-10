@@ -336,6 +336,60 @@ describe("tool.edit", () => {
       ),
     )
 
+    it.live("rejects context-aware matches that keep only half of the middle lines", () =>
+      provideTmpdirInstance((dir) =>
+        Effect.gen(function* () {
+          const filepath = path.join(dir, "half-middle-match.ts")
+          const original = [
+            "function configure() {",
+            "  keepImportantState()",
+            "  removeAllUserData()",
+            "}",
+          ].join("\n")
+          yield* Effect.promise(() => fs.writeFile(filepath, original, "utf-8"))
+
+          yield* expectRunFailure(
+            {
+              filePath: filepath,
+              oldString: ["function configure() {", "  keepImportantState()", "  const enabled = true", "}"].join("\n"),
+              newString: [
+                "function configure() {",
+                "  keepImportantState()",
+                "  const enabled = false",
+                "}",
+              ].join("\n"),
+            },
+            "Could not find oldString",
+          )
+
+          const content = yield* Effect.promise(() => fs.readFile(filepath, "utf-8"))
+          expect(content).toBe(original)
+        }),
+      ),
+    )
+
+    it.live("rejects single-line whitespace matches with disproportionate spans", () =>
+      provideTmpdirInstance((dir) =>
+        Effect.gen(function* () {
+          const filepath = path.join(dir, "long-whitespace.txt")
+          const original = `prefix foo${" ".repeat(1000)}bar suffix`
+          yield* Effect.promise(() => fs.writeFile(filepath, original, "utf-8"))
+
+          yield* expectRunFailure(
+            {
+              filePath: filepath,
+              oldString: "foo bar",
+              newString: "baz",
+            },
+            "matched span is much larger than oldString",
+          )
+
+          const content = yield* Effect.promise(() => fs.readFile(filepath, "utf-8"))
+          expect(content).toBe(original)
+        }),
+      ),
+    )
+
     it.live("replaces all occurrences with replaceAll option", () =>
       provideTmpdirInstance((dir) =>
         Effect.gen(function* () {
