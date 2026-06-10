@@ -1,0 +1,6 @@
+Extract the current page's content as markdown.
+
+- Without `selector`, extracts the whole page body; with a CSS `selector`, extracts just that element's content.
+- Long content is returned in chunks: when the result is cut off, the output ends with a `next_start_char` cursor — call again with `start` set to that value to continue.
+- Use this to read articles, search results, tables, or any page text; it is far cheaper than screenshots and works on every model.
+- The conversion strips scripts and styling; layout-heavy pages read top-to-bottom.
