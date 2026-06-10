@@ -135,16 +135,19 @@ export namespace MCP {
   function getCapabilities(client: MCPClient) {
     return (
       client as {
-        getServerCapabilities?: () => { tools?: unknown; prompts?: unknown; resources?: unknown } | undefined
+        getServerCapabilities?: () =>
+          | { tools?: unknown | null; prompts?: unknown | null; resources?: unknown | null }
+          | null
+          | undefined
       }
     ).getServerCapabilities?.()
   }
 
   function hasCapability(client: MCPClient, key: "tools" | "prompts" | "resources") {
-    return getCapabilities(client)?.[key] !== undefined
+    return getCapabilities(client)?.[key] != null
   }
 
-  async function paginate<T, R extends { nextCursor?: string }>(
+  async function paginate<T, R extends { nextCursor?: string | null }>(
     list: (cursor?: string) => Promise<R>,
     items: (result: R) => T[],
   ) {
@@ -155,7 +158,7 @@ export namespace MCP {
     for (let pageCount = 0; pageCount < MAX_LIST_PAGES; pageCount++) {
       const page = await list(cursor)
       result.push(...items(page))
-      if (page.nextCursor === undefined) return result
+      if (page.nextCursor == null) return result
       if (cursors.has(page.nextCursor)) throw new Error(`MCP list returned duplicate cursor: ${page.nextCursor}`)
       cursors.add(page.nextCursor)
       cursor = page.nextCursor

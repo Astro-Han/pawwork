@@ -4,7 +4,7 @@ import { test, expect, mock, beforeEach } from "bun:test"
 
 // Per-client state for controlling mock behavior
 interface MockClientState {
-  capabilities: { tools?: object; prompts?: object; resources?: object }
+  capabilities: { tools?: object | null; prompts?: object | null; resources?: object | null }
   tools: Array<{ name: string; description?: string; inputSchema: object; outputSchema?: object }>
   listToolsCalls: number
   listPromptsCalls: number
@@ -20,13 +20,13 @@ interface MockClientState {
     string,
     {
       tools: Array<{ name: string; description?: string; inputSchema: object; outputSchema?: object }>
-      nextCursor?: string
+      nextCursor?: string | null
     }
   >
-  promptPages: Record<string, { prompts: Array<{ name: string; description?: string }>; nextCursor?: string }>
+  promptPages: Record<string, { prompts: Array<{ name: string; description?: string }>; nextCursor?: string | null }>
   resourcePages: Record<
     string,
-    { resources: Array<{ name: string; uri: string; description?: string }>; nextCursor?: string }
+    { resources: Array<{ name: string; uri: string; description?: string }>; nextCursor?: string | null }
   >
   callToolSignals: Array<AbortSignal | undefined>
   closed: boolean
@@ -352,6 +352,19 @@ test(
     expect(await MCP.prompts()).toEqual({})
     expect(toolsOnlyState.listPromptsCalls).toBe(0)
     expect(toolsOnlyState.listResourcesCalls).toBe(0)
+
+    lastCreatedClientName = "null-tools-server"
+    const nullToolsState = getOrCreateClientState("null-tools-server")
+    nullToolsState.capabilities = { tools: null, resources: {} }
+    nullToolsState.resources = [{ name: "null-docs", uri: "docs://null" }]
+
+    await MCP.add("null-tools-server", {
+      type: "local",
+      command: ["echo", "test"],
+    })
+
+    expect(nullToolsState.listToolsCalls).toBe(0)
+    expect(Object.keys(await MCP.resources())).toContain("null-tools-server:null-docs")
   }),
 )
 
@@ -370,7 +383,7 @@ test(
     }
     pagedState.resourcePages = {
       initial: { resources: [{ name: "resource-one", uri: "test://one" }], nextCursor: "" },
-      "": { resources: [{ name: "resource-two", uri: "test://two" }] },
+      "": { resources: [{ name: "resource-two", uri: "test://two" }], nextCursor: null },
     }
 
     await MCP.add("paged-server", {
