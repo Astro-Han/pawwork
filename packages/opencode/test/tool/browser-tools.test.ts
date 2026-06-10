@@ -105,6 +105,18 @@ describe("browser_snapshot", () => {
     expect(result.output).toContain("[1] <button> Submit")
     expect(askLog[0]?.permission).toBe("browser")
   })
+
+  test("scopes the permission to the page's current URL, not '*'", async () => {
+    const server = setupServer()
+    // navigate sets the page URL; opencli caches it, so the next action's
+    // permission must ask against that URL (URL-scoped rules decide per site).
+    await exec(BrowserNavigateTool, { url: "https://example.com/page" })
+    server.handlers.set("Runtime.evaluate", () => ({ result: { type: "string", value: "[1] <button> Go" } }))
+    askLog.length = 0
+    const result = await exec(BrowserSnapshotTool, {})
+    expect(result.output).toContain("[1] <button> Go")
+    expect(askLog).toEqual([{ permission: "browser", patterns: ["https://example.com/page"] }])
+  })
 })
 
 describe("browser_click", () => {

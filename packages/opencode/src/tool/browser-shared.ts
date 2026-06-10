@@ -1,7 +1,7 @@
 import { Effect } from "effect"
 import type { IPage } from "@jackwener/opencli/types"
 import * as Tool from "./tool"
-import { withBrowserPage } from "@/browser/session"
+import { browserPageUrl, withBrowserPage } from "@/browser/session"
 
 /**
  * Shared execution path for the browser_* tools: ask the `browser` permission
@@ -14,16 +14,23 @@ import { withBrowserPage } from "@/browser/session"
 export function runBrowserAction<T>(input: {
   ctx: Tool.Context
   label: string
-  /** Permission targets; navigate passes the URL so rules can scope by site. */
+  /**
+   * Permission targets. navigate passes its destination so the URL can be gated
+   * before we go there; every other action omits this and is scoped to the
+   * page's current URL, so a URL-specific allow/deny rule decides per site
+   * (without it a current-page action would always match the `*` rule).
+   */
   patterns?: string[]
   metadata?: Record<string, unknown>
   timeoutMs?: number
   run: (page: IPage, info: { takeoverReloaded: boolean }) => Promise<T>
 }) {
   return Effect.gen(function* () {
+    const patterns =
+      input.patterns ?? [(yield* Effect.promise(() => browserPageUrl(input.ctx.sessionID))) ?? "*"]
     yield* input.ctx.ask({
       permission: "browser",
-      patterns: input.patterns ?? ["*"],
+      patterns,
       always: ["*"],
       metadata: { action: input.label, ...input.metadata },
     })
