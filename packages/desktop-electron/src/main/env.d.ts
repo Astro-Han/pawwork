@@ -74,8 +74,8 @@ declare module "virtual:opencode-server" {
   export namespace BrowserBridge {
     export type Endpoint = { cdpEndpoint: string }
     export interface Host {
-      resolveEndpoint(input: { sessionID: string }): Promise<Endpoint>
-      currentUrl(input: { sessionID: string }): Promise<string | null>
+      resolveEndpoint(input: { sessionID: string; windowID?: number }): Promise<Endpoint>
+      probeWindow(input: { sessionID: string }): Promise<{ windowID: number; url: string | null } | null>
       releaseSession(input: { sessionID: string }): Promise<void>
     }
     export function provideHost(host: Host | null): void

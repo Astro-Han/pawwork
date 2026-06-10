@@ -1,7 +1,7 @@
 import { Effect } from "effect"
 import type { IPage } from "@jackwener/opencli/types"
 import * as Tool from "./tool"
-import { browserPageUrl, withBrowserPage } from "@/browser/session"
+import { browserPageProbe, withBrowserPage } from "@/browser/session"
 
 /**
  * Shared execution path for the browser_* tools: ask the `browser` permission
@@ -26,8 +26,13 @@ export function runBrowserAction<T>(input: {
   run: (page: IPage, info: { takeoverReloaded: boolean }) => Promise<T>
 }) {
   return Effect.gen(function* () {
-    const patterns =
-      input.patterns ?? [(yield* Effect.promise(() => browserPageUrl(input.ctx.sessionID))) ?? "*"]
+    // One window pick serves both the permission patterns and (as a lease,
+    // via windowID) the eventual attach — a focus change between the ask and
+    // the action cannot retarget it to a window whose URL was never granted.
+    const probe = input.patterns
+      ? null
+      : yield* Effect.promise(() => browserPageProbe(input.ctx.sessionID))
+    const patterns = input.patterns ?? [probe?.url ?? "*"]
     yield* input.ctx.ask({
       permission: "browser",
       patterns,
@@ -35,7 +40,11 @@ export function runBrowserAction<T>(input: {
       metadata: { action: input.label, ...input.metadata },
     })
     return yield* Effect.tryPromise({
-      try: () => withBrowserPage(input.ctx.sessionID, input.label, input.run, { timeoutMs: input.timeoutMs }),
+      try: () =>
+        withBrowserPage(input.ctx.sessionID, input.label, input.run, {
+          timeoutMs: input.timeoutMs,
+          windowID: probe?.windowID,
+        }),
       catch: (err) => (err instanceof Error ? err : new Error(String(err))),
     })
   })

@@ -50,8 +50,8 @@ function hostError(code: "no-window" | "window-ambiguous"): Error & { code: stri
 }
 
 export type BrowserBridgeHost = {
-  resolveEndpoint(input: { sessionID: string }): Promise<AutomationEndpoint>
-  currentUrl(input: { sessionID: string }): Promise<string | null>
+  resolveEndpoint(input: { sessionID: string; windowID?: number }): Promise<AutomationEndpoint>
+  probeWindow(input: { sessionID: string }): Promise<{ windowID: number; url: string | null } | null>
   releaseSession(input: { sessionID: string }): Promise<void>
 }
 
@@ -73,29 +73,48 @@ export function createBrowserBridgeHost(deps: BrowserBridgeHostDeps): BrowserBri
   const attached = new Map<string, number>()
 
   return {
-    async resolveEndpoint({ sessionID }) {
-      const pick = pickAutomationWindow({
-        sessionID,
-        candidates: deps.windows(),
-        focusedWindowID: deps.focusedWindowID(),
-      })
-      if ("error" in pick) throw hostError(pick.error)
-      const endpoint = await deps.attachWindow(pick.windowID)
-      attached.set(sessionID, pick.windowID)
+    async resolveEndpoint({ sessionID, windowID }) {
+      // A windowID is the probe's lease: attach exactly that window, so the
+      // action runs where the permission's URL was read even if focus moved
+      // during the ask. A closed window fails as no-window instead of being
+      // silently re-picked — the permission grant doesn't transfer.
+      let target = windowID
+      if (target !== undefined && !deps.windows().some((c) => c.windowID === target)) {
+        throw hostError("no-window")
+      }
+      if (target === undefined) {
+        const pick = pickAutomationWindow({
+          sessionID,
+          candidates: deps.windows(),
+          focusedWindowID: deps.focusedWindowID(),
+        })
+        if ("error" in pick) throw hostError(pick.error)
+        target = pick.windowID
+      }
+      const endpoint = await deps.attachWindow(target)
+      attached.set(sessionID, target)
       return endpoint
     },
 
-    // Side-effect-free by contract (browser-bridge.ts Host.currentUrl): the
+    // Side-effect-free by contract (browser-bridge.ts Host.probeWindow): the
     // server calls this BEFORE the permission ask, so it only picks a window
     // and reads its existing view's URL — never attaches or creates anything.
-    async currentUrl({ sessionID }) {
+    // A window the session is already attached to wins over a fresh pick, so
+    // the permission is judged against the page the action will actually run
+    // on, not wherever focus happens to be.
+    async probeWindow({ sessionID }) {
+      const candidates = deps.windows()
+      const attachedWindow = attached.get(sessionID)
+      if (attachedWindow !== undefined && candidates.some((c) => c.windowID === attachedWindow)) {
+        return { windowID: attachedWindow, url: deps.windowUrl(attachedWindow) }
+      }
       const pick = pickAutomationWindow({
         sessionID,
-        candidates: deps.windows(),
+        candidates,
         focusedWindowID: deps.focusedWindowID(),
       })
       if ("error" in pick) return null
-      return deps.windowUrl(pick.windowID)
+      return { windowID: pick.windowID, url: deps.windowUrl(pick.windowID) }
     },
 
     async releaseSession({ sessionID }) {

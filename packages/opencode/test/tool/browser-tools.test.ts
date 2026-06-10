@@ -102,6 +102,30 @@ describe("permission gate", () => {
     }
     expect(server.methods).toEqual([])
   })
+
+  test("the action runs in the window the permission was granted for, not where focus moved", async () => {
+    const allowed = makeServer()
+    allowed.handlers.set("Runtime.evaluate", () => ({ result: { type: "string", value: "[1] <button> Ok" } }))
+    const denied = makeServer()
+    const resolved: Array<number | undefined> = []
+    BrowserBridge.provideHost({
+      // The probe reads the allowed window (id 7); by attach time focus moved,
+      // so an un-leased resolve would land on the denied window instead.
+      probeWindow: async () => ({ windowID: 7, url: "https://allowed.example/page" }),
+      resolveEndpoint: async ({ windowID }) => {
+        resolved.push(windowID)
+        return { cdpEndpoint: windowID === 7 ? allowed.endpoint : denied.endpoint }
+      },
+      releaseSession: async () => {},
+    })
+
+    const result = await exec(BrowserSnapshotTool, {})
+    expect(result.output).toContain("[1] <button> Ok")
+    expect(askLog).toEqual([{ permission: "browser", patterns: ["https://allowed.example/page"] }])
+    // The lease pinned the attach to the probed window; the other window saw nothing.
+    expect(resolved).toEqual([7])
+    expect(denied.methods).toEqual([])
+  })
 })
 
 describe("browser_navigate", () => {

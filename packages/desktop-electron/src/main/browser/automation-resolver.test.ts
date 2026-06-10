@@ -128,19 +128,64 @@ describe("createBrowserBridgeHost", () => {
     expect(calls.attach).toEqual([])
   })
 
-  test("currentUrl reads the picked window's view URL without attaching anything", async () => {
+  test("probeWindow reads the picked window's view URL without attaching anything", async () => {
     const { host, calls } = makeHost({ windowUrl: () => "https://example.com/open" })
-    const url = await host.currentUrl({ sessionID: "ses_a" })
-    expect(url).toBe("https://example.com/open")
+    const probe = await host.probeWindow({ sessionID: "ses_a" })
+    expect(probe).toEqual({ windowID: 1, url: "https://example.com/open" })
     expect(calls.url).toEqual([1])
     expect(calls.attach).toEqual([])
   })
 
-  test("currentUrl is null when no window can serve the session", async () => {
+  test("probeWindow is null when no window can serve the session", async () => {
     const { host, calls } = makeHost({ windows: () => [] })
-    expect(await host.currentUrl({ sessionID: "ses_a" })).toBeNull()
+    expect(await host.probeWindow({ sessionID: "ses_a" })).toBeNull()
     expect(calls.attach).toEqual([])
     expect(calls.url).toEqual([])
+  })
+
+  test("probeWindow prefers the window the session is already attached to over the pick", async () => {
+    // Two windows, neither showing the session: the pick would follow focus,
+    // but ses_a already attached window 1 — the probe must keep reporting it.
+    const windows = () => [
+      { windowID: 1, sessionID: null },
+      { windowID: 2, sessionID: null },
+    ]
+    const { host } = makeHost({
+      windows,
+      windowUrl: (id) => `https://example.com/win-${id}`,
+    })
+    await host.resolveEndpoint({ sessionID: "ses_a", windowID: 1 })
+    const probe = await host.probeWindow({ sessionID: "ses_a" })
+    expect(probe).toEqual({ windowID: 1, url: "https://example.com/win-1" })
+  })
+
+  test("resolveEndpoint honors the probe's window lease over the current focus", async () => {
+    const windows = () => [
+      { windowID: 1, sessionID: null },
+      { windowID: 2, sessionID: null },
+    ]
+    const focused = { id: 2 } // focus moved to window 2 after the probe picked 1
+    const calls = { attach: [] as number[] }
+    const host = createBrowserBridgeHost({
+      windows,
+      focusedWindowID: () => focused.id,
+      attachWindow: async (windowID) => {
+        calls.attach.push(windowID)
+        return { cdpEndpoint: `ws://127.0.0.1:9000/secret-${windowID}` }
+      },
+      detachWindow: async () => {},
+      windowUrl: () => null,
+    })
+    await host.resolveEndpoint({ sessionID: "ses_a", windowID: 1 })
+    expect(calls.attach).toEqual([1])
+  })
+
+  test("resolveEndpoint fails as no-window when the leased window closed", async () => {
+    const { host, calls } = makeHost()
+    await expect(host.resolveEndpoint({ sessionID: "ses_a", windowID: 99 })).rejects.toMatchObject({
+      code: "no-window",
+    })
+    expect(calls.attach).toEqual([])
   })
 
   test("a second session taking over the same window invalidates the first session's claim", async () => {

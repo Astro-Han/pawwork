@@ -88,7 +88,7 @@ export function provideFakeHost(server: FakeCdpServer): string[] {
   const released: string[] = []
   BrowserBridge.provideHost({
     resolveEndpoint: async () => ({ cdpEndpoint: server.endpoint }),
-    currentUrl: async () => server.url,
+    probeWindow: async () => ({ windowID: 1, url: server.url }),
     releaseSession: async ({ sessionID }) => {
       released.push(sessionID)
     },

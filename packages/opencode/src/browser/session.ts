@@ -160,7 +160,7 @@ function connectOnce(endpoint: string): Promise<Connection> {
   return pending
 }
 
-async function acquire(sessionID: string): Promise<Connection> {
+async function acquire(sessionID: string, windowID?: number): Promise<Connection> {
   const root = await rootSessionID(sessionID)
   const cached = bySession.get(root)
   if (cached && !cached.closed) return cached
@@ -171,7 +171,7 @@ async function acquire(sessionID: string): Promise<Connection> {
   if (!pending) {
     pending = (async () => {
       const endpoint = await BrowserBridge.host()
-        .resolveEndpoint({ sessionID: root })
+        .resolveEndpoint({ sessionID: root, ...(windowID !== undefined ? { windowID } : {}) })
         .catch((err) => {
           throw toBrowserBridgeError(err)
         })
@@ -210,9 +210,9 @@ export async function withBrowserPage<T>(
   sessionID: string,
   label: string,
   run: BrowserPageRun<T>,
-  opts?: { timeoutMs?: number },
+  opts?: { timeoutMs?: number; windowID?: number },
 ): Promise<T> {
-  const conn = await acquire(sessionID)
+  const conn = await acquire(sessionID, opts?.windowID)
   const takeoverReloaded = conn.takeoverReloaded
   // One-shot flag: only the first action after a takeover mentions the reload.
   conn.takeoverReloaded = false
@@ -261,21 +261,26 @@ export async function releaseBrowserSession(sessionID: string): Promise<void> {
 }
 
 /**
- * The page's current navigable URL, for scoping a browser permission to where
- * the page actually is. Read from the main process's view state (the same
- * window pick acquire() will use later) — deliberately NOT through the CDP
- * connection: this runs BEFORE the permission ask, and connecting would
- * already stealth-reload a page the user has open. Returns null when
- * unavailable — no bridge, no window, blank page — which the caller maps to
- * the `*` pattern so the baseline rule still applies.
+ * The window pick and page URL the permission should be judged against, read
+ * from main-process view state — deliberately NOT through the CDP connection:
+ * this runs BEFORE the permission ask, and connecting would already
+ * stealth-reload a page the user has open. The returned windowID is a lease:
+ * pass it back through withBrowserPage so the action attaches the window the
+ * permission was granted for, no matter where focus moved meanwhile. Null
+ * when unavailable (no bridge / no window); a null url means a blank or
+ * non-web page, which the caller maps to the `*` pattern so the baseline rule
+ * still applies.
  */
-export async function browserPageUrl(sessionID: string): Promise<string | null> {
+export async function browserPageProbe(
+  sessionID: string,
+): Promise<{ windowID: number; url: string | null } | null> {
   if (!BrowserBridge.available()) return null
   const root = await rootSessionID(sessionID)
-  const url = await BrowserBridge.host()
-    .currentUrl({ sessionID: root })
+  const probe = await BrowserBridge.host()
+    .probeWindow({ sessionID: root })
     .catch(() => null)
-  return url && parseNavigableUrl(url) ? url : null
+  if (!probe) return null
+  return { windowID: probe.windowID, url: probe.url && parseNavigableUrl(probe.url) ? probe.url : null }
 }
 
 /** True when running inside the desktop app with a bridge host injected. */

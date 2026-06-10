@@ -58,21 +58,27 @@ export function toBrowserBridgeError(err: unknown): BrowserBridgeError {
 export namespace BrowserBridge {
   export type Endpoint = { cdpEndpoint: string }
 
+  /** A window pick frozen at permission time: where the action will run, and what that page shows now. */
+  export type WindowProbe = { windowID: number; url: string | null }
+
   export interface Host {
     /**
      * Resolve (and lazily start) the CDP bridge for the window that should
      * serve `sessionID` — the session's root id, since windows display root
-     * sessions. Throws a `code`-carrying error on failure (see
-     * BrowserBridgeErrorCode).
+     * sessions. When `windowID` is given (the probe's lease), attach exactly
+     * that window instead of re-picking, so a focus change between the
+     * permission ask and the action cannot retarget it. Throws a
+     * `code`-carrying error on failure (see BrowserBridgeErrorCode).
      */
-    resolveEndpoint(input: { sessionID: string }): Promise<Endpoint>
+    resolveEndpoint(input: { sessionID: string; windowID?: number }): Promise<Endpoint>
     /**
-     * The embedded browser's current URL in the window that would serve
-     * `sessionID`, or null when there is no window, view, or page. MUST be
-     * side-effect free — it runs BEFORE the permission ask, so it may not
-     * attach a bridge, create a view, or send any CDP command.
+     * Pick the window that would serve `sessionID` (preferring the one it is
+     * already attached to) and read its embedded browser's URL, or null when
+     * no window can serve it. MUST be side-effect free — it runs BEFORE the
+     * permission ask, so it may not attach a bridge, create a view, or send
+     * any CDP command.
      */
-    currentUrl(input: { sessionID: string }): Promise<string | null>
+    probeWindow(input: { sessionID: string }): Promise<WindowProbe | null>
     /**
      * Detach the window bridge that was attached on behalf of `sessionID`.
      * Called when the last server-side user of the connection goes away
