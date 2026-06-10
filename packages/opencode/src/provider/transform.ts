@@ -472,10 +472,12 @@ function unsupportedParts(msgs: ModelMessage[], model: Provider.Model): ModelMes
       if (!modality) return part
       if (model.capabilities.input[modality]) return part
 
-      const name = filename ? `"${filename}"` : modality
+      // Keep this wording in sync with the resolver-side dropped-media notice
+      // in session/prompt.ts so the model hears one consistent contract.
+      const name = filename ? `"${filename}"` : `this ${modality}`
       return {
         type: "text" as const,
-        text: `ERROR: Cannot read ${name} (this model does not support ${modality} input). Inform the user.`,
+        text: `The contents of ${name} were NOT provided to you: this model does not support ${modality} input. Do not guess or describe the file's contents; tell the user you cannot view the file.`,
       }
     })
 

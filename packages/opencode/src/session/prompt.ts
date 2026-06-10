@@ -1735,7 +1735,9 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                     sessionID: input.sessionID,
                     type: "text" as const,
                     synthetic: true,
-                    text: `The contents of ${part.filename ?? filepath} were NOT provided to you: the current model cannot take this media type as input. Do not guess or describe the file's contents; tell the user you cannot view the file.`,
+                    // Wording kept in sync with the request-time replacement in
+                    // provider/transform.ts so the model hears one consistent contract.
+                    text: `The contents of ${part.filename ?? filepath} were NOT provided to you: the current model does not support this media type as input. Do not guess or describe the file's contents; tell the user you cannot view the file.`,
                   }
                   // A capability-dropped attachment must not masquerade as a
                   // successful read ("Image read successfully" with nothing
