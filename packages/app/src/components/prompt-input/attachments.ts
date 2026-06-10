@@ -1,6 +1,7 @@
 import { onMount } from "solid-js"
 import { makeEventListener } from "@solid-primitives/event-listener"
-import { IMAGE_EXTS, pathBasename, pathSuffix } from "@opencode-ai/util/file-extensions"
+import { pathBasename } from "@opencode-ai/util/file-extensions"
+import { attachmentMimeForPath } from "./attachment-chips-model"
 import { showToast } from "@opencode-ai/ui/toast"
 import {
   usePrompt,
@@ -148,14 +149,6 @@ export function createPromptAttachments(input: PromptAttachmentsInput) {
     return stat?.exists ? stat.size : undefined
   }
 
-  const pathMime = (path: string) => {
-    const suffix = pathSuffix(path)
-    const image = IMAGE_EXTS.get(suffix)
-    if (image) return image
-    if (suffix === "pdf") return "application/pdf"
-    return undefined
-  }
-
   // Entry-point attachments float as composer chips; same-path re-adds are
   // no-ops against both chips and inline `@` pills.
   const routePathFallback = async (path: string) => {
@@ -169,7 +162,7 @@ export function createPromptAttachments(input: PromptAttachmentsInput) {
       id: uuid(),
       path,
       filename: pathBasename(path),
-      mime: pathMime(path),
+      mime: attachmentMimeForPath(path),
       size,
     }
     prompt.set([...prompt.current(), attachment], prompt.cursor())

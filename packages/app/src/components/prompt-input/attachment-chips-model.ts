@@ -1,4 +1,14 @@
+import { IMAGE_EXTS, pathSuffix } from "@opencode-ai/util/file-extensions"
 import type { FloatingAttachment } from "@/context/prompt"
+
+/** Best-effort mime from a path suffix; image mimes drive chip thumbnails. */
+export function attachmentMimeForPath(path: string) {
+  const suffix = pathSuffix(path)
+  const image = IMAGE_EXTS.get(suffix)
+  if (image) return image
+  if (suffix === "pdf") return "application/pdf"
+  return undefined
+}
 
 export function formatFileSize(size: number | undefined) {
   if (size === undefined || !Number.isFinite(size) || size < 0) return ""

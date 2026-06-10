@@ -99,9 +99,9 @@ export function prependHistoryEntry(
     .map((part) => ("content" in part ? part.content : ""))
     .join("")
     .trim()
-  const hasImages = prompt.some((part) => part.type === "image")
+  const hasAttachments = prompt.some((part) => part.type === "image" || part.type === "attachment")
   const hasComments = comments.some((comment) => !!comment.comment.trim())
-  if (!text && !hasImages && !hasComments) return entries
+  if (!text && !hasAttachments && !hasComments) return entries
 
   const entry = {
     prompt: clonePromptParts(prompt),
@@ -151,6 +151,8 @@ function isPromptEqual(promptA: PromptHistoryStoredEntry, promptB: PromptHistory
     }
     if (partA.type === "agent" && partA.name !== (partB.type === "agent" ? partB.name : "")) return false
     if (partA.type === "image" && partA.id !== (partB.type === "image" ? partB.id : "")) return false
+    // Chip ids are fresh uuids per add; the path is the stable identity here.
+    if (partA.type === "attachment" && partA.path !== (partB.type === "attachment" ? partB.path : "")) return false
   }
   if (entryA.comments.length !== entryB.comments.length) return false
   for (let i = 0; i < entryA.comments.length; i++) {

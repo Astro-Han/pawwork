@@ -41,6 +41,28 @@ describe("prompt-input history", () => {
     expect(dedupedComments).toBe(commentsOnly)
   })
 
+  test("prependHistoryEntry records a chip-only prompt", () => {
+    const chipOnly: Prompt = [
+      { type: "text", content: "", start: 0, end: 0 },
+      { type: "attachment", id: "att_1", path: "/Users/me/report.pdf", filename: "report.pdf" },
+    ]
+    expect(prependHistoryEntry([], chipOnly)).toHaveLength(1)
+  })
+
+  test("prependHistoryEntry keeps same-text prompts with different chips as separate entries", () => {
+    const withChip = (id: string, path: string): Prompt => [
+      { type: "text", content: "summarize", start: 0, end: 9 },
+      { type: "attachment", id, path, filename: path.split("/").pop()! },
+    ]
+    const first = prependHistoryEntry([], withChip("att_1", "/Users/me/a.pdf"))
+    const second = prependHistoryEntry(first, withChip("att_2", "/Users/me/b.pdf"))
+    expect(second).toHaveLength(2)
+
+    // Same path resubmitted (fresh uuid) is still a duplicate.
+    const deduped = prependHistoryEntry(second, withChip("att_3", "/Users/me/b.pdf"))
+    expect(deduped).toBe(second)
+  })
+
   test("navigatePromptHistory restores saved prompt when moving down from newest", () => {
     const entries = [text("third"), text("second"), text("first")]
     const up = navigatePromptHistory({

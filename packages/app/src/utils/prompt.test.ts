@@ -42,6 +42,45 @@ describe("extractPromptFromParts", () => {
     ])
   })
 
+  test("restores source-less file:// parts as attachment chips", () => {
+    const parts = [
+      {
+        id: "text_1",
+        type: "text",
+        text: "summarize this",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+      },
+      {
+        id: "file_1",
+        type: "file",
+        mime: "text/plain",
+        url: "file:///Users/me/Desktop/shot%202026.png",
+        filename: "shot 2026.png",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+      },
+      {
+        id: "file_2",
+        type: "file",
+        mime: "text/plain",
+        url: "file:///Users/me/report.pdf?start=2&end=5",
+        filename: "report.pdf",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+      },
+    ] satisfies Part[]
+
+    const result = extractPromptFromParts(parts)
+
+    expect(result[0]).toMatchObject({ type: "text", content: "summarize this" })
+    expect(result.slice(1)).toMatchObject([
+      // mime re-derived from the suffix so the chip renders its thumbnail again.
+      { type: "attachment", path: "/Users/me/Desktop/shot 2026.png", filename: "shot 2026.png", mime: "image/png" },
+      { type: "attachment", path: "/Users/me/report.pdf", filename: "report.pdf" },
+    ])
+  })
+
   test("issue #239: AgentPart in history restores as plain text, not as an agent inline", () => {
     // Pre-#239 messages may contain a separate AgentPart record beside the text
     // that already includes "@<name>" inline. After #239 the picker is gone, so
@@ -228,6 +267,47 @@ describe("extractPromptFromParts", () => {
       mime: "image/png",
       dataUrl: "data:image/png;base64,VVNFUg==",
     })
+  })
+
+  test("command mode: restores user chip attachments and keeps template files suppressed", () => {
+    const parts = [
+      {
+        id: "text_1",
+        type: "text",
+        text: "# Brainstorming methodology\n\n...body...",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+        metadata: {
+          commandInvocation: { name: "brainstorming", args: "fold the bubble", source: "command" },
+          commandTemplate: true,
+        },
+      },
+      {
+        id: "file_template",
+        type: "file",
+        mime: "text/plain",
+        url: "file:///tmp/template.md",
+        filename: "template.md",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+        metadata: { commandTemplate: true },
+      },
+      {
+        id: "file_user",
+        type: "file",
+        mime: "text/plain",
+        url: "file:///Users/me/report.pdf",
+        filename: "report.pdf",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+      },
+    ] satisfies Part[]
+
+    const result = extractPromptFromParts(parts)
+
+    expect(result).toHaveLength(2)
+    expect(result[0]).toMatchObject({ type: "text", content: "/brainstorming fold the bubble" })
+    expect(result[1]).toMatchObject({ type: "attachment", path: "/Users/me/report.pdf", filename: "report.pdf" })
   })
 
   test("command mode without args: restores `/<cmd> ` with trailing space and no body", () => {

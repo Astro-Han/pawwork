@@ -1,7 +1,16 @@
 import type { FilePart, Part, SkillPart, TextPart } from "@opencode-ai/sdk/v2"
 import { deriveCommandInvocation } from "@opencode-ai/ui/lib/command-invocation"
+import { pathBasename } from "@opencode-ai/util/file-extensions"
+import { attachmentMimeForPath } from "@/components/prompt-input/attachment-chips-model"
 import { createCommandTextPart } from "@/components/prompt-input/command-text-part"
-import type { FileAttachmentPart, ImageAttachmentPart, Prompt, SkillAttachmentPart } from "@/context/prompt"
+import { fileUrlToPath } from "@/context/file/path"
+import type {
+  AttachmentPart,
+  FileAttachmentPart,
+  ImageAttachmentPart,
+  Prompt,
+  SkillAttachmentPart,
+} from "@/context/prompt"
 
 type Inline =
   | {
@@ -47,6 +56,25 @@ function selectionFromFileUrl(url: string): Extract<Inline, { type: "file" }>["s
   }
 }
 
+/**
+ * Rebuild a floating attachment chip from a path-backed file part: no inline
+ * source span, non-data URL. Chips, context items, and comment mentions all
+ * submit in this shape; restoring them as chips keeps the file visible in the
+ * composer instead of silently dropping it (the wire format cannot tell them
+ * apart). Size is unknown after the round-trip and stays unset.
+ */
+function attachmentFromFilePart(filePart: FilePart): AttachmentPart | undefined {
+  const path = fileUrlToPath(filePart.url)
+  if (!path) return undefined
+  return {
+    type: "attachment",
+    id: filePart.id,
+    path,
+    filename: filePart.filename ?? pathBasename(path),
+    mime: attachmentMimeForPath(path),
+  }
+}
+
 function textPartValue(parts: Part[]) {
   const candidates = parts
     .filter((part): part is TextPart => part.type === "text")
@@ -75,16 +103,20 @@ export function extractPromptFromParts(parts: Part[], opts?: { directory?: strin
     for (const part of parts) {
       if (part.type !== "file") continue
       const filePart = part as FilePart
-      if (!filePart.url.startsWith("data:")) continue
       if (invocation.suppressFilePartIds.includes(filePart.id)) continue
-      const image: ImageAttachmentPart = {
-        type: "image",
-        id: filePart.id,
-        filename: filePart.filename ?? attachmentName,
-        mime: filePart.mime,
-        dataUrl: filePart.url,
+      if (filePart.url.startsWith("data:")) {
+        const image: ImageAttachmentPart = {
+          type: "image",
+          id: filePart.id,
+          filename: filePart.filename ?? attachmentName,
+          mime: filePart.mime,
+          dataUrl: filePart.url,
+        }
+        out.push(image)
+        continue
       }
-      out.push(image)
+      const chip = attachmentFromFilePart(filePart)
+      if (chip) out.push(chip)
     }
     return out
   }
@@ -109,7 +141,7 @@ export function extractPromptFromParts(parts: Part[], opts?: { directory?: strin
   }
 
   const inline: Inline[] = []
-  const images: ImageAttachmentPart[] = []
+  const floating: (ImageAttachmentPart | AttachmentPart)[] = []
 
   for (const part of parts) {
     if (part.type === "file") {
@@ -136,14 +168,18 @@ export function extractPromptFromParts(parts: Part[], opts?: { directory?: strin
       }
 
       if (filePart.url.startsWith("data:")) {
-        images.push({
+        floating.push({
           type: "image",
           id: filePart.id,
           filename: filePart.filename ?? attachmentName,
           mime: filePart.mime,
           dataUrl: filePart.url,
         })
+        continue
       }
+
+      const chip = attachmentFromFilePart(filePart)
+      if (chip) floating.push(chip)
     }
 
     // PawWork issue #239: AgentPart records from history are intentionally NOT
@@ -246,6 +282,6 @@ export function extractPromptFromParts(parts: Part[], opts?: { directory?: strin
     result.push({ type: "text", content: "", start: 0, end: 0 })
   }
 
-  if (images.length === 0) return result
-  return [...result, ...images]
+  if (floating.length === 0) return result
+  return [...result, ...floating]
 }
