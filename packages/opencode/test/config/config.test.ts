@@ -1,5 +1,5 @@
 import { test, expect, describe, mock, afterEach, beforeEach, spyOn } from "bun:test"
-import { Effect, Layer, Option } from "effect"
+import { Cause, Effect, Exit, Layer, Option } from "effect"
 import { NodeFileSystem, NodePath } from "@effect/platform-node"
 import { Config, ConfigManaged, ConfigVariable } from "../../src/config"
 import { ConfigParse } from "../../src/config/parse"
@@ -2611,6 +2611,140 @@ test("wellknown URL with trailing slash is normalized", async () => {
         ),
       { git: true },
     ).pipe(Effect.scoped, Effect.provide(layer), Effect.runPromise)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test("wellknown HTML response surfaces remote auth recovery error", async () => {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = mock((url: string | URL | Request) => {
+    const urlStr = url instanceof Request ? url.url : url instanceof URL ? url.href : url
+    if (urlStr.includes(".well-known/opencode")) {
+      return Promise.resolve(
+        new Response("<!doctype html><html><body>Login required</body></html>", {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" },
+        }),
+      )
+    }
+    return originalFetch(url)
+  }) as unknown as typeof fetch
+
+  const fakeAuth = Layer.mock(Auth.Service)({
+    all: () =>
+      Effect.succeed({
+        "https://example.com": new Auth.WellKnown({ type: "wellknown", key: "TEST_TOKEN", token: "expired-token" }),
+      }),
+  })
+
+  const layer = Config.layer.pipe(
+    Layer.provide(AppFileSystem.defaultLayer),
+    Layer.provide(fakeAuth),
+    Layer.provide(emptyAccount),
+    Layer.provideMerge(infra),
+  )
+
+  try {
+    const exit = await provideTmpdirInstance(
+      () => Config.Service.use((svc) => svc.get()).pipe(Effect.exit),
+      { git: true },
+    ).pipe(Effect.scoped, Effect.provide(layer), Effect.runPromise)
+
+    expect(Exit.isFailure(exit)).toBe(true)
+    const error = Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined
+    expect((error as Error | undefined)?.name).toBe("ConfigRemoteAuthError")
+    const data = (error as { data?: { url?: string; remote?: string; message?: string } } | undefined)?.data
+    expect(data?.url).toBe("https://example.com")
+    expect(data?.remote).toBe("https://example.com/.well-known/opencode")
+    expect(data?.message).toBe("the server returned a login page instead of JSON")
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test("wellknown non-json response surfaces remote auth recovery error", async () => {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = mock((url: string | URL | Request) => {
+    const urlStr = url instanceof Request ? url.url : url instanceof URL ? url.href : url
+    if (urlStr.includes(".well-known/opencode")) {
+      return Promise.resolve(
+        new Response("login required", {
+          status: 200,
+          headers: { "content-type": "text/plain" },
+        }),
+      )
+    }
+    return originalFetch(url)
+  }) as unknown as typeof fetch
+
+  const fakeAuth = Layer.mock(Auth.Service)({
+    all: () =>
+      Effect.succeed({
+        "https://example.com": new Auth.WellKnown({ type: "wellknown", key: "TEST_TOKEN", token: "expired-token" }),
+      }),
+  })
+
+  const layer = Config.layer.pipe(
+    Layer.provide(AppFileSystem.defaultLayer),
+    Layer.provide(fakeAuth),
+    Layer.provide(emptyAccount),
+    Layer.provideMerge(infra),
+  )
+
+  try {
+    const exit = await provideTmpdirInstance(
+      () => Config.Service.use((svc) => svc.get()).pipe(Effect.exit),
+      { git: true },
+    ).pipe(Effect.scoped, Effect.provide(layer), Effect.runPromise)
+
+    expect(Exit.isFailure(exit)).toBe(true)
+    const error = Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined
+    expect((error as Error | undefined)?.name).toBe("ConfigRemoteAuthError")
+    expect((error as { data?: { message?: string } } | undefined)?.data?.message).toBe(
+      "the server returned non-JSON content",
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test("wellknown unauthorized response surfaces remote auth recovery error", async () => {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = mock((url: string | URL | Request) => {
+    const urlStr = url instanceof Request ? url.url : url instanceof URL ? url.href : url
+    if (urlStr.includes(".well-known/opencode")) {
+      return Promise.resolve(new Response("Unauthorized", { status: 401 }))
+    }
+    return originalFetch(url)
+  }) as unknown as typeof fetch
+
+  const fakeAuth = Layer.mock(Auth.Service)({
+    all: () =>
+      Effect.succeed({
+        "https://example.com": new Auth.WellKnown({ type: "wellknown", key: "TEST_TOKEN", token: "expired-token" }),
+      }),
+  })
+
+  const layer = Config.layer.pipe(
+    Layer.provide(AppFileSystem.defaultLayer),
+    Layer.provide(fakeAuth),
+    Layer.provide(emptyAccount),
+    Layer.provideMerge(infra),
+  )
+
+  try {
+    const exit = await provideTmpdirInstance(
+      () => Config.Service.use((svc) => svc.get()).pipe(Effect.exit),
+      { git: true },
+    ).pipe(Effect.scoped, Effect.provide(layer), Effect.runPromise)
+
+    expect(Exit.isFailure(exit)).toBe(true)
+    const error = Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined
+    expect((error as Error | undefined)?.name).toBe("ConfigRemoteAuthError")
+    expect((error as { data?: { message?: string } } | undefined)?.data?.message).toBe(
+      "the server rejected the request with HTTP 401",
+    )
   } finally {
     globalThis.fetch = originalFetch
   }
