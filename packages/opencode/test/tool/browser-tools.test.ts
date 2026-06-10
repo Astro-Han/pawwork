@@ -16,6 +16,7 @@ import { BrowserScreenshotTool } from "../../src/tool/browser-screenshot"
 import { BrowserExtractTool } from "../../src/tool/browser-extract"
 import { SessionID, MessageID } from "../../src/session/schema"
 import { Permission } from "../../src/permission"
+import { ToolInfoTool } from "../../src/tool/tool-info"
 import { FakeCdpServer, provideFakeHost, scriptCurrentUrl } from "../fake/cdp-server"
 
 const askLog: Array<{ permission: string; patterns: string[]; always: string[] }> = []
@@ -209,6 +210,35 @@ describe("permission gate", () => {
     expect(resolved).toEqual([1])
     expect(winTwo.methods).toEqual([])
   }, 10_000)
+
+  test("a partially available browser group activates only the available members", async () => {
+    // The registry filters deferred tools per member, so the activation must
+    // announce the same subset — never a member the next step's tool list
+    // won't contain.
+    const partialCtx = {
+      ...ctx,
+      extra: { deferredAvailable: (id: string) => id !== "browser_screenshot" },
+    } as unknown as typeof ctx
+    const result = await execWith(partialCtx, ToolInfoTool(() => Effect.void), { name: "browser" })
+    expect(result.output).toContain('<tool_info name="browser_snapshot">')
+    expect(result.output).not.toContain("browser_screenshot")
+    expect(result.metadata?.activated).toBe("browser")
+    expect(result.metadata?.members).toEqual([
+      "browser_navigate",
+      "browser_snapshot",
+      "browser_click",
+      "browser_type",
+      "browser_wait",
+      "browser_extract",
+    ])
+  })
+
+  test("a browser group with no available members fails activation", async () => {
+    const noneCtx = { ...ctx, extra: { deferredAvailable: () => false } } as unknown as typeof ctx
+    await expect(execWith(noneCtx, ToolInfoTool(() => Effect.void), { name: "browser" })).rejects.toThrow(
+      /not available in this context/,
+    )
+  })
 
   test("an action recovers when the session's window closed while idle", async () => {
     const winOne = makeServer()

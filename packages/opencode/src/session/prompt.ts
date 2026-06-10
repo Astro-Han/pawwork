@@ -2238,13 +2238,13 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           const newlyActivated = deriveNewlyActivated(MessageV2.lastNonSummaryAssistant(sessionID))
           if (newlyActivated.size > 0) {
             const userMessage = msgs.findLast((msg) => msg.info.role === "user" && msg.info.id === lastUser.id)
-            for (const name of newlyActivated) {
+            for (const [name, members] of newlyActivated) {
               userMessage?.parts.push({
                 id: PartID.ascending(),
                 messageID: lastUser.id,
                 sessionID,
                 type: "text",
-                text: buildActivationReminder(name),
+                text: buildActivationReminder(name, members),
                 synthetic: true,
               })
             }

@@ -93,7 +93,21 @@ describe("tool-info", () => {
     const turn = assistant([
       toolPart("tool_info", "completed", { name: "exit-worktree" }, { activated: "exit-worktree" }),
     ])
-    expect([...deriveNewlyActivated(turn)]).toEqual(["exit-worktree"])
+    expect([...deriveNewlyActivated(turn)]).toEqual([["exit-worktree", undefined]])
+  })
+
+  test("deriveNewlyActivated carries the availability-filtered members a group activation recorded", () => {
+    const members = ["browser_navigate", "browser_snapshot"]
+    const turn = assistant([toolPart("tool_info", "completed", { name: "browser" }, { activated: "browser", members })])
+    expect([...deriveNewlyActivated(turn)]).toEqual([["browser", members]])
+  })
+
+  test("buildActivationReminder lists only the members the activation actually rendered", () => {
+    const r = buildActivationReminder("browser", ["browser_navigate", "browser_snapshot"])
+    expect(r).toContain("browser_navigate, browser_snapshot")
+    expect(r).not.toContain("browser_screenshot")
+    // Without a recorded list (older parts), fall back to the full roster.
+    expect(buildActivationReminder("browser")).toContain("browser_screenshot")
   })
 
   test("deriveNewlyActivated returns empty when the assistant turn has no tool_info part", () => {
@@ -184,7 +198,7 @@ describe("tool-info", () => {
 
   test("deriveNewlyActivated reports a group activation token", () => {
     const turn = assistant([toolPart("tool_info", "completed", { name: "browser" }, { activated: "browser" })])
-    expect([...deriveNewlyActivated(turn)]).toEqual(["browser"])
+    expect([...deriveNewlyActivated(turn)]).toEqual([["browser", undefined]])
   })
 
   test("buildActivationReminder for the group lists member tools and warns there is no `browser` tool", () => {

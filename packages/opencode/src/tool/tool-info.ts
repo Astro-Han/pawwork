@@ -204,18 +204,26 @@ export function deriveActivatedToolsFromParts(parts: MessageV2.Part[]): Set<stri
 // the session's newest NON-SUMMARY assistant (MessageV2.lastNonSummaryAssistant). Used to
 // inject the one-shot activation <system-reminder> on exactly the step after a tool_info
 // call. It keys on completed tool_info parts' metadata.activated, so once the model takes
-// any real (non-tool_info) turn the set is empty and the reminder stops — and a compaction
+// any real (non-tool_info) turn the map is empty and the reminder stops — and a compaction
 // summary inserted in between can't suppress it, because summaries are excluded at the
-// source.
-export function deriveNewlyActivated(lastRealAssistant: MessageV2.WithParts | undefined): Set<string> {
-  const newly = new Set<string>()
+// source. The value is the availability-filtered member list the activation
+// rendered (groups only), so the reminder names the same tools.
+export function deriveNewlyActivated(
+  lastRealAssistant: MessageV2.WithParts | undefined,
+): Map<string, string[] | undefined> {
+  const newly = new Map<string, string[] | undefined>()
   if (!lastRealAssistant) return newly
   for (const part of lastRealAssistant.parts) {
     if (part.type !== "tool" || part.tool !== TOOL_INFO_ID) continue
     if (part.state.status !== "completed") continue
-    const activated = (part.state.metadata as { activated?: unknown } | undefined)?.activated
+    const meta = part.state.metadata as { activated?: unknown; members?: unknown } | undefined
+    const activated = meta?.activated
     if (typeof activated !== "string") continue
-    if (DEFERRED_TOOL_IDS.has(activated) || DEFERRED_GROUP_IDS.has(activated)) newly.add(activated)
+    if (!DEFERRED_TOOL_IDS.has(activated) && !DEFERRED_GROUP_IDS.has(activated)) continue
+    const members = Array.isArray(meta?.members)
+      ? meta.members.filter((m): m is string => typeof m === "string")
+      : undefined
+    newly.set(activated, members)
   }
   return newly
 }
@@ -272,10 +280,12 @@ const ANTI_FALLBACK: Record<string, string> = {
 // One-shot system-reminder for the step after a tool_info activation. Anchored on
 // <system-reminder> because models attend to system signals more reliably than to
 // tool self-descriptions. For a group, list the members so the model calls a real
-// tool (there is no callable tool named after the group).
-export function buildActivationReminder(name: string): string {
+// tool (there is no callable tool named after the group) — preferring the
+// availability-filtered list the activation recorded, so the reminder never
+// names a member the registry won't expose.
+export function buildActivationReminder(name: string, activatedMembers?: string[]): string {
   if (DEFERRED_GROUP_IDS.has(name)) {
-    const members = deferredGroupMembers(name).join(", ")
+    const members = (activatedMembers?.length ? activatedMembers : deferredGroupMembers(name)).join(", ")
     return [
       "<system-reminder>",
       `Deferred tool group activated: the \`${name}\` tools (${members}) are now in your tool list for this step. ` +
@@ -369,9 +379,13 @@ export const ToolInfoTool = (
               )
             }
             const isAvailable = ctx.extra?.["deferredAvailable"] as ((id: string) => boolean) | undefined
-            const entries =
+            // Render only the members the registry will actually expose next
+            // step (it filters per member): announcing a disabled member would
+            // point the model at a tool that never appears in its list.
+            const allEntries =
               target.kind === "group" ? deferredGroupMembers(target.id).map((id) => BY_ID[id]) : [BY_ID[target.id]]
-            if (isAvailable && !entries.some((entry) => isAvailable(entry.id))) {
+            const entries = isAvailable ? allEntries.filter((entry) => isAvailable(entry.id)) : allEntries
+            if (entries.length === 0) {
               return yield* Effect.fail(new Error(`Deferred tool "${target.id}" is not available in this context.`))
             }
             const model = ctx.extra?.["model"] as Provider.Model | undefined
@@ -391,7 +405,14 @@ export const ToolInfoTool = (
               // truncated:false opts this tool out of output truncation (see tool.ts
               // wrap): tool_info exists to hand the model a *complete* schema, so a
               // large deferred tool's parameters must never be clipped mid-load.
-              metadata: { activated: target.id, truncated: false },
+              // For a group, `members` records the members actually rendered
+              // (availability-filtered) so the activation reminder lists the
+              // same set instead of the full roster.
+              metadata: {
+                activated: target.id,
+                ...(target.kind === "group" ? { members: entries.map((entry) => entry.id) } : {}),
+                truncated: false,
+              },
             }
           }),
       }
