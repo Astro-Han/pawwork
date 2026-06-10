@@ -11,12 +11,6 @@ beforeAll(async () => {
     useNavigate: () => () => undefined,
     useParams: () => ({}),
   }))
-  mock.module("@opencode-ai/ui/context", () => ({
-    createSimpleContext: () => ({
-      use: () => undefined,
-      provider: () => undefined,
-    }),
-  }))
   const mod = await import("./prompt")
   createPromptBinding = mod.createPromptBinding
   DEFAULT_PROMPT = mod.DEFAULT_PROMPT
