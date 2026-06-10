@@ -4,8 +4,11 @@ import { test, expect, mock, beforeEach } from "bun:test"
 
 // Per-client state for controlling mock behavior
 interface MockClientState {
+  capabilities: { tools?: object; prompts?: object; resources?: object }
   tools: Array<{ name: string; description?: string; inputSchema: object; outputSchema?: object }>
   listToolsCalls: number
+  listPromptsCalls: number
+  listResourcesCalls: number
   requestCalls: number
   listToolsShouldFail: boolean
   listToolsError: string
@@ -13,6 +16,19 @@ interface MockClientState {
   listResourcesShouldFail: boolean
   prompts: Array<{ name: string; description?: string }>
   resources: Array<{ name: string; uri: string; description?: string }>
+  toolPages: Record<
+    string,
+    {
+      tools: Array<{ name: string; description?: string; inputSchema: object; outputSchema?: object }>
+      nextCursor?: string
+    }
+  >
+  promptPages: Record<string, { prompts: Array<{ name: string; description?: string }>; nextCursor?: string }>
+  resourcePages: Record<
+    string,
+    { resources: Array<{ name: string; uri: string; description?: string }>; nextCursor?: string }
+  >
+  callToolSignals: Array<AbortSignal | undefined>
   closed: boolean
   notificationHandlers: Map<unknown, (...args: any[]) => any>
 }
@@ -32,8 +48,11 @@ function getOrCreateClientState(name?: string): MockClientState {
   let state = clientStates.get(key)
   if (!state) {
     state = {
+      capabilities: { tools: {}, prompts: {}, resources: {} },
       tools: [{ name: "test_tool", description: "A test tool", inputSchema: { type: "object", properties: {} } }],
       listToolsCalls: 0,
+      listPromptsCalls: 0,
+      listResourcesCalls: 0,
       requestCalls: 0,
       listToolsShouldFail: false,
       listToolsError: "listTools failed",
@@ -41,6 +60,10 @@ function getOrCreateClientState(name?: string): MockClientState {
       listResourcesShouldFail: false,
       prompts: [],
       resources: [],
+      toolPages: {},
+      promptPages: {},
+      resourcePages: {},
+      callToolSignals: [],
       closed: false,
       notificationHandlers: new Map(),
     }
@@ -127,32 +150,58 @@ mock.module("@modelcontextprotocol/sdk/client/index.js", () => ({
       this._state?.notificationHandlers.set(schema, handler)
     }
 
-    async listTools() {
+    getServerCapabilities() {
+      return this._state?.capabilities
+    }
+
+    async listTools(params?: { cursor?: string }) {
       if (this._state) this._state.listToolsCalls++
       if (this._state?.listToolsShouldFail) {
         throw new Error(this._state.listToolsError)
       }
+      const page = this._state?.toolPages[params === undefined ? "initial" : (params.cursor ?? "")]
+      if (page) return page
       return { tools: this._state?.tools ?? [] }
     }
 
-    async request(request: { method: string }, schema: { parse: (value: unknown) => unknown }) {
+    async request(
+      request: { method: string; params?: { cursor?: string } },
+      schema: { parse: (value: unknown) => unknown },
+    ) {
       if (this._state) this._state.requestCalls++
-      if (request.method === "tools/list") return schema.parse({ tools: this._state?.tools ?? [] })
+      if (request.method === "tools/list") {
+        return schema.parse(
+          this._state?.toolPages[request.params === undefined ? "initial" : (request.params.cursor ?? "")] ?? {
+            tools: this._state?.tools ?? [],
+          },
+        )
+      }
       throw new Error(`unsupported request: ${request.method}`)
     }
 
-    async listPrompts() {
+    async listPrompts(params?: { cursor?: string }) {
+      if (this._state) this._state.listPromptsCalls++
       if (this._state?.listPromptsShouldFail) {
         throw new Error("listPrompts failed")
       }
+      const page = this._state?.promptPages[params === undefined ? "initial" : (params.cursor ?? "")]
+      if (page) return page
       return { prompts: this._state?.prompts ?? [] }
     }
 
-    async listResources() {
+    async listResources(params?: { cursor?: string }) {
+      if (this._state) this._state.listResourcesCalls++
       if (this._state?.listResourcesShouldFail) {
         throw new Error("listResources failed")
       }
+      const page = this._state?.resourcePages[params === undefined ? "initial" : (params.cursor ?? "")]
+      if (page) return page
       return { resources: this._state?.resources ?? [] }
+    }
+
+    async callTool(_args: unknown, _schema: unknown, options?: { signal?: AbortSignal }) {
+      this._state?.callToolSignals.push(options?.signal)
+      return { content: [] }
     }
 
     async close() {
@@ -264,6 +313,115 @@ test(
     expect(Object.keys(after).some((key) => key.includes("next_tool"))).toBe(true)
     expect(Object.keys(after).some((key) => key.includes("test_tool"))).toBe(false)
     expect(serverState.listToolsCalls).toBe(2)
+  }),
+)
+
+test(
+  "capabilities prevent unsupported catalog calls",
+  withInstance({}, async () => {
+    lastCreatedClientName = "resource-only-server"
+    const serverState = getOrCreateClientState("resource-only-server")
+    serverState.capabilities = { resources: {} }
+    serverState.resources = [{ name: "docs", uri: "docs://readme" }]
+
+    const addResult = await MCP.add("resource-only-server", {
+      type: "local",
+      command: ["echo", "test"],
+    })
+
+    expect((addResult.status as any)["resource-only-server"]?.status ?? (addResult.status as any).status).toBe(
+      "connected",
+    )
+    expect(serverState.listToolsCalls).toBe(0)
+    expect(serverState.notificationHandlers.size).toBe(0)
+    expect(await MCP.tools()).toEqual({})
+    expect(Object.keys(await MCP.resources())).toEqual(["resource-only-server:docs"])
+    expect(serverState.listResourcesCalls).toBe(1)
+    expect(serverState.listPromptsCalls).toBe(0)
+
+    lastCreatedClientName = "tools-only-server"
+    const toolsOnlyState = getOrCreateClientState("tools-only-server")
+    toolsOnlyState.capabilities = { tools: {} }
+
+    await MCP.add("tools-only-server", {
+      type: "local",
+      command: ["echo", "test"],
+    })
+
+    expect(Object.keys(await MCP.tools())).toEqual(["tools-only-server_test_tool"])
+    expect(await MCP.prompts()).toEqual({})
+    expect(toolsOnlyState.listPromptsCalls).toBe(0)
+    expect(toolsOnlyState.listResourcesCalls).toBe(0)
+  }),
+)
+
+test(
+  "catalog listing follows cursors and stops duplicate cursors",
+  withInstance({}, async () => {
+    lastCreatedClientName = "paged-server"
+    const pagedState = getOrCreateClientState("paged-server")
+    pagedState.toolPages = {
+      initial: { tools: [{ name: "tool-one", inputSchema: { type: "object", properties: {} } }], nextCursor: "t2" },
+      t2: { tools: [{ name: "tool-two", inputSchema: { type: "object", properties: {} } }] },
+    }
+    pagedState.promptPages = {
+      initial: { prompts: [{ name: "prompt-one" }], nextCursor: "p2" },
+      p2: { prompts: [{ name: "prompt-two" }] },
+    }
+    pagedState.resourcePages = {
+      initial: { resources: [{ name: "resource-one", uri: "test://one" }], nextCursor: "" },
+      "": { resources: [{ name: "resource-two", uri: "test://two" }] },
+    }
+
+    await MCP.add("paged-server", {
+      type: "local",
+      command: ["echo", "test"],
+    })
+
+    expect(Object.keys(await MCP.tools())).toEqual(["paged-server_tool-one", "paged-server_tool-two"])
+    expect(Object.keys(await MCP.prompts())).toEqual(["paged-server:prompt-one", "paged-server:prompt-two"])
+    expect(Object.keys(await MCP.resources())).toEqual(["paged-server:resource-one", "paged-server:resource-two"])
+    expect(pagedState.listToolsCalls).toBe(2)
+    expect(pagedState.listPromptsCalls).toBe(2)
+    expect(pagedState.listResourcesCalls).toBe(2)
+
+    lastCreatedClientName = "looping-server"
+    const loopingState = getOrCreateClientState("looping-server")
+    loopingState.toolPages = {
+      initial: { tools: [], nextCursor: "repeat" },
+      repeat: { tools: [], nextCursor: "repeat" },
+    }
+
+    const addResult = await MCP.add("looping-server", {
+      type: "local",
+      command: ["echo", "test"],
+    })
+
+    expect((addResult.status as any)["looping-server"]?.status ?? (addResult.status as any).status).toBe("failed")
+    expect(loopingState.listToolsCalls).toBe(2)
+  }),
+)
+
+test(
+  "tool execution forwards abort signals to MCP callTool",
+  withInstance({}, async () => {
+    lastCreatedClientName = "abort-server"
+    const serverState = getOrCreateClientState("abort-server")
+
+    await MCP.add("abort-server", {
+      type: "local",
+      command: ["echo", "test"],
+    })
+
+    const tools = await MCP.tools()
+    const tool = tools["abort-server_test_tool"] as unknown as {
+      execute: (args: unknown, options: { abortSignal: AbortSignal }) => any
+    }
+    const controller = new AbortController()
+
+    await tool.execute({}, { abortSignal: controller.signal })
+
+    expect(serverState.callToolSignals).toEqual([controller.signal])
   }),
 )
 

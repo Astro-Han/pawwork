@@ -124,12 +124,45 @@ export namespace MCP {
   type PromptInfo = Awaited<ReturnType<MCPClient["listPrompts"]>>["prompts"][number]
   type ResourceInfo = Awaited<ReturnType<MCPClient["listResources"]>>["resources"][number]
   type McpEntry = NonNullable<Config.Info["mcp"]>[string]
+  const MAX_LIST_PAGES = 1_000
 
   function isMcpConfigured(entry: McpEntry): entry is Config.Mcp {
     return typeof entry === "object" && entry !== null && "type" in entry
   }
 
   const sanitize = (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, "_")
+
+  function getCapabilities(client: MCPClient) {
+    return (
+      client as {
+        getServerCapabilities?: () => { tools?: unknown; prompts?: unknown; resources?: unknown } | undefined
+      }
+    ).getServerCapabilities?.()
+  }
+
+  function hasCapability(client: MCPClient, key: "tools" | "prompts" | "resources") {
+    return getCapabilities(client)?.[key] !== undefined
+  }
+
+  async function paginate<T, R extends { nextCursor?: string }>(
+    list: (cursor?: string) => Promise<R>,
+    items: (result: R) => T[],
+  ) {
+    const result: T[] = []
+    const cursors = new Set<string>()
+    let cursor: string | undefined
+
+    for (let pageCount = 0; pageCount < MAX_LIST_PAGES; pageCount++) {
+      const page = await list(cursor)
+      result.push(...items(page))
+      if (page.nextCursor === undefined) return result
+      if (cursors.has(page.nextCursor)) throw new Error(`MCP list returned duplicate cursor: ${page.nextCursor}`)
+      cursors.add(page.nextCursor)
+      cursor = page.nextCursor
+    }
+
+    throw new Error(`MCP list exceeded ${MAX_LIST_PAGES} pages`)
+  }
 
   function remoteURL(key: string, value: string) {
     if (URL.canParse(value)) return new URL(value)
@@ -151,7 +184,7 @@ export namespace MCP {
     return dynamicTool({
       description: mcpTool.description ?? "",
       inputSchema: jsonSchema(schema),
-      execute: async (args: unknown) => {
+      execute: async (args: unknown, options) => {
         return client.callTool(
           {
             name: mcpTool.name,
@@ -160,6 +193,7 @@ export namespace MCP {
           CallToolResultSchema,
           {
             resetTimeoutOnProgress: true,
+            signal: options?.abortSignal,
             timeout,
           },
         )
@@ -187,31 +221,37 @@ export namespace MCP {
 
   function listTools(key: string, client: MCPClient, timeout: number) {
     return Effect.tryPromise({
-      try: () => withTimeout(client.listTools(), timeout),
-      catch: (err) => (err instanceof Error ? err : new Error(String(err))),
-    }).pipe(
-      Effect.map((result) => result.tools),
-      Effect.catch((error) => {
-        if (!isOutputSchemaValidationError(error)) return Effect.fail(error)
+      try: () =>
+        paginate(
+          async (cursor) => {
+            const params = cursor === undefined ? undefined : { cursor }
+            try {
+              return await withTimeout(client.listTools(params), timeout)
+            } catch (error) {
+              if (!(error instanceof Error) || !isOutputSchemaValidationError(error)) throw error
 
-        log.warn("failed to validate MCP tool output schemas, retrying without output schema validation", {
-          key,
-          error,
-        })
-        return Effect.tryPromise({
-          try: () => withTimeout(client.request({ method: "tools/list" }, TolerantListToolsResultSchema), timeout),
-          catch: (err) => (err instanceof Error ? err : new Error(String(err))),
-        }).pipe(
-          Effect.map((result) =>
-            result.tools.map((tool) => ({
-              name: tool.name,
-              description: tool.description,
-              inputSchema: tool.inputSchema,
-            })),
-          ),
-        )
-      }),
-    )
+              log.warn("failed to validate MCP tool output schemas, retrying without output schema validation", {
+                key,
+                error,
+              })
+              const result = await withTimeout(
+                client.request({ method: "tools/list", params }, TolerantListToolsResultSchema),
+                timeout,
+              )
+              return {
+                ...result,
+                tools: result.tools.map((tool) => ({
+                  name: tool.name,
+                  description: tool.description,
+                  inputSchema: tool.inputSchema,
+                })),
+              }
+            }
+          },
+          (result) => result.tools,
+        ),
+      catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+    })
   }
 
   function defs(key: string, client: MCPClient, timeout?: number) {
@@ -476,7 +516,7 @@ export namespace MCP {
           return { status } satisfies CreateResult
         }
 
-        const listed = yield* defs(key, mcpClient, mcp.timeout)
+        const listed = hasCapability(mcpClient, "tools") ? yield* defs(key, mcpClient, mcp.timeout) : []
         if (!listed) {
           yield* Effect.tryPromise(() => mcpClient.close()).pipe(Effect.ignore)
           return { status: { status: "failed", error: "Failed to get tools" } } satisfies CreateResult
@@ -514,6 +554,8 @@ export namespace MCP {
       )
 
       function watch(s: State, name: string, client: MCPClient, bridge: EffectBridgeShape, timeout?: number) {
+        if (!hasCapability(client, "tools")) return
+
         client.setNotificationHandler(ToolListChangedNotificationSchema, async () => {
           log.info("tools list changed notification received", { server: name })
           if (s.clients[name] !== client || s.status[name]?.status !== "connected") return
@@ -717,12 +759,32 @@ export namespace MCP {
 
       const prompts = Effect.fn("MCP.prompts")(function* () {
         const s = yield* InstanceState.get(state)
-        return yield* collectFromConnected(s, (c) => c.listPrompts().then((r) => r.prompts), "prompts")
+        return yield* collectFromConnected(
+          s,
+          (client) =>
+            hasCapability(client, "prompts")
+              ? paginate(
+                  (cursor) => client.listPrompts(cursor === undefined ? undefined : { cursor }),
+                  (result) => result.prompts,
+                )
+              : Promise.resolve([]),
+          "prompts",
+        )
       })
 
       const resources = Effect.fn("MCP.resources")(function* () {
         const s = yield* InstanceState.get(state)
-        return yield* collectFromConnected(s, (c) => c.listResources().then((r) => r.resources), "resources")
+        return yield* collectFromConnected(
+          s,
+          (client) =>
+            hasCapability(client, "resources")
+              ? paginate(
+                  (cursor) => client.listResources(cursor === undefined ? undefined : { cursor }),
+                  (result) => result.resources,
+                )
+              : Promise.resolve([]),
+          "resources",
+        )
       })
 
       const withClient = Effect.fnUntraced(function* <A>(
@@ -845,7 +907,11 @@ export namespace MCP {
             return { status: "failed", error: "MCP config not found after auth" } as Status
           }
 
-          const listed = client ? yield* defs(mcpName, client, mcpConfig.timeout) : undefined
+          const listed = client
+            ? hasCapability(client, "tools")
+              ? yield* defs(mcpName, client, mcpConfig.timeout)
+              : []
+            : undefined
           if (!client || !listed) {
             yield* Effect.tryPromise(() => client?.close() ?? Promise.resolve()).pipe(Effect.ignore)
             return { status: "failed", error: "Failed to get tools" } as Status
