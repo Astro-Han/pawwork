@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type JSX } from "solid-js"
+import { For, Show, createEffect, createMemo, createRoot, createSignal, onCleanup, onMount, type JSX } from "solid-js"
 import { createMediaQuery } from "@solid-primitives/media"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
@@ -230,12 +230,21 @@ export function SessionSidePanel(props: {
     view().sidePanel.closeTab("browser")
   })
 
-  // The agent attached browser automation: surface the driven page (openTab
-  // pops the panel open when closed and activates the tab). See the helper
-  // for why this is load-bearing beyond UX.
-  createEffect(() => {
-    onCleanup(subscribeAutomationAttached(platform.browser, view().sidePanel))
-  })
+  // The agent attached browser automation: surface the driven page by opening
+  // the browser tab in the DRIVEN conversation's layout state — the user sees
+  // it now if they are looking at that conversation, or when they next open it.
+  // Other conversations' panels are never touched. Writing another session's
+  // layout needs its own reactive root (view() builds memos); dispose is
+  // deferred one microtask so openTab's deferred selection write still runs
+  // against live state.
+  onCleanup(
+    subscribeAutomationAttached(platform.browser, (sessionID) => {
+      createRoot((dispose) => {
+        layout.view(`${params.dir}/${sessionID}`).sidePanel.openTab("browser")
+        queueMicrotask(dispose)
+      })
+    }),
+  )
 
   const showAllFiles = () => {
     if (view().sidePanel.explorer.tab() !== "changes") return
@@ -464,6 +473,7 @@ export function SessionSidePanel(props: {
                     <Tabs.Content value="browser" class="min-h-0 flex-1 overflow-hidden">
                       <BrowserPanel
                         bridge={bridge()}
+                        target={() => params.id ?? "draft"}
                         active={() => sidePanelTab() === "browser"}
                         panelOpen={open}
                         panelChromeMenuOpen={addTabMenuOpen}

@@ -78,6 +78,7 @@ import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigratio
 import { registerAboutIpc, triggerAbout } from "./ipc/about"
 import { registerBrowserIpc } from "./ipc/browser"
 import { createDesktopBrowserBridgeHost } from "./browser/automation-host"
+import { browserControllers } from "./browser/controller-automation"
 import { diagnosticsLogTail, filePath, initLogging } from "./logging"
 import { parseMarkdown } from "./markdown"
 import { createMenu } from "./menu"
@@ -471,6 +472,9 @@ function openMainWindow() {
     }
   })
   win.on("focus", () => syncMenuLocaleForWindow(win))
+  // Browser views are conversation-owned: on close (pre-destroy, so reparenting
+  // still works) they detach and live on; only the window's draft dies with it.
+  win.on("close", () => browserControllers.onWindowClosing(win))
   win.on("closed", () => {
     if (mainWindow !== win) return
     mainWindow = selectNextMainWindow(win, BrowserWindow.getAllWindows())
@@ -508,11 +512,7 @@ async function initialize() {
   // injection by design: the CDP endpoint/secret must never cross renderer
   // IPC or preload (PR1 security contract rule 7).
   const { BrowserBridge } = await import("virtual:opencode-server")
-  BrowserBridge.provideHost(
-    createDesktopBrowserBridgeHost({
-      sessionIDForWindow: (windowID) => desktopContexts.current(windowID).sessionID,
-    }),
-  )
+  BrowserBridge.provideHost(createDesktopBrowserBridgeHost())
   serverReady.resolve({
     url,
     username: PAWWORK_RUNTIME.serverUsername,
@@ -654,6 +654,10 @@ registerIpcHandlers({
     const next = normalizeDesktopContextPayload(context, menuLocale)
     desktopContexts.set(win.id, next)
     syncWindowTitleForDesktopContext(win, next)
+    // Authoritative hide on route change: the renderer panel survives session
+    // switches without remounting, so it can no longer address the previous
+    // conversation's view — main stops displaying what the window left behind.
+    browserControllers.syncWindowDisplay(win, next.sessionID)
     if (!contextWindowCleanup.has(win.id)) {
       contextWindowCleanup.add(win.id)
       win.once("closed", () => {
@@ -666,7 +670,7 @@ registerIpcHandlers({
 })
 
 registerAboutIpc()
-registerBrowserIpc()
+registerBrowserIpc({ sessionIDForWindow: (windowID) => desktopContexts.current(windowID).sessionID })
 
 function killSidecar() {
   if (!server) return

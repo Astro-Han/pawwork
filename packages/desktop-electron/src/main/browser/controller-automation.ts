@@ -1,37 +1,30 @@
 import type { BrowserWindow } from "electron"
-import type { AutomationEndpoint } from "./cdp-bridge"
-import { BrowserViewController } from "./controller"
+import { BrowserViewController, draftKey } from "./controller"
 
 /**
- * Main-process registry of embedded-browser controllers, keyed by window id.
+ * Main-process registry of embedded-browser controllers, keyed by the owning
+ * conversation (root session id) or a window's Home draft (`draft:<windowID>`).
  * Shared by the renderer IPC layer (registerBrowserIpc) and the agent
- * automation resolver — both run in the main process, so the CDP endpoint and
+ * automation host — both run in the main process, so the CDP endpoint and
  * secret produced here are handed back as same-process values and never cross
  * renderer IPC or preload. The registry never exposes a controller's private
  * WebContents; automation goes through the controller's own attach/detach.
  */
 class BrowserControllerRegistry {
-  private readonly controllers = new Map<number, BrowserViewController>()
+  private readonly controllers = new Map<string, BrowserViewController>()
 
-  /** Get or lazily create the controller for a window, wiring its teardown. */
-  ensure(win: BrowserWindow): BrowserViewController {
-    // Capture the id now: by the time 'closed' fires the BrowserWindow is
-    // destroyed and reading win.id throws "Object has been destroyed".
-    const winId = win.id
-    let controller = this.controllers.get(winId)
+  /** Get or lazily create the controller owned by a conversation or draft key. */
+  ensure(key: string): BrowserViewController {
+    let controller = this.controllers.get(key)
     if (!controller) {
-      controller = new BrowserViewController(win)
-      this.controllers.set(winId, controller)
-      win.once("closed", () => {
-        this.controllers.get(winId)?.destroy()
-        this.controllers.delete(winId)
-      })
+      controller = new BrowserViewController(key)
+      this.controllers.set(key, controller)
     }
     return controller
   }
 
-  get(winId: number): BrowserViewController | undefined {
-    return this.controllers.get(winId)
+  get(key: string): BrowserViewController | undefined {
+    return this.controllers.get(key)
   }
 
   all(): BrowserViewController[] {
@@ -39,16 +32,49 @@ class BrowserControllerRegistry {
   }
 
   /**
-   * Bring up the CDP bridge for a window's embedded view and return its sealed
-   * endpoint. PR2 layers session→window selection on top of this; here the
-   * caller passes the already-resolved window.
+   * Hand a window's Home draft to the session just created from it: the view
+   * (page, history, automation) moves as-is, only the owner key changes. Must
+   * complete before the renderer navigates to the session route, so the new
+   * panel finds the adopted view instead of lazily creating an empty one.
+   * Fails soft — no draft, or the session somehow already has a view — and
+   * reports whether the adopted view has a page, so the caller opens the
+   * browser tab in the new conversation only when there is something to show.
    */
-  attachForWindow(win: BrowserWindow): Promise<AutomationEndpoint> {
-    return this.ensure(win).attachAutomation()
+  adoptDraft(windowID: number, sessionID: string): { adopted: boolean; hasPage: boolean } {
+    const draft = this.controllers.get(draftKey(windowID))
+    if (!draft || this.controllers.has(sessionID)) return { adopted: false, hasPage: false }
+    this.controllers.delete(draftKey(windowID))
+    this.controllers.set(sessionID, draft)
+    draft.retarget(sessionID)
+    return { adopted: true, hasPage: draft.state().hasPage }
   }
 
-  async detachForWindow(winId: number): Promise<void> {
-    await this.controllers.get(winId)?.detachAutomation()
+  /**
+   * The window switched routes (renderer-reported DesktopContext): stop
+   * displaying any view it no longer shows. This is the authoritative hide for
+   * route changes — the renderer panel survives them without remounting, so it
+   * can only address the NEW conversation by the time it reacts. The window's
+   * draft survives only while the window is NOT on a conversation (a null
+   * sessionID is the new-session page, where the draft panel lives).
+   */
+  syncWindowDisplay(win: BrowserWindow, sessionID: string | null) {
+    for (const [key, controller] of this.controllers) {
+      if (key === sessionID) continue
+      if (sessionID === null && key === draftKey(win.id)) continue
+      controller.hideFor(win)
+    }
+  }
+
+  /**
+   * A window is closing: conversation views it displayed detach and live on
+   * (they are conversation-owned, not window-owned); the window's own draft
+   * dies with it.
+   */
+  onWindowClosing(win: BrowserWindow) {
+    for (const controller of this.controllers.values()) controller.releaseHost(win)
+    const draft = draftKey(win.id)
+    this.controllers.get(draft)?.destroy()
+    this.controllers.delete(draft)
   }
 }
 

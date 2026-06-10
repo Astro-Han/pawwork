@@ -606,6 +606,8 @@ export const dict = {
   "browser.clearData.title": "Clear browsing data?",
   "browser.clearData.description": "This signs you out of every site and clears cookies and cache. It can't be undone.",
   "browser.clearData.confirm": "Clear",
+  "browser.displaced.description": "This page is showing in another window.",
+  "browser.displaced.action": "Show in this window",
   "session.panel.reviewAndFiles": "Review and files",
   "session.review.filesChanged": "{{count}} Files Changed",
   "session.review.change.one": "Change",

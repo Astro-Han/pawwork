@@ -302,9 +302,9 @@ describe("createSessionTabs", () => {
 })
 
 describe("subscribeAutomationAttached", () => {
-  test("opens the browser tab when the agent attaches automation, and unsubscribes cleanly", () => {
+  test("opens the driven conversation's browser tab — and only that one — then unsubscribes cleanly", () => {
     const opened: string[] = []
-    let fire: (() => void) | undefined
+    let fire: ((payload: { sessionID: string }) => void) | undefined
     let unsubscribed = false
     const unsubscribe = subscribeAutomationAttached(
       {
@@ -315,20 +315,18 @@ describe("subscribeAutomationAttached", () => {
           }
         },
       },
-      { openTab: (tab) => opened.push(tab) },
+      (sessionID) => opened.push(sessionID),
     )
-    fire?.()
-    fire?.()
-    expect(opened).toEqual(["browser", "browser"])
+    fire?.({ sessionID: "ses_a" })
+    fire?.({ sessionID: "ses_b" })
+    expect(opened).toEqual(["ses_a", "ses_b"])
     unsubscribe()
     expect(unsubscribed).toBe(true)
   })
 
   test("no-ops on platforms without the embedded browser", () => {
-    const unsubscribe = subscribeAutomationAttached(undefined, {
-      openTab: () => {
-        throw new Error("must not open")
-      },
+    const unsubscribe = subscribeAutomationAttached(undefined, () => {
+      throw new Error("must not open")
     })
     expect(unsubscribe()).toBeUndefined()
   })

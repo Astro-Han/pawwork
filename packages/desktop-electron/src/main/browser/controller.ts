@@ -1,36 +1,71 @@
-import { WebContentsView, shell, type BrowserWindow } from "electron"
+import { BrowserWindow, WebContentsView, shell } from "electron"
 import type { BrowserState, BrowserViewLayout } from "@opencode-ai/app/desktop-api"
 import { browserViewWebPreferences } from "./options"
 import { clearDataReloadAction, computeViewBounds, deriveBrowserState, parseNavigable, safeExternalUrl } from "./logic"
 import { CdpBridge, type AutomationEndpoint } from "./cdp-bridge"
 
 export const BROWSER_STATE_CHANNEL = "browser:state"
-export const BROWSER_AUTOMATION_ATTACHED_CHANNEL = "browser:automation-attached"
+export const BROWSER_DISPLAY_TAKEN_CHANNEL = "browser:display-taken"
 
 /**
- * Owns one embedded browser per window: a WebContentsView painted over the
- * panel's content region. The view is a native layer above the DOM, so the
- * renderer drives its bounds/visibility via setView; navigation state is pushed
- * back over BROWSER_STATE_CHANNEL. Created lazily on first use, destroyed with
- * the window.
+ * A view that has never been displayed still needs a real viewport: renderers
+ * lay out against the view size, and CDP captureScreenshot on a 0×0 view has
+ * nothing to render and times out. Unattached views keep this default until a
+ * panel displays them.
+ */
+const DEFAULT_VIEW_BOUNDS = { x: 0, y: 0, width: 1280, height: 720 }
+
+/** Registry key of a window's Home draft view (the only window-scoped views). */
+export function draftKey(windowID: number): string {
+  return `draft:${windowID}`
+}
+
+function draftWindowID(ownerKey: string): number | null {
+  return ownerKey.startsWith("draft:") ? Number(ownerKey.slice("draft:".length)) : null
+}
+
+/** Renderer-facing target of an owner key: drafts are window-private, so the
+ *  renderer addresses its own draft as the literal "draft". */
+export function rendererTarget(ownerKey: string): string {
+  return draftWindowID(ownerKey) === null ? ownerKey : "draft"
+}
+
+/**
+ * Owns one embedded browser per CONVERSATION (root session) — or a per-window
+ * draft on Home. The view lives unattached to any window; a window is just a
+ * display: `display(win, rect)` reparents the view into the window currently
+ * showing the conversation, `hideFor(win)` lets only that display owner hide
+ * it. Page, history, and scroll live and die with the conversation, so
+ * switching conversations can never show another conversation's page.
  */
 export class BrowserViewController {
   private readonly view: WebContentsView
-  private rect: BrowserViewLayout["rect"] | null = null
-  private visible = false
+  private host: BrowserWindow | null = null
   private favicon: string | null = null
   private destroyed = false
   private automation: CdpBridge | null = null
+  /** Saved throttling value while automation holds it off; null = not held. */
+  private throttlingBefore: boolean | null = null
 
-  constructor(private readonly win: BrowserWindow) {
+  constructor(private target: string) {
     this.view = new WebContentsView({ webPreferences: browserViewWebPreferences() })
     this.view.setVisible(false)
-    win.contentView.addChildView(this.view)
+    this.view.setBounds(DEFAULT_VIEW_BOUNDS)
     this.wireEvents()
   }
 
   private get wc() {
     return this.view.webContents
+  }
+
+  /** Draft adoption rekeys the controller; state pushes follow the new owner. */
+  retarget(target: string) {
+    this.target = target
+  }
+
+  /** The window currently displaying this view, if any. */
+  displayWindowID(): number | null {
+    return this.host && !this.host.isDestroyed() ? this.host.id : null
   }
 
   private wireEvents() {
@@ -67,8 +102,7 @@ export class BrowserViewController {
     })
 
     // Deny every permission request by default — a v1 content viewer should not
-    // silently grant camera/mic/geolocation/etc. (the permission model for
-    // agent-driven use is tracked separately in #1186 PR2).
+    // silently grant camera/mic/geolocation/etc.
     wc.session.setPermissionRequestHandler((_wc, _permission, callback) => callback(false))
   }
 
@@ -100,8 +134,22 @@ export class BrowserViewController {
   }
 
   private emitState() {
-    if (this.destroyed || this.win.isDestroyed()) return
-    this.win.webContents.send(BROWSER_STATE_CHANNEL, this.state())
+    if (this.destroyed) return
+    const payload = { target: rendererTarget(this.target), state: this.state() }
+    for (const win of this.stateWindows()) win.webContents.send(BROWSER_STATE_CHANNEL, payload)
+  }
+
+  // A draft is window-private, so its state goes only to the owner window. A
+  // conversation's state goes to every window: panels showing that conversation
+  // elsewhere must stay current, and a view driven before it was ever displayed
+  // has no host window to report through.
+  private stateWindows(): BrowserWindow[] {
+    const owner = draftWindowID(this.target)
+    if (owner !== null) {
+      const win = BrowserWindow.fromId(owner)
+      return win && !win.isDestroyed() ? [win] : []
+    }
+    return BrowserWindow.getAllWindows().filter((win) => !win.isDestroyed())
   }
 
   async navigate(input: string) {
@@ -126,20 +174,42 @@ export class BrowserViewController {
     this.wc.stop()
   }
 
-  setView(layout: BrowserViewLayout) {
-    this.visible = layout.visible
-    this.rect = layout.rect
-    this.applyLayout()
+  /**
+   * Show this conversation's view in `win` at `rect`. Reparents when the view
+   * was displayed in another window — the previous host's renderer is told it
+   * lost the display (so its panel shows a placeholder and stops sending
+   * layout instead of stealing the view back on the next resize tick).
+   */
+  display(win: BrowserWindow, rect: BrowserViewLayout["rect"]) {
+    if (this.destroyed || win.isDestroyed()) return
+    if (this.host !== win) {
+      if (this.host && !this.host.isDestroyed()) {
+        this.host.contentView.removeChildView(this.view)
+        this.host.webContents.send(BROWSER_DISPLAY_TAKEN_CHANNEL, { target: rendererTarget(this.target) })
+      }
+      win.contentView.addChildView(this.view)
+      this.host = win
+    }
+    this.view.setBounds(computeViewBounds(rect, win.webContents.zoomFactor))
+    this.view.setVisible(true)
   }
 
-  private applyLayout() {
-    if (this.destroyed || this.win.isDestroyed()) return
-    if (!this.visible || !this.rect) {
-      this.view.setVisible(false)
-      return
-    }
-    this.view.setBounds(computeViewBounds(this.rect, this.win.webContents.zoomFactor))
-    this.view.setVisible(true)
+  /** Hide the view — only honored from its current display owner. */
+  hideFor(win: BrowserWindow) {
+    if (this.host !== win) return
+    this.view.setVisible(false)
+  }
+
+  /**
+   * The display window is going away: detach the view so it survives (views
+   * are conversation-owned, not window-owned). Keeps the default/last bounds;
+   * the next display() re-attaches.
+   */
+  releaseHost(win: BrowserWindow) {
+    if (this.host !== win) return
+    if (!win.isDestroyed()) win.contentView.removeChildView(this.view)
+    this.host = null
+    this.view.setVisible(false)
   }
 
   // Reflect a partition-wide data clear: reload so the page shows its signed-out
@@ -161,9 +231,7 @@ export class BrowserViewController {
 
   /**
    * Bring up (or reuse) the CDP automation bridge over this view's WebContents
-   * and return its sealed, main-process-only endpoint. The view is created in
-   * the constructor, so the debugger attaches before the agent's first
-   * navigation — leaving room for PR2 to inject stealth on the first document.
+   * and return its sealed, main-process-only endpoint.
    */
   async attachAutomation(): Promise<AutomationEndpoint> {
     // A lazily-created view that has never loaded a document has no renderer
@@ -182,12 +250,13 @@ export class BrowserViewController {
     }
     if (!this.automation) this.automation = new CdpBridge(this.wc)
     const endpoint = await this.automation.start()
-    // Surface the takeover: the renderer opens the browser tab so the driven
-    // page is on screen — the product contract is that agent browsing stays
-    // visible, and the visible panel is also what gives this native view its
-    // bounds (a 0×0 view cannot render, so e.g. screenshots would time out).
-    if (!this.destroyed && !this.win.isDestroyed()) {
-      this.win.webContents.send(BROWSER_AUTOMATION_ATTACHED_CHANNEL)
+    // A driven conversation may not be displayed anywhere: hold background
+    // throttling off so timers and rendering keep full speed, restoring the
+    // previous value on detach (throttling affects same-window frame drawing
+    // and the Page Visibility API, so never blindly restore `true`).
+    if (this.throttlingBefore === null && !this.wc.isDestroyed()) {
+      this.throttlingBefore = this.wc.getBackgroundThrottling()
+      this.wc.setBackgroundThrottling(false)
     }
     return endpoint
   }
@@ -195,6 +264,10 @@ export class BrowserViewController {
   async detachAutomation() {
     await this.automation?.stop()
     this.automation = null
+    if (this.throttlingBefore !== null && !this.wc.isDestroyed()) {
+      this.wc.setBackgroundThrottling(this.throttlingBefore)
+      this.throttlingBefore = null
+    }
   }
 
   destroy() {
@@ -203,7 +276,8 @@ export class BrowserViewController {
     // Tear down the ws bridge; the debugger itself detaches with wc.close() below.
     void this.automation?.stop()
     this.automation = null
-    if (!this.win.isDestroyed()) this.win.contentView.removeChildView(this.view)
+    if (this.host && !this.host.isDestroyed()) this.host.contentView.removeChildView(this.view)
+    this.host = null
     if (!this.wc.isDestroyed()) this.wc.close()
   }
 }

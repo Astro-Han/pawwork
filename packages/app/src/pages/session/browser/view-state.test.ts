@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test"
 import { rectsEqual, shouldShowBrowserView } from "./view-state"
 
 describe("shouldShowBrowserView", () => {
-  const base = { panelOpen: true, active: true, hasPage: true, suppressed: false }
+  const base = { panelOpen: true, active: true, hasPage: true, suppressed: false, displaced: false }
 
-  test("shows only when open, active, has a page, and not suppressed", () => {
+  test("shows only when open, active, has a page, not suppressed, and not displaced", () => {
     expect(shouldShowBrowserView(base)).toBe(true)
   })
 
@@ -13,6 +13,10 @@ describe("shouldShowBrowserView", () => {
     expect(shouldShowBrowserView({ ...base, active: false })).toBe(false)
     expect(shouldShowBrowserView({ ...base, hasPage: false })).toBe(false)
     expect(shouldShowBrowserView({ ...base, suppressed: true })).toBe(false)
+  })
+
+  test("hides while another window displays the view, so resize ticks cannot steal it back", () => {
+    expect(shouldShowBrowserView({ ...base, displaced: true })).toBe(false)
   })
 })
 
