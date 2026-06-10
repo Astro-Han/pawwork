@@ -51,23 +51,42 @@ function merge<T extends { id: string }>(a: readonly T[], b: readonly T[]) {
 }
 
 export function resolveLoadMessagePage<T extends { id: string }>(params: {
-  mode?: "prepend" | "replace"
   stored: readonly T[] | undefined
   fetched: readonly T[]
-  hasCachedMeta: boolean
 }): T[] {
-  const { mode, stored, fetched, hasCachedMeta } = params
-  if (mode === "prepend") return merge(stored ?? [], fetched)
-  // Race window: SSE events (from the same request that triggered this load)
-  // have populated the store but page metadata has not been established yet.
-  // Merge rather than replace so event data survives a stale GET response.
-  // When the same message ID exists in both, fetched wins — this is safe
-  // because GET data comes from the DB after the same shell execution that
-  // produced the SSE events, so it is at least as fresh.
-  if (stored && stored.length > 0 && !hasCachedMeta) {
-    return merge(stored, fetched)
-  }
+  const { stored, fetched } = params
+  if (stored && stored.length > 0) return merge(stored, fetched)
   return fetched as T[]
+}
+
+export function resolveLoadMessagePageMeta(params: {
+  mode?: "prepend" | "replace"
+  previous?: {
+    limit?: number
+    cursor?: string
+    complete?: boolean
+  }
+  messageCount: number
+  fetchedCount: number
+  fetchedCursor: string | undefined
+  fetchedComplete: boolean
+}) {
+  const limit = Math.max(params.previous?.limit ?? 0, params.messageCount)
+  const retainedExistingPage =
+    params.mode !== "prepend" && params.previous?.limit !== undefined && params.messageCount > params.fetchedCount
+  if (retainedExistingPage) {
+    return {
+      limit,
+      cursor: params.previous?.complete ? undefined : (params.previous?.cursor ?? params.fetchedCursor),
+      complete: params.previous?.complete ?? false,
+    }
+  }
+
+  return {
+    limit,
+    cursor: params.fetchedCursor,
+    complete: params.fetchedComplete,
+  }
 }
 
 type OptimisticStore = {
@@ -395,12 +414,21 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
             clearOptimistic(input.directory, input.sessionID, messageID)
           }
           const [store] = globalSync.child(input.directory, { bootstrap: false })
-          const hasCachedMeta = meta.limit[key] !== undefined
           const message = resolveLoadMessagePage({
-            mode: input.mode,
             stored: store.message[input.sessionID],
             fetched: next.session,
-            hasCachedMeta,
+          })
+          const pageMeta = resolveLoadMessagePageMeta({
+            mode: input.mode,
+            previous: {
+              limit: meta.limit[key],
+              cursor: meta.cursor[key],
+              complete: meta.complete[key],
+            },
+            messageCount: message.length,
+            fetchedCount: next.session.length,
+            fetchedCursor: next.cursor,
+            fetchedComplete: next.complete,
           })
           batch(() => {
             input.setStore("message", input.sessionID, reconcile(message, { key: "id" }))
@@ -408,15 +436,15 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
               const filtered = p.part.filter((x) => !SKIP_PARTS.has(x.type))
               if (filtered.length) input.setStore("part", p.id, filtered)
             }
-            setMeta("limit", key, message.length)
-            setMeta("cursor", key, next.cursor)
-            setMeta("complete", key, next.complete)
+            setMeta("limit", key, pageMeta.limit)
+            setMeta("cursor", key, pageMeta.cursor)
+            setMeta("complete", key, pageMeta.complete)
             setSessionPrefetch({
               directory: input.directory,
               sessionID: input.sessionID,
-              limit: message.length,
-              cursor: next.cursor,
-              complete: next.complete,
+              limit: pageMeta.limit,
+              cursor: pageMeta.cursor,
+              complete: pageMeta.complete,
             })
           })
         })
