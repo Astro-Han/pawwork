@@ -2538,7 +2538,15 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           }
           const assistant = yield* currentTurnTarget(input.sessionID)
           if (assistant.info.role === "assistant") {
-            const error = assistant.info.error
+            const shouldFinalize = !assistant.info.time.completed
+            const error =
+              assistant.info.error ??
+              (shouldFinalize
+                ? MessageV2.fromError(new DOMException("Aborted", "AbortError"), {
+                    providerID: assistant.info.providerID,
+                    aborted: true,
+                  })
+                : undefined)
             const errorMessage =
               error && "data" in error && error.data && typeof error.data === "object" && "message" in error.data
                 ? String(error.data.message)
@@ -2546,6 +2554,15 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             const recordedAt = meta?.recordedAt ?? Date.now()
             yield* sessions.updateMessage({
               ...assistant.info,
+              ...(shouldFinalize
+                ? {
+                    error,
+                    time: {
+                      ...assistant.info.time,
+                      completed: recordedAt,
+                    },
+                  }
+                : {}),
               diagnostics: {
                 ...(assistant.info.diagnostics ?? {}),
                 abort: {

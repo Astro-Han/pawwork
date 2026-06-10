@@ -29,17 +29,14 @@ type LayoutShellFrameProps = {
     open: Accessor<boolean>
     title: Accessor<string>
     nav: () => JSXElement
-    content: () => JSXElement
   }
   automations: {
     open: Accessor<boolean>
     title: Accessor<string>
-    content: () => JSXElement
   }
   skills: {
     open: Accessor<boolean>
     title: Accessor<string>
-    content: () => JSXElement
   }
   main: () => JSXElement
 }
@@ -53,8 +50,10 @@ export function LayoutShellFrame(props: LayoutShellFrameProps) {
     }),
   )
 
-  // Settings replaces both sidebar and main; automations only takes over main
-  // and keeps the session sidebar interactive. mainSurfaceOpen covers either.
+  // The three surfaces are real routes rendered as main(); the frame only
+  // tracks which one is open for the surface titlebar and the settings
+  // sidebar-nav swap (settings replaces the sidebar, automations and skills
+  // keep the session sidebar).
   const mainSurfaceOpen = createMemo(() => props.settings.open() || props.automations.open() || props.skills.open())
   const surfaceTitle = createMemo(() =>
     props.automations.open()
@@ -113,7 +112,7 @@ export function LayoutShellFrame(props: LayoutShellFrameProps) {
                   >
                     {props.sidebar.content()}
                   </div>
-                  {/* Settings takeover keeps the session sidebar mounted so its scroll state survives. */}
+                  {/* The settings nav overlays the sidebar slot; the session sidebar stays mounted under it so its scroll state survives. */}
                   <Show when={props.settings.open()}>
                     <div class="absolute inset-0 z-10">{props.settings.nav()}</div>
                   </Show>
@@ -156,23 +155,7 @@ export function LayoutShellFrame(props: LayoutShellFrameProps) {
                   }}
                 >
                   <div class="relative size-full">
-                    <div
-                      inert={mainSurfaceOpen() ? true : undefined}
-                      aria-hidden={mainSurfaceOpen() || undefined}
-                      classList={{ "size-full": true, invisible: mainSurfaceOpen() }}
-                    >
-                      {props.main()}
-                    </div>
-                    {/* Surface takeovers keep the session page mounted so terminal and panel state survive. */}
-                    <Show when={props.settings.open()}>
-                      <div class="absolute inset-0 z-10">{props.settings.content()}</div>
-                    </Show>
-                    <Show when={props.automations.open()}>
-                      <div class="absolute inset-0 z-10">{props.automations.content()}</div>
-                    </Show>
-                    <Show when={props.skills.open()}>
-                      <div class="absolute inset-0 z-10">{props.skills.content()}</div>
-                    </Show>
+                    <div class="size-full">{props.main()}</div>
                   </div>
                 </main>
               </div>

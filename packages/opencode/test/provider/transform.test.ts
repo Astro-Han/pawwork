@@ -2171,7 +2171,20 @@ describe("ProviderTransform.message - anthropic empty content filtering", () => 
     expect(result[1].content).toHaveLength(1)
   })
 
-  test("splits anthropic assistant messages when text trails tool calls", () => {
+  test("preserves anthropic assistant messages when thinking and text trail tool calls", () => {
+    const opusModel = {
+      ...anthropicModel,
+      id: "anthropic/claude-opus-4-7",
+      api: {
+        id: "claude-opus-4-7-20260101",
+        url: "https://api.anthropic.com",
+        npm: "@ai-sdk/anthropic",
+      },
+      capabilities: {
+        ...anthropicModel.capabilities,
+        reasoning: true,
+      },
+    }
     const msgs = [
       {
         role: "user",
@@ -2182,6 +2195,11 @@ describe("ProviderTransform.message - anthropic empty content filtering", () => 
         content: [
           { type: "tool-call", toolCallId: "toolu_1", toolName: "read", input: { filePath: "/root" } },
           { type: "tool-call", toolCallId: "toolu_2", toolName: "glob", input: { pattern: "**/*.pdf" } },
+          {
+            type: "reasoning",
+            text: "The tool calls have completed.",
+            providerOptions: { anthropic: { signature: "sig_1" } },
+          },
           { type: "text", text: "I checked your home directory and looked for PDF files." },
         ],
       },
@@ -2199,18 +2217,20 @@ describe("ProviderTransform.message - anthropic empty content filtering", () => 
       },
     ] as any[]
 
-    const result = ProviderTransform.message(msgs, anthropicModel, {}) as any[]
+    const result = ProviderTransform.message(msgs, opusModel, {}) as any[]
 
-    expect(result).toHaveLength(4)
+    expect(result).toHaveLength(3)
     expect(result[1]).toMatchObject({
-      role: "assistant",
-      content: [{ type: "text", text: "I checked your home directory and looked for PDF files." }],
-    })
-    expect(result[2]).toMatchObject({
       role: "assistant",
       content: [
         { type: "tool-call", toolCallId: "toolu_1", toolName: "read", input: { filePath: "/root" } },
         { type: "tool-call", toolCallId: "toolu_2", toolName: "glob", input: { pattern: "**/*.pdf" } },
+        {
+          type: "reasoning",
+          text: "The tool calls have completed.",
+          providerOptions: { anthropic: { signature: "sig_1" } },
+        },
+        { type: "text", text: "I checked your home directory and looked for PDF files." },
       ],
     })
   })
@@ -2237,7 +2257,7 @@ describe("ProviderTransform.message - anthropic empty content filtering", () => 
     ])
   })
 
-  test("splits vertex anthropic assistant messages when text trails tool calls", () => {
+  test("preserves vertex anthropic assistant messages when text trails tool calls", () => {
     const model = {
       ...anthropicModel,
       providerID: "google-vertex-anthropic",
@@ -2261,16 +2281,13 @@ describe("ProviderTransform.message - anthropic empty content filtering", () => 
 
     const result = ProviderTransform.message(msgs, model, {}) as any[]
 
-    expect(result).toHaveLength(2)
+    expect(result).toHaveLength(1)
     expect(result[0]).toMatchObject({
-      role: "assistant",
-      content: [{ type: "text", text: "I checked your home directory and looked for PDF files." }],
-    })
-    expect(result[1]).toMatchObject({
       role: "assistant",
       content: [
         { type: "tool-call", toolCallId: "toolu_1", toolName: "read", input: { filePath: "/root" } },
         { type: "tool-call", toolCallId: "toolu_2", toolName: "glob", input: { pattern: "**/*.pdf" } },
+        { type: "text", text: "I checked your home directory and looked for PDF files." },
       ],
     })
   })

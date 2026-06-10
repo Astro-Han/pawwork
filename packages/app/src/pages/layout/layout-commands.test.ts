@@ -9,6 +9,8 @@ function layoutCommandCatalog(input?: {
   canCreateWorkspace?: boolean
   canToggleWorkspace?: boolean
   canSwitchColorScheme?: boolean
+  canOpenFiles?: boolean
+  canMoveSession?: boolean
 }) {
   let catalog: CommandOption[] = []
   registerLayoutCommands({
@@ -35,11 +37,19 @@ function layoutCommandCatalog(input?: {
     viewActions: {
       toggleSidebar: () => undefined,
     },
+    paletteActions: {
+      open: () => undefined,
+      canOpenFiles: () => input?.canOpenFiles ?? true,
+    },
+    sessionActions: {
+      openNew: () => undefined,
+    },
     navigationActions: {
       openProject: () => undefined,
       moveProject: () => undefined,
       moveSession: () => undefined,
       moveUnseenSession: () => undefined,
+      canMoveSession: () => input?.canMoveSession ?? true,
     },
     settingsActions: {
       open: () => undefined,
@@ -65,6 +75,8 @@ describe("registerLayoutCommands", () => {
     const catalog = layoutCommandCatalog()
 
     expect(catalog.map((command) => command.id)).toEqual([
+      "session.new",
+      "file.open",
       "sidebar.toggle",
       "project.open",
       "project.previous",
@@ -89,6 +101,10 @@ describe("registerLayoutCommands", () => {
     ])
 
     expect(Object.fromEntries(catalog.map((command) => [command.id, command.keybind ?? null]))).toMatchObject({
+      // session.new shares mod+shift+s with theme.scheme.cycle; the runtime
+      // keymap resolves by first occurrence, so session.new must come first.
+      "session.new": "mod+shift+s",
+      "file.open": "mod+k,mod+p",
       "sidebar.toggle": "mod+b",
       "project.open": "mod+o",
       "project.previous": "mod+alt+arrowup",
@@ -102,6 +118,8 @@ describe("registerLayoutCommands", () => {
       "theme.scheme.cycle": "mod+shift+s",
     })
     expect(catalog.find((command) => command.id === "workspace.toggle")?.slash).toBe("workspace")
+    expect(catalog.find((command) => command.id === "session.new")?.slash).toBe("new")
+    expect(catalog.find((command) => command.id === "file.open")?.slash).toBe("open")
   })
 
   test("reflects command availability from layout capabilities", () => {
@@ -110,11 +128,22 @@ describe("registerLayoutCommands", () => {
       canCreateWorkspace: false,
       canToggleWorkspace: false,
       canSwitchColorScheme: false,
+      canOpenFiles: false,
+      canMoveSession: false,
     })
 
     expect(catalog.find((command) => command.id === "settings.openGlobalConfigFolder")?.disabled).toBe(true)
     expect(catalog.find((command) => command.id === "workspace.new")?.disabled).toBe(true)
     expect(catalog.find((command) => command.id === "workspace.toggle")?.disabled).toBe(true)
+    // Zero projects: the file picker has no directory to list, so file.open
+    // disappears from the keymap, the palette list, and the suggested rows.
+    expect(catalog.find((command) => command.id === "file.open")?.disabled).toBe(true)
+    // Surface routes: session-relative navigation has no anchor session, so
+    // alt+arrow keybinds must not yank the user off the page.
+    expect(catalog.find((command) => command.id === "session.previous")?.disabled).toBe(true)
+    expect(catalog.find((command) => command.id === "session.next")?.disabled).toBe(true)
+    expect(catalog.find((command) => command.id === "session.previous.unseen")?.disabled).toBe(true)
+    expect(catalog.find((command) => command.id === "session.next.unseen")?.disabled).toBe(true)
     expect(catalog.some((command) => command.id.startsWith("theme.scheme."))).toBe(false)
   })
 })

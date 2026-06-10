@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test"
+import { Flag } from "@opencode-ai/core/flag/flag"
 import { Effect } from "effect"
+import fs from "fs/promises"
+import path from "path"
 import { Instance } from "../../src/project/instance"
 import { Session as SessionNs } from "../../src/session"
 import type { SessionID } from "../../src/session/schema"
@@ -50,6 +53,37 @@ describe("session.list", () => {
         expect(ids).not.toContain(second.id)
       },
     })
+  })
+
+  test("filters by directory with experimental workspaces enabled", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const subdir = path.join(tmp.path, "packages", "app")
+    await fs.mkdir(subdir, { recursive: true })
+
+    const experimental = Flag.OPENCODE_EXPERIMENTAL_WORKSPACES
+    // @ts-expect-error - Flag is readonly at type level but mutable at runtime for test toggling
+    Flag.OPENCODE_EXPERIMENTAL_WORKSPACES = true
+    try {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const root = await svc.create({ title: "root-session" })
+          const nested = await Instance.provide({
+            directory: subdir,
+            fn: async () => svc.create({ title: "nested-session" }),
+          })
+
+          const sessions = [...svc.list({ directory: tmp.path })]
+          const ids = sessions.map((s) => s.id)
+
+          expect(ids).toContain(root.id)
+          expect(ids).not.toContain(nested.id)
+        },
+      })
+    } finally {
+      // @ts-expect-error - Flag is readonly at type level but mutable at runtime for test toggling
+      Flag.OPENCODE_EXPERIMENTAL_WORKSPACES = experimental
+    }
   })
 
   test("filters root sessions", async () => {

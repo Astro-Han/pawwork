@@ -1699,6 +1699,117 @@ it.live(
 )
 
 it.live(
+  "cancel after assistant scaffold save finalizes before processor handle",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* () {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({ title: "Processor creation cancel" })
+        const currentUser = yield* user(chat.id, "hello")
+
+        const started = defer<void>()
+        const mutableSessions = sessions as Mutable<typeof sessions>
+        const originalUpdateMessage = sessions.updateMessage
+        let blockedAssistantScaffold = false
+        mutableSessions.updateMessage = (info) => {
+          if (!blockedAssistantScaffold && info.role === "assistant" && info.parentID === currentUser.id) {
+            blockedAssistantScaffold = true
+            return Effect.gen(function* () {
+              const saved = yield* originalUpdateMessage(info)
+              started.resolve()
+              yield* Effect.never
+              return saved
+            })
+          }
+          return originalUpdateMessage(info)
+        }
+        yield* Effect.addFinalizer(() => Effect.sync(() => void (mutableSessions.updateMessage = originalUpdateMessage)))
+
+        const fiber = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
+        const startedExit = yield* Effect.promise(() => started.promise).pipe(Effect.timeout("1 second"), Effect.exit)
+        expect(Exit.isSuccess(startedExit)).toBe(true)
+        const cancelExit = yield* prompt.cancel(chat.id).pipe(Effect.timeout("1 second"), Effect.exit)
+        expect(Exit.isSuccess(cancelExit)).toBe(true)
+        const exit = yield* Fiber.await(fiber).pipe(Effect.timeout("1 second"))
+        expect(Exit.isSuccess(exit)).toBe(true)
+
+        const messages = yield* sessions.messages({ sessionID: chat.id })
+        const assistant = messages.find(
+          (message) => message.info.role === "assistant" && message.info.parentID === currentUser.id,
+        )
+        expect(assistant?.info.role).toBe("assistant")
+        if (!assistant || assistant.info.role !== "assistant") return
+        expect(assistant.parts).toHaveLength(0)
+        expect(assistant.info.error?.name).toBe("MessageAbortedError")
+        expect(assistant.info.time.completed).toBeNumber()
+        expect(assistant.info.diagnostics?.abort).toMatchObject({
+          source: "session.prompt.cancel",
+          reason: "cancel",
+          propagation_point: "session.prompt.loop.onInterrupt",
+          error_name: "MessageAbortedError",
+        })
+      }),
+      { git: true, config: providerCfg },
+    ),
+  10_000,
+)
+
+it.live(
+  "cancel after processor handle creation finalizes before process starts",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* () {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const plugin = yield* Plugin.Service
+        const chat = yield* sessions.create({ title: "Pre-process cancel" })
+        const currentUser = yield* user(chat.id, "hello")
+
+        const started = defer<void>()
+        const mutablePlugin = plugin as Mutable<typeof plugin>
+        const originalTrigger = plugin.trigger
+        mutablePlugin.trigger = ((name: Parameters<typeof plugin.trigger>[0], input: unknown, output: unknown) => {
+          if (name === "experimental.chat.messages.transform") {
+            return Effect.gen(function* () {
+              started.resolve()
+              return yield* Effect.never
+            })
+          }
+          return originalTrigger(name as never, input as never, output as never)
+        }) as typeof plugin.trigger
+        yield* Effect.addFinalizer(() => Effect.sync(() => void (mutablePlugin.trigger = originalTrigger)))
+
+        const fiber = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
+        const startedExit = yield* Effect.promise(() => started.promise).pipe(Effect.timeout("1 second"), Effect.exit)
+        expect(Exit.isSuccess(startedExit)).toBe(true)
+        const cancelExit = yield* prompt.cancel(chat.id).pipe(Effect.timeout("1 second"), Effect.exit)
+        expect(Exit.isSuccess(cancelExit)).toBe(true)
+        const exit = yield* Fiber.await(fiber).pipe(Effect.timeout("1 second"))
+        expect(Exit.isSuccess(exit)).toBe(true)
+
+        const messages = yield* sessions.messages({ sessionID: chat.id })
+        const assistant = messages.find(
+          (message) => message.info.role === "assistant" && message.info.parentID === currentUser.id,
+        )
+        expect(assistant?.info.role).toBe("assistant")
+        if (!assistant || assistant.info.role !== "assistant") return
+        expect(assistant.parts).toHaveLength(0)
+        expect(assistant.info.error?.name).toBe("MessageAbortedError")
+        expect(assistant.info.time.completed).toBeNumber()
+        expect(assistant.info.diagnostics?.abort).toMatchObject({
+          source: "session.prompt.cancel",
+          reason: "cancel",
+          propagation_point: "session.prompt.loop.onInterrupt",
+          error_name: "MessageAbortedError",
+        })
+      }),
+      { git: true, config: providerCfg },
+    ),
+  10_000,
+)
+
+it.live(
   "cancel interrupts the running loop",
   () =>
     provideTmpdirServer(

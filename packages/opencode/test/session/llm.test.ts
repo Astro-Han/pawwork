@@ -1541,7 +1541,7 @@ describe("session.llm.stream", () => {
     })
   })
 
-  test("sends anthropic tool_use blocks with tool_result immediately after them", async () => {
+  test("preserves Anthropic assistant tool_use order when text trails tool calls", async () => {
     const server = state.server
     if (!server) {
       throw new Error("Server not initialized")
@@ -1761,10 +1761,6 @@ describe("session.llm.stream", () => {
             role: "assistant",
             content: [
               {
-                type: "text",
-                text: "I checked your home directory and looked for PDF files.",
-              },
-              {
                 type: "tool_use",
                 id: "toolu_01N8mDEzG8DSTs7UPHFtmgCT",
                 name: "read",
@@ -1775,6 +1771,10 @@ describe("session.llm.stream", () => {
                 id: "toolu_01APxrADs7VozN8uWzw9WwHr",
                 name: "glob",
                 input: { pattern: "**/*.pdf", path: "/root" },
+              },
+              {
+                type: "text",
+                text: "I checked your home directory and looked for PDF files.",
                 cache_control: {
                   type: "ephemeral",
                 },

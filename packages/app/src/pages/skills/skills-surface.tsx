@@ -87,7 +87,10 @@ export function SkillsSurface(props: {
   // "no skills". Key the body off the resource state so the empty copy only
   // shows once we actually have a (filtered-to-zero) result, and load failures
   // get their own message.
-  const view = createMemo<"loading" | "error" | "empty" | "list">(() => {
+  const view = createMemo<"no-directory" | "loading" | "error" | "empty" | "list">(() => {
+    // No resolvable directory (zero projects): the gallery cannot list and
+    // "Use in chat" has no destination — say so instead of loading forever.
+    if (!props.directory()) return "no-directory"
     if (skills.state === "errored") return "error"
     if (skills.state === "pending" || skills.state === "unresolved") return "loading"
     return filtered().length > 0 ? "list" : "empty"
@@ -95,12 +98,10 @@ export function SkillsSurface(props: {
 
   // Escape closes the surface — but only when nothing in the shared dialog stack
   // owns it. That covers the skill-detail reader AND a command palette opened
-  // from the still-live sidebar (its search calls command.show() directly,
-  // bypassing the keybind gate that otherwise suppresses palettes behind a
-  // surface). `dialog.active` is the single source of truth for "a modal owns
-  // Escape", so we defer to it instead of sniffing the DOM for overlay
-  // components; we bail without preventing default so the event still reaches
-  // whatever modal is up. Only when the stack is empty do we close the surface.
+  // from the still-live sidebar. `dialog.active` is the single source of truth
+  // for "a modal owns Escape", so we defer to it instead of sniffing the DOM for
+  // overlay components; we bail without preventing default so the event still
+  // reaches whatever modal is up. Only when the stack is empty do we close.
   onMount(() => {
     const onEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return
@@ -138,6 +139,11 @@ export function SkillsSurface(props: {
         </div>
 
         <Switch>
+          <Match when={view() === "no-directory"}>
+            <div data-component="skills-need-project" class="px-2.5 py-16 text-center text-body text-fg-weak">
+              {language.t("skills.needProject.title")}
+            </div>
+          </Match>
           {/* Reserve the row band's height so the layout doesn't jump when the
               list lands; no "Loading…" copy (local skills resolve fast, and the
               label would just flicker). */}

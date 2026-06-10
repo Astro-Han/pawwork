@@ -9,7 +9,10 @@ interface MockClientState {
   listToolsCalls: number
   listPromptsCalls: number
   listResourcesCalls: number
+  getPromptTimeouts: Array<number | undefined>
+  readResourceTimeouts: Array<number | undefined>
   requestCalls: number
+  capabilitiesShouldThrow: boolean
   listToolsShouldFail: boolean
   listToolsError: string
   listPromptsShouldFail: boolean
@@ -54,7 +57,10 @@ function getOrCreateClientState(name?: string): MockClientState {
       listToolsCalls: 0,
       listPromptsCalls: 0,
       listResourcesCalls: 0,
+      getPromptTimeouts: [],
+      readResourceTimeouts: [],
       requestCalls: 0,
+      capabilitiesShouldThrow: false,
       listToolsShouldFail: false,
       listToolsError: "listTools failed",
       listPromptsShouldFail: false,
@@ -153,6 +159,7 @@ mock.module("@modelcontextprotocol/sdk/client/index.js", () => ({
     }
 
     getServerCapabilities() {
+      if (this._state?.capabilitiesShouldThrow) throw new Error("capability discovery failed")
       return this._state?.capabilities
     }
 
@@ -201,6 +208,16 @@ mock.module("@modelcontextprotocol/sdk/client/index.js", () => ({
       return { resources: this._state?.resources ?? [] }
     }
 
+    async getPrompt(_params: unknown, options?: { timeout?: number }) {
+      this._state?.getPromptTimeouts.push(options?.timeout)
+      return { messages: [] }
+    }
+
+    async readResource(params: { uri: string }, options?: { timeout?: number }) {
+      this._state?.readResourceTimeouts.push(options?.timeout)
+      return { contents: [{ uri: params.uri, text: "test" }] }
+    }
+
     async callTool(_args: unknown, _schema: unknown, options?: { signal?: AbortSignal; timeout?: number }) {
       this._state?.callToolSignals.push(options?.signal)
       this._state?.callToolTimeouts.push(options?.timeout)
@@ -229,10 +246,12 @@ const { Bus } = await import("../../src/bus/index")
 const { Instance } = await import("../../src/project/instance")
 const { NotFoundError } = await import("../../src/storage/db")
 const { tmpdir } = await import("../fixture/fixture")
+const { makeRuntime } = await import("../../src/effect/run-service")
+const mcpRuntime = makeRuntime(MCP.Service, MCP.defaultLayer)
 
 // --- Helper ---
 
-function withInstance(config: Record<string, any>, fn: () => Promise<void>) {
+function withInstance(config: Record<string, any>, fn: () => Promise<void>, extraConfig: Record<string, any> = {}) {
   return async () => {
     await using tmp = await tmpdir({
       init: async (dir) => {
@@ -240,6 +259,7 @@ function withInstance(config: Record<string, any>, fn: () => Promise<void>) {
           `${dir}/opencode.json`,
           JSON.stringify({
             $schema: "https://opencode.ai/config.json",
+            ...extraConfig,
             mcp: config,
           }),
         )
@@ -419,6 +439,28 @@ test(
 )
 
 test(
+  "add records failed status and closes the client when capability probing throws",
+  withInstance({}, async () => {
+    lastCreatedClientName = "defective-server"
+    const serverState = getOrCreateClientState("defective-server")
+    serverState.capabilitiesShouldThrow = true
+
+    const addResult = await MCP.add("defective-server", {
+      type: "local",
+      command: ["echo", "test"],
+    })
+
+    const serverStatus = (addResult.status as any)["defective-server"] ?? addResult.status
+    expect(serverStatus).toEqual({ status: "failed", error: "capability discovery failed" })
+    expect((await MCP.status())["defective-server"]).toEqual({
+      status: "failed",
+      error: "capability discovery failed",
+    })
+    expect(serverState.closed).toBe(true)
+  }),
+)
+
+test(
   "tool execution forwards abort signals to MCP callTool",
   withInstance({}, async () => {
     lastCreatedClientName = "abort-server"
@@ -439,6 +481,42 @@ test(
 
     expect(serverState.callToolSignals).toEqual([controller.signal])
   }),
+)
+
+test(
+  "prompt and resource requests use per-server timeout before experimental fallback",
+  withInstance(
+    {},
+    async () => {
+      lastCreatedClientName = "timeout-server"
+      const timeoutState = getOrCreateClientState("timeout-server")
+
+      await MCP.add("timeout-server", {
+        type: "local",
+        command: ["echo", "test"],
+        timeout: 2500,
+      })
+      await mcpRuntime.runPromise((mcp) => mcp.getPrompt("timeout-server", "test"))
+      await mcpRuntime.runPromise((mcp) => mcp.readResource("timeout-server", "test://resource"))
+
+      expect(timeoutState.getPromptTimeouts).toEqual([2500])
+      expect(timeoutState.readResourceTimeouts).toEqual([2500])
+
+      lastCreatedClientName = "fallback-server"
+      const fallbackState = getOrCreateClientState("fallback-server")
+
+      await MCP.add("fallback-server", {
+        type: "local",
+        command: ["echo", "test"],
+      })
+      await mcpRuntime.runPromise((mcp) => mcp.getPrompt("fallback-server", "test"))
+      await mcpRuntime.runPromise((mcp) => mcp.readResource("fallback-server", "test://resource"))
+
+      expect(fallbackState.getPromptTimeouts).toEqual([5000])
+      expect(fallbackState.readResourceTimeouts).toEqual([5000])
+    },
+    { experimental: { mcp_timeout: 5000 } },
+  ),
 )
 
 // ========================================================================

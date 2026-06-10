@@ -1,9 +1,10 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
 import { Deferred, Effect, Exit, Fiber, Layer } from "effect"
 import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
 import { Hono } from "hono"
 import { GlobalBus } from "../../src/bus/global"
 import { Config } from "../../src/config"
+import { Runner, type InterruptMeta, type Runner as RunnerInstance } from "../../src/effect/runner"
 import { Global } from "../../src/global"
 import { Instance } from "../../src/project/instance"
 import { registerDisposer } from "../../src/effect/instance-registry"
@@ -30,6 +31,66 @@ describe("SessionRunState", () => {
       const idle = yield* Effect.promise(() => whenAllRunsIdle([directory])).pipe(Effect.timeout("100 millis"), Effect.exit)
       expect(Exit.isSuccess(idle)).toBe(true)
     })
+
+  it.live("delivers cancel to an existing shell runner before it reports busy", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const run = yield* SessionRunState.Service
+        const sessionID = SessionID.make("ses_shell_cancel_startup_race")
+        const runnerEntered = yield* Deferred.make<void>()
+        const releaseRunner = yield* Deferred.make<void>()
+        let cancelMeta: InterruptMeta | undefined
+
+        const make = spyOn(Runner, "make").mockImplementation(() => {
+          const fake = {
+            get state() {
+              return { _tag: "Idle" } as const
+            },
+            get busy() {
+              return false
+            },
+            ensureRunning: () => Effect.die(new Error("unexpected ensureRunning")),
+            startShell: () =>
+              Deferred.succeed(runnerEntered, undefined).pipe(
+                Effect.andThen(Deferred.await(releaseRunner)),
+                Effect.as({} as never),
+              ),
+            cancel: Effect.sync(() => {
+              cancelMeta = undefined
+            }),
+            cancelWith: (meta?: InterruptMeta) =>
+              Effect.sync(() => {
+                cancelMeta = meta
+              }),
+          } satisfies RunnerInstance<never>
+          return fake as never
+        })
+        yield* Effect.addFinalizer(() =>
+          Effect.gen(function* () {
+            make.mockRestore()
+            yield* Deferred.succeed(releaseRunner, undefined)
+          }),
+        )
+
+        const shellFiber = yield* run
+          .startShell(
+            sessionID,
+            () => Effect.sync(() => ({}) as never),
+            Effect.sync(() => ({}) as never),
+          )
+          .pipe(Effect.forkChild)
+
+        yield* Deferred.await(runnerEntered)
+        yield* run.cancel(sessionID, { source: "test", reason: "shell_startup_cancel" })
+        yield* Deferred.succeed(releaseRunner, undefined)
+
+        expect(Exit.isSuccess(yield* Fiber.await(shellFiber))).toBe(true)
+        expect(cancelMeta).toMatchObject({
+          source: "test",
+          reason: "shell_startup_cancel",
+        })
+      }),
+    ))
 
   test("keeps overlapping lifecycle actions isolated per directory", async () => {
     const directory = "/tmp/pawwork-lifecycle-overlap"
