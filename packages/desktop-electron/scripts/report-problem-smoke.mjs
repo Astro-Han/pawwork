@@ -122,6 +122,8 @@ try {
     markdownHasRendererError:
       report.markdown.includes(rendererError.summary) && report.markdown.includes('\\"kind\\":\\"manual-smoke\\"'),
     markdownHasReportPayload: report.markdown.includes("```json"),
+    markdownHasMainLog: report.markdown.includes("== Main process log:"),
+    markdownHasBackendLog: report.markdown.includes("== Backend log:"),
   }
 
   console.log(JSON.stringify(summary, null, 2))
@@ -132,6 +134,8 @@ try {
   assert(summary.clipboardRedactedStorage, "expected clipboard summary to redact storage and key diagnostics")
   assert(summary.markdownHasRendererError, "expected full report to include renderer error details")
   assert(summary.markdownHasReportPayload, "expected full report to include the fenced JSON payload")
+  assert(summary.markdownHasMainLog, "expected full report to include main process log tail")
+  assert(summary.markdownHasBackendLog, "expected full report to include backend log tail")
 } finally {
   await closeApp(app)
   rmSync(homeDir, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 })

@@ -44,6 +44,14 @@ export type ReportProblemResult =
         | { status: "ready"; fileName: string; locationHint: string }
         | { status: "failed" }
     }
+  | {
+      status: "package-only"
+      summaryCopied: true
+      feedbackOpened: false
+      fullReport:
+        | { status: "ready"; fileName: string; locationHint: string }
+        | { status: "failed" }
+    }
   | { status: "cancelled"; summaryCopied: false; feedbackOpened: false; fullReport: { status: "none" } }
   | { status: "unavailable"; summaryCopied: false; feedbackOpened: false; fullReport: { status: "none" } }
   | { status: "failed"; summaryCopied: false; feedbackOpened: false; fullReport: { status: "failed" } }

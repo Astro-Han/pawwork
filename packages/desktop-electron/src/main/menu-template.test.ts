@@ -36,13 +36,19 @@ test("Windows Help submenu contains 'Check for Updates' and 'About PawWork'", ()
   expect(labels).toContain("About PawWork")
 })
 
-test("Help submenu exposes diagnostics export", () => {
+test("Help submenu exposes only the complete diagnostics package entry", () => {
   const windows = buildWindowsMenuTemplate(baseOptions)
   const macos = buildMacosMenuTemplate(baseOptions)
   expect((windows.find((m) => m.label === "Help")?.submenu ?? []).map((s) => s.label)).toContain(
-    "Export Diagnostics Log...",
+    "Prepare Diagnostics Package...",
   )
   expect((macos.find((m) => m.label === "Help")?.submenu ?? []).map((s) => s.label)).toContain(
+    "Prepare Diagnostics Package...",
+  )
+  expect((windows.find((m) => m.label === "Help")?.submenu ?? []).map((s) => s.label)).not.toContain(
+    "Export Diagnostics Log...",
+  )
+  expect((macos.find((m) => m.label === "Help")?.submenu ?? []).map((s) => s.label)).not.toContain(
     "Export Diagnostics Log...",
   )
 })

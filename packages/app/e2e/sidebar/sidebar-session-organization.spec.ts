@@ -76,6 +76,30 @@ test("users can delete a session from the PawWork sidebar", async ({ page, sdk, 
   await expect(sidebar.locator(`[data-session-id="${session.id}"]`)).toHaveCount(0)
 })
 
+test("session row menu does not expose raw export as a troubleshooting entry", async ({ page, sdk, gotoSession }) => {
+  const stamp = Date.now()
+  const session = await sdk.session.create({ title: `e2e sidebar diagnostics ${stamp}` }).then((r) => r.data)
+
+  if (!session?.id) throw new Error("missing session id")
+
+  try {
+    await gotoSession(session.id)
+    await openSidebar(page)
+
+    const sidebar = page.locator(pawworkSidebarSelector).first()
+    const row = sidebar.locator(`[data-session-id="${session.id}"]`).first()
+    await expect(row).toBeVisible()
+
+    await row.hover()
+    await row.locator('[data-action="session-row-menu"]').click()
+
+    await expect(page.getByRole("menuitem", { name: /export session/i })).toHaveCount(0)
+    await expect(page.getByRole("menuitem", { name: /diagnostics package/i })).toHaveCount(0)
+  } finally {
+    await cleanupSession({ sdk, sessionID: session.id })
+  }
+})
+
 test("previous and next session follow time order across PawWork projects", async ({ page, backend, project }) => {
   const stamp = Date.now()
   const other = await createTestProject({ serverUrl: backend.url })

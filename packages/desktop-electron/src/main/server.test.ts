@@ -83,6 +83,14 @@ describe("desktop server runtime namespace", () => {
     expect(env.XDG_STATE_HOME).toBe(serverRoots.state)
   })
 
+  test("tracks the backend log file after server log init", async () => {
+    const { backendLogFilePathForTest, setBackendLogFilePathForTest } = await import("./server")
+
+    setBackendLogFilePathForTest("/tmp/pawwork-backend.log")
+
+    expect(backendLogFilePathForTest()).toBe("/tmp/pawwork-backend.log")
+  })
+
   test("uses process GitHub CLI config directory before shell config directory", async () => {
     process.env.GH_CONFIG_DIR = "/process/gh"
     mockShellEnv = { GH_CONFIG_DIR: "/shell/gh", XDG_CONFIG_HOME: "/shell/config" }

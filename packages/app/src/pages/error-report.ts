@@ -266,6 +266,7 @@ export function errorReportStatusMessage(result: ReportProblemResult, t: ErrorRe
   if (result.status === "ready") return t("error.page.report.success")
   if (result.status === "summary-only") return t("error.page.report.summaryOnly")
   if (result.status === "form-fallback") return t("error.page.report.formFallback", { url: result.feedbackUrl })
+  if (result.status === "package-only") return t("error.page.report.packageOnly")
   if (result.status === "cancelled") return undefined
   if (result.status === "unavailable") return t("error.page.report.unavailable")
   return t("error.page.report.failed")

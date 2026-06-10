@@ -15,14 +15,16 @@ const t: ErrorReportTranslator = (key, vars) => {
     "error.page.known.localState.description":
       "PawWork had trouble reading local state for this workspace. Your original project files are usually not affected.",
     "error.page.report.success":
-      "The feedback form is open. A short summary was copied, and the full report was saved locally for manual upload.",
+      "The feedback form is open. A short summary was copied, and the diagnostics package was saved locally for manual upload.",
     "error.page.report.summaryOnly": "The current error summary was copied. Paste it into the feedback form.",
     "error.page.report.formFallback":
       "The feedback form did not open automatically. Open the link manually, then paste the copied summary.",
+    "error.page.report.packageOnly":
+      "The diagnostics package was saved locally. This build does not have a feedback form configured.",
     "error.page.report.failed":
-      "PawWork could not prepare the report. Use the technical details below when reporting this.",
+      "PawWork could not prepare the diagnostics package. Use the technical details below when reporting this.",
     "error.page.report.unavailable":
-      "Problem reporting is not available in this build. Use the GitHub link or the technical details below.",
+      "Diagnostics packages are not available in this build. Use the GitHub link or the technical details below.",
     "error.chain.causedBy": "Caused by",
     "error.page.circular": "[Circular]",
   }
@@ -141,6 +143,16 @@ describe("error page reporting helpers", () => {
         locationHint: "PawWork app data/.../problem-reports/pawwork-problem-report.md",
       },
     }
+    const packageOnly: ReportProblemResult = {
+      status: "package-only",
+      summaryCopied: true,
+      feedbackOpened: false,
+      fullReport: {
+        status: "ready",
+        fileName: "pawwork-problem-report.md",
+        locationHint: "PawWork app data/.../problem-reports/pawwork-problem-report.md",
+      },
+    }
     const failed: ReportProblemResult = {
       status: "failed",
       summaryCopied: false,
@@ -161,7 +173,7 @@ describe("error page reporting helpers", () => {
     }
 
     expect(errorReportStatusMessage(ready, t)).toBe(
-      "The feedback form is open. A short summary was copied, and the full report was saved locally for manual upload.",
+      "The feedback form is open. A short summary was copied, and the diagnostics package was saved locally for manual upload.",
     )
     expect(errorReportStatusMessage(summaryOnly, t)).toBe(
       "The current error summary was copied. Paste it into the feedback form.",
@@ -169,12 +181,15 @@ describe("error page reporting helpers", () => {
     expect(errorReportStatusMessage(fallback, t)).toBe(
       "The feedback form did not open automatically. Open the link manually, then paste the copied summary.",
     )
+    expect(errorReportStatusMessage(packageOnly, t)).toBe(
+      "The diagnostics package was saved locally. This build does not have a feedback form configured.",
+    )
     expect(errorReportStatusMessage(failed, t)).toBe(
-      "PawWork could not prepare the report. Use the technical details below when reporting this.",
+      "PawWork could not prepare the diagnostics package. Use the technical details below when reporting this.",
     )
     expect(errorReportStatusMessage(cancelled, t)).toBeUndefined()
     expect(errorReportStatusMessage(unavailable, t)).toBe(
-      "Problem reporting is not available in this build. Use the GitHub link or the technical details below.",
+      "Diagnostics packages are not available in this build. Use the GitHub link or the technical details below.",
     )
   })
 })

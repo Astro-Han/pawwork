@@ -89,27 +89,31 @@ function setup(overrides: Partial<Parameters<typeof createFeedbackHandler>[0]> =
 
 describe("feedback handler", () => {
   test("has localized confirmation labels for Simplified Chinese", () => {
-    expect(feedbackDialogLabels("zh").title).toBe("准备问题报告？")
-    expect(feedbackDialogLabels("zh").confirm).toBe("复制摘要并打开表单")
-    expect(feedbackDialogLabels("zh").message).toContain("简短摘要")
-    expect(feedbackDialogLabels("zh").message).toContain("完整问题报告文件")
-    expect(feedbackDialogLabels("zh").message).toContain("提交后可以删除")
+    expect(feedbackDialogLabels("zh").title).toBe("准备诊断包？")
+    expect(feedbackDialogLabels("zh").confirm).toBe("准备诊断包并打开表单")
+    expect(feedbackDialogLabels("zh").message).toContain("会话内容")
+    expect(feedbackDialogLabels("zh").message).toContain("界面诊断")
+    expect(feedbackDialogLabels("zh").message).toContain("应用日志")
+    expect(feedbackDialogLabels("zh").message).toContain("环境信息")
+    expect(feedbackDialogLabels("zh").message).toContain("本地路径")
     expect(feedbackDialogLabels("zh").message).not.toContain("PawWork")
     expect(feedbackDialogLabels("zh").formOpenFailedMessage).not.toContain("PawWork")
   })
 
   test("has English confirmation labels", () => {
-    expect(feedbackDialogLabels("en").title).toBe("Prepare problem report?")
-    expect(feedbackDialogLabels("en").confirm).toBe("Copy summary and open form")
-    expect(feedbackDialogLabels("en").message).toContain("short summary")
-    expect(feedbackDialogLabels("en").message).toContain("full problem report file")
-    expect(feedbackDialogLabels("en").message).toContain("delete the local full report file after submission")
-    expect(feedbackDialogLabels("en").failedTitle).toBe("Problem Report Failed")
+    expect(feedbackDialogLabels("en").title).toBe("Prepare diagnostics package?")
+    expect(feedbackDialogLabels("en").confirm).toBe("Prepare package and open form")
+    expect(feedbackDialogLabels("en").message).toContain("session content")
+    expect(feedbackDialogLabels("en").message).toContain("renderer diagnostics")
+    expect(feedbackDialogLabels("en").message).toContain("app logs")
+    expect(feedbackDialogLabels("en").message).toContain("environment information")
+    expect(feedbackDialogLabels("en").message).toContain("local paths")
+    expect(feedbackDialogLabels("en").failedTitle).toBe("Diagnostics Package Failed")
   })
 
   test("falls back to English confirmation labels", () => {
-    expect(feedbackDialogLabels("fr" as never).title).toBe("Prepare problem report?")
-    expect(feedbackDialogLabels("fr" as never).confirm).toBe("Copy summary and open form")
+    expect(feedbackDialogLabels("fr" as never).title).toBe("Prepare diagnostics package?")
+    expect(feedbackDialogLabels("fr" as never).confirm).toBe("Prepare package and open form")
   })
 
   test("cancel does not copy or open", async () => {
@@ -387,11 +391,23 @@ describe("feedback handler", () => {
     expect(subject.calls.handledErrors).toContain("problem report cleanup failed")
   })
 
-  test("missing feedback URL does not copy or open", async () => {
+  test("missing feedback URL still prepares a local diagnostics package", async () => {
     const subject = setup({ feedbackUrl: "" })
-    await subject.handler()
-    expect(subject.calls.copied).toBe("")
+    const result = await subject.handler()
+    expect(subject.calls.copied).toContain("PawWork Problem Report Summary")
+    expect(subject.calls.savedMarkdown).toContain("# PawWork Problem Report")
+    expect(subject.calls.shown).toContain("/tmp/pawwork/problem-reports/")
     expect(subject.calls.opened).toBe("")
+    expect(result).toEqual({
+      status: "package-only",
+      summaryCopied: true,
+      feedbackOpened: false,
+      fullReport: {
+        status: "ready",
+        fileName: expect.stringContaining("pawwork-problem-report-"),
+        locationHint: expect.stringContaining("problem-reports"),
+      },
+    })
   })
 
   test("non-session failures are reported without rejecting", async () => {

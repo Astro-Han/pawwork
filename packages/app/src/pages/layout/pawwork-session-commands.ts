@@ -49,12 +49,10 @@ export function createPawworkSessionCommands(input: PawworkSessionCommandsInput)
     }
   }
 
-  // Export hits the embedded sidecar via main-process IPC. When the user has
-  // switched the active server to a remote target, the sidecar holds different
-  // data than the UI; hide the action rather than ship a misleading export.
-  const exportSessionAvailable = createMemo(
-    () => !!input.platform.exportSession && input.server.current?.type === "sidecar",
-  )
+  // The old raw JSON session export is intentionally hidden from the sidebar.
+  // Troubleshooting now goes through Help -> diagnostics package so logs,
+  // renderer diagnostics, environment context, and session content stay together.
+  const exportSessionAvailable = createMemo(() => false)
 
   async function exportSession(session: Session) {
     if (!input.platform.exportSession) return
