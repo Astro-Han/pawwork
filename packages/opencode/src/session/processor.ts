@@ -216,6 +216,7 @@ type PendingLoopAction = {
 interface ProcessorContext extends Input {
   directory: string
   toolcalls: Record<string, ToolCall>
+  pendingStartedToolCalls: Set<string>
   pendingLoopActions: Record<string, PendingLoopAction>
   pendingToolUpdates: Record<string, Array<(part: MessageV2.ToolPart) => MessageV2.ToolPart>>
   shouldBreak: boolean
@@ -328,6 +329,7 @@ export const layer: Layer.Layer<
         model: input.model,
         directory: instanceContext.directory,
         toolcalls: {},
+        pendingStartedToolCalls: new Set(),
         pendingLoopActions: {},
         pendingToolUpdates: {},
         shouldBreak: false,
@@ -420,6 +422,8 @@ export const layer: Layer.Layer<
         if (call) {
           call.executionStarted = true
           call.attemptID ??= ctx.currentAttemptID
+        } else {
+          ctx.pendingStartedToolCalls.add(input.toolCallID)
         }
         if (!attemptID || alreadyStarted) return
         ctx.runTrace.recordToolExecutionStarted({
@@ -766,7 +770,10 @@ export const layer: Layer.Layer<
           yield* settleToolCall(toolCallID)
           return true
         }
-        if (match.part.state.status !== "running") {
+        if (
+          match.part.state.status !== "running" &&
+          !(match.part.state.status === "pending" && match.call.executionStarted === true)
+        ) {
           yield* settleToolCall(toolCallID)
           return false
         }
@@ -791,6 +798,8 @@ export const layer: Layer.Layer<
         // so the renderer's substring fallback for non-question tool errors
         // continues to fire.
         const reason = error instanceof ExternalResult.Error ? error.reason : undefined
+        const end = Date.now()
+        const start = "time" in match.part.state ? match.part.state.time.start : end
         yield* session.updatePart({
           ...match.part,
           state: {
@@ -804,7 +813,7 @@ export const layer: Layer.Layer<
                 failure: classifyToolFailure({ tool: match.part.tool, error }),
               },
             }),
-            time: { start: match.part.state.time.start, end: Date.now() },
+            time: { start, end },
           },
         })
         if (error instanceof Permission.RejectedError) {
@@ -915,6 +924,8 @@ export const layer: Layer.Layer<
               state: { status: "pending", input: {}, raw: "" },
               metadata: value.providerExecuted ? { providerExecuted: true } : undefined,
             } satisfies MessageV2.ToolPart)
+            const executionStarted = ctx.pendingStartedToolCalls.has(value.id)
+            ctx.pendingStartedToolCalls.delete(value.id)
             ctx.toolcalls[value.id] = {
               ready: yield* Deferred.make<void>(),
               done: yield* Deferred.make<void>(),
@@ -922,6 +933,7 @@ export const layer: Layer.Layer<
               messageID: part.messageID,
               sessionID: part.sessionID,
               attemptID,
+              executionStarted,
             }
             yield* applyPendingToolUpdates(value.id)
             return
@@ -1185,6 +1197,12 @@ export const layer: Layer.Layer<
         for (const toolCallID of Object.keys(ctx.toolcalls)) {
           const match = yield* readToolCall(toolCallID)
           if (!match) continue
+          if (ctx.toolcalls[toolCallID] !== match.call) continue
+          delete ctx.toolcalls[toolCallID]
+          yield* Effect.all([Deferred.succeed(match.call.ready, undefined), Deferred.succeed(match.call.done, undefined)], {
+            concurrency: "unbounded",
+            discard: true,
+          }).pipe(Effect.ignore)
           const part = match.part
           const end = Date.now()
           const metadata = "metadata" in part.state && isRecord(part.state.metadata) ? part.state.metadata : {}
@@ -1239,6 +1257,7 @@ export const layer: Layer.Layer<
         }
         const remainingCalls = Object.values(ctx.toolcalls)
         ctx.toolcalls = {}
+        ctx.pendingStartedToolCalls.clear()
         yield* Effect.forEach(
           remainingCalls,
           (call) =>
