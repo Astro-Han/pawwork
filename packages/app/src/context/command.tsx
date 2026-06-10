@@ -105,6 +105,15 @@ export function upsertCommandRegistration(registrations: CommandRegistration[], 
   return [entry, ...registrations.filter((x) => x.key !== entry.key)]
 }
 
+// Every dispatch path funnels here (trigger(), the palette keybind, sidebar
+// search). A disabled command must not execute: the keymap and option lists
+// already hide it, and its onSelect assumes the prerequisite the flag encodes
+// (e.g. file.open without a directory would mount an empty picker dialog).
+export function dispatchCommand(option: CommandOption | undefined, source?: CommandSource) {
+  if (!option || option.disabled) return
+  option.onSelect?.(source)
+}
+
 export function parseKeybind(config: string): Keybind[] {
   if (!config || config === "none") return []
 
@@ -312,7 +321,6 @@ export const { use: useCommand, provider: CommandProvider } = createSimpleContex
     })
 
     const suspended = () => store.suspendCount > 0
-    const [modalOpen, setModalOpen] = createSignal(false)
 
     const palette = createMemo(() => {
       const config = settings.keybinds.get(PALETTE_ID) ?? DEFAULT_PALETTE_KEYBIND
@@ -348,8 +356,7 @@ export const { use: useCommand, provider: CommandProvider } = createSimpleContex
     })
 
     const run = (id: string, source?: CommandSource) => {
-      const option = optionMap().get(id)
-      option?.onSelect?.(source)
+      dispatchCommand(optionMap().get(id), source)
     }
 
     const showPalette = () => {
@@ -357,7 +364,7 @@ export const { use: useCommand, provider: CommandProvider } = createSimpleContex
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (suspended() || dialog.active || modalOpen()) return
+      if (suspended() || dialog.active) return
 
       const sig = signatureFromEvent(event)
       const isPalette = palette().has(sig)
@@ -424,7 +431,6 @@ export const { use: useCommand, provider: CommandProvider } = createSimpleContex
         setStore("suspendCount", (count) => Math.max(0, count + (enabled ? -1 : 1)))
       },
       suspended,
-      setModalOpen,
       get catalog() {
         return catalogOptions()
       },

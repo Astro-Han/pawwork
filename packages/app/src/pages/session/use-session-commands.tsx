@@ -1,4 +1,3 @@
-import { useNavigate } from "@solidjs/router"
 import { createMediaQuery } from "@solid-primitives/media"
 import { useCommand, type CommandOption } from "@/context/command"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
@@ -55,7 +54,6 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   const terminal = useTerminal()
   const layout = useLayout()
   const platform = usePlatform()
-  const navigate = useNavigate()
   const { params, tabs, view } = useSessionLayout()
   const isDesktop = createMediaQuery("(min-width: 768px)")
 
@@ -90,11 +88,6 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     const revert = info()?.revert?.messageID
     if (!revert) return userMessages()
     return userMessages().filter((m) => m.id < revert)
-  }
-
-  const showAllFiles = () => {
-    if (view().sidePanel.explorer.tab() !== "changes") return
-    view().sidePanel.explorer.setTab("all")
   }
 
   const selectionPreview = (path: string, selection: FileSelection) => {
@@ -149,12 +142,6 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       sessionID: params.id,
       client: sdk.client.session,
       language,
-    })
-  }
-
-  const openFile = (source?: "palette" | "keybind" | "slash") => {
-    void import("@/components/dialog-select-file").then((x) => {
-      dialog.show(() => <x.DialogSelectFile mode={source === "slash" ? "files" : undefined} onOpenFile={showAllFiles} />)
     })
   }
 
@@ -346,14 +333,10 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     ]
   }
 
+  // session.new and file.open are shell-wide commands registered at the
+  // layout level (registerLayoutCommands), so they keep working on pages
+  // without a mounted session route.
   const sessionCmds = () => [
-    sessionCommand({
-      id: "session.new",
-      title: language.t("command.session.new"),
-      keybind: "mod+shift+s",
-      slash: "new",
-      onSelect: () => navigate(`/${params.dir}/session`),
-    }),
     sessionCommand({
       id: "session.undo",
       title: language.t("command.session.undo"),
@@ -393,14 +376,6 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   ]
 
   const fileCmds = () => [
-    fileCommand({
-      id: "file.open",
-      title: language.t("command.file.open"),
-      description: language.t("palette.search.placeholder"),
-      keybind: "mod+k,mod+p",
-      slash: "open",
-      onSelect: openFile,
-    }),
     fileCommand({
       id: "tab.close",
       title: language.t("command.tab.close"),

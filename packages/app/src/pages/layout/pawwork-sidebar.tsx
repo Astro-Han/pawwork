@@ -71,6 +71,7 @@ export const PawworkSidebar = (props: {
   onSearchOlderSessions: () => void
   onNew: () => void
   onSearch: () => void
+  searchAvailable: Accessor<boolean>
   onOpenProject: () => void
   onOpenSkills: () => void
   skillsActive: Accessor<boolean>
@@ -391,6 +392,7 @@ export const PawworkSidebar = (props: {
         automationsLabel={props.automationsLabel}
         onNew={props.onNew}
         onSearch={props.onSearch}
+        searchAvailable={props.searchAvailable}
         onOpenSkills={props.onOpenSkills}
         onOpenAutomations={props.onOpenAutomations}
       />

@@ -1,5 +1,5 @@
 import { createEffect, createMemo, Show, untrack } from "solid-js"
-import { createStore } from "solid-js/store"
+import { createStore, unwrap } from "solid-js/store"
 import { createMediaQuery } from "@solid-primitives/media"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { Icon } from "@opencode-ai/ui/icon"
@@ -10,15 +10,13 @@ import { useLayout } from "@/context/layout"
 import { isDesktopShell, isMacShell, isWindowsShell, shellAttrs, usePlatform } from "@/context/platform"
 import { useCommand } from "@/context/command"
 import { useLanguage } from "@/context/language"
-import { useShellSurface } from "@/context/shell-surface"
-import { applyPath, backPath, forwardPath } from "./titlebar-history"
+import { applyPath, backPath, forwardPath, type TitlebarEntry } from "./titlebar-history"
 
 export function Titlebar() {
   const layout = useLayout()
   const platform = usePlatform()
   const command = useCommand()
   const language = useLanguage()
-  const shell = useShellSurface()
   const navigate = useNavigate()
   const location = useLocation()
   const params = useParams()
@@ -38,15 +36,8 @@ export function Titlebar() {
   // tabs slot would still claim panel-width on home/settings (where
   // SessionSidePanel doesn't render any tabs), pushing the right utility
   // toggle's StatusPopover fallback to the left.
-  // A main-takeover surface (settings / automations / skills) covers the session
-  // and its right panel, so the rail's reserved width + border-l must retract
-  // even though the route is still /session and the panel is still "opened".
   const tabsRailActive = createMemo(
-    () =>
-      isDesktop() &&
-      location.pathname.includes("/session") &&
-      layout.rightPanel.opened() &&
-      !shell.mainSurfaceOpen(),
+    () => isDesktop() && location.pathname.includes("/session") && layout.rightPanel.opened(),
   )
   const tabsRailWidth = () => (tabsRailActive() ? "var(--right-panel-width, 0px)" : "0px")
   const zoom = () => platform.webviewZoom?.() ?? 1
@@ -58,7 +49,7 @@ export function Titlebar() {
   })
 
   const [history, setHistory] = createStore({
-    stack: [] as string[],
+    stack: [] as TitlebarEntry[],
     index: 0,
     action: undefined as "back" | "forward" | undefined,
   })
@@ -66,7 +57,9 @@ export function Titlebar() {
   const path = () => `${location.pathname}${location.search}${location.hash}`
 
   createEffect(() => {
-    const current = path()
+    // Track state as well as path: replaying an entry without its navigation
+    // state would break the surface routes' close-to-origin contract.
+    const current = { to: path(), state: location.state }
 
     untrack(() => {
       const next = applyPath(history, current)
@@ -79,14 +72,18 @@ export function Titlebar() {
     const next = backPath(history)
     if (!next) return
     setHistory(next.state)
-    navigate(next.to)
+    // unwrap: a store-proxied state would fail the web router's pushState
+    // structured clone (proxies are not cloneable).
+    const entry = unwrap(next.entry)
+    navigate(entry.to, { state: entry.state })
   }
 
   const forward = () => {
     const next = forwardPath(history)
     if (!next) return
     setHistory(next.state)
-    navigate(next.to)
+    const entry = unwrap(next.entry)
+    navigate(entry.to, { state: entry.state })
   }
 
   command.register(() => [

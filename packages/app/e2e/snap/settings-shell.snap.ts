@@ -4,7 +4,7 @@ import { composeGrid, snapOutputPath, type Shot } from "./_compose"
 
 test.use({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 })
 
-// Review the shell-slot takeover + left nav (back-to-app + 6 tabs + version footer).
+// Review the settings route's shell slots + left nav (back-to-app + 6 tabs + version footer).
 // Currently 6 tabs: General / Shortcuts / Models / Integrations / Worktrees / Memory
 // (remote access still hidden until ready).
 // Capture 4 shots: General (default) / Models / Integrations / Memory.

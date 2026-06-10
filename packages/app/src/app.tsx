@@ -48,6 +48,9 @@ import { AboutModal } from "@/components/about-modal"
 import type { AboutInfo, RendererDiagnosticInput, RendererDiagnosticsExportResult, WebSearchStatus } from "@/desktop-api-contract"
 import DirectoryLayout from "@/pages/directory-layout"
 import Layout from "@/pages/layout"
+import AutomationsRoute from "@/pages/automations/automations-route"
+import SettingsRoute from "@/pages/settings/settings-route"
+import SkillsRoute from "@/pages/skills/skills-route"
 import { ErrorPage } from "./pages/error"
 import { buildDesktopContext, desktopWindowTitle, type DesktopContext } from "./utils/desktop-context"
 import { useCheckServerHealth } from "./utils/server-health"
@@ -130,7 +133,15 @@ function AppShellProviders(props: ParentProps) {
               <CommandProvider>
                 <HighlightsProvider>
                   <ConnectionHealthProvider>
-                    <Layout>{props.children}</Layout>
+                    {/* Terminal runtimes (PTY handles) must outlive the session
+                        route: leaving a session and coming back has to reattach
+                        to the same server-side PTY instead of orphaning it and
+                        spawning a fresh shell. The provider is route-aware via
+                        useParams but holds its per-workspace cache here, above
+                        any route swap. */}
+                    <TerminalProvider>
+                      <Layout>{props.children}</Layout>
+                    </TerminalProvider>
                   </ConnectionHealthProvider>
                 </HighlightsProvider>
               </CommandProvider>
@@ -144,13 +155,11 @@ function AppShellProviders(props: ParentProps) {
 
 function SessionProviders(props: ParentProps) {
   return (
-    <TerminalProvider>
-      <FileProvider>
-        <PromptProvider>
-          <CommentsProvider>{props.children}</CommentsProvider>
-        </PromptProvider>
-      </FileProvider>
-    </TerminalProvider>
+    <FileProvider>
+      <PromptProvider>
+        <CommentsProvider>{props.children}</CommentsProvider>
+      </PromptProvider>
+    </FileProvider>
   )
 }
 
@@ -423,6 +432,12 @@ export function AppInterface(props: {
                 root={(routerProps) => <RouterRoot appChildren={props.children}>{routerProps.children}</RouterRoot>}
               >
                 <Route path="/" component={HomeRedirectRoute} />
+                {/* Global surface routes: siblings of the session routes, not
+                    nested under /:dir. Static segments outrank the /:dir
+                    param, so these never resolve as a directory slug. */}
+                <Route path="/settings" component={SettingsRoute} />
+                <Route path="/automations" component={AutomationsRoute} />
+                <Route path="/skills" component={SkillsRoute} />
                 <Route path="/:dir" component={DirectoryLayout}>
                   <Route path="/" component={SessionIndexRoute} />
                   <Route path="/session/:id?" component={SessionRoute} />

@@ -12,6 +12,7 @@ export function PawworkSidebarTop(props: {
   automationsLabel: Accessor<string>
   onNew: () => void
   onSearch: () => void
+  searchAvailable: Accessor<boolean>
   onOpenSkills: () => void
   onOpenAutomations: () => void
 }) {
@@ -44,8 +45,9 @@ export function PawworkSidebarTop(props: {
           <button
             type="button"
             data-action="pawwork-session-search"
+            disabled={!props.searchAvailable()}
             onClick={props.onSearch}
-            class="w-full h-[30px] flex items-center gap-3 px-2.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
+            class="w-full h-[30px] flex items-center gap-3 px-2.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none disabled:opacity-50 disabled:hover:bg-transparent"
           >
             <span class="shrink-0 w-4 h-4 flex items-center">
               <Icon name="magnifying-glass" class="text-icon-base" />
