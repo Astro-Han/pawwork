@@ -52,13 +52,15 @@ type FeedbackDeps = {
 type FeedbackInput = ReportProblemInput
 export type FeedbackResult = ReportProblemResult
 
-export function feedbackDialogLabels(locale: MenuLocale) {
+export function feedbackDialogLabels(locale: MenuLocale, options: { withForm?: boolean } = {}) {
+  const withForm = options.withForm ?? true
   const labels = {
     en: {
       title: "Prepare diagnostics package?",
-      message:
-        "PawWork will save one diagnostics package locally, copy a short summary, and open the feedback form.\n\nThe package can include session content, renderer diagnostics, app logs, local paths, and environment information. Review it before uploading. You can delete the local package after submission.",
-      confirm: "Prepare package and open form",
+      message: withForm
+        ? "PawWork will save one diagnostics package locally, copy a short summary, and open the feedback form.\n\nThe package can include session content, renderer diagnostics, app logs, local paths, and environment information. Review it before uploading. You can delete the local package after submission."
+        : "PawWork will save one diagnostics package locally and copy a short summary.\n\nThe package can include session content, renderer diagnostics, app logs, local paths, and environment information. Review it before sharing. This build does not have a feedback form configured.",
+      confirm: withForm ? "Prepare package and open form" : "Prepare package",
       cancel: "Cancel",
       failedTitle: "Diagnostics Package Failed",
       failedMessage: "Could not prepare the diagnostics package. You can try preparing it again.",
@@ -68,9 +70,10 @@ export function feedbackDialogLabels(locale: MenuLocale) {
     },
     zh: {
       title: "准备诊断包？",
-      message:
-        "应用会在本地保存一份诊断包，复制简短摘要，并打开反馈表单。\n\n诊断包可能包含会话内容、界面诊断、应用日志、本地路径和环境信息。上传前可以先检查，提交后也可以删除本地诊断包。",
-      confirm: "准备诊断包并打开表单",
+      message: withForm
+        ? "应用会在本地保存一份诊断包，复制简短摘要，并打开反馈表单。\n\n诊断包可能包含会话内容、界面诊断、应用日志、本地路径和环境信息。上传前可以先检查，提交后也可以删除本地诊断包。"
+        : "应用会在本地保存一份诊断包，并复制简短摘要。\n\n诊断包可能包含会话内容、界面诊断、应用日志、本地路径和环境信息。分享前可以先检查。当前构建没有配置反馈表单。",
+      confirm: withForm ? "准备诊断包并打开表单" : "准备诊断包",
       cancel: "取消",
       failedTitle: "诊断包准备失败",
       failedMessage: "无法准备诊断包。你可以重新准备一次。",

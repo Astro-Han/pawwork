@@ -111,6 +111,18 @@ describe("feedback handler", () => {
     expect(feedbackDialogLabels("en").failedTitle).toBe("Diagnostics Package Failed")
   })
 
+  test("has package-only confirmation labels when no feedback form is configured", () => {
+    const english = feedbackDialogLabels("en", { withForm: false })
+    expect(english.confirm).toBe("Prepare package")
+    expect(english.message).toContain("This build does not have a feedback form configured")
+    expect(english.message).not.toContain("open the feedback form")
+
+    const chinese = feedbackDialogLabels("zh", { withForm: false })
+    expect(chinese.confirm).toBe("准备诊断包")
+    expect(chinese.message).toContain("当前构建没有配置反馈表单")
+    expect(chinese.message).not.toContain("打开反馈表单")
+  })
+
   test("falls back to English confirmation labels", () => {
     expect(feedbackDialogLabels("fr" as never).title).toBe("Prepare diagnostics package?")
     expect(feedbackDialogLabels("fr" as never).confirm).toBe("Prepare package and open form")

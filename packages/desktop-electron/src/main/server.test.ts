@@ -329,7 +329,8 @@ describe("desktop server runtime namespace", () => {
     globalThis.fetch = (async () => new Response(null, { status: 200 })) as typeof fetch
 
     try {
-      const { spawnLocalServer } = await import("./server")
+      const { backendLogFilePathForTest, setBackendLogFilePathForTest, spawnLocalServer } = await import("./server")
+      setBackendLogFilePathForTest("/tmp/stale-opencode.log")
       await spawnLocalServer("127.0.0.1", 4096, "secret")
       expect(captured).toEqual({
         XDG_DATA_HOME: serverRoots.data,
@@ -343,6 +344,7 @@ describe("desktop server runtime namespace", () => {
       expect(listenOptions).toMatchObject({
         cors: [rendererOrigin],
       })
+      expect(backendLogFilePathForTest()).toBe("")
     } finally {
       globalThis.fetch = previousFetch
     }

@@ -66,6 +66,7 @@ export async function spawnLocalServer(hostname: string, port: number, password:
   await configureProxyDispatcher(process.env)
   const { Log, Server } = await import("virtual:opencode-server")
   await Log.init({ print: false, level: "WARN" })
+  backendLogPath = ""
   const logFile = (Log as typeof Log & { file?: () => string }).file
   if (typeof logFile === "function") {
     backendLogPath = logFile()

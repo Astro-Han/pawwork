@@ -303,7 +303,9 @@ const reportProblem = createFeedbackHandler({
   reportRoot: problemReportRoot,
   context: currentFeedbackRuntimeContext,
   confirm: async (context) => {
-    const labels = feedbackDialogLabels(context === undefined ? menuLocale : feedbackContext(context).locale)
+    const labels = feedbackDialogLabels(context === undefined ? menuLocale : feedbackContext(context).locale, {
+      withForm: Boolean(FEEDBACK_FORM_URL),
+    })
     const response = await dialog.showMessageBox({
       type: "warning",
       title: labels.title,

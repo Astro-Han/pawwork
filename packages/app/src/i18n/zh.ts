@@ -493,7 +493,7 @@ export const dict = {
   "error.page.report.githubFallback": "也可以在 GitHub 反馈。",
   "error.page.report.formFallbackAction": "手动打开反馈表单。",
   "error.page.report.confirm.description": "爪印会准备一份诊断包并打开反馈表单。",
-  "error.page.report.confirm.privacy": "诊断包可能包含会话内容、应用日志、本地路径和环境信息。默认不会自动上传你的原始项目文件。",
+  "error.page.report.confirm.privacy": "诊断包可能包含会话内容、应用日志、本地路径和环境信息。不会自动上传你的原始项目文件。",
   "error.page.report.confirm.details": "查看会包含哪些信息",
   "error.page.report.confirm.item.error": "错误摘要和完整错误详情",
   "error.page.report.confirm.item.app": "应用版本、系统信息和环境信息",

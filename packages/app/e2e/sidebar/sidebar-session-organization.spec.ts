@@ -93,6 +93,7 @@ test("session row menu does not expose raw export as a troubleshooting entry", a
     await row.hover()
     await row.locator('[data-action="session-row-menu"]').click()
 
+    await expect(page.getByRole("menuitem", { name: /rename/i })).toBeVisible()
     await expect(page.getByRole("menuitem", { name: /export session/i })).toHaveCount(0)
     await expect(page.getByRole("menuitem", { name: /diagnostics package/i })).toHaveCount(0)
   } finally {
