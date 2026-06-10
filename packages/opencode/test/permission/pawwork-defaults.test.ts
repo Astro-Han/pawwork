@@ -45,3 +45,19 @@ test("build agent uses PawWork permission defaults", async () => {
     },
   })
 })
+
+test("an origin-scoped browser 'always' grant never overrides another site's configured deny", async () => {
+  // The other half of the §9 ruling: permission.browser rules tighten per URL,
+  // and that tightening must survive an "always allow" click. Approvals are
+  // evaluated after configured rules (last match wins), so the browser tools
+  // scope the always grant to the asked site's origin — a global "*" grant
+  // would silently void the user's own deny.
+  const configured = [
+    { permission: "browser", pattern: "*", action: "ask" as const },
+    { permission: "browser", pattern: "https://blocked.example/*", action: "deny" as const },
+  ]
+  const approved = [{ permission: "browser", pattern: "https://ok.example/*", action: "allow" as const }]
+  expect(Permission.evaluate("browser", "https://ok.example/page", configured, approved).action).toBe("allow")
+  expect(Permission.evaluate("browser", "https://blocked.example/page", configured, approved).action).toBe("deny")
+  expect(Permission.evaluate("browser", "https://other.example/page", configured, approved).action).toBe("ask")
+})

@@ -18,7 +18,7 @@ import { SessionID, MessageID } from "../../src/session/schema"
 import { Permission } from "../../src/permission"
 import { FakeCdpServer, provideFakeHost, scriptCurrentUrl } from "../fake/cdp-server"
 
-const askLog: Array<{ permission: string; patterns: string[] }> = []
+const askLog: Array<{ permission: string; patterns: string[]; always: string[] }> = []
 
 const ctx = {
   sessionID: SessionID.make("ses_browser_tools"),
@@ -28,8 +28,8 @@ const ctx = {
   abort: AbortSignal.any([]),
   messages: [],
   metadata: () => Effect.void,
-  ask: (input: { permission: string; patterns: string[] }) => {
-    askLog.push({ permission: input.permission, patterns: input.patterns })
+  ask: (input: { permission: string; patterns: string[]; always: string[] }) => {
+    askLog.push({ permission: input.permission, patterns: input.patterns, always: input.always })
     return Effect.void
   },
 }
@@ -121,7 +121,9 @@ describe("permission gate", () => {
 
     const result = await exec(BrowserSnapshotTool, {})
     expect(result.output).toContain("[1] <button> Ok")
-    expect(askLog).toEqual([{ permission: "browser", patterns: ["https://allowed.example/page"] }])
+    expect(askLog).toEqual([
+      { permission: "browser", patterns: ["https://allowed.example/page"], always: ["https://allowed.example/*"] },
+    ])
     // The lease pinned the attach to the probed window; the other window saw nothing.
     expect(resolved).toEqual([7])
     expect(denied.methods).toEqual([])
@@ -161,7 +163,9 @@ describe("permission gate", () => {
 
     await exec(BrowserNavigateTool, { url: "https://example.com/dest" })
     // The permission stays scoped to the destination; the lease only pins WHERE it runs.
-    expect(askLog).toEqual([{ permission: "browser", patterns: ["https://example.com/dest"] }])
+    expect(askLog).toEqual([
+      { permission: "browser", patterns: ["https://example.com/dest"], always: ["https://example.com/*"] },
+    ])
     expect(resolved).toEqual([1])
     expect(leased.methods).toContain("Page.navigate")
     expect(focused.methods).toEqual([])
@@ -199,8 +203,8 @@ describe("permission gate", () => {
     await expect(second).rejects.toThrow(/window for this session changed/)
     await expect(first).resolves.toMatchObject({ output: expect.stringContaining("[1] <button> Ok") })
     expect(askLog).toEqual([
-      { permission: "browser", patterns: ["https://example.com/win-1"] },
-      { permission: "browser", patterns: ["https://example.com/win-2"] },
+      { permission: "browser", patterns: ["https://example.com/win-1"], always: ["https://example.com/*"] },
+      { permission: "browser", patterns: ["https://example.com/win-2"], always: ["https://example.com/*"] },
     ])
     expect(resolved).toEqual([1])
     expect(winTwo.methods).toEqual([])
@@ -249,7 +253,9 @@ describe("browser_navigate", () => {
     const result = await exec(BrowserNavigateTool, { url: "https://example.com/page" })
     expect(server.methods).toContain("Page.navigate")
     expect(result.output).toContain("Loaded https://example.com/page")
-    expect(askLog).toEqual([{ permission: "browser", patterns: ["https://example.com/page"] }])
+    expect(askLog).toEqual([
+      { permission: "browser", patterns: ["https://example.com/page"], always: ["https://example.com/*"] },
+    ])
   })
 })
 
@@ -264,6 +270,9 @@ describe("browser_snapshot", () => {
     const result = await exec(BrowserSnapshotTool, {})
     expect(result.output).toContain("[1] <button> Submit")
     expect(askLog[0]?.permission).toBe("browser")
+    // A blank/non-web page has no origin to scope an "always" grant to — the
+    // ask offers none rather than a global one.
+    expect(askLog[0]?.always).toEqual([])
   })
 
   test("scopes the permission to the page's current URL, not '*'", async () => {
@@ -276,7 +285,9 @@ describe("browser_snapshot", () => {
     askLog.length = 0
     const result = await exec(BrowserSnapshotTool, {})
     expect(result.output).toContain("[1] <button> Go")
-    expect(askLog).toEqual([{ permission: "browser", patterns: ["https://example.com/page"] }])
+    expect(askLog).toEqual([
+      { permission: "browser", patterns: ["https://example.com/page"], always: ["https://example.com/*"] },
+    ])
   })
 })
 

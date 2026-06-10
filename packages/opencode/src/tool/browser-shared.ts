@@ -38,10 +38,22 @@ export function runBrowserAction<T>(input: {
       catch: (err) => (err instanceof Error ? err : new Error(String(err))),
     })
     const patterns = input.patterns ?? [probe.url ?? "*"]
+    // "Always allow" stays scoped to the site: approvals are evaluated AFTER
+    // configured rules (last match wins), so a global "*" grant here would let
+    // one click on a harmless site silently override an explicit per-URL deny
+    // the user configured. An origin pattern can never out-match another
+    // site's rule. Non-URL targets (blank page) offer no always at all.
+    const always = patterns.flatMap((pattern) => {
+      try {
+        return [`${new URL(pattern).origin}/*`]
+      } catch {
+        return []
+      }
+    })
     yield* input.ctx.ask({
       permission: "browser",
       patterns,
-      always: ["*"],
+      always,
       metadata: { action: input.label, ...input.metadata },
     })
     return yield* Effect.tryPromise({
