@@ -127,7 +127,6 @@ export namespace ToolRegistry {
       const config = yield* Config.Service
       const plugin = yield* Plugin.Service
       const agents = yield* Agent.Service
-      const skill = yield* Skill.Service
       const truncate = yield* Truncate.Service
       const settings = yield* Settings.Service
 
@@ -359,26 +358,6 @@ export namespace ToolRegistry {
         return (yield* all()).map((tool) => tool.id)
       })
 
-      const describeSkill = Effect.fn("ToolRegistry.describeSkill")(function* (agent: Agent.Info) {
-        const list = yield* skill.available(agent)
-        const visible = Skill.displayable(list)
-        if (visible.length === 0) return Skill.fmt(visible, { verbose: false })
-        return [
-          "Load a specialized skill that provides domain-specific instructions and workflows.",
-          "",
-          "When you recognize that a task matches one of the available skills listed below, use this tool to load the full skill instructions.",
-          "",
-          "The skill will inject detailed instructions, workflows, and access to bundled resources (scripts, references, templates) into the conversation context.",
-          "",
-          'Tool output includes a `<skill_content name="...">` block with the loaded content.',
-          "",
-          "The following skills provide specialized sets of instructions for particular tasks",
-          "Invoke this tool to load a skill when a task matches one of the available skills listed below:",
-          "",
-          Skill.fmt(visible, { verbose: false }),
-        ].join("\n")
-      })
-
       const describeTask = Effect.fn("ToolRegistry.describeTask")(function* (agent: Agent.Info) {
         const items = (yield* agents.list()).filter((item) => item.mode !== "primary")
         const filtered = items.filter(
@@ -431,7 +410,6 @@ export namespace ToolRegistry {
               description: [
                 output.description,
                 tool.id === AgentTool.id ? yield* describeTask(input.agent) : undefined,
-                tool.id === SkillTool.id ? yield* describeSkill(input.agent) : undefined,
                 tool.id === TOOL_INFO_ID ? buildCardList(availableDeferred) : undefined,
               ]
                 .filter(Boolean)
