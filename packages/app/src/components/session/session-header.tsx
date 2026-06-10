@@ -11,7 +11,6 @@ import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { canOpenLocalPath, usePlatform } from "@/context/platform"
 import { useServer } from "@/context/server"
-import { useShellSurface } from "@/context/shell-surface"
 import { useSync } from "@/context/sync"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { decode64 } from "@/utils/base64"
@@ -22,7 +21,6 @@ export function SessionHeader() {
   const language = useLanguage()
   const platform = usePlatform()
   const server = useServer()
-  const shellSurface = useShellSurface()
   const sync = useSync()
   const location = useLocation()
   const { params, view } = useSessionLayout()
@@ -79,7 +77,7 @@ export function SessionHeader() {
 
   return (
     <>
-      <Show when={!shellSurface.mainSurfaceOpen() && leftMount()}>
+      <Show when={leftMount()}>
         {(mount) => (
           <Portal mount={mount()}>
             <div class="hidden md:flex w-full min-w-0 max-w-[720px] items-center overflow-hidden text-h3">
@@ -118,7 +116,7 @@ export function SessionHeader() {
           </Portal>
         )}
       </Show>
-      <Show when={!shellSurface.mainSurfaceOpen() && rightMount()}>
+      <Show when={rightMount()}>
         {(mount) => (
           <Portal mount={mount()}>
             <Show

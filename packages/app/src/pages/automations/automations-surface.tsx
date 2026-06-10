@@ -85,9 +85,10 @@ export function AutomationsSurface(props: {
   })
 
   // Escape returns to the list when a row is open, otherwise closes the surface.
-  // The capture listener bails while a transient overlay is open; unlike the
-  // settings takeover, the sidebar stays live here, so its dropdown/context
-  // menus must get Escape first instead of being preempted into closing us.
+  // The capture listener bails while a transient overlay is open; unlike on
+  // /settings (whose nav replaces the sidebar slot), the sidebar stays live
+  // here, so its dropdown/context menus must get Escape first instead of being
+  // preempted into closing us.
   onMount(() => {
     const onEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return

@@ -10,7 +10,6 @@ import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useNotification } from "@/context/notification"
 import { usePermission } from "@/context/permission"
-import { useShellSurface } from "@/context/shell-surface"
 import { messageAgentColor } from "@/utils/agent"
 import { sessionTitle } from "@/utils/session-title"
 import { sessionPermissionRequest } from "../session/blockers/request-tree"
@@ -56,18 +55,10 @@ const SessionRow = (props: {
   titleContent?: JSX.Element
 }): JSX.Element => {
   const title = () => sessionTitle(props.session.title)
-  const shellSurface = useShellSurface()
 
   return (
     <A
       href={props.href}
-      // While the Automations surface owns the main region the session route is
-      // still mounted, so router keeps this link `.active` and the row stays
-      // highlighted alongside the Automations nav item. Swap the active class to
-      // a no-op while a main-takeover surface is open so sidebar selection stays
-      // mutually exclusive with it. The row overlay + text emphasis both key off
-      // `.active` (sidebar.css `:has(.active)`), so this clears them in one move.
-      activeClass={shellSurface.mainSurfaceOpen() ? "pw-route-active-suppressed" : "active"}
       class="flex items-center min-w-0 w-full text-left focus:outline-none"
       onPointerDown={props.warmPress}
       onFocus={props.warmFocus}
@@ -289,13 +280,11 @@ export const NewSessionItem = (props: {
   onOpenNewSession?: () => void
 }): JSX.Element => {
   const language = useLanguage()
-  const shellSurface = useShellSurface()
   const label = language.t("command.session.new")
   const item = (
     <A
       href={defaultNewSessionHref(props.slug)}
       end
-      activeClass={shellSurface.mainSurfaceOpen() ? "pw-route-active-suppressed" : "active"}
       class={`flex items-center gap-2 min-w-0 w-full text-left focus:outline-none leading-[1.4] ${props.dense ? "py-1" : "py-[5px]"}`}
       onClick={(event) => {
         if (!props.onOpenNewSession) return

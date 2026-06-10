@@ -98,12 +98,10 @@ export function SkillsSurface(props: {
 
   // Escape closes the surface — but only when nothing in the shared dialog stack
   // owns it. That covers the skill-detail reader AND a command palette opened
-  // from the still-live sidebar (its search calls command.show() directly,
-  // bypassing the keybind gate that otherwise suppresses palettes behind a
-  // surface). `dialog.active` is the single source of truth for "a modal owns
-  // Escape", so we defer to it instead of sniffing the DOM for overlay
-  // components; we bail without preventing default so the event still reaches
-  // whatever modal is up. Only when the stack is empty do we close the surface.
+  // from the still-live sidebar. `dialog.active` is the single source of truth
+  // for "a modal owns Escape", so we defer to it instead of sniffing the DOM for
+  // overlay components; we bail without preventing default so the event still
+  // reaches whatever modal is up. Only when the stack is empty do we close.
   onMount(() => {
     const onEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return

@@ -29,7 +29,6 @@ import { useProviders } from "@/hooks/use-providers"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { LayoutPageContext } from "@/context/layout-page"
-import { ShellSurfaceContext } from "@/context/shell-surface"
 import { clearWorkspaceTerminals } from "@/context/terminal"
 import { useNotification } from "@/context/notification"
 import { usePermission } from "@/context/permission"
@@ -110,7 +109,6 @@ export default function Layout(props: ParentProps) {
   const settingsOpen = createMemo(() => surfaceRoute() === "settings")
   const automationsOpen = createMemo(() => surfaceRoute() === "automations")
   const skillsOpen = createMemo(() => surfaceRoute() === "skills")
-  const mainSurfaceOpen = createMemo(() => surfaceRoute() !== undefined)
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
   const layout = useLayout()
@@ -1108,79 +1106,64 @@ export default function Layout(props: ParentProps) {
 
   return (
     <LayoutPageContext.Provider value={layoutPageValue}>
-      <ShellSurfaceContext.Provider
+      <SurfacePageContext.Provider
         value={{
-          settingsOpen,
-          automationsOpen,
-          skillsOpen,
-          mainSurfaceOpen,
-          openNewSession: openPawworkHome,
-          openSession: navigateToSession,
-          openSettings,
-          closeSettings: closeSurface,
-          openSkills: openSkillsSurface,
-          closeSkills: closeSurface,
+          close: closeSurface,
+          settings: {
+            tab: settingsTab,
+            directory: activeDirectory,
+          },
+          automations: {
+            directory: surfaceProjectRoot,
+            projectID: () => currentProject()?.id,
+            openRun: (sessionID) => {
+              void openAutomationRun(sessionID)
+            },
+            createViaChat: createAutomationViaChat,
+          },
+          skills: {
+            directory: activeDirectory,
+            useInChat: useSkillInChat,
+          },
         }}
       >
-        <SurfacePageContext.Provider
-          value={{
-            close: closeSurface,
-            settings: {
-              tab: settingsTab,
-              directory: activeDirectory,
-            },
-            automations: {
-              directory: surfaceProjectRoot,
-              projectID: () => currentProject()?.id,
-              openRun: (sessionID) => {
-                void openAutomationRun(sessionID)
-              },
-              createViaChat: createAutomationViaChat,
-            },
-            skills: {
-              directory: activeDirectory,
-              useInChat: useSkillInChat,
-            },
+        <LayoutShellFrame
+          platform={platform}
+          sizing={() => state.sizing}
+          sidebar={{
+            visible: () => layout.sidebar.opened() || settingsOpen(),
+            width: layout.sidebar.width,
+            minWidth: 180,
+            maxWidth: () => (typeof window === "undefined" ? 1000 : window.innerWidth * 0.3 + 64),
+            label: () => language.t("sidebar.nav.projectsAndSessions"),
+            content: sidebarContent,
+            onResizeStart: () => setState("sizing", true),
+            onResize: handleSidebarResize,
           }}
-        >
-          <LayoutShellFrame
-            platform={platform}
-            sizing={() => state.sizing}
-            sidebar={{
-              visible: () => layout.sidebar.opened() || settingsOpen(),
-              width: layout.sidebar.width,
-              minWidth: 180,
-              maxWidth: () => (typeof window === "undefined" ? 1000 : window.innerWidth * 0.3 + 64),
-              label: () => language.t("sidebar.nav.projectsAndSessions"),
-              content: sidebarContent,
-              onResizeStart: () => setState("sizing", true),
-              onResize: handleSidebarResize,
-            }}
-            rightPanel={{
-              opened: layout.rightPanel.opened,
-              width: layout.rightPanel.width,
-            }}
-            settings={{
-              open: settingsOpen,
-              title: () => language.t("sidebar.settings"),
-              nav: () => <SettingsNav active={settingsTab()} onSelect={setSettingsTab} onClose={closeSurface} />,
-            }}
-            automations={{
-              open: automationsOpen,
-              title: () => language.t("automations.title"),
-            }}
-            skills={{
-              open: skillsOpen,
-              title: () => language.t("skills.title"),
-            }}
-            main={() => (
-              <Show when={!startupAutoselectPending()} fallback={<AppStartupPending />}>
-                {props.children}
-              </Show>
-            )}
-          />
-        </SurfacePageContext.Provider>
-      </ShellSurfaceContext.Provider>
+          rightPanel={{
+            opened: layout.rightPanel.opened,
+            width: layout.rightPanel.width,
+          }}
+          settings={{
+            open: settingsOpen,
+            title: () => language.t("sidebar.settings"),
+            nav: () => <SettingsNav active={settingsTab()} onSelect={setSettingsTab} onClose={closeSurface} />,
+          }}
+          automations={{
+            open: automationsOpen,
+            title: () => language.t("automations.title"),
+          }}
+          skills={{
+            open: skillsOpen,
+            title: () => language.t("skills.title"),
+          }}
+          main={() => (
+            <Show when={!startupAutoselectPending()} fallback={<AppStartupPending />}>
+              {props.children}
+            </Show>
+          )}
+        />
+      </SurfacePageContext.Provider>
     </LayoutPageContext.Provider>
   )
 }

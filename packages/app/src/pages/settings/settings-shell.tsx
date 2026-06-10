@@ -1,4 +1,4 @@
-import { type Component, For, Match, Switch, onCleanup, onMount } from "solid-js"
+import { type Component, For, Match, Suspense, Switch, onCleanup, onMount } from "solid-js"
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { useLanguage } from "@/context/language"
@@ -10,8 +10,8 @@ import { SettingsWorktrees } from "@/components/settings-worktrees"
 import { IntegrationsPage } from "./integrations"
 import { ModelsPage } from "./models"
 
-// Settings renders as a shell-slot takeover: the nav goes into the sidebar slot
-// (SettingsNav) and the page into the main slot (SettingsContent). Geometry
+// Settings is a real route whose nav renders into the shell's sidebar slot
+// (SettingsNav) while the page fills the main slot (SettingsContent). Geometry
 // (width / background / border) is inherited from the shell slots instead of being
 // re-declared, which removes the alignment drift the old standalone overlay had
 // (its fixed 200px nav + surface-raised content diverged from the real sidebar).
@@ -183,26 +183,33 @@ export const SettingsContent: Component<{
       class="no-scrollbar size-full overflow-y-auto bg-bg-base"
     >
       <div role="tabpanel" id="settings-panel" class="mx-auto w-full max-w-[760px]">
-        <Switch>
-          <Match when={props.active === "general"}>
-            <SettingsGeneral />
-          </Match>
-          <Match when={props.active === "shortcuts"}>
-            <SettingsKeybinds />
-          </Match>
-          <Match when={props.active === "models"}>
-            <ModelsPage />
-          </Match>
-          <Match when={props.active === "integrations"}>
-            <IntegrationsPage directory={props.directory} />
-          </Match>
-          <Match when={props.active === "worktrees"}>
-            <SettingsWorktrees />
-          </Match>
-          <Match when={props.active === "memory"}>
-            <SettingsMemory directory={props.directory} />
-          </Match>
-        </Switch>
+        {/* Local boundary: a page that reads a fresh resource on mount (Memory,
+            Models) would otherwise re-suspend the route-level Suspense in
+            RouterRoot, blanking the whole shell — nav included — for the
+            duration of the fetch. With the boundary here, a tab switch keeps
+            the section and nav mounted and only the panel area waits. */}
+        <Suspense>
+          <Switch>
+            <Match when={props.active === "general"}>
+              <SettingsGeneral />
+            </Match>
+            <Match when={props.active === "shortcuts"}>
+              <SettingsKeybinds />
+            </Match>
+            <Match when={props.active === "models"}>
+              <ModelsPage />
+            </Match>
+            <Match when={props.active === "integrations"}>
+              <IntegrationsPage directory={props.directory} />
+            </Match>
+            <Match when={props.active === "worktrees"}>
+              <SettingsWorktrees />
+            </Match>
+            <Match when={props.active === "memory"}>
+              <SettingsMemory directory={props.directory} />
+            </Match>
+          </Switch>
+        </Suspense>
       </div>
     </section>
   )

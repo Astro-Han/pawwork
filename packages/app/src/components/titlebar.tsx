@@ -10,7 +10,6 @@ import { useLayout } from "@/context/layout"
 import { isDesktopShell, isMacShell, isWindowsShell, shellAttrs, usePlatform } from "@/context/platform"
 import { useCommand } from "@/context/command"
 import { useLanguage } from "@/context/language"
-import { useShellSurface } from "@/context/shell-surface"
 import { applyPath, backPath, forwardPath, type TitlebarEntry } from "./titlebar-history"
 
 export function Titlebar() {
@@ -18,7 +17,6 @@ export function Titlebar() {
   const platform = usePlatform()
   const command = useCommand()
   const language = useLanguage()
-  const shell = useShellSurface()
   const navigate = useNavigate()
   const location = useLocation()
   const params = useParams()
@@ -38,15 +36,8 @@ export function Titlebar() {
   // tabs slot would still claim panel-width on home/settings (where
   // SessionSidePanel doesn't render any tabs), pushing the right utility
   // toggle's StatusPopover fallback to the left.
-  // A main-takeover surface (settings / automations / skills) covers the session
-  // and its right panel, so the rail's reserved width + border-l must retract
-  // even though the route is still /session and the panel is still "opened".
   const tabsRailActive = createMemo(
-    () =>
-      isDesktop() &&
-      location.pathname.includes("/session") &&
-      layout.rightPanel.opened() &&
-      !shell.mainSurfaceOpen(),
+    () => isDesktop() && location.pathname.includes("/session") && layout.rightPanel.opened(),
   )
   const tabsRailWidth = () => (tabsRailActive() ? "var(--right-panel-width, 0px)" : "0px")
   const zoom = () => platform.webviewZoom?.() ?? 1

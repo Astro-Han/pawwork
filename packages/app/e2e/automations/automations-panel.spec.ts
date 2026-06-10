@@ -67,7 +67,7 @@ test("@smoke automations panel: list, detail, pause, delete", async ({ page, pro
   await expect(surface).toBeVisible()
   await expect(surface.locator('[data-component="automations-empty"]')).toBeVisible()
 
-  // Unlike the Settings takeover, opening Automations keeps the sidebar live: its
+  // Unlike the Settings route, opening Automations keeps the sidebar live: its
   // toggle stays mounted and pressed, and the settings nav never replaces it.
   await expect(toggle).toHaveAttribute("aria-pressed", "true")
   await expect(page.locator('[data-component="settings-nav"]')).toHaveCount(0)

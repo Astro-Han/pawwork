@@ -43,7 +43,7 @@ import { useLanguage } from "@/context/language"
 import { useSessionRouteKey } from "@/pages/session/session-layout"
 import { usePlatform } from "@/context/platform"
 import { emitRendererDiagnostic } from "@/context/renderer-diagnostics"
-import { useShellSurface } from "@/context/shell-surface"
+import { openSettingsTab } from "@/utils/settings-navigation"
 import { useSync } from "@/context/sync"
 import { webSearchRecoveryToast } from "./websearch-toasts"
 
@@ -112,7 +112,6 @@ export function MessageTimeline(props: {
 
   const sync = useSync()
   const language = useLanguage()
-  const shellSurface = useShellSurface()
   const { params } = useSessionRouteKey()
   const platform = usePlatform()
   onCleanup(() => {
@@ -211,7 +210,9 @@ export function MessageTimeline(props: {
           actions: [
             {
               label: language.t(toast.actionKey),
-              onClick: () => shellSurface.openSettings(),
+              // Toasts outlive the session page; the module-level bridge keeps
+              // the action working after this component unmounts.
+              onClick: () => openSettingsTab(),
             },
           ],
         })

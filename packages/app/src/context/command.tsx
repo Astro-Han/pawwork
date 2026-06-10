@@ -321,7 +321,6 @@ export const { use: useCommand, provider: CommandProvider } = createSimpleContex
     })
 
     const suspended = () => store.suspendCount > 0
-    const [modalOpen, setModalOpen] = createSignal(false)
 
     const palette = createMemo(() => {
       const config = settings.keybinds.get(PALETTE_ID) ?? DEFAULT_PALETTE_KEYBIND
@@ -365,7 +364,7 @@ export const { use: useCommand, provider: CommandProvider } = createSimpleContex
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (suspended() || dialog.active || modalOpen()) return
+      if (suspended() || dialog.active) return
 
       const sig = signatureFromEvent(event)
       const isPalette = palette().has(sig)
@@ -432,7 +431,6 @@ export const { use: useCommand, provider: CommandProvider } = createSimpleContex
         setStore("suspendCount", (count) => Math.max(0, count + (enabled ? -1 : 1)))
       },
       suspended,
-      setModalOpen,
       get catalog() {
         return catalogOptions()
       },

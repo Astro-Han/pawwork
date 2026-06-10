@@ -112,7 +112,7 @@ export function LayoutShellFrame(props: LayoutShellFrameProps) {
                   >
                     {props.sidebar.content()}
                   </div>
-                  {/* Settings takeover keeps the session sidebar mounted so its scroll state survives. */}
+                  {/* The settings nav overlays the sidebar slot; the session sidebar stays mounted under it so its scroll state survives. */}
                   <Show when={props.settings.open()}>
                     <div class="absolute inset-0 z-10">{props.settings.nav()}</div>
                   </Show>
