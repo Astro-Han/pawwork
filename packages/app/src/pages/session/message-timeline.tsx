@@ -21,7 +21,6 @@ import {
   shouldMarkLegacyScrollIntent,
   shouldMarkTimelineBoundaryGesture,
 } from "@/pages/session/session-timeline-scroll-intents"
-import { createTimelineStaging } from "@/pages/session/session-timeline-staging"
 import type { TimelineVirtualRow } from "@/pages/session/timeline-virtual-rows"
 import {
   createTimelineFrame,
@@ -256,14 +255,6 @@ export function MessageTimeline(props: {
 
     return undefined
   })
-  // Match the initial window cap so session switches do not reveal the window in partial batches.
-  const stageCfg = { init: 10, batch: 3 }
-  const staging = createTimelineStaging({
-    sessionKey: () => props.sessionKey,
-    turnStart: () => props.turnStart,
-    messages: () => props.renderedUserMessages,
-    config: stageCfg,
-  })
   const renderTimelineRow = (row: TimelineVirtualRow): JSX.Element => {
     if (row.type === "load-earlier") {
       return (
@@ -340,8 +331,8 @@ export function MessageTimeline(props: {
         <div
           class="absolute left-1/2 -translate-x-1/2 bottom-[calc(var(--composer-dock-height,0px)+2.5rem)] z-[60] pointer-events-none transition-opacity duration-200 ease-out"
           classList={{
-            "opacity-100": props.scroll.overflow && props.scroll.jump && !staging.isStaging(),
-            "opacity-0 pointer-events-none": !props.scroll.overflow || !props.scroll.jump || staging.isStaging(),
+            "opacity-100": props.scroll.overflow && props.scroll.jump,
+            "opacity-0 pointer-events-none": !props.scroll.overflow || !props.scroll.jump,
           }}
         >
           {/* 偏离: W1 preview L267 锁 cursor:pointer，用户 2026-05-15 决定改回默认。preview/DESIGN 同步留 follow-up。 */}
@@ -424,7 +415,7 @@ export function MessageTimeline(props: {
               client_height: el.clientHeight,
               distance_from_bottom: Math.max(0, max - el.scrollTop),
               user_scrolled: userInitiated,
-              jump_button_visible: props.scroll.overflow && props.scroll.jump && !staging.isStaging(),
+              jump_button_visible: props.scroll.overflow && props.scroll.jump,
             }
             if (scrollSampleFrame === undefined) {
               scrollSampleFrame = requestAnimationFrame(() => {
