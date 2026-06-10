@@ -317,7 +317,7 @@ describe("browser_navigate", () => {
       ...ctx,
       ask: (input: { permission: string; patterns: string[]; always: string[] }) => {
         askLog.push({ permission: input.permission, patterns: input.patterns, always: input.always })
-        return input.patterns.some((p) => p.startsWith("https://blocked.example"))
+        return input.patterns.some((p) => new URL(p).hostname === "blocked.example")
           ? Effect.fail(new Permission.RejectedError())
           : Effect.void
       },
