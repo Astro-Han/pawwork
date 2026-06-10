@@ -179,7 +179,7 @@ export const assertExternalDirectoryEffect = Effect.fn("Tool.assertExternalDirec
     metadata: {
       filepath: full,
       realpath: resolved,
-      parentDir: dir,
+      parentDir: permissionDir,
     },
   })
   return full

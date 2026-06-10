@@ -270,7 +270,9 @@ describe("tool.grep", () => {
 
           expect(result.metadata.matches).toBe(1)
           expect(result.output).toContain(path.join(outside.path, "match.txt"))
-          expect(asks.find((request) => request.permission === "external_directory")).toBeDefined()
+          const externalDirectoryAsk = asks.find((request) => request.permission === "external_directory")
+          expect(externalDirectoryAsk).toBeDefined()
+          expect(externalDirectoryAsk!.metadata.parentDir).toBe(alias)
         },
       })
     })
