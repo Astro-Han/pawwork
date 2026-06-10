@@ -41,9 +41,6 @@ export const AutomateParameters = Schema.Struct({
   variant: Schema.optional(Schema.NonEmptyString),
 })
 
-export const AutomateDescription =
-  "Create an Automation that re-runs a prompt on a schedule. Provide a title, the prompt, and a 5-field cron expression; project, timezone, and model default to the current session. By default each run executes in its own fresh background session. Set continueSession true to instead run it as a loop inside THIS conversation: every run is appended to the current chat and sees the previous ones, so the user follows it here and pauses or deletes it from the Automations panel — and deleting this conversation deletes the automation with it. It repeats until paused or deleted. This only stores the definition; it does not run the prompt now."
-
 export function formatAutomateValidationError(error: unknown) {
   const detail =
     error instanceof ValidationError
@@ -94,7 +91,8 @@ export function createAutomateDefinition(
   automation: Automation.Interface,
 ): Tool.DefWithoutID<typeof AutomateParameters, { automationDefinition: Automation.Definition }> {
   return {
-    description: AutomateDescription,
+    description:
+      "Create an Automation that re-runs a prompt on a schedule. Provide a title, the prompt, and a 5-field cron expression; project, timezone, and model default to the current session. By default each run executes in its own fresh background session. Set continueSession true to instead run it as a loop inside THIS conversation: every run is appended to the current chat and sees the previous ones, so the user follows it here and pauses or deletes it from the Automations panel — and deleting this conversation deletes the automation with it. It repeats until paused or deleted. This only stores the definition; it does not run the prompt now.",
     parameters: AutomateParameters,
     formatValidationError: formatAutomateValidationError,
     execute: (params, ctx) =>

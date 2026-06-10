@@ -1,7 +1,6 @@
 import { Effect, Schema } from "effect"
 import * as Tool from "./tool"
 import * as EffectZod from "@/util/effect-zod"
-import { AutomateDescription, AutomateParameters } from "./automate"
 import { Parameters as EnterWorktreeParameters } from "./enter-worktree"
 import EnterWorktreeDescription from "./enter-worktree.txt"
 import { Parameters as ExitWorktreeParameters } from "./exit-worktree"
@@ -20,12 +19,6 @@ export const TOOL_INFO_ID = "tool_info"
 // Cards are one-line summaries shown in tool_info's description (one-line budget
 // instead of the full .txt).
 const DEFERRED = [
-  {
-    id: "automate" as const,
-    card: "Create a scheduled automation that re-runs a prompt later or on a recurring cron schedule.",
-    description: AutomateDescription,
-    parameters: AutomateParameters as unknown as Tool.Def["parameters"],
-  },
   {
     id: "enter-worktree" as const,
     card: "Switch the session into an isolated git worktree to work on a branch in parallel without disturbing the main checkout. Use when a task needs its own branch/worktree.",

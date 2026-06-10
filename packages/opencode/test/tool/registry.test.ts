@@ -47,7 +47,7 @@ describe("tool.registry", () => {
     })
   })
 
-  test("registers automate but defers it out of the default model surface", async () => {
+  test("keeps automate on the default model surface", async () => {
     await using tmp = await tmpdir()
 
     await withMockedConfigInstall(async () => {
@@ -63,9 +63,9 @@ describe("tool.registry", () => {
             agent: { name: "build", mode: "primary", permission: [], options: {} },
           })
           const surface = tools.map((tool) => tool.id)
-          expect(surface).not.toContain("automate")
+          expect(surface).toContain("automate")
           const card = tools.find((tool) => tool.id === "tool_info")!.description
-          expect(card).toContain("automate")
+          expect(card).not.toContain("automate")
         },
       })
     })
@@ -1017,14 +1017,14 @@ describe("tool.registry", () => {
     })
   })
 
-  test("defers low-frequency tools until activated, and advertises them via tool_info", async () => {
+  test("defers lsp and worktree tools until activated, and advertises them via tool_info", async () => {
     await using tmp = await tmpdir()
     await Settings.setLspEnabled(true)
     try {
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          // Default: deferred low-frequency tools are not in the surface; tool_info is,
+          // Default: deferred tools are not in the surface; tool_info is,
           // and advertises each available tool as a card.
           const def = await ToolRegistry.tools({
             providerID: ProviderID.make("openai"),
@@ -1032,13 +1032,13 @@ describe("tool.registry", () => {
             agent: { name: "build", mode: "primary", permission: [], options: {} },
           })
           const defIds = def.map((tool) => tool.id)
-          expect(defIds).not.toContain("automate")
+          expect(defIds).toContain("automate")
           expect(defIds).not.toContain("enter-worktree")
           expect(defIds).not.toContain("exit-worktree")
           expect(defIds).not.toContain("lsp")
           expect(defIds).toContain("tool_info")
           const card = def.find((tool) => tool.id === "tool_info")!.description
-          expect(card).toContain("automate")
+          expect(card).not.toContain("automate")
           expect(card).toContain("enter-worktree")
           expect(card).toContain("exit-worktree")
           expect(card).toContain("lsp")
@@ -1048,7 +1048,7 @@ describe("tool.registry", () => {
             providerID: ProviderID.make("openai"),
             modelID: ModelID.make("gpt-5"),
             agent: { name: "build", mode: "primary", permission: [], options: {} },
-            activatedTools: new Set(["automate", "enter-worktree", "lsp"]),
+            activatedTools: new Set(["enter-worktree", "lsp"]),
           })
           const actIds = act.map((tool) => tool.id)
           expect(actIds).toContain("automate")
@@ -1066,10 +1066,10 @@ describe("tool.registry", () => {
             providerID: ProviderID.make("openai"),
             modelID: ModelID.make("gpt-5"),
             agent: { name: "build", mode: "primary", permission: [], options: {} },
-            activatedTools: new Set(["automate", "enter-worktree", "lsp"]),
+            activatedTools: new Set(["enter-worktree", "lsp"]),
             deferredAvailable: () => false,
           })
-          expect(denied.map((tool) => tool.id)).not.toContain("automate")
+          expect(denied.map((tool) => tool.id)).toContain("automate")
           expect(denied.map((tool) => tool.id)).not.toContain("enter-worktree")
           expect(denied.map((tool) => tool.id)).not.toContain("lsp")
           expect(denied.find((tool) => tool.id === "tool_info")!.description).toContain("No deferred tools")

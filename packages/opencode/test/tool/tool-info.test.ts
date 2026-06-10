@@ -25,8 +25,8 @@ function assistant(parts: unknown[]): MessageV2.WithParts {
 }
 
 describe("tool-info", () => {
-  test("DEFERRED_TOOL_IDS is exactly the low-frequency tool set", () => {
-    expect([...DEFERRED_TOOL_IDS].sort()).toEqual(["automate", "enter-worktree", "exit-worktree", "lsp"])
+  test("DEFERRED_TOOL_IDS is exactly the worktree tools plus lsp", () => {
+    expect([...DEFERRED_TOOL_IDS].sort()).toEqual(["enter-worktree", "exit-worktree", "lsp"])
   })
 
   test("deriveActivatedTools picks only completed tool_info calls for deferred tools", () => {
@@ -51,8 +51,8 @@ describe("tool-info", () => {
   })
 
   test("buildCardList lists available deferred tools with their cards", () => {
-    const list = buildCardList(["automate", "enter-worktree", "exit-worktree", "lsp"])
-    expect(list).toContain("automate")
+    const list = buildCardList(["enter-worktree", "exit-worktree", "lsp"])
+    expect(list).not.toContain("automate")
     expect(list).toContain("enter-worktree")
     expect(list).toContain("exit-worktree")
     expect(list).toContain("lsp")
@@ -117,7 +117,7 @@ describe("tool-info", () => {
     expect(canonicalDeferredId("enter-worktree")).toBe("enter-worktree")
     expect(canonicalDeferredId("Enter-Worktree")).toBe("enter-worktree")
     expect(canonicalDeferredId("ENTER-WORKTREE")).toBe("enter-worktree")
-    expect(canonicalDeferredId("Automate")).toBe("automate")
+    expect(canonicalDeferredId("Automate")).toBeUndefined()
     expect(canonicalDeferredId("LSP")).toBe("lsp")
     expect(canonicalDeferredId("read")).toBeUndefined()
   })
