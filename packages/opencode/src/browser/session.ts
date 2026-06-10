@@ -35,6 +35,13 @@ export class BrowserToolTimeoutError extends Error {
   }
 }
 
+export class BrowserActionCanceledError extends Error {
+  constructor(label: string) {
+    super(`Browser ${label} was canceled.`)
+    this.name = "BrowserActionCanceledError"
+  }
+}
+
 /** Mirrors the desktop controller's parseNavigable: real URLs, web schemes only. */
 export function parseNavigableUrl(input: string): string | null {
   let url: URL
@@ -243,24 +250,41 @@ export async function withBrowserPage<T>(
   sessionID: string,
   label: string,
   run: BrowserPageRun<T>,
-  opts?: { timeoutMs?: number; windowID?: number },
+  opts?: { timeoutMs?: number; windowID?: number; abort?: AbortSignal },
 ): Promise<T> {
+  if (opts?.abort?.aborted) throw new BrowserActionCanceledError(label)
   const conn = await acquire(sessionID, opts?.windowID)
   const takeoverReloaded = conn.takeoverReloaded
   // One-shot flag: only the first action after a takeover mentions the reload.
   conn.takeoverReloaded = false
   const ms = opts?.timeoutMs ?? BROWSER_TOOL_TIMEOUT_MS
   let timer: ReturnType<typeof setTimeout> | undefined
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new BrowserToolTimeoutError(label, ms)), ms)
+  let onAbort: (() => void) | undefined
+  // Abort and timeout don't just stop the wait — they sever the connection.
+  // CDP has no command-level cancel, so an orphaned run() would otherwise
+  // keep driving the page after the user hit stop (or after the tool already
+  // reported failure). Closing the socket fails its in-flight and subsequent
+  // commands locally; the next action re-probes and reconnects (which may
+  // stealth-reload an already-loaded page, like any fresh takeover).
+  const interrupted = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      invalidate(conn)
+      reject(new BrowserToolTimeoutError(label, ms))
+    }, ms)
+    onAbort = () => {
+      invalidate(conn)
+      reject(new BrowserActionCanceledError(label))
+    }
+    opts?.abort?.addEventListener("abort", onAbort, { once: true })
   })
   try {
-    return await Promise.race([run(conn.page, { takeoverReloaded }), timeout])
+    return await Promise.race([run(conn.page, { takeoverReloaded }), interrupted])
   } catch (err) {
     if (isConnectionLoss(err)) invalidate(conn)
     throw err
   } finally {
     clearTimeout(timer)
+    if (onAbort) opts?.abort?.removeEventListener("abort", onAbort)
   }
 }
 

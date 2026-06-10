@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { BrowserBridge } from "../../src/browser/browser-bridge"
 import {
+  BrowserActionCanceledError,
   BrowserToolTimeoutError,
   parseNavigableUrl,
   releaseBrowserSession,
@@ -103,10 +104,10 @@ describe("withBrowserPage", () => {
     expect(server.methods.filter((m) => m === "Page.addScriptToEvaluateOnNewDocument").length).toBe(1)
   })
 
-  test("rejects a stuck action with the tool-level timeout", async () => {
+  test("rejects a stuck action with the tool-level timeout and severs the connection", async () => {
     const server = makeServer()
     scriptCurrentUrl(server, "about:blank")
-    provideFakeHost(server)
+    const released = provideFakeHost(server)
 
     // Connect first (connect itself needs Runtime.evaluate), then hang it.
     await withBrowserPage("ses_a", "snapshot", async () => {})
@@ -115,7 +116,49 @@ describe("withBrowserPage", () => {
     await expect(
       withBrowserPage("ses_a", "wait", (page) => page.evaluate("hang"), { timeoutMs: 100 }),
     ).rejects.toBeInstanceOf(BrowserToolTimeoutError)
+    // The tool reported failure, so the still-running action must not keep
+    // driving the page: the connection is dropped (host released) and any
+    // command the orphan issues now fails locally instead of reaching the page.
+    expect(released).toContain("ses_a")
   }, 10_000)
+
+  test("an abort severs the connection so a canceled action cannot keep driving the page", async () => {
+    const server = makeServer()
+    scriptCurrentUrl(server, "about:blank")
+    const released = provideFakeHost(server)
+
+    await withBrowserPage("ses_a", "snapshot", async () => {})
+    server.handlers.set("Runtime.evaluate", HANG)
+
+    const controller = new AbortController()
+    const pending = withBrowserPage("ses_a", "click", (page) => page.evaluate("hang"), {
+      abort: controller.signal,
+    })
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    controller.abort()
+    await expect(pending).rejects.toBeInstanceOf(BrowserActionCanceledError)
+    expect(released).toContain("ses_a")
+
+    // The next action self-heals: fresh resolve + connect instead of the
+    // severed socket (a second stealth registration proves a new connection).
+    server.handlers.delete("Runtime.evaluate")
+    scriptCurrentUrl(server, "about:blank")
+    await expect(withBrowserPage("ses_a", "snapshot", async () => "ok")).resolves.toBe("ok")
+    expect(server.methods.filter((m) => m === "Page.addScriptToEvaluateOnNewDocument").length).toBe(2)
+  }, 10_000)
+
+  test("an already-aborted signal fails before connecting at all", async () => {
+    const server = makeServer()
+    scriptCurrentUrl(server, "about:blank")
+    provideFakeHost(server)
+
+    const controller = new AbortController()
+    controller.abort()
+    await expect(
+      withBrowserPage("ses_a", "click", async () => "unreachable", { abort: controller.signal }),
+    ).rejects.toBeInstanceOf(BrowserActionCanceledError)
+    expect(server.methods).toEqual([])
+  })
 
   test("invalidates the cached connection when the bridge drops, then reconnects", async () => {
     const server = makeServer()

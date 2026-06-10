@@ -49,6 +49,10 @@ export function runBrowserAction<T>(input: {
         withBrowserPage(input.ctx.sessionID, input.label, input.run, {
           timeoutMs: input.timeoutMs,
           windowID: probe.windowID,
+          // User stop must reach the page driver: on abort the session severs
+          // the CDP connection so the in-flight action cannot keep operating
+          // the page after the user canceled it.
+          abort: input.ctx.abort,
         }),
       catch: (err) => (err instanceof Error ? err : new Error(String(err))),
     })

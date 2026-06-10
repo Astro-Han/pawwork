@@ -17,7 +17,7 @@ import { BrowserExtractTool } from "../../src/tool/browser-extract"
 import { SessionID, MessageID } from "../../src/session/schema"
 import { Permission } from "../../src/permission"
 import { ToolInfoTool } from "../../src/tool/tool-info"
-import { FakeCdpServer, provideFakeHost, scriptCurrentUrl } from "../fake/cdp-server"
+import { FakeCdpServer, HANG, provideFakeHost, scriptCurrentUrl } from "../fake/cdp-server"
 
 const askLog: Array<{ permission: string; patterns: string[]; always: string[] }> = []
 
@@ -336,6 +336,27 @@ describe("browser_navigate", () => {
     // the denied page; it does not prevent the document from loading.
     expect(server.methods).toContain("Page.navigate")
   })
+})
+
+describe("cancellation", () => {
+  test("user stop aborts a hung action fast and severs the connection", async () => {
+    const server = makeServer()
+    scriptCurrentUrl(server, "about:blank")
+    const released = provideFakeHost(server)
+    // Warm the connection so the hang hits the action itself, not the connect.
+    await exec(BrowserSnapshotTool, {})
+    server.handlers.set("Runtime.evaluate", HANG)
+
+    const controller = new AbortController()
+    const abortCtx = { ...ctx, abort: controller.signal } as typeof ctx
+    const pending = execWith(abortCtx, BrowserClickTool, { ref: "[1]" })
+    setTimeout(() => controller.abort(), 50)
+    await expect(pending).rejects.toThrow(/canceled/)
+    // Severing is what makes the cancel real: CDP has no command-level
+    // cancel, so only a closed socket guarantees the orphaned click can
+    // never land on the page after the user hit stop.
+    expect(released).toContain("ses_browser_tools")
+  }, 10_000)
 })
 
 describe("browser_snapshot", () => {
