@@ -6,8 +6,8 @@ export const BROWSER_AUTOMATION_ATTACHED_CHANNEL = "browser:automation-attached"
 
 /** The desktop's side of the opencode BrowserBridge host contract. */
 export type BrowserBridgeHost = {
-  resolveEndpoint(input: { sessionID: string; windowID?: number }): Promise<AutomationEndpoint>
-  probeWindow(input: { sessionID: string }): Promise<{ windowID: number; url: string | null }>
+  resolveEndpoint(input: { sessionID: string }): Promise<AutomationEndpoint>
+  probeSession(input: { sessionID: string }): Promise<{ url: string | null }>
   releaseSession(input: { sessionID: string }): Promise<void>
 }
 
@@ -22,8 +22,6 @@ export type BrowserBridgeHost = {
  */
 export function createDesktopBrowserBridgeHost(): BrowserBridgeHost {
   return {
-    // `windowID` (the retired lease) is accepted and ignored until the opencode
-    // contract drops it — there is exactly one view a session can resolve to.
     async resolveEndpoint({ sessionID }) {
       const endpoint = await browserControllers.ensure(sessionID).attachAutomation()
       // Surface the takeover: tell every window which conversation is being
@@ -35,13 +33,11 @@ export function createDesktopBrowserBridgeHost(): BrowserBridgeHost {
       return endpoint
     },
 
-    // Side-effect-free by contract (browser-bridge.ts Host.probeWindow): the
+    // Side-effect-free by contract (browser-bridge.ts Host.probeSession): the
     // server calls this BEFORE the permission ask, so it must never create or
-    // attach anything. No view yet means no embedded page — null URL. The
-    // windowID field is a compatibility shim until the contract moves to
-    // probeSession({ url }).
-    async probeWindow({ sessionID }) {
-      return { windowID: 0, url: browserControllers.get(sessionID)?.state().url || null }
+    // attach anything. No view yet means no embedded page — null URL.
+    async probeSession({ sessionID }) {
+      return { url: browserControllers.get(sessionID)?.state().url || null }
     },
 
     async releaseSession({ sessionID }) {

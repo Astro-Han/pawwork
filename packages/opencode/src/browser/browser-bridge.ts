@@ -13,18 +13,12 @@
 export type BrowserBridgeErrorCode =
   // No host injected: not running inside the PawWork desktop app.
   | "bridge-unavailable"
-  // The host has no window that can serve the session.
-  | "no-window"
-  // Several windows are eligible and none can be picked safely.
-  | "window-ambiguous"
   // Forwarded from the main-process CdpBridgeError (cdp-bridge.ts).
   | "target-busy"
   | "target-destroyed"
   | "bridge-start-timeout"
 
 const HOST_ERROR_CODES: ReadonlySet<string> = new Set([
-  "no-window",
-  "window-ambiguous",
   "target-busy",
   "target-destroyed",
   "bridge-start-timeout",
@@ -58,34 +52,29 @@ export function toBrowserBridgeError(err: unknown): BrowserBridgeError {
 export namespace BrowserBridge {
   export type Endpoint = { cdpEndpoint: string }
 
-  /** A window pick frozen at permission time: where the action will run, and what that page shows now. */
-  export type WindowProbe = { windowID: number; url: string | null }
+  /** What the session's own page shows at permission time; null url = blank or non-web page. */
+  export type PageProbe = { url: string | null }
 
   export interface Host {
     /**
-     * Resolve (and lazily start) the CDP bridge for the window that should
-     * serve `sessionID` — the session's root id, since windows display root
-     * sessions. When `windowID` is given (the probe's lease), attach exactly
-     * that window instead of re-picking, so a focus change between the
-     * permission ask and the action cannot retarget it. Throws a
+     * Resolve (and lazily start) the CDP bridge over `sessionID`'s own
+     * embedded-browser view — the session's root id, since views belong to
+     * the conversation the user sees. Identity by construction: the action
+     * can only ever land in that conversation's view. Throws a
      * `code`-carrying error on failure (see BrowserBridgeErrorCode).
      */
-    resolveEndpoint(input: { sessionID: string; windowID?: number }): Promise<Endpoint>
+    resolveEndpoint(input: { sessionID: string }): Promise<Endpoint>
     /**
-     * Pick the window that would serve `sessionID` (preferring the one it is
-     * already attached to) and read its embedded browser's URL — a null url
-     * means the window exists but shows no http(s) page. When NO window can
-     * serve the session, this throws the same typed error resolveEndpoint
-     * would (no-window / window-ambiguous); it never degrades to a result,
-     * because an action without a lease could attach wherever focus lands.
-     * MUST be side-effect free — it runs BEFORE the permission ask, so it may
-     * not attach a bridge, create a view, or send any CDP command.
+     * Read the URL of `sessionID`'s embedded-browser view — null when the
+     * view doesn't exist yet or shows no http(s) page. MUST be side-effect
+     * free — it runs BEFORE the permission ask, so it may not attach a
+     * bridge, create a view, or send any CDP command.
      */
-    probeWindow(input: { sessionID: string }): Promise<WindowProbe>
+    probeSession(input: { sessionID: string }): Promise<PageProbe>
     /**
-     * Detach the window bridge that was attached on behalf of `sessionID`.
-     * Called when the last server-side user of the connection goes away
-     * (session deleted/archived); a no-op for sessions that never attached.
+     * Detach the CDP bridge that was attached on behalf of `sessionID`.
+     * Called when the server-side connection goes away (session deleted or
+     * archived, connection lost); a no-op for sessions that never attached.
      */
     releaseSession(input: { sessionID: string }): Promise<void>
   }

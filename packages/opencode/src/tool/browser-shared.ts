@@ -26,13 +26,11 @@ export function runBrowserAction<T>(input: {
   run: (page: IPage, info: { takeoverReloaded: boolean }) => Promise<T>
 }) {
   return Effect.gen(function* () {
-    // EVERY action starts with one window pick — the lease. The permission is
-    // judged against it (current-page URL, unless the caller passed explicit
-    // patterns like navigate's destination) and the attach is pinned to it,
-    // so a focus change between the ask and the action can never retarget
-    // either. No serveable window fails right here, before the ask — an
-    // un-leased action could otherwise ride a `*` grant onto whatever window
-    // focus lands on.
+    // EVERY action starts by reading the session's own page URL. The
+    // permission is judged against it (unless the caller passed explicit
+    // patterns like navigate's destination), and the action can only ever
+    // land in that same session's view — so nothing needs pinning between
+    // the ask and the run. A probe failure fails right here, before the ask.
     const probe = yield* Effect.tryPromise({
       try: () => browserPageProbe(input.ctx.sessionID),
       catch: (err) => (err instanceof Error ? err : new Error(String(err))),
@@ -48,7 +46,6 @@ export function runBrowserAction<T>(input: {
       try: () =>
         withBrowserPage(input.ctx.sessionID, input.label, input.run, {
           timeoutMs: input.timeoutMs,
-          windowID: probe.windowID,
           // User stop must reach the page driver: on abort the session severs
           // the CDP connection so the in-flight action cannot keep operating
           // the page after the user canceled it.

@@ -105,18 +105,15 @@ describe("permission gate", () => {
     expect(server.methods).toEqual([])
   })
 
-  test("the action runs in the window the permission was granted for, not where focus moved", async () => {
-    const allowed = makeServer()
-    allowed.handlers.set("Runtime.evaluate", () => ({ result: { type: "string", value: "[1] <button> Ok" } }))
-    const denied = makeServer()
-    const resolved: Array<number | undefined> = []
+  test("the permission is judged against the session's own page, and the action runs in that same view", async () => {
+    const own = makeServer()
+    own.handlers.set("Runtime.evaluate", () => ({ result: { type: "string", value: "[1] <button> Ok" } }))
+    const resolved: string[] = []
     BrowserBridge.provideHost({
-      // The probe reads the allowed window (id 7); by attach time focus moved,
-      // so an un-leased resolve would land on the denied window instead.
-      probeWindow: async () => ({ windowID: 7, url: "https://allowed.example/page" }),
-      resolveEndpoint: async ({ windowID }) => {
-        resolved.push(windowID)
-        return { cdpEndpoint: windowID === 7 ? allowed.endpoint : denied.endpoint }
+      probeSession: async () => ({ url: "https://allowed.example/page" }),
+      resolveEndpoint: async ({ sessionID }) => {
+        resolved.push(sessionID)
+        return { cdpEndpoint: own.endpoint }
       },
       releaseSession: async () => {},
     })
@@ -126,91 +123,28 @@ describe("permission gate", () => {
     expect(askLog).toEqual([
       { permission: "browser", patterns: ["https://allowed.example/page"], always: ["https://allowed.example/*"] },
     ])
-    // The lease pinned the attach to the probed window; the other window saw nothing.
-    expect(resolved).toEqual([7])
-    expect(denied.methods).toEqual([])
+    // Identity resolution: the endpoint is requested for the acting session
+    // itself — there is no window pick that focus could retarget.
+    expect(resolved).toEqual([ctx.sessionID])
   })
 
-  test("no serveable window fails the action before the ask, never a wildcard grant", async () => {
+  test("a failing probe fails the action before the ask, never a wildcard grant", async () => {
     const server = makeServer()
     BrowserBridge.provideHost({
-      probeWindow: async () => {
-        throw Object.assign(new Error("No PawWork window is open to host the embedded browser."), {
-          code: "no-window",
+      probeSession: async () => {
+        throw Object.assign(new Error("The embedded browser is not available right now."), {
+          code: "target-destroyed",
         })
       },
       resolveEndpoint: async () => ({ cdpEndpoint: server.endpoint }),
       releaseSession: async () => {},
     })
-    await expect(exec(BrowserSnapshotTool, {})).rejects.toThrow(/No PawWork window/)
-    // Failing the lease means no ask was ever judged and no CDP traffic flowed —
-    // the action cannot ride a "*" grant onto whatever window focus lands on.
+    await expect(exec(BrowserSnapshotTool, {})).rejects.toThrow(/not available right now/)
+    // A failed probe means no ask was ever judged and no CDP traffic flowed —
+    // the action cannot ride a "*" grant past a probe it couldn't read.
     expect(askLog).toEqual([])
     expect(server.methods).toEqual([])
   })
-
-  test("navigate attaches the leased window even when focus moved during the ask", async () => {
-    const leased = makeServer()
-    leased.handlers.set("Runtime.evaluate", () => ({ result: { type: "string", value: "Title" } }))
-    const focused = makeServer()
-    const resolved: Array<number | undefined> = []
-    BrowserBridge.provideHost({
-      probeWindow: async () => ({ windowID: 1, url: null }),
-      resolveEndpoint: async ({ windowID }) => {
-        resolved.push(windowID)
-        return { cdpEndpoint: windowID === 1 ? leased.endpoint : focused.endpoint }
-      },
-      releaseSession: async () => {},
-    })
-
-    await exec(BrowserNavigateTool, { url: "https://example.com/dest" })
-    // The permission stays scoped to the destination; the lease only pins WHERE it runs.
-    expect(askLog).toEqual([
-      { permission: "browser", patterns: ["https://example.com/dest"], always: ["https://example.com/*"] },
-    ])
-    expect(resolved).toEqual([1])
-    expect(leased.methods).toContain("Page.navigate")
-    expect(focused.methods).toEqual([])
-  })
-
-  test("concurrent first actions leased to different windows never share a connection", async () => {
-    const winOne = makeServer()
-    winOne.handlers.set("Runtime.evaluate", () => ({ result: { type: "string", value: "[1] <button> Ok" } }))
-    const winTwo = makeServer()
-    const resolved: Array<number | undefined> = []
-    // The window landscape moves between the two probes: each action leases a
-    // different window and asks against that window's URL.
-    const probes = [
-      { windowID: 1, url: "https://example.com/win-1" },
-      { windowID: 2, url: "https://example.com/win-2" },
-    ]
-    BrowserBridge.provideHost({
-      probeWindow: async () => probes.shift()!,
-      resolveEndpoint: async ({ windowID }) => {
-        resolved.push(windowID)
-        // Keep the first acquire in flight so the second action arrives while
-        // it is still pending.
-        await new Promise((resolve) => setTimeout(resolve, 100))
-        return { cdpEndpoint: windowID === 1 ? winOne.endpoint : winTwo.endpoint }
-      },
-      releaseSession: async () => {},
-    })
-
-    const first = exec(BrowserSnapshotTool, {})
-    await new Promise((resolve) => setTimeout(resolve, 20))
-    const second = exec(BrowserSnapshotTool, {})
-
-    // The second action's permission was granted for window 2; joining the
-    // pending window-1 acquire would run it where that grant never applied.
-    await expect(second).rejects.toThrow(/window for this session changed/)
-    await expect(first).resolves.toMatchObject({ output: expect.stringContaining("[1] <button> Ok") })
-    expect(askLog).toEqual([
-      { permission: "browser", patterns: ["https://example.com/win-1"], always: ["https://example.com/*"] },
-      { permission: "browser", patterns: ["https://example.com/win-2"], always: ["https://example.com/*"] },
-    ])
-    expect(resolved).toEqual([1])
-    expect(winTwo.methods).toEqual([])
-  }, 10_000)
 
   test("a partially available browser group activates only the available members", async () => {
     // The registry filters deferred tools per member, so the activation must
@@ -241,33 +175,11 @@ describe("permission gate", () => {
     )
   })
 
-  test("an action recovers when the session's window closed while idle", async () => {
-    const winOne = makeServer()
-    winOne.handlers.set("Runtime.evaluate", () => ({ result: { type: "string", value: "[1] <button> One" } }))
-    const winTwo = makeServer()
-    winTwo.handlers.set("Runtime.evaluate", () => ({ result: { type: "string", value: "[2] <button> Two" } }))
-    // Window 1 closes while nothing is in flight, so the dead connection is
-    // never noticed; the host's probe then leases the surviving window 2.
-    const probes = [
-      { windowID: 1, url: null },
-      { windowID: 2, url: null },
-      { windowID: 2, url: null },
-    ]
-    BrowserBridge.provideHost({
-      probeWindow: async () => probes.shift()!,
-      resolveEndpoint: async ({ windowID }) => ({ cdpEndpoint: windowID === 2 ? winTwo.endpoint : winOne.endpoint }),
-      releaseSession: async () => {},
-    })
-
-    const first = await exec(BrowserSnapshotTool, {})
-    expect(first.output).toContain("[1] <button> One")
-
-    // The mismatch drops the stale window-1 connection along with the error,
-    // so the retry the message asks for actually converges on window 2.
-    await expect(exec(BrowserSnapshotTool, {})).rejects.toThrow(/window for this session changed/)
-    const retried = await exec(BrowserSnapshotTool, {})
-    expect(retried.output).toContain("[2] <button> Two")
-  })
+  // NOTE: "connection died while idle, next action self-heals" lives in
+  // session.test.ts (timeout-severs and bridge-drop invalidation cover the
+  // same path); it cannot be exercised through real tools here because bun's
+  // ws shim delivers no close callback, so the next send hangs into the 25s
+  // tool timeout instead of failing locally.
 })
 
 describe("browser_navigate", () => {

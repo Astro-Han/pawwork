@@ -90,10 +90,19 @@ describe("withBrowserPage", () => {
     expect(server.methods.filter((m) => m === "Page.addScriptToEvaluateOnNewDocument").length).toBe(1)
   })
 
-  test("two sessions racing onto the same endpoint share one connection", async () => {
-    const server = makeServer()
-    scriptCurrentUrl(server, "about:blank")
-    provideFakeHost(server)
+  test("two conversations get their own independent connections", async () => {
+    const serverA = makeServer()
+    scriptCurrentUrl(serverA, "about:blank")
+    const serverB = makeServer()
+    scriptCurrentUrl(serverB, "about:blank")
+    BrowserBridge.provideHost({
+      // Views are conversation-owned: each session resolves to its own endpoint.
+      resolveEndpoint: async ({ sessionID }) => ({
+        cdpEndpoint: sessionID === "ses_a" ? serverA.endpoint : serverB.endpoint,
+      }),
+      probeSession: async () => ({ url: null }),
+      releaseSession: async () => {},
+    })
 
     const results = await Promise.all([
       withBrowserPage("ses_a", "snapshot", async () => "a"),
@@ -101,7 +110,8 @@ describe("withBrowserPage", () => {
     ])
 
     expect(results).toEqual(["a", "b"])
-    expect(server.methods.filter((m) => m === "Page.addScriptToEvaluateOnNewDocument").length).toBe(1)
+    expect(serverA.methods.filter((m) => m === "Page.addScriptToEvaluateOnNewDocument").length).toBe(1)
+    expect(serverB.methods.filter((m) => m === "Page.addScriptToEvaluateOnNewDocument").length).toBe(1)
   })
 
   test("rejects a stuck action with the tool-level timeout and severs the connection", async () => {
@@ -189,7 +199,7 @@ describe("withBrowserPage", () => {
       // The host attaches successfully, but the endpoint it hands back is
       // dead — connect fails after the attachment exists.
       resolveEndpoint: async () => ({ cdpEndpoint: "ws://127.0.0.1:9/nobody-listens" }),
-      probeWindow: async () => ({ windowID: 1, url: null }),
+      probeSession: async () => ({ url: null }),
       releaseSession: async ({ sessionID }) => {
         released.push(sessionID)
       },
@@ -198,67 +208,6 @@ describe("withBrowserPage", () => {
     await expect(withBrowserPage("ses_a", "snapshot", async () => "unreachable")).rejects.toThrow()
     expect(released).toEqual(["ses_a"])
   }, 10_000)
-
-  test("a concurrent action holding a different window lease fails instead of joining the pending acquire", async () => {
-    const server = makeServer()
-    scriptCurrentUrl(server, "about:blank")
-    BrowserBridge.provideHost({
-      resolveEndpoint: async () => {
-        // Keep the first acquire in flight long enough for the second action
-        // (leased to a different window) to arrive while it is pending.
-        await new Promise((resolve) => setTimeout(resolve, 50))
-        return { cdpEndpoint: server.endpoint }
-      },
-      probeWindow: async () => ({ windowID: 1, url: null }),
-      releaseSession: async () => {},
-    })
-
-    const first = withBrowserPage("ses_a", "snapshot", async () => "window-1", { windowID: 1 })
-    await new Promise((resolve) => setTimeout(resolve, 10))
-    const second = withBrowserPage("ses_a", "click", async () => "window-2", { windowID: 2 })
-
-    // The second action's permission was judged against window 2's URL; it
-    // must not silently run over the window-1 connection.
-    await expect(second).rejects.toThrow(/window for this session changed/)
-    await expect(first).resolves.toBe("window-1")
-    expect(server.methods.filter((m) => m === "Page.addScriptToEvaluateOnNewDocument").length).toBe(1)
-  }, 10_000)
-
-  test("a mismatched lease drops the cached connection so the retry converges on the new window", async () => {
-    const winOne = makeServer()
-    scriptCurrentUrl(winOne, "about:blank")
-    const winTwo = makeServer()
-    scriptCurrentUrl(winTwo, "about:blank")
-    const released: string[] = []
-    BrowserBridge.provideHost({
-      resolveEndpoint: async ({ windowID }) => ({ cdpEndpoint: windowID === 2 ? winTwo.endpoint : winOne.endpoint }),
-      probeWindow: async () => ({ windowID: 1, url: null }),
-      releaseSession: async ({ sessionID }) => {
-        released.push(sessionID)
-      },
-    })
-
-    await withBrowserPage("ses_a", "snapshot", async () => {}, { windowID: 1 })
-    // A matching lease reuses the cached connection.
-    await expect(withBrowserPage("ses_a", "click", async () => "same-window", { windowID: 1 })).resolves.toBe(
-      "same-window",
-    )
-    expect(winOne.methods.filter((m) => m === "Page.addScriptToEvaluateOnNewDocument").length).toBe(1)
-
-    // Window 1 died while the session was idle: with no command in flight the
-    // dead socket is never noticed, so the connection-loss invalidation never
-    // fires. The next action leases the surviving window 2 — the stale cached
-    // connection must be dropped with the failure, not just rejected, or
-    // every retry would hit it again forever.
-    await expect(
-      withBrowserPage("ses_a", "click", async () => "unreachable", { windowID: 2 }),
-    ).rejects.toThrow(/window for this session changed/)
-    expect(released).toEqual(["ses_a"])
-
-    // The retry the error message asks for now connects to the leased window.
-    await expect(withBrowserPage("ses_a", "click", async () => "window-2", { windowID: 2 })).resolves.toBe("window-2")
-    expect(winTwo.methods.filter((m) => m === "Page.addScriptToEvaluateOnNewDocument").length).toBe(1)
-  })
 
   test("a release landing during a pending acquire still cleans up after it settles", async () => {
     const server = makeServer()
@@ -270,7 +219,7 @@ describe("withBrowserPage", () => {
         await new Promise((resolve) => setTimeout(resolve, 50))
         return { cdpEndpoint: server.endpoint }
       },
-      probeWindow: async () => ({ windowID: 1, url: null }),
+      probeSession: async () => ({ url: null }),
       releaseSession: async ({ sessionID }) => {
         released.push(sessionID)
       },
