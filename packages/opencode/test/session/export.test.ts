@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import fs from "fs/promises"
 import path from "path"
+import { setTimeout as sleep } from "timers/promises"
 import { Instance } from "../../src/project/instance"
 import { Session as SessionNs } from "../../src/session"
 import { MessageV2 } from "../../src/session/message-v2"
@@ -19,19 +20,67 @@ import { RunLifecycle } from "../../src/session/run-lifecycle"
 const projectRoot = path.join(__dirname, "../..")
 void Log.init({ print: false })
 
+type RemoveDirectory = (dir: string, options: Parameters<typeof fs.rm>[1]) => Promise<void>
+
+function isRetryableDirectoryRemovalError(error: unknown) {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code
+  return code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY"
+}
+
+async function removeDirectoryWithBusyRetry(
+  dir: string,
+  input: {
+    attempts?: number
+    delayMs?: number
+    remove?: RemoveDirectory
+    wait?: (ms: number) => Promise<void>
+  } = {},
+) {
+  const attempts = input.attempts ?? (process.platform === "win32" ? 50 : 6)
+  const delayMs = input.delayMs ?? 100
+  const remove = input.remove ?? fs.rm
+  const wait = input.wait ?? sleep
+
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      await remove(dir, { recursive: true, force: true })
+      return
+    } catch (error) {
+      if (attempt === attempts || !isRetryableDirectoryRemovalError(error)) throw error
+      await wait(delayMs)
+    }
+  }
+}
+
 async function removeLoadedSessionProjectDirectory(dir: string) {
-  await Instance.disposeDirectory(dir)
-  await fs.rm(dir, {
-    recursive: true,
-    force: true,
-    maxRetries: process.platform === "win32" ? 30 : 5,
-    retryDelay: 100,
-  })
+  await Instance.disposeDirectory(dir, { mode: "force" })
+  await removeDirectoryWithBusyRetry(dir)
 }
 
 describe("Export.session", () => {
   test("getRuntimeNamespace returns 'pawwork' or 'opencode'", () => {
     expect(["pawwork", "opencode"]).toContain(getRuntimeNamespace())
+  })
+
+  test("removeDirectoryWithBusyRetry retries transient busy directory removal", async () => {
+    let attempts = 0
+
+    await removeDirectoryWithBusyRetry("busy-dir", {
+      attempts: 3,
+      delayMs: 0,
+      remove: async (_dir, options) => {
+        attempts++
+        expect(options).toEqual({ recursive: true, force: true })
+        if (attempts < 3) {
+          const error = new Error("busy") as NodeJS.ErrnoException
+          error.code = "EBUSY"
+          throw error
+        }
+      },
+      wait: async () => {},
+    })
+
+    expect(attempts).toBe(3)
   })
 
   test("exports a single root session with empty messages and stub runtime_context", async () => {
