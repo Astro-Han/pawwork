@@ -36,6 +36,7 @@ import {
 
 const log = Log.create({ service: "session.processor" })
 const TOOL_CLEANUP_TIMEOUT_MS = 1_000
+const TOOL_DRAIN_TIMEOUT_MS = 10 * 60_000
 export const REASONING_FIRST_ATTEMPT_CONNECT_TIMEOUT_MS = 60_000
 export const REASONING_SAFE_RETRY_CONNECT_TIMEOUT_MS = 120_000
 const LOCAL_LIFECYCLE_CLOSE_INTERRUPTION_MESSAGE = "The run was interrupted by a local lifecycle close."
@@ -342,6 +343,7 @@ export const layer: Layer.Layer<
         terminalClassification: undefined,
       }
       let aborted = false
+      let toolDrainTimeoutMs = TOOL_DRAIN_TIMEOUT_MS
       const slog = log.clone().tag("sessionID", input.sessionID).tag("messageID", input.assistantMessage.id)
 
       const parse = (e: unknown) =>
@@ -1135,7 +1137,8 @@ export const layer: Layer.Layer<
           callsToDrain,
           (call) => {
             const wait = Deferred.await(call.done)
-            return aborted ? wait.pipe(Effect.timeout(`${TOOL_CLEANUP_TIMEOUT_MS} millis`), Effect.ignore) : wait
+            const timeoutMs = aborted ? TOOL_CLEANUP_TIMEOUT_MS : toolDrainTimeoutMs
+            return wait.pipe(Effect.timeout(`${timeoutMs} millis`), Effect.ignore)
           },
           { concurrency: "unbounded" },
         )
@@ -1301,6 +1304,12 @@ export const layer: Layer.Layer<
         ctx.needsCompaction = false
         ctx.shouldBreak = (yield* config.get()).experimental?.continue_loop_on_deny !== true
         const toolAbortController = new AbortController()
+        toolDrainTimeoutMs =
+          typeof streamInput.toolDrainTimeoutMs === "number" &&
+          Number.isFinite(streamInput.toolDrainTimeoutMs) &&
+          streamInput.toolDrainTimeoutMs > 0
+            ? streamInput.toolDrainTimeoutMs
+            : TOOL_DRAIN_TIMEOUT_MS
         let processAttemptID: RunObservability.AttemptID | undefined
         let automaticStreamRetriesUsed = 0
         let safeRetryNoticeWritten = false

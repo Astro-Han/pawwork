@@ -2766,6 +2766,122 @@ it.live("session.processor effect tests keeps abort-aware executing tools interr
   ),
 )
 
+it.live("session.processor effect tests bounds drain for dead tools after provider stream timeout", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+        const toolStarted = defer<void>()
+
+        yield* llm.push(
+          raw({
+            head: [
+              {
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                choices: [{ delta: { role: "assistant" } }],
+              },
+              {
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                choices: [
+                  {
+                    delta: {
+                      tool_calls: [
+                        {
+                          index: 0,
+                          id: "call_dead_tool",
+                          type: "function",
+                          function: { name: "dead", arguments: "" },
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+              {
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                choices: [
+                  {
+                    delta: {
+                      tool_calls: [
+                        {
+                          index: 0,
+                          function: { arguments: JSON.stringify({ value: "ok" }) },
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+              {
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                choices: [{ delta: {}, finish_reason: "tool_calls" }],
+              },
+            ],
+            hang: true,
+          }),
+        )
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "dead tool after stream timeout")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const run = yield* handle
+          .process({
+            user: {
+              id: parent.id,
+              sessionID: chat.id,
+              role: "user",
+              time: parent.time,
+              agent: parent.agent,
+              model: { providerID: ref.providerID, modelID: ref.modelID },
+              tools: { dead: true },
+            } satisfies MessageV2.User,
+            sessionID: chat.id,
+            model: mdl,
+            agent: agent(),
+            system: [],
+            messages: [{ role: "user", content: "dead tool after stream timeout" }],
+            streamTimeoutMs: 100,
+            toolDrainTimeoutMs: 100,
+            tools: {
+              dead: tool({
+                description: "Never resolves",
+                inputSchema: z.object({ value: z.string() }),
+                execute: async () => {
+                  toolStarted.resolve()
+                  await new Promise<never>(() => {})
+                },
+              }),
+            },
+          })
+          .pipe(Effect.forkChild)
+
+        yield* Effect.promise(() => toolStarted.promise)
+        yield* Fiber.join(run)
+
+        const call = MessageV2.parts(msg.id).find((part): part is MessageV2.ToolPart => part.type === "tool")
+        expect(call?.state.status).toBe("error")
+        if (call?.state.status === "error") {
+          expect(call.state.metadata?.interrupted).toBe(true)
+          expect(call.state.metadata?.interruption_phase).toBe("tool_execution")
+          expect(call.state.metadata?.tool_execution_started).toBe(true)
+        }
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
 it.live("session.processor effect tests execute Responses args-done-only tool calls", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>

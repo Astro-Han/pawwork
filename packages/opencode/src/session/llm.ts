@@ -48,6 +48,7 @@ export type StreamInput = {
   retries?: number
   connectTimeoutMs?: number
   streamTimeoutMs?: number
+  toolDrainTimeoutMs?: number
   toolChoice?: "auto" | "required" | "none"
   toolAbortSignal?: AbortSignal
   toolLifecycle?: {
