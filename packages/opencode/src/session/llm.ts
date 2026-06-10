@@ -15,7 +15,7 @@ import { SystemPrompt } from "./system"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { Permission } from "@/permission"
 import { PermissionID } from "@/permission/schema"
-import { buildDeferredHint } from "../tool/tool-info"
+import { TOOL_INFO_ID, buildDeferredHint } from "../tool/tool-info"
 import { Bus } from "@/bus"
 import { Wildcard } from "@/util/wildcard"
 import { SessionID } from "@/session/schema"
@@ -44,6 +44,7 @@ export type StreamInput = {
   messages: ModelMessage[]
   small?: boolean
   tools: Record<string, Tool>
+  availableDeferredTools?: ReadonlySet<string>
   retries?: number
   connectTimeoutMs?: number
   streamTimeoutMs?: number
@@ -358,13 +359,6 @@ const live: Layer.Layer<
         }),
       )
 
-      // Same availability rule the registry uses to card/expose deferred tools
-      // (prompt.ts deferredAvailable): a deferred tool the user disabled or a
-      // permission rule denied can't be activated via tool_info, so the repair
-      // hint below must not route the model there.
-      const deferredRuleset = Permission.merge(input.agent.permission, input.permission ?? [])
-      const deferredAvailable = (id: string) =>
-        input.user.tools?.[id] !== false && !Permission.disabled([id], deferredRuleset).has(id)
       return streamText({
         onError(error) {
           l.error("stream error", {
@@ -383,13 +377,9 @@ const live: Layer.Layer<
               toolName: lower,
             }
           }
-          const deferredHint = buildDeferredHint(failed.toolCall.toolName, deferredAvailable)
           return {
             ...failed.toolCall,
-            input: JSON.stringify({
-              tool: failed.toolCall.toolName,
-              error: failed.error.message + deferredHint,
-            }),
+            input: buildInvalidToolRepairInput(input, failed.toolCall.toolName, failed.error.message),
             toolName: "invalid",
           }
         },
@@ -693,6 +683,25 @@ export function resolveTools(input: Pick<StreamInput, "tools" | "agent" | "permi
     Permission.merge(input.agent.permission, input.permission ?? []),
   )
   return Record.filter(input.tools, (_, k) => input.user.tools?.[k] !== false && !disabled.has(k))
+}
+
+export function buildInvalidToolRepairInput(
+  input: Pick<StreamInput, "agent" | "availableDeferredTools" | "permission" | "tools" | "user">,
+  toolName: string,
+  errorMessage: string,
+) {
+  const deferredRuleset = Permission.merge(input.agent.permission, input.permission ?? [])
+  const toolInfoAvailable = input.tools[TOOL_INFO_ID] !== undefined
+  const deferredAvailable = (id: string) =>
+    toolInfoAvailable &&
+    (input.availableDeferredTools?.has(id) ?? true) &&
+    input.user.tools?.[id] !== false &&
+    !Permission.disabled([id], deferredRuleset).has(id)
+  const deferredHint = buildDeferredHint(toolName, deferredAvailable)
+  return JSON.stringify({
+    tool: toolName,
+    error: errorMessage + deferredHint,
+  })
 }
 
 // Check if messages contain any tool-call content
