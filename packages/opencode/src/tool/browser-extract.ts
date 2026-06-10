@@ -39,13 +39,11 @@ export const BrowserExtractTool = Tool.define(
             label: "extract",
             metadata: { selector: params.selector },
             run: async (page, info) => {
-              const selectorJson = JSON.stringify(params.selector ?? null)
-              const html = page.evaluateWithArgs
-                ? await page.evaluateWithArgs(
-                    "(() => { const el = args.selector ? document.querySelector(args.selector) : document.body; return el ? el.outerHTML : null; })()",
-                    { selector: params.selector ?? null },
-                  )
-                : await page.evaluate<string | null>(READ_HTML_JS(selectorJson))
+              // The selector is JSON-serialized into the script (never string-
+              // concatenated), so it cannot inject. evaluateWithArgs is avoided
+              // on purpose: it injects each arg as a top-level const (the var is
+              // `selector`, not `args.selector`), which is easy to get wrong.
+              const html = await page.evaluate<string | null>(READ_HTML_JS(JSON.stringify(params.selector ?? null)))
               const url = (await page.getCurrentUrl?.()) ?? ""
               return { html, url, info }
             },

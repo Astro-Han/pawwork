@@ -24,8 +24,10 @@ const REQUIRED_PAGE_METHODS = [
 ] as const
 
 // optional in the IPage type; tools degrade when absent, but the *property
-// slot* is part of the contract we read.
-const OPTIONAL_PAGE_METHODS = ["annotatedScreenshot", "evaluateWithArgs"] as const
+// slot* is part of the contract we read. (evaluateWithArgs is deliberately not
+// here: it injects each arg as a top-level const — the var is `selector`, not
+// `args.selector` — so the tools serialize args into evaluate() instead.)
+const OPTIONAL_PAGE_METHODS = ["annotatedScreenshot"] as const
 
 async function connectToFake(): Promise<{ page: Record<string, unknown>; close: () => Promise<void> }> {
   const wss = new WebSocketServer({ port: 0, host: "127.0.0.1" })
