@@ -207,7 +207,15 @@ export namespace Permission {
         const denied: Array<{ pattern: string; rule: Rule }> = []
 
         for (const pattern of request.patterns) {
-          const rule = evaluate(request.permission, pattern, ruleset, approved)
+          // A configured deny is a hard boundary. Approvals (recorded from an
+          // earlier "always allow" click) match after configured rules, so
+          // without this short-circuit a broad approval — e.g. the browser
+          // tools' origin-wide grant — would silently override a narrower
+          // deny the user wrote down (https://site/admin/* deny vs an
+          // approved https://site/*). Approvals may relax asks, never denies.
+          const configured = evaluate(request.permission, pattern, ruleset)
+          const rule =
+            configured.action === "deny" ? configured : evaluate(request.permission, pattern, ruleset, approved)
           log.info("evaluated", { permission: request.permission, pattern, action: rule })
           if (rule.action === "deny") {
             denied.push({ pattern, rule })

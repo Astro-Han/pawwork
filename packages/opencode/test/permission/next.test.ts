@@ -603,6 +603,58 @@ test("ask - throws RejectedError when action is deny", async () => {
   })
 })
 
+test("ask - an 'always' approval relaxes asks but never a configured deny", async () => {
+  await using tmp = await tmpdir({ git: true })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      // The browser tools' shape: a broad ask, a narrower deny the user wrote
+      // down, and an origin-wide always grant. Approvals match after
+      // configured rules, so without the deny short-circuit one click on the
+      // harmless page would void the admin deny.
+      const ruleset = [
+        { permission: "browser", pattern: "*", action: "ask" as const },
+        { permission: "browser", pattern: "https://example.com/admin/*", action: "deny" as const },
+      ]
+      const askPromise = Permission.ask({
+        sessionID: SessionID.make("session_test"),
+        permission: "browser",
+        patterns: ["https://example.com/home"],
+        metadata: {},
+        always: ["https://example.com/*"],
+        ruleset,
+      })
+      const [pending] = await waitForPending(1)
+      await Permission.reply({ requestID: pending.id, reply: "always" })
+      await askPromise
+
+      // Same origin, denied path: the recorded approval matches the URL but
+      // the configured deny stays the hard boundary.
+      await expect(
+        Permission.ask({
+          sessionID: SessionID.make("session_test"),
+          permission: "browser",
+          patterns: ["https://example.com/admin/page"],
+          metadata: {},
+          always: ["https://example.com/*"],
+          ruleset,
+        }),
+      ).rejects.toBeInstanceOf(Permission.DeniedError)
+
+      // Elsewhere on the site the approval does its job: no further ask.
+      const ok = await Permission.ask({
+        sessionID: SessionID.make("session_test"),
+        permission: "browser",
+        patterns: ["https://example.com/other"],
+        metadata: {},
+        always: [],
+        ruleset,
+      })
+      expect(ok).toBeUndefined()
+    },
+  })
+})
+
 const bashDeleteCases = [
   { command: "rm file.txt", rule: "rm *" },
   { command: "rm -rf folder", rule: "rm -rf *" },

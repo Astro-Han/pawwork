@@ -51,7 +51,10 @@ test("an origin-scoped browser 'always' grant never overrides another site's con
   // and that tightening must survive an "always allow" click. Approvals are
   // evaluated after configured rules (last match wins), so the browser tools
   // scope the always grant to the asked site's origin — a global "*" grant
-  // would silently void the user's own deny.
+  // would silently void the user's own deny. SAME-origin denies (e.g.
+  // /admin/* under an approved origin) are protected one level up: ask
+  // short-circuits configured denies before approvals (see next.test.ts
+  // "relaxes asks but never a configured deny").
   const configured = [
     { permission: "browser", pattern: "*", action: "ask" as const },
     { permission: "browser", pattern: "https://blocked.example/*", action: "deny" as const },
