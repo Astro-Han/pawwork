@@ -73,6 +73,36 @@ describe("withBrowserPage", () => {
     )
   })
 
+  test("concurrent first calls share a single connection attempt", async () => {
+    const server = makeServer()
+    scriptCurrentUrl(server, "about:blank")
+    provideFakeHost(server)
+
+    const results = await Promise.all([
+      withBrowserPage("ses_a", "snapshot", async () => "first"),
+      withBrowserPage("ses_a", "extract", async () => "second"),
+    ])
+
+    expect(results).toEqual(["first", "second"])
+    // One stealth registration = one CDP connect; the single-client bridge
+    // never saw a competing second connection.
+    expect(server.methods.filter((m) => m === "Page.addScriptToEvaluateOnNewDocument").length).toBe(1)
+  })
+
+  test("two sessions racing onto the same endpoint share one connection", async () => {
+    const server = makeServer()
+    scriptCurrentUrl(server, "about:blank")
+    provideFakeHost(server)
+
+    const results = await Promise.all([
+      withBrowserPage("ses_a", "snapshot", async () => "a"),
+      withBrowserPage("ses_b", "snapshot", async () => "b"),
+    ])
+
+    expect(results).toEqual(["a", "b"])
+    expect(server.methods.filter((m) => m === "Page.addScriptToEvaluateOnNewDocument").length).toBe(1)
+  })
+
   test("rejects a stuck action with the tool-level timeout", async () => {
     const server = makeServer()
     scriptCurrentUrl(server, "about:blank")

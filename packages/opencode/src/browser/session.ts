@@ -59,6 +59,11 @@ type Connection = {
 
 const byEndpoint = new Map<string, Connection>()
 const bySession = new Map<string, Connection>()
+// In-flight first acquires/connects: the underlying ws bridge accepts a single
+// client, so two concurrent first calls must share one attempt instead of
+// racing into a second connection (which the bridge would reject).
+const pendingAcquires = new Map<string, Promise<Connection>>()
+const pendingConnects = new Map<string, Promise<Connection>>()
 
 // Every way the underlying connection reports being gone: opencli's send()
 // pre-check ("CDP connection is not open"), its close() ("CDP connection
@@ -127,25 +132,46 @@ function invalidate(conn: Connection) {
   void conn.bridge.close().catch(() => {})
 }
 
+/** Single-flight connect per endpoint: concurrent racers await the same attempt. */
+function connectOnce(endpoint: string): Promise<Connection> {
+  const existing = byEndpoint.get(endpoint)
+  if (existing && !existing.closed) return Promise.resolve(existing)
+  let pending = pendingConnects.get(endpoint)
+  if (!pending) {
+    pending = connect(endpoint)
+      .then((conn) => {
+        byEndpoint.set(endpoint, conn)
+        return conn
+      })
+      .finally(() => pendingConnects.delete(endpoint))
+    pendingConnects.set(endpoint, pending)
+  }
+  return pending
+}
+
 async function acquire(sessionID: string): Promise<Connection> {
   const root = await rootSessionID(sessionID)
   const cached = bySession.get(root)
   if (cached && !cached.closed) return cached
 
-  const endpoint = await BrowserBridge.host()
-    .resolveEndpoint({ sessionID: root })
-    .catch((err) => {
-      throw toBrowserBridgeError(err)
-    })
-
-  let conn = byEndpoint.get(endpoint.cdpEndpoint)
-  if (!conn || conn.closed) {
-    conn = await connect(endpoint.cdpEndpoint)
-    byEndpoint.set(endpoint.cdpEndpoint, conn)
+  // Single-flight per root: a failed attempt clears itself so the next call
+  // retries fresh; concurrent callers share the same outcome either way.
+  let pending = pendingAcquires.get(root)
+  if (!pending) {
+    pending = (async () => {
+      const endpoint = await BrowserBridge.host()
+        .resolveEndpoint({ sessionID: root })
+        .catch((err) => {
+          throw toBrowserBridgeError(err)
+        })
+      const conn = await connectOnce(endpoint.cdpEndpoint)
+      conn.sessions.add(root)
+      bySession.set(root, conn)
+      return conn
+    })().finally(() => pendingAcquires.delete(root))
+    pendingAcquires.set(root, pending)
   }
-  conn.sessions.add(root)
-  bySession.set(root, conn)
-  return conn
+  return pending
 }
 
 export type BrowserPageRun<T> = (page: IPage, info: { takeoverReloaded: boolean }) => Promise<T>
@@ -236,4 +262,6 @@ export function resetBrowserSessionsForTest() {
   }
   byEndpoint.clear()
   bySession.clear()
+  pendingAcquires.clear()
+  pendingConnects.clear()
 }
