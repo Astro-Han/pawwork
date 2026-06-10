@@ -15,13 +15,16 @@ class BrowserControllerRegistry {
 
   /** Get or lazily create the controller for a window, wiring its teardown. */
   ensure(win: BrowserWindow): BrowserViewController {
-    let controller = this.controllers.get(win.id)
+    // Capture the id now: by the time 'closed' fires the BrowserWindow is
+    // destroyed and reading win.id throws "Object has been destroyed".
+    const winId = win.id
+    let controller = this.controllers.get(winId)
     if (!controller) {
       controller = new BrowserViewController(win)
-      this.controllers.set(win.id, controller)
+      this.controllers.set(winId, controller)
       win.once("closed", () => {
-        this.controllers.get(win.id)?.destroy()
-        this.controllers.delete(win.id)
+        this.controllers.get(winId)?.destroy()
+        this.controllers.delete(winId)
       })
     }
     return controller
