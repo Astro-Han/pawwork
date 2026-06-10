@@ -60,7 +60,7 @@ export const GrepTool = Tool.define(
           const info = yield* fs.stat(search).pipe(Effect.catch(() => Effect.succeed(undefined)))
           yield* assertExternalDirectoryEffect(ctx, requested, {
             kind: requestedInfo?.type === "Directory" ? "directory" : "file",
-            permissionPath: requested,
+            checkRequestedPath: true,
           })
           const cwd = info?.type === "Directory" ? search : path.dirname(search)
           const file = info?.type === "Directory" ? undefined : [path.relative(cwd, search)]

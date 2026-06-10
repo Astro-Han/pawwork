@@ -12,7 +12,7 @@ type Kind = "file" | "directory"
 type Options = {
   bypass?: boolean
   kind?: Kind
-  permissionPath?: string
+  checkRequestedPath?: boolean
 }
 
 type PermissionPathFs = {
@@ -160,19 +160,12 @@ export const assertExternalDirectoryEffect = Effect.fn("Tool.assertExternalDirec
       : process.platform === "win32"
       ? path.win32.dirname(resolved)
       : path.dirname(resolved)
-  const permissionFull = options?.permissionPath
-    ? process.platform === "win32"
-      ? windowsPermissionPath(options.permissionPath, ins.directory)
-      : path.isAbsolute(options.permissionPath)
-      ? options.permissionPath
-      : `${ins.directory.replace(/\/+$/, "")}/${options.permissionPath}`
-    : undefined
-  const permissionDir = permissionFull
+  const permissionDir = options?.checkRequestedPath
     ? kind === "directory"
-      ? permissionFull
+      ? full
       : process.platform === "win32"
-      ? path.win32.dirname(permissionFull)
-      : path.dirname(permissionFull)
+      ? path.win32.dirname(full)
+      : path.dirname(full)
     : dir
   const glob =
     process.platform === "win32"
