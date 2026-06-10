@@ -961,7 +961,21 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                       yield* input.processor.recordToolExecutionStarted({ tool: key, toolCallID: opts.toolCallId })
                     }
                     try {
-                      const result = yield* Effect.promise(() => execute(args, opts))
+                      const result: Awaited<ReturnType<NonNullable<typeof execute>>> = yield* Effect.promise(() =>
+                        execute(args, opts),
+                      )
+                      if (result.isError === true) {
+                        // record the failure before completion is marked, so run
+                        // observability and the loop gate see isError as a failed execution
+                        const failure = parseMcpToolResult(key, result)
+                        const error = new Error(
+                          failure.kind === "error" ? failure.message : `MCP tool ${key} reported an error`,
+                        )
+                        if (input.processor.recordToolExecutionFailed) {
+                          yield* input.processor.recordToolExecutionFailed({ toolCallID: opts.toolCallId, error })
+                        }
+                        return yield* Effect.fail(error)
+                      }
                       if (input.processor.recordToolExecutionCompleted) {
                         yield* input.processor.recordToolExecutionCompleted({ toolCallID: opts.toolCallId })
                       }
