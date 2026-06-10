@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type Server as HttpServer } from "n
 import type { Duplex } from "node:stream"
 import type { WebContents } from "electron"
 import { WebSocket, WebSocketServer } from "ws"
-import { CDP_BRIDGE_SECRET_LENGTH, DEBUGGER_ATTACH_TIMEOUT_MS } from "./options"
+import { BRIDGE_START_TIMEOUT_MS, CDP_BRIDGE_SECRET_LENGTH } from "./options"
 
 export type CdpBridgeErrorCode = "target-busy" | "target-destroyed" | "bridge-start-timeout"
 
@@ -129,10 +129,11 @@ export class CdpBridge {
     if (this.http) {
       const http = this.http
       this.http = null
-      // The graceful socket.close() above flushes the error + close frames so a
-      // well-behaved client tears down; this frees anything still half-open so
-      // close()'s callback always fires (it does not, by itself, terminate the
-      // upgraded ws).
+      // socket.close() above flushed the error frames; this then drops the TCP
+      // connection (possibly before the close handshake round-trips, so the
+      // client may observe close code 1005 rather than 1000 — fine for a CDP
+      // client) and frees anything half-open so close()'s callback always
+      // fires (it does not, by itself, terminate the upgraded ws).
       http.closeAllConnections()
       await new Promise<void>((resolve) => http.close(() => resolve()))
     }
@@ -157,7 +158,7 @@ export class CdpBridge {
     return new Promise<void>((resolve, reject) => {
       const timer = setTimeout(
         () => reject(new CdpBridgeError("bridge-start-timeout", "ws bridge did not come up in time")),
-        DEBUGGER_ATTACH_TIMEOUT_MS,
+        BRIDGE_START_TIMEOUT_MS,
       )
       http.once("error", (err) => {
         clearTimeout(timer)

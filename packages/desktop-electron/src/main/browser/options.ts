@@ -25,9 +25,10 @@ export function browserViewWebPreferences(): WebPreferences {
 
 /**
  * CDP automation bridge tuning (#1186). The secret is a high-entropy token
- * carried in the ws path and kept in main-process memory only; the attach
- * timeout bounds how long we wait for the bridge to come up before surfacing a
- * typed error instead of hanging.
+ * carried in the ws path and kept in main-process memory only; the start
+ * timeout bounds how long we wait for the bridge's ws server to come up
+ * (debugger attach itself is synchronous) before surfacing a typed error
+ * instead of hanging.
  */
 export const CDP_BRIDGE_SECRET_LENGTH = 32
-export const DEBUGGER_ATTACH_TIMEOUT_MS = 5_000
+export const BRIDGE_START_TIMEOUT_MS = 5_000
