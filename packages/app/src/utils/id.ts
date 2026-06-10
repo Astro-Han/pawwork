@@ -1,4 +1,5 @@
 import z from "zod"
+import { randomBase62 } from "@opencode-ai/util/base62"
 
 const prefixes = {
   session: "ses",
@@ -61,7 +62,7 @@ function create(prefix: Prefix, descending: boolean, timestamp?: number): string
     timeBytes[i] = Number((now >> BigInt(40 - 8 * i)) & BigInt(0xff))
   }
 
-  return prefixes[prefix] + "_" + bytesToHex(timeBytes) + randomBase62(LENGTH - 12)
+  return prefixes[prefix] + "_" + bytesToHex(timeBytes) + randomBase62(LENGTH - 12, getRandomBytes)
 }
 
 function bytesToHex(bytes: Uint8Array): string {
@@ -70,16 +71,6 @@ function bytesToHex(bytes: Uint8Array): string {
     hex += bytes[i].toString(16).padStart(2, "0")
   }
   return hex
-}
-
-function randomBase62(length: number): string {
-  const chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-  const bytes = getRandomBytes(length)
-  let result = ""
-  for (let i = 0; i < length; i += 1) {
-    result += chars[bytes[i] % 62]
-  }
-  return result
 }
 
 function getRandomBytes(length: number): Uint8Array {

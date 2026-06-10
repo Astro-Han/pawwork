@@ -1489,7 +1489,9 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         return parsedArgs[argIndex]
       })
       const usesArgumentsPlaceholder = templateCommand.includes("$ARGUMENTS")
-      let template = withArgs.replaceAll("$ARGUMENTS", args)
+      // Function replacer: a string replacement would interpret $-patterns ($$, $&)
+      // inside user-typed args instead of inserting them literally.
+      let template = withArgs.replaceAll("$ARGUMENTS", () => args)
 
       if (placeholders.length === 0 && !usesArgumentsPlaceholder && args.trim()) {
         template = template + "\n\n" + args

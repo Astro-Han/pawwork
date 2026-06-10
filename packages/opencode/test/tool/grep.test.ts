@@ -1,11 +1,14 @@
 import { describe, expect, test } from "bun:test"
 import path from "path"
+import fs from "node:fs/promises"
 import { Effect, Layer, ManagedRuntime, Stream } from "effect"
 import { ChildProcessSpawner } from "effect/unstable/process"
 import { GrepTool } from "../../src/tool/grep"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 import { SessionID, MessageID } from "../../src/session/schema"
+import { Permission } from "../../src/permission"
+import type * as Tool from "../../src/tool/tool"
 import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
 import { Truncate } from "../../src/tool/truncate"
 import { Agent } from "../../src/agent/agent"
@@ -218,6 +221,62 @@ describe("tool.grep", () => {
       })
     })
   })
+
+  if (process.platform !== "win32") {
+    test("uses the requested alias path for external_directory permission", async () => {
+      await using outside = await tmpdir({
+        init: async (dir) => {
+          await Bun.write(path.join(dir, "match.txt"), "needle\n")
+        },
+      })
+      await using project = await tmpdir({ git: true })
+
+      const alias = path.join(project.path, "alias")
+      await fs.symlink(outside.path, alias, "dir")
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const grep = await initGrep()
+          const ruleset = Permission.fromConfig({
+            grep: "allow",
+            external_directory: {
+              [path.join(alias, "*")]: "allow",
+            },
+          })
+          const asks: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+          const checkedCtx: Tool.Context = {
+            ...ctx,
+            ask: (request) =>
+              Effect.sync(() => {
+                asks.push(request)
+                const denied = request.patterns.find(
+                  (pattern) => Permission.evaluate(request.permission, pattern, ruleset).action !== "allow",
+                )
+                if (denied) throw new Error(`unexpected permission ask: ${request.permission} ${denied}`)
+              }),
+          }
+
+          const result = await Effect.runPromise(
+            grep.execute(
+              {
+                pattern: "needle",
+                path: alias,
+                include: "*.txt",
+              },
+              checkedCtx,
+            ),
+          )
+
+          expect(result.metadata.matches).toBe(1)
+          expect(result.output).toContain(path.join(outside.path, "match.txt"))
+          const externalDirectoryAsk = asks.find((request) => request.permission === "external_directory")
+          expect(externalDirectoryAsk).toBeDefined()
+          expect(externalDirectoryAsk!.metadata.parentDir).toBe(alias)
+        },
+      })
+    })
+  }
 })
 
 describe("CRLF regex handling", () => {

@@ -198,6 +198,7 @@ export function DialogSelectFile(props: { mode?: DialogSelectFileMode; onOpenFil
         items={items}
         key={(item) => item.id}
         filterKeys={["title", "description", "category"]}
+        skipFilter={(item) => item.type === "file"}
         sortBy={(a, b) => {
           if (!filesOnly() && !grouped()) return 0
           if (a.type !== "session" || b.type !== "session") return 0

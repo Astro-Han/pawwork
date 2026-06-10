@@ -97,6 +97,7 @@ export function createPopoverControllers(deps: PopoverControllersDeps): PopoverC
     },
     key: atKey,
     filterKeys: ["display"],
+    skipFilter: (item) => !item.recent,
     groupBy: (item) => (item.recent ? "recent" : "file"),
     sortGroupsBy: (a, b) => (a.category === "recent" ? -1 : b.category === "recent" ? 1 : 0),
     onSelect: handleAtSelect,

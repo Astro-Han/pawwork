@@ -905,6 +905,88 @@ describe("session.agent-resolution", () => {
     })
   }, 30000)
 
+  test("$ARGUMENTS command expansion preserves dollar patterns literally", async () => {
+    let requestText = ""
+    const server = Bun.serve({
+      port: 0,
+      async fetch(req) {
+        const url = new URL(req.url)
+        if (!url.pathname.endsWith("/chat/completions")) {
+          return new Response("not found", { status: 404 })
+        }
+
+        const body = (await req.json()) as {
+          messages: Array<{ role: string; content: string | Array<{ type: string; text?: string }> }>
+        }
+        requestText = body.messages
+          .filter((message) => message.role === "user")
+          .map((message) =>
+            typeof message.content === "string"
+              ? message.content
+              : message.content
+                  .map((part) => ("text" in part && typeof part.text === "string" ? part.text : ""))
+                  .join("\n"),
+          )
+          .join("\n")
+
+        return new Response(chat("ok"), {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        })
+      },
+    })
+
+    try {
+      await using tmp = await tmpdir({
+        git: true,
+        init: async (dir) => {
+          await Bun.write(
+            path.join(dir, "opencode.json"),
+            JSON.stringify({
+              $schema: "https://opencode.ai/config.json",
+              enabled_providers: ["alibaba"],
+              provider: {
+                alibaba: {
+                  options: {
+                    apiKey: "test-key",
+                    baseURL: `${server.url.origin}/v1`,
+                  },
+                },
+              },
+              agent: {
+                build: {
+                  model: "alibaba/qwen-plus",
+                },
+              },
+              command: {
+                literal: {
+                  template: "Keep $ARGUMENTS",
+                  agent: "build",
+                },
+              },
+            }),
+          )
+        },
+      })
+
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const session = await Session.create({})
+          await SessionPrompt.command({
+            sessionID: session.id,
+            command: "literal",
+            arguments: "$$PID $& $1",
+          })
+        },
+      })
+
+      expect(requestText).toContain("Keep $$PID $& $1")
+    } finally {
+      server.stop(true)
+    }
+  }, 30000)
+
   test("threads locale into system prompts for prompt, resumed loop, and command requests", async () => {
     const systems: string[] = []
     const server = Bun.serve({
