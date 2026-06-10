@@ -1,9 +1,13 @@
 import { describe, expect, test } from "bun:test"
 import { resolveLoadMessagePage, resolveLoadMessagePageMeta } from "./sync"
 
-type TestMsg = { id: string; text: string }
+type TestMsg = { id: string; text: string; time?: { created: number } }
 
-const m = (id: string, text: string): TestMsg => ({ id, text })
+const m = (id: string, text: string, created?: number): TestMsg => ({
+  id,
+  text,
+  ...(created === undefined ? {} : { time: { created } }),
+})
 
 describe("resolveLoadMessagePage", () => {
   test("normal initial load without stored data returns fetched as-is", () => {
@@ -55,16 +59,42 @@ describe("resolveLoadMessagePage", () => {
   })
 
   test("complete replace refresh removes stored-only messages covered by the fetched snapshot", () => {
-    const stored = [m("msg_1", "old"), m("msg_2", "deleted"), m("msg_5", "live-tail")]
-    const fetched = [m("msg_1", "current"), m("msg_3", "current")]
+    const stored = [m("msg_1", "old", 1), m("msg_2", "deleted", 2), m("msg_5", "live-tail", 101)]
+    const fetched = [m("msg_1", "current", 1), m("msg_3", "current", 3)]
     const result = resolveLoadMessagePage<TestMsg>({
       stored,
       fetched,
       fetchedComplete: true,
+      retainStoredCreatedAtOrAfter: 100,
     })
 
     expect(result.map((x) => x.id)).toEqual(["msg_1", "msg_3", "msg_5"])
     expect(result.map((x) => x.text)).toEqual(["current", "current", "live-tail"])
+  })
+
+  test("complete replace refresh removes old stored-only tail messages", () => {
+    const stored = [m("msg_1", "old", 1), m("msg_4", "deleted-tail", 4)]
+    const fetched = [m("msg_1", "current", 1), m("msg_3", "current", 3)]
+    const result = resolveLoadMessagePage<TestMsg>({
+      stored,
+      fetched,
+      fetchedComplete: true,
+      retainStoredCreatedAtOrAfter: 100,
+    })
+
+    expect(result.map((x) => x.id)).toEqual(["msg_1", "msg_3"])
+  })
+
+  test("non-overlapping partial replace refresh uses the fetched page", () => {
+    const stored = [m("msg_1", "old"), m("msg_2", "old")]
+    const fetched = [m("msg_5", "current"), m("msg_6", "current")]
+    const result = resolveLoadMessagePage<TestMsg>({
+      stored,
+      fetched,
+      fetchedComplete: false,
+    })
+
+    expect(result.map((x) => x.id)).toEqual(["msg_5", "msg_6"])
   })
 
   test("complete prepend keeps the existing newer page", () => {
@@ -81,14 +111,27 @@ describe("resolveLoadMessagePage", () => {
   })
 
   test("complete empty refresh still preserves stored messages from a race window", () => {
-    const stored = [m("msg_1", "shell-user")]
+    const stored = [m("msg_1", "shell-user", 101)]
     const result = resolveLoadMessagePage<TestMsg>({
       stored,
       fetched: [],
       fetchedComplete: true,
+      retainStoredCreatedAtOrAfter: 100,
     })
 
     expect(result.map((x) => x.id)).toEqual(["msg_1"])
+  })
+
+  test("complete empty refresh removes old stored messages", () => {
+    const stored = [m("msg_1", "deleted", 99)]
+    const result = resolveLoadMessagePage<TestMsg>({
+      stored,
+      fetched: [],
+      fetchedComplete: true,
+      retainStoredCreatedAtOrAfter: 100,
+    })
+
+    expect(result.map((x) => x.id)).toEqual([])
   })
 
   test("normal refresh without stored data returns fetched as-is", () => {
@@ -172,6 +215,19 @@ describe("resolveLoadMessagePageMeta", () => {
     })
 
     expect(result).toEqual({ limit: 12, cursor: undefined, complete: true })
+  })
+
+  test("replace refresh without retained messages uses the fetched pagination boundary", () => {
+    const result = resolveLoadMessagePageMeta({
+      mode: "replace",
+      previous: { limit: 100, cursor: "msg_001", complete: false },
+      messageCount: 80,
+      fetchedCount: 80,
+      fetchedCursor: "msg_120",
+      fetchedComplete: false,
+    })
+
+    expect(result).toEqual({ limit: 100, cursor: "msg_120", complete: false })
   })
 
   test("prepend history load advances the pagination boundary", () => {

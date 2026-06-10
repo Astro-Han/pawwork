@@ -50,22 +50,36 @@ function merge<T extends { id: string }>(a: readonly T[], b: readonly T[]) {
   return [...map.values()].sort((x, y) => cmp(x.id, y.id))
 }
 
+function createdAtOrAfter(item: { id: string }, threshold: number | undefined) {
+  if (threshold === undefined) return false
+  const created = (item as { time?: { created?: unknown } }).time?.created
+  return typeof created === "number" && created >= threshold
+}
+
 export function resolveLoadMessagePage<T extends { id: string }>(params: {
   mode?: "prepend" | "replace"
   stored: readonly T[] | undefined
   fetched: readonly T[]
   fetchedComplete?: boolean
+  retainStoredCreatedAtOrAfter?: number
 }): T[] {
   const { stored, fetched } = params
   if (stored && stored.length > 0) {
     const merged = merge(stored, fetched)
-    const maxFetchedID = fetched.reduce<string | undefined>(
+    const minFetchedID = fetched.reduce<string | undefined>(
+      (min, item) => (min === undefined || cmp(item.id, min) < 0 ? item.id : min),
+      undefined,
+    )
+    const maxStoredID = stored.reduce<string | undefined>(
       (max, item) => (max === undefined || cmp(max, item.id) < 0 ? item.id : max),
       undefined,
     )
-    if (params.mode !== "prepend" && params.fetchedComplete && maxFetchedID !== undefined) {
+    if (params.mode !== "prepend" && !params.fetchedComplete && minFetchedID && maxStoredID) {
+      if (cmp(maxStoredID, minFetchedID) < 0) return fetched as T[]
+    }
+    if (params.mode !== "prepend" && params.fetchedComplete) {
       const fetchedIDs = new Set(fetched.map((item) => item.id))
-      return merged.filter((item) => fetchedIDs.has(item.id) || cmp(maxFetchedID, item.id) < 0)
+      return merged.filter((item) => fetchedIDs.has(item.id) || createdAtOrAfter(item, params.retainStoredCreatedAtOrAfter))
     }
     return merged
   }
@@ -419,6 +433,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       const key = keyFor(input.directory, input.sessionID)
       if (meta.loading[key]) return
 
+      const requestedAt = Date.now()
       setMeta("loading", key, true)
       await fetchMessages(input)
         .then((page) => {
@@ -433,6 +448,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
             stored: store.message[input.sessionID],
             fetched: next.session,
             fetchedComplete: next.complete,
+            retainStoredCreatedAtOrAfter: requestedAt,
           })
           const pageMeta = resolveLoadMessagePageMeta({
             mode: input.mode,
