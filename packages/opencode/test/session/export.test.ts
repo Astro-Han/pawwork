@@ -24,7 +24,7 @@ type RemoveDirectory = (dir: string, options: Parameters<typeof fs.rm>[1]) => Pr
 
 function isRetryableDirectoryRemovalError(error: unknown) {
   const code = (error as NodeJS.ErrnoException | undefined)?.code
-  return code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY"
+  return code === "EBUSY" || code === "EACCES" || code === "EPERM" || code === "ENOTEMPTY"
 }
 
 async function removeDirectoryWithBusyRetry(
@@ -63,24 +63,28 @@ describe("Export.session", () => {
   })
 
   test("removeDirectoryWithBusyRetry retries transient busy directory removal", async () => {
-    let attempts = 0
+    const retryableCodes = ["EBUSY", "EACCES", "EPERM", "ENOTEMPTY"]
 
-    await removeDirectoryWithBusyRetry("busy-dir", {
-      attempts: 3,
-      delayMs: 0,
-      remove: async (_dir, options) => {
-        attempts++
-        expect(options).toEqual({ recursive: true, force: true })
-        if (attempts < 3) {
-          const error = new Error("busy") as NodeJS.ErrnoException
-          error.code = "EBUSY"
-          throw error
-        }
-      },
-      wait: async () => {},
-    })
+    for (const code of retryableCodes) {
+      let attempts = 0
 
-    expect(attempts).toBe(3)
+      await removeDirectoryWithBusyRetry("busy-dir", {
+        attempts: 3,
+        delayMs: 0,
+        remove: async (_dir, options) => {
+          attempts++
+          expect(options).toEqual({ recursive: true, force: true })
+          if (attempts < 3) {
+            const error = new Error("busy") as NodeJS.ErrnoException
+            error.code = code
+            throw error
+          }
+        },
+        wait: async () => {},
+      })
+
+      expect(attempts).toBe(3)
+    }
   })
 
   test("exports a single root session with empty messages and stub runtime_context", async () => {
