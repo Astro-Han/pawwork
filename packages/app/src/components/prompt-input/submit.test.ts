@@ -790,7 +790,9 @@ describe("prompt submit worktree selection", () => {
       navigate: (path) => navigateImpl(path),
       routeParams: () => params,
       info: () => ({ id: "session-existing" }),
-      imageAttachments: () => [],
+      // Mirrors production wiring (derived-state.ts): the floating accessor
+      // derives from the same prompt, so a chip there always shows up here.
+      imageAttachments: () => promptValue.filter((part) => part.type === "attachment"),
       commentCount: () => 0,
       autoAccept: () => false,
       mode: () => "normal",

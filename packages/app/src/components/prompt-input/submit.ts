@@ -109,7 +109,6 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const currentPrompt = prompt.current()
     const text = currentPrompt.map((part) => ("content" in part ? part.content : "")).join("")
     const images = input.imageAttachments().slice()
-    const hasChipAttachment = currentPrompt.some((part) => part.type === "attachment")
     const mode = input.mode()
     const creatingNewSession = isNewSession()
     // A prompt carrying an inline skill chip flows through promptAsync. Its
@@ -117,7 +116,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     // otherwise be misrouted to the legacy session.command endpoint below.
     const hasSkillPart = currentPrompt.some((part) => part.type === "skill")
 
-    if (text.trim().length === 0 && images.length === 0 && !hasChipAttachment && input.commentCount() === 0) {
+    if (text.trim().length === 0 && images.length === 0 && input.commentCount() === 0) {
       if (input.working()) abort(event instanceof KeyboardEvent ? "emptyEnter" : "stopButton")
       return
     }
