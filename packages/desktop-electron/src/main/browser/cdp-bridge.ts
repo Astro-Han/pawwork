@@ -49,6 +49,10 @@ export class CdpBridge {
   private port = 0
   private started = false
   private starting: Promise<AutomationEndpoint> | null = null
+  // Set only while listen() is pending; stop() calls it so a teardown racing a
+  // start-in-flight fails the start immediately instead of letting it wait out
+  // its own timeout on a server that will never come up.
+  private abortListen: ((err: Error) => void) | null = null
   // A fresh secret per start() so a reused bridge (e.g. after DevTools stole the
   // debugger) never re-serves an old path.
   private secret = ""
@@ -110,6 +114,11 @@ export class CdpBridge {
       await this.stop()
       throw err
     }
+    // stop() may have intervened after listen already succeeded (DevTools
+    // stealing the debugger mid-start, or the target going away); its cleanup
+    // nulled this.http, and address() on the closed server would be null.
+    // Surface a typed error instead of a TypeError so callers can branch.
+    if (this.http !== http) throw this.interruptedStartError()
     this.port = (http.address() as { port: number }).port
     this.started = true
     return { cdpEndpoint: this.endpointUrl() }
@@ -117,6 +126,7 @@ export class CdpBridge {
 
   async stop(): Promise<void> {
     this.started = false
+    this.abortListen?.(this.interruptedStartError())
     // Fail every in-flight client command before closing, so a CDP client
     // (opencli has no remote-close handler) fails fast instead of hanging until
     // its own ~30s timeout.
@@ -165,20 +175,28 @@ export class CdpBridge {
     return `ws://127.0.0.1:${this.port}${this.path}`
   }
 
+  // Why a start was torn down from under its caller: the target is either
+  // gone (window/view destroyed) or taken (DevTools owns the debugger now).
+  private interruptedStartError(): CdpBridgeError {
+    return this.wc.isDestroyed()
+      ? new CdpBridgeError("target-destroyed", "WebContents went away during start")
+      : new CdpBridgeError("target-busy", "bridge was stopped during start")
+  }
+
   private listen(http: HttpServer): Promise<void> {
     return new Promise<void>((resolve, reject) => {
+      const settle = (complete: () => void) => {
+        clearTimeout(timer)
+        this.abortListen = null
+        complete()
+      }
       const timer = setTimeout(
-        () => reject(new CdpBridgeError("bridge-start-timeout", "ws bridge did not come up in time")),
+        () => settle(() => reject(new CdpBridgeError("bridge-start-timeout", "ws bridge did not come up in time"))),
         BRIDGE_START_TIMEOUT_MS,
       )
-      http.once("error", (err) => {
-        clearTimeout(timer)
-        reject(err)
-      })
-      http.listen(0, "127.0.0.1", () => {
-        clearTimeout(timer)
-        resolve()
-      })
+      this.abortListen = (err) => settle(() => reject(err))
+      http.once("error", (err) => settle(() => reject(err)))
+      http.listen(0, "127.0.0.1", () => settle(resolve))
     })
   }
 

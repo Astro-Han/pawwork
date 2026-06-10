@@ -259,6 +259,18 @@ describe("CdpBridge", () => {
     expect(first.cdpEndpoint).toBe(second.cdpEndpoint)
   })
 
+  test("stop() racing a start() in flight yields a typed error and a clean restart", async () => {
+    const { asWebContents } = makeWc()
+    const bridge = new CdpBridge(asWebContents)
+    const racing = bridge.start() // still awaiting its ws listen
+    await bridge.stop()
+    await expect(racing).rejects.toBeInstanceOf(CdpBridgeError)
+    const endpoint = await bridge.start()
+    cleanups.push(() => bridge.stop())
+    const ws = await open(endpoint.cdpEndpoint)
+    expect(ws.readyState).toBe(WebSocket.OPEN)
+  })
+
   test("destroying the WebContents tears the bridge down", async () => {
     const { wc, asWebContents } = makeWc()
     const { cdpEndpoint } = await startBridge(asWebContents)
