@@ -42,7 +42,7 @@ export const AutomateParameters = Schema.Struct({
   }),
   recurring: Schema.optional(Schema.Boolean).annotate({
     description:
-      "Omit or true for a repeating schedule. Set false for a one-time task: it fires once at the next cron match. For a one-time task on a specific date, pin day-of-month and month in the cron expression.",
+      "Omit or true for a repeating schedule. Set false for a one-time task: it fires once at the next cron match. For a one-time task on a specific date, pin day-of-month and month in the cron expression and leave day-of-week as * — when both day fields are restricted, cron fires on either match, so the task would fire prematurely.",
   }),
   continueSession: Schema.optional(Schema.Boolean).annotate({
     description:

@@ -55,6 +55,7 @@ describe("automate tool", () => {
     expect(schema.properties.cron.description).toContain("5-field")
     expect(schema.properties.cron.description).toContain("on weekdays")
     expect(schema.properties.recurring.description).toContain("one-time")
+    expect(schema.properties.recurring.description).toContain("leave day-of-week as *")
     expect(schema.properties.continueSession.description).toContain("deleting this conversation deletes the automation")
     for (const field of ["title", "prompt", "cron", "recurring", "continueSession", "timezone", "model", "variant"]) {
       expect(schema.properties[field].description).toBeTruthy()
