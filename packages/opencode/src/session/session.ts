@@ -1243,10 +1243,8 @@ export function* list(input?: {
   if (input?.workspaceID) {
     conditions.push(eq(SessionTable.workspace_id, input.workspaceID))
   }
-  if (!Flag.OPENCODE_EXPERIMENTAL_WORKSPACES) {
-    if (input?.directory) {
-      conditions.push(eq(SessionTable.directory, input.directory))
-    }
+  if (input?.directory) {
+    conditions.push(eq(SessionTable.directory, input.directory))
   }
   if (input?.roots) {
     conditions.push(isNull(SessionTable.parent_id))
