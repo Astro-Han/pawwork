@@ -38,14 +38,17 @@ const it = testEffect(
   ),
 )
 
-const seedAssistant = Effect.fn("AgentToolTest.seedAssistant")(function* (sessionID: SessionID) {
+const seedAssistant = Effect.fn("AgentToolTest.seedAssistant")(function* (
+  sessionID: SessionID,
+  opts?: { variant?: string },
+) {
   const session = yield* Session.Service
   const user = yield* session.updateMessage({
     id: MessageID.ascending(),
     role: "user",
     sessionID,
     agent: "build",
-    model: ref,
+    model: { ...ref, variant: opts?.variant },
     time: { created: Date.now() },
   })
   const assistant: MessageV2.Assistant = {
@@ -60,6 +63,7 @@ const seedAssistant = Effect.fn("AgentToolTest.seedAssistant")(function* (sessio
     tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
     modelID: ref.modelID,
     providerID: ref.providerID,
+    variant: opts?.variant,
     time: { created: Date.now() },
   }
   yield* session.updateMessage(assistant)
@@ -346,6 +350,92 @@ describe("tool.agent", () => {
         expect(child.createdByAgentTool).toBe(true)
         expect(child.subagentType).toBe("general")
       }),
+    ),
+  )
+
+  it.live("execute preserves the caller variant for unpinned subagents", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({ title: "Pinned" })
+        const assistant = yield* seedAssistant(chat.id, { variant: "high" })
+        const tool = yield* AgentTool
+        const def = yield* tool.init()
+        let seen: SessionPrompt.PromptInput | undefined
+        const promptOps = stubOps({ onPrompt: (input) => (seen = input) })
+
+        yield* def.execute(
+          {
+            description: "inspect bug",
+            prompt: "look into the cache key path",
+            subagent_type: "general",
+          },
+          {
+            sessionID: chat.id,
+            messageID: assistant.id,
+            agent: "build",
+            abort: new AbortController().signal,
+            callID: "call_test_" + Math.random().toString(36).slice(2),
+            extra: { promptOps, bypassAgentCheck: true },
+            messages: [],
+            metadata: () => Effect.void,
+            ask: () => Effect.void,
+          },
+        )
+
+        expect(seen?.model).toEqual(ref)
+        expect(seen?.variant).toBe("high")
+      }),
+    ),
+  )
+
+  it.live("execute does not preserve the caller variant for model-pinned subagents", () =>
+    provideTmpdirInstance(
+      () =>
+        Effect.gen(function* () {
+          const sessions = yield* Session.Service
+          const chat = yield* sessions.create({ title: "Pinned" })
+          const assistant = yield* seedAssistant(chat.id, { variant: "high" })
+          const tool = yield* AgentTool
+          const def = yield* tool.init()
+          let seen: SessionPrompt.PromptInput | undefined
+          const promptOps = stubOps({ onPrompt: (input) => (seen = input) })
+
+          yield* def.execute(
+            {
+              description: "inspect bug",
+              prompt: "look into the cache key path",
+              subagent_type: "scout",
+            },
+            {
+              sessionID: chat.id,
+              messageID: assistant.id,
+              agent: "build",
+              abort: new AbortController().signal,
+              callID: "call_test_" + Math.random().toString(36).slice(2),
+              extra: { promptOps, bypassAgentCheck: true },
+              messages: [],
+              metadata: () => Effect.void,
+              ask: () => Effect.void,
+            },
+          )
+
+          expect(seen?.model).toEqual({
+            providerID: ProviderID.make("test"),
+            modelID: ModelID.make("pinned-model"),
+          })
+          expect(seen?.variant).toBeUndefined()
+        }),
+      {
+        config: {
+          agent: {
+            scout: {
+              mode: "subagent",
+              model: "test/pinned-model",
+            },
+          },
+        },
+      },
     ),
   )
 
