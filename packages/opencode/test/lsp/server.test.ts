@@ -85,6 +85,33 @@ describe("JDTLS root resolution", () => {
     ),
   )
 
+  it.live("ignores Maven modules inside XML comments", () =>
+    provideTmpdirInstance((root) =>
+      Effect.gen(function* () {
+        fs.writeFileSync(
+          path.join(root, "pom.xml"),
+          `
+<project>
+  <!--
+  <modules>
+    <module>samples/tool</module>
+  </modules>
+  -->
+</project>
+`,
+        )
+        fs.mkdirSync(path.join(root, "samples/tool/src/main/java/app"), { recursive: true })
+        fs.writeFileSync(path.join(root, "samples/tool/pom.xml"), "<project />")
+        fs.writeFileSync(path.join(root, "samples/tool/src/main/java/app/App.java"), "")
+
+        const resolved = yield* Effect.promise(() =>
+          LSPServer.JDTLS.root(path.join(root, "samples/tool/src/main/java/app/App.java")),
+        )
+        expect(resolved).toBe(path.join(root, "samples/tool"))
+      }),
+    ),
+  )
+
   it.live("keeps Gradle settings root ahead of Maven subproject markers", () =>
     provideTmpdirInstance((root) =>
       Effect.gen(function* () {

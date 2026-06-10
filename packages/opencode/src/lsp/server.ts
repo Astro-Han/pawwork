@@ -127,16 +127,40 @@ export namespace LSPServer {
   }
 
   function normalizeMavenModulePath(modulePath: string) {
-    return modulePath.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/$/, "")
+    let normalized = modulePath.replace(/\\/g, "/")
+    if (normalized.startsWith("./")) normalized = normalized.slice(2)
+    if (normalized.endsWith("/")) normalized = normalized.slice(0, -1)
+    return normalized
+  }
+
+  function xmlCommentRanges(content: string) {
+    const ranges: Array<{ start: number; end: number }> = []
+    let start = content.indexOf("<!--")
+    while (start !== -1) {
+      const close = content.indexOf("-->", start + 4)
+      const end = close === -1 ? content.length : close + 3
+      ranges.push({ start, end })
+      if (close === -1) break
+      start = content.indexOf("<!--", end)
+    }
+    return ranges
+  }
+
+  function isInsideRange(position: number, ranges: Array<{ start: number; end: number }>) {
+    return ranges.some((range) => position >= range.start && position < range.end)
   }
 
   function declaresMavenModule(pomContent: string, modulePath: string) {
     const normalizedModulePath = normalizeMavenModulePath(modulePath)
     if (!normalizedModulePath) return false
-    const moduleBlocks = pomContent.match(/<modules>([\s\S]*?)<\/modules>/g) ?? []
-    for (const block of moduleBlocks) {
-      const withoutComments = block.replace(/<!--[\s\S]*?-->/g, "")
-      for (const match of withoutComments.matchAll(/<module>\s*([^<]+?)\s*<\/module>/g)) {
+    const comments = xmlCommentRanges(pomContent)
+    for (const blockMatch of pomContent.matchAll(/<modules>([\s\S]*?)<\/modules>/g)) {
+      const blockStart = blockMatch.index ?? 0
+      if (isInsideRange(blockStart, comments)) continue
+      const blockBody = blockMatch[1]
+      const blockBodyStart = blockStart + blockMatch[0].indexOf(blockBody)
+      for (const match of blockBody.matchAll(/<module>\s*([^<]+?)\s*<\/module>/g)) {
+        if (isInsideRange(blockBodyStart + (match.index ?? 0), comments)) continue
         const declaredModule = normalizeMavenModulePath(match[1].trim())
         if (declaredModule === normalizedModulePath) return true
       }
