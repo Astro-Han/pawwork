@@ -309,6 +309,7 @@ export namespace MCP {
     status: Record<string, Status>
     clients: Record<string, MCPClient>
     defs: Record<string, MCPToolDef[]>
+    config: Record<string, Config.Mcp>
   }
 
   export interface Interface {
@@ -581,6 +582,7 @@ export namespace MCP {
             status: {},
             clients: {},
             defs: {},
+            config: {},
           }
 
           yield* Effect.forEach(
@@ -664,7 +666,7 @@ export namespace MCP {
         const s = yield* InstanceState.get(state)
 
         const cfg = yield* cfgSvc.get()
-        const config = cfg.mcp ?? {}
+        const config = { ...(cfg.mcp ?? {}), ...s.config }
         const result: Record<string, Status> = {}
 
         for (const [key, mcp] of Object.entries(config)) {
@@ -695,8 +697,9 @@ export namespace MCP {
       })
 
       const add = Effect.fn("MCP.add")(function* (name: string, mcp: Config.Mcp) {
-        yield* createAndStore(name, mcp)
         const s = yield* InstanceState.get(state)
+        s.config[name] = mcp
+        yield* createAndStore(name, mcp)
         return { status: s.status }
       })
 
@@ -728,7 +731,7 @@ export namespace MCP {
           connectedClients,
           ([clientName, client]) =>
             Effect.gen(function* () {
-              const mcpConfig = config[clientName]
+              const mcpConfig = s.config[clientName] ?? config[clientName]
               const entry = mcpConfig && isMcpConfigured(mcpConfig) ? mcpConfig : undefined
 
               const listed = s.defs[clientName]
@@ -828,6 +831,9 @@ export namespace MCP {
       })
 
       const getMcpConfig = Effect.fnUntraced(function* (mcpName: string) {
+        const s = yield* InstanceState.get(state)
+        const dynamicConfig = s.config[mcpName]
+        if (dynamicConfig) return dynamicConfig
         const cfg = yield* cfgSvc.get()
         const mcpConfig = cfg.mcp?.[mcpName]
         if (!mcpConfig || !isMcpConfigured(mcpConfig)) return undefined
@@ -1039,7 +1045,7 @@ export namespace MCP {
   // --- Per-service runtime ---
 
   export const defaultLayer = layer.pipe(
-    Layer.provide(McpAuth.layer),
+    Layer.provide(McpAuth.defaultLayer),
     Layer.provide(Bus.layer),
     Layer.provide(Config.defaultLayer),
     Layer.provide(CrossSpawnSpawner.defaultLayer),
