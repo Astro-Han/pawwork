@@ -185,6 +185,10 @@ export class CdpBridge {
 
   private adopt(ws: WebSocket) {
     this.socket = ws
+    // A protocol error from the client (malformed frame, invalid UTF-8) emits
+    // 'error' on the adopted socket; with no listener that is an uncaught
+    // exception that kills the whole main process. Drop the connection instead.
+    ws.on("error", () => ws.terminate())
     ws.on("message", this.onClientMessage)
     ws.on("close", () => {
       if (this.socket === ws) this.socket = null
