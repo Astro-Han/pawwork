@@ -31,15 +31,11 @@ const RemoveButton: Component<{ id: string; onRemove: (id: string) => void; labe
   </button>
 )
 
-const FileChipBody: Component<{ model: AttachmentChipModel; revealLabel: string; onReveal: (path: string) => void }> = (
-  props,
-) => (
-  <button
-    type="button"
-    onClick={() => props.model.path && props.onReveal(props.model.path)}
-    title={props.model.path ? props.revealLabel : undefined}
-    class="h-14 max-w-60 rounded-md border border-border-base bg-surface-base flex items-center gap-2.5 pl-3 pr-4 text-left"
-  >
+const fileChipBodyClass =
+  "h-14 max-w-60 rounded-md border border-border-base bg-surface-base flex items-center gap-2.5 pl-3 pr-4 text-left"
+
+const FileChipContent: Component<{ model: AttachmentChipModel }> = (props) => (
+  <>
     <FileIcon node={{ path: props.model.filename, type: "file" }} class="size-6 shrink-0" />
     <span class="flex min-w-0 flex-col leading-snug">
       <span class="text-body text-fg-strong truncate">{props.model.filename}</span>
@@ -47,7 +43,28 @@ const FileChipBody: Component<{ model: AttachmentChipModel; revealLabel: string;
         <span class="font-mono text-[12px] text-fg-weak tabular-nums">{props.model.sizeText}</span>
       </Show>
     </span>
-  </button>
+  </>
+)
+
+// Pathless legacy parts have no reveal action — render a static card, not a
+// focusable button that does nothing.
+const FileChipBody: Component<{ model: AttachmentChipModel; revealLabel: string; onReveal: (path: string) => void }> = (
+  props,
+) => (
+  <Show
+    when={props.model.path}
+    fallback={
+      <div class={fileChipBodyClass}>
+        <FileChipContent model={props.model} />
+      </div>
+    }
+  >
+    {(path) => (
+      <button type="button" onClick={() => props.onReveal(path())} title={props.revealLabel} class={fileChipBodyClass}>
+        <FileChipContent model={props.model} />
+      </button>
+    )}
+  </Show>
 )
 
 const ImageChip: Component<{

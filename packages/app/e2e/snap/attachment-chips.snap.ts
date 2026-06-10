@@ -52,6 +52,10 @@ test("attachment-chips", async ({ page }) => {
   const legacy = page.locator('[data-snap="legacy"]')
   await expect(legacy.locator('img[alt="pasted-image.png"]')).toBeVisible({ timeout: 30_000 })
   await expect(legacy).toContainText("notes.txt")
+  // A pathless legacy part has no reveal action, so its card must not be a
+  // focusable button that does nothing — remove is the only control.
+  await expect(legacy.getByRole("button", { name: /notes\.txt/ })).toHaveCount(0)
+  await expect(legacy.getByRole("button", { name: "Remove attachment" })).toHaveCount(2)
 
   // A path-backed image whose preview cannot load falls back to the file card.
   const fallback = page.locator('[data-snap="preview-fallback"]')
