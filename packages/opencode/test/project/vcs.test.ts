@@ -1,12 +1,16 @@
 import { $ } from "bun"
 import { afterEach, describe, expect, test } from "bun:test"
-import { Effect } from "effect"
+import { Deferred, Effect, Layer, Option } from "effect"
 import fs from "fs/promises"
 import path from "path"
 import { provideInstance, tmpdir } from "../fixture/fixture"
 import { AppRuntime } from "../../src/effect/app-runtime"
+import { InstanceRef } from "../../src/effect/instance-ref"
 import { FileWatcher } from "../../src/file/watcher"
 import { Instance } from "../../src/project/instance"
+import type { InstanceContext } from "../../src/project/instance"
+import { Git } from "../../src/git"
+import { Bus } from "../../src/bus"
 import { GlobalBus } from "../../src/bus/global"
 import { Vcs } from "../../src/project/vcs"
 import { testEffect } from "../lib/effect"
@@ -51,6 +55,46 @@ const scopedTmpdir = (options?: TmpdirOptions) =>
     Effect.promise(() => tmpdir(options)),
     (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
   )
+
+const unsupportedGitCall = <A>(name: string): Effect.Effect<A> =>
+  Effect.die(new Error(`unexpected Git.${name} call`))
+
+const blockingGit = (
+  branchStarted: Deferred.Deferred<void>,
+  defaultBranchStarted: Deferred.Deferred<void>,
+): Git.Interface => ({
+  run: () => unsupportedGitCall("run"),
+  branch: () => Deferred.succeed(branchStarted, undefined).pipe(Effect.andThen(Effect.never)),
+  prefix: () => unsupportedGitCall("prefix"),
+  defaultBranch: () => Deferred.succeed(defaultBranchStarted, undefined).pipe(Effect.andThen(Effect.never)),
+  hasHead: () => unsupportedGitCall("hasHead"),
+  mergeBase: () => unsupportedGitCall("mergeBase"),
+  show: () => unsupportedGitCall("show"),
+  showIndex: () => unsupportedGitCall("showIndex"),
+  status: () => unsupportedGitCall("status"),
+  diff: () => unsupportedGitCall("diff"),
+  stats: () => unsupportedGitCall("stats"),
+  patch: () => unsupportedGitCall("patch"),
+  patchAll: () => unsupportedGitCall("patchAll"),
+  patchAllUnstaged: () => unsupportedGitCall("patchAllUnstaged"),
+  patchUntracked: () => unsupportedGitCall("patchUntracked"),
+  statUntracked: () => unsupportedGitCall("statUntracked"),
+  applyPatch: () => unsupportedGitCall("applyPatch"),
+})
+
+function vcsContext(directory: string): InstanceContext {
+  return {
+    directory,
+    worktree: directory,
+    project: {
+      id: "vcs-init-non-blocking" as InstanceContext["project"]["id"],
+      worktree: directory,
+      vcs: "git",
+      time: { created: 0, updated: 0 },
+      sandboxes: [],
+    },
+  }
+}
 
 /** Wait for a Vcs.Event.BranchUpdated event on GlobalBus, with retry polling as fallback */
 function nextBranchUpdate(directory: string, timeout = 10_000) {
@@ -170,6 +214,32 @@ describeVcs("Vcs", () => {
 describe("Vcs diff", () => {
   afterEach(async () => {
     await Instance.disposeAll()
+  })
+
+  test("init() starts branch resolution without waiting for it", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const branchStarted = yield* Deferred.make<void>()
+        const defaultBranchStarted = yield* Deferred.make<void>()
+        const layer = Vcs.layer.pipe(
+          Layer.provide(Layer.succeed(Git.Service, Git.Service.of(blockingGit(branchStarted, defaultBranchStarted)))),
+          Layer.provide(Bus.layer),
+        )
+        const ctx = vcsContext("/tmp/pawwork-vcs-init-non-blocking")
+
+        yield* Vcs.Service.use((vcs) =>
+          Effect.gen(function* () {
+            const initResult = yield* vcs
+              .init()
+              .pipe(Effect.provideService(InstanceRef, ctx), Effect.timeoutOption("50 millis"))
+
+            expect(Option.isSome(initResult)).toBe(true)
+            yield* Deferred.await(branchStarted).pipe(Effect.timeout("1 second"))
+            yield* Deferred.await(defaultBranchStarted).pipe(Effect.timeout("1 second"))
+          }),
+        ).pipe(Effect.provide(layer))
+      }).pipe(Effect.scoped),
+    )
   })
 
   vcsIt.live("status() returns tracked, staged, and untracked file summaries", () =>
