@@ -251,6 +251,7 @@ export const AgentTool = Tool.define(
         modelID: msg.info.modelID,
         providerID: msg.info.providerID,
       }
+      const variant = next.model ? undefined : msg.info.variant
 
       // Cap-rejection check happens before any slot is reserved or expensive work begins.
       // The TooManyActive failure is mapped to a synthesized status: failed output instead.
@@ -475,6 +476,7 @@ export const AgentTool = Tool.define(
                       messageID: MessageID.ascending(),
                       sessionID: nextSession.id,
                       model: { modelID: model.modelID, providerID: model.providerID },
+                      variant,
                       agent: next.name,
                       // Availability-only: structural constraints on the subagent (no nested
                       // dispatch, no worktree switching, no todos unless its agent allows them, no
