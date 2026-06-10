@@ -16,7 +16,7 @@ export function inline(part: FilePart) {
  */
 export function chip(part: FilePart) {
   if (attached(part) || inline(part)) return false
-  return (part as FilePart & { metadata?: { attachment?: unknown } }).metadata?.attachment === true
+  return part.metadata?.attachment === true
 }
 
 export function kind(part: FilePart) {
