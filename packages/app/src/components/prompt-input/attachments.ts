@@ -14,6 +14,7 @@ import { useLanguage } from "@/context/language"
 import type { useSync } from "@/context/sync"
 import { uuid } from "@/utils/uuid"
 import { getCursorPosition } from "./editor-dom"
+import { invalidateFailedPreview } from "./attachment-preview-cache"
 import { textMime } from "./files"
 import { normalizePaste, pasteMode } from "./paste"
 import { routeBrowserFile, routePickedPath, type AttachRoute, type ModelInputSupport } from "./attachment-routing"
@@ -152,6 +153,9 @@ export function createPromptAttachments(input: PromptAttachmentsInput) {
   // Entry-point attachments float as composer chips; same-path re-adds are
   // no-ops against both chips and inline `@` pills.
   const routePathFallback = async (path: string) => {
+    // The entry-point gesture carries a fresh desktop approval; let a
+    // previously failed thumbnail retry instead of staying negative-cached.
+    invalidateFailedPreview(path)
     const duplicate = prompt
       .current()
       .some((part) => (part.type === "attachment" || part.type === "file") && part.path === path)

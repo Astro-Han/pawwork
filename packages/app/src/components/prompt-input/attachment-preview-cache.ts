@@ -47,6 +47,19 @@ export function loadPreviewCached(path: string, mime: string, loader: PreviewLoa
   return promise
 }
 
+/**
+ * Drop cached failures for a path (any mime). Called when the user re-adds a
+ * file through an entry point, where the desktop approval is fresh again —
+ * without this, a preview that failed once (e.g. expired approval after
+ * undo/fork restore) stays negative-cached for the whole session.
+ */
+export function invalidateFailedPreview(path: string) {
+  const suffix = `:${path}`
+  for (const [key, value] of resolved) {
+    if (value === null && key.endsWith(suffix)) resolved.delete(key)
+  }
+}
+
 /** Testing-only: reset module state between test runs. */
 export const _previewCacheTesting = {
   reset: () => {

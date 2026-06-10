@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test"
-import { cachedPreview, loadPreviewCached, _previewCacheTesting } from "./attachment-preview-cache"
+import { cachedPreview, invalidateFailedPreview, loadPreviewCached, _previewCacheTesting } from "./attachment-preview-cache"
 
 describe("attachment preview cache", () => {
   beforeEach(() => {
@@ -49,6 +49,28 @@ describe("attachment preview cache", () => {
     expect(cachedPreview("/x/broken.png", "image/png")).toBeNull()
     expect(await loadPreviewCached("/x/broken.png", "image/png", loader)).toBeNull()
     expect(calls).toBe(1)
+  })
+
+  test("invalidateFailedPreview clears a cached failure so a re-add retries the load", async () => {
+    const failing = async () => {
+      throw new Error("approval expired")
+    }
+    await loadPreviewCached("/x/shot.png", "image/png", failing)
+    expect(cachedPreview("/x/shot.png", "image/png")).toBeNull()
+
+    invalidateFailedPreview("/x/shot.png")
+
+    expect(cachedPreview("/x/shot.png", "image/png")).toBeUndefined()
+    const ok = async () => "data:image/png;base64,OK"
+    expect(await loadPreviewCached("/x/shot.png", "image/png", ok)).toBe("data:image/png;base64,OK")
+  })
+
+  test("invalidateFailedPreview keeps successful previews untouched", async () => {
+    await loadPreviewCached("/x/shot.png", "image/png", async () => "data:image/png;base64,GOOD")
+
+    invalidateFailedPreview("/x/shot.png")
+
+    expect(cachedPreview("/x/shot.png", "image/png")).toBe("data:image/png;base64,GOOD")
   })
 
   test("evicts the least recently used entry beyond the capacity", async () => {

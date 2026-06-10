@@ -3,6 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, mock, spyOn, test } 
 import * as uiToast from "@opencode-ai/ui/toast"
 import { attachmentMime } from "./files"
 import { pasteMode } from "./paste"
+import { cachedPreview, loadPreviewCached, _previewCacheTesting } from "./attachment-preview-cache"
 import type { createPromptAttachments as createPromptAttachmentsType } from "./attachments"
 
 const toasts: Array<{ title?: string; description?: string; actions?: Array<{ label: string; onClick: () => void }> }> = []
@@ -165,6 +166,31 @@ describe("createPromptAttachments", () => {
       { type: "attachment", path: "/Users/me/report.pdf", filename: "report.pdf", mime: "application/pdf" },
     ])
     expect(toasts).toHaveLength(0)
+  })
+
+  test("re-adding a path clears its negative preview cache entry", async () => {
+    // A preview that failed once (e.g. expired desktop approval on a restored
+    // chip) is negative-cached for the session. Re-adding the file through an
+    // entry point carries a fresh approval, so the failure must be dropped to
+    // let the thumbnail retry.
+    _previewCacheTesting.reset()
+    await loadPreviewCached("/Users/me/image.png", "image/png", async () => {
+      throw new Error("approval expired")
+    })
+    expect(cachedPreview("/Users/me/image.png", "image/png")).toBeNull()
+
+    const attachments = createPromptAttachments({
+      editor: () => ({}) as HTMLDivElement,
+      isDialogActive: () => false,
+      setDraggingType: () => undefined,
+      focusEditor: () => undefined,
+      addPart: () => true,
+      model: () => undefined,
+      openModelSelector: () => undefined,
+    })
+    await attachments.addPickedPath("/Users/me/image.png")
+
+    expect(cachedPreview("/Users/me/image.png", "image/png")).toBeUndefined()
   })
 
   test("adds desktop dropped files from Electron file paths", async () => {
