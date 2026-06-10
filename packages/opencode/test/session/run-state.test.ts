@@ -68,7 +68,7 @@ describe("SessionRunState", () => {
         yield* Effect.addFinalizer(() =>
           Effect.gen(function* () {
             make.mockRestore()
-            yield* Deferred.succeed(releaseRunner, undefined).pipe(Effect.ignore)
+            yield* Deferred.succeed(releaseRunner, undefined)
           }),
         )
 
