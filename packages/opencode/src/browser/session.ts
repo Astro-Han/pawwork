@@ -266,20 +266,19 @@ export async function releaseBrowserSession(sessionID: string): Promise<void> {
  * this runs BEFORE the permission ask, and connecting would already
  * stealth-reload a page the user has open. The returned windowID is a lease:
  * pass it back through withBrowserPage so the action attaches the window the
- * permission was granted for, no matter where focus moved meanwhile. Null
- * when unavailable (no bridge / no window); a null url means a blank or
- * non-web page, which the caller maps to the `*` pattern so the baseline rule
- * still applies.
+ * permission was granted for, no matter where focus moved meanwhile. A null
+ * url means the leased window shows a blank or non-web page, which the caller
+ * maps to the `*` pattern so the baseline rule still applies. No serveable
+ * window at all (or no bridge) throws the typed error instead — the action
+ * must fail rather than run un-leased against whatever window focus lands on.
  */
-export async function browserPageProbe(
-  sessionID: string,
-): Promise<{ windowID: number; url: string | null } | null> {
-  if (!BrowserBridge.available()) return null
+export async function browserPageProbe(sessionID: string): Promise<{ windowID: number; url: string | null }> {
   const root = await rootSessionID(sessionID)
   const probe = await BrowserBridge.host()
     .probeWindow({ sessionID: root })
-    .catch(() => null)
-  if (!probe) return null
+    .catch((err) => {
+      throw toBrowserBridgeError(err)
+    })
   return { windowID: probe.windowID, url: probe.url && parseNavigableUrl(probe.url) ? probe.url : null }
 }
 

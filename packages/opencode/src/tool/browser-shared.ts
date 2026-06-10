@@ -26,13 +26,18 @@ export function runBrowserAction<T>(input: {
   run: (page: IPage, info: { takeoverReloaded: boolean }) => Promise<T>
 }) {
   return Effect.gen(function* () {
-    // One window pick serves both the permission patterns and (as a lease,
-    // via windowID) the eventual attach — a focus change between the ask and
-    // the action cannot retarget it to a window whose URL was never granted.
-    const probe = input.patterns
-      ? null
-      : yield* Effect.promise(() => browserPageProbe(input.ctx.sessionID))
-    const patterns = input.patterns ?? [probe?.url ?? "*"]
+    // EVERY action starts with one window pick — the lease. The permission is
+    // judged against it (current-page URL, unless the caller passed explicit
+    // patterns like navigate's destination) and the attach is pinned to it,
+    // so a focus change between the ask and the action can never retarget
+    // either. No serveable window fails right here, before the ask — an
+    // un-leased action could otherwise ride a `*` grant onto whatever window
+    // focus lands on.
+    const probe = yield* Effect.tryPromise({
+      try: () => browserPageProbe(input.ctx.sessionID),
+      catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+    })
+    const patterns = input.patterns ?? [probe.url ?? "*"]
     yield* input.ctx.ask({
       permission: "browser",
       patterns,
@@ -43,7 +48,7 @@ export function runBrowserAction<T>(input: {
       try: () =>
         withBrowserPage(input.ctx.sessionID, input.label, input.run, {
           timeoutMs: input.timeoutMs,
-          windowID: probe?.windowID,
+          windowID: probe.windowID,
         }),
       catch: (err) => (err instanceof Error ? err : new Error(String(err))),
     })

@@ -73,12 +73,15 @@ export namespace BrowserBridge {
     resolveEndpoint(input: { sessionID: string; windowID?: number }): Promise<Endpoint>
     /**
      * Pick the window that would serve `sessionID` (preferring the one it is
-     * already attached to) and read its embedded browser's URL, or null when
-     * no window can serve it. MUST be side-effect free — it runs BEFORE the
-     * permission ask, so it may not attach a bridge, create a view, or send
-     * any CDP command.
+     * already attached to) and read its embedded browser's URL — a null url
+     * means the window exists but shows no http(s) page. When NO window can
+     * serve the session, this throws the same typed error resolveEndpoint
+     * would (no-window / window-ambiguous); it never degrades to a result,
+     * because an action without a lease could attach wherever focus lands.
+     * MUST be side-effect free — it runs BEFORE the permission ask, so it may
+     * not attach a bridge, create a view, or send any CDP command.
      */
-    probeWindow(input: { sessionID: string }): Promise<WindowProbe | null>
+    probeWindow(input: { sessionID: string }): Promise<WindowProbe>
     /**
      * Detach the window bridge that was attached on behalf of `sessionID`.
      * Called when the last server-side user of the connection goes away

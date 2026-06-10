@@ -146,7 +146,7 @@ describe("withBrowserPage", () => {
       // The host attaches successfully, but the endpoint it hands back is
       // dead — connect fails after the attachment exists.
       resolveEndpoint: async () => ({ cdpEndpoint: "ws://127.0.0.1:9/nobody-listens" }),
-      probeWindow: async () => null,
+      probeWindow: async () => ({ windowID: 1, url: null }),
       releaseSession: async ({ sessionID }) => {
         released.push(sessionID)
       },
@@ -166,7 +166,7 @@ describe("withBrowserPage", () => {
         await new Promise((resolve) => setTimeout(resolve, 50))
         return { cdpEndpoint: server.endpoint }
       },
-      probeWindow: async () => null,
+      probeWindow: async () => ({ windowID: 1, url: null }),
       releaseSession: async ({ sessionID }) => {
         released.push(sessionID)
       },

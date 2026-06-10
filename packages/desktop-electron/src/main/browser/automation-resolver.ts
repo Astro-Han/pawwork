@@ -51,7 +51,7 @@ function hostError(code: "no-window" | "window-ambiguous"): Error & { code: stri
 
 export type BrowserBridgeHost = {
   resolveEndpoint(input: { sessionID: string; windowID?: number }): Promise<AutomationEndpoint>
-  probeWindow(input: { sessionID: string }): Promise<{ windowID: number; url: string | null } | null>
+  probeWindow(input: { sessionID: string }): Promise<{ windowID: number; url: string | null }>
   releaseSession(input: { sessionID: string }): Promise<void>
 }
 
@@ -101,7 +101,9 @@ export function createBrowserBridgeHost(deps: BrowserBridgeHostDeps): BrowserBri
     // and reads its existing view's URL — never attaches or creates anything.
     // A window the session is already attached to wins over a fresh pick, so
     // the permission is judged against the page the action will actually run
-    // on, not wherever focus happens to be.
+    // on, not wherever focus happens to be. No serveable window throws the
+    // typed error (never a soft null): the caller must fail the action rather
+    // than run it un-leased.
     async probeWindow({ sessionID }) {
       const candidates = deps.windows()
       const attachedWindow = attached.get(sessionID)
@@ -113,7 +115,7 @@ export function createBrowserBridgeHost(deps: BrowserBridgeHostDeps): BrowserBri
         candidates,
         focusedWindowID: deps.focusedWindowID(),
       })
-      if ("error" in pick) return null
+      if ("error" in pick) throw hostError(pick.error)
       return { windowID: pick.windowID, url: deps.windowUrl(pick.windowID) }
     },
 

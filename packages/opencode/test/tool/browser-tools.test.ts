@@ -126,6 +126,46 @@ describe("permission gate", () => {
     expect(resolved).toEqual([7])
     expect(denied.methods).toEqual([])
   })
+
+  test("no serveable window fails the action before the ask, never a wildcard grant", async () => {
+    const server = makeServer()
+    BrowserBridge.provideHost({
+      probeWindow: async () => {
+        throw Object.assign(new Error("No PawWork window is open to host the embedded browser."), {
+          code: "no-window",
+        })
+      },
+      resolveEndpoint: async () => ({ cdpEndpoint: server.endpoint }),
+      releaseSession: async () => {},
+    })
+    await expect(exec(BrowserSnapshotTool, {})).rejects.toThrow(/No PawWork window/)
+    // Failing the lease means no ask was ever judged and no CDP traffic flowed —
+    // the action cannot ride a "*" grant onto whatever window focus lands on.
+    expect(askLog).toEqual([])
+    expect(server.methods).toEqual([])
+  })
+
+  test("navigate attaches the leased window even when focus moved during the ask", async () => {
+    const leased = makeServer()
+    leased.handlers.set("Runtime.evaluate", () => ({ result: { type: "string", value: "Title" } }))
+    const focused = makeServer()
+    const resolved: Array<number | undefined> = []
+    BrowserBridge.provideHost({
+      probeWindow: async () => ({ windowID: 1, url: null }),
+      resolveEndpoint: async ({ windowID }) => {
+        resolved.push(windowID)
+        return { cdpEndpoint: windowID === 1 ? leased.endpoint : focused.endpoint }
+      },
+      releaseSession: async () => {},
+    })
+
+    await exec(BrowserNavigateTool, { url: "https://example.com/dest" })
+    // The permission stays scoped to the destination; the lease only pins WHERE it runs.
+    expect(askLog).toEqual([{ permission: "browser", patterns: ["https://example.com/dest"] }])
+    expect(resolved).toEqual([1])
+    expect(leased.methods).toContain("Page.navigate")
+    expect(focused.methods).toEqual([])
+  })
 })
 
 describe("browser_navigate", () => {

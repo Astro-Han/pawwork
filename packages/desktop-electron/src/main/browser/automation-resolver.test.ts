@@ -136,9 +136,9 @@ describe("createBrowserBridgeHost", () => {
     expect(calls.attach).toEqual([])
   })
 
-  test("probeWindow is null when no window can serve the session", async () => {
+  test("probeWindow throws the typed pick error when no window can serve the session", async () => {
     const { host, calls } = makeHost({ windows: () => [] })
-    expect(await host.probeWindow({ sessionID: "ses_a" })).toBeNull()
+    await expect(host.probeWindow({ sessionID: "ses_a" })).rejects.toMatchObject({ code: "no-window" })
     expect(calls.attach).toEqual([])
     expect(calls.url).toEqual([])
   })
