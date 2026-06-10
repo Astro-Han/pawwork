@@ -10,6 +10,7 @@ import { Instance } from "../../src/project/instance"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { ProviderTransform } from "../../src/provider"
 import { localToolImportSpec, ToolRegistry } from "../../src/tool/registry"
+import { deferredGroupMembers } from "../../src/tool/tool-info"
 import { Settings } from "../../src/settings"
 import { MessageID, SessionID } from "../../src/session/schema"
 import type { MessageV2 } from "../../src/session/message-v2"
@@ -1193,6 +1194,36 @@ describe("tool.registry", () => {
       })
     } finally {
       await Settings.setLspEnabled(false)
+    }
+  })
+
+  test("an activated browser group exposes only the members that pass the availability filter", async () => {
+    await using tmp = await tmpdir()
+    // Durable activation is monotonic and expands the whole group on purpose:
+    // availability is time-varying, so the per-step gate here — not a snapshot
+    // taken at activation time — decides what the model sees. A member disabled
+    // mid-session drops out on the next step, and one re-enabled comes back
+    // without re-activation.
+    process.env["OPENCODE_CLIENT"] = "desktop"
+    try {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const tools = await ToolRegistry.tools({
+            providerID: ProviderID.make("openai"),
+            modelID: ModelID.make("gpt-5"),
+            agent: { name: "build", mode: "primary", permission: [], options: {} },
+            activatedTools: new Set(deferredGroupMembers("browser")),
+            deferredAvailable: (id) => id !== "browser_screenshot",
+          })
+          const ids = tools.map((tool) => tool.id)
+          expect(ids).toContain("browser_navigate")
+          expect(ids).toContain("browser_click")
+          expect(ids).not.toContain("browser_screenshot")
+        },
+      })
+    } finally {
+      delete process.env["OPENCODE_CLIENT"]
     }
   })
 
