@@ -19,7 +19,7 @@ describe("resolveLoadMessagePage", () => {
     expect(result.map((x) => x.id)).toEqual(["msg_1", "msg_2"])
   })
 
-  test("race window: SSE data in store, no metadata — merge protects event data from stale GET", () => {
+  test("legacy no-fetch-snapshot calls preserve stored-only messages from a stale GET", () => {
     // SSE events wrote msg_1 (from shell) into the store
     const stored = [m("msg_1", "shell-user")]
     // GET returns empty because it hit the server before shell created messages
@@ -135,7 +135,7 @@ describe("resolveLoadMessagePage", () => {
     expect(result.map((x) => x.id)).toEqual(["msg_1", "msg_3"])
   })
 
-  test("complete empty refresh still preserves stored messages from a race window", () => {
+  test("complete empty refresh preserves messages added after fetch started", () => {
     const stored = [m("msg_1", "shell-user", 101)]
     const result = resolveLoadMessagePage<TestMsg>({
       stored,
@@ -147,7 +147,7 @@ describe("resolveLoadMessagePage", () => {
     expect(result.map((x) => x.id)).toEqual(["msg_1"])
   })
 
-  test("complete empty refresh removes old stored messages", () => {
+  test("complete empty refresh trusts the snapshot for messages present before fetch started", () => {
     const stored = [m("msg_1", "deleted", 99)]
     const result = resolveLoadMessagePage<TestMsg>({
       stored,
