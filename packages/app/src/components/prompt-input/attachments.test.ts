@@ -168,6 +168,28 @@ describe("createPromptAttachments", () => {
     expect(toasts).toHaveLength(0)
   })
 
+  test("returns focus to the editor after adding a picked path", async () => {
+    let focusCalls = 0
+    const attachments = createPromptAttachments({
+      editor: () => ({}) as HTMLDivElement,
+      isDialogActive: () => false,
+      setDraggingType: () => undefined,
+      focusEditor: () => {
+        focusCalls += 1
+      },
+      addPart: () => true,
+      model: () => undefined,
+      openModelSelector: () => undefined,
+    })
+
+    await attachments.addPickedPath("/Users/me/notes.md")
+
+    expect(focusCalls).toBe(1)
+    // A same-path re-add is a no-op and must not steal focus again.
+    await attachments.addPickedPath("/Users/me/notes.md")
+    expect(focusCalls).toBe(1)
+  })
+
   test("re-adding a path clears its negative preview cache entry", async () => {
     // A preview that failed once (e.g. expired desktop approval on a restored
     // chip) is negative-cached for the session. Re-adding the file through an

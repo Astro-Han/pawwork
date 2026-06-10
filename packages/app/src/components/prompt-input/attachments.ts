@@ -160,6 +160,9 @@ export function createPromptAttachments(input: PromptAttachmentsInput) {
       .current()
       .some((part) => (part.type === "attachment" || part.type === "file") && part.path === path)
     if (duplicate) return true
+    // The chip itself needs no cursor, but after a picker round-trip the user
+    // expects to type immediately.
+    input.focusEditor()
     const size = await attachmentSize(path)
     const attachment: AttachmentPart = {
       type: "attachment",
