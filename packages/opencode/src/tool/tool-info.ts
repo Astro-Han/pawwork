@@ -1,10 +1,13 @@
 import { Effect, Schema } from "effect"
 import * as Tool from "./tool"
 import * as EffectZod from "@/util/effect-zod"
+import { AutomateDescription, AutomateParameters } from "./automate"
 import { Parameters as EnterWorktreeParameters } from "./enter-worktree"
 import EnterWorktreeDescription from "./enter-worktree.txt"
 import { Parameters as ExitWorktreeParameters } from "./exit-worktree"
 import ExitWorktreeDescription from "./exit-worktree.txt"
+import { Parameters as LspParameters } from "./lsp"
+import LspDescription from "./lsp.txt"
 import { ProviderTransform } from "../provider/transform"
 import type { Provider } from "../provider/provider"
 import type { MessageV2 } from "../session/message-v2"
@@ -18,6 +21,12 @@ export const TOOL_INFO_ID = "tool_info"
 // instead of the full .txt).
 const DEFERRED = [
   {
+    id: "automate" as const,
+    card: "Create a scheduled automation that re-runs a prompt later or on a recurring cron schedule.",
+    description: AutomateDescription,
+    parameters: AutomateParameters as unknown as Tool.Def["parameters"],
+  },
+  {
     id: "enter-worktree" as const,
     card: "Switch the session into an isolated git worktree to work on a branch in parallel without disturbing the main checkout. Use when a task needs its own branch/worktree.",
     description: EnterWorktreeDescription,
@@ -28,6 +37,12 @@ const DEFERRED = [
     card: "Leave the current worktree and return the session to the project root.",
     description: ExitWorktreeDescription,
     parameters: ExitWorktreeParameters as unknown as Tool.Def["parameters"],
+  },
+  {
+    id: "lsp" as const,
+    card: "Use language-server code intelligence for definitions, references, hover, and symbol navigation.",
+    description: LspDescription,
+    parameters: LspParameters as unknown as Tool.Def["parameters"],
   },
 ] as const
 

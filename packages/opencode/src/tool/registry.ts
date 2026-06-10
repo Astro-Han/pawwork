@@ -375,7 +375,11 @@ export namespace ToolRegistry {
 
       const tools: Interface["tools"] = Effect.fn("ToolRegistry.tools")(function* (input) {
         const webSearchEnabled = yield* settings.webSearchEnabled()
-        const filtered = (yield* all()).filter((tool) => {
+        const allTools = yield* all()
+        const registeredToolIDs = new Set(allTools.map((tool) => tool.id))
+        const isDeferredAvailable = (id: string) =>
+          registeredToolIDs.has(id) && (input.deferredAvailable?.(id) ?? true)
+        const filtered = allTools.filter((tool) => {
           if (tool.id === WebSearchTool.id) return webSearchEnabled
 
           const usePatch =
@@ -385,15 +389,14 @@ export namespace ToolRegistry {
           if (tool.id === EditTool.id || tool.id === WriteTool.id) return !usePatch
 
           if (DEFERRED_TOOL_IDS.has(tool.id)) {
-            const available = input.deferredAvailable?.(tool.id) ?? true
-            return available && (input.activatedTools?.has(tool.id) ?? false)
+            return isDeferredAvailable(tool.id) && (input.activatedTools?.has(tool.id) ?? false)
           }
 
           return true
         })
 
         const availableDeferred = [...DEFERRED_TOOL_IDS].filter(
-          (id) => (input.deferredAvailable?.(id) ?? true) && !(input.activatedTools?.has(id) ?? false),
+          (id) => isDeferredAvailable(id) && !(input.activatedTools?.has(id) ?? false),
         )
 
         return yield* Effect.forEach(
@@ -405,6 +408,20 @@ export namespace ToolRegistry {
               parameters: tool.parameters,
             }
             yield* plugin.trigger("tool.definition", { toolID: tool.id }, output)
+            const execute: Tool.Def["execute"] =
+              tool.id === TOOL_INFO_ID
+                ? ((args, ctx) => {
+                    const contextDeferredAvailable = ctx.extra?.["deferredAvailable"] as
+                      | ((id: string) => boolean)
+                      | undefined
+                    const deferredAvailable = (id: string) =>
+                      isDeferredAvailable(id) && (contextDeferredAvailable?.(id) ?? true)
+                    return tool.execute(args, {
+                      ...ctx,
+                      extra: { ...ctx.extra, deferredAvailable },
+                    })
+                  })
+                : tool.execute
             return {
               id: tool.id,
               description: [
@@ -415,7 +432,7 @@ export namespace ToolRegistry {
                 .filter(Boolean)
                 .join("\n"),
               parameters: output.parameters,
-              execute: tool.execute,
+              execute,
               formatValidationError: tool.formatValidationError,
             }
           }),
