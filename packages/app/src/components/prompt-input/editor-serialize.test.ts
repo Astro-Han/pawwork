@@ -172,6 +172,31 @@ describe("inline skill pill", () => {
   })
 })
 
+describe("inline file pill", () => {
+  test("shows filename and size while preserving canonical content on parse", () => {
+    const pill = createPill({
+      type: "file",
+      path: "/Users/me/report.pdf",
+      content: "@report.pdf",
+      start: 0,
+      end: 11,
+      size: 1536,
+    })
+
+    expect(pill.textContent).toBe("@report.pdf 1.5 KB")
+    expect(pill.title).toContain("/Users/me/report.pdf")
+    expect(pill.title).toContain("1.5 KB")
+
+    const editor = document.createElement("div")
+    editor.appendChild(pill)
+    const result = parseEditorToParts(editor)
+
+    expect(result).toEqual([
+      { type: "file", path: "/Users/me/report.pdf", content: "@report.pdf", start: 0, end: 11, size: 1536 },
+    ])
+  })
+})
+
 describe("isNormalizedEditor skill-pill position independence", () => {
   test("a skill pill mid-stream stays normalized (no rebuild)", () => {
     const editor = document.createElement("div")

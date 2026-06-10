@@ -5,7 +5,7 @@ import type { useGlobalSync } from "@/context/global-sync"
 import type { useSDK } from "@/context/sdk"
 import type { useSync } from "@/context/sync"
 import { Identifier } from "@/utils/id"
-import { buildRequestParts } from "./build-request-parts"
+import { buildAttachmentRequestParts, buildRequestParts } from "./build-request-parts"
 import { reportInvariantBreach } from "./invariant"
 import { followupCommandText, type FollowupDraft } from "./followup-draft"
 
@@ -24,6 +24,12 @@ const draftImages = (prompt: Prompt) => prompt.filter((part): part is ImageAttac
 export async function sendFollowupDraft(input: FollowupSendInput) {
   const text = followupCommandText(input.draft)
   const images = draftImages(input.draft.prompt)
+  const commandParts = () =>
+    buildAttachmentRequestParts({
+      prompt: input.draft.prompt,
+      images,
+      sessionDirectory: input.draft.sessionDirectory,
+    })
   const [, setStore] = input.globalSync.child(input.draft.sessionDirectory)
 
   const setBusy = () => {
@@ -70,13 +76,7 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
           model: `${input.draft.model.providerID}/${input.draft.model.modelID}`,
           locale: input.draft.locale,
           variant: input.draft.variant,
-          parts: images.map((attachment) => ({
-            id: Identifier.ascending("part"),
-            type: "file" as const,
-            mime: attachment.mime,
-            url: attachment.dataUrl,
-            filename: attachment.filename,
-          })),
+          parts: commandParts(),
         })
         return true
       } catch (err) {
@@ -107,13 +107,7 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
         model: `${input.draft.model.providerID}/${input.draft.model.modelID}`,
         locale: input.draft.locale,
         variant: input.draft.variant,
-        parts: images.map((attachment) => ({
-          id: Identifier.ascending("part"),
-          type: "file" as const,
-          mime: attachment.mime,
-          url: attachment.dataUrl,
-          filename: attachment.filename,
-        })),
+        parts: commandParts(),
       })
       return true
     } catch (err) {

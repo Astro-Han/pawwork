@@ -128,6 +128,138 @@ describe("pasteMode", () => {
 })
 
 describe("createPromptAttachments", () => {
+  test("adds picked media paths as deduped file attachments instead of data URL attachments", async () => {
+    const addedParts: unknown[] = []
+    const attachments = createPromptAttachments({
+      editor: () => ({}) as HTMLDivElement,
+      isDialogActive: () => false,
+      setDraggingType: () => undefined,
+      focusEditor: () => undefined,
+      addPart: (part) => {
+        addedParts.push(part)
+        return true
+      },
+      model: () => ({
+        capabilities: {
+          input: {
+            image: true,
+            pdf: true,
+          },
+        },
+      }),
+      openModelSelector: () => undefined,
+      readFileDataUrl: async () => "data:image/png;base64,aW1hZ2U=",
+    })
+
+    const result = await attachments.addPickedPaths([
+      "/Users/me/image.png",
+      "/Users/me/report.pdf",
+      "/Users/me/image.png",
+    ])
+
+    expect(result).toBe(true)
+    expect(addedParts).toEqual([
+      { type: "file", path: "/Users/me/image.png", content: "@image.png", start: 0, end: 10 },
+      { type: "file", path: "/Users/me/report.pdf", content: "@report.pdf", start: 0, end: 11 },
+    ])
+    expect(promptParts).toHaveLength(0)
+    expect(toasts).toHaveLength(0)
+  })
+
+  test("adds desktop dropped files from Electron file paths", async () => {
+    const addedParts: unknown[] = []
+    const attachments = createPromptAttachments({
+      editor: () => ({}) as HTMLDivElement,
+      isDialogActive: () => false,
+      setDraggingType: () => undefined,
+      focusEditor: () => undefined,
+      addPart: (part) => {
+        addedParts.push(part)
+        return true
+      },
+      model: () => ({
+        capabilities: {
+          input: {
+            pdf: false,
+          },
+        },
+      }),
+      openModelSelector: () => undefined,
+      filePathForBrowserFile: async () => "/Users/me/guide.pdf",
+    })
+
+    const result = await attachments.addAttachments([new File(["%PDF-1.7"], "guide.pdf", { type: "application/pdf" })])
+
+    expect(result).toBe(true)
+    expect(addedParts).toEqual([
+      { type: "file", path: "/Users/me/guide.pdf", content: "@guide.pdf", start: 0, end: 10 },
+    ])
+    expect(promptParts).toHaveLength(0)
+    expect(toasts).toHaveLength(0)
+  })
+
+  test("stores file sizes on path-backed attachments when available", async () => {
+    const addedParts: unknown[] = []
+    const attachments = createPromptAttachments({
+      editor: () => ({}) as HTMLDivElement,
+      isDialogActive: () => false,
+      setDraggingType: () => undefined,
+      focusEditor: () => undefined,
+      addPart: (part) => {
+        addedParts.push(part)
+        return true
+      },
+      model: () => undefined,
+      openModelSelector: () => undefined,
+      statPaths: async () => ({ "/Users/me/guide.pdf": { exists: true, size: 1536 } }),
+    })
+
+    const result = await attachments.addPickedPath("/Users/me/guide.pdf")
+
+    expect(result).toBe(true)
+    expect(addedParts).toEqual([
+      { type: "file", path: "/Users/me/guide.pdf", content: "@guide.pdf", start: 0, end: 10, size: 1536 },
+    ])
+  })
+
+  test("saves pathless pasted files before attaching them", async () => {
+    const addedParts: unknown[] = []
+    const attachments = createPromptAttachments({
+      editor: () => ({}) as HTMLDivElement,
+      isDialogActive: () => false,
+      setDraggingType: () => undefined,
+      focusEditor: () => undefined,
+      addPart: (part) => {
+        addedParts.push(part)
+        return true
+      },
+      model: () => ({
+        capabilities: {
+          input: {
+            image: true,
+          },
+        },
+      }),
+      openModelSelector: () => undefined,
+      saveAttachmentFile: async () => "/Users/me/Library/Application Support/PawWork/attachments/pasted-image.png",
+    })
+
+    const result = await attachments.addAttachment(new File(["image"], "pasted-image.png", { type: "image/png" }))
+
+    expect(result).toBe(true)
+    expect(addedParts).toEqual([
+      {
+        type: "file",
+        path: "/Users/me/Library/Application Support/PawWork/attachments/pasted-image.png",
+        content: "@pasted-image.png",
+        start: 0,
+        end: 17,
+      },
+    ])
+    expect(promptParts).toHaveLength(0)
+    expect(toasts).toHaveLength(0)
+  })
+
   test("reports a skipped file even when another dropped file is attached", async () => {
     const attachments = createPromptAttachments({
       editor: () => ({}) as HTMLDivElement,
@@ -155,7 +287,7 @@ describe("createPromptAttachments", () => {
     expect(toasts.map((toast) => toast.title)).toEqual(["prompt.toast.imageUnsupported.title"])
   })
 
-  test("reports a skipped picked path even when another picked path is attached", async () => {
+  test("does not block picked image paths on model media support", async () => {
     const addedParts: unknown[] = []
     const attachments = createPromptAttachments({
       editor: () => ({}) as HTMLDivElement,
@@ -179,12 +311,16 @@ describe("createPromptAttachments", () => {
     const result = await attachments.addPickedPaths(["/Users/me/report.docx", "/Users/me/image.png"])
 
     expect(result).toBe(true)
-    expect(addedParts).toHaveLength(1)
-    expect(toasts.map((toast) => toast.title)).toEqual(["prompt.toast.imageUnsupported.title"])
+    expect(addedParts).toEqual([
+      { type: "file", path: "/Users/me/report.docx", content: "@report.docx", start: 0, end: 12 },
+      { type: "file", path: "/Users/me/image.png", content: "@image.png", start: 0, end: 10 },
+    ])
+    expect(toasts).toHaveLength(0)
   })
 
-  test("does not downgrade picked direct media read failures to path mentions", async () => {
+  test("does not read picked media paths as data URL attachments", async () => {
     const addedParts: unknown[] = []
+    let readCalls = 0
     const attachments = createPromptAttachments({
       editor: () => ({}) as HTMLDivElement,
       isDialogActive: () => false,
@@ -202,45 +338,24 @@ describe("createPromptAttachments", () => {
         },
       }),
       openModelSelector: () => undefined,
-      readFileDataUrl: async () => null,
-    })
-
-    const result = await attachments.addPickedPath("/Users/me/image.png")
-
-    expect(result).toBe(false)
-    expect(addedParts).toHaveLength(0)
-    expect(promptParts).toHaveLength(0)
-    expect(toasts.map((toast) => toast.title)).toEqual(["prompt.toast.pasteUnsupported.title"])
-  })
-
-  test("reports thrown picked direct read failures", async () => {
-    const attachments = createPromptAttachments({
-      editor: () => ({}) as HTMLDivElement,
-      isDialogActive: () => false,
-      setDraggingType: () => undefined,
-      focusEditor: () => undefined,
-      addPart: () => true,
-      model: () => ({
-        capabilities: {
-          input: {
-            image: true,
-          },
-        },
-      }),
-      openModelSelector: () => undefined,
       readFileDataUrl: async () => {
+        readCalls++
         throw new Error("read failed")
       },
     })
 
     const result = await attachments.addPickedPath("/Users/me/image.png")
 
-    expect(result).toBe(false)
+    expect(result).toBe(true)
+    expect(readCalls).toBe(0)
+    expect(addedParts).toEqual([
+      { type: "file", path: "/Users/me/image.png", content: "@image.png", start: 0, end: 10 },
+    ])
     expect(promptParts).toHaveLength(0)
-    expect(toasts.map((toast) => toast.title)).toEqual(["prompt.toast.pasteUnsupported.title"])
+    expect(toasts).toHaveLength(0)
   })
 
-  test("reports picked direct read failures in path batches", async () => {
+  test("keeps picked path batches on the file-reference path", async () => {
     const addedParts: unknown[] = []
     const attachments = createPromptAttachments({
       editor: () => ({}) as HTMLDivElement,
@@ -265,8 +380,11 @@ describe("createPromptAttachments", () => {
     const result = await attachments.addPickedPaths(["/Users/me/report.docx", "/Users/me/image.png"])
 
     expect(result).toBe(true)
-    expect(addedParts).toHaveLength(1)
-    expect(toasts.map((toast) => toast.title)).toEqual(["prompt.toast.pasteUnsupported.title"])
+    expect(addedParts).toEqual([
+      { type: "file", path: "/Users/me/report.docx", content: "@report.docx", start: 0, end: 12 },
+      { type: "file", path: "/Users/me/image.png", content: "@image.png", start: 0, end: 10 },
+    ])
+    expect(toasts).toHaveLength(0)
   })
 
   test("accepts empty FileReader MIME when the routed MIME is known", async () => {

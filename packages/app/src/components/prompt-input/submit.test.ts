@@ -749,6 +749,36 @@ describe("prompt submit worktree selection", () => {
     expect(promptAsyncCalls.at(-1)?.locale).toBe("pt-BR")
   })
 
+  test("allows attachment-only promptAsync submits", async () => {
+    params = { id: "session-existing" }
+    promptValue = [{ type: "file", path: "guide.pdf", content: "@guide.pdf", start: 0, end: 10 }]
+
+    const submit = createPromptSubmit({
+      navigate: (path) => navigateImpl(path),
+      routeParams: () => params,
+      info: () => ({ id: "session-existing" }),
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptAsyncCalls.length > 0)
+
+    const parts = promptAsyncCalls.at(-1)?.parts as Array<Record<string, unknown>>
+    expect(parts.some((part) => part.type === "file" && part.url === "file:///repo/main/guide.pdf")).toBe(true)
+  })
+
   test("queues locale on followup drafts", async () => {
     params = { id: "session-existing" }
     const queued: Array<Record<string, unknown>> = []
@@ -807,6 +837,52 @@ describe("prompt submit worktree selection", () => {
     await waitForCall(() => commandCalls.length > 0)
 
     expect(commandCalls.at(-1)?.locale).toBe("nb-NO")
+  })
+
+  test("sends file attachment parts with direct slash-command submits", async () => {
+    params = { id: "session-existing" }
+    commandDefinitions.push({ name: "summarize" })
+    promptValue = [
+      { type: "text", content: "/summarize ", start: 0, end: 11 },
+      { type: "file", path: "guide.pdf", content: "@guide.pdf", start: 11, end: 21 },
+    ]
+
+    const submit = createPromptSubmit({
+      navigate: (path) => navigateImpl(path),
+      routeParams: () => params,
+      info: () => ({ id: "session-existing" }),
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => commandCalls.length > 0)
+
+    expect(commandCalls.at(-1)?.parts).toEqual([
+      {
+        id: expect.any(String),
+        type: "file",
+        mime: "text/plain",
+        url: "file:///repo/main/guide.pdf",
+        filename: "guide.pdf",
+        source: {
+          type: "file",
+          text: { value: "@guide.pdf", start: 11, end: 21 },
+          path: "/repo/main/guide.pdf",
+        },
+      },
+    ])
   })
 
   test("clears prompt source scope on successful new-session submit", async () => {

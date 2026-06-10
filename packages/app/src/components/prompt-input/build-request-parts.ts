@@ -52,6 +52,48 @@ const isFileAttachment = (part: Prompt[number]): part is FileAttachmentPart => p
 const isAgentAttachment = (part: Prompt[number]): part is AgentPart => part.type === "agent"
 const isSkillAttachment = (part: Prompt[number]): part is SkillAttachmentPart => part.type === "skill"
 
+function buildPromptFileParts(prompt: Prompt, sessionDirectory: string) {
+  return prompt.filter(isFileAttachment).map((attachment) => {
+    const path = toAbsoluteFilePath(sessionDirectory, attachment.path)
+    return {
+      id: Identifier.ascending("part"),
+      type: "file",
+      mime: "text/plain",
+      url: fileURL(path, attachment.selection),
+      filename: getFilename(attachment.path),
+      source: {
+        type: "file",
+        text: {
+          value: attachment.content,
+          start: attachment.start,
+          end: attachment.end,
+        },
+        path,
+      },
+    } satisfies PromptRequestPart
+  })
+}
+
+function buildLegacyImageParts(images: ImageAttachmentPart[]) {
+  return images.map((attachment) => {
+    return {
+      id: Identifier.ascending("part"),
+      type: "file",
+      mime: attachment.mime,
+      url: attachment.dataUrl,
+      filename: attachment.filename,
+    } satisfies PromptRequestPart
+  })
+}
+
+export function buildAttachmentRequestParts(input: {
+  prompt: Prompt
+  images: ImageAttachmentPart[]
+  sessionDirectory: string
+}) {
+  return [...buildPromptFileParts(input.prompt, input.sessionDirectory), ...buildLegacyImageParts(input.images)]
+}
+
 const toOptimisticPart = (part: PromptRequestPart, sessionID: string, messageID: string): Part => {
   if (part.type === "text") {
     return {
@@ -110,25 +152,7 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
     },
   ]
 
-  const files = input.prompt.filter(isFileAttachment).map((attachment) => {
-    const path = toAbsoluteFilePath(input.sessionDirectory, attachment.path)
-    return {
-      id: Identifier.ascending("part"),
-      type: "file",
-      mime: "text/plain",
-      url: fileURL(path, attachment.selection),
-      filename: getFilename(attachment.path),
-      source: {
-        type: "file",
-        text: {
-          value: attachment.content,
-          start: attachment.start,
-          end: attachment.end,
-        },
-        path,
-      },
-    } satisfies PromptRequestPart
-  })
+  const files = buildPromptFileParts(input.prompt, input.sessionDirectory)
 
   const agents = input.prompt.filter(isAgentAttachment).map((attachment) => {
     return {
@@ -215,15 +239,7 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
     ]
   })
 
-  const images = input.images.map((attachment) => {
-    return {
-      id: Identifier.ascending("part"),
-      type: "file",
-      mime: attachment.mime,
-      url: attachment.dataUrl,
-      filename: attachment.filename,
-    } satisfies PromptRequestPart
-  })
+  const images = buildLegacyImageParts(input.images)
 
   requestParts.push(...files, ...context, ...agents, ...skills, ...images)
 
