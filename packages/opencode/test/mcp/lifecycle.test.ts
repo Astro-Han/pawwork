@@ -29,6 +29,7 @@ interface MockClientState {
     { resources: Array<{ name: string; uri: string; description?: string }>; nextCursor?: string | null }
   >
   callToolSignals: Array<AbortSignal | undefined>
+  callToolTimeouts: Array<number | undefined>
   closed: boolean
   notificationHandlers: Map<unknown, (...args: any[]) => any>
 }
@@ -64,6 +65,7 @@ function getOrCreateClientState(name?: string): MockClientState {
       promptPages: {},
       resourcePages: {},
       callToolSignals: [],
+      callToolTimeouts: [],
       closed: false,
       notificationHandlers: new Map(),
     }
@@ -199,8 +201,9 @@ mock.module("@modelcontextprotocol/sdk/client/index.js", () => ({
       return { resources: this._state?.resources ?? [] }
     }
 
-    async callTool(_args: unknown, _schema: unknown, options?: { signal?: AbortSignal }) {
+    async callTool(_args: unknown, _schema: unknown, options?: { signal?: AbortSignal; timeout?: number }) {
       this._state?.callToolSignals.push(options?.signal)
+      this._state?.callToolTimeouts.push(options?.timeout)
       return { content: [] }
     }
 
@@ -599,6 +602,46 @@ test(
 
     expect(firstState.closed).toBe(true)
     expect(secondState.closed).toBe(false)
+  }),
+)
+
+test(
+  "dynamically added servers keep config for status reconnect and tool timeout",
+  withInstance({}, async () => {
+    lastCreatedClientName = "dynamic-server"
+    const serverState = getOrCreateClientState("dynamic-server")
+
+    await MCP.add("dynamic-server", {
+      type: "local",
+      command: ["echo", "test"],
+      timeout: 1234,
+    })
+
+    expect((await MCP.status())["dynamic-server"]?.status).toBe("connected")
+
+    const tools = await MCP.tools()
+    const tool = tools["dynamic-server_test_tool"] as unknown as {
+      execute: (args: unknown, options?: { abortSignal?: AbortSignal }) => any
+    }
+    await tool.execute({})
+    expect(serverState.callToolTimeouts).toEqual([1234])
+
+    await MCP.disconnect("dynamic-server")
+    expect((await MCP.status())["dynamic-server"]?.status).toBe("disabled")
+
+    clientStates.delete("dynamic-server")
+    lastCreatedClientName = "dynamic-server"
+    const reconnectedState = getOrCreateClientState("dynamic-server")
+
+    await MCP.connect("dynamic-server")
+    expect((await MCP.status())["dynamic-server"]?.status).toBe("connected")
+
+    const reconnectedTools = await MCP.tools()
+    const reconnectedTool = reconnectedTools["dynamic-server_test_tool"] as unknown as {
+      execute: (args: unknown, options?: { abortSignal?: AbortSignal }) => any
+    }
+    await reconnectedTool.execute({})
+    expect(reconnectedState.callToolTimeouts).toEqual([1234])
   }),
 )
 
