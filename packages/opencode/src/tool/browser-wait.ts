@@ -32,6 +32,16 @@ export const BrowserWaitTool = Tool.define(
           if (conditions.length !== 1) {
             return yield* Effect.fail(new Error("Provide exactly one of `text`, `selector`, or `time`."))
           }
+          // The checks below are truthy-based; a blank string would slip past
+          // the count above and turn into a meaningless bare-timeout wait.
+          for (const [key, value] of [
+            ["text", params.text],
+            ["selector", params.selector],
+          ] as const) {
+            if (value !== undefined && value.trim() === "") {
+              return yield* Effect.fail(new Error(`\`${key}\` must be a non-empty string.`))
+            }
+          }
           const requested = Math.min(
             params.time ?? params.timeout ?? (params.selector ? 10 : 30),
             MAX_WAIT_SECONDS,

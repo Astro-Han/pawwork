@@ -192,6 +192,15 @@ describe("browser_wait", () => {
     expect(askLog).toEqual([])
   })
 
+  test("rejects blank text/selector before any permission ask or wait", async () => {
+    const server = setupServer()
+    await expect(exec(BrowserWaitTool, { text: "" })).rejects.toThrow(/non-empty/)
+    await expect(exec(BrowserWaitTool, { selector: "" })).rejects.toThrow(/non-empty/)
+    await expect(exec(BrowserWaitTool, { text: "   " })).rejects.toThrow(/non-empty/)
+    expect(askLog).toEqual([])
+    expect(server.methods).toEqual([])
+  })
+
   test("waits for a fixed pause", async () => {
     setupServer()
     const result = await exec(BrowserWaitTool, { time: 0.05 })
