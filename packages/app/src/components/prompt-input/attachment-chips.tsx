@@ -80,12 +80,13 @@ const ImageChip: Component<{
       when={src()}
       fallback={<FileChipBody model={props.model} revealLabel={props.revealLabel} onReveal={props.onReveal} />}
     >
-      <img
-        src={src()}
-        alt={props.model.filename}
+      <button
+        type="button"
         onClick={() => props.onOpenImage({ src: src()!, alt: props.model.filename })}
-        class="size-14 rounded-md object-cover border border-border-base cursor-pointer"
-      />
+        class="block cursor-pointer rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+      >
+        <img src={src()} alt={props.model.filename} class="size-14 rounded-md object-cover border border-border-base" />
+      </button>
     </Show>
   )
 }

@@ -77,7 +77,10 @@ function Block(props: { snap: string; attachments: FloatingAttachment[] }) {
     <div data-snap={props.snap} style={{ width: "560px", background: "var(--bg-base)", "padding-bottom": "12px" }}>
       <PromptAttachmentChips
         attachments={props.attachments}
-        onOpenImage={noop}
+        // Recorded on <body> so the spec can assert keyboard activation.
+        onOpenImage={(image) => {
+          document.body.dataset.openedImage = image.alt
+        }}
         onReveal={noop}
         onRemove={noop}
         loadPreview={loadPreview}

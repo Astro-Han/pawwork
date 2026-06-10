@@ -41,6 +41,14 @@ test("attachment-chips", async ({ page }) => {
   // Every chip carries a persistent remove control.
   await expect(pathBacked.getByRole("button", { name: "Remove attachment" })).toHaveCount(3)
 
+  // The thumbnail opens the lightbox through real button semantics so
+  // keyboard users can reach it: focus + Enter, not just mouse click.
+  const thumbnailButton = pathBacked.getByRole("button", { name: "screenshot 2026-06-10.png" })
+  await expect(thumbnailButton).toBeVisible()
+  await thumbnailButton.focus()
+  await page.keyboard.press("Enter")
+  await expect(page.locator("body")).toHaveAttribute("data-opened-image", "screenshot 2026-06-10.png")
+
   const legacy = page.locator('[data-snap="legacy"]')
   await expect(legacy.locator('img[alt="pasted-image.png"]')).toBeVisible({ timeout: 30_000 })
   await expect(legacy).toContainText("notes.txt")
