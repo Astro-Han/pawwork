@@ -172,7 +172,11 @@ describe("installation", () => {
     test("returns a sanitized typed error when the curl install script exits non-zero", async () => {
       const layer = testLayer(
         () => new Response("install script with token=secret", { status: 200 }),
-        (cmd) => (cmd === "bash" ? { code: 1, stderr: "script output with token=secret" } : ""),
+        (cmd, args) => {
+          if (cmd === "bash" && args[0] === "--version") return "GNU bash"
+          if (cmd === "bash" || cmd === "sh") return { code: 1, stderr: "script output with token=secret" }
+          return ""
+        },
       )
 
       const error = await Effect.runPromise(
@@ -194,6 +198,28 @@ describe("installation", () => {
       expect(error).toBeInstanceOf(Installation.UpgradeFailedError)
       expect(error.stderr).toBe("Upgrade failed for curl.")
       expect(error.message).toBe(error.stderr)
+    })
+
+    test("falls back to sh when bash is unavailable during curl upgrade", async () => {
+      const attempts: Array<{ cmd: string; args: readonly string[] }> = []
+      const layer = testLayer(
+        () => new Response("install script", { status: 200 }),
+        (cmd, args) => {
+          attempts.push({ cmd, args })
+          if (cmd === "bash" && args[0] === "--version") return { code: 1, stderr: "missing" }
+          if (cmd === "bash") return { code: 1, stderr: "should not execute installer with bash" }
+          if (cmd === "sh") return "ok"
+          return ""
+        },
+      )
+
+      await Effect.runPromise(Installation.Service.use((svc) => svc.upgrade("curl", "9.9.9")).pipe(Effect.provide(layer)))
+
+      expect(attempts).toEqual([
+        { cmd: "bash", args: ["--version"] },
+        { cmd: "sh", args: [] },
+        { cmd: process.execPath, args: ["--version"] },
+      ])
     })
 
     test("preserves the choco elevated-shell hint and never leaks raw stderr", async () => {

@@ -179,12 +179,19 @@ export namespace Installation {
           return `Upgrade failed for ${method}.`
         }
 
+        const upgradeScriptShell = Effect.fnUntraced(function* () {
+          const bashVersion = yield* text(["bash", "--version"])
+          if (bashVersion) return "bash"
+          return "sh"
+        })
+
         const upgradeCurl = Effect.fnUntraced(
           function* (target: string) {
             const response = yield* httpOk.execute(HttpClientRequest.get("https://opencode.ai/install"))
             const body = yield* response.text
             const bodyBytes = new TextEncoder().encode(body)
-            const proc = ChildProcess.make("bash", [], {
+            const shell = yield* upgradeScriptShell()
+            const proc = ChildProcess.make(shell, [], {
               stdin: Stream.make(bodyBytes),
               env: { VERSION: target },
               extendEnv: true,
