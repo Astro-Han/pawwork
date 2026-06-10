@@ -15,7 +15,7 @@ import { SystemPrompt } from "./system"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { Permission } from "@/permission"
 import { PermissionID } from "@/permission/schema"
-import { TOOL_INFO_ID, buildDeferredHint } from "../tool/tool-info"
+import { TOOL_INFO_ID, buildDeferredHint, deferredSupportsClient } from "../tool/tool-info"
 import { Bus } from "@/bus"
 import { Wildcard } from "@/util/wildcard"
 import { SessionID } from "@/session/schema"
@@ -359,6 +359,15 @@ const live: Layer.Layer<
         }),
       )
 
+      // Same availability rule the registry uses to card/expose deferred tools
+      // (prompt.ts deferredAvailable): a deferred tool the user disabled or a
+      // permission rule denied can't be activated via tool_info, so the repair
+      // hint below must not route the model there.
+      const deferredRuleset = Permission.merge(input.agent.permission, input.permission ?? [])
+      const deferredAvailable = (id: string) =>
+        deferredSupportsClient(id, Flag.OPENCODE_CLIENT) &&
+        input.user.tools?.[id] !== false &&
+        !Permission.disabled([id], deferredRuleset).has(id)
       return streamText({
         onError(error) {
           l.error("stream error", {

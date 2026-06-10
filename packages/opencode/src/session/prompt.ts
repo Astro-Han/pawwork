@@ -16,7 +16,12 @@ import type { JSONSchema7 } from "@ai-sdk/provider"
 import { SessionCompaction } from "./compaction"
 import { Bus } from "../bus"
 import { ProviderTransform } from "../provider/transform"
-import { buildActivationReminder, deriveActivatedToolsFromParts, deriveNewlyActivated } from "../tool/tool-info"
+import {
+  buildActivationReminder,
+  deferredSupportsClient,
+  deriveActivatedToolsFromParts,
+  deriveNewlyActivated,
+} from "../tool/tool-info"
 import { SystemPrompt } from "./system"
 import { Instruction } from "./instruction"
 import { Plugin } from "../plugin"
@@ -728,7 +733,9 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       const activatedTools = deriveActivatedToolsFromParts(MessageV2.toolInfoParts(input.session.id))
       const deferredRuleset = Permission.merge(input.agent.permission, input.session.permission ?? [])
       const deferredAvailable = (id: string) =>
-        input.tools?.[id] !== false && !Permission.disabled([id], deferredRuleset).has(id)
+        deferredSupportsClient(id, Flag.OPENCODE_CLIENT) &&
+        input.tools?.[id] !== false &&
+        !Permission.disabled([id], deferredRuleset).has(id)
       const availableDeferredTools = yield* registry.availableDeferred({ activatedTools, deferredAvailable })
 
       const context = (args: any, options: ToolExecutionOptions): Tool.Context => ({
