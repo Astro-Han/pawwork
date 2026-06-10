@@ -390,6 +390,55 @@ describe("tool.edit", () => {
       ),
     )
 
+    it.live("continues past short nested block anchors to find a valid outer match", () =>
+      provideTmpdirInstance((dir) =>
+        Effect.gen(function* () {
+          const filepath = path.join(dir, "nested-block.ts")
+          const original = [
+            "function configure() {",
+            "  if (enabled) {",
+            "    keepImportantState()",
+            "  }",
+            "  finalize()",
+            "}",
+          ].join("\n")
+          yield* Effect.promise(() => fs.writeFile(filepath, original, "utf-8"))
+
+          yield* run({
+            filePath: filepath,
+            oldString: [
+              "function configure() {",
+              "  if (enabled) {",
+              "    keepImportantState()",
+              "  }",
+              "  finish()",
+              "}",
+            ].join("\n"),
+            newString: [
+              "function configure() {",
+              "  if (enabled) {",
+              "    keepImportantState()",
+              "  }",
+              "  cleanup()",
+              "}",
+            ].join("\n"),
+          })
+
+          const content = yield* Effect.promise(() => fs.readFile(filepath, "utf-8"))
+          expect(content).toBe(
+            [
+              "function configure() {",
+              "  if (enabled) {",
+              "    keepImportantState()",
+              "  }",
+              "  cleanup()",
+              "}",
+            ].join("\n"),
+          )
+        }),
+      ),
+    )
+
     it.live("replaces all occurrences with replaceAll option", () =>
       provideTmpdirInstance((dir) =>
         Effect.gen(function* () {

@@ -371,8 +371,8 @@ export const BlockAnchorReplacer: Replacer = function* (content, find) {
         const actualBlockSize = j - i + 1
         if (Math.abs(actualBlockSize - searchBlockSize) <= maxLineDelta) {
           candidates.push({ startLine: i, endLine: j })
+          break // Only match the first valid occurrence of the last line
         }
-        break // Only match the first occurrence of the last line
       }
     }
   }
