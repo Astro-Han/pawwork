@@ -1755,10 +1755,17 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                     if (attachments.length < media.length) pieces.push(droppedNotice)
                   }
                   if (attachments.length) {
+                    // When the upgrade fully replaces the original part (it is
+                    // not re-added below), the first attachment keeps the
+                    // submitted part id — id-keyed consumers (the client's
+                    // optimistic merge) otherwise see a second attachment and
+                    // render two chips for one file.
+                    const replaced = attachments.length === media.length
                     pieces.push(
-                      ...attachments.map((a) =>
+                      ...attachments.map((a, index) =>
                         inheritMetadata(part, {
                           ...a,
+                          ...(replaced && index === 0 ? { id: part.id } : {}),
                           synthetic: true,
                           filename: a.filename ?? part.filename,
                           messageID: info.id,

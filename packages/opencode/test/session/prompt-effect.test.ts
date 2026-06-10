@@ -1441,6 +1441,48 @@ it.live("text file part promotes PDF attachment when model has image input", () 
   ),
 )
 
+it.live("image upgrade replaces the submitted file part in place", () =>
+  provideTmpdirInstance(
+    (dir) =>
+      Effect.gen(function* () {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const session = yield* sessions.create({})
+        const png = path.join(dir, "shot.png")
+        const pngUrl = pathToFileURL(png).href
+        yield* Effect.promise(() => Bun.write(png, new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])))
+
+        const submittedID = PartID.ascending()
+        const msg = yield* prompt.prompt({
+          sessionID: session.id,
+          agent: "build",
+          noReply: true,
+          parts: [
+            { type: "text", text: "what is in this image?" },
+            {
+              type: "file",
+              id: submittedID,
+              url: pngUrl,
+              filename: "shot.png",
+              mime: "text/plain",
+              metadata: { attachment: true },
+            },
+          ],
+        })
+
+        const fileParts = msg.parts.filter((part): part is MessageV2.FilePart => part.type === "file")
+        // The upgraded media part must keep the submitted part id. Id-keyed
+        // consumers (the client's optimistic part merge) otherwise treat it as
+        // a second attachment and render two chips for one file.
+        expect(fileParts).toHaveLength(1)
+        expect(fileParts[0].id).toBe(submittedID)
+        expect(fileParts[0].mime).toBe("image/png")
+        expect(fileParts[0].metadata?.attachment).toBe(true)
+      }),
+    { git: true, config: imageCfg },
+  ),
+)
+
 it.live("loop continues when finish is stop but assistant has tool parts", () =>
   provideTmpdirServer(
     Effect.fnUntraced(function* ({ llm }) {
