@@ -468,18 +468,20 @@ describe("automation routes", () => {
 
   test("create settles the scheduler before publishing definition updates", async () => {
     await withAutomationApp(async ({ app, projectID }) => {
-      const publication = deferred<boolean>()
+      const settleStarted = deferred<void>()
+      const releaseSettle = deferred<void>()
+      const publication = deferred<string>()
       let publishedID: string | undefined
-      let settled = false
       const unsubscribe = Bus.subscribe(Automation.Event.DefinitionUpdated, (event) => {
         publishedID = event.properties.id
-        publication.resolve(settled)
+        publication.resolve(event.properties.id)
       })
       AutomationScheduler.install({
         stop: () => undefined,
         stopOwnedRuns: () => undefined,
         settleOwner: async () => {
-          settled = true
+          settleStarted.resolve()
+          await releaseSettle.promise
         },
         reschedule: () => undefined,
         cancel: () => undefined,
@@ -487,16 +489,23 @@ describe("automation routes", () => {
       })
 
       try {
-        const created = await json(app, "/automation", {
+        const create = json(app, "/automation", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify(oneshotInput(projectID)),
         })
-        const wasSettledBeforePublish = await publication.promise
+        await settleStarted.promise
+        await Bun.sleep(1)
 
+        expect(publishedID).toBeUndefined()
+
+        releaseSettle.resolve()
+        const created = await create
+        const emittedID = await publication.promise
         expect(publishedID).toBe(created.id)
-        expect(wasSettledBeforePublish).toBe(true)
+        expect(emittedID).toBe(created.id)
       } finally {
+        releaseSettle.resolve()
         unsubscribe()
       }
     })
