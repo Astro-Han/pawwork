@@ -50,16 +50,6 @@ async function json(app: Hono, input: string, init?: RequestInit) {
   return response.json()
 }
 
-async function waitForRunCount(automationID: string, count: number) {
-  const deadline = Date.now() + 2_000
-  while (Date.now() < deadline) {
-    const items = Automation.runs({ automationID, limit: 100 }).items
-    if (items.length >= count) return items
-    await Bun.sleep(5)
-  }
-  throw new Error(`Timed out waiting for automation run count: ${count}`)
-}
-
 async function waitForRunState(automationID: string, state: Automation.Run["state"]) {
   const deadline = Date.now() + 2_000
   while (Date.now() < deadline) {
@@ -476,17 +466,48 @@ describe("automation routes", () => {
     })
   })
 
-  test("create lazily starts the scheduler before publishing definition updates", async () => {
+  test("create settles the scheduler before publishing definition updates", async () => {
     await withAutomationApp(async ({ app, projectID }) => {
-      const created = await json(app, "/automation", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(oneshotInput(projectID, { fireAt: Date.now() + 20 })),
+      const settleStarted = deferred<void>()
+      const releaseSettle = deferred<void>()
+      const publication = deferred<string>()
+      let publishedID: string | undefined
+      const unsubscribe = Bus.subscribe(Automation.Event.DefinitionUpdated, (event) => {
+        publishedID = event.properties.id
+        publication.resolve(event.properties.id)
+      })
+      AutomationScheduler.install({
+        stop: () => undefined,
+        stopOwnedRuns: () => undefined,
+        settleOwner: async () => {
+          settleStarted.resolve()
+          await releaseSettle.promise
+        },
+        reschedule: () => undefined,
+        cancel: () => undefined,
+        computeNextFireAt: () => null,
       })
 
-      const runs = await waitForRunCount(created.id, 1)
+      try {
+        const create = json(app, "/automation", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(oneshotInput(projectID)),
+        })
+        await settleStarted.promise
+        await Bun.sleep(1)
 
-      expect(runs[0]?.automationID).toBe(created.id)
+        expect(publishedID).toBeUndefined()
+
+        releaseSettle.resolve()
+        const created = await create
+        const emittedID = await publication.promise
+        expect(publishedID).toBe(created.id)
+        expect(emittedID).toBe(created.id)
+      } finally {
+        releaseSettle.resolve()
+        unsubscribe()
+      }
     })
   })
 
