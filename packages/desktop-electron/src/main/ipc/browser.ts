@@ -1,39 +1,29 @@
 import { BrowserWindow, ipcMain, session, type IpcMainInvokeEvent } from "electron"
 import type { BrowserViewLayout } from "@opencode-ai/app/desktop-api"
-import { BrowserViewController } from "../browser/controller"
+import { browserControllers } from "../browser/controller-automation"
 import { BROWSER_PARTITION } from "../browser/options"
 
 /**
- * Wires the embedded-browser IPC. One controller per window, created lazily and
- * keyed by window id so each window drives its own WebContentsView, and torn
- * down when the window closes. Channels mirror the BrowserBridge in the app's
- * platform contract.
+ * Wires the embedded-browser IPC. Controllers live in the shared main-process
+ * registry (controller-automation), keyed by window id and created lazily, so
+ * these renderer handlers and the agent automation resolver drive the same
+ * WebContentsView per window. Channels mirror the BrowserBridge in the app's
+ * platform contract. No automation endpoint/secret is ever exposed over a
+ * browser:* channel — that stays main-internal.
  */
 export function registerBrowserIpc() {
-  const controllers = new Map<number, BrowserViewController>()
-
   const windowFor = (event: IpcMainInvokeEvent) => BrowserWindow.fromWebContents(event.sender)
 
   const existing = (event: IpcMainInvokeEvent) => {
     const win = windowFor(event)
-    return win ? controllers.get(win.id) : undefined
+    return win ? browserControllers.get(win.id) : undefined
   }
 
   // Create on first real use (navigate, or a visible set-view) so windows that
   // never open the browser pay nothing.
   const ensure = (event: IpcMainInvokeEvent) => {
     const win = windowFor(event)
-    if (!win) return undefined
-    let controller = controllers.get(win.id)
-    if (!controller) {
-      controller = new BrowserViewController(win)
-      controllers.set(win.id, controller)
-      win.once("closed", () => {
-        controllers.get(win.id)?.destroy()
-        controllers.delete(win.id)
-      })
-    }
-    return controller
+    return win ? browserControllers.ensure(win) : undefined
   }
 
   ipcMain.handle("browser:navigate", (event, url: string) => ensure(event)?.navigate(url))
@@ -55,7 +45,7 @@ export function registerBrowserIpc() {
     const partition = session.fromPartition(BROWSER_PARTITION)
     await partition.clearStorageData()
     await partition.clearCache()
-    for (const controller of controllers.values()) controller.reloadIfLoaded()
+    for (const controller of browserControllers.all()) controller.reloadIfLoaded()
   })
   ipcMain.handle("browser:get-state", (event) => existing(event)?.state() ?? null)
 }

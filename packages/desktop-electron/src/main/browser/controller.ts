@@ -2,6 +2,7 @@ import { WebContentsView, shell, type BrowserWindow } from "electron"
 import type { BrowserState, BrowserViewLayout } from "@opencode-ai/app/desktop-api"
 import { browserViewWebPreferences } from "./options"
 import { clearDataReloadAction, computeViewBounds, deriveBrowserState, parseNavigable, safeExternalUrl } from "./logic"
+import { CdpBridge, type AutomationEndpoint } from "./cdp-bridge"
 
 export const BROWSER_STATE_CHANNEL = "browser:state"
 
@@ -18,6 +19,7 @@ export class BrowserViewController {
   private visible = false
   private favicon: string | null = null
   private destroyed = false
+  private automation: CdpBridge | null = null
 
   constructor(private readonly win: BrowserWindow) {
     this.view = new WebContentsView({ webPreferences: browserViewWebPreferences() })
@@ -156,9 +158,28 @@ export class BrowserViewController {
     }
   }
 
+  /**
+   * Bring up (or reuse) the CDP automation bridge over this view's WebContents
+   * and return its sealed, main-process-only endpoint. The view is created in
+   * the constructor, so the debugger attaches before the agent's first
+   * navigation — leaving room for PR2 to inject stealth on the first document.
+   */
+  attachAutomation(): Promise<AutomationEndpoint> {
+    if (!this.automation) this.automation = new CdpBridge(this.wc)
+    return this.automation.start()
+  }
+
+  async detachAutomation() {
+    await this.automation?.stop()
+    this.automation = null
+  }
+
   destroy() {
     if (this.destroyed) return
     this.destroyed = true
+    // Tear down the ws bridge; the debugger itself detaches with wc.close() below.
+    void this.automation?.stop()
+    this.automation = null
     if (!this.win.isDestroyed()) this.win.contentView.removeChildView(this.view)
     if (!this.wc.isDestroyed()) this.wc.close()
   }

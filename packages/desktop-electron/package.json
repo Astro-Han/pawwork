@@ -12,8 +12,9 @@
     "typecheck": "tsgo -b",
     "typecheck:release": "tsgo -p tsconfig.release.json",
     "test": "bun test",
-    "test:ci": "mkdir -p .artifacts/unit && bun test --reporter=junit --reporter-outfile=.artifacts/unit/junit.xml",
+    "test:ci": "mkdir -p .artifacts/unit && bun test --reporter=junit --reporter-outfile=.artifacts/unit/junit.xml && bun ./scripts/smoke-cdp-bridge-ws.ts",
     "smoke:ci": "bun ./scripts/ci-smoke.ts",
+    "smoke:cdp-bridge-ws": "bun ./scripts/smoke-cdp-bridge-ws.ts",
     "smoke:report": "node ./scripts/report-problem-smoke.mjs",
     "sync-skills": "bun ./scripts/sync-officecli-skills.ts",
     "predev": "bun ./scripts/predev.ts",
@@ -37,7 +38,8 @@
     "electron-window-state": "^5.0.3",
     "marked": "^15",
     "semver": "^7.6.0",
-    "undici": "7.24.7"
+    "undici": "7.24.7",
+    "ws": "8.20.0"
   },
   "devDependencies": {
     "@lydell/node-pty": "catalog:",
@@ -51,6 +53,7 @@
     "@types/semver": "catalog:",
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
+    "@types/ws": "^8.18.1",
     "@typescript/native-preview": "catalog:",
     "@valibot/to-json-schema": "1.6.0",
     "electron": "40.8.0",
