@@ -423,19 +423,6 @@ export namespace ACP {
                 return
             }
           }
-          if (part.type !== "text" && part.type !== "file") return
-          const msg = await this.sdk.session
-            .message(
-              { sessionID: part.sessionID, messageID: part.messageID, directory: session.cwd },
-              { throwOnError: true },
-            )
-            .then((x) => x.data)
-            .catch((err) => {
-              log.error("failed to fetch message for user chunk", { error: err })
-              return undefined
-            })
-          if (!msg || msg.info.role !== "user") return
-          await this.processMessage({ info: msg.info, parts: [part] })
           return
         }
 
@@ -1064,6 +1051,7 @@ export namespace ACP {
     private async toolStart(sessionId: string, part: ToolPart) {
       if (this.toolStarts.has(part.callID)) return
       this.toolStarts.add(part.callID)
+      const input = part.state.input ?? {}
       await this.connection
         .sessionUpdate({
           sessionId,
@@ -1073,8 +1061,8 @@ export namespace ACP {
             title: part.tool,
             kind: toToolKind(part.tool),
             status: "pending",
-            locations: [],
-            rawInput: {},
+            locations: toLocations(part.tool, input),
+            rawInput: input,
           },
         })
         .catch((error) => {
@@ -1507,8 +1495,14 @@ export namespace ACP {
 
       case "edit":
       case "patch":
+      case "apply_patch":
       case "write":
         return "edit"
+
+      case "agent":
+      case "subagent":
+      case "task":
+        return "think"
 
       case "grep":
       case "glob":
@@ -1537,6 +1531,10 @@ export namespace ACP {
         return input["path"] ? [{ path: input["path"] }] : []
       case "bash":
         return []
+      case "external_directory": {
+        const directories = Array.isArray(input["directories"]) ? input["directories"] : []
+        return directories.flatMap((directory) => (typeof directory === "string" ? [{ path: directory }] : []))
+      }
       case "list":
         return input["path"] ? [{ path: input["path"] }] : []
       default:
@@ -1547,12 +1545,13 @@ export namespace ACP {
   function completedToolContent(part: ToolPart, kind: ToolKind): ToolCallContent[] {
     if (part.state.status !== "completed") return []
 
+    const displayContent = displayToolContent(part)
     const content: ToolCallContent[] = [
       {
         type: "content",
         content: {
           type: "text",
-          text: part.state.output,
+          text: displayContent ?? part.state.output,
         },
       },
     ]
@@ -1567,16 +1566,45 @@ export namespace ACP {
           : typeof input["content"] === "string"
             ? input["content"]
             : ""
-      content.push({
-        type: "diff",
-        path: filePath,
-        oldText,
-        newText,
-      })
+      if (filePath && (oldText || newText)) {
+        content.push({
+          type: "diff",
+          path: filePath,
+          oldText,
+          newText,
+        })
+      }
     }
 
     content.push(...imageContents(part.state.attachments ?? []))
     return content
+  }
+
+  function displayToolContent(part: ToolPart) {
+    if (part.state.status !== "completed") return
+    if (part.tool !== "read") return
+    const display = part.state.metadata?.["display"]
+    if (!display || typeof display !== "object") return
+    const record = display as Record<string, unknown>
+    if (record.type === "file" && typeof record.text === "string") {
+      if (record.truncated !== true) return record.text
+      const lineStart = typeof record.lineStart === "number" ? record.lineStart : undefined
+      const lineEnd = typeof record.lineEnd === "number" ? record.lineEnd : undefined
+      if (lineStart === undefined || lineEnd === undefined) return record.text
+      return [record.text, `(Showing lines ${lineStart}-${lineEnd}. Use offset=${lineEnd + 1} to continue.)`].join("\n\n")
+    }
+    if (record.type === "directory" && Array.isArray(record.entries)) {
+      const entries = record.entries.filter((entry) => typeof entry === "string").join("\n")
+      if (record.truncated !== true) return entries
+      const offset = typeof record.offset === "number" ? record.offset : undefined
+      const totalEntries = typeof record.totalEntries === "number" ? record.totalEntries : undefined
+      const shownEntries = record.entries.length
+      if (offset === undefined || totalEntries === undefined) return entries
+      return [
+        entries,
+        `(Showing ${shownEntries} of ${totalEntries} entries. Use offset=${offset + shownEntries} to continue.)`,
+      ].join("\n\n")
+    }
   }
 
   function completedToolRawOutput(part: ToolPart) {

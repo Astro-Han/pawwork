@@ -42,6 +42,12 @@ function isToolCallUpdate(
   return update.sessionUpdate === "tool_call_update"
 }
 
+function isToolCall(
+  update: SessionUpdateParams["update"],
+): update is Extract<SessionUpdateParams["update"], { sessionUpdate: "tool_call" }> {
+  return update.sessionUpdate === "tool_call"
+}
+
 function toolEvent(
   sessionId: string,
   cwd: string,
@@ -144,6 +150,7 @@ function createFakeAgent() {
   const updates = new Map<string, string[]>()
   const chunks = new Map<string, string>()
   const sessionUpdates: SessionUpdateParams[] = []
+  const permissionRequests: RequestPermissionParams[] = []
   const record = (sessionId: string, type: string) => {
     const list = updates.get(sessionId) ?? []
     list.push(type)
@@ -163,7 +170,8 @@ function createFakeAgent() {
         chunks.set(params.sessionId, (chunks.get(params.sessionId) ?? "") + content.text)
       }
     },
-    async requestPermission(_params: RequestPermissionParams): Promise<RequestPermissionResult> {
+    async requestPermission(params: RequestPermissionParams): Promise<RequestPermissionResult> {
+      permissionRequests.push(params)
       return { outcome: { outcome: "selected", optionId: "once" } } as RequestPermissionResult
     },
   } as unknown as AgentSideConnection
@@ -277,7 +285,7 @@ function createFakeAgent() {
     ;(agent as any).eventAbort.abort()
   }
 
-  return { agent, controller, calls, updates, chunks, sessionUpdates, stop, sdk, connection }
+  return { agent, controller, calls, updates, chunks, sessionUpdates, permissionRequests, stop, sdk, connection }
 }
 
 describe("acp.agent event subscription", () => {
@@ -424,6 +432,46 @@ describe("acp.agent event subscription", () => {
 
         expect(permissionReplies).toContain("perm_1")
 
+        stop()
+      },
+    })
+  })
+
+  test("permission.asked external_directory events include input and locations", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const { agent, controller, permissionRequests, stop } = createFakeAgent()
+        const cwd = "/tmp/opencode-acp-test"
+        const sessionId = await agent.newSession({ cwd, mcpServers: [] } as any).then((x) => x.sessionId)
+        const metadata = {
+          command: "cat /var/log/app.log",
+          description: "read external log",
+          directories: ["/var/log"],
+          patterns: ["/var/log/*"],
+        }
+
+        controller.push({
+          directory: cwd,
+          payload: {
+            type: "permission.asked",
+            properties: {
+              id: "perm_external",
+              sessionID: sessionId,
+              permission: "external_directory",
+              patterns: ["/var/log/*"],
+              metadata,
+              always: ["/var/log/*"],
+            },
+          },
+        } as any)
+
+        await new Promise((r) => setTimeout(r, 20))
+
+        const request = permissionRequests.find((item) => item.sessionId === sessionId)
+        expect(request?.toolCall.rawInput).toEqual(metadata)
+        expect(request?.toolCall.locations).toEqual([{ path: "/var/log" }])
         stop()
       },
     })
@@ -699,6 +747,414 @@ describe("acp.agent event subscription", () => {
           .map((u) => inProgressText(u.update))
 
         expect(snapshots).toEqual(["a", "a"])
+        stop()
+      },
+    })
+  })
+
+  test("ignores user message.part.updated text chunks during prompt turn", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const { agent, controller, sessionUpdates, stop, sdk } = createFakeAgent()
+        const cwd = "/tmp/opencode-acp-test"
+        const sessionId = await agent.newSession({ cwd, mcpServers: [] } as any).then((x) => x.sessionId)
+
+        sdk.session.message = async () => ({
+          data: {
+            info: {
+              id: "msg_user",
+              role: "user",
+              sessionID: sessionId,
+            },
+            parts: [
+              {
+                id: "part_user",
+                type: "text",
+                text: "typed prompt",
+              },
+            ],
+          },
+        })
+
+        controller.push({
+          directory: cwd,
+          payload: {
+            type: "message.part.updated",
+            properties: {
+              sessionID: sessionId,
+              part: {
+                id: "part_user",
+                sessionID: sessionId,
+                messageID: "msg_user",
+                type: "text",
+                text: "typed prompt",
+              },
+            },
+          },
+        } as any)
+        await new Promise((r) => setTimeout(r, 20))
+
+        const userChunks = sessionUpdates
+          .filter((u) => u.sessionId === sessionId)
+          .filter((u) => u.update.sessionUpdate === "user_message_chunk")
+        expect(userChunks).toHaveLength(0)
+        stop()
+      },
+    })
+  })
+
+  test("includes kind, raw input, and locations on synthetic pending tool calls", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const { agent, controller, sessionUpdates, stop } = createFakeAgent()
+        const cwd = "/tmp/opencode-acp-test"
+        const sessionId = await agent.newSession({ cwd, mcpServers: [] } as any).then((x) => x.sessionId)
+        const input = { filePath: "/tmp/example.txt" }
+
+        controller.push(
+          toolEvent(sessionId, cwd, {
+            callID: "call_read",
+            tool: "read",
+            status: "running",
+            input,
+          }),
+        )
+        await new Promise((r) => setTimeout(r, 20))
+
+        const pending = sessionUpdates
+          .filter((u) => u.sessionId === sessionId)
+          .map((u) => u.update)
+          .find((u) => isToolCall(u) && u.toolCallId === "call_read")
+        expect(pending && isToolCall(pending)).toBe(true)
+        expect(isToolCall(pending!) ? pending!.kind : undefined).toBe("read")
+        expect(isToolCall(pending!) ? pending!.rawInput : undefined).toEqual(input)
+        expect(isToolCall(pending!) ? pending!.locations : undefined).toEqual([{ path: "/tmp/example.txt" }])
+        stop()
+      },
+    })
+  })
+
+  test("handles synthetic pending tool calls without input", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const { agent, controller, sessionUpdates, stop } = createFakeAgent()
+        const cwd = "/tmp/opencode-acp-test"
+        const sessionId = await agent.newSession({ cwd, mcpServers: [] } as any).then((x) => x.sessionId)
+
+        controller.push({
+          directory: cwd,
+          payload: {
+            type: "message.part.updated",
+            properties: {
+              sessionID: sessionId,
+              time: Date.now(),
+              part: {
+                id: "part_missing_input",
+                sessionID: sessionId,
+                messageID: "msg_missing_input",
+                type: "tool",
+                callID: "call_missing_input",
+                tool: "read",
+                state: {
+                  status: "running",
+                  time: { start: Date.now() },
+                },
+              },
+            },
+          },
+        } as any)
+        await new Promise((r) => setTimeout(r, 20))
+
+        const pending = sessionUpdates
+          .filter((u) => u.sessionId === sessionId)
+          .map((u) => u.update)
+          .find((u) => isToolCall(u) && u.toolCallId === "call_missing_input")
+        expect(pending && isToolCall(pending)).toBe(true)
+        expect(isToolCall(pending!) ? pending!.rawInput : undefined).toEqual({})
+        expect(isToolCall(pending!) ? pending!.locations : undefined).toEqual([])
+        stop()
+      },
+    })
+  })
+
+  test("classifies apply_patch as edit and agent task tools as think", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const { agent, controller, sessionUpdates, stop } = createFakeAgent()
+        const cwd = "/tmp/opencode-acp-test"
+        const sessionId = await agent.newSession({ cwd, mcpServers: [] } as any).then((x) => x.sessionId)
+        const legacyTaskTool = ["ta", "sk"].join("")
+
+        controller.push(
+          toolEvent(sessionId, cwd, {
+            callID: "call_patch",
+            tool: "apply_patch",
+            status: "running",
+            input: { filePath: "/tmp/example.txt" },
+          }),
+        )
+        controller.push(
+          toolEvent(sessionId, cwd, {
+            callID: "call_agent",
+            tool: "agent",
+            status: "running",
+            input: { subagent_type: "build", description: "check build", prompt: "run tests" },
+          }),
+        )
+        controller.push(
+          toolEvent(sessionId, cwd, {
+            callID: "call_task",
+            tool: legacyTaskTool,
+            status: "running",
+            input: { description: "think", prompt: "inspect" },
+          }),
+        )
+        await new Promise((r) => setTimeout(r, 20))
+
+        const kindByCall = new Map(
+          sessionUpdates
+            .filter((u) => u.sessionId === sessionId)
+            .map((u) => u.update)
+            .filter(isToolCall)
+            .map((u) => [u.toolCallId, u.kind]),
+        )
+
+        expect(kindByCall.get("call_patch")).toBe("edit")
+        expect(kindByCall.get("call_agent")).toBe("think")
+        expect(kindByCall.get("call_task")).toBe("think")
+        stop()
+      },
+    })
+  })
+
+  test("does not emit an empty diff block for completed apply_patch calls", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const { agent, controller, sessionUpdates, stop } = createFakeAgent()
+        const cwd = "/tmp/opencode-acp-test"
+        const sessionId = await agent.newSession({ cwd, mcpServers: [] } as any).then((x) => x.sessionId)
+        const patchText = [
+          "*** Begin Patch",
+          "*** Update File: example.txt",
+          "@@",
+          "-old",
+          "+new",
+          "*** End Patch",
+        ].join("\n")
+
+        controller.push(
+          toolEvent(sessionId, cwd, {
+            callID: "call_patch",
+            tool: "apply_patch",
+            status: "completed",
+            input: { patchText },
+            output: "Success. Updated the following files:\nM example.txt",
+            metadata: { diff: "diff --git a/example.txt b/example.txt" },
+          }),
+        )
+        await new Promise((r) => setTimeout(r, 20))
+
+        const completed = sessionUpdates
+          .filter((u) => u.sessionId === sessionId)
+          .map((u) => u.update)
+          .find((u) => isToolCallUpdate(u) && u.toolCallId === "call_patch" && u.status === "completed")
+
+        expect(completed && isToolCallUpdate(completed)).toBe(true)
+        expect(isToolCallUpdate(completed!) ? completed!.kind : undefined).toBe("edit")
+        expect(isToolCallUpdate(completed!) ? completed!.content?.some((item) => item.type === "diff") : true).toBe(
+          false,
+        )
+        expect(isToolCallUpdate(completed!) ? completed!.rawOutput : undefined).toEqual({
+          output: "Success. Updated the following files:\nM example.txt",
+          metadata: { diff: "diff --git a/example.txt b/example.txt" },
+        })
+        stop()
+      },
+    })
+  })
+
+  test("shows concise read content while preserving full raw output", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const { agent, controller, sessionUpdates, stop } = createFakeAgent()
+        const cwd = "/tmp/opencode-acp-test"
+        const sessionId = await agent.newSession({ cwd, mcpServers: [] } as any).then((x) => x.sessionId)
+        const fullOutput = [
+          "<path>/tmp/example.txt</path>",
+          "<type>file</type>",
+          "<content>",
+          "1: alpha",
+          "2: beta",
+          "</content>",
+        ].join("\n")
+
+        controller.push(
+          toolEvent(sessionId, cwd, {
+            callID: "call_read",
+            tool: "read",
+            status: "completed",
+            input: { filePath: "/tmp/example.txt" },
+            output: fullOutput,
+            title: "example.txt",
+            metadata: {
+              display: {
+                type: "file",
+                path: "/tmp/example.txt",
+                text: "alpha\nbeta",
+                lineStart: 1,
+                lineEnd: 2,
+                totalLines: 2,
+                truncated: false,
+              },
+            },
+          }),
+        )
+        await new Promise((r) => setTimeout(r, 20))
+
+        const completed = sessionUpdates
+          .filter((u) => u.sessionId === sessionId)
+          .map((u) => u.update)
+          .find((u) => isToolCallUpdate(u) && u.toolCallId === "call_read" && u.status === "completed")
+        expect(completed && isToolCallUpdate(completed)).toBe(true)
+        const textContent = isToolCallUpdate(completed!)
+          ? completed!.content?.find((item) => item.type === "content" && item.content.type === "text")
+          : undefined
+        const text =
+          textContent?.type === "content" && textContent.content.type === "text" ? textContent.content.text : ""
+
+        expect(text).toBe("alpha\nbeta")
+        expect(text).not.toContain("<path>")
+        expect(text).not.toContain("<content>")
+        expect(text).not.toContain("1: alpha")
+        expect(isToolCallUpdate(completed!) ? completed!.rawOutput : undefined).toEqual({
+          output: fullOutput,
+          metadata: {
+            display: {
+              type: "file",
+              path: "/tmp/example.txt",
+              text: "alpha\nbeta",
+              lineStart: 1,
+              lineEnd: 2,
+              totalLines: 2,
+              truncated: false,
+            },
+          },
+        })
+        stop()
+      },
+    })
+  })
+
+  test("keeps read continuation guidance in concise file content", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const { agent, controller, sessionUpdates, stop } = createFakeAgent()
+        const cwd = "/tmp/opencode-acp-test"
+        const sessionId = await agent.newSession({ cwd, mcpServers: [] } as any).then((x) => x.sessionId)
+
+        controller.push(
+          toolEvent(sessionId, cwd, {
+            callID: "call_read_partial",
+            tool: "read",
+            status: "completed",
+            input: { filePath: "/tmp/example.txt" },
+            output: "raw read output with Use offset=3 to continue.",
+            title: "example.txt",
+            metadata: {
+              display: {
+                type: "file",
+                path: "/tmp/example.txt",
+                text: "alpha\nbeta",
+                lineStart: 1,
+                lineEnd: 2,
+                totalLines: 20,
+                truncated: true,
+              },
+            },
+          }),
+        )
+        await new Promise((r) => setTimeout(r, 20))
+
+        const completed = sessionUpdates
+          .filter((u) => u.sessionId === sessionId)
+          .map((u) => u.update)
+          .find((u) => isToolCallUpdate(u) && u.toolCallId === "call_read_partial" && u.status === "completed")
+        expect(completed && isToolCallUpdate(completed)).toBe(true)
+        const textContent = isToolCallUpdate(completed!)
+          ? completed!.content?.find((item) => item.type === "content" && item.content.type === "text")
+          : undefined
+        const text =
+          textContent?.type === "content" && textContent.content.type === "text" ? textContent.content.text : ""
+
+        expect(text).toBe("alpha\nbeta\n\n(Showing lines 1-2. Use offset=3 to continue.)")
+        expect(isToolCallUpdate(completed!) ? completed!.rawOutput : undefined).toMatchObject({
+          output: "raw read output with Use offset=3 to continue.",
+        })
+        stop()
+      },
+    })
+  })
+
+  test("keeps read continuation guidance in concise directory content", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const { agent, controller, sessionUpdates, stop } = createFakeAgent()
+        const cwd = "/tmp/opencode-acp-test"
+        const sessionId = await agent.newSession({ cwd, mcpServers: [] } as any).then((x) => x.sessionId)
+
+        controller.push(
+          toolEvent(sessionId, cwd, {
+            callID: "call_read_dir_partial",
+            tool: "read",
+            status: "completed",
+            input: { filePath: "/tmp/example" },
+            output: "raw directory output with Use offset=3 to continue.",
+            title: "example",
+            metadata: {
+              display: {
+                type: "directory",
+                path: "/tmp/example",
+                entries: ["one.txt", "two.txt"],
+                offset: 1,
+                totalEntries: 8,
+                truncated: true,
+              },
+            },
+          }),
+        )
+        await new Promise((r) => setTimeout(r, 20))
+
+        const completed = sessionUpdates
+          .filter((u) => u.sessionId === sessionId)
+          .map((u) => u.update)
+          .find((u) => isToolCallUpdate(u) && u.toolCallId === "call_read_dir_partial" && u.status === "completed")
+        expect(completed && isToolCallUpdate(completed)).toBe(true)
+        const textContent = isToolCallUpdate(completed!)
+          ? completed!.content?.find((item) => item.type === "content" && item.content.type === "text")
+          : undefined
+        const text =
+          textContent?.type === "content" && textContent.content.type === "text" ? textContent.content.text : ""
+
+        expect(text).toBe("one.txt\ntwo.txt\n\n(Showing 2 of 8 entries. Use offset=3 to continue.)")
+        expect(isToolCallUpdate(completed!) ? completed!.rawOutput : undefined).toMatchObject({
+          output: "raw directory output with Use offset=3 to continue.",
+        })
         stop()
       },
     })
