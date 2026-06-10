@@ -69,7 +69,7 @@ export function toolIcon(tool: string): IconProps["name"] {
   }
 }
 
-const BROWSER_TOOL_TITLE_KEYS = {
+export const BROWSER_TOOL_TITLE_KEYS = {
   browser_navigate: "ui.tool.browser.navigate",
   browser_snapshot: "ui.tool.browser.snapshot",
   browser_click: "ui.tool.browser.click",
@@ -79,19 +79,40 @@ const BROWSER_TOOL_TITLE_KEYS = {
   browser_extract: "ui.tool.browser.extract",
 } as const
 
-function browserToolSubtitle(tool: string, input: Record<string, any>, metadata: Record<string, any>) {
+/** http(s) only: tool metadata echoes page URLs, and about:/file: must never render as a subtitle or link. */
+export function safeHttpUrl(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined
+  try {
+    const parsed = new URL(value)
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return undefined
+    return parsed.toString()
+  } catch {
+    return undefined
+  }
+}
+
+/** One subtitle rule per browser tool, shared by the trow summary and the expanded card. */
+export function browserToolSubtitle(
+  tool: string,
+  input: Record<string, any> = {},
+  metadata: Record<string, any> = {},
+): string | undefined {
   switch (tool) {
     case "browser_navigate":
-      return pickString(metadata.url) ?? pickString(input.url)
+      return safeHttpUrl(metadata.url ?? input.url)
     case "browser_click":
     case "browser_type":
       return pickString(input.ref)
     case "browser_wait":
-      return pickString(input.text) ?? pickString(input.selector)
+      return (
+        pickString(input.text) ??
+        pickString(input.selector) ??
+        (typeof input.time === "number" ? `${input.time}s` : undefined)
+      )
     case "browser_extract":
-      return pickString(input.selector) ?? pickString(metadata.url)
+      return pickString(input.selector) ?? safeHttpUrl(metadata.url)
     default:
-      return pickString(metadata.url)
+      return safeHttpUrl(metadata.url)
   }
 }
 
