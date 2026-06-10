@@ -30,6 +30,7 @@ export interface TextPart extends PartBase {
 export interface FileAttachmentPart extends PartBase {
   type: "file"
   path: string
+  size?: number
   selection?: FileSelection
 }
 

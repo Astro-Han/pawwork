@@ -168,6 +168,17 @@ const createPlatform = (): Platform => {
       return window.api.readFileDataUrl(hostPath, mime).catch(() => null)
     },
 
+    async filePathForBrowserFile(file) {
+      const path = window.api.filePathForBrowserFile(file)
+      if (!path) return null
+      return handleWslPicker(path)
+    },
+
+    async saveAttachmentFile(file) {
+      const path = await window.api.saveAttachmentFile(file.name, file.type, await file.arrayBuffer()).catch(() => null)
+      return handleWslPicker(path)
+    },
+
     async saveFilePickerDialog(opts) {
       const result = await window.api.saveFilePicker({
         title: opts?.title ?? t("desktop.dialog.saveFile"),

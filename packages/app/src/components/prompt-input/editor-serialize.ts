@@ -7,6 +7,15 @@ import { resolveCommandIconSvg } from "@opencode-ai/ui/command-icon"
 import { createTextFragment } from "./editor-dom"
 import "./command-pill.css"
 
+function formatFileSize(size: number | undefined) {
+  if (size === undefined || !Number.isFinite(size) || size < 0) return ""
+  if (size < 1024) return `${size} B`
+  const kb = size / 1024
+  if (kb < 1024) return `${Number.isInteger(kb) ? kb.toFixed(0) : kb.toFixed(1)} KB`
+  const mb = kb / 1024
+  return `${Number.isInteger(mb) ? mb.toFixed(0) : mb.toFixed(1)} MB`
+}
+
 /** Build the DOM node for a slash-command pill (contenteditable=false). */
 export function createCommandMark(part: TextPart & { command: NonNullable<TextPart["command"]> }): HTMLSpanElement {
   const cmd = part.command
@@ -37,7 +46,14 @@ export function createCommandMark(part: TextPart & { command: NonNullable<TextPa
 export function createPill(part: FileAttachmentPart | AgentPart | SkillAttachmentPart): HTMLSpanElement {
   const pill = document.createElement("span")
   pill.setAttribute("data-type", part.type)
-  if (part.type === "file") pill.setAttribute("data-path", part.path)
+  if (part.type === "file") {
+    const size = formatFileSize(part.size)
+    pill.setAttribute("data-path", part.path)
+    pill.setAttribute("data-content", part.content)
+    if (part.size !== undefined) pill.setAttribute("data-size", String(part.size))
+    pill.title = size ? `${part.path}\n${size}` : part.path
+    pill.textContent = size ? `${part.content} ${size}` : part.content
+  }
   if (part.type === "agent") pill.setAttribute("data-name", part.name)
   if (part.type === "skill") {
     pill.setAttribute("data-name", part.name)
@@ -55,7 +71,7 @@ export function createPill(part: FileAttachmentPart | AgentPart | SkillAttachmen
     labelSpan.setAttribute("data-cmd-label", "true")
     labelSpan.textContent = part.content.replace(/^\//, "")
     pill.appendChild(labelSpan)
-  } else {
+  } else if (part.type !== "file") {
     pill.textContent = part.content
   }
   pill.setAttribute("contenteditable", "false")
@@ -139,14 +155,17 @@ export function parseEditorToParts(editor: HTMLElement): Prompt {
   }
 
   const pushFile = (file: HTMLElement) => {
-    const content = file.textContent ?? ""
-    parts.push({
+    const content = file.dataset.content ?? file.textContent ?? ""
+    const size = file.dataset.size ? Number(file.dataset.size) : undefined
+    const part: FileAttachmentPart = {
       type: "file",
       path: file.dataset.path!,
       content,
       start: position,
       end: position + content.length,
-    })
+    }
+    if (Number.isFinite(size)) part.size = size
+    parts.push(part)
     position += content.length
   }
 

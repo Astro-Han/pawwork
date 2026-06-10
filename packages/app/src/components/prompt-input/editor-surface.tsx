@@ -25,6 +25,7 @@ export interface PromptEditorSurfaceProps {
   onKeyDown: (event: KeyboardEvent) => void
   handlePaste: (event: ClipboardEvent) => void
   addAttachments: (files: File[]) => void
+  onFileAttachmentOpen?: (path: string) => void
 }
 
 export function PromptEditorSurface(props: PromptEditorSurfaceProps) {
@@ -50,6 +51,14 @@ export function PromptEditorSurface(props: PromptEditorSurfaceProps) {
           autocomplete="off"
           onInput={props.onInput}
           onCopy={props.onCopy}
+          onClick={(event) => {
+            const target = event.target
+            if (!(target instanceof HTMLElement)) return
+            const pill = target.closest('[data-type="file"][data-path]')
+            if (!(pill instanceof HTMLElement) || !pill.dataset.path) return
+            event.preventDefault()
+            props.onFileAttachmentOpen?.(pill.dataset.path)
+          }}
           onPaste={(event) => {
             const hasFiles = Array.from(event.clipboardData?.items ?? []).some((item) => item.kind === "file")
             if (!props.actionReady() && hasFiles) {

@@ -26,6 +26,7 @@ import { sendFollowupDraft } from "./send-followup-draft"
 import { createAbort, pending } from "./submit-abort"
 import { createPromptDraftLifecycle } from "./prompt-draft-lifecycle"
 import { createWaitForWorktree } from "./wait-for-worktree"
+import { buildAttachmentRequestParts } from "./build-request-parts"
 
 type PromptSubmitInput = {
   sessionID?: Accessor<string | undefined>
@@ -283,6 +284,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     // Note: it is only meaningful for the prompt-submit path (where comment
     // context items exist); the queue branch ignores it.
     const commentItems = context.filter((item) => item.type === "file" && !!item.comment?.trim())
+    const commandParts = () => buildAttachmentRequestParts({ prompt: currentPrompt, images, sessionDirectory })
 
     // Owner-backed drafts leave the live draft owner before the async send
     // settles; the owner only represents editable unsent draft state, and
@@ -369,13 +371,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
             model: `${model.providerID}/${model.modelID}`,
             locale,
             variant,
-            parts: images.map((attachment) => ({
-              id: Identifier.ascending("part"),
-              type: "file" as const,
-              mime: attachment.mime,
-              url: attachment.dataUrl,
-              filename: attachment.filename,
-            })),
+            parts: commandParts(),
           })
           .then(() => {
             lifecycle.confirmOwnerCleared()
@@ -406,13 +402,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
             model: `${model.providerID}/${model.modelID}`,
             locale,
             variant,
-            parts: images.map((attachment) => ({
-              id: Identifier.ascending("part"),
-              type: "file" as const,
-              mime: attachment.mime,
-              url: attachment.dataUrl,
-              filename: attachment.filename,
-            })),
+            parts: commandParts(),
           })
           .then(() => {
             lifecycle.confirmOwnerCleared()

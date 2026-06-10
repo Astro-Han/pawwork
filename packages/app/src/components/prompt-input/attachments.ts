@@ -66,6 +66,9 @@ type PromptAttachmentsInput = {
   model: () => ModelInputSupport
   openModelSelector: () => void
   readFileDataUrl?: (path: string, mime: string) => Promise<string | null>
+  filePathForBrowserFile?: (file: File) => Promise<string | null>
+  saveAttachmentFile?: (file: File) => Promise<string | null>
+  statPaths?: (paths: string[]) => Promise<Record<string, { size: number; exists: boolean }>>
   readClipboardImage?: () => Promise<File | null>
   // Path C (paste of `/<known-name> args` into structurally-empty input)
   // dependencies. Default to empty/false so callers that do not need pill
@@ -133,13 +136,33 @@ export function createPromptAttachments(input: PromptAttachmentsInput) {
     return true
   }
 
-  const routePathFallback = (path: string) => {
+  const attachmentSize = async (path: string) => {
+    const stats = await input.statPaths?.([path]).catch(() => undefined)
+    const stat = stats?.[path]
+    return stat?.exists ? stat.size : undefined
+  }
+
+  const routePathFallback = async (path: string) => {
+    if (prompt.current().some((part) => part.type === "file" && part.path === path)) return true
     input.focusEditor()
-    const content = "@" + path
-    return input.addPart({ type: "file", path, content, start: 0, end: content.length })
+    const content = "@" + pathBasename(path)
+    const size = await attachmentSize(path)
+    return input.addPart({ type: "file", path, content, start: 0, end: content.length, size })
   }
 
   const add = async (file: File, toast = true): Promise<AddResult> => {
+    const filePath = await (async () => {
+      const recovered = await input.filePathForBrowserFile?.(file).catch(() => null)
+      if (recovered) return recovered
+      if (!input.saveAttachmentFile) return null
+      return input.saveAttachmentFile(file).catch(() => null)
+    })()
+    if (filePath) return addPickedPathResult(filePath, toast)
+    if (input.saveAttachmentFile) {
+      if (toast) pathRequired()
+      return { type: "path", reason: "unknown" }
+    }
+
     const route = await routeBrowserFile(file, input.model())
     if (route.type === "direct") {
       try {
@@ -193,30 +216,12 @@ export function createPromptAttachments(input: PromptAttachmentsInput) {
     return found
   }
 
-  const addPickedPathResult = async (path: string, toast = true): Promise<AddResult> => {
+  const addPickedPathResult = async (path: string, toast = true, seen?: Set<string>): Promise<AddResult> => {
+    if (seen?.has(path)) return true
+    seen?.add(path)
+    if (await routePathFallback(path)) return true
     const route = routePickedPath(path, input.model())
-    if (route.type === "reject-image") {
-      if (toast) warnImageUnsupported()
-      return route
-    }
-
-    if (route.type === "direct") {
-      try {
-        const url = await input.readFileDataUrl?.(path, route.mime)
-        if (!url) {
-          if (toast) warn()
-          return false
-        }
-        const ok = await addDirect(pathBasename(path), route.mime, url)
-        if (!ok && toast) warn()
-        return ok
-      } catch {
-        if (toast) warn()
-        return false
-      }
-    }
-
-    if (routePathFallback(path)) return true
+    if (route.type === "direct") return false
     return route
   }
 
@@ -226,8 +231,9 @@ export function createPromptAttachments(input: PromptAttachmentsInput) {
     let found = false
     let failure: AttachmentFailureRoute | undefined
     let directFailure = false
+    const seen = new Set<string>()
     for (const path of paths) {
-      const result = await addPickedPathResult(path, false)
+      const result = await addPickedPathResult(path, false, seen)
       if (result === true) {
         found = true
         continue

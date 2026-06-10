@@ -1,6 +1,7 @@
 import fs from "node:fs/promises"
 import path from "node:path"
 import { execFile } from "node:child_process"
+import { randomUUID } from "node:crypto"
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
 
@@ -15,6 +16,7 @@ import type {
   WindowConfig,
   WslConfig,
 } from "../preload/types"
+import { safeAttachmentName } from "./attachment-filename"
 import { attachmentPathMime } from "./attachment-mime"
 import { getStore } from "./store"
 import { attachRendererDiagnosticsToSessionExport, fetchExport } from "./server-client"
@@ -40,6 +42,12 @@ function normalizeAttachmentPath(filepath: unknown) {
   if (typeof filepath !== "string" || filepath.length === 0) return
   if (/^[\\/]{2}[^\\/]+[\\/][^\\/]+/.test(filepath)) return filepath
   return path.resolve(filepath)
+}
+
+function attachmentBuffer(payload: unknown) {
+  if (payload instanceof ArrayBuffer) return Buffer.from(payload)
+  if (ArrayBuffer.isView(payload)) return Buffer.from(payload.buffer, payload.byteOffset, payload.byteLength)
+  return null
 }
 
 type Deps = {
@@ -333,6 +341,25 @@ export function registerIpcHandlers(deps: Deps) {
       return null
     }
   })
+
+  ipcMain.handle(
+    "save-attachment-file",
+    async (event: IpcMainInvokeEvent, name: string, _mime: string, payload: ArrayBuffer | ArrayBufferView) => {
+      try {
+        const buffer = attachmentBuffer(payload)
+        if (!buffer || buffer.byteLength === 0 || buffer.byteLength > MAX_ATTACHMENT_BYTES) return null
+        const dir = path.join(app.getPath("userData"), "attachments")
+        await fs.mkdir(dir, { recursive: true })
+        const filepath = path.join(dir, `${Date.now()}-${randomUUID()}-${safeAttachmentName(name)}`)
+        await fs.writeFile(filepath, buffer, { flag: "wx" })
+        approveAttachmentPaths(event.sender, filepath)
+        return filepath
+      } catch (err) {
+        console.warn("save-attachment-file failed", err)
+        return null
+      }
+    },
+  )
 
   ipcMain.handle(
     "save-file-picker",

@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron"
+import { contextBridge, ipcRenderer, webUtils } from "electron"
 import { buildDesktopContext } from "@opencode-ai/app/desktop-api"
 import type { BrowserState } from "@opencode-ai/app/desktop-api"
 import type { DesktopContext, ElectronAPI, InitStep, SqliteMigrationProgress } from "./types"
@@ -75,6 +75,8 @@ const api: ElectronAPI = {
   openDirectoryPicker: (opts) => ipcRenderer.invoke("open-directory-picker", opts),
   openFilePicker: (opts) => ipcRenderer.invoke("open-file-picker", opts),
   readFileDataUrl: (path, mime) => ipcRenderer.invoke("read-file-data-url", path, mime),
+  filePathForBrowserFile: (file) => webUtils.getPathForFile(file),
+  saveAttachmentFile: (name, mime, buffer) => ipcRenderer.invoke("save-attachment-file", name, mime, buffer),
   saveFilePicker: (opts) => ipcRenderer.invoke("save-file-picker", opts),
   exportSession: (sessionID, directory, defaultName, title) =>
     ipcRenderer.invoke("export-session", sessionID, directory, defaultName, title),

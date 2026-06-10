@@ -40,6 +40,7 @@ import { PromptContextItems } from "./prompt-input/context-items"
 import { PromptImageAttachments } from "./prompt-input/image-attachments"
 import { PromptDragOverlay } from "./prompt-input/drag-overlay"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
+import { showAttachmentInFolder } from "./prompt-input/attachment-reveal"
 
 interface PromptInputProps {
   class?: string
@@ -262,6 +263,9 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       openModelPicker()
     },
     readFileDataUrl: platform.readFileDataUrl,
+    filePathForBrowserFile: platform.filePathForBrowserFile,
+    saveAttachmentFile: platform.saveAttachmentFile,
+    statPaths: platform.statPaths,
     readClipboardImage: platform.readClipboardImage,
     // Path C dependencies (paste of `/<known-name> args` into empty input).
     imageAttachments,
@@ -417,6 +421,9 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             onKeyDown={handleKeyDown}
             handlePaste={handlePaste}
             addAttachments={addAttachments}
+            onFileAttachmentOpen={(path) => {
+              showAttachmentInFolder({ platform, directory: sdk.directory, path })
+            }}
           />
 
           <PromptActionBar
