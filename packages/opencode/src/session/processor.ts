@@ -231,25 +231,31 @@ interface ProcessorContext extends Input {
 
 type StreamEvent = Event
 
-// Collect the current turn's window from a newest-first (by creation time) message
-// stream, stopping when the stream reaches the parent user message itself. The turn's
-// assistant messages are always created after their parent, so everything past the
-// parent is older history that cannot match `parentID === parent`. This bounds the
-// per-tool-call loop-context scans below to the turn instead of hydrating the entire
-// session history (#1223 Finding 4). The boundary is identity, not `id <= parent`:
-// the prompt API lets clients supply custom message IDs, so the parent's id may sort
-// lexically above its children — an ordering comparison would empty the window and
-// blind the loop gate for those turns. Returned order is newest-first, matching the
-// stream; if the parent is absent the whole stream is scanned, matching pre-#1223
-// behavior.
+// Collect the current turn's window from a newest-first message stream. The boundary
+// is identity, not `id <= parent`: the prompt API lets clients supply custom message
+// IDs, so the parent's id may sort lexically above its children and blind the loop
+// gate. If storage orders the parent before same-millisecond children, keep reading
+// that timestamp for assistant messages that still belong to the parent. Once the
+// stream moves to an older timestamp, everything else is older history and cannot
+// match the current turn. If the parent is absent the whole stream is scanned,
+// matching pre-#1223 behavior.
 /** @internal Exported for testing */
 export function turnWindow(
   messages: Iterable<MessageV2.WithParts>,
   parent: NonNullable<MessageV2.Assistant["parentID"]>,
 ): MessageV2.WithParts[] {
   const out: MessageV2.WithParts[] = []
+  let parentCreated: number | undefined
   for (const message of messages) {
-    if (message.info.id === parent) break
+    if (parentCreated !== undefined) {
+      if (message.info.time.created !== parentCreated) break
+      if (message.info.role === "assistant" && message.info.parentID === parent) out.push(message)
+      continue
+    }
+    if (message.info.id === parent) {
+      parentCreated = message.info.time.created
+      continue
+    }
     out.push(message)
   }
   return out
