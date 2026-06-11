@@ -45,6 +45,33 @@ describe("opencli_search", () => {
     expect(result.output).not.toContain("instagram/reel")
     expect(result.metadata).toMatchObject({ query: "12306 account" })
   })
+
+  test("includes adapter argument metadata needed to run a command", async () => {
+    cli({
+      site: "pawwork-test",
+      name: "metadata",
+      access: "read",
+      description: "Metadata test adapter",
+      browser: false,
+      args: [
+        { name: "query", type: "string", required: true, help: "Search text" },
+        { name: "limit", type: "int", default: 5, help: "Maximum results" },
+        { name: "sort", choices: ["new", "top"], default: "new" },
+      ],
+      func: async () => [],
+    })
+
+    try {
+      const result = await exec(OpenCliSearchTool, { query: "pawwork-test/metadata", limit: 1 })
+
+      expect(result.output).toContain('<opencli_command name="pawwork-test/metadata">')
+      expect(result.output).toContain("- query (required) | type: string | help: Search text")
+      expect(result.output).toContain("- limit | type: int | default: 5 | help: Maximum results")
+      expect(result.output).toContain('- sort | choices: [new, top] | default: "new"')
+    } finally {
+      getRegistry().delete("pawwork-test/metadata")
+    }
+  })
 })
 
 describe("opencli_run", () => {

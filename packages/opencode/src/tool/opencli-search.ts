@@ -28,15 +28,22 @@ export const OpenCliSearchTool = Tool.define(
                 : results
                     .map((command) => {
                       const args = (command.args ?? [])
-                        .map((arg) => `${arg.name}${arg.required ? " (required)" : ""}`)
-                        .join(", ")
+                        .map((arg) => {
+                          const details = [`${arg.name}${arg.required ? " (required)" : ""}`]
+                          if (arg.type) details.push(`type: ${arg.type}`)
+                          if (arg.choices && arg.choices.length > 0) details.push(`choices: [${arg.choices.join(", ")}]`)
+                          if (arg.default !== undefined) details.push(`default: ${JSON.stringify(arg.default)}`)
+                          if (arg.help) details.push(`help: ${arg.help}`)
+                          return `- ${details.join(" | ")}`
+                        })
+                        .join("\n")
                       return [
                         `<opencli_command name="${command.name}">`,
                         `description: ${command.description || "No description"}`,
                         `access: ${command.access}`,
                         `browser: ${command.browser}`,
                         command.domain ? `domain: ${command.domain}` : undefined,
-                        args ? `args: ${args}` : "args: none",
+                        args ? `args:\n${args}` : "args: none",
                         "</opencli_command>",
                       ]
                         .filter(Boolean)
