@@ -16,6 +16,78 @@ export class OpenCliCommandError extends Error {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
+function readNodeID(value: unknown, key: string): number | null {
+  if (!isRecord(value)) return null
+  const nodeID = value[key]
+  return typeof nodeID === "number" ? nodeID : null
+}
+
+async function cdpSetFileInput(cmd: CliCommand, page: IPage, files: string[], selector = 'input[type="file"]') {
+  const cdp = page.cdp
+  if (typeof cdp !== "function") {
+    throw new OpenCliCommandError(`Command ${fullName(cmd)} needs setFileInput, but this browser backend does not expose CDP.`)
+  }
+  await cdp.call(page, "DOM.enable", {}).catch(() => undefined)
+  const documentResult = await cdp.call(page, "DOM.getDocument", {})
+  const root = isRecord(documentResult) && isRecord(documentResult.root) ? documentResult.root : undefined
+  const rootNodeID = readNodeID(root, "nodeId")
+  if (rootNodeID === null) throw new OpenCliCommandError("DOM.getDocument returned no root node.")
+  const queryResult = await cdp.call(page, "DOM.querySelector", { nodeId: rootNodeID, selector })
+  const nodeID = readNodeID(queryResult, "nodeId")
+  if (nodeID === null || nodeID <= 0) throw new OpenCliCommandError(`No file input matched selector: ${selector}`)
+  await cdp.call(page, "DOM.setFileInputFiles", { files, nodeId: nodeID })
+}
+
+async function cdpInsertText(cmd: CliCommand, page: IPage, text: string) {
+  const cdp = page.cdp
+  if (typeof cdp !== "function") {
+    throw new OpenCliCommandError(`Command ${fullName(cmd)} needs insertText, but this browser backend does not expose CDP.`)
+  }
+  await cdp.call(page, "Input.insertText", { text })
+}
+
+async function cdpNativeClick(cmd: CliCommand, page: IPage, x: number, y: number) {
+  const cdp = page.cdp
+  if (typeof cdp !== "function") {
+    throw new OpenCliCommandError(`Command ${fullName(cmd)} needs nativeClick, but this browser backend does not expose CDP.`)
+  }
+  await cdp.call(page, "Input.dispatchMouseEvent", { type: "mouseMoved", x, y })
+  await cdp.call(page, "Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 })
+  await cdp.call(page, "Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 })
+}
+
+export function createOpenCliAdapterPage(cmd: CliCommand, page: IPage): IPage {
+  return new Proxy(page, {
+    get(target, prop, receiver) {
+      if (prop === "then") return undefined
+      if (prop === "setFileInput" && typeof target.setFileInput !== "function" && typeof target.cdp === "function") {
+        return (files: string[], selector?: string) => cdpSetFileInput(cmd, target, files, selector)
+      }
+      if (prop === "insertText" && typeof target.insertText !== "function" && typeof target.cdp === "function") {
+        return (text: string) => cdpInsertText(cmd, target, text)
+      }
+      if (prop === "nativeType" && typeof target.cdp === "function") {
+        const value = Reflect.get(target, prop, receiver)
+        return typeof value === "function" ? value.bind(target) : (text: string) => cdpInsertText(cmd, target, text)
+      }
+      if (prop === "nativeClick" && typeof target.cdp === "function") {
+        const value = Reflect.get(target, prop, receiver)
+        return typeof value === "function" ? value.bind(target) : (x: number, y: number) => cdpNativeClick(cmd, target, x, y)
+      }
+      if (prop === "waitForTimeout") {
+        const value = Reflect.get(target, prop, receiver)
+        return typeof value === "function" ? value.bind(target) : (ms: number) => target.wait(ms / 1000)
+      }
+      const value = Reflect.get(target, prop, receiver)
+      return typeof value === "function" ? value.bind(target) : value
+    },
+  })
+}
+
 export function coerceOpenCliArgs(cmdArgs: Arg[], kwargs: CommandArgs): CommandArgs {
   const result = { ...kwargs }
   for (const argDef of cmdArgs) {
@@ -120,18 +192,19 @@ export async function runOpenCliAdapterCommand(
 ): Promise<unknown> {
   const debug = options.debug ?? false
   const siteSession = options.siteSession ?? resolveOpenCliSiteSession(cmd)
+  const adapterPage = page ? createOpenCliAdapterPage(cmd, page) : null
   const preNavUrl = resolveOpenCliPreNav(cmd)
   if (preNavUrl) {
-    if (!page) throw new OpenCliCommandError(`Command ${fullName(cmd)} requires a browser session for pre-navigation`)
-    if (await shouldRunOpenCliPreNav(cmd, page, siteSession, preNavUrl)) {
-      await page.goto(preNavUrl)
+    if (!adapterPage) throw new OpenCliCommandError(`Command ${fullName(cmd)} requires a browser session for pre-navigation`)
+    if (await shouldRunOpenCliPreNav(cmd, adapterPage, siteSession, preNavUrl)) {
+      await adapterPage.goto(preNavUrl)
     }
   }
   if (cmd.func) {
     if (cmd.browser === false) return cmd.func(kwargs, debug)
-    if (!page) throw new OpenCliCommandError(`Command ${fullName(cmd)} requires a browser session but none was provided`)
-    return cmd.func(page, kwargs, debug)
+    if (!adapterPage) throw new OpenCliCommandError(`Command ${fullName(cmd)} requires a browser session but none was provided`)
+    return cmd.func(adapterPage, kwargs, debug)
   }
-  if (cmd.pipeline) return executePipeline(page, cmd.pipeline, { args: kwargs, debug })
+  if (cmd.pipeline) return executePipeline(adapterPage, cmd.pipeline, { args: kwargs, debug })
   throw new OpenCliCommandError(`Command ${fullName(cmd)} has no func or pipeline`)
 }

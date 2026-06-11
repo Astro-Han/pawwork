@@ -2,6 +2,7 @@ import { describe, expect, mock, test } from "bun:test"
 import type { CliCommand } from "@jackwener/opencli/registry"
 import type { IPage } from "@jackwener/opencli/types"
 import {
+  createOpenCliAdapterPage,
   prepareOpenCliCommandArgs,
   runOpenCliAdapterCommand,
   shouldRunOpenCliPreNav,
@@ -81,6 +82,81 @@ describe("opencli adapter runner", () => {
       ok: "pawwork",
     })
     expect(page.goto).toHaveBeenCalledWith("https://example.com")
-    expect(func).toHaveBeenCalledWith(page, { query: "pawwork" }, false)
+    expect(func.mock.calls[0]?.[0]).not.toBe(page)
+    expect(func).toHaveBeenCalledWith(expect.objectContaining({ goto: expect.any(Function) }), { query: "pawwork" }, false)
+  })
+
+  test("adds CDP-backed upload and native text helpers when the visible page only exposes cdp", async () => {
+    const cdp = mock(async (method: string) => {
+      if (method === "DOM.getDocument") return { root: { nodeId: 1 } }
+      if (method === "DOM.querySelector") return { nodeId: 7 }
+      return {}
+    })
+    const page = {
+      cdp,
+      wait: mock(async () => {}),
+      goto: mock(async () => {}),
+      getCurrentUrl: mock(async () => "about:blank"),
+    } as unknown as IPage
+    const command = {
+      site: "demo",
+      name: "upload",
+      access: "write",
+      description: "demo",
+      browser: true,
+      args: [],
+      func: async () => undefined,
+    } satisfies CliCommand
+
+    const adapted = createOpenCliAdapterPage(command, page)
+    await adapted.setFileInput?.(["/tmp/pawwork.txt"], "input[type='file']")
+    await adapted.insertText?.("hello")
+    await (adapted as IPage & { nativeType?: (text: string) => Promise<void> }).nativeType?.("native")
+    await (adapted as IPage & { nativeClick?: (x: number, y: number) => Promise<void> }).nativeClick?.(10, 20)
+    await (adapted as IPage & { waitForTimeout?: (ms: number) => Promise<void> }).waitForTimeout?.(5000)
+
+    expect(cdp).toHaveBeenCalledWith("DOM.enable", {})
+    expect(cdp).toHaveBeenCalledWith("DOM.getDocument", {})
+    expect(cdp).toHaveBeenCalledWith("DOM.querySelector", { nodeId: 1, selector: "input[type='file']" })
+    expect(cdp).toHaveBeenCalledWith("DOM.setFileInputFiles", { files: ["/tmp/pawwork.txt"], nodeId: 7 })
+    expect(cdp).toHaveBeenCalledWith("Input.insertText", { text: "hello" })
+    expect(cdp).toHaveBeenCalledWith("Input.insertText", { text: "native" })
+    expect(cdp).toHaveBeenCalledWith("Input.dispatchMouseEvent", { type: "mouseMoved", x: 10, y: 20 })
+    expect(cdp).toHaveBeenCalledWith("Input.dispatchMouseEvent", {
+      type: "mousePressed",
+      x: 10,
+      y: 20,
+      button: "left",
+      clickCount: 1,
+    })
+    expect(cdp).toHaveBeenCalledWith("Input.dispatchMouseEvent", {
+      type: "mouseReleased",
+      x: 10,
+      y: 20,
+      button: "left",
+      clickCount: 1,
+    })
+    expect(page.wait).toHaveBeenCalledWith(5)
+  })
+
+  test("does not synthesize optional network capture methods when unsupported", () => {
+    const page = {
+      goto: mock(async () => {}),
+      getCurrentUrl: mock(async () => "about:blank"),
+    } as unknown as IPage
+    const command = {
+      site: "demo",
+      name: "read",
+      access: "read",
+      description: "demo",
+      browser: true,
+      args: [],
+      func: async () => undefined,
+    } satisfies CliCommand
+
+    const adapted = createOpenCliAdapterPage(command, page)
+
+    expect(adapted.startNetworkCapture).toBeUndefined()
+    expect(adapted.readNetworkCapture).toBeUndefined()
   })
 })
