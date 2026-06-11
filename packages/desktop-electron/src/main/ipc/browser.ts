@@ -72,6 +72,14 @@ export function registerBrowserIpc(deps: { sessionIDForWindow: (windowID: number
       return { adopted: false, hasPage: false }
     return browserControllers.adoptDraft(win.id, sessionID)
   })
+  // WYSIWYG close: the browser tab's × promises "Close", so it destroys the
+  // conversation's page outright via the same dispose chain as session
+  // delete/archive. Pages are conversation-owned, so any window showing the
+  // conversation may close it. No-op without a live controller.
+  ipcMain.handle("browser:close-page", (event, target: string) => {
+    const resolved = resolve(event, target)
+    if (resolved) browserControllers.dispose(resolved.key)
+  })
   // Browsing data lives in the shared persistent partition, not in any one view,
   // so clear the session directly — this works even before a view exists (e.g.
   // opening the tab fresh after restart). Then reload any live views so they

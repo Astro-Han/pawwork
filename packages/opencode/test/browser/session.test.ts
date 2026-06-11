@@ -230,7 +230,10 @@ describe("withBrowserPage", () => {
     const inflight = withBrowserPage("ses_a", "extract", (page) => page.evaluate("location.href"))
     await new Promise((resolve) => setTimeout(resolve, 50))
     server.failInflightAndClose()
-    await expect(inflight).rejects.toThrow(/CDP connection closed|bridge closed|CDP connection is not open/)
+    // The raw transport error is rewritten into the user-facing story: the
+    // page was closed (tab ×, conversation teardown) and recovery is one
+    // action away. No automatic retry — a close is the user's call.
+    await expect(inflight).rejects.toThrow(/browser page was closed while extract.*fresh blank page/)
 
     // Next call re-resolves and reconnects instead of failing forever.
     const reconnected = makeServer()
@@ -349,7 +352,10 @@ describe("withBrowserPage", () => {
     const inflight = withBrowserPage("ses_a", "extract", (page) => page.evaluate("location.href"))
     await new Promise((resolve) => setTimeout(resolve, 50))
     server.failInflightAndClose()
-    await expect(inflight).rejects.toThrow(/CDP connection closed|bridge closed|CDP connection is not open/)
+    // The raw transport error is rewritten into the user-facing story: the
+    // page was closed (tab ×, conversation teardown) and recovery is one
+    // action away. No automatic retry — a close is the user's call.
+    await expect(inflight).rejects.toThrow(/browser page was closed while extract.*fresh blank page/)
 
     // invalidate() notified the host so the main process detaches its stale
     // bridge (fire-and-forget; give the microtask a beat). A sever keeps the

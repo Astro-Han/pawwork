@@ -15,6 +15,7 @@ const browser: ElectronAPI["browser"] = {
   stop: (target) => ipcRenderer.invoke("browser:stop", target),
   setView: (target, layout) => ipcRenderer.invoke("browser:set-view", target, layout),
   adoptDraft: (sessionID) => ipcRenderer.invoke("browser:adopt-draft", sessionID),
+  closePage: (target) => ipcRenderer.invoke("browser:close-page", target),
   clearData: () => ipcRenderer.invoke("browser:clear-data"),
   getState: (target) => ipcRenderer.invoke("browser:get-state", target),
   onState: (cb) => {

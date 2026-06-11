@@ -18,6 +18,8 @@ import { findLast } from "@opencode-ai/util/array"
 import { canCloseSessionTab, closeSessionTab } from "@/pages/session/close-session-tab"
 import { createSessionTabs } from "@/pages/session/helpers"
 import { readSessionMessages, readUserMessages } from "@/pages/session/session-messages"
+import { createBrowserTabClose, showBrowserCloseConfirm } from "@/pages/session/browser/close-page"
+import { isSessionRunning } from "@/pages/session/session-running-state"
 import { createCloseShellTabRouter, focusActiveTerminalTab, toggleDesktopTerminal } from "@/pages/session/terminal-shell-tab"
 import { extractPromptFromParts } from "@/utils/prompt"
 import { UserMessage } from "@opencode-ai/sdk/v2"
@@ -145,7 +147,15 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     })
   }
 
-  const closeShellTabRouter = createCloseShellTabRouter({ view, terminal: () => terminal })
+  const closeBrowserTab = createBrowserTabClose({
+    bridge: () => platform.browser,
+    target: () => params.id ?? "draft",
+    running: () =>
+      params.id ? isSessionRunning(sync.data.session_status[params.id], sync.data.message[params.id]) : false,
+    closeTab: () => view().sidePanel.closeTab("browser"),
+    confirm: (proceed) => showBrowserCloseConfirm(dialog, language, proceed),
+  })
+  const closeShellTabRouter = createCloseShellTabRouter({ view, terminal: () => terminal, closeBrowserTab })
 
   const closeTab = () => {
     closeSessionTab({

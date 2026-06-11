@@ -265,6 +265,19 @@ export class BrowserViewController {
 
   destroy() {
     if (this.destroyed) return
+    // Final state push BEFORE teardown: the renderer panel outlives the view
+    // (it survives tab close and route changes), so without this it would keep
+    // showing stale hasPage/url for a page that no longer exists.
+    const empty = deriveBrowserState({
+      url: "",
+      title: "",
+      canGoBack: false,
+      canGoForward: false,
+      loading: false,
+      favicon: null,
+    })
+    const payload = { target: rendererTarget(this.target), state: empty }
+    for (const win of this.stateWindows()) win.webContents.send(BROWSER_STATE_CHANNEL, payload)
     this.destroyed = true
     // Tear down the ws bridge; the debugger itself detaches with wc.close() below.
     void this.automation?.stop()

@@ -16,6 +16,7 @@ import { useLanguage } from "@/context/language"
 import { MAX_RIGHT_PANEL_WIDTH, MIN_RIGHT_PANEL_WIDTH, useLayout } from "@/context/layout"
 import { canUseBrowser, usePlatform } from "@/context/platform"
 import { useSDK } from "@/context/sdk"
+import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
 import type { TerminalTabID } from "@/context/terminal-types"
 import type { FilesTabEntry } from "@/pages/session/files-tab-state"
@@ -35,6 +36,8 @@ import {
 
 import { setSessionHandoff } from "@/pages/session/handoff"
 import { BrowserPanel } from "@/pages/session/browser/browser-panel"
+import { createBrowserTabClose, showBrowserCloseConfirm } from "@/pages/session/browser/close-page"
+import { isSessionRunning } from "@/pages/session/session-running-state"
 import { RightPanelReviewBody } from "@/pages/session/right-panel-review-body"
 import { RightPanelTabStrip } from "@/pages/session/right-panel-tab-strip"
 import {
@@ -74,6 +77,7 @@ export function SessionSidePanel(props: {
   const terminal = useTerminal()
   const platform = usePlatform()
   const sdk = useSDK()
+  const sync = useSync()
   const { layoutRouteKey, params, tabs, view } = useSessionLayout()
 
   const isDesktop = createMediaQuery("(min-width: 768px)")
@@ -198,7 +202,15 @@ export function SessionSidePanel(props: {
     view().sidePanel.openTab(value)
   }
 
-  const closeShellTabValue = createCloseShellTabRouter({ view, terminal: () => terminal })
+  const closeBrowserTab = createBrowserTabClose({
+    bridge: () => platform.browser,
+    target: () => params.id ?? "draft",
+    running: () =>
+      params.id ? isSessionRunning(sync.data.session_status[params.id], sync.data.message[params.id]) : false,
+    closeTab: () => view().sidePanel.closeTab("browser"),
+    confirm: (proceed) => showBrowserCloseConfirm(dialog, language, proceed),
+  })
+  const closeShellTabValue = createCloseShellTabRouter({ view, terminal: () => terminal, closeBrowserTab })
 
   // Stale terminal selector guard: persisted sidePanelTab may carry a
   // `terminal:<id>` whose terminal no longer exists after restart. If we

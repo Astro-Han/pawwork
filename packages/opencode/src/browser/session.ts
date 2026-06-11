@@ -251,7 +251,17 @@ export async function withBrowserPage<T>(
     conn.takeoverReloaded = false
     return await Promise.race([run(conn.page, { takeoverReloaded }), interrupted])
   } catch (err) {
-    if (conn && isConnectionLoss(err)) invalidate(conn)
+    if (conn && isConnectionLoss(err)) {
+      invalidate(conn)
+      // The connection dying mid-action means the page was closed out from
+      // under the tool — the user closed the browser tab, or the conversation
+      // was torn down. The raw "CDP connection is not open" says neither what
+      // happened nor what to do; say both. No automatic retry: a close is the
+      // user's call, and silently reopening would override it.
+      throw new Error(
+        `The browser page was closed while ${label} was running. The next browser action starts over from a fresh blank page.`,
+      )
+    }
     throw err
   } finally {
     clearTimeout(timer)

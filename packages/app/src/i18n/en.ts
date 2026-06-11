@@ -603,6 +603,10 @@ export const dict = {
   "browser.action.openExternal": "Open in system browser",
   "browser.action.copyLink": "Copy link",
   "browser.action.clearData": "Clear browsing data",
+  "browser.closePage.title": "Close this page?",
+  "browser.closePage.description":
+    "An agent task is running in this conversation. Closing the page will make its browser actions fail until it opens a new one.",
+  "browser.closePage.confirm": "Close page",
   "browser.clearData.title": "Clear browsing data?",
   "browser.clearData.description": "This signs you out of every site and clears cookies and cache. It can't be undone.",
   "browser.clearData.confirm": "Clear",

@@ -78,6 +78,10 @@ export type BrowserBridge = {
    *  resolve BEFORE navigating to the session route, so the new panel finds
    *  the adopted view instead of lazily creating an empty one. */
   adoptDraft(sessionID: string): Promise<{ adopted: boolean; hasPage: boolean }>
+  /** Destroy the target's page outright (view, history, renderer process) via
+   *  the same chain as session delete/archive. WYSIWYG counterpart of the
+   *  browser tab's ×. Cookies/storage survive in the shared partition. */
+  closePage(target: BrowserTarget): Promise<void>
   /** Sign out of every site: clear cookies, storage, and cache (all targets —
    *  the partition is shared). */
   clearData(): Promise<void>
