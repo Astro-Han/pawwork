@@ -148,41 +148,63 @@ describe("permission gate", () => {
     expect(server.methods).toEqual([])
   })
 
-  test("an approval granted on one site is never spent on another", async () => {
+  // The ask dialog can sit open while the user keeps browsing the view: by the
+  // time they approve, the page may not be the one the permission was judged
+  // against. A moved page is re-judged with a second ask against the URL as it
+  // is now — full-URL granularity, so path-scoped rules get their say too.
+  test("an approval granted on one page is re-judged when the page moved — a deny on the landing wins", async () => {
     const server = makeServer()
     scriptCurrentUrl(server, "https://asked.example/page")
     provideFakeHost(server)
-    // The ask dialog sits open while the user keeps browsing the view: by the
-    // time they approve, the page is on a different site. The action must not
-    // run there on site A's approval — it fails typed, and a retry re-asks
-    // against the page as it is now.
     const movingCtx = {
       ...ctx,
-      ask: () => {
+      ask: (input: { permission: string; patterns: string[]; always: string[] }) => {
+        askLog.push({ permission: input.permission, patterns: input.patterns, always: input.always })
+        if (input.patterns.some((p) => p.includes("other.example"))) return Effect.fail(new Permission.RejectedError())
         server.url = "https://other.example/landing"
         return Effect.void
       },
     } as unknown as typeof ctx
-    await expect(execWith(movingCtx, BrowserSnapshotTool, {})).rejects.toThrow(
-      /moved to https:\/\/other\.example/,
-    )
+    await expect(execWith(movingCtx, BrowserSnapshotTool, {})).rejects.toThrow(/rejected permission/)
+    expect(askLog.map((a) => a.patterns)).toEqual([["https://asked.example/page"], ["https://other.example/landing"]])
     expect(server.methods).toEqual([])
   })
 
-  test("moving within the approved site while the ask is open keeps the approval", async () => {
+  test("a same-origin move onto a path the rules deny cannot ride the original approval", async () => {
+    const server = makeServer()
+    scriptCurrentUrl(server, "https://asked.example/safe")
+    provideFakeHost(server)
+    // permission.browser-style path rule: /admin/* is denied, the rest allowed.
+    const pathDenyCtx = {
+      ...ctx,
+      ask: (input: { permission: string; patterns: string[]; always: string[] }) => {
+        askLog.push({ permission: input.permission, patterns: input.patterns, always: input.always })
+        if (input.patterns.some((p) => p.startsWith("https://asked.example/admin/")))
+          return Effect.fail(new Permission.RejectedError())
+        server.url = "https://asked.example/admin/users"
+        return Effect.void
+      },
+    } as unknown as typeof ctx
+    await expect(execWith(pathDenyCtx, BrowserSnapshotTool, {})).rejects.toThrow(/rejected permission/)
+    expect(server.methods).toEqual([])
+  })
+
+  test("a benign same-site move passes the re-judge and the action runs", async () => {
     const server = makeServer()
     scriptCurrentUrl(server, "https://asked.example/a")
     provideFakeHost(server)
     server.handlers.set("Runtime.evaluate", () => ({ result: { type: "string", value: "[1] <button> Ok" } }))
     const movingCtx = {
       ...ctx,
-      ask: () => {
+      ask: (input: { permission: string; patterns: string[]; always: string[] }) => {
+        askLog.push({ permission: input.permission, patterns: input.patterns, always: input.always })
         server.url = "https://asked.example/b"
         return Effect.void
       },
     } as unknown as typeof ctx
     const result = await execWith(movingCtx, BrowserSnapshotTool, {})
     expect(result.output).toContain("[1] <button> Ok")
+    expect(askLog.map((a) => a.patterns)).toEqual([["https://asked.example/a"], ["https://asked.example/b"]])
   })
 
   test("a partially available browser group activates only the available members", async () => {

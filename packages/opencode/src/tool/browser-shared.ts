@@ -43,20 +43,29 @@ export function runBrowserAction<T>(input: {
       metadata: { action: input.label, ...input.metadata },
     })
     // The ask can sit open for minutes, and the user can keep browsing the
-    // view meanwhile — a current-page permission judged against site A must
-    // not authorize an action that would land on site B. Re-probe and fail
-    // typed so the model simply retries (re-asking against the page as it is
-    // now). Explicit-pattern actions (navigate) were judged against their
-    // destination, which no amount of meanwhile-browsing changes.
+    // view meanwhile — a current-page approval judged against one URL must not
+    // be spent on whatever page the view reached by the time it was granted.
+    // Re-probe and, when the URL changed at all, ask AGAIN against the page as
+    // it is now — the same re-judge navigate applies to a redirect landing, and
+    // the full-URL granularity matters: a configured rule can be path-scoped
+    // (deny https://site/admin/*), which an origin compare would slip past.
+    // An unchanged URL — the common case — skips this entirely. Explicit-
+    // pattern actions (navigate) were judged against their destination, which
+    // no amount of meanwhile-browsing changes.
     if (!input.patterns) {
-      yield* Effect.tryPromise({
-        try: async () => {
-          const recheck = await browserPageProbe(input.ctx.sessionID)
-          if (pageOrigin(recheck.url) !== pageOrigin(probe.url))
-            throw new BrowserPageChangedError(input.label, probe.url, recheck.url)
-        },
+      const recheck = yield* Effect.tryPromise({
+        try: () => browserPageProbe(input.ctx.sessionID),
         catch: (err) => (err instanceof Error ? err : new Error(String(err))),
       })
+      if (recheck.url !== probe.url) {
+        const moved = [recheck.url ?? "*"]
+        yield* input.ctx.ask({
+          permission: "browser",
+          patterns: moved,
+          always: browserAlwaysPatterns(moved),
+          metadata: { action: input.label, movedFrom: probe.url ?? undefined, ...input.metadata },
+        })
+      }
     }
     return yield* Effect.tryPromise({
       try: () =>
@@ -70,22 +79,6 @@ export function runBrowserAction<T>(input: {
       catch: (err) => (err instanceof Error ? err : new Error(String(err))),
     })
   })
-}
-
-/** Origin (or null for blank/non-web) of a probe URL — probe URLs are pre-validated as navigable. */
-function pageOrigin(url: string | null): string | null {
-  return url ? new URL(url).origin : null
-}
-
-/** A current-page action found the page on a different site than the one its permission was judged against. */
-export class BrowserPageChangedError extends Error {
-  constructor(label: string, asked: string | null, current: string | null) {
-    const site = (url: string | null) => (url ? new URL(url).origin : "a blank page")
-    super(
-      `Browser ${label} did not run: the page moved to ${site(current)} after the permission was granted on ${site(asked)}. Retry the action to have the permission judged against the current page.`,
-    )
-    this.name = "BrowserPageChangedError"
-  }
 }
 
 /**
