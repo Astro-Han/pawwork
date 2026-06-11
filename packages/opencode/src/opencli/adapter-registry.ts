@@ -33,12 +33,18 @@ export type OpenCliCommandSummary = {
   args: OpenCliManifestEntry["args"]
 }
 
+export type OpenCliAdapterImportFailure = {
+  modulePath: string
+  error: string
+}
+
 export const BLOCKED_OPENCLI_COMMANDS = new Set(["instagram/reel"])
 
 let loadPromise: Promise<{
   manifestCount: number
   canonicalCommands: ReadonlySet<string>
   exposedCommands: ReadonlySet<string>
+  failedModules: OpenCliAdapterImportFailure[]
 }> | undefined
 let manifestCache: OpenCliManifestEntry[] | undefined
 
@@ -60,12 +66,25 @@ async function loadManifest(): Promise<OpenCliManifestEntry[]> {
   return manifestCache
 }
 
-async function importAdapterModules(manifest: OpenCliManifestEntry[]) {
-  const root = openCliPackageRoot()
+async function importAdapterModules(
+  manifest: OpenCliManifestEntry[],
+  options: {
+    root?: string
+    importModule?: (specifier: string) => Promise<unknown>
+  } = {},
+) {
+  const root = options.root ?? openCliPackageRoot()
+  const importModule = options.importModule ?? ((specifier: string) => import(specifier))
   const uniqueModules = new Set(manifest.map((entry) => entry.modulePath))
+  const failedModules: OpenCliAdapterImportFailure[] = []
   for (const modulePath of uniqueModules) {
-    await import(pathToFileURL(path.join(root, "clis", modulePath)).href)
+    try {
+      await importModule(pathToFileURL(path.join(root, "clis", modulePath)).href)
+    } catch (err) {
+      failedModules.push({ modulePath, error: err instanceof Error ? err.message : String(err) })
+    }
   }
+  return failedModules
 }
 
 function canonicalCommandSet(): Set<string> {
@@ -75,17 +94,20 @@ function canonicalCommandSet(): Set<string> {
 export async function loadOpenCliAdapters() {
   loadPromise ??= (async () => {
     const manifest = await loadManifest()
-    await importAdapterModules(manifest)
+    const failedModules = await importAdapterModules(manifest)
     const canonicalCommands = canonicalCommandSet()
     const exposedCommands = new Set([...canonicalCommands].filter((name) => !BLOCKED_OPENCLI_COMMANDS.has(name)))
     return {
       manifestCount: manifest.length,
       canonicalCommands,
       exposedCommands,
+      failedModules,
     }
   })()
   return loadPromise
 }
+
+export const importOpenCliAdapterModulesForTest = importAdapterModules
 
 export async function openCliCommand(name: string): Promise<CliCommand | undefined> {
   await loadOpenCliAdapters()

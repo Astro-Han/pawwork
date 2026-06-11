@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test"
 import { getRegistry, type CliCommand } from "@jackwener/opencli/registry"
-import { AdapterRegistry, loadOpenCliAdapters, searchOpenCliCommands } from "../../src/opencli/adapter-registry"
+import {
+  AdapterRegistry,
+  importOpenCliAdapterModulesForTest,
+  loadOpenCliAdapters,
+  searchOpenCliCommands,
+  type OpenCliManifestEntry,
+} from "../../src/opencli/adapter-registry"
 
 describe("opencli adapter registry", () => {
   test("exposes the module namespace export", () => {
@@ -21,6 +27,7 @@ describe("opencli adapter registry", () => {
       access: "read",
       browser: true,
     })
+    expect(loaded.failedModules).toEqual([])
   })
 
   test("indexes commands with implicit browser support as browser commands", async () => {
@@ -42,5 +49,24 @@ describe("opencli adapter registry", () => {
     } finally {
       getRegistry().delete("000-pawwork-implicit/implicit")
     }
+  })
+
+  test("continues loading later adapter modules after one import fails", async () => {
+    const manifest = [
+      { site: "bad", name: "fail", access: "read", type: "js", modulePath: "bad.js" },
+      { site: "good", name: "ok", access: "read", type: "js", modulePath: "good.js" },
+    ] satisfies OpenCliManifestEntry[]
+    const imported: string[] = []
+
+    const failures = await importOpenCliAdapterModulesForTest(manifest, {
+      root: "/opencli",
+      importModule: async (specifier) => {
+        imported.push(specifier)
+        if (specifier.endsWith("/bad.js")) throw new Error("bad module")
+      },
+    })
+
+    expect(imported).toEqual(["file:///opencli/clis/bad.js", "file:///opencli/clis/good.js"])
+    expect(failures).toEqual([{ modulePath: "bad.js", error: "bad module" }])
   })
 })
