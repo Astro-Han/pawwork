@@ -1204,6 +1204,7 @@ describe("tool.registry", () => {
     // taken at activation time — decides what the model sees. A member disabled
     // mid-session drops out on the next step, and one re-enabled comes back
     // without re-activation.
+    const previousClient = process.env["OPENCODE_CLIENT"]
     process.env["OPENCODE_CLIENT"] = "desktop"
     try {
       await Instance.provide({
@@ -1223,7 +1224,8 @@ describe("tool.registry", () => {
         },
       })
     } finally {
-      delete process.env["OPENCODE_CLIENT"]
+      if (previousClient === undefined) delete process.env["OPENCODE_CLIENT"]
+      else process.env["OPENCODE_CLIENT"] = previousClient
     }
   })
 
