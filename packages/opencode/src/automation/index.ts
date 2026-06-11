@@ -155,6 +155,16 @@ export namespace Automation {
     .meta({ ref: "AutomationDefinition" })
   export type Definition = z.infer<typeof Definition>
 
+  export type Scope = {
+    projectID: ProjectID
+    ownerDirectory: string
+  }
+
+  export type ScopedDefinition = {
+    definition: Definition
+    scope: Scope
+  }
+
   export const Tombstone = z
     .object({ id: DefinitionID, deleted: z.literal(true), revision: z.number().int().positive() })
     .strict()
@@ -335,6 +345,18 @@ export namespace Automation {
     return { ...input, where: normalizeWhere(input.where) }
   }
 
+  export function currentScope(): Scope {
+    return { projectID: Instance.project.id, ownerDirectory: Instance.directory }
+  }
+
+  function rowScope(row: Pick<typeof AutomationDefinitionTable.$inferSelect, "project_id" | "owner_directory">): Scope {
+    return { projectID: row.project_id, ownerDirectory: row.owner_directory }
+  }
+
+  function scopeMatches(row: Pick<typeof AutomationDefinitionTable.$inferSelect, "project_id" | "owner_directory">, scope: Scope) {
+    return row.project_id === scope.projectID && row.owner_directory === scope.ownerDirectory
+  }
+
   export function getWriterKey(definition: Definition) {
     return definition.where.worktree ?? definition.where.projectID
   }
@@ -495,22 +517,31 @@ export namespace Automation {
     return definition
   }
 
-  export function list(): Definition[] {
-    const projectID = Instance.project.id
-    const ownerDirectory = Instance.directory
+  export function list(scope: Scope = currentScope()): Definition[] {
     return Database.use((db) =>
       db
         .select()
         .from(AutomationDefinitionTable)
         .where(
           and(
-            eq(AutomationDefinitionTable.project_id, projectID),
-            eq(AutomationDefinitionTable.owner_directory, ownerDirectory),
+            eq(AutomationDefinitionTable.project_id, scope.projectID),
+            eq(AutomationDefinitionTable.owner_directory, scope.ownerDirectory),
           ),
         )
         .orderBy(desc(AutomationDefinitionTable.time_updated), desc(AutomationDefinitionTable.id))
         .all()
         .map((row) => Definition.parse(row.data)),
+    )
+  }
+
+  export function listAll(): ScopedDefinition[] {
+    return Database.use((db) =>
+      db
+        .select()
+        .from(AutomationDefinitionTable)
+        .orderBy(desc(AutomationDefinitionTable.time_updated), desc(AutomationDefinitionTable.id))
+        .all()
+        .map((row) => ({ definition: Definition.parse(row.data), scope: rowScope(row) })),
     )
   }
 
@@ -520,8 +551,7 @@ export namespace Automation {
     return definition
   }
 
-  function getOptional(id: string): Definition | undefined {
-    const projectID = Instance.project.id
+  function getOptional(id: string, scope: Scope = currentScope()): Definition | undefined {
     const row = Database.use((db) =>
       db
         .select()
@@ -529,8 +559,7 @@ export namespace Automation {
         .where(eq(AutomationDefinitionTable.id, id))
         .get(),
     )
-    if (!row || row.project_id !== projectID) return undefined
-    if (row.owner_directory !== Instance.directory) return undefined
+    if (!row || !scopeMatches(row, scope)) return undefined
     return Definition.parse(row.data)
   }
 
