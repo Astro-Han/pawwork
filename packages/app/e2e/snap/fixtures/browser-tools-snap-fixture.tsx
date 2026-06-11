@@ -3,6 +3,7 @@ import { Show, type Accessor } from "solid-js"
 import type { ToolPart, ToolState } from "@opencode-ai/sdk/v2"
 import type { UiI18nKey } from "@opencode-ai/ui/context"
 import { DataProvider, I18nProvider } from "@opencode-ai/ui/context"
+import { DialogProvider } from "@opencode-ai/ui/context/dialog"
 import { MarkedProvider } from "@opencode-ai/ui/context/marked"
 import { ToolRegistry } from "@opencode-ai/ui/message-part"
 import { TrowBlock, type TrowPart } from "@opencode-ai/ui/session-turn-trow-block"
@@ -148,9 +149,13 @@ export function mountBrowserToolsSnapFixture(root: HTMLElement) {
     () => (
       <I18nProvider value={zhI18n}>
         <MarkedProvider>
-          <DataProvider data={fixtureData} directory="/Users/yuhan/PawWork">
-            <BrowserToolsSnapFixture />
-          </DataProvider>
+          {/* The real app wraps every surface in DialogProvider (app.tsx); the
+              screenshot card's click-to-preview needs it even to render. */}
+          <DialogProvider>
+            <DataProvider data={fixtureData} directory="/Users/yuhan/PawWork">
+              <BrowserToolsSnapFixture />
+            </DataProvider>
+          </DialogProvider>
         </MarkedProvider>
       </I18nProvider>
     ),
