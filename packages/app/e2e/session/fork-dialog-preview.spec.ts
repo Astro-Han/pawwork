@@ -6,6 +6,7 @@
  */
 import { writeFileSync } from "node:fs"
 import path from "node:path"
+import { pathToFileURL } from "node:url"
 import { test, expect } from "../fixtures"
 import { withSession, openPalette } from "../actions"
 
@@ -33,7 +34,7 @@ test("fork dialog previews an attachment-only message as a file placeholder", as
         {
           type: "file",
           mime: "text/plain",
-          url: `file://${filePath}`,
+          url: pathToFileURL(filePath).href,
           filename,
           metadata: { attachment: true },
         },
