@@ -538,6 +538,22 @@ describe("attachment chips", () => {
     expect(parts.filter((part) => part.type === "file")).toHaveLength(1)
   })
 
+  // The composer's duplicate guard compares raw paths and can show a redundant
+  // chip next to a relative pill for the same file; this pins the compensating
+  // guarantee that the request still carries the reference exactly once.
+  test("collapses a relative inline pill and an absolute chip for the same file", () => {
+    const prompt: Prompt = [
+      { type: "file", path: "src/foo.ts", content: "@src/foo.ts", start: 0, end: 11 },
+      { type: "attachment", id: "att_1", path: "/repo/src/foo.ts", filename: "foo.ts" },
+    ]
+
+    const parts = buildAttachmentRequestParts({ prompt, images: [], sessionDirectory: "/repo" })
+
+    const fileParts = parts.filter((part) => part.type === "file")
+    expect(fileParts).toHaveLength(1)
+    expect(fileParts[0]).toMatchObject({ url: "file:///repo/src/foo.ts" })
+  })
+
   test("includes chips in full request builds", () => {
     const prompt: Prompt = [
       { type: "text", content: "hi", start: 0, end: 2 },
