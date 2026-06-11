@@ -164,10 +164,15 @@ export function ScheduleEditorRow(props: {
             type: "button",
             "data-action": "automation-edit-schedule",
             "aria-label": props.t("automations.detail.repeats"),
-            class: ROW_VALUE_CLASS,
+            class: `flex min-w-0 items-center gap-1.5 ${ROW_VALUE_CLASS}`,
           } as never
         }
-        trigger={<span>{formatScheduleSummary(props.automation(), props.t)}</span>}
+        trigger={
+          <>
+            <span class="min-w-0 truncate">{formatScheduleSummary(props.automation(), props.t)}</span>
+            <Icon name="chevron-down" class="size-3 shrink-0 text-icon-weak" />
+          </>
+        }
       >
         <AutomationScheduleControls
           value={draft()}
