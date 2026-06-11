@@ -50,7 +50,7 @@ export function registerBrowserIpc(deps: { sessionIDForWindow: (windowID: number
     if (!resolved) return
     // Only spin up a view when there is something to show; hiding a view that
     // was never created is a no-op.
-    if (layout.visible) browserControllers.ensure(resolved.key).display(resolved.win, layout.rect)
+    if (layout.visible) browserControllers.ensure(resolved.key).display(resolved.win, layout.rect, layout.claim === true)
     else browserControllers.get(resolved.key)?.hideFor(resolved.win)
   })
   // Draft adoption can't name-check the session against DesktopContext: it runs

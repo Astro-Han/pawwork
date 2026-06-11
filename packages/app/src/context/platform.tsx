@@ -28,8 +28,11 @@ export type {
 export type BrowserViewRect = { x: number; y: number; width: number; height: number }
 
 /** Desired presentation of the embedded browser overlay, sent as one unit so
- *  visibility and bounds never race. `rect` is ignored when `visible` is false. */
-export type BrowserViewLayout = { visible: boolean; rect: BrowserViewRect }
+ *  visibility and bounds never race. `rect` is ignored when `visible` is false.
+ *  `claim` marks the push that (re)takes the display — the first one after the
+ *  panel becomes visible. Geometry-only ticks leave it unset, so an in-flight
+ *  resize from a window that just lost the display can never steal it back. */
+export type BrowserViewLayout = { visible: boolean; rect: BrowserViewRect; claim?: boolean }
 
 /** Snapshot of the embedded browser pushed from the main process on every
  *  navigation/loading change. `hasPage` is false before any successful load,

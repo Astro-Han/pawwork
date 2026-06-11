@@ -44,6 +44,9 @@ export function BrowserPanel(props: {
   // Another window took over displaying this conversation's view; show a
   // placeholder and stop reporting layout until the user reclaims explicitly.
   const [displaced, setDisplaced] = createSignal(false)
+  // True until the next visible layout push, which then carries `claim: true`
+  // (see the layout-push effect). Not a signal: it must not re-run effects.
+  let needsClaim = true
 
   let host: HTMLDivElement | undefined
   let input: HTMLInputElement | undefined
@@ -63,6 +66,10 @@ export function BrowserPanel(props: {
         // Abandon any in-progress address edit: the draft text belonged to the
         // previous conversation and must not carry over to this one.
         setEditing(false)
+        // The new target's first visible push must claim its display even when
+        // the panel stayed visible across the swap (this effect runs before
+        // the layout-push effect — same creation order).
+        needsClaim = true
         void bridge.getState(target).then((s) => {
           if (s && props.target() === target) setState((prev) => prev ?? s)
         })
@@ -91,14 +98,21 @@ export function BrowserPanel(props: {
     }),
   )
 
-  // Push visibility + bounds to main as one unit so they never race.
+  // Push visibility + bounds to main as one unit so they never race. The first
+  // visible push after the panel was hidden (or swapped targets) carries
+  // `claim: true` — only that push may take the display from another window;
+  // the per-frame geometry ticks that follow can then never steal the view
+  // back if the display changes hands while one is in flight.
   createEffect(() => {
     if (!shouldShow()) {
+      needsClaim = true
       void bridge.setView(props.target(), { visible: false, rect: HIDDEN_RECT })
       return
     }
     const r = rect()
-    if (r) void bridge.setView(props.target(), { visible: true, rect: r })
+    if (!r) return
+    void bridge.setView(props.target(), { visible: true, rect: r, claim: needsClaim })
+    needsClaim = false
   })
 
   // While visible, track the content rect every frame: a native overlay must

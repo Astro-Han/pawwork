@@ -156,15 +156,18 @@ export class BrowserViewController {
   }
 
   /**
-   * Show this conversation's view in `win` at `rect`. Reparents when the view
-   * was displayed in another window — the previous host's renderer is told it
-   * lost the display (so its panel shows a placeholder and stops sending
-   * layout instead of stealing the view back on the next resize tick).
+   * Show this conversation's view in `win` at `rect`. Only a `claim` push may
+   * take the display from another window — the loser's renderer is told via
+   * DISPLAY_TAKEN so its panel shows a placeholder. A geometry tick (claim
+   * false) from a window that is not the current host is dropped, so a resize
+   * frame already in flight when the display changed hands can never steal
+   * the view back.
    */
-  display(win: BrowserWindow, rect: BrowserViewLayout["rect"]) {
+  display(win: BrowserWindow, rect: BrowserViewLayout["rect"], claim: boolean) {
     if (this.destroyed || win.isDestroyed()) return
     if (this.host !== win) {
       if (this.host && !this.host.isDestroyed()) {
+        if (!claim) return
         this.host.contentView.removeChildView(this.view)
         this.host.webContents.send(BROWSER_DISPLAY_TAKEN_CHANNEL, { target: rendererTarget(this.target) })
       }
