@@ -50,7 +50,10 @@ export function AutomationList(props: {
               {/* Same three actions as the detail header, surfaced on hover in
                   place of the schedule summary. Siblings of the row button, so
                   clicking one never opens the row. */}
-              <div class="absolute right-2.5 top-1/2 flex -translate-y-1/2 items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover/automation:opacity-100">
+              <div
+                data-component="automation-row-actions"
+                class="absolute right-2.5 top-1/2 flex -translate-y-1/2 items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover/automation:opacity-100 group-focus-within/automation:opacity-100"
+              >
                 <Button
                   variant="ghost"
                   icon="trash"

@@ -239,8 +239,11 @@ export function AutomationDetail(props: {
           : { kind: "recurring", ...common, rhythm: previous.rhythm, stop: previous.stop }
       const created = await globalSync.automation.create(project.worktree, input)
       if (!created) return
-      if (previous.paused) await globalSync.automation.pause(project.worktree, created.id).catch(() => {})
+      // A paused source must arrive paused: if the target pause fails, the
+      // move fails — roll the copy back rather than leave an automation the
+      // user silenced suddenly live in another project.
       try {
+        if (previous.paused) await globalSync.automation.pause(project.worktree, created.id)
         await globalSync.automation.delete(props.directory(), previous.id)
       } catch (error) {
         await globalSync.automation.delete(project.worktree, created.id).catch(() => {})

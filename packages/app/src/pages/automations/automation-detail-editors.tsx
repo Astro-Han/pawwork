@@ -62,7 +62,9 @@ export function EditableText(props: {
       return
     }
     const ok = await props.onCommit(next)
-    if (!ok && element) {
+    // Roll back only if the control still shows the failed submission — the
+    // user may have refocused and retyped while the request was in flight.
+    if (!ok && element && element.value === next) {
       element.value = props.value
       autoresize()
     }
@@ -165,20 +167,17 @@ export function ProjectEditorRow(props: {
 // in a popover. Every knob change commits immediately — each intermediate state
 // is itself a valid schedule. The kind is fixed by the server (no
 // oneshot<->recurring conversion), so the frequency switch only offers what the
-// kind supports, and an arbitrary cron (hourly etc.) keeps its rhythm until the
-// user explicitly picks one of the four picker frequencies.
+// kind supports. A rhythm the picker cannot express (hourly, interval,
+// arbitrary cron) renders read-only instead: the segmented switch would have
+// to pre-select a frequency the definition does not have, and any knob change
+// would silently rewrite the rhythm to it.
 export function ScheduleEditorRow(props: {
   automation: Accessor<AutomationDefinition>
   t: Translate
   onPatch: CommitPatch
 }): JSX.Element {
-  const draftFromDefinition = (): ScheduleDraft => {
-    const definition = props.automation()
-    return (
-      scheduleDraftFromDefinition(definition) ??
-      (definition.kind === "oneshot" ? { ...DEFAULT_SCHEDULE, frequency: "once" } : DEFAULT_SCHEDULE)
-    )
-  }
+  const draftFromDefinition = (): ScheduleDraft => scheduleDraftFromDefinition(props.automation()) ?? DEFAULT_SCHEDULE
+  const editable = createMemo(() => scheduleDraftFromDefinition(props.automation()) !== undefined)
   const [draft, setDraft] = createSignal<ScheduleDraft>(draftFromDefinition())
   createEffect(() => setDraft(draftFromDefinition()))
 
@@ -199,7 +198,15 @@ export function ScheduleEditorRow(props: {
 
   return (
     <EditorRow label={props.t("automations.detail.repeats")}>
-      <Popover
+      <Show
+        when={editable()}
+        fallback={
+          <span class="min-w-0 truncate text-right text-body text-fg-base">
+            {formatScheduleSummary(props.automation(), props.t)}
+          </span>
+        }
+      >
+        <Popover
         modal
         placement="bottom-end"
         class="w-max max-w-[440px]"
@@ -219,13 +226,14 @@ export function ScheduleEditorRow(props: {
           </>
         }
       >
-        <AutomationScheduleControls
-          value={draft()}
-          onChange={(next) => void change(next)}
-          t={props.t}
-          frequencies={frequencies()}
-        />
-      </Popover>
+          <AutomationScheduleControls
+            value={draft()}
+            onChange={(next) => void change(next)}
+            t={props.t}
+            frequencies={frequencies()}
+          />
+        </Popover>
+      </Show>
     </EditorRow>
   )
 }
@@ -251,7 +259,7 @@ export function ModelEditorRow(props: {
     set: (item) => {
       if (!item) return
       models.setVisibility(item, true)
-      void props.onPatch({ model: item, variant: null })
+      void props.onPatch({ model: { providerID: item.providerID, modelID: item.modelID }, variant: null })
     },
     variant: {
       list: () => Object.keys(current()?.variants ?? {}),

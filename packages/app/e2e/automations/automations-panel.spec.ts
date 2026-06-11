@@ -620,6 +620,121 @@ test("automations panel: detail moves an automation to another open project", as
   }
 })
 
+test("automations panel: a rhythm the picker cannot express is read-only", async ({ page, project }) => {
+  test.setTimeout(120_000)
+
+  await project.open()
+  const surface = await openAutomations(page)
+
+  // Hourly cron is real (SDK/automate tool) but outside the picker's four
+  // frequencies. Offering the editor would pre-select a frequency the
+  // definition does not have and silently rewrite the cron on any knob change,
+  // so the Repeats row must render as plain text with no trigger at all.
+  const projectID = (await project.sdk.project.current()).data!.id
+  await project.sdk.automation.create(
+    recurring(projectID, "Hourly build watch", "Check CI and flag a red main build.", "0 * * * *"),
+  )
+
+  const rows = surface.locator('[data-action="automation-row"]')
+  await expect(rows).toHaveCount(1)
+  await rows.first().click()
+
+  const detail = surface.locator('[data-component="automation-detail"]')
+  await expect(detail).toBeVisible()
+  await expect(detail.getByText("Hourly")).toBeVisible()
+  await expect(detail.locator('[data-action="automation-edit-schedule"]')).toHaveCount(0)
+})
+
+test("automations panel: a paused automation arrives paused after a move", async ({ page, project, backend }) => {
+  test.setTimeout(120_000)
+
+  const other = await createTestProject({ serverUrl: backend.url })
+  try {
+    await project.open({ extra: [other] })
+    const otherSDK = backend.sdk(other)
+    const otherProjectID = (await otherSDK.project.current()).data!.id
+
+    const projectID = (await project.sdk.project.current()).data!.id
+    const created = (
+      await project.sdk.automation.create(
+        recurring(projectID, "Silenced digest", "Stay quiet until resumed.", "0 9 * * *"),
+      )
+    ).data!
+    await project.sdk.automation.pause({ automationID: created.id })
+
+    const surface = await openAutomations(page)
+    await surface.locator('[data-action="automation-row"]').filter({ hasText: "Silenced digest" }).first().click()
+    const detail = surface.locator('[data-component="automation-detail"]')
+    await expect(detail).toBeVisible()
+
+    await detail.locator('[data-action="automation-edit-project"]').click()
+    await page.locator(`[data-project="${otherProjectID}"]`).click()
+
+    // The recreated copy must keep the silence the user set, not wake up live.
+    await expect
+      .poll(async () => {
+        const moved = ((await otherSDK.automation.list()).data?.items ?? []).find(
+          (item) => item.title === "Silenced digest",
+        )
+        return moved ? moved.paused : "missing"
+      })
+      .toBe(true)
+    await expect
+      .poll(async () => ((await project.sdk.automation.list()).data?.items ?? []).length)
+      .toBe(0)
+  } finally {
+    await cleanupTestProject(other, { serverUrl: backend.url })
+  }
+})
+
+test("automations panel: a failed pause during a move rolls back and keeps the source", async ({
+  page,
+  project,
+  backend,
+}) => {
+  test.setTimeout(120_000)
+
+  const other = await createTestProject({ serverUrl: backend.url })
+  try {
+    await project.open({ extra: [other] })
+    const otherSDK = backend.sdk(other)
+    const otherProjectID = (await otherSDK.project.current()).data!.id
+
+    const projectID = (await project.sdk.project.current()).data!.id
+    const created = (
+      await project.sdk.automation.create(
+        recurring(projectID, "Silenced digest", "Stay quiet until resumed.", "0 9 * * *"),
+      )
+    ).data!
+    await project.sdk.automation.pause({ automationID: created.id })
+
+    const surface = await openAutomations(page)
+    await surface.locator('[data-action="automation-row"]').filter({ hasText: "Silenced digest" }).first().click()
+    const detail = surface.locator('[data-component="automation-detail"]')
+    await expect(detail).toBeVisible()
+
+    // Re-applying the pause on the target fails. The move must fail as a whole:
+    // the fresh copy is deleted, the paused source is untouched, and the user
+    // is told — never a silenced automation suddenly live in another project.
+    await page.route("**/automation/*/pause*", (route) => route.fulfill({ status: 500, body: "{}" }))
+    await detail.locator('[data-action="automation-edit-project"]').click()
+    await page.locator(`[data-project="${otherProjectID}"]`).click()
+
+    await expect(page.locator('[data-component="toast"]')).toBeVisible()
+    await expect
+      .poll(async () => ((await otherSDK.automation.list()).data?.items ?? []).length)
+      .toBe(0)
+    await expect
+      .poll(async () => {
+        const source = ((await project.sdk.automation.list()).data?.items ?? []).find((item) => item.id === created.id)
+        return source ? source.paused : "gone"
+      })
+      .toBe(true)
+  } finally {
+    await cleanupTestProject(other, { serverUrl: backend.url })
+  }
+})
+
 test("automations panel: list rows expose run, pause and delete on hover", async ({ page, project }) => {
   test.setTimeout(120_000)
 
@@ -635,6 +750,12 @@ test("automations panel: list rows expose run, pause and delete on hover", async
 
   const rows = surface.locator('[data-action="automation-row"]')
   await expect(rows).toHaveCount(1)
+
+  // Keyboard path: focusing the row alone must already reveal the actions —
+  // a keyboard user should not face a blank slot where the summary just hid.
+  await rows.first().focus()
+  await expect(surface.locator('[data-component="automation-row-actions"]')).toHaveCSS("opacity", "1")
+
   await rows.first().hover()
 
   // Run now fires a run without leaving the list.
