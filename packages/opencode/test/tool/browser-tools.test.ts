@@ -437,6 +437,18 @@ describe("browser_wait", () => {
     expect(server.methods).toEqual([])
   })
 
+  test("a wait that never matches fails with an actionable timeout message, not the raw page exception", async () => {
+    const server = setupServer()
+    // The in-page waiter times out by throwing inside Runtime.evaluate; the
+    // raw form is "Evaluate error: Error: Selector not found: ... at <anonymous>".
+    server.handlers.set("Runtime.evaluate", () => ({
+      exceptionDetails: { exception: { description: "Error: Selector not found: #missing\n    at <anonymous>:6:16" } },
+    }))
+    await expect(exec(BrowserWaitTool, { selector: "#missing", timeout: 1 })).rejects.toThrow(
+      /Waited 1s but selector "#missing" never appeared.*browser_snapshot/,
+    )
+  })
+
   test("waits for a fixed pause", async () => {
     setupServer()
     const result = await exec(BrowserWaitTool, { time: 0.05 })

@@ -65,11 +65,23 @@ export const BrowserWaitTool = Tool.define(
                 await page.wait({ time: requested })
                 return info
               }
-              await page.wait({
-                ...(params.text ? { text: params.text } : {}),
-                ...(params.selector ? { selector: params.selector } : {}),
-                timeout: requested,
-              })
+              try {
+                await page.wait({
+                  ...(params.text ? { text: params.text } : {}),
+                  ...(params.selector ? { selector: params.selector } : {}),
+                  timeout: requested,
+                })
+              } catch (err) {
+                // The page-side waiter rejects with a raw in-page exception
+                // ("Evaluate error: ... Selector not found ... at <anonymous>"),
+                // which neither says it was a timeout nor how to recover. Say both.
+                if (err instanceof Error && /Selector not found|Text not found/.test(err.message)) {
+                  throw new Error(
+                    `Waited ${requested}s but ${condition} never appeared. The page may be structured differently than expected — take a browser_snapshot to see what is actually there before retrying.`,
+                  )
+                }
+                throw err
+              }
               return info
             },
           })
