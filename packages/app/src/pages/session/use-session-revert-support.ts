@@ -6,7 +6,7 @@ import type { useSDK } from "@/context/sdk"
 import type { useSync } from "@/context/sync"
 import { promptScopeForSession } from "@/pages/session/prompt-route-scope"
 import type { ExecutionScope } from "@/pages/session/execution-scope"
-import { extractPromptFromParts } from "@/utils/prompt"
+import { extractPromptFromParts, promptPreviewText } from "@/utils/prompt"
 import { formatServerError } from "@/utils/server-errors"
 
 type SyncStore = ReturnType<typeof useSync>["data"]
@@ -30,19 +30,8 @@ export function createSessionRevertSupport(input: {
       attachmentName: input.attachmentLabel(),
     })
 
-  const line = (id: string) => {
-    const text = draftFrom({ directory: input.directory(), store: input.sync.data }, id)
-      .map((part) => {
-        if (part.type === "image") return `[image:${part.filename}]`
-        if (part.type === "attachment") return `[file:${part.path}]`
-        return part.content
-      })
-      .join("")
-      .replace(/\s+/g, " ")
-      .trim()
-    if (text) return text
-    return `[${input.attachmentLabel()}]`
-  }
+  const line = (id: string) =>
+    promptPreviewText(draftFrom({ directory: input.directory(), store: input.sync.data }, id), input.attachmentLabel())
 
   const fail = (err: unknown) => {
     showToast({

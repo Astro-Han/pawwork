@@ -7,7 +7,7 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { List } from "@opencode-ai/ui/list"
 import { showToast } from "@opencode-ai/ui/toast"
-import { extractPromptFromParts } from "@/utils/prompt"
+import { extractPromptFromParts, promptPreviewText } from "@/utils/prompt"
 import { deriveCommandInvocation } from "@opencode-ai/ui/lib/command-invocation"
 import type { TextPart as SDKTextPart } from "@opencode-ai/sdk/v2/client"
 import { base64Encode } from "@opencode-ai/util/encode"
@@ -53,12 +53,27 @@ export const DialogFork: Component = () => {
         continue
       }
 
+      // Attachment-only messages have an empty (or no) text part; preview them
+      // through the same [file:path] fallback the revert banner uses instead of
+      // rendering a blank row. Messages with neither text nor files stay hidden.
       const textPart = parts.find((x): x is SDKTextPart => x.type === "text" && !x.synthetic && !x.ignored)
-      if (!textPart) continue
+      const hasFilePart = parts.some((x) => x.type === "file")
+      if (!textPart && !hasFilePart) continue
+
+      const text = textPart?.text.replace(/\n/g, " ").trim()
+      const preview =
+        text ||
+        promptPreviewText(
+          extractPromptFromParts(parts, {
+            directory: sdk.directory,
+            attachmentName: language.t("common.attachment"),
+          }),
+          language.t("common.attachment"),
+        )
 
       result.push({
         id: message.id,
-        text: textPart.text.replace(/\n/g, " ").slice(0, 200),
+        text: preview.slice(0, 200),
         time: formatTime(new Date(message.time.created)),
       })
     }
