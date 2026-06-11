@@ -37,6 +37,9 @@ describe("opencli adapter runner", () => {
     expect(() => prepareOpenCliCommandArgs(command, { query: "pawwork", sort: "hot" })).toThrow(
       'Argument "sort" must be one of',
     )
+    expect(() => prepareOpenCliCommandArgs(command, { query: "pawwork", limit: "" })).toThrow(
+      'Argument "limit" must be a valid number',
+    )
     expect(() => prepareOpenCliCommandArgs(command, { query: "bad" })).toThrow("bad query")
   })
 

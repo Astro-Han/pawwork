@@ -97,6 +97,9 @@ export function coerceOpenCliArgs(cmdArgs: Arg[], kwargs: CommandArgs): CommandA
     }
     if (val !== undefined && val !== null) {
       if (argDef.type === "int" || argDef.type === "number") {
+        if (typeof val === "string" && val.trim() === "") {
+          throw new OpenCliArgumentError(`Argument "${argDef.name}" must be a valid number. Received: "${val}"`)
+        }
         const num = Number(val)
         if (Number.isNaN(num)) {
           throw new OpenCliArgumentError(`Argument "${argDef.name}" must be a valid number. Received: "${val}"`)
