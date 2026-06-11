@@ -58,6 +58,8 @@ const SUPPORTED_PAGE_METHODS = new Set([
 ])
 
 const ACCEPTED_CAPABILITY_GAPS: CapabilityGap[] = [
+  // instagram/post checks input.page.closeWindow before calling it; without the method,
+  // it falls back to dialog cleanup instead of failing the adapter command.
   {
     command: "instagram/post",
     modulePath: "instagram/post.js",
