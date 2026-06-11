@@ -1,0 +1,3 @@
+Run one bundled OpenCLI adapter command.
+
+Call opencli_search first when you are unsure which command to use. Pass the exact command name returned by search, such as `hackernews/search` or `12306/me`, and provide adapter arguments in `args`. Commands run against PawWork's visible embedded browser when they need browser access.

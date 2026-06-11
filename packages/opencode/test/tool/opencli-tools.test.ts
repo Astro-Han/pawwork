@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test"
+import { cli, getRegistry } from "@jackwener/opencli/registry"
 import { Effect, Layer, type Schema } from "effect"
 import { Agent } from "../../src/agent/agent"
 import { Instance } from "../../src/project/instance"
 import { MessageID, SessionID } from "../../src/session/schema"
+import { OpenCliRunTool } from "../../src/tool/opencli-run"
 import { OpenCliSearchTool } from "../../src/tool/opencli-search"
 import type * as Tool from "../../src/tool/tool"
 import { Truncate } from "../../src/tool/truncate"
@@ -42,5 +44,29 @@ describe("opencli_search", () => {
     expect(result.output).toContain("browser: true")
     expect(result.output).not.toContain("instagram/reel")
     expect(result.metadata).toMatchObject({ query: "12306 account" })
+  })
+})
+
+describe("opencli_run", () => {
+  test("runs a registered non-browser adapter through command and args", async () => {
+    cli({
+      site: "pawwork-test",
+      name: "echo",
+      access: "read",
+      description: "Echo test adapter",
+      browser: false,
+      args: [{ name: "query", required: true }],
+      func: async (args) => [{ echoed: args.query }],
+    })
+
+    try {
+      const result = await exec(OpenCliRunTool, { command: "pawwork-test/echo", args: { query: "hello" } })
+
+      expect(result.title).toBe("OpenCLI pawwork-test/echo")
+      expect(result.output).toContain('"echoed": "hello"')
+      expect(result.metadata).toMatchObject({ command: "pawwork-test/echo", browser: false })
+    } finally {
+      getRegistry().delete("pawwork-test/echo")
+    }
   })
 })

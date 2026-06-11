@@ -23,7 +23,7 @@ const BROWSER_TOOLS = [
   "browser_screenshot",
   "browser_extract",
 ]
-const OPENCLI_TOOLS = ["opencli_search"]
+const OPENCLI_TOOLS = ["opencli_search", "opencli_run"]
 
 function toolPart(
   tool: string,
