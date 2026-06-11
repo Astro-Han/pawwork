@@ -21,6 +21,7 @@ type Active = {
   owner: Owner
   onClose?: () => void
   setClosing: (closing: boolean) => void
+  closing: boolean
 }
 
 const Context = createContext<ReturnType<typeof init>>()
@@ -40,6 +41,7 @@ function init() {
     const current = active()
     if (!current || lock.value) return
     lock.value = true
+    current.closing = true
     current.onClose?.()
     current.setClosing(true)
 
@@ -100,7 +102,7 @@ function init() {
 
     if (!dispose || !setClosing) return
 
-    setActive({ id, node, dispose, owner, onClose, setClosing })
+    setActive({ id, node, dispose, owner, onClose, setClosing, closing: false })
   }
 
   return {
@@ -138,7 +140,14 @@ export function useDialog() {
       return ctx.active
     },
     show(element: DialogElement, onClose?: () => void) {
-      const base = ctx.active?.owner ?? owner
+      // A dialog mid-close (palette command flows call close() and then the
+      // command handler shows the next dialog within the close animation) must
+      // not anchor the new dialog's owner: its owner sits wherever IT was
+      // opened from and is about to be disposed — context lookups from the new
+      // dialog (e.g. useSync from a session-page command) would miss providers
+      // the caller can see.
+      const current = ctx.active
+      const base = current && !current.closing ? current.owner : owner
       ctx.show(element, base, onClose)
     },
     close() {
