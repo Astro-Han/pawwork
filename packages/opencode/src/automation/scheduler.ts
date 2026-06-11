@@ -36,7 +36,7 @@ export namespace AutomationScheduler {
     settleOwner(): Promise<void>
     reschedule(definition: Automation.Definition, scope?: Automation.Scope): void
     cancel(automationID: string): void
-    computeNextFireAt(definition: Automation.Definition, from?: number): number | null
+    computeNextFireAt(definition: Automation.Definition, from?: number, scope?: Automation.Scope): number | null
   }
 
   export interface Options {
@@ -117,13 +117,17 @@ export namespace AutomationScheduler {
     )
   export const defaultLayer = layer()
 
-  export function computeNextFireAt(definition: Automation.Definition, from: number): number | null {
+  export function computeNextFireAt(
+    definition: Automation.Definition,
+    from: number,
+    scope: Automation.Scope = Automation.currentScope(),
+  ): number | null {
     if (definition.paused) return null
     if (definition.kind === "oneshot") {
-      if (Automation.hasRunTriggeredAtOrAfter(definition.id, definition.fireAt)) return null
+      if (Automation.hasRunTriggeredAtOrAfter(definition.id, definition.fireAt, scope)) return null
       return definition.fireAt
     }
-    if (!canScheduleRecurring(definition)) return null
+    if (!canScheduleRecurring(definition, scope)) return null
     if (definition.rhythm.kind === "cron") return computeNextCronFireAt(definition, from)
     return from + definition.rhythm.everyMs
   }
@@ -150,9 +154,12 @@ export namespace AutomationScheduler {
     return null
   }
 
-  function canScheduleRecurring(definition: Extract<Automation.Definition, { kind: "recurring" }>) {
+  function canScheduleRecurring(
+    definition: Extract<Automation.Definition, { kind: "recurring" }>,
+    scope: Automation.Scope = Automation.currentScope(),
+  ) {
     if (definition.stop.kind === "never") return true
-    if (definition.stop.kind === "count") return Automation.completedRunCount(definition.id) < definition.stop.count
+    if (definition.stop.kind === "count") return Automation.completedRunCount(definition.id, scope) < definition.stop.count
     return false
   }
 
@@ -226,14 +233,14 @@ export namespace AutomationScheduler {
       entry.task.interrupt()
     }
 
-    const scheduleNextInterval = (automationID: string) => {
+    const scheduleNextInterval = (automationID: string, scope: Automation.Scope = Automation.currentScope()) => {
       try {
-        const latest = Automation.get(automationID)
-        if (latest.kind === "recurring" && !latest.paused && canScheduleRecurring(latest)) {
+        const latest = Automation.get(automationID, scope)
+        if (latest.kind === "recurring" && !latest.paused && canScheduleRecurring(latest, scope)) {
           const next =
-            latest.rhythm.kind === "interval" ? clock.now() + latest.rhythm.everyMs : computeNextFireAt(latest, clock.now())
+            latest.rhythm.kind === "interval" ? clock.now() + latest.rhythm.everyMs : computeNextFireAt(latest, clock.now(), scope)
           if (next === null) cancel(automationID)
-          else schedule(latest, next, Automation.currentScope())
+          else schedule(latest, next, scope)
         } else {
           cancel(automationID)
         }
@@ -253,12 +260,16 @@ export namespace AutomationScheduler {
           const latest = Automation.get(automationID)
           if (latest.paused) return
           if (latest.kind === "oneshot" && latest.fireAt !== triggeredAt) return
-          if (latest.kind === "recurring" && !canScheduleRecurring(latest)) return
+          if (latest.kind === "recurring" && !canScheduleRecurring(latest, entry.scope)) return
           if (firedAt - triggeredAt > MISSED_SCHEDULE_GRACE_MS) {
-            const stopped = Automation.recordStoppedRun(automationID, "missed_schedule", { now: firedAt, triggeredAt })
+            const stopped = Automation.recordStoppedRun(automationID, "missed_schedule", {
+              now: firedAt,
+              triggeredAt,
+              scope: entry.scope,
+            })
             schedulerStoppedRuns.add(stopped.id)
             void Automation.publishRunUpdated(stopped)
-            if (latest.kind === "recurring") scheduleNextInterval(automationID)
+            if (latest.kind === "recurring") scheduleNextInterval(automationID, entry.scope)
             return
           }
         } catch (error) {
@@ -267,10 +278,13 @@ export namespace AutomationScheduler {
         }
         for (const run of await Automation.reconcileInterruptedRuns({ now: firedAt })) void Automation.publishRunUpdated(run)
         if (Automation.hasActiveRun(automationID)) {
-          const stopped = Automation.recordStoppedRun(automationID, "previous_run_awaiting_input", { now: triggeredAt })
+          const stopped = Automation.recordStoppedRun(automationID, "previous_run_awaiting_input", {
+            now: triggeredAt,
+            scope: entry.scope,
+          })
           schedulerStoppedRuns.add(stopped.id)
           void Automation.publishRunUpdated(stopped)
-          scheduleNextInterval(automationID)
+          scheduleNextInterval(automationID, entry.scope)
           return
         }
         try {
@@ -281,7 +295,7 @@ export namespace AutomationScheduler {
           })
           ownedRuns.set(run.id, { automationID, scope: Automation.currentScope() })
           const latest = Automation.get(automationID)
-          if (latest.kind === "recurring" && latest.rhythm.kind === "cron") scheduleNextInterval(automationID)
+          if (latest.kind === "recurring" && latest.rhythm.kind === "cron") scheduleNextInterval(automationID, entry.scope)
         } catch (error) {
           if (!NotFoundError.isInstance(error)) throw error
         }
@@ -348,23 +362,31 @@ export namespace AutomationScheduler {
       const cached = unschedulable.get(definition.id)
       if (cached && isSameSchedule(cached, definition)) return
       unschedulable.delete(definition.id)
-      if (definition.kind === "recurring" && definition.rhythm.kind === "cron" && canScheduleRecurring(definition)) {
+      if (definition.kind === "recurring" && definition.rhythm.kind === "cron" && canScheduleRecurring(definition, scope)) {
         const firstScheduled = computeNextCronFireAt(definition, definition.createdAt)
         const missed = firstScheduled === null ? null : computePreviousCronFireAt(definition, firstScheduled, clock.now())
-        if (missed !== null && !Automation.hasRunTriggeredAtOrAfter(definition.id, missed)) {
-          const stopped = Automation.recordStoppedRun(definition.id, "missed_schedule", { now: clock.now(), triggeredAt: missed })
+        if (missed !== null && !Automation.hasRunTriggeredAtOrAfter(definition.id, missed, scope)) {
+          const stopped = Automation.recordStoppedRun(definition.id, "missed_schedule", {
+            now: clock.now(),
+            triggeredAt: missed,
+            scope,
+          })
           schedulerStoppedRuns.add(stopped.id)
           void Automation.publishRunUpdated(stopped)
         }
       }
-      const next = computeNextFireAt(definition, clock.now())
+      const next = computeNextFireAt(definition, clock.now(), scope)
       if (next === null) {
         cancel(definition.id)
         if (isStableCronSchedule(definition)) unschedulable.set(definition.id, definition)
         return
       }
       if (definition.kind === "oneshot" && next <= clock.now()) {
-        const stopped = Automation.recordStoppedRun(definition.id, "missed_schedule", { now: clock.now(), triggeredAt: next })
+        const stopped = Automation.recordStoppedRun(definition.id, "missed_schedule", {
+          now: clock.now(),
+          triggeredAt: next,
+          scope,
+        })
         schedulerStoppedRuns.add(stopped.id)
         void Automation.publishRunUpdated(stopped)
         cancel(definition.id)
@@ -423,11 +445,15 @@ export namespace AutomationScheduler {
         return
       }
       if (payload.type === Automation.Event.DefinitionUpdated.type) {
-        runScoped(event, (scope) => {
+        const scope = scopeFromEvent(event)
+        if (!scope) return
+        try {
           const definition = Automation.Definition.parse(payload.properties)
           if (selfPublishedDefinitionUpdates.delete(selfUpdateKey(definition))) return
           reschedule(definition, scope)
-        })
+        } catch (error) {
+          log.error("automation scheduler definition event handling failed", { error })
+        }
         return
       }
       if (payload.type === Automation.Event.DefinitionDeleted.type) {
@@ -471,13 +497,15 @@ export namespace AutomationScheduler {
       const scopes = new Map<string, Automation.Scope>()
       for (const item of items) scopes.set(scopeKey(item.scope), item.scope)
       for (const scope of scopes.values()) {
-        await runInScope(scope, async () => {
-          for (const run of await Automation.reconcileInterruptedRuns({ now: clock.now() })) void Automation.publishRunUpdated(run)
-        }).catch((error) => log.error("automation scheduler reconcile failed", { error, scope }))
+        await Automation.reconcileInterruptedRuns({ now: clock.now(), scope })
+          .then((runs) => {
+            for (const run of runs) void Automation.publishRunUpdated(run)
+          })
+          .catch((error) => log.error("automation scheduler reconcile failed", { error, scope }))
       }
       for (const item of items) {
         try {
-          await runInScope(item.scope, () => reschedule(item.definition, item.scope))
+          reschedule(item.definition, item.scope)
         } catch (error) {
           log.error("automation scheduler scan failed", { error, automationID: item.definition.id })
         }
@@ -557,8 +585,8 @@ export namespace AutomationScheduler {
       settleOwner,
       reschedule,
       cancel,
-      computeNextFireAt(definition, from = clock.now()) {
-        return computeNextFireAt(definition, from)
+      computeNextFireAt(definition, from = clock.now(), scope) {
+        return computeNextFireAt(definition, from, scope)
       },
     }
   }

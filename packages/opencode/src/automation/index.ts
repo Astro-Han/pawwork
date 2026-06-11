@@ -552,8 +552,8 @@ export namespace Automation {
     )
   }
 
-  export function get(id: string): Definition {
-    const definition = getOptional(id)
+  export function get(id: string, scope: Scope = currentScope()): Definition {
+    const definition = getOptional(id, scope)
     if (!definition) throw new NotFoundError({ message: `Automation not found: ${id}` })
     return definition
   }
@@ -627,8 +627,8 @@ export namespace Automation {
     )
   }
 
-  function writeRun(run: Run) {
-    const definition = getOptional(run.automationID)
+  function writeRun(run: Run, scope: Scope = currentScope()) {
+    const definition = getOptional(run.automationID, scope)
     if (!definition) throw new NotFoundError({ message: `Automation not found: ${run.automationID}` })
     const now = Date.now()
     Database.use((db) =>
@@ -638,7 +638,7 @@ export namespace Automation {
           id: run.id,
           automation_id: run.automationID,
           project_id: definition.where.projectID,
-          owner_directory: Instance.directory,
+          owner_directory: scope.ownerDirectory,
           triggered_at: run.triggeredAt,
           data: run,
           time_created: now,
@@ -812,11 +812,11 @@ export namespace Automation {
     }
   }
 
-  function replaceRun(previous: Run, next: Run) {
+  function replaceRun(previous: Run, next: Run, scope: Scope = currentScope()) {
     return Database.transaction(
       (db) => {
         const row = db.select().from(AutomationRunTable).where(eq(AutomationRunTable.id, previous.id)).get()
-        if (!row || row.project_id !== Instance.project.id || row.owner_directory !== Instance.directory) return previous
+        if (!row || row.project_id !== scope.projectID || row.owner_directory !== scope.ownerDirectory) return previous
         const current = Run.parse(row.data)
         if (current.revision !== previous.revision) return current
         const now = Date.now()
@@ -842,7 +842,7 @@ export namespace Automation {
     )
   }
 
-  function reviseRun(run: Run, patch: Record<string, unknown>): Run {
+  function reviseRun(run: Run, patch: Record<string, unknown>, scope?: Scope): Run {
     const next = {
       ...run,
       ...patch,
@@ -853,22 +853,26 @@ export namespace Automation {
     for (const [key, value] of Object.entries(next)) {
       if (value === undefined) delete (next as Record<string, unknown>)[key]
     }
-    return replaceRun(run, Run.parse(next))
+    return replaceRun(run, Run.parse(next), scope)
   }
 
   function stopRun(
     run: Run,
     stopReason: Extract<Run, { state: "stopped" }>["stopReason"],
-    options?: { now?: number },
+    options?: { now?: number; scope?: Scope },
   ): Run {
     if (run.state === "stopped" || run.state === "succeeded" || run.state === "failed") return run
-    return reviseRun(run, {
-      state: "stopped",
-      completedAt: options?.now ?? Date.now(),
-      result: null,
-      error: null,
-      stopReason,
-    })
+    return reviseRun(
+      run,
+      {
+        state: "stopped",
+        completedAt: options?.now ?? Date.now(),
+        result: null,
+        error: null,
+        stopReason,
+      },
+      options?.scope,
+    )
   }
 
   function stopActiveRun(automationID: string) {
@@ -944,8 +948,9 @@ export namespace Automation {
     })
   }
 
-  export function runNow(id: string, options?: { now?: number; runID?: string }): Run {
-    const definition = get(id)
+  export function runNow(id: string, options?: { now?: number; runID?: string; scope?: Scope }): Run {
+    const scope = options?.scope ?? currentScope()
+    const definition = get(id, scope)
     const run = Run.parse({
       id: options?.runID ?? AutomationID.Run.ascending(),
       automationID: id,
@@ -960,7 +965,7 @@ export namespace Automation {
       error: null,
       cost: null,
     })
-    writeRun(run)
+    writeRun(run, scope)
     return run
   }
 
@@ -988,12 +993,12 @@ export namespace Automation {
     return run.state === "scheduled" || run.state === "running" || run.state === "awaiting_input"
   }
 
-  function runLeaseKey(runID: string) {
-    return `automation-run:${Instance.directory}:${runID}`
+  function runLeaseKey(ownerDirectory: string, runID: string) {
+    return `automation-run:${ownerDirectory}:${runID}`
   }
 
-  async function hasLiveRunLease(runID: string) {
-    const lease = await Flock.tryAcquire(runLeaseKey(runID))
+  async function hasLiveRunLease(runID: string, ownerDirectory = Instance.directory) {
+    const lease = await Flock.tryAcquire(runLeaseKey(ownerDirectory, runID))
     if (!lease) return true
     await lease.release().catch(() => undefined)
     return false
@@ -1047,8 +1052,12 @@ export namespace Automation {
     )
   }
 
-  export function hasRunTriggeredAtOrAfter(automationID: string, triggeredAt: number): boolean {
-    get(automationID)
+  export function hasRunTriggeredAtOrAfter(
+    automationID: string,
+    triggeredAt: number,
+    scope: Scope = currentScope(),
+  ): boolean {
+    get(automationID, scope)
     return Boolean(
       Database.use((db) =>
         db
@@ -1066,8 +1075,8 @@ export namespace Automation {
     )
   }
 
-  export function completedRunCount(automationID: string): number {
-    get(automationID)
+  export function completedRunCount(automationID: string, scope: Scope = currentScope()): number {
+    get(automationID, scope)
     const row = Database.use((db) =>
       db
         .select({ count: sql<number>`count(*)` })
@@ -1083,9 +1092,10 @@ export namespace Automation {
     return Number(row?.count ?? 0)
   }
 
-  export async function reconcileInterruptedRuns(options?: { now?: number }): Promise<Run[]> {
-    const projectID = Instance.project.id
-    const ownerDirectory = Instance.directory
+  export async function reconcileInterruptedRuns(options?: { now?: number; scope?: Scope }): Promise<Run[]> {
+    const scope = options?.scope ?? currentScope()
+    const projectID = scope.projectID
+    const ownerDirectory = scope.ownerDirectory
     const now = options?.now ?? Date.now()
     const rows = Database.use((db) =>
       db
@@ -1104,9 +1114,9 @@ export namespace Automation {
     for (const row of rows) {
       const run = Run.parse(row.data)
       if (!isActiveRun(run)) continue
-      const active = state().activeRuns.get(run.automationID)
+      const active = options?.scope ? undefined : state().activeRuns.get(run.automationID)
       if (active?.runID === run.id) continue
-      if (await hasLiveRunLease(run.id)) continue
+      if (await hasLiveRunLease(run.id, ownerDirectory)) continue
       const next = Database.transaction(
         (db) => {
           const currentRow = db.select().from(AutomationRunTable).where(eq(AutomationRunTable.id, run.id)).get()
@@ -1140,9 +1150,9 @@ export namespace Automation {
   export function recordStoppedRun(
     automationID: string,
     stopReason: Extract<Run, { state: "stopped" }>["stopReason"],
-    options?: { now?: number; triggeredAt?: number },
+    options?: { now?: number; triggeredAt?: number; scope?: Scope },
   ): Run {
-    const run = runNow(automationID, { now: options?.triggeredAt ?? options?.now })
+    const run = runNow(automationID, { now: options?.triggeredAt ?? options?.now, scope: options?.scope })
     return stopRun(run, stopReason, options)
   }
 
@@ -1151,7 +1161,7 @@ export namespace Automation {
     options: { executor: RunExecutor; attendance?: AutomationRunAttendance; now?: number },
   ): Promise<Run> {
     const runID = AutomationID.Run.ascending()
-    const lease = await Flock.acquire(runLeaseKey(runID))
+    const lease = await Flock.acquire(runLeaseKey(Instance.directory, runID))
     try {
       const initial = runNow(id, { now: options.now, runID })
       queueMicrotask(() => void executeRun(initial, options.executor, options.attendance ?? "attended", lease))

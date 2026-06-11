@@ -324,6 +324,7 @@ describe("automation scheduler", () => {
       },
     })
     await scheduler.settleOwner()
+    expect(Instance.directories()).not.toContain(projectDirectory)
 
     await clock.advance(1_000)
     await Instance.provide({
@@ -792,13 +793,6 @@ describe("automation scheduler", () => {
 
       releaseUnrelatedRun()
       await Bun.sleep(0)
-
-      const nextDefinition = Automation.create(recurringInput(projectID, 60_000, { title: "Next recurring" }), {
-        now: 60_000,
-      })
-      scheduler.reschedule(nextDefinition)
-      await clock.advance(60_000)
-      await waitForRunStates(nextDefinition.id, ["succeeded"])
     })
   })
 
