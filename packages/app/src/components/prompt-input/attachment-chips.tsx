@@ -23,7 +23,7 @@ type PromptAttachmentChipsProps = {
 }
 
 const removeButtonClass =
-  "absolute -top-1.5 -right-1.5 size-[18px] rounded-full bg-surface-base border border-border-base flex items-center justify-center text-fg-weak hover:text-fg-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+  "absolute -top-1.5 -right-1.5 size-5 rounded-full bg-surface-base border border-border-base flex items-center justify-center text-fg-weak hover:text-fg-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
 
 const RemoveButton: Component<{ id: string; onRemove: (id: string) => void; label: string }> = (props) => (
   <button
@@ -32,7 +32,7 @@ const RemoveButton: Component<{ id: string; onRemove: (id: string) => void; labe
     class={removeButtonClass}
     aria-label={props.label}
   >
-    <Icon name="close" class="size-3" />
+    <Icon name="close-small" class="size-4" />
   </button>
 )
 
@@ -147,9 +147,9 @@ export const PromptAttachmentChips: Component<PromptAttachmentChipsProps> = (pro
                       data-slot="attachment-warning"
                       role="img"
                       aria-label={warningLabel()}
-                      class="absolute -bottom-1.5 -right-1.5 size-[18px] rounded-full bg-surface-base border border-border-base flex items-center justify-center"
+                      class="absolute -bottom-1 -right-1 flex [filter:drop-shadow(0_0_1.5px_rgba(0,0,0,0.9))_drop-shadow(0_1px_2px_rgba(0,0,0,0.6))]"
                     >
-                      <Icon name="warning" class="size-3 text-warning" />
+                      <Icon name="warning" class="size-5 text-warning" />
                     </span>
                   </Show>
                 </div>
