@@ -39,10 +39,18 @@ async function connectToFake(): Promise<{ page: Record<string, unknown>; close: 
     })
   })
   const bridge = new CDPBridge()
-  const page = (await bridge.connect({ cdpEndpoint: `ws://127.0.0.1:${port}/secret` })) as unknown as Record<
-    string,
-    unknown
-  >
+  let page: Record<string, unknown>
+  try {
+    page = (await bridge.connect({ cdpEndpoint: `ws://127.0.0.1:${port}/secret` })) as unknown as Record<
+      string,
+      unknown
+    >
+  } catch (err) {
+    // The caller only gets `close` on success; release the listener here or a
+    // failed connect leaks the server into the rest of the test process.
+    wss.close()
+    throw err
+  }
   return {
     page,
     close: async () => {
