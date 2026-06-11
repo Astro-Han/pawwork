@@ -1873,6 +1873,14 @@ describe("ProviderTransform.message - empty image handling", () => {
     })
   })
 
+  test("maps mime types onto the shared media input kinds", () => {
+    expect(ProviderTransform.mediaInputKind("image/png")).toBe("image")
+    expect(ProviderTransform.mediaInputKind("audio/mpeg")).toBe("audio")
+    expect(ProviderTransform.mediaInputKind("video/mp4")).toBe("video")
+    expect(ProviderTransform.mediaInputKind("application/pdf")).toBe("pdf")
+    expect(ProviderTransform.mediaInputKind("text/plain")).toBeUndefined()
+  })
+
   test("lets PDF borrow image input like the resolver and the composer warning", () => {
     const imageOnly = {
       ...mockModel,

@@ -8,7 +8,7 @@ import { Flag } from "@opencode-ai/core/flag/flag"
 
 export type MediaInputKind = "image" | "audio" | "video" | "pdf"
 
-function mimeToModality(mime: string): MediaInputKind | undefined {
+export function mediaInputKind(mime: string): MediaInputKind | undefined {
   if (mime.startsWith("image/")) return "image"
   if (mime.startsWith("audio/")) return "audio"
   if (mime.startsWith("video/")) return "video"
@@ -453,7 +453,7 @@ function unsupportedParts(msgs: ModelMessage[], model: Provider.Model): ModelMes
 
       const mime = part.type === "image" ? String(part.image).split(";")[0].replace("data:", "") : part.mediaType
       const filename = part.type === "file" ? part.filename : undefined
-      const modality = mimeToModality(mime)
+      const modality = mediaInputKind(mime)
       if (!modality) return part
       if (modelCanReadMedia(model, modality)) return part
 
@@ -1492,6 +1492,7 @@ export function openAICompatibleRequestBodyText(model: Provider.Model, body: unk
 const ProviderTransformOptionsValue = options
 const ProviderTransformMessageValue = message
 const ProviderTransformModelCanReadMediaValue = modelCanReadMedia
+const ProviderTransformMediaInputKindFnValue = mediaInputKind
 type ProviderTransformMediaInputKindValue = MediaInputKind
 const ProviderTransformVariantsValue = variants
 const ProviderTransformProviderOptionsValue = providerOptions
@@ -1511,6 +1512,7 @@ export namespace ProviderTransform {
   export const options = ProviderTransformOptionsValue
   export const message = ProviderTransformMessageValue
   export const modelCanReadMedia = ProviderTransformModelCanReadMediaValue
+  export const mediaInputKind = ProviderTransformMediaInputKindFnValue
   export type MediaInputKind = ProviderTransformMediaInputKindValue
   export const variants = ProviderTransformVariantsValue
   export const providerOptions = ProviderTransformProviderOptionsValue

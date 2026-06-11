@@ -261,13 +261,6 @@ function attachedLocalFileText(filepath: string, filename?: string) {
   return `${text} (attachment name: ${filename})`
 }
 
-function mediaInputKind(mime: string): ProviderTransform.MediaInputKind | undefined {
-  if (mime.startsWith("image/")) return "image"
-  if (mime === "application/pdf") return "pdf"
-  if (mime.startsWith("audio/")) return "audio"
-  if (mime.startsWith("video/")) return "video"
-  return undefined
-}
 
 export interface Interface {
   readonly cancel: (sessionID: SessionID, options?: { source?: string }) => Effect.Effect<boolean>
@@ -1721,7 +1714,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                   const { model, result } = exit.value
                   const media = result.attachments ?? []
                   const attachments = media.filter((attachment) => {
-                    const kind = mediaInputKind(attachment.mime)
+                    const kind = ProviderTransform.mediaInputKind(attachment.mime)
                     return kind !== undefined && ProviderTransform.modelCanReadMedia(model, kind)
                   })
                   const droppedNotice = {
