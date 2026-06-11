@@ -180,8 +180,8 @@ export namespace Installation {
         }
 
         const upgradeScriptShell = Effect.fnUntraced(function* () {
-          const bashVersion = yield* text(["bash", "--version"])
-          if (bashVersion) return "bash"
+          const bashVersion = yield* run(["bash", "--version"])
+          if (bashVersion.code === 0 && bashVersion.stdout) return "bash"
           return "sh"
         })
 

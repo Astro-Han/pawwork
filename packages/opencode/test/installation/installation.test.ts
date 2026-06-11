@@ -206,7 +206,7 @@ describe("installation", () => {
         () => new Response("install script", { status: 200 }),
         (cmd, args) => {
           attempts.push({ cmd, args })
-          if (cmd === "bash" && args[0] === "--version") return { code: 1, stderr: "missing" }
+          if (cmd === "bash" && args[0] === "--version") return { code: 127, stdout: "bash: not found", stderr: "missing" }
           if (cmd === "bash") return { code: 1, stderr: "should not execute installer with bash" }
           if (cmd === "sh") return "ok"
           return ""
