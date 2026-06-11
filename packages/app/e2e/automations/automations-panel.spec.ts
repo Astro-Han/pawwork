@@ -84,7 +84,7 @@ test("@smoke automations panel: list, detail, pause, delete", async ({ page, pro
   await rows.first().click()
   const detail = surface.locator('[data-component="automation-detail"]')
   await expect(detail).toBeVisible()
-  await expect(detail.getByRole("heading", { name: "Daily standup digest" })).toBeVisible()
+  await expect(detail.locator('[data-action="automation-edit-title"]')).toHaveValue("Daily standup digest")
 
   // Pause flips the icon-only action's aria-label to Resume and the status row to Paused.
   await detail.locator('[data-action="automation-toggle-active"]').click()
@@ -130,7 +130,7 @@ test("automations panel: create manually adds an automation", async ({ page, pro
   // Lands on the new automation's detail; it also shows up in the list.
   const detail = surface.locator('[data-component="automation-detail"]')
   await expect(detail).toBeVisible()
-  await expect(detail.getByRole("heading", { name: "Release notes draft" })).toBeVisible()
+  await expect(detail.locator('[data-action="automation-edit-title"]')).toHaveValue("Release notes draft")
 
   await detail.locator('[data-action="automation-detail-back"]').click()
   await expect(surface.locator('[data-action="automation-row"]')).toHaveCount(1)
@@ -177,7 +177,7 @@ test("automations panel: lists automations from every open project", async ({ pa
 
     await row.click()
     const detail = surface.locator('[data-component="automation-detail"]')
-    await expect(detail.getByRole("heading", { name: "Cross-project digest" })).toBeVisible()
+    await expect(detail.locator('[data-action="automation-edit-title"]')).toHaveValue("Cross-project digest")
     await expect(detail.getByText(otherProjectName)).toBeVisible()
     await expect(detail.getByText("Paused")).toBeVisible()
     await expect.poll(() => runListRequests).toBe(1)
@@ -399,7 +399,7 @@ test("automations panel: the automate tool card jumps into the panel", async ({ 
   await expect(surface).toBeVisible()
   const detail = surface.locator('[data-component="automation-detail"]')
   await expect(detail).toBeVisible()
-  await expect(detail.getByRole("heading", { name: "Nightly digest" })).toBeVisible()
+  await expect(detail.locator('[data-action="automation-edit-title"]')).toHaveValue("Nightly digest")
 })
 
 test("automations panel: a second tool card jump opens its own automation", async ({ page, project, assistant }) => {
@@ -415,7 +415,7 @@ test("automations panel: a second tool card jump opens its own automation", asyn
   await cardA.locator('[data-component="automate-tool-action"]').click()
   const surface = page.locator('[data-component="automations-page"]')
   const detail = surface.locator('[data-component="automation-detail"]')
-  await expect(detail.getByRole("heading", { name: "Alpha digest" })).toBeVisible()
+  await expect(detail.locator('[data-action="automation-edit-title"]')).toHaveValue("Alpha digest")
 
   // Close the panel (the surface takes over main, so the chat — and the next
   // tool card — is only reachable once it's closed), then jump from a second
@@ -430,7 +430,7 @@ test("automations panel: a second tool card jump opens its own automation", asyn
   const cardB = page.locator('[data-component="automate-tool-card"]').filter({ hasText: "Bravo digest" })
   await expect(cardB).toBeVisible()
   await cardB.locator('[data-component="automate-tool-action"]').click()
-  await expect(detail.getByRole("heading", { name: "Bravo digest" })).toBeVisible()
+  await expect(detail.locator('[data-action="automation-edit-title"]')).toHaveValue("Bravo digest")
 })
 
 test("automations panel: a pending one-shot shows its next run time", async ({ page, project }) => {
@@ -497,6 +497,119 @@ test("automations panel: a manual run before fireAt keeps the one-shot's next ru
   await expect(detail.getByText("Last run")).toBeVisible()
   // The early run's triggeredAt is before fireAt, so the next run still stands.
   await expect(detail.getByText("Next run")).toBeVisible()
+})
+
+test("automations panel: detail edits title, prompt, schedule and model inline", async ({ page, project }) => {
+  test.setTimeout(120_000)
+
+  await project.open()
+  const surface = await openAutomations(page)
+
+  const projectID = (await project.sdk.project.current()).data!.id
+  const created = (
+    await project.sdk.automation.create(
+      recurring(projectID, "Daily digest", "Summarize the day's changes.", "0 9 * * *"),
+    )
+  ).data!
+
+  const rows = surface.locator('[data-action="automation-row"]')
+  await expect(rows).toHaveCount(1)
+  await rows.first().click()
+  const detail = surface.locator('[data-component="automation-detail"]')
+  await expect(detail).toBeVisible()
+
+  const automation = async () =>
+    (await project.sdk.automation.list()).data!.items.find((item) => item.id === created.id)!
+
+  // Title: type and blur commits; Escape while editing only blurs, it must not
+  // unwind back to the list.
+  const title = detail.locator('[data-action="automation-edit-title"]')
+  await title.fill("Daily digest v2")
+  await page.keyboard.press("Escape")
+  await expect(detail).toBeVisible()
+  await expect(title).toHaveValue("Daily digest")
+  await title.fill("Daily digest v2")
+  await page.keyboard.press("Enter")
+  await expect.poll(async () => (await automation()).title).toBe("Daily digest v2")
+
+  // Prompt: blur commits.
+  const prompt = detail.locator('[data-action="automation-edit-prompt"]')
+  await prompt.fill("Summarize the day's changes and open PRs.")
+  await prompt.blur()
+  await expect.poll(async () => (await automation()).prompt).toBe("Summarize the day's changes and open PRs.")
+
+  // Schedule: the Repeats row opens the schedule popover. A recurring
+  // automation must not offer the one-shot frequency, and picking Weekdays
+  // rewrites the cron in place.
+  await detail.locator('[data-action="automation-edit-schedule"]').click()
+  const popover = page.locator('[data-component="popover-content"]')
+  await expect(popover).toBeVisible()
+  await expect(popover.locator('[data-frequency="once"]')).toHaveCount(0)
+  await popover.locator('[data-frequency="weekdays"]').click()
+  await expect
+    .poll(async () => {
+      const definition = await automation()
+      return definition.kind === "recurring" && definition.rhythm.kind === "cron" ? definition.rhythm.expression : ""
+    })
+    .toBe("0 9 * * 1-5")
+  await page.keyboard.press("Escape")
+  await expect(detail).toBeVisible()
+
+  // Model: the Model row opens the shared picker; choosing an entry patches the
+  // definition to that model.
+  await detail.locator('[data-action="automation-edit-model"]').click()
+  const picker = page.locator("[data-picker-content]")
+  await expect(picker).toBeVisible()
+  const target = picker.locator('[data-slot="list-item"][data-key]').last()
+  const key = (await target.getAttribute("data-key"))!
+  await target.click({ force: true })
+  await expect
+    .poll(async () => {
+      const definition = await automation()
+      return `${definition.model.providerID}:${definition.model.modelID}`
+    })
+    .toBe(key)
+})
+
+test("automations panel: list rows expose run, pause and delete on hover", async ({ page, project }) => {
+  test.setTimeout(120_000)
+
+  await project.open()
+  const surface = await openAutomations(page)
+
+  const projectID = (await project.sdk.project.current()).data!.id
+  const created = (
+    await project.sdk.automation.create(
+      recurring(projectID, "Hourly check", "Check the build.", "0 * * * *"),
+    )
+  ).data!
+
+  const rows = surface.locator('[data-action="automation-row"]')
+  await expect(rows).toHaveCount(1)
+  await rows.first().hover()
+
+  // Run now fires a run without leaving the list.
+  await surface.locator(`[data-action="automation-run-now"][data-automation-id="${created.id}"]`).click()
+  await expect
+    .poll(async () => ((await project.sdk.automation.runs({ automationID: created.id })).data?.items ?? []).length)
+    .toBeGreaterThan(0)
+
+  // Pause flips the toggle to Resume in place.
+  const toggle = surface.locator(`[data-action="automation-toggle-active"][data-automation-id="${created.id}"]`)
+  await toggle.click()
+  await expect(toggle).toHaveAttribute("aria-label", "Resume")
+  await expect
+    .poll(async () => (await project.sdk.automation.list()).data!.items.find((item) => item.id === created.id)?.paused)
+    .toBe(true)
+
+  // Delete confirms through the shared dialog and empties the list.
+  await rows.first().hover()
+  await surface.locator(`[data-action="automation-delete"][data-automation-id="${created.id}"]`).click()
+  const dialog = page.locator('[data-component="dialog"]')
+  await expect(dialog).toBeVisible()
+  await dialog.locator('[data-action="automation-delete-confirm"]').click()
+  await expect(rows).toHaveCount(0)
+  await expect(surface.locator('[data-component="automations-empty"]')).toBeVisible()
 })
 
 test("automations panel: escape unwinds detail then closes the surface", async ({ page, project }) => {

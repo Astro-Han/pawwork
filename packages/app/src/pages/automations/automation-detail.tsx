@@ -1,5 +1,5 @@
 import { createEffect, createMemo, createSignal, For, Show, type Accessor, type JSX } from "solid-js"
-import type { AutomationDefinition, AutomationRun } from "@opencode-ai/sdk/v2/client"
+import type { AutomationDefinition, AutomationRun, AutomationUpdateInput } from "@opencode-ai/sdk/v2/client"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Button } from "@opencode-ai/ui/button"
 import { showToast } from "@opencode-ai/ui/toast"
@@ -9,7 +9,8 @@ import { useLanguage } from "@/context/language"
 import { formatServerError } from "@/utils/server-errors"
 import { getRelativeTime } from "@/utils/time"
 import { DialogDeleteAutomation } from "@/components/dialog-delete-automation"
-import { formatScheduleSummary, formatTimestamp } from "./automation-schedule"
+import { formatTimestamp } from "./automation-schedule"
+import { EditableText, ModelEditorRow, ScheduleEditorRow } from "./automation-detail-editors"
 import { RunStatusIcon, runStatusLabelKey } from "./automation-run-status"
 
 const INITIAL_RUN_COUNT = 5
@@ -167,6 +168,18 @@ export function AutomationDetail(props: {
     })
   }
 
+  // One-field patches from the inline editors. The store applies the response
+  // immediately, so a false return tells the editor to roll its control back.
+  const commitPatch = async (patch: AutomationUpdateInput) => {
+    try {
+      await globalSync.automation.update(props.directory(), props.automation().id, patch)
+      return true
+    } catch (error) {
+      notifyFailure(error)
+      return false
+    }
+  }
+
   const runNow = async () => {
     if (busy()) return
     setBusy(true)
@@ -226,7 +239,13 @@ export function AutomationDetail(props: {
       </nav>
 
       <header class="flex items-start justify-between gap-4">
-        <h1 class="min-w-0 truncate text-h2 text-fg-strong">{props.automation().title}</h1>
+        <EditableText
+          value={props.automation().title}
+          onCommit={(next) => commitPatch({ title: next })}
+          class="min-w-0 flex-1 truncate text-h2 text-fg-strong"
+          ariaLabel={t("automations.create.titlePlaceholder")}
+          action="automation-edit-title"
+        />
         <div class="flex shrink-0 items-center gap-2">
           <Button
             variant="ghost"
@@ -255,7 +274,14 @@ export function AutomationDetail(props: {
           <h2 class="text-caption font-emphasis uppercase tracking-wide text-fg-weak">
             {t("automations.detail.instructions")}
           </h2>
-          <p class="whitespace-pre-wrap text-body text-fg-base">{props.automation().prompt}</p>
+          <EditableText
+            multiline
+            value={props.automation().prompt}
+            onCommit={(next) => commitPatch({ prompt: next })}
+            class="w-full text-body text-fg-base"
+            ariaLabel={t("automations.detail.instructions")}
+            action="automation-edit-prompt"
+          />
         </section>
 
         <aside class="flex flex-col gap-5">
@@ -274,7 +300,7 @@ export function AutomationDetail(props: {
 
           <DetailGroup heading={t("automations.detail.detailsHeading")}>
             <InfoRow label={t("automations.detail.project")} value={props.projectName()} />
-            <InfoRow label={t("automations.detail.repeats")} value={formatScheduleSummary(props.automation(), t)} />
+            <ScheduleEditorRow automation={props.automation} t={t} onPatch={commitPatch} />
             <Show
               when={props.automation().context === "continue" && props.automation().sourceSessionID}
               fallback={<InfoRow label={t("automations.detail.session")} value={sessionLabel()} />}
@@ -293,7 +319,7 @@ export function AutomationDetail(props: {
                 </div>
               )}
             </Show>
-            <InfoRow label={t("automations.detail.model")} value={props.automation().model.modelID} />
+            <ModelEditorRow directory={props.directory} automation={props.automation} t={t} onPatch={commitPatch} />
             <Show when={reasoningLabel()}>
               {(value) => <InfoRow label={t("automations.detail.reasoning")} value={value()} />}
             </Show>
