@@ -23,7 +23,7 @@ type PromptAttachmentChipsProps = {
 }
 
 const removeButtonClass =
-  "absolute -top-1.5 -right-1.5 size-5 rounded-full bg-surface-base border border-border-base flex items-center justify-center text-fg-weak hover:text-fg-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+  "absolute top-1 right-1 size-5 flex items-center justify-center text-fg-weak hover:text-fg-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
 
 const RemoveButton: Component<{ id: string; onRemove: (id: string) => void; label: string }> = (props) => (
   <button
@@ -37,7 +37,7 @@ const RemoveButton: Component<{ id: string; onRemove: (id: string) => void; labe
 )
 
 const fileChipBodyClass =
-  "h-14 max-w-60 rounded-md border border-border-base bg-surface-base flex items-center gap-2.5 pl-3 pr-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+  "h-14 max-w-60 rounded-md border border-border-base bg-surface-base flex items-center gap-2.5 pl-3 pr-8 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
 
 const FileChipContent: Component<{ model: AttachmentChipModel }> = (props) => (
   <>
