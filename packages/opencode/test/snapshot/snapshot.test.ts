@@ -17,6 +17,7 @@ const SNAPSHOT_BATCH_BOUNDARY = 100
 const OVER_BATCH_COUNT = SNAPSHOT_BATCH_BOUNDARY + 1
 const MIXED_BATCH_GROUP_COUNT = Math.ceil(OVER_BATCH_COUNT / 4)
 const gitPath = (item: string) => item.replaceAll("\\", "/")
+const resolveGitPath = (cwd: string, item: string) => (path.isAbsolute(item) ? item : path.resolve(cwd, item))
 
 afterEach(async () => {
   await Instance.disposeAll()
@@ -46,7 +47,7 @@ function snapshotGitdir() {
 }
 
 async function sourceObjectsForGitWorktree(dir: string) {
-  const common = (await $`git rev-parse --path-format=absolute --git-common-dir`.cwd(dir).text()).trim()
+  const common = resolveGitPath(dir, (await $`git rev-parse --git-common-dir`.cwd(dir).text()).trim())
   return path.join(common, "objects")
 }
 

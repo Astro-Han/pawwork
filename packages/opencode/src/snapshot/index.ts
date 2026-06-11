@@ -39,6 +39,7 @@ export namespace Snapshot {
   const cfg = ["-c", "core.autocrlf=false", ...core]
   const quote = [...cfg, "-c", "core.quotepath=false"]
   const gitPath = (item: string) => item.replaceAll("\\", "/")
+  const resolveGitPath = (cwd: string, item: string) => (path.isAbsolute(item) ? item : path.resolve(cwd, item))
   interface GitResult {
     readonly code: ChildProcessSpawner.ExitCode
     readonly text: string
@@ -214,11 +215,13 @@ export namespace Snapshot {
             function* () {
               if (state.vcs !== "git") return
 
-              const commonDir = yield* git(["rev-parse", "--path-format=absolute", "--git-common-dir"], {
+              const commonDir = yield* git(["rev-parse", "--git-common-dir"], {
                 cwd: state.worktree,
               })
-              const common = commonDir.text.trim()
-              if (commonDir.code !== 0 || !common || !(yield* exists(common))) return
+              const commonRaw = commonDir.text.trim()
+              if (commonDir.code !== 0 || !commonRaw) return
+              const common = resolveGitPath(state.worktree, commonRaw)
+              if (!(yield* exists(common))) return
 
               const sourceObjects = path.join(common, "objects")
               if (!(yield* exists(sourceObjects))) return
@@ -245,11 +248,13 @@ export namespace Snapshot {
                 )
                 .pipe(Effect.orDie)
 
-              const index = yield* git(["rev-parse", "--path-format=absolute", "--git-path", "index"], {
+              const index = yield* git(["rev-parse", "--git-path", "index"], {
                 cwd: state.worktree,
               })
-              const sourceIndex = index.text.trim()
-              if (index.code !== 0 || !sourceIndex || !(yield* exists(sourceIndex))) return
+              const sourceIndexRaw = index.text.trim()
+              if (index.code !== 0 || !sourceIndexRaw) return
+              const sourceIndex = resolveGitPath(state.worktree, sourceIndexRaw)
+              if (!(yield* exists(sourceIndex))) return
               const targetIndex = path.join(state.gitdir, "index")
               const copied = yield* fs.copyFile(sourceIndex, targetIndex).pipe(
                 Effect.as(true),
