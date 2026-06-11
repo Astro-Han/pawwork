@@ -116,6 +116,7 @@ describe("permission gate", () => {
         return { cdpEndpoint: own.endpoint }
       },
       releaseSession: async () => {},
+      disposeSession: async () => {},
     })
 
     const result = await exec(BrowserSnapshotTool, {})
@@ -138,6 +139,7 @@ describe("permission gate", () => {
       },
       resolveEndpoint: async () => ({ cdpEndpoint: server.endpoint }),
       releaseSession: async () => {},
+      disposeSession: async () => {},
     })
     await expect(exec(BrowserSnapshotTool, {})).rejects.toThrow(/not available right now/)
     // A failed probe means no ask was ever judged and no CDP traffic flowed —
@@ -255,7 +257,7 @@ describe("cancellation", () => {
   test("user stop aborts a hung action fast and severs the connection", async () => {
     const server = makeServer()
     scriptCurrentUrl(server, "about:blank")
-    const released = provideFakeHost(server)
+    const { released } = provideFakeHost(server)
     // Warm the connection so the hang hits the action itself, not the connect.
     await exec(BrowserSnapshotTool, {})
     server.handlers.set("Runtime.evaluate", HANG)

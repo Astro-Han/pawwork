@@ -89,15 +89,19 @@ export function scriptCurrentUrl(server: FakeCdpServer, url: string | null) {
   server.handlers.set("Runtime.evaluate", () => ({ result: { type: "string", value: server.url } }))
 }
 
-/** Inject a BrowserBridge host that always resolves to this fake server; returns the released-session log. */
-export function provideFakeHost(server: FakeCdpServer): string[] {
+/** Inject a BrowserBridge host that always resolves to this fake server; returns the release/dispose logs. */
+export function provideFakeHost(server: FakeCdpServer): { released: string[]; disposed: string[] } {
   const released: string[] = []
+  const disposed: string[] = []
   BrowserBridge.provideHost({
     resolveEndpoint: async () => ({ cdpEndpoint: server.endpoint }),
     probeSession: async () => ({ url: server.url }),
     releaseSession: async ({ sessionID }) => {
       released.push(sessionID)
     },
+    disposeSession: async ({ sessionID }) => {
+      disposed.push(sessionID)
+    },
   })
-  return released
+  return { released, disposed }
 }

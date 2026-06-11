@@ -73,10 +73,19 @@ export namespace BrowserBridge {
     probeSession(input: { sessionID: string }): Promise<PageProbe>
     /**
      * Detach the CDP bridge that was attached on behalf of `sessionID`.
-     * Called when the server-side connection goes away (session deleted or
-     * archived, connection lost); a no-op for sessions that never attached.
+     * Called when the server-side CONNECTION goes away (lost, timed out,
+     * aborted); the view itself lives on for the conversation. A no-op for
+     * sessions that never attached.
      */
     releaseSession(input: { sessionID: string }): Promise<void>
+    /**
+     * The conversation is gone (session deleted or archived): destroy its
+     * embedded-browser view outright — page, history, automation. Without
+     * this, every conversation that ever opened the embedded browser leaks a
+     * live WebContentsView in the desktop main process for the app lifetime.
+     * A no-op for sessions that never had a view.
+     */
+    disposeSession(input: { sessionID: string }): Promise<void>
   }
 
   let current: Host | null = null

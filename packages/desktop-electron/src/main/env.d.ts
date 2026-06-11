@@ -77,6 +77,7 @@ declare module "virtual:opencode-server" {
       resolveEndpoint(input: { sessionID: string }): Promise<Endpoint>
       probeSession(input: { sessionID: string }): Promise<{ url: string | null }>
       releaseSession(input: { sessionID: string }): Promise<void>
+      disposeSession(input: { sessionID: string }): Promise<void>
     }
     export function provideHost(host: Host | null): void
   }

@@ -9,6 +9,7 @@ export type BrowserBridgeHost = {
   resolveEndpoint(input: { sessionID: string }): Promise<AutomationEndpoint>
   probeSession(input: { sessionID: string }): Promise<{ url: string | null }>
   releaseSession(input: { sessionID: string }): Promise<void>
+  disposeSession(input: { sessionID: string }): Promise<void>
 }
 
 /**
@@ -42,6 +43,14 @@ export function createDesktopBrowserBridgeHost(): BrowserBridgeHost {
 
     async releaseSession({ sessionID }) {
       await browserControllers.get(sessionID)?.detachAutomation()
+    },
+
+    // The conversation was deleted or archived: its view dies with it (page,
+    // history, automation, the WebContentsView itself). Without this, every
+    // conversation that ever opened the embedded browser would keep a live
+    // Chromium page in the main process for the app lifetime.
+    async disposeSession({ sessionID }) {
+      browserControllers.dispose(sessionID)
     },
   }
 }

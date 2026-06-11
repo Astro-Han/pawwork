@@ -102,6 +102,7 @@ describe("withBrowserPage", () => {
       }),
       probeSession: async () => ({ url: null }),
       releaseSession: async () => {},
+      disposeSession: async () => {},
     })
 
     const results = await Promise.all([
@@ -117,7 +118,7 @@ describe("withBrowserPage", () => {
   test("rejects a stuck action with the tool-level timeout and severs the connection", async () => {
     const server = makeServer()
     scriptCurrentUrl(server, "about:blank")
-    const released = provideFakeHost(server)
+    const { released } = provideFakeHost(server)
 
     // Connect first (connect itself needs Runtime.evaluate), then hang it.
     await withBrowserPage("ses_a", "snapshot", async () => {})
@@ -135,7 +136,7 @@ describe("withBrowserPage", () => {
   test("an abort severs the connection so a canceled action cannot keep driving the page", async () => {
     const server = makeServer()
     scriptCurrentUrl(server, "about:blank")
-    const released = provideFakeHost(server)
+    const { released } = provideFakeHost(server)
 
     await withBrowserPage("ses_a", "snapshot", async () => {})
     server.handlers.set("Runtime.evaluate", HANG)
@@ -162,6 +163,7 @@ describe("withBrowserPage", () => {
       resolveEndpoint: () => new Promise(() => {}),
       probeSession: async () => ({ url: null }),
       releaseSession: async () => {},
+      disposeSession: async () => {},
     })
 
     await expect(
@@ -179,6 +181,7 @@ describe("withBrowserPage", () => {
       },
       probeSession: async () => ({ url: null }),
       releaseSession: async () => {},
+      disposeSession: async () => {},
     })
 
     const controller = new AbortController()
@@ -247,6 +250,7 @@ describe("withBrowserPage", () => {
       releaseSession: async ({ sessionID }) => {
         released.push(sessionID)
       },
+      disposeSession: async () => {},
     })
 
     await expect(withBrowserPage("ses_a", "snapshot", async () => "unreachable")).rejects.toThrow()
@@ -256,7 +260,7 @@ describe("withBrowserPage", () => {
   test("a release landing during a pending acquire still cleans up after it settles", async () => {
     const server = makeServer()
     scriptCurrentUrl(server, "about:blank")
-    const released: string[] = []
+    const disposed: string[] = []
     BrowserBridge.provideHost({
       resolveEndpoint: async () => {
         // Keep the acquire in flight long enough for the release to land first.
@@ -264,8 +268,9 @@ describe("withBrowserPage", () => {
         return { cdpEndpoint: server.endpoint }
       },
       probeSession: async () => ({ url: null }),
-      releaseSession: async ({ sessionID }) => {
-        released.push(sessionID)
+      releaseSession: async () => {},
+      disposeSession: async ({ sessionID }) => {
+        disposed.push(sessionID)
       },
     })
 
@@ -274,7 +279,7 @@ describe("withBrowserPage", () => {
     await releaseBrowserSession("ses_a")
 
     // The release waited for the acquire to settle, then tore it down.
-    expect(released).toEqual(["ses_a"])
+    expect(disposed).toEqual(["ses_a"])
     await expect(inflight).resolves.toBe("ok")
 
     // No stale mapping survived: the next call reconnects from scratch.
@@ -282,10 +287,10 @@ describe("withBrowserPage", () => {
     expect(server.methods.filter((m) => m === "Page.addScriptToEvaluateOnNewDocument").length).toBe(2)
   }, 10_000)
 
-  test("a lost connection still tells the host to release its sessions, exactly once", async () => {
+  test("a lost connection releases the bridge exactly once; the later delete disposes the view", async () => {
     const server = makeServer()
     scriptCurrentUrl(server, "about:blank")
-    const released = provideFakeHost(server)
+    const { released, disposed } = provideFakeHost(server)
 
     await withBrowserPage("ses_a", "snapshot", async () => {})
 
@@ -296,34 +301,43 @@ describe("withBrowserPage", () => {
     await expect(inflight).rejects.toThrow(/CDP connection closed|bridge closed|CDP connection is not open/)
 
     // invalidate() notified the host so the main process detaches its stale
-    // bridge (fire-and-forget; give the microtask a beat).
+    // bridge (fire-and-forget; give the microtask a beat). A sever keeps the
+    // view alive — the user may still be looking at the page.
     await new Promise((resolve) => setTimeout(resolve, 10))
     expect(released).toEqual(["ses_a"])
+    expect(disposed).toEqual([])
 
-    // The session's later delete/archive finds no mapping and must not
-    // release a second time.
+    // The session's later delete/archive finds no mapping — no second bridge
+    // release — but the view itself must still die with the conversation.
     await releaseBrowserSession("ses_a")
     expect(released).toEqual(["ses_a"])
+    expect(disposed).toEqual(["ses_a"])
   }, 10_000)
 
-  test("release closes the connection and notifies the host once the last session lets go", async () => {
+  test("deleting the session closes the connection and disposes the view", async () => {
     const server = makeServer()
     scriptCurrentUrl(server, "about:blank")
-    const released = provideFakeHost(server)
+    const { released, disposed } = provideFakeHost(server)
 
     await withBrowserPage("ses_a", "snapshot", async () => {})
     await releaseBrowserSession("ses_a")
-    expect(released).toEqual(["ses_a"])
+    // dispose subsumes the bridge detach; no separate release call.
+    expect(released).toEqual([])
+    expect(disposed).toEqual(["ses_a"])
 
-    // Released session reconnects cleanly afterwards.
+    // A later action reconnects from scratch (prod recreates the view lazily).
     const again = await withBrowserPage("ses_a", "snapshot", async () => "fresh")
     expect(again).toBe("fresh")
   })
 
-  test("release for an unknown session is a no-op", async () => {
+  test("deleting a session that only ever browsed manually still disposes its view", async () => {
+    // No withBrowserPage call: a hand-browsed conversation has a view in the
+    // desktop registry but never had a CDP connection. The dispose must reach
+    // the host anyway or that view leaks for the app lifetime.
     const server = makeServer()
-    const released = provideFakeHost(server)
-    await releaseBrowserSession("ses_never_used")
+    const { released, disposed } = provideFakeHost(server)
+    await releaseBrowserSession("ses_never_connected")
     expect(released).toEqual([])
+    expect(disposed).toEqual(["ses_never_connected"])
   })
 })

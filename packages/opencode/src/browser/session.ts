@@ -241,26 +241,31 @@ export async function withBrowserPage<T>(
 }
 
 /**
- * Drop the session's browser connection and detach the main-process bridge.
- * Wired into session delete/archive. Keyed by root session id, so deleting a
- * subagent child never tears down the conversation's live connection.
+ * The session was deleted or archived: drop its browser connection and have
+ * the desktop destroy its view outright. Keyed by root session id, so deleting
+ * a subagent child never tears down the conversation's live connection (the
+ * dispose below no-ops for child ids the same way — views are root-keyed too).
  */
 export async function releaseBrowserSession(sessionID: string): Promise<void> {
   // A delete/archive can land while the session's first acquire is still in
   // flight; wait for it to settle so the cleanup below sees its mappings
   // instead of returning early and orphaning the fresh connection. A failed
-  // acquire rolled its host attachment back itself, so falling through to the
-  // no-op return is right.
+  // acquire rolled its host attachment back itself.
   const pending = pendingAcquires.get(sessionID)
   if (pending) await pending.then(() => {}, () => {})
   const conn = bySession.get(sessionID)
-  if (!conn) return
-  bySession.delete(sessionID)
-  conn.closed = true
-  await conn.bridge.close().catch(() => {})
+  if (conn) {
+    bySession.delete(sessionID)
+    conn.closed = true
+    await conn.bridge.close().catch(() => {})
+  }
+  // Dispose unconditionally, not just when a connection exists: a conversation
+  // the user browsed by hand has a live view but never had a CDP connection,
+  // and its view must still die with the session. disposeSession implies the
+  // bridge detach that releaseSession would have done.
   if (BrowserBridge.available()) {
     await BrowserBridge.host()
-      .releaseSession({ sessionID })
+      .disposeSession({ sessionID })
       .catch(() => {})
   }
 }
