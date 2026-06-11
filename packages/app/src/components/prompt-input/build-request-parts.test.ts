@@ -554,6 +554,28 @@ describe("attachment chips", () => {
     expect(fileParts[0]).toMatchObject({ url: "file:///repo/src/foo.ts" })
   })
 
+  // A line-scoped pill and a whole-file chip are semantically different
+  // references (collapsing on path would silently narrow the chip to the
+  // selection); this pins that both parts are submitted.
+  test("keeps a selection-scoped pill and a whole-file chip for the same path", () => {
+    const prompt: Prompt = [
+      {
+        type: "file",
+        path: "src/foo.ts",
+        content: "@src/foo.ts",
+        start: 0,
+        end: 11,
+        selection: { startLine: 3, startChar: 0, endLine: 9, endChar: 0 },
+      },
+      { type: "attachment", id: "att_1", path: "/repo/src/foo.ts", filename: "foo.ts" },
+    ]
+
+    const parts = buildAttachmentRequestParts({ prompt, images: [], sessionDirectory: "/repo" })
+
+    const urls = parts.filter((part) => part.type === "file").map((part) => part.url)
+    expect(urls.sort()).toEqual(["file:///repo/src/foo.ts", "file:///repo/src/foo.ts?start=3&end=9"])
+  })
+
   test("includes chips in full request builds", () => {
     const prompt: Prompt = [
       { type: "text", content: "hi", start: 0, end: 2 },

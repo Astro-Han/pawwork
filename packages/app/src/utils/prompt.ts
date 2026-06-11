@@ -293,3 +293,23 @@ export function extractPromptFromParts(parts: Part[], opts?: { directory?: strin
   if (floating.length === 0) return result
   return [...result, ...floating]
 }
+
+/**
+ * One-line list-row preview of a restored prompt (fork dialog, revert banner):
+ * inline parts keep their text, floating attachments render as [image:name] /
+ * [file:path], and a prompt with no visible text falls back to the localized
+ * attachment label so attachment-only messages never show as a blank row.
+ */
+export function promptPreviewText(prompt: Prompt, attachmentLabel: string): string {
+  const text = prompt
+    .map((part) => {
+      if (part.type === "image") return `[image:${part.filename}]`
+      if (part.type === "attachment") return `[file:${part.path}]`
+      return part.content
+    })
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim()
+  if (text) return text
+  return `[${attachmentLabel}]`
+}

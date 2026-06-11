@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { Part } from "@opencode-ai/sdk/v2"
-import { extractPromptFromParts } from "./prompt"
+import { extractPromptFromParts, promptPreviewText } from "./prompt"
 
 describe("extractPromptFromParts", () => {
   test("restores multiple uploaded attachments", () => {
@@ -435,5 +435,42 @@ describe("extractPromptFromParts", () => {
       content: "/explain this",
       command: { name: "explain", source: "command" },
     })
+  })
+})
+
+describe("promptPreviewText", () => {
+  test("keeps the prompt text and collapses whitespace", () => {
+    const preview = promptPreviewText(
+      [
+        { type: "text", content: "look at\n  this ", start: 0, end: 15 },
+        { type: "file", path: "src/foo.ts", content: "@src/foo.ts", start: 15, end: 26 },
+      ],
+      "attachment",
+    )
+    expect(preview).toBe("look at this @src/foo.ts")
+  })
+
+  test("renders attachment-only prompts as file placeholders, not a blank line", () => {
+    const preview = promptPreviewText(
+      [
+        { type: "text", content: "", start: 0, end: 0 },
+        { type: "attachment", id: "att_1", path: "/repo/shot.png", filename: "shot.png" },
+      ],
+      "attachment",
+    )
+    expect(preview).toBe("[file:/repo/shot.png]")
+  })
+
+  test("renders legacy data-URL images with the image placeholder", () => {
+    const preview = promptPreviewText(
+      [{ type: "image", id: "img_1", filename: "shot.png", mime: "image/png", dataUrl: "data:image/png;base64,AA==" }],
+      "attachment",
+    )
+    expect(preview).toBe("[image:shot.png]")
+  })
+
+  test("falls back to the attachment label when nothing is visible", () => {
+    const preview = promptPreviewText([{ type: "text", content: "  ", start: 0, end: 2 }], "附件")
+    expect(preview).toBe("[附件]")
   })
 })

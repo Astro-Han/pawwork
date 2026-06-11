@@ -11,7 +11,7 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
-import { useLayoutPage } from "@/context/layout-page"
+import { LayoutPageContext, useLayoutPage } from "@/context/layout-page"
 import { SDKProvider, useSDK } from "@/context/sdk"
 import { SyncProvider } from "@/context/sync"
 import { pawworkSessionDirectories } from "@/pages/layout/pawwork-session-source"
@@ -194,8 +194,15 @@ function CommandPaletteDialog(props: { mode?: DialogSelectFileMode; onOpenFile?:
     if (!params.dir) navigate(`/${slug()}/session`)
   }
 
+  // The new dialog is anchored to the palette's outer owner, which sits above
+  // the LayoutPageContext.Provider the layout wraps around the FIRST palette
+  // element — re-provide it or DialogSelectFile's useLayoutPage throws.
   const openFileOnlyPicker = () => {
-    dialog.show(() => <DialogSelectFile mode="files" onOpenFile={props.onOpenFile} />)
+    dialog.show(() => (
+      <LayoutPageContext.Provider value={layoutPage}>
+        <DialogSelectFile mode="files" onOpenFile={props.onOpenFile} />
+      </LayoutPageContext.Provider>
+    ))
   }
 
   const handleSelect = (item: CommandPaletteEntry | undefined) => {
