@@ -16,12 +16,13 @@ import { BROWSER_PARTITION } from "../browser/options"
  */
 export function registerBrowserIpc(deps: { sessionIDForWindow: (windowID: number) => string | null }) {
   // Never trust the renderer's target: "draft" means the calling window's own
-  // draft, and a session target must be the session that window currently
-  // shows. Anything else resolves to null and the channel does nothing.
+  // draft and only while that window is on Home (no session shown), and a
+  // session target must be the session that window currently shows. Anything
+  // else resolves to null and the channel does nothing.
   const resolve = (event: IpcMainInvokeEvent, target: unknown) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return null
-    if (target === "draft") return { win, key: draftKey(win.id) }
+    if (target === "draft") return deps.sessionIDForWindow(win.id) === null ? { win, key: draftKey(win.id) } : null
     if (typeof target === "string" && target.length > 0 && target === deps.sessionIDForWindow(win.id))
       return { win, key: target }
     return null
@@ -52,13 +53,15 @@ export function registerBrowserIpc(deps: { sessionIDForWindow: (windowID: number
     if (layout.visible) browserControllers.ensure(resolved.key).display(resolved.win, layout.rect)
     else browserControllers.get(resolved.key)?.hideFor(resolved.win)
   })
-  // Draft adoption can't be validated against DesktopContext: it runs by design
-  // BEFORE the renderer navigates to the just-created session's route. The
-  // window can only ever hand over its own draft, and the registry fails soft
-  // if the target session somehow already has a view.
+  // Draft adoption can't name-check the session against DesktopContext: it runs
+  // by design BEFORE the renderer navigates to the just-created session's
+  // route. But that same ordering means the window must still be on Home, so
+  // gate on that; the window can only ever hand over its own draft, and the
+  // registry fails soft if the target session somehow already has a view.
   ipcMain.handle("browser:adopt-draft", (event, sessionID: string) => {
     const win = BrowserWindow.fromWebContents(event.sender)
-    if (!win || typeof sessionID !== "string" || !sessionID) return { adopted: false, hasPage: false }
+    if (!win || typeof sessionID !== "string" || !sessionID || deps.sessionIDForWindow(win.id) !== null)
+      return { adopted: false, hasPage: false }
     return browserControllers.adoptDraft(win.id, sessionID)
   })
   // Browsing data lives in the shared persistent partition, not in any one view,
