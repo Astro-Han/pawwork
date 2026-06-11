@@ -13,13 +13,13 @@
  */
 
 import { createSignal } from "solid-js"
-import type { Prompt, ContextItem, ImageAttachmentPart } from "@/context/prompt"
+import type { Prompt, ContextItem, FloatingAttachment } from "@/context/prompt"
 import type { ResolvedMention } from "./mention-metadata"
 
 export interface PinnedDraftPayload {
   prompt: Prompt
   context: (ContextItem & { key: string })[]
-  images: ImageAttachmentPart[]
+  images: FloatingAttachment[]
   resolvedMentions: Record<string, ResolvedMention[]>
 }
 

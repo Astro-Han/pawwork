@@ -1726,35 +1726,56 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 )
                 if (Exit.isSuccess(exit)) {
                   const { model, result } = exit.value
-                  pieces.push({
+                  const media = result.attachments ?? []
+                  const attachments = media.filter((attachment) => {
+                    const kind = mediaInputKind(attachment.mime)
+                    return kind !== undefined && modelCanReadMedia(model, kind)
+                  })
+                  const droppedNotice = {
                     messageID: info.id,
                     sessionID: input.sessionID,
-                    type: "text",
+                    type: "text" as const,
                     synthetic: true,
-                    text: result.output,
-                  })
-                  if (result.attachments?.length) {
-                    const attachments = result.attachments.filter((attachment) => {
-                      const kind = mediaInputKind(attachment.mime)
-                      return kind !== undefined && modelCanReadMedia(model, kind)
-                    })
-                    if (attachments.length) {
-                      pieces.push(
-                        ...attachments.map((a) =>
-                          inheritMetadata(part, {
-                            ...a,
-                            synthetic: true,
-                            filename: a.filename ?? part.filename,
-                            messageID: info.id,
-                            sessionID: input.sessionID,
-                          }),
-                        ),
-                      )
-                    }
-                    if (attachments.length < result.attachments.length) {
-                      pieces.push({ ...part, messageID: info.id, sessionID: input.sessionID })
-                    }
+                    // Wording kept in sync with the request-time replacement in
+                    // provider/transform.ts so the model hears one consistent contract.
+                    text: `The contents of ${part.filename ?? filepath} were NOT provided to you: the current model does not support this media type as input. Do not guess or describe the file's contents; tell the user you cannot view the file.`,
+                  }
+                  // A capability-dropped attachment must not masquerade as a
+                  // successful read ("Image read successfully" with nothing
+                  // attached makes the model hallucinate the contents).
+                  if (media.length && attachments.length === 0) {
+                    pieces.push(droppedNotice)
                   } else {
+                    pieces.push({
+                      messageID: info.id,
+                      sessionID: input.sessionID,
+                      type: "text",
+                      synthetic: true,
+                      text: result.output,
+                    })
+                    if (attachments.length < media.length) pieces.push(droppedNotice)
+                  }
+                  if (attachments.length) {
+                    // When the upgrade fully replaces the original part (it is
+                    // not re-added below), the first attachment keeps the
+                    // submitted part id — id-keyed consumers (the client's
+                    // optimistic merge) otherwise see a second attachment and
+                    // render two chips for one file.
+                    const replaced = attachments.length === media.length
+                    pieces.push(
+                      ...attachments.map((a, index) =>
+                        inheritMetadata(part, {
+                          ...a,
+                          ...(replaced && index === 0 ? { id: part.id } : {}),
+                          synthetic: true,
+                          filename: a.filename ?? part.filename,
+                          messageID: info.id,
+                          sessionID: input.sessionID,
+                        }),
+                      ),
+                    )
+                  }
+                  if (media.length === 0 || attachments.length < media.length) {
                     pieces.push({ ...part, messageID: info.id, sessionID: input.sessionID })
                   }
                 } else {

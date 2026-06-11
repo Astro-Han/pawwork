@@ -325,6 +325,16 @@ export function registerIpcHandlers(deps: Deps) {
     },
   )
 
+  // Drag-dropped files resolve their path in the preload via webUtils, so the
+  // main process never sees them through a picker/save handler; the preload
+  // reports them here so read-file-data-url can serve their thumbnails.
+  // webUtils.getPathForFile returns nothing for synthetic File objects, and a
+  // renderer holding a real path-backed File can already read its bytes, so
+  // this grants no capability the caller does not have.
+  ipcMain.handle("approve-attachment-path", (event: IpcMainInvokeEvent, filepath: string) => {
+    approveAttachmentPaths(event.sender, filepath)
+  })
+
   ipcMain.handle("read-file-data-url", async (event: IpcMainInvokeEvent, filepath: string, mime: string) => {
     let normalized: string | undefined
     try {

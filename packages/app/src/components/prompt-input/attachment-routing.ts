@@ -1,4 +1,5 @@
-import { IMAGE_EXTS, OFFICE_EXTS, TEXT_EXTS, pathSuffix } from "@opencode-ai/util/file-extensions"
+import { OFFICE_EXTS, TEXT_EXTS, pathSuffix } from "@opencode-ai/util/file-extensions"
+import { attachmentMimeForPath } from "./attachment-chips-model"
 import { attachmentMime } from "./files"
 
 type DirectInputKind = "image" | "pdf"
@@ -37,6 +38,18 @@ export function modelSupportsInput(model: ModelInputSupport, kind: DirectInputKi
   return kind === "pdf" && modalities?.includes("image") === true
 }
 
+// Chips stay attachable regardless of capability; this only drives the warning
+// badge. An unknown model (still loading) must stay silent, not cry wolf.
+export function attachmentCapabilityWarning(
+  model: ModelInputSupport,
+  mime: string | undefined,
+): DirectInputKind | undefined {
+  if (!model || !mime) return undefined
+  const kind = mime.startsWith("image/") ? "image" : mime === "application/pdf" ? "pdf" : undefined
+  if (!kind) return undefined
+  return modelSupportsInput(model, kind) ? undefined : kind
+}
+
 export async function routeBrowserFile(file: File, model: ModelInputSupport): Promise<AttachRoute> {
   const mime = await attachmentMime(file)
   if (mime?.startsWith("image/")) return routeMedia(mime, "image", model)
@@ -50,10 +63,10 @@ export async function routeBrowserFile(file: File, model: ModelInputSupport): Pr
 }
 
 export function routePickedPath(path: string, model: ModelInputSupport): AttachRoute {
+  const mime = attachmentMimeForPath(path)
+  if (mime?.startsWith("image/")) return routeMedia(mime, "image", model)
+  if (mime === "application/pdf") return routeMedia(mime, "pdf", model)
   const suffix = pathSuffix(path)
-  const image = IMAGE_EXTS.get(suffix)
-  if (image) return routeMedia(image, "image", model)
-  if (suffix === "pdf") return routeMedia("application/pdf", "pdf", model)
   if (OFFICE_EXTS.has(suffix)) return { type: "path", reason: "office" }
   if (TEXT_EXTS.has(suffix)) return { type: "path", reason: "text" }
   return { type: "path", reason: "unknown" }

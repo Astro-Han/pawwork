@@ -75,7 +75,20 @@ const api: ElectronAPI = {
   openDirectoryPicker: (opts) => ipcRenderer.invoke("open-directory-picker", opts),
   openFilePicker: (opts) => ipcRenderer.invoke("open-file-picker", opts),
   readFileDataUrl: (path, mime) => ipcRenderer.invoke("read-file-data-url", path, mime),
-  filePathForBrowserFile: (file) => webUtils.getPathForFile(file),
+  filePathForBrowserFile: async (file) => {
+    const path = webUtils.getPathForFile(file)
+    if (!path) return null
+    // Approval must land before the renderer sees the path, or the first
+    // thumbnail read races the allowlist insert. An approval failure must not
+    // leak an unapproved path — degrade to null so callers fall back to the
+    // save-attachment copy route.
+    try {
+      await ipcRenderer.invoke("approve-attachment-path", path)
+    } catch {
+      return null
+    }
+    return path
+  },
   saveAttachmentFile: (name, mime, buffer) => ipcRenderer.invoke("save-attachment-file", name, mime, buffer),
   saveFilePicker: (opts) => ipcRenderer.invoke("save-file-picker", opts),
   exportSession: (sessionID, directory, defaultName, title) =>

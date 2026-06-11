@@ -42,6 +42,46 @@ describe("extractPromptFromParts", () => {
     ])
   })
 
+  test("restores source-less file:// parts as attachment chips", () => {
+    const parts = [
+      {
+        id: "text_1",
+        type: "text",
+        text: "summarize this",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+      },
+      {
+        id: "file_1",
+        type: "file",
+        mime: "text/plain",
+        url: "file:///Users/me/Desktop/shot%202026.png",
+        filename: "shot 2026.png",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+      },
+      {
+        id: "file_2",
+        type: "file",
+        mime: "text/plain",
+        url: "file:///Users/me/report.pdf?start=2&end=5",
+        filename: "report.pdf",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+      },
+    ] satisfies Part[]
+
+    const result = extractPromptFromParts(parts)
+
+    expect(result[0]).toMatchObject({ type: "text", content: "summarize this" })
+    expect(result.slice(1)).toMatchObject([
+      // mime re-derived from the suffix so the chip renders its thumbnail again.
+      // The selection-scoped part (?start=&end=) is deliberately absent: see
+      // "skips selection-scoped file parts" below.
+      { type: "attachment", path: "/Users/me/Desktop/shot 2026.png", filename: "shot 2026.png", mime: "image/png" },
+    ])
+  })
+
   test("issue #239: AgentPart in history restores as plain text, not as an agent inline", () => {
     // Pre-#239 messages may contain a separate AgentPart record beside the text
     // that already includes "@<name>" inline. After #239 the picker is gone, so
@@ -228,6 +268,107 @@ describe("extractPromptFromParts", () => {
       mime: "image/png",
       dataUrl: "data:image/png;base64,VVNFUg==",
     })
+  })
+
+  test("command mode: restores user chip attachments and keeps template files suppressed", () => {
+    const parts = [
+      {
+        id: "text_1",
+        type: "text",
+        text: "# Brainstorming methodology\n\n...body...",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+        metadata: {
+          commandInvocation: { name: "brainstorming", args: "fold the bubble", source: "command" },
+          commandTemplate: true,
+        },
+      },
+      {
+        id: "file_template",
+        type: "file",
+        mime: "text/plain",
+        url: "file:///tmp/template.md",
+        filename: "template.md",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+        metadata: { commandTemplate: true },
+      },
+      {
+        id: "file_user",
+        type: "file",
+        mime: "text/plain",
+        url: "file:///Users/me/report.pdf",
+        filename: "report.pdf",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+      },
+    ] satisfies Part[]
+
+    const result = extractPromptFromParts(parts)
+
+    expect(result).toHaveLength(2)
+    expect(result[0]).toMatchObject({ type: "text", content: "/brainstorming fold the bubble" })
+    expect(result[1]).toMatchObject({ type: "attachment", path: "/Users/me/report.pdf", filename: "report.pdf" })
+  })
+
+  test("skips selection-scoped file parts instead of widening them to whole-file chips", () => {
+    // Context items with a line selection submit as source-less file parts
+    // whose only selection carrier is the ?start=&end= query. Restoring them
+    // as path-only chips would silently expand a few-line reference into the
+    // whole file on resubmit.
+    const parts = [
+      { id: "text_1", type: "text", text: "check this", sessionID: "ses_1", messageID: "msg_1" },
+      {
+        id: "file_ctx",
+        type: "file",
+        mime: "text/plain",
+        url: "file:///Users/me/big-module.ts?start=120&end=132",
+        filename: "big-module.ts",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+      },
+    ] satisfies Part[]
+
+    const result = extractPromptFromParts(parts)
+
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({ type: "text", content: "check this" })
+  })
+
+  test("command mode: skips inline-pill file parts already carried by the args text", () => {
+    // `/summarize @guide.pdf` submits the inline pill as a file part WITH
+    // source.text, while the mention text itself stays inside the args. The
+    // engine re-derives a file part from that text on every command submit
+    // (resolvePromptParts), so restoring the pill part as a chip would show the
+    // same reference twice in the composer.
+    const parts = [
+      {
+        id: "text_1",
+        type: "text",
+        text: "# Summarize\n\n...body...",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+        metadata: {
+          commandInvocation: { name: "summarize", args: "@guide.pdf", source: "command" },
+          commandTemplate: true,
+        },
+      },
+      {
+        id: "file_pill",
+        type: "file",
+        mime: "text/plain",
+        url: "file:///Users/me/guide.pdf",
+        filename: "guide.pdf",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+        source: { type: "file", path: "/Users/me/guide.pdf", text: { value: "@guide.pdf", start: 11, end: 21 } },
+      },
+    ] satisfies Part[]
+
+    const result = extractPromptFromParts(parts)
+
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({ type: "text", content: "/summarize @guide.pdf" })
   })
 
   test("command mode without args: restores `/<cmd> ` with trailing space and no body", () => {

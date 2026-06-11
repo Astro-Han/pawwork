@@ -32,7 +32,11 @@ export function createSessionRevertSupport(input: {
 
   const line = (id: string) => {
     const text = draftFrom({ directory: input.directory(), store: input.sync.data }, id)
-      .map((part) => (part.type === "image" ? `[image:${part.filename}]` : part.content))
+      .map((part) => {
+        if (part.type === "image") return `[image:${part.filename}]`
+        if (part.type === "attachment") return `[file:${part.path}]`
+        return part.content
+      })
       .join("")
       .replace(/\s+/g, " ")
       .trim()

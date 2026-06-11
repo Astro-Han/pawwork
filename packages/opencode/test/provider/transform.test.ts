@@ -1840,6 +1840,39 @@ describe("ProviderTransform.message - empty image handling", () => {
     })
   })
 
+  test("withholds capability-unsupported media with the same notice the resolver uses", () => {
+    const validBase64 =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+    const textOnly = {
+      ...mockModel,
+      capabilities: {
+        ...mockModel.capabilities,
+        input: { text: true, audio: false, image: false, video: false, pdf: false },
+      },
+    } as any
+    const msgs = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "What is in these?" },
+          { type: "image", image: `data:image/png;base64,${validBase64}` },
+          { type: "file", data: "JVBERi0xLjc=", mediaType: "application/pdf", filename: "report.pdf" },
+        ],
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, textOnly, {})
+
+    expect(result[0].content[1]).toEqual({
+      type: "text",
+      text: "The contents of this image were NOT provided to you: this model does not support image input. Do not guess or describe the file's contents; tell the user you cannot view the file.",
+    })
+    expect(result[0].content[2]).toEqual({
+      type: "text",
+      text: 'The contents of "report.pdf" were NOT provided to you: this model does not support pdf input. Do not guess or describe the file\'s contents; tell the user you cannot view the file.',
+    })
+  })
+
   test("should keep valid base64 images unchanged", () => {
     const validBase64 =
       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="

@@ -1382,6 +1382,38 @@ it.live("text file part does not promote PDF attachment when model lacks PDF inp
   ),
 )
 
+it.live("tells the model when image content cannot be provided to it", () =>
+  provideTmpdirInstance(
+    (dir) =>
+      Effect.gen(function* () {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const session = yield* sessions.create({})
+        const png = path.join(dir, "shot.png")
+        const pngUrl = pathToFileURL(png).href
+        yield* Effect.promise(() => Bun.write(png, new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])))
+
+        const msg = yield* prompt.prompt({
+          sessionID: session.id,
+          agent: "build",
+          noReply: true,
+          parts: [
+            { type: "text", text: "what is in this image?" },
+            { type: "file", url: pngUrl, filename: "shot.png", mime: "text/plain" },
+          ],
+        })
+
+        expect(msg.parts.some((part) => part.type === "file" && part.mime === "image/png")).toBe(false)
+        const texts = msg.parts.filter((part) => part.type === "text").map((part) => part.text)
+        // A capability-dropped attachment must not leave the model believing
+        // the read succeeded — that produces confident hallucination.
+        expect(texts.some((text) => text.includes("Image read successfully"))).toBe(false)
+        expect(texts.some((text) => /NOT provided/.test(text))).toBe(true)
+      }),
+    { git: true, config: cfg },
+  ),
+)
+
 it.live("text file part promotes PDF attachment when model has image input", () =>
   provideTmpdirInstance(
     (dir) =>
@@ -1404,6 +1436,48 @@ it.live("text file part promotes PDF attachment when model has image input", () 
         })
 
         expect(msg.parts.some((part) => part.type === "file" && part.mime === "application/pdf")).toBe(true)
+      }),
+    { git: true, config: imageCfg },
+  ),
+)
+
+it.live("image upgrade replaces the submitted file part in place", () =>
+  provideTmpdirInstance(
+    (dir) =>
+      Effect.gen(function* () {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const session = yield* sessions.create({})
+        const png = path.join(dir, "shot.png")
+        const pngUrl = pathToFileURL(png).href
+        yield* Effect.promise(() => Bun.write(png, new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])))
+
+        const submittedID = PartID.ascending()
+        const msg = yield* prompt.prompt({
+          sessionID: session.id,
+          agent: "build",
+          noReply: true,
+          parts: [
+            { type: "text", text: "what is in this image?" },
+            {
+              type: "file",
+              id: submittedID,
+              url: pngUrl,
+              filename: "shot.png",
+              mime: "text/plain",
+              metadata: { attachment: true },
+            },
+          ],
+        })
+
+        const fileParts = msg.parts.filter((part): part is MessageV2.FilePart => part.type === "file")
+        // The upgraded media part must keep the submitted part id. Id-keyed
+        // consumers (the client's optimistic part merge) otherwise treat it as
+        // a second attachment and render two chips for one file.
+        expect(fileParts).toHaveLength(1)
+        expect(fileParts[0].id).toBe(submittedID)
+        expect(fileParts[0].mime).toBe("image/png")
+        expect(fileParts[0].metadata?.attachment).toBe(true)
       }),
     { git: true, config: imageCfg },
   ),

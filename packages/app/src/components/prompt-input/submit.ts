@@ -8,7 +8,7 @@ import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { useLocal } from "@/context/local"
 import { usePermission } from "@/context/permission"
-import { type ImageAttachmentPart, type Prompt, usePrompt } from "@/context/prompt"
+import { type FloatingAttachment, type Prompt, usePrompt } from "@/context/prompt"
 import { emitRendererDiagnostic } from "@/context/renderer-diagnostics"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
@@ -32,7 +32,7 @@ type PromptSubmitInput = {
   sessionID?: Accessor<string | undefined>
   isNewSession?: Accessor<boolean>
   info: Accessor<{ id: string } | undefined>
-  imageAttachments: Accessor<ImageAttachmentPart[]>
+  imageAttachments: Accessor<FloatingAttachment[]>
   commentCount: Accessor<number>
   autoAccept: Accessor<boolean>
   mode: Accessor<"normal" | "shell">

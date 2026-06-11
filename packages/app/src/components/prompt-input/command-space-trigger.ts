@@ -7,7 +7,7 @@
 // (`insertCompositionText`), and programmatic mutations (no event). No flag
 // state machine needed.
 
-import type { ImageAttachmentPart, Prompt } from "@/context/prompt"
+import type { FloatingAttachment, Prompt } from "@/context/prompt"
 import type { CommandDescriptor } from "./command-text-part"
 import { tryParseLeadingCommandFromText } from "./command-text-part"
 
@@ -21,7 +21,7 @@ export interface SpaceTriggerInput {
   inputType?: string | null
   data?: string | null
   rawText: string
-  images: ImageAttachmentPart[]
+  images: FloatingAttachment[]
   registry: ReadonlyArray<CommandDescriptor>
 }
 

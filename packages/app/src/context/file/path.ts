@@ -80,6 +80,22 @@ function decodeFilePath(input: string) {
   }
 }
 
+/**
+ * Convert a composer-produced `file://` URL (see encodeFilePath) back to a
+ * filesystem path, dropping any selection query. Returns undefined for
+ * non-file URLs.
+ */
+export function fileUrlToPath(url: string): string | undefined {
+  if (!url.startsWith("file://")) return undefined
+  const decoded = decodeFilePath(stripQueryAndHash(stripFileProtocol(url)))
+  // encodeFilePath writes Windows drive paths as /D:/...; undo that.
+  if (/^\/[A-Za-z]:/.test(decoded)) return decoded.slice(1)
+  // fileURL puts UNC paths (//server/share) in the URL host position,
+  // stripping the leading slashes; restore them.
+  if (decoded && !decoded.startsWith("/")) return "//" + decoded
+  return decoded
+}
+
 export function encodeFilePath(filepath: string): string {
   // Normalize Windows paths: convert backslashes to forward slashes
   let normalized = filepath.replace(/\\/g, "/")

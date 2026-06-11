@@ -72,6 +72,7 @@ export function SessionComposerRegion(props: {
         if (part.type === "agent") return `@${part.name}`
         if (part.type === "skill") return `/${part.name}`
         if (part.type === "image") return `[image:${part.filename}]`
+        if (part.type === "attachment") return `[file:${part.path}]`
         return part.content
       })
       .join("")
