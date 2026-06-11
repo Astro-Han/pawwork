@@ -276,8 +276,9 @@ export async function releaseBrowserSession(sessionID: string): Promise<void> {
  * CDP connection: this runs BEFORE the permission ask, and connecting would
  * already stealth-reload a page the user has open. A null url means a blank
  * or non-web page, which the caller maps to the `*` pattern so the baseline
- * rule still applies. The action can only ever land in that same view, so
- * nothing needs pinning between the ask and the run.
+ * rule still applies. The action can only ever land in that same view; the
+ * caller re-probes after the ask so an answer granted on one site is never
+ * spent on another (see runBrowserAction).
  */
 export async function browserPageProbe(sessionID: string): Promise<{ url: string | null }> {
   const root = await rootSessionID(sessionID)
