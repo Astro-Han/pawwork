@@ -33,8 +33,8 @@ export function registerBrowserIpc(deps: { sessionIDForWindow: (windowID: number
     return resolved ? browserControllers.get(resolved.key) : undefined
   }
 
-  // Create on first real use (navigate, or a visible set-view) so conversations
-  // that never open the browser pay nothing.
+  // Create on first real use (navigate) so conversations that never open the
+  // browser pay nothing.
   const ensure = (event: IpcMainInvokeEvent, target: unknown) => {
     const resolved = resolve(event, target)
     return resolved ? browserControllers.ensure(resolved.key) : undefined
@@ -48,9 +48,11 @@ export function registerBrowserIpc(deps: { sessionIDForWindow: (windowID: number
   ipcMain.handle("browser:set-view", (event, target: string, layout: BrowserViewLayout) => {
     const resolved = resolve(event, target)
     if (!resolved) return
-    // Only spin up a view when there is something to show; hiding a view that
-    // was never created is a no-op.
-    if (layout.visible) browserControllers.ensure(resolved.key).display(resolved.win, layout.rect, layout.claim === true)
+    // get(), never ensure(): a panel only shows when the page state says there
+    // is a page, and only a live controller can say that — so a visible push
+    // with no controller is always stale (e.g. RAF frames still arriving after
+    // the session's delete disposed the view) and must not resurrect one.
+    if (layout.visible) browserControllers.get(resolved.key)?.display(resolved.win, layout.rect, layout.claim === true)
     else browserControllers.get(resolved.key)?.hideFor(resolved.win)
   })
   // Draft adoption can't name-check the session against DesktopContext: it runs

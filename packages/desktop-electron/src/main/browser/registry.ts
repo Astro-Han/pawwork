@@ -75,6 +75,10 @@ export class BrowserControllerRegistry<C extends OwnedBrowserView> {
    */
   adoptDraft(windowID: number, sessionID: string): { adopted: boolean; hasPage: boolean } {
     const draft = this.controllers.get(draftKey(windowID))
+    // The target must be a session id, never a key in the draft namespace —
+    // re-keying a view under another window's `draft:N` would make state and
+    // display routing treat it as that window's private draft.
+    if (draftWindowID(sessionID) !== null) return { adopted: false, hasPage: false }
     if (!draft || this.controllers.has(sessionID)) return { adopted: false, hasPage: false }
     this.controllers.delete(draftKey(windowID))
     this.controllers.set(sessionID, draft)

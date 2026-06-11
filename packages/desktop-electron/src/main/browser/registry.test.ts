@@ -83,6 +83,16 @@ describe("BrowserControllerRegistry", () => {
     expect(registry.get(draftKey(1))).toBeUndefined()
   })
 
+  test("adoptDraft refuses a target in the draft key namespace", () => {
+    const { registry } = makeRegistry()
+    const draft = registry.ensure(draftKey(1))
+    // A renderer naming "draft:2" as the new session id must not re-key its
+    // draft into window 2's private namespace.
+    expect(registry.adoptDraft(1, draftKey(2))).toEqual({ adopted: false, hasPage: false })
+    expect(registry.get(draftKey(1))).toBe(draft)
+    expect(registry.get(draftKey(2))).toBeUndefined()
+  })
+
   test("adoptDraft fails soft when there is no draft or the session already has a view", () => {
     const { registry } = makeRegistry()
     expect(registry.adoptDraft(1, "ses_new")).toEqual({ adopted: false, hasPage: false })
