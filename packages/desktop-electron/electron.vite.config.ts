@@ -9,6 +9,7 @@ import {
   embeddedServerMissingArtifactsMessage,
 } from "./src/main/embedded-server-contract"
 import { createRendererWorkspaceConfig } from "./renderer-workspace-config"
+import { openCliRuntimePackages } from "./opencli-runtime"
 
 const channel = (() => {
   const raw = process.env.OPENCODE_CHANNEL
@@ -63,6 +64,16 @@ export default defineConfig({
           for (const l of await fs.readdir(OPENCODE_SERVER_DIST)) {
             if (!l.endsWith(".wasm")) continue
             await fs.writeFile(`./out/main/chunks/${l}`, await fs.readFile(path.join(OPENCODE_SERVER_DIST, l)))
+          }
+        },
+      },
+      {
+        name: "opencode:copy-opencli-runtime",
+        async writeBundle() {
+          for (const pkg of openCliRuntimePackages()) {
+            const target = path.join("./out/main/chunks/node_modules", ...pkg.name.split("/"))
+            await fs.rm(target, { recursive: true, force: true })
+            await fs.cp(pkg.dir, target, { recursive: true })
           }
         },
       },

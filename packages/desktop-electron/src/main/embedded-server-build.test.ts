@@ -62,6 +62,10 @@ test("electron-vite build copies required embedded server wasm sidecars into out
     for (const matches of requiredWasmMatchers) {
       expect(files.some((file) => matches(file))).toBe(true)
     }
+    expect(fs.existsSync(path.join(outChunksDir, "node_modules", "@jackwener", "opencli", "cli-manifest.json"))).toBe(
+      true,
+    )
+    expect(fs.existsSync(path.join(outChunksDir, "node_modules", "@mixmark-io", "domino", "package.json"))).toBe(true)
 
     expectModelsSnapshotUnchanged(modelsFixture)
   })
