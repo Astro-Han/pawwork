@@ -18,9 +18,16 @@ export const Parameters = Schema.Struct({
 
 function commandPermissionPatterns(command: Awaited<ReturnType<typeof openCliCommand>>): string[] {
   if (!command) return ["*"]
-  if (typeof command.navigateBefore === "string") return [command.navigateBefore]
-  if (command.domain) return [`https://${command.domain}/*`]
-  return ["*"]
+  const patterns: string[] = []
+  if (typeof command.navigateBefore === "string") {
+    try {
+      patterns.push(`${new URL(command.navigateBefore).origin}/*`)
+    } catch {
+      patterns.push(command.navigateBefore)
+    }
+  }
+  if (command.domain) patterns.push(`https://${command.domain}/*`)
+  return patterns.length > 0 ? [...new Set(patterns)] : ["*"]
 }
 
 function formatAdapterOutput(value: unknown): string {

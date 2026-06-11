@@ -48,6 +48,37 @@ describe("opencli_search", () => {
 })
 
 describe("opencli_run", () => {
+  test("asks for origin and domain browser permissions for pre-navigation commands", async () => {
+    cli({
+      site: "pawwork-test",
+      name: "browser-permission",
+      access: "read",
+      description: "Browser permission test adapter",
+      browser: true,
+      domain: "example.com",
+      navigateBefore: "https://auth.example.com/login",
+      args: [],
+      func: async () => [],
+    })
+
+    try {
+      const askLog: Parameters<Tool.Context["ask"]>[0][] = []
+      await exec(OpenCliRunTool, { command: "pawwork-test/browser-permission", args: {} }, {
+        ask: (input) =>
+          Effect.sync(() => {
+            askLog.push(input)
+          }),
+      }).catch(() => undefined)
+
+      expect(askLog[0]).toMatchObject({
+        permission: "browser",
+        patterns: ["https://auth.example.com/*", "https://example.com/*"],
+      })
+    } finally {
+      getRegistry().delete("pawwork-test/browser-permission")
+    }
+  })
+
   test("runs a registered non-browser adapter through command and args", async () => {
     cli({
       site: "pawwork-test",
