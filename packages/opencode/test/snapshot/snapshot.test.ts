@@ -87,6 +87,52 @@ test("initial snapshot in secondary worktree reuses common object database", asy
   }
 })
 
+test("initial snapshot preserves source relative alternates", async () => {
+  await using tmp = await bootstrap()
+  const sourceObjects = await sourceObjectsForGitWorktree(tmp.path)
+  const sharedObjects = `${tmp.path}-shared-objects`
+
+  try {
+    await fs.mkdir(sharedObjects, { recursive: true })
+    await fs.mkdir(path.join(sourceObjects, "info"), { recursive: true })
+    await fs.writeFile(
+      path.join(sourceObjects, "info", "alternates"),
+      `${path.relative(sourceObjects, sharedObjects).replaceAll("\\", "/")}\n`,
+    )
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        expect(await Snapshot.track()).toBeTruthy()
+
+        const alternates = await fs.readFile(path.join(snapshotGitdir(), "objects", "info", "alternates"), "utf8")
+        expect(alternates.split(/\r?\n/).filter(Boolean)).toContain(gitPath(sharedObjects))
+      },
+    })
+  } finally {
+    await $`rm -rf ${sharedObjects}`.quiet()
+  }
+})
+
+test("initial snapshot falls back when source index uses split index", async () => {
+  await using tmp = await bootstrap()
+  await $`git config core.splitIndex true`.cwd(tmp.path).quiet()
+  await $`git update-index --split-index`.cwd(tmp.path).quiet()
+
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const before = await Snapshot.track()
+      expect(before).toBeTruthy()
+
+      const file = fwd(tmp.path, "split-index-new.txt")
+      await Filesystem.write(file, "split index fallback")
+
+      expect((await Snapshot.patch(before!)).files).toContain(file)
+    },
+  })
+})
+
 test("tracks deleted files correctly", async () => {
   await using tmp = await bootstrap()
   await Instance.provide({

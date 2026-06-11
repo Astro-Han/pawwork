@@ -228,7 +228,7 @@ export namespace Snapshot {
                 .split(/\r?\n/)
                 .map((line) => line.trim())
                 .filter(Boolean)
-                .map((line) => (path.isAbsolute(line) ? line : path.resolve(sourceInfo, line)))
+                .map((line) => (path.isAbsolute(line) ? line : path.resolve(sourceObjects, line)))
 
               const alternates: string[] = []
               for (const candidate of [sourceObjects, ...chained]) {
@@ -250,7 +250,18 @@ export namespace Snapshot {
               })
               const sourceIndex = index.text.trim()
               if (index.code !== 0 || !sourceIndex || !(yield* exists(sourceIndex))) return
-              yield* fs.copyFile(sourceIndex, path.join(state.gitdir, "index")).pipe(Effect.catch(() => Effect.void))
+              const targetIndex = path.join(state.gitdir, "index")
+              const copied = yield* fs.copyFile(sourceIndex, targetIndex).pipe(
+                Effect.as(true),
+                Effect.catch(() => Effect.succeed(false)),
+              )
+              if (!copied) return
+
+              const status = yield* git(args(["status", "--porcelain"]), { cwd: state.directory })
+              const unmerged = yield* git(args(["ls-files", "-u"]), { cwd: state.directory })
+              if (status.code === 0 && unmerged.code === 0 && !unmerged.text.trim()) return
+
+              yield* remove(targetIndex)
             },
             Effect.catchCause((cause) => {
               log.warn("failed to seed snapshot source git data", { cause: Cause.pretty(cause) })
