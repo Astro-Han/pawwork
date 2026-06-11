@@ -175,6 +175,23 @@ describe("electron builder app-update config", () => {
     )
   })
 
+  test("packages only OpenCLI runtime files", () => {
+    const resources = openCliRuntimeFileSets()
+
+    for (const resource of resources) {
+      expect(resource.filter).toEqual(
+        expect.arrayContaining([
+          "!**/.yarn/**",
+          "!**/{test,tests,__tests__,coverage}/**",
+          "!**/*.{test,spec}.{js,mjs,cjs,ts,tsx}",
+        ]),
+      )
+    }
+    expect(resources.find((resource) => resource.to.endsWith(join("@jackwener", "opencli")))?.filter).toContain(
+      "!clis/test-utils.js",
+    )
+  })
+
   test("afterPack writes app-update.yml to the packager-reported macOS resources path", async () => {
     const root = mkdtempSync(join(tmpdir(), "pawwork-builder-config-"))
     roots.push(root)

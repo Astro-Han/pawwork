@@ -69,13 +69,68 @@ export function openCliRuntimePackageNames() {
   return openCliRuntimePackages().map((pkg) => pkg.name)
 }
 
+const runtimeOnlyExcludes = [
+  "!**/.yarn/**",
+  "!**/{test,tests,__tests__,coverage}/**",
+  "!**/*.{test,spec}.{js,mjs,cjs,ts,tsx}",
+]
+
+function normalizeRelativePath(relativePath: string) {
+  return relativePath.split(path.sep).join("/")
+}
+
+function isNonRuntimePath(relativePath: string) {
+  const normalized = normalizeRelativePath(relativePath)
+  const parts = normalized.split("/")
+  if (parts.some((part) => part === ".yarn" || part === "test" || part === "tests" || part === "__tests__" || part === "coverage")) {
+    return true
+  }
+  const basename = parts.at(-1) ?? ""
+  return /\.(test|spec)\.(js|mjs|cjs|ts|tsx)$/.test(basename)
+}
+
+export function includeOpenCliRuntimeFile(packageName: string, relativePath: string) {
+  const normalized = normalizeRelativePath(relativePath)
+  if (isNonRuntimePath(normalized)) return false
+  if (packageName !== "@jackwener/opencli") return true
+  if (normalized === "clis/test-utils.js") return false
+  return (
+    normalized === "package.json" ||
+    normalized === "README.md" ||
+    normalized === "LICENSE" ||
+    normalized === "cli-manifest.json" ||
+    normalized.startsWith("clis/") ||
+    normalized.startsWith("dist/src/")
+  )
+}
+
+export function includeOpenCliRuntimeDirectory(packageName: string, relativePath: string) {
+  const normalized = normalizeRelativePath(relativePath)
+  if (normalized === "") return true
+  if (isNonRuntimePath(normalized)) return false
+  if (packageName !== "@jackwener/opencli") return true
+  return (
+    normalized === "clis" ||
+    normalized.startsWith("clis/") ||
+    normalized === "dist" ||
+    normalized === "dist/src" ||
+    normalized.startsWith("dist/src/")
+  )
+}
+
+function openCliRuntimeFilter(packageName: string) {
+  const includes =
+    packageName === "@jackwener/opencli"
+      ? ["package.json", "README.md", "LICENSE", "cli-manifest.json", "clis/**/*", "dist/src/**/*"]
+      : ["**/*"]
+  const packageExcludes = packageName === "@jackwener/opencli" ? ["!clis/test-utils.js"] : []
+  return [...includes, ...runtimeOnlyExcludes, ...packageExcludes]
+}
+
 export function openCliRuntimeFileSets() {
   return openCliRuntimePackages().map((pkg) => ({
     from: pkg.dir,
     to: path.join("node_modules", ...pkg.name.split("/")),
-    filter:
-      pkg.name === "@jackwener/opencli"
-        ? ["package.json", "README.md", "LICENSE", "cli-manifest.json", "clis/**/*", "dist/src/**/*"]
-        : ["**/*"],
+    filter: openCliRuntimeFilter(pkg.name),
   }))
 }
