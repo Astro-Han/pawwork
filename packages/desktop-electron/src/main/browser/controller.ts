@@ -3,6 +3,7 @@ import type { BrowserState, BrowserViewLayout } from "@opencode-ai/app/desktop-a
 import { browserViewWebPreferences } from "./options"
 import { clearDataReloadAction, computeViewBounds, deriveBrowserState, parseNavigable, safeExternalUrl } from "./logic"
 import { CdpBridge, type AutomationEndpoint } from "./cdp-bridge"
+import { draftWindowID, rendererTarget } from "./registry"
 
 export const BROWSER_STATE_CHANNEL = "browser:state"
 export const BROWSER_DISPLAY_TAKEN_CHANNEL = "browser:display-taken"
@@ -14,21 +15,6 @@ export const BROWSER_DISPLAY_TAKEN_CHANNEL = "browser:display-taken"
  * panel displays them.
  */
 const DEFAULT_VIEW_BOUNDS = { x: 0, y: 0, width: 1280, height: 720 }
-
-/** Registry key of a window's Home draft view (the only window-scoped views). */
-export function draftKey(windowID: number): string {
-  return `draft:${windowID}`
-}
-
-function draftWindowID(ownerKey: string): number | null {
-  return ownerKey.startsWith("draft:") ? Number(ownerKey.slice("draft:".length)) : null
-}
-
-/** Renderer-facing target of an owner key: drafts are window-private, so the
- *  renderer addresses its own draft as the literal "draft". */
-export function rendererTarget(ownerKey: string): string {
-  return draftWindowID(ownerKey) === null ? ownerKey : "draft"
-}
 
 /**
  * Owns one embedded browser per CONVERSATION (root session) — or a per-window

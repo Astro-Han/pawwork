@@ -1,7 +1,7 @@
 import { BrowserWindow, ipcMain, session, type IpcMainInvokeEvent } from "electron"
 import type { BrowserViewLayout } from "@opencode-ai/app/desktop-api"
 import { browserControllers } from "../browser/controller-automation"
-import { draftKey } from "../browser/controller"
+import { draftKey } from "../browser/registry"
 import { BROWSER_PARTITION } from "../browser/options"
 
 /**
