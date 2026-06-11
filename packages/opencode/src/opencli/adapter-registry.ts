@@ -129,3 +129,5 @@ export function resetOpenCliAdaptersForTest() {
   loadPromise = undefined
   manifestCache = undefined
 }
+
+export * as AdapterRegistry from "./adapter-registry"

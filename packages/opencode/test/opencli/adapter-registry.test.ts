@@ -1,8 +1,12 @@
 import { describe, expect, test } from "bun:test"
 import { getRegistry, type CliCommand } from "@jackwener/opencli/registry"
-import { loadOpenCliAdapters, searchOpenCliCommands } from "../../src/opencli/adapter-registry"
+import { AdapterRegistry, loadOpenCliAdapters, searchOpenCliCommands } from "../../src/opencli/adapter-registry"
 
 describe("opencli adapter registry", () => {
+  test("exposes the module namespace export", () => {
+    expect(AdapterRegistry.searchOpenCliCommands).toBe(searchOpenCliCommands)
+  })
+
   test("loads the packaged manifest and exposes searchable canonical commands", async () => {
     const loaded = await loadOpenCliAdapters()
 

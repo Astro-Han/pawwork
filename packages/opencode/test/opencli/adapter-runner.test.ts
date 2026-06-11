@@ -2,6 +2,7 @@ import { describe, expect, mock, test } from "bun:test"
 import type { CliCommand } from "@jackwener/opencli/registry"
 import type { IPage } from "@jackwener/opencli/types"
 import {
+  AdapterRunner,
   createOpenCliAdapterPage,
   prepareOpenCliCommandArgs,
   runOpenCliAdapterCommand,
@@ -9,6 +10,10 @@ import {
 } from "../../src/opencli/adapter-runner"
 
 describe("opencli adapter runner", () => {
+  test("exposes the module namespace export", () => {
+    expect(AdapterRunner.runOpenCliAdapterCommand).toBe(runOpenCliAdapterCommand)
+  })
+
   test("prepares args with defaults, type coercion, choices, and validateArgs", () => {
     const command = {
       site: "demo",

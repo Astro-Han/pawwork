@@ -211,3 +211,5 @@ export async function runOpenCliAdapterCommand(
   if (cmd.pipeline) return executePipeline(adapterPage, cmd.pipeline, { args: kwargs, debug })
   throw new OpenCliCommandError(`Command ${fullName(cmd)} has no func or pipeline`)
 }
+
+export * as AdapterRunner from "./adapter-runner"
