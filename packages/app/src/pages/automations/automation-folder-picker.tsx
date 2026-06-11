@@ -42,10 +42,13 @@ export function AutomationFolderPicker(props: {
         {
           type: "button",
           "data-action": props.action ?? "automation-folder",
-          "data-picker-trigger": "",
+          // data-picker-trigger carries picker.css's pill hover; the row
+          // variant instead matches the detail sidebar's underline hover so
+          // all editable rows read the same.
+          ...(row() ? {} : { "data-picker-trigger": "" }),
           "aria-haspopup": "menu",
           class: row()
-            ? "flex min-w-0 items-center gap-1.5 truncate text-right text-body text-fg-base hover:text-fg-strong focus-visible:text-fg-strong focus:outline-none cursor-default"
+            ? "flex min-w-0 items-center gap-1.5 truncate text-right text-body text-fg-base hover:text-fg-strong hover:underline focus-visible:text-fg-strong focus-visible:underline focus:outline-none cursor-default"
             : "inline-flex h-[30px] min-w-0 items-center gap-1.5 rounded-lg border border-border-weak px-2.5 text-body text-fg-base hover:bg-row-hover-overlay focus:outline-none cursor-default",
         } as never
       }
