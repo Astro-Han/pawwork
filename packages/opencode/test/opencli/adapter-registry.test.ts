@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { getRegistry, type CliCommand } from "@jackwener/opencli/registry"
+import path from "path"
+import { pathToFileURL } from "url"
 import {
   AdapterRegistry,
   importOpenCliAdapterModulesForTest,
@@ -66,7 +68,10 @@ describe("opencli adapter registry", () => {
       },
     })
 
-    expect(imported).toEqual(["file:///opencli/clis/bad.js", "file:///opencli/clis/good.js"])
+    expect(imported).toEqual([
+      pathToFileURL(path.join("/opencli", "clis", "bad.js")).href,
+      pathToFileURL(path.join("/opencli", "clis", "good.js")).href,
+    ])
     expect(failures).toEqual([{ modulePath: "bad.js", error: "bad module" }])
   })
 })
