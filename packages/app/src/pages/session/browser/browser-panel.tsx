@@ -60,6 +60,9 @@ export function BrowserPanel(props: {
       (target) => {
         setState(null)
         setDisplaced(false)
+        // Abandon any in-progress address edit: the draft text belonged to the
+        // previous conversation and must not carry over to this one.
+        setEditing(false)
         void bridge.getState(target).then((s) => {
           if (s && props.target() === target) setState((prev) => prev ?? s)
         })
