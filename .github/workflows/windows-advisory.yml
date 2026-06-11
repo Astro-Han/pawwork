@@ -162,6 +162,7 @@ jobs:
               test/worktree
               test/file/
               test/github
+              test/opencli
               test/settings
               test/settings.test.ts
             report_path: packages/opencode/.artifacts/unit/junit-windows-config-project.xml
