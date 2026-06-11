@@ -598,11 +598,12 @@ export namespace Automation {
     )
   }
 
-  function replaceDefinition(previous: Definition, next: Definition, options?: { ownerDirectory?: string }) {
+  function replaceDefinition(previous: Definition, next: Definition, options?: { ownerDirectory?: string; scope?: Scope }) {
+    const ownerDirectory = options?.scope?.ownerDirectory ?? Instance.directory
     return Database.transaction(
       (db) => {
         const row = db.select().from(AutomationDefinitionTable).where(eq(AutomationDefinitionTable.id, previous.id)).get()
-        if (!row || row.project_id !== previous.where.projectID || row.owner_directory !== Instance.directory) {
+        if (!row || row.project_id !== previous.where.projectID || row.owner_directory !== ownerDirectory) {
           throw new NotFoundError({ message: `Automation not found: ${previous.id}` })
         }
         const current = Definition.parse(row.data)
@@ -610,7 +611,7 @@ export namespace Automation {
         db.update(AutomationDefinitionTable)
           .set({
             project_id: next.where.projectID,
-            owner_directory: options?.ownerDirectory ?? Instance.directory,
+            owner_directory: options?.ownerDirectory ?? ownerDirectory,
             time_updated: next.updatedAt,
             data: next,
           })
@@ -731,24 +732,26 @@ export namespace Automation {
     options?: {
       now?: number
       refreshOnStopped?: boolean
+      scope?: Scope
     },
   ): Definition | undefined {
     if (run.state !== "succeeded" && run.state !== "failed" && run.state !== "stopped") return undefined
     const now = options?.now ?? Date.now()
+    const scope = options?.scope ?? currentScope()
     // Retry on revision conflict: a concurrent write (e.g. pause/update) may
     // have advanced the row between our read and our update. Re-read the
     // latest definition and recompute failureStreak + derived fields against
     // it, otherwise we silently drop the run's outcome and the user sees a
     // stale nextFireAt / failureStreak.
     for (let attempt = 0; attempt < 3; attempt++) {
-      const previous = getOptional(run.automationID)
+      const previous = getOptional(run.automationID, scope)
       if (!previous || previous.kind !== "recurring") return undefined
       const failureStreak =
         run.state === "succeeded" ? 0 : run.state === "failed" ? previous.failureStreak + 1 : previous.failureStreak
       const derived =
         run.state === "stopped" && !options?.refreshOnStopped
           ? { nextFireAt: previous.nextFireAt, nextFires: previous.nextFires }
-          : computeDerivedFields(previous, now, completedRunCount(previous.id))
+          : computeDerivedFields(previous, now, completedRunCount(previous.id, scope))
       if (
         previous.failureStreak === failureStreak &&
         previous.nextFireAt === derived.nextFireAt &&
@@ -766,7 +769,7 @@ export namespace Automation {
       })
       internalTestHooks.beforeReplaceDefinition?.(previous)
       try {
-        return replaceDefinition(previous, next)
+        return replaceDefinition(previous, next, { scope })
       } catch (error) {
         if (!(error instanceof ConflictError)) throw error
         // retry: read latest and recompute
@@ -1290,6 +1293,13 @@ export namespace Automation {
     })
   }
   export const publishRunUpdated = (run: Run) => Bus.publish(Event.RunUpdated, run)
+  export const publishRunUpdatedForScope = (run: Run, scope: Scope) => {
+    GlobalBus.emit("event", {
+      directory: scope.ownerDirectory,
+      project: scope.projectID,
+      payload: { type: Event.RunUpdated.type, properties: run },
+    })
+  }
 
   export interface Interface {
     readonly list: () => Effect.Effect<Definition[]>

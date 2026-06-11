@@ -338,6 +338,43 @@ describe("automation scheduler", () => {
     scheduler.stop()
   })
 
+  test("records missed closed-project schedules without opening the project", async () => {
+    await using tmp = await tmpdir({ git: true })
+    let automationID = ""
+    let projectDirectory = ""
+    await Instance.provide({
+      directory: tmp.path,
+      fn: () => {
+        projectDirectory = Instance.directory
+        const definition = Automation.create(cronInput(Instance.project.id, "* * * * *"), { now: 0 })
+        automationID = definition.id
+      },
+    })
+    await Instance.disposeAll({ mode: "force" })
+
+    const clock = new FakeClock(120_000)
+    const scheduler = AutomationScheduler.make({ clock })
+    await scheduler.settleOwner()
+    expect(Instance.directories()).not.toContain(projectDirectory)
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: () => {
+        const runs = Automation.runs({ automationID }).items
+        expect(runs).toHaveLength(1)
+        expect(runs[0].state).toBe("stopped")
+        if (runs[0].state !== "stopped") throw new Error("stopped")
+        expect(runs[0].stopReason).toBe("missed_schedule")
+        expect(runs[0].triggeredAt).toBe(120_000)
+
+        const after = Automation.get(automationID)
+        if (after.kind !== "recurring") throw new Error("recurring")
+        expect(after.nextFireAt).toBe(180_000)
+      },
+    })
+    scheduler.stop()
+  })
+
   test("schedules recurring automations created through the automate tool", async () => {
     await withAutomation(async (projectID) => {
       const clock = new FakeClock(0)

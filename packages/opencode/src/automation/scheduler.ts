@@ -218,6 +218,7 @@ export namespace AutomationScheduler {
     const selfPublishedDefinitionUpdates = new Set<string>()
     const selfUpdateKey = (definition: { id: string; revision: number }) =>
       `${definition.id}:${definition.revision}`
+    const selfPublishedRunUpdates = new Set<string>()
     let ownsTimers = !ownerKey
     let ownerLease: Flock.Lease | undefined
     let ownerAttempt: Promise<void> | undefined
@@ -248,6 +249,33 @@ export namespace AutomationScheduler {
         cancel(automationID)
         if (!NotFoundError.isInstance(error)) throw error
       }
+    }
+
+    const publishScopedRunUpdated = (run: Automation.Run, scope: Automation.Scope) => {
+      selfPublishedRunUpdates.add(run.id)
+      Automation.publishRunUpdatedForScope(run, scope)
+    }
+
+    const refreshScopedRunOutcome = (run: Automation.Run, scope: Automation.Scope) => {
+      if (!ownsTimers) return
+      try {
+        const refreshed = Automation.recordRunOutcome(run, {
+          now: clock.now(),
+          refreshOnStopped: true,
+          scope,
+        })
+        if (!refreshed) return
+        selfPublishedDefinitionUpdates.add(selfUpdateKey(refreshed))
+        Automation.publishDefinitionUpdatedForScope(refreshed, scope)
+      } catch (error) {
+        if (!NotFoundError.isInstance(error)) log.error("automation derived field update failed", { error, automationID: run.automationID })
+      }
+    }
+
+    const publishScopedStoppedRun = (run: Automation.Run, scope: Automation.Scope, options?: { scheduleNext?: boolean }) => {
+      refreshScopedRunOutcome(run, scope)
+      publishScopedRunUpdated(run, scope)
+      if (options?.scheduleNext) scheduleNextInterval(run.automationID, scope)
     }
 
     const fire = async (automationID: string, triggeredAt: number) => {
@@ -371,8 +399,7 @@ export namespace AutomationScheduler {
             triggeredAt: missed,
             scope,
           })
-          schedulerStoppedRuns.add(stopped.id)
-          void Automation.publishRunUpdated(stopped)
+          publishScopedStoppedRun(stopped, scope)
         }
       }
       const next = computeNextFireAt(definition, clock.now(), scope)
@@ -387,8 +414,7 @@ export namespace AutomationScheduler {
           triggeredAt: next,
           scope,
         })
-        schedulerStoppedRuns.add(stopped.id)
-        void Automation.publishRunUpdated(stopped)
+        publishScopedStoppedRun(stopped, scope)
         cancel(definition.id)
         return
       }
@@ -416,8 +442,9 @@ export namespace AutomationScheduler {
       const payload = event.payload
       if (!payload) return
       if (payload.type === Automation.Event.RunUpdated.type) {
+        const run = Automation.Run.parse(payload.properties)
+        if (selfPublishedRunUpdates.delete(run.id)) return
         runScoped(event, () => {
-          const run = Automation.Run.parse(payload.properties)
           if (run.state === "scheduled" || run.state === "running" || run.state === "awaiting_input") return
           const wasOwned = ownedRuns.delete(run.id)
           const wasSchedulerStopped = schedulerStoppedRuns.delete(run.id)
@@ -499,7 +526,7 @@ export namespace AutomationScheduler {
       for (const scope of scopes.values()) {
         await Automation.reconcileInterruptedRuns({ now: clock.now(), scope })
           .then((runs) => {
-            for (const run of runs) void Automation.publishRunUpdated(run)
+            for (const run of runs) publishScopedStoppedRun(run, scope, { scheduleNext: true })
           })
           .catch((error) => log.error("automation scheduler reconcile failed", { error, scope }))
       }
