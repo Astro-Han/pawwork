@@ -9,7 +9,7 @@ import { OpenCliSearchTool } from "../../src/tool/opencli-search"
 import type * as Tool from "../../src/tool/tool"
 import { Truncate } from "../../src/tool/truncate"
 
-const ctx = {
+const ctx: Tool.Context = {
   sessionID: SessionID.make("ses_opencli_tools"),
   messageID: MessageID.make("message"),
   callID: "",
@@ -22,13 +22,13 @@ const ctx = {
 
 type AnyToolEffect = Effect.Effect<Tool.Info<Schema.Decoder<unknown>, Record<string, unknown>>, never, never>
 
-function exec(tool: unknown, args: unknown) {
+function exec(tool: unknown, args: unknown, ctxOverride: Partial<Tool.Context> = {}) {
   return Instance.provide({
     directory: import.meta.dir,
     fn: () =>
       (tool as AnyToolEffect).pipe(
         Effect.flatMap((info) => info.init()),
-        Effect.flatMap((t) => t.execute(args as never, ctx as never)),
+        Effect.flatMap((t) => t.execute(args as never, { ...ctx, ...ctxOverride } as never)),
         Effect.provide(Layer.mergeAll(Truncate.defaultLayer, Agent.defaultLayer)),
         Effect.runPromise,
       ),
@@ -60,11 +60,18 @@ describe("opencli_run", () => {
     })
 
     try {
-      const result = await exec(OpenCliRunTool, { command: "pawwork-test/echo", args: { query: "hello" } })
+      const askLog: Parameters<Tool.Context["ask"]>[0][] = []
+      const result = await exec(OpenCliRunTool, { command: "pawwork-test/echo", args: { query: "hello" } }, {
+        ask: (input) =>
+          Effect.sync(() => {
+            askLog.push(input)
+          }),
+      })
 
       expect(result.title).toBe("OpenCLI pawwork-test/echo")
       expect(result.output).toContain('"echoed": "hello"')
       expect(result.metadata).toMatchObject({ command: "pawwork-test/echo", browser: false })
+      expect(askLog).toEqual([])
     } finally {
       getRegistry().delete("pawwork-test/echo")
     }

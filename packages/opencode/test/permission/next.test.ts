@@ -487,9 +487,9 @@ test("disabled - does not disable when partially denied", () => {
   expect(result.has("bash")).toBe(false)
 })
 
-test("disabled - disables every browser_* tool when the browser key is denied", () => {
+test("disabled - disables every browser-backed tool when the browser key is denied", () => {
   const result = Permission.disabled(
-    ["browser_navigate", "browser_click", "browser_extract", "bash"],
+    ["browser_navigate", "browser_click", "browser_extract", "opencli_search", "opencli_run", "bash"],
     [
       { permission: "*", pattern: "*", action: "allow" },
       { permission: "browser", pattern: "*", action: "deny" },
@@ -498,6 +498,8 @@ test("disabled - disables every browser_* tool when the browser key is denied", 
   expect(result.has("browser_navigate")).toBe(true)
   expect(result.has("browser_click")).toBe(true)
   expect(result.has("browser_extract")).toBe(true)
+  expect(result.has("opencli_search")).toBe(true)
+  expect(result.has("opencli_run")).toBe(true)
   expect(result.has("bash")).toBe(false)
 })
 

@@ -46,13 +46,15 @@ export const OpenCliRunTool = Tool.define(
             )
           }
           const args = prepareOpenCliCommandArgs(command, params.args ?? {})
-          const patterns = commandPermissionPatterns(command)
-          yield* ctx.ask({
-            permission: "browser",
-            patterns,
-            always: browserAlwaysPatterns(patterns),
-            metadata: { action: "opencli_run", command: fullName(command), browser: command.browser !== false },
-          })
+          if (command.browser !== false) {
+            const patterns = commandPermissionPatterns(command)
+            yield* ctx.ask({
+              permission: "browser",
+              patterns,
+              always: browserAlwaysPatterns(patterns),
+              metadata: { action: "opencli_run", command: fullName(command), browser: true },
+            })
+          }
 
           const value = command.browser === false
             ? yield* Effect.tryPromise({
