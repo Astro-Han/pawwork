@@ -1,6 +1,6 @@
 import { Dynamic, render } from "solid-js/web"
 import { Show, type Accessor } from "solid-js"
-import type { ToolPart, ToolState } from "@opencode-ai/sdk/v2"
+import type { FilePart, ToolPart, ToolState } from "@opencode-ai/sdk/v2"
 import type { UiI18nKey } from "@opencode-ai/ui/context"
 import { DataProvider, I18nProvider } from "@opencode-ai/ui/context"
 import { DialogProvider } from "@opencode-ai/ui/context/dialog"
@@ -20,6 +20,29 @@ const SNAPSHOT_OUTPUT = [
 
 const EXTRACT_OUTPUT = "# Pricing\n\nSimple plans for every team. Starter is free forever;\nPro adds unlimited projects and priority support."
 
+// A deterministic stand-in for the captured page (real captures are data: PNGs;
+// the card accepts any data:image/ URL). Drawn as SVG so the grid renders a
+// stable, recognisable screenshot area instead of a stretched 1px blob.
+const SCREENSHOT_SVG = [
+  "<svg xmlns='http://www.w3.org/2000/svg' width='640' height='360'>",
+  "<rect width='640' height='360' fill='#dbe4ee'/>",
+  "<rect x='24' y='24' width='280' height='30' rx='6' fill='#8da4be'/>",
+  "<rect x='24' y='78' width='592' height='2' fill='#b6c4d6'/>",
+  "<rect x='24' y='104' width='430' height='16' rx='4' fill='#aebfd2'/>",
+  "<rect x='24' y='132' width='368' height='16' rx='4' fill='#aebfd2'/>",
+  "<rect x='24' y='184' width='150' height='44' rx='8' fill='#5b7da4'/>",
+  "</svg>",
+].join("")
+
+const SCREENSHOT_ATTACHMENT: FilePart = {
+  id: "snap-screenshot-file",
+  sessionID: "snap-session",
+  messageID: "snap-message",
+  type: "file",
+  mime: "image/svg+xml",
+  url: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(SCREENSHOT_SVG)}`,
+}
+
 const BROWSER_TITLE_KEYS: Record<string, UiI18nKey> = {
   browser_navigate: "ui.tool.browser.navigate",
   browser_snapshot: "ui.tool.browser.snapshot",
@@ -37,11 +60,12 @@ function browserTool(
   output = "",
   metadata: Record<string, unknown> = {},
   status: ToolState["status"] = "completed",
+  attachments?: FilePart[],
 ): ToolPart {
   const state: ToolState =
     status === "running"
       ? { status: "running", input, time: { start: 0 } }
-      : { status: "completed", input, output, title: toolName, metadata, time: { start: 0, end: 1 } }
+      : { status: "completed", input, output, title: toolName, metadata, attachments, time: { start: 0, end: 1 } }
   return {
     id,
     sessionID: "snap-session",
@@ -59,7 +83,9 @@ const completedBrowserParts = [
   browserTool("browser-click", "browser_click", { ref: "e12" }, "Clicked e12"),
   browserTool("browser-type", "browser_type", { ref: "e7", text: "team@example.com" }, "Typed into e7"),
   browserTool("browser-wait", "browser_wait", { text: "Thanks for signing up" }, "Condition met"),
-  browserTool("browser-screenshot", "browser_screenshot", {}, "Captured viewport", { url: PAGE_URL }),
+  browserTool("browser-screenshot", "browser_screenshot", {}, "Captured viewport", { url: PAGE_URL }, "completed", [
+    SCREENSHOT_ATTACHMENT,
+  ]),
   browserTool("browser-extract", "browser_extract", { selector: "main" }, EXTRACT_OUTPUT, { url: PAGE_URL }),
 ]
 
@@ -67,7 +93,7 @@ const runningBrowserParts = [
   browserTool("browser-navigate-running", "browser_navigate", { url: PAGE_URL }, "", {}, "running"),
 ]
 
-const OPEN_CARDS = ["browser-snapshot", "browser-extract"]
+const OPEN_CARDS = ["browser-snapshot", "browser-extract", "browser-screenshot"]
 
 function describeBrowserTool(part: ToolPart) {
   const key = BROWSER_TITLE_KEYS[part.tool]
@@ -86,6 +112,10 @@ function renderBrowserCard(prefix: string) {
           const input = () => tool().state.input ?? {}
           const output = () => (tool().state.status === "completed" ? tool().state.output : undefined)
           const metadata = () => (tool().state.status === "completed" ? (tool().state.metadata ?? {}) : {})
+          const attachments = () => {
+            const state = tool().state
+            return state.status === "completed" ? state.attachments : undefined
+          }
           return (
             <div data-slot="trow-result-body" data-card={tool().id} data-timeline-anchor={`tool:${tool().id}`}>
               <Dynamic
@@ -94,6 +124,7 @@ function renderBrowserCard(prefix: string) {
                 tool={tool().tool}
                 metadata={metadata()}
                 output={output()}
+                attachments={attachments()}
                 status={tool().state.status}
                 defaultOpen={OPEN_CARDS.includes(tool().id)}
                 stateKey={`${prefix}:${tool().id}`}
