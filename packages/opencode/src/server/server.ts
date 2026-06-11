@@ -1,6 +1,7 @@
 import { generateSpecs } from "hono-openapi"
 import { Hono } from "hono"
 import { adapter } from "#hono"
+import { AutomationScheduler } from "@/automation/scheduler"
 import { lazy } from "@/util/lazy"
 import { Log } from "@/util"
 import { MDNS } from "./mdns"
@@ -81,6 +82,8 @@ export async function listen(opts: {
 }): Promise<Listener> {
   const built = create(opts)
   const server = await built.runtime.listen(opts)
+  const automationScheduler = AutomationScheduler.current()
+  void automationScheduler.settleOwner()
 
   const next = new URL("http://localhost")
   next.hostname = opts.hostname
@@ -107,6 +110,7 @@ export async function listen(opts: {
     stop(close?: boolean) {
       closing ??= (async () => {
         if (mdns) MDNS.unpublish()
+        AutomationScheduler.stopProcess({ stopRuns: false })
         await server.stop(close)
       })()
       return closing

@@ -27,6 +27,7 @@ afterAll(() => {
 })
 
 afterEach(async () => {
+  AutomationScheduler.stopProcess({ stopRuns: false })
   await Instance.disposeAll()
 })
 

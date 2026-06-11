@@ -18,6 +18,7 @@ const runtime = ManagedRuntime.make(Automation.defaultLayer)
 const automation = await runtime.runPromise(Effect.gen(function* () { return yield* Automation.Service }))
 
 afterEach(async () => {
+  AutomationScheduler.stopProcess({ stopRuns: false })
   await Instance.disposeAll()
 })
 
@@ -297,6 +298,43 @@ describe("automation scheduler", () => {
       expect(calls).toEqual([1_000])
       scheduler.stop()
     })
+  })
+
+  test("fires a stored automation even when its project instance is not open", async () => {
+    await using tmp = await tmpdir({ git: true })
+    let automationID = ""
+    let projectDirectory = ""
+    await Instance.provide({
+      directory: tmp.path,
+      fn: () => {
+        projectDirectory = Instance.directory
+        const definition = Automation.create(oneshotInput(Instance.project.id, 1_000), { now: 0 })
+        automationID = definition.id
+      },
+    })
+    await Instance.disposeAll({ mode: "force" })
+
+    const clock = new FakeClock(0)
+    const startedIn: string[] = []
+    const scheduler = AutomationScheduler.make({
+      clock,
+      executor: async () => {
+        startedIn.push(Instance.directory)
+        return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+      },
+    })
+    await scheduler.settleOwner()
+
+    await clock.advance(1_000)
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const runs = await waitForRunStates(automationID, ["succeeded"])
+        expect(runs[0].triggeredAt).toBe(1_000)
+      },
+    })
+    expect(startedIn).toEqual([projectDirectory])
+    scheduler.stop()
   })
 
   test("schedules recurring automations created through the automate tool", async () => {
@@ -696,7 +734,7 @@ describe("automation scheduler", () => {
     })
   })
 
-  test("stops an active scheduled run when the instance is disposed", async () => {
+  test("does not stop an active scheduled run when the instance is disposed", async () => {
     await withAutomation(async (projectID) => {
       const clock = new FakeClock(0)
       const releaseRun = deferred<{ sessionID: SessionID; result: string | null; cost?: number | null }>()
@@ -718,12 +756,13 @@ describe("automation scheduler", () => {
 
       await Instance.dispose({ mode: "force" })
 
-      expect(runSignal?.aborted).toBe(true)
+      expect(runSignal?.aborted).toBe(false)
       releaseRun.resolve({ sessionID: SessionID.descending(), result: "done", cost: 0 })
+      await waitForRunStates(definition.id, ["succeeded"])
     })
   })
 
-  test("stops an active scheduled run before maintenance dispose waits for other active runs", async () => {
+  test("does not stop an active scheduled run before maintenance dispose waits for other active runs", async () => {
     await withAutomation(async (projectID) => {
       const clock = new FakeClock(0)
       const releaseRun = deferred<{ sessionID: SessionID; result: string | null; cost?: number | null }>()
@@ -747,8 +786,12 @@ describe("automation scheduler", () => {
 
       await Instance.dispose()
 
-      expect(runSignal?.aborted).toBe(true)
+      expect(runSignal?.aborted).toBe(false)
       releaseRun.resolve({ sessionID: SessionID.descending(), result: "done", cost: 0 })
+      await waitForRunStates(definition.id, ["succeeded"])
+
+      releaseUnrelatedRun()
+      await Bun.sleep(0)
 
       const nextDefinition = Automation.create(recurringInput(projectID, 60_000, { title: "Next recurring" }), {
         now: 60_000,
@@ -756,18 +799,16 @@ describe("automation scheduler", () => {
       scheduler.reschedule(nextDefinition)
       await clock.advance(60_000)
       await waitForRunStates(nextDefinition.id, ["succeeded"])
-
-      releaseUnrelatedRun()
-      await Bun.sleep(0)
     })
   })
 
-  test("continues maintenance dispose if scheduler pre-stop fails", async () => {
+  test("does not pre-stop scheduler-owned runs during maintenance dispose", async () => {
     await withAutomation(async () => {
+      let stopOwnedRunsCalls = 0
       AutomationScheduler.install({
         stop: () => undefined,
         stopOwnedRuns: () => {
-          throw new Error("pre-stop failed")
+          stopOwnedRunsCalls += 1
         },
         settleOwner: async () => undefined,
         reschedule: () => undefined,
@@ -776,6 +817,7 @@ describe("automation scheduler", () => {
       })
 
       await expect(Instance.dispose()).resolves.toBeUndefined()
+      expect(stopOwnedRunsCalls).toBe(0)
     })
   })
 
