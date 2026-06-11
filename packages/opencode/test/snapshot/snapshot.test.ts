@@ -3,8 +3,10 @@ import { $ } from "bun"
 import fs from "fs/promises"
 import path from "path"
 import { Snapshot } from "../../src/snapshot"
+import { Global } from "../../src/global"
 import { Instance } from "../../src/project/instance"
 import { Filesystem } from "../../src/util/filesystem"
+import { Hash } from "../../src/util/hash"
 import { tmpdir } from "../fixture/fixture"
 
 // Git always outputs /-separated paths internally. Snapshot.patch() joins them
@@ -14,6 +16,7 @@ const fwd = (...parts: string[]) => path.join(...parts).replaceAll("\\", "/")
 const SNAPSHOT_BATCH_BOUNDARY = 100
 const OVER_BATCH_COUNT = SNAPSHOT_BATCH_BOUNDARY + 1
 const MIXED_BATCH_GROUP_COUNT = Math.ceil(OVER_BATCH_COUNT / 4)
+const gitPath = (item: string) => item.replaceAll("\\", "/")
 
 afterEach(async () => {
   await Instance.disposeAll()
@@ -37,6 +40,52 @@ async function bootstrap() {
     },
   })
 }
+
+function snapshotGitdir() {
+  return path.join(Global.Path.data, "snapshot", Instance.project.id, Hash.fast(Instance.worktree))
+}
+
+async function sourceObjectsForGitWorktree(dir: string) {
+  const common = (await $`git rev-parse --path-format=absolute --git-common-dir`.cwd(dir).text()).trim()
+  return path.join(common, "objects")
+}
+
+async function expectSnapshotAlternatesInclude(worktree: string) {
+  const alternates = await fs.readFile(path.join(snapshotGitdir(), "objects", "info", "alternates"), "utf8")
+  expect(alternates.split(/\r?\n/).filter(Boolean)).toContain(gitPath(await sourceObjectsForGitWorktree(worktree)))
+}
+
+test("initial snapshot reuses source git object database", async () => {
+  await using tmp = await bootstrap()
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      expect(await Snapshot.track()).toBeTruthy()
+
+      await expectSnapshotAlternatesInclude(tmp.path)
+    },
+  })
+})
+
+test("initial snapshot in secondary worktree reuses common object database", async () => {
+  await using tmp = await bootstrap()
+  const worktreePath = `${tmp.path}-reuse-worktree`
+  await $`git worktree add ${worktreePath} HEAD`.cwd(tmp.path).quiet()
+
+  try {
+    await Instance.provide({
+      directory: worktreePath,
+      fn: async () => {
+        expect(await Snapshot.track()).toBeTruthy()
+
+        await expectSnapshotAlternatesInclude(worktreePath)
+      },
+    })
+  } finally {
+    await $`git worktree remove --force ${worktreePath}`.cwd(tmp.path).quiet().nothrow()
+    await $`rm -rf ${worktreePath}`.quiet()
+  }
+})
 
 test("tracks deleted files correctly", async () => {
   await using tmp = await bootstrap()
