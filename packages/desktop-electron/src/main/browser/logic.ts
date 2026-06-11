@@ -60,6 +60,24 @@ export type BrowserStateSnapshot = {
   favicon: string | null
 }
 
+export type DisplayDecision = "show" | "takeover" | "drop"
+
+/**
+ * Decide what a visible layout push from `win` may do with a conversation's
+ * view — the heart of the claim/geometry split:
+ *   - "show": the window already hosts the view, or nothing live does — apply
+ *     bounds and show (no claim needed to attach from nothing).
+ *   - "takeover": another window hosts it and this push claims the display —
+ *     reparent, and tell the loser it lost.
+ *   - "drop": another window hosts it and this push is a geometry-only tick —
+ *     a resize frame in flight when the display changed hands must never
+ *     steal the view back.
+ */
+export function displayDecision(input: { isHost: boolean; hasLiveHost: boolean; claim: boolean }): DisplayDecision {
+  if (input.isHost || !input.hasLiveHost) return "show"
+  return input.claim ? "takeover" : "drop"
+}
+
 export type ClearDataReloadAction = "now" | "defer" | "none"
 
 /**

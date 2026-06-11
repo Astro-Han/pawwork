@@ -1,7 +1,14 @@
 import { BrowserWindow, WebContentsView, shell } from "electron"
 import type { BrowserState, BrowserViewLayout } from "@opencode-ai/app/desktop-api"
 import { browserViewWebPreferences } from "./options"
-import { clearDataReloadAction, computeViewBounds, deriveBrowserState, parseNavigable, safeExternalUrl } from "./logic"
+import {
+  clearDataReloadAction,
+  computeViewBounds,
+  deriveBrowserState,
+  displayDecision,
+  parseNavigable,
+  safeExternalUrl,
+} from "./logic"
 import { CdpBridge, type AutomationEndpoint } from "./cdp-bridge"
 import { draftWindowID, rendererTarget } from "./registry"
 
@@ -158,16 +165,17 @@ export class BrowserViewController {
   /**
    * Show this conversation's view in `win` at `rect`. Only a `claim` push may
    * take the display from another window — the loser's renderer is told via
-   * DISPLAY_TAKEN so its panel shows a placeholder. A geometry tick (claim
-   * false) from a window that is not the current host is dropped, so a resize
-   * frame already in flight when the display changed hands can never steal
-   * the view back.
+   * DISPLAY_TAKEN so its panel shows a placeholder; a geometry tick from a
+   * non-host window is dropped (see displayDecision). Returns whether the view
+   * is now displayed in `win`, so the renderer keeps claiming until it is.
    */
-  display(win: BrowserWindow, rect: BrowserViewLayout["rect"], claim: boolean) {
-    if (this.destroyed || win.isDestroyed()) return
+  display(win: BrowserWindow, rect: BrowserViewLayout["rect"], claim: boolean): boolean {
+    if (this.destroyed || win.isDestroyed()) return false
     if (this.host !== win) {
-      if (this.host && !this.host.isDestroyed()) {
-        if (!claim) return
+      const hasLiveHost = this.host !== null && !this.host.isDestroyed()
+      const decision = displayDecision({ isHost: false, hasLiveHost, claim })
+      if (decision === "drop") return false
+      if (decision === "takeover" && this.host) {
         this.host.contentView.removeChildView(this.view)
         this.host.webContents.send(BROWSER_DISPLAY_TAKEN_CHANNEL, { target: rendererTarget(this.target) })
       }
@@ -176,6 +184,7 @@ export class BrowserViewController {
     }
     this.view.setBounds(computeViewBounds(rect, win.webContents.zoomFactor))
     this.view.setVisible(true)
+    return true
   }
 
   /** Hide the view — only honored from its current display owner. */

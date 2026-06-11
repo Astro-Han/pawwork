@@ -44,8 +44,8 @@ export function BrowserPanel(props: {
   // Another window took over displaying this conversation's view; show a
   // placeholder and stop reporting layout until the user reclaims explicitly.
   const [displaced, setDisplaced] = createSignal(false)
-  // True until the next visible layout push, which then carries `claim: true`
-  // (see the layout-push effect). Not a signal: it must not re-run effects.
+  // True until main confirms a claiming layout push applied (see the
+  // layout-push effect). Not a signal: it must not re-run effects.
   let needsClaim = true
 
   let host: HTMLDivElement | undefined
@@ -98,11 +98,14 @@ export function BrowserPanel(props: {
     }),
   )
 
-  // Push visibility + bounds to main as one unit so they never race. The first
-  // visible push after the panel was hidden (or swapped targets) carries
-  // `claim: true` — only that push may take the display from another window;
-  // the per-frame geometry ticks that follow can then never steal the view
-  // back if the display changes hands while one is in flight.
+  // Push visibility + bounds to main as one unit so they never race. Visible
+  // pushes after the panel was hidden (or swapped targets) carry `claim: true`
+  // — only those may take the display from another window; the per-frame
+  // geometry ticks that follow can then never steal the view back if the
+  // display changes hands while one is in flight. The claim repeats until main
+  // CONFIRMS it applied: the first one can be dropped while the window's
+  // DesktopContext still lags the route change, and a one-shot flag would
+  // leave the panel claimless (and viewless) until toggled.
   createEffect(() => {
     if (!shouldShow()) {
       needsClaim = true
@@ -111,8 +114,12 @@ export function BrowserPanel(props: {
     }
     const r = rect()
     if (!r) return
-    void bridge.setView(props.target(), { visible: true, rect: r, claim: needsClaim })
-    needsClaim = false
+    const target = props.target()
+    void bridge.setView(target, { visible: true, rect: r, claim: needsClaim }).then((applied) => {
+      // Reads in this callback are untracked (outside the effect), so they
+      // gate the stale-ack case without adding dependencies.
+      if (applied && props.target() === target && shouldShow()) needsClaim = false
+    })
   })
 
   // While visible, track the content rect every frame: a native overlay must

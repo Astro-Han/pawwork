@@ -45,15 +45,21 @@ export function registerBrowserIpc(deps: { sessionIDForWindow: (windowID: number
   ipcMain.handle("browser:forward", (event, target: string) => existing(event, target)?.goForward())
   ipcMain.handle("browser:reload", (event, target: string) => existing(event, target)?.reload())
   ipcMain.handle("browser:stop", (event, target: string) => existing(event, target)?.stop())
-  ipcMain.handle("browser:set-view", (event, target: string, layout: BrowserViewLayout) => {
+  // Returns whether a visible push actually displayed the view in the calling
+  // window — the renderer keeps re-claiming until this confirms, because the
+  // first claim can race the window's own DesktopContext update and resolve
+  // to nothing here.
+  ipcMain.handle("browser:set-view", (event, target: string, layout: BrowserViewLayout): boolean => {
     const resolved = resolve(event, target)
-    if (!resolved) return
+    if (!resolved) return false
     // get(), never ensure(): a panel only shows when the page state says there
     // is a page, and only a live controller can say that — so a visible push
     // with no controller is always stale (e.g. RAF frames still arriving after
     // the session's delete disposed the view) and must not resurrect one.
-    if (layout.visible) browserControllers.get(resolved.key)?.display(resolved.win, layout.rect, layout.claim === true)
-    else browserControllers.get(resolved.key)?.hideFor(resolved.win)
+    if (layout.visible)
+      return browserControllers.get(resolved.key)?.display(resolved.win, layout.rect, layout.claim === true) ?? false
+    browserControllers.get(resolved.key)?.hideFor(resolved.win)
+    return false
   })
   // Draft adoption can't name-check the session against DesktopContext: it runs
   // by design BEFORE the renderer navigates to the just-created session's

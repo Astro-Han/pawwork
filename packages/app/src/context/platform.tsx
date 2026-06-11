@@ -29,9 +29,11 @@ export type BrowserViewRect = { x: number; y: number; width: number; height: num
 
 /** Desired presentation of the embedded browser overlay, sent as one unit so
  *  visibility and bounds never race. `rect` is ignored when `visible` is false.
- *  `claim` marks the push that (re)takes the display — the first one after the
- *  panel becomes visible. Geometry-only ticks leave it unset, so an in-flight
- *  resize from a window that just lost the display can never steal it back. */
+ *  `claim` marks a push that may (re)take the display — sent while the panel
+ *  has newly become visible, swapped targets, or left the displaced state, and
+ *  re-sent until main confirms it applied. Geometry-only ticks leave it unset,
+ *  so an in-flight resize from a window that just lost the display can never
+ *  steal it back. */
 export type BrowserViewLayout = { visible: boolean; rect: BrowserViewRect; claim?: boolean }
 
 /** Snapshot of the embedded browser pushed from the main process on every
@@ -67,8 +69,11 @@ export type BrowserBridge = {
   reload(target: BrowserTarget): Promise<void>
   stop(target: BrowserTarget): Promise<void>
   /** Report desired visibility + bounds (CSS px). The main process converts to
-   *  device-independent pixels using the window's zoom factor. */
-  setView(target: BrowserTarget, layout: BrowserViewLayout): Promise<void>
+   *  device-independent pixels using the window's zoom factor. Resolves true
+   *  when a visible push actually displayed the view in this window — a claim
+   *  keeps being re-sent until that confirmation arrives (the first one can be
+   *  dropped while the window's DesktopContext still lags a route change). */
+  setView(target: BrowserTarget, layout: BrowserViewLayout): Promise<boolean>
   /** Hand this window's draft view to the session just created from it. Must
    *  resolve BEFORE navigating to the session route, so the new panel finds
    *  the adopted view instead of lazily creating an empty one. */

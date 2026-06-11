@@ -3,6 +3,7 @@ import {
   clearDataReloadAction,
   computeViewBounds,
   deriveBrowserState,
+  displayDecision,
   parseNavigable,
   safeExternalUrl,
   type BrowserStateSnapshot,
@@ -109,5 +110,29 @@ describe("clearDataReloadAction", () => {
 
   test("does nothing when idle with no page", () => {
     expect(clearDataReloadAction({ hasPage: false, loading: false })).toBe("none")
+  })
+})
+
+describe("displayDecision", () => {
+  test("the hosting window keeps showing the view, claim or not", () => {
+    expect(displayDecision({ isHost: true, hasLiveHost: true, claim: false })).toBe("show")
+    expect(displayDecision({ isHost: true, hasLiveHost: true, claim: true })).toBe("show")
+  })
+
+  test("attaching from nothing needs no claim", () => {
+    // host is null (never displayed / released on window close) or destroyed:
+    // whichever window legitimately shows the conversation may attach.
+    expect(displayDecision({ isHost: false, hasLiveHost: false, claim: false })).toBe("show")
+    expect(displayDecision({ isHost: false, hasLiveHost: false, claim: true })).toBe("show")
+  })
+
+  test("only a claiming push may take the display from a live host", () => {
+    expect(displayDecision({ isHost: false, hasLiveHost: true, claim: true })).toBe("takeover")
+  })
+
+  test("a geometry tick from a non-host window is dropped, never a steal", () => {
+    // The exact race this exists for: a resize frame in flight when the
+    // display changed hands must not steal the view back.
+    expect(displayDecision({ isHost: false, hasLiveHost: true, claim: false })).toBe("drop")
   })
 })
