@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { getRegistry, type CliCommand } from "@jackwener/opencli/registry"
 import { loadOpenCliAdapters, searchOpenCliCommands } from "../../src/opencli/adapter-registry"
 
 describe("opencli adapter registry", () => {
@@ -16,5 +17,26 @@ describe("opencli adapter registry", () => {
       access: "read",
       browser: true,
     })
+  })
+
+  test("indexes commands with implicit browser support as browser commands", async () => {
+    const command = {
+      site: "000-pawwork-implicit",
+      name: "implicit",
+      access: "read",
+      description: "Implicit test adapter",
+      args: [],
+      func: async () => [],
+    } satisfies CliCommand
+    getRegistry().set("000-pawwork-implicit/implicit", command)
+
+    try {
+      const results = await searchOpenCliCommands("browser", { limit: 1 })
+
+      expect(results[0]?.name).toBe("000-pawwork-implicit/implicit")
+      expect(results[0]?.browser).toBe(true)
+    } finally {
+      getRegistry().delete("000-pawwork-implicit/implicit")
+    }
   })
 })

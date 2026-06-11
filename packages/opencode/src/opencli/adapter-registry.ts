@@ -91,7 +91,7 @@ function scoreCommand(command: CliCommand, query: string) {
   const needle = query.trim().toLowerCase()
   if (!needle) return 1
   const name = fullName(command).toLowerCase()
-  const haystack = [name, command.description, command.domain, command.access, command.browser ? "browser" : "http"]
+  const haystack = [name, command.description, command.domain, command.access, command.browser !== false ? "browser" : "http"]
     .filter(Boolean)
     .join(" ")
     .toLowerCase()
