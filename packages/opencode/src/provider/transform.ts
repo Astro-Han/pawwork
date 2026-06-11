@@ -3,18 +3,28 @@ import { mergeDeep, unique } from "remeda"
 import type { JSONSchema7 } from "@ai-sdk/provider"
 import type { JSONSchema } from "zod/v4/core"
 import type * as Provider from "./provider"
-import type * as ModelsDev from "./models"
 import { iife } from "@/util/iife"
 import { Flag } from "@opencode-ai/core/flag/flag"
 
-type Modality = NonNullable<ModelsDev.Model["modalities"]>["input"][number]
+export type MediaInputKind = "image" | "audio" | "video" | "pdf"
 
-function mimeToModality(mime: string): Modality | undefined {
+export function mediaInputKind(mime: string): MediaInputKind | undefined {
   if (mime.startsWith("image/")) return "image"
   if (mime.startsWith("audio/")) return "audio"
   if (mime.startsWith("video/")) return "video"
   if (mime === "application/pdf") return "pdf"
   return undefined
+}
+
+// The one capability rule for media input. The session resolver decides with
+// this whether to upgrade a path-backed part, and this layer decides whether to
+// withhold it from the provider; the composer's attachment warning mirrors it.
+// If the layers disagree, the UI shows no warning for a part the model never sees.
+export function modelCanReadMedia(model: Provider.Model, kind: MediaInputKind) {
+  if (model.capabilities.input[kind] === true) return true
+  // PDF borrows image input: models.dev frequently omits the pdf flag on
+  // models that read PDFs through their image pipeline.
+  return kind === "pdf" && model.capabilities.input.image === true
 }
 
 export function sanitizeSurrogates(content: string) {
@@ -443,9 +453,9 @@ function unsupportedParts(msgs: ModelMessage[], model: Provider.Model): ModelMes
 
       const mime = part.type === "image" ? String(part.image).split(";")[0].replace("data:", "") : part.mediaType
       const filename = part.type === "file" ? part.filename : undefined
-      const modality = mimeToModality(mime)
+      const modality = mediaInputKind(mime)
       if (!modality) return part
-      if (model.capabilities.input[modality]) return part
+      if (modelCanReadMedia(model, modality)) return part
 
       // Keep this wording in sync with the resolver-side dropped-media notice
       // in session/prompt.ts so the model hears one consistent contract.
@@ -1481,6 +1491,9 @@ export function openAICompatibleRequestBodyText(model: Provider.Model, body: unk
 
 const ProviderTransformOptionsValue = options
 const ProviderTransformMessageValue = message
+const ProviderTransformModelCanReadMediaValue = modelCanReadMedia
+const ProviderTransformMediaInputKindFnValue = mediaInputKind
+type ProviderTransformMediaInputKindValue = MediaInputKind
 const ProviderTransformVariantsValue = variants
 const ProviderTransformProviderOptionsValue = providerOptions
 const ProviderTransformSchemaValue = schema
@@ -1498,6 +1511,9 @@ export namespace ProviderTransform {
   export const OUTPUT_TOKEN_MAX = ProviderTransformOutputTokenMaxValue
   export const options = ProviderTransformOptionsValue
   export const message = ProviderTransformMessageValue
+  export const modelCanReadMedia = ProviderTransformModelCanReadMediaValue
+  export const mediaInputKind = ProviderTransformMediaInputKindFnValue
+  export type MediaInputKind = ProviderTransformMediaInputKindValue
   export const variants = ProviderTransformVariantsValue
   export const providerOptions = ProviderTransformProviderOptionsValue
   export const schema = ProviderTransformSchemaValue
