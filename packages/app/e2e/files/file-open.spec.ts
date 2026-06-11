@@ -1,6 +1,7 @@
 import fs from "node:fs/promises"
 import path from "node:path"
 import { test, expect } from "../fixtures"
+import { openPalette } from "../actions"
 import { promptSelector } from "../selectors"
 
 test("can open a file tab from the search palette", async ({ page, project }) => {
@@ -39,4 +40,22 @@ test("can open a file tab from the search palette", async ({ page, project }) =>
 
   const tabs = page.locator('[data-component="tabs"][data-variant="normal"]')
   await expect(tabs.locator('[data-slot="tabs-trigger"]').first()).toBeVisible()
+})
+
+// The palette's own "Open file" row re-shows DialogSelectFile from inside the
+// closing palette; that second show has no LayoutPageContext wrapper of its
+// own, so it must be re-provided or useLayoutPage throws and the picker never
+// appears.
+test("palette Open file row chains into the file-only picker", async ({ page, gotoSession }) => {
+  await gotoSession()
+
+  const palette = await openPalette(page)
+  await palette.locator('[data-slot="list-item"][data-key="command:file.open"]').click()
+
+  const picker = page
+    .getByRole("dialog")
+    .filter({ has: page.getByPlaceholder(/search files/i) })
+    .first()
+  await expect(picker).toBeVisible()
+  await expect(picker.locator('[data-slot="list-item"][data-key^="command:"]')).toHaveCount(0)
 })

@@ -55,12 +55,14 @@ export const DialogFork: Component = () => {
 
       // Attachment-only messages have an empty (or no) text part; preview them
       // through the same [file:path] fallback the revert banner uses instead of
-      // rendering a blank row. Messages with neither text nor files stay hidden.
+      // rendering a blank row. Messages with neither visible text nor files
+      // stay hidden — the fallback must not stamp [attachment] on a message
+      // that has nothing to show.
       const textPart = parts.find((x): x is SDKTextPart => x.type === "text" && !x.synthetic && !x.ignored)
       const hasFilePart = parts.some((x) => x.type === "file")
-      if (!textPart && !hasFilePart) continue
-
       const text = textPart?.text.replace(/\n/g, " ").trim()
+      if (!text && !hasFilePart) continue
+
       const preview =
         text ||
         promptPreviewText(
