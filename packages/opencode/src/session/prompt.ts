@@ -261,19 +261,12 @@ function attachedLocalFileText(filepath: string, filename?: string) {
   return `${text} (attachment name: ${filename})`
 }
 
-type MediaInputKind = "image" | "pdf" | "audio" | "video"
-
-function mediaInputKind(mime: string): MediaInputKind | undefined {
+function mediaInputKind(mime: string): ProviderTransform.MediaInputKind | undefined {
   if (mime.startsWith("image/")) return "image"
   if (mime === "application/pdf") return "pdf"
   if (mime.startsWith("audio/")) return "audio"
   if (mime.startsWith("video/")) return "video"
   return undefined
-}
-
-function modelCanReadMedia(model: Provider.Model, kind: MediaInputKind) {
-  if (model.capabilities.input[kind] === true) return true
-  return kind === "pdf" && model.capabilities.input.image === true
 }
 
 export interface Interface {
@@ -1729,7 +1722,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                   const media = result.attachments ?? []
                   const attachments = media.filter((attachment) => {
                     const kind = mediaInputKind(attachment.mime)
-                    return kind !== undefined && modelCanReadMedia(model, kind)
+                    return kind !== undefined && ProviderTransform.modelCanReadMedia(model, kind)
                   })
                   const droppedNotice = {
                     messageID: info.id,

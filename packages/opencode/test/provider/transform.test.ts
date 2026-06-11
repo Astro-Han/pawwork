@@ -1873,6 +1873,32 @@ describe("ProviderTransform.message - empty image handling", () => {
     })
   })
 
+  test("lets PDF borrow image input like the resolver and the composer warning", () => {
+    const imageOnly = {
+      ...mockModel,
+      capabilities: {
+        ...mockModel.capabilities,
+        input: { text: true, audio: false, image: true, video: false, pdf: false },
+      },
+    } as any
+    const pdfPart = {
+      type: "file",
+      data: "JVBERi0xLjc=",
+      mediaType: "application/pdf",
+      filename: "report.pdf",
+    } as const
+    const msgs = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "Summarize this." }, pdfPart],
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, imageOnly, {})
+
+    expect(result[0].content[1]).toEqual(pdfPart)
+  })
+
   test("should keep valid base64 images unchanged", () => {
     const validBase64 =
       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
