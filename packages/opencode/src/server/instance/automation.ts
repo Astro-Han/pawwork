@@ -232,7 +232,12 @@ export const AutomationRoutes = (): Hono =>
             }
             const definition = yield* automation.update(automationID, patch)
             if (definition.revision !== previous.revision) {
-              yield* automation.publishDefinitionUpdated(definition)
+              if (definition.where.projectID !== previous.where.projectID) {
+                yield* automation.publishDefinitionDeleted({ id: previous.id, deleted: true, revision: definition.revision })
+                yield* automation.publishDefinitionUpdatedForScope(definition, Automation.getScope(definition.id))
+              } else {
+                yield* automation.publishDefinitionUpdated(definition)
+              }
             }
             return c.json(definition)
           }),

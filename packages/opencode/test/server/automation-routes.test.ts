@@ -845,6 +845,143 @@ describe("automation routes", () => {
     })
   })
 
+  test("moves a fresh automation to another project without changing its id or run history", async () => {
+    await using source = await tmpdir({ git: true })
+    await using target = await tmpdir({ git: true })
+    let targetProjectID: ProjectID | undefined
+    await Instance.provide({
+      directory: target.path,
+      fn: () => {
+        targetProjectID = Instance.project.id
+      },
+    })
+    await Instance.disposeAll({ mode: "force" })
+
+    let automationID = ""
+    let runID = ""
+    await Instance.provide({
+      directory: source.path,
+      fn: async () => {
+        const app = new Hono().route("/automation", AutomationRoutes())
+        app.onError(ErrorMiddleware)
+        const sourceProjectID = Instance.project.id
+        if (!targetProjectID) throw new Error("expected target project")
+        const created = Automation.create(recurringInput(sourceProjectID), { now: 100 })
+        if (created.kind !== "recurring") throw new Error("expected recurring automation")
+        await Automation.runNowExecuting(created.id, {
+          now: 200,
+          executor: async () => ({ sessionID: SessionID.descending(), result: "done", cost: 0 }),
+        })
+        const run = await waitForRunState(created.id, "succeeded")
+        automationID = created.id
+        runID = run.id
+
+        const response = await app.request(`/automation/${created.id}`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ where: { projectID: targetProjectID } }),
+        })
+        const moved = await response.json()
+
+        expect(response.status).toBe(200)
+        expect(moved).toMatchObject({
+          id: created.id,
+          revision: 2,
+          where: { projectID: targetProjectID },
+          rhythm: created.rhythm,
+          stop: created.stop,
+        })
+        expect(() => Automation.get(created.id)).toThrow()
+      },
+    })
+
+    await Instance.provide({
+      directory: target.path,
+      fn: () => {
+        if (!targetProjectID) throw new Error("expected target project")
+        const moved = Automation.get(automationID)
+        expect(moved.id).toBe(automationID)
+        expect(moved.where.projectID).toBe(targetProjectID)
+        expect(Automation.runs({ automationID }).items.map((run) => run.id)).toEqual([runID])
+      },
+    })
+  })
+
+  test("rejects moving a fresh automation while it has an active run", async () => {
+    await using source = await tmpdir({ git: true })
+    await using target = await tmpdir({ git: true })
+    let targetProjectID: ProjectID | undefined
+    await Instance.provide({
+      directory: target.path,
+      fn: () => {
+        targetProjectID = Instance.project.id
+      },
+    })
+    await Instance.disposeAll({ mode: "force" })
+
+    await Instance.provide({
+      directory: source.path,
+      fn: async () => {
+        const app = new Hono().route("/automation", AutomationRoutes())
+        app.onError(ErrorMiddleware)
+        if (!targetProjectID) throw new Error("expected target project")
+        const created = Automation.create(recurringInput(Instance.project.id), { now: 100 })
+        Automation.runNow(created.id, { now: 200 })
+
+        const response = await app.request(`/automation/${created.id}`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ where: { projectID: targetProjectID } }),
+        })
+
+        expect(response.status).toBe(422)
+        expect(await response.json()).toEqual({
+          error: "invalid_automation",
+          details: [{ field: "where.projectID", message: "unsupported_move_with_active_run" }],
+        })
+        expect(Automation.get(created.id).where.projectID).toBe(Instance.project.id)
+      },
+    })
+  })
+
+  test("rejects moving a continue automation to another project", async () => {
+    await using source = await tmpdir({ git: true })
+    await using target = await tmpdir({ git: true })
+    let targetProjectID: ProjectID | undefined
+    await Instance.provide({
+      directory: target.path,
+      fn: () => {
+        targetProjectID = Instance.project.id
+      },
+    })
+    await Instance.disposeAll({ mode: "force" })
+
+    await Instance.provide({
+      directory: source.path,
+      fn: async () => {
+        const app = new Hono().route("/automation", AutomationRoutes())
+        app.onError(ErrorMiddleware)
+        if (!targetProjectID) throw new Error("expected target project")
+        const created = Automation.create(recurringInput(Instance.project.id, { context: "continue" }), {
+          sourceSessionID: SessionID.descending(),
+        })
+
+        const response = await app.request(`/automation/${created.id}`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ where: { projectID: targetProjectID } }),
+        })
+
+        expect(response.status).toBe(422)
+        expect(await response.json()).toEqual({
+          error: "invalid_automation",
+          details: [{ field: "where.projectID", message: "unsupported_continue_move" }],
+        })
+        expect(Automation.get(created.id).where.projectID).toBe(Instance.project.id)
+      },
+    })
+  })
+
   test("rejects updating a oneshot fireAt into the past without revising", async () => {
     await withAutomationApp(async ({ app, projectID }) => {
       const created = await json(app, "/automation", {

@@ -4,8 +4,10 @@ import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
 import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
+import { GlobalBus } from "@/bus/global"
 import { Identifier } from "@/id/id"
 import { Instance } from "@/project/instance"
+import { Project } from "@/project/project"
 import { ProjectID } from "@/project/schema"
 import { PermissionID } from "@/permission/schema"
 import { ModelID, ProviderID } from "@/provider/schema"
@@ -393,7 +395,12 @@ export namespace Automation {
     return details
   }
 
-  export function validateCreateInput(input: CreateInput | Definition, projectID = Instance.project.id, now?: number) {
+  export function validateCreateInput(
+    input: CreateInput | Definition,
+    projectID = Instance.project.id,
+    now?: number,
+    projectVcs = Instance.project.vcs,
+  ) {
     const details: ValidationErrorDetail[] = []
     const isDefinition = Object.hasOwn(input, "id")
     if (!isDefinition) {
@@ -416,7 +423,7 @@ export namespace Automation {
     if (input.where.worktree && input.context === "continue") {
       addDetail(details, "context", "unsupported_continue_with_worktree")
     }
-    if (input.where.worktree && Instance.project.vcs !== "git") {
+    if (input.where.worktree && projectVcs !== "git") {
       addDetail(details, "where.worktree", "unsupported_where_worktree_not_git")
     }
     if (input.kind === "recurring" && input.stop.kind === "condition") {
@@ -551,6 +558,18 @@ export namespace Automation {
     return definition
   }
 
+  export function getScope(id: string): Scope {
+    const row = Database.use((db) =>
+      db
+        .select()
+        .from(AutomationDefinitionTable)
+        .where(eq(AutomationDefinitionTable.id, id))
+        .get(),
+    )
+    if (!row) throw new NotFoundError({ message: `Automation not found: ${id}` })
+    return rowScope(row)
+  }
+
   function getOptional(id: string, scope: Scope = currentScope()): Definition | undefined {
     const row = Database.use((db) =>
       db
@@ -579,7 +598,7 @@ export namespace Automation {
     )
   }
 
-  function replaceDefinition(previous: Definition, next: Definition) {
+  function replaceDefinition(previous: Definition, next: Definition, options?: { ownerDirectory?: string }) {
     return Database.transaction(
       (db) => {
         const row = db.select().from(AutomationDefinitionTable).where(eq(AutomationDefinitionTable.id, previous.id)).get()
@@ -591,7 +610,7 @@ export namespace Automation {
         db.update(AutomationDefinitionTable)
           .set({
             project_id: next.where.projectID,
-            owner_directory: Instance.directory,
+            owner_directory: options?.ownerDirectory ?? Instance.directory,
             time_updated: next.updatedAt,
             data: next,
           })
@@ -638,6 +657,13 @@ export namespace Automation {
     return Run.parse(row.data)
   }
 
+  function getRunAnyScope(runID: string): Run | undefined {
+    const row = Database.use((db) =>
+      db.select().from(AutomationRunTable).where(eq(AutomationRunTable.id, runID)).get(),
+    )
+    return row ? Run.parse(row.data) : undefined
+  }
+
   function isSameValue(left: unknown, right: unknown): boolean {
     if (Object.is(left, right)) return true
     if (Array.isArray(left) || Array.isArray(right)) {
@@ -665,6 +691,14 @@ export namespace Automation {
     patch = normalizeUpdateInput(patch)
     const now = options?.now ?? Date.now()
     const updateDetails = validateUpdateInput(previous, patch, now)
+    const targetProjectID = patch.where?.projectID
+    const isMove = targetProjectID !== undefined && targetProjectID !== previous.where.projectID
+    const targetProject = isMove ? Project.get(targetProjectID) : undefined
+    if (isMove) {
+      if (previous.context === "continue") addDetail(updateDetails, "where.projectID", "unsupported_continue_move")
+      if (hasActiveRun(previous.id)) addDetail(updateDetails, "where.projectID", "unsupported_move_with_active_run")
+      if (!targetProject) addDetail(updateDetails, "where.projectID", "project_not_found")
+    }
     if (updateDetails.length) throw new ValidationError(updateDetails)
     if (!hasChanges(previous, patch)) return previous
     const merged: Record<string, unknown> = { ...previous, ...patch }
@@ -674,8 +708,6 @@ export namespace Automation {
       revision: previous.revision + 1,
       updatedAt: now,
     })
-    const details = validateCreateInput(next)
-    if (details.length) throw new ValidationError(details)
     if (next.kind === "recurring" && previous.kind === "recurring") {
       const scheduleChanged =
         !isSameValue(previous.rhythm, next.rhythm) ||
@@ -687,7 +719,11 @@ export namespace Automation {
         next = { ...next, nextFireAt: derived.nextFireAt, nextFires: derived.nextFires }
       }
     }
-    return replaceDefinition(previous, next)
+    const createProjectID = targetProject?.id ?? Instance.project.id
+    const createProjectVcs = targetProject?.vcs ?? Instance.project.vcs
+    const details = validateCreateInput(next, createProjectID, undefined, createProjectVcs)
+    if (details.length) throw new ValidationError(details)
+    return replaceDefinition(previous, next, targetProject ? { ownerDirectory: targetProject.worktree } : undefined)
   }
 
   export function recordRunOutcome(
@@ -931,8 +967,6 @@ export namespace Automation {
   export function hasActiveRun(automationID: string): boolean {
     if (state().activeRuns.has(automationID)) return true
     get(automationID)
-    const projectID = Instance.project.id
-    const ownerDirectory = Instance.directory
     return Boolean(
       Database.use((db) =>
         db
@@ -941,8 +975,6 @@ export namespace Automation {
           .where(
             and(
               eq(AutomationRunTable.automation_id, automationID),
-              eq(AutomationRunTable.project_id, projectID),
-              eq(AutomationRunTable.owner_directory, ownerDirectory),
               sql`json_extract(${AutomationRunTable.data}, '$.state') in ('scheduled', 'running', 'awaiting_input')`,
             ),
           )
@@ -1017,8 +1049,6 @@ export namespace Automation {
 
   export function hasRunTriggeredAtOrAfter(automationID: string, triggeredAt: number): boolean {
     get(automationID)
-    const projectID = Instance.project.id
-    const ownerDirectory = Instance.directory
     return Boolean(
       Database.use((db) =>
         db
@@ -1027,8 +1057,6 @@ export namespace Automation {
           .where(
             and(
               eq(AutomationRunTable.automation_id, automationID),
-              eq(AutomationRunTable.project_id, projectID),
-              eq(AutomationRunTable.owner_directory, ownerDirectory),
               gte(AutomationRunTable.triggered_at, triggeredAt),
             ),
           )
@@ -1040,8 +1068,6 @@ export namespace Automation {
 
   export function completedRunCount(automationID: string): number {
     get(automationID)
-    const projectID = Instance.project.id
-    const ownerDirectory = Instance.directory
     const row = Database.use((db) =>
       db
         .select({ count: sql<number>`count(*)` })
@@ -1049,8 +1075,6 @@ export namespace Automation {
         .where(
           and(
             eq(AutomationRunTable.automation_id, automationID),
-            eq(AutomationRunTable.project_id, projectID),
-            eq(AutomationRunTable.owner_directory, ownerDirectory),
             sql`json_extract(${AutomationRunTable.data}, '$.state') in ('succeeded', 'failed')`,
           ),
         )
@@ -1220,9 +1244,7 @@ export namespace Automation {
   export function runs(input: { automationID: string; limit?: number; cursor?: string }) {
     const limit = Math.min(Math.max(input.limit ?? 50, 1), 100)
     get(input.automationID)
-    const projectID = Instance.project.id
-    const ownerDirectory = Instance.directory
-    const cursorRun = input.cursor ? getRun(input.cursor) : undefined
+    const cursorRun = input.cursor ? getRunAnyScope(input.cursor) : undefined
     if (input.cursor && (!cursorRun || cursorRun.automationID !== input.automationID)) return { items: [], nextCursor: null }
     const cursorPredicate = cursorRun
       ? or(
@@ -1237,8 +1259,6 @@ export namespace Automation {
         .where(
           and(
             eq(AutomationRunTable.automation_id, input.automationID),
-            eq(AutomationRunTable.project_id, projectID),
-            eq(AutomationRunTable.owner_directory, ownerDirectory),
             cursorPredicate,
           ),
         )
@@ -1252,6 +1272,13 @@ export namespace Automation {
   }
 
   export const publishDefinitionUpdated = (definition: Definition) => Bus.publish(Event.DefinitionUpdated, definition)
+  export const publishDefinitionUpdatedForScope = (definition: Definition, scope: Scope) => {
+    GlobalBus.emit("event", {
+      directory: scope.ownerDirectory,
+      project: scope.projectID,
+      payload: { type: Event.DefinitionUpdated.type, properties: definition },
+    })
+  }
   export const publishRunUpdated = (run: Run) => Bus.publish(Event.RunUpdated, run)
 
   export interface Interface {
@@ -1279,6 +1306,7 @@ export namespace Automation {
       cursor?: string
     }) => Effect.Effect<z.infer<typeof RunsResponse>>
     readonly publishDefinitionUpdated: (definition: Definition) => Effect.Effect<void>
+    readonly publishDefinitionUpdatedForScope: (definition: Definition, scope: Scope) => Effect.Effect<void>
     readonly publishDefinitionDeleted: (tombstone: Tombstone) => Effect.Effect<void>
     readonly publishRunUpdated: (run: Run) => Effect.Effect<void>
     // Execution-face: the per-directory mutable active-run/writer state, owned by InstanceState.
@@ -1321,6 +1349,7 @@ export namespace Automation {
         runNowExecuting: (id, options) => Effect.promise(() => runNowExecuting(id, options)),
         runs: (input) => Effect.sync(() => runs(input)),
         publishDefinitionUpdated: (definition) => Effect.promise(() => publishDefinitionUpdated(definition)),
+        publishDefinitionUpdatedForScope: (definition, scope) => Effect.sync(() => publishDefinitionUpdatedForScope(definition, scope)),
         publishDefinitionDeleted: (tombstone) => Effect.promise(() => Bus.publish(Event.DefinitionDeleted, tombstone)),
         publishRunUpdated: (run) => Effect.promise(() => publishRunUpdated(run)),
         activeState: () => InstanceState.get(activeStateHandle),

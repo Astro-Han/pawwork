@@ -120,12 +120,10 @@ function EditorRow(props: { label: string; children: JSX.Element }): JSX.Element
   )
 }
 
-// The "Project" row: there is no server-side move (each project is its own
-// instance and update rejects a foreign projectID), so "move" is the create
-// card's folder picker driving a create-in-target + delete-from-source pair
-// (see moveToProject in automation-detail). A continue automation stays
-// read-only — it loops inside a conversation that only exists in its source
-// project — as does everything else when no other project is open.
+// The "Project" row moves fresh automations by updating their owner in place.
+// A continue automation stays read-only because it loops inside a conversation
+// that only exists in its source project, as does everything else when no other
+// project is open.
 export function ProjectEditorRow(props: {
   directory: Accessor<string>
   automation: Accessor<AutomationDefinition>

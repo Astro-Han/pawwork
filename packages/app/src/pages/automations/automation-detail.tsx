@@ -1,6 +1,5 @@
 import { createEffect, createMemo, createSignal, For, Show, type Accessor, type JSX } from "solid-js"
 import type {
-  AutomationCreateInput,
   AutomationDefinition,
   AutomationRun,
   AutomationUpdateInput,
@@ -213,43 +212,20 @@ export function AutomationDetail(props: {
     }
   }
 
-  // There is no cross-project move on the server (per-project instances;
-  // update rejects a foreign projectID), so "move" recreates the definition in
-  // the target project, then deletes the source. Create-first so a failure
-  // loses nothing; if the source delete fails (e.g. a run in flight), the
-  // fresh copy is rolled back instead of leaving a duplicate. The id changes
-  // and the run list starts empty — past runs' sessions survive regardless.
   const moveToProject = async (project: AutomationProject) => {
     const previous = props.automation()
     if (busy() || project.id === previous.where.projectID) return
     setBusy(true)
     try {
-      const common = {
-        title: previous.title,
-        prompt: previous.prompt,
-        context: "fresh" as const,
-        where: { projectID: project.id, ...(previous.where.worktree ? { worktree: previous.where.worktree } : {}) },
-        timezone: previous.timezone,
-        model: { providerID: previous.model.providerID, modelID: previous.model.modelID },
-        ...(previous.variant ? { variant: previous.variant } : {}),
-      }
-      const input: AutomationCreateInput =
-        previous.kind === "oneshot"
-          ? { kind: "oneshot", ...common, fireAt: previous.fireAt }
-          : { kind: "recurring", ...common, rhythm: previous.rhythm, stop: previous.stop }
-      const created = await globalSync.automation.create(project.worktree, input)
-      if (!created) return
-      // A paused source must arrive paused: if the target pause fails, the
-      // move fails — roll the copy back rather than leave an automation the
-      // user silenced suddenly live in another project.
-      try {
-        if (previous.paused) await globalSync.automation.pause(project.worktree, created.id)
-        await globalSync.automation.delete(props.directory(), previous.id)
-      } catch (error) {
-        await globalSync.automation.delete(project.worktree, created.id).catch(() => {})
-        throw error
-      }
-      props.onMoved(created)
+      const moved = await globalSync.automation.update(
+        props.directory(),
+        previous.id,
+        {
+          where: { projectID: project.id, ...(previous.where.worktree ? { worktree: previous.where.worktree } : {}) },
+        },
+        { targetDirectory: project.worktree },
+      )
+      if (moved) props.onMoved(moved)
     } catch (error) {
       notifyFailure(error)
     } finally {

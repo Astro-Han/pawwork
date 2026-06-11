@@ -433,14 +433,31 @@ function createGlobalSync() {
     }
   }
 
-  async function updateAutomation(directory: string, automationID: string, patch: AutomationUpdateInput) {
+  async function updateAutomation(
+    directory: string,
+    automationID: string,
+    patch: AutomationUpdateInput,
+    options?: { targetDirectory?: string },
+  ) {
+    const targetDirectory = options?.targetDirectory
+    const moved = Boolean(targetDirectory && targetDirectory !== directory)
     children.pin(directory)
+    if (moved && targetDirectory) children.pin(targetDirectory)
     try {
       const [store, setStore] = children.peek(directory, { bootstrap: false })
       const res = await sdkFor(directory).automation.update({ automationID, automationUpdateInput: patch })
-      if (res.data) applyAutomationDefinition(store, setStore, res.data)
+      if (res.data) {
+        if (moved && targetDirectory) {
+          applyAutomationTombstone(store, setStore, { id: automationID, deleted: true, revision: res.data.revision })
+          const [targetStore, targetSetStore] = children.peek(targetDirectory, { bootstrap: false })
+          applyAutomationDefinition(targetStore, targetSetStore, res.data)
+        } else {
+          applyAutomationDefinition(store, setStore, res.data)
+        }
+      }
       return res.data
     } finally {
+      if (moved && targetDirectory) children.unpin(targetDirectory)
       children.unpin(directory)
     }
   }
