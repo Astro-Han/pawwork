@@ -1,0 +1,5 @@
+Capture a screenshot of the embedded browser's current viewport as a PNG image.
+
+- `annotate: true` overlays the element references from the latest snapshot onto the image, so [N] labels are visible — useful for confirming which element a ref points to. Falls back to a plain screenshot when annotation is unavailable.
+- The image is attached to the result; on vision-capable models you can read it directly.
+- For understanding page structure or finding elements to interact with, browser_snapshot is cheaper and more precise; use screenshots to verify visual state.

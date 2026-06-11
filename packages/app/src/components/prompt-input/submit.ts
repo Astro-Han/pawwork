@@ -18,6 +18,8 @@ import { Worktree as WorktreeState } from "@/utils/worktree"
 import { reportInvariantBreach } from "./invariant"
 import { formatServerError } from "@/utils/server-errors"
 import { canSubmitPrompt } from "@/pages/session/session-action-readiness"
+import { openBrowserTabInSessionLayout } from "@/pages/session/helpers"
+import { usePlatform } from "@/context/platform"
 import { type PromptRouteScope, promptScopeForSession } from "@/pages/session/prompt-route-scope"
 import { usePinnedDraft } from "./pinned-draft"
 import type { FollowupDraft } from "./followup-draft"
@@ -62,6 +64,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   const sync = useSync()
   const globalSync = useGlobalSync()
   const local = useLocal()
+  const platform = usePlatform()
   const permission = usePermission()
   const prompt = usePrompt()
   const layout = useLayout()
@@ -236,6 +239,13 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         if (shouldAutoAccept) permission.enableAutoAccept(session.id, sessionDirectory)
         local.session.promote(sessionDirectory, session.id)
         layout.handoff.setTabs(base64Encode(sessionDirectory), session.id)
+        // Hand this window's draft browser view to the new session BEFORE the
+        // route change, so the session's panel finds the adopted view instead
+        // of lazily creating an empty one. A page browsed on the new-session
+        // screen carries over as an already-open browser tab.
+        const adoption = await platform.browser?.adoptDraft(created.id).catch(() => undefined)
+        if (adoption?.adopted && adoption.hasPage)
+          openBrowserTabInSessionLayout(layout, `${base64Encode(sessionDirectory)}/${created.id}`)
         navigate(`/${base64Encode(sessionDirectory)}/session/${session.id}`)
       }
     }

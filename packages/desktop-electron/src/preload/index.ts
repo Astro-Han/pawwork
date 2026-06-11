@@ -8,18 +8,30 @@ const runtimeFlags = getRuntimeFlags(process.env)
 const invokeSetDesktopContext = (context: DesktopContext) => ipcRenderer.invoke("set-desktop-context", context)
 
 const browser: ElectronAPI["browser"] = {
-  navigate: (url) => ipcRenderer.invoke("browser:navigate", url),
-  goBack: () => ipcRenderer.invoke("browser:back"),
-  goForward: () => ipcRenderer.invoke("browser:forward"),
-  reload: () => ipcRenderer.invoke("browser:reload"),
-  stop: () => ipcRenderer.invoke("browser:stop"),
-  setView: (layout) => ipcRenderer.invoke("browser:set-view", layout),
+  navigate: (target, url) => ipcRenderer.invoke("browser:navigate", target, url),
+  goBack: (target) => ipcRenderer.invoke("browser:back", target),
+  goForward: (target) => ipcRenderer.invoke("browser:forward", target),
+  reload: (target) => ipcRenderer.invoke("browser:reload", target),
+  stop: (target) => ipcRenderer.invoke("browser:stop", target),
+  setView: (target, layout) => ipcRenderer.invoke("browser:set-view", target, layout),
+  adoptDraft: (sessionID) => ipcRenderer.invoke("browser:adopt-draft", sessionID),
+  closePage: (target) => ipcRenderer.invoke("browser:close-page", target),
   clearData: () => ipcRenderer.invoke("browser:clear-data"),
-  getState: () => ipcRenderer.invoke("browser:get-state"),
+  getState: (target) => ipcRenderer.invoke("browser:get-state", target),
   onState: (cb) => {
-    const handler = (_: unknown, state: BrowserState) => cb(state)
+    const handler = (_: unknown, payload: { target: string; state: BrowserState }) => cb(payload)
     ipcRenderer.on("browser:state", handler)
     return () => ipcRenderer.removeListener("browser:state", handler)
+  },
+  onDisplayTaken: (cb) => {
+    const handler = (_: unknown, payload: { target: string }) => cb(payload)
+    ipcRenderer.on("browser:display-taken", handler)
+    return () => ipcRenderer.removeListener("browser:display-taken", handler)
+  },
+  onAutomationAttached: (cb) => {
+    const handler = (_: unknown, payload: { sessionID: string }) => cb(payload)
+    ipcRenderer.on("browser:automation-attached", handler)
+    return () => ipcRenderer.removeListener("browser:automation-attached", handler)
   },
 }
 

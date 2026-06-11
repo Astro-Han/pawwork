@@ -1,0 +1,6 @@
+Click an element in the embedded browser.
+
+- `ref` is an element reference from browser_snapshot (like "[12]") or a CSS selector (like "button.submit").
+- The result self-verifies: `matches_n` is how many elements matched (1 is what you want) and `match_level` is how reliably the element was re-identified (exact > stable > reidentified).
+- If the click triggers navigation or DOM changes, take a fresh browser_snapshot before the next action.
+- A no-match or ambiguous-match error usually means the snapshot is stale — re-snapshot and retry with a fresh ref.

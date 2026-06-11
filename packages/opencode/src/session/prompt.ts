@@ -712,6 +712,9 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       // directly from storage (NOT the compaction-filtered `messages`), so an activation
       // older than the retained tail still counts without hydrating the full history.
       const activatedTools = deriveActivatedToolsFromParts(MessageV2.toolInfoParts(input.session.id))
+      // No client rule here: a client that doesn't support a deferred tool never
+      // registers it, and the registry intersects with the registered set before
+      // carding or activating anything.
       const deferredRuleset = Permission.merge(input.agent.permission, input.session.permission ?? [])
       const deferredAvailable = (id: string) =>
         input.tools?.[id] !== false && !Permission.disabled([id], deferredRuleset).has(id)
@@ -2237,14 +2240,25 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           // call can't drop the activating turn and swallow the one-shot reminder.
           const newlyActivated = deriveNewlyActivated(MessageV2.lastNonSummaryAssistant(sessionID))
           if (newlyActivated.size > 0) {
+            // The recorded members are a snapshot of the ACTIVATING step's availability.
+            // Re-filter through this step's (same formula resolveTools uses, intersected
+            // with the registered set): a session resumed under different permissions or
+            // a different client must not be promised a tool the registry won't expose.
+            const reminderRuleset = Permission.merge(agent.permission, session.permission ?? [])
+            const exposable = yield* registry.availableDeferred({
+              deferredAvailable: (id) =>
+                lastUser.tools?.[id] !== false && !Permission.disabled([id], reminderRuleset).has(id),
+            })
             const userMessage = msgs.findLast((msg) => msg.info.role === "user" && msg.info.id === lastUser.id)
-            for (const name of newlyActivated) {
+            for (const [name, members] of newlyActivated) {
+              const text = buildActivationReminder(name, members, (id) => exposable.has(id))
+              if (!text) continue
               userMessage?.parts.push({
                 id: PartID.ascending(),
                 messageID: lastUser.id,
                 sessionID,
                 type: "text",
-                text: buildActivationReminder(name),
+                text,
                 synthetic: true,
               })
             }

@@ -86,9 +86,19 @@ export function toggleDesktopTerminal(
 export function createCloseShellTabRouter(deps: {
   view: () => { sidePanel: Pick<SidePanelSlice, "tab" | "openTab" | "closeTab"> }
   terminal: () => Pick<TerminalSlice, "all" | "close">
+  /** Desktop only: the embedded browser's close gesture destroys its page
+   *  (see createBrowserTabClose), so it routes through a flow that may confirm
+   *  first. Both consumers must pass the same flow — that is exactly why this
+   *  lives in the router both paths share. Absent on web, where the browser
+   *  tab is never offered. */
+  closeBrowserTab?: () => void
 }) {
   return (tab: RightPanelTab) => {
     const sidePanel = deps.view().sidePanel
+    if (tab === "browser" && deps.closeBrowserTab) {
+      deps.closeBrowserTab()
+      return
+    }
     if (!isRightPanelTerminalTab(tab)) {
       sidePanel.closeTab(tab)
       return

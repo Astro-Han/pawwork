@@ -177,6 +177,7 @@ jobs:
               test/server
               test/snapshot
               test/tool
+              test/browser
               test/mcp
               test/question
               test/effect

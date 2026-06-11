@@ -15,6 +15,13 @@ import { WriteTool } from "./write"
 import { InvalidTool } from "./invalid"
 import { SkillTool } from "./skill"
 import { DEFERRED_TOOL_IDS, TOOL_INFO_ID, ToolInfoTool, buildCardList } from "./tool-info"
+import { BrowserNavigateTool } from "./browser-navigate"
+import { BrowserSnapshotTool } from "./browser-snapshot"
+import { BrowserClickTool } from "./browser-click"
+import { BrowserTypeTool } from "./browser-type"
+import { BrowserWaitTool } from "./browser-wait"
+import { BrowserScreenshotTool } from "./browser-screenshot"
+import { BrowserExtractTool } from "./browser-extract"
 import * as Tool from "./tool"
 import { Config } from "../config/config"
 import { type ToolContext as PluginToolContext, type ToolDefinition } from "@opencode-ai/plugin"
@@ -155,6 +162,13 @@ export namespace ToolRegistry {
       const enterWorktree = yield* EnterWorktreeTool
       const exitWorktree = yield* ExitWorktreeTool
       const automate = yield* AutomateTool
+      const browserNavigate = yield* BrowserNavigateTool
+      const browserSnapshot = yield* BrowserSnapshotTool
+      const browserClick = yield* BrowserClickTool
+      const browserType = yield* BrowserTypeTool
+      const browserWait = yield* BrowserWaitTool
+      const browserScreenshot = yield* BrowserScreenshotTool
+      const browserExtract = yield* BrowserExtractTool
 
       const toolInfoInfo = yield* ToolInfoTool((toolID, output) =>
         plugin.trigger("tool.definition", { toolID }, output),
@@ -319,6 +333,13 @@ export namespace ToolRegistry {
             exitWorktree: Tool.init(exitWorktree),
             automate: Tool.init(automate),
             toolInfo: Tool.init(toolInfoInfo),
+            browserNavigate: Tool.init(browserNavigate),
+            browserSnapshot: Tool.init(browserSnapshot),
+            browserClick: Tool.init(browserClick),
+            browserType: Tool.init(browserType),
+            browserWait: Tool.init(browserWait),
+            browserScreenshot: Tool.init(browserScreenshot),
+            browserExtract: Tool.init(browserExtract),
           })
 
           return {
@@ -346,6 +367,20 @@ export namespace ToolRegistry {
               tool.automate,
               tool.enterWorktree,
               tool.exitWorktree,
+              // Desktop-only: the embedded browser lives in the desktop app's
+              // main process. Deferred (model-activated via the "browser"
+              // group in tool_info), so they never cost context up front.
+              ...(Flag.OPENCODE_CLIENT === "desktop"
+                ? [
+                    tool.browserNavigate,
+                    tool.browserSnapshot,
+                    tool.browserClick,
+                    tool.browserType,
+                    tool.browserWait,
+                    tool.browserScreenshot,
+                    tool.browserExtract,
+                  ]
+                : []),
             ],
             agent: tool.agent,
             read: tool.read,
