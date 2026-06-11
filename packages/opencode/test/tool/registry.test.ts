@@ -1229,6 +1229,54 @@ describe("tool.registry", () => {
     }
   })
 
+  test("defers opencli adapters to a desktop-only group", async () => {
+    await using tmp = await tmpdir()
+    const previousClient = process.env["OPENCODE_CLIENT"]
+    try {
+      delete process.env["OPENCODE_CLIENT"]
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const tools = await ToolRegistry.tools({
+            providerID: ProviderID.make("openai"),
+            modelID: ModelID.make("gpt-5"),
+            agent: { name: "build", mode: "primary", permission: [], options: {} },
+          })
+          const ids = tools.map((tool) => tool.id)
+          expect(ids).not.toContain("opencli_search")
+          expect(tools.find((tool) => tool.id === "tool_info")!.description).not.toContain("opencli")
+        },
+      })
+
+      await Instance.disposeAll()
+      process.env["OPENCODE_CLIENT"] = "desktop"
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const deferred = await ToolRegistry.tools({
+            providerID: ProviderID.make("openai"),
+            modelID: ModelID.make("gpt-5"),
+            agent: { name: "build", mode: "primary", permission: [], options: {} },
+          })
+          const deferredIds = deferred.map((tool) => tool.id)
+          expect(deferredIds).not.toContain("opencli_search")
+          expect(deferred.find((tool) => tool.id === "tool_info")!.description).toContain("**opencli**")
+
+          const activated = await ToolRegistry.tools({
+            providerID: ProviderID.make("openai"),
+            modelID: ModelID.make("gpt-5"),
+            agent: { name: "build", mode: "primary", permission: [], options: {} },
+            activatedTools: new Set(deferredGroupMembers("opencli")),
+          })
+          expect(activated.map((tool) => tool.id)).toContain("opencli_search")
+        },
+      })
+    } finally {
+      if (previousClient === undefined) delete process.env["OPENCODE_CLIENT"]
+      else process.env["OPENCODE_CLIENT"] = previousClient
+    }
+  })
+
   test("tool_info hands back exactly the schema the activated tool will expose, untruncated", async () => {
     await using tmp = await tmpdir()
     await Instance.provide({

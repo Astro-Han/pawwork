@@ -22,6 +22,7 @@ import { BrowserTypeTool } from "./browser-type"
 import { BrowserWaitTool } from "./browser-wait"
 import { BrowserScreenshotTool } from "./browser-screenshot"
 import { BrowserExtractTool } from "./browser-extract"
+import { OpenCliSearchTool } from "./opencli-search"
 import * as Tool from "./tool"
 import { Config } from "../config/config"
 import { type ToolContext as PluginToolContext, type ToolDefinition } from "@opencode-ai/plugin"
@@ -169,6 +170,7 @@ export namespace ToolRegistry {
       const browserWait = yield* BrowserWaitTool
       const browserScreenshot = yield* BrowserScreenshotTool
       const browserExtract = yield* BrowserExtractTool
+      const openCliSearch = yield* OpenCliSearchTool
 
       const toolInfoInfo = yield* ToolInfoTool((toolID, output) =>
         plugin.trigger("tool.definition", { toolID }, output),
@@ -340,6 +342,7 @@ export namespace ToolRegistry {
             browserWait: Tool.init(browserWait),
             browserScreenshot: Tool.init(browserScreenshot),
             browserExtract: Tool.init(browserExtract),
+            openCliSearch: Tool.init(openCliSearch),
           })
 
           return {
@@ -379,6 +382,7 @@ export namespace ToolRegistry {
                     tool.browserWait,
                     tool.browserScreenshot,
                     tool.browserExtract,
+                    tool.openCliSearch,
                   ]
                 : []),
             ],
