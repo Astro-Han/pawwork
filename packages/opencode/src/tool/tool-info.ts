@@ -271,12 +271,22 @@ const ANTI_FALLBACK: Record<string, string> = {
 // One-shot system-reminder for the step after a tool_info activation. Anchored on
 // <system-reminder> because models attend to system signals more reliably than to
 // tool self-descriptions. For a group, list the members so the model calls a real
-// tool (there is no callable tool named after the group) — preferring the
-// availability-filtered list the activation recorded, so the reminder never
-// names a member the registry won't expose.
-export function buildActivationReminder(name: string, activatedMembers?: string[]): string {
+// tool (there is no callable tool named after the group) — starting from the
+// availability-filtered list the activation recorded, then re-filtering through
+// `isAvailable` (the CURRENT step's availability): the recorded list is a snapshot,
+// and a session resumed under different permissions or a different client must not
+// be promised a tool the registry won't expose now. Returns "" when nothing the
+// reminder would announce is actually in the tool list — callers skip injection.
+export function buildActivationReminder(
+  name: string,
+  activatedMembers?: string[],
+  isAvailable?: (id: string) => boolean,
+): string {
   if (DEFERRED_GROUP_IDS.has(name)) {
-    const members = (activatedMembers?.length ? activatedMembers : deferredGroupMembers(name)).join(", ")
+    const recorded = activatedMembers?.length ? activatedMembers : deferredGroupMembers(name)
+    const current = isAvailable ? recorded.filter(isAvailable) : recorded
+    if (current.length === 0) return ""
+    const members = current.join(", ")
     return [
       "<system-reminder>",
       `Deferred tool group activated: the \`${name}\` tools (${members}) are now in your tool list for this step. ` +
@@ -285,6 +295,7 @@ export function buildActivationReminder(name: string, activatedMembers?: string[
       "</system-reminder>",
     ].join("\n")
   }
+  if (isAvailable && !isAvailable(name)) return ""
   return [
     "<system-reminder>",
     `Deferred tool activated: \`${name}\` is now in your tool list for this step. ` +

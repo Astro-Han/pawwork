@@ -2233,14 +2233,25 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           // call can't drop the activating turn and swallow the one-shot reminder.
           const newlyActivated = deriveNewlyActivated(MessageV2.lastNonSummaryAssistant(sessionID))
           if (newlyActivated.size > 0) {
+            // The recorded members are a snapshot of the ACTIVATING step's availability.
+            // Re-filter through this step's (same formula resolveTools uses, intersected
+            // with the registered set): a session resumed under different permissions or
+            // a different client must not be promised a tool the registry won't expose.
+            const reminderRuleset = Permission.merge(agent.permission, session.permission ?? [])
+            const exposable = yield* registry.availableDeferred({
+              deferredAvailable: (id) =>
+                lastUser.tools?.[id] !== false && !Permission.disabled([id], reminderRuleset).has(id),
+            })
             const userMessage = msgs.findLast((msg) => msg.info.role === "user" && msg.info.id === lastUser.id)
             for (const [name, members] of newlyActivated) {
+              const text = buildActivationReminder(name, members, (id) => exposable.has(id))
+              if (!text) continue
               userMessage?.parts.push({
                 id: PartID.ascending(),
                 messageID: lastUser.id,
                 sessionID,
                 type: "text",
-                text: buildActivationReminder(name, members),
+                text,
                 synthetic: true,
               })
             }

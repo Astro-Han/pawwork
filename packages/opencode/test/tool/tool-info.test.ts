@@ -101,6 +101,20 @@ describe("tool-info", () => {
     expect(buildActivationReminder("browser")).toContain("browser_screenshot")
   })
 
+  test("buildActivationReminder re-filters recorded members through the current step's availability", () => {
+    // The recorded list is a snapshot from the activating step; a session resumed
+    // under different permissions must not be promised a now-hidden member.
+    const recorded = ["browser_navigate", "browser_snapshot", "browser_screenshot"]
+    const r = buildActivationReminder("browser", recorded, (id) => id !== "browser_screenshot")
+    expect(r).toContain("browser_navigate, browser_snapshot")
+    expect(r).not.toContain("browser_screenshot")
+  })
+
+  test("buildActivationReminder returns empty when nothing it would announce is exposable", () => {
+    expect(buildActivationReminder("browser", ["browser_navigate"], () => false)).toBe("")
+    expect(buildActivationReminder("enter-worktree", undefined, () => false)).toBe("")
+  })
+
   test("deriveNewlyActivated returns empty when the assistant turn has no tool_info part", () => {
     expect(deriveNewlyActivated(assistant([toolPart("read", "completed", {})])).size).toBe(0)
   })
