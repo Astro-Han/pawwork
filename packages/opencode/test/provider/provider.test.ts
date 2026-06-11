@@ -26,6 +26,17 @@ import {
 
 const env = makeRuntime(Env.Service, Env.defaultLayer)
 const set = (k: string, v: string) => env.runSync((svc) => svc.set(k, v))
+const unset = (k: string) => env.runSync((svc) => svc.remove(k))
+
+function clearVertexEnv() {
+  unset("GOOGLE_VERTEX_PROJECT")
+  unset("GOOGLE_VERTEX_LOCATION")
+  unset("GOOGLE_CLOUD_PROJECT")
+  unset("GCP_PROJECT")
+  unset("GCLOUD_PROJECT")
+  unset("GOOGLE_CLOUD_LOCATION")
+  unset("VERTEX_LOCATION")
+}
 
 async function run<A, E>(fn: (provider: Provider.Interface) => Effect.Effect<A, E, never>) {
   return AppRuntime.runPromise(
@@ -84,6 +95,31 @@ async function restoreAuthSnapshot(snapshot: string | undefined) {
   } catch (e) {
     if (!(typeof e === "object" && e !== null && "code" in e && e.code === "ENOENT")) throw e
   }
+}
+
+function languageBaseURL(language: unknown) {
+  return (language as { config: { baseURL: string } }).config.baseURL
+}
+
+async function writeVertexAnthropicConfig(dir: string) {
+  await Bun.write(
+    path.join(dir, "opencode.json"),
+    JSON.stringify({
+      $schema: "https://opencode.ai/config.json",
+      provider: {
+        "google-vertex": {
+          models: {
+            "claude-test": {
+              name: "Claude Test",
+              provider: {
+                npm: "@ai-sdk/google-vertex/anthropic",
+              },
+            },
+          },
+        },
+      },
+    }),
+  )
 }
 
 test("OpenCode Zen and OpenCode Go providers remain discoverable in PawWork runtime mode", async () => {
@@ -2804,6 +2840,291 @@ test("Google Vertex: supports OpenAI compatible models", async () => {
 
       expect(model).toBeDefined()
       expect(model.api.npm).toBe("@ai-sdk/openai-compatible")
+    },
+  })
+})
+
+test("Google Vertex: uses REP endpoint for Claude continental multi-regions", async () => {
+  await using tmp = await tmpdir({
+    init: writeVertexAnthropicConfig,
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      clearVertexEnv()
+      set("GOOGLE_CLOUD_PROJECT", "test-project")
+      set("VERTEX_LOCATION", "eu")
+    },
+    fn: async () => {
+      const model = await getModel(ProviderID.make("google-vertex"), ModelID.make("claude-test"))
+      const language = await getLanguage(model)
+      expect(languageBaseURL(language)).toBe(
+        "https://aiplatform.eu.rep.googleapis.com/v1/projects/test-project/locations/eu/publishers/anthropic/models",
+      )
+    },
+  })
+})
+
+test("Google Vertex: uses REP endpoint with Vertex SDK env names", async () => {
+  await using tmp = await tmpdir({
+    init: writeVertexAnthropicConfig,
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      clearVertexEnv()
+      set("GOOGLE_VERTEX_PROJECT", "test-project")
+      set("GOOGLE_VERTEX_LOCATION", "eu")
+    },
+    fn: async () => {
+      const model = await getModel(ProviderID.make("google-vertex"), ModelID.make("claude-test"))
+      const language = await getLanguage(model)
+      expect(languageBaseURL(language)).toBe(
+        "https://aiplatform.eu.rep.googleapis.com/v1/projects/test-project/locations/eu/publishers/anthropic/models",
+      )
+    },
+  })
+})
+
+test("Google Vertex: keeps explicit Claude API URL", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            "google-vertex": {
+              options: {
+                project: "test-project",
+                location: "eu",
+              },
+              models: {
+                "claude-proxy": {
+                  name: "Claude Proxy",
+                  provider: {
+                    npm: "@ai-sdk/google-vertex/anthropic",
+                    api: "https://proxy.example/v1",
+                  },
+                },
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      clearVertexEnv()
+    },
+    fn: async () => {
+      const model = await getModel(ProviderID.make("google-vertex"), ModelID.make("claude-proxy"))
+      const language = await getLanguage(model)
+      expect(languageBaseURL(language)).toBe("https://proxy.example/v1")
+    },
+  })
+})
+
+test("Google Vertex Anthropic: uses REP endpoint for continental multi-regions", async () => {
+  await using tmp = await tmpdir()
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      clearVertexEnv()
+      set("GOOGLE_CLOUD_PROJECT", "test-project")
+      set("VERTEX_LOCATION", "us")
+    },
+    fn: async () => {
+      const model = await getModel(ProviderID.make("google-vertex-anthropic"), ModelID.make("claude-sonnet-4-6@default"))
+      const language = await getLanguage(model)
+      expect(languageBaseURL(language)).toBe(
+        "https://aiplatform.us.rep.googleapis.com/v1/projects/test-project/locations/us/publishers/anthropic/models",
+      )
+    },
+  })
+})
+
+test("Google Vertex Anthropic: uses REP endpoint from config options", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            "google-vertex-anthropic": {
+              options: {
+                project: "config-project",
+                location: "eu",
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      clearVertexEnv()
+    },
+    fn: async () => {
+      const model = await getModel(ProviderID.make("google-vertex-anthropic"), ModelID.make("claude-sonnet-4-6@default"))
+      const language = await getLanguage(model)
+      expect(languageBaseURL(language)).toBe(
+        "https://aiplatform.eu.rep.googleapis.com/v1/projects/config-project/locations/eu/publishers/anthropic/models",
+      )
+    },
+  })
+})
+
+test("Google Vertex Anthropic: prefers config options over env names", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            "google-vertex-anthropic": {
+              options: {
+                project: "config-project",
+                location: "eu",
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      clearVertexEnv()
+      set("GOOGLE_VERTEX_PROJECT", "env-project")
+      set("GOOGLE_VERTEX_LOCATION", "us")
+    },
+    fn: async () => {
+      const model = await getModel(ProviderID.make("google-vertex-anthropic"), ModelID.make("claude-sonnet-4-6@default"))
+      const language = await getLanguage(model)
+      expect(languageBaseURL(language)).toBe(
+        "https://aiplatform.eu.rep.googleapis.com/v1/projects/config-project/locations/eu/publishers/anthropic/models",
+      )
+    },
+  })
+})
+
+test("Google Vertex Anthropic: keeps explicit provider baseURL", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            "google-vertex-anthropic": {
+              options: {
+                project: "config-project",
+                location: "eu",
+                baseURL: "https://proxy.example/vertex",
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      clearVertexEnv()
+    },
+    fn: async () => {
+      const model = await getModel(ProviderID.make("google-vertex-anthropic"), ModelID.make("claude-sonnet-4-6@default"))
+      const language = await getLanguage(model)
+      expect(languageBaseURL(language)).toBe("https://proxy.example/vertex")
+    },
+  })
+})
+
+test("Google Vertex Anthropic: keeps explicit Claude API URL", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            "google-vertex-anthropic": {
+              options: {
+                project: "test-project",
+                location: "eu",
+              },
+              models: {
+                "claude-proxy": {
+                  name: "Claude Proxy",
+                  provider: {
+                    api: "https://proxy.example/v1",
+                  },
+                },
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      clearVertexEnv()
+    },
+    fn: async () => {
+      const model = await getModel(ProviderID.make("google-vertex-anthropic"), ModelID.make("claude-proxy"))
+      const language = await getLanguage(model)
+      expect(languageBaseURL(language)).toBe("https://proxy.example/v1")
+    },
+  })
+})
+
+test("Google Vertex Anthropic: uses REP endpoint with Vertex SDK env names", async () => {
+  await using tmp = await tmpdir()
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      clearVertexEnv()
+      set("GOOGLE_VERTEX_PROJECT", "test-project")
+      set("GOOGLE_VERTEX_LOCATION", "eu")
+    },
+    fn: async () => {
+      const model = await getModel(ProviderID.make("google-vertex-anthropic"), ModelID.make("claude-sonnet-4-6@default"))
+      const language = await getLanguage(model)
+      expect(languageBaseURL(language)).toBe(
+        "https://aiplatform.eu.rep.googleapis.com/v1/projects/test-project/locations/eu/publishers/anthropic/models",
+      )
+    },
+  })
+})
+
+test("Google Vertex: keeps regional Claude endpoints unchanged", async () => {
+  await using tmp = await tmpdir({
+    init: writeVertexAnthropicConfig,
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      clearVertexEnv()
+      set("GOOGLE_CLOUD_PROJECT", "test-project")
+      set("VERTEX_LOCATION", "europe-west1")
+    },
+    fn: async () => {
+      const model = await getModel(ProviderID.make("google-vertex"), ModelID.make("claude-test"))
+      const language = await getLanguage(model)
+      expect(languageBaseURL(language)).toBe(
+        "https://europe-west1-aiplatform.googleapis.com/v1/projects/test-project/locations/europe-west1/publishers/anthropic/models",
+      )
     },
   })
 })
