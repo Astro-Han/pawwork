@@ -1,4 +1,5 @@
 import fs from "node:fs/promises"
+import { existsSync } from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, test } from "bun:test"
@@ -73,7 +74,12 @@ const ACCEPTED_CAPABILITY_GAPS: CapabilityGap[] = [
 
 function openCliPackageRoot() {
   const cdp = fileURLToPath(import.meta.resolve("@jackwener/opencli/browser/cdp"))
-  return path.resolve(path.dirname(cdp), "../../..")
+  for (let dir = path.dirname(cdp); ; dir = path.dirname(dir)) {
+    if (existsSync(path.join(dir, "cli-manifest.json")) && existsSync(path.join(dir, "clis"))) return dir
+    const parent = path.dirname(dir)
+    if (parent === dir) break
+  }
+  throw new Error(`Unable to locate @jackwener/opencli package root from ${cdp}`)
 }
 
 async function loadManifest() {
