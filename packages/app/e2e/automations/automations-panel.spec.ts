@@ -595,19 +595,15 @@ test("automations panel: detail moves an automation to another open project", as
     const detail = surface.locator('[data-component="automation-detail"]')
     await expect(detail).toBeVisible()
 
-    // The Project row is a picker when another project is open. Moving is a
-    // create-in-target + delete-from-source pair: the automation appears in
-    // the target project's list, vanishes from the source, and the detail
-    // stays open on the recreated definition (new id, same fields).
+    // The Project row is a picker when another project is open. Moving updates
+    // the same automation in place: it appears in the target project's list,
+    // vanishes from the source, and the detail stays open on the same id.
     await detail.locator('[data-action="automation-edit-project"]').click()
     await page.locator(`[data-project="${otherProjectID}"]`).click()
 
     await expect
-      .poll(async () =>
-        ((await otherSDK.automation.list()).data?.items ?? []).filter((item) => item.title === "Migrating digest")
-          .length,
-      )
-      .toBe(1)
+      .poll(async () => ((await otherSDK.automation.list()).data?.items ?? []).find((item) => item.id === created.id))
+      .toMatchObject({ id: created.id, title: "Migrating digest" })
     await expect
       .poll(async () =>
         ((await project.sdk.automation.list()).data?.items ?? []).filter((item) => item.id === created.id).length,
@@ -670,12 +666,10 @@ test("automations panel: a paused automation arrives paused after a move", async
     await detail.locator('[data-action="automation-edit-project"]').click()
     await page.locator(`[data-project="${otherProjectID}"]`).click()
 
-    // The recreated copy must keep the silence the user set, not wake up live.
+    // The moved definition must keep the silence the user set, not wake up live.
     await expect
       .poll(async () => {
-        const moved = ((await otherSDK.automation.list()).data?.items ?? []).find(
-          (item) => item.title === "Silenced digest",
-        )
+        const moved = ((await otherSDK.automation.list()).data?.items ?? []).find((item) => item.id === created.id)
         return moved ? moved.paused : "missing"
       })
       .toBe(true)
@@ -687,7 +681,7 @@ test("automations panel: a paused automation arrives paused after a move", async
   }
 })
 
-test("automations panel: a failed pause during a move rolls back and keeps the source", async ({
+test("automations panel: a failed move keeps the source", async ({
   page,
   project,
   backend,
@@ -713,10 +707,10 @@ test("automations panel: a failed pause during a move rolls back and keeps the s
     const detail = surface.locator('[data-component="automation-detail"]')
     await expect(detail).toBeVisible()
 
-    // Re-applying the pause on the target fails. The move must fail as a whole:
-    // the fresh copy is deleted, the paused source is untouched, and the user
-    // is told — never a silenced automation suddenly live in another project.
-    await page.route("**/automation/*/pause*", (route) => route.fulfill({ status: 500, body: "{}" }))
+    await page.route(`**/automation/${created.id}`, (route) => {
+      if (route.request().method() !== "PUT") return route.continue()
+      return route.fulfill({ status: 500, body: "{}" })
+    })
     await detail.locator('[data-action="automation-edit-project"]').click()
     await page.locator(`[data-project="${otherProjectID}"]`).click()
 
