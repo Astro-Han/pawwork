@@ -82,6 +82,23 @@ test("automations-surface", async ({ page, project, assistant }) => {
   const detail = await openDetail("Daily standup digest")
   const detailContinue = await openDetail("Inbox triage loop")
 
+  // Inline edit affordances on the detail page: the Repeats row opens the
+  // schedule popover, the Model row opens the shared picker.
+  await surface.locator('[data-action="automation-row"]', { hasText: "Daily standup digest" }).first().click()
+  const detailPane = surface.locator('[data-component="automation-detail"]')
+  await detailPane.waitFor({ state: "visible", timeout: 30_000 })
+  await detailPane.locator('[data-action="automation-edit-schedule"]').click()
+  await page.locator('[data-action="automation-frequency"]').waitFor({ state: "visible", timeout: 10_000 })
+  await page.waitForTimeout(300) // let the popover's fade-in settle before the shot
+  const detailSchedule = await page.screenshot()
+  await page.keyboard.press("Escape")
+  await detailPane.locator('[data-action="automation-edit-model"]').click()
+  await page.locator("[data-picker-content]").waitFor({ state: "visible", timeout: 10_000 })
+  const detailModel = await page.screenshot()
+  await page.keyboard.press("Escape")
+  await surface.locator('[data-action="automation-detail-back"]').click()
+  await rows.first().waitFor({ state: "visible", timeout: 10_000 })
+
   // Split entry: open the New automation menu, screenshot it, then Create
   // manually, fill the card, and expand the schedule popover.
   await surface.locator('[data-action="automation-create-open"]').click()
@@ -106,6 +123,8 @@ test("automations-surface", async ({ page, project, assistant }) => {
     { name: "list-hover", buf: listHover },
     { name: "detail", buf: detail },
     { name: "detail-continue", buf: detailContinue },
+    { name: "detail-schedule", buf: detailSchedule },
+    { name: "detail-model", buf: detailModel },
     { name: "create-menu", buf: createMenu },
     { name: "create-card", buf: createCard },
     { name: "schedule", buf: schedulePopover },

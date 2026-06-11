@@ -10,6 +10,7 @@ import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { displayName, workspaceKey } from "@/pages/layout/helpers"
 import { formatServerError } from "@/utils/server-errors"
+import { DialogDeleteAutomation } from "@/components/dialog-delete-automation"
 import { AutomationList } from "./automation-list"
 import { AutomationDetail } from "./automation-detail"
 import { AutomationCreateDialog } from "./automation-create-dialog"
@@ -92,9 +93,12 @@ export function AutomationsSurface(props: {
   onMount(() => {
     const onEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return
+      // Inline editors on the detail page own Escape (revert + blur); only an
+      // Escape outside an editable control navigates.
+      if (event.target instanceof Element && event.target.closest("input, textarea")) return
       if (
         document.querySelector(
-          '[data-component="dialog-overlay"], [data-component="select-content"], [data-component="dropdown-menu-content"], [data-component="context-menu-content"]',
+          '[data-component="dialog-overlay"], [data-component="select-content"], [data-component="dropdown-menu-content"], [data-component="context-menu-content"], [data-component="popover-content"], [data-picker-content]',
         )
       )
         return
@@ -153,6 +157,14 @@ export function AutomationsSurface(props: {
     return itemForAutomation(id)
   })
 
+  const notifyFailure = (error: unknown) => {
+    showToast({
+      variant: "error",
+      title: language.t("automations.toast.actionFailed.title"),
+      description: formatServerError(error, language.t),
+    })
+  }
+
   const toggleActive = async (automation: AutomationDefinition) => {
     const item = itemForAutomation(automation.id)
     if (!item) return
@@ -160,12 +172,36 @@ export function AutomationsSurface(props: {
       if (automation.paused) await globalSync.automation.resume(item.directory, automation.id)
       else await globalSync.automation.pause(item.directory, automation.id)
     } catch (error) {
-      showToast({
-        variant: "error",
-        title: language.t("automations.toast.actionFailed.title"),
-        description: formatServerError(error, language.t),
-      })
+      notifyFailure(error)
     }
+  }
+
+  const runNow = async (automation: AutomationDefinition) => {
+    const item = itemForAutomation(automation.id)
+    if (!item) return
+    try {
+      await globalSync.automation.runNow(item.directory, automation.id)
+    } catch (error) {
+      notifyFailure(error)
+    }
+  }
+
+  const confirmDelete = (automation: AutomationDefinition) => {
+    const item = itemForAutomation(automation.id)
+    if (!item) return
+    dialog.show(() => (
+      <DialogDeleteAutomation
+        title={automation.title}
+        onConfirm={async () => {
+          try {
+            await globalSync.automation.delete(item.directory, automation.id)
+          } catch (error) {
+            notifyFailure(error)
+            throw error
+          }
+        }}
+      />
+    ))
   }
 
   // On a first-class page the create actions must not silently no-op: with no
@@ -245,7 +281,13 @@ export function AutomationsSurface(props: {
                 when={automationItems().length > 0}
                 fallback={<AutomationsEmpty onUseTemplate={openCreate} disabled={!canCreateManually()} />}
               >
-                <AutomationList items={automationItems} onSelect={setSelectedID} onToggleActive={toggleActive} />
+                <AutomationList
+                  items={automationItems}
+                  onSelect={setSelectedID}
+                  onToggleActive={toggleActive}
+                  onRunNow={runNow}
+                  onDelete={confirmDelete}
+                />
               </Show>
             </div>
           }
@@ -257,6 +299,7 @@ export function AutomationsSurface(props: {
               projectName={() => item().projectName}
               onBack={() => setSelectedID(undefined)}
               onOpenRun={props.onOpenRun}
+              onMoved={(definition) => setSelectedID(definition.id)}
             />
           )}
         </Show>
