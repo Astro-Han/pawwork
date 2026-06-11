@@ -21,7 +21,15 @@ type Active = {
   owner: Owner
   onClose?: () => void
   setClosing: (closing: boolean) => void
-  closing: boolean
+  rootOwner: Owner | null
+}
+
+function ownerWithin(owner: Owner | null, root: Owner | null): boolean {
+  if (!root) return false
+  for (let current = owner; current; current = current.owner) {
+    if (current === root) return true
+  }
+  return false
 }
 
 const Context = createContext<ReturnType<typeof init>>()
@@ -41,7 +49,6 @@ function init() {
     const current = active()
     if (!current || lock.value) return
     lock.value = true
-    current.closing = true
     current.onClose?.()
     current.setClosing(true)
 
@@ -76,10 +83,12 @@ function init() {
     const id = Math.random().toString(36).slice(2)
     let dispose: (() => void) | undefined
     let setClosing: ((closing: boolean) => void) | undefined
+    let rootOwner: Owner | null = null
 
     const node = runWithOwner(owner, () =>
       createRoot((d: () => void) => {
         dispose = d
+        rootOwner = getOwner()
         const [closing, setClosingSignal] = createSignal(false)
         setClosing = setClosingSignal
         return (
@@ -102,7 +111,7 @@ function init() {
 
     if (!dispose || !setClosing) return
 
-    setActive({ id, node, dispose, owner, onClose, setClosing, closing: false })
+    setActive({ id, node, dispose, owner, onClose, setClosing, rootOwner })
   }
 
   return {
@@ -140,14 +149,16 @@ export function useDialog() {
       return ctx.active
     },
     show(element: DialogElement, onClose?: () => void) {
-      // A dialog mid-close (palette command flows call close() and then the
-      // command handler shows the next dialog within the close animation) must
-      // not anchor the new dialog's owner: its owner sits wherever IT was
-      // opened from and is about to be disposed — context lookups from the new
-      // dialog (e.g. useSync from a session-page command) would miss providers
-      // the caller can see.
+      // Owner anchoring: a caller INSIDE the active dialog (a dialog replacing
+      // itself, e.g. palette -> file picker) keeps the active dialog's outer
+      // owner — its own owner lives in the dialog root that show() is about to
+      // dispose. A caller OUTSIDE it (e.g. a session-page command running
+      // after the palette starts closing) uses its own owner — anchoring to
+      // the dialog's owner would resolve context from wherever the dialog was
+      // opened and miss providers the caller can see (useSync crashed exactly
+      // this way when Fork was launched from the closing palette).
       const current = ctx.active
-      const base = current && !current.closing ? current.owner : owner
+      const base = current && ownerWithin(owner, current.rootOwner) ? current.owner : owner
       ctx.show(element, base, onClose)
     },
     close() {
