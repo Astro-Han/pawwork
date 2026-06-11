@@ -3,6 +3,7 @@ import { cli, getRegistry } from "@jackwener/opencli/registry"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Effect, Layer, type Schema } from "effect"
 import { Agent } from "../../src/agent/agent"
+import { BrowserBridge } from "../../src/browser/browser-bridge"
 import { provideTmpdirInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 import { MessageID, SessionID } from "../../src/session/schema"
@@ -79,6 +80,48 @@ describe("opencli_search", () => {
 })
 
 describe("opencli_run", () => {
+  it.live("asks for the current page when a browser command has no pre-navigation URL", () =>
+    Effect.gen(function* () {
+      cli({
+        site: "pawwork-test",
+        name: "current-page",
+        access: "write",
+        description: "Current page permission test adapter",
+        browser: true,
+        domain: "localhost",
+        navigateBefore: true,
+        args: [],
+        func: async () => [],
+      })
+      BrowserBridge.provideHost({
+        probeSession: async () => ({ url: "http://localhost:5173/codex" }),
+        resolveEndpoint: async () => {
+          throw new Error("no test endpoint")
+        },
+        releaseSession: async () => {},
+        disposeSession: async () => {},
+      })
+
+      try {
+        const askLog: Parameters<Tool.Context["ask"]>[0][] = []
+        yield* exec(OpenCliRunTool, { command: "pawwork-test/current-page", args: {} }, {
+          ask: (input) =>
+            Effect.sync(() => {
+              askLog.push(input)
+            }),
+        }).pipe(Effect.exit)
+
+        expect(askLog[0]).toMatchObject({
+          permission: "browser",
+          patterns: ["http://localhost:5173/codex"],
+        })
+      } finally {
+        BrowserBridge.provideHost(null)
+        getRegistry().delete("pawwork-test/current-page")
+      }
+    }),
+  )
+
   it.live("asks for origin and domain browser permissions for pre-navigation commands", () =>
     Effect.gen(function* () {
       cli({
@@ -139,6 +182,39 @@ describe("opencli_run", () => {
         expect(askLog).toEqual([])
       } finally {
         getRegistry().delete("pawwork-test/echo")
+      }
+    }),
+  )
+
+  it.live("asks before running a write non-browser adapter", () =>
+    Effect.gen(function* () {
+      cli({
+        site: "pawwork-test",
+        name: "write-http",
+        access: "write",
+        description: "Write non-browser test adapter",
+        browser: false,
+        args: [{ name: "query", required: true }],
+        func: async (args) => [{ written: args.query }],
+      })
+
+      try {
+        const askLog: Parameters<Tool.Context["ask"]>[0][] = []
+        const result = yield* exec(OpenCliRunTool, { command: "pawwork-test/write-http", args: { query: "hello" } }, {
+          ask: (input) =>
+            Effect.sync(() => {
+              askLog.push(input)
+            }),
+        })
+
+        expect(askLog[0]).toMatchObject({
+          permission: "opencli_write",
+          patterns: ["pawwork-test/write-http"],
+          always: ["pawwork-test/write-http"],
+        })
+        expect(result.output).toContain('"written": "hello"')
+      } finally {
+        getRegistry().delete("pawwork-test/write-http")
       }
     }),
   )
