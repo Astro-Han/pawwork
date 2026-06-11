@@ -67,6 +67,13 @@ const bySession = new Map<string, Connection>()
 // so two concurrent first calls for one conversation must share one attempt
 // instead of racing into a second connection (which the bridge would reject).
 const pendingAcquires = new Map<string, Promise<Connection>>()
+// Release generation per conversation. A delete/archive cannot reliably see an
+// in-flight acquire (it registers in pendingAcquires only after resolving its
+// root id), so instead of the release waiting on the acquire, the acquire
+// notices the bump after connecting and unwinds itself — otherwise its
+// resolveEndpoint would resurrect the just-disposed view and the connection
+// would outlive the conversation with nothing left to ever clean it up.
+const releaseEpochs = new Map<string, number>()
 
 // Every way the underlying connection reports being gone: opencli's send()
 // pre-check ("CDP connection is not open"), its close() ("CDP connection
@@ -152,6 +159,7 @@ async function acquire(sessionID: string): Promise<Connection> {
   const inflight = pendingAcquires.get(root)
   if (inflight) return inflight
   const promise = (async () => {
+    const epoch = releaseEpochs.get(root)
     const endpoint = await BrowserBridge.host()
       .resolveEndpoint({ sessionID: root })
       .catch((err) => {
@@ -168,6 +176,17 @@ async function acquire(sessionID: string): Promise<Connection> {
         .releaseSession({ sessionID: root })
         .catch(() => {})
       throw err
+    }
+    if (releaseEpochs.get(root) !== epoch) {
+      // The conversation was deleted or archived while we were connecting —
+      // resolveEndpoint resurrected its view after the release disposed it.
+      // Unwind completely: close the socket, dispose the recreated view.
+      conn.closed = true
+      await conn.bridge.close().catch(() => {})
+      await BrowserBridge.host()
+        .disposeSession({ sessionID: root })
+        .catch(() => {})
+      throw new Error("The conversation was deleted while the browser was connecting.")
     }
     bySession.set(root, conn)
     return conn
@@ -242,17 +261,19 @@ export async function withBrowserPage<T>(
 
 /**
  * The session was deleted or archived: drop its browser connection and have
- * the desktop destroy its view outright. Keyed by root session id, so deleting
- * a subagent child never tears down the conversation's live connection (the
- * dispose below no-ops for child ids the same way — views are root-keyed too).
+ * the desktop destroy its view outright. Uses the id as given — connections
+ * and views only ever exist under ROOT ids, so a root delete matches exactly
+ * and a subagent-child delete no-ops at every step instead of tearing down
+ * the conversation's live connection.
  */
 export async function releaseBrowserSession(sessionID: string): Promise<void> {
-  // A delete/archive can land while the session's first acquire is still in
-  // flight; wait for it to settle so the cleanup below sees its mappings
-  // instead of returning early and orphaning the fresh connection. A failed
-  // acquire rolled its host attachment back itself.
-  const pending = pendingAcquires.get(sessionID)
-  if (pending) await pending.then(() => {}, () => {})
+  // Bump first: an acquire still in flight for this conversation unwinds
+  // itself when it sees the new epoch (see acquire) — it cannot be awaited
+  // here because it may not have registered in pendingAcquires yet, and a
+  // hung endpoint resolution must not block the session's deletion. Maps and
+  // the host registry are only ever populated under ROOT ids, so a child-
+  // session delete (remove() recurses) lands here as a harmless no-op.
+  releaseEpochs.set(sessionID, (releaseEpochs.get(sessionID) ?? 0) + 1)
   const conn = bySession.get(sessionID)
   if (conn) {
     bySession.delete(sessionID)
@@ -305,4 +326,5 @@ export function resetBrowserSessionsForTest() {
   }
   bySession.clear()
   pendingAcquires.clear()
+  releaseEpochs.clear()
 }

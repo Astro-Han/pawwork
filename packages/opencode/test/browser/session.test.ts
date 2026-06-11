@@ -257,7 +257,7 @@ describe("withBrowserPage", () => {
     expect(released).toEqual(["ses_a"])
   }, 10_000)
 
-  test("a release landing during a pending acquire still cleans up after it settles", async () => {
+  test("a release landing during a pending acquire makes the acquire unwind itself", async () => {
     const server = makeServer()
     scriptCurrentUrl(server, "about:blank")
     const disposed: string[] = []
@@ -274,17 +274,68 @@ describe("withBrowserPage", () => {
       },
     })
 
-    const inflight = withBrowserPage("ses_a", "snapshot", async () => "ok")
+    const inflight = withBrowserPage("ses_a", "snapshot", async () => "must not run")
     await new Promise((resolve) => setTimeout(resolve, 10))
+    // The delete cannot wait on the acquire (it may not even be registered
+    // yet, and a hung endpoint must not block deletion) — it returns at once.
     await releaseBrowserSession("ses_a")
-
-    // The release waited for the acquire to settle, then tore it down.
     expect(disposed).toEqual(["ses_a"])
-    await expect(inflight).resolves.toBe("ok")
+
+    // The acquire notices the release after connecting and unwinds: the action
+    // never runs on a view that resolveEndpoint resurrected post-dispose, and
+    // the recreated view is disposed again.
+    await expect(inflight).rejects.toThrow(/deleted while the browser was connecting/)
+    expect(disposed).toEqual(["ses_a", "ses_a"])
 
     // No stale mapping survived: the next call reconnects from scratch.
     await withBrowserPage("ses_a", "snapshot", async () => "again")
     expect(server.methods.filter((m) => m === "Page.addScriptToEvaluateOnNewDocument").length).toBe(2)
+  }, 10_000)
+
+  test("deleting a subagent child never tears down the conversation's connection or view", async () => {
+    const server = makeServer()
+    scriptCurrentUrl(server, "about:blank")
+    const { released, disposed } = provideFakeHost(server)
+
+    // The conversation (root) has a live connection under its own id.
+    await withBrowserPage("ses_root", "snapshot", async () => {})
+    // remove() recurses into children: each child fires its own release, with
+    // the CHILD id. Connections and views only exist under root ids, so every
+    // step must no-op — except the host dispose call, which no-ops there.
+    await releaseBrowserSession("ses_child_of_root")
+    expect(released).toEqual([])
+    expect(disposed).toEqual(["ses_child_of_root"])
+
+    // The root's connection survived: no reconnect happens.
+    await withBrowserPage("ses_root", "snapshot", async () => {})
+    expect(server.methods.filter((m) => m === "Page.addScriptToEvaluateOnNewDocument").length).toBe(1)
+  })
+
+  test("an acquire abandoned by abort warms the cache for the next action", async () => {
+    const server = makeServer()
+    scriptCurrentUrl(server, "about:blank")
+    BrowserBridge.provideHost({
+      resolveEndpoint: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 80))
+        return { cdpEndpoint: server.endpoint }
+      },
+      probeSession: async () => ({ url: null }),
+      releaseSession: async () => {},
+      disposeSession: async () => {},
+    })
+
+    const controller = new AbortController()
+    const canceled = withBrowserPage("ses_a", "click", async () => "unreachable", { abort: controller.signal })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    controller.abort()
+    await expect(canceled).rejects.toBeInstanceOf(BrowserActionCanceledError)
+
+    // Let the abandoned connect settle in the background, then reuse it: the
+    // next action must NOT pay a second connect (documented cache-warming).
+    await new Promise((resolve) => setTimeout(resolve, 140))
+    const result = await withBrowserPage("ses_a", "snapshot", async () => "warm")
+    expect(result).toBe("warm")
+    expect(server.methods.filter((m) => m === "Page.addScriptToEvaluateOnNewDocument").length).toBe(1)
   }, 10_000)
 
   test("a lost connection releases the bridge exactly once; the later delete disposes the view", async () => {
