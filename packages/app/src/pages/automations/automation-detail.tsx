@@ -1,5 +1,10 @@
 import { createEffect, createMemo, createSignal, For, Show, type Accessor, type JSX } from "solid-js"
-import type { AutomationDefinition, AutomationRun, AutomationUpdateInput } from "@opencode-ai/sdk/v2/client"
+import type {
+  AutomationCreateInput,
+  AutomationDefinition,
+  AutomationRun,
+  AutomationUpdateInput,
+} from "@opencode-ai/sdk/v2/client"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Button } from "@opencode-ai/ui/button"
 import { showToast } from "@opencode-ai/ui/toast"
@@ -10,7 +15,8 @@ import { formatServerError } from "@/utils/server-errors"
 import { getRelativeTime } from "@/utils/time"
 import { DialogDeleteAutomation } from "@/components/dialog-delete-automation"
 import { formatTimestamp } from "./automation-schedule"
-import { EditableText, ModelEditorRow, ScheduleEditorRow } from "./automation-detail-editors"
+import { EditableText, ModelEditorRow, ProjectEditorRow, ScheduleEditorRow } from "./automation-detail-editors"
+import type { AutomationProject } from "./automation-folder-picker"
 import { RunStatusIcon, runStatusLabelKey } from "./automation-run-status"
 
 const INITIAL_RUN_COUNT = 5
@@ -104,6 +110,7 @@ export function AutomationDetail(props: {
   projectName: Accessor<string>
   onBack: () => void
   onOpenRun: (sessionID: string) => void
+  onMoved: (definition: AutomationDefinition) => void
 }): JSX.Element {
   const globalSync = useGlobalSync()
   const language = useLanguage()
@@ -206,6 +213,47 @@ export function AutomationDetail(props: {
     }
   }
 
+  // There is no cross-project move on the server (per-project instances;
+  // update rejects a foreign projectID), so "move" recreates the definition in
+  // the target project, then deletes the source. Create-first so a failure
+  // loses nothing; if the source delete fails (e.g. a run in flight), the
+  // fresh copy is rolled back instead of leaving a duplicate. The id changes
+  // and the run list starts empty — past runs' sessions survive regardless.
+  const moveToProject = async (project: AutomationProject) => {
+    const previous = props.automation()
+    if (busy() || project.id === previous.where.projectID) return
+    setBusy(true)
+    try {
+      const common = {
+        title: previous.title,
+        prompt: previous.prompt,
+        context: "fresh" as const,
+        where: { projectID: project.id, ...(previous.where.worktree ? { worktree: previous.where.worktree } : {}) },
+        timezone: previous.timezone,
+        model: { providerID: previous.model.providerID, modelID: previous.model.modelID },
+        ...(previous.variant ? { variant: previous.variant } : {}),
+      }
+      const input: AutomationCreateInput =
+        previous.kind === "oneshot"
+          ? { kind: "oneshot", ...common, fireAt: previous.fireAt }
+          : { kind: "recurring", ...common, rhythm: previous.rhythm, stop: previous.stop }
+      const created = await globalSync.automation.create(project.worktree, input)
+      if (!created) return
+      if (previous.paused) await globalSync.automation.pause(project.worktree, created.id).catch(() => {})
+      try {
+        await globalSync.automation.delete(props.directory(), previous.id)
+      } catch (error) {
+        await globalSync.automation.delete(project.worktree, created.id).catch(() => {})
+        throw error
+      }
+      props.onMoved(created)
+    } catch (error) {
+      notifyFailure(error)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const confirmDelete = () => {
     const automation = props.automation()
     dialog.show(() => (
@@ -299,7 +347,13 @@ export function AutomationDetail(props: {
           </DetailGroup>
 
           <DetailGroup heading={t("automations.detail.detailsHeading")}>
-            <InfoRow label={t("automations.detail.project")} value={props.projectName()} />
+            <ProjectEditorRow
+              directory={props.directory}
+              automation={props.automation}
+              projectName={props.projectName}
+              t={t}
+              onMove={(project) => void moveToProject(project)}
+            />
             <ScheduleEditorRow automation={props.automation} t={t} onPatch={commitPatch} />
             <Show
               when={props.automation().context === "continue" && props.automation().sourceSessionID}

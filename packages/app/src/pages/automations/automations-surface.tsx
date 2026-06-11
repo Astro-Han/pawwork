@@ -299,6 +299,7 @@ export function AutomationsSurface(props: {
               projectName={() => item().projectName}
               onBack={() => setSelectedID(undefined)}
               onOpenRun={props.onOpenRun}
+              onMoved={(definition) => setSelectedID(definition.id)}
             />
           )}
         </Show>

@@ -571,6 +571,55 @@ test("automations panel: detail edits title, prompt, schedule and model inline",
     .toBe(key)
 })
 
+test("automations panel: detail moves an automation to another open project", async ({ page, project, backend }) => {
+  test.setTimeout(120_000)
+
+  const other = await createTestProject({ serverUrl: backend.url })
+  try {
+    await project.open({ extra: [other] })
+
+    const otherSDK = backend.sdk(other)
+    const otherProjectID = (await otherSDK.project.current()).data!.id
+    await otherSDK.project.update({ projectID: otherProjectID, name: "Move Target Project" })
+
+    const projectID = (await project.sdk.project.current()).data!.id
+    const created = (
+      await project.sdk.automation.create(
+        recurring(projectID, "Migrating digest", "Summarize for the new home.", "0 9 * * *"),
+      )
+    ).data!
+
+    const surface = await openAutomations(page)
+    const rows = surface.locator('[data-action="automation-row"]')
+    await rows.filter({ hasText: "Migrating digest" }).first().click()
+    const detail = surface.locator('[data-component="automation-detail"]')
+    await expect(detail).toBeVisible()
+
+    // The Project row is a picker when another project is open. Moving is a
+    // create-in-target + delete-from-source pair: the automation appears in
+    // the target project's list, vanishes from the source, and the detail
+    // stays open on the recreated definition (new id, same fields).
+    await detail.locator('[data-action="automation-edit-project"]').click()
+    await page.locator(`[data-project="${otherProjectID}"]`).click()
+
+    await expect
+      .poll(async () =>
+        ((await otherSDK.automation.list()).data?.items ?? []).filter((item) => item.title === "Migrating digest")
+          .length,
+      )
+      .toBe(1)
+    await expect
+      .poll(async () =>
+        ((await project.sdk.automation.list()).data?.items ?? []).filter((item) => item.id === created.id).length,
+      )
+      .toBe(0)
+    await expect(detail.locator('[data-action="automation-edit-title"]')).toHaveValue("Migrating digest")
+    await expect(detail.getByText("Move Target Project")).toBeVisible()
+  } finally {
+    await cleanupTestProject(other, { serverUrl: backend.url })
+  }
+})
+
 test("automations panel: list rows expose run, pause and delete on hover", async ({ page, project }) => {
   test.setTimeout(120_000)
 

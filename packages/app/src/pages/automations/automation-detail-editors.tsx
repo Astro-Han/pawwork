@@ -1,4 +1,4 @@
-import { createEffect, createSignal, Show, type Accessor, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, Show, type Accessor, type JSX } from "solid-js"
 import type { AutomationDefinition, AutomationUpdateInput } from "@opencode-ai/sdk/v2/client"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Popover } from "@opencode-ai/ui/popover"
@@ -6,6 +6,8 @@ import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { ModelSelectorPopover, type ModelPickerState } from "@/components/prompt-input/model-picker"
 import { useScopedModels } from "@/context/models"
 import type { useLanguage } from "@/context/language"
+import { useLayout } from "@/context/layout"
+import { AutomationFolderPicker, type AutomationProject } from "./automation-folder-picker"
 import { AutomationScheduleControls } from "./automation-schedule-controls"
 import {
   buildScheduleInput,
@@ -113,6 +115,49 @@ function EditorRow(props: { label: string; children: JSX.Element }): JSX.Element
       <span class="shrink-0 text-caption text-fg-weak">{props.label}</span>
       {props.children}
     </div>
+  )
+}
+
+// The "Project" row: there is no server-side move (each project is its own
+// instance and update rejects a foreign projectID), so "move" is the create
+// card's folder picker driving a create-in-target + delete-from-source pair
+// (see moveToProject in automation-detail). A continue automation stays
+// read-only — it loops inside a conversation that only exists in its source
+// project — as does everything else when no other project is open.
+export function ProjectEditorRow(props: {
+  directory: Accessor<string>
+  automation: Accessor<AutomationDefinition>
+  projectName: Accessor<string>
+  t: Translate
+  onMove: (project: AutomationProject) => void
+}): JSX.Element {
+  const layout = useLayout()
+  const projects = createMemo<AutomationProject[]>(() =>
+    layout.projects
+      .list()
+      .filter((project) => project.id && project.id !== "global" && project.worktree)
+      .map((project) => ({ id: project.id!, worktree: project.worktree, name: project.name })),
+  )
+  const movable = createMemo(
+    () =>
+      props.automation().context === "fresh" &&
+      projects().some((project) => project.id !== props.automation().where.projectID),
+  )
+  return (
+    <EditorRow label={props.t("automations.detail.project")}>
+      <Show
+        when={movable()}
+        fallback={<span class="min-w-0 truncate text-right text-body text-fg-base">{props.projectName()}</span>}
+      >
+        <AutomationFolderPicker
+          variant="row"
+          action="automation-edit-project"
+          projects={projects()}
+          current={props.directory()}
+          onSelect={(project) => props.onMove(project)}
+        />
+      </Show>
+    </EditorRow>
   )
 }
 
