@@ -17,7 +17,7 @@ export const Parameters = Schema.Struct({
 })
 
 function commandKnownBrowserPermissionPatterns(command: Awaited<ReturnType<typeof openCliCommand>>): string[] {
-  if (!command) return ["*"]
+  if (!command) return []
   if (typeof command.navigateBefore !== "string") return []
   const patterns: string[] = []
   try {
