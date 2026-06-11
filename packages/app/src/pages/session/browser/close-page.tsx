@@ -26,24 +26,32 @@ export function createBrowserTabClose(deps: {
   closeTab: () => void
   confirm: (proceed: () => void) => void
 }): () => void {
-  const close = () => {
-    const bridge = deps.bridge()
-    if (bridge) void bridge.closePage(deps.target())
-    deps.closeTab()
-  }
   return () => {
     const bridge = deps.bridge()
     if (!bridge) {
       deps.closeTab()
       return
     }
-    void bridge.getState(deps.target()).then((state) => {
-      if (browserTabCloseAction({ hasPage: state?.hasPage ?? false, running: deps.running() }) === "confirm") {
-        deps.confirm(close)
-      } else {
-        close()
-      }
-    })
+    // Snapshot at gesture time: the confirm dialog may outlive a route change,
+    // and re-reading deps.target() after one would destroy the page of
+    // whatever conversation the user navigated to meanwhile.
+    const target = deps.target()
+    const close = () => {
+      void bridge.closePage(target)
+      deps.closeTab()
+    }
+    void bridge
+      .getState(target)
+      .then((state) => {
+        if (browserTabCloseAction({ hasPage: state?.hasPage ?? false, running: deps.running() }) === "confirm") {
+          deps.confirm(close)
+        } else {
+          close()
+        }
+      })
+      // The probe only decides whether to confirm; its failure must not veto
+      // the user's close.
+      .catch(close)
   }
 }
 

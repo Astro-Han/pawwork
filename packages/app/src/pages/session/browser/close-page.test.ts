@@ -74,6 +74,61 @@ describe("createBrowserTabClose", () => {
     await settle()
     expect(calls).toEqual(["closeTab"])
   })
+
+  test("destroys the target captured at gesture time, not the route's current one", async () => {
+    // The confirm dialog can outlive a route change; the close must still hit
+    // the conversation the user gestured on, never the one they switched to.
+    let current = "ses_a"
+    const closed: string[] = []
+    let proceedLater: (() => void) | undefined
+    const flow = createBrowserTabClose({
+      bridge: () =>
+        ({
+          closePage: async (target: string) => {
+            closed.push(target)
+          },
+          getState: async () => ({ hasPage: true }) as BrowserState,
+        }) as unknown as BrowserBridge,
+      target: () => current,
+      running: () => true,
+      closeTab: () => {},
+      confirm: (proceed) => {
+        proceedLater = proceed
+      },
+    })
+    flow()
+    await settle()
+    current = "ses_b"
+    proceedLater?.()
+    await settle()
+    expect(closed).toEqual(["ses_a"])
+  })
+
+  test("a failing state probe still closes — it only decides whether to confirm", async () => {
+    const calls: string[] = []
+    const flow = createBrowserTabClose({
+      bridge: () =>
+        ({
+          closePage: async () => {
+            calls.push("closePage")
+          },
+          getState: async () => {
+            throw new Error("bridge gone")
+          },
+        }) as unknown as BrowserBridge,
+      target: () => "ses_a",
+      running: () => true,
+      closeTab: () => {
+        calls.push("closeTab")
+      },
+      confirm: () => {
+        calls.push("confirm")
+      },
+    })
+    flow()
+    await settle()
+    expect(calls).toEqual(["closePage", "closeTab"])
+  })
 })
 
 describe("createCloseShellTabRouter browser branch", () => {
