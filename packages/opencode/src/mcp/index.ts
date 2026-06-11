@@ -767,25 +767,38 @@ export namespace MCP {
 
       function collectFromConnected<T extends { name: string }>(
         s: State,
-        listFn: (c: Client) => Promise<T[]>,
+        listFn: (client: Client, timeout?: number) => Promise<T[]>,
         label: string,
       ) {
-        return Effect.forEach(
-          Object.entries(s.clients).filter(([name]) => s.status[name]?.status === "connected"),
-          ([clientName, client]) =>
-            fetchFromClient(clientName, client, listFn, label).pipe(Effect.map((items) => Object.entries(items ?? {}))),
-          { concurrency: "unbounded" },
-        ).pipe(Effect.map((results) => Object.fromEntries<T & { client: string }>(results.flat())))
+        return Effect.gen(function* () {
+          const cfg = yield* cfgSvc.get()
+          const config = cfg.mcp ?? {}
+          const defaultTimeout = cfg.experimental?.mcp_timeout
+
+          return yield* Effect.forEach(
+            Object.entries(s.clients).filter(([name]) => s.status[name]?.status === "connected"),
+            ([clientName, client]) => {
+              const mcpConfig = s.config[clientName] ?? config[clientName]
+              const entry = mcpConfig && isMcpConfigured(mcpConfig) ? mcpConfig : undefined
+              const timeout = entry?.timeout ?? defaultTimeout
+
+              return fetchFromClient(clientName, client, (c) => listFn(c, timeout), label).pipe(
+                Effect.map((items) => Object.entries(items ?? {})),
+              )
+            },
+            { concurrency: "unbounded" },
+          ).pipe(Effect.map((results) => Object.fromEntries<T & { client: string }>(results.flat())))
+        })
       }
 
       const prompts = Effect.fn("MCP.prompts")(function* () {
         const s = yield* InstanceState.get(state)
         return yield* collectFromConnected(
           s,
-          (client) =>
+          (client, timeout) =>
             hasCapability(client, "prompts")
               ? paginate(
-                  (cursor) => client.listPrompts(cursor === undefined ? undefined : { cursor }),
+                  (cursor) => client.listPrompts(cursor === undefined ? undefined : { cursor }, { timeout }),
                   (result) => result.prompts,
                 )
               : Promise.resolve([]),
@@ -797,10 +810,10 @@ export namespace MCP {
         const s = yield* InstanceState.get(state)
         return yield* collectFromConnected(
           s,
-          (client) =>
+          (client, timeout) =>
             hasCapability(client, "resources")
               ? paginate(
-                  (cursor) => client.listResources(cursor === undefined ? undefined : { cursor }),
+                  (cursor) => client.listResources(cursor === undefined ? undefined : { cursor }, { timeout }),
                   (result) => result.resources,
                 )
               : Promise.resolve([]),

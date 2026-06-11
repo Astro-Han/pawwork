@@ -9,6 +9,8 @@ interface MockClientState {
   listToolsCalls: number
   listPromptsCalls: number
   listResourcesCalls: number
+  listPromptsTimeouts: Array<number | undefined>
+  listResourcesTimeouts: Array<number | undefined>
   getPromptTimeouts: Array<number | undefined>
   readResourceTimeouts: Array<number | undefined>
   requestCalls: number
@@ -57,6 +59,8 @@ function getOrCreateClientState(name?: string): MockClientState {
       listToolsCalls: 0,
       listPromptsCalls: 0,
       listResourcesCalls: 0,
+      listPromptsTimeouts: [],
+      listResourcesTimeouts: [],
       getPromptTimeouts: [],
       readResourceTimeouts: [],
       requestCalls: 0,
@@ -188,8 +192,9 @@ mock.module("@modelcontextprotocol/sdk/client/index.js", () => ({
       throw new Error(`unsupported request: ${request.method}`)
     }
 
-    async listPrompts(params?: { cursor?: string }) {
+    async listPrompts(params?: { cursor?: string }, options?: { timeout?: number }) {
       if (this._state) this._state.listPromptsCalls++
+      this._state?.listPromptsTimeouts.push(options?.timeout)
       if (this._state?.listPromptsShouldFail) {
         throw new Error("listPrompts failed")
       }
@@ -198,8 +203,9 @@ mock.module("@modelcontextprotocol/sdk/client/index.js", () => ({
       return { prompts: this._state?.prompts ?? [] }
     }
 
-    async listResources(params?: { cursor?: string }) {
+    async listResources(params?: { cursor?: string }, options?: { timeout?: number }) {
       if (this._state) this._state.listResourcesCalls++
+      this._state?.listResourcesTimeouts.push(options?.timeout)
       if (this._state?.listResourcesShouldFail) {
         throw new Error("listResources failed")
       }
@@ -514,6 +520,55 @@ test(
 
       expect(fallbackState.getPromptTimeouts).toEqual([5000])
       expect(fallbackState.readResourceTimeouts).toEqual([5000])
+    },
+    { experimental: { mcp_timeout: 5000 } },
+  ),
+)
+
+test(
+  "catalog list requests use per-server timeout",
+  withInstance(
+    {},
+    async () => {
+      lastCreatedClientName = "catalog-timeout-server"
+      const timeoutState = getOrCreateClientState("catalog-timeout-server")
+      timeoutState.prompts = [{ name: "prompt" }]
+      timeoutState.resources = [{ name: "resource", uri: "test://resource" }]
+
+      await MCP.add("catalog-timeout-server", {
+        type: "local",
+        command: ["echo", "test"],
+        timeout: 2500,
+      })
+      await MCP.prompts()
+      await MCP.resources()
+
+      expect(timeoutState.listPromptsTimeouts).toEqual([2500])
+      expect(timeoutState.listResourcesTimeouts).toEqual([2500])
+    },
+    { experimental: { mcp_timeout: 5000 } },
+  ),
+)
+
+test(
+  "catalog list requests use experimental fallback timeout",
+  withInstance(
+    {},
+    async () => {
+      lastCreatedClientName = "catalog-fallback-server"
+      const timeoutState = getOrCreateClientState("catalog-fallback-server")
+      timeoutState.prompts = [{ name: "prompt" }]
+      timeoutState.resources = [{ name: "resource", uri: "test://resource" }]
+
+      await MCP.add("catalog-fallback-server", {
+        type: "local",
+        command: ["echo", "test"],
+      })
+      await MCP.prompts()
+      await MCP.resources()
+
+      expect(timeoutState.listPromptsTimeouts).toEqual([5000])
+      expect(timeoutState.listResourcesTimeouts).toEqual([5000])
     },
     { experimental: { mcp_timeout: 5000 } },
   ),
