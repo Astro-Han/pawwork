@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { realpathSync } from "node:fs"
+import { readFileSync, realpathSync } from "node:fs"
 import path from "node:path"
 import { createRendererWorkspaceConfig } from "./renderer-workspace-config"
 
@@ -14,4 +14,12 @@ test("renderer dedupes the ui workspace package", () => {
   const dedupe = createRendererWorkspaceConfig(import.meta.dir).resolve.dedupe
 
   expect(dedupe).toContain("@opencode-ai/ui")
+})
+
+test("main build externalizes OpenCLI so adapter assets resolve from packaged resources", () => {
+  const source = readFileSync(path.join(import.meta.dir, "electron.vite.config.ts"), "utf8")
+
+  expect(source).toContain("OPENCLI_EXTERNALS")
+  expect(source).toContain('"@jackwener/opencli/browser/cdp"')
+  expect(source).toContain("externalizeDeps: { include: [nodePtyPkg, ...OPENCLI_EXTERNALS] }")
 })

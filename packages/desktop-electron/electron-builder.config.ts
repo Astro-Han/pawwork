@@ -16,6 +16,11 @@ const opencodePackage = requireFromOpencode("./package.json") as {
   dependencies?: Record<string, string>
   devDependencies?: Record<string, string>
 }
+const openCliPackagePath = requireFromOpencode.resolve("@jackwener/opencli/package.json")
+const requireFromOpenCli = createRequire(openCliPackagePath)
+const openCliPackage = requireFromOpenCli("./package.json") as {
+  dependencies?: Record<string, string>
+}
 type Channel = "dev" | "beta" | "prod"
 const localizedMacDisplayNameByChannel: Record<Channel, string> = {
   dev: "爪印 Dev",
@@ -84,6 +89,26 @@ export function nativeWatcherFileSets() {
   }))
 }
 
+export function openCliRuntimePackageNames() {
+  return ["@jackwener/opencli", ...Object.keys(openCliPackage.dependencies ?? {})]
+}
+
+function openCliRuntimePackageDir(packageName: string) {
+  const resolver = packageName === "@jackwener/opencli" ? requireFromOpencode : requireFromOpenCli
+  return path.dirname(resolver.resolve(`${packageName}/package.json`))
+}
+
+export function openCliRuntimeFileSets() {
+  return openCliRuntimePackageNames().map((packageName) => ({
+    from: openCliRuntimePackageDir(packageName),
+    to: path.join("node_modules", ...packageName.split("/")),
+    filter:
+      packageName === "@jackwener/opencli"
+        ? ["package.json", "README.md", "LICENSE", "cli-manifest.json", "clis/**/*", "dist/src/**/*"]
+        : ["**/*"],
+  }))
+}
+
 export function getPublishConfig(channel: Channel): GitHubPublishConfig | undefined {
   if (channel === "beta") return { provider: "github", owner: "Astro-Han", repo: "pawwork-beta", channel: "latest" }
   if (channel === "prod") return { provider: "github", owner: "Astro-Han", repo: "pawwork", channel: "latest" }
@@ -118,6 +143,7 @@ const getBase = (channel: Channel): Configuration => ({
   },
   extraResources: [
     ...nativeWatcherFileSets(),
+    ...openCliRuntimeFileSets(),
     {
       from: path.join(rootDir, "skills"),
       to: "skills",

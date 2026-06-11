@@ -21,6 +21,23 @@ const buildSha = process.env.PAWWORK_BUILD_SHA ?? ""
 const OPENCODE_ROOT = path.resolve(process.cwd(), "../opencode")
 const { runtimeDir: OPENCODE_SERVER_DIST, runtimeEntry: OPENCODE_SERVER_ENTRY } = embeddedServerArtifacts(OPENCODE_ROOT)
 const missingArtifacts = embeddedServerMissingArtifacts(OPENCODE_ROOT, existsSync)
+const OPENCLI_EXTERNALS = [
+  "@jackwener/opencli",
+  "@jackwener/opencli/browser/cdp",
+  "@jackwener/opencli/browser/page",
+  "@jackwener/opencli/browser/utils",
+  "@jackwener/opencli/download",
+  "@jackwener/opencli/download/article-download",
+  "@jackwener/opencli/download/media-download",
+  "@jackwener/opencli/download/progress",
+  "@jackwener/opencli/errors",
+  "@jackwener/opencli/launcher",
+  "@jackwener/opencli/logger",
+  "@jackwener/opencli/pipeline",
+  "@jackwener/opencli/registry",
+  "@jackwener/opencli/types",
+  "@jackwener/opencli/utils",
+]
 
 if (missingArtifacts.length > 0) {
   throw new Error(embeddedServerMissingArtifactsMessage(OPENCODE_ROOT, missingArtifacts))
@@ -40,7 +57,7 @@ export default defineConfig({
       rollupOptions: {
         input: { index: "src/main/index.ts" },
       },
-      externalizeDeps: { include: [nodePtyPkg] },
+      externalizeDeps: { include: [nodePtyPkg, ...OPENCLI_EXTERNALS] },
     },
     plugins: [
       {

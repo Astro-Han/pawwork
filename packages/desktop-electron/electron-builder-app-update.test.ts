@@ -9,6 +9,8 @@ import {
   getPublishConfig,
   nativeWatcherFileSets,
   nativeWatcherPackageNames,
+  openCliRuntimeFileSets,
+  openCliRuntimePackageNames,
 } from "./electron-builder.config"
 import { serializeAppUpdateConfig } from "./scripts/write-app-update-config"
 
@@ -133,6 +135,36 @@ describe("electron builder app-update config", () => {
     )
     expect(resources.map((resource) => resource.to)).toEqual(
       nativeWatcherPackageNames().map((packageName) => join("node_modules", ...packageName.split("/"))),
+    )
+  })
+
+  test("packages OpenCLI adapters and runtime dependencies for the embedded server", () => {
+    const config = createConfig("prod")
+    const resources = openCliRuntimeFileSets()
+
+    expect(openCliRuntimePackageNames()).toEqual([
+      "@jackwener/opencli",
+      "@mozilla/readability",
+      "cli-table3",
+      "commander",
+      "js-yaml",
+      "turndown",
+      "turndown-plugin-gfm",
+      "undici",
+      "ws",
+    ])
+    expect(config.extraResources).toEqual(
+      expect.arrayContaining(
+        resources.map((resource) =>
+          expect.objectContaining({
+            from: resource.from,
+            to: resource.to,
+          }),
+        ),
+      ),
+    )
+    expect(resources.map((resource) => resource.to)).toEqual(
+      openCliRuntimePackageNames().map((packageName) => join("node_modules", ...packageName.split("/"))),
     )
   })
 
