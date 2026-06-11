@@ -16,10 +16,9 @@ test("renderer dedupes the ui workspace package", () => {
   expect(dedupe).toContain("@opencode-ai/ui")
 })
 
-test("main build externalizes OpenCLI so adapter assets resolve from packaged resources", () => {
+test("main build does not externalize OpenCLI from the desktop bundle", () => {
   const source = readFileSync(path.join(import.meta.dir, "electron.vite.config.ts"), "utf8")
 
-  expect(source).toContain("OPENCLI_EXTERNALS")
-  expect(source).toContain('"@jackwener/opencli/browser/cdp"')
-  expect(source).toContain("externalizeDeps: { include: [nodePtyPkg, ...OPENCLI_EXTERNALS] }")
+  expect(source).toContain("externalizeDeps: { include: [nodePtyPkg] }")
+  expect(source).not.toContain("OPENCLI_EXTERNALS")
 })

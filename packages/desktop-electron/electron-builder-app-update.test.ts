@@ -144,10 +144,17 @@ describe("electron builder app-update config", () => {
 
     expect(openCliRuntimePackageNames()).toEqual([
       "@jackwener/opencli",
+      "@mixmark-io/domino",
       "@mozilla/readability",
+      "ansi-regex",
+      "argparse",
       "cli-table3",
       "commander",
+      "emoji-regex",
+      "is-fullwidth-code-point",
       "js-yaml",
+      "string-width",
+      "strip-ansi",
       "turndown",
       "turndown-plugin-gfm",
       "undici",
