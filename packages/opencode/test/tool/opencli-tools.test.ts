@@ -9,8 +9,7 @@ import { provideTmpdirInstance } from "../fixture/fixture"
 import { FakeCdpServer, provideFakeHost, scriptCurrentUrl } from "../fake/cdp-server"
 import { testEffect } from "../lib/effect"
 import { MessageID, SessionID } from "../../src/session/schema"
-import type { OpenCliCommandSummary } from "../../src/opencli/adapter-registry"
-import { needsFinalOpenCliPermissionAsk, OpenCliRunTool } from "../../src/tool/opencli-run"
+import { OpenCliRunTool } from "../../src/tool/opencli-run"
 import { formatOpenCliSearchOutput, OpenCliSearchTool } from "../../src/tool/opencli-search"
 import type * as Tool from "../../src/tool/tool"
 import { Truncate } from "../../src/tool/truncate"
@@ -102,23 +101,6 @@ describe("opencli_search", () => {
 })
 
 describe("opencli_run", () => {
-  test("refreshes permission when loaded command metadata differs from the preview", () => {
-    const preview = {
-      name: "pawwork-test/dynamic",
-      description: "Preview",
-      access: "read",
-      browser: false,
-      args: [],
-    } satisfies OpenCliCommandSummary
-    const actual = {
-      ...preview,
-      access: "write",
-    } satisfies OpenCliCommandSummary
-
-    expect(needsFinalOpenCliPermissionAsk(preview, actual, {}, {})).toBe(true)
-    expect(needsFinalOpenCliPermissionAsk(actual, actual, { mode: "safe" }, { mode: "safe" })).toBe(false)
-  })
-
   it.live("asks for the current page when a browser command has no pre-navigation URL", () =>
     Effect.gen(function* () {
       cli({
@@ -159,6 +141,7 @@ describe("opencli_run", () => {
           permission: "browser",
           patterns: ["http://localhost:5173/codex"],
         })
+        expect(askLog).toHaveLength(2)
       } finally {
         BrowserBridge.provideHost(null)
         getRegistry().delete("pawwork-test/current-page")
@@ -206,6 +189,7 @@ describe("opencli_run", () => {
           permission: "browser",
           patterns: ["https://auth.example.com/*", "https://example.com/*"],
         })
+        expect(askLog).toHaveLength(2)
       } finally {
         BrowserBridge.provideHost(null)
         getRegistry().delete("pawwork-test/browser-permission")
@@ -272,6 +256,7 @@ describe("opencli_run", () => {
           patterns: ["pawwork-test/echo"],
           always: ["pawwork-test/echo"],
         })
+        expect(askLog).toHaveLength(1)
       } finally {
         getRegistry().delete("pawwork-test/echo")
       }
@@ -304,6 +289,7 @@ describe("opencli_run", () => {
           patterns: ["pawwork-test/write-http"],
           always: ["pawwork-test/write-http"],
         })
+        expect(askLog).toHaveLength(1)
         expect(result.output).toContain('"written": "hello"')
       } finally {
         getRegistry().delete("pawwork-test/write-http")
@@ -338,8 +324,26 @@ describe("opencli_run", () => {
             args: { mode: "safe" },
           },
         })
+        expect(askLog).toHaveLength(1)
       } finally {
         getRegistry().delete("pawwork-test/write-defaults")
+      }
+    }),
+  )
+
+  it.live("does not ask for unknown or blocked commands", () =>
+    Effect.gen(function* () {
+      for (const command of ["pawwork-test/missing", "instagram/reel"]) {
+        const askLog: Parameters<Tool.Context["ask"]>[0][] = []
+        const exit = yield* exec(OpenCliRunTool, { command, args: {} }, {
+          ask: (input) =>
+            Effect.sync(() => {
+              askLog.push(input)
+            }),
+        }).pipe(Effect.exit)
+
+        expect(Exit.isFailure(exit)).toBe(true)
+        expect(askLog).toEqual([])
       }
     }),
   )

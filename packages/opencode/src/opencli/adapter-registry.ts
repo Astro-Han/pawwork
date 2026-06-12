@@ -135,14 +135,6 @@ export async function openCliCommand(name: string): Promise<CliCommand | undefin
   return getRegistry().get(name)
 }
 
-export async function openCliCommandSummary(name: string): Promise<OpenCliCommandSummary | undefined> {
-  if (BLOCKED_OPENCLI_COMMANDS.has(name)) return undefined
-  const existing = getRegistry().get(name)
-  if (existing) return openCliCommandSummaryFromCommand(existing)
-  const entry = await manifestEntryForCommand(name)
-  return entry ? manifestCommandSummary(entry) : undefined
-}
-
 function scoreCommand(command: OpenCliCommandSummary, query: string) {
   const needle = query.trim().toLowerCase()
   if (!needle) return 1
