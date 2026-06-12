@@ -70,7 +70,7 @@ const DEFERRED: DeferredEntry[] = [
     id: "automate_manage",
     card: "List, pause, resume, or delete existing PawWork Automations by exact id.",
     description:
-      "Manage existing PawWork Automations from the conversation. Use this when the user asks to show scheduled tasks, list reminders, pause an automation, resume an automation, or delete/remove/cancel an automation. Delete asks the user for confirmation; pause and resume are reversible.",
+      "Manage existing PawWork Automations from the conversation. Use this when the user asks to list scheduled tasks or reminders in the current context, or to pause, resume, or delete an automation by exact id. Pause and resume do not ask for confirmation. Delete asks the user for confirmation and may fail with a readable conflict if an active run prevents removal.",
     parameters: AutomateManageParameters as unknown as Tool.Def["parameters"],
   },
   {
