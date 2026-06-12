@@ -56,7 +56,12 @@ function askOpenCliAccessPermission(
 
 function formatAdapterOutput(value: unknown): string {
   if (typeof value === "string") return value
-  return JSON.stringify(value, null, 2)
+  if (value === undefined || value === null) return "OpenCLI adapter returned no output."
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
 }
 
 async function runNonBrowserCommand(

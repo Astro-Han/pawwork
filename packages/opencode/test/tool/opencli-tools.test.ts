@@ -4,7 +4,9 @@ import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Cause, Deferred, Effect, Exit, Fiber, Layer, type Schema } from "effect"
 import { Agent } from "../../src/agent/agent"
 import { BrowserBridge } from "../../src/browser/browser-bridge"
+import { resetBrowserSessionsForTest } from "../../src/browser/session"
 import { provideTmpdirInstance } from "../fixture/fixture"
+import { FakeCdpServer, provideFakeHost, scriptCurrentUrl } from "../fake/cdp-server"
 import { testEffect } from "../lib/effect"
 import { MessageID, SessionID } from "../../src/session/schema"
 import { OpenCliRunTool } from "../../src/tool/opencli-run"
@@ -189,6 +191,36 @@ describe("opencli_run", () => {
       } finally {
         BrowserBridge.provideHost(null)
         getRegistry().delete("pawwork-test/browser-permission")
+      }
+    }),
+  )
+
+  it.live("formats an undefined browser write result as empty output", () =>
+    Effect.gen(function* () {
+      const server = new FakeCdpServer()
+      scriptCurrentUrl(server, "https://example.com/page")
+      provideFakeHost(server)
+      cli({
+        site: "pawwork-test",
+        name: "empty-browser-write",
+        access: "write",
+        description: "Empty browser write result test adapter",
+        browser: true,
+        domain: "example.com",
+        args: [],
+        func: async () => undefined,
+      })
+
+      try {
+        const result = yield* exec(OpenCliRunTool, { command: "pawwork-test/empty-browser-write", args: {} })
+
+        expect(result.title).toBe("OpenCLI pawwork-test/empty-browser-write")
+        expect(result.output).toBe("OpenCLI adapter returned no output.")
+      } finally {
+        resetBrowserSessionsForTest()
+        BrowserBridge.provideHost(null)
+        getRegistry().delete("pawwork-test/empty-browser-write")
+        yield* Effect.promise(() => server.close())
       }
     }),
   )
