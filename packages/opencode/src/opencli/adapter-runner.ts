@@ -139,11 +139,10 @@ export function resolveOpenCliPreNav(cmd: CliCommand): string | null {
   return null
 }
 
-function urlMatchesDomain(url: string | null | undefined, domain: string | undefined) {
-  if (!url || !domain) return false
+function urlMatchesOrigin(url: string | null | undefined, originUrl: string) {
+  if (!url) return false
   try {
-    const hostname = new URL(url).hostname
-    return hostname === domain || hostname.endsWith(`.${domain}`)
+    return new URL(url).origin === new URL(originUrl).origin
   } catch {
     return false
   }
@@ -170,7 +169,7 @@ export async function shouldRunOpenCliPreNav(
   if (siteSession !== "persistent" || !cmd.domain) return true
   if (!isDomainRootPreNav(preNavUrl, cmd.domain)) return true
   const currentUrl = await page.getCurrentUrl?.().catch(() => null)
-  return !urlMatchesDomain(currentUrl, cmd.domain)
+  return !urlMatchesOrigin(currentUrl, preNavUrl)
 }
 
 function resolveOpenCliSiteSession(cmd: CliCommand): SiteSessionMode {

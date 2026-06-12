@@ -94,6 +94,30 @@ describe("opencli adapter runner", () => {
     expect(func).toHaveBeenCalledWith(expect.objectContaining({ goto: expect.any(Function) }), { query: "pawwork" }, false)
   })
 
+  test("only skips persistent root pre-navigation on the same origin", async () => {
+    const command = {
+      site: "demo",
+      name: "persistent",
+      access: "read",
+      description: "demo",
+      browser: true,
+      domain: "example.com",
+      navigateBefore: "https://example.com",
+      siteSession: "persistent",
+      args: [],
+      func: async () => [],
+    } satisfies CliCommand
+
+    async function shouldRun(currentUrl: string) {
+      const page = { getCurrentUrl: mock(async () => currentUrl) } as unknown as IPage
+      return await shouldRunOpenCliPreNav(command, page, "persistent", "https://example.com")
+    }
+
+    expect(await shouldRun("https://example.com/dashboard")).toBe(false)
+    expect(await shouldRun("https://admin.example.com/dashboard")).toBe(true)
+    expect(await shouldRun("http://example.com/dashboard")).toBe(true)
+  })
+
   test("adds CDP-backed upload and native text helpers when the visible page only exposes cdp", async () => {
     const cdp = mock(async (method: string) => {
       if (method === "DOM.getDocument") return { root: { nodeId: 1 } }
