@@ -945,7 +945,8 @@ describe("automation routes", () => {
         app.onError(ErrorMiddleware)
         if (!targetProjectID) throw new Error("expected target project")
         const created = Automation.create(recurringInput(Instance.project.id), { now: 100 })
-        Automation.runNow(created.id, { now: 200 })
+        const active = Automation.runNow(created.id, { now: 200 })
+        await using _lease = await Flock.acquire(`automation-run:${Instance.directory}:${active.id}`)
 
         const response = await app.request(`/automation/${created.id}`, {
           method: "PUT",
