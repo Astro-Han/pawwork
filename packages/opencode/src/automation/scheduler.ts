@@ -639,11 +639,4 @@ export namespace AutomationScheduler {
     processScheduler = undefined
   }
 
-  export function stopCurrentOwnedRuns(): void {
-    current().stopOwnedRuns()
-  }
-
-  export function stopAllOwnedRuns(): void {
-    current().stopOwnedRuns()
-  }
 }
