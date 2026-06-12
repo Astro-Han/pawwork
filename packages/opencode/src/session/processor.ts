@@ -1315,38 +1315,7 @@ export const layer: Layer.Layer<
         }
       })
 
-      const cleanup = Effect.fn("SessionProcessor.cleanup")(function* () {
-        if (ctx.snapshot) {
-          const patch = yield* snapshot.patch(ctx.snapshot)
-          if (patch.files.length) {
-            yield* session.updatePart({
-              id: PartID.ascending(),
-              messageID: ctx.assistantMessage.id,
-              sessionID: ctx.sessionID,
-              type: "patch",
-              hash: patch.hash,
-              files: patch.files,
-            })
-          }
-          ctx.snapshot = undefined
-        }
-
-        if (ctx.currentText) {
-          const end = Date.now()
-          ctx.currentText.time = { start: ctx.currentText.time?.start ?? end, end }
-          yield* session.updatePart(ctx.currentText)
-          ctx.currentText = undefined
-        }
-
-        for (const part of Object.values(ctx.reasoningMap)) {
-          const end = Date.now()
-          yield* session.updatePart({
-            ...part,
-            time: { start: part.time.start ?? end, end },
-          })
-        }
-        ctx.reasoningMap = {}
-
+      const finalizeToolLifecycles = Effect.fn("SessionProcessor.finalizeToolLifecycles")(function* () {
         for (const call of Object.values(ctx.toolcalls)) {
           if (call.executionStarted === true && call.callMaterialized !== true) {
             yield* Deferred.succeed(call.ready, undefined).pipe(Effect.ignore)
@@ -1446,6 +1415,41 @@ export const layer: Layer.Layer<
           (call) => releaseToolLifecycleWaiters(call),
           { concurrency: "unbounded" },
         )
+      })
+
+      const cleanup = Effect.fn("SessionProcessor.cleanup")(function* () {
+        if (ctx.snapshot) {
+          const patch = yield* snapshot.patch(ctx.snapshot)
+          if (patch.files.length) {
+            yield* session.updatePart({
+              id: PartID.ascending(),
+              messageID: ctx.assistantMessage.id,
+              sessionID: ctx.sessionID,
+              type: "patch",
+              hash: patch.hash,
+              files: patch.files,
+            })
+          }
+          ctx.snapshot = undefined
+        }
+
+        if (ctx.currentText) {
+          const end = Date.now()
+          ctx.currentText.time = { start: ctx.currentText.time?.start ?? end, end }
+          yield* session.updatePart(ctx.currentText)
+          ctx.currentText = undefined
+        }
+
+        for (const part of Object.values(ctx.reasoningMap)) {
+          const end = Date.now()
+          yield* session.updatePart({
+            ...part,
+            time: { start: part.time.start ?? end, end },
+          })
+        }
+        ctx.reasoningMap = {}
+
+        yield* finalizeToolLifecycles()
         ctx.assistantMessage.time.completed = Date.now()
         const persistedAssistant = (yield* session.messages({ sessionID: ctx.sessionID })).find(
           (message) => message.info.role === "assistant" && message.info.id === ctx.assistantMessage.id,
@@ -1771,6 +1775,7 @@ export const layer: Layer.Layer<
 
             const attemptID = processAttemptID
             const retrySignal = retrySignalFor(result.error)
+            yield* finalizeToolLifecycles()
             const decision = ctx.runTrace.recordAttemptFailureAndDeriveRecovery({
               attemptID,
               at: Date.now(),

@@ -3042,6 +3042,19 @@ noStreamDeadToolIt.live(
               value: "Tool execution aborted",
             },
           })
+          const stored = storedMessages.find(
+            (message) => message.info.role === "assistant" && message.info.id === msg.id,
+          )
+          expect(stored?.info.role).toBe("assistant")
+          if (stored?.info.role === "assistant") {
+            const evidence: Array<{ event_type: string; order: number }> =
+              stored.info.diagnostics?.run_observability?.incident?.evidence ?? []
+            const interruptedOrder = evidence.find((event) => event.event_type === "tool_execution_interrupted")?.order
+            const recoveryOrder = evidence.find((event) => event.event_type === "recovery_decision")?.order
+            expect(interruptedOrder).toBeDefined()
+            expect(recoveryOrder).toBeDefined()
+            expect(interruptedOrder!).toBeLessThan(recoveryOrder!)
+          }
         }),
       { git: true, config: providerCfg("http://localhost:1/v1") },
     ),
