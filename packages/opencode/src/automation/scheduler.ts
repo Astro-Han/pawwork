@@ -265,12 +265,16 @@ export namespace AutomationScheduler {
       }
     }
 
-    const refreshScopedRunOutcome = (run: Automation.Run, scope: Automation.Scope) => {
+    const refreshScopedRunOutcome = (
+      run: Automation.Run,
+      scope: Automation.Scope,
+      options?: { refreshOnStopped?: boolean },
+    ) => {
       if (!ownsTimers) return scope
       try {
         const refreshed = Automation.recordRunOutcome(run, {
           now: clock.now(),
-          refreshOnStopped: true,
+          refreshOnStopped: options?.refreshOnStopped ?? true,
           scope,
         })
         if (!refreshed) return currentDefinitionScope(run.automationID, scope)
@@ -461,25 +465,9 @@ export namespace AutomationScheduler {
           const wasOwned = ownedRuns.delete(run.id)
           const wasSchedulerStopped = schedulerStoppedRuns.delete(run.id)
           if (run.state === "stopped" && !wasOwned && !wasSchedulerStopped) return
-          let nextScope = scope
-          if (ownsTimers) {
-            try {
-              const refreshed = Automation.recordRunOutcome(run, {
-                now: clock.now(),
-                refreshOnStopped: Boolean(wasOwned) || wasSchedulerStopped,
-              })
-              if (refreshed) {
-                nextScope = currentDefinitionScope(refreshed.id, scope)
-                const key = selfUpdateKey(refreshed)
-                selfPublishedDefinitionUpdates.add(key)
-                Automation.publishDefinitionUpdatedForScope(refreshed, nextScope)
-              } else {
-                nextScope = currentDefinitionScope(run.automationID, scope)
-              }
-            } catch (error) {
-              if (!NotFoundError.isInstance(error)) log.error("automation derived field update failed", { error, automationID: run.automationID })
-            }
-          }
+          const nextScope = refreshScopedRunOutcome(run, scope, {
+            refreshOnStopped: Boolean(wasOwned) || wasSchedulerStopped,
+          })
           scheduleNextInterval(run.automationID, nextScope)
         })
         return
