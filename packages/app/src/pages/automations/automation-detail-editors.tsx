@@ -122,14 +122,16 @@ function EditorRow(props: { label: string; children: JSX.Element }): JSX.Element
 
 // The "Project" row moves fresh automations by updating their owner in place.
 // A continue automation stays read-only because it loops inside a conversation
-// that only exists in its source project, as does everything else when no other
-// project is open.
+// that only exists in its source project. Fresh automations keep the picker
+// clickable even with one project, so the user can open another project from
+// this surface before moving it.
 export function ProjectEditorRow(props: {
   directory: Accessor<string>
   automation: Accessor<AutomationDefinition>
   projectName: Accessor<string>
   t: Translate
   onMove: (project: AutomationProject) => void
+  onOpenProject: () => void
 }): JSX.Element {
   const layout = useLayout()
   const projects = createMemo<AutomationProject[]>(() =>
@@ -138,15 +140,11 @@ export function ProjectEditorRow(props: {
       .filter((project) => project.id && project.id !== "global" && project.worktree)
       .map((project) => ({ id: project.id!, worktree: project.worktree, name: project.name })),
   )
-  const movable = createMemo(
-    () =>
-      props.automation().context === "fresh" &&
-      projects().some((project) => project.id !== props.automation().where.projectID),
-  )
+  const editable = createMemo(() => props.automation().context === "fresh" && projects().length > 0)
   return (
     <EditorRow label={props.t("automations.detail.project")}>
       <Show
-        when={movable()}
+        when={editable()}
         fallback={<span class="min-w-0 truncate text-right text-body text-fg-base">{props.projectName()}</span>}
       >
         <AutomationFolderPicker
@@ -155,6 +153,7 @@ export function ProjectEditorRow(props: {
           projects={projects()}
           current={props.directory()}
           onSelect={(project) => props.onMove(project)}
+          onOpenProject={props.onOpenProject}
         />
       </Show>
     </EditorRow>

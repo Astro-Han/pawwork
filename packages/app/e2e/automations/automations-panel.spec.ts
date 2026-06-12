@@ -616,6 +616,37 @@ test("automations panel: detail moves an automation to another open project", as
   }
 })
 
+test("automations panel: detail project picker stays available with one open project", async ({ page, project }) => {
+  test.setTimeout(120_000)
+
+  await project.open()
+
+  const projectID = (await project.sdk.project.current()).data!.id
+  await project.sdk.automation.create(
+    recurring(projectID, "Single project digest", "Summarize the current project.", "0 9 * * *"),
+  )
+
+  const surface = await openAutomations(page)
+  await surface.locator('[data-action="automation-row"]', { hasText: "Single project digest" }).first().click()
+
+  const detail = surface.locator('[data-component="automation-detail"]')
+  await expect(detail).toBeVisible()
+
+  const projectPicker = detail.locator('[data-action="automation-edit-project"]')
+  await expect(projectPicker).toBeVisible()
+
+  await projectPicker.hover()
+  await expect
+    .poll(async () => projectPicker.evaluate((element) => getComputedStyle(element).backgroundColor))
+    .not.toBe("rgba(0, 0, 0, 0)")
+
+  await projectPicker.click()
+  const menu = page.locator('[role="menu"][aria-label="Workspace"]')
+  await expect(menu).toBeVisible()
+  await expect(menu.locator(`[data-project="${projectID}"]`)).toBeVisible()
+  await expect(menu.locator('[data-action="automation-folder-open-project"]')).toBeVisible()
+})
+
 test("automations panel: a rhythm the picker cannot express is read-only", async ({ page, project }) => {
   test.setTimeout(120_000)
 

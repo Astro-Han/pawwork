@@ -68,6 +68,7 @@ export function AutomationsSurface(props: {
   requestedID?: Accessor<string | undefined>
   onClose: () => void
   onOpenRun: (sessionID: string) => void
+  onOpenProject: () => void
   onCreateViaChat: () => void
 }): JSX.Element {
   const globalSync = useGlobalSync()
@@ -219,6 +220,7 @@ export function AutomationsSurface(props: {
         directory={directory}
         projectID={projectID}
         template={template}
+        onOpenProject={props.onOpenProject}
         onCreated={(definition) => setSelectedID(definition.id)}
       />
     ))
@@ -299,6 +301,7 @@ export function AutomationsSurface(props: {
               projectName={() => item().projectName}
               onBack={() => setSelectedID(undefined)}
               onOpenRun={props.onOpenRun}
+              onOpenProject={props.onOpenProject}
               onMoved={(definition) => setSelectedID(definition.id)}
             />
           )}

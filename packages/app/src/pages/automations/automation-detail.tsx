@@ -109,6 +109,7 @@ export function AutomationDetail(props: {
   projectName: Accessor<string>
   onBack: () => void
   onOpenRun: (sessionID: string) => void
+  onOpenProject: () => void
   onMoved: (definition: AutomationDefinition) => void
 }): JSX.Element {
   const globalSync = useGlobalSync()
@@ -332,6 +333,7 @@ export function AutomationDetail(props: {
               projectName={props.projectName}
               t={t}
               onMove={(project) => void moveToProject(project)}
+              onOpenProject={props.onOpenProject}
             />
             <ScheduleEditorRow automation={props.automation} t={t} onPatch={commitPatch} />
             <Show

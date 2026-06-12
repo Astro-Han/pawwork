@@ -18,6 +18,7 @@ export default function AutomationsRoute() {
       requestedID={requestedID}
       onClose={surface.close}
       onOpenRun={surface.automations.openRun}
+      onOpenProject={surface.automations.openProject}
       onCreateViaChat={surface.automations.createViaChat}
     />
   )
