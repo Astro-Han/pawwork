@@ -67,18 +67,14 @@ async function runNonBrowserCommand(
 ) {
   const commandName = fullName(command)
   if (abort.aborted) throw new Error(`OpenCLI ${commandName} was canceled.`)
-  const writeInterruption =
-    command.access === "write"
-      ? " The non-browser write adapter may still be running; check the target before retrying."
-      : ""
   let timer: ReturnType<typeof setTimeout> | undefined
   let onAbort: (() => void) | undefined
   const interrupted = new Promise<never>((_, reject) => {
     timer = setTimeout(
-      () => reject(new Error(`OpenCLI ${commandName} timed out after ${OPENCLI_RUN_TIMEOUT_MS}ms.${writeInterruption}`)),
+      () => reject(new Error(`OpenCLI ${commandName} timed out after ${OPENCLI_RUN_TIMEOUT_MS}ms.`)),
       OPENCLI_RUN_TIMEOUT_MS,
     )
-    onAbort = () => reject(new Error(`OpenCLI ${commandName} was canceled.${writeInterruption}`))
+    onAbort = () => reject(new Error(`OpenCLI ${commandName} was canceled.`))
     abort.addEventListener("abort", onAbort, { once: true })
   })
   const running = runOpenCliAdapterCommand(command, null, args)
