@@ -32,7 +32,6 @@ export namespace AutomationScheduler {
 
   export interface Interface {
     stop(options?: { stopRuns?: boolean }): void
-    stopOwnedRuns(): void
     settleOwner(): Promise<void>
     reschedule(definition: Automation.Definition, scope?: Automation.Scope): void
     cancel(automationID: string): void
@@ -621,7 +620,6 @@ export namespace AutomationScheduler {
         for (const automationID of [...tasks.keys()]) cancel(automationID)
         if (ownerLease) void ownerLease.release().catch(() => undefined)
       },
-      stopOwnedRuns,
       settleOwner,
       reschedule,
       cancel,

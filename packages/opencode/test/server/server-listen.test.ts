@@ -34,7 +34,6 @@ describe("server listen", () => {
         stop: () => {
           stopCalls += 1
         },
-        stopOwnedRuns: () => undefined,
         settleOwner: async () => {
           throw new Error("settle failed")
         },

@@ -884,13 +884,12 @@ describe("automation scheduler", () => {
     })
   })
 
-  test("does not pre-stop scheduler-owned runs during maintenance dispose", async () => {
+  test("does not stop the process scheduler during maintenance dispose", async () => {
     await withAutomation(async () => {
-      let stopOwnedRunsCalls = 0
+      let stopCalls = 0
       AutomationScheduler.install({
-        stop: () => undefined,
-        stopOwnedRuns: () => {
-          stopOwnedRunsCalls += 1
+        stop: () => {
+          stopCalls += 1
         },
         settleOwner: async () => undefined,
         reschedule: () => undefined,
@@ -899,7 +898,7 @@ describe("automation scheduler", () => {
       })
 
       await expect(Instance.dispose()).resolves.toBeUndefined()
-      expect(stopOwnedRunsCalls).toBe(0)
+      expect(stopCalls).toBe(0)
     })
   })
 

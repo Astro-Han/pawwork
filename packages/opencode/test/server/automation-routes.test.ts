@@ -336,7 +336,6 @@ describe("automation routes", () => {
       let responseSettled = false
       AutomationScheduler.install({
         stop: () => undefined,
-        stopOwnedRuns: () => undefined,
         settleOwner: async () => {
           settled = true
           await gate.promise
@@ -368,7 +367,6 @@ describe("automation routes", () => {
       let responseSettled = false
       AutomationScheduler.install({
         stop: () => undefined,
-        stopOwnedRuns: () => undefined,
         settleOwner: async () => {
           settled = true
           await gate.promise
@@ -405,7 +403,6 @@ describe("automation routes", () => {
       const cancelled: string[] = []
       AutomationScheduler.install({
         stop: () => undefined,
-        stopOwnedRuns: () => undefined,
         settleOwner: async () => undefined,
         reschedule: () => undefined,
         cancel: (automationID) => cancelled.push(automationID),
@@ -479,7 +476,6 @@ describe("automation routes", () => {
       })
       AutomationScheduler.install({
         stop: () => undefined,
-        stopOwnedRuns: () => undefined,
         settleOwner: async () => {
           settleStarted.resolve()
           await releaseSettle.promise
