@@ -19,6 +19,7 @@ import { PawworkSidebarFoot } from "./pawwork-sidebar-foot"
 import { PawworkSidebarTop } from "./pawwork-sidebar-top"
 import { ProjectGroupHeader } from "./pawwork-sidebar-project-group-header"
 import { isPawworkDirectStartProjectKey } from "./pawwork-session-source"
+import { shouldShowPawworkSidebarNav } from "./pawwork-sidebar-visibility"
 import { buildSessionMenuActions, type SessionMenuAction } from "./session-menu-actions"
 import { SessionItem, type SessionSwitchPaint } from "./sidebar-items"
 import { shouldUseShellOwnerForLink } from "./sidebar-item-navigation"
@@ -67,6 +68,7 @@ export const PawworkSidebar = (props: {
   onExportSession: (session: Session) => Promise<void>
   onDeleteSession: (session: Session) => void
   onSetSortMode: (mode: PawworkSortMode) => void
+  workspacePicker?: () => JSX.Element
   onShowMore: () => void
   onSearchOlderSessions: () => void
   onNew: () => void
@@ -106,6 +108,14 @@ export const PawworkSidebar = (props: {
   )
   const sidebarCollections = createMemo(() =>
     buildPawworkSidebarCollections({ sessions: props.sessions(), sections: sections() }),
+  )
+  const showNav = createMemo(() =>
+    shouldShowPawworkSidebarNav({
+      hasSessions: props.sessions().length > 0,
+      canShowMore: props.sessionWindow().canShowMore,
+      capReached: props.sessionWindow().capReached,
+      hasWorkspacePicker: !!props.workspacePicker,
+    }),
   )
   /**
    * Pinned session IDs in rendered order. This is the single source of truth
@@ -424,7 +434,7 @@ export const PawworkSidebar = (props: {
             * current filtered list is empty — otherwise a page of closed-project
             * sessions filters to nothing and the only way to load deeper would
             * vanish with the list. */}
-          <Show when={props.sessions().length > 0 || props.sessionWindow().canShowMore || props.sessionWindow().capReached}>
+          <Show when={showNav()}>
             <nav class="flex flex-col">
               {/* Pinned section is visible when it has items, or transiently
                 * during any drag (按需浮现 — empty drop target). Sortable attaches
@@ -464,8 +474,18 @@ export const PawworkSidebar = (props: {
                   </div>
                 </section>
               </Show>
-              <Show when={sidebarCollections().recentRowKeys.length > 0 || sidebarCollections().groupKeys.length > 0}>
-                <PawworkSidebarAllHeader sortMode={props.sortMode} onSetSortMode={props.onSetSortMode} />
+              <Show
+                when={
+                  !!props.workspacePicker ||
+                  sidebarCollections().recentRowKeys.length > 0 ||
+                  sidebarCollections().groupKeys.length > 0
+                }
+              >
+                <PawworkSidebarAllHeader
+                  sortMode={props.sortMode}
+                  onSetSortMode={props.onSetSortMode}
+                  workspacePicker={props.workspacePicker}
+                />
               </Show>
               <Show when={props.sortMode() === "time"}>
                 <div ref={attachSortable("recent")} data-component="pawwork-recent-list" class="flex flex-col gap-0.5">

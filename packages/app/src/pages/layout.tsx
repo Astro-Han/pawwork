@@ -38,8 +38,11 @@ import { setOpenSettings } from "@/utils/settings-navigation"
 import { setOpenAutomations } from "@/utils/automations-navigation"
 import { Worktree as WorktreeState } from "@/utils/worktree"
 import { usePinnedDraft } from "@/components/prompt-input/pinned-draft"
+import { workspaceChipIconName, workspaceChipLabel } from "@/components/prompt-input/workspace-chip-helpers"
+import { WorkspacePickerPopover } from "@/components/workspace-picker-popover"
 
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { Icon } from "@opencode-ai/ui/icon"
 import { useTheme } from "@opencode-ai/ui/theme/context"
 import { useCommand } from "@/context/command"
 import { useServer } from "@/context/server"
@@ -1038,6 +1041,53 @@ export default function Layout(props: ParentProps) {
   }
 
   const projects = () => layout.projects.list()
+  const sidebarWorkspaceLabel = createMemo(() =>
+    workspaceChipLabel({
+      directory: activeDirectory(),
+      directStartDirectory: globalSync.data.path.directory,
+      directStartLabel: language.t("workspace.chip.directStart"),
+      emptyLabel: language.t("workspace.chip.empty"),
+      projects: projects(),
+    }),
+  )
+  const sidebarWorkspaceIcon = createMemo(() =>
+    workspaceChipIconName({
+      directory: activeDirectory(),
+      directStartDirectory: globalSync.data.path.directory,
+      projects: projects(),
+    }),
+  )
+  const renderSidebarWorkspacePicker = () => (
+    <WorkspacePickerPopover
+      placement="bottom-end"
+      current={activeDirectory}
+      directStartDirectory={() => globalSync.data.path.directory}
+      projects={projects}
+      onSelect={(path) => {
+        void navigateToProject(path)
+      }}
+      onAdd={chooseProject}
+      triggerProps={
+        {
+          type: "button",
+          "data-action": "pawwork-workspace-picker",
+          "data-picker-trigger": "",
+          "aria-label": language.t("workspace.chip.ariaLabel"),
+          "aria-haspopup": "menu",
+          class:
+            "h-[26px] min-w-0 max-w-[132px] px-1.5 inline-flex items-center gap-1 rounded-md text-body text-fg-base transition-colors hover:bg-row-hover-overlay hover:text-fg-strong focus:outline-none focus-visible:bg-row-hover-overlay",
+        } as any
+      }
+      trigger={
+        <>
+          <Icon name={sidebarWorkspaceIcon()} class="shrink-0 text-fg-weak" />
+          <span class="min-w-0 max-w-[92px] truncate">{sidebarWorkspaceLabel()}</span>
+          <Icon name="chevron-down" class="shrink-0 text-fg-weak" />
+        </>
+      }
+      class="min-w-56 max-w-xs"
+    />
+  )
   const renderPawworkPanel = (
     sessions: Accessor<PawworkSidebarSession[]>,
     options?: { directory?: string; scope?: "main" | "peek" },
@@ -1073,6 +1123,7 @@ export default function Layout(props: ParentProps) {
       onExportSession={exportSession}
       onDeleteSession={confirmDeleteSession}
       onSetSortMode={setPawworkSortMode}
+      workspacePicker={renderSidebarWorkspacePicker}
       onShowMore={showMorePawworkSessions}
       onSearchOlderSessions={() => command.show()}
       onNew={() => openPawworkHome(options?.directory)}
