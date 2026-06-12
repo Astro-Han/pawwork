@@ -45,6 +45,10 @@ export type Result = "compact" | "stop" | "continue"
 
 export type Event = LLM.Event
 
+type ProcessInput = LLM.StreamInput & {
+  toolDrainTimeoutMs?: number
+}
+
 export interface Handle {
   readonly message: MessageV2.Assistant
   readonly updateToolCall: (
@@ -53,18 +57,13 @@ export interface Handle {
   ) => Effect.Effect<MessageV2.ToolPart | undefined>
   readonly completeToolCall: (
     toolCallID: string,
-    output: {
-      title: string
-      metadata: Record<string, any>
-      output: string
-      attachments?: MessageV2.FilePart[]
-    },
+    output: ToolLifecycleOutput,
   ) => Effect.Effect<void>
   readonly recordToolExecutionStarted?: (input: { tool: string; toolCallID: string }) => Effect.Effect<void>
   readonly recordToolExecutionCompleted?: (input: { toolCallID: string }) => Effect.Effect<void>
   readonly recordToolExecutionFailed?: (input: { toolCallID: string; error?: unknown }) => Effect.Effect<void>
   readonly abortTools?: () => Effect.Effect<void>
-  readonly process: (streamInput: LLM.StreamInput) => Effect.Effect<Result>
+  readonly process: (streamInput: ProcessInput) => Effect.Effect<Result>
   readonly errorRecords: (parentID: MessageV2.Assistant["parentID"]) => SessionDiagnostics.ToolErrorRecord[]
   readonly syntheticBlockSigKeys: (parentID: MessageV2.Assistant["parentID"]) => string[]
   readonly hasStopped: (parentID: MessageV2.Assistant["parentID"]) => boolean
@@ -110,7 +109,6 @@ type Input = {
 
 export interface Interface {
   readonly create: (input: Input) => Effect.Effect<Handle>
-  readonly abortTools: (sessionID: SessionID) => Effect.Effect<void>
 }
 
 type ToolCall = {
@@ -124,6 +122,24 @@ type ToolCall = {
   executionStarted?: boolean
   executionCompleted?: boolean
   executionFailed?: boolean
+}
+
+type ToolLifecycleOutput = {
+  title: string
+  metadata: Record<string, any>
+  output: string
+  attachments?: MessageV2.FilePart[]
+}
+
+type PendingToolLifecycle = {
+  materialized: Deferred.Deferred<void>
+  startedToolName?: string
+  completed?: {
+    output: ToolLifecycleOutput
+  }
+  failed?: {
+    error: unknown
+  }
 }
 
 type ToolInterruptionPhase = "tool_input_generation" | "tool_call_materialized_without_execution" | "tool_execution"
@@ -216,7 +232,7 @@ type PendingLoopAction = {
 interface ProcessorContext extends Input {
   directory: string
   toolcalls: Record<string, ToolCall>
-  pendingStartedToolCalls: Set<string>
+  pendingToolLifecycles: Map<string, PendingToolLifecycle>
   pendingLoopActions: Record<string, PendingLoopAction>
   pendingToolUpdates: Record<string, Array<(part: MessageV2.ToolPart) => MessageV2.ToolPart>>
   shouldBreak: boolean
@@ -296,28 +312,19 @@ export const layer: Layer.Layer<
     const scope = yield* Scope.Scope
     const status = yield* SessionStatus.Service
     const turnChange = yield* TurnChange.Service
-    const toolAbortCallbacks = new Map<SessionID, Set<() => void>>()
-
-    const registerToolAbortCallback = (sessionID: SessionID, callback: () => void) => {
-      let callbacks = toolAbortCallbacks.get(sessionID)
-      if (!callbacks) {
-        callbacks = new Set()
-        toolAbortCallbacks.set(sessionID, callbacks)
-      }
-      callbacks.add(callback)
-      return () => {
-        callbacks.delete(callback)
-        if (callbacks.size === 0) toolAbortCallbacks.delete(sessionID)
-      }
-    }
-
-    const abortTools = Effect.fn("SessionProcessor.abortTools")(function* (sessionID: SessionID) {
-      const callbacks = toolAbortCallbacks.get(sessionID)
-      if (!callbacks) return
-      for (const callback of callbacks) callback()
-    })
-
     const create = Effect.fn("SessionProcessor.create")(function* (input: Input) {
+      const toolAbortCallbacks = new Set<() => void>()
+      const registerToolAbortCallback = (callback: () => void) => {
+        toolAbortCallbacks.add(callback)
+        return () => {
+          toolAbortCallbacks.delete(callback)
+        }
+      }
+
+      const abortHandleTools = () => {
+        for (const callback of toolAbortCallbacks) callback()
+      }
+
       // Pre-capture snapshot before the LLM stream starts. The AI SDK
       // may execute tools internally before emitting start-step events,
       // so capturing inside the event handler can be too late.
@@ -329,7 +336,7 @@ export const layer: Layer.Layer<
         model: input.model,
         directory: instanceContext.directory,
         toolcalls: {},
-        pendingStartedToolCalls: new Set(),
+        pendingToolLifecycles: new Map(),
         pendingLoopActions: {},
         pendingToolUpdates: {},
         shouldBreak: false,
@@ -369,6 +376,7 @@ export const layer: Layer.Layer<
       let aborted = false
       let toolDrainTimeoutMs = TOOL_DRAIN_TIMEOUT_MS
       let toolAbortRequested: Deferred.Deferred<void> | undefined
+      let currentStreamStopRequested: Deferred.Deferred<void> | undefined
       const slog = log.clone().tag("sessionID", input.sessionID).tag("messageID", input.assistantMessage.id)
 
       const parse = (e: unknown) =>
@@ -382,6 +390,7 @@ export const layer: Layer.Layer<
         const ready = call?.ready
         const done = call?.done
         delete ctx.toolcalls[toolCallID]
+        ctx.pendingToolLifecycles.delete(toolCallID)
         if (ready) yield* Deferred.succeed(ready, undefined).pipe(Effect.ignore)
         if (done) yield* Deferred.succeed(done, undefined).pipe(Effect.ignore)
       })
@@ -404,10 +413,39 @@ export const layer: Layer.Layer<
       const toolCallAttemptID = (toolCallID: string, fallbackAttemptID = ctx.currentAttemptID) =>
         ctx.toolcalls[toolCallID]?.attemptID ?? fallbackAttemptID
 
+      const getPendingToolLifecycle = Effect.fn("SessionProcessor.getPendingToolLifecycle")(function* (
+        toolCallID: string,
+      ) {
+        let pending = ctx.pendingToolLifecycles.get(toolCallID)
+        if (!pending) {
+          pending = { materialized: yield* Deferred.make<void>() }
+          ctx.pendingToolLifecycles.set(toolCallID, pending)
+        }
+        return pending
+      })
+
+      const resolvePendingToolLifecycle = Effect.fn("SessionProcessor.resolvePendingToolLifecycle")(function* (
+        toolCallID: string,
+      ) {
+        const pending = ctx.pendingToolLifecycles.get(toolCallID)
+        if (!pending) return
+        yield* Deferred.succeed(pending.materialized, undefined).pipe(Effect.ignore)
+      })
+
+      const stopCurrentStream = Effect.fn("SessionProcessor.stopCurrentStream")(function* () {
+        if (!currentStreamStopRequested) return
+        yield* Deferred.succeed(currentStreamStopRequested, undefined).pipe(Effect.ignore)
+      })
+
       const waitForToolCallReady = Effect.fn("SessionProcessor.waitForToolCallReady")(function* (
         toolCallID: string,
       ) {
-        const call = ctx.toolcalls[toolCallID]
+        let call = ctx.toolcalls[toolCallID]
+        if (!call) {
+          const pending = yield* getPendingToolLifecycle(toolCallID)
+          yield* Deferred.await(pending.materialized)
+          call = ctx.toolcalls[toolCallID]
+        }
         if (!call) return
         yield* Deferred.await(call.ready)
       })
@@ -423,7 +461,8 @@ export const layer: Layer.Layer<
           call.executionStarted = true
           call.attemptID ??= ctx.currentAttemptID
         } else {
-          ctx.pendingStartedToolCalls.add(input.toolCallID)
+          const pending = yield* getPendingToolLifecycle(input.toolCallID)
+          pending.startedToolName ??= input.tool
         }
         if (!attemptID || alreadyStarted) return
         ctx.runTrace.recordToolExecutionStarted({
@@ -682,12 +721,7 @@ export const layer: Layer.Layer<
 
       const completeToolCall = Effect.fn("SessionProcessor.completeToolCall")(function* (
         toolCallID: string,
-        output: {
-          title: string
-          metadata: Record<string, any>
-          output: string
-          attachments?: MessageV2.FilePart[]
-        },
+        output: ToolLifecycleOutput,
       ) {
         const match = yield* readToolCall(toolCallID)
         if (
@@ -768,6 +802,7 @@ export const layer: Layer.Layer<
             ctx.blocked = true
           }
           yield* settleToolCall(toolCallID)
+          yield* stopCurrentStream()
           return true
         }
         if (
@@ -821,6 +856,77 @@ export const layer: Layer.Layer<
         }
         yield* settleToolCall(toolCallID)
         return true
+      })
+
+      const applyCompletedToolLifecycle = Effect.fn("SessionProcessor.applyCompletedToolLifecycle")(function* (input: {
+        toolCallID: string
+        output: ToolLifecycleOutput
+      }, options?: { waitForReady?: boolean }) {
+        if (options?.waitForReady !== false) yield* waitForToolCallReady(input.toolCallID)
+        yield* recordToolExecutionCompleted({ toolCallID: input.toolCallID })
+        yield* completeToolCall(input.toolCallID, input.output)
+      })
+
+      const applyFailedToolLifecycle = Effect.fn("SessionProcessor.applyFailedToolLifecycle")(function* (input: {
+        toolCallID: string
+        error: unknown
+      }, options?: { waitForReady?: boolean }) {
+        if (options?.waitForReady !== false) yield* waitForToolCallReady(input.toolCallID)
+        yield* recordToolExecutionFailed(input)
+        yield* failToolCall(input.toolCallID, input.error)
+      })
+
+      const flushPendingToolLifecycle = Effect.fn("SessionProcessor.flushPendingToolLifecycle")(function* (
+        toolCallID: string,
+        options?: { waitForReady?: boolean },
+      ) {
+        const pending = ctx.pendingToolLifecycles.get(toolCallID)
+        if (!pending) return
+        if (pending.completed) {
+          const completed = pending.completed
+          delete pending.completed
+          delete pending.failed
+          yield* applyCompletedToolLifecycle({ toolCallID, output: completed.output }, options)
+          return
+        }
+        if (pending.failed) {
+          const failed = pending.failed
+          delete pending.failed
+          yield* applyFailedToolLifecycle({ toolCallID, error: failed.error }, options)
+        }
+      })
+
+      const completeToolExecution = Effect.fn("SessionProcessor.completeToolExecution")(function* (input: {
+        toolCallID: string
+        output: ToolLifecycleOutput
+      }) {
+        const call = ctx.toolcalls[input.toolCallID]
+        if (!call || call.materialized !== true) {
+          const pending = yield* getPendingToolLifecycle(input.toolCallID)
+          pending.completed = { output: input.output }
+          delete pending.failed
+          return
+        }
+        yield* applyCompletedToolLifecycle(input)
+      })
+
+      const failToolExecution = Effect.fn("SessionProcessor.failToolExecution")(function* (input: {
+        toolCallID: string
+        error: unknown
+      }) {
+        const call = ctx.toolcalls[input.toolCallID]
+        if (call && ctx.pendingLoopActions[input.toolCallID]) {
+          yield* recordToolExecutionFailed(input)
+          yield* failToolCall(input.toolCallID, input.error)
+          return
+        }
+        if (!call || call.materialized !== true) {
+          const pending = yield* getPendingToolLifecycle(input.toolCallID)
+          pending.failed = { error: input.error }
+          delete pending.completed
+          return
+        }
+        yield* applyFailedToolLifecycle(input)
       })
 
       const handleEvent = Effect.fnUntraced(function* (value: StreamEvent, attemptID: RunObservability.AttemptID) {
@@ -924,8 +1030,8 @@ export const layer: Layer.Layer<
               state: { status: "pending", input: {}, raw: "" },
               metadata: value.providerExecuted ? { providerExecuted: true } : undefined,
             } satisfies MessageV2.ToolPart)
-            const executionStarted = ctx.pendingStartedToolCalls.has(value.id)
-            ctx.pendingStartedToolCalls.delete(value.id)
+            const pendingLifecycle = ctx.pendingToolLifecycles.get(value.id)
+            const executionStarted = pendingLifecycle?.startedToolName !== undefined
             ctx.toolcalls[value.id] = {
               ready: yield* Deferred.make<void>(),
               done: yield* Deferred.make<void>(),
@@ -935,7 +1041,20 @@ export const layer: Layer.Layer<
               attemptID,
               executionStarted,
             }
+            if (pendingLifecycle?.startedToolName) {
+              ctx.runTrace.recordToolExecutionStarted({
+                attemptID,
+                at: Date.now(),
+                monotonicMs: performance.now(),
+                toolName: RunObservability.safeToolName(pendingLifecycle.startedToolName),
+                effect: RunObservability.toolEffect(pendingLifecycle.startedToolName),
+              })
+            }
+            yield* resolvePendingToolLifecycle(value.id)
             yield* applyPendingToolUpdates(value.id)
+            if (pendingLifecycle?.completed) {
+              yield* flushPendingToolLifecycle(value.id, { waitForReady: false })
+            }
             return
 
           case "tool-input-delta":
@@ -972,6 +1091,7 @@ export const layer: Layer.Layer<
             const ready = ctx.toolcalls[value.toolCallId]?.ready
             if (!ctx.assistantMessage.parentID) {
               if (ready) yield* Deferred.succeed(ready, undefined).pipe(Effect.ignore)
+              yield* flushPendingToolLifecycle(value.toolCallId)
               return
             }
             const info = yield* session.get(ctx.sessionID)
@@ -996,6 +1116,7 @@ export const layer: Layer.Layer<
             if (running) yield* session.updatePart(withDiagnostics(running))
             else yield* updateToolCall(value.toolCallId, withDiagnostics)
             if (ready) yield* Deferred.succeed(ready, undefined).pipe(Effect.ignore)
+            yield* flushPendingToolLifecycle(value.toolCallId)
             return
           }
 
@@ -1005,6 +1126,28 @@ export const layer: Layer.Layer<
           }
 
           case "tool-error": {
+            const tracked = ctx.toolcalls[value.toolCallId]
+            if (tracked) {
+              tracked.materialized = true
+              tracked.attemptID ??= attemptID
+            }
+            yield* updateToolCall(value.toolCallId, (match) => ({
+              ...match,
+              tool: value.toolName,
+              state: {
+                ...match.state,
+                status: "running",
+                input: value.input,
+                time: { start: "time" in match.state ? match.state.time.start : Date.now() },
+              },
+              metadata: match.metadata?.providerExecuted
+                ? { ...value.providerMetadata, providerExecuted: true }
+                : value.providerMetadata,
+            }))
+            yield* applyPendingToolUpdates(value.toolCallId)
+            const ready = ctx.toolcalls[value.toolCallId]?.ready
+            if (ready) yield* Deferred.succeed(ready, undefined).pipe(Effect.ignore)
+            yield* flushPendingToolLifecycle(value.toolCallId)
             yield* failToolCall(value.toolCallId, value.error)
             return
           }
@@ -1171,11 +1314,17 @@ export const layer: Layer.Layer<
         }
         ctx.reasoningMap = {}
 
-        for (const call of Object.values(ctx.toolcalls)) {
+        for (const [toolCallID, call] of Object.entries(ctx.toolcalls)) {
           if (call.executionStarted === true && call.materialized !== true) {
             yield* Deferred.succeed(call.ready, undefined).pipe(Effect.ignore)
           }
+          yield* flushPendingToolLifecycle(toolCallID)
         }
+        for (const [toolCallID, pending] of ctx.pendingToolLifecycles.entries()) {
+          if (ctx.toolcalls[toolCallID]) continue
+          yield* Deferred.succeed(pending.materialized, undefined).pipe(Effect.ignore)
+        }
+        ctx.pendingToolLifecycles.clear()
         const callsToDrain = Object.values(ctx.toolcalls).filter((call) => aborted || call.executionStarted === true)
         yield* Effect.forEach(
           callsToDrain,
@@ -1257,7 +1406,7 @@ export const layer: Layer.Layer<
         }
         const remainingCalls = Object.values(ctx.toolcalls)
         ctx.toolcalls = {}
-        ctx.pendingStartedToolCalls.clear()
+        ctx.pendingToolLifecycles.clear()
         yield* Effect.forEach(
           remainingCalls,
           (call) =>
@@ -1367,7 +1516,7 @@ export const layer: Layer.Layer<
         }
       })
 
-      const process = Effect.fn("SessionProcessor.process")(function* (streamInput: LLM.StreamInput) {
+      const process = Effect.fn("SessionProcessor.process")(function* (streamInput: ProcessInput) {
         slog.info("process")
         ctx.needsCompaction = false
         ctx.shouldBreak = (yield* config.get()).experimental?.continue_loop_on_deny !== true
@@ -1378,7 +1527,7 @@ export const layer: Layer.Layer<
           toolAbortController.abort()
           if (toolAbortRequested) Effect.runFork(Deferred.succeed(toolAbortRequested, undefined).pipe(Effect.ignore))
         }
-        const unregisterToolAbort = registerToolAbortCallback(ctx.sessionID, abortProcessTools)
+        const unregisterToolAbort = registerToolAbortCallback(abortProcessTools)
         toolDrainTimeoutMs =
           typeof streamInput.toolDrainTimeoutMs === "number" &&
           Number.isFinite(streamInput.toolDrainTimeoutMs) &&
@@ -1529,19 +1678,16 @@ export const layer: Layer.Layer<
                 started: (input) => Effect.runPromise(recordToolExecutionStarted(input)),
                 completed: (input) =>
                   Effect.runPromise(
-                    Effect.gen(function* () {
-                      yield* waitForToolCallReady(input.toolCallID)
-                      yield* recordToolExecutionCompleted({ toolCallID: input.toolCallID })
-                      yield* completeToolCall(input.toolCallID, input.output)
-                    }),
+                    completeToolExecution({ toolCallID: input.toolCallID, output: input.output }),
                   ),
                 failed: (input) =>
                   Effect.runPromise(
                     Effect.gen(function* () {
-                      yield* recordToolExecutionFailed(input)
-                      if (toolAbortController.signal.aborted) return
-                      yield* waitForToolCallReady(input.toolCallID)
-                      yield* failToolCall(input.toolCallID, input.error)
+                      if (toolAbortController.signal.aborted) {
+                        yield* recordToolExecutionFailed(input)
+                        return
+                      }
+                      yield* failToolExecution(input)
                     }),
                   ),
               },
@@ -1551,14 +1697,24 @@ export const layer: Layer.Layer<
             throw error
           }
 
-          yield* stream.pipe(
-            Stream.tap((event) => handleEvent(event, attempt.attemptID)),
-            // Stop draining the stream as soon as the loop gate fires a synthetic stop
-            // (ctx.blocked) so any trailing model text after the synthetic stop tool-error
-            // is dropped — the turn ends with the rendered Chinese summary alone.
-            Stream.takeUntil(() => ctx.needsCompaction || ctx.blocked),
-            Stream.runDrain,
-          )
+          const streamStopRequested = yield* Deferred.make<void>()
+          currentStreamStopRequested = streamStopRequested
+          yield* stream
+            .pipe(
+              Stream.tap((event) => handleEvent(event, attempt.attemptID)),
+              // Synthetic stop ends the turn; synthetic block only ends this stream
+              // drain and lets prompt.loop continue to the next model step.
+              Stream.takeUntil(() => ctx.needsCompaction || ctx.blocked),
+              Stream.runDrain,
+              Effect.raceFirst(Deferred.await(streamStopRequested)),
+            )
+            .pipe(
+              Effect.ensuring(
+                Effect.sync(() => {
+                  if (currentStreamStopRequested === streamStopRequested) currentStreamStopRequested = undefined
+                }),
+              ),
+            )
         })
 
         return yield* Effect.gen(function* () {
@@ -1752,6 +1908,7 @@ export const layer: Layer.Layer<
               },
             })
             yield* settleToolCall(input.toolCallId)
+            yield* stopCurrentStream()
             return
           }
         }
@@ -1783,6 +1940,7 @@ export const layer: Layer.Layer<
           },
         })
         yield* settleToolCall(input.toolCallId)
+        yield* stopCurrentStream()
       })
 
       const recordSyntheticStop = Effect.fn("SessionProcessor.recordSyntheticStop")(function* (input: {
@@ -1835,6 +1993,7 @@ export const layer: Layer.Layer<
             },
           })
           yield* settleToolCall(input.toolCallId)
+          yield* stopCurrentStream()
           return
         }
         const existingMeta = toolStateMetadata(match.part)
@@ -1875,6 +2034,7 @@ export const layer: Layer.Layer<
         yield* session.updatePart(textPart)
         yield* settleToolCall(input.toolCallId)
         ctx.blocked = true
+        yield* stopCurrentStream()
       })
 
       return {
@@ -1886,7 +2046,7 @@ export const layer: Layer.Layer<
         recordToolExecutionStarted,
         recordToolExecutionCompleted,
         recordToolExecutionFailed,
-        abortTools: () => abortTools(input.sessionID),
+        abortTools: () => Effect.sync(abortHandleTools),
         process,
         errorRecords,
         syntheticBlockSigKeys,
@@ -1897,7 +2057,7 @@ export const layer: Layer.Layer<
       } satisfies Handle
     })
 
-    return Service.of({ create, abortTools })
+    return Service.of({ create })
   }),
 )
 

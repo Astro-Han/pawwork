@@ -2068,8 +2068,11 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       }
     })
 
-    const runLoop: (sessionID: SessionID) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.run")(
-      function* (sessionID: SessionID) {
+    const runLoop: (
+      sessionID: SessionID,
+      options?: { onProcessor?: (handle: SessionProcessor.Handle) => void },
+    ) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.run")(
+      function* (sessionID: SessionID, options?: { onProcessor?: (handle: SessionProcessor.Handle) => void }) {
         const ctx = yield* InstanceState.context
         const automation = yield* AutomationRunContext.current
         const slog = elog.with({ sessionID })
@@ -2265,6 +2268,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             sessionID,
             model,
           })
+          options?.onProcessor?.(handle)
 
           const outcome: "break" | "continue" = yield* Effect.gen(function* () {
             const lastUserMsg = msgs.findLast((m) => m.info.role === "user")
@@ -2432,6 +2436,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     ) => Effect.Effect<MessageV2.WithParts> = Effect.fn(
       "SessionPrompt.loop",
     )(function* (input: z.infer<typeof LoopInput>, options?: PromptRuntimeOptions) {
+      let activeProcessor: SessionProcessor.Handle | undefined
       const onInterrupt = (meta?: {
         source?: string
         reason?: string
@@ -2610,7 +2615,11 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             auto: input.prelude.auto,
           })
         }
-        return yield* runLoop(input.sessionID)
+        return yield* runLoop(input.sessionID, {
+          onProcessor: (handle) => {
+            activeProcessor = handle
+          },
+        })
       })
       // rejectIfBusy is the prelude path's safety net: a prelude's side
       // effects (writing the compaction marker) only run when ensureRunning
@@ -2634,7 +2643,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       return yield* state.ensureRunning(input.sessionID, onInterrupt, work, {
         rejectIfBusy: input.prelude !== undefined,
         runLifecycle,
-        onCancel: () => processor.abortTools(input.sessionID),
+        onCancel: () => activeProcessor?.abortTools?.() ?? Effect.void,
       })
     })
 
