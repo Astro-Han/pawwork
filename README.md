@@ -34,7 +34,7 @@ PawWork is built for people who want AI agents to do real desktop work, not only
 | Free without subscription | Yes (OpenCode Zen) | Limited (ChatGPT Free) | No (Pro $20/mo required) |
 | Desktop app | macOS + Windows | macOS + Windows | macOS + Windows |
 | Local file access | Full workspace access | Sandboxed by default | User-selected folders |
-| Browser automation | Yes (1000+ site adapters via OpenCLI) | No | No |
+| Browser automation | Yes (supported OpenCLI adapters; coverage varies) | No | No |
 | Local models | Yes (Ollama, LM Studio, etc.) | CLI only (Ollama) | Via gateway (Requesty) |
 | Office files (Word/Excel/PPT) | Yes (via OfficeCLI) | No | No |
 | Non-technical user focus | Yes (task cards, no terminal) | Developer-focused | Knowledge work + coding |
@@ -67,7 +67,7 @@ PawWork is built for people who want AI agents to do real desktop work, not only
 - search Twitter/X and draft a reply without leaving PawWork
 - check trending topics on Bilibili or Xiaohongshu
 - collect posts, comments, or media from supported web services
-- interact with web services through your existing logged-in browser session
+- interact with supported web services through PawWork's browser tools
 
 ## How It Works
 
@@ -110,7 +110,7 @@ Thanks to the OpenCode project and community.
 
 PawWork bundles [OfficeCLI](https://github.com/iOfficeAI/OfficeCLI) by iOfficeAI to handle Word, Excel, and PowerPoint files locally. Thanks to iOfficeAI for the Apache-2.0 open-source OfficeCLI project.
 
-PawWork bundles [OpenCLI](https://github.com/jackwener/opencli) by [@jackwener](https://github.com/jackwener) to power browser-based site adapters. OpenCLI provides the CDP bridge and 1000+ site-specific command adapters that let PawWork interact with web services like Twitter/X, Bilibili, Xiaohongshu, and more using the user's logged-in browser session. Thanks to @jackwener for the Apache-2.0 open-source OpenCLI project.
+PawWork bundles [OpenCLI](https://github.com/jackwener/opencli) by [@jackwener](https://github.com/jackwener) to power browser-based adapters for supported sites. OpenCLI provides the CDP bridge and bundled command adapters that help PawWork interact with web services like Twitter/X, Bilibili, Xiaohongshu, and more where the adapter coverage fits the task. Thanks to @jackwener for the Apache-2.0 open-source OpenCLI project.
 
 ## FAQ
 

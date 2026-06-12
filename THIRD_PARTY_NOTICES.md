@@ -11,7 +11,7 @@ PawWork also bundles OfficeCLI's `officecli-*` and `morph-ppt*` skill directorie
 
 ## OpenCLI
 
-PawWork bundles `@jackwener/opencli` by @jackwener to power browser-based site adapters through the user's logged-in browser session.
+PawWork bundles `@jackwener/opencli` by @jackwener to power browser-based adapters for supported sites.
 
 PawWork packages the OpenCLI runtime files needed by the desktop app, including its CDP bridge, command registry, browser helpers, bundled site adapters under `clis/**`, and `cli-manifest.json`.
 
