@@ -101,15 +101,7 @@ function runBrowserCommand(command: OpenCliCommand, args: Record<string, unknown
     ctx,
     label: `opencli ${fullName(command)}`,
     patterns: patterns.length > 0 ? patterns : undefined,
-    metadata: commandMetadata({
-      name: fullName(command),
-      description: command.description ?? "",
-      access: command.access,
-      browser: command.browser !== false,
-      domain: command.domain,
-      navigateBefore: command.navigateBefore,
-      args: command.args,
-    }),
+    metadata: commandMetadata(openCliCommandSummaryFromCommand(command)),
     timeoutMs: OPENCLI_RUN_TIMEOUT_MS,
     run: (page) => runOpenCliAdapterCommand(command, page, args),
   })
