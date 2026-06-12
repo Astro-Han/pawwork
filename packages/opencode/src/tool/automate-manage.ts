@@ -84,9 +84,6 @@ export function createAutomateManageDefinition(
     parameters: AutomateManageParameters,
     execute: (params, ctx) =>
       Effect.gen(function* () {
-        const scheduler = AutomationScheduler.current()
-        yield* Effect.promise(() => scheduler.settleOwner())
-
         if (params.action === "list") {
           const items = yield* automation.list()
           return {
@@ -117,6 +114,7 @@ export function createAutomateManageDefinition(
           metadata: { action: "delete", id, title: previous.title },
         })
         const removed = yield* automation.remove(id).pipe(Effect.mapError((error) => readableAutomationError(error, id)))
+        const scheduler = AutomationScheduler.current()
         yield* Effect.sync(() => scheduler.cancel(removed.tombstone.id))
         if (removed.stoppedRun) yield* automation.publishRunUpdated(removed.stoppedRun)
         yield* automation.publishDefinitionDeleted(removed.tombstone)

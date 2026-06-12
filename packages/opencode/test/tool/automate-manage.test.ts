@@ -30,10 +30,10 @@ function recurring(projectID: ProjectID, title: string): Automation.CreateInput 
   }
 }
 
-function installScheduler(cancelled: string[] = []) {
+function installScheduler(cancelled: string[] = [], settled: string[] = []) {
   AutomationScheduler.install({
     stop: () => undefined,
-    settleOwner: async () => undefined,
+    settleOwner: async () => { settled.push("settled") },
     reschedule: () => undefined,
     cancel: (automationID) => cancelled.push(automationID),
     computeNextFireAt: () => null,
@@ -94,6 +94,22 @@ describe("automate_manage tool", () => {
             timezone: "UTC",
           }),
         ])
+      },
+    })
+  })
+
+  test("list reads definitions without settling the scheduler owner", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const settled: string[] = []
+        installScheduler([], settled)
+        Automation.create(recurring(Instance.project.id, "Daily repo brief"), { now: 100 })
+
+        await Effect.runPromise(tool().execute({ action: "list" }, toolContext()))
+
+        expect(settled).toEqual([])
       },
     })
   })
