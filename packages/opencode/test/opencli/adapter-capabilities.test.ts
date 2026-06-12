@@ -18,6 +18,7 @@ const SUPPORTED_PAGE_METHODS = new Set([
   "autoScroll",
   "cdp",
   "click",
+  "closeWindow",
   "consoleMessages",
   "dblClick",
   "drag",
@@ -58,14 +59,6 @@ const SUPPORTED_PAGE_METHODS = new Set([
 ])
 
 const ACCEPTED_CAPABILITY_GAPS: CapabilityGap[] = [
-  // instagram/post checks input.page.closeWindow before calling it; without the method,
-  // it falls back to dialog cleanup instead of failing the adapter command.
-  {
-    command: "instagram/post",
-    modulePath: "instagram/post.js",
-    kind: "page-method",
-    value: "closeWindow",
-  },
   {
     command: "instagram/reel",
     modulePath: "instagram/reel.js",
@@ -174,10 +167,11 @@ async function scanCapabilities(): Promise<CapabilityGap[]> {
 }
 
 describe("opencli adapter capability guard", () => {
-  test("keeps unsupported page methods and daemon Page imports pinned to an explicit baseline", async () => {
+  test("keeps every exposed adapter free of unsupported page methods", async () => {
     const gaps = await scanCapabilities()
 
     expect(gaps).toEqual(ACCEPTED_CAPABILITY_GAPS)
+    expect(gaps.filter((gap) => gap.kind === "page-method")).toEqual([])
     expect(gaps.filter((gap) => gap.kind === "browser-page-import").map((gap) => gap.command)).toEqual(
       [...BLOCKED_OPENCLI_COMMANDS],
     )

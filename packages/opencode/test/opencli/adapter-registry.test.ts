@@ -12,12 +12,12 @@ describe("opencli adapter registry", () => {
   })
 
   test("searches the packaged manifest without importing adapter modules", async () => {
-    getRegistry().delete("spotify/play")
+    getRegistry().delete("hackernews/search")
 
-    const results = await searchOpenCliCommands("spotify play", { limit: 5 })
+    const results = await searchOpenCliCommands("hackernews search", { limit: 5 })
 
-    expect(results.map((result) => result.name)).toContain("spotify/play")
-    expect(getRegistry().has("spotify/play")).toBe(false)
+    expect(results.map((result) => result.name)).toContain("hackernews/search")
+    expect(getRegistry().has("hackernews/search")).toBe(false)
   })
 
   test("searches packaged manifest commands and hides blocked commands", async () => {

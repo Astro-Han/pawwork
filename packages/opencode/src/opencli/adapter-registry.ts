@@ -74,6 +74,10 @@ function manifestCommandSummary(entry: OpenCliManifestEntry): OpenCliCommandSumm
   }
 }
 
+function supportedOpenCliCommand(command: OpenCliCommandSummary) {
+  return !BLOCKED_OPENCLI_COMMANDS.has(command.name) && !(command.access === "write" && command.browser === false)
+}
+
 export function openCliCommandSummaryFromCommand(command: CliCommand): OpenCliCommandSummary {
   return {
     name: fullName(command),
@@ -104,11 +108,13 @@ async function manifestEntryForCommand(name: string) {
 export async function openCliCommand(name: string): Promise<CliCommand | undefined> {
   if (BLOCKED_OPENCLI_COMMANDS.has(name)) return undefined
   const existing = getRegistry().get(name)
-  if (existing) return existing
+  if (existing) return supportedOpenCliCommand(openCliCommandSummaryFromCommand(existing)) ? existing : undefined
   const entry = await manifestEntryForCommand(name)
   if (!entry) return undefined
+  if (!supportedOpenCliCommand(manifestCommandSummary(entry))) return undefined
   await importAdapterModule(entry.modulePath)
-  return getRegistry().get(name)
+  const loaded = getRegistry().get(name)
+  return loaded && supportedOpenCliCommand(openCliCommandSummaryFromCommand(loaded)) ? loaded : undefined
 }
 
 function scoreCommand(command: OpenCliCommandSummary, query: string) {
@@ -142,7 +148,7 @@ export async function searchOpenCliCommands(
     if (!summaries.has(summary.name)) summaries.set(summary.name, summary)
   }
   return [...summaries.values()]
-    .filter((command) => !BLOCKED_OPENCLI_COMMANDS.has(command.name))
+    .filter(supportedOpenCliCommand)
     .map((command) => ({ command, score: scoreCommand(command, query) }))
     .filter((item) => item.score > 0)
     .sort((a, b) => b.score - a.score || a.command.name.localeCompare(b.command.name))

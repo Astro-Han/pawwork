@@ -4,7 +4,7 @@ import * as Tool from "./tool"
 import DESCRIPTION from "./opencli-run.txt"
 import { openCliCommand, openCliCommandSummaryFromCommand, type OpenCliCommandSummary } from "@/opencli/adapter-registry"
 import { prepareOpenCliCommandArgs, runOpenCliAdapterCommand } from "@/opencli/adapter-runner"
-import { runBrowserAction } from "./browser-shared"
+import { browserAlwaysPatterns, runBrowserAction } from "./browser-shared"
 
 const OPENCLI_RUN_TIMEOUT_MS = 60_000
 type OpenCliCommand = NonNullable<Awaited<ReturnType<typeof openCliCommand>>>
@@ -93,13 +93,25 @@ async function runNonBrowserCommand(
 
 function runBrowserCommand(command: OpenCliCommand, args: Record<string, unknown>, ctx: Tool.Context) {
   const patterns = commandKnownBrowserPermissionPatterns(command)
+  const metadata = commandMetadata(openCliCommandSummaryFromCommand(command))
   return runBrowserAction({
     ctx,
     label: `opencli ${fullName(command)}`,
     patterns: patterns.length > 0 ? patterns : undefined,
-    metadata: commandMetadata(openCliCommandSummaryFromCommand(command)),
+    metadata,
     timeoutMs: OPENCLI_RUN_TIMEOUT_MS,
-    run: (page) => runOpenCliAdapterCommand(command, page, args),
+    run: (page) =>
+      runOpenCliAdapterCommand(command, page, args, {
+        askBrowserPermission: (targets, guardMetadata) =>
+          Effect.runPromise(
+            ctx.ask({
+              permission: "browser",
+              patterns: targets,
+              always: browserAlwaysPatterns(targets),
+              metadata: { ...metadata, ...guardMetadata },
+            }),
+          ),
+      }),
   })
 }
 

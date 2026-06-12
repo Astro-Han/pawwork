@@ -25,6 +25,85 @@ function readNodeID(value: unknown, key: string): number | null {
   return typeof nodeID === "number" ? nodeID : null
 }
 
+type BrowserPermissionCheck = (patterns: string[], metadata?: Record<string, unknown>) => Promise<void>
+
+const UNGUARDED_PAGE_METHODS = new Set(["getActivePage", "getCurrentUrl", "setActivePage", "wait", "waitForTimeout"])
+const RECHECK_AFTER_PAGE_METHODS = new Set([
+  "click",
+  "closeTab",
+  "cdp",
+  "dblClick",
+  "evaluate",
+  "evaluateWithArgs",
+  "goto",
+  "handleJavaScriptDialog",
+  "nativeClick",
+  "newTab",
+  "pressKey",
+  "selectTab",
+])
+
+function currentBrowserPermissionPattern(url: string | null | undefined) {
+  if (!url) return "*"
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.href : "*"
+  } catch {
+    return "*"
+  }
+}
+
+function targetBrowserPermissionPattern(cmd: CliCommand, url: string) {
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") return parsed.href
+  } catch {
+    // fall through to the command-specific error below
+  }
+  throw new OpenCliCommandError(`Command ${fullName(cmd)} tried to navigate to unsupported URL: ${JSON.stringify(url)}`)
+}
+
+async function askCurrentBrowserPermission(
+  cmd: CliCommand,
+  page: IPage,
+  askBrowserPermission: BrowserPermissionCheck | undefined,
+  operation: string,
+) {
+  if (!askBrowserPermission) return
+  const currentUrl = await page.getCurrentUrl?.().catch(() => null)
+  await askBrowserPermission([currentBrowserPermissionPattern(currentUrl)], { operation, command: fullName(cmd) })
+}
+
+async function withCurrentBrowserPermission<T>(
+  cmd: CliCommand,
+  page: IPage,
+  askBrowserPermission: BrowserPermissionCheck | undefined,
+  operation: string,
+  run: () => Promise<T>,
+  recheckAfter = false,
+): Promise<T> {
+  await askCurrentBrowserPermission(cmd, page, askBrowserPermission, operation)
+  const result = await run()
+  if (recheckAfter) await askCurrentBrowserPermission(cmd, page, askBrowserPermission, `${operation}:after`)
+  return result
+}
+
+async function withTargetBrowserPermission<T>(
+  cmd: CliCommand,
+  page: IPage,
+  askBrowserPermission: BrowserPermissionCheck | undefined,
+  operation: string,
+  url: string,
+  run: () => Promise<T>,
+): Promise<T> {
+  if (askBrowserPermission) {
+    await askBrowserPermission([targetBrowserPermissionPattern(cmd, url)], { operation, command: fullName(cmd) })
+  }
+  const result = await run()
+  await askCurrentBrowserPermission(cmd, page, askBrowserPermission, `${operation}:after`)
+  return result
+}
+
 async function cdpSetFileInput(cmd: CliCommand, page: IPage, files: string[], selector = 'input[type="file"]') {
   const cdp = page.cdp
   if (typeof cdp !== "function") {
@@ -59,29 +138,86 @@ async function cdpNativeClick(cmd: CliCommand, page: IPage, x: number, y: number
   await cdp.call(page, "Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 })
 }
 
-export function createOpenCliAdapterPage(cmd: CliCommand, page: IPage): IPage {
+export function createOpenCliAdapterPage(
+  cmd: CliCommand,
+  page: IPage,
+  options: { askBrowserPermission?: BrowserPermissionCheck } = {},
+): IPage {
   return new Proxy(page, {
     get(target, prop, receiver) {
       if (prop === "then") return undefined
+      if (prop === "closeWindow") return async () => {}
+      if (prop === "goto") {
+        const goto = target.goto.bind(target) as (url: string, ...args: unknown[]) => Promise<void>
+        return (url: string, ...args: unknown[]) =>
+          withTargetBrowserPermission(cmd, target, options.askBrowserPermission, "goto", url, () =>
+            goto(url, ...args),
+          )
+      }
+      if (prop === "fetchJson") {
+        const value = Reflect.get(target, prop, receiver)
+        if (typeof value === "function") {
+          const fetchJson = value.bind(target) as (url: string, ...args: unknown[]) => Promise<unknown>
+          return (url: string, ...args: unknown[]) =>
+            withTargetBrowserPermission(cmd, target, options.askBrowserPermission, "fetchJson", url, () =>
+              fetchJson(url, ...args),
+            )
+        }
+      }
       if (prop === "setFileInput" && typeof target.setFileInput !== "function" && typeof target.cdp === "function") {
-        return (files: string[], selector?: string) => cdpSetFileInput(cmd, target, files, selector)
+        return (files: string[], selector?: string) =>
+          withCurrentBrowserPermission(cmd, target, options.askBrowserPermission, "setFileInput", () =>
+            cdpSetFileInput(cmd, target, files, selector),
+          )
       }
       if (prop === "insertText" && typeof target.insertText !== "function" && typeof target.cdp === "function") {
-        return (text: string) => cdpInsertText(cmd, target, text)
+        return (text: string) =>
+          withCurrentBrowserPermission(cmd, target, options.askBrowserPermission, "insertText", () =>
+            cdpInsertText(cmd, target, text),
+          )
       }
       if (prop === "nativeType" && typeof target.cdp === "function") {
         const value = Reflect.get(target, prop, receiver)
-        return typeof value === "function" ? value.bind(target) : (text: string) => cdpInsertText(cmd, target, text)
+        return typeof value === "function"
+          ? (text: string) =>
+              withCurrentBrowserPermission(cmd, target, options.askBrowserPermission, "nativeType", () =>
+                value.call(target, text),
+              )
+          : (text: string) =>
+              withCurrentBrowserPermission(cmd, target, options.askBrowserPermission, "nativeType", () =>
+                cdpInsertText(cmd, target, text),
+              )
       }
       if (prop === "nativeClick" && typeof target.cdp === "function") {
         const value = Reflect.get(target, prop, receiver)
-        return typeof value === "function" ? value.bind(target) : (x: number, y: number) => cdpNativeClick(cmd, target, x, y)
+        return typeof value === "function"
+          ? (x: number, y: number) =>
+              withCurrentBrowserPermission(cmd, target, options.askBrowserPermission, "nativeClick", () =>
+                value.call(target, x, y),
+                true,
+              )
+          : (x: number, y: number) =>
+              withCurrentBrowserPermission(cmd, target, options.askBrowserPermission, "nativeClick", () =>
+                cdpNativeClick(cmd, target, x, y),
+                true,
+              )
       }
       if (prop === "waitForTimeout") {
         const value = Reflect.get(target, prop, receiver)
         return typeof value === "function" ? value.bind(target) : (ms: number) => target.wait(ms / 1000)
       }
       const value = Reflect.get(target, prop, receiver)
+      if (typeof prop === "string" && typeof value === "function" && !UNGUARDED_PAGE_METHODS.has(prop)) {
+        return (...args: unknown[]) =>
+          withCurrentBrowserPermission(
+            cmd,
+            target,
+            options.askBrowserPermission,
+            prop,
+            () => value.call(target, ...args),
+            RECHECK_AFTER_PAGE_METHODS.has(prop),
+          )
+      }
       return typeof value === "function" ? value.bind(target) : value
     },
   })
@@ -180,18 +316,19 @@ export async function runOpenCliAdapterCommand(
   cmd: CliCommand,
   page: IPage | null,
   kwargs: CommandArgs,
-  options: { debug?: boolean } = {},
+  options: { debug?: boolean; askBrowserPermission?: BrowserPermissionCheck } = {},
 ): Promise<unknown> {
   const debug = options.debug ?? false
   const siteSession = resolveOpenCliSiteSession(cmd)
-  const adapterPage = page ? createOpenCliAdapterPage(cmd, page) : null
+  const adapterPage = page ? createOpenCliAdapterPage(cmd, page, options) : null
   const resetAfter = cmd.browser !== false && siteSession === "ephemeral" && adapterPage
   try {
     const preNavUrl = resolveOpenCliPreNav(cmd)
     if (preNavUrl) {
-      if (!adapterPage) throw new OpenCliCommandError(`Command ${fullName(cmd)} requires a browser session for pre-navigation`)
+      if (!page || !adapterPage)
+        throw new OpenCliCommandError(`Command ${fullName(cmd)} requires a browser session for pre-navigation`)
       if (await shouldRunOpenCliPreNav(cmd, adapterPage, siteSession, preNavUrl)) {
-        await adapterPage.goto(preNavUrl)
+        await page.goto(preNavUrl)
       }
     }
     if (cmd.func) {

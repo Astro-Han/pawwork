@@ -82,6 +82,28 @@ describe("opencli_search", () => {
     }),
   )
 
+  it.live("does not advertise non-browser write adapters", () =>
+    Effect.gen(function* () {
+      cli({
+        site: "pawwork-test",
+        name: "http-write-search",
+        access: "write",
+        description: "Write HTTP adapter should stay hidden",
+        browser: false,
+        args: [],
+        func: async () => [],
+      })
+
+      try {
+        const result = yield* exec(OpenCliSearchTool, { query: "pawwork-test/http-write-search", limit: 5 })
+
+        expect(result.output).not.toContain("pawwork-test/http-write-search")
+      } finally {
+        getRegistry().delete("pawwork-test/http-write-search")
+      }
+    }),
+  )
+
 })
 
 describe("opencli_run", () => {
@@ -181,6 +203,45 @@ describe("opencli_run", () => {
     }),
   )
 
+  it.live("applies browser permission to adapter-initiated navigation", () =>
+    Effect.gen(function* () {
+      const server = new FakeCdpServer()
+      scriptCurrentUrl(server, "https://example.com/page")
+      provideFakeHost(server)
+      cli({
+        site: "pawwork-test",
+        name: "internal-nav-permission",
+        access: "write",
+        description: "Internal navigation permission test adapter",
+        browser: true,
+        domain: "example.com",
+        navigateBefore: true,
+        args: [],
+        func: async (page) => {
+          await page.goto("https://example.com/admin/users")
+          return []
+        },
+      })
+
+      try {
+        const exit = yield* exec(OpenCliRunTool, { command: "pawwork-test/internal-nav-permission", args: {} }, {
+          ask: (input) =>
+            input.permission === "browser" && input.patterns.includes("https://example.com/admin/users")
+              ? (Effect.fail(new Error("denied admin")) as unknown as Effect.Effect<void>)
+              : Effect.void,
+        }).pipe(Effect.exit)
+
+        expect(Exit.isFailure(exit)).toBe(true)
+        expect(server.methods).not.toContain("Page.navigate")
+      } finally {
+        resetBrowserSessionsForTest()
+        BrowserBridge.provideHost(null)
+        getRegistry().delete("pawwork-test/internal-nav-permission")
+        yield* Effect.promise(() => server.close())
+      }
+    }),
+  )
+
   it.live("formats an undefined browser write result as empty output", () =>
     Effect.gen(function* () {
       const server = new FakeCdpServer()
@@ -247,8 +308,9 @@ describe("opencli_run", () => {
     }),
   )
 
-  it.live("asks before running a write non-browser adapter", () =>
+  it.live("rejects write non-browser adapters before asking or running", () =>
     Effect.gen(function* () {
+      let ran = false
       cli({
         site: "pawwork-test",
         name: "write-http",
@@ -256,25 +318,24 @@ describe("opencli_run", () => {
         description: "Write non-browser test adapter",
         browser: false,
         args: [{ name: "query", required: true }],
-        func: async (args) => [{ written: args.query }],
+        func: async (args) => {
+          ran = true
+          return [{ written: args.query }]
+        },
       })
 
       try {
         const askLog: Parameters<Tool.Context["ask"]>[0][] = []
-        const result = yield* exec(OpenCliRunTool, { command: "pawwork-test/write-http", args: { query: "hello" } }, {
+        const exit = yield* exec(OpenCliRunTool, { command: "pawwork-test/write-http", args: { query: "hello" } }, {
           ask: (input) =>
             Effect.sync(() => {
               askLog.push(input)
             }),
-        })
+        }).pipe(Effect.exit)
 
-        expect(askLog[0]).toMatchObject({
-          permission: "opencli_write",
-          patterns: ["pawwork-test/write-http"],
-          always: ["pawwork-test/write-http"],
-        })
-        expect(askLog).toHaveLength(1)
-        expect(result.output).toContain('"written": "hello"')
+        expect(Exit.isFailure(exit)).toBe(true)
+        expect(askLog).toEqual([])
+        expect(ran).toBe(false)
       } finally {
         getRegistry().delete("pawwork-test/write-http")
       }
@@ -288,10 +349,14 @@ describe("opencli_run", () => {
         name: "write-defaults",
         access: "write",
         description: "Write default args test adapter",
-        browser: false,
+        browser: true,
+        domain: "example.com",
         args: [{ name: "mode", default: "safe" }],
-        func: async (args) => [{ args }],
+        func: async (_page, args) => [{ args }],
       })
+      const server = new FakeCdpServer()
+      scriptCurrentUrl(server, "https://example.com/page")
+      provideFakeHost(server)
 
       try {
         const askLog: Parameters<Tool.Context["ask"]>[0][] = []
@@ -308,9 +373,11 @@ describe("opencli_run", () => {
             args: { mode: "safe" },
           },
         })
-        expect(askLog).toHaveLength(1)
       } finally {
+        resetBrowserSessionsForTest()
+        BrowserBridge.provideHost(null)
         getRegistry().delete("pawwork-test/write-defaults")
+        yield* Effect.promise(() => server.close())
       }
     }),
   )
@@ -370,12 +437,10 @@ describe("opencli_run", () => {
     }),
   )
 
-  it.live("warns when a canceled write non-browser adapter may still be running", () =>
+  it.live("does not start write non-browser adapters that would outlive cancellation", () =>
     Effect.gen(function* () {
-      const started = yield* Deferred.make<void>()
-      const release = yield* Deferred.make<void>()
       const controller = new AbortController()
-      let completed = false
+      let started = false
       cli({
         site: "pawwork-test",
         name: "slow-write-http",
@@ -384,29 +449,20 @@ describe("opencli_run", () => {
         browser: false,
         args: [],
         func: async () => {
-          Effect.runFork(Deferred.succeed(started, undefined))
-          await Effect.runPromise(Deferred.await(release))
-          completed = true
+          started = true
           return []
         },
       })
 
       try {
-        const fiber = yield* exec(OpenCliRunTool, { command: "pawwork-test/slow-write-http", args: {} }, {
+        const exit = yield* exec(OpenCliRunTool, { command: "pawwork-test/slow-write-http", args: {} }, {
           abort: controller.signal,
-        }).pipe(Effect.forkChild)
-        yield* Deferred.await(started)
+        }).pipe(Effect.exit)
         controller.abort()
-        const exit = yield* Fiber.await(fiber)
 
         expect(Exit.isFailure(exit)).toBe(true)
-        expect(completed).toBe(false)
-        if (Exit.isFailure(exit)) {
-          const error = Cause.squash(exit.cause)
-          expect(error instanceof Error ? error.message : String(error)).toContain("may still be running")
-        }
+        expect(started).toBe(false)
       } finally {
-        yield* Deferred.succeed(release, undefined).pipe(Effect.ignore)
         getRegistry().delete("pawwork-test/slow-write-http")
       }
     }),

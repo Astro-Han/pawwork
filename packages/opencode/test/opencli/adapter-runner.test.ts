@@ -94,6 +94,104 @@ describe("opencli adapter runner", () => {
     expect(func).toHaveBeenCalledWith(expect.objectContaining({ goto: expect.any(Function) }), { query: "pawwork" }, false)
   })
 
+  test("asks browser permission before adapter-initiated navigation", async () => {
+    const page = {
+      goto: mock(async () => {}),
+      getCurrentUrl: mock(async () => "https://example.com/start"),
+    }
+    const command = {
+      site: "demo",
+      name: "nav",
+      access: "read",
+      description: "demo",
+      browser: true,
+      args: [],
+      func: async (adapterPage: IPage) => {
+        await adapterPage.goto("https://example.com/admin/users")
+        return "done"
+      },
+    } satisfies CliCommand
+    const asked: string[][] = []
+
+    await expect(
+      runOpenCliAdapterCommand(command, page as unknown as IPage, {}, {
+        askBrowserPermission: async (patterns) => {
+          asked.push(patterns)
+          if (patterns.includes("https://example.com/admin/users")) throw new Error("denied admin")
+        },
+      }),
+    ).rejects.toThrow("denied admin")
+
+    expect(page.goto).not.toHaveBeenCalledWith("https://example.com/admin/users")
+    expect(asked).toContainEqual(["https://example.com/admin/users"])
+  })
+
+  test("rechecks browser permission after adapter actions that can move the page", async () => {
+    let currentUrl = "https://example.com/safe"
+    const page = {
+      click: mock(async () => {
+        currentUrl = "https://example.com/admin/users"
+        return { matches_n: 1, match_level: "exact" as const }
+      }),
+      getCurrentUrl: mock(async () => currentUrl),
+      goto: mock(async () => {}),
+    }
+    const command = {
+      site: "demo",
+      name: "click",
+      access: "write",
+      description: "demo",
+      browser: true,
+      args: [],
+      func: async (adapterPage: IPage) => {
+        await adapterPage.click("button")
+        return "done"
+      },
+    } satisfies CliCommand
+
+    await expect(
+      runOpenCliAdapterCommand(command, page as unknown as IPage, {}, {
+        askBrowserPermission: async (patterns) => {
+          if (patterns.includes("https://example.com/admin/users")) throw new Error("denied admin")
+        },
+      }),
+    ).rejects.toThrow("denied admin")
+
+    expect(page.click).toHaveBeenCalled()
+  })
+
+  test("asks browser permission before adapter file uploads touch CDP", async () => {
+    const cdp = mock(async () => ({}))
+    const page = {
+      cdp,
+      getCurrentUrl: mock(async () => "https://example.com/admin/upload"),
+      goto: mock(async () => {}),
+      wait: mock(async () => {}),
+    }
+    const command = {
+      site: "demo",
+      name: "upload",
+      access: "write",
+      description: "demo",
+      browser: true,
+      args: [],
+      func: async (adapterPage: IPage) => {
+        await adapterPage.setFileInput?.(["/tmp/file.txt"])
+        return "done"
+      },
+    } satisfies CliCommand
+
+    await expect(
+      runOpenCliAdapterCommand(command, page as unknown as IPage, {}, {
+        askBrowserPermission: async (patterns) => {
+          if (patterns.includes("https://example.com/admin/upload")) throw new Error("denied admin")
+        },
+      }),
+    ).rejects.toThrow("denied admin")
+
+    expect(cdp).not.toHaveBeenCalled()
+  })
+
   test("resets ephemeral browser commands after execution", async () => {
     const page = {
       goto: mock(async () => {}),
