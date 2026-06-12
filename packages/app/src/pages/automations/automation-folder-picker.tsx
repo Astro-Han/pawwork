@@ -4,6 +4,7 @@ import { Popover } from "@opencode-ai/ui/popover"
 import { getFilename } from "@opencode-ai/util/path"
 import { useLanguage } from "@/context/language"
 import { workspaceKey } from "@/pages/layout/helpers"
+import { openProjectFromAutomationFolderPicker } from "./automation-folder-picker-actions"
 
 export interface AutomationProject {
   id: string
@@ -104,8 +105,7 @@ export function AutomationFolderPicker(props: {
               data-picker-item=""
               class="flex w-full items-center text-left outline-none"
               onClick={() => {
-                setOpen(false)
-                props.onOpenProject?.()
+                openProjectFromAutomationFolderPicker(setOpen, props.onOpenProject)
               }}
             >
               <Icon name="folder-add-left" class="shrink-0 text-fg-weak" />

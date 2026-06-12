@@ -73,6 +73,18 @@ describe("createPawworkRoutingActions", () => {
     })
   })
 
+  test("openProject can open a project without navigating away from the current surface", () => {
+    createRoot((dispose) => {
+      const { input, calls } = setup()
+      const actions = createPawworkRoutingActions(input)
+      actions.openProject("/repo", false)
+      expect(calls.projectsOpen).toEqual(["/repo"])
+      expect(calls.navigate).toEqual([])
+      expect(calls.touch).toEqual([])
+      dispose()
+    })
+  })
+
   test("syncSessionRoute returns root, marks viewed, expands the directory, and schedules the scroll via rAF", () => {
     const originalRAF = globalThis.requestAnimationFrame
     // Run the rAF callback synchronously so the scheduled scroll is observable;
