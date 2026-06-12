@@ -647,6 +647,26 @@ test("automations panel: detail project picker stays available with one open pro
   await expect(menu.locator('[data-action="automation-folder-open-project"]')).toBeVisible()
 })
 
+test("automations panel: continue automation project stays read-only", async ({ page, project, assistant }) => {
+  test.setTimeout(120_000)
+
+  await project.open()
+  await assistant.tool("automate", {
+    title: "Continue project loop",
+    prompt: "Keep checking the same conversation.",
+    cron: "0 8 * * *",
+    continueSession: true,
+  })
+  await project.prompt("Loop this conversation every morning.")
+
+  const surface = await openAutomations(page)
+  await surface.locator('[data-action="automation-row"]', { hasText: "Continue project loop" }).first().click()
+
+  const detail = surface.locator('[data-component="automation-detail"]')
+  await expect(detail).toBeVisible()
+  await expect(detail.locator('[data-action="automation-edit-project"]')).toHaveCount(0)
+})
+
 test("automations panel: a rhythm the picker cannot express is read-only", async ({ page, project }) => {
   test.setTimeout(120_000)
 
