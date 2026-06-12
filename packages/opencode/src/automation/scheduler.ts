@@ -570,7 +570,7 @@ export namespace AutomationScheduler {
       ownsTimers = true
       ownerRescanTimer = setInterval(() => void requestScan(), ownerRescanMs)
       ownerRescanTimer.unref?.()
-      void requestScan()
+      await requestScan()
     }
 
     const settleOwner = () => {

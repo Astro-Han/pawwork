@@ -83,7 +83,7 @@ export async function listen(opts: {
   const built = create(opts)
   const server = await built.runtime.listen(opts)
   const automationScheduler = AutomationScheduler.current()
-  void automationScheduler.settleOwner()
+  await automationScheduler.settleOwner()
 
   const next = new URL("http://localhost")
   next.hostname = opts.hostname

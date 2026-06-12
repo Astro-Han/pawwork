@@ -375,6 +375,32 @@ describe("automation scheduler", () => {
     scheduler.stop()
   })
 
+  test("owner settle waits for the initial closed-project scan", async () => {
+    await using tmp = await tmpdir({ git: true })
+    let automationID = ""
+    await Instance.provide({
+      directory: tmp.path,
+      fn: () => {
+        const definition = Automation.create(cronInput(Instance.project.id, "* * * * *"), { now: 0 })
+        automationID = definition.id
+      },
+    })
+    await Instance.disposeAll({ mode: "force" })
+
+    const clock = new FakeClock(120_000)
+    const scheduler = AutomationScheduler.make({
+      clock,
+      ownerKey: `automation-scheduler-test-${Date.now()}-${Math.random()}`,
+      ownerRetryMs: 60_000,
+    })
+    await scheduler.settleOwner()
+
+    const after = Automation.listAll().find((item) => item.definition.id === automationID)?.definition
+    scheduler.stop()
+    if (!after || after.kind !== "recurring") throw new Error("recurring")
+    expect(after.nextFireAt).toBe(180_000)
+  })
+
   test("schedules recurring automations created through the automate tool", async () => {
     await withAutomation(async (projectID) => {
       const clock = new FakeClock(0)
