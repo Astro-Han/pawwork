@@ -10,6 +10,24 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const dir = path.resolve(__dirname, "..")
 
+const OPENCLI_EXTERNALS = [
+  "@jackwener/opencli",
+  "@jackwener/opencli/browser/cdp",
+  "@jackwener/opencli/browser/page",
+  "@jackwener/opencli/browser/utils",
+  "@jackwener/opencli/download",
+  "@jackwener/opencli/download/article-download",
+  "@jackwener/opencli/download/media-download",
+  "@jackwener/opencli/download/progress",
+  "@jackwener/opencli/errors",
+  "@jackwener/opencli/launcher",
+  "@jackwener/opencli/logger",
+  "@jackwener/opencli/pipeline",
+  "@jackwener/opencli/registry",
+  "@jackwener/opencli/types",
+  "@jackwener/opencli/utils",
+]
+
 process.chdir(dir)
 
 await import("./generate.ts")
@@ -55,7 +73,7 @@ await Bun.build({
   outdir: "./dist/node",
   format: "esm",
   sourcemap: "linked",
-  external: ["jsonc-parser", "@lydell/node-pty"],
+  external: ["jsonc-parser", "@lydell/node-pty", ...OPENCLI_EXTERNALS],
   define: {
     OPENCODE_VERSION: `'${Script.version}'`,
     OPENCODE_PLUGIN_VERSION: `'${pluginPkg.version}'`,
