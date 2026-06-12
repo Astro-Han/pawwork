@@ -7,6 +7,8 @@ import { prepareOpenCliCommandArgs, runOpenCliAdapterCommand } from "@/opencli/a
 import { browserAlwaysPatterns } from "./browser-shared"
 import { browserPageProbe, withBrowserPage } from "@/browser/session"
 
+const OPENCLI_RUN_TIMEOUT_MS = 60_000
+
 export const Parameters = Schema.Struct({
   command: Schema.String.annotate({
     description: "Exact OpenCLI adapter command name, for example 'hackernews/search' or '12306/me'.",
@@ -90,6 +92,33 @@ function formatAdapterOutput(value: unknown): string {
   return JSON.stringify(value, null, 2)
 }
 
+async function runNonBrowserCommand(
+  command: NonNullable<Awaited<ReturnType<typeof openCliCommand>>>,
+  args: Record<string, unknown>,
+  abort: AbortSignal,
+) {
+  const commandName = fullName(command)
+  if (abort.aborted) throw new Error(`OpenCLI ${commandName} was canceled.`)
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let onAbort: (() => void) | undefined
+  const interrupted = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`OpenCLI ${commandName} timed out after ${OPENCLI_RUN_TIMEOUT_MS}ms.`)),
+      OPENCLI_RUN_TIMEOUT_MS,
+    )
+    onAbort = () => reject(new Error(`OpenCLI ${commandName} was canceled.`))
+    abort.addEventListener("abort", onAbort, { once: true })
+  })
+  const running = runOpenCliAdapterCommand(command, null, args)
+  running.catch(() => {})
+  try {
+    return await Promise.race([running, interrupted])
+  } finally {
+    clearTimeout(timer)
+    if (onAbort) abort.removeEventListener("abort", onAbort)
+  }
+}
+
 export const OpenCliRunTool = Tool.define(
   "opencli_run",
   Effect.gen(function* () {
@@ -108,17 +137,16 @@ export const OpenCliRunTool = Tool.define(
             )
           }
           const args = prepareOpenCliCommandArgs(command, params.args ?? {})
+          if (command.access === "write") yield* askOpenCliWritePermission(ctx, command)
           if (command.browser !== false) {
             const patterns = commandKnownBrowserPermissionPatterns(command)
             if (patterns.length > 0) yield* askBrowserPermission(ctx, command, patterns)
             else yield* askCurrentBrowserPagePermission(ctx, command)
-          } else if (command.access === "write") {
-            yield* askOpenCliWritePermission(ctx, command)
           }
 
           const value = command.browser === false
             ? yield* Effect.tryPromise({
-                try: () => runOpenCliAdapterCommand(command, null, args),
+                try: () => runNonBrowserCommand(command, args, ctx.abort),
                 catch: (err) => (err instanceof Error ? err : new Error(String(err))),
               })
             : yield* Effect.tryPromise({

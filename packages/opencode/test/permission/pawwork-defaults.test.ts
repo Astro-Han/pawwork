@@ -39,6 +39,7 @@ test("build agent uses PawWork permission defaults", async () => {
       // defaults to allow — the embedded browser is local and fully visible,
       // which is the safety net; permission.browser rules tighten per URL.
       expect(Permission.evaluate("browser", "https://example.com/page", build!.permission).action).toBe("allow")
+      expect(Permission.evaluate("opencli_write", "spotify/play", build!.permission).action).toBe("ask")
       expect(Permission.evaluate("question", "*", build!.permission).action).toBe("allow")
       expect(Permission.evaluate("plan_enter", "*", build!.permission).action).toBe("allow")
       expect(Permission.evaluate("plan_exit", "*", build!.permission).action).toBe("deny")

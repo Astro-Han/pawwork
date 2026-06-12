@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto"
 import { executePipeline } from "@jackwener/opencli/pipeline"
 import { fullName, type Arg, type CliCommand, type CommandArgs, type IPage, type SiteSessionMode } from "@jackwener/opencli/registry"
 
@@ -174,27 +173,18 @@ export async function shouldRunOpenCliPreNav(
   return !urlMatchesDomain(currentUrl, cmd.domain)
 }
 
-export function resolveOpenCliSiteSession(cmd: CliCommand, override?: string): SiteSessionMode {
-  if (override === "ephemeral" || override === "persistent") return override
-  if (override !== undefined && override !== "") {
-    throw new OpenCliArgumentError(`siteSession must be one of: ephemeral, persistent. Received: "${override}"`)
-  }
+function resolveOpenCliSiteSession(cmd: CliCommand): SiteSessionMode {
   return cmd.siteSession ?? "ephemeral"
-}
-
-export function openCliAdapterSessionID(cmd: CliCommand, siteSession: SiteSessionMode) {
-  if (siteSession === "persistent") return `site:${cmd.site}`
-  return `site:${cmd.site}:${randomUUID()}`
 }
 
 export async function runOpenCliAdapterCommand(
   cmd: CliCommand,
   page: IPage | null,
   kwargs: CommandArgs,
-  options: { debug?: boolean; siteSession?: SiteSessionMode } = {},
+  options: { debug?: boolean } = {},
 ): Promise<unknown> {
   const debug = options.debug ?? false
-  const siteSession = options.siteSession ?? resolveOpenCliSiteSession(cmd)
+  const siteSession = resolveOpenCliSiteSession(cmd)
   const adapterPage = page ? createOpenCliAdapterPage(cmd, page) : null
   const preNavUrl = resolveOpenCliPreNav(cmd)
   if (preNavUrl) {

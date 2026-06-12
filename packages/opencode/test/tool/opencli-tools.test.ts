@@ -1,7 +1,7 @@
 import { describe, expect } from "bun:test"
 import { cli, getRegistry } from "@jackwener/opencli/registry"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
-import { Effect, Layer, type Schema } from "effect"
+import { Cause, Deferred, Effect, Exit, Fiber, Layer, type Schema } from "effect"
 import { Agent } from "../../src/agent/agent"
 import { BrowserBridge } from "../../src/browser/browser-bridge"
 import { provideTmpdirInstance } from "../fixture/fixture"
@@ -112,6 +112,11 @@ describe("opencli_run", () => {
         }).pipe(Effect.exit)
 
         expect(askLog[0]).toMatchObject({
+          permission: "opencli_write",
+          patterns: ["pawwork-test/current-page"],
+          always: ["pawwork-test/current-page"],
+        })
+        expect(askLog[1]).toMatchObject({
           permission: "browser",
           patterns: ["http://localhost:5173/codex"],
         })
@@ -215,6 +220,44 @@ describe("opencli_run", () => {
         expect(result.output).toContain('"written": "hello"')
       } finally {
         getRegistry().delete("pawwork-test/write-http")
+      }
+    }),
+  )
+
+  it.live("aborts a non-browser adapter without waiting forever", () =>
+    Effect.gen(function* () {
+      const started = yield* Deferred.make<void>()
+      const controller = new AbortController()
+      cli({
+        site: "pawwork-test",
+        name: "slow-http",
+        access: "read",
+        description: "Slow non-browser test adapter",
+        browser: false,
+        args: [],
+        func: async () => {
+          Effect.runFork(Deferred.succeed(started, undefined))
+          return await new Promise(() => {})
+        },
+      })
+
+      try {
+        const fiber = yield* exec(OpenCliRunTool, { command: "pawwork-test/slow-http", args: {} }, {
+          abort: controller.signal,
+        }).pipe(Effect.forkChild)
+        yield* Deferred.await(started)
+        controller.abort()
+        const exit = yield* Fiber.await(fiber)
+
+        expect(Exit.isFailure(exit)).toBe(true)
+        if (Exit.isFailure(exit)) {
+          const error = Cause.squash(exit.cause)
+          expect(error instanceof Error ? error.message : String(error)).toContain(
+            "OpenCLI pawwork-test/slow-http was canceled",
+          )
+        }
+      } finally {
+        getRegistry().delete("pawwork-test/slow-http")
       }
     }),
   )
