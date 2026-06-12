@@ -8,6 +8,14 @@ type TodoSyncOptions = {
   reason?: TodoHydrateReason
 }
 
+const STALE_SESSION_FORCE_REFRESH_DELAY_MS = 500
+
+function isSessionPrefetchStale(directory: string, sessionID: string) {
+  const info = getSessionPrefetch(directory, sessionID)
+  if (!info) return true
+  return Date.now() - info.at > SESSION_PREFETCH_TTL
+}
+
 export function useSessionRefreshEffects(input: {
   directory: () => string
   routeSessionID: () => string | undefined
@@ -129,7 +137,7 @@ export function useSessionRefreshEffects(input: {
   }
 
   createEffect(
-    on([input.directory, input.routeSessionID] as const, ([, id]) => {
+    on([input.directory, input.routeSessionID] as const, ([directory, id]) => {
       if (refreshFrame !== undefined) cancelAnimationFrame(refreshFrame)
       if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
       refreshFrame = undefined
@@ -137,26 +145,23 @@ export function useSessionRefreshEffects(input: {
       if (!id) return
 
       const cached = untrack(() => input.hasMessageCache(id))
-      const stale = !cached
-        ? false
-        : (() => {
-            const info = getSessionPrefetch(input.directory(), id)
-            if (!info) return true
-            return Date.now() - info.at > SESSION_PREFETCH_TTL
-          })()
       untrack(() => {
         syncSessionWithDiagnostics(id, undefined, cached)
       })
+
+      if (!cached || !isSessionPrefetchStale(directory, id)) return
 
       refreshFrame = requestAnimationFrame(() => {
         refreshFrame = undefined
         refreshTimer = window.setTimeout(() => {
           refreshTimer = undefined
-          if (input.routeSessionID() !== id) return
+          if (input.directory() !== directory || input.routeSessionID() !== id) return
           untrack(() => {
-            if (stale) syncSessionWithDiagnostics(id, { force: true }, cached)
+            const currentCached = input.hasMessageCache(id)
+            if (!currentCached || !isSessionPrefetchStale(directory, id)) return
+            syncSessionWithDiagnostics(id, { force: true }, currentCached)
           })
-        }, 0)
+        }, STALE_SESSION_FORCE_REFRESH_DELAY_MS)
       })
     }),
   )
