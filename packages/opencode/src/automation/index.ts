@@ -737,14 +737,23 @@ export namespace Automation {
   ): Definition | undefined {
     if (run.state !== "succeeded" && run.state !== "failed" && run.state !== "stopped") return undefined
     const now = options?.now ?? Date.now()
-    const scope = options?.scope ?? currentScope()
+    let scope = options?.scope ?? currentScope()
     // Retry on revision conflict: a concurrent write (e.g. pause/update) may
     // have advanced the row between our read and our update. Re-read the
     // latest definition and recompute failureStreak + derived fields against
     // it, otherwise we silently drop the run's outcome and the user sees a
     // stale nextFireAt / failureStreak.
     for (let attempt = 0; attempt < 3; attempt++) {
-      const previous = getOptional(run.automationID, scope)
+      let previous = getOptional(run.automationID, scope)
+      if (!previous) {
+        try {
+          scope = getScope(run.automationID)
+          previous = getOptional(run.automationID, scope)
+        } catch (error) {
+          if (NotFoundError.isInstance(error)) return undefined
+          throw error
+        }
+      }
       if (!previous || previous.kind !== "recurring") return undefined
       const failureStreak =
         run.state === "succeeded" ? 0 : run.state === "failed" ? previous.failureStreak + 1 : previous.failureStreak

@@ -256,26 +256,38 @@ export namespace AutomationScheduler {
       Automation.publishRunUpdatedForScope(run, scope)
     }
 
+    const currentDefinitionScope = (automationID: string, fallback: Automation.Scope) => {
+      try {
+        return Automation.getScope(automationID)
+      } catch (error) {
+        if (NotFoundError.isInstance(error)) return fallback
+        throw error
+      }
+    }
+
     const refreshScopedRunOutcome = (run: Automation.Run, scope: Automation.Scope) => {
-      if (!ownsTimers) return
+      if (!ownsTimers) return scope
       try {
         const refreshed = Automation.recordRunOutcome(run, {
           now: clock.now(),
           refreshOnStopped: true,
           scope,
         })
-        if (!refreshed) return
+        if (!refreshed) return currentDefinitionScope(run.automationID, scope)
+        const refreshedScope = currentDefinitionScope(refreshed.id, scope)
         selfPublishedDefinitionUpdates.add(selfUpdateKey(refreshed))
-        Automation.publishDefinitionUpdatedForScope(refreshed, scope)
+        Automation.publishDefinitionUpdatedForScope(refreshed, refreshedScope)
+        return refreshedScope
       } catch (error) {
         if (!NotFoundError.isInstance(error)) log.error("automation derived field update failed", { error, automationID: run.automationID })
+        return scope
       }
     }
 
     const publishScopedStoppedRun = (run: Automation.Run, scope: Automation.Scope, options?: { scheduleNext?: boolean }) => {
-      refreshScopedRunOutcome(run, scope)
+      const refreshedScope = refreshScopedRunOutcome(run, scope)
       publishScopedRunUpdated(run, scope)
-      if (options?.scheduleNext) scheduleNextInterval(run.automationID, scope)
+      if (options?.scheduleNext) scheduleNextInterval(run.automationID, refreshedScope)
     }
 
     const fire = async (automationID: string, triggeredAt: number) => {
@@ -444,11 +456,12 @@ export namespace AutomationScheduler {
       if (payload.type === Automation.Event.RunUpdated.type) {
         const run = Automation.Run.parse(payload.properties)
         if (selfPublishedRunUpdates.delete(run.id)) return
-        runScoped(event, () => {
+        runScoped(event, (scope) => {
           if (run.state === "scheduled" || run.state === "running" || run.state === "awaiting_input") return
           const wasOwned = ownedRuns.delete(run.id)
           const wasSchedulerStopped = schedulerStoppedRuns.delete(run.id)
           if (run.state === "stopped" && !wasOwned && !wasSchedulerStopped) return
+          let nextScope = scope
           if (ownsTimers) {
             try {
               const refreshed = Automation.recordRunOutcome(run, {
@@ -456,18 +469,18 @@ export namespace AutomationScheduler {
                 refreshOnStopped: Boolean(wasOwned) || wasSchedulerStopped,
               })
               if (refreshed) {
+                nextScope = currentDefinitionScope(refreshed.id, scope)
                 const key = selfUpdateKey(refreshed)
                 selfPublishedDefinitionUpdates.add(key)
-                void Automation.publishDefinitionUpdated(refreshed).catch((error) => {
-                  selfPublishedDefinitionUpdates.delete(key)
-                  log.error("automation derived field publish failed", { error, automationID: refreshed.id })
-                })
+                Automation.publishDefinitionUpdatedForScope(refreshed, nextScope)
+              } else {
+                nextScope = currentDefinitionScope(run.automationID, scope)
               }
             } catch (error) {
               if (!NotFoundError.isInstance(error)) log.error("automation derived field update failed", { error, automationID: run.automationID })
             }
           }
-          scheduleNextInterval(run.automationID)
+          scheduleNextInterval(run.automationID, nextScope)
         })
         return
       }

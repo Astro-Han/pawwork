@@ -1130,6 +1130,73 @@ describe("automation scheduler", () => {
     })
   })
 
+  test("run update from the old scope refreshes a moved recurring automation", async () => {
+    await using source = await tmpdir({ git: true })
+    await using target = await tmpdir({ git: true })
+    let targetProjectID: ProjectID | undefined
+    await Instance.provide({
+      directory: target.path,
+      fn: () => {
+        targetProjectID = Instance.project.id
+      },
+    })
+    await Instance.disposeAll({ mode: "force" })
+
+    let automationID = ""
+    let sourceScope: Automation.Scope | undefined
+    let failedRun: Automation.Run | undefined
+    await Instance.provide({
+      directory: source.path,
+      fn: async () => {
+        if (!targetProjectID) throw new Error("target project")
+        sourceScope = Automation.currentScope()
+        const created = Automation.create(recurringInput(Instance.project.id, 60_000), { now: 0 })
+        if (created.kind !== "recurring") throw new Error("recurring")
+        automationID = created.id
+
+        await Automation.runNowExecuting(created.id, {
+          now: 1_000,
+          executor: async ({ run }) => {
+            const running = Automation.markRunStarted(run, SessionID.descending(), { now: 1_000 })
+            await Automation.publishRunUpdated(running)
+            throw new Error("kaboom")
+          },
+        }).catch(() => undefined)
+        failedRun = (await waitForFailedRunCount(created.id, 1)).find((run) => run.state === "failed")
+        if (!failedRun) throw new Error("failed run")
+
+        const beforeMove = Automation.get(created.id)
+        if (beforeMove.kind !== "recurring") throw new Error("recurring before move")
+        expect(beforeMove.failureStreak).toBe(0)
+        expect(beforeMove.nextFireAt).toBe(created.nextFireAt)
+
+        Automation.update(created.id, { where: { projectID: targetProjectID } }, { now: 1_400 })
+        expect(() => Automation.get(created.id)).toThrow()
+      },
+    })
+
+    const clock = new FakeClock(1_500)
+    const scheduler = AutomationScheduler.make({ clock })
+    if (!sourceScope || !failedRun) throw new Error("missing moved run fixture")
+    Automation.publishRunUpdatedForScope(failedRun, sourceScope)
+
+    const deadline = Date.now() + 3_000
+    let latest: Automation.Definition | undefined
+    while (Date.now() < deadline) {
+      latest = await Instance.provide({
+        directory: target.path,
+        fn: () => Automation.get(automationID),
+      })
+      if (latest.kind === "recurring" && latest.failureStreak === 1 && latest.nextFireAt !== null && latest.nextFireAt > 60_000) break
+      await Bun.sleep(5)
+    }
+    scheduler.stop()
+
+    if (!latest || latest.kind !== "recurring") throw new Error("recurring after move")
+    expect(latest.failureStreak).toBe(1)
+    expect(latest.nextFireAt).toBeGreaterThan(60_000)
+  })
+
   test("recordRunOutcome stays consistent across concurrent revision bumps", async () => {
     await withAutomation(async (projectID) => {
       const created = Automation.create(recurringInput(projectID, 60_000), { now: 0 })
