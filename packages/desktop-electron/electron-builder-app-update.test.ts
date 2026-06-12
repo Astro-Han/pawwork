@@ -106,6 +106,20 @@ describe("electron builder app-update config", () => {
     )
   })
 
+  test("third-party notices include bundled OpenCLI attribution", () => {
+    const notices = readFileSync(join(import.meta.dir, "../..", "THIRD_PARTY_NOTICES.md"), "utf8")
+    const opencodePackage = JSON.parse(
+      readFileSync(join(import.meta.dir, "..", "opencode", "package.json"), "utf8"),
+    ) as { dependencies: Record<string, string> }
+    const openCliVersion = opencodePackage.dependencies["@jackwener/opencli"]
+
+    expect(notices).toContain("## OpenCLI")
+    expect(notices).toContain("https://github.com/jackwener/opencli")
+    expect(notices).toContain("`@jackwener/opencli`")
+    expect(notices).toContain(`Version: ${openCliVersion}`)
+    expect(notices).toContain("Apache License 2.0")
+  })
+
   test("native watcher package list covers desktop targets", () => {
     expect(nativeWatcherPackageNames()).toEqual([
       "@parcel/watcher-darwin-arm64",
