@@ -4,10 +4,10 @@ import * as Tool from "./tool"
 import DESCRIPTION from "./opencli-run.txt"
 import { openCliCommand } from "@/opencli/adapter-registry"
 import { prepareOpenCliCommandArgs, runOpenCliAdapterCommand } from "@/opencli/adapter-runner"
-import { browserAlwaysPatterns } from "./browser-shared"
-import { browserPageProbe, withBrowserPage } from "@/browser/session"
+import { runBrowserAction } from "./browser-shared"
 
 const OPENCLI_RUN_TIMEOUT_MS = 60_000
+type OpenCliCommand = NonNullable<Awaited<ReturnType<typeof openCliCommand>>>
 
 export const Parameters = Schema.Struct({
   command: Schema.String.annotate({
@@ -18,7 +18,7 @@ export const Parameters = Schema.Struct({
   }),
 })
 
-function commandKnownBrowserPermissionPatterns(command: NonNullable<Awaited<ReturnType<typeof openCliCommand>>>): string[] {
+function commandKnownBrowserPermissionPatterns(command: OpenCliCommand): string[] {
   if (typeof command.navigateBefore !== "string") return []
   const patterns: string[] = []
   try {
@@ -30,7 +30,7 @@ function commandKnownBrowserPermissionPatterns(command: NonNullable<Awaited<Retu
   return [...new Set(patterns)]
 }
 
-function commandMetadata(command: NonNullable<Awaited<ReturnType<typeof openCliCommand>>>) {
+function commandMetadata(command: OpenCliCommand) {
   return {
     action: "opencli_run",
     command: fullName(command),
@@ -39,45 +39,7 @@ function commandMetadata(command: NonNullable<Awaited<ReturnType<typeof openCliC
   }
 }
 
-function askBrowserPermission(
-  ctx: Tool.Context,
-  command: NonNullable<Awaited<ReturnType<typeof openCliCommand>>>,
-  patterns: string[],
-  metadata: Record<string, unknown> = {},
-) {
-  return ctx.ask({
-    permission: "browser",
-    patterns,
-    always: browserAlwaysPatterns(patterns),
-    metadata: { ...commandMetadata(command), ...metadata },
-  })
-}
-
-function askCurrentBrowserPagePermission(
-  ctx: Tool.Context,
-  command: NonNullable<Awaited<ReturnType<typeof openCliCommand>>>,
-) {
-  return Effect.gen(function* () {
-    const probe = yield* Effect.tryPromise({
-      try: () => browserPageProbe(ctx.sessionID),
-      catch: (err) => (err instanceof Error ? err : new Error(String(err))),
-    })
-    const patterns = [probe.url ?? "*"]
-    yield* askBrowserPermission(ctx, command, patterns)
-    const recheck = yield* Effect.tryPromise({
-      try: () => browserPageProbe(ctx.sessionID),
-      catch: (err) => (err instanceof Error ? err : new Error(String(err))),
-    })
-    if (recheck.url !== probe.url) {
-      yield* askBrowserPermission(ctx, command, [recheck.url ?? "*"], { movedFrom: probe.url ?? undefined })
-    }
-  })
-}
-
-function askOpenCliWritePermission(
-  ctx: Tool.Context,
-  command: NonNullable<Awaited<ReturnType<typeof openCliCommand>>>,
-) {
+function askOpenCliWritePermission(ctx: Tool.Context, command: OpenCliCommand) {
   const commandName = fullName(command)
   return ctx.ask({
     permission: "opencli_write",
@@ -93,7 +55,7 @@ function formatAdapterOutput(value: unknown): string {
 }
 
 async function runNonBrowserCommand(
-  command: NonNullable<Awaited<ReturnType<typeof openCliCommand>>>,
+  command: OpenCliCommand,
   args: Record<string, unknown>,
   abort: AbortSignal,
 ) {
@@ -119,6 +81,18 @@ async function runNonBrowserCommand(
   }
 }
 
+function runBrowserCommand(command: OpenCliCommand, args: Record<string, unknown>, ctx: Tool.Context) {
+  const patterns = commandKnownBrowserPermissionPatterns(command)
+  return runBrowserAction({
+    ctx,
+    label: `opencli ${fullName(command)}`,
+    patterns: patterns.length > 0 ? patterns : undefined,
+    metadata: commandMetadata(command),
+    timeoutMs: OPENCLI_RUN_TIMEOUT_MS,
+    run: (page) => runOpenCliAdapterCommand(command, page, args),
+  })
+}
+
 export const OpenCliRunTool = Tool.define(
   "opencli_run",
   Effect.gen(function* () {
@@ -138,25 +112,13 @@ export const OpenCliRunTool = Tool.define(
           }
           const args = prepareOpenCliCommandArgs(command, params.args ?? {})
           if (command.access === "write") yield* askOpenCliWritePermission(ctx, command)
-          if (command.browser !== false) {
-            const patterns = commandKnownBrowserPermissionPatterns(command)
-            if (patterns.length > 0) yield* askBrowserPermission(ctx, command, patterns)
-            else yield* askCurrentBrowserPagePermission(ctx, command)
-          }
 
           const value = command.browser === false
             ? yield* Effect.tryPromise({
                 try: () => runNonBrowserCommand(command, args, ctx.abort),
                 catch: (err) => (err instanceof Error ? err : new Error(String(err))),
               })
-            : yield* Effect.tryPromise({
-                try: () =>
-                  withBrowserPage(ctx.sessionID, `opencli ${fullName(command)}`, (page) =>
-                    runOpenCliAdapterCommand(command, page, args),
-                    { timeoutMs: 60_000, abort: ctx.abort },
-                  ),
-                catch: (err) => (err instanceof Error ? err : new Error(String(err))),
-              })
+            : yield* runBrowserCommand(command, args, ctx)
 
           return {
             title: `OpenCLI ${fullName(command)}`,

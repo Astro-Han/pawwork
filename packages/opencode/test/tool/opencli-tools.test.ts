@@ -159,6 +159,14 @@ describe("opencli_run", () => {
         args: [],
         func: async () => [],
       })
+      BrowserBridge.provideHost({
+        probeSession: async () => ({ url: "http://localhost:5173/codex" }),
+        resolveEndpoint: async () => {
+          throw new Error("no test endpoint")
+        },
+        releaseSession: async () => {},
+        disposeSession: async () => {},
+      })
 
       try {
         const askLog: Parameters<Tool.Context["ask"]>[0][] = []
@@ -174,6 +182,7 @@ describe("opencli_run", () => {
           patterns: ["https://auth.example.com/*", "https://example.com/*"],
         })
       } finally {
+        BrowserBridge.provideHost(null)
         getRegistry().delete("pawwork-test/browser-permission")
       }
     }),

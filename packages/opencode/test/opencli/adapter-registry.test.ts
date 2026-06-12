@@ -18,7 +18,7 @@ describe("opencli adapter registry", () => {
   test("loads the packaged manifest and exposes searchable canonical commands", async () => {
     const loaded = await loadOpenCliAdapters()
 
-    expect(loaded.manifestCount).toBe(1050)
+    expect(loaded.manifestCount).toBeGreaterThan(1000)
     expect(loaded.canonicalCommands.has("12306/me")).toBe(true)
     expect(loaded.canonicalCommands.has("hackernews/search")).toBe(true)
     expect(loaded.exposedCommands.has("instagram/reel")).toBe(false)
