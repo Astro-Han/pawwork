@@ -380,4 +380,46 @@ describe("opencli_run", () => {
       }
     }),
   )
+
+  it.live("warns when a canceled write non-browser adapter may still be running", () =>
+    Effect.gen(function* () {
+      const started = yield* Deferred.make<void>()
+      const release = yield* Deferred.make<void>()
+      const controller = new AbortController()
+      let completed = false
+      cli({
+        site: "pawwork-test",
+        name: "slow-write-http",
+        access: "write",
+        description: "Slow write non-browser test adapter",
+        browser: false,
+        args: [],
+        func: async () => {
+          Effect.runFork(Deferred.succeed(started, undefined))
+          await Effect.runPromise(Deferred.await(release))
+          completed = true
+          return []
+        },
+      })
+
+      try {
+        const fiber = yield* exec(OpenCliRunTool, { command: "pawwork-test/slow-write-http", args: {} }, {
+          abort: controller.signal,
+        }).pipe(Effect.forkChild)
+        yield* Deferred.await(started)
+        controller.abort()
+        const exit = yield* Fiber.await(fiber)
+
+        expect(Exit.isFailure(exit)).toBe(true)
+        expect(completed).toBe(false)
+        if (Exit.isFailure(exit)) {
+          const error = Cause.squash(exit.cause)
+          expect(error instanceof Error ? error.message : String(error)).toContain("may still be running")
+        }
+      } finally {
+        yield* Deferred.succeed(release, undefined).pipe(Effect.ignore)
+        getRegistry().delete("pawwork-test/slow-write-http")
+      }
+    }),
+  )
 })
