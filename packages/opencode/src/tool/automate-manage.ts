@@ -78,7 +78,7 @@ export function createAutomateManageDefinition(
 ): Tool.DefWithoutID<typeof AutomateManageParameters, Metadata> {
   return {
     description: [
-      "Manage existing PawWork Automations from the conversation. Use this when the user asks to show scheduled tasks, list reminders, pause an automation, resume an automation, or delete/remove/cancel an automation. Never use OS schedulers (crontab, cron, at, launchd, schtasks) to manage PawWork Automations.",
+      "Manage existing PawWork Automations in the current context. Use this when the user asks to show scheduled tasks, list reminders, pause an automation, resume an automation, or delete/remove/cancel an automation. Never use OS schedulers (crontab, cron, at, launchd, schtasks) to manage PawWork Automations.",
       "Use action list first when the user has not provided an exact automation id. Pause and resume are reversible and do not need confirmation. Delete is destructive and must ask the user for confirmation before removing anything.",
     ].join("\n\n"),
     parameters: AutomateManageParameters,

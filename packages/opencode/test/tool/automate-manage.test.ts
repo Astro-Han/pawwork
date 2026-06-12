@@ -6,6 +6,7 @@ import { Instance } from "../../src/project/instance"
 import { ProjectID } from "../../src/project/schema"
 import { MessageID, SessionID } from "../../src/session/schema"
 import { AutomateManageParameters, createAutomateManageDefinition } from "../../src/tool/automate-manage"
+import { toJsonSchema } from "../../src/util/effect-zod"
 import { Flock } from "../../src/util/flock"
 import { tmpdir } from "../fixture/fixture"
 import { fakeAutomationProvider } from "../fake/provider"
@@ -71,6 +72,29 @@ describe("automate_manage tool", () => {
     })
 
     expect(decoded).toEqual({ action: "pause", id: "aut_123" })
+  })
+
+  test("description and schema carry the model-facing management contract", () => {
+    const definition = tool()
+    expect(definition.description).toContain("current context")
+    expect(definition.description).toContain("exact automation id")
+    expect(definition.description).toContain("confirmation")
+    expect(definition.description).toContain("Never use OS schedulers")
+    for (const action of ["list", "pause", "resume", "delete"]) {
+      expect(definition.description).toContain(action)
+    }
+
+    const schema = toJsonSchema(AutomateManageParameters) as {
+      properties: Record<string, { description?: string }>
+    }
+    expect(schema.properties.action.description).toContain("list")
+    expect(schema.properties.action.description).toContain("pause")
+    expect(schema.properties.action.description).toContain("resume")
+    expect(schema.properties.action.description).toContain("delete")
+    expect(schema.properties.id.description).toContain("Exact automation id")
+    expect(schema.properties.id.description).toContain("pause")
+    expect(schema.properties.id.description).toContain("resume")
+    expect(schema.properties.id.description).toContain("delete")
   })
 
   test("lists current-scope automations with ids and schedules", async () => {
