@@ -981,6 +981,61 @@ describe("automation scheduler", () => {
     })
   })
 
+  test("keeps a preserved recurring timer scoped to the target project after move", async () => {
+    await using source = await tmpdir({ git: true })
+    await using target = await tmpdir({ git: true })
+    let targetScope: Automation.Scope | undefined
+    await Instance.provide({
+      directory: target.path,
+      fn: () => {
+        targetScope = Automation.currentScope()
+      },
+    })
+    await Instance.disposeAll({ mode: "force" })
+
+    const clock = new FakeClock(0)
+    const startedIn: string[] = []
+    let scheduler: AutomationScheduler.Interface | undefined
+    let automationID = ""
+    try {
+      await Instance.provide({
+        directory: source.path,
+        fn: async () => {
+          if (!targetScope) throw new Error("target scope")
+          const sourceScope = Automation.currentScope()
+          const definition = Automation.create(recurringInput(sourceScope.projectID, 60_000), { now: 0 })
+          automationID = definition.id
+          scheduler = AutomationScheduler.make({
+            clock,
+            executor: async () => {
+              startedIn.push(Instance.directory)
+              return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+            },
+          })
+
+          scheduler.reschedule(definition, sourceScope)
+          await clock.advance(30_000)
+          const moved = Automation.update(definition.id, { where: { projectID: targetScope.projectID } }, { now: clock.now() })
+          scheduler.reschedule(moved, targetScope)
+          expect(() => Automation.get(definition.id)).toThrow()
+        },
+      })
+
+      await clock.advance(30_000)
+      await Instance.provide({
+        directory: target.path,
+        fn: async () => {
+          const runs = await waitForRunStates(automationID, ["succeeded"])
+          expect(runs[0].triggeredAt).toBe(60_000)
+        },
+      })
+
+      expect(startedIn).toEqual([target.path])
+    } finally {
+      scheduler?.stop()
+    }
+  })
+
   test("does not schedule a recurring timer while its scheduled run is active", async () => {
     await withAutomation(async (projectID) => {
       const clock = new FakeClock(0)

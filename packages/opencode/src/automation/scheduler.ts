@@ -375,17 +375,19 @@ export namespace AutomationScheduler {
       })
     }
 
-    const preservePendingSchedule = (definition: Automation.Definition) => {
+    const preservePendingSchedule = (definition: Automation.Definition, scope: Automation.Scope) => {
       const current = tasks.get(definition.id)
       if (!current || current.fireAt <= clock.now() || !isSameSchedule(current.definition, definition)) return false
       current.definition = definition
+      current.scope = scope
       return true
     }
 
-    const preserveDueSchedule = (definition: Automation.Definition) => {
+    const preserveDueSchedule = (definition: Automation.Definition, scope: Automation.Scope) => {
       const current = tasks.get(definition.id)
       if (!current || current.fireAt > clock.now() || !isSameSchedule(current.definition, definition)) return false
       current.definition = definition
+      current.scope = scope
       return true
     }
 
@@ -401,8 +403,8 @@ export namespace AutomationScheduler {
 
     const reschedule = (definition: Automation.Definition, scope = Automation.currentScope()) => {
       if (!ownsTimers) return
-      if (preserveDueSchedule(definition)) return
-      if (isStableCronSchedule(definition) && preservePendingSchedule(definition)) return
+      if (preserveDueSchedule(definition, scope)) return
+      if (isStableCronSchedule(definition) && preservePendingSchedule(definition, scope)) return
       const cached = unschedulable.get(definition.id)
       if (cached && isSameSchedule(cached, definition)) return
       unschedulable.delete(definition.id)
@@ -434,7 +436,7 @@ export namespace AutomationScheduler {
         cancel(definition.id)
         return
       }
-      if (preservePendingSchedule(definition)) return
+      if (preservePendingSchedule(definition, scope)) return
       if (!tasks.has(definition.id) && definition.kind === "recurring" && hasSchedulerOwnedActiveRun(definition.id)) return
       schedule(definition, next, scope)
     }
