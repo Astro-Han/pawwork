@@ -111,28 +111,21 @@ export interface Interface {
   readonly create: (input: Input) => Effect.Effect<Handle>
 }
 
-type ToolCall = {
-  partID: MessageV2.ToolPart["id"]
-  messageID: MessageV2.ToolPart["messageID"]
-  sessionID: MessageV2.ToolPart["sessionID"]
+type ToolLifecycleRecord = {
+  partID?: MessageV2.ToolPart["id"]
+  messageID?: MessageV2.ToolPart["messageID"]
+  sessionID?: MessageV2.ToolPart["sessionID"]
+  partCreated: Deferred.Deferred<void>
   ready: Deferred.Deferred<void>
   done: Deferred.Deferred<void>
   attemptID?: RunObservability.AttemptID
-  materialized?: boolean
+  callMaterialized?: boolean
   executionStarted?: boolean
   executionCompleted?: boolean
   executionFailed?: boolean
-}
-
-type ToolLifecycleOutput = {
-  title: string
-  metadata: Record<string, any>
-  output: string
-  attachments?: MessageV2.FilePart[]
-}
-
-type PendingToolLifecycle = {
-  materialized: Deferred.Deferred<void>
+  executionStartedRecorded?: boolean
+  executionCompletedRecorded?: boolean
+  executionFailedRecorded?: boolean
   startedToolName?: string
   completed?: {
     output: ToolLifecycleOutput
@@ -140,6 +133,13 @@ type PendingToolLifecycle = {
   failed?: {
     error: unknown
   }
+}
+
+type ToolLifecycleOutput = {
+  title: string
+  metadata: Record<string, any>
+  output: string
+  attachments?: MessageV2.FilePart[]
 }
 
 type ToolInterruptionPhase = "tool_input_generation" | "tool_call_materialized_without_execution" | "tool_execution"
@@ -231,8 +231,7 @@ type PendingLoopAction = {
 
 interface ProcessorContext extends Input {
   directory: string
-  toolcalls: Record<string, ToolCall>
-  pendingToolLifecycles: Map<string, PendingToolLifecycle>
+  toolcalls: Record<string, ToolLifecycleRecord>
   pendingLoopActions: Record<string, PendingLoopAction>
   pendingToolUpdates: Record<string, Array<(part: MessageV2.ToolPart) => MessageV2.ToolPart>>
   shouldBreak: boolean
@@ -336,7 +335,6 @@ export const layer: Layer.Layer<
         model: input.model,
         directory: instanceContext.directory,
         toolcalls: {},
-        pendingToolLifecycles: new Map(),
         pendingLoopActions: {},
         pendingToolUpdates: {},
         shouldBreak: false,
@@ -385,19 +383,50 @@ export const layer: Layer.Layer<
           aborted,
         })
 
+      const releaseToolLifecycleWaiters = Effect.fn("SessionProcessor.releaseToolLifecycleWaiters")(function* (
+        call: ToolLifecycleRecord,
+      ) {
+        yield* Effect.all(
+          [
+            Deferred.succeed(call.partCreated, undefined),
+            Deferred.succeed(call.ready, undefined),
+            Deferred.succeed(call.done, undefined),
+          ],
+          { concurrency: "unbounded", discard: true },
+        ).pipe(Effect.ignore)
+      })
+
       const settleToolCall = Effect.fn("SessionProcessor.settleToolCall")(function* (toolCallID: string) {
         const call = ctx.toolcalls[toolCallID]
-        const ready = call?.ready
-        const done = call?.done
         delete ctx.toolcalls[toolCallID]
-        ctx.pendingToolLifecycles.delete(toolCallID)
-        if (ready) yield* Deferred.succeed(ready, undefined).pipe(Effect.ignore)
-        if (done) yield* Deferred.succeed(done, undefined).pipe(Effect.ignore)
+        if (!call) return
+        yield* releaseToolLifecycleWaiters(call)
+      })
+
+      const hasToolPart = (
+        call: ToolLifecycleRecord,
+      ): call is ToolLifecycleRecord &
+        Required<Pick<ToolLifecycleRecord, "partID" | "messageID" | "sessionID">> =>
+        call.partID !== undefined && call.messageID !== undefined && call.sessionID !== undefined
+
+      const getToolLifecycleRecord = Effect.fn("SessionProcessor.getToolLifecycleRecord")(function* (
+        toolCallID: string,
+      ) {
+        let call = ctx.toolcalls[toolCallID]
+        if (!call) {
+          call = {
+            partCreated: yield* Deferred.make<void>(),
+            ready: yield* Deferred.make<void>(),
+            done: yield* Deferred.make<void>(),
+          }
+          ctx.toolcalls[toolCallID] = call
+        }
+        return call
       })
 
       const readToolCall = Effect.fn("SessionProcessor.readToolCall")(function* (toolCallID: string) {
         const call = ctx.toolcalls[toolCallID]
-        if (!call) return
+        if (!call || !hasToolPart(call)) return
         const part = yield* session.getPart({
           partID: call.partID,
           messageID: call.messageID,
@@ -413,25 +442,6 @@ export const layer: Layer.Layer<
       const toolCallAttemptID = (toolCallID: string, fallbackAttemptID = ctx.currentAttemptID) =>
         ctx.toolcalls[toolCallID]?.attemptID ?? fallbackAttemptID
 
-      const getPendingToolLifecycle = Effect.fn("SessionProcessor.getPendingToolLifecycle")(function* (
-        toolCallID: string,
-      ) {
-        let pending = ctx.pendingToolLifecycles.get(toolCallID)
-        if (!pending) {
-          pending = { materialized: yield* Deferred.make<void>() }
-          ctx.pendingToolLifecycles.set(toolCallID, pending)
-        }
-        return pending
-      })
-
-      const resolvePendingToolLifecycle = Effect.fn("SessionProcessor.resolvePendingToolLifecycle")(function* (
-        toolCallID: string,
-      ) {
-        const pending = ctx.pendingToolLifecycles.get(toolCallID)
-        if (!pending) return
-        yield* Deferred.succeed(pending.materialized, undefined).pipe(Effect.ignore)
-      })
-
       const stopCurrentStream = Effect.fn("SessionProcessor.stopCurrentStream")(function* () {
         if (!currentStreamStopRequested) return
         yield* Deferred.succeed(currentStreamStopRequested, undefined).pipe(Effect.ignore)
@@ -441,12 +451,12 @@ export const layer: Layer.Layer<
         toolCallID: string,
       ) {
         let call = ctx.toolcalls[toolCallID]
-        if (!call) {
-          const pending = yield* getPendingToolLifecycle(toolCallID)
-          yield* Deferred.await(pending.materialized)
+        if (!call || !hasToolPart(call)) {
+          call = yield* getToolLifecycleRecord(toolCallID)
+          yield* Deferred.await(call.partCreated)
           call = ctx.toolcalls[toolCallID]
         }
-        if (!call) return
+        if (!call || !hasToolPart(call)) return
         yield* Deferred.await(call.ready)
       })
 
@@ -454,17 +464,13 @@ export const layer: Layer.Layer<
         tool: string
         toolCallID: string
       }) {
-        const call = ctx.toolcalls[input.toolCallID]
+        const call = yield* getToolLifecycleRecord(input.toolCallID)
         const attemptID = toolCallAttemptID(input.toolCallID)
-        const alreadyStarted = call?.executionStarted === true
-        if (call) {
-          call.executionStarted = true
-          call.attemptID ??= ctx.currentAttemptID
-        } else {
-          const pending = yield* getPendingToolLifecycle(input.toolCallID)
-          pending.startedToolName ??= input.tool
-        }
-        if (!attemptID || alreadyStarted) return
+        call.executionStarted = true
+        call.startedToolName ??= input.tool
+        call.attemptID ??= ctx.currentAttemptID
+        if (!attemptID || call.executionStartedRecorded) return
+        call.executionStartedRecorded = true
         ctx.runTrace.recordToolExecutionStarted({
           attemptID,
           at: Date.now(),
@@ -478,9 +484,9 @@ export const layer: Layer.Layer<
         function* (input: { toolCallID: string }) {
           const call = ctx.toolcalls[input.toolCallID]
           const attemptID = toolCallAttemptID(input.toolCallID)
-          const alreadyCompleted = call?.executionCompleted === true
           if (call) call.executionCompleted = true
-          if (!attemptID || alreadyCompleted) return
+          if (!call || !attemptID || call.executionCompletedRecorded) return
+          call.executionCompletedRecorded = true
           ctx.runTrace.recordToolCompleted({
             attemptID,
             at: Date.now(),
@@ -495,9 +501,9 @@ export const layer: Layer.Layer<
       }) {
         const call = ctx.toolcalls[input.toolCallID]
         const attemptID = toolCallAttemptID(input.toolCallID)
-        const alreadyFailed = call?.executionFailed === true
         if (call) call.executionFailed = true
-        if (!attemptID || alreadyFailed) return
+        if (!call || !attemptID || call.executionFailedRecorded) return
+        call.executionFailedRecorded = true
         ctx.runTrace.recordToolFailed({
           attemptID,
           at: Date.now(),
@@ -876,22 +882,22 @@ export const layer: Layer.Layer<
         yield* failToolCall(input.toolCallID, input.error)
       })
 
-      const flushPendingToolLifecycle = Effect.fn("SessionProcessor.flushPendingToolLifecycle")(function* (
+      const flushToolLifecycleTerminal = Effect.fn("SessionProcessor.flushToolLifecycleTerminal")(function* (
         toolCallID: string,
         options?: { waitForReady?: boolean },
       ) {
-        const pending = ctx.pendingToolLifecycles.get(toolCallID)
-        if (!pending) return
-        if (pending.completed) {
-          const completed = pending.completed
-          delete pending.completed
-          delete pending.failed
+        const call = ctx.toolcalls[toolCallID]
+        if (!call) return
+        if (call.completed) {
+          const completed = call.completed
+          delete call.completed
+          delete call.failed
           yield* applyCompletedToolLifecycle({ toolCallID, output: completed.output }, options)
           return
         }
-        if (pending.failed) {
-          const failed = pending.failed
-          delete pending.failed
+        if (call.failed) {
+          const failed = call.failed
+          delete call.failed
           yield* applyFailedToolLifecycle({ toolCallID, error: failed.error }, options)
         }
       })
@@ -900,11 +906,10 @@ export const layer: Layer.Layer<
         toolCallID: string
         output: ToolLifecycleOutput
       }) {
-        const call = ctx.toolcalls[input.toolCallID]
-        if (!call || call.materialized !== true) {
-          const pending = yield* getPendingToolLifecycle(input.toolCallID)
-          pending.completed = { output: input.output }
-          delete pending.failed
+        const call = yield* getToolLifecycleRecord(input.toolCallID)
+        if (call.callMaterialized !== true) {
+          call.completed = { output: input.output }
+          delete call.failed
           return
         }
         yield* applyCompletedToolLifecycle(input)
@@ -915,15 +920,15 @@ export const layer: Layer.Layer<
         error: unknown
       }) {
         const call = ctx.toolcalls[input.toolCallID]
-        if (call && ctx.pendingLoopActions[input.toolCallID]) {
+        if (call && hasToolPart(call) && ctx.pendingLoopActions[input.toolCallID]) {
           yield* recordToolExecutionFailed(input)
           yield* failToolCall(input.toolCallID, input.error)
           return
         }
-        if (!call || call.materialized !== true) {
-          const pending = yield* getPendingToolLifecycle(input.toolCallID)
-          pending.failed = { error: input.error }
-          delete pending.completed
+        const lifecycle = call ?? (yield* getToolLifecycleRecord(input.toolCallID))
+        if (lifecycle.callMaterialized !== true) {
+          lifecycle.failed = { error: input.error }
+          delete lifecycle.completed
           return
         }
         yield* applyFailedToolLifecycle(input)
@@ -1020,8 +1025,9 @@ export const layer: Layer.Layer<
             if (ctx.assistantMessage.summary) {
               throw new Error(`Tool call not allowed while generating summary: ${value.toolName}`)
             }
+            const lifecycle = yield* getToolLifecycleRecord(value.id)
             const part = yield* session.updatePart({
-              id: ctx.toolcalls[value.id]?.partID ?? PartID.ascending(),
+              id: lifecycle.partID ?? PartID.ascending(),
               messageID: ctx.assistantMessage.id,
               sessionID: ctx.assistantMessage.sessionID,
               type: "tool",
@@ -1030,27 +1036,25 @@ export const layer: Layer.Layer<
               state: { status: "pending", input: {}, raw: "" },
               metadata: value.providerExecuted ? { providerExecuted: true } : undefined,
             } satisfies MessageV2.ToolPart)
-            const pendingLifecycle = ctx.pendingToolLifecycles.get(value.id)
-            const executionStarted = pendingLifecycle?.startedToolName !== undefined
             ctx.toolcalls[value.id] = {
-              ready: yield* Deferred.make<void>(),
-              done: yield* Deferred.make<void>(),
+              ...lifecycle,
               partID: part.id,
               messageID: part.messageID,
               sessionID: part.sessionID,
               attemptID,
-              executionStarted,
             }
-            if (pendingLifecycle?.startedToolName) {
+            const current = ctx.toolcalls[value.id]
+            if (current.executionStarted && current.startedToolName && !current.executionStartedRecorded) {
+              current.executionStartedRecorded = true
               ctx.runTrace.recordToolExecutionStarted({
                 attemptID,
                 at: Date.now(),
                 monotonicMs: performance.now(),
-                toolName: RunObservability.safeToolName(pendingLifecycle.startedToolName),
-                effect: RunObservability.toolEffect(pendingLifecycle.startedToolName),
+                toolName: RunObservability.safeToolName(current.startedToolName),
+                effect: RunObservability.toolEffect(current.startedToolName),
               })
             }
-            yield* resolvePendingToolLifecycle(value.id)
+            yield* Deferred.succeed(current.partCreated, undefined).pipe(Effect.ignore)
             yield* applyPendingToolUpdates(value.id)
             return
 
@@ -1066,7 +1070,7 @@ export const layer: Layer.Layer<
             }
             const tracked = ctx.toolcalls[value.toolCallId]
             if (tracked) {
-              tracked.materialized = true
+              tracked.callMaterialized = true
               tracked.attemptID ??= attemptID
             }
             let running = yield* updateToolCall(value.toolCallId, (match) => ({
@@ -1088,7 +1092,7 @@ export const layer: Layer.Layer<
             const ready = ctx.toolcalls[value.toolCallId]?.ready
             if (!ctx.assistantMessage.parentID) {
               if (ready) yield* Deferred.succeed(ready, undefined).pipe(Effect.ignore)
-              yield* flushPendingToolLifecycle(value.toolCallId)
+              yield* flushToolLifecycleTerminal(value.toolCallId)
               return
             }
             const info = yield* session.get(ctx.sessionID)
@@ -1113,7 +1117,7 @@ export const layer: Layer.Layer<
             if (running) yield* session.updatePart(withDiagnostics(running))
             else yield* updateToolCall(value.toolCallId, withDiagnostics)
             if (ready) yield* Deferred.succeed(ready, undefined).pipe(Effect.ignore)
-            yield* flushPendingToolLifecycle(value.toolCallId)
+            yield* flushToolLifecycleTerminal(value.toolCallId)
             return
           }
 
@@ -1125,7 +1129,7 @@ export const layer: Layer.Layer<
           case "tool-error": {
             const tracked = ctx.toolcalls[value.toolCallId]
             if (tracked) {
-              tracked.materialized = true
+              tracked.callMaterialized = true
               tracked.attemptID ??= attemptID
             }
             yield* updateToolCall(value.toolCallId, (match) => ({
@@ -1144,7 +1148,7 @@ export const layer: Layer.Layer<
             yield* applyPendingToolUpdates(value.toolCallId)
             const ready = ctx.toolcalls[value.toolCallId]?.ready
             if (ready) yield* Deferred.succeed(ready, undefined).pipe(Effect.ignore)
-            yield* flushPendingToolLifecycle(value.toolCallId)
+            yield* flushToolLifecycleTerminal(value.toolCallId)
             yield* failToolCall(value.toolCallId, value.error)
             return
           }
@@ -1312,17 +1316,18 @@ export const layer: Layer.Layer<
         ctx.reasoningMap = {}
 
         for (const [toolCallID, call] of Object.entries(ctx.toolcalls)) {
-          if (call.executionStarted === true && call.materialized !== true) {
+          if (!hasToolPart(call)) {
+            yield* Deferred.succeed(call.partCreated, undefined).pipe(Effect.ignore)
+            continue
+          }
+          if (call.executionStarted === true && call.callMaterialized !== true) {
             yield* Deferred.succeed(call.ready, undefined).pipe(Effect.ignore)
           }
-          yield* flushPendingToolLifecycle(toolCallID)
+          yield* flushToolLifecycleTerminal(toolCallID)
         }
-        for (const [toolCallID, pending] of ctx.pendingToolLifecycles.entries()) {
-          if (ctx.toolcalls[toolCallID]) continue
-          yield* Deferred.succeed(pending.materialized, undefined).pipe(Effect.ignore)
-          ctx.pendingToolLifecycles.delete(toolCallID)
-        }
-        const callsToDrain = Object.values(ctx.toolcalls).filter((call) => aborted || call.executionStarted === true)
+        const callsToDrain = Object.values(ctx.toolcalls).filter(
+          (call) => hasToolPart(call) && (aborted || call.executionStarted === true),
+        )
         yield* Effect.forEach(
           callsToDrain,
           (call) => {
@@ -1340,8 +1345,13 @@ export const layer: Layer.Layer<
           { concurrency: "unbounded" },
         )
 
-        for (const toolCallID of Object.keys(ctx.toolcalls)) {
-          yield* flushPendingToolLifecycle(toolCallID, { waitForReady: false })
+        for (const [toolCallID, call] of Object.entries(ctx.toolcalls)) {
+          if (!hasToolPart(call)) {
+            delete ctx.toolcalls[toolCallID]
+            yield* releaseToolLifecycleWaiters(call)
+            continue
+          }
+          yield* flushToolLifecycleTerminal(toolCallID, { waitForReady: false })
         }
 
         for (const toolCallID of Object.keys(ctx.toolcalls)) {
@@ -1358,7 +1368,7 @@ export const layer: Layer.Layer<
           const metadata = "metadata" in part.state && isRecord(part.state.metadata) ? part.state.metadata : {}
           const interruptionPhase: ToolInterruptionPhase = match.call.executionStarted
             ? "tool_execution"
-            : match.call.materialized || part.state.status === "running"
+            : match.call.callMaterialized || part.state.status === "running"
               ? "tool_call_materialized_without_execution"
               : "tool_input_generation"
           // Question tool deserves a clearer post-cancel message: the LLM
@@ -1407,14 +1417,9 @@ export const layer: Layer.Layer<
         }
         const remainingCalls = Object.values(ctx.toolcalls)
         ctx.toolcalls = {}
-        ctx.pendingToolLifecycles.clear()
         yield* Effect.forEach(
           remainingCalls,
-          (call) =>
-            Effect.all([Deferred.succeed(call.ready, undefined), Deferred.succeed(call.done, undefined)], {
-              concurrency: "unbounded",
-              discard: true,
-            }).pipe(Effect.ignore),
+          (call) => releaseToolLifecycleWaiters(call),
           { concurrency: "unbounded" },
         )
         ctx.assistantMessage.time.completed = Date.now()
