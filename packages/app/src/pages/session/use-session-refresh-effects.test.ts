@@ -160,13 +160,13 @@ const mountRefreshEffects = ({
   assert(!syncedSessions[0].options?.force, "initial stale cached message sync should not be forced")
 
   frames.runFrame()
-  timers.runDue(0)
+  timers.runDue(499)
   await Promise.resolve()
-  assert(syncedSessions.length === 1, "stale cached message force should not run in the first switch tick")
+  assert(syncedSessions.length === 1, "stale cached message force should not run before 500ms")
 
-  timers.runAll()
+  timers.runDue(500)
   await Promise.resolve()
-  assert(syncedSessions.length === 2, "stale cached message force should eventually run when it remains stale")
+  assert(syncedSessions.length === 2, "stale cached message force should run at 500ms when it remains stale")
   assert(syncedSessions[1].options?.force === true, "delayed stale cached message sync should be forced")
   clearSessionPrefetch("dir-a", ["ses_stale"])
   dispose()
