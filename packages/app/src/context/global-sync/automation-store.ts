@@ -1,6 +1,6 @@
 import { produce, reconcile, type SetStoreFunction, type Store } from "solid-js/store"
 import type { AutomationDefinition, AutomationDefinitionTombstone, AutomationRun } from "@opencode-ai/sdk/v2/client"
-import type { State } from "./types"
+import type { ChildStoreTuple, State } from "./types"
 
 // Definitions and runs carry a monotonic `revision`; deletions carry a tombstone
 // revision. The HTTP list/get responses and the SSE events share that sequence,
@@ -63,6 +63,28 @@ export function applyAutomationTombstone(
   }
   setStore("automation_tombstone", incoming.id, incoming.revision)
   return true
+}
+
+export function applyAutomationMoveResult(input: {
+  source: ChildStoreTuple
+  target: ChildStoreTuple
+  automationID: string
+  targetProjectID: string
+  incoming: AutomationDefinition
+}): "source" | "target" {
+  const [sourceStore, sourceSetStore] = input.source
+  if (input.incoming.where.projectID !== input.targetProjectID) {
+    applyAutomationDefinition(sourceStore, sourceSetStore, input.incoming)
+    return "source"
+  }
+  applyAutomationTombstone(sourceStore, sourceSetStore, {
+    id: input.automationID,
+    deleted: true,
+    revision: input.incoming.revision,
+  })
+  const [targetStore, targetSetStore] = input.target
+  applyAutomationDefinition(targetStore, targetSetStore, input.incoming)
+  return "target"
 }
 
 export function applyAutomationRun(

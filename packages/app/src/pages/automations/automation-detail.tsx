@@ -218,14 +218,7 @@ export function AutomationDetail(props: {
     if (busy() || project.id === previous.where.projectID) return
     setBusy(true)
     try {
-      const moved = await globalSync.automation.update(
-        props.directory(),
-        previous.id,
-        {
-          where: { projectID: project.id, ...(previous.where.worktree ? { worktree: previous.where.worktree } : {}) },
-        },
-        { targetDirectory: project.worktree },
-      )
+      const moved = await globalSync.automation.move(props.directory(), previous.id, project)
       if (moved) props.onMoved(moved)
     } catch (error) {
       notifyFailure(error)

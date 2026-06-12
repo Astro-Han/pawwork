@@ -37,6 +37,7 @@ import { createPendingQuestionController } from "./global-sync/pending-question-
 import { pendingSessionIDsForDirectory, type PendingQuestionIndex } from "./global-sync/pending-question-index"
 import {
   applyAutomationDefinition,
+  applyAutomationMoveResult,
   applyAutomationRun,
   applyAutomationTombstone,
   mergeAutomationRuns,
@@ -433,31 +434,46 @@ function createGlobalSync() {
     }
   }
 
-  async function updateAutomation(
-    directory: string,
-    automationID: string,
-    patch: AutomationUpdateInput,
-    options?: { targetDirectory?: string },
-  ) {
-    const targetDirectory = options?.targetDirectory
-    const moved = Boolean(targetDirectory && targetDirectory !== directory)
+  async function updateAutomation(directory: string, automationID: string, patch: AutomationUpdateInput) {
     children.pin(directory)
-    if (moved && targetDirectory) children.pin(targetDirectory)
     try {
       const [store, setStore] = children.peek(directory, { bootstrap: false })
       const res = await sdkFor(directory).automation.update({ automationID, automationUpdateInput: patch })
+      if (res.data) applyAutomationDefinition(store, setStore, res.data)
+      return res.data
+    } finally {
+      children.unpin(directory)
+    }
+  }
+
+  async function moveAutomation(directory: string, automationID: string, targetProject: { id: string; worktree: string }) {
+    children.pin(directory)
+    children.pin(targetProject.worktree)
+    try {
+      const source = children.peek(directory, { bootstrap: false })
+      const current = source[0].automation[automationID]
+      const res = await sdkFor(directory).automation.update({
+        automationID,
+        automationUpdateInput: {
+          where: {
+            projectID: targetProject.id,
+            ...(current?.where.worktree ? { worktree: current.where.worktree } : {}),
+          },
+        },
+      })
       if (res.data) {
-        if (moved && targetDirectory) {
-          applyAutomationTombstone(store, setStore, { id: automationID, deleted: true, revision: res.data.revision })
-          const [targetStore, targetSetStore] = children.peek(targetDirectory, { bootstrap: false })
-          applyAutomationDefinition(targetStore, targetSetStore, res.data)
-        } else {
-          applyAutomationDefinition(store, setStore, res.data)
-        }
+        const target = children.peek(targetProject.worktree, { bootstrap: false })
+        applyAutomationMoveResult({
+          source,
+          target,
+          automationID,
+          targetProjectID: targetProject.id,
+          incoming: res.data,
+        })
       }
       return res.data
     } finally {
-      if (moved && targetDirectory) children.unpin(targetDirectory)
+      children.unpin(targetProject.worktree)
       children.unpin(directory)
     }
   }
@@ -725,6 +741,7 @@ function createGlobalSync() {
     automation: {
       create: createAutomation,
       update: updateAutomation,
+      move: moveAutomation,
       loadRuns: loadAutomationRuns,
       pause: pauseAutomation,
       resume: resumeAutomation,
