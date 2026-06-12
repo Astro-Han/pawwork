@@ -444,7 +444,9 @@ export namespace AutomationScheduler {
       if (!scope) return
       try {
         if (sameScope(Automation.currentScope(), scope)) {
-          void Promise.resolve(fn(scope)).catch((error) => log.error("automation scheduler event handling failed", { error }))
+          void Promise.resolve()
+            .then(() => fn(scope))
+            .catch((error) => log.error("automation scheduler event handling failed", { error }))
           return
         }
       } catch {
@@ -453,35 +455,31 @@ export namespace AutomationScheduler {
       void runInScope(scope, () => fn(scope)).catch((error) => log.error("automation scheduler event handling failed", { error }))
     }
 
-    const onGlobalEvent = (event: GlobalEventEnvelope) => {
+    const handleGlobalEvent = (event: GlobalEventEnvelope) => {
       if (!running) return
       const payload = event.payload
       if (!payload) return
       if (payload.type === Automation.Event.RunUpdated.type) {
+        const scope = scopeFromEvent(event)
+        if (!scope) return
         const run = Automation.Run.parse(payload.properties)
         if (selfPublishedRunUpdates.delete(run.id)) return
-        runScoped(event, (scope) => {
-          if (run.state === "scheduled" || run.state === "running" || run.state === "awaiting_input") return
-          const wasOwned = ownedRuns.delete(run.id)
-          const wasSchedulerStopped = schedulerStoppedRuns.delete(run.id)
-          if (run.state === "stopped" && !wasOwned && !wasSchedulerStopped) return
-          const nextScope = refreshScopedRunOutcome(run, scope, {
-            refreshOnStopped: Boolean(wasOwned) || wasSchedulerStopped,
-          })
-          scheduleNextInterval(run.automationID, nextScope)
+        if (run.state === "scheduled" || run.state === "running" || run.state === "awaiting_input") return
+        const wasOwned = ownedRuns.delete(run.id)
+        const wasSchedulerStopped = schedulerStoppedRuns.delete(run.id)
+        if (run.state === "stopped" && !wasOwned && !wasSchedulerStopped) return
+        const nextScope = refreshScopedRunOutcome(run, scope, {
+          refreshOnStopped: Boolean(wasOwned) || wasSchedulerStopped,
         })
+        scheduleNextInterval(run.automationID, nextScope)
         return
       }
       if (payload.type === Automation.Event.DefinitionUpdated.type) {
         const scope = scopeFromEvent(event)
         if (!scope) return
-        try {
-          const definition = Automation.Definition.parse(payload.properties)
-          if (selfPublishedDefinitionUpdates.delete(selfUpdateKey(definition))) return
-          reschedule(definition, scope)
-        } catch (error) {
-          log.error("automation scheduler definition event handling failed", { error })
-        }
+        const definition = Automation.Definition.parse(payload.properties)
+        if (selfPublishedDefinitionUpdates.delete(selfUpdateKey(definition))) return
+        reschedule(definition, scope)
         return
       }
       if (payload.type === Automation.Event.DefinitionDeleted.type) {
@@ -503,6 +501,14 @@ export namespace AutomationScheduler {
             }),
           )
         })
+      }
+    }
+
+    const onGlobalEvent = (event: GlobalEventEnvelope) => {
+      try {
+        handleGlobalEvent(event)
+      } catch (error) {
+        log.error("automation scheduler global event handling failed", { error })
       }
     }
     GlobalBus.on("event", onGlobalEvent)
@@ -627,11 +633,9 @@ export namespace AutomationScheduler {
     return processScheduler
   }
 
-  export function install(scheduler: Interface): Interface {
-    const previous = current()
-    previous.stop()
+  export function install(scheduler: Interface): void {
+    processScheduler?.stop()
     processScheduler = scheduler
-    return previous
   }
 
   export function stopProcess(options?: { stopRuns?: boolean }): void {
