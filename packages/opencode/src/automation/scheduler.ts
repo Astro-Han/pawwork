@@ -529,17 +529,21 @@ export namespace AutomationScheduler {
     let scanAttempt: Promise<void> | undefined
     const scan = async () => {
       if (!running || !ownsTimers) return
+      const shouldContinue = () => running && ownsTimers
       const items = Automation.listAll()
       const scopes = new Map<string, Automation.Scope>()
       for (const item of items) scopes.set(scopeKey(item.scope), item.scope)
       for (const scope of scopes.values()) {
+        if (!shouldContinue()) return
         await Automation.reconcileInterruptedRuns({ now: clock.now(), scope })
           .then((runs) => {
+            if (!shouldContinue()) return
             for (const run of runs) publishScopedStoppedRun(run, scope, { scheduleNext: true })
           })
           .catch((error) => log.error("automation scheduler reconcile failed", { error, scope }))
       }
       for (const item of items) {
+        if (!shouldContinue()) return
         try {
           reschedule(item.definition, item.scope)
         } catch (error) {

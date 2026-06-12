@@ -375,6 +375,31 @@ describe("automation scheduler", () => {
     scheduler.stop()
   })
 
+  test("does not record missed schedules after the scheduler stops during startup scan", async () => {
+    await using tmp = await tmpdir({ git: true })
+    let automationID = ""
+    await Instance.provide({
+      directory: tmp.path,
+      fn: () => {
+        const definition = Automation.create(cronInput(Instance.project.id, "* * * * *"), { now: 0 })
+        automationID = definition.id
+      },
+    })
+    await Instance.disposeAll({ mode: "force" })
+
+    const clock = new FakeClock(120_000)
+    const scheduler = AutomationScheduler.make({ clock })
+    scheduler.stop()
+    await Bun.sleep(0)
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: () => {
+        expect(Automation.runs({ automationID }).items).toEqual([])
+      },
+    })
+  })
+
   test("owner settle waits for the initial closed-project scan", async () => {
     await using tmp = await tmpdir({ git: true })
     let automationID = ""
