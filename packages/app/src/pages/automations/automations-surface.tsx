@@ -10,12 +10,16 @@ import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { displayName, workspaceKey } from "@/pages/layout/helpers"
 import { formatServerError } from "@/utils/server-errors"
+import { DialogDeleteAutomation } from "@/components/dialog-delete-automation"
 import { AutomationList } from "./automation-list"
 import { AutomationDetail } from "./automation-detail"
 import { AutomationCreateDialog } from "./automation-create-dialog"
 import { AUTOMATION_TEMPLATES, type AutomationTemplate } from "./automation-templates"
 
-function AutomationsEmpty(props: { onUseTemplate: (template: AutomationTemplate) => void }): JSX.Element {
+function AutomationsEmpty(props: {
+  onUseTemplate: (template: AutomationTemplate) => void
+  disabled?: boolean
+}): JSX.Element {
   const language = useLanguage()
   return (
     <div data-component="automations-empty" class="flex flex-col items-center gap-5 px-6 py-16 text-center">
@@ -23,14 +27,20 @@ function AutomationsEmpty(props: { onUseTemplate: (template: AutomationTemplate)
         <Icon name="schedule" class="h-6 w-6 text-icon-weak" />
       </span>
       <div class="text-h3 text-fg-strong">{language.t("automations.empty.title")}</div>
+      <Show when={props.disabled}>
+        <div data-component="automations-need-project" class="text-body text-fg-weak">
+          {language.t("automations.create.needProject")}
+        </div>
+      </Show>
       <div class="flex flex-wrap items-center justify-center gap-2">
         {AUTOMATION_TEMPLATES.map((template) => (
           <button
             type="button"
             data-action="automation-template"
             data-template={template.id}
+            disabled={props.disabled}
             onClick={() => props.onUseTemplate(template)}
-            class="flex h-9 items-center gap-2 rounded-lg border border-border-weak bg-bg-base px-3.5 text-body text-fg-base hover:bg-row-hover-overlay focus:outline-none"
+            class="flex h-9 items-center gap-2 rounded-lg border border-border-weak bg-bg-base px-3.5 text-body text-fg-base hover:bg-row-hover-overlay focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-bg-base"
           >
             <Icon name={template.icon as never} class="size-4 text-icon-weak" />
             {language.t(template.titleKey)}
@@ -76,15 +86,19 @@ export function AutomationsSurface(props: {
   })
 
   // Escape returns to the list when a row is open, otherwise closes the surface.
-  // The capture listener bails while a transient overlay is open; unlike the
-  // settings takeover, the sidebar stays live here, so its dropdown/context
-  // menus must get Escape first instead of being preempted into closing us.
+  // The capture listener bails while a transient overlay is open; unlike on
+  // /settings (whose nav replaces the sidebar slot), the sidebar stays live
+  // here, so its dropdown/context menus must get Escape first instead of being
+  // preempted into closing us.
   onMount(() => {
     const onEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return
+      // Inline editors on the detail page own Escape (revert + blur); only an
+      // Escape outside an editable control navigates.
+      if (event.target instanceof Element && event.target.closest("input, textarea")) return
       if (
         document.querySelector(
-          '[data-component="dialog-overlay"], [data-component="select-content"], [data-component="dropdown-menu-content"], [data-component="context-menu-content"]',
+          '[data-component="dialog-overlay"], [data-component="select-content"], [data-component="dropdown-menu-content"], [data-component="context-menu-content"], [data-component="popover-content"], [data-picker-content]',
         )
       )
         return
@@ -143,6 +157,14 @@ export function AutomationsSurface(props: {
     return itemForAutomation(id)
   })
 
+  const notifyFailure = (error: unknown) => {
+    showToast({
+      variant: "error",
+      title: language.t("automations.toast.actionFailed.title"),
+      description: formatServerError(error, language.t),
+    })
+  }
+
   const toggleActive = async (automation: AutomationDefinition) => {
     const item = itemForAutomation(automation.id)
     if (!item) return
@@ -150,13 +172,43 @@ export function AutomationsSurface(props: {
       if (automation.paused) await globalSync.automation.resume(item.directory, automation.id)
       else await globalSync.automation.pause(item.directory, automation.id)
     } catch (error) {
-      showToast({
-        variant: "error",
-        title: language.t("automations.toast.actionFailed.title"),
-        description: formatServerError(error, language.t),
-      })
+      notifyFailure(error)
     }
   }
+
+  const runNow = async (automation: AutomationDefinition) => {
+    const item = itemForAutomation(automation.id)
+    if (!item) return
+    try {
+      await globalSync.automation.runNow(item.directory, automation.id)
+    } catch (error) {
+      notifyFailure(error)
+    }
+  }
+
+  const confirmDelete = (automation: AutomationDefinition) => {
+    const item = itemForAutomation(automation.id)
+    if (!item) return
+    dialog.show(() => (
+      <DialogDeleteAutomation
+        title={automation.title}
+        onConfirm={async () => {
+          try {
+            await globalSync.automation.delete(item.directory, automation.id)
+          } catch (error) {
+            notifyFailure(error)
+            throw error
+          }
+        }}
+      />
+    ))
+  }
+
+  // On a first-class page the create actions must not silently no-op: with no
+  // project they render disabled with a hint instead.
+  const canCreateViaChat = () => !!props.directory()
+  const canCreateManually = () => !!props.projectID()
+  const createUnavailable = () => !canCreateViaChat() && !canCreateManually()
 
   const openCreate = (template?: AutomationTemplate) => {
     const projectID = props.projectID()
@@ -185,7 +237,14 @@ export function AutomationsSurface(props: {
             <div class="flex flex-col gap-4">
               <div class="flex items-center justify-end">
                 <Popover gutter={6} placement="bottom-end">
-                  <Popover.Trigger as={Button} variant="primary" icon="plus-small" data-action="automation-create-open">
+                  <Popover.Trigger
+                    as={Button}
+                    variant="primary"
+                    icon="plus-small"
+                    data-action="automation-create-open"
+                    disabled={createUnavailable()}
+                    title={createUnavailable() ? language.t("automations.create.needProject") : undefined}
+                  >
                     {language.t("automations.create.cta")}
                     <Icon name="chevron-down" />
                   </Popover.Trigger>
@@ -196,16 +255,20 @@ export function AutomationsSurface(props: {
                     >
                       <Popover.CloseButton
                         data-action="automation-create-chat"
+                        disabled={!canCreateViaChat()}
+                        title={!canCreateViaChat() ? language.t("automations.create.needProject") : undefined}
                         onClick={() => props.onCreateViaChat()}
-                        class="flex h-[34px] w-full items-center gap-2.5 rounded-md px-2.5 text-body text-fg-base hover:bg-row-hover-overlay focus:outline-none"
+                        class="flex h-[34px] w-full items-center gap-2.5 rounded-md px-2.5 text-body text-fg-base hover:bg-row-hover-overlay focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-bg-base"
                       >
                         <Icon name="new-session" class="size-4 shrink-0 text-icon-weak" />
                         <span class="truncate">{language.t("automations.create.viaChat")}</span>
                       </Popover.CloseButton>
                       <Popover.CloseButton
                         data-action="automation-create-manual"
+                        disabled={!canCreateManually()}
+                        title={!canCreateManually() ? language.t("automations.create.needProject") : undefined}
                         onClick={() => openCreate()}
-                        class="flex h-[34px] w-full items-center gap-2.5 rounded-md px-2.5 text-body text-fg-base hover:bg-row-hover-overlay focus:outline-none"
+                        class="flex h-[34px] w-full items-center gap-2.5 rounded-md px-2.5 text-body text-fg-base hover:bg-row-hover-overlay focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-bg-base"
                       >
                         <Icon name="edit" class="size-4 shrink-0 text-icon-weak" />
                         <span class="truncate">{language.t("automations.create.manually")}</span>
@@ -214,8 +277,17 @@ export function AutomationsSurface(props: {
                   </Popover.Portal>
                 </Popover>
               </div>
-              <Show when={automationItems().length > 0} fallback={<AutomationsEmpty onUseTemplate={openCreate} />}>
-                <AutomationList items={automationItems} onSelect={setSelectedID} onToggleActive={toggleActive} />
+              <Show
+                when={automationItems().length > 0}
+                fallback={<AutomationsEmpty onUseTemplate={openCreate} disabled={!canCreateManually()} />}
+              >
+                <AutomationList
+                  items={automationItems}
+                  onSelect={setSelectedID}
+                  onToggleActive={toggleActive}
+                  onRunNow={runNow}
+                  onDelete={confirmDelete}
+                />
               </Show>
             </div>
           }
@@ -227,6 +299,7 @@ export function AutomationsSurface(props: {
               projectName={() => item().projectName}
               onBack={() => setSelectedID(undefined)}
               onOpenRun={props.onOpenRun}
+              onMoved={(definition) => setSelectedID(definition.id)}
             />
           )}
         </Show>

@@ -38,6 +38,8 @@ export namespace Snapshot {
   const core = ["-c", "core.longpaths=true", "-c", "core.symlinks=true"]
   const cfg = ["-c", "core.autocrlf=false", ...core]
   const quote = [...cfg, "-c", "core.quotepath=false"]
+  const gitPath = (item: string) => item.replaceAll("\\", "/")
+  const resolveGitPath = (cwd: string, item: string) => (path.isAbsolute(item) ? item : path.resolve(cwd, item))
   interface GitResult {
     readonly code: ChildProcessSpawner.ExitCode
     readonly text: string
@@ -209,6 +211,69 @@ export namespace Snapshot {
             yield* fs.writeFileString(target, text ? `${text}\n` : "").pipe(Effect.orDie)
           })
 
+          const seed = Effect.fnUntraced(
+            function* () {
+              if (state.vcs !== "git") return
+
+              const commonDir = yield* git(["rev-parse", "--git-common-dir"], {
+                cwd: state.worktree,
+              })
+              const commonRaw = commonDir.text.trim()
+              if (commonDir.code !== 0 || !commonRaw) return
+              const common = resolveGitPath(state.worktree, commonRaw)
+              if (!(yield* exists(common))) return
+
+              const sourceObjects = path.join(common, "objects")
+              if (!(yield* exists(sourceObjects))) return
+
+              const sourceInfo = path.join(sourceObjects, "info")
+              const chained = (yield* read(path.join(sourceInfo, "alternates")))
+                .split(/\r?\n/)
+                .map((line) => line.trim())
+                .filter(Boolean)
+                .map((line) => (path.isAbsolute(line) ? line : path.resolve(sourceObjects, line)))
+
+              const alternates: string[] = []
+              for (const candidate of [sourceObjects, ...chained]) {
+                if (alternates.includes(candidate)) continue
+                if (yield* exists(candidate)) alternates.push(candidate)
+              }
+              if (!alternates.length) return
+
+              yield* fs.ensureDir(path.join(state.gitdir, "objects", "info")).pipe(Effect.orDie)
+              yield* fs
+                .writeFileString(
+                  path.join(state.gitdir, "objects", "info", "alternates"),
+                  `${alternates.map(gitPath).join("\n")}\n`,
+                )
+                .pipe(Effect.orDie)
+
+              const index = yield* git(["rev-parse", "--git-path", "index"], {
+                cwd: state.worktree,
+              })
+              const sourceIndexRaw = index.text.trim()
+              if (index.code !== 0 || !sourceIndexRaw) return
+              const sourceIndex = resolveGitPath(state.worktree, sourceIndexRaw)
+              if (!(yield* exists(sourceIndex))) return
+              const targetIndex = path.join(state.gitdir, "index")
+              const copied = yield* fs.copyFile(sourceIndex, targetIndex).pipe(
+                Effect.as(true),
+                Effect.catch(() => Effect.succeed(false)),
+              )
+              if (!copied) return
+
+              const status = yield* git(args(["status", "--porcelain"]), { cwd: state.directory })
+              const unmerged = yield* git(args(["ls-files", "-u"]), { cwd: state.directory })
+              if (status.code === 0 && unmerged.code === 0 && !unmerged.text.trim()) return
+
+              yield* remove(targetIndex)
+            },
+            Effect.catchCause((cause) => {
+              log.warn("failed to seed snapshot source git data", { cause: Cause.pretty(cause) })
+              return Effect.void
+            }),
+          )
+
           const add = Effect.fnUntraced(function* () {
             yield* sync()
             const [diff, other] = yield* Effect.all(
@@ -306,6 +371,11 @@ export namespace Snapshot {
                   yield* git(["--git-dir", state.gitdir, "config", "core.longpaths", "true"])
                   yield* git(["--git-dir", state.gitdir, "config", "core.symlinks", "true"])
                   yield* git(["--git-dir", state.gitdir, "config", "core.fsmonitor", "false"])
+                  yield* git(["--git-dir", state.gitdir, "config", "feature.manyFiles", "true"])
+                  yield* git(["--git-dir", state.gitdir, "config", "index.version", "4"])
+                  yield* git(["--git-dir", state.gitdir, "config", "index.threads", "true"])
+                  yield* git(["--git-dir", state.gitdir, "config", "core.untrackedCache", "true"])
+                  yield* seed()
                   log.info("initialized")
                 }
                 yield* add()

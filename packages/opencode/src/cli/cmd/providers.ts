@@ -15,6 +15,7 @@ import type { Hooks } from "@opencode-ai/plugin"
 import { Process } from "../../util/process"
 import { text } from "node:stream/consumers"
 import { Effect } from "effect"
+import { errorMessage } from "@/util/error"
 
 type PluginAuth = NonNullable<Hooks["auth"]>
 
@@ -25,6 +26,53 @@ const put = (key: string, info: Auth.Info) =>
       yield* auth.set(key, info)
     }),
   )
+
+async function readWellKnownAuth(url: string) {
+  const remote = `${url}/.well-known/opencode`
+  const response = await fetch(remote).catch((error) => {
+    throw new Error(`Failed to connect to ${remote}: ${errorMessage(error)}`)
+  })
+  const body = await response.text()
+  const contentType = response.headers.get("content-type")?.toLowerCase() ?? ""
+  const isHtml = contentType.includes("html") || /^\s*(?:<!doctype html|<html)\b/i.test(body)
+  if (response.status === 401 || response.status === 403) {
+    throw new Error(`Failed to load auth metadata from ${remote}: the server rejected the request with HTTP ${response.status}.`)
+  }
+  if (!response.ok) {
+    throw new Error(`Failed to load auth metadata from ${remote}: the server returned HTTP ${response.status}.`)
+  }
+  if (isHtml) {
+    throw new Error(`Failed to load auth metadata from ${remote}: the server returned a login page instead of JSON.`)
+  }
+  let data: unknown
+  try {
+    data = JSON.parse(body)
+  } catch {
+    throw new Error(`Failed to load auth metadata from ${remote}: the server returned non-JSON content.`)
+  }
+  const auth = data && typeof data === "object" && "auth" in data ? data.auth : undefined
+  if (
+    !auth ||
+    typeof auth !== "object" ||
+    !("command" in auth) ||
+    !Array.isArray(auth.command) ||
+    auth.command.length === 0 ||
+    !auth.command.every((item) => typeof item === "string") ||
+    !("env" in auth) ||
+    typeof auth.env !== "string"
+  ) {
+    throw new Error(`Failed to load auth metadata from ${remote}: the response did not include a valid auth command.`)
+  }
+  return { auth: { command: auth.command, env: auth.env } }
+}
+
+function normalizeWellKnownUrl(input: string) {
+  const url = input.trim().replace(/\/+$/, "")
+  if (!/^https?:\/\//i.test(url)) {
+    throw new Error("Invalid auth provider URL. The URL must start with http:// or https://.")
+  }
+  return url
+}
 
 async function handlePluginAuth(plugin: { auth: PluginAuth }, provider: string, methodName?: string): Promise<boolean> {
   let index = 0
@@ -290,41 +338,47 @@ export const ProvidersLoginCommand = cmd({
         type: "string",
       }),
   async handler(args) {
+    if (args.url) {
+      UI.empty()
+      prompts.intro("Add credential")
+      const url = normalizeWellKnownUrl(args.url)
+      const wellknown = await readWellKnownAuth(url)
+      prompts.log.info(`Running \`${wellknown.auth.command.join(" ")}\``)
+      const token = await (async () => {
+        const proc = Process.spawn(wellknown.auth.command, { stdout: "pipe", stderr: "inherit" })
+        if (!proc.stdout) {
+          prompts.log.error("Failed")
+          prompts.outro("Done")
+          return
+        }
+        const [exit, output] = await Promise.all([proc.exited, text(proc.stdout)])
+        if (exit !== 0) {
+          prompts.log.error("Failed")
+          prompts.outro("Done")
+          return
+        }
+        return output.trim()
+      })().catch((error) => {
+        throw new Error(`Failed to run auth command: ${errorMessage(error)}`)
+      })
+      if (token === undefined) return
+      await put(url, {
+        type: "wellknown",
+        key: wellknown.auth.env,
+        token,
+      }).catch((error) => {
+        throw new Error(`Failed to save credential for ${url}: ${errorMessage(error)}`)
+      })
+      prompts.log.success("Logged into " + url)
+      prompts.outro("Done")
+      return
+    }
+
     await Instance.provide({
       directory: process.cwd(),
       async fn() {
         UI.empty()
         prompts.intro("Add credential")
-        if (args.url) {
-          const url = args.url.replace(/\/+$/, "")
-          const wellknown = (await fetch(`${url}/.well-known/opencode`).then((x) => x.json())) as {
-            auth: { command: string[]; env: string }
-          }
-          prompts.log.info(`Running \`${wellknown.auth.command.join(" ")}\``)
-          const proc = Process.spawn(wellknown.auth.command, {
-            stdout: "pipe",
-            stderr: "inherit",
-          })
-          if (!proc.stdout) {
-            prompts.log.error("Failed")
-            prompts.outro("Done")
-            return
-          }
-          const [exit, token] = await Promise.all([proc.exited, text(proc.stdout)])
-          if (exit !== 0) {
-            prompts.log.error("Failed")
-            prompts.outro("Done")
-            return
-          }
-          await put(url, {
-            type: "wellknown",
-            key: wellknown.auth.env,
-            token: token.trim(),
-          })
-          prompts.log.success("Logged into " + url)
-          prompts.outro("Done")
-          return
-        }
         await ModelsDev.refresh(true).catch(() => {})
 
         const config = await AppRuntime.runPromise(Config.Service.use((cfg) => cfg.get()))

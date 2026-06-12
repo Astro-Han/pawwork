@@ -24,7 +24,7 @@
 //    event.
 
 import { createEffect, on } from "solid-js"
-import type { ContextItem, ImageAttachmentPart, Prompt } from "@/context/prompt"
+import type { ContextItem, FloatingAttachment, Prompt } from "@/context/prompt"
 import type { ResolvedMention } from "./mention-metadata"
 import type { PinnedDraftOwner } from "./pinned-draft"
 
@@ -36,7 +36,7 @@ export interface OwnerMirrorState {
 export interface OwnerMirrorTickInputs {
   parts: Prompt
   contextItems: (ContextItem & { key: string })[]
-  images: ImageAttachmentPart[]
+  images: FloatingAttachment[]
   dir: string
   sessionID: string | undefined
   compose: boolean
@@ -94,7 +94,7 @@ export function applyOwnerMirrorTick(
 export interface OwnerMirrorDeps {
   prompt: () => Prompt
   contextItems: () => (ContextItem & { key: string })[]
-  images: () => ImageAttachmentPart[]
+  images: () => FloatingAttachment[]
   directory: () => string
   sessionID: () => string | undefined
   composing: () => boolean

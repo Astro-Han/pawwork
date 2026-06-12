@@ -28,8 +28,13 @@ export type {
 export type BrowserViewRect = { x: number; y: number; width: number; height: number }
 
 /** Desired presentation of the embedded browser overlay, sent as one unit so
- *  visibility and bounds never race. `rect` is ignored when `visible` is false. */
-export type BrowserViewLayout = { visible: boolean; rect: BrowserViewRect }
+ *  visibility and bounds never race. `rect` is ignored when `visible` is false.
+ *  `claim` marks a push that may (re)take the display — sent while the panel
+ *  has newly become visible, swapped targets, or left the displaced state, and
+ *  re-sent until main confirms it applied. Geometry-only ticks leave it unset,
+ *  so an in-flight resize from a window that just lost the display can never
+ *  steal it back. */
+export type BrowserViewLayout = { visible: boolean; rect: BrowserViewRect; claim?: boolean }
 
 /** Snapshot of the embedded browser pushed from the main process on every
  *  navigation/loading change. `hasPage` is false before any successful load,
@@ -45,26 +50,52 @@ export type BrowserState = {
   hasPage: boolean
 }
 
+/** Which conversation's browser a call addresses: its root session id, or the
+ *  literal "draft" for this window's not-yet-created conversation (the
+ *  new-session page). Drafts are window-private; main resolves them. */
+export type BrowserTarget = string
+
 /**
- * Control surface for the embedded browser (a single app-owned WebContentsView
- * with a persistent partition). Desktop/Electron only — undefined on web, where
- * there is no native view to drive. Gate usage with `canUseBrowser`.
+ * Control surface for the embedded browser (one app-owned WebContentsView per
+ * conversation, all sharing a persistent partition). Every call names its
+ * target conversation; main validates the target against what the calling
+ * window is showing. Desktop/Electron only — undefined on web, where there is
+ * no native view to drive. Gate usage with `canUseBrowser`.
  */
 export type BrowserBridge = {
-  navigate(url: string): Promise<void>
-  goBack(): Promise<void>
-  goForward(): Promise<void>
-  reload(): Promise<void>
-  stop(): Promise<void>
+  navigate(target: BrowserTarget, url: string): Promise<void>
+  goBack(target: BrowserTarget): Promise<void>
+  goForward(target: BrowserTarget): Promise<void>
+  reload(target: BrowserTarget): Promise<void>
+  stop(target: BrowserTarget): Promise<void>
   /** Report desired visibility + bounds (CSS px). The main process converts to
-   *  device-independent pixels using the window's zoom factor. */
-  setView(layout: BrowserViewLayout): Promise<void>
-  /** Sign out of every site: clear cookies, storage, and cache. */
+   *  device-independent pixels using the window's zoom factor. Resolves true
+   *  when a visible push actually displayed the view in this window — a claim
+   *  keeps being re-sent until that confirmation arrives (the first one can be
+   *  dropped while the window's DesktopContext still lags a route change). */
+  setView(target: BrowserTarget, layout: BrowserViewLayout): Promise<boolean>
+  /** Hand this window's draft view to the session just created from it. Must
+   *  resolve BEFORE navigating to the session route, so the new panel finds
+   *  the adopted view instead of lazily creating an empty one. */
+  adoptDraft(sessionID: string): Promise<{ adopted: boolean; hasPage: boolean }>
+  /** Destroy the target's page outright (view, history, renderer process) via
+   *  the same chain as session delete/archive. WYSIWYG counterpart of the
+   *  browser tab's ×. Cookies/storage survive in the shared partition. */
+  closePage(target: BrowserTarget): Promise<void>
+  /** Sign out of every site: clear cookies, storage, and cache (all targets —
+   *  the partition is shared). */
   clearData(): Promise<void>
-  /** Read the current state once (used to seed a freshly mounted panel). */
-  getState(): Promise<BrowserState | null>
-  /** Subscribe to state pushes; returns an unsubscribe function. */
-  onState(cb: (state: BrowserState) => void): () => void
+  /** Read a target's current state once (used to seed a freshly mounted panel). */
+  getState(target: BrowserTarget): Promise<BrowserState | null>
+  /** Subscribe to state pushes; filter by target. Returns an unsubscribe function. */
+  onState(cb: (payload: { target: BrowserTarget; state: BrowserState }) => void): () => void
+  /** Another window started displaying a conversation's view; the panel that
+   *  lost it shows a placeholder and stops reporting layout. */
+  onDisplayTaken(cb: (payload: { target: BrowserTarget }) => void): () => void
+  /** Subscribe to "the agent attached browser automation" pushes — the UI
+   *  surfaces the driven conversation's browser tab. Returns an unsubscribe
+   *  function. */
+  onAutomationAttached(cb: (payload: { sessionID: string }) => void): () => void
 }
 
 export type Platform = {

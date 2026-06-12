@@ -261,20 +261,6 @@ function attachedLocalFileText(filepath: string, filename?: string) {
   return `${text} (attachment name: ${filename})`
 }
 
-type MediaInputKind = "image" | "pdf" | "audio" | "video"
-
-function mediaInputKind(mime: string): MediaInputKind | undefined {
-  if (mime.startsWith("image/")) return "image"
-  if (mime === "application/pdf") return "pdf"
-  if (mime.startsWith("audio/")) return "audio"
-  if (mime.startsWith("video/")) return "video"
-  return undefined
-}
-
-function modelCanReadMedia(model: Provider.Model, kind: MediaInputKind) {
-  if (model.capabilities.input[kind] === true) return true
-  return kind === "pdf" && model.capabilities.input.image === true
-}
 
 export interface Interface {
   readonly cancel: (sessionID: SessionID, options?: { source?: string }) => Effect.Effect<boolean>
@@ -726,6 +712,9 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       // directly from storage (NOT the compaction-filtered `messages`), so an activation
       // older than the retained tail still counts without hydrating the full history.
       const activatedTools = deriveActivatedToolsFromParts(MessageV2.toolInfoParts(input.session.id))
+      // No client rule here: a client that doesn't support a deferred tool never
+      // registers it, and the registry intersects with the registered set before
+      // carding or activating anything.
       const deferredRuleset = Permission.merge(input.agent.permission, input.session.permission ?? [])
       const deferredAvailable = (id: string) =>
         input.tools?.[id] !== false && !Permission.disabled([id], deferredRuleset).has(id)
@@ -1726,35 +1715,56 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 )
                 if (Exit.isSuccess(exit)) {
                   const { model, result } = exit.value
-                  pieces.push({
+                  const media = result.attachments ?? []
+                  const attachments = media.filter((attachment) => {
+                    const kind = ProviderTransform.mediaInputKind(attachment.mime)
+                    return kind !== undefined && ProviderTransform.modelCanReadMedia(model, kind)
+                  })
+                  const droppedNotice = {
                     messageID: info.id,
                     sessionID: input.sessionID,
-                    type: "text",
+                    type: "text" as const,
                     synthetic: true,
-                    text: result.output,
-                  })
-                  if (result.attachments?.length) {
-                    const attachments = result.attachments.filter((attachment) => {
-                      const kind = mediaInputKind(attachment.mime)
-                      return kind !== undefined && modelCanReadMedia(model, kind)
-                    })
-                    if (attachments.length) {
-                      pieces.push(
-                        ...attachments.map((a) =>
-                          inheritMetadata(part, {
-                            ...a,
-                            synthetic: true,
-                            filename: a.filename ?? part.filename,
-                            messageID: info.id,
-                            sessionID: input.sessionID,
-                          }),
-                        ),
-                      )
-                    }
-                    if (attachments.length < result.attachments.length) {
-                      pieces.push({ ...part, messageID: info.id, sessionID: input.sessionID })
-                    }
+                    // Wording kept in sync with the request-time replacement in
+                    // provider/transform.ts so the model hears one consistent contract.
+                    text: `The contents of ${part.filename ?? filepath} were NOT provided to you: the current model does not support this media type as input. Do not guess or describe the file's contents; tell the user you cannot view the file.`,
+                  }
+                  // A capability-dropped attachment must not masquerade as a
+                  // successful read ("Image read successfully" with nothing
+                  // attached makes the model hallucinate the contents).
+                  if (media.length && attachments.length === 0) {
+                    pieces.push(droppedNotice)
                   } else {
+                    pieces.push({
+                      messageID: info.id,
+                      sessionID: input.sessionID,
+                      type: "text",
+                      synthetic: true,
+                      text: result.output,
+                    })
+                    if (attachments.length < media.length) pieces.push(droppedNotice)
+                  }
+                  if (attachments.length) {
+                    // When the upgrade fully replaces the original part (it is
+                    // not re-added below), the first attachment keeps the
+                    // submitted part id — id-keyed consumers (the client's
+                    // optimistic merge) otherwise see a second attachment and
+                    // render two chips for one file.
+                    const replaced = attachments.length === media.length
+                    pieces.push(
+                      ...attachments.map((a, index) =>
+                        inheritMetadata(part, {
+                          ...a,
+                          ...(replaced && index === 0 ? { id: part.id } : {}),
+                          synthetic: true,
+                          filename: a.filename ?? part.filename,
+                          messageID: info.id,
+                          sessionID: input.sessionID,
+                        }),
+                      ),
+                    )
+                  }
+                  if (media.length === 0 || attachments.length < media.length) {
                     pieces.push({ ...part, messageID: info.id, sessionID: input.sessionID })
                   }
                 } else {
@@ -2233,14 +2243,25 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           // call can't drop the activating turn and swallow the one-shot reminder.
           const newlyActivated = deriveNewlyActivated(MessageV2.lastNonSummaryAssistant(sessionID))
           if (newlyActivated.size > 0) {
+            // The recorded members are a snapshot of the ACTIVATING step's availability.
+            // Re-filter through this step's (same formula resolveTools uses, intersected
+            // with the registered set): a session resumed under different permissions or
+            // a different client must not be promised a tool the registry won't expose.
+            const reminderRuleset = Permission.merge(agent.permission, session.permission ?? [])
+            const exposable = yield* registry.availableDeferred({
+              deferredAvailable: (id) =>
+                lastUser.tools?.[id] !== false && !Permission.disabled([id], reminderRuleset).has(id),
+            })
             const userMessage = msgs.findLast((msg) => msg.info.role === "user" && msg.info.id === lastUser.id)
-            for (const name of newlyActivated) {
+            for (const [name, members] of newlyActivated) {
+              const text = buildActivationReminder(name, members, (id) => exposable.has(id))
+              if (!text) continue
               userMessage?.parts.push({
                 id: PartID.ascending(),
                 messageID: lastUser.id,
                 sessionID,
                 type: "text",
-                text: buildActivationReminder(name),
+                text,
                 synthetic: true,
               })
             }
@@ -2543,7 +2564,15 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           }
           const assistant = yield* currentTurnTarget(input.sessionID)
           if (assistant.info.role === "assistant") {
-            const error = assistant.info.error
+            const shouldFinalize = !assistant.info.time.completed
+            const error =
+              assistant.info.error ??
+              (shouldFinalize
+                ? MessageV2.fromError(new DOMException("Aborted", "AbortError"), {
+                    providerID: assistant.info.providerID,
+                    aborted: true,
+                  })
+                : undefined)
             const errorMessage =
               error && "data" in error && error.data && typeof error.data === "object" && "message" in error.data
                 ? String(error.data.message)
@@ -2551,6 +2580,15 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             const recordedAt = meta?.recordedAt ?? Date.now()
             yield* sessions.updateMessage({
               ...assistant.info,
+              ...(shouldFinalize
+                ? {
+                    error,
+                    time: {
+                      ...assistant.info.time,
+                      completed: recordedAt,
+                    },
+                  }
+                : {}),
               diagnostics: {
                 ...(assistant.info.diagnostics ?? {}),
                 abort: {

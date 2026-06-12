@@ -142,17 +142,17 @@ test.describe("titlebar right rail contract", () => {
       .toEqual({ width: 0, borderLeft: "0px" })
   })
 
-  test("a main-takeover surface hides the right-rail chrome (border-l, reserved width, portalled tabs)", async ({
+  test("a surface route hides the right-rail chrome (border-l, reserved width, portalled tabs)", async ({
     page,
     gotoSession,
   }) => {
-    // Regression: settings / automations / skills are main-region takeovers that
-    // cover the (still-mounted) session and its right panel. The rail's width +
-    // border-l and the tab-strip portal are the right panel's chrome inside the
-    // titlebar; when a surface covers the panel, that chrome must retract too.
-    // Before the mainSurfaceOpen() guard, automations/skills left an empty rail
-    // reserving panel-width with a 1px border-l, and settings additionally left
-    // the portalled tabs ("状态") mounted. One assertion covers all three.
+    // Regression: settings / automations / skills are routes that unmount the
+    // session and its right panel. The rail's width + border-l and the
+    // tab-strip portal are the right panel's chrome inside the titlebar; when
+    // a surface route replaces the panel, that chrome must retract too. In the
+    // old takeover era, automations/skills left an empty rail reserving
+    // panel-width with a 1px border-l, and settings additionally left the
+    // portalled tabs ("状态") mounted. One assertion covers all three.
     await gotoSession()
     await openRightPanel(page)
     await openSidebar(page)

@@ -15,6 +15,8 @@ import { useFile, type SelectedLineRange } from "@/context/file"
 import { useLanguage } from "@/context/language"
 import { MAX_RIGHT_PANEL_WIDTH, MIN_RIGHT_PANEL_WIDTH, useLayout } from "@/context/layout"
 import { canUseBrowser, usePlatform } from "@/context/platform"
+import { useSDK } from "@/context/sdk"
+import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
 import type { TerminalTabID } from "@/context/terminal-types"
 import type { FilesTabEntry } from "@/pages/session/files-tab-state"
@@ -23,15 +25,19 @@ import {
   createSessionTabs,
   formatRightPanelWidth,
   makeRightPanelResizeHandler,
+  openBrowserTabInSessionLayout,
   openReviewShellTab,
   planShellTabReorder,
   shouldShowReviewFileOpenButton,
   sortableShellTabIds,
+  subscribeAutomationAttached,
   type Sizing,
 } from "@/pages/session/helpers"
 
 import { setSessionHandoff } from "@/pages/session/handoff"
 import { BrowserPanel } from "@/pages/session/browser/browser-panel"
+import { createBrowserTabClose, showBrowserCloseConfirm } from "@/pages/session/browser/close-page"
+import { isSessionRunning } from "@/pages/session/session-running-state"
 import { RightPanelReviewBody } from "@/pages/session/right-panel-review-body"
 import { RightPanelTabStrip } from "@/pages/session/right-panel-tab-strip"
 import {
@@ -70,6 +76,8 @@ export function SessionSidePanel(props: {
   const dialog = useDialog()
   const terminal = useTerminal()
   const platform = usePlatform()
+  const sdk = useSDK()
+  const sync = useSync()
   const { layoutRouteKey, params, tabs, view } = useSessionLayout()
 
   const isDesktop = createMediaQuery("(min-width: 768px)")
@@ -194,7 +202,15 @@ export function SessionSidePanel(props: {
     view().sidePanel.openTab(value)
   }
 
-  const closeShellTabValue = createCloseShellTabRouter({ view, terminal: () => terminal })
+  const closeBrowserTab = createBrowserTabClose({
+    bridge: () => platform.browser,
+    target: () => params.id ?? "draft",
+    running: () =>
+      params.id ? isSessionRunning(sync.data.session_status[params.id], sync.data.message[params.id]) : false,
+    closeTab: () => view().sidePanel.closeTab("browser"),
+    confirm: (proceed) => showBrowserCloseConfirm(dialog, language, proceed),
+  })
+  const closeShellTabValue = createCloseShellTabRouter({ view, terminal: () => terminal, closeBrowserTab })
 
   // Stale terminal selector guard: persisted sidePanelTab may carry a
   // `terminal:<id>` whose terminal no longer exists after restart. If we
@@ -228,6 +244,20 @@ export function SessionSidePanel(props: {
     if (!view().sidePanel.openTabs().includes("browser")) return
     view().sidePanel.closeTab("browser")
   })
+
+  // The agent attached browser automation: surface the driven page by opening
+  // the browser tab in the DRIVEN conversation's layout state — the user sees
+  // it now if they are looking at that conversation, or when they next open
+  // it. Other conversations' panels are never touched. The layout key comes
+  // from the driven session itself, not this window's route — the broadcast
+  // also reaches windows watching a different project.
+  onCleanup(
+    subscribeAutomationAttached(
+      platform.browser,
+      (sessionID) => sdk.client.session.get({ sessionID }).then((res) => res.data?.directory),
+      (sessionKey) => openBrowserTabInSessionLayout(layout, sessionKey),
+    ),
+  )
 
   const showAllFiles = () => {
     if (view().sidePanel.explorer.tab() !== "changes") return
@@ -456,6 +486,7 @@ export function SessionSidePanel(props: {
                     <Tabs.Content value="browser" class="min-h-0 flex-1 overflow-hidden">
                       <BrowserPanel
                         bridge={bridge()}
+                        target={() => params.id ?? "draft"}
                         active={() => sidePanelTab() === "browser"}
                         panelOpen={open}
                         panelChromeMenuOpen={addTabMenuOpen}

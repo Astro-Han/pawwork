@@ -169,7 +169,7 @@ const createPlatform = (): Platform => {
     },
 
     async filePathForBrowserFile(file) {
-      const path = window.api.filePathForBrowserFile(file)
+      const path = await window.api.filePathForBrowserFile(file)
       if (!path) return null
       return handleWslPicker(path)
     },

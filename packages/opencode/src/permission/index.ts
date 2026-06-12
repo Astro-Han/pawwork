@@ -207,7 +207,15 @@ export namespace Permission {
         const denied: Array<{ pattern: string; rule: Rule }> = []
 
         for (const pattern of request.patterns) {
-          const rule = evaluate(request.permission, pattern, ruleset, approved)
+          // A configured deny is a hard boundary. Approvals (recorded from an
+          // earlier "always allow" click) match after configured rules, so
+          // without this short-circuit a broad approval — e.g. the browser
+          // tools' origin-wide grant — would silently override a narrower
+          // deny the user wrote down (https://site/admin/* deny vs an
+          // approved https://site/*). Approvals may relax asks, never denies.
+          const configured = evaluate(request.permission, pattern, ruleset)
+          const rule =
+            configured.action === "deny" ? configured : evaluate(request.permission, pattern, ruleset, approved)
           log.info("evaluated", { permission: request.permission, pattern, action: rule })
           if (rule.action === "deny") {
             denied.push({ pattern, rule })
@@ -412,7 +420,10 @@ export namespace Permission {
   export function disabled(tools: string[], ruleset: Ruleset): Set<string> {
     const result = new Set<string>()
     for (const tool of tools) {
-      const permission = EDIT_TOOLS.includes(tool) ? "edit" : tool
+      // browser_* tools all ask the `browser` permission key, so a configured
+      // `permission.browser: deny` disables the whole set (hiding their
+      // deferred cards and repair hints, not just denying the eventual ask).
+      const permission = EDIT_TOOLS.includes(tool) ? "edit" : tool.startsWith("browser_") ? "browser" : tool
       const rule = ruleset.findLast((rule) => Wildcard.match(permission, rule.permission))
       if (!rule) continue
       if (rule.pattern === "*" && rule.action === "deny") result.add(tool)

@@ -8,18 +8,30 @@ const runtimeFlags = getRuntimeFlags(process.env)
 const invokeSetDesktopContext = (context: DesktopContext) => ipcRenderer.invoke("set-desktop-context", context)
 
 const browser: ElectronAPI["browser"] = {
-  navigate: (url) => ipcRenderer.invoke("browser:navigate", url),
-  goBack: () => ipcRenderer.invoke("browser:back"),
-  goForward: () => ipcRenderer.invoke("browser:forward"),
-  reload: () => ipcRenderer.invoke("browser:reload"),
-  stop: () => ipcRenderer.invoke("browser:stop"),
-  setView: (layout) => ipcRenderer.invoke("browser:set-view", layout),
+  navigate: (target, url) => ipcRenderer.invoke("browser:navigate", target, url),
+  goBack: (target) => ipcRenderer.invoke("browser:back", target),
+  goForward: (target) => ipcRenderer.invoke("browser:forward", target),
+  reload: (target) => ipcRenderer.invoke("browser:reload", target),
+  stop: (target) => ipcRenderer.invoke("browser:stop", target),
+  setView: (target, layout) => ipcRenderer.invoke("browser:set-view", target, layout),
+  adoptDraft: (sessionID) => ipcRenderer.invoke("browser:adopt-draft", sessionID),
+  closePage: (target) => ipcRenderer.invoke("browser:close-page", target),
   clearData: () => ipcRenderer.invoke("browser:clear-data"),
-  getState: () => ipcRenderer.invoke("browser:get-state"),
+  getState: (target) => ipcRenderer.invoke("browser:get-state", target),
   onState: (cb) => {
-    const handler = (_: unknown, state: BrowserState) => cb(state)
+    const handler = (_: unknown, payload: { target: string; state: BrowserState }) => cb(payload)
     ipcRenderer.on("browser:state", handler)
     return () => ipcRenderer.removeListener("browser:state", handler)
+  },
+  onDisplayTaken: (cb) => {
+    const handler = (_: unknown, payload: { target: string }) => cb(payload)
+    ipcRenderer.on("browser:display-taken", handler)
+    return () => ipcRenderer.removeListener("browser:display-taken", handler)
+  },
+  onAutomationAttached: (cb) => {
+    const handler = (_: unknown, payload: { sessionID: string }) => cb(payload)
+    ipcRenderer.on("browser:automation-attached", handler)
+    return () => ipcRenderer.removeListener("browser:automation-attached", handler)
   },
 }
 
@@ -75,7 +87,20 @@ const api: ElectronAPI = {
   openDirectoryPicker: (opts) => ipcRenderer.invoke("open-directory-picker", opts),
   openFilePicker: (opts) => ipcRenderer.invoke("open-file-picker", opts),
   readFileDataUrl: (path, mime) => ipcRenderer.invoke("read-file-data-url", path, mime),
-  filePathForBrowserFile: (file) => webUtils.getPathForFile(file),
+  filePathForBrowserFile: async (file) => {
+    const path = webUtils.getPathForFile(file)
+    if (!path) return null
+    // Approval must land before the renderer sees the path, or the first
+    // thumbnail read races the allowlist insert. An approval failure must not
+    // leak an unapproved path — degrade to null so callers fall back to the
+    // save-attachment copy route.
+    try {
+      await ipcRenderer.invoke("approve-attachment-path", path)
+    } catch {
+      return null
+    }
+    return path
+  },
   saveAttachmentFile: (name, mime, buffer) => ipcRenderer.invoke("save-attachment-file", name, mime, buffer),
   saveFilePicker: (opts) => ipcRenderer.invoke("save-file-picker", opts),
   exportSession: (sessionID, directory, defaultName, title) =>

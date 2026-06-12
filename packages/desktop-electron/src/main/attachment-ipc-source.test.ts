@@ -15,6 +15,28 @@ describe("attachment IPC source contract", () => {
     expect(renderer).toContain("filePathForBrowserFile")
   })
 
+  test("approves drag-dropped file paths so thumbnails can load", () => {
+    // Picker and save-attachment approve their paths in the main process, but a
+    // drag-drop resolves its path in the preload via webUtils — the preload must
+    // report it for approval or read-file-data-url refuses the thumbnail read.
+    expect(mainIpc).toContain('"approve-attachment-path"')
+    expect(preload).toContain('"approve-attachment-path"')
+    // Approval must complete before the path is handed to the renderer, or the
+    // first preview read races the allowlist insert.
+    expect(preload).toMatch(/await ipcRenderer\.invoke\("approve-attachment-path"/)
+    expect(renderer).toMatch(/await window\.api\.filePathForBrowserFile/)
+  })
+
+  test("file path recovery degrades to an explicit null, never a falsy string", () => {
+    // The app-side Platform contract is Promise<string | null>: synthetic
+    // browser Files have no path, and an approval failure must not leak an
+    // unapproved path. Both degrade to null so callers fall back to the
+    // save-attachment copy route.
+    expect(preloadTypes).toMatch(/filePathForBrowserFile.*Promise<string \| null>/)
+    expect(preload).toMatch(/if \(!path\) return null/)
+    expect(preload).toMatch(/approve-attachment-path"[\s\S]{0,200}?catch[\s\S]{0,80}?null/)
+  })
+
   test("registers managed attachment saving through preload, renderer, and main IPC", () => {
     expect(mainIpc).toContain('"save-attachment-file"')
     expect(mainIpc).toContain("ArrayBuffer.isView")

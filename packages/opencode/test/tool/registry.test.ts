@@ -10,6 +10,7 @@ import { Instance } from "../../src/project/instance"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { ProviderTransform } from "../../src/provider"
 import { localToolImportSpec, ToolRegistry } from "../../src/tool/registry"
+import { deferredGroupMembers } from "../../src/tool/tool-info"
 import { Settings } from "../../src/settings"
 import { MessageID, SessionID } from "../../src/session/schema"
 import type { MessageV2 } from "../../src/session/message-v2"
@@ -112,6 +113,22 @@ describe("tool.registry", () => {
     expect(systemPrompt).toContain("`automate` tool")
     expect(systemPrompt).toContain("launchd")
     expect(systemPrompt).toContain("by writing files")
+  })
+
+  // Web tasks must route to the embedded browser tools, never to curl/wget
+  // sessions or a premature "can't access the web". The tools are deferred
+  // (one tool_info card), so the resident surfaces carry the routing: the
+  // system prompt names the trigger intents and the bash redirect list
+  // catches the entry point models drift into.
+  test("keeps browsing routing contract across prompt surfaces", async () => {
+    const shellDescription = await Bun.file(new URL("../../src/tool/shell.txt", import.meta.url)).text()
+    expect(shellDescription).toContain("Browsing or operating websites: Use the browser tools, activated via tool_info")
+
+    const systemPrompt = await Bun.file(new URL("../../src/session/prompt/pawwork.txt", import.meta.url)).text()
+    expect(systemPrompt).toContain("# Browsing and operating websites")
+    expect(systemPrompt).toContain("`browser` tool group via `tool_info`")
+    expect(systemPrompt).toContain("Never simulate a browser session with `curl` or `wget`")
+    expect(systemPrompt).toContain("never declare a web task impossible")
   })
 
   test("loads tools from .opencode/tool (singular)", async () => {
@@ -975,6 +992,57 @@ describe("tool.registry", () => {
     })
   })
 
+  test("defers worktree tools until activated, and advertises them via tool_info", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        // Default: deferred worktree tools are not in the surface; tool_info is,
+        // and advertises both as cards.
+        const def = await ToolRegistry.tools({
+          providerID: ProviderID.make("openai"),
+          modelID: ModelID.make("gpt-5"),
+          agent: { name: "build", mode: "primary", permission: [], options: {} },
+        })
+        const defIds = def.map((tool) => tool.id)
+        expect(defIds).not.toContain("enter-worktree")
+        expect(defIds).not.toContain("exit-worktree")
+        expect(defIds).toContain("tool_info")
+        const card = def.find((tool) => tool.id === "tool_info")!.description
+        expect(card).toContain("enter-worktree")
+        expect(card).toContain("exit-worktree")
+        // Desktop-only deferred tools stay off non-desktop surfaces: no browser card,
+        // so the model is never told to activate a group the registry won't expose.
+        expect(card).not.toContain("browser")
+
+        // Activated: enter-worktree becomes callable; tool_info stops listing it.
+        const act = await ToolRegistry.tools({
+          providerID: ProviderID.make("openai"),
+          modelID: ModelID.make("gpt-5"),
+          agent: { name: "build", mode: "primary", permission: [], options: {} },
+          activatedTools: new Set(["enter-worktree"]),
+        })
+        const actIds = act.map((tool) => tool.id)
+        expect(actIds).toContain("enter-worktree")
+        expect(actIds).not.toContain("exit-worktree")
+        const actCard = act.find((tool) => tool.id === "tool_info")!.description
+        expect(actCard).not.toContain("enter-worktree")
+        expect(actCard).toContain("exit-worktree")
+
+        // Permission-disabled: even activated, it stays hidden and uncarded.
+        const denied = await ToolRegistry.tools({
+          providerID: ProviderID.make("openai"),
+          modelID: ModelID.make("gpt-5"),
+          agent: { name: "build", mode: "primary", permission: [], options: {} },
+          activatedTools: new Set(["enter-worktree"]),
+          deferredAvailable: () => false,
+        })
+        expect(denied.map((tool) => tool.id)).not.toContain("enter-worktree")
+        expect(denied.find((tool) => tool.id === "tool_info")!.description).toContain("No deferred tools")
+      },
+    })
+  })
+
   test("rejects direct tool_info activation for lsp when Settings.lspEnabled=false", async () => {
     await using tmp = await tmpdir()
     await Settings.setLspEnabled(false)
@@ -1126,6 +1194,38 @@ describe("tool.registry", () => {
       })
     } finally {
       await Settings.setLspEnabled(false)
+    }
+  })
+
+  test("an activated browser group exposes only the members that pass the availability filter", async () => {
+    await using tmp = await tmpdir()
+    // Durable activation is monotonic and expands the whole group on purpose:
+    // availability is time-varying, so the per-step gate here — not a snapshot
+    // taken at activation time — decides what the model sees. A member disabled
+    // mid-session drops out on the next step, and one re-enabled comes back
+    // without re-activation.
+    const previousClient = process.env["OPENCODE_CLIENT"]
+    process.env["OPENCODE_CLIENT"] = "desktop"
+    try {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const tools = await ToolRegistry.tools({
+            providerID: ProviderID.make("openai"),
+            modelID: ModelID.make("gpt-5"),
+            agent: { name: "build", mode: "primary", permission: [], options: {} },
+            activatedTools: new Set(deferredGroupMembers("browser")),
+            deferredAvailable: (id) => id !== "browser_screenshot",
+          })
+          const ids = tools.map((tool) => tool.id)
+          expect(ids).toContain("browser_navigate")
+          expect(ids).toContain("browser_click")
+          expect(ids).not.toContain("browser_screenshot")
+        },
+      })
+    } finally {
+      if (previousClient === undefined) delete process.env["OPENCODE_CLIENT"]
+      else process.env["OPENCODE_CLIENT"] = previousClient
     }
   })
 

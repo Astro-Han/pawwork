@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { Part } from "@opencode-ai/sdk/v2"
-import { extractPromptFromParts } from "./prompt"
+import { extractPromptFromParts, promptPreviewText } from "./prompt"
 
 describe("extractPromptFromParts", () => {
   test("restores multiple uploaded attachments", () => {
@@ -39,6 +39,46 @@ describe("extractPromptFromParts", () => {
     expect(result.slice(1)).toMatchObject([
       { type: "image", filename: "a.png", mime: "image/png", dataUrl: "data:image/png;base64,AAA" },
       { type: "image", filename: "b.pdf", mime: "application/pdf", dataUrl: "data:application/pdf;base64,BBB" },
+    ])
+  })
+
+  test("restores source-less file:// parts as attachment chips", () => {
+    const parts = [
+      {
+        id: "text_1",
+        type: "text",
+        text: "summarize this",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+      },
+      {
+        id: "file_1",
+        type: "file",
+        mime: "text/plain",
+        url: "file:///Users/me/Desktop/shot%202026.png",
+        filename: "shot 2026.png",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+      },
+      {
+        id: "file_2",
+        type: "file",
+        mime: "text/plain",
+        url: "file:///Users/me/report.pdf?start=2&end=5",
+        filename: "report.pdf",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+      },
+    ] satisfies Part[]
+
+    const result = extractPromptFromParts(parts)
+
+    expect(result[0]).toMatchObject({ type: "text", content: "summarize this" })
+    expect(result.slice(1)).toMatchObject([
+      // mime re-derived from the suffix so the chip renders its thumbnail again.
+      // The selection-scoped part (?start=&end=) is deliberately absent: see
+      // "skips selection-scoped file parts" below.
+      { type: "attachment", path: "/Users/me/Desktop/shot 2026.png", filename: "shot 2026.png", mime: "image/png" },
     ])
   })
 
@@ -230,6 +270,107 @@ describe("extractPromptFromParts", () => {
     })
   })
 
+  test("command mode: restores user chip attachments and keeps template files suppressed", () => {
+    const parts = [
+      {
+        id: "text_1",
+        type: "text",
+        text: "# Brainstorming methodology\n\n...body...",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+        metadata: {
+          commandInvocation: { name: "brainstorming", args: "fold the bubble", source: "command" },
+          commandTemplate: true,
+        },
+      },
+      {
+        id: "file_template",
+        type: "file",
+        mime: "text/plain",
+        url: "file:///tmp/template.md",
+        filename: "template.md",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+        metadata: { commandTemplate: true },
+      },
+      {
+        id: "file_user",
+        type: "file",
+        mime: "text/plain",
+        url: "file:///Users/me/report.pdf",
+        filename: "report.pdf",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+      },
+    ] satisfies Part[]
+
+    const result = extractPromptFromParts(parts)
+
+    expect(result).toHaveLength(2)
+    expect(result[0]).toMatchObject({ type: "text", content: "/brainstorming fold the bubble" })
+    expect(result[1]).toMatchObject({ type: "attachment", path: "/Users/me/report.pdf", filename: "report.pdf" })
+  })
+
+  test("skips selection-scoped file parts instead of widening them to whole-file chips", () => {
+    // Context items with a line selection submit as source-less file parts
+    // whose only selection carrier is the ?start=&end= query. Restoring them
+    // as path-only chips would silently expand a few-line reference into the
+    // whole file on resubmit.
+    const parts = [
+      { id: "text_1", type: "text", text: "check this", sessionID: "ses_1", messageID: "msg_1" },
+      {
+        id: "file_ctx",
+        type: "file",
+        mime: "text/plain",
+        url: "file:///Users/me/big-module.ts?start=120&end=132",
+        filename: "big-module.ts",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+      },
+    ] satisfies Part[]
+
+    const result = extractPromptFromParts(parts)
+
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({ type: "text", content: "check this" })
+  })
+
+  test("command mode: skips inline-pill file parts already carried by the args text", () => {
+    // `/summarize @guide.pdf` submits the inline pill as a file part WITH
+    // source.text, while the mention text itself stays inside the args. The
+    // engine re-derives a file part from that text on every command submit
+    // (resolvePromptParts), so restoring the pill part as a chip would show the
+    // same reference twice in the composer.
+    const parts = [
+      {
+        id: "text_1",
+        type: "text",
+        text: "# Summarize\n\n...body...",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+        metadata: {
+          commandInvocation: { name: "summarize", args: "@guide.pdf", source: "command" },
+          commandTemplate: true,
+        },
+      },
+      {
+        id: "file_pill",
+        type: "file",
+        mime: "text/plain",
+        url: "file:///Users/me/guide.pdf",
+        filename: "guide.pdf",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+        source: { type: "file", path: "/Users/me/guide.pdf", text: { value: "@guide.pdf", start: 11, end: 21 } },
+      },
+    ] satisfies Part[]
+
+    const result = extractPromptFromParts(parts)
+
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({ type: "text", content: "/summarize @guide.pdf" })
+  })
+
   test("command mode without args: restores `/<cmd> ` with trailing space and no body", () => {
     // restoreText keeps a trailing space when args are empty so the editor
     // caret lands ready for typing without re-triggering completion.
@@ -294,5 +435,42 @@ describe("extractPromptFromParts", () => {
       content: "/explain this",
       command: { name: "explain", source: "command" },
     })
+  })
+})
+
+describe("promptPreviewText", () => {
+  test("keeps the prompt text and collapses whitespace", () => {
+    const preview = promptPreviewText(
+      [
+        { type: "text", content: "look at\n  this ", start: 0, end: 15 },
+        { type: "file", path: "src/foo.ts", content: "@src/foo.ts", start: 15, end: 26 },
+      ],
+      "attachment",
+    )
+    expect(preview).toBe("look at this @src/foo.ts")
+  })
+
+  test("renders attachment-only prompts as file placeholders, not a blank line", () => {
+    const preview = promptPreviewText(
+      [
+        { type: "text", content: "", start: 0, end: 0 },
+        { type: "attachment", id: "att_1", path: "/repo/shot.png", filename: "shot.png" },
+      ],
+      "attachment",
+    )
+    expect(preview).toBe("[file:/repo/shot.png]")
+  })
+
+  test("renders legacy data-URL images with the image placeholder", () => {
+    const preview = promptPreviewText(
+      [{ type: "image", id: "img_1", filename: "shot.png", mime: "image/png", dataUrl: "data:image/png;base64,AA==" }],
+      "attachment",
+    )
+    expect(preview).toBe("[image:shot.png]")
+  })
+
+  test("falls back to the attachment label when nothing is visible", () => {
+    const preview = promptPreviewText([{ type: "text", content: "  ", start: 0, end: 2 }], "附件")
+    expect(preview).toBe("[附件]")
   })
 })

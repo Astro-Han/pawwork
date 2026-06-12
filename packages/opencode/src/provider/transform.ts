@@ -3,18 +3,28 @@ import { mergeDeep, unique } from "remeda"
 import type { JSONSchema7 } from "@ai-sdk/provider"
 import type { JSONSchema } from "zod/v4/core"
 import type * as Provider from "./provider"
-import type * as ModelsDev from "./models"
 import { iife } from "@/util/iife"
 import { Flag } from "@opencode-ai/core/flag/flag"
 
-type Modality = NonNullable<ModelsDev.Model["modalities"]>["input"][number]
+export type MediaInputKind = "image" | "audio" | "video" | "pdf"
 
-function mimeToModality(mime: string): Modality | undefined {
+export function mediaInputKind(mime: string): MediaInputKind | undefined {
   if (mime.startsWith("image/")) return "image"
   if (mime.startsWith("audio/")) return "audio"
   if (mime.startsWith("video/")) return "video"
   if (mime === "application/pdf") return "pdf"
   return undefined
+}
+
+// The one capability rule for media input. The session resolver decides with
+// this whether to upgrade a path-backed part, and this layer decides whether to
+// withhold it from the provider; the composer's attachment warning mirrors it.
+// If the layers disagree, the UI shows no warning for a part the model never sees.
+export function modelCanReadMedia(model: Provider.Model, kind: MediaInputKind) {
+  if (model.capabilities.input[kind] === true) return true
+  // PDF borrows image input: models.dev frequently omits the pdf flag on
+  // models that read PDFs through their image pipeline.
+  return kind === "pdf" && model.capabilities.input.image === true
 }
 
 export function sanitizeSurrogates(content: string) {
@@ -263,31 +273,6 @@ function normalizeMessages(
       return msg
     })
   }
-  if (["@ai-sdk/anthropic", "@ai-sdk/google-vertex/anthropic"].includes(model.api.npm)) {
-    // Anthropic rejects assistant turns where tool_use blocks are followed by non-tool
-    // content, e.g. [tool_use, tool_use, text], with:
-    // `tool_use` ids were found without `tool_result` blocks immediately after...
-    //
-    // Reorder that invalid shape into [text] + [tool_use, tool_use]. Consecutive
-    // assistant messages are later merged by the provider/SDK, so preserving the
-    // original [tool_use...] then [text] order still produces the invalid payload.
-    //
-    // The root cause appears to be somewhere upstream where the stream is originally
-    // processed. We were unable to locate an exact narrower reproduction elsewhere,
-    // so we keep this transform in place for the time being.
-    msgs = msgs.flatMap((msg) => {
-      if (msg.role !== "assistant" || !Array.isArray(msg.content)) return [msg]
-
-      const parts = msg.content
-      const first = parts.findIndex((part) => part.type === "tool-call")
-      if (first === -1) return [msg]
-      if (!parts.slice(first).some((part) => part.type !== "tool-call")) return [msg]
-      return [
-        { ...msg, content: parts.filter((part) => part.type !== "tool-call") },
-        { ...msg, content: parts.filter((part) => part.type === "tool-call") },
-      ]
-    })
-  }
   if (
     model.providerID === "mistral" ||
     model.api.id.toLowerCase().includes("mistral") ||
@@ -468,14 +453,16 @@ function unsupportedParts(msgs: ModelMessage[], model: Provider.Model): ModelMes
 
       const mime = part.type === "image" ? String(part.image).split(";")[0].replace("data:", "") : part.mediaType
       const filename = part.type === "file" ? part.filename : undefined
-      const modality = mimeToModality(mime)
+      const modality = mediaInputKind(mime)
       if (!modality) return part
-      if (model.capabilities.input[modality]) return part
+      if (modelCanReadMedia(model, modality)) return part
 
-      const name = filename ? `"${filename}"` : modality
+      // Keep this wording in sync with the resolver-side dropped-media notice
+      // in session/prompt.ts so the model hears one consistent contract.
+      const name = filename ? `"${filename}"` : `this ${modality}`
       return {
         type: "text" as const,
-        text: `ERROR: Cannot read ${name} (this model does not support ${modality} input). Inform the user.`,
+        text: `The contents of ${name} were NOT provided to you: this model does not support ${modality} input. Do not guess or describe the file's contents; tell the user you cannot view the file.`,
       }
     })
 
@@ -1504,6 +1491,9 @@ export function openAICompatibleRequestBodyText(model: Provider.Model, body: unk
 
 const ProviderTransformOptionsValue = options
 const ProviderTransformMessageValue = message
+const ProviderTransformModelCanReadMediaValue = modelCanReadMedia
+const ProviderTransformMediaInputKindFnValue = mediaInputKind
+type ProviderTransformMediaInputKindValue = MediaInputKind
 const ProviderTransformVariantsValue = variants
 const ProviderTransformProviderOptionsValue = providerOptions
 const ProviderTransformSchemaValue = schema
@@ -1521,6 +1511,9 @@ export namespace ProviderTransform {
   export const OUTPUT_TOKEN_MAX = ProviderTransformOutputTokenMaxValue
   export const options = ProviderTransformOptionsValue
   export const message = ProviderTransformMessageValue
+  export const modelCanReadMedia = ProviderTransformModelCanReadMediaValue
+  export const mediaInputKind = ProviderTransformMediaInputKindFnValue
+  export type MediaInputKind = ProviderTransformMediaInputKindValue
   export const variants = ProviderTransformVariantsValue
   export const providerOptions = ProviderTransformProviderOptionsValue
   export const schema = ProviderTransformSchemaValue

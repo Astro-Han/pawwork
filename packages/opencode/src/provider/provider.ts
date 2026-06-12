@@ -118,6 +118,13 @@ export function stripOpenAIResponseInputIDs(body: unknown) {
   return JSON.stringify(parsed)
 }
 
+function googleVertexAnthropicBaseURL(project: string | undefined, location: string | undefined) {
+  if (!project) return
+  if (location !== "eu" && location !== "us") return
+  // Continental multi-regions require Regional Endpoint Platform domains.
+  return `https://aiplatform.${location}.rep.googleapis.com/v1/projects/${project}/locations/${location}/publishers/anthropic/models`
+}
+
 type BundledSDK = {
   languageModel(modelId: string): LanguageModelV3
   chatModel?(modelId: string): LanguageModelV3
@@ -459,7 +466,11 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
     "google-vertex": Effect.fnUntraced(function* (provider: Info) {
       const env = yield* dep.env()
       const project =
-        provider.options?.project ?? env["GOOGLE_CLOUD_PROJECT"] ?? env["GCP_PROJECT"] ?? env["GCLOUD_PROJECT"]
+        provider.options?.project ??
+        env["GOOGLE_VERTEX_PROJECT"] ??
+        env["GOOGLE_CLOUD_PROJECT"] ??
+        env["GCP_PROJECT"] ??
+        env["GCLOUD_PROJECT"]
 
       const location = String(
         provider.options?.location ??
@@ -502,10 +513,20 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         },
       }
     }),
-    "google-vertex-anthropic": Effect.fnUntraced(function* () {
+    "google-vertex-anthropic": Effect.fnUntraced(function* (provider: Info) {
       const env = yield* dep.env()
-      const project = env["GOOGLE_CLOUD_PROJECT"] ?? env["GCP_PROJECT"] ?? env["GCLOUD_PROJECT"]
-      const location = env["GOOGLE_CLOUD_LOCATION"] ?? env["VERTEX_LOCATION"] ?? "global"
+      const project =
+        provider.options?.project ??
+        env["GOOGLE_VERTEX_PROJECT"] ??
+        env["GOOGLE_CLOUD_PROJECT"] ??
+        env["GCP_PROJECT"] ??
+        env["GCLOUD_PROJECT"]
+      const location =
+        provider.options?.location ??
+        env["GOOGLE_VERTEX_LOCATION"] ??
+        env["GOOGLE_CLOUD_LOCATION"] ??
+        env["VERTEX_LOCATION"] ??
+        "global"
       const autoload = Boolean(project)
       if (!autoload) return { autoload: false }
       return {
@@ -1498,6 +1519,14 @@ const layer: Layer.Layer<
         })
         const provider = s.providers[model.providerID]
         const options = { ...provider.options }
+
+        if (model.api.npm === "@ai-sdk/google-vertex/anthropic" && !options.baseURL && !model.api.url) {
+          const baseURL = googleVertexAnthropicBaseURL(
+            typeof options.project === "string" ? options.project : undefined,
+            typeof options.location === "string" ? options.location : undefined,
+          )
+          if (baseURL) options.baseURL = baseURL
+        }
 
         if (model.providerID === "google-vertex" && !model.api.npm.includes("@ai-sdk/openai-compatible")) {
           delete options.fetch

@@ -1,5 +1,6 @@
 import { For, type Accessor, type JSX } from "solid-js"
 import type { AutomationDefinition } from "@opencode-ai/sdk/v2/client"
+import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { useLanguage } from "@/context/language"
 import { formatScheduleSummary } from "./automation-schedule"
@@ -13,6 +14,8 @@ export function AutomationList(props: {
   items: Accessor<AutomationListItem[]>
   onSelect: (id: string) => void
   onToggleActive: (automation: AutomationDefinition) => void
+  onRunNow: (automation: AutomationDefinition) => void
+  onDelete: (automation: AutomationDefinition) => void
 }): JSX.Element {
   const language = useLanguage()
   return (
@@ -44,18 +47,40 @@ export function AutomationList(props: {
                   {formatScheduleSummary(automation, language.t)}
                 </span>
               </button>
-              <button
-                type="button"
-                data-action="automation-toggle-active"
-                data-automation-id={automation.id}
-                onClick={(event) => {
-                  event.stopPropagation()
-                  props.onToggleActive(automation)
-                }}
-                class="absolute right-2.5 top-1/2 -translate-y-1/2 rounded px-1.5 py-0.5 text-caption text-fg-weak opacity-0 transition-colors hover:bg-row-hover-overlay hover:text-fg-strong focus-visible:opacity-100 focus:outline-none group-hover/automation:opacity-100"
+              {/* Same three actions as the detail header, surfaced on hover in
+                  place of the schedule summary. Siblings of the row button, so
+                  clicking one never opens the row. */}
+              <div
+                data-component="automation-row-actions"
+                class="absolute right-2.5 top-1/2 flex -translate-y-1/2 items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover/automation:opacity-100 group-focus-within/automation:opacity-100"
               >
-                {automation.paused ? language.t("automations.action.resume") : language.t("automations.action.pause")}
-              </button>
+                <Button
+                  variant="ghost"
+                  icon="trash"
+                  data-action="automation-delete"
+                  data-automation-id={automation.id}
+                  aria-label={language.t("automations.action.delete")}
+                  onClick={() => props.onDelete(automation)}
+                />
+                <Button
+                  variant="ghost"
+                  icon={automation.paused ? "play" : "pause"}
+                  data-action="automation-toggle-active"
+                  data-automation-id={automation.id}
+                  aria-label={
+                    automation.paused ? language.t("automations.action.resume") : language.t("automations.action.pause")
+                  }
+                  onClick={() => props.onToggleActive(automation)}
+                />
+                <Button
+                  variant="ghost"
+                  icon="play"
+                  data-action="automation-run-now"
+                  data-automation-id={automation.id}
+                  aria-label={language.t("automations.action.runNow")}
+                  onClick={() => props.onRunNow(automation)}
+                />
+              </div>
             </li>
           )
         }}

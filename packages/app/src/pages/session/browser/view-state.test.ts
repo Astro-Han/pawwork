@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test"
 import { rectsEqual, shouldShowBrowserView } from "./view-state"
 
 describe("shouldShowBrowserView", () => {
-  const base = { panelOpen: true, active: true, hasPage: true, suppressed: false, coveredBySurface: false }
+  const base = { panelOpen: true, active: true, hasPage: true, suppressed: false, displaced: false }
 
-  test("shows only when open, active, has a page, not suppressed, and not covered by a surface", () => {
+  test("shows only when open, active, has a page, not suppressed, and not displaced", () => {
     expect(shouldShowBrowserView(base)).toBe(true)
   })
 
@@ -13,14 +13,10 @@ describe("shouldShowBrowserView", () => {
     expect(shouldShowBrowserView({ ...base, active: false })).toBe(false)
     expect(shouldShowBrowserView({ ...base, hasPage: false })).toBe(false)
     expect(shouldShowBrowserView({ ...base, suppressed: true })).toBe(false)
-    expect(shouldShowBrowserView({ ...base, coveredBySurface: true })).toBe(false)
   })
 
-  test("hides while a full-surface takeover (settings / automations / skills) covers the session", () => {
-    // The session DOM stays mounted under a takeover (CSS-hidden, not unmounted),
-    // so without this gate the native overlay would paint through settings /
-    // automations / skills. Regression guard for that bleed-through.
-    expect(shouldShowBrowserView({ ...base, coveredBySurface: true })).toBe(false)
+  test("hides while another window displays the view, so resize ticks cannot steal it back", () => {
+    expect(shouldShowBrowserView({ ...base, displaced: true })).toBe(false)
   })
 })
 

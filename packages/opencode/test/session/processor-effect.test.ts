@@ -116,6 +116,15 @@ function providerCfg(url: string) {
   }
 }
 
+function providerCfgWithDisabledAutoCompaction(url: string) {
+  return {
+    ...providerCfg(url),
+    compaction: {
+      auto: false,
+    },
+  }
+}
+
 function copilotResponsesProviderCfg(url: string) {
   return {
     provider: {
@@ -2394,6 +2403,49 @@ it.live("session.processor effect tests compact on structured context overflow",
         expect(handle.message.error).toBeUndefined()
       }),
     { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
+it.live("session.processor effect tests stop structured context overflow when auto compaction is disabled", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+
+        yield* llm.error(400, { type: "error", error: { code: "context_length_exceeded" } })
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "no auto compact json")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({ safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const value = yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "no auto compact json" }],
+          tools: {},
+        })
+
+        expect(value).toBe("stop")
+        expect(yield* llm.calls).toBe(1)
+        expect(handle.message.error?.name).toBe("ContextOverflowError")
+      }),
+    { git: true, config: (url) => providerCfgWithDisabledAutoCompaction(url) },
   ),
 )
 

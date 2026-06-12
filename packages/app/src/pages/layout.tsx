@@ -29,7 +29,6 @@ import { useProviders } from "@/hooks/use-providers"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { LayoutPageContext } from "@/context/layout-page"
-import { ShellSurfaceContext } from "@/context/shell-surface"
 import { clearWorkspaceTerminals } from "@/context/terminal"
 import { useNotification } from "@/context/notification"
 import { usePermission } from "@/context/permission"
@@ -56,6 +55,16 @@ import { createPawworkSessionCommands, type SessionDeleteTarget } from "./layout
 import { pawworkSessionDirectories } from "./layout/pawwork-session-source"
 import { findPawworkSessionNavigationTarget } from "./layout/pawwork-session-nav"
 import { createShellNavigation } from "./layout/shell-navigation"
+import {
+  SURFACE_ROUTE_PATHS,
+  parseSessionRoutePath,
+  readSurfaceRouteState,
+  resolveSurfaceClose,
+  surfaceEntryState,
+  surfaceRouteName,
+  type SurfaceRouteName,
+} from "./layout/surface-routes"
+import { SurfacePageContext } from "./layout/surface-page-context"
 import { useUpdatePolling } from "./layout/layout-update-polling"
 import { useHomepageMigration } from "./layout/layout-homepage-migration"
 import { createOpenGlobalConfigFolder } from "./layout/layout-open-global-config"
@@ -72,10 +81,8 @@ import { createPawworkWorkspaceLifecycle } from "./layout/pawwork-workspace-life
 import { createPawworkWorkspaceDialogs } from "./layout/pawwork-workspace-dialogs"
 import { type WorkspaceSidebarContext } from "./layout/sidebar-workspace"
 import { PawworkSidebar, type PawworkSidebarSession } from "./layout/pawwork-sidebar"
-import { AutomationsSurface } from "@/pages/automations/automations-surface"
-import { SkillsSurface } from "@/pages/skills/skills-surface"
 import { createDefaultLayoutPageState, createLayoutPagePersistTarget } from "./layout/layout-page-store"
-import { SettingsContent, SettingsNav, isSettingsTab, type SettingsTab } from "@/pages/settings/settings-shell"
+import { SettingsNav, isSettingsTab, type SettingsTab } from "@/pages/settings/settings-shell"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { AppStartupPending } from "@/components/app-startup-pending"
 import { sessionTitle } from "@/utils/session-title"
@@ -92,23 +99,16 @@ export default function Layout(props: ParentProps) {
   let scrollContainerRef: HTMLDivElement | undefined
   let dialogRun = 0
   let dialogDead = false
-  // One mutually-exclusive shell surface at a time. Settings replaces the
-  // sidebar + main; automations only takes over main (sidebar stays live).
-  const [activeSurface, setActiveSurface] = createSignal<"none" | "settings" | "automations" | "skills">("none")
-  const settingsOpen = createMemo(() => activeSurface() === "settings")
-  const automationsOpen = createMemo(() => activeSurface() === "automations")
-  const skillsOpen = createMemo(() => activeSurface() === "skills")
-  // Any main-region takeover is open. Chrome belonging to the covered session
-  // (titlebar portals, the right-panel rail, sidebar route-active) reads this.
-  const mainSurfaceOpen = createMemo(() => activeSurface() !== "none")
-  // Pending deep-link selection for the Automations panel; set just before the
-  // surface opens (e.g. the automate tool's jump button) and read once on its
-  // mount. Cleared on manual opens so a stale id never forces a row.
-  const [requestedAutomationID, setRequestedAutomationID] = createSignal<string | undefined>()
   const [settingsTab, setSettingsTab] = createSignal<SettingsTab>("general")
 
   const params = useParams()
   const location = useLocation()
+  // The three shell surfaces are real top-level routes; everything that used
+  // to read a takeover signal derives from the route instead.
+  const surfaceRoute = createMemo(() => surfaceRouteName(location.pathname))
+  const settingsOpen = createMemo(() => surfaceRoute() === "settings")
+  const automationsOpen = createMemo(() => surfaceRoute() === "automations")
+  const skillsOpen = createMemo(() => surfaceRoute() === "skills")
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
   const layout = useLayout()
@@ -119,14 +119,10 @@ export default function Layout(props: ParentProps) {
   const notification = useNotification()
   const permission = usePermission()
   const navigate = useNavigate()
-  // Wrap navigate so non-shell entry points (notification clicks, deep links
-  // dispatched through @/utils/notification-click) also close the settings
-  // overlay before routing. Shell-driven navigation (openNewSession /
-  // openSession) closes settings explicitly through closeSettingsSurface.
-  setNavigate((href) => {
-    closeSettings()
-    navigate(href)
-  })
+  // Non-shell entry points (notification clicks, deep links dispatched
+  // through @/utils/notification-click) navigate directly; the surfaces are
+  // routes, so navigating to a session leaves them naturally.
+  setNavigate(navigate)
   setOpenSettings((tab) => openSettings(tab))
   const providers = useProviders()
   const dialog = useDialog()
@@ -145,10 +141,29 @@ export default function Layout(props: ParentProps) {
     }
   })
   const currentDir = createMemo(() => route().dir)
+  // Last directory a /:dir route was visited in. Global surfaces (settings /
+  // automations / skills) and the command palette read activeDirectory for
+  // directory context when no project route is active. The trailing fallbacks
+  // mirror HomeRedirectRoute: first open project, then first synced project.
+  const [lastRouteDir, setLastRouteDir] = createSignal("")
+  createEffect(() => {
+    const dir = currentDir()
+    if (dir) setLastRouteDir(dir)
+  })
+  const activeDirectory = createMemo(
+    () =>
+      currentDir() ||
+      lastRouteDir() ||
+      layout.projects.list()[0]?.worktree ||
+      (globalSync.ready ? (globalSync.data.project[0]?.worktree ?? "") : ""),
+  )
   const pawworkSidebar = createMemo(() => globalSync.data.project.length <= 1)
 
   const [state, setState] = createStore({
-    autoselect: !initialDirectory,
+    // Booting on a surface route (e.g. a web reload on /settings) is a real
+    // destination, not a "no project yet" start — autoselect must not yank
+    // the user off it.
+    autoselect: !initialDirectory && !surfaceRoute(),
     busyWorkspaces: {} as Record<string, boolean>,
     scrollSessionKey: undefined as string | undefined,
     sizing: false,
@@ -249,7 +264,10 @@ export default function Layout(props: ParentProps) {
     element.scrollIntoView({ block: "nearest", behavior: "smooth" })
   }
 
-  const currentProject = createCurrentProjectMemo({ currentDir, layout, globalSync })
+  // Keyed on activeDirectory, not the raw route directory: the sidebar and
+  // project-scoped chrome stay on the last visited project while a global
+  // surface route (/settings /automations /skills) is mounted.
+  const currentProject = createCurrentProjectMemo({ currentDir: activeDirectory, layout, globalSync })
   const [autoselecting] = createResource(async () => {
     await ready.promise
     await layout.ready.promise
@@ -305,7 +323,7 @@ export default function Layout(props: ParentProps) {
     if (!project) return [] as string[]
     if (!workspaceSetting()) return [project.worktree]
 
-    const activeDir = currentDir()
+    const activeDir = activeDirectory()
     return workspaceIds(project).filter((directory) => {
       const expanded = store.workspaceExpanded[directory] ?? directory === project.worktree
       const active = workspaceKey(directory) === workspaceKey(activeDir)
@@ -479,63 +497,105 @@ export default function Layout(props: ParentProps) {
       })
   }
 
+  // Enter a surface route, recording the current location as the origin in
+  // the navigation's own history-entry state. Re-activating the surface the
+  // user is already on is a no-op; a deep-entry request (one automation)
+  // updates the current entry's state in place, preserving its origin.
+  function openSurface(name: SurfaceRouteName, extras?: { automationID?: string }) {
+    const target = SURFACE_ROUTE_PATHS[name]
+    if (location.pathname === target) {
+      if (extras?.automationID) {
+        navigate(target, {
+          replace: true,
+          state: { ...readSurfaceRouteState(location.state), automationID: extras.automationID },
+        })
+      }
+      return
+    }
+    navigate(target, { state: surfaceEntryState({ location, automationID: extras?.automationID }) })
+  }
+
+  // Close returns to the recorded origin. A session origin deleted while away
+  // falls through to the active directory's session home, then the home
+  // redirect. Surface-route origins (the previous hop of a chain) are always
+  // honored, unwinding one close at a time.
+  function closeSurface() {
+    const close = resolveSurfaceClose({
+      state: location.state,
+      validateOrigin: (origin) => {
+        const parsed = parseSessionRoutePath(origin.pathname)
+        if (!parsed?.sessionID) return true
+        const directory = decode64(parsed.slug)
+        if (!directory) return false
+        const [child] = globalSync.child(directory, { bootstrap: false })
+        // Only a fully bootstrapped child can prove the origin stale: before
+        // that, its session list just hasn't loaded. This also covers the
+        // origin being the directory's ONLY session, deleted while away — the
+        // loaded list is then legitimately empty, which a bare length check
+        // could not tell apart from "not loaded yet".
+        if (child.status !== "complete") return true
+        return (child.session ?? []).some((session) => session.id === parsed.sessionID)
+      },
+      fallback: (() => {
+        const directory = activeDirectory()
+        return directory ? `/${base64Encode(directory)}/session` : "/"
+      })(),
+    })
+    navigate(close.href, { state: close.state })
+  }
+
   function openSettingsSurface(tab?: SettingsTab) {
     // Guard against callers that forward a DOM event (e.g. an onClick handler)
     // as the tab argument — only a known tab string selects a page, anything
     // else falls back to General.
     setSettingsTab(typeof tab === "string" && isSettingsTab(tab) ? tab : "general")
-    setActiveSurface("settings")
+    openSurface("settings")
   }
 
-  function toggleAutomations() {
-    setRequestedAutomationID(undefined)
-    setActiveSurface((current) => (current === "automations" ? "none" : "automations"))
+  function openAutomationsSurface() {
+    openSurface("automations")
   }
 
-  function toggleSkills() {
-    setActiveSurface((current) => (current === "skills" ? "none" : "skills"))
+  function openSkillsSurface() {
+    openSurface("skills")
   }
 
-  // Open the Automations panel focused on one automation. Wired to the
+  // Open the Automations page focused on one automation. Wired to the
   // module-level bridge so the automate tool card (deep in the message thread,
-  // outside this shell) can jump here. The surface reads the request on mount.
+  // outside this shell) can jump here. The route component reads the request
+  // from the navigation state.
   function openAutomationByID(automationID?: string) {
-    setRequestedAutomationID(automationID)
-    setActiveSurface("automations")
+    openSurface("automations", { automationID })
   }
   setOpenAutomations(openAutomationByID)
 
-  // "Create via chat" leaves the panel and starts a fresh session in the current
+  // The project root surfaces act on: the active project, resolved through
+  // the last visited directory when no /:dir route is mounted.
+  const surfaceProjectRoot = () => currentProject()?.worktree ?? projectRoot(activeDirectory())
+
+  // "Create via chat" leaves the page and starts a fresh session in the current
   // project, prefilled with a short guiding prompt the user can edit or send.
   // The ?prompt= bootstrap (see useSessionRoutePromptBootstrap) seeds the
   // composer reactively, so it works whether or not we are already on the
   // new-session route.
   function createAutomationViaChat() {
-    closeSettings()
-    const directory = currentProject()?.worktree ?? projectRoot(currentDir())
+    const directory = surfaceProjectRoot()
     if (!directory) return
     const prompt = encodeURIComponent(language.t("automations.create.viaChatPrompt"))
     navigate(`/${base64Encode(directory)}/session?prompt=${prompt}`)
   }
 
-  // Skills resolve per active directory, exactly like the composer's slash
-  // picker (which queries the route's SDK directory = `currentDir()`). Use the
-  // active route dir — not the owner project root — so the gallery and "Use in
-  // chat" match the skills the composer would actually offer, including a
-  // sandbox/workspace's own `.agents/skills`, and "Use in chat" stays in the
-  // directory the user was working in instead of jumping to the project root.
-  // Falls back to the project root only when no directory is active (gallery
-  // opened with no project selected). This deliberately diverges from the
-  // Automations surface above, which is correctly project-scoped (it also keys
-  // off `projectID`); skills are directory-resolved, not project entities.
-  const skillsDirectory = () => currentDir() || currentProject()?.worktree || ""
+  // Skills resolve per active directory (not the project root the Automations
+  // page uses), exactly like the composer's slash picker: activeDirectory
+  // keeps the workspace/sandbox the user was in, so the gallery and "Use in
+  // chat" match the skills the composer would actually offer. Skills are
+  // directory-resolved, not project entities.
 
-  // "Use in chat" from the Skills gallery leaves the surface and starts a fresh
+  // "Use in chat" from the Skills gallery leaves the page and starts a fresh
   // session in the active directory. The ?skill= bootstrap seeds the composer with
   // the structured skill chip, so the picked skill activates deterministically.
   function useSkillInChat(name: string) {
-    closeSettings()
-    const directory = skillsDirectory()
+    const directory = activeDirectory()
     if (!directory) return
     navigate(`/${base64Encode(directory)}/session?skill=${encodeURIComponent(name)}`)
   }
@@ -546,18 +606,9 @@ export default function Layout(props: ParentProps) {
 
   const openGlobalConfigFolder = createOpenGlobalConfigFolder({ globalSDK, platform, language })
 
-  createEffect(() => {
-    command.setModalOpen(activeSurface() !== "none")
-  })
-
-  function closeSettings() {
-    setActiveSurface("none")
-  }
-
-  // Opening a run from the Automations panel leaves the surface and lands on the
-  // run's chat session, which also lives in the normal All chats list.
+  // Opening a run from the Automations page lands on the run's chat session,
+  // which also lives in the normal All chats list.
   async function openAutomationRun(sessionID: string) {
-    closeSettings()
     const session = await loadSessionByID(sessionID)
     if (session) navigateToSession(session)
   }
@@ -602,11 +653,13 @@ export default function Layout(props: ParentProps) {
     navigate,
     releaseTransientLocks: releaseTransientShellLocks,
     resolveProjectRoot: projectRoot,
-    currentProjectRoot: () => currentProject()?.worktree ?? projectRoot(currentDir()),
+    // activeDirectory equals currentDir on /:dir routes; elsewhere it falls
+    // back to the last visited directory so shell navigation (e.g. "new
+    // session" from a global page) still resolves a project.
+    currentProjectRoot: surfaceProjectRoot,
     directStartRoot: () => globalSync.data.path.directory,
     chooseProject,
     openSettingsSurface,
-    closeSettingsSurface: closeSettings,
   })
 
   // Singleton; same instance returned every call.
@@ -873,9 +926,49 @@ export default function Layout(props: ParentProps) {
     return pawworkSessionDirectories({
       project,
       activeProjectWorktree: currentProject()?.worktree,
-      currentDirectory: currentDir(),
+      currentDirectory: activeDirectory(),
       workspaceOrder: project ? store.workspaceOrder[project.worktree] : undefined,
     })
+  }
+
+  // dialog.show renders the dialog under this body's owner, which sits above
+  // the LayoutPageContext.Provider in the JSX below — so the palette element
+  // wraps the provider explicitly instead of relying on the owner chain.
+  const layoutPageValue = {
+    pinnedIDs: () => store.pawworkPinnedSessions,
+    workspaceOrderFor: (worktree: string) => store.workspaceOrder[worktree],
+    openProject: () => {
+      void chooseProject()
+    },
+    activeDirectory,
+  }
+
+  function openCommandPalette(source?: "palette" | "keybind" | "slash") {
+    const run = ++dialogRun
+    void import("@/components/dialog-select-file")
+      .then((x) => {
+        if (dialogDead || dialogRun !== run) return
+        dialog.show(() => (
+          <LayoutPageContext.Provider value={layoutPageValue}>
+            <x.DialogSelectFile mode={source === "slash" ? "files" : undefined} />
+          </LayoutPageContext.Provider>
+        ))
+      })
+      .catch(() => {
+        // Chunk failed to load — ignore; user can retry
+      })
+  }
+
+  function openNewSessionCommand() {
+    // On a /:dir route, preserve the previous session-page behavior exactly:
+    // stay in the current route directory (a workspace keeps its own home).
+    // Elsewhere, resolve through the shell (active project, else picker).
+    const slug = params.dir
+    if (slug) {
+      navigate(`/${slug}/session`)
+      return
+    }
+    openPawworkHome()
   }
 
   registerLayoutCommands({
@@ -885,11 +978,22 @@ export default function Layout(props: ParentProps) {
     viewActions: {
       toggleSidebar: layout.sidebar.toggle,
     },
+    paletteActions: {
+      open: openCommandPalette,
+      canOpenFiles: () => !!activeDirectory(),
+    },
+    sessionActions: {
+      openNew: openNewSessionCommand,
+    },
     navigationActions: {
       openProject: chooseProject,
       moveProject: navigateProjectByOffset,
       moveSession: navigateSessionByOffset,
       moveUnseenSession: navigateSessionByUnseen,
+      // Session-relative navigation has no anchor on a surface route
+      // (params.id is gone) — it would jump to an arbitrary session, yanking
+      // the user off the page they deliberately opened.
+      canMoveSession: () => !surfaceRoute(),
     },
     settingsActions: {
       open: openSettings,
@@ -973,11 +1077,14 @@ export default function Layout(props: ParentProps) {
       onSearchOlderSessions={() => command.show()}
       onNew={() => openPawworkHome(options?.directory)}
       onSearch={() => command.show()}
+      // The palette dialog mounts directory-bound providers; with zero
+      // projects there is nothing to search, so the button shows as disabled.
+      searchAvailable={() => !!activeDirectory()}
       onOpenProject={chooseProject}
-      onOpenSkills={toggleSkills}
+      onOpenSkills={openSkillsSurface}
       skillsActive={skillsOpen}
       skillsLabel={() => language.t("sidebar.pawwork.skills")}
-      onOpenAutomations={toggleAutomations}
+      onOpenAutomations={openAutomationsSurface}
       automationsActive={automationsOpen}
       automationsLabel={() => language.t("sidebar.pawwork.automations")}
       onOpenSettings={() => openSettings()}
@@ -998,27 +1105,26 @@ export default function Layout(props: ParentProps) {
   }
 
   return (
-    <LayoutPageContext.Provider
-      value={{
-        pinnedIDs: () => store.pawworkPinnedSessions,
-        workspaceOrderFor: (worktree: string) => store.workspaceOrder[worktree],
-        openProject: () => {
-          void chooseProject()
-        },
-      }}
-    >
-      <ShellSurfaceContext.Provider
+    <LayoutPageContext.Provider value={layoutPageValue}>
+      <SurfacePageContext.Provider
         value={{
-          settingsOpen,
-          automationsOpen,
-          skillsOpen,
-          mainSurfaceOpen,
-          openNewSession: openPawworkHome,
-          openSession: navigateToSession,
-          openSettings,
-          closeSettings,
-          openSkills: () => setActiveSurface("skills"),
-          closeSkills: () => setActiveSurface("none"),
+          close: closeSurface,
+          settings: {
+            tab: settingsTab,
+            directory: activeDirectory,
+          },
+          automations: {
+            directory: surfaceProjectRoot,
+            projectID: () => currentProject()?.id,
+            openRun: (sessionID) => {
+              void openAutomationRun(sessionID)
+            },
+            createViaChat: createAutomationViaChat,
+          },
+          skills: {
+            directory: activeDirectory,
+            useInChat: useSkillInChat,
+          },
         }}
       >
         <LayoutShellFrame
@@ -1041,33 +1147,15 @@ export default function Layout(props: ParentProps) {
           settings={{
             open: settingsOpen,
             title: () => language.t("sidebar.settings"),
-            nav: () => <SettingsNav active={settingsTab()} onSelect={setSettingsTab} onClose={closeSettings} />,
-            content: () => <SettingsContent active={settingsTab()} directory={currentDir()} onClose={closeSettings} />,
+            nav: () => <SettingsNav active={settingsTab()} onSelect={setSettingsTab} onClose={closeSurface} />,
           }}
           automations={{
             open: automationsOpen,
             title: () => language.t("automations.title"),
-            content: () => (
-              <AutomationsSurface
-                directory={() => currentProject()?.worktree ?? projectRoot(currentDir())}
-                projectID={() => currentProject()?.id}
-                requestedID={requestedAutomationID}
-                onClose={closeSettings}
-                onOpenRun={openAutomationRun}
-                onCreateViaChat={createAutomationViaChat}
-              />
-            ),
           }}
           skills={{
             open: skillsOpen,
             title: () => language.t("skills.title"),
-            content: () => (
-              <SkillsSurface
-                directory={skillsDirectory}
-                onClose={closeSettings}
-                onUseSkill={useSkillInChat}
-              />
-            ),
           }}
           main={() => (
             <Show when={!startupAutoselectPending()} fallback={<AppStartupPending />}>
@@ -1075,7 +1163,7 @@ export default function Layout(props: ParentProps) {
             </Show>
           )}
         />
-      </ShellSurfaceContext.Provider>
+      </SurfacePageContext.Provider>
     </LayoutPageContext.Provider>
   )
 }

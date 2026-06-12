@@ -1484,6 +1484,15 @@ export const layer: Layer.Layer<
           error.data = { ...error.data, message: options.interruptionMessage }
         }
         if (MessageV2.ContextOverflowError.isInstance(error)) {
+          if (!ctx.assistantMessage.summary && (yield* config.get()).compaction?.auto === false) {
+            ctx.assistantMessage.error = error
+            yield* bus.publish(Session.Event.Error, {
+              sessionID: ctx.assistantMessage.sessionID,
+              error: ctx.assistantMessage.error,
+            })
+            yield* status.set(ctx.sessionID, { type: "idle" })
+            return
+          }
           ctx.needsCompaction = true
           yield* bus.publish(Session.Event.Error, { sessionID: ctx.sessionID, error })
           return

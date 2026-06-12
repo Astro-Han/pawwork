@@ -59,6 +59,10 @@ registerPartComponent("tool", function ToolPartDisplay(props) {
   })
 
   const render = createMemo(() => ToolRegistry.render(part().tool) ?? GenericTool)
+  const attachments = createMemo(() => {
+    const state = part().state
+    return state.status === "completed" ? state.attachments : undefined
+  })
 
   return (
     <Show when={!hideQuestion() && !hideSyntheticStop()}>
@@ -153,6 +157,7 @@ registerPartComponent("tool", function ToolPartDisplay(props) {
               // @ts-expect-error
               output={part().state.output}
               status={part().state.status}
+              attachments={attachments()}
               hideDetails={props.hideDetails}
               defaultOpen={props.defaultOpen}
               stateKey={props.stateKey}

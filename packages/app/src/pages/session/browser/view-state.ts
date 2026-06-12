@@ -8,19 +8,20 @@ import type { BrowserViewRect } from "@/context/platform"
  *   - no page loaded yet → the DOM empty state shows instead,
  *   - suppressed: an app modal / the browser's own menu is open → it would paint
  *     over them,
- *   - coveredBySurface: a full-region takeover (settings / automations / skills)
- *     covers the session. The session DOM stays mounted (CSS-hidden, not
- *     unmounted, to preserve its state), but a native layer ignores CSS, so it
- *     must be hidden explicitly or it bleeds through the takeover.
+ *   - displaced: another window took over displaying this conversation's view.
+ *     The panel must stop reporting layout entirely — its next resize tick
+ *     would silently steal the view back — until the user explicitly reclaims.
+ * Navigating away (settings / automations / skills are real routes) unmounts
+ * this panel entirely; its onCleanup hides the view, so no covered flag needed.
  */
 export function shouldShowBrowserView(input: {
   panelOpen: boolean
   active: boolean
   hasPage: boolean
   suppressed: boolean
-  coveredBySurface: boolean
+  displaced: boolean
 }): boolean {
-  return input.panelOpen && input.active && input.hasPage && !input.suppressed && !input.coveredBySurface
+  return input.panelOpen && input.active && input.hasPage && !input.suppressed && !input.displaced
 }
 
 /**

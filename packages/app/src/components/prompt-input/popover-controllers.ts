@@ -5,7 +5,7 @@
 import { createEffect, createMemo, createSignal, onCleanup, type Accessor, type Setter } from "solid-js"
 import type { SetStoreFunction } from "solid-js/store"
 import { useFilteredList } from "@opencode-ai/ui/hooks"
-import { type ContentPart, type ImageAttachmentPart, type Prompt, type usePrompt } from "@/context/prompt"
+import { type ContentPart, type FloatingAttachment, type Prompt, type usePrompt } from "@/context/prompt"
 import { DEFAULT_PROMPT } from "@/context/prompt-equality"
 import type { useCommand } from "@/context/command"
 import type { useSync } from "@/context/sync"
@@ -25,7 +25,7 @@ export interface PopoverControllersDeps {
   files: ReturnType<typeof useFile>
   language: ReturnType<typeof useLanguage>
   recent: Accessor<string[]>
-  imageAttachments: Accessor<ImageAttachmentPart[]>
+  imageAttachments: Accessor<FloatingAttachment[]>
   actionReady: Accessor<boolean>
   // ref is nullable because PromptPopover assigns it on mount
   slashPopoverRef: () => HTMLDivElement | undefined

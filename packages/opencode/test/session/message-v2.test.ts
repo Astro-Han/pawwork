@@ -1751,6 +1751,63 @@ describe("session.message-v2.fromError", () => {
     })
   })
 
+  test("classifies bare response.failed stream error payloads", () => {
+    const body = {
+      code: "server_error",
+      message: "The provider failed while streaming the response.",
+    }
+    const result = MessageV2.fromError(body, { providerID })
+
+    expect(result).toStrictEqual({
+      name: "APIError",
+      data: {
+        message: body.message,
+        isRetryable: true,
+        responseBody: JSON.stringify(body),
+        providerID,
+        providerFailure: { kind: "server_overload", code: "server_error" },
+      },
+    })
+  })
+
+  test("leaves untyped nested error envelopes as UnknownError", () => {
+    const body = {
+      error: {
+        code: "server_error",
+        message: "The provider failed while streaming the response.",
+      },
+    }
+    const result = MessageV2.fromError(body, { providerID })
+
+    expect(result).toStrictEqual({
+      name: "UnknownError",
+      data: { message: JSON.stringify(body) },
+    })
+  })
+
+  test("classifies stream error payloads from Error cause bodies", () => {
+    const body = {
+      type: "error",
+      error: {
+        code: "server_is_overloaded",
+        message: "The provider is overloaded.",
+      },
+    }
+    const error = new Error("provider stream failed", { cause: { body } })
+    const result = MessageV2.fromError(error, { providerID })
+
+    expect(result).toStrictEqual({
+      name: "APIError",
+      data: {
+        message: body.error.message,
+        isRetryable: true,
+        responseBody: JSON.stringify(body),
+        providerID,
+        providerFailure: { kind: "server_overload", code: "server_is_overloaded" },
+      },
+    })
+  })
+
   test("leaves Error-wrapped payloads with unhandled codes as UnknownError", () => {
     // Guard against the stream parser over-matching: an Error whose JSON message
     // carries a code the parser does not handle must stay Unknown, not become a

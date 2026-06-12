@@ -1,6 +1,7 @@
-import { batch, createMemo, onCleanup, onMount, type Accessor } from "solid-js"
+import { batch, createMemo, createRoot, onCleanup, onMount, type Accessor } from "solid-js"
 import { createStore } from "solid-js/store"
 import { makeEventListener } from "@solid-primitives/event-listener"
+import { base64Encode } from "@opencode-ai/util/encode"
 import { same } from "@/utils/same"
 import type { RightPanelStaticTab, RightPanelTab } from "@/pages/session/right-panel-tabs"
 import { TERMINAL_TAB_PREFIX } from "@/pages/session/right-panel-tabs"
@@ -279,4 +280,47 @@ export function planShellTabReorder(input: {
 /** Names the file-opening transition that must activate Review before showing file-specific content. */
 export function openReviewShellTab(sidePanel: { openTab: (tab: "review") => void }) {
   sidePanel.openTab("review")
+}
+
+/**
+ * Wires "the agent attached browser automation" to the side panel: open the
+ * browser tab of the DRIVEN conversation — and only that one — so the takeover
+ * surfaces where it belongs, never on whichever panel the user happens to be
+ * looking at. The broadcast reaches every window, so the layout key is built
+ * from the driven session's OWN directory (resolved per event): keying by the
+ * viewer's route would mint a dirty `<wrongDir>/<sessionID>` entry whenever the
+ * watching window sits on a different project. A session that fails to resolve
+ * (deleted mid-flight) opens nothing. No-op unsubscribe on platforms without
+ * the embedded browser.
+ */
+export function subscribeAutomationAttached(
+  bridge: { onAutomationAttached(cb: (payload: { sessionID: string }) => void): () => void } | undefined,
+  resolveDirectory: (sessionID: string) => Promise<string | undefined>,
+  openBrowserTab: (sessionKey: string) => void,
+): () => void {
+  if (!bridge) return () => {}
+  return bridge.onAutomationAttached(({ sessionID }) => {
+    void resolveDirectory(sessionID)
+      .then((directory) => {
+        if (directory) openBrowserTab(`${base64Encode(directory)}/${sessionID}`)
+      })
+      .catch(() => {})
+  })
+}
+
+/**
+ * Open the browser tab in an arbitrary session's persisted layout state, from
+ * outside any component reactive scope (event callbacks, the submit flow).
+ * layout.view() builds memos, so it needs its own root; disposal is deferred
+ * one microtask so openTab's deferred selection write still runs against live
+ * state. `sessionKey` is the layout route key, `<dir>/<sessionID>`.
+ */
+export function openBrowserTabInSessionLayout(
+  layout: { view(sessionKey: string): { sidePanel: { openTab(tab: "browser"): void } } },
+  sessionKey: string,
+) {
+  createRoot((dispose) => {
+    layout.view(sessionKey).sidePanel.openTab("browser")
+    queueMicrotask(dispose)
+  })
 }

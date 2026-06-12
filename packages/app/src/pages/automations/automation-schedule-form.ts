@@ -1,4 +1,5 @@
 import { DateTime } from "luxon"
+import type { AutomationDefinition } from "@opencode-ai/sdk/v2/client"
 
 // Input side of the schedule picker (draft -> AutomationCreateInput). The read
 // side (definition -> human label) lives in automation-schedule.ts and still
@@ -69,6 +70,27 @@ export function buildScheduleInput(
     return { kind: "oneshot", fireAt: nextDailyFireAt(draft.hour, draft.minute, timezone, now) }
   }
   return { kind: "recurring", rhythm: { kind: "cron", expression: cronForSchedule(draft) } }
+}
+
+// Inverse of buildScheduleInput, for prefilling the schedule editor from an
+// existing definition. Only the four picker frequencies round-trip; an
+// arbitrary cron created via the SDK or automate tool (hourly, day-of-month…)
+// returns undefined and the editor must keep the original rhythm untouched.
+export function scheduleDraftFromDefinition(definition: AutomationDefinition): ScheduleDraft | undefined {
+  if (definition.kind === "oneshot") {
+    const at = DateTime.fromMillis(definition.fireAt, { zone: definition.timezone })
+    if (!at.isValid) return undefined
+    return { frequency: "once", hour: at.hour, minute: at.minute, weekday: DEFAULT_SCHEDULE.weekday }
+  }
+  if (definition.rhythm.kind !== "cron") return undefined
+  const match = definition.rhythm.expression.match(/^(\d{1,2}) (\d{1,2}) \* \* (\*|1-5|[0-6])$/)
+  if (!match) return undefined
+  const minute = Number(match[1])
+  const hour = Number(match[2])
+  if (minute > 59 || hour > 23) return undefined
+  if (match[3] === "*") return { frequency: "daily", hour, minute, weekday: DEFAULT_SCHEDULE.weekday }
+  if (match[3] === "1-5") return { frequency: "weekdays", hour, minute, weekday: DEFAULT_SCHEDULE.weekday }
+  return { frequency: "weekly", hour, minute, weekday: Number(match[3]) }
 }
 
 // Short label for the Schedule knob / popover trigger, reusing the same i18n

@@ -5,16 +5,8 @@ import type { AgentPart, CommandSource, FileAttachmentPart, SkillAttachmentPart,
 import { DEFAULT_PROMPT } from "@/context/prompt-equality"
 import { resolveCommandIconSvg } from "@opencode-ai/ui/command-icon"
 import { createTextFragment } from "./editor-dom"
+import { formatFileSize } from "./attachment-chips-model"
 import "./command-pill.css"
-
-function formatFileSize(size: number | undefined) {
-  if (size === undefined || !Number.isFinite(size) || size < 0) return ""
-  if (size < 1024) return `${size} B`
-  const kb = size / 1024
-  if (kb < 1024) return `${Number.isInteger(kb) ? kb.toFixed(0) : kb.toFixed(1)} KB`
-  const mb = kb / 1024
-  return `${Number.isInteger(mb) ? mb.toFixed(0) : mb.toFixed(1)} MB`
-}
 
 /** Build the DOM node for a slash-command pill (contenteditable=false). */
 export function createCommandMark(part: TextPart & { command: NonNullable<TextPart["command"]> }): HTMLSpanElement {

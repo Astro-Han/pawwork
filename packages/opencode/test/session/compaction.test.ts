@@ -1208,14 +1208,14 @@ describe("session.compaction.process", () => {
     })
   })
 
-  test("marks summary message as errored on compact result", async () => {
+  test("marks summary message as errored on compact result when auto compaction is disabled", async () => {
     await using tmp = await tmpdir()
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
         const session = await svc.create({})
         const msg = await user(session.id, "hello")
-        const rt = runtime("compact", Plugin.defaultLayer, wide())
+        const rt = runtime("compact", Plugin.defaultLayer, wide(), cfg({ auto: false }))
         try {
           const msgs = await svc.messages({ sessionID: session.id })
           const result = await rt.runPromise(

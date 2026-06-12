@@ -1382,6 +1382,38 @@ it.live("text file part does not promote PDF attachment when model lacks PDF inp
   ),
 )
 
+it.live("tells the model when image content cannot be provided to it", () =>
+  provideTmpdirInstance(
+    (dir) =>
+      Effect.gen(function* () {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const session = yield* sessions.create({})
+        const png = path.join(dir, "shot.png")
+        const pngUrl = pathToFileURL(png).href
+        yield* Effect.promise(() => Bun.write(png, new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])))
+
+        const msg = yield* prompt.prompt({
+          sessionID: session.id,
+          agent: "build",
+          noReply: true,
+          parts: [
+            { type: "text", text: "what is in this image?" },
+            { type: "file", url: pngUrl, filename: "shot.png", mime: "text/plain" },
+          ],
+        })
+
+        expect(msg.parts.some((part) => part.type === "file" && part.mime === "image/png")).toBe(false)
+        const texts = msg.parts.filter((part) => part.type === "text").map((part) => part.text)
+        // A capability-dropped attachment must not leave the model believing
+        // the read succeeded — that produces confident hallucination.
+        expect(texts.some((text) => text.includes("Image read successfully"))).toBe(false)
+        expect(texts.some((text) => /NOT provided/.test(text))).toBe(true)
+      }),
+    { git: true, config: cfg },
+  ),
+)
+
 it.live("text file part promotes PDF attachment when model has image input", () =>
   provideTmpdirInstance(
     (dir) =>
@@ -1404,6 +1436,48 @@ it.live("text file part promotes PDF attachment when model has image input", () 
         })
 
         expect(msg.parts.some((part) => part.type === "file" && part.mime === "application/pdf")).toBe(true)
+      }),
+    { git: true, config: imageCfg },
+  ),
+)
+
+it.live("image upgrade replaces the submitted file part in place", () =>
+  provideTmpdirInstance(
+    (dir) =>
+      Effect.gen(function* () {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const session = yield* sessions.create({})
+        const png = path.join(dir, "shot.png")
+        const pngUrl = pathToFileURL(png).href
+        yield* Effect.promise(() => Bun.write(png, new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])))
+
+        const submittedID = PartID.ascending()
+        const msg = yield* prompt.prompt({
+          sessionID: session.id,
+          agent: "build",
+          noReply: true,
+          parts: [
+            { type: "text", text: "what is in this image?" },
+            {
+              type: "file",
+              id: submittedID,
+              url: pngUrl,
+              filename: "shot.png",
+              mime: "text/plain",
+              metadata: { attachment: true },
+            },
+          ],
+        })
+
+        const fileParts = msg.parts.filter((part): part is MessageV2.FilePart => part.type === "file")
+        // The upgraded media part must keep the submitted part id. Id-keyed
+        // consumers (the client's optimistic part merge) otherwise treat it as
+        // a second attachment and render two chips for one file.
+        expect(fileParts).toHaveLength(1)
+        expect(fileParts[0].id).toBe(submittedID)
+        expect(fileParts[0].mime).toBe("image/png")
+        expect(fileParts[0].metadata?.attachment).toBe(true)
       }),
     { git: true, config: imageCfg },
   ),
@@ -1696,6 +1770,117 @@ it.live(
       }),
       { git: true, config: providerCfg },
     ),
+)
+
+it.live(
+  "cancel after assistant scaffold save finalizes before processor handle",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* () {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({ title: "Processor creation cancel" })
+        const currentUser = yield* user(chat.id, "hello")
+
+        const started = defer<void>()
+        const mutableSessions = sessions as Mutable<typeof sessions>
+        const originalUpdateMessage = sessions.updateMessage
+        let blockedAssistantScaffold = false
+        mutableSessions.updateMessage = (info) => {
+          if (!blockedAssistantScaffold && info.role === "assistant" && info.parentID === currentUser.id) {
+            blockedAssistantScaffold = true
+            return Effect.gen(function* () {
+              const saved = yield* originalUpdateMessage(info)
+              started.resolve()
+              yield* Effect.never
+              return saved
+            })
+          }
+          return originalUpdateMessage(info)
+        }
+        yield* Effect.addFinalizer(() => Effect.sync(() => void (mutableSessions.updateMessage = originalUpdateMessage)))
+
+        const fiber = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
+        const startedExit = yield* Effect.promise(() => started.promise).pipe(Effect.timeout("1 second"), Effect.exit)
+        expect(Exit.isSuccess(startedExit)).toBe(true)
+        const cancelExit = yield* prompt.cancel(chat.id).pipe(Effect.timeout("1 second"), Effect.exit)
+        expect(Exit.isSuccess(cancelExit)).toBe(true)
+        const exit = yield* Fiber.await(fiber).pipe(Effect.timeout("1 second"))
+        expect(Exit.isSuccess(exit)).toBe(true)
+
+        const messages = yield* sessions.messages({ sessionID: chat.id })
+        const assistant = messages.find(
+          (message) => message.info.role === "assistant" && message.info.parentID === currentUser.id,
+        )
+        expect(assistant?.info.role).toBe("assistant")
+        if (!assistant || assistant.info.role !== "assistant") return
+        expect(assistant.parts).toHaveLength(0)
+        expect(assistant.info.error?.name).toBe("MessageAbortedError")
+        expect(assistant.info.time.completed).toBeNumber()
+        expect(assistant.info.diagnostics?.abort).toMatchObject({
+          source: "session.prompt.cancel",
+          reason: "cancel",
+          propagation_point: "session.prompt.loop.onInterrupt",
+          error_name: "MessageAbortedError",
+        })
+      }),
+      { git: true, config: providerCfg },
+    ),
+  10_000,
+)
+
+it.live(
+  "cancel after processor handle creation finalizes before process starts",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* () {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const plugin = yield* Plugin.Service
+        const chat = yield* sessions.create({ title: "Pre-process cancel" })
+        const currentUser = yield* user(chat.id, "hello")
+
+        const started = defer<void>()
+        const mutablePlugin = plugin as Mutable<typeof plugin>
+        const originalTrigger = plugin.trigger
+        mutablePlugin.trigger = ((name: Parameters<typeof plugin.trigger>[0], input: unknown, output: unknown) => {
+          if (name === "experimental.chat.messages.transform") {
+            return Effect.gen(function* () {
+              started.resolve()
+              return yield* Effect.never
+            })
+          }
+          return originalTrigger(name as never, input as never, output as never)
+        }) as typeof plugin.trigger
+        yield* Effect.addFinalizer(() => Effect.sync(() => void (mutablePlugin.trigger = originalTrigger)))
+
+        const fiber = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
+        const startedExit = yield* Effect.promise(() => started.promise).pipe(Effect.timeout("1 second"), Effect.exit)
+        expect(Exit.isSuccess(startedExit)).toBe(true)
+        const cancelExit = yield* prompt.cancel(chat.id).pipe(Effect.timeout("1 second"), Effect.exit)
+        expect(Exit.isSuccess(cancelExit)).toBe(true)
+        const exit = yield* Fiber.await(fiber).pipe(Effect.timeout("1 second"))
+        expect(Exit.isSuccess(exit)).toBe(true)
+
+        const messages = yield* sessions.messages({ sessionID: chat.id })
+        const assistant = messages.find(
+          (message) => message.info.role === "assistant" && message.info.parentID === currentUser.id,
+        )
+        expect(assistant?.info.role).toBe("assistant")
+        if (!assistant || assistant.info.role !== "assistant") return
+        expect(assistant.parts).toHaveLength(0)
+        expect(assistant.info.error?.name).toBe("MessageAbortedError")
+        expect(assistant.info.time.completed).toBeNumber()
+        expect(assistant.info.diagnostics?.abort).toMatchObject({
+          source: "session.prompt.cancel",
+          reason: "cancel",
+          propagation_point: "session.prompt.loop.onInterrupt",
+          error_name: "MessageAbortedError",
+        })
+      }),
+      { git: true, config: providerCfg },
+    ),
+  10_000,
 )
 
 it.live(

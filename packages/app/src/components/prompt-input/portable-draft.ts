@@ -13,14 +13,14 @@
  */
 
 import { createSignal } from "solid-js"
-import type { Prompt, ContextItem, ImageAttachmentPart } from "@/context/prompt"
+import type { Prompt, ContextItem, FloatingAttachment } from "@/context/prompt"
 import type { ResolvedMention } from "./mention-metadata"
 import { toAbsoluteFilePath } from "./path-canonical"
 
 export interface PortableDraftPayload {
   prompt: Prompt
   context: (ContextItem & { key: string })[]
-  images: ImageAttachmentPart[]
+  images: FloatingAttachment[]
   /** Comment-mention metadata indexed by context item key, captured when the comment text was committed. */
   resolvedMentions: Record<string, ResolvedMention[]>
 }

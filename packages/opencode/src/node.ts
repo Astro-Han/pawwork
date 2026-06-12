@@ -1,5 +1,6 @@
 export { Config } from "./config/config"
 export { Server } from "./server/server"
+export { BrowserBridge } from "./browser/browser-bridge"
 export { bootstrap } from "./cli/bootstrap"
 export { Log } from "@opencode-ai/core/util/log"
 export { Database } from "./storage/db"

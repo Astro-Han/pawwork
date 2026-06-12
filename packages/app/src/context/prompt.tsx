@@ -56,7 +56,33 @@ export interface ImageAttachmentPart {
   dataUrl: string
 }
 
-export type ContentPart = TextPart | FileAttachmentPart | AgentPart | SkillAttachmentPart | ImageAttachmentPart
+// Floating path-backed attachment chip: lives in the prompt array but never in
+// the editor text (mirrors ImageAttachmentPart conservation). Created by the
+// entry-point attachment pipeline (picker / drop / paste); typed `@` references
+// remain inline FileAttachmentPart pills.
+export interface AttachmentPart {
+  type: "attachment"
+  id: string
+  path: string
+  filename: string
+  /** Best-effort mime derived from the path suffix; drives image-chip rendering. */
+  mime?: string
+  size?: number
+}
+
+/** Parts that float outside the editor text and render as composer chips. */
+export type FloatingAttachment = ImageAttachmentPart | AttachmentPart
+
+export const isFloatingAttachment = (part: ContentPart): part is FloatingAttachment =>
+  part.type === "image" || part.type === "attachment"
+
+export type ContentPart =
+  | TextPart
+  | FileAttachmentPart
+  | AgentPart
+  | SkillAttachmentPart
+  | ImageAttachmentPart
+  | AttachmentPart
 export type Prompt = ContentPart[]
 
 export type FileContextItem = {
@@ -84,6 +110,7 @@ function cloneSelection(selection?: FileSelection) {
 function clonePart(part: ContentPart): ContentPart {
   if (part.type === "text") return { ...part }
   if (part.type === "image") return { ...part }
+  if (part.type === "attachment") return { ...part }
   if (part.type === "agent") return { ...part }
   if (part.type === "skill") return { ...part }
   return {

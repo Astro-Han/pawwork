@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { Prompt } from "@/context/prompt"
-import { buildRequestParts } from "./build-request-parts"
+import { buildAttachmentRequestParts, buildRequestParts } from "./build-request-parts"
 import { captureCommentMentions } from "./mention-metadata"
 
 describe("buildRequestParts", () => {
@@ -476,5 +476,143 @@ describe("buildRequestParts", () => {
       // Should preserve .. segments (backend normalizes)
       expect(filePart.url).toContain("/..")
     }
+  })
+})
+
+describe("attachment chips", () => {
+  test("maps a chip to a path-backed file request part", () => {
+    const prompt: Prompt = [
+      { type: "text", content: "look at this", start: 0, end: 12 },
+      {
+        type: "attachment",
+        id: "att_1",
+        path: "/Users/me/photo.png",
+        filename: "photo.png",
+        mime: "image/png",
+        size: 2048,
+      },
+    ]
+
+    const parts = buildAttachmentRequestParts({ prompt, images: [], sessionDirectory: "/repo" })
+
+    expect(parts).toHaveLength(1)
+    expect(parts[0]).toMatchObject({
+      type: "file",
+      mime: "text/plain",
+      url: "file:///Users/me/photo.png",
+      filename: "photo.png",
+      // The tag is what lets the sent bubble show the chip — context items
+      // share this wire shape and must stay untagged.
+      metadata: { attachment: true },
+    })
+  })
+
+  test("optimistic parts keep the chip attachment tag", () => {
+    const prompt: Prompt = [
+      { type: "text", content: "hi", start: 0, end: 2 },
+      { type: "attachment", id: "att_1", path: "/Users/me/guide.pdf", filename: "guide.pdf" },
+    ]
+
+    const result = buildRequestParts({
+      prompt,
+      context: [],
+      images: [],
+      text: "hi",
+      messageID: "msg_1",
+      sessionID: "ses_1",
+      sessionDirectory: "/repo",
+    })
+
+    const optimisticFile = result.optimisticParts.find((part) => part.type === "file")
+    expect(optimisticFile).toMatchObject({ metadata: { attachment: true } })
+  })
+
+  test("collapses a chip and an inline pill that reference the same path", () => {
+    const prompt: Prompt = [
+      { type: "file", path: "/Users/me/notes.md", content: "@notes.md", start: 0, end: 9 },
+      { type: "attachment", id: "att_1", path: "/Users/me/notes.md", filename: "notes.md" },
+    ]
+
+    const parts = buildAttachmentRequestParts({ prompt, images: [], sessionDirectory: "/repo" })
+
+    expect(parts.filter((part) => part.type === "file")).toHaveLength(1)
+  })
+
+  // The composer's duplicate guard compares raw paths and can show a redundant
+  // chip next to a relative pill for the same file; this pins the compensating
+  // guarantee that the request still carries the reference exactly once.
+  test("collapses a relative inline pill and an absolute chip for the same file", () => {
+    const prompt: Prompt = [
+      { type: "file", path: "src/foo.ts", content: "@src/foo.ts", start: 0, end: 11 },
+      { type: "attachment", id: "att_1", path: "/repo/src/foo.ts", filename: "foo.ts" },
+    ]
+
+    const parts = buildAttachmentRequestParts({ prompt, images: [], sessionDirectory: "/repo" })
+
+    const fileParts = parts.filter((part) => part.type === "file")
+    expect(fileParts).toHaveLength(1)
+    expect(fileParts[0]).toMatchObject({ url: "file:///repo/src/foo.ts" })
+  })
+
+  // A line-scoped pill and a whole-file chip are semantically different
+  // references (collapsing on path would silently narrow the chip to the
+  // selection); this pins that both parts are submitted.
+  test("keeps a selection-scoped pill and a whole-file chip for the same path", () => {
+    const prompt: Prompt = [
+      {
+        type: "file",
+        path: "src/foo.ts",
+        content: "@src/foo.ts",
+        start: 0,
+        end: 11,
+        selection: { startLine: 3, startChar: 0, endLine: 9, endChar: 0 },
+      },
+      { type: "attachment", id: "att_1", path: "/repo/src/foo.ts", filename: "foo.ts" },
+    ]
+
+    const parts = buildAttachmentRequestParts({ prompt, images: [], sessionDirectory: "/repo" })
+
+    const urls = parts.filter((part) => part.type === "file").map((part) => part.url)
+    expect(urls.sort()).toEqual(["file:///repo/src/foo.ts", "file:///repo/src/foo.ts?start=3&end=9"])
+  })
+
+  test("includes chips in full request builds", () => {
+    const prompt: Prompt = [
+      { type: "text", content: "hi", start: 0, end: 2 },
+      { type: "attachment", id: "att_1", path: "/Users/me/guide.pdf", filename: "guide.pdf" },
+    ]
+
+    const result = buildRequestParts({
+      prompt,
+      context: [],
+      images: [],
+      text: "hi",
+      messageID: "msg_1",
+      sessionID: "ses_1",
+      sessionDirectory: "/repo",
+    })
+
+    const fileParts = result.requestParts.filter((part) => part.type === "file")
+    expect(fileParts).toHaveLength(1)
+    expect(fileParts[0]).toMatchObject({ url: "file:///Users/me/guide.pdf", filename: "guide.pdf" })
+  })
+
+  test("dedupes context items against chips in full request builds", () => {
+    const prompt: Prompt = [
+      { type: "text", content: "hi", start: 0, end: 2 },
+      { type: "attachment", id: "att_1", path: "/Users/me/guide.pdf", filename: "guide.pdf" },
+    ]
+
+    const result = buildRequestParts({
+      prompt,
+      context: [{ key: "ctx:1", type: "file", path: "/Users/me/guide.pdf" }],
+      images: [],
+      text: "hi",
+      messageID: "msg_1",
+      sessionID: "ses_1",
+      sessionDirectory: "/repo",
+    })
+
+    expect(result.requestParts.filter((part) => part.type === "file")).toHaveLength(1)
   })
 })

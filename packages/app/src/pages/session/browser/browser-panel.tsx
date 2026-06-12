@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, on, onCleanup, Show } from "solid-js"
 import { Button } from "@opencode-ai/ui/button"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
@@ -7,7 +7,6 @@ import { IconButton } from "@opencode-ai/ui/icon-button"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
-import { useShellSurface } from "@/context/shell-surface"
 import type { BrowserBridge, BrowserState, BrowserViewRect } from "@/context/platform"
 import { formatAddress, normalizeAddressInput } from "./url"
 import { rectsEqual, shouldShowBrowserView } from "./view-state"
@@ -17,12 +16,15 @@ const HIDDEN_RECT: BrowserViewRect = { x: 0, y: 0, width: 0, height: 0 }
 /**
  * The embedded browser tab body: navigation toolbar, editable address bar,
  * overflow menu, and the content region the native WebContentsView is painted
- * over. The page itself lives in the main process (it survives tab switches);
- * this component owns the DOM chrome and reports the content rect so main can
- * size/show the overlay.
+ * over. The page itself lives in the main process, owned by `target`'s
+ * conversation (it survives tab AND route switches); this component owns the
+ * DOM chrome and reports the content rect so main can size/show the overlay.
+ * The panel itself survives route changes too — `target` swaps in place.
  */
 export function BrowserPanel(props: {
   bridge: BrowserBridge
+  /** Conversation this panel addresses: route session id, or "draft" on the new-session page. */
+  target: () => string
   active: () => boolean
   panelOpen: () => boolean
   // True while a right-panel chrome menu (the titlebar add-tab "+" menu) is open.
@@ -32,7 +34,6 @@ export function BrowserPanel(props: {
   const language = useLanguage()
   const dialog = useDialog()
   const platform = usePlatform()
-  const shell = useShellSurface()
   const bridge = props.bridge
 
   const [state, setState] = createSignal<BrowserState | null>(null)
@@ -40,16 +41,41 @@ export function BrowserPanel(props: {
   const [draft, setDraft] = createSignal("")
   const [menuOpen, setMenuOpen] = createSignal(false)
   const [rect, setRect] = createSignal<BrowserViewRect | null>(null)
+  // Another window took over displaying this conversation's view; show a
+  // placeholder and stop reporting layout until the user reclaims explicitly.
+  const [displaced, setDisplaced] = createSignal(false)
+  // True until main confirms a claiming layout push applied (see the
+  // layout-push effect). Not a signal: it must not re-run effects.
+  let needsClaim = true
 
   let host: HTMLDivElement | undefined
   let input: HTMLInputElement | undefined
 
-  // Subscribe first, then seed once — and only if no push has arrived yet, so a
-  // navigation landing mid-flight isn't clobbered by the older getState snapshot.
-  onCleanup(bridge.onState(setState))
-  onMount(() => {
-    void bridge.getState().then((s) => s && setState((prev) => prev ?? s))
-  })
+  // Subscribe first (filtered to this panel's target), then seed per target —
+  // and only if no push has arrived yet, so a navigation landing mid-flight
+  // isn't clobbered by the older getState snapshot. Runs again whenever the
+  // target swaps (route change), dropping the previous conversation's state.
+  onCleanup(bridge.onState((payload) => payload.target === props.target() && setState(payload.state)))
+  onCleanup(bridge.onDisplayTaken((payload) => payload.target === props.target() && setDisplaced(true)))
+  createEffect(
+    on(
+      () => props.target(),
+      (target) => {
+        setState(null)
+        setDisplaced(false)
+        // Abandon any in-progress address edit: the draft text belonged to the
+        // previous conversation and must not carry over to this one.
+        setEditing(false)
+        // The new target's first visible push must claim its display even when
+        // the panel stayed visible across the swap (this effect runs before
+        // the layout-push effect — same creation order).
+        needsClaim = true
+        void bridge.getState(target).then((s) => {
+          if (s && props.target() === target) setState((prev) => prev ?? s)
+        })
+      },
+    ),
+  )
 
   const url = () => state()?.url ?? ""
   const hasPage = () => state()?.hasPage ?? false
@@ -68,20 +94,32 @@ export function BrowserPanel(props: {
       active: props.active(),
       hasPage: hasPage(),
       suppressed: suppressed(),
-      // A settings / automations / skills takeover keeps the session mounted but
-      // hidden; the native overlay ignores that CSS and would bleed through.
-      coveredBySurface: shell.mainSurfaceOpen(),
+      displaced: displaced(),
     }),
   )
 
-  // Push visibility + bounds to main as one unit so they never race.
+  // Push visibility + bounds to main as one unit so they never race. Visible
+  // pushes after the panel was hidden (or swapped targets) carry `claim: true`
+  // — only those may take the display from another window; the per-frame
+  // geometry ticks that follow can then never steal the view back if the
+  // display changes hands while one is in flight. The claim repeats until main
+  // CONFIRMS it applied: the first one can be dropped while the window's
+  // DesktopContext still lags the route change, and a one-shot flag would
+  // leave the panel claimless (and viewless) until toggled.
   createEffect(() => {
     if (!shouldShow()) {
-      void bridge.setView({ visible: false, rect: HIDDEN_RECT })
+      needsClaim = true
+      void bridge.setView(props.target(), { visible: false, rect: HIDDEN_RECT })
       return
     }
     const r = rect()
-    if (r) void bridge.setView({ visible: true, rect: r })
+    if (!r) return
+    const target = props.target()
+    void bridge.setView(target, { visible: true, rect: r, claim: needsClaim }).then((applied) => {
+      // Reads in this callback are untracked (outside the effect), so they
+      // gate the stale-ack case without adding dependencies.
+      if (applied && props.target() === target && shouldShow()) needsClaim = false
+    })
   })
 
   // While visible, track the content rect every frame: a native overlay must
@@ -103,7 +141,7 @@ export function BrowserPanel(props: {
     onCleanup(() => cancelAnimationFrame(raf))
   })
 
-  onCleanup(() => void bridge.setView({ visible: false, rect: HIDDEN_RECT }))
+  onCleanup(() => void bridge.setView(props.target(), { visible: false, rect: HIDDEN_RECT }))
 
   const beginEdit = () => {
     setDraft(url())
@@ -115,9 +153,9 @@ export function BrowserPanel(props: {
   }
 
   const submit = () => {
-    const target = normalizeAddressInput(draft())
+    const url = normalizeAddressInput(draft())
     setEditing(false)
-    if (target) void bridge.navigate(target)
+    if (url) void bridge.navigate(props.target(), url)
   }
 
   const onKeyDown = (event: KeyboardEvent) => {
@@ -165,14 +203,14 @@ export function BrowserPanel(props: {
           variant="ghost"
           aria-label={language.t("browser.action.back")}
           disabled={!state()?.canGoBack}
-          onClick={() => bridge.goBack()}
+          onClick={() => bridge.goBack(props.target())}
         />
         <IconButton
           icon="arrow-right"
           variant="ghost"
           aria-label={language.t("browser.action.forward")}
           disabled={!state()?.canGoForward}
-          onClick={() => bridge.goForward()}
+          onClick={() => bridge.goForward(props.target())}
         />
         <Show
           when={loading()}
@@ -182,7 +220,7 @@ export function BrowserPanel(props: {
               variant="ghost"
               aria-label={language.t("browser.action.reload")}
               disabled={!hasPage()}
-              onClick={() => bridge.reload()}
+              onClick={() => bridge.reload(props.target())}
             />
           }
         >
@@ -190,7 +228,7 @@ export function BrowserPanel(props: {
             icon="close"
             variant="ghost"
             aria-label={language.t("browser.action.stop")}
-            onClick={() => bridge.stop()}
+            onClick={() => bridge.stop(props.target())}
           />
         </Show>
 
@@ -271,6 +309,14 @@ export function BrowserPanel(props: {
           <div class="absolute inset-0 flex flex-col items-center justify-center gap-1.5 px-8 text-center text-fg-weak">
             <div class="text-fg-strong">{language.t("browser.empty.title")}</div>
             <div class="max-w-xs">{language.t("browser.empty.description")}</div>
+          </div>
+        </Show>
+        <Show when={displaced()}>
+          <div class="absolute inset-0 flex flex-col items-center justify-center gap-3 px-8 text-center text-fg-weak bg-bg-base">
+            <div class="max-w-xs">{language.t("browser.displaced.description")}</div>
+            <Button variant="secondary" onClick={() => setDisplaced(false)}>
+              {language.t("browser.displaced.action")}
+            </Button>
           </div>
         </Show>
       </div>

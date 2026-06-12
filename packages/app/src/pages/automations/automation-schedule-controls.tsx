@@ -1,7 +1,13 @@
 import { For, Show, type JSX } from "solid-js"
 import { Popover } from "@opencode-ai/ui/popover"
 import type { useLanguage } from "@/context/language"
-import { frequencyLabel, scheduleTimeLabel, SCHEDULE_FREQUENCIES, type ScheduleDraft } from "./automation-schedule-form"
+import {
+  frequencyLabel,
+  scheduleTimeLabel,
+  SCHEDULE_FREQUENCIES,
+  type ScheduleDraft,
+  type ScheduleFrequency,
+} from "./automation-schedule-form"
 
 type Translate = ReturnType<typeof useLanguage>["t"]
 
@@ -58,6 +64,10 @@ export function AutomationScheduleControls(props: {
   value: ScheduleDraft
   onChange: (next: ScheduleDraft) => void
   t: Translate
+  // The edit popover narrows the choices: a recurring automation cannot become
+  // a one-shot (or vice versa) through update, so it only offers the
+  // frequencies its kind supports. The create card omits this and gets all four.
+  frequencies?: ScheduleFrequency[]
 }): JSX.Element {
   return (
     <div data-component="automation-schedule" class="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -66,7 +76,7 @@ export function AutomationScheduleControls(props: {
         role="radiogroup"
         class="inline-flex h-[30px] items-center gap-0.5 rounded-lg border border-border-weak p-0.5"
       >
-        <For each={SCHEDULE_FREQUENCIES}>
+        <For each={props.frequencies ?? SCHEDULE_FREQUENCIES}>
           {(freq) => (
             <button
               type="button"

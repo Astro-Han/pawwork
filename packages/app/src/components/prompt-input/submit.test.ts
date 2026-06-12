@@ -779,6 +779,41 @@ describe("prompt submit worktree selection", () => {
     expect(parts.some((part) => part.type === "file" && part.url === "file:///repo/main/guide.pdf")).toBe(true)
   })
 
+  test("allows chip-only promptAsync submits", async () => {
+    params = { id: "session-existing" }
+    promptValue = [
+      { type: "text", content: "", start: 0, end: 0 },
+      { type: "attachment", id: "att_1", path: "/Users/me/shot.png", filename: "shot.png", mime: "image/png" },
+    ]
+
+    const submit = createPromptSubmit({
+      navigate: (path) => navigateImpl(path),
+      routeParams: () => params,
+      info: () => ({ id: "session-existing" }),
+      // Mirrors production wiring (derived-state.ts): the floating accessor
+      // derives from the same prompt, so a chip there always shows up here.
+      imageAttachments: () => promptValue.filter((part) => part.type === "attachment"),
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptAsyncCalls.length > 0)
+
+    const parts = promptAsyncCalls.at(-1)?.parts as Array<Record<string, unknown>>
+    expect(parts.some((part) => part.type === "file" && part.url === "file:///Users/me/shot.png")).toBe(true)
+  })
+
   test("queues locale on followup drafts", async () => {
     params = { id: "session-existing" }
     const queued: Array<Record<string, unknown>> = []

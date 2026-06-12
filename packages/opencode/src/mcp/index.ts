@@ -25,7 +25,7 @@ import { McpAuth } from "./auth"
 import { BusEvent } from "../bus/bus-event"
 import { Bus } from "@/bus"
 import open from "open"
-import { Effect, Exit, Layer, Option, Context, Stream } from "effect"
+import { Cause, Effect, Exit, Layer, Option, Context, Stream } from "effect"
 import { EffectBridge, type Shape as EffectBridgeShape } from "@/effect/bridge"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
@@ -504,30 +504,45 @@ export namespace MCP {
       })
 
       const create = Effect.fn("MCP.create")(function* (key: string, mcp: Config.Mcp) {
-        if (mcp.enabled === false) {
-          log.info("mcp server disabled", { key })
-          return DISABLED_RESULT
-        }
+        return yield* Effect.gen(function* () {
+          if (mcp.enabled === false) {
+            log.info("mcp server disabled", { key })
+            return DISABLED_RESULT
+          }
 
-        log.info("found", { key, type: mcp.type })
+          log.info("found", { key, type: mcp.type })
 
-        const { client: mcpClient, status } =
-          mcp.type === "remote"
-            ? yield* connectRemote(key, mcp as Config.Mcp & { type: "remote" })
-            : yield* connectLocal(key, mcp as Config.Mcp & { type: "local" })
+          const { client: mcpClient, status } =
+            mcp.type === "remote"
+              ? yield* connectRemote(key, mcp as Config.Mcp & { type: "remote" })
+              : yield* connectLocal(key, mcp as Config.Mcp & { type: "local" })
 
-        if (!mcpClient) {
-          return { status } satisfies CreateResult
-        }
+          if (!mcpClient) {
+            return { status } satisfies CreateResult
+          }
 
-        const listed = hasCapability(mcpClient, "tools") ? yield* defs(key, mcpClient, mcp.timeout) : []
-        if (!listed) {
-          yield* Effect.tryPromise(() => mcpClient.close()).pipe(Effect.ignore)
-          return { status: { status: "failed", error: "Failed to get tools" } } satisfies CreateResult
-        }
+          return yield* Effect.gen(function* () {
+            const listed = hasCapability(mcpClient, "tools") ? yield* defs(key, mcpClient, mcp.timeout) : []
+            if (!listed) {
+              return yield* Effect.fail(new Error("Failed to get tools"))
+            }
 
-        log.info("create() successfully created client", { key, toolCount: listed.length })
-        return { mcpClient, status, defs: listed } satisfies CreateResult
+            log.info("create() successfully created client", { key, toolCount: listed.length })
+            return { mcpClient, status, defs: listed } satisfies CreateResult
+          }).pipe(
+            Effect.catchCause((cause) =>
+              Effect.tryPromise(() => mcpClient.close()).pipe(Effect.ignore, Effect.andThen(Effect.failCause(cause))),
+            ),
+          )
+        }).pipe(
+          Effect.catchCause((cause) => {
+            if (Cause.hasInterruptsOnly(cause)) return Effect.interrupt
+            const error = Cause.squash(cause)
+            return Effect.succeed<CreateResult>({
+              status: { status: "failed", error: error instanceof Error ? error.message : String(error) },
+            })
+          }),
+        )
       })
       const cfgSvc = yield* Config.Service
 
@@ -752,25 +767,38 @@ export namespace MCP {
 
       function collectFromConnected<T extends { name: string }>(
         s: State,
-        listFn: (c: Client) => Promise<T[]>,
+        listFn: (client: Client, timeout?: number) => Promise<T[]>,
         label: string,
       ) {
-        return Effect.forEach(
-          Object.entries(s.clients).filter(([name]) => s.status[name]?.status === "connected"),
-          ([clientName, client]) =>
-            fetchFromClient(clientName, client, listFn, label).pipe(Effect.map((items) => Object.entries(items ?? {}))),
-          { concurrency: "unbounded" },
-        ).pipe(Effect.map((results) => Object.fromEntries<T & { client: string }>(results.flat())))
+        return Effect.gen(function* () {
+          const cfg = yield* cfgSvc.get()
+          const config = cfg.mcp ?? {}
+          const defaultTimeout = cfg.experimental?.mcp_timeout
+
+          return yield* Effect.forEach(
+            Object.entries(s.clients).filter(([name]) => s.status[name]?.status === "connected"),
+            ([clientName, client]) => {
+              const mcpConfig = s.config[clientName] ?? config[clientName]
+              const entry = mcpConfig && isMcpConfigured(mcpConfig) ? mcpConfig : undefined
+              const timeout = entry?.timeout ?? defaultTimeout
+
+              return fetchFromClient(clientName, client, (c) => listFn(c, timeout), label).pipe(
+                Effect.map((items) => Object.entries(items ?? {})),
+              )
+            },
+            { concurrency: "unbounded" },
+          ).pipe(Effect.map((results) => Object.fromEntries<T & { client: string }>(results.flat())))
+        })
       }
 
       const prompts = Effect.fn("MCP.prompts")(function* () {
         const s = yield* InstanceState.get(state)
         return yield* collectFromConnected(
           s,
-          (client) =>
+          (client, timeout) =>
             hasCapability(client, "prompts")
               ? paginate(
-                  (cursor) => client.listPrompts(cursor === undefined ? undefined : { cursor }),
+                  (cursor) => client.listPrompts(cursor === undefined ? undefined : { cursor }, { timeout }),
                   (result) => result.prompts,
                 )
               : Promise.resolve([]),
@@ -782,10 +810,10 @@ export namespace MCP {
         const s = yield* InstanceState.get(state)
         return yield* collectFromConnected(
           s,
-          (client) =>
+          (client, timeout) =>
             hasCapability(client, "resources")
               ? paginate(
-                  (cursor) => client.listResources(cursor === undefined ? undefined : { cursor }),
+                  (cursor) => client.listResources(cursor === undefined ? undefined : { cursor }, { timeout }),
                   (result) => result.resources,
                 )
               : Promise.resolve([]),
@@ -795,7 +823,7 @@ export namespace MCP {
 
       const withClient = Effect.fnUntraced(function* <A>(
         clientName: string,
-        fn: (client: MCPClient) => Promise<A>,
+        fn: (client: MCPClient, timeout?: number) => Promise<A>,
         label: string,
         meta?: Record<string, unknown>,
       ) {
@@ -805,8 +833,12 @@ export namespace MCP {
           log.warn(`client not found for ${label}`, { clientName })
           return undefined
         }
+        const cfg = yield* cfgSvc.get()
+        const configured = s.config[clientName] ?? cfg.mcp?.[clientName]
+        const entry = configured && isMcpConfigured(configured) ? configured : undefined
+        const timeout = entry?.timeout ?? cfg.experimental?.mcp_timeout
         return yield* Effect.tryPromise({
-          try: () => fn(client),
+          try: () => fn(client, timeout),
           catch: (e: any) => {
             log.error(`failed to ${label}`, { clientName, ...meta, error: e?.message })
             return e
@@ -819,15 +851,21 @@ export namespace MCP {
         name: string,
         args?: Record<string, string>,
       ) {
-        return yield* withClient(clientName, (client) => client.getPrompt({ name, arguments: args }), "getPrompt", {
-          promptName: name,
-        })
+        return yield* withClient(
+          clientName,
+          (client, timeout) => client.getPrompt({ name, arguments: args }, { timeout }),
+          "getPrompt",
+          { promptName: name },
+        )
       })
 
       const readResource = Effect.fn("MCP.readResource")(function* (clientName: string, resourceUri: string) {
-        return yield* withClient(clientName, (client) => client.readResource({ uri: resourceUri }), "readResource", {
-          resourceUri,
-        })
+        return yield* withClient(
+          clientName,
+          (client, timeout) => client.readResource({ uri: resourceUri }, { timeout }),
+          "readResource",
+          { resourceUri },
+        )
       })
 
       const getMcpConfig = Effect.fnUntraced(function* (mcpName: string) {

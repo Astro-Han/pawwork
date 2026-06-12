@@ -1,5 +1,6 @@
 import type {
   AutomationCreateInput,
+  AutomationUpdateInput,
   Config,
   OpencodeClient,
   Path,
@@ -432,6 +433,18 @@ function createGlobalSync() {
     }
   }
 
+  async function updateAutomation(directory: string, automationID: string, patch: AutomationUpdateInput) {
+    children.pin(directory)
+    try {
+      const [store, setStore] = children.peek(directory, { bootstrap: false })
+      const res = await sdkFor(directory).automation.update({ automationID, automationUpdateInput: patch })
+      if (res.data) applyAutomationDefinition(store, setStore, res.data)
+      return res.data
+    } finally {
+      children.unpin(directory)
+    }
+  }
+
   async function bootstrapInstance(directory: string) {
     if (!directory) return
     const pending = booting.get(directory)
@@ -694,6 +707,7 @@ function createGlobalSync() {
     project: projectApi,
     automation: {
       create: createAutomation,
+      update: updateAutomation,
       loadRuns: loadAutomationRuns,
       pause: pauseAutomation,
       resume: resumeAutomation,

@@ -23,6 +23,7 @@ export function followupPreviewText(input: {
   const text = input.item.prompt
     .map((part) => {
       if (part.type === "image") return `[image:${part.filename}]`
+      if (part.type === "attachment") return `[file:${part.path}]`
       if (part.type === "file") return `[file:${part.path}]`
       if (part.type === "agent") return `@${part.name}`
       if (part.type === "skill") return `/${part.name}`

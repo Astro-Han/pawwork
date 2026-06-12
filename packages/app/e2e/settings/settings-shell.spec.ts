@@ -1,7 +1,7 @@
 import { test, expect } from "../fixtures"
 import { closeSettingsPanel, openSettings } from "../actions"
 
-// PR1 foundation lock: shell-slot takeover (nav in the sidebar slot, content in the main slot),
+// Foundation lock for the settings route (nav in the sidebar slot, content in the main slot),
 // migrating the existing pages in place (remote / integrations hidden until ready).
 test("@smoke settings shell shows the migrated nav and switches pages", async ({ page, gotoSession }) => {
   await gotoSession()

@@ -3,17 +3,20 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { List } from "@opencode-ai/ui/list"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { getFilename } from "@opencode-ai/util/path"
-import { useNavigate } from "@solidjs/router"
-import { createMemo, createSignal, onCleanup } from "solid-js"
+import { useNavigate, useParams } from "@solidjs/router"
+import { createMemo, createSignal, onCleanup, Show } from "solid-js"
 import { useCommand } from "@/context/command"
-import { useFile } from "@/context/file"
+import { FileProvider, useFile } from "@/context/file"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
-import { useLayoutPage } from "@/context/layout-page"
+import { LayoutPageContext, useLayoutPage } from "@/context/layout-page"
+import { SDKProvider, useSDK } from "@/context/sdk"
+import { SyncProvider } from "@/context/sync"
 import { pawworkSessionDirectories } from "@/pages/layout/pawwork-session-source"
-import { useSessionLayout } from "@/pages/session/session-layout"
+import { sessionRouteLayoutKey } from "@/pages/session/session-layout"
+import { createStableLayoutMemo } from "@/pages/session/stable-layout-memo"
 import { decode64 } from "@/utils/base64"
 import { buildCommandPaletteDefaultGroups } from "./command-palette-default-items"
 import { CommandPaletteRow } from "./command-palette-row"
@@ -26,7 +29,35 @@ import {
 } from "./command-palette-search-items"
 import type { CommandPaletteEntry, DialogSelectFileMode } from "./command-palette-types"
 
+// Self-sufficient: mounts its own directory-bound SDK/Sync/File providers so
+// the palette can be shown from anywhere — including pages with no session
+// route mounted (the dialog renders under its caller's owner, so it cannot
+// rely on session-scoped providers being present). On a /:dir route the
+// resolved directory matches the route's; elsewhere it falls back to the
+// layout's active directory.
 export function DialogSelectFile(props: { mode?: DialogSelectFileMode; onOpenFile?: (path: string) => void }) {
+  const params = useParams()
+  const layoutPage = useLayoutPage()
+  const directory = createMemo(() => {
+    const fromRoute = params.dir ? decode64(params.dir) : undefined
+    return fromRoute || layoutPage.activeDirectory()
+  })
+  return (
+    <Show when={directory()} keyed>
+      {(resolved) => (
+        <SDKProvider directory={() => resolved}>
+          <SyncProvider>
+            <FileProvider>
+              <CommandPaletteDialog mode={props.mode} onOpenFile={props.onOpenFile} />
+            </FileProvider>
+          </SyncProvider>
+        </SDKProvider>
+      )}
+    </Show>
+  )
+}
+
+function CommandPaletteDialog(props: { mode?: DialogSelectFileMode; onOpenFile?: (path: string) => void }) {
   const command = useCommand()
   const language = useLanguage()
   const layout = useLayout()
@@ -36,7 +67,15 @@ export function DialogSelectFile(props: { mode?: DialogSelectFileMode; onOpenFil
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
   const layoutPage = useLayoutPage()
-  const { params, tabs, view } = useSessionLayout()
+  const params = useParams()
+  const sdk = useSDK()
+  // On a session route this is exactly the route's key (params.dir). Off it,
+  // tabs/view target the resolved directory's session home, where open()
+  // lands below.
+  const slug = createMemo(() => params.dir ?? base64Encode(sdk.directory))
+  const layoutRouteKey = createMemo(() => sessionRouteLayoutKey({ dir: slug(), id: params.id }))
+  const tabs = createStableLayoutMemo(() => layout.tabs(layoutRouteKey))
+  const view = createStableLayoutMemo(() => layout.view(layoutRouteKey))
   const filesOnly = () => props.mode === "files"
   const state = { cleanup: undefined as (() => void) | void, committed: false }
   const [grouped, setGrouped] = createSignal(false)
@@ -54,7 +93,7 @@ export function DialogSelectFile(props: { mode?: DialogSelectFileMode; onOpenFil
       },
     }),
   )
-  const projectDirectory = createMemo(() => decode64(params.dir) ?? "")
+  const projectDirectory = createMemo(() => sdk.directory)
   const project = createMemo(() => {
     const directory = projectDirectory()
     if (!directory) return
@@ -149,10 +188,21 @@ export function DialogSelectFile(props: { mode?: DialogSelectFileMode; onOpenFil
     view().sidePanel.explorer.setTab("all")
     props.onOpenFile?.(path)
     tabs().setActive(value)
+    // Opened from a page without a session route (e.g. a global surface):
+    // land on the directory's session home, where the tab state set above
+    // is keyed, so the opened file is actually visible.
+    if (!params.dir) navigate(`/${slug()}/session`)
   }
 
+  // The new dialog is anchored to the palette's outer owner, which sits above
+  // the LayoutPageContext.Provider the layout wraps around the FIRST palette
+  // element — re-provide it or DialogSelectFile's useLayoutPage throws.
   const openFileOnlyPicker = () => {
-    dialog.show(() => <DialogSelectFile mode="files" onOpenFile={props.onOpenFile} />)
+    dialog.show(() => (
+      <LayoutPageContext.Provider value={layoutPage}>
+        <DialogSelectFile mode="files" onOpenFile={props.onOpenFile} />
+      </LayoutPageContext.Provider>
+    ))
   }
 
   const handleSelect = (item: CommandPaletteEntry | undefined) => {

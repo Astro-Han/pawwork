@@ -1,5 +1,10 @@
 import { createEffect, createMemo, createSignal, For, Show, type Accessor, type JSX } from "solid-js"
-import type { AutomationDefinition, AutomationRun } from "@opencode-ai/sdk/v2/client"
+import type {
+  AutomationCreateInput,
+  AutomationDefinition,
+  AutomationRun,
+  AutomationUpdateInput,
+} from "@opencode-ai/sdk/v2/client"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Button } from "@opencode-ai/ui/button"
 import { showToast } from "@opencode-ai/ui/toast"
@@ -9,7 +14,9 @@ import { useLanguage } from "@/context/language"
 import { formatServerError } from "@/utils/server-errors"
 import { getRelativeTime } from "@/utils/time"
 import { DialogDeleteAutomation } from "@/components/dialog-delete-automation"
-import { formatScheduleSummary, formatTimestamp } from "./automation-schedule"
+import { formatTimestamp } from "./automation-schedule"
+import { EditableText, ModelEditorRow, ProjectEditorRow, ScheduleEditorRow } from "./automation-detail-editors"
+import type { AutomationProject } from "./automation-folder-picker"
 import { RunStatusIcon, runStatusLabelKey } from "./automation-run-status"
 
 const INITIAL_RUN_COUNT = 5
@@ -103,6 +110,7 @@ export function AutomationDetail(props: {
   projectName: Accessor<string>
   onBack: () => void
   onOpenRun: (sessionID: string) => void
+  onMoved: (definition: AutomationDefinition) => void
 }): JSX.Element {
   const globalSync = useGlobalSync()
   const language = useLanguage()
@@ -167,6 +175,18 @@ export function AutomationDetail(props: {
     })
   }
 
+  // One-field patches from the inline editors. The store applies the response
+  // immediately, so a false return tells the editor to roll its control back.
+  const commitPatch = async (patch: AutomationUpdateInput) => {
+    try {
+      await globalSync.automation.update(props.directory(), props.automation().id, patch)
+      return true
+    } catch (error) {
+      notifyFailure(error)
+      return false
+    }
+  }
+
   const runNow = async () => {
     if (busy()) return
     setBusy(true)
@@ -186,6 +206,50 @@ export function AutomationDetail(props: {
     try {
       if (automation.paused) await globalSync.automation.resume(props.directory(), automation.id)
       else await globalSync.automation.pause(props.directory(), automation.id)
+    } catch (error) {
+      notifyFailure(error)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // There is no cross-project move on the server (per-project instances;
+  // update rejects a foreign projectID), so "move" recreates the definition in
+  // the target project, then deletes the source. Create-first so a failure
+  // loses nothing; if the source delete fails (e.g. a run in flight), the
+  // fresh copy is rolled back instead of leaving a duplicate. The id changes
+  // and the run list starts empty — past runs' sessions survive regardless.
+  const moveToProject = async (project: AutomationProject) => {
+    const previous = props.automation()
+    if (busy() || project.id === previous.where.projectID) return
+    setBusy(true)
+    try {
+      const common = {
+        title: previous.title,
+        prompt: previous.prompt,
+        context: "fresh" as const,
+        where: { projectID: project.id, ...(previous.where.worktree ? { worktree: previous.where.worktree } : {}) },
+        timezone: previous.timezone,
+        model: { providerID: previous.model.providerID, modelID: previous.model.modelID },
+        ...(previous.variant ? { variant: previous.variant } : {}),
+      }
+      const input: AutomationCreateInput =
+        previous.kind === "oneshot"
+          ? { kind: "oneshot", ...common, fireAt: previous.fireAt }
+          : { kind: "recurring", ...common, rhythm: previous.rhythm, stop: previous.stop }
+      const created = await globalSync.automation.create(project.worktree, input)
+      if (!created) return
+      // A paused source must arrive paused: if the target pause fails, the
+      // move fails — roll the copy back rather than leave an automation the
+      // user silenced suddenly live in another project.
+      try {
+        if (previous.paused) await globalSync.automation.pause(project.worktree, created.id)
+        await globalSync.automation.delete(props.directory(), previous.id)
+      } catch (error) {
+        await globalSync.automation.delete(project.worktree, created.id).catch(() => {})
+        throw error
+      }
+      props.onMoved(created)
     } catch (error) {
       notifyFailure(error)
     } finally {
@@ -226,7 +290,13 @@ export function AutomationDetail(props: {
       </nav>
 
       <header class="flex items-start justify-between gap-4">
-        <h1 class="min-w-0 truncate text-h2 text-fg-strong">{props.automation().title}</h1>
+        <EditableText
+          value={props.automation().title}
+          onCommit={(next) => commitPatch({ title: next })}
+          class="min-w-0 flex-1 truncate text-h2 text-fg-strong"
+          ariaLabel={t("automations.create.titlePlaceholder")}
+          action="automation-edit-title"
+        />
         <div class="flex shrink-0 items-center gap-2">
           <Button
             variant="ghost"
@@ -255,7 +325,14 @@ export function AutomationDetail(props: {
           <h2 class="text-caption font-emphasis uppercase tracking-wide text-fg-weak">
             {t("automations.detail.instructions")}
           </h2>
-          <p class="whitespace-pre-wrap text-body text-fg-base">{props.automation().prompt}</p>
+          <EditableText
+            multiline
+            value={props.automation().prompt}
+            onCommit={(next) => commitPatch({ prompt: next })}
+            class="w-full text-body text-fg-base"
+            ariaLabel={t("automations.detail.instructions")}
+            action="automation-edit-prompt"
+          />
         </section>
 
         <aside class="flex flex-col gap-5">
@@ -273,8 +350,14 @@ export function AutomationDetail(props: {
           </DetailGroup>
 
           <DetailGroup heading={t("automations.detail.detailsHeading")}>
-            <InfoRow label={t("automations.detail.project")} value={props.projectName()} />
-            <InfoRow label={t("automations.detail.repeats")} value={formatScheduleSummary(props.automation(), t)} />
+            <ProjectEditorRow
+              directory={props.directory}
+              automation={props.automation}
+              projectName={props.projectName}
+              t={t}
+              onMove={(project) => void moveToProject(project)}
+            />
+            <ScheduleEditorRow automation={props.automation} t={t} onPatch={commitPatch} />
             <Show
               when={props.automation().context === "continue" && props.automation().sourceSessionID}
               fallback={<InfoRow label={t("automations.detail.session")} value={sessionLabel()} />}
@@ -293,7 +376,7 @@ export function AutomationDetail(props: {
                 </div>
               )}
             </Show>
-            <InfoRow label={t("automations.detail.model")} value={props.automation().model.modelID} />
+            <ModelEditorRow directory={props.directory} automation={props.automation} t={t} onPatch={commitPatch} />
             <Show when={reasoningLabel()}>
               {(value) => <InfoRow label={t("automations.detail.reasoning")} value={value()} />}
             </Show>

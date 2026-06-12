@@ -8,7 +8,7 @@ import { FileIcon } from "../file-icon"
 import { IconButton } from "../icon-button"
 import { ImagePreview } from "../image-preview"
 import { Tooltip } from "../tooltip"
-import { attached, inline, kind } from "../message-file"
+import { attached, chip, inline, kind } from "../message-file"
 import { CommandIcon } from "../command-icon"
 import { deriveCommandInvocation } from "../../lib/command-invocation"
 import type { UserActions } from "./registry"
@@ -45,7 +45,7 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
   const attachments = createMemo(() => {
     const inv = invocation()
     return files()
-      .filter(attached)
+      .filter((f) => attached(f) || chip(f))
       .filter((f) => !inv || !inv.suppressFilePartIds.includes(f.id))
   })
 

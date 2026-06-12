@@ -1,41 +1,84 @@
 import { BrowserWindow, ipcMain, session, type IpcMainInvokeEvent } from "electron"
 import type { BrowserViewLayout } from "@opencode-ai/app/desktop-api"
 import { browserControllers } from "../browser/controller-automation"
+import { draftKey } from "../browser/registry"
 import { BROWSER_PARTITION } from "../browser/options"
 
 /**
  * Wires the embedded-browser IPC. Controllers live in the shared main-process
- * registry (controller-automation), keyed by window id and created lazily, so
- * these renderer handlers and the agent automation resolver drive the same
- * WebContentsView per window. Channels mirror the BrowserBridge in the app's
- * platform contract. No automation endpoint/secret is ever exposed over a
+ * registry (controller-automation), keyed by conversation (root session) or
+ * per-window Home draft and created lazily. Every channel carries the
+ * renderer's target; main validates it against what the calling window
+ * actually shows (its renderer-reported DesktopContext), so a stale or
+ * miswired panel can never read or steer another conversation's view — the
+ * call no-ops instead. No automation endpoint/secret is ever exposed over a
  * browser:* channel — that stays main-internal.
  */
-export function registerBrowserIpc() {
-  const windowFor = (event: IpcMainInvokeEvent) => BrowserWindow.fromWebContents(event.sender)
-
-  const existing = (event: IpcMainInvokeEvent) => {
-    const win = windowFor(event)
-    return win ? browserControllers.get(win.id) : undefined
+export function registerBrowserIpc(deps: { sessionIDForWindow: (windowID: number) => string | null }) {
+  // Never trust the renderer's target: "draft" means the calling window's own
+  // draft and only while that window is on Home (no session shown), and a
+  // session target must be the session that window currently shows. Anything
+  // else resolves to null and the channel does nothing.
+  const resolve = (event: IpcMainInvokeEvent, target: unknown) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return null
+    if (target === "draft") return deps.sessionIDForWindow(win.id) === null ? { win, key: draftKey(win.id) } : null
+    if (typeof target === "string" && target.length > 0 && target === deps.sessionIDForWindow(win.id))
+      return { win, key: target }
+    return null
   }
 
-  // Create on first real use (navigate, or a visible set-view) so windows that
-  // never open the browser pay nothing.
-  const ensure = (event: IpcMainInvokeEvent) => {
-    const win = windowFor(event)
-    return win ? browserControllers.ensure(win) : undefined
+  const existing = (event: IpcMainInvokeEvent, target: unknown) => {
+    const resolved = resolve(event, target)
+    return resolved ? browserControllers.get(resolved.key) : undefined
   }
 
-  ipcMain.handle("browser:navigate", (event, url: string) => ensure(event)?.navigate(url))
-  ipcMain.handle("browser:back", (event) => existing(event)?.goBack())
-  ipcMain.handle("browser:forward", (event) => existing(event)?.goForward())
-  ipcMain.handle("browser:reload", (event) => existing(event)?.reload())
-  ipcMain.handle("browser:stop", (event) => existing(event)?.stop())
-  ipcMain.handle("browser:set-view", (event, layout: BrowserViewLayout) => {
-    // Only spin up a view when there is something to show; hiding a view that
-    // was never created is a no-op.
-    const controller = layout.visible ? ensure(event) : existing(event)
-    controller?.setView(layout)
+  // Create on first real use (navigate) so conversations that never open the
+  // browser pay nothing.
+  const ensure = (event: IpcMainInvokeEvent, target: unknown) => {
+    const resolved = resolve(event, target)
+    return resolved ? browserControllers.ensure(resolved.key) : undefined
+  }
+
+  ipcMain.handle("browser:navigate", (event, target: string, url: string) => ensure(event, target)?.navigate(url))
+  ipcMain.handle("browser:back", (event, target: string) => existing(event, target)?.goBack())
+  ipcMain.handle("browser:forward", (event, target: string) => existing(event, target)?.goForward())
+  ipcMain.handle("browser:reload", (event, target: string) => existing(event, target)?.reload())
+  ipcMain.handle("browser:stop", (event, target: string) => existing(event, target)?.stop())
+  // Returns whether a visible push actually displayed the view in the calling
+  // window — the renderer keeps re-claiming until this confirms, because the
+  // first claim can race the window's own DesktopContext update and resolve
+  // to nothing here.
+  ipcMain.handle("browser:set-view", (event, target: string, layout: BrowserViewLayout): boolean => {
+    const resolved = resolve(event, target)
+    if (!resolved) return false
+    // get(), never ensure(): a panel only shows when the page state says there
+    // is a page, and only a live controller can say that — so a visible push
+    // with no controller is always stale (e.g. RAF frames still arriving after
+    // the session's delete disposed the view) and must not resurrect one.
+    if (layout.visible)
+      return browserControllers.get(resolved.key)?.display(resolved.win, layout.rect, layout.claim === true) ?? false
+    browserControllers.get(resolved.key)?.hideFor(resolved.win)
+    return false
+  })
+  // Draft adoption can't name-check the session against DesktopContext: it runs
+  // by design BEFORE the renderer navigates to the just-created session's
+  // route. But that same ordering means the window must still be on Home, so
+  // gate on that; the window can only ever hand over its own draft, and the
+  // registry fails soft if the target session somehow already has a view.
+  ipcMain.handle("browser:adopt-draft", (event, sessionID: string) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || typeof sessionID !== "string" || !sessionID || deps.sessionIDForWindow(win.id) !== null)
+      return { adopted: false, hasPage: false }
+    return browserControllers.adoptDraft(win.id, sessionID)
+  })
+  // WYSIWYG close: the browser tab's × promises "Close", so it destroys the
+  // conversation's page outright via the same dispose chain as session
+  // delete/archive. Pages are conversation-owned, so any window showing the
+  // conversation may close it. No-op without a live controller.
+  ipcMain.handle("browser:close-page", (event, target: string) => {
+    const resolved = resolve(event, target)
+    if (resolved) browserControllers.dispose(resolved.key)
   })
   // Browsing data lives in the shared persistent partition, not in any one view,
   // so clear the session directly — this works even before a view exists (e.g.
@@ -47,5 +90,5 @@ export function registerBrowserIpc() {
     await partition.clearCache()
     for (const controller of browserControllers.all()) controller.reloadIfLoaded()
   })
-  ipcMain.handle("browser:get-state", (event) => existing(event)?.state() ?? null)
+  ipcMain.handle("browser:get-state", (event, target: string) => existing(event, target)?.state() ?? null)
 }

@@ -45,6 +45,7 @@ import { ConfigProvider } from "./provider"
 import { ConfigServer } from "./server"
 import { ConfigSkills } from "./skills"
 import { ConfigVariable } from "./variable"
+import { RemoteAuthError } from "./error"
 import { Npm } from "@opencode-ai/core/npm"
 import { Filesystem } from "@/util/filesystem"
 import { Flock } from "@/util/flock"
@@ -77,6 +78,26 @@ function projectConfigFilesForDirectory(dir: string) {
     return Runtime.isPawWork() ? PAWWORK_PROJECT_CONFIG_FILES : OPENCODE_PROJECT_CONFIG_FILES
   }
   return []
+}
+
+async function readRemoteConfigJson(response: Response, input: { url: string; remote: string }) {
+  const body = await response.text()
+  const contentType = response.headers.get("content-type")?.toLowerCase() ?? ""
+  const isHtml = contentType.includes("html") || /^\s*(?:<!doctype html|<html)\b/i.test(body)
+  if (isHtml) {
+    throw new RemoteAuthError({
+      ...input,
+      message: "the server returned a login page instead of JSON",
+    })
+  }
+  try {
+    return JSON.parse(body)
+  } catch {
+    throw new RemoteAuthError({
+      ...input,
+      message: "the server returned non-JSON content",
+    })
+  }
 }
 
 function shouldGenerateInDirectory(dir: string) {
@@ -888,13 +909,23 @@ const rawLayer = Layer.effect(
             process.env[value.key] = value.token
             log.debug("fetching remote config", { url: `${url}/.well-known/opencode` })
             const response = yield* Effect.promise(() => fetch(`${url}/.well-known/opencode`))
+            const remote = `${url}/.well-known/opencode`
+            if (response.status === 401 || response.status === 403) {
+              throw new RemoteAuthError({
+                url,
+                remote,
+                message: `the server rejected the request with HTTP ${response.status}`,
+              })
+            }
             if (!response.ok) {
               throw new Error(`failed to fetch remote config from ${url}: ${response.status}`)
             }
-            const wellknown = (yield* Effect.promise(() => response.json())) as { config?: Record<string, unknown> }
+            const wellknown = (yield* Effect.promise(() =>
+              readRemoteConfigJson(response, { url, remote }),
+            )) as { config?: Record<string, unknown> }
             const remoteConfig = wellknown.config ?? {}
             if (!remoteConfig.$schema) remoteConfig.$schema = "https://opencode.ai/config.json"
-            const source = `${url}/.well-known/opencode`
+            const source = remote
             const next = yield* loadConfig(JSON.stringify(remoteConfig), {
               dir: path.dirname(source),
               source,
