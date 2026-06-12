@@ -42,6 +42,7 @@ import { ApplyPatchTool } from "./apply_patch"
 import { EnterWorktreeTool } from "./enter-worktree"
 import { ExitWorktreeTool } from "./exit-worktree"
 import { AutomateTool } from "./automate"
+import { AutomateManageTool } from "./automate-manage"
 import { Automation } from "@/automation"
 import { Permission } from "../permission"
 import { Glob } from "../util/glob"
@@ -164,6 +165,7 @@ export namespace ToolRegistry {
       const enterWorktree = yield* EnterWorktreeTool
       const exitWorktree = yield* ExitWorktreeTool
       const automate = yield* AutomateTool
+      const automateManage = yield* AutomateManageTool
       const browserNavigate = yield* BrowserNavigateTool
       const browserSnapshot = yield* BrowserSnapshotTool
       const browserClick = yield* BrowserClickTool
@@ -336,6 +338,7 @@ export namespace ToolRegistry {
             enterWorktree: Tool.init(enterWorktree),
             exitWorktree: Tool.init(exitWorktree),
             automate: Tool.init(automate),
+            automateManage: Tool.init(automateManage),
             toolInfo: Tool.init(toolInfoInfo),
             browserNavigate: Tool.init(browserNavigate),
             browserSnapshot: Tool.init(browserSnapshot),
@@ -371,6 +374,7 @@ export namespace ToolRegistry {
               ...(lspEnabled ? [tool.lsp] : []),
               ...(Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE && Flag.OPENCODE_CLIENT === "cli" ? [tool.plan] : []),
               tool.automate,
+              tool.automateManage,
               tool.enterWorktree,
               tool.exitWorktree,
               // Desktop-only: the embedded browser lives in the desktop app's

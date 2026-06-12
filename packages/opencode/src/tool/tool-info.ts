@@ -7,6 +7,7 @@ import { Parameters as ExitWorktreeParameters } from "./exit-worktree"
 import ExitWorktreeDescription from "./exit-worktree.txt"
 import { Parameters as LspParameters } from "./lsp"
 import LspDescription from "./lsp.txt"
+import { AutomateManageParameters } from "./automate-manage"
 import { Parameters as BrowserNavigateParameters } from "./browser-navigate"
 import BrowserNavigateDescription from "./browser-navigate.txt"
 import { Parameters as BrowserSnapshotParameters } from "./browser-snapshot"
@@ -64,6 +65,13 @@ const DEFERRED: DeferredEntry[] = [
     card: "Use language-server code intelligence for definitions, references, hover, and symbol navigation.",
     description: LspDescription,
     parameters: LspParameters as unknown as Tool.Def["parameters"],
+  },
+  {
+    id: "automate_manage",
+    card: "List, pause, resume, or delete existing PawWork Automations by exact id.",
+    description:
+      "Manage existing PawWork Automations from the conversation. Use this when the user asks to show scheduled tasks, list reminders, pause an automation, resume an automation, or delete/remove/cancel an automation. Delete asks the user for confirmation; pause and resume are reversible.",
+    parameters: AutomateManageParameters as unknown as Tool.Def["parameters"],
   },
   {
     id: "browser_navigate",
