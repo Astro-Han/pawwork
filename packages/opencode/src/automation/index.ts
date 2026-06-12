@@ -4,8 +4,10 @@ import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
 import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
+import { GlobalBus } from "@/bus/global"
 import { Identifier } from "@/id/id"
 import { Instance } from "@/project/instance"
+import { Project } from "@/project/project"
 import { ProjectID } from "@/project/schema"
 import { PermissionID } from "@/permission/schema"
 import { ModelID, ProviderID } from "@/provider/schema"
@@ -154,6 +156,16 @@ export namespace Automation {
     ])
     .meta({ ref: "AutomationDefinition" })
   export type Definition = z.infer<typeof Definition>
+
+  export type Scope = {
+    projectID: ProjectID
+    ownerDirectory: string
+  }
+
+  export type ScopedDefinition = {
+    definition: Definition
+    scope: Scope
+  }
 
   export const Tombstone = z
     .object({ id: DefinitionID, deleted: z.literal(true), revision: z.number().int().positive() })
@@ -335,6 +347,18 @@ export namespace Automation {
     return { ...input, where: normalizeWhere(input.where) }
   }
 
+  export function currentScope(): Scope {
+    return { projectID: Instance.project.id, ownerDirectory: Instance.directory }
+  }
+
+  function rowScope(row: Pick<typeof AutomationDefinitionTable.$inferSelect, "project_id" | "owner_directory">): Scope {
+    return { projectID: row.project_id, ownerDirectory: row.owner_directory }
+  }
+
+  function scopeMatches(row: Pick<typeof AutomationDefinitionTable.$inferSelect, "project_id" | "owner_directory">, scope: Scope) {
+    return row.project_id === scope.projectID && row.owner_directory === scope.ownerDirectory
+  }
+
   export function getWriterKey(definition: Definition) {
     return definition.where.worktree ?? definition.where.projectID
   }
@@ -371,7 +395,17 @@ export namespace Automation {
     return details
   }
 
-  export function validateCreateInput(input: CreateInput | Definition, projectID = Instance.project.id, now?: number) {
+  export function validateCreateInput(
+    input: CreateInput | Definition,
+    options?: {
+      projectID?: ProjectID
+      now?: number
+      projectVcs?: Project.Info["vcs"]
+    },
+  ) {
+    const projectID = options?.projectID ?? Instance.project.id
+    const now = options?.now
+    const projectVcs = options?.projectVcs ?? Instance.project.vcs
     const details: ValidationErrorDetail[] = []
     const isDefinition = Object.hasOwn(input, "id")
     if (!isDefinition) {
@@ -394,7 +428,7 @@ export namespace Automation {
     if (input.where.worktree && input.context === "continue") {
       addDetail(details, "context", "unsupported_continue_with_worktree")
     }
-    if (input.where.worktree && Instance.project.vcs !== "git") {
+    if (input.where.worktree && projectVcs !== "git") {
       addDetail(details, "where.worktree", "unsupported_where_worktree_not_git")
     }
     if (input.kind === "recurring" && input.stop.kind === "condition") {
@@ -441,7 +475,7 @@ export namespace Automation {
   export function create(input: CreateInput, options?: { now?: number; sourceSessionID?: SessionID }): Definition {
     input = normalizeDefinitionInput(input)
     const now = options?.now ?? Date.now()
-    const details = validateCreateInput(input, Instance.project.id, now)
+    const details = validateCreateInput(input, { projectID: Instance.project.id, now })
     // A continue automation loops inside an existing conversation, so it must be
     // bound to one at creation. Only the automate tool can supply that source
     // (from its session context); the public HTTP create cannot, so reject a
@@ -495,17 +529,15 @@ export namespace Automation {
     return definition
   }
 
-  export function list(): Definition[] {
-    const projectID = Instance.project.id
-    const ownerDirectory = Instance.directory
+  export function list(scope: Scope = currentScope()): Definition[] {
     return Database.use((db) =>
       db
         .select()
         .from(AutomationDefinitionTable)
         .where(
           and(
-            eq(AutomationDefinitionTable.project_id, projectID),
-            eq(AutomationDefinitionTable.owner_directory, ownerDirectory),
+            eq(AutomationDefinitionTable.project_id, scope.projectID),
+            eq(AutomationDefinitionTable.owner_directory, scope.ownerDirectory),
           ),
         )
         .orderBy(desc(AutomationDefinitionTable.time_updated), desc(AutomationDefinitionTable.id))
@@ -514,14 +546,24 @@ export namespace Automation {
     )
   }
 
-  export function get(id: string): Definition {
-    const definition = getOptional(id)
+  export function listAll(): ScopedDefinition[] {
+    return Database.use((db) =>
+      db
+        .select()
+        .from(AutomationDefinitionTable)
+        .orderBy(desc(AutomationDefinitionTable.time_updated), desc(AutomationDefinitionTable.id))
+        .all()
+        .map((row) => ({ definition: Definition.parse(row.data), scope: rowScope(row) })),
+    )
+  }
+
+  export function get(id: string, scope: Scope = currentScope()): Definition {
+    const definition = getOptional(id, scope)
     if (!definition) throw new NotFoundError({ message: `Automation not found: ${id}` })
     return definition
   }
 
-  function getOptional(id: string): Definition | undefined {
-    const projectID = Instance.project.id
+  export function getScope(id: string): Scope {
     const row = Database.use((db) =>
       db
         .select()
@@ -529,8 +571,19 @@ export namespace Automation {
         .where(eq(AutomationDefinitionTable.id, id))
         .get(),
     )
-    if (!row || row.project_id !== projectID) return undefined
-    if (row.owner_directory !== Instance.directory) return undefined
+    if (!row) throw new NotFoundError({ message: `Automation not found: ${id}` })
+    return rowScope(row)
+  }
+
+  function getOptional(id: string, scope: Scope = currentScope()): Definition | undefined {
+    const row = Database.use((db) =>
+      db
+        .select()
+        .from(AutomationDefinitionTable)
+        .where(eq(AutomationDefinitionTable.id, id))
+        .get(),
+    )
+    if (!row || !scopeMatches(row, scope)) return undefined
     return Definition.parse(row.data)
   }
 
@@ -550,11 +603,12 @@ export namespace Automation {
     )
   }
 
-  function replaceDefinition(previous: Definition, next: Definition) {
+  function replaceDefinition(previous: Definition, next: Definition, options?: { expectedScope?: Scope; moveToOwnerDirectory?: string }) {
+    const expectedOwnerDirectory = options?.expectedScope?.ownerDirectory ?? Instance.directory
     return Database.transaction(
       (db) => {
         const row = db.select().from(AutomationDefinitionTable).where(eq(AutomationDefinitionTable.id, previous.id)).get()
-        if (!row || row.project_id !== previous.where.projectID || row.owner_directory !== Instance.directory) {
+        if (!row || row.project_id !== previous.where.projectID || row.owner_directory !== expectedOwnerDirectory) {
           throw new NotFoundError({ message: `Automation not found: ${previous.id}` })
         }
         const current = Definition.parse(row.data)
@@ -562,7 +616,7 @@ export namespace Automation {
         db.update(AutomationDefinitionTable)
           .set({
             project_id: next.where.projectID,
-            owner_directory: Instance.directory,
+            owner_directory: options?.moveToOwnerDirectory ?? expectedOwnerDirectory,
             time_updated: next.updatedAt,
             data: next,
           })
@@ -579,8 +633,8 @@ export namespace Automation {
     )
   }
 
-  function writeRun(run: Run) {
-    const definition = getOptional(run.automationID)
+  function writeRun(run: Run, scope: Scope = currentScope()) {
+    const definition = getOptional(run.automationID, scope)
     if (!definition) throw new NotFoundError({ message: `Automation not found: ${run.automationID}` })
     const now = Date.now()
     Database.use((db) =>
@@ -590,7 +644,7 @@ export namespace Automation {
           id: run.id,
           automation_id: run.automationID,
           project_id: definition.where.projectID,
-          owner_directory: Instance.directory,
+          owner_directory: scope.ownerDirectory,
           triggered_at: run.triggeredAt,
           data: run,
           time_created: now,
@@ -607,6 +661,13 @@ export namespace Automation {
     )
     if (!row || row.project_id !== projectID || row.owner_directory !== Instance.directory) return undefined
     return Run.parse(row.data)
+  }
+
+  function getRunAnyScope(runID: string): Run | undefined {
+    const row = Database.use((db) =>
+      db.select().from(AutomationRunTable).where(eq(AutomationRunTable.id, runID)).get(),
+    )
+    return row ? Run.parse(row.data) : undefined
   }
 
   function isSameValue(left: unknown, right: unknown): boolean {
@@ -636,6 +697,14 @@ export namespace Automation {
     patch = normalizeUpdateInput(patch)
     const now = options?.now ?? Date.now()
     const updateDetails = validateUpdateInput(previous, patch, now)
+    const targetProjectID = patch.where?.projectID
+    const isMove = targetProjectID !== undefined && targetProjectID !== previous.where.projectID
+    const targetProject = isMove ? Project.get(targetProjectID) : undefined
+    if (isMove) {
+      if (previous.context === "continue") addDetail(updateDetails, "where.projectID", "unsupported_continue_move")
+      if (hasActiveRun(previous.id)) addDetail(updateDetails, "where.projectID", "unsupported_move_with_active_run")
+      if (!targetProject) addDetail(updateDetails, "where.projectID", "project_not_found")
+    }
     if (updateDetails.length) throw new ValidationError(updateDetails)
     if (!hasChanges(previous, patch)) return previous
     const merged: Record<string, unknown> = { ...previous, ...patch }
@@ -645,8 +714,6 @@ export namespace Automation {
       revision: previous.revision + 1,
       updatedAt: now,
     })
-    const details = validateCreateInput(next)
-    if (details.length) throw new ValidationError(details)
     if (next.kind === "recurring" && previous.kind === "recurring") {
       const scheduleChanged =
         !isSameValue(previous.rhythm, next.rhythm) ||
@@ -658,7 +725,11 @@ export namespace Automation {
         next = { ...next, nextFireAt: derived.nextFireAt, nextFires: derived.nextFires }
       }
     }
-    return replaceDefinition(previous, next)
+    const createProjectID = targetProject?.id ?? Instance.project.id
+    const createProjectVcs = targetProject?.vcs ?? Instance.project.vcs
+    const details = validateCreateInput(next, { projectID: createProjectID, projectVcs: createProjectVcs })
+    if (details.length) throw new ValidationError(details)
+    return replaceDefinition(previous, next, targetProject ? { moveToOwnerDirectory: targetProject.worktree } : undefined)
   }
 
   export function recordRunOutcome(
@@ -666,24 +737,35 @@ export namespace Automation {
     options?: {
       now?: number
       refreshOnStopped?: boolean
+      scope?: Scope
     },
   ): Definition | undefined {
     if (run.state !== "succeeded" && run.state !== "failed" && run.state !== "stopped") return undefined
     const now = options?.now ?? Date.now()
+    let scope = options?.scope ?? currentScope()
     // Retry on revision conflict: a concurrent write (e.g. pause/update) may
     // have advanced the row between our read and our update. Re-read the
     // latest definition and recompute failureStreak + derived fields against
     // it, otherwise we silently drop the run's outcome and the user sees a
     // stale nextFireAt / failureStreak.
     for (let attempt = 0; attempt < 3; attempt++) {
-      const previous = getOptional(run.automationID)
+      let previous = getOptional(run.automationID, scope)
+      if (!previous) {
+        try {
+          scope = getScope(run.automationID)
+          previous = getOptional(run.automationID, scope)
+        } catch (error) {
+          if (NotFoundError.isInstance(error)) return undefined
+          throw error
+        }
+      }
       if (!previous || previous.kind !== "recurring") return undefined
       const failureStreak =
         run.state === "succeeded" ? 0 : run.state === "failed" ? previous.failureStreak + 1 : previous.failureStreak
       const derived =
         run.state === "stopped" && !options?.refreshOnStopped
           ? { nextFireAt: previous.nextFireAt, nextFires: previous.nextFires }
-          : computeDerivedFields(previous, now, completedRunCount(previous.id))
+          : computeDerivedFields(previous, now, completedRunCount(previous.id, scope))
       if (
         previous.failureStreak === failureStreak &&
         previous.nextFireAt === derived.nextFireAt &&
@@ -701,7 +783,7 @@ export namespace Automation {
       })
       internalTestHooks.beforeReplaceDefinition?.(previous)
       try {
-        return replaceDefinition(previous, next)
+        return replaceDefinition(previous, next, { expectedScope: scope })
       } catch (error) {
         if (!(error instanceof ConflictError)) throw error
         // retry: read latest and recompute
@@ -747,11 +829,11 @@ export namespace Automation {
     }
   }
 
-  function replaceRun(previous: Run, next: Run) {
+  function replaceRun(previous: Run, next: Run, scope: Scope = currentScope()) {
     return Database.transaction(
       (db) => {
         const row = db.select().from(AutomationRunTable).where(eq(AutomationRunTable.id, previous.id)).get()
-        if (!row || row.project_id !== Instance.project.id || row.owner_directory !== Instance.directory) return previous
+        if (!row || row.project_id !== scope.projectID || row.owner_directory !== scope.ownerDirectory) return previous
         const current = Run.parse(row.data)
         if (current.revision !== previous.revision) return current
         const now = Date.now()
@@ -777,7 +859,7 @@ export namespace Automation {
     )
   }
 
-  function reviseRun(run: Run, patch: Record<string, unknown>): Run {
+  function reviseRun(run: Run, patch: Record<string, unknown>, scope?: Scope): Run {
     const next = {
       ...run,
       ...patch,
@@ -788,22 +870,26 @@ export namespace Automation {
     for (const [key, value] of Object.entries(next)) {
       if (value === undefined) delete (next as Record<string, unknown>)[key]
     }
-    return replaceRun(run, Run.parse(next))
+    return replaceRun(run, Run.parse(next), scope)
   }
 
   function stopRun(
     run: Run,
     stopReason: Extract<Run, { state: "stopped" }>["stopReason"],
-    options?: { now?: number },
+    options?: { now?: number; scope?: Scope },
   ): Run {
     if (run.state === "stopped" || run.state === "succeeded" || run.state === "failed") return run
-    return reviseRun(run, {
-      state: "stopped",
-      completedAt: options?.now ?? Date.now(),
-      result: null,
-      error: null,
-      stopReason,
-    })
+    return reviseRun(
+      run,
+      {
+        state: "stopped",
+        completedAt: options?.now ?? Date.now(),
+        result: null,
+        error: null,
+        stopReason,
+      },
+      options?.scope,
+    )
   }
 
   function stopActiveRun(automationID: string) {
@@ -879,8 +965,9 @@ export namespace Automation {
     })
   }
 
-  export function runNow(id: string, options?: { now?: number; runID?: string }): Run {
-    const definition = get(id)
+  export function runNow(id: string, options?: { now?: number; runID?: string; scope?: Scope }): Run {
+    const scope = options?.scope ?? currentScope()
+    const definition = get(id, scope)
     const run = Run.parse({
       id: options?.runID ?? AutomationID.Run.ascending(),
       automationID: id,
@@ -895,15 +982,13 @@ export namespace Automation {
       error: null,
       cost: null,
     })
-    writeRun(run)
+    writeRun(run, scope)
     return run
   }
 
   export function hasActiveRun(automationID: string): boolean {
     if (state().activeRuns.has(automationID)) return true
     get(automationID)
-    const projectID = Instance.project.id
-    const ownerDirectory = Instance.directory
     return Boolean(
       Database.use((db) =>
         db
@@ -912,8 +997,6 @@ export namespace Automation {
           .where(
             and(
               eq(AutomationRunTable.automation_id, automationID),
-              eq(AutomationRunTable.project_id, projectID),
-              eq(AutomationRunTable.owner_directory, ownerDirectory),
               sql`json_extract(${AutomationRunTable.data}, '$.state') in ('scheduled', 'running', 'awaiting_input')`,
             ),
           )
@@ -927,12 +1010,12 @@ export namespace Automation {
     return run.state === "scheduled" || run.state === "running" || run.state === "awaiting_input"
   }
 
-  function runLeaseKey(runID: string) {
-    return `automation-run:${Instance.directory}:${runID}`
+  function runLeaseKey(ownerDirectory: string, runID: string) {
+    return `automation-run:${ownerDirectory}:${runID}`
   }
 
-  async function hasLiveRunLease(runID: string) {
-    const lease = await Flock.tryAcquire(runLeaseKey(runID))
+  async function hasLiveRunLease(runID: string, ownerDirectory = Instance.directory) {
+    const lease = await Flock.tryAcquire(runLeaseKey(ownerDirectory, runID))
     if (!lease) return true
     await lease.release().catch(() => undefined)
     return false
@@ -986,10 +1069,12 @@ export namespace Automation {
     )
   }
 
-  export function hasRunTriggeredAtOrAfter(automationID: string, triggeredAt: number): boolean {
-    get(automationID)
-    const projectID = Instance.project.id
-    const ownerDirectory = Instance.directory
+  export function hasRunTriggeredAtOrAfter(
+    automationID: string,
+    triggeredAt: number,
+    scope: Scope = currentScope(),
+  ): boolean {
+    get(automationID, scope)
     return Boolean(
       Database.use((db) =>
         db
@@ -998,8 +1083,6 @@ export namespace Automation {
           .where(
             and(
               eq(AutomationRunTable.automation_id, automationID),
-              eq(AutomationRunTable.project_id, projectID),
-              eq(AutomationRunTable.owner_directory, ownerDirectory),
               gte(AutomationRunTable.triggered_at, triggeredAt),
             ),
           )
@@ -1009,10 +1092,8 @@ export namespace Automation {
     )
   }
 
-  export function completedRunCount(automationID: string): number {
-    get(automationID)
-    const projectID = Instance.project.id
-    const ownerDirectory = Instance.directory
+  export function completedRunCount(automationID: string, scope: Scope = currentScope()): number {
+    get(automationID, scope)
     const row = Database.use((db) =>
       db
         .select({ count: sql<number>`count(*)` })
@@ -1020,8 +1101,6 @@ export namespace Automation {
         .where(
           and(
             eq(AutomationRunTable.automation_id, automationID),
-            eq(AutomationRunTable.project_id, projectID),
-            eq(AutomationRunTable.owner_directory, ownerDirectory),
             sql`json_extract(${AutomationRunTable.data}, '$.state') in ('succeeded', 'failed')`,
           ),
         )
@@ -1030,9 +1109,10 @@ export namespace Automation {
     return Number(row?.count ?? 0)
   }
 
-  export async function reconcileInterruptedRuns(options?: { now?: number }): Promise<Run[]> {
-    const projectID = Instance.project.id
-    const ownerDirectory = Instance.directory
+  export async function reconcileInterruptedRuns(options?: { now?: number; scope?: Scope }): Promise<Run[]> {
+    const scope = options?.scope ?? currentScope()
+    const projectID = scope.projectID
+    const ownerDirectory = scope.ownerDirectory
     const now = options?.now ?? Date.now()
     const rows = Database.use((db) =>
       db
@@ -1051,9 +1131,9 @@ export namespace Automation {
     for (const row of rows) {
       const run = Run.parse(row.data)
       if (!isActiveRun(run)) continue
-      const active = state().activeRuns.get(run.automationID)
+      const active = options?.scope ? undefined : state().activeRuns.get(run.automationID)
       if (active?.runID === run.id) continue
-      if (await hasLiveRunLease(run.id)) continue
+      if (await hasLiveRunLease(run.id, ownerDirectory)) continue
       const next = Database.transaction(
         (db) => {
           const currentRow = db.select().from(AutomationRunTable).where(eq(AutomationRunTable.id, run.id)).get()
@@ -1087,9 +1167,9 @@ export namespace Automation {
   export function recordStoppedRun(
     automationID: string,
     stopReason: Extract<Run, { state: "stopped" }>["stopReason"],
-    options?: { now?: number; triggeredAt?: number },
+    options?: { now?: number; triggeredAt?: number; scope?: Scope },
   ): Run {
-    const run = runNow(automationID, { now: options?.triggeredAt ?? options?.now })
+    const run = runNow(automationID, { now: options?.triggeredAt ?? options?.now, scope: options?.scope })
     return stopRun(run, stopReason, options)
   }
 
@@ -1098,7 +1178,7 @@ export namespace Automation {
     options: { executor: RunExecutor; attendance?: AutomationRunAttendance; now?: number },
   ): Promise<Run> {
     const runID = AutomationID.Run.ascending()
-    const lease = await Flock.acquire(runLeaseKey(runID))
+    const lease = await Flock.acquire(runLeaseKey(Instance.directory, runID))
     try {
       const initial = runNow(id, { now: options.now, runID })
       queueMicrotask(() => void executeRun(initial, options.executor, options.attendance ?? "attended", lease))
@@ -1191,9 +1271,7 @@ export namespace Automation {
   export function runs(input: { automationID: string; limit?: number; cursor?: string }) {
     const limit = Math.min(Math.max(input.limit ?? 50, 1), 100)
     get(input.automationID)
-    const projectID = Instance.project.id
-    const ownerDirectory = Instance.directory
-    const cursorRun = input.cursor ? getRun(input.cursor) : undefined
+    const cursorRun = input.cursor ? getRunAnyScope(input.cursor) : undefined
     if (input.cursor && (!cursorRun || cursorRun.automationID !== input.automationID)) return { items: [], nextCursor: null }
     const cursorPredicate = cursorRun
       ? or(
@@ -1208,8 +1286,6 @@ export namespace Automation {
         .where(
           and(
             eq(AutomationRunTable.automation_id, input.automationID),
-            eq(AutomationRunTable.project_id, projectID),
-            eq(AutomationRunTable.owner_directory, ownerDirectory),
             cursorPredicate,
           ),
         )
@@ -1223,7 +1299,21 @@ export namespace Automation {
   }
 
   export const publishDefinitionUpdated = (definition: Definition) => Bus.publish(Event.DefinitionUpdated, definition)
+  export const publishDefinitionUpdatedForScope = (definition: Definition, scope: Scope) => {
+    GlobalBus.emit("event", {
+      directory: scope.ownerDirectory,
+      project: scope.projectID,
+      payload: { type: Event.DefinitionUpdated.type, properties: definition },
+    })
+  }
   export const publishRunUpdated = (run: Run) => Bus.publish(Event.RunUpdated, run)
+  export const publishRunUpdatedForScope = (run: Run, scope: Scope) => {
+    GlobalBus.emit("event", {
+      directory: scope.ownerDirectory,
+      project: scope.projectID,
+      payload: { type: Event.RunUpdated.type, properties: run },
+    })
+  }
 
   export interface Interface {
     readonly list: () => Effect.Effect<Definition[]>
@@ -1250,6 +1340,7 @@ export namespace Automation {
       cursor?: string
     }) => Effect.Effect<z.infer<typeof RunsResponse>>
     readonly publishDefinitionUpdated: (definition: Definition) => Effect.Effect<void>
+    readonly publishDefinitionUpdatedForScope: (definition: Definition, scope: Scope) => Effect.Effect<void>
     readonly publishDefinitionDeleted: (tombstone: Tombstone) => Effect.Effect<void>
     readonly publishRunUpdated: (run: Run) => Effect.Effect<void>
     // Execution-face: the per-directory mutable active-run/writer state, owned by InstanceState.
@@ -1292,6 +1383,7 @@ export namespace Automation {
         runNowExecuting: (id, options) => Effect.promise(() => runNowExecuting(id, options)),
         runs: (input) => Effect.sync(() => runs(input)),
         publishDefinitionUpdated: (definition) => Effect.promise(() => publishDefinitionUpdated(definition)),
+        publishDefinitionUpdatedForScope: (definition, scope) => Effect.sync(() => publishDefinitionUpdatedForScope(definition, scope)),
         publishDefinitionDeleted: (tombstone) => Effect.promise(() => Bus.publish(Event.DefinitionDeleted, tombstone)),
         publishRunUpdated: (run) => Effect.promise(() => publishRunUpdated(run)),
         activeState: () => InstanceState.get(activeStateHandle),

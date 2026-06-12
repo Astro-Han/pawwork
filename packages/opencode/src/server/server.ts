@@ -1,6 +1,7 @@
 import { generateSpecs } from "hono-openapi"
 import { Hono } from "hono"
 import { adapter } from "#hono"
+import { AutomationScheduler } from "@/automation/scheduler"
 import { lazy } from "@/util/lazy"
 import { Log } from "@/util"
 import { MDNS } from "./mdns"
@@ -81,6 +82,18 @@ export async function listen(opts: {
 }): Promise<Listener> {
   const built = create(opts)
   const server = await built.runtime.listen(opts)
+  const automationScheduler = AutomationScheduler.current()
+  try {
+    await automationScheduler.settleOwner()
+  } catch (error) {
+    AutomationScheduler.stopProcess({ stopRuns: false })
+    try {
+      await server.stop(true)
+    } catch (stopError) {
+      log.error("server cleanup after scheduler settle failure failed", { error: stopError })
+    }
+    throw error
+  }
 
   const next = new URL("http://localhost")
   next.hostname = opts.hostname
@@ -107,6 +120,7 @@ export async function listen(opts: {
     stop(close?: boolean) {
       closing ??= (async () => {
         if (mdns) MDNS.unpublish()
+        AutomationScheduler.stopProcess({ stopRuns: false })
         await server.stop(close)
       })()
       return closing

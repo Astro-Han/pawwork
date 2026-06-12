@@ -2,8 +2,9 @@ import { Context, Effect, Fiber, Layer } from "effect"
 import { DateTime } from "luxon"
 import { Log } from "@opencode-ai/core/util/log"
 import { Automation } from "."
-import { Bus } from "@/bus"
-import { Instance, type InstanceContext } from "@/project/instance"
+import { GlobalBus } from "@/bus/global"
+import { Instance } from "@/project/instance"
+import { ProjectID } from "@/project/schema"
 import { Session } from "@/session"
 import { NotFoundError } from "@/storage/db"
 import { Flock } from "@/util/flock"
@@ -30,12 +31,11 @@ export namespace AutomationScheduler {
   }
 
   export interface Interface {
-    stop(): void
-    stopOwnedRuns(): void
+    stop(options?: { stopRuns?: boolean }): void
     settleOwner(): Promise<void>
-    reschedule(definition: Automation.Definition): void
+    reschedule(definition: Automation.Definition, scope?: Automation.Scope): void
     cancel(automationID: string): void
-    computeNextFireAt(definition: Automation.Definition, from?: number): number | null
+    computeNextFireAt(definition: Automation.Definition, from?: number, scope?: Automation.Scope): number | null
   }
 
   export interface Options {
@@ -52,6 +52,21 @@ export namespace AutomationScheduler {
     fireAt: number
     token: symbol
     definition: Automation.Definition
+    scope: Automation.Scope
+  }
+
+  type OwnedRun = {
+    automationID: string
+    scope: Automation.Scope
+  }
+
+  type GlobalEventEnvelope = {
+    directory?: string
+    project?: string
+    payload?: {
+      type?: string
+      properties?: unknown
+    }
   }
 
   export const liveClock: Clock = {
@@ -101,13 +116,17 @@ export namespace AutomationScheduler {
     )
   export const defaultLayer = layer()
 
-  export function computeNextFireAt(definition: Automation.Definition, from: number): number | null {
+  export function computeNextFireAt(
+    definition: Automation.Definition,
+    from: number,
+    scope: Automation.Scope = Automation.currentScope(),
+  ): number | null {
     if (definition.paused) return null
     if (definition.kind === "oneshot") {
-      if (Automation.hasRunTriggeredAtOrAfter(definition.id, definition.fireAt)) return null
+      if (Automation.hasRunTriggeredAtOrAfter(definition.id, definition.fireAt, scope)) return null
       return definition.fireAt
     }
-    if (!canScheduleRecurring(definition)) return null
+    if (!canScheduleRecurring(definition, scope)) return null
     if (definition.rhythm.kind === "cron") return computeNextCronFireAt(definition, from)
     return from + definition.rhythm.everyMs
   }
@@ -134,9 +153,12 @@ export namespace AutomationScheduler {
     return null
   }
 
-  function canScheduleRecurring(definition: Extract<Automation.Definition, { kind: "recurring" }>) {
+  function canScheduleRecurring(
+    definition: Extract<Automation.Definition, { kind: "recurring" }>,
+    scope: Automation.Scope = Automation.currentScope(),
+  ) {
     if (definition.stop.kind === "never") return true
-    if (definition.stop.kind === "count") return Automation.completedRunCount(definition.id) < definition.stop.count
+    if (definition.stop.kind === "count") return Automation.completedRunCount(definition.id, scope) < definition.stop.count
     return false
   }
 
@@ -153,6 +175,29 @@ export namespace AutomationScheduler {
     return false
   }
 
+  function scopeKey(scope: Automation.Scope) {
+    return `${scope.projectID}\n${scope.ownerDirectory}`
+  }
+
+  function sameScope(left: Automation.Scope, right: Automation.Scope) {
+    return left.projectID === right.projectID && left.ownerDirectory === right.ownerDirectory
+  }
+
+  function scopeFromEvent(event: GlobalEventEnvelope): Automation.Scope | undefined {
+    if (!event.directory || !event.project) return undefined
+    return {
+      projectID: ProjectID.zod.parse(event.project),
+      ownerDirectory: event.directory,
+    }
+  }
+
+  async function runInScope<T>(scope: Automation.Scope, fn: () => T | Promise<T>): Promise<T> {
+    return Instance.provide({
+      directory: scope.ownerDirectory,
+      fn,
+    })
+  }
+
   export function make(options: Options = {}): Interface {
     const clock = options.clock ?? liveClock
     const executor = options.executor ?? sessionPromptExecutor
@@ -162,7 +207,7 @@ export namespace AutomationScheduler {
     const ownerRescanMs = options.ownerRescanMs ?? 5_000
     const tasks = new Map<string, ScheduledTask>()
     const unschedulable = new Map<string, Automation.Definition>()
-    const ownedRuns = new Map<string, string>()
+    const ownedRuns = new Map<string, OwnedRun>()
     const schedulerStoppedRuns = new Set<string>()
     // Marks DefinitionUpdated events that the scheduler emits itself after a
     // stopped-run refresh, so its own DefinitionUpdated subscriber can skip
@@ -172,6 +217,7 @@ export namespace AutomationScheduler {
     const selfPublishedDefinitionUpdates = new Set<string>()
     const selfUpdateKey = (definition: { id: string; revision: number }) =>
       `${definition.id}:${definition.revision}`
+    const selfPublishedRunUpdates = new Set<string>()
     let ownsTimers = !ownerKey
     let ownerLease: Flock.Lease | undefined
     let ownerAttempt: Promise<void> | undefined
@@ -187,14 +233,14 @@ export namespace AutomationScheduler {
       entry.task.interrupt()
     }
 
-    const scheduleNextInterval = (automationID: string) => {
+    const scheduleNextInterval = (automationID: string, scope: Automation.Scope = Automation.currentScope()) => {
       try {
-        const latest = Automation.get(automationID)
-        if (latest.kind === "recurring" && !latest.paused && canScheduleRecurring(latest)) {
+        const latest = Automation.get(automationID, scope)
+        if (latest.kind === "recurring" && !latest.paused && canScheduleRecurring(latest, scope)) {
           const next =
-            latest.rhythm.kind === "interval" ? clock.now() + latest.rhythm.everyMs : computeNextFireAt(latest, clock.now())
+            latest.rhythm.kind === "interval" ? clock.now() + latest.rhythm.everyMs : computeNextFireAt(latest, clock.now(), scope)
           if (next === null) cancel(automationID)
-          else schedule(latest, next)
+          else schedule(latest, next, scope)
         } else {
           cancel(automationID)
         }
@@ -204,45 +250,99 @@ export namespace AutomationScheduler {
       }
     }
 
-    const fire = async (automationID: string, triggeredAt: number) => {
-      tasks.delete(automationID)
-      const firedAt = clock.now()
+    const publishScopedRunUpdated = (run: Automation.Run, scope: Automation.Scope) => {
+      selfPublishedRunUpdates.add(run.id)
+      Automation.publishRunUpdatedForScope(run, scope)
+    }
+
+    const currentDefinitionScope = (automationID: string, fallback: Automation.Scope) => {
       try {
-        const latest = Automation.get(automationID)
-        if (latest.paused) return
-        if (latest.kind === "oneshot" && latest.fireAt !== triggeredAt) return
-        if (latest.kind === "recurring" && !canScheduleRecurring(latest)) return
-        if (firedAt - triggeredAt > MISSED_SCHEDULE_GRACE_MS) {
-          const stopped = Automation.recordStoppedRun(automationID, "missed_schedule", { now: firedAt, triggeredAt })
-          schedulerStoppedRuns.add(stopped.id)
-          void Automation.publishRunUpdated(stopped)
-          if (latest.kind === "recurring") scheduleNextInterval(automationID)
+        return Automation.getScope(automationID)
+      } catch (error) {
+        if (NotFoundError.isInstance(error)) return fallback
+        throw error
+      }
+    }
+
+    const refreshScopedRunOutcome = (
+      run: Automation.Run,
+      scope: Automation.Scope,
+      options?: { refreshOnStopped?: boolean },
+    ) => {
+      if (!ownsTimers) return scope
+      try {
+        const refreshed = Automation.recordRunOutcome(run, {
+          now: clock.now(),
+          refreshOnStopped: options?.refreshOnStopped ?? true,
+          scope,
+        })
+        if (!refreshed) return currentDefinitionScope(run.automationID, scope)
+        const refreshedScope = currentDefinitionScope(refreshed.id, scope)
+        selfPublishedDefinitionUpdates.add(selfUpdateKey(refreshed))
+        Automation.publishDefinitionUpdatedForScope(refreshed, refreshedScope)
+        return refreshedScope
+      } catch (error) {
+        if (!NotFoundError.isInstance(error)) log.error("automation derived field update failed", { error, automationID: run.automationID })
+        return scope
+      }
+    }
+
+    const publishScopedStoppedRun = (run: Automation.Run, scope: Automation.Scope, options?: { scheduleNext?: boolean }) => {
+      const refreshedScope = refreshScopedRunOutcome(run, scope)
+      publishScopedRunUpdated(run, scope)
+      if (options?.scheduleNext) scheduleNextInterval(run.automationID, refreshedScope)
+    }
+
+    const fire = async (automationID: string, triggeredAt: number) => {
+      const entry = tasks.get(automationID)
+      if (!entry) return
+      tasks.delete(automationID)
+      await runInScope(entry.scope, async () => {
+        const firedAt = clock.now()
+        try {
+          const latest = Automation.get(automationID)
+          if (latest.paused) return
+          if (latest.kind === "oneshot" && latest.fireAt !== triggeredAt) return
+          if (latest.kind === "recurring" && !canScheduleRecurring(latest, entry.scope)) return
+          if (firedAt - triggeredAt > MISSED_SCHEDULE_GRACE_MS) {
+            const stopped = Automation.recordStoppedRun(automationID, "missed_schedule", {
+              now: firedAt,
+              triggeredAt,
+              scope: entry.scope,
+            })
+            schedulerStoppedRuns.add(stopped.id)
+            void Automation.publishRunUpdated(stopped)
+            if (latest.kind === "recurring") scheduleNextInterval(automationID, entry.scope)
+            return
+          }
+        } catch (error) {
+          if (!NotFoundError.isInstance(error)) throw error
           return
         }
-      } catch (error) {
-        if (!NotFoundError.isInstance(error)) throw error
-        return
-      }
-      for (const run of await Automation.reconcileInterruptedRuns({ now: firedAt })) void Automation.publishRunUpdated(run)
-      if (Automation.hasActiveRun(automationID)) {
-        const stopped = Automation.recordStoppedRun(automationID, "previous_run_awaiting_input", { now: triggeredAt })
-        schedulerStoppedRuns.add(stopped.id)
-        void Automation.publishRunUpdated(stopped)
-        scheduleNextInterval(automationID)
-        return
-      }
-      try {
-        const run = await Automation.runNowExecuting(automationID, {
-          executor,
-          attendance: "unattended",
-          now: triggeredAt,
-        })
-        ownedRuns.set(run.id, automationID)
-        const latest = Automation.get(automationID)
-        if (latest.kind === "recurring" && latest.rhythm.kind === "cron") scheduleNextInterval(automationID)
-      } catch (error) {
-        if (!NotFoundError.isInstance(error)) throw error
-      }
+        for (const run of await Automation.reconcileInterruptedRuns({ now: firedAt })) void Automation.publishRunUpdated(run)
+        if (Automation.hasActiveRun(automationID)) {
+          const stopped = Automation.recordStoppedRun(automationID, "previous_run_awaiting_input", {
+            now: triggeredAt,
+            scope: entry.scope,
+          })
+          schedulerStoppedRuns.add(stopped.id)
+          void Automation.publishRunUpdated(stopped)
+          scheduleNextInterval(automationID, entry.scope)
+          return
+        }
+        try {
+          const run = await Automation.runNowExecuting(automationID, {
+            executor,
+            attendance: "unattended",
+            now: triggeredAt,
+          })
+          ownedRuns.set(run.id, { automationID, scope: Automation.currentScope() })
+          const latest = Automation.get(automationID)
+          if (latest.kind === "recurring" && latest.rhythm.kind === "cron") scheduleNextInterval(automationID, entry.scope)
+        } catch (error) {
+          if (!NotFoundError.isInstance(error)) throw error
+        }
+      })
     }
 
     const isCurrentTask = (automationID: string, fireAt: number, token: symbol, signal: AbortSignal) => {
@@ -261,7 +361,7 @@ export namespace AutomationScheduler {
         yield* Effect.promise(() => fire(automationID, fireAt))
       })
 
-    const schedule = (definition: Automation.Definition, fireAt: number) => {
+    const schedule = (definition: Automation.Definition, fireAt: number, scope: Automation.Scope) => {
       cancel(definition.id)
       if (!running || !ownsTimers || definition.paused) return
       const token = Symbol(definition.id)
@@ -270,20 +370,23 @@ export namespace AutomationScheduler {
         fireAt,
         token,
         definition,
+        scope,
       })
     }
 
-    const preservePendingSchedule = (definition: Automation.Definition) => {
+    const preservePendingSchedule = (definition: Automation.Definition, scope: Automation.Scope) => {
       const current = tasks.get(definition.id)
       if (!current || current.fireAt <= clock.now() || !isSameSchedule(current.definition, definition)) return false
       current.definition = definition
+      current.scope = scope
       return true
     }
 
-    const preserveDueSchedule = (definition: Automation.Definition) => {
+    const preserveDueSchedule = (definition: Automation.Definition, scope: Automation.Scope) => {
       const current = tasks.get(definition.id)
       if (!current || current.fireAt > clock.now() || !isSameSchedule(current.definition, definition)) return false
       current.definition = definition
+      current.scope = scope
       return true
     }
 
@@ -291,106 +394,168 @@ export namespace AutomationScheduler {
       definition.kind === "recurring" && definition.rhythm.kind === "cron" && definition.stop.kind === "never"
 
     const hasSchedulerOwnedActiveRun = (automationID: string) => {
-      for (const ownedAutomationID of ownedRuns.values()) {
-        if (ownedAutomationID === automationID) return true
+      for (const owned of ownedRuns.values()) {
+        if (owned.automationID === automationID) return true
       }
       return false
     }
 
-    const reschedule = (definition: Automation.Definition) => {
+    const reschedule = (definition: Automation.Definition, scope = Automation.currentScope()) => {
       if (!ownsTimers) return
-      if (preserveDueSchedule(definition)) return
-      if (isStableCronSchedule(definition) && preservePendingSchedule(definition)) return
+      if (preserveDueSchedule(definition, scope)) return
+      if (isStableCronSchedule(definition) && preservePendingSchedule(definition, scope)) return
       const cached = unschedulable.get(definition.id)
       if (cached && isSameSchedule(cached, definition)) return
       unschedulable.delete(definition.id)
-      if (definition.kind === "recurring" && definition.rhythm.kind === "cron" && canScheduleRecurring(definition)) {
+      if (definition.kind === "recurring" && definition.rhythm.kind === "cron" && canScheduleRecurring(definition, scope)) {
         const firstScheduled = computeNextCronFireAt(definition, definition.createdAt)
         const missed = firstScheduled === null ? null : computePreviousCronFireAt(definition, firstScheduled, clock.now())
-        if (missed !== null && !Automation.hasRunTriggeredAtOrAfter(definition.id, missed)) {
-          const stopped = Automation.recordStoppedRun(definition.id, "missed_schedule", { now: clock.now(), triggeredAt: missed })
-          schedulerStoppedRuns.add(stopped.id)
-          void Automation.publishRunUpdated(stopped)
+        if (missed !== null && !Automation.hasRunTriggeredAtOrAfter(definition.id, missed, scope)) {
+          const stopped = Automation.recordStoppedRun(definition.id, "missed_schedule", {
+            now: clock.now(),
+            triggeredAt: missed,
+            scope,
+          })
+          publishScopedStoppedRun(stopped, scope)
         }
       }
-      const next = computeNextFireAt(definition, clock.now())
+      const next = computeNextFireAt(definition, clock.now(), scope)
       if (next === null) {
         cancel(definition.id)
         if (isStableCronSchedule(definition)) unschedulable.set(definition.id, definition)
         return
       }
       if (definition.kind === "oneshot" && next <= clock.now()) {
-        const stopped = Automation.recordStoppedRun(definition.id, "missed_schedule", { now: clock.now(), triggeredAt: next })
-        schedulerStoppedRuns.add(stopped.id)
-        void Automation.publishRunUpdated(stopped)
+        const stopped = Automation.recordStoppedRun(definition.id, "missed_schedule", {
+          now: clock.now(),
+          triggeredAt: next,
+          scope,
+        })
+        publishScopedStoppedRun(stopped, scope)
         cancel(definition.id)
         return
       }
-      if (preservePendingSchedule(definition)) return
+      if (preservePendingSchedule(definition, scope)) return
       if (!tasks.has(definition.id) && definition.kind === "recurring" && hasSchedulerOwnedActiveRun(definition.id)) return
-      schedule(definition, next)
+      schedule(definition, next, scope)
     }
 
-    const unsubscribeRunUpdates = Bus.subscribe(Automation.Event.RunUpdated, (event) => {
-      if (!running) return
-      const run = event.properties
-      if (run.state === "scheduled" || run.state === "running" || run.state === "awaiting_input") return
-      const wasOwned = ownedRuns.delete(run.id)
-      const wasSchedulerStopped = schedulerStoppedRuns.delete(run.id)
-      if (run.state === "stopped" && !wasOwned && !wasSchedulerStopped) return
-      if (ownsTimers) {
-        try {
-          const refreshed = Automation.recordRunOutcome(run, {
-            now: clock.now(),
-            refreshOnStopped: wasOwned || wasSchedulerStopped,
-          })
-          if (refreshed) {
-            const key = selfUpdateKey(refreshed)
-            selfPublishedDefinitionUpdates.add(key)
-            void Automation.publishDefinitionUpdated(refreshed).catch((error) => {
-              selfPublishedDefinitionUpdates.delete(key)
-              log.error("automation derived field publish failed", { error, automationID: refreshed.id })
-            })
-          }
-        } catch (error) {
-          if (!NotFoundError.isInstance(error)) log.error("automation derived field update failed", { error, automationID: run.automationID })
+    const runScoped = (event: GlobalEventEnvelope, fn: (scope: Automation.Scope) => void | Promise<void>) => {
+      const scope = scopeFromEvent(event)
+      if (!scope) return
+      try {
+        if (sameScope(Automation.currentScope(), scope)) {
+          void Promise.resolve()
+            .then(() => fn(scope))
+            .catch((error) => log.error("automation scheduler event handling failed", { error }))
+          return
         }
+      } catch {
+        // No current instance context; enter the event owner below.
       }
-      scheduleNextInterval(run.automationID)
-    })
-    const unsubscribeDefinitionUpdates = Bus.subscribe(Automation.Event.DefinitionUpdated, (event) => {
-      if (!running) return
-      if (selfPublishedDefinitionUpdates.delete(selfUpdateKey(event.properties))) return
-      reschedule(event.properties)
-    })
-    const unsubscribeDefinitionDeletes = Bus.subscribe(Automation.Event.DefinitionDeleted, (event) => {
-      if (!running) return
-      cancel(event.properties.id)
-    })
-    // A continue automation runs inside the conversation it was created in.
-    // When that conversation is deleted, cascade-delete those automations so
-    // they don't linger pointing at a thread that no longer exists. Not gated
-    // on timer ownership — it's a local data cleanup, not a scheduling action.
-    const unsubscribeSessionDeletes = Bus.subscribe(Session.Event.Deleted, (event) => {
-      if (!running) return
-      void Automation.deleteBySourceSession(event.properties.sessionID).catch((error) =>
-        log.error("automation cascade-delete on session delete failed", {
-          error,
-          sessionID: event.properties.sessionID,
-        }),
-      )
-    })
+      void runInScope(scope, () => fn(scope)).catch((error) => log.error("automation scheduler event handling failed", { error }))
+    }
 
+    const handleGlobalEvent = (event: GlobalEventEnvelope) => {
+      if (!running) return
+      const payload = event.payload
+      if (!payload) return
+      if (payload.type === Automation.Event.RunUpdated.type) {
+        const scope = scopeFromEvent(event)
+        if (!scope) return
+        const run = Automation.Run.parse(payload.properties)
+        if (selfPublishedRunUpdates.delete(run.id)) return
+        if (run.state === "scheduled" || run.state === "running" || run.state === "awaiting_input") return
+        const wasOwned = ownedRuns.delete(run.id)
+        const wasSchedulerStopped = schedulerStoppedRuns.delete(run.id)
+        if (run.state === "stopped" && !wasOwned && !wasSchedulerStopped) return
+        const nextScope = refreshScopedRunOutcome(run, scope, {
+          refreshOnStopped: Boolean(wasOwned) || wasSchedulerStopped,
+        })
+        scheduleNextInterval(run.automationID, nextScope)
+        return
+      }
+      if (payload.type === Automation.Event.DefinitionUpdated.type) {
+        const scope = scopeFromEvent(event)
+        if (!scope) return
+        const definition = Automation.Definition.parse(payload.properties)
+        if (selfPublishedDefinitionUpdates.delete(selfUpdateKey(definition))) return
+        reschedule(definition, scope)
+        return
+      }
+      if (payload.type === Automation.Event.DefinitionDeleted.type) {
+        const tombstone = Automation.Tombstone.parse(payload.properties)
+        cancel(tombstone.id)
+        return
+      }
+      // A continue automation runs inside the conversation it was created in.
+      // When that conversation is deleted, cascade-delete those automations so
+      // they don't linger pointing at a thread that no longer exists. Not gated
+      // on timer ownership — it's a local data cleanup, not a scheduling action.
+      if (payload.type === Session.Event.Deleted.type) {
+        runScoped(event, () => {
+          const deleted = Session.Event.Deleted.properties.parse(payload.properties)
+          void Automation.deleteBySourceSession(deleted.sessionID).catch((error) =>
+            log.error("automation cascade-delete on session delete failed", {
+              error,
+              sessionID: deleted.sessionID,
+            }),
+          )
+        })
+      }
+    }
+
+    const onGlobalEvent = (event: GlobalEventEnvelope) => {
+      try {
+        handleGlobalEvent(event)
+      } catch (error) {
+        log.error("automation scheduler global event handling failed", { error })
+      }
+    }
+    GlobalBus.on("event", onGlobalEvent)
+    const unsubscribeGlobalEvents = () => GlobalBus.off("event", onGlobalEvent)
+
+    const scanCurrentScope = () => {
+      try {
+        const scope = Automation.currentScope()
+        for (const definition of Automation.list(scope)) reschedule(definition, scope)
+        return true
+      } catch {
+        return false
+      }
+    }
+
+    let scanAttempt: Promise<void> | undefined
     const scan = async () => {
       if (!running || !ownsTimers) return
-      for (const run of await Automation.reconcileInterruptedRuns({ now: clock.now() })) void Automation.publishRunUpdated(run)
-      for (const definition of Automation.list()) {
+      const shouldContinue = () => running && ownsTimers
+      const items = Automation.listAll()
+      const scopes = new Map<string, Automation.Scope>()
+      for (const item of items) scopes.set(scopeKey(item.scope), item.scope)
+      for (const scope of scopes.values()) {
+        if (!shouldContinue()) return
+        await Automation.reconcileInterruptedRuns({ now: clock.now(), scope })
+          .then((runs) => {
+            if (!shouldContinue()) return
+            for (const run of runs) publishScopedStoppedRun(run, scope, { scheduleNext: true })
+          })
+          .catch((error) => log.error("automation scheduler reconcile failed", { error, scope }))
+      }
+      for (const item of items) {
+        if (!shouldContinue()) return
         try {
-          reschedule(definition)
+          reschedule(item.definition, item.scope)
         } catch (error) {
-          log.error("automation scheduler scan failed", { error, automationID: definition.id })
+          log.error("automation scheduler scan failed", { error, automationID: item.definition.id })
         }
       }
+    }
+
+    const requestScan = () => {
+      scanAttempt ??= scan().finally(() => {
+        scanAttempt = undefined
+      })
+      return scanAttempt
     }
 
     const becomeOwner = async () => {
@@ -402,14 +567,14 @@ export namespace AutomationScheduler {
       }
       ownerLease = lease
       ownsTimers = true
-      ownerRescanTimer = setInterval(() => void scan(), ownerRescanMs)
+      ownerRescanTimer = setInterval(() => void requestScan(), ownerRescanMs)
       ownerRescanTimer.unref?.()
-      for (const run of await Automation.reconcileInterruptedRuns({ now: clock.now() })) void Automation.publishRunUpdated(run)
-      void scan()
+      await requestScan()
     }
 
     const settleOwner = () => {
-      if (!ownerKey || ownerLease || !running) return Promise.resolve()
+      if (!ownerKey || !running) return scanAttempt ?? Promise.resolve()
+      if (ownerLease) return scanAttempt ?? Promise.resolve()
       ownerAttempt ??= becomeOwner().finally(() => {
         ownerAttempt = undefined
       })
@@ -420,86 +585,66 @@ export namespace AutomationScheduler {
       void settleOwner()
       ownerRetryTimer = setInterval(() => void settleOwner(), ownerRetryMs)
       ownerRetryTimer.unref?.()
-    } else {
-      void scan()
+    } else if (!scanCurrentScope()) {
+      void requestScan()
     }
 
     const stopOwnedRuns = () => {
-      for (const runID of [...ownedRuns.keys()]) {
-        const stopped = Automation.stopRunByID(runID, "cancelled", { now: clock.now() })
-        ownedRuns.delete(runID)
-        if (stopped) void Automation.publishRunUpdated(stopped)
+      for (const [runID, owned] of [...ownedRuns.entries()]) {
+        const stop = () => {
+          const stopped = Automation.stopRunByID(runID, "cancelled", { now: clock.now() })
+          ownedRuns.delete(runID)
+          if (stopped) void Automation.publishRunUpdated(stopped)
+        }
+        try {
+          if (sameScope(Automation.currentScope(), owned.scope)) {
+            stop()
+            continue
+          }
+        } catch {
+          // No current instance context; stop under the run's recorded owner below.
+        }
+        void runInScope(owned.scope, stop).catch((error) =>
+          log.error("automation scheduler-owned run stop failed", { error, runID, automationID: owned.automationID }),
+        )
       }
     }
 
     return {
-      stop() {
+      stop(options) {
         running = false
         if (ownerRetryTimer) clearInterval(ownerRetryTimer)
         if (ownerRescanTimer) clearInterval(ownerRescanTimer)
-        unsubscribeRunUpdates()
-        unsubscribeDefinitionUpdates()
-        unsubscribeDefinitionDeletes()
-        unsubscribeSessionDeletes()
-        stopOwnedRuns()
+        unsubscribeGlobalEvents()
+        if (options?.stopRuns ?? true) stopOwnedRuns()
         for (const automationID of [...tasks.keys()]) cancel(automationID)
         if (ownerLease) void ownerLease.release().catch(() => undefined)
       },
-      stopOwnedRuns,
       settleOwner,
       reschedule,
       cancel,
-      computeNextFireAt(definition, from = clock.now()) {
-        return computeNextFireAt(definition, from)
+      computeNextFireAt(definition, from = clock.now(), scope) {
+        return computeNextFireAt(definition, from, scope)
       },
     }
   }
 
-  type OwnerState = {
-    context: InstanceContext
-    scheduler: Interface
-  }
-
-  const owners = new Map<string, OwnerState>()
-  const owner = Instance.state<OwnerState>(
-    () => {
-      const context = Instance.current
-      const state = { context, scheduler: make({ ownerKey: `automation-scheduler:${context.directory}` }) }
-      owners.set(context.directory, state)
-      return state
-    },
-    async (state) => {
-      owners.delete(state.context.directory)
-      Instance.restore(state.context, () => state.scheduler.stop())
-    },
-  )
+  const PROCESS_OWNER_KEY = "automation-scheduler:process"
+  let processScheduler: Interface | undefined
 
   export function current(): Interface {
-    return owner().scheduler
+    processScheduler ??= make({ ownerKey: PROCESS_OWNER_KEY })
+    return processScheduler
   }
 
-  export function install(scheduler: Interface): Interface {
-    const state = owner()
-    const previous = state.scheduler
-    previous.stop()
-    state.scheduler = scheduler
-    return previous
+  export function install(scheduler: Interface): void {
+    processScheduler?.stop()
+    processScheduler = scheduler
   }
 
-  export function stopCurrentOwnedRuns(): void {
-    const state = owner()
-    Instance.restore(state.context, () => state.scheduler.stopOwnedRuns())
+  export function stopProcess(options?: { stopRuns?: boolean }): void {
+    processScheduler?.stop(options)
+    processScheduler = undefined
   }
 
-  export function stopDirectoryOwnedRuns(directory: string): void {
-    const state = owners.get(directory)
-    if (!state) return
-    Instance.restore(state.context, () => state.scheduler.stopOwnedRuns())
-  }
-
-  export function stopAllOwnedRuns(): void {
-    for (const state of owners.values()) {
-      Instance.restore(state.context, () => state.scheduler.stopOwnedRuns())
-    }
-  }
 }

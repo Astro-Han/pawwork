@@ -809,15 +809,16 @@ export default function Layout(props: ParentProps) {
     layout.sidebar.toggleWorkspaces(project.worktree)
   }
 
-  async function chooseProject() {
+  async function chooseProject(options: { navigate?: boolean } = {}) {
+    const shouldNavigate = options.navigate ?? true
     function resolve(result: string | string[] | null) {
       if (Array.isArray(result)) {
         for (const directory of result) {
           openProject(directory, false)
         }
-        navigateToProject(result[0])
+        if (shouldNavigate) navigateToProject(result[0])
       } else if (result) {
-        openProject(result)
+        openProject(result, shouldNavigate)
       }
     }
 
@@ -1118,6 +1119,9 @@ export default function Layout(props: ParentProps) {
             projectID: () => currentProject()?.id,
             openRun: (sessionID) => {
               void openAutomationRun(sessionID)
+            },
+            openProject: () => {
+              void chooseProject({ navigate: false })
             },
             createViaChat: createAutomationViaChat,
           },

@@ -109,7 +109,7 @@ export function EditableText(props: {
 }
 
 const ROW_VALUE_CLASS =
-  "min-w-0 truncate text-right text-body text-fg-base hover:text-fg-strong hover:underline focus-visible:text-fg-strong focus-visible:underline focus:outline-none cursor-default"
+  "h-[30px] min-w-0 truncate rounded-md px-2 text-right text-body text-fg-base hover:bg-row-hover-overlay hover:text-fg-strong focus-visible:bg-row-hover-overlay focus-visible:text-fg-strong focus:outline-none cursor-default"
 
 function EditorRow(props: { label: string; children: JSX.Element }): JSX.Element {
   return (
@@ -120,18 +120,18 @@ function EditorRow(props: { label: string; children: JSX.Element }): JSX.Element
   )
 }
 
-// The "Project" row: there is no server-side move (each project is its own
-// instance and update rejects a foreign projectID), so "move" is the create
-// card's folder picker driving a create-in-target + delete-from-source pair
-// (see moveToProject in automation-detail). A continue automation stays
-// read-only — it loops inside a conversation that only exists in its source
-// project — as does everything else when no other project is open.
+// The "Project" row moves fresh automations by updating their owner in place.
+// A continue automation stays read-only because it loops inside a conversation
+// that only exists in its source project. Fresh automations keep the picker
+// clickable even with one project, so the user can open another project from
+// this surface before moving it.
 export function ProjectEditorRow(props: {
   directory: Accessor<string>
   automation: Accessor<AutomationDefinition>
   projectName: Accessor<string>
   t: Translate
   onMove: (project: AutomationProject) => void
+  onOpenProject: () => void
 }): JSX.Element {
   const layout = useLayout()
   const projects = createMemo<AutomationProject[]>(() =>
@@ -140,15 +140,11 @@ export function ProjectEditorRow(props: {
       .filter((project) => project.id && project.id !== "global" && project.worktree)
       .map((project) => ({ id: project.id!, worktree: project.worktree, name: project.name })),
   )
-  const movable = createMemo(
-    () =>
-      props.automation().context === "fresh" &&
-      projects().some((project) => project.id !== props.automation().where.projectID),
-  )
+  const editable = createMemo(() => props.automation().context === "fresh" && projects().length > 0)
   return (
     <EditorRow label={props.t("automations.detail.project")}>
       <Show
-        when={movable()}
+        when={editable()}
         fallback={<span class="min-w-0 truncate text-right text-body text-fg-base">{props.projectName()}</span>}
       >
         <AutomationFolderPicker
@@ -157,6 +153,7 @@ export function ProjectEditorRow(props: {
           projects={projects()}
           current={props.directory()}
           onSelect={(project) => props.onMove(project)}
+          onOpenProject={props.onOpenProject}
         />
       </Show>
     </EditorRow>

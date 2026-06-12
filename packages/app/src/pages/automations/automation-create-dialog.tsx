@@ -36,6 +36,7 @@ export function AutomationCreateDialog(props: {
   directory: string
   projectID: string
   template?: AutomationTemplate
+  onOpenProject: () => void
   onCreated: (definition: AutomationDefinition) => void
 }): JSX.Element {
   const globalSync = useGlobalSync()
@@ -216,6 +217,7 @@ export function AutomationCreateDialog(props: {
             <AutomationFolderPicker
               projects={projects()}
               current={directory()}
+              onOpenProject={props.onOpenProject}
               onSelect={(project) => {
                 setDirectory(project.worktree)
                 setProjectID(project.id)
