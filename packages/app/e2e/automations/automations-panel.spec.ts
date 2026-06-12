@@ -667,7 +667,12 @@ test("automations panel: detail project picker stays available with one open pro
   const menu = page.locator('[role="menu"][aria-label="Workspace"]')
   await expect(menu).toBeVisible()
   await expect(menu.locator(`[data-project="${projectID}"]`)).toBeVisible()
-  await expect(menu.locator('[data-action="automation-folder-open-project"]')).toBeVisible()
+  await menu.locator('[data-action="automation-folder-open-project"]').click()
+  await expect(menu).toBeHidden()
+  const directoryDialog = page.getByRole("dialog").filter({ has: page.getByPlaceholder("Search folders") })
+  await expect(directoryDialog).toBeVisible()
+  await expect(surface).toBeVisible()
+  expect(new URL(page.url()).pathname).toBe("/automations")
 })
 
 test("automations panel: continue automation project stays read-only", async ({ page, project, assistant }) => {
