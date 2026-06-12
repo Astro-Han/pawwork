@@ -51,7 +51,7 @@ export type StreamInput = {
   toolChoice?: "auto" | "required" | "none"
   toolAbortSignal?: AbortSignal
   toolLifecycle?: {
-    started?(input: { tool: string; toolCallID: string }): void | Promise<void>
+    started?(input: { tool: string; toolCallID: string; input: unknown }): void | Promise<void>
     completed?(input: {
       toolCallID: string
       output: {
@@ -719,7 +719,7 @@ export function wrapToolsWithLifecycle(
           execute: async (...args: Parameters<NonNullable<typeof execute>>) => {
             const [parameters, options] = args
             const toolOptions = toolAbortSignal ? { ...options, abortSignal: toolAbortSignal } : options
-            await lifecycle?.started?.({ tool: name, toolCallID: options.toolCallId })
+            await lifecycle?.started?.({ tool: name, toolCallID: options.toolCallId, input: parameters })
             let result: Awaited<ReturnType<NonNullable<typeof execute>>>
             try {
               result = await execute(parameters, toolOptions)

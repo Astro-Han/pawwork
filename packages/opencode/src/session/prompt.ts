@@ -876,6 +876,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                       yield* input.processor.recordToolExecutionStarted({
                         tool: item.id,
                         toolCallID: options.toolCallId,
+                        input: args,
                       })
                     }
                     let result: Tool.ExecuteResult
@@ -948,7 +949,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                   const result: Awaited<ReturnType<NonNullable<typeof execute>>> = yield* Effect.gen(function* () {
                     yield* ctx.ask({ permission: key, metadata: {}, patterns: ["*"], always: ["*"] })
                     if (input.processor.recordToolExecutionStarted) {
-                      yield* input.processor.recordToolExecutionStarted({ tool: key, toolCallID: opts.toolCallId })
+                      yield* input.processor.recordToolExecutionStarted({ tool: key, toolCallID: opts.toolCallId, input: args })
                     }
                     try {
                       const result: Awaited<ReturnType<NonNullable<typeof execute>>> = yield* Effect.promise(() =>

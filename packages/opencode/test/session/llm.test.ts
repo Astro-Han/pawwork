@@ -169,6 +169,30 @@ describe("session.llm.buildInvalidToolRepairInput", () => {
 describe("session.llm.wrapToolsWithLifecycle", () => {
   const toolOptions = { toolCallId: "call-test", messages: [] } as any
 
+  test("reports tool input to the started lifecycle callback", async () => {
+    const started: unknown[] = []
+    const wrapped = LLM.wrapToolsWithLifecycle(
+      {
+        probe: tool({
+          description: "Probe",
+          inputSchema: z.object({ value: z.string() }),
+          execute: async () => ({ output: "ok", title: "probe", metadata: {} }),
+        }),
+      },
+      {
+        started: async (input) => {
+          started.push(input)
+        },
+      },
+    )
+
+    await expect(wrapped.probe.execute?.({ value: "ok" }, toolOptions)).resolves.toMatchObject({
+      title: "probe",
+      metadata: {},
+    })
+    expect(started).toEqual([{ tool: "probe", toolCallID: "call-test", input: { value: "ok" } }])
+  })
+
   test("does not report completed lifecycle errors as tool execution failures", async () => {
     const completedError = new Error("completed callback failed")
     const failed: unknown[] = []

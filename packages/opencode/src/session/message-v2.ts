@@ -978,8 +978,12 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
       const differentModel = `${model.providerID}/${model.id}` !== `${msg.info.providerID}/${msg.info.modelID}`
       const media: Array<{ mime: string; url: string; filename?: string }> = []
 
+      const hasRecoverableToolOutput = msg.parts.some(
+        (part) => part.type === "tool" && (part.state.status === "completed" || part.state.status === "error"),
+      )
       if (
         msg.info.error &&
+        !hasRecoverableToolOutput &&
         !(
           AbortedError.isInstance(msg.info.error) &&
           msg.parts.some((part) => part.type !== "step-start" && part.type !== "reasoning")

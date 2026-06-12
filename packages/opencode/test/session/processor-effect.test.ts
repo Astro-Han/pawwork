@@ -356,9 +356,10 @@ const lifecycleBeforeToolEventIt = testEffect(
   processorEnvWithLLM({
     stream(input) {
       const toolCallID = "call_lifecycle_before_event"
+      const toolInput = { value: "ok" }
       return Stream.fromEffect(
         Effect.promise(async () => {
-          await input.toolLifecycle?.started?.({ tool: "fast", toolCallID })
+          await input.toolLifecycle?.started?.({ tool: "fast", toolCallID, input: toolInput })
           void Promise.resolve(
             input.toolLifecycle?.completed?.({
               toolCallID,
@@ -385,7 +386,7 @@ const lifecycleBeforeToolEventIt = testEffect(
               type: "tool-call",
               toolCallId: toolCallID,
               toolName: "fast",
-              input: { value: "ok" },
+              input: toolInput,
               providerMetadata: undefined,
             } as LLM.Event,
           ),
@@ -408,11 +409,12 @@ const cleanupDrainCompletionIt = testEffect(
   processorEnvWithLLM({
     stream(input) {
       const toolCallID = "call_cleanup_drain_completion"
+      const toolInput = { value: "ok" }
       const gate = defer<void>()
       cleanupDrainCompletionState.gate = gate
       return Stream.fromEffect(
         Effect.promise(async () => {
-          await input.toolLifecycle?.started?.({ tool: "slow", toolCallID })
+          await input.toolLifecycle?.started?.({ tool: "slow", toolCallID, input: toolInput })
           void gate.promise
             .then(() =>
               input.toolLifecycle?.completed?.({
@@ -443,6 +445,53 @@ const cleanupDrainCompletionIt = testEffect(
           ),
         ),
       )
+    },
+  }),
+)
+
+const noStreamToolCompletionFailures: unknown[] = []
+const noStreamToolCompletionIt = testEffect(
+  processorEnvWithLLM({
+    stream(input) {
+      const toolCallID = "call_no_stream_tool_completion"
+      const toolInput = { value: "ok" }
+      return Stream.fromEffect(
+        Effect.promise(async () => {
+          await input.toolLifecycle?.started?.({ tool: "offline", toolCallID, input: toolInput })
+          void Promise.resolve(
+            input.toolLifecycle?.completed?.({
+              toolCallID,
+              output: {
+                title: "offline",
+                metadata: { marker: "no-stream" },
+                output: "offline result",
+              },
+            }),
+          ).catch((error) => {
+            noStreamToolCompletionFailures.push(error)
+          })
+        }),
+      ).pipe(Stream.flatMap(() => Stream.fail(new Error("connection reset before tool events"))))
+    },
+  }),
+)
+
+const noStreamToolFailureFailures: unknown[] = []
+const noStreamToolFailureIt = testEffect(
+  processorEnvWithLLM({
+    stream(input) {
+      const toolCallID = "call_no_stream_tool_failure"
+      const toolInput = { value: "bad" }
+      return Stream.fromEffect(
+        Effect.promise(async () => {
+          await input.toolLifecycle?.started?.({ tool: "offline", toolCallID, input: toolInput })
+          void Promise.resolve(input.toolLifecycle?.failed?.({ toolCallID, error: new Error("offline failure") })).catch(
+            (error) => {
+              noStreamToolFailureFailures.push(error)
+            },
+          )
+        }),
+      ).pipe(Stream.flatMap(() => Stream.fail(new Error("connection reset before tool error event"))))
     },
   }),
 )
@@ -807,7 +856,7 @@ it.live("session.processor keeps late tool execution diagnostics on the bound to
         yield* llm.wait(2)
         expect(handle.recordToolExecutionStarted).toBeDefined()
         expect(handle.recordToolExecutionCompleted).toBeDefined()
-        yield* handle.recordToolExecutionStarted!({ tool: "noop", toolCallID: "call_bound_attempt" })
+        yield* handle.recordToolExecutionStarted!({ tool: "noop", toolCallID: "call_bound_attempt", input: {} })
         yield* handle.recordToolExecutionCompleted!({ toolCallID: "call_bound_attempt" })
         gate.resolve()
         yield* Fiber.join(first)
@@ -2835,11 +2884,11 @@ cleanupDrainCompletionIt.live(
               agent: agent(),
               system: [],
               messages: [{ role: "user", content: "cleanup drain completion" }],
-              toolDrainTimeoutMs: 300,
+              toolDrainTimeoutMs: 5_000,
               tools: {
                 slow: tool({
                   description: "Fake LLM drives lifecycle directly in this test",
-                  inputSchema: z.object({}),
+                  inputSchema: z.object({ value: z.string() }),
                   execute: async () => ({ output: "unused" }),
                 }),
               },
@@ -2855,19 +2904,188 @@ cleanupDrainCompletionIt.live(
             throw new Error("tool input-start was not persisted")
           })
           yield* Effect.sleep("50 millis")
+          const drainReleasedAt = Date.now()
           cleanupDrainCompletionGate().resolve(undefined)
 
           yield* Fiber.join(run)
-          const call = MessageV2.parts(msg.id).find((part): part is MessageV2.ToolPart => part.type === "tool")
+          expect(Date.now() - drainReleasedAt).toBeLessThan(2_000)
+          const toolParts = MessageV2.parts(msg.id).filter((part): part is MessageV2.ToolPart => part.type === "tool")
+          const call = toolParts.find((part) => part.callID === "call_cleanup_drain_completion")
+          const storedMessages = yield* session.messages({ sessionID: chat.id })
+          const modelMessages = yield* MessageV2.toModelMessagesEffect(storedMessages, mdl)
+          const assistantModelMessage = modelMessages.find((message) => message.role === "assistant")
+          const toolModelContent =
+            assistantModelMessage && Array.isArray(assistantModelMessage.content)
+              ? assistantModelMessage.content.find(
+                  (part) => part.type === "tool-call" && part.toolCallId === "call_cleanup_drain_completion",
+                )
+              : undefined
 
           expect(cleanupDrainCompletionFailures).toEqual([])
+          expect(toolParts.filter((part) => part.callID === "call_cleanup_drain_completion")).toHaveLength(1)
           expect(call?.state.status).toBe("completed")
           if (call?.state.status === "completed") {
-            expect(call.state.input).toEqual({})
+            expect(call.state.input).toEqual({ value: "ok" })
             expect(call.state.output).toBe("drain result")
             expect(call.state.metadata?.marker).toBe("during-drain")
             expect(call.state.metadata?.interrupted).toBeUndefined()
           }
+          expect(toolModelContent).toMatchObject({
+            type: "tool-call",
+            toolCallId: "call_cleanup_drain_completion",
+            input: { value: "ok" },
+          })
+        }),
+      { git: true, config: providerCfg("http://localhost:1/v1") },
+    ),
+)
+
+noStreamToolCompletionIt.live(
+  "session.processor effect tests synthesizes completed tool part when stream disconnects before tool events",
+  () =>
+    provideTmpdirInstance(
+      (dir) =>
+        Effect.gen(function* () {
+          noStreamToolCompletionFailures.length = 0
+          const { processors, session, provider } = yield* boot()
+
+          const chat = yield* session.create({})
+          const parent = yield* user(chat.id, "no stream tool completion")
+          const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+          const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+          const handle = yield* processors.create({
+            safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
+            assistantMessage: msg,
+            sessionID: chat.id,
+            model: mdl,
+          })
+
+          yield* handle.process({
+            user: {
+              id: parent.id,
+              sessionID: chat.id,
+              role: "user",
+              time: parent.time,
+              agent: parent.agent,
+              model: { providerID: ref.providerID, modelID: ref.modelID },
+              tools: { offline: true },
+            } satisfies MessageV2.User,
+            sessionID: chat.id,
+            model: mdl,
+            agent: agent(),
+            system: [],
+            messages: [{ role: "user", content: "no stream tool completion" }],
+            toolDrainTimeoutMs: 5_000,
+            tools: {
+              offline: tool({
+                description: "Fake LLM drives lifecycle directly in this test",
+                inputSchema: z.object({ value: z.string() }),
+                execute: async () => ({ output: "unused" }),
+              }),
+            },
+          })
+
+          const toolParts = MessageV2.parts(msg.id).filter((part): part is MessageV2.ToolPart => part.type === "tool")
+          const storedMessages = yield* session.messages({ sessionID: chat.id })
+          const modelMessages = yield* MessageV2.toModelMessagesEffect(storedMessages, mdl)
+          const assistantModelMessage = modelMessages.find((message) => message.role === "assistant")
+          const toolModelContent =
+            assistantModelMessage && Array.isArray(assistantModelMessage.content)
+              ? assistantModelMessage.content.find(
+                  (part) => part.type === "tool-call" && part.toolCallId === "call_no_stream_tool_completion",
+                )
+              : undefined
+
+          expect(noStreamToolCompletionFailures).toEqual([])
+          expect(toolParts).toHaveLength(1)
+          expect(toolParts[0]?.state.status).toBe("completed")
+          if (toolParts[0]?.state.status === "completed") {
+            expect(toolParts[0].tool).toBe("offline")
+            expect(toolParts[0].state.input).toEqual({ value: "ok" })
+            expect(toolParts[0].state.output).toBe("offline result")
+            expect(toolParts[0].state.metadata?.marker).toBe("no-stream")
+            expect(toolParts[0].state.metadata?.interrupted).toBeUndefined()
+          }
+          expect(toolModelContent).toMatchObject({
+            type: "tool-call",
+            toolCallId: "call_no_stream_tool_completion",
+            input: { value: "ok" },
+          })
+        }),
+      { git: true, config: providerCfg("http://localhost:1/v1") },
+    ),
+)
+
+noStreamToolFailureIt.live(
+  "session.processor effect tests synthesizes failed tool part when stream disconnects before tool events",
+  () =>
+    provideTmpdirInstance(
+      (dir) =>
+        Effect.gen(function* () {
+          noStreamToolFailureFailures.length = 0
+          const { processors, session, provider } = yield* boot()
+
+          const chat = yield* session.create({})
+          const parent = yield* user(chat.id, "no stream tool failure")
+          const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+          const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+          const handle = yield* processors.create({
+            safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
+            assistantMessage: msg,
+            sessionID: chat.id,
+            model: mdl,
+          })
+
+          yield* handle.process({
+            user: {
+              id: parent.id,
+              sessionID: chat.id,
+              role: "user",
+              time: parent.time,
+              agent: parent.agent,
+              model: { providerID: ref.providerID, modelID: ref.modelID },
+              tools: { offline: true },
+            } satisfies MessageV2.User,
+            sessionID: chat.id,
+            model: mdl,
+            agent: agent(),
+            system: [],
+            messages: [{ role: "user", content: "no stream tool failure" }],
+            toolDrainTimeoutMs: 5_000,
+            tools: {
+              offline: tool({
+                description: "Fake LLM drives lifecycle directly in this test",
+                inputSchema: z.object({ value: z.string() }),
+                execute: async () => ({ output: "unused" }),
+              }),
+            },
+          })
+
+          const toolParts = MessageV2.parts(msg.id).filter((part): part is MessageV2.ToolPart => part.type === "tool")
+          const storedMessages = yield* session.messages({ sessionID: chat.id })
+          const modelMessages = yield* MessageV2.toModelMessagesEffect(storedMessages, mdl)
+          const assistantModelMessage = modelMessages.find((message) => message.role === "assistant")
+          const toolModelContent =
+            assistantModelMessage && Array.isArray(assistantModelMessage.content)
+              ? assistantModelMessage.content.find(
+                  (part) => part.type === "tool-call" && part.toolCallId === "call_no_stream_tool_failure",
+                )
+              : undefined
+
+          expect(noStreamToolFailureFailures).toEqual([])
+          expect(toolParts).toHaveLength(1)
+          expect(toolParts[0]?.state.status).toBe("error")
+          if (toolParts[0]?.state.status === "error") {
+            expect(toolParts[0].tool).toBe("offline")
+            expect(toolParts[0].state.input).toEqual({ value: "bad" })
+            expect(toolParts[0].state.error).toContain("offline failure")
+            expect(toolParts[0].state.metadata?.interrupted).toBeUndefined()
+          }
+          expect(toolModelContent).toMatchObject({
+            type: "tool-call",
+            toolCallId: "call_no_stream_tool_failure",
+            input: { value: "bad" },
+          })
         }),
       { git: true, config: providerCfg("http://localhost:1/v1") },
     ),
@@ -3044,7 +3262,8 @@ lifecycleBeforeToolEventIt.live(
             },
           })
 
-          const call = MessageV2.parts(msg.id).find((part): part is MessageV2.ToolPart => part.type === "tool")
+          const toolParts = MessageV2.parts(msg.id).filter((part): part is MessageV2.ToolPart => part.type === "tool")
+          const call = toolParts.find((part) => part.callID === "call_lifecycle_before_event")
           const storedMessages = yield* session.messages({ sessionID: chat.id })
           const modelMessages = yield* MessageV2.toModelMessagesEffect(storedMessages, mdl)
           const assistantModelMessage = modelMessages.find((message) => message.role === "assistant")
@@ -3055,6 +3274,7 @@ lifecycleBeforeToolEventIt.live(
                 )
               : undefined
           expect(lifecycleBeforeToolEventFailures).toEqual([])
+          expect(toolParts.filter((part) => part.callID === "call_lifecycle_before_event")).toHaveLength(1)
           expect(call?.state.status).toBe("completed")
           if (call?.state.status === "completed") {
             expect(call.state.input).toEqual({ value: "ok" })
