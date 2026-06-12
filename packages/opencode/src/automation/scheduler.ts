@@ -655,11 +655,6 @@ export namespace AutomationScheduler {
     current().stopOwnedRuns()
   }
 
-  export function stopDirectoryOwnedRuns(directory: string): void {
-    void directory
-    current().stopOwnedRuns()
-  }
-
   export function stopAllOwnedRuns(): void {
     current().stopOwnedRuns()
   }
