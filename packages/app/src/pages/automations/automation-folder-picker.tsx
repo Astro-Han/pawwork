@@ -52,8 +52,8 @@ export function AutomationFolderPicker(props: {
           "aria-label": language.t("workspace.chip.ariaLabel"),
           "aria-haspopup": "menu",
           class: row()
-            ? "inline-flex min-w-0 items-center gap-1.5 truncate rounded-md px-1.5 text-right text-body text-fg-base hover:bg-row-hover-overlay hover:text-fg-strong focus-visible:bg-row-hover-overlay focus-visible:text-fg-strong focus:outline-none cursor-pointer"
-            : "inline-flex h-[30px] min-w-0 items-center gap-1.5 rounded-lg border border-border-weak px-2.5 text-body text-fg-base hover:bg-row-hover-overlay focus:outline-none cursor-pointer",
+            ? "inline-flex h-[30px] min-w-0 items-center gap-1.5 truncate rounded-md px-2 text-right text-body text-fg-base hover:bg-row-hover-overlay hover:text-fg-strong focus-visible:bg-row-hover-overlay focus-visible:text-fg-strong focus:outline-none cursor-default"
+            : "inline-flex h-[30px] min-w-0 items-center gap-1.5 rounded-lg border border-border-weak px-2.5 text-body text-fg-base hover:bg-row-hover-overlay focus:outline-none cursor-default",
         } as never
       }
       trigger={[

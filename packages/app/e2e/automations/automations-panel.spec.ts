@@ -117,11 +117,15 @@ async function expectInternalHoverSurface(locator: ReturnType<Page["locator"]>) 
         const style = getComputedStyle(element)
         return {
           backgroundColor: style.backgroundColor,
+          cursor: style.cursor,
+          height: Math.round(element.getBoundingClientRect().height),
           textDecorationLine: style.textDecorationLine,
         }
       }),
     )
     .toMatchObject({
+      cursor: "default",
+      height: 30,
       textDecorationLine: "none",
     })
   await expect
