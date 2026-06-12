@@ -44,8 +44,8 @@ function item(definition: Automation.Definition) {
 }
 
 function requireID(params: Parameters) {
-  if (params.id) return params.id
-  throw new Error(`automate_manage action "${params.action}" requires an exact automation id.`)
+  if (params.id) return Effect.succeed(params.id)
+  return Effect.fail(new Error(`automate_manage action "${params.action}" requires an exact automation id.`))
 }
 
 function readableAutomationError(error: unknown, id: string) {
@@ -81,7 +81,7 @@ export function createAutomateManageDefinition(
           }
         }
 
-        const id = requireID(params)
+        const id = yield* requireID(params)
         const previous = yield* automation.get(id)
         if (params.action === "pause" || params.action === "resume") {
           const definition = yield* automation.update(id, { paused: params.action === "pause" })
