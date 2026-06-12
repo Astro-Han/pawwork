@@ -4,6 +4,7 @@ import { createStore } from "solid-js/store"
 import type { State } from "./types"
 import {
   applyAutomationDefinition,
+  applyAutomationMoveResult,
   applyAutomationRun,
   applyAutomationTombstone,
   canAcceptAutomationDefinition,
@@ -12,7 +13,7 @@ import {
   mergeAutomationList,
 } from "./automation-store"
 
-const definition = (input: { id: string; revision: number; title?: string; paused?: boolean }): AutomationDefinition =>
+const definition = (input: { id: string; revision: number; title?: string; paused?: boolean; projectID?: string }): AutomationDefinition =>
   ({
     kind: "recurring",
     id: input.id,
@@ -21,7 +22,7 @@ const definition = (input: { id: string; revision: number; title?: string; pause
     revision: input.revision,
     paused: input.paused ?? false,
     context: "fresh",
-    where: { projectID: "prj_1" },
+    where: { projectID: input.projectID ?? "prj_1" },
     createdAt: 1,
     updatedAt: 1,
     timezone: "UTC",
@@ -142,6 +143,46 @@ describe("applyAutomationTombstone", () => {
     // A list/get response computed before the delete must not resurrect it.
     expect(applyAutomationDefinition(store, setStore, definition({ id: "a", revision: 2 }))).toBe(false)
     expect(store.automation["a"]).toBeUndefined()
+  })
+})
+
+describe("applyAutomationMoveResult", () => {
+  test("tombstones the source and writes the target only after the response confirms the target project", () => {
+    const [source, setSource] = createStore(baseState({ automation: { a: definition({ id: "a", revision: 1, projectID: "source" }) } }))
+    const [target, setTarget] = createStore(baseState())
+    const moved = definition({ id: "a", revision: 2, projectID: "target" })
+
+    const applied = applyAutomationMoveResult({
+      source: [source, setSource],
+      target: [target, setTarget],
+      automationID: "a",
+      targetProjectID: "target",
+      incoming: moved,
+    })
+
+    expect(applied).toBe("target")
+    expect(source.automation["a"]).toBeUndefined()
+    expect(source.automation_tombstone["a"]).toBe(2)
+    expect(target.automation["a"]).toBe(moved)
+  })
+
+  test("falls back to the source update when a stale target does not match the response project", () => {
+    const [source, setSource] = createStore(baseState({ automation: { a: definition({ id: "a", revision: 1, projectID: "source" }) } }))
+    const [target, setTarget] = createStore(baseState())
+    const response = definition({ id: "a", revision: 2, projectID: "actual" })
+
+    const applied = applyAutomationMoveResult({
+      source: [source, setSource],
+      target: [target, setTarget],
+      automationID: "a",
+      targetProjectID: "stale",
+      incoming: response,
+    })
+
+    expect(applied).toBe("source")
+    expect(source.automation["a"]).toEqual(response)
+    expect(source.automation_tombstone["a"]).toBeUndefined()
+    expect(target.automation["a"]).toBeUndefined()
   })
 })
 

@@ -9,7 +9,18 @@ PawWork also bundles OfficeCLI's `officecli-*` and `morph-ppt*` skill directorie
 - Project: https://github.com/iOfficeAI/OfficeCLI
 - License: Apache License 2.0
 
-The Apache License 2.0 text for OfficeCLI follows.
+## OpenCLI
+
+PawWork bundles `@jackwener/opencli` by @jackwener to power browser-based adapters for supported sites.
+
+PawWork packages the OpenCLI runtime files needed by the desktop app, including its CDP bridge, command registry, browser helpers, bundled site adapters under `clis/**`, and `cli-manifest.json`.
+
+- Project: https://github.com/jackwener/opencli
+- Package: `@jackwener/opencli`
+- Version: 1.8.3
+- License: Apache License 2.0
+
+The Apache License 2.0 text for OfficeCLI and OpenCLI follows.
 
 ## Apache License 2.0
 

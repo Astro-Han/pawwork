@@ -109,6 +109,30 @@ async function openAutomations(page: Parameters<typeof openSidebar>[0]) {
   return surface
 }
 
+async function expectInternalHoverSurface(locator: ReturnType<Page["locator"]>) {
+  await locator.hover()
+  await expect
+    .poll(async () =>
+      locator.evaluate((element) => {
+        const style = getComputedStyle(element)
+        return {
+          backgroundColor: style.backgroundColor,
+          cursor: style.cursor,
+          height: Math.round(element.getBoundingClientRect().height),
+          textDecorationLine: style.textDecorationLine,
+        }
+      }),
+    )
+    .toMatchObject({
+      cursor: "default",
+      height: 30,
+      textDecorationLine: "none",
+    })
+  await expect
+    .poll(async () => locator.evaluate((element) => getComputedStyle(element).backgroundColor))
+    .not.toBe("rgba(0, 0, 0, 0)")
+}
+
 test("automations panel: create manually adds an automation", async ({ page, project }) => {
   test.setTimeout(120_000)
 
@@ -595,19 +619,15 @@ test("automations panel: detail moves an automation to another open project", as
     const detail = surface.locator('[data-component="automation-detail"]')
     await expect(detail).toBeVisible()
 
-    // The Project row is a picker when another project is open. Moving is a
-    // create-in-target + delete-from-source pair: the automation appears in
-    // the target project's list, vanishes from the source, and the detail
-    // stays open on the recreated definition (new id, same fields).
+    // The Project row is a picker when another project is open. Moving updates
+    // the same automation in place: it appears in the target project's list,
+    // vanishes from the source, and the detail stays open on the same id.
     await detail.locator('[data-action="automation-edit-project"]').click()
     await page.locator(`[data-project="${otherProjectID}"]`).click()
 
     await expect
-      .poll(async () =>
-        ((await otherSDK.automation.list()).data?.items ?? []).filter((item) => item.title === "Migrating digest")
-          .length,
-      )
-      .toBe(1)
+      .poll(async () => ((await otherSDK.automation.list()).data?.items ?? []).find((item) => item.id === created.id))
+      .toMatchObject({ id: created.id, title: "Migrating digest" })
     await expect
       .poll(async () =>
         ((await project.sdk.automation.list()).data?.items ?? []).filter((item) => item.id === created.id).length,
@@ -618,6 +638,62 @@ test("automations panel: detail moves an automation to another open project", as
   } finally {
     await cleanupTestProject(other, { serverUrl: backend.url })
   }
+})
+
+test("automations panel: detail project picker stays available with one open project", async ({ page, project }) => {
+  test.setTimeout(120_000)
+
+  await project.open()
+
+  const projectID = (await project.sdk.project.current()).data!.id
+  await project.sdk.automation.create(
+    recurring(projectID, "Single project digest", "Summarize the current project.", "0 9 * * *"),
+  )
+
+  const surface = await openAutomations(page)
+  await surface.locator('[data-action="automation-row"]', { hasText: "Single project digest" }).first().click()
+
+  const detail = surface.locator('[data-component="automation-detail"]')
+  await expect(detail).toBeVisible()
+
+  const projectPicker = detail.locator('[data-action="automation-edit-project"]')
+  await expect(projectPicker).toBeVisible()
+
+  await expectInternalHoverSurface(projectPicker)
+  await expectInternalHoverSurface(detail.locator('[data-action="automation-edit-schedule"]'))
+  await expectInternalHoverSurface(detail.locator('[data-action="automation-edit-model"]'))
+
+  await projectPicker.click()
+  const menu = page.locator('[role="menu"][aria-label="Workspace"]')
+  await expect(menu).toBeVisible()
+  await expect(menu.locator(`[data-project="${projectID}"]`)).toBeVisible()
+  await menu.locator('[data-action="automation-folder-open-project"]').click()
+  await expect(menu).toBeHidden()
+  const directoryDialog = page.getByRole("dialog").filter({ has: page.getByPlaceholder("Search folders") })
+  await expect(directoryDialog).toBeVisible()
+  await expect(surface).toBeVisible()
+  expect(new URL(page.url()).pathname).toBe("/automations")
+})
+
+test("automations panel: continue automation project stays read-only", async ({ page, project, assistant }) => {
+  test.setTimeout(120_000)
+
+  await project.open()
+  await assistant.tool("automate", {
+    title: "Continue project loop",
+    prompt: "Keep checking the same conversation.",
+    cron: "0 8 * * *",
+    continueSession: true,
+  })
+  await project.prompt("Loop this conversation every morning.")
+
+  const surface = await openAutomations(page)
+  await surface.locator('[data-action="automation-row"]', { hasText: "Continue project loop" }).first().click()
+
+  const detail = surface.locator('[data-component="automation-detail"]')
+  await expect(detail).toBeVisible()
+  await expect(detail.locator('[data-action="automation-edit-project"]')).toHaveCount(0)
+  await expectInternalHoverSurface(detail.locator('[data-action="automation-open-source"]'))
 })
 
 test("automations panel: a rhythm the picker cannot express is read-only", async ({ page, project }) => {
@@ -670,12 +746,10 @@ test("automations panel: a paused automation arrives paused after a move", async
     await detail.locator('[data-action="automation-edit-project"]').click()
     await page.locator(`[data-project="${otherProjectID}"]`).click()
 
-    // The recreated copy must keep the silence the user set, not wake up live.
+    // The moved definition must keep the silence the user set, not wake up live.
     await expect
       .poll(async () => {
-        const moved = ((await otherSDK.automation.list()).data?.items ?? []).find(
-          (item) => item.title === "Silenced digest",
-        )
+        const moved = ((await otherSDK.automation.list()).data?.items ?? []).find((item) => item.id === created.id)
         return moved ? moved.paused : "missing"
       })
       .toBe(true)
@@ -687,7 +761,7 @@ test("automations panel: a paused automation arrives paused after a move", async
   }
 })
 
-test("automations panel: a failed pause during a move rolls back and keeps the source", async ({
+test("automations panel: a failed move keeps the source", async ({
   page,
   project,
   backend,
@@ -713,10 +787,10 @@ test("automations panel: a failed pause during a move rolls back and keeps the s
     const detail = surface.locator('[data-component="automation-detail"]')
     await expect(detail).toBeVisible()
 
-    // Re-applying the pause on the target fails. The move must fail as a whole:
-    // the fresh copy is deleted, the paused source is untouched, and the user
-    // is told — never a silenced automation suddenly live in another project.
-    await page.route("**/automation/*/pause*", (route) => route.fulfill({ status: 500, body: "{}" }))
+    await page.route(`**/automation/${created.id}`, (route) => {
+      if (route.request().method() !== "PUT") return route.continue()
+      return route.fulfill({ status: 500, body: "{}" })
+    })
     await detail.locator('[data-action="automation-edit-project"]').click()
     await page.locator(`[data-project="${otherProjectID}"]`).click()
 

@@ -83,6 +83,8 @@ export namespace Agent {
           const defaults = Permission.fromConfig({
             "*": "allow",
             doom_loop: "ask",
+            opencli_read: "ask",
+            opencli_write: "ask",
             question: "deny",
             plan_enter: "deny",
             plan_exit: "deny",

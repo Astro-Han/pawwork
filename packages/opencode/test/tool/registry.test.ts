@@ -17,6 +17,7 @@ import type { MessageV2 } from "../../src/session/message-v2"
 import { LLM } from "../../src/session/llm"
 import * as EffectZod from "../../src/util/effect-zod"
 import { Npm } from "@opencode-ai/core/npm"
+import { Permission } from "../../src/permission"
 
 afterEach(async () => {
   await Instance.disposeAll()
@@ -1221,6 +1222,74 @@ describe("tool.registry", () => {
           expect(ids).toContain("browser_navigate")
           expect(ids).toContain("browser_click")
           expect(ids).not.toContain("browser_screenshot")
+        },
+      })
+    } finally {
+      if (previousClient === undefined) delete process.env["OPENCODE_CLIENT"]
+      else process.env["OPENCODE_CLIENT"] = previousClient
+    }
+  })
+
+  test("defers opencli adapters to a desktop-only group", async () => {
+    await using tmp = await tmpdir()
+    const previousClient = process.env["OPENCODE_CLIENT"]
+    try {
+      delete process.env["OPENCODE_CLIENT"]
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const tools = await ToolRegistry.tools({
+            providerID: ProviderID.make("openai"),
+            modelID: ModelID.make("gpt-5"),
+            agent: { name: "build", mode: "primary", permission: [], options: {} },
+          })
+          const ids = tools.map((tool) => tool.id)
+          expect(ids).not.toContain("opencli_search")
+          expect(tools.find((tool) => tool.id === "tool_info")!.description).not.toContain("opencli")
+        },
+      })
+
+      await Instance.disposeAll()
+      process.env["OPENCODE_CLIENT"] = "desktop"
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const deferred = await ToolRegistry.tools({
+            providerID: ProviderID.make("openai"),
+            modelID: ModelID.make("gpt-5"),
+            agent: { name: "build", mode: "primary", permission: [], options: {} },
+          })
+          const deferredIds = deferred.map((tool) => tool.id)
+          expect(deferredIds).not.toContain("opencli_search")
+          expect(deferred.find((tool) => tool.id === "tool_info")!.description).toContain("**opencli**")
+
+          const activated = await ToolRegistry.tools({
+            providerID: ProviderID.make("openai"),
+            modelID: ModelID.make("gpt-5"),
+            agent: { name: "build", mode: "primary", permission: [], options: {} },
+            activatedTools: new Set(deferredGroupMembers("opencli")),
+          })
+          expect(activated.map((tool) => tool.id)).toContain("opencli_search")
+
+          const browserDenied = [{ permission: "browser", pattern: "*", action: "deny" as const }]
+          const browserDeniedDeferredAvailable = (id: string) => !Permission.disabled([id], browserDenied).has(id)
+          const deniedDeferred = await ToolRegistry.tools({
+            providerID: ProviderID.make("openai"),
+            modelID: ModelID.make("gpt-5"),
+            agent: { name: "build", mode: "primary", permission: [], options: {} },
+            deferredAvailable: browserDeniedDeferredAvailable,
+          })
+          expect(deniedDeferred.find((tool) => tool.id === "tool_info")!.description).not.toContain("**opencli**")
+
+          const deniedActivated = await ToolRegistry.tools({
+            providerID: ProviderID.make("openai"),
+            modelID: ModelID.make("gpt-5"),
+            agent: { name: "build", mode: "primary", permission: [], options: {} },
+            activatedTools: new Set(deferredGroupMembers("opencli")),
+            deferredAvailable: browserDeniedDeferredAvailable,
+          })
+          expect(deniedActivated.map((tool) => tool.id)).not.toContain("opencli_search")
+          expect(deniedActivated.map((tool) => tool.id)).not.toContain("opencli_run")
         },
       })
     } finally {

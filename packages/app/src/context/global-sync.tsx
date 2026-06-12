@@ -37,6 +37,7 @@ import { createPendingQuestionController } from "./global-sync/pending-question-
 import { pendingSessionIDsForDirectory, type PendingQuestionIndex } from "./global-sync/pending-question-index"
 import {
   applyAutomationDefinition,
+  applyAutomationMoveResult,
   applyAutomationRun,
   applyAutomationTombstone,
   mergeAutomationRuns,
@@ -445,6 +446,38 @@ function createGlobalSync() {
     }
   }
 
+  async function moveAutomation(directory: string, automationID: string, targetProject: { id: string; worktree: string }) {
+    children.pin(directory)
+    children.pin(targetProject.worktree)
+    try {
+      const source = children.peek(directory, { bootstrap: false })
+      const current = source[0].automation[automationID]
+      const res = await sdkFor(directory).automation.update({
+        automationID,
+        automationUpdateInput: {
+          where: {
+            projectID: targetProject.id,
+            ...(current?.where.worktree ? { worktree: current.where.worktree } : {}),
+          },
+        },
+      })
+      if (res.data) {
+        const target = children.peek(targetProject.worktree, { bootstrap: false })
+        applyAutomationMoveResult({
+          source,
+          target,
+          automationID,
+          targetProjectID: targetProject.id,
+          incoming: res.data,
+        })
+      }
+      return res.data
+    } finally {
+      children.unpin(targetProject.worktree)
+      children.unpin(directory)
+    }
+  }
+
   async function bootstrapInstance(directory: string) {
     if (!directory) return
     const pending = booting.get(directory)
@@ -708,6 +741,7 @@ function createGlobalSync() {
     automation: {
       create: createAutomation,
       update: updateAutomation,
+      move: moveAutomation,
       loadRuns: loadAutomationRuns,
       pause: pauseAutomation,
       resume: resumeAutomation,

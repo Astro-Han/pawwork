@@ -9,6 +9,7 @@ import { BrowserBridge } from "../../src/browser/browser-bridge"
 export class FakeCdpServer {
   readonly wss: WebSocketServer
   readonly methods: string[] = []
+  readonly navigatedUrls: string[] = []
   readonly handlers = new Map<string, (params: unknown) => unknown>()
   private sockets = new Set<WebSocket>()
   private hung: Array<{ ws: WebSocket; id: number }> = []
@@ -31,6 +32,7 @@ export class FakeCdpServer {
         this.methods.push(cmd.method)
         if (cmd.method === "Page.navigate") {
           this.url = (cmd.params as { url?: string } | undefined)?.url ?? null
+          if (this.url) this.navigatedUrls.push(this.url)
         }
         const handler = this.handlers.get(cmd.method)
         if (handler === HANG) {

@@ -15,6 +15,7 @@ export type SurfacePageContextValue = {
     directory: Accessor<string>
     projectID: Accessor<string | undefined>
     openRun: (sessionID: string) => void
+    openProject: () => void
     createViaChat: () => void
   }
   skills: {

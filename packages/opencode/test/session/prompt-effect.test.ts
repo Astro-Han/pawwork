@@ -79,6 +79,8 @@ function defer<T>() {
   return { promise, resolve }
 }
 
+const cancelRaceCheckpointTimeout = "5 seconds"
+
 type Mutable<T> = { -readonly [K in keyof T]: T[K] }
 
 function withSh<A, E, R>(fx: () => Effect.Effect<A, E, R>) {
@@ -1801,12 +1803,14 @@ it.live(
         yield* Effect.addFinalizer(() => Effect.sync(() => void (mutableSessions.updateMessage = originalUpdateMessage)))
 
         const fiber = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
-        const gateTimeout = "5 seconds"
-        const startedExit = yield* Effect.promise(() => started.promise).pipe(Effect.timeout(gateTimeout), Effect.exit)
+        const startedExit = yield* Effect.promise(() => started.promise).pipe(
+          Effect.timeout(cancelRaceCheckpointTimeout),
+          Effect.exit,
+        )
         expect(Exit.isSuccess(startedExit)).toBe(true)
-        const cancelExit = yield* prompt.cancel(chat.id).pipe(Effect.timeout(gateTimeout), Effect.exit)
+        const cancelExit = yield* prompt.cancel(chat.id).pipe(Effect.timeout(cancelRaceCheckpointTimeout), Effect.exit)
         expect(Exit.isSuccess(cancelExit)).toBe(true)
-        const exit = yield* Fiber.await(fiber).pipe(Effect.timeout(gateTimeout))
+        const exit = yield* Fiber.await(fiber).pipe(Effect.timeout(cancelRaceCheckpointTimeout))
         expect(Exit.isSuccess(exit)).toBe(true)
 
         const messages = yield* sessions.messages({ sessionID: chat.id })
@@ -1856,12 +1860,14 @@ it.live(
         yield* Effect.addFinalizer(() => Effect.sync(() => void (mutablePlugin.trigger = originalTrigger)))
 
         const fiber = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
-        const gateTimeout = "5 seconds"
-        const startedExit = yield* Effect.promise(() => started.promise).pipe(Effect.timeout(gateTimeout), Effect.exit)
+        const startedExit = yield* Effect.promise(() => started.promise).pipe(
+          Effect.timeout(cancelRaceCheckpointTimeout),
+          Effect.exit,
+        )
         expect(Exit.isSuccess(startedExit)).toBe(true)
-        const cancelExit = yield* prompt.cancel(chat.id).pipe(Effect.timeout(gateTimeout), Effect.exit)
+        const cancelExit = yield* prompt.cancel(chat.id).pipe(Effect.timeout(cancelRaceCheckpointTimeout), Effect.exit)
         expect(Exit.isSuccess(cancelExit)).toBe(true)
-        const exit = yield* Fiber.await(fiber).pipe(Effect.timeout(gateTimeout))
+        const exit = yield* Fiber.await(fiber).pipe(Effect.timeout(cancelRaceCheckpointTimeout))
         expect(Exit.isSuccess(exit)).toBe(true)
 
         const messages = yield* sessions.messages({ sessionID: chat.id })
