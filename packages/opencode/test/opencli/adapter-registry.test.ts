@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test"
 import { getRegistry, type CliCommand } from "@jackwener/opencli/registry"
 import {
   AdapterRegistry,
-  loadOpenCliAdapters,
   openCliCommand,
   searchOpenCliCommands,
 } from "../../src/opencli/adapter-registry"
@@ -21,21 +20,20 @@ describe("opencli adapter registry", () => {
     expect(getRegistry().has("spotify/play")).toBe(false)
   })
 
-  test("loads the packaged manifest and exposes searchable canonical commands", async () => {
-    const loaded = await loadOpenCliAdapters()
-
-    expect(loaded.manifestCount).toBeGreaterThan(1000)
-    expect(loaded.canonicalCommands.has("12306/me")).toBe(true)
-    expect(loaded.canonicalCommands.has("hackernews/search")).toBe(true)
-    expect(loaded.exposedCommands.has("instagram/reel")).toBe(false)
-
+  test("searches packaged manifest commands and hides blocked commands", async () => {
     const results = await searchOpenCliCommands("12306 account", { limit: 5 })
     expect(results[0]).toMatchObject({
       name: "12306/me",
       access: "read",
       browser: true,
     })
-    expect(loaded.failedModules).toEqual([])
+
+    const hackerNews = await searchOpenCliCommands("hackernews search", { limit: 5 })
+    expect(hackerNews.map((result) => result.name)).toContain("hackernews/search")
+
+    const blocked = await searchOpenCliCommands("instagram reel", { limit: 25 })
+    expect(blocked.map((result) => result.name)).not.toContain("instagram/reel")
+    expect(await openCliCommand("instagram/reel")).toBeUndefined()
   })
 
   test("lazily imports a bundled adapter module when resolving a command", async () => {

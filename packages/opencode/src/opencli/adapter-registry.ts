@@ -35,16 +35,10 @@ export type OpenCliCommandSummary = {
   args: OpenCliManifestEntry["args"]
 }
 
-export type OpenCliAdapterImportFailure = {
-  modulePath: string
-  error: string
-}
-
 export const BLOCKED_OPENCLI_COMMANDS = new Set(["instagram/reel"])
 
 let manifestCache: OpenCliManifestEntry[] | undefined
 const importedModules = new Set<string>()
-const failedModules = new Map<string, OpenCliAdapterImportFailure>()
 
 function openCliPackageRoot() {
   const cdp = fileURLToPath(import.meta.resolve("@jackwener/opencli/browser/cdp"))
@@ -94,35 +88,17 @@ export function openCliCommandSummaryFromCommand(command: CliCommand): OpenCliCo
 
 async function importAdapterModule(modulePath: string) {
   if (importedModules.has(modulePath)) return
-  const priorFailure = failedModules.get(modulePath)
-  if (priorFailure) throw new Error(`Failed to load OpenCLI adapter module ${modulePath}: ${priorFailure.error}`)
   try {
     await import(pathToFileURL(path.join(openCliPackageRoot(), "clis", modulePath)).href)
     importedModules.add(modulePath)
   } catch (err) {
-    const failure = { modulePath, error: err instanceof Error ? err.message : String(err) }
-    failedModules.set(modulePath, failure)
-    throw new Error(`Failed to load OpenCLI adapter module ${modulePath}: ${failure.error}`)
+    const message = err instanceof Error ? err.message : String(err)
+    throw new Error(`Failed to load OpenCLI adapter module ${modulePath}: ${message}`)
   }
 }
 
 async function manifestEntryForCommand(name: string) {
   return (await loadManifest()).find((entry) => manifestCommandName(entry) === name)
-}
-
-export async function loadOpenCliAdapters() {
-  const manifest = await loadManifest()
-  const canonicalCommands = new Set([
-    ...manifest.map(manifestCommandName),
-    ...[...getRegistry().values()].map((command) => fullName(command)),
-  ])
-  const exposedCommands = new Set([...canonicalCommands].filter((name) => !BLOCKED_OPENCLI_COMMANDS.has(name)))
-  return {
-    manifestCount: manifest.length,
-    canonicalCommands,
-    exposedCommands,
-    failedModules: [...failedModules.values()],
-  }
 }
 
 export async function openCliCommand(name: string): Promise<CliCommand | undefined> {
@@ -177,7 +153,6 @@ export async function searchOpenCliCommands(
 export function resetOpenCliAdaptersForTest() {
   manifestCache = undefined
   importedModules.clear()
-  failedModules.clear()
 }
 
 export * as AdapterRegistry from "./adapter-registry"
