@@ -699,7 +699,8 @@ export function resolveTools(input: Pick<StreamInput, "tools" | "agent" | "permi
   return Record.filter(input.tools, (_, k) => input.user.tools?.[k] !== false && !disabled.has(k))
 }
 
-function wrapToolsWithLifecycle(
+/** @internal Exported for testing */
+export function wrapToolsWithLifecycle(
   tools: Record<string, Tool>,
   lifecycle: StreamInput["toolLifecycle"],
   toolAbortSignal?: AbortSignal,
@@ -719,17 +720,18 @@ function wrapToolsWithLifecycle(
             const [parameters, options] = args
             const toolOptions = toolAbortSignal ? { ...options, abortSignal: toolAbortSignal } : options
             await lifecycle?.started?.({ tool: name, toolCallID: options.toolCallId })
+            let result: Awaited<ReturnType<NonNullable<typeof execute>>>
             try {
-              const result = await execute(parameters, toolOptions)
-              await lifecycle?.completed?.({
-                toolCallID: options.toolCallId,
-                output: normalizeToolLifecycleOutput(name, result),
-              })
-              return result
+              result = await execute(parameters, toolOptions)
             } catch (error) {
               await lifecycle?.failed?.({ toolCallID: options.toolCallId, error })
               throw error
             }
+            await lifecycle?.completed?.({
+              toolCallID: options.toolCallId,
+              output: normalizeToolLifecycleOutput(name, result),
+            })
+            return result
           },
         } satisfies Tool,
       ]
@@ -759,8 +761,12 @@ function normalizeToolLifecycleOutput(toolName: string, result: unknown) {
 
 function stringifyToolOutput(value: unknown) {
   if (typeof value === "string") return value
-  const json = JSON.stringify(value)
-  return json ?? String(value)
+  try {
+    const json = JSON.stringify(value)
+    return json ?? String(value)
+  } catch {
+    return String(value)
+  }
 }
 
 function isPlainRecord(value: unknown): value is Record<string, any> {

@@ -166,6 +166,64 @@ describe("session.llm.buildInvalidToolRepairInput", () => {
   })
 })
 
+describe("session.llm.wrapToolsWithLifecycle", () => {
+  const toolOptions = { toolCallId: "call-test", messages: [] } as any
+
+  test("does not report completed lifecycle errors as tool execution failures", async () => {
+    const completedError = new Error("completed callback failed")
+    const failed: unknown[] = []
+    const wrapped = LLM.wrapToolsWithLifecycle(
+      {
+        probe: tool({
+          description: "Probe",
+          inputSchema: z.object({ value: z.string() }),
+          execute: async () => ({ output: "ok", title: "probe", metadata: {} }),
+        }),
+      },
+      {
+        completed: async () => {
+          throw completedError
+        },
+        failed: async (input) => {
+          failed.push(input.error)
+        },
+      },
+    )
+
+    await expect(wrapped.probe.execute?.({ value: "ok" }, toolOptions)).rejects.toThrow(completedError)
+    expect(failed).toEqual([])
+  })
+
+  test("stringifies non-json tool lifecycle outputs without failing the tool", async () => {
+    const completed: string[] = []
+    const failed: unknown[] = []
+    const wrapped = LLM.wrapToolsWithLifecycle(
+      {
+        probe: tool({
+          description: "Probe",
+          inputSchema: z.object({ value: z.string() }),
+          execute: async () => ({ output: 1n, title: "probe", metadata: {} }),
+        }),
+      },
+      {
+        completed: async (input) => {
+          completed.push(input.output.output)
+        },
+        failed: async (input) => {
+          failed.push(input.error)
+        },
+      },
+    )
+
+    await expect(wrapped.probe.execute?.({ value: "ok" }, toolOptions)).resolves.toMatchObject({
+      title: "probe",
+      metadata: {},
+    })
+    expect(completed).toEqual(["1"])
+    expect(failed).toEqual([])
+  })
+})
+
 type Capture = {
   url: URL
   headers: Headers
