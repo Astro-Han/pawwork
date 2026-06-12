@@ -907,6 +907,25 @@ describe("automation routes", () => {
     })
   })
 
+  test("rejects moving a fresh automation to an unknown project", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const created = Automation.create(recurringInput(projectID), { now: 100 })
+
+      const response = await app.request(`/automation/${created.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ where: { projectID: ProjectID.make("project-missing") } }),
+      })
+
+      expect(response.status).toBe(422)
+      expect(await response.json()).toEqual({
+        error: "invalid_automation",
+        details: [{ field: "where.projectID", message: "project_not_found" }],
+      })
+      expect(Automation.get(created.id).where.projectID).toBe(projectID)
+    })
+  })
+
   test("rejects moving a fresh automation while it has an active run", async () => {
     await using source = await tmpdir({ git: true })
     await using target = await tmpdir({ git: true })
