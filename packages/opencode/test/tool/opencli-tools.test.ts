@@ -38,6 +38,20 @@ function exec(tool: unknown, args: unknown, ctxOverride: Partial<Tool.Context> =
   )
 }
 
+function testUrl(path: string, origin = "https://example.com") {
+  return new URL(path, origin).href
+}
+
+function hasExactUrlPattern(patterns: readonly string[], expected: string) {
+  return patterns.some((pattern) => {
+    try {
+      return new URL(pattern).href === expected
+    } catch {
+      return false
+    }
+  })
+}
+
 describe("opencli_search", () => {
   it.live("returns discoverable bundled adapter commands without blocked commands", () =>
     Effect.gen(function* () {
@@ -208,6 +222,13 @@ describe("opencli_run", () => {
       const server = new FakeCdpServer()
       scriptCurrentUrl(server, "https://example.com/page")
       provideFakeHost(server)
+      const adminUsersUrl = testUrl("/admin/users")
+      const events: string[] = []
+      server.handlers.set("Page.navigate", (params) => {
+        const url = (params as { url?: string } | undefined)?.url
+        if (url) events.push(`navigate:${url}`)
+        return {}
+      })
       cli({
         site: "pawwork-test",
         name: "internal-nav-permission",
@@ -224,19 +245,112 @@ describe("opencli_run", () => {
       })
 
       try {
-        const exit = yield* exec(OpenCliRunTool, { command: "pawwork-test/internal-nav-permission", args: {} }, {
+        yield* exec(OpenCliRunTool, { command: "pawwork-test/internal-nav-permission", args: {} }, {
           ask: (input) =>
-            input.permission === "browser" && input.patterns.includes("https://example.com/admin/users")
-              ? (Effect.fail(new Error("denied admin")) as unknown as Effect.Effect<void>)
-              : Effect.void,
-        }).pipe(Effect.exit)
+            Effect.sync(() => {
+              if (input.permission === "browser" && hasExactUrlPattern(input.patterns, adminUsersUrl)) {
+                events.push(`ask:${adminUsersUrl}`)
+              }
+            }),
+        })
 
-        expect(Exit.isFailure(exit)).toBe(true)
-        expect(server.methods).not.toContain("Page.navigate")
+        const askIndex = events.indexOf(`ask:${adminUsersUrl}`)
+        const navigateIndex = events.indexOf(`navigate:${adminUsersUrl}`)
+        expect(askIndex).toBeGreaterThanOrEqual(0)
+        expect(navigateIndex).toBeGreaterThanOrEqual(0)
+        expect(askIndex).toBeLessThan(navigateIndex)
+        expect(server.navigatedUrls).toContain(adminUsersUrl)
+        expect(server.navigatedUrls).toContain("about:blank")
       } finally {
         resetBrowserSessionsForTest()
         BrowserBridge.provideHost(null)
         getRegistry().delete("pawwork-test/internal-nav-permission")
+        yield* Effect.promise(() => server.close())
+      }
+    }),
+  )
+
+  it.live("resets ephemeral browser commands through the real tool path", () =>
+    Effect.gen(function* () {
+      const server = new FakeCdpServer()
+      scriptCurrentUrl(server, "https://example.com/page")
+      provideFakeHost(server)
+      cli({
+        site: "pawwork-test",
+        name: "ephemeral-reset",
+        access: "read",
+        description: "Ephemeral reset test adapter",
+        browser: true,
+        domain: "example.com",
+        args: [],
+        func: async () => [],
+      })
+
+      try {
+        const result = yield* exec(OpenCliRunTool, { command: "pawwork-test/ephemeral-reset", args: {} })
+
+        expect(result.title).toBe("OpenCLI pawwork-test/ephemeral-reset")
+        expect(server.navigatedUrls).toContain("about:blank")
+      } finally {
+        resetBrowserSessionsForTest()
+        BrowserBridge.provideHost(null)
+        getRegistry().delete("pawwork-test/ephemeral-reset")
+        yield* Effect.promise(() => server.close())
+      }
+    }),
+  )
+
+  it.live("rechecks the landed URL after pre-navigation redirects", () =>
+    Effect.gen(function* () {
+      const allowedUrl = testUrl("/login", "https://auth.example.com")
+      const redirectedUrl = testUrl("/blocked", "https://blocked.example")
+      const server = new FakeCdpServer()
+      scriptCurrentUrl(server, "https://example.com/page")
+      server.handlers.set("Page.navigate", () => {
+        server.url = redirectedUrl
+        return {}
+      })
+      provideFakeHost(server)
+      let ran = false
+      cli({
+        site: "pawwork-test",
+        name: "redirected-prenav",
+        access: "read",
+        description: "Redirected pre-navigation test adapter",
+        browser: true,
+        domain: "example.com",
+        navigateBefore: allowedUrl,
+        args: [],
+        func: async () => {
+          ran = true
+          return []
+        },
+      })
+
+      try {
+        const askLog: Parameters<Tool.Context["ask"]>[0][] = []
+        const exit = yield* exec(OpenCliRunTool, { command: "pawwork-test/redirected-prenav", args: {} }, {
+          ask: (input) =>
+            Effect.sync(() => {
+              askLog.push(input)
+              if (input.permission === "browser" && hasExactUrlPattern(input.patterns, redirectedUrl)) {
+                throw new Error("denied redirect")
+              }
+            }),
+        }).pipe(Effect.exit)
+
+        expect(Exit.isFailure(exit)).toBe(true)
+        expect(ran).toBe(false)
+        expect(askLog).toContainEqual(
+          expect.objectContaining({
+            permission: "browser",
+            metadata: expect.objectContaining({ redirectedFrom: allowedUrl }),
+          }),
+        )
+      } finally {
+        resetBrowserSessionsForTest()
+        BrowserBridge.provideHost(null)
+        getRegistry().delete("pawwork-test/redirected-prenav")
         yield* Effect.promise(() => server.close())
       }
     }),

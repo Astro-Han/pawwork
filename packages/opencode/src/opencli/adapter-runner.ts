@@ -104,6 +104,25 @@ async function withTargetBrowserPermission<T>(
   return result
 }
 
+async function readBrowserLocation(page: IPage) {
+  const evaluated = await page.evaluate?.<string>("window.location.href").catch(() => null)
+  if (typeof evaluated === "string" && evaluated) return evaluated
+  return await page.getCurrentUrl?.().catch(() => null)
+}
+
+async function askPreNavRedirectBrowserPermission(
+  cmd: CliCommand,
+  page: IPage,
+  askBrowserPermission: BrowserPermissionCheck | undefined,
+  preNavUrl: string,
+) {
+  if (!askBrowserPermission) return
+  const requested = targetBrowserPermissionPattern(cmd, preNavUrl)
+  const landed = currentBrowserPermissionPattern(await readBrowserLocation(page))
+  if (landed === "*" || landed === requested) return
+  await askBrowserPermission([landed], { operation: "preNav:after", command: fullName(cmd), redirectedFrom: requested })
+}
+
 async function cdpSetFileInput(cmd: CliCommand, page: IPage, files: string[], selector = 'input[type="file"]') {
   const cdp = page.cdp
   if (typeof cdp !== "function") {
@@ -321,7 +340,7 @@ export async function runOpenCliAdapterCommand(
   const debug = options.debug ?? false
   const siteSession = resolveOpenCliSiteSession(cmd)
   const adapterPage = page ? createOpenCliAdapterPage(cmd, page, options) : null
-  const resetAfter = cmd.browser !== false && siteSession === "ephemeral" && adapterPage
+  const resetAfter = cmd.browser !== false && siteSession === "ephemeral" && page !== null
   try {
     const preNavUrl = resolveOpenCliPreNav(cmd)
     if (preNavUrl) {
@@ -329,6 +348,7 @@ export async function runOpenCliAdapterCommand(
         throw new OpenCliCommandError(`Command ${fullName(cmd)} requires a browser session for pre-navigation`)
       if (await shouldRunOpenCliPreNav(cmd, adapterPage, siteSession, preNavUrl)) {
         await page.goto(preNavUrl)
+        await askPreNavRedirectBrowserPermission(cmd, page, options.askBrowserPermission, preNavUrl)
       }
     }
     if (cmd.func) {
@@ -339,7 +359,7 @@ export async function runOpenCliAdapterCommand(
     if (cmd.pipeline) return executePipeline(adapterPage, cmd.pipeline, { args: kwargs, debug })
     throw new OpenCliCommandError(`Command ${fullName(cmd)} has no func or pipeline`)
   } finally {
-    if (resetAfter) await adapterPage.goto("about:blank").catch(() => undefined)
+    if (resetAfter && page) await page.goto("about:blank").catch(() => undefined)
   }
 }
 

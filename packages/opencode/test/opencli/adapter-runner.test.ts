@@ -9,6 +9,20 @@ import {
   shouldRunOpenCliPreNav,
 } from "../../src/opencli/adapter-runner"
 
+function testUrl(path: string, origin = "https://example.com") {
+  return new URL(path, origin).href
+}
+
+function hasExactUrlPattern(patterns: readonly string[], expected: string) {
+  return patterns.some((pattern) => {
+    try {
+      return new URL(pattern).href === expected
+    } catch {
+      return false
+    }
+  })
+}
+
 describe("opencli adapter runner", () => {
   test("exposes the module namespace export", () => {
     expect(AdapterRunner.runOpenCliAdapterCommand).toBe(runOpenCliAdapterCommand)
@@ -95,6 +109,7 @@ describe("opencli adapter runner", () => {
   })
 
   test("asks browser permission before adapter-initiated navigation", async () => {
+    const adminUsersUrl = testUrl("/admin/users")
     const page = {
       goto: mock(async () => {}),
       getCurrentUrl: mock(async () => "https://example.com/start"),
@@ -107,7 +122,7 @@ describe("opencli adapter runner", () => {
       browser: true,
       args: [],
       func: async (adapterPage: IPage) => {
-        await adapterPage.goto("https://example.com/admin/users")
+        await adapterPage.goto(adminUsersUrl)
         return "done"
       },
     } satisfies CliCommand
@@ -117,20 +132,21 @@ describe("opencli adapter runner", () => {
       runOpenCliAdapterCommand(command, page as unknown as IPage, {}, {
         askBrowserPermission: async (patterns) => {
           asked.push(patterns)
-          if (patterns.includes("https://example.com/admin/users")) throw new Error("denied admin")
+          if (hasExactUrlPattern(patterns, adminUsersUrl)) throw new Error("denied admin")
         },
       }),
     ).rejects.toThrow("denied admin")
 
-    expect(page.goto).not.toHaveBeenCalledWith("https://example.com/admin/users")
-    expect(asked).toContainEqual(["https://example.com/admin/users"])
+    expect(page.goto).not.toHaveBeenCalledWith(adminUsersUrl)
+    expect(asked).toContainEqual([adminUsersUrl])
   })
 
   test("rechecks browser permission after adapter actions that can move the page", async () => {
+    const adminUsersUrl = testUrl("/admin/users")
     let currentUrl = "https://example.com/safe"
     const page = {
       click: mock(async () => {
-        currentUrl = "https://example.com/admin/users"
+        currentUrl = adminUsersUrl
         return { matches_n: 1, match_level: "exact" as const }
       }),
       getCurrentUrl: mock(async () => currentUrl),
@@ -152,7 +168,7 @@ describe("opencli adapter runner", () => {
     await expect(
       runOpenCliAdapterCommand(command, page as unknown as IPage, {}, {
         askBrowserPermission: async (patterns) => {
-          if (patterns.includes("https://example.com/admin/users")) throw new Error("denied admin")
+          if (hasExactUrlPattern(patterns, adminUsersUrl)) throw new Error("denied admin")
         },
       }),
     ).rejects.toThrow("denied admin")
@@ -161,10 +177,11 @@ describe("opencli adapter runner", () => {
   })
 
   test("asks browser permission before adapter file uploads touch CDP", async () => {
+    const adminUploadUrl = testUrl("/admin/upload")
     const cdp = mock(async () => ({}))
     const page = {
       cdp,
-      getCurrentUrl: mock(async () => "https://example.com/admin/upload"),
+      getCurrentUrl: mock(async () => adminUploadUrl),
       goto: mock(async () => {}),
       wait: mock(async () => {}),
     }
@@ -184,7 +201,7 @@ describe("opencli adapter runner", () => {
     await expect(
       runOpenCliAdapterCommand(command, page as unknown as IPage, {}, {
         askBrowserPermission: async (patterns) => {
-          if (patterns.includes("https://example.com/admin/upload")) throw new Error("denied admin")
+          if (hasExactUrlPattern(patterns, adminUploadUrl)) throw new Error("denied admin")
         },
       }),
     ).rejects.toThrow("denied admin")
