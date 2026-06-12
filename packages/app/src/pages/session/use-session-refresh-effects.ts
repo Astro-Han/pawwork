@@ -13,7 +13,7 @@ const STALE_SESSION_FORCE_REFRESH_DELAY_MS = 500
 function isSessionPrefetchStale(directory: string, sessionID: string) {
   const info = getSessionPrefetch(directory, sessionID)
   if (!info) return true
-  return Date.now() - info.at > SESSION_PREFETCH_TTL
+  return Date.now() - info.at >= SESSION_PREFETCH_TTL
 }
 
 export function useSessionRefreshEffects(input: {

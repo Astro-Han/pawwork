@@ -2,6 +2,7 @@ import { describe, test } from "bun:test"
 import { runBrowserCheck } from "@/testing/browser-subprocess"
 
 const browserCheck = String.raw`
+import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import { MemoryRouter, Route } from "@solidjs/router"
 import { createRoot } from "solid-js"
 import { createSessionTimelineInteraction } from "./src/pages/session/use-session-timeline-interaction.ts"
@@ -130,7 +131,7 @@ assert(viewport.scrollTop === 0, "system scroll drift should not synchronously w
 frames.runFrame()
 assert(viewport.scrollTop === 600, "system scroll drift should reconcile on the next frame")
 root.dispose()
-process.exit(0)
+GlobalRegistrator.unregister()
 `
 
 describe("createSessionTimelineInteraction", () => {

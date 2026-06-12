@@ -10,6 +10,9 @@ const assert = (condition, message) => {
   if (!condition) throw new Error(message)
 }
 
+const now = 1_000_000
+Date.now = () => now
+
 const installAnimationFrameQueue = () => {
   let nextID = 1
   const frames = new Map()
@@ -144,7 +147,7 @@ const mountRefreshEffects = ({
     sessionID: "ses_stale",
     limit: 200,
     complete: false,
-    at: Date.now() - SESSION_PREFETCH_TTL - 1,
+    at: Date.now() - SESSION_PREFETCH_TTL,
   })
   const { dispose, syncedSessions } = mountRefreshEffects({
     initialSessionID: "ses_stale",
