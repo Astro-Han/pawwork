@@ -1,7 +1,7 @@
 import { Icon } from "@opencode-ai/ui/icon"
 import { Popover } from "@opencode-ai/ui/popover"
 import { getFilename } from "@opencode-ai/util/path"
-import { createMemo, createSignal, type Accessor, type JSX } from "solid-js"
+import { createMemo, createSignal, For, type Accessor, type JSX } from "solid-js"
 import { useLanguage } from "@/context/language"
 import { workspaceKey } from "@/pages/layout/helpers"
 import { workspaceChipChoices, type WorkspaceProject } from "./prompt-input/workspace-chip-helpers"
@@ -29,34 +29,36 @@ export function WorkspacePickerMenu(props: WorkspacePickerMenuProps) {
       <div class="px-2 pt-0.5 pb-2 text-body text-fg-weak">{language.t("workspace.chip.popover.title")}</div>
       {workspaces().length > 0 ? (
         <div class="flex flex-col gap-0.5">
-          {workspaces().map((workspace) => {
-            const active = createMemo(() => {
-              const current = props.current()
-              if (workspace.kind === "direct-start" && !current) return true
-              return current ? workspaceKey(workspace.path) === workspaceKey(current) : false
-            })
-            return (
-              <button
-                type="button"
-                role="menuitemradio"
-                aria-checked={active()}
-                data-picker-item=""
-                data-selected={active() ? "true" : undefined}
-                class="flex w-full items-center text-left outline-none"
-                onClick={() => props.onSelect(workspace.path)}
-              >
-                <Icon
-                  name={workspace.kind === "direct-start" ? "bubble-5" : "folder"}
-                  class="shrink-0 text-fg-weak"
-                />
-                <span class="min-w-0 flex-1 truncate">
-                  {workspace.kind === "direct-start"
-                    ? language.t("workspace.chip.directStart")
-                    : getFilename(workspace.path)}
-                </span>
-              </button>
-            )
-          })}
+          <For each={workspaces()}>
+            {(workspace) => {
+              const active = createMemo(() => {
+                const current = props.current()
+                if (workspace.kind === "direct-start" && !current) return true
+                return current ? workspaceKey(workspace.path) === workspaceKey(current) : false
+              })
+              return (
+                <button
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={active()}
+                  data-picker-item=""
+                  data-selected={active() ? "true" : undefined}
+                  class="flex w-full items-center text-left outline-none"
+                  onClick={() => props.onSelect(workspace.path)}
+                >
+                  <Icon
+                    name={workspace.kind === "direct-start" ? "bubble-5" : "folder"}
+                    class="shrink-0 text-fg-weak"
+                  />
+                  <span class="min-w-0 flex-1 truncate">
+                    {workspace.kind === "direct-start"
+                      ? language.t("workspace.chip.directStart")
+                      : getFilename(workspace.path)}
+                  </span>
+                </button>
+              )
+            }}
+          </For>
         </div>
       ) : (
         <div class="px-2 py-2 text-body text-fg-weak">{language.t("workspace.chip.empty")}</div>

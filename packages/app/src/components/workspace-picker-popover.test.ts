@@ -54,6 +54,10 @@ globalThis.React = {
         for (const item of child) append(item)
         return
       }
+      if (typeof child === "function") {
+        append(child())
+        return
+      }
       if (child === undefined || child === null || child === false) return
       node.append(child instanceof Node ? child : document.createTextNode(String(child)))
     }
