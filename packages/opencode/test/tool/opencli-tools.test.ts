@@ -9,6 +9,7 @@ import { provideTmpdirInstance } from "../fixture/fixture"
 import { FakeCdpServer, provideFakeHost, scriptCurrentUrl } from "../fake/cdp-server"
 import { testEffect } from "../lib/effect"
 import { MessageID, SessionID } from "../../src/session/schema"
+import type { OpenCliCommandSummary } from "../../src/opencli/adapter-registry"
 import { needsFinalOpenCliPermissionAsk, OpenCliRunTool } from "../../src/tool/opencli-run"
 import { formatOpenCliSearchOutput, OpenCliSearchTool } from "../../src/tool/opencli-search"
 import type * as Tool from "../../src/tool/tool"
@@ -108,11 +109,11 @@ describe("opencli_run", () => {
       access: "read",
       browser: false,
       args: [],
-    } as const
+    } satisfies OpenCliCommandSummary
     const actual = {
       ...preview,
       access: "write",
-    } as const
+    } satisfies OpenCliCommandSummary
 
     expect(needsFinalOpenCliPermissionAsk(preview, actual, {}, {})).toBe(true)
     expect(needsFinalOpenCliPermissionAsk(actual, actual, { mode: "safe" }, { mode: "safe" })).toBe(false)
