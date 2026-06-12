@@ -209,7 +209,12 @@ function agent(): Agent.Info {
   }
 }
 
-function defer<T>() {
+type TestDeferred<T> = {
+  promise: Promise<T>
+  resolve: (value: T | PromiseLike<T>) => void
+}
+
+function defer<T>(): TestDeferred<T> {
   let resolve!: (value: T | PromiseLike<T>) => void
   const promise = new Promise<T>((done) => {
     resolve = done
@@ -374,6 +379,58 @@ const lifecycleBeforeToolEventIt = testEffect(
               input: { value: "ok" },
               providerMetadata: undefined,
             } as LLM.Event,
+          ),
+        ),
+      )
+    },
+  }),
+)
+
+const cleanupDrainCompletionFailures: unknown[] = []
+const cleanupDrainCompletionState: {
+  gate?: TestDeferred<void>
+} = {}
+function cleanupDrainCompletionGate() {
+  const gate = cleanupDrainCompletionState.gate
+  if (!gate) throw new Error("cleanup drain completion gate was not created")
+  return gate
+}
+const cleanupDrainCompletionIt = testEffect(
+  processorEnvWithLLM({
+    stream(input) {
+      const toolCallID = "call_cleanup_drain_completion"
+      const gate = defer<void>()
+      cleanupDrainCompletionState.gate = gate
+      return Stream.fromEffect(
+        Effect.promise(async () => {
+          await input.toolLifecycle?.started?.({ tool: "slow", toolCallID })
+          void gate.promise
+            .then(() =>
+              input.toolLifecycle?.completed?.({
+                toolCallID,
+                output: {
+                  title: "slow",
+                  metadata: { marker: "during-drain" },
+                  output: "drain result",
+                },
+              }),
+            )
+            .catch((error) => {
+              cleanupDrainCompletionFailures.push(error)
+            })
+        }),
+      ).pipe(
+        Stream.flatMap(() =>
+          Stream.concat(
+            Stream.make(
+              { type: "start" } satisfies LLM.Event,
+              {
+                type: "tool-input-start",
+                id: toolCallID,
+                toolName: "slow",
+              } as LLM.Event,
+            ),
+            Stream.fail(new Error("connection reset")),
           ),
         ),
       )
@@ -2689,6 +2746,81 @@ it.live("session.processor effect tests persists completed tool result after pro
   ),
 )
 
+cleanupDrainCompletionIt.live(
+  "session.processor effect tests persists tool completion produced during cleanup drain",
+  () =>
+    provideTmpdirInstance(
+      (dir) =>
+        Effect.gen(function* () {
+          cleanupDrainCompletionFailures.length = 0
+          cleanupDrainCompletionState.gate = undefined
+          const { processors, session, provider } = yield* boot()
+
+          const chat = yield* session.create({})
+          const parent = yield* user(chat.id, "cleanup drain completion")
+          const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+          const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+          const handle = yield* processors.create({
+            safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
+            assistantMessage: msg,
+            sessionID: chat.id,
+            model: mdl,
+          })
+
+          const run = yield* handle
+            .process({
+              user: {
+                id: parent.id,
+                sessionID: chat.id,
+                role: "user",
+                time: parent.time,
+                agent: parent.agent,
+                model: { providerID: ref.providerID, modelID: ref.modelID },
+                tools: { slow: true },
+              } satisfies MessageV2.User,
+              sessionID: chat.id,
+              model: mdl,
+              agent: agent(),
+              system: [],
+              messages: [{ role: "user", content: "cleanup drain completion" }],
+              toolDrainTimeoutMs: 300,
+              tools: {
+                slow: tool({
+                  description: "Fake LLM drives lifecycle directly in this test",
+                  inputSchema: z.object({}),
+                  execute: async () => ({ output: "unused" }),
+                }),
+              },
+            })
+            .pipe(Effect.forkChild)
+
+          yield* Effect.promise(async () => {
+            const end = Date.now() + 500
+            while (Date.now() < end) {
+              if (MessageV2.parts(msg.id).some((part) => part.type === "tool")) return
+              await Bun.sleep(10)
+            }
+            throw new Error("tool input-start was not persisted")
+          })
+          yield* Effect.sleep("50 millis")
+          cleanupDrainCompletionGate().resolve(undefined)
+
+          yield* Fiber.join(run)
+          const call = MessageV2.parts(msg.id).find((part): part is MessageV2.ToolPart => part.type === "tool")
+
+          expect(cleanupDrainCompletionFailures).toEqual([])
+          expect(call?.state.status).toBe("completed")
+          if (call?.state.status === "completed") {
+            expect(call.state.input).toEqual({})
+            expect(call.state.output).toBe("drain result")
+            expect(call.state.metadata?.marker).toBe("during-drain")
+            expect(call.state.metadata?.interrupted).toBeUndefined()
+          }
+        }),
+      { git: true, config: providerCfg("http://localhost:1/v1") },
+    ),
+)
+
 it.live("session.processor effect tests waits for fast completed tool materialization before cleanup", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>
@@ -2861,13 +2993,28 @@ lifecycleBeforeToolEventIt.live(
           })
 
           const call = MessageV2.parts(msg.id).find((part): part is MessageV2.ToolPart => part.type === "tool")
+          const storedMessages = yield* session.messages({ sessionID: chat.id })
+          const modelMessages = yield* MessageV2.toModelMessagesEffect(storedMessages, mdl)
+          const assistantModelMessage = modelMessages.find((message) => message.role === "assistant")
+          const toolModelContent =
+            assistantModelMessage && Array.isArray(assistantModelMessage.content)
+              ? assistantModelMessage.content.find(
+                  (part) => part.type === "tool-call" && part.toolCallId === "call_lifecycle_before_event",
+                )
+              : undefined
           expect(lifecycleBeforeToolEventFailures).toEqual([])
           expect(call?.state.status).toBe("completed")
           if (call?.state.status === "completed") {
+            expect(call.state.input).toEqual({ value: "ok" })
             expect(call.state.output).toBe("fast result")
             expect(call.state.metadata?.marker).toBe("lifecycle-first")
             expect(call.state.metadata?.interrupted).toBeUndefined()
           }
+          expect(toolModelContent).toMatchObject({
+            type: "tool-call",
+            toolCallId: "call_lifecycle_before_event",
+            input: { value: "ok" },
+          })
         }),
       { git: true, config: providerCfg("http://localhost:1/v1") },
     ),

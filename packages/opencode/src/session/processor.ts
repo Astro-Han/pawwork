@@ -1052,9 +1052,6 @@ export const layer: Layer.Layer<
             }
             yield* resolvePendingToolLifecycle(value.id)
             yield* applyPendingToolUpdates(value.id)
-            if (pendingLifecycle?.completed) {
-              yield* flushPendingToolLifecycle(value.id, { waitForReady: false })
-            }
             return
 
           case "tool-input-delta":
@@ -1323,8 +1320,8 @@ export const layer: Layer.Layer<
         for (const [toolCallID, pending] of ctx.pendingToolLifecycles.entries()) {
           if (ctx.toolcalls[toolCallID]) continue
           yield* Deferred.succeed(pending.materialized, undefined).pipe(Effect.ignore)
+          ctx.pendingToolLifecycles.delete(toolCallID)
         }
-        ctx.pendingToolLifecycles.clear()
         const callsToDrain = Object.values(ctx.toolcalls).filter((call) => aborted || call.executionStarted === true)
         yield* Effect.forEach(
           callsToDrain,
@@ -1342,6 +1339,10 @@ export const layer: Layer.Layer<
           },
           { concurrency: "unbounded" },
         )
+
+        for (const toolCallID of Object.keys(ctx.toolcalls)) {
+          yield* flushPendingToolLifecycle(toolCallID, { waitForReady: false })
+        }
 
         for (const toolCallID of Object.keys(ctx.toolcalls)) {
           const match = yield* readToolCall(toolCallID)
