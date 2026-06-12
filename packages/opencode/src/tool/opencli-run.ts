@@ -21,12 +21,8 @@ export const Parameters = Schema.Struct({
 function commandKnownBrowserPermissionPatterns(command: Pick<OpenCliCommandSummary, "domain" | "navigateBefore">): string[] {
   if (typeof command.navigateBefore !== "string") return []
   const patterns: string[] = []
-  try {
-    patterns.push(`${new URL(command.navigateBefore).origin}/*`)
-  } catch {
-    patterns.push(command.navigateBefore)
-  }
-  if (command.domain) patterns.push(`https://${command.domain}/*`)
+  patterns.push(command.navigateBefore)
+  if (command.domain) patterns.push(`https://${command.domain}/`)
   return [...new Set(patterns)]
 }
 

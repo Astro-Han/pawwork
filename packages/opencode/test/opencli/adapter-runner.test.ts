@@ -94,6 +94,47 @@ describe("opencli adapter runner", () => {
     expect(func).toHaveBeenCalledWith(expect.objectContaining({ goto: expect.any(Function) }), { query: "pawwork" }, false)
   })
 
+  test("resets ephemeral browser commands after execution", async () => {
+    const page = {
+      goto: mock(async () => {}),
+      getCurrentUrl: mock(async () => "https://example.com/session"),
+    }
+    const command = {
+      site: "demo",
+      name: "ephemeral",
+      access: "read",
+      description: "demo",
+      browser: true,
+      args: [],
+      func: async () => "done",
+    } satisfies CliCommand
+
+    await expect(runOpenCliAdapterCommand(command, page as unknown as IPage, {})).resolves.toBe("done")
+
+    expect(page.goto).toHaveBeenCalledWith("about:blank")
+  })
+
+  test("keeps persistent browser commands on their page after execution", async () => {
+    const page = {
+      goto: mock(async () => {}),
+      getCurrentUrl: mock(async () => "https://example.com/session"),
+    }
+    const command = {
+      site: "demo",
+      name: "persistent",
+      access: "read",
+      description: "demo",
+      browser: true,
+      siteSession: "persistent",
+      args: [],
+      func: async () => "done",
+    } satisfies CliCommand
+
+    await expect(runOpenCliAdapterCommand(command, page as unknown as IPage, {})).resolves.toBe("done")
+
+    expect(page.goto).not.toHaveBeenCalled()
+  })
+
   test("only skips persistent root pre-navigation on the same origin", async () => {
     const command = {
       site: "demo",

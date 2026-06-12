@@ -185,20 +185,25 @@ export async function runOpenCliAdapterCommand(
   const debug = options.debug ?? false
   const siteSession = resolveOpenCliSiteSession(cmd)
   const adapterPage = page ? createOpenCliAdapterPage(cmd, page) : null
-  const preNavUrl = resolveOpenCliPreNav(cmd)
-  if (preNavUrl) {
-    if (!adapterPage) throw new OpenCliCommandError(`Command ${fullName(cmd)} requires a browser session for pre-navigation`)
-    if (await shouldRunOpenCliPreNav(cmd, adapterPage, siteSession, preNavUrl)) {
-      await adapterPage.goto(preNavUrl)
+  const resetAfter = cmd.browser !== false && siteSession === "ephemeral" && adapterPage
+  try {
+    const preNavUrl = resolveOpenCliPreNav(cmd)
+    if (preNavUrl) {
+      if (!adapterPage) throw new OpenCliCommandError(`Command ${fullName(cmd)} requires a browser session for pre-navigation`)
+      if (await shouldRunOpenCliPreNav(cmd, adapterPage, siteSession, preNavUrl)) {
+        await adapterPage.goto(preNavUrl)
+      }
     }
+    if (cmd.func) {
+      if (cmd.browser === false) return cmd.func(kwargs, debug)
+      if (!adapterPage) throw new OpenCliCommandError(`Command ${fullName(cmd)} requires a browser session but none was provided`)
+      return cmd.func(adapterPage, kwargs, debug)
+    }
+    if (cmd.pipeline) return executePipeline(adapterPage, cmd.pipeline, { args: kwargs, debug })
+    throw new OpenCliCommandError(`Command ${fullName(cmd)} has no func or pipeline`)
+  } finally {
+    if (resetAfter) await adapterPage.goto("about:blank").catch(() => undefined)
   }
-  if (cmd.func) {
-    if (cmd.browser === false) return cmd.func(kwargs, debug)
-    if (!adapterPage) throw new OpenCliCommandError(`Command ${fullName(cmd)} requires a browser session but none was provided`)
-    return cmd.func(adapterPage, kwargs, debug)
-  }
-  if (cmd.pipeline) return executePipeline(adapterPage, cmd.pipeline, { args: kwargs, debug })
-  throw new OpenCliCommandError(`Command ${fullName(cmd)} has no func or pipeline`)
 }
 
 export * as AdapterRunner from "./adapter-runner"

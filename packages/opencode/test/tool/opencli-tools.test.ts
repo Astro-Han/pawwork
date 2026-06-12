@@ -133,7 +133,7 @@ describe("opencli_run", () => {
     }),
   )
 
-  it.live("asks for origin and domain browser permissions for pre-navigation commands", () =>
+  it.live("asks for concrete pre-navigation browser permission targets", () =>
     Effect.gen(function* () {
       cli({
         site: "pawwork-test",
@@ -171,7 +171,7 @@ describe("opencli_run", () => {
         })
         expect(askLog[1]).toMatchObject({
           permission: "browser",
-          patterns: ["https://auth.example.com/*", "https://example.com/*"],
+          patterns: ["https://auth.example.com/login", "https://example.com/"],
         })
         expect(askLog).toHaveLength(2)
       } finally {
