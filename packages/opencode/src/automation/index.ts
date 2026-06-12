@@ -397,10 +397,15 @@ export namespace Automation {
 
   export function validateCreateInput(
     input: CreateInput | Definition,
-    projectID = Instance.project.id,
-    now?: number,
-    projectVcs = Instance.project.vcs,
+    options?: {
+      projectID?: ProjectID
+      now?: number
+      projectVcs?: Project.Info["vcs"]
+    },
   ) {
+    const projectID = options?.projectID ?? Instance.project.id
+    const now = options?.now
+    const projectVcs = options?.projectVcs ?? Instance.project.vcs
     const details: ValidationErrorDetail[] = []
     const isDefinition = Object.hasOwn(input, "id")
     if (!isDefinition) {
@@ -470,7 +475,7 @@ export namespace Automation {
   export function create(input: CreateInput, options?: { now?: number; sourceSessionID?: SessionID }): Definition {
     input = normalizeDefinitionInput(input)
     const now = options?.now ?? Date.now()
-    const details = validateCreateInput(input, Instance.project.id, now)
+    const details = validateCreateInput(input, { projectID: Instance.project.id, now })
     // A continue automation loops inside an existing conversation, so it must be
     // bound to one at creation. Only the automate tool can supply that source
     // (from its session context); the public HTTP create cannot, so reject a
@@ -598,12 +603,12 @@ export namespace Automation {
     )
   }
 
-  function replaceDefinition(previous: Definition, next: Definition, options?: { ownerDirectory?: string; scope?: Scope }) {
-    const ownerDirectory = options?.scope?.ownerDirectory ?? Instance.directory
+  function replaceDefinition(previous: Definition, next: Definition, options?: { expectedScope?: Scope; moveToOwnerDirectory?: string }) {
+    const expectedOwnerDirectory = options?.expectedScope?.ownerDirectory ?? Instance.directory
     return Database.transaction(
       (db) => {
         const row = db.select().from(AutomationDefinitionTable).where(eq(AutomationDefinitionTable.id, previous.id)).get()
-        if (!row || row.project_id !== previous.where.projectID || row.owner_directory !== ownerDirectory) {
+        if (!row || row.project_id !== previous.where.projectID || row.owner_directory !== expectedOwnerDirectory) {
           throw new NotFoundError({ message: `Automation not found: ${previous.id}` })
         }
         const current = Definition.parse(row.data)
@@ -611,7 +616,7 @@ export namespace Automation {
         db.update(AutomationDefinitionTable)
           .set({
             project_id: next.where.projectID,
-            owner_directory: options?.ownerDirectory ?? ownerDirectory,
+            owner_directory: options?.moveToOwnerDirectory ?? expectedOwnerDirectory,
             time_updated: next.updatedAt,
             data: next,
           })
@@ -722,9 +727,9 @@ export namespace Automation {
     }
     const createProjectID = targetProject?.id ?? Instance.project.id
     const createProjectVcs = targetProject?.vcs ?? Instance.project.vcs
-    const details = validateCreateInput(next, createProjectID, undefined, createProjectVcs)
+    const details = validateCreateInput(next, { projectID: createProjectID, projectVcs: createProjectVcs })
     if (details.length) throw new ValidationError(details)
-    return replaceDefinition(previous, next, targetProject ? { ownerDirectory: targetProject.worktree } : undefined)
+    return replaceDefinition(previous, next, targetProject ? { moveToOwnerDirectory: targetProject.worktree } : undefined)
   }
 
   export function recordRunOutcome(
@@ -778,7 +783,7 @@ export namespace Automation {
       })
       internalTestHooks.beforeReplaceDefinition?.(previous)
       try {
-        return replaceDefinition(previous, next, { scope })
+        return replaceDefinition(previous, next, { expectedScope: scope })
       } catch (error) {
         if (!(error instanceof ConflictError)) throw error
         // retry: read latest and recompute
