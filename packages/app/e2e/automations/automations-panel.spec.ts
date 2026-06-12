@@ -109,6 +109,26 @@ async function openAutomations(page: Parameters<typeof openSidebar>[0]) {
   return surface
 }
 
+async function expectInternalHoverSurface(locator: ReturnType<Page["locator"]>) {
+  await locator.hover()
+  await expect
+    .poll(async () =>
+      locator.evaluate((element) => {
+        const style = getComputedStyle(element)
+        return {
+          backgroundColor: style.backgroundColor,
+          textDecorationLine: style.textDecorationLine,
+        }
+      }),
+    )
+    .toMatchObject({
+      textDecorationLine: "none",
+    })
+  await expect
+    .poll(async () => locator.evaluate((element) => getComputedStyle(element).backgroundColor))
+    .not.toBe("rgba(0, 0, 0, 0)")
+}
+
 test("automations panel: create manually adds an automation", async ({ page, project }) => {
   test.setTimeout(120_000)
 
@@ -635,10 +655,9 @@ test("automations panel: detail project picker stays available with one open pro
   const projectPicker = detail.locator('[data-action="automation-edit-project"]')
   await expect(projectPicker).toBeVisible()
 
-  await projectPicker.hover()
-  await expect
-    .poll(async () => projectPicker.evaluate((element) => getComputedStyle(element).backgroundColor))
-    .not.toBe("rgba(0, 0, 0, 0)")
+  await expectInternalHoverSurface(projectPicker)
+  await expectInternalHoverSurface(detail.locator('[data-action="automation-edit-schedule"]'))
+  await expectInternalHoverSurface(detail.locator('[data-action="automation-edit-model"]'))
 
   await projectPicker.click()
   const menu = page.locator('[role="menu"][aria-label="Workspace"]')
@@ -665,6 +684,7 @@ test("automations panel: continue automation project stays read-only", async ({ 
   const detail = surface.locator('[data-component="automation-detail"]')
   await expect(detail).toBeVisible()
   await expect(detail.locator('[data-action="automation-edit-project"]')).toHaveCount(0)
+  await expectInternalHoverSurface(detail.locator('[data-action="automation-open-source"]'))
 })
 
 test("automations panel: a rhythm the picker cannot express is read-only", async ({ page, project }) => {

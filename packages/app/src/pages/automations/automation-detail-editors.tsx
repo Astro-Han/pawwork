@@ -109,7 +109,7 @@ export function EditableText(props: {
 }
 
 const ROW_VALUE_CLASS =
-  "min-w-0 truncate text-right text-body text-fg-base hover:text-fg-strong hover:underline focus-visible:text-fg-strong focus-visible:underline focus:outline-none cursor-default"
+  "min-w-0 truncate rounded-md px-1.5 text-right text-body text-fg-base hover:bg-row-hover-overlay hover:text-fg-strong focus-visible:bg-row-hover-overlay focus-visible:text-fg-strong focus:outline-none cursor-pointer"
 
 function EditorRow(props: { label: string; children: JSX.Element }): JSX.Element {
   return (
