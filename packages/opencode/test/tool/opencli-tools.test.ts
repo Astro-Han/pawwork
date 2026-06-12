@@ -9,7 +9,7 @@ import { provideTmpdirInstance } from "../fixture/fixture"
 import { FakeCdpServer, provideFakeHost, scriptCurrentUrl } from "../fake/cdp-server"
 import { testEffect } from "../lib/effect"
 import { MessageID, SessionID } from "../../src/session/schema"
-import { OpenCliRunTool } from "../../src/tool/opencli-run"
+import { needsFinalOpenCliPermissionAsk, OpenCliRunTool } from "../../src/tool/opencli-run"
 import { formatOpenCliSearchOutput, OpenCliSearchTool } from "../../src/tool/opencli-search"
 import type * as Tool from "../../src/tool/tool"
 import { Truncate } from "../../src/tool/truncate"
@@ -101,6 +101,23 @@ describe("opencli_search", () => {
 })
 
 describe("opencli_run", () => {
+  test("refreshes permission when loaded command metadata differs from the preview", () => {
+    const preview = {
+      name: "pawwork-test/dynamic",
+      description: "Preview",
+      access: "read",
+      browser: false,
+      args: [],
+    } as const
+    const actual = {
+      ...preview,
+      access: "write",
+    } as const
+
+    expect(needsFinalOpenCliPermissionAsk(preview, actual, {}, {})).toBe(true)
+    expect(needsFinalOpenCliPermissionAsk(actual, actual, { mode: "safe" }, { mode: "safe" })).toBe(false)
+  })
+
   it.live("asks for the current page when a browser command has no pre-navigation URL", () =>
     Effect.gen(function* () {
       cli({
@@ -289,6 +306,39 @@ describe("opencli_run", () => {
         expect(result.output).toContain('"written": "hello"')
       } finally {
         getRegistry().delete("pawwork-test/write-http")
+      }
+    }),
+  )
+
+  it.live("asks with defaulted args before running a write adapter", () =>
+    Effect.gen(function* () {
+      cli({
+        site: "pawwork-test",
+        name: "write-defaults",
+        access: "write",
+        description: "Write default args test adapter",
+        browser: false,
+        args: [{ name: "mode", default: "safe" }],
+        func: async (args) => [{ args }],
+      })
+
+      try {
+        const askLog: Parameters<Tool.Context["ask"]>[0][] = []
+        yield* exec(OpenCliRunTool, { command: "pawwork-test/write-defaults", args: {} }, {
+          ask: (input) =>
+            Effect.sync(() => {
+              askLog.push(input)
+            }),
+        })
+
+        expect(askLog[0]).toMatchObject({
+          permission: "opencli_write",
+          metadata: {
+            args: { mode: "safe" },
+          },
+        })
+      } finally {
+        getRegistry().delete("pawwork-test/write-defaults")
       }
     }),
   )

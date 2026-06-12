@@ -80,7 +80,7 @@ function manifestCommandSummary(entry: OpenCliManifestEntry): OpenCliCommandSumm
   }
 }
 
-function registryCommandSummary(command: CliCommand): OpenCliCommandSummary {
+export function openCliCommandSummaryFromCommand(command: CliCommand): OpenCliCommandSummary {
   return {
     name: fullName(command),
     description: command.description ?? "",
@@ -138,7 +138,7 @@ export async function openCliCommand(name: string): Promise<CliCommand | undefin
 export async function openCliCommandSummary(name: string): Promise<OpenCliCommandSummary | undefined> {
   if (BLOCKED_OPENCLI_COMMANDS.has(name)) return undefined
   const existing = getRegistry().get(name)
-  if (existing) return registryCommandSummary(existing)
+  if (existing) return openCliCommandSummaryFromCommand(existing)
   const entry = await manifestEntryForCommand(name)
   return entry ? manifestCommandSummary(entry) : undefined
 }
@@ -170,7 +170,7 @@ export async function searchOpenCliCommands(
     summaries.set(summary.name, summary)
   }
   for (const command of getRegistry().values()) {
-    const summary = registryCommandSummary(command)
+    const summary = openCliCommandSummaryFromCommand(command)
     if (!summaries.has(summary.name)) summaries.set(summary.name, summary)
   }
   return [...summaries.values()]

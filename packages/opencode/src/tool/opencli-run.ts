@@ -2,8 +2,13 @@ import { Effect, Schema } from "effect"
 import { fullName } from "@jackwener/opencli/registry"
 import * as Tool from "./tool"
 import DESCRIPTION from "./opencli-run.txt"
-import { openCliCommand, openCliCommandSummary, type OpenCliCommandSummary } from "@/opencli/adapter-registry"
-import { prepareOpenCliCommandArgs, runOpenCliAdapterCommand } from "@/opencli/adapter-runner"
+import {
+  openCliCommand,
+  openCliCommandSummary,
+  openCliCommandSummaryFromCommand,
+  type OpenCliCommandSummary,
+} from "@/opencli/adapter-registry"
+import { coerceOpenCliArgs, prepareOpenCliCommandArgs, runOpenCliAdapterCommand } from "@/opencli/adapter-runner"
 import { runBrowserAction } from "./browser-shared"
 
 const OPENCLI_RUN_TIMEOUT_MS = 60_000
@@ -38,6 +43,38 @@ function commandMetadata(command: OpenCliCommandSummary, args?: Record<string, u
     access: command.access,
     args,
   }
+}
+
+function sameJson(left: unknown, right: unknown) {
+  try {
+    return JSON.stringify(left) === JSON.stringify(right)
+  } catch {
+    return false
+  }
+}
+
+function commandPermissionShape(command: OpenCliCommandSummary) {
+  return {
+    name: command.name,
+    access: command.access,
+    browser: command.browser,
+    domain: command.domain,
+    navigateBefore: command.navigateBefore,
+  }
+}
+
+export function needsFinalOpenCliPermissionAsk(
+  preview: OpenCliCommandSummary,
+  actual: OpenCliCommandSummary,
+  previewArgs: Record<string, unknown>,
+  actualArgs: Record<string, unknown>,
+) {
+  if (!sameJson(commandPermissionShape(preview), commandPermissionShape(actual))) return true
+  return !sameJson(previewArgs, actualArgs)
+}
+
+function prepareOpenCliPreviewArgs(command: OpenCliCommandSummary, rawArgs: Record<string, unknown>) {
+  return coerceOpenCliArgs((command.args ?? []) as Parameters<typeof coerceOpenCliArgs>[0], rawArgs)
 }
 
 function askOpenCliAccessPermission(
@@ -129,7 +166,8 @@ export const OpenCliRunTool = Tool.define(
               new Error(`Unknown or unsupported OpenCLI command "${params.command}". Run opencli_search to find one.`),
             )
           }
-          yield* askOpenCliAccessPermission(ctx, preview, requestedArgs)
+          const previewArgs = prepareOpenCliPreviewArgs(preview, requestedArgs)
+          yield* askOpenCliAccessPermission(ctx, preview, previewArgs)
           const command = yield* Effect.tryPromise({
             try: () => openCliCommand(params.command),
             catch: (err) => (err instanceof Error ? err : new Error(String(err))),
@@ -140,6 +178,10 @@ export const OpenCliRunTool = Tool.define(
             )
           }
           const args = prepareOpenCliCommandArgs(command, requestedArgs)
+          const actual = openCliCommandSummaryFromCommand(command)
+          if (needsFinalOpenCliPermissionAsk(preview, actual, previewArgs, args)) {
+            yield* askOpenCliAccessPermission(ctx, actual, args)
+          }
 
           const value = command.browser === false
             ? yield* Effect.tryPromise({
