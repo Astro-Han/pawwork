@@ -44,6 +44,7 @@ import { Shell } from "../../src/shell/shell"
 import { Snapshot } from "../../src/snapshot"
 import { ToolRegistry } from "../../src/tool/registry"
 import { Automation } from "../../src/automation"
+import { AutomationScheduler } from "../../src/automation/scheduler"
 import { WebSearchAuth } from "../../src/tool/websearch-auth"
 import { Truncate } from "../../src/tool/truncate"
 import { Log } from "@opencode-ai/core/util/log"
@@ -146,6 +147,18 @@ function requestTextContaining(inputs: Record<string, unknown>[], needle: string
   const match = inputs.find((input) => flattenRequestText(input).includes(needle))
   if (!match) throw new Error(`Missing provider request containing: ${needle}`)
   return flattenRequestText(match)
+}
+
+function requestToolNames(input: Record<string, unknown>) {
+  const tools = Array.isArray(input.tools) ? input.tools : []
+  return tools.flatMap((tool) => {
+    const fn =
+      tool && typeof tool === "object" && "function" in tool && tool.function && typeof tool.function === "object"
+        ? tool.function
+        : undefined
+    if (!fn || !("name" in fn) || typeof fn.name !== "string") return []
+    return [fn.name]
+  })
 }
 
 function envValue(text: string, label: string) {
@@ -994,6 +1007,54 @@ it.live("loop continues when finish is tool-calls", () =>
       if (result.info.role === "assistant") {
         expect(result.parts.some((part) => part.type === "text" && part.text === "second")).toBe(true)
         expect(result.info.finish).toBe("stop")
+      }
+    }),
+    { git: true, config: providerCfg },
+  ),
+)
+
+it.live("loop activates automate_manage through tool_info before invoking it", () =>
+  provideTmpdirServer(
+    Effect.fnUntraced(function* ({ llm }) {
+      try {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const session = yield* sessions.create({
+          title: "Automation manage activation",
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        })
+        yield* prompt.prompt({
+          sessionID: session.id,
+          agent: "build",
+          noReply: true,
+          parts: [{ type: "text", text: "List my existing PawWork Automations." }],
+        })
+
+        yield* llm.tool("tool_info", { name: "automate_manage" })
+        yield* llm.tool("automate_manage", { action: "list" })
+        yield* llm.text("done")
+
+        const result = yield* prompt.loop({ sessionID: session.id })
+        expect(result.info.role).toBe("assistant")
+
+        const requests = yield* llm.inputs
+        expect(requestToolNames(requests[0])).toContain("tool_info")
+        expect(requestToolNames(requests[0])).not.toContain("automate_manage")
+        expect(requestToolNames(requests[1])).toContain("automate_manage")
+
+        const allMessages = yield* MessageV2.filterCompactedEffect(session.id)
+        const toolParts = allMessages.flatMap((message) =>
+          message.parts.filter((part): part is MessageV2.ToolPart => part.type === "tool"),
+        )
+        const toolInfo = toolParts.find((part) => part.tool === "tool_info")
+        const automateManage = toolParts.find((part) => part.tool === "automate_manage")
+        expect(toolInfo?.state.status).toBe("completed")
+        expect(automateManage?.state.status).toBe("completed")
+        if (automateManage?.state.status === "completed") {
+          expect(JSON.parse(automateManage.state.output)).toEqual({ items: [] })
+        }
+      } finally {
+        AutomationScheduler.stopProcess({ stopRuns: false })
       }
     }),
     { git: true, config: providerCfg },
