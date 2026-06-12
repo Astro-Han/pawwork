@@ -477,6 +477,72 @@ describe("acp.agent event subscription", () => {
     })
   })
 
+  test("permission.asked without always patterns omits the ACP always option", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const { agent, controller, permissionRequests, stop } = createFakeAgent()
+        const cwd = "/tmp/opencode-acp-test"
+        const sessionId = await agent.newSession({ cwd, mcpServers: [] } as any).then((x) => x.sessionId)
+
+        controller.push({
+          directory: cwd,
+          payload: {
+            type: "permission.asked",
+            properties: {
+              id: "perm_once_only",
+              sessionID: sessionId,
+              permission: "automate_manage",
+              patterns: ["aut_123"],
+              metadata: { action: "delete", id: "aut_123", title: "Daily repo brief" },
+              always: [],
+            },
+          },
+        } as any)
+
+        await new Promise((r) => setTimeout(r, 20))
+
+        const request = permissionRequests.find((item) => item.sessionId === sessionId)
+        expect(request?.options.map((option) => option.optionId)).toEqual(["once", "reject"])
+        stop()
+      },
+    })
+  })
+
+  test("permission.asked with always patterns includes the ACP always option", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const { agent, controller, permissionRequests, stop } = createFakeAgent()
+        const cwd = "/tmp/opencode-acp-test"
+        const sessionId = await agent.newSession({ cwd, mcpServers: [] } as any).then((x) => x.sessionId)
+
+        controller.push({
+          directory: cwd,
+          payload: {
+            type: "permission.asked",
+            properties: {
+              id: "perm_persistable",
+              sessionID: sessionId,
+              permission: "bash",
+              patterns: ["echo ok"],
+              metadata: {},
+              always: ["echo ok"],
+            },
+          },
+        } as any)
+
+        await new Promise((r) => setTimeout(r, 20))
+
+        const request = permissionRequests.find((item) => item.sessionId === sessionId)
+        expect(request?.options.map((option) => option.optionId)).toEqual(["once", "always", "reject"])
+        stop()
+      },
+    })
+  })
+
   test("permission prompt on session A does not block message updates for session B", async () => {
     await using tmp = await tmpdir()
     await Instance.provide({

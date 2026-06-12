@@ -635,6 +635,7 @@ export const dict = {
   "ui.sessionReview.title.git": "Changes",
   "ui.sessionReview.title.branch": "Branch",
   "ui.sessionReview.title.lastTurn": "Last Turn",
+  "ui.permission.automateManageDelete": 'Delete automation "{{title}}" ({{id}})',
 
   "session.files.selectToOpen": "Select a file to open",
   "session.files.all": "All files",

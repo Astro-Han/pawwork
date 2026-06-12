@@ -207,7 +207,10 @@ export namespace ACP {
                     kind: toToolKind(permission.permission),
                     locations: toLocations(permission.permission, permission.metadata),
                   },
-                  options: this.permissionOptions,
+                  options:
+                    permission.always.length > 0
+                      ? this.permissionOptions
+                      : this.permissionOptions.filter((option) => option.optionId !== "always"),
                 })
                 .catch(async (error) => {
                   log.error("failed to request permission from ACP", {

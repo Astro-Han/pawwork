@@ -148,10 +148,12 @@ describe("tool.registry", () => {
   test("keeps scheduling routing contract across prompt surfaces", async () => {
     const shellDescription = await Bun.file(new URL("../../src/tool/shell.txt", import.meta.url)).text()
     expect(shellDescription).toContain("Scheduled or delayed tasks: Use the automate tool")
+    expect(shellDescription).toContain("Existing PawWork Automations: Use automate_manage via tool_info")
 
     const systemPrompt = await Bun.file(new URL("../../src/session/prompt/pawwork.txt", import.meta.url)).text()
     expect(systemPrompt).toContain("# Scheduling, reminders, and recurring work")
     expect(systemPrompt).toContain("`automate` tool")
+    expect(systemPrompt).toContain("`automate_manage`")
     expect(systemPrompt).toContain("launchd")
     expect(systemPrompt).toContain("by writing files")
   })
