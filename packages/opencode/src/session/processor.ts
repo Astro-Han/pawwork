@@ -376,6 +376,7 @@ export const layer: Layer.Layer<
       let toolDrainTimeoutMs = TOOL_DRAIN_TIMEOUT_MS
       let toolAbortRequested: Deferred.Deferred<void> | undefined
       let currentStreamStopRequested: Deferred.Deferred<void> | undefined
+      const closedToolLifecycleAttempts = new Set<RunObservability.AttemptID>()
       const slog = log.clone().tag("sessionID", input.sessionID).tag("messageID", input.assistantMessage.id)
 
       const parse = (e: unknown) =>
@@ -410,9 +411,14 @@ export const layer: Layer.Layer<
         Required<Pick<ToolLifecycleRecord, "partID" | "messageID" | "sessionID">> =>
         call.partID !== undefined && call.messageID !== undefined && call.sessionID !== undefined
 
+      const isToolLifecycleAttemptClosed = (attemptID: RunObservability.AttemptID | undefined) =>
+        attemptID !== undefined && closedToolLifecycleAttempts.has(attemptID)
+
       const getToolLifecycleRecord = Effect.fn("SessionProcessor.getToolLifecycleRecord")(function* (
         toolCallID: string,
+        attemptID?: RunObservability.AttemptID,
       ) {
+        if (isToolLifecycleAttemptClosed(attemptID)) return
         let call = ctx.toolcalls[toolCallID]
         if (!call) {
           call = {
@@ -451,10 +457,11 @@ export const layer: Layer.Layer<
       const waitForToolCallReady = Effect.fn("SessionProcessor.waitForToolCallReady")(function* (
         toolCallID: string,
       ) {
-        let call = ctx.toolcalls[toolCallID]
+        let call: ToolLifecycleRecord | undefined = ctx.toolcalls[toolCallID]
         if (call?.settled) return
         if (!call || !hasToolPart(call)) {
           call = yield* getToolLifecycleRecord(toolCallID)
+          if (!call) return
           yield* Deferred.await(call.partCreated)
           call = ctx.toolcalls[toolCallID]
         }
@@ -475,18 +482,20 @@ export const layer: Layer.Layer<
         tool: string
         toolCallID: string
         input: unknown
-      }) {
-        const call = yield* getToolLifecycleRecord(input.toolCallID)
-        const attemptID = toolCallAttemptID(input.toolCallID)
+      }, attemptID?: RunObservability.AttemptID) {
+        const activeAttemptID = attemptID ?? ctx.currentAttemptID
+        const call = yield* getToolLifecycleRecord(input.toolCallID, activeAttemptID)
+        if (!call) return
+        const lifecycleAttemptID = toolCallAttemptID(input.toolCallID, activeAttemptID)
         call.executionStarted = true
         call.startedToolName ??= input.tool
         call.startedInput ??= cloneToolLifecycleInput(input.input)
         call.startedAt ??= Date.now()
-        call.attemptID ??= ctx.currentAttemptID
-        if (!attemptID || call.executionStartedRecorded) return
+        call.attemptID ??= activeAttemptID
+        if (!lifecycleAttemptID || call.executionStartedRecorded) return
         call.executionStartedRecorded = true
         ctx.runTrace.recordToolExecutionStarted({
-          attemptID,
+          attemptID: lifecycleAttemptID,
           at: Date.now(),
           monotonicMs: performance.now(),
           toolName: RunObservability.safeToolName(input.tool),
@@ -495,14 +504,15 @@ export const layer: Layer.Layer<
       })
 
       const recordToolExecutionCompleted = Effect.fn("SessionProcessor.recordToolExecutionCompleted")(
-        function* (input: { toolCallID: string }) {
+        function* (input: { toolCallID: string }, attemptID?: RunObservability.AttemptID) {
+          if (isToolLifecycleAttemptClosed(attemptID)) return
           const call = ctx.toolcalls[input.toolCallID]
-          const attemptID = toolCallAttemptID(input.toolCallID)
+          const lifecycleAttemptID = toolCallAttemptID(input.toolCallID, attemptID ?? ctx.currentAttemptID)
           if (call) call.executionCompleted = true
-          if (!call || !attemptID || call.executionCompletedRecorded) return
+          if (!call || !lifecycleAttemptID || call.executionCompletedRecorded) return
           call.executionCompletedRecorded = true
           ctx.runTrace.recordToolCompleted({
-            attemptID,
+            attemptID: lifecycleAttemptID,
             at: Date.now(),
             monotonicMs: performance.now(),
           })
@@ -512,14 +522,15 @@ export const layer: Layer.Layer<
       const recordToolExecutionFailed = Effect.fn("SessionProcessor.recordToolExecutionFailed")(function* (input: {
         toolCallID: string
         error?: unknown
-      }) {
+      }, attemptID?: RunObservability.AttemptID) {
+        if (isToolLifecycleAttemptClosed(attemptID)) return
         const call = ctx.toolcalls[input.toolCallID]
-        const attemptID = toolCallAttemptID(input.toolCallID)
+        const lifecycleAttemptID = toolCallAttemptID(input.toolCallID, attemptID ?? ctx.currentAttemptID)
         if (call) call.executionFailed = true
-        if (!call || !attemptID || call.executionFailedRecorded) return
+        if (!call || !lifecycleAttemptID || call.executionFailedRecorded) return
         call.executionFailedRecorded = true
         ctx.runTrace.recordToolFailed({
-          attemptID,
+          attemptID: lifecycleAttemptID,
           at: Date.now(),
           monotonicMs: performance.now(),
           error: input.error,
@@ -927,43 +938,46 @@ export const layer: Layer.Layer<
       const applyCompletedToolLifecycle = Effect.fn("SessionProcessor.applyCompletedToolLifecycle")(function* (input: {
         toolCallID: string
         output: ToolLifecycleOutput
-      }, options?: { waitForReady?: boolean }) {
+      }, options?: { waitForReady?: boolean; attemptID?: RunObservability.AttemptID }) {
         if (options?.waitForReady !== false) yield* waitForToolCallReady(input.toolCallID)
-        yield* recordToolExecutionCompleted({ toolCallID: input.toolCallID })
+        yield* recordToolExecutionCompleted({ toolCallID: input.toolCallID }, options?.attemptID)
         yield* completeToolCall(input.toolCallID, input.output)
       })
 
       const applyFailedToolLifecycle = Effect.fn("SessionProcessor.applyFailedToolLifecycle")(function* (input: {
         toolCallID: string
         error: unknown
-      }, options?: { waitForReady?: boolean }) {
+      }, options?: { waitForReady?: boolean; attemptID?: RunObservability.AttemptID }) {
         if (options?.waitForReady !== false) yield* waitForToolCallReady(input.toolCallID)
-        yield* recordToolExecutionFailed(input)
+        yield* recordToolExecutionFailed(input, options?.attemptID)
         yield* failToolCall(input.toolCallID, input.error)
       })
 
       const completeToolExecution = Effect.fn("SessionProcessor.completeToolExecution")(function* (input: {
         toolCallID: string
         output: ToolLifecycleOutput
-      }) {
-        const call = yield* getToolLifecycleRecord(input.toolCallID)
+      }, attemptID?: RunObservability.AttemptID) {
+        const call = yield* getToolLifecycleRecord(input.toolCallID, attemptID)
+        if (!call) return
         if (call.settled) return
-        yield* applyCompletedToolLifecycle(input)
+        yield* applyCompletedToolLifecycle(input, { attemptID })
       })
 
       const failToolExecution = Effect.fn("SessionProcessor.failToolExecution")(function* (input: {
         toolCallID: string
         error: unknown
-      }) {
+      }, attemptID?: RunObservability.AttemptID) {
+        if (isToolLifecycleAttemptClosed(attemptID)) return
         const call = ctx.toolcalls[input.toolCallID]
         if (call && hasToolPart(call) && ctx.pendingLoopActions[input.toolCallID]) {
-          yield* recordToolExecutionFailed(input)
+          yield* recordToolExecutionFailed(input, attemptID)
           yield* failToolCall(input.toolCallID, input.error)
           return
         }
-        const lifecycle = call ?? (yield* getToolLifecycleRecord(input.toolCallID))
+        const lifecycle = call ?? (yield* getToolLifecycleRecord(input.toolCallID, attemptID))
+        if (!lifecycle) return
         if (lifecycle.settled) return
-        yield* applyFailedToolLifecycle(input)
+        yield* applyFailedToolLifecycle(input, { attemptID })
       })
 
       const handleEvent = Effect.fnUntraced(function* (value: StreamEvent, attemptID: RunObservability.AttemptID) {
@@ -1057,7 +1071,8 @@ export const layer: Layer.Layer<
             if (ctx.assistantMessage.summary) {
               throw new Error(`Tool call not allowed while generating summary: ${value.toolName}`)
             }
-            const lifecycle = yield* getToolLifecycleRecord(value.id)
+            const lifecycle = yield* getToolLifecycleRecord(value.id, attemptID)
+            if (!lifecycle) return
             if (lifecycle.settled) return
             const part = yield* session.updatePart({
               id: lifecycle.partID ?? PartID.ascending(),
@@ -1351,6 +1366,7 @@ export const layer: Layer.Layer<
           if (!match) match = yield* ensureToolPartForTerminal(toolCallID, call)
           if (!match) continue
           if (ctx.toolcalls[toolCallID] !== match.call) continue
+          if (match.call.attemptID) closedToolLifecycleAttempts.add(match.call.attemptID)
           delete ctx.toolcalls[toolCallID]
           yield* Effect.all([Deferred.succeed(match.call.ready, undefined), Deferred.succeed(match.call.done, undefined)], {
             concurrency: "unbounded",
@@ -1409,6 +1425,9 @@ export const layer: Layer.Layer<
           }
         }
         const remainingCalls = Object.values(ctx.toolcalls)
+        for (const call of remainingCalls) {
+          if (call.attemptID) closedToolLifecycleAttempts.add(call.attemptID)
+        }
         ctx.toolcalls = {}
         yield* Effect.forEach(
           remainingCalls,
@@ -1718,19 +1737,19 @@ export const layer: Layer.Layer<
               trace: ctx.trace,
               toolAbortSignal: toolAbortController.signal,
               toolLifecycle: {
-                started: (input) => Effect.runPromise(recordToolExecutionStarted(input)),
+                started: (input) => Effect.runPromise(recordToolExecutionStarted(input, attempt.attemptID)),
                 completed: (input) =>
                   Effect.runPromise(
-                    completeToolExecution({ toolCallID: input.toolCallID, output: input.output }),
+                    completeToolExecution({ toolCallID: input.toolCallID, output: input.output }, attempt.attemptID),
                   ),
                 failed: (input) =>
                   Effect.runPromise(
                     Effect.gen(function* () {
                       if (toolAbortController.signal.aborted) {
-                        yield* recordToolExecutionFailed(input)
+                        yield* recordToolExecutionFailed(input, attempt.attemptID)
                         return
                       }
-                      yield* failToolExecution(input)
+                      yield* failToolExecution(input, attempt.attemptID)
                     }),
                   ),
               },

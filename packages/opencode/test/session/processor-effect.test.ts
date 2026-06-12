@@ -457,6 +457,25 @@ const noStreamDeadToolIt = testEffect(
   }),
 )
 
+type CapturedToolLifecycle = NonNullable<LLM.StreamInput["toolLifecycle"]>
+const lateLifecycleAfterFinalizeState: {
+  lifecycle?: CapturedToolLifecycle
+} = {}
+const lateLifecycleAfterFinalizeIt = testEffect(
+  processorEnvWithLLM({
+    stream(input) {
+      const toolCallID = "call_late_lifecycle_after_finalize"
+      const toolInput = { value: "stuck" }
+      lateLifecycleAfterFinalizeState.lifecycle = input.toolLifecycle
+      return Stream.fromEffect(
+        Effect.promise(async () => {
+          await input.toolLifecycle?.started?.({ tool: "offline", toolCallID, input: toolInput })
+        }),
+      ).pipe(Stream.flatMap(() => Stream.fail(new Error("connection reset before late lifecycle events"))))
+    },
+  }),
+)
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -3054,6 +3073,97 @@ noStreamDeadToolIt.live(
             expect(interruptedOrder).toBeDefined()
             expect(recoveryOrder).toBeDefined()
             expect(interruptedOrder!).toBeLessThan(recoveryOrder!)
+          }
+        }),
+      { git: true, config: providerCfg("http://localhost:1/v1") },
+    ),
+)
+
+lateLifecycleAfterFinalizeIt.live(
+  "session.processor effect tests ignores late lifecycle callbacks after tool finalization",
+  () =>
+    provideTmpdirInstance(
+      (dir) =>
+        Effect.gen(function* () {
+          lateLifecycleAfterFinalizeState.lifecycle = undefined
+          const { processors, session, provider } = yield* boot()
+
+          const chat = yield* session.create({})
+          const parent = yield* user(chat.id, "late lifecycle after finalize")
+          const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+          const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+          const handle = yield* processors.create({
+            safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
+            assistantMessage: msg,
+            sessionID: chat.id,
+            model: mdl,
+          })
+
+          yield* handle.process({
+            user: {
+              id: parent.id,
+              sessionID: chat.id,
+              role: "user",
+              time: parent.time,
+              agent: parent.agent,
+              model: { providerID: ref.providerID, modelID: ref.modelID },
+              tools: { offline: true },
+            } satisfies MessageV2.User,
+            sessionID: chat.id,
+            model: mdl,
+            agent: agent(),
+            system: [],
+            messages: [{ role: "user", content: "late lifecycle after finalize" }],
+            toolDrainTimeoutMs: 25,
+            tools: {
+              offline: tool({
+                description: "Fake LLM starts lifecycle then disconnects before terminal lifecycle",
+                inputSchema: z.object({ value: z.string() }),
+                execute: async () => ({ output: "unused" }),
+              }),
+            },
+          })
+
+          const lifecycle = lateLifecycleAfterFinalizeState.lifecycle as CapturedToolLifecycle | undefined
+          const completed = lifecycle?.completed
+          const failed = lifecycle?.failed
+          if (!completed || !failed) throw new Error("tool lifecycle callbacks were not captured")
+          const completedExit = yield* Effect.exit(
+            Effect.promise(() =>
+              Promise.resolve(
+                completed({
+                  toolCallID: "call_late_lifecycle_after_finalize",
+                  output: {
+                    title: "offline",
+                    metadata: { marker: "late-complete" },
+                    output: "late output",
+                  },
+                }),
+              ),
+            ).pipe(Effect.timeout("250 millis")),
+          )
+          const failedExit = yield* Effect.exit(
+            Effect.promise(() =>
+              Promise.resolve(
+                failed({
+                  toolCallID: "call_late_lifecycle_after_finalize",
+                  error: new Error("late failure"),
+                }),
+              ),
+            ).pipe(Effect.timeout("250 millis")),
+          )
+
+          const toolParts = MessageV2.parts(msg.id).filter((part): part is MessageV2.ToolPart => part.type === "tool")
+          expect(Exit.isSuccess(completedExit)).toBe(true)
+          expect(Exit.isSuccess(failedExit)).toBe(true)
+          expect(toolParts).toHaveLength(1)
+          expect(toolParts[0]?.state.status).toBe("error")
+          if (toolParts[0]?.state.status === "error") {
+            expect(toolParts[0].state.input).toEqual({ value: "stuck" })
+            expect(toolParts[0].state.error).toBe("Tool execution aborted")
+            expect(toolParts[0].state.metadata?.interrupted).toBe(true)
+            expect(toolParts[0].state.metadata?.interruption_phase).toBe("tool_execution")
+            expect(toolParts[0].state.metadata?.marker).toBeUndefined()
           }
         }),
       { git: true, config: providerCfg("http://localhost:1/v1") },
