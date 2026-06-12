@@ -443,6 +443,20 @@ const noStreamToolFailureIt = testEffect(
   }),
 )
 
+const noStreamDeadToolIt = testEffect(
+  processorEnvWithLLM({
+    stream(input) {
+      const toolCallID = "call_no_stream_dead_tool"
+      const toolInput = { value: "stuck" }
+      return Stream.fromEffect(
+        Effect.promise(async () => {
+          await input.toolLifecycle?.started?.({ tool: "offline", toolCallID, input: toolInput })
+        }),
+      ).pipe(Stream.flatMap(() => Stream.fail(new Error("connection reset before dead tool events"))))
+    },
+  }),
+)
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -2939,6 +2953,94 @@ noStreamToolFailureIt.live(
             type: "tool-call",
             toolCallId: "call_no_stream_tool_failure",
             input: { value: "bad" },
+          })
+        }),
+      { git: true, config: providerCfg("http://localhost:1/v1") },
+    ),
+)
+
+noStreamDeadToolIt.live(
+  "session.processor effect tests synthesizes interrupted tool part when dead execution has no stream events",
+  () =>
+    provideTmpdirInstance(
+      (dir) =>
+        Effect.gen(function* () {
+          const { processors, session, provider } = yield* boot()
+
+          const chat = yield* session.create({})
+          const parent = yield* user(chat.id, "no stream dead tool")
+          const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+          const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+          const handle = yield* processors.create({
+            safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
+            assistantMessage: msg,
+            sessionID: chat.id,
+            model: mdl,
+          })
+
+          yield* handle.process({
+            user: {
+              id: parent.id,
+              sessionID: chat.id,
+              role: "user",
+              time: parent.time,
+              agent: parent.agent,
+              model: { providerID: ref.providerID, modelID: ref.modelID },
+              tools: { offline: true },
+            } satisfies MessageV2.User,
+            sessionID: chat.id,
+            model: mdl,
+            agent: agent(),
+            system: [],
+            messages: [{ role: "user", content: "no stream dead tool" }],
+            toolDrainTimeoutMs: 25,
+            tools: {
+              offline: tool({
+                description: "Fake LLM starts lifecycle then disconnects before stream tool events",
+                inputSchema: z.object({ value: z.string() }),
+                execute: async () => ({ output: "unused" }),
+              }),
+            },
+          })
+
+          const toolParts = MessageV2.parts(msg.id).filter((part): part is MessageV2.ToolPart => part.type === "tool")
+          const storedMessages = yield* session.messages({ sessionID: chat.id })
+          const modelMessages = yield* MessageV2.toModelMessagesEffect(storedMessages, mdl)
+          const assistantModelMessage = modelMessages.find((message) => message.role === "assistant")
+          const toolModelCall =
+            assistantModelMessage && Array.isArray(assistantModelMessage.content)
+              ? assistantModelMessage.content.find(
+                  (part) => part.type === "tool-call" && part.toolCallId === "call_no_stream_dead_tool",
+                )
+              : undefined
+          const toolModelResult = modelMessages
+            .find((message) => message.role === "tool")
+            ?.content.find((part) => part.type === "tool-result" && part.toolCallId === "call_no_stream_dead_tool")
+
+          expect(toolParts).toHaveLength(1)
+          expect(toolParts[0]?.state.status).toBe("error")
+          if (toolParts[0]?.state.status === "error") {
+            expect(toolParts[0].tool).toBe("offline")
+            expect(toolParts[0].state.input).toEqual({ value: "stuck" })
+            expect(toolParts[0].state.error).toBe("Tool execution aborted")
+            expect(toolParts[0].state.metadata?.interrupted).toBe(true)
+            expect(toolParts[0].state.metadata?.interruption_phase).toBe("tool_execution")
+            expect(toolParts[0].state.metadata?.tool_execution_started).toBe(true)
+          }
+          expect(toolModelCall).toMatchObject({
+            type: "tool-call",
+            toolCallId: "call_no_stream_dead_tool",
+            toolName: "offline",
+            input: { value: "stuck" },
+          })
+          expect(toolModelResult).toMatchObject({
+            type: "tool-result",
+            toolCallId: "call_no_stream_dead_tool",
+            toolName: "offline",
+            output: {
+              type: "error-text",
+              value: "Tool execution aborted",
+            },
           })
         }),
       { git: true, config: providerCfg("http://localhost:1/v1") },

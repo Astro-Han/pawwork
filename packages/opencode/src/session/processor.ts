@@ -1376,8 +1376,10 @@ export const layer: Layer.Layer<
         )
 
         for (const toolCallID of Object.keys(ctx.toolcalls)) {
-          if (ctx.toolcalls[toolCallID]?.settled) continue
-          const match = yield* readToolCall(toolCallID)
+          const call = ctx.toolcalls[toolCallID]
+          if (!call || call.settled) continue
+          let match = yield* readToolCall(toolCallID)
+          if (!match) match = yield* ensureToolPartForTerminal(toolCallID, call)
           if (!match) continue
           if (ctx.toolcalls[toolCallID] !== match.call) continue
           delete ctx.toolcalls[toolCallID]
