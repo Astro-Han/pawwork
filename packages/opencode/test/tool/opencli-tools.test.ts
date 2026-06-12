@@ -1,4 +1,4 @@
-import { describe, expect } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import { cli, getRegistry } from "@jackwener/opencli/registry"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Cause, Deferred, Effect, Exit, Fiber, Layer, type Schema } from "effect"
@@ -8,7 +8,7 @@ import { provideTmpdirInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 import { MessageID, SessionID } from "../../src/session/schema"
 import { OpenCliRunTool } from "../../src/tool/opencli-run"
-import { OpenCliSearchTool } from "../../src/tool/opencli-search"
+import { formatOpenCliSearchOutput, OpenCliSearchTool } from "../../src/tool/opencli-search"
 import type * as Tool from "../../src/tool/tool"
 import { Truncate } from "../../src/tool/truncate"
 
@@ -77,6 +77,25 @@ describe("opencli_search", () => {
       }
     }),
   )
+
+  test("shows adapter load failures after search results", () => {
+    const output = formatOpenCliSearchOutput(
+      [
+        {
+          name: "pawwork-test/search",
+          description: "Search test adapter",
+          access: "read",
+          browser: false,
+          args: [],
+        },
+      ],
+      [{ modulePath: "broken.js", error: "boom" }],
+    )
+
+    expect(output).toContain('<opencli_command name="pawwork-test/search">')
+    expect(output).toContain("Warning: 1 OpenCLI adapter module failed to load")
+    expect(output).toContain("broken.js")
+  })
 })
 
 describe("opencli_run", () => {
