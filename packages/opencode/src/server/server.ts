@@ -83,7 +83,17 @@ export async function listen(opts: {
   const built = create(opts)
   const server = await built.runtime.listen(opts)
   const automationScheduler = AutomationScheduler.current()
-  await automationScheduler.settleOwner()
+  try {
+    await automationScheduler.settleOwner()
+  } catch (error) {
+    AutomationScheduler.stopProcess({ stopRuns: false })
+    try {
+      await server.stop(true)
+    } catch (stopError) {
+      log.error("server cleanup after scheduler settle failure failed", { error: stopError })
+    }
+    throw error
+  }
 
   const next = new URL("http://localhost")
   next.hostname = opts.hostname
