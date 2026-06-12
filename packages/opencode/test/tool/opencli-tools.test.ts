@@ -48,6 +48,7 @@ describe("opencli_search", () => {
       expect(result.output).toContain("browser: true")
       expect(result.output).not.toContain("instagram/reel")
       expect(result.metadata).toMatchObject({ query: "12306/me" })
+      expect(result.metadata).not.toHaveProperty("failedModuleCount")
     }),
   )
 
@@ -80,8 +81,11 @@ describe("opencli_search", () => {
     }),
   )
 
-  test("shows adapter load failures after search results", () => {
-    const output = formatOpenCliSearchOutput(
+  test("omits adapter load failures from search results", () => {
+    const output = (formatOpenCliSearchOutput as unknown as (
+      results: Parameters<typeof formatOpenCliSearchOutput>[0],
+      failedModules: Array<{ modulePath: string; error: string }>,
+    ) => string)(
       [
         {
           name: "pawwork-test/search",
@@ -95,8 +99,8 @@ describe("opencli_search", () => {
     )
 
     expect(output).toContain('<opencli_command name="pawwork-test/search">')
-    expect(output).toContain("Warning: 1 OpenCLI adapter module failed to load")
-    expect(output).toContain("broken.js")
+    expect(output).not.toContain("Warning:")
+    expect(output).not.toContain("broken.js")
   })
 })
 
