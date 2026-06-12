@@ -157,6 +157,39 @@ describe("automate_manage tool", () => {
     )
   })
 
+  test("pause reports stale automation ids as a readable relist error", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        installScheduler()
+
+        await expect(
+          Effect.runPromise(tool().execute({ action: "pause", id: "aut_missing" }, toolContext())),
+        ).rejects.toThrow("Automation not found: aut_missing. Run automate_manage list to get a current id.")
+      },
+    })
+  })
+
+  test("delete rejects stale automation ids before asking or removing anything", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        installScheduler()
+        const asks: unknown[] = []
+        const created = Automation.create(recurring(Instance.project.id, "Daily repo brief"), { now: 100 })
+
+        await expect(
+          Effect.runPromise(tool().execute({ action: "delete", id: "aut_missing" }, toolContext(asks))),
+        ).rejects.toThrow("Automation not found: aut_missing. Run automate_manage list to get a current id.")
+
+        expect(asks).toEqual([])
+        expect(Automation.list().map((definition) => definition.id)).toEqual([created.id])
+      },
+    })
+  })
+
   test("delete preserves the automation when a live active run is still running", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({

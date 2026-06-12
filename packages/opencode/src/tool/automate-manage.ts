@@ -1,6 +1,7 @@
-import { Effect, Schema } from "effect"
+import { Cause, Effect, Schema } from "effect"
 import { ActiveRunStillRunningError, Automation } from "@/automation"
 import { AutomationScheduler } from "@/automation/scheduler"
+import { NotFoundError } from "@/storage/db"
 import * as Tool from "./tool"
 
 const Action = Schema.Literals(["list", "pause", "resume", "delete"])
@@ -49,6 +50,9 @@ function requireID(params: Parameters) {
 }
 
 function readableAutomationError(error: unknown, id: string) {
+  if (NotFoundError.isInstance(error)) {
+    return new Error(`Automation not found: ${id}. Run automate_manage list to get a current id.`, { cause: error })
+  }
   if (error instanceof ActiveRunStillRunningError) {
     return new Error(
       `Cannot delete automation ${id}: active_run_still_running (${error.runID}). Try again after the active run finishes.`,
@@ -56,6 +60,17 @@ function readableAutomationError(error: unknown, id: string) {
     )
   }
   return error
+}
+
+function getAutomation(automation: Automation.Interface, id: string) {
+  return automation.get(id).pipe(
+    Effect.catchCause((cause) => {
+      const error = Cause.squash(cause)
+      const readable = readableAutomationError(error, id)
+      if (readable === error) return Effect.failCause(cause)
+      return Effect.fail(readable)
+    }),
+  )
 }
 
 export function createAutomateManageDefinition(
@@ -82,7 +97,7 @@ export function createAutomateManageDefinition(
         }
 
         const id = yield* requireID(params)
-        const previous = yield* automation.get(id)
+        const previous = yield* getAutomation(automation, id)
         if (params.action === "pause" || params.action === "resume") {
           const definition = yield* automation.update(id, { paused: params.action === "pause" })
           if (definition.revision !== previous.revision) {
