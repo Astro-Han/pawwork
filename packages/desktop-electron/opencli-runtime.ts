@@ -74,6 +74,9 @@ const runtimeOnlyExcludes = [
   "!**/{test,tests,__tests__,coverage}/**",
   "!**/*.{test,spec}.{js,mjs,cjs,ts,tsx}",
 ]
+const openCliRuntimeFiles = ["package.json", "README.md", "LICENSE", "cli-manifest.json"]
+const openCliRuntimeDirectories = ["clis", "dist/src"]
+const openCliRuntimeExcludes = ["clis/test-utils.js"]
 
 function normalizeRelativePath(relativePath: string) {
   return relativePath.split(path.sep).join("/")
@@ -93,14 +96,10 @@ export function includeOpenCliRuntimeFile(packageName: string, relativePath: str
   const normalized = normalizeRelativePath(relativePath)
   if (isNonRuntimePath(normalized)) return false
   if (packageName !== "@jackwener/opencli") return true
-  if (normalized === "clis/test-utils.js") return false
+  if (openCliRuntimeExcludes.includes(normalized)) return false
   return (
-    normalized === "package.json" ||
-    normalized === "README.md" ||
-    normalized === "LICENSE" ||
-    normalized === "cli-manifest.json" ||
-    normalized.startsWith("clis/") ||
-    normalized.startsWith("dist/src/")
+    openCliRuntimeFiles.includes(normalized) ||
+    openCliRuntimeDirectories.some((dir) => normalized.startsWith(`${dir}/`))
   )
 }
 
@@ -109,21 +108,17 @@ export function includeOpenCliRuntimeDirectory(packageName: string, relativePath
   if (normalized === "") return true
   if (isNonRuntimePath(normalized)) return false
   if (packageName !== "@jackwener/opencli") return true
-  return (
-    normalized === "clis" ||
-    normalized.startsWith("clis/") ||
-    normalized === "dist" ||
-    normalized === "dist/src" ||
-    normalized.startsWith("dist/src/")
+  return openCliRuntimeDirectories.some(
+    (dir) => normalized === dir || normalized.startsWith(`${dir}/`) || dir.startsWith(`${normalized}/`),
   )
 }
 
 function openCliRuntimeFilter(packageName: string) {
   const includes =
     packageName === "@jackwener/opencli"
-      ? ["package.json", "README.md", "LICENSE", "cli-manifest.json", "clis/**/*", "dist/src/**/*"]
+      ? [...openCliRuntimeFiles, ...openCliRuntimeDirectories.map((dir) => `${dir}/**/*`)]
       : ["**/*"]
-  const packageExcludes = packageName === "@jackwener/opencli" ? ["!clis/test-utils.js"] : []
+  const packageExcludes = packageName === "@jackwener/opencli" ? openCliRuntimeExcludes.map((file) => `!${file}`) : []
   return [...includes, ...runtimeOnlyExcludes, ...packageExcludes]
 }
 
