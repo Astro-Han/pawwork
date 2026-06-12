@@ -39,13 +39,13 @@ function exec(tool: unknown, args: unknown, ctxOverride: Partial<Tool.Context> =
 describe("opencli_search", () => {
   it.live("returns discoverable bundled adapter commands without blocked commands", () =>
     Effect.gen(function* () {
-      const result = yield* exec(OpenCliSearchTool, { query: "12306 account", limit: 5 })
+      const result = yield* exec(OpenCliSearchTool, { query: "12306/me", limit: 5 })
 
-      expect(result.title).toBe('OpenCLI commands for "12306 account"')
+      expect(result.title).toBe('OpenCLI commands for "12306/me"')
       expect(result.output).toContain('<opencli_command name="12306/me">')
       expect(result.output).toContain("browser: true")
       expect(result.output).not.toContain("instagram/reel")
-      expect(result.metadata).toMatchObject({ query: "12306 account" })
+      expect(result.metadata).toMatchObject({ query: "12306/me" })
     }),
   )
 
@@ -178,6 +178,11 @@ describe("opencli_run", () => {
         }).pipe(Effect.exit)
 
         expect(askLog[0]).toMatchObject({
+          permission: "opencli_read",
+          patterns: ["pawwork-test/browser-permission"],
+          always: ["pawwork-test/browser-permission"],
+        })
+        expect(askLog[1]).toMatchObject({
           permission: "browser",
           patterns: ["https://auth.example.com/*", "https://example.com/*"],
         })
@@ -188,7 +193,7 @@ describe("opencli_run", () => {
     }),
   )
 
-  it.live("runs a registered non-browser adapter through command and args", () =>
+  it.live("asks before running a read non-browser adapter", () =>
     Effect.gen(function* () {
       cli({
         site: "pawwork-test",
@@ -212,7 +217,11 @@ describe("opencli_run", () => {
         expect(result.title).toBe("OpenCLI pawwork-test/echo")
         expect(result.output).toContain('"echoed": "hello"')
         expect(result.metadata).toMatchObject({ command: "pawwork-test/echo", browser: false })
-        expect(askLog).toEqual([])
+        expect(askLog[0]).toMatchObject({
+          permission: "opencli_read",
+          patterns: ["pawwork-test/echo"],
+          always: ["pawwork-test/echo"],
+        })
       } finally {
         getRegistry().delete("pawwork-test/echo")
       }

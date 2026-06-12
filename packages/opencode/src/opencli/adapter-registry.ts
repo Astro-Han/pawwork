@@ -11,6 +11,7 @@ export type OpenCliManifestEntry = {
   access: "read" | "write"
   domain?: string
   browser?: boolean
+  navigateBefore?: string | boolean
   args?: Array<{
     name: string
     type?: string
@@ -30,6 +31,7 @@ export type OpenCliCommandSummary = {
   access: "read" | "write"
   browser: boolean
   domain?: string
+  navigateBefore?: string | boolean
   args: OpenCliManifestEntry["args"]
 }
 
@@ -40,13 +42,9 @@ export type OpenCliAdapterImportFailure = {
 
 export const BLOCKED_OPENCLI_COMMANDS = new Set(["instagram/reel"])
 
-let loadPromise: Promise<{
-  manifestCount: number
-  canonicalCommands: ReadonlySet<string>
-  exposedCommands: ReadonlySet<string>
-  failedModules: OpenCliAdapterImportFailure[]
-}> | undefined
 let manifestCache: OpenCliManifestEntry[] | undefined
+const importedModules = new Set<string>()
+const failedModules = new Map<string, OpenCliAdapterImportFailure>()
 
 function openCliPackageRoot() {
   const cdp = fileURLToPath(import.meta.resolve("@jackwener/opencli/browser/cdp"))
@@ -66,60 +64,90 @@ async function loadManifest(): Promise<OpenCliManifestEntry[]> {
   return manifestCache
 }
 
-async function importAdapterModules(
-  manifest: OpenCliManifestEntry[],
-  options: {
-    root?: string
-    importModule?: (specifier: string) => Promise<unknown>
-  } = {},
-) {
-  const root = options.root ?? openCliPackageRoot()
-  const importModule = options.importModule ?? ((specifier: string) => import(specifier))
-  const uniqueModules = new Set(manifest.map((entry) => entry.modulePath))
-  const failedModules: OpenCliAdapterImportFailure[] = []
-  for (const modulePath of uniqueModules) {
-    try {
-      await importModule(pathToFileURL(path.join(root, "clis", modulePath)).href)
-    } catch (err) {
-      failedModules.push({ modulePath, error: err instanceof Error ? err.message : String(err) })
-    }
-  }
-  return failedModules
+function manifestCommandName(entry: Pick<OpenCliManifestEntry, "site" | "name">) {
+  return `${entry.site}/${entry.name}`
 }
 
-function canonicalCommandSet(): Set<string> {
-  return new Set([...getRegistry().values()].map((cmd) => fullName(cmd)))
+function manifestCommandSummary(entry: OpenCliManifestEntry): OpenCliCommandSummary {
+  return {
+    name: manifestCommandName(entry),
+    description: entry.description ?? "",
+    access: entry.access,
+    browser: entry.browser !== false,
+    domain: entry.domain,
+    navigateBefore: entry.navigateBefore,
+    args: entry.args,
+  }
+}
+
+function registryCommandSummary(command: CliCommand): OpenCliCommandSummary {
+  return {
+    name: fullName(command),
+    description: command.description ?? "",
+    access: command.access,
+    browser: command.browser !== false,
+    domain: command.domain,
+    navigateBefore: command.navigateBefore,
+    args: command.args,
+  }
+}
+
+async function importAdapterModule(modulePath: string) {
+  if (importedModules.has(modulePath)) return
+  const priorFailure = failedModules.get(modulePath)
+  if (priorFailure) throw new Error(`Failed to load OpenCLI adapter module ${modulePath}: ${priorFailure.error}`)
+  try {
+    await import(pathToFileURL(path.join(openCliPackageRoot(), "clis", modulePath)).href)
+    importedModules.add(modulePath)
+  } catch (err) {
+    const failure = { modulePath, error: err instanceof Error ? err.message : String(err) }
+    failedModules.set(modulePath, failure)
+    throw new Error(`Failed to load OpenCLI adapter module ${modulePath}: ${failure.error}`)
+  }
+}
+
+async function manifestEntryForCommand(name: string) {
+  return (await loadManifest()).find((entry) => manifestCommandName(entry) === name)
 }
 
 export async function loadOpenCliAdapters() {
-  loadPromise ??= (async () => {
-    const manifest = await loadManifest()
-    const failedModules = await importAdapterModules(manifest)
-    const canonicalCommands = canonicalCommandSet()
-    const exposedCommands = new Set([...canonicalCommands].filter((name) => !BLOCKED_OPENCLI_COMMANDS.has(name)))
-    return {
-      manifestCount: manifest.length,
-      canonicalCommands,
-      exposedCommands,
-      failedModules,
-    }
-  })()
-  return loadPromise
+  const manifest = await loadManifest()
+  const canonicalCommands = new Set([
+    ...manifest.map(manifestCommandName),
+    ...[...getRegistry().values()].map((command) => fullName(command)),
+  ])
+  const exposedCommands = new Set([...canonicalCommands].filter((name) => !BLOCKED_OPENCLI_COMMANDS.has(name)))
+  return {
+    manifestCount: manifest.length,
+    canonicalCommands,
+    exposedCommands,
+    failedModules: [...failedModules.values()],
+  }
 }
 
-export const importOpenCliAdapterModulesForTest = importAdapterModules
-
 export async function openCliCommand(name: string): Promise<CliCommand | undefined> {
-  await loadOpenCliAdapters()
   if (BLOCKED_OPENCLI_COMMANDS.has(name)) return undefined
+  const existing = getRegistry().get(name)
+  if (existing) return existing
+  const entry = await manifestEntryForCommand(name)
+  if (!entry) return undefined
+  await importAdapterModule(entry.modulePath)
   return getRegistry().get(name)
 }
 
-function scoreCommand(command: CliCommand, query: string) {
+export async function openCliCommandSummary(name: string): Promise<OpenCliCommandSummary | undefined> {
+  if (BLOCKED_OPENCLI_COMMANDS.has(name)) return undefined
+  const existing = getRegistry().get(name)
+  if (existing) return registryCommandSummary(existing)
+  const entry = await manifestEntryForCommand(name)
+  return entry ? manifestCommandSummary(entry) : undefined
+}
+
+function scoreCommand(command: OpenCliCommandSummary, query: string) {
   const needle = query.trim().toLowerCase()
   if (!needle) return 1
-  const name = fullName(command).toLowerCase()
-  const haystack = [name, command.description, command.domain, command.access, command.browser !== false ? "browser" : "http"]
+  const name = command.name.toLowerCase()
+  const haystack = [name, command.description, command.domain, command.access, command.browser ? "browser" : "http"]
     .filter(Boolean)
     .join(" ")
     .toLowerCase()
@@ -134,28 +162,30 @@ export async function searchOpenCliCommands(
   query: string,
   options: { limit?: number } = {},
 ): Promise<OpenCliCommandSummary[]> {
-  await loadOpenCliAdapters()
+  const manifest = await loadManifest()
   const limit = Math.min(Math.max(options.limit ?? 10, 1), 25)
-  return [...getRegistry().values()]
-    .filter((command, index, all) => all.findIndex((other) => fullName(other) === fullName(command)) === index)
-    .filter((command) => !BLOCKED_OPENCLI_COMMANDS.has(fullName(command)))
+  const summaries = new Map<string, OpenCliCommandSummary>()
+  for (const entry of manifest) {
+    const summary = manifestCommandSummary(entry)
+    summaries.set(summary.name, summary)
+  }
+  for (const command of getRegistry().values()) {
+    const summary = registryCommandSummary(command)
+    if (!summaries.has(summary.name)) summaries.set(summary.name, summary)
+  }
+  return [...summaries.values()]
+    .filter((command) => !BLOCKED_OPENCLI_COMMANDS.has(command.name))
     .map((command) => ({ command, score: scoreCommand(command, query) }))
     .filter((item) => item.score > 0)
-    .sort((a, b) => b.score - a.score || fullName(a.command).localeCompare(fullName(b.command)))
+    .sort((a, b) => b.score - a.score || a.command.name.localeCompare(b.command.name))
     .slice(0, limit)
-    .map(({ command }) => ({
-      name: fullName(command),
-      description: command.description ?? "",
-      access: command.access,
-      browser: command.browser !== false,
-      domain: command.domain,
-      args: command.args,
-    }))
+    .map(({ command }) => command)
 }
 
 export function resetOpenCliAdaptersForTest() {
-  loadPromise = undefined
   manifestCache = undefined
+  importedModules.clear()
+  failedModules.clear()
 }
 
 export * as AdapterRegistry from "./adapter-registry"

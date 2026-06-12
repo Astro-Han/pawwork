@@ -2,7 +2,7 @@ import { Effect, Schema } from "effect"
 import { fullName } from "@jackwener/opencli/registry"
 import * as Tool from "./tool"
 import DESCRIPTION from "./opencli-run.txt"
-import { openCliCommand } from "@/opencli/adapter-registry"
+import { openCliCommand, openCliCommandSummary, type OpenCliCommandSummary } from "@/opencli/adapter-registry"
 import { prepareOpenCliCommandArgs, runOpenCliAdapterCommand } from "@/opencli/adapter-runner"
 import { runBrowserAction } from "./browser-shared"
 
@@ -18,7 +18,7 @@ export const Parameters = Schema.Struct({
   }),
 })
 
-function commandKnownBrowserPermissionPatterns(command: OpenCliCommand): string[] {
+function commandKnownBrowserPermissionPatterns(command: Pick<OpenCliCommandSummary, "domain" | "navigateBefore">): string[] {
   if (typeof command.navigateBefore !== "string") return []
   const patterns: string[] = []
   try {
@@ -30,22 +30,27 @@ function commandKnownBrowserPermissionPatterns(command: OpenCliCommand): string[
   return [...new Set(patterns)]
 }
 
-function commandMetadata(command: OpenCliCommand) {
+function commandMetadata(command: OpenCliCommandSummary, args?: Record<string, unknown>) {
   return {
     action: "opencli_run",
-    command: fullName(command),
-    browser: command.browser !== false,
+    command: command.name,
+    browser: command.browser,
     access: command.access,
+    args,
   }
 }
 
-function askOpenCliWritePermission(ctx: Tool.Context, command: OpenCliCommand) {
-  const commandName = fullName(command)
+function askOpenCliAccessPermission(
+  ctx: Tool.Context,
+  command: OpenCliCommandSummary,
+  args: Record<string, unknown>,
+) {
+  const permission = command.access === "write" ? "opencli_write" : "opencli_read"
   return ctx.ask({
-    permission: "opencli_write",
-    patterns: [commandName],
-    always: [commandName],
-    metadata: commandMetadata(command),
+    permission,
+    patterns: [command.name],
+    always: [command.name],
+    metadata: commandMetadata(command, args),
   })
 }
 
@@ -87,7 +92,15 @@ function runBrowserCommand(command: OpenCliCommand, args: Record<string, unknown
     ctx,
     label: `opencli ${fullName(command)}`,
     patterns: patterns.length > 0 ? patterns : undefined,
-    metadata: commandMetadata(command),
+    metadata: commandMetadata({
+      name: fullName(command),
+      description: command.description ?? "",
+      access: command.access,
+      browser: command.browser !== false,
+      domain: command.domain,
+      navigateBefore: command.navigateBefore,
+      args: command.args,
+    }),
     timeoutMs: OPENCLI_RUN_TIMEOUT_MS,
     run: (page) => runOpenCliAdapterCommand(command, page, args),
   })
@@ -101,17 +114,27 @@ export const OpenCliRunTool = Tool.define(
       parameters: Parameters,
       execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
         Effect.gen(function* () {
+          const requestedArgs = params.args ?? {}
+          const preview = yield* Effect.tryPromise({
+            try: () => openCliCommandSummary(params.command),
+            catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+          })
+          if (!preview) {
+            return yield* Effect.fail(
+              new Error(`Unknown or unsupported OpenCLI command "${params.command}". Run opencli_search to find one.`),
+            )
+          }
+          yield* askOpenCliAccessPermission(ctx, preview, requestedArgs)
           const command = yield* Effect.tryPromise({
             try: () => openCliCommand(params.command),
             catch: (err) => (err instanceof Error ? err : new Error(String(err))),
           })
           if (!command) {
             return yield* Effect.fail(
-              new Error(`Unknown or unsupported OpenCLI command "${params.command}". Run opencli_search to find one.`),
+              new Error(`OpenCLI command "${params.command}" did not register after its adapter module loaded.`),
             )
           }
-          const args = prepareOpenCliCommandArgs(command, params.args ?? {})
-          if (command.access === "write") yield* askOpenCliWritePermission(ctx, command)
+          const args = prepareOpenCliCommandArgs(command, requestedArgs)
 
           const value = command.browser === false
             ? yield* Effect.tryPromise({
