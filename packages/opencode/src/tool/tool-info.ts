@@ -21,6 +21,10 @@ import { Parameters as BrowserScreenshotParameters } from "./browser-screenshot"
 import BrowserScreenshotDescription from "./browser-screenshot.txt"
 import { Parameters as BrowserExtractParameters } from "./browser-extract"
 import BrowserExtractDescription from "./browser-extract.txt"
+import { Parameters as OpenCliSearchParameters } from "./opencli-search"
+import OpenCliSearchDescription from "./opencli-search.txt"
+import { Parameters as OpenCliRunParameters } from "./opencli-run"
+import OpenCliRunDescription from "./opencli-run.txt"
 import { ProviderTransform } from "../provider/transform"
 import type { Provider } from "../provider/provider"
 import type { MessageV2 } from "../session/message-v2"
@@ -110,6 +114,20 @@ const DEFERRED: DeferredEntry[] = [
     parameters: BrowserExtractParameters as unknown as Tool.Def["parameters"],
     group: "browser",
   },
+  {
+    id: "opencli_search",
+    card: "Search bundled OpenCLI site adapters by site, task, domain, or command name.",
+    description: OpenCliSearchDescription,
+    parameters: OpenCliSearchParameters as unknown as Tool.Def["parameters"],
+    group: "opencli",
+  },
+  {
+    id: "opencli_run",
+    card: "Run one bundled OpenCLI site adapter command returned by opencli_search.",
+    description: OpenCliRunDescription,
+    parameters: OpenCliRunParameters as unknown as Tool.Def["parameters"],
+    group: "opencli",
+  },
 ] as const
 
 // One card per group in tool_info's listing; the member cards appear in the
@@ -117,6 +135,8 @@ const DEFERRED: DeferredEntry[] = [
 const GROUP_CARDS: Record<string, string> = {
   browser:
     "Drive the user-visible embedded browser: navigate, snapshot (numbered element refs), click, type, wait, screenshot, extract page content as markdown. Activates as one set — use for any task that needs to browse, read, or operate a website.",
+  opencli:
+    "Find and use bundled OpenCLI site adapters for website-specific workflows. Start with opencli_search, then run the selected command with opencli_run.",
 }
 
 const BY_ID: Record<string, DeferredEntry> = Object.fromEntries(DEFERRED.map((d) => [d.id, d]))

@@ -9,6 +9,7 @@ import {
   embeddedServerMissingArtifactsMessage,
 } from "./src/main/embedded-server-contract"
 import { createRendererWorkspaceConfig } from "./renderer-workspace-config"
+import { includeOpenCliRuntimeDirectory, includeOpenCliRuntimeFile, openCliRuntimePackages } from "./opencli-runtime"
 
 const channel = (() => {
   const raw = process.env.OPENCODE_CHANNEL
@@ -28,6 +29,28 @@ if (missingArtifacts.length > 0) {
 
 const nodePtyPkg = `@lydell/node-pty-${process.platform}-${process.arch}`
 const rendererWorkspaceConfig = createRendererWorkspaceConfig(process.cwd(), realpathSync)
+
+async function copyOpenCliRuntimePackage(pkg: ReturnType<typeof openCliRuntimePackages>[number], target: string) {
+  const stack = [{ source: pkg.dir, destination: target, relativePath: "" }]
+  while (stack.length > 0) {
+    const current = stack.pop()!
+    await fs.mkdir(current.destination, { recursive: true })
+    for (const entry of await fs.readdir(current.source, { withFileTypes: true })) {
+      const source = path.join(current.source, entry.name)
+      const destination = path.join(current.destination, entry.name)
+      const relativePath = current.relativePath ? path.join(current.relativePath, entry.name) : entry.name
+      if (entry.isDirectory()) {
+        if (includeOpenCliRuntimeDirectory(pkg.name, relativePath)) {
+          stack.push({ source, destination, relativePath })
+        }
+        continue
+      }
+      if (entry.isFile() && includeOpenCliRuntimeFile(pkg.name, relativePath)) {
+        await fs.copyFile(source, destination)
+      }
+    }
+  }
+}
 
 export default defineConfig({
   main: {
@@ -63,6 +86,16 @@ export default defineConfig({
           for (const l of await fs.readdir(OPENCODE_SERVER_DIST)) {
             if (!l.endsWith(".wasm")) continue
             await fs.writeFile(`./out/main/chunks/${l}`, await fs.readFile(path.join(OPENCODE_SERVER_DIST, l)))
+          }
+        },
+      },
+      {
+        name: "opencode:copy-opencli-runtime",
+        async writeBundle() {
+          for (const pkg of openCliRuntimePackages()) {
+            const target = path.join("./out/main/chunks/node_modules", ...pkg.name.split("/"))
+            await fs.rm(target, { recursive: true, force: true })
+            await copyOpenCliRuntimePackage(pkg, target)
           }
         },
       },

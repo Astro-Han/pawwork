@@ -23,6 +23,7 @@ const BROWSER_TOOLS = [
   "browser_screenshot",
   "browser_extract",
 ]
+const OPENCLI_TOOLS = ["opencli_search", "opencli_run"]
 
 function toolPart(
   tool: string,
@@ -38,12 +39,13 @@ function assistant(parts: unknown[]): MessageV2.WithParts {
 }
 
 describe("tool-info", () => {
-  test("DEFERRED_TOOL_IDS is exactly the worktree tools plus lsp plus the browser group", () => {
+  test("DEFERRED_TOOL_IDS is exactly the worktree tools plus lsp plus the browser and opencli groups", () => {
     expect([...DEFERRED_TOOL_IDS].sort()).toEqual(
-      [...BROWSER_TOOLS, "enter-worktree", "exit-worktree", "lsp"].sort(),
+      [...BROWSER_TOOLS, ...OPENCLI_TOOLS, "enter-worktree", "exit-worktree", "lsp"].sort(),
     )
-    expect([...DEFERRED_GROUP_IDS]).toEqual(["browser"])
+    expect([...DEFERRED_GROUP_IDS].sort()).toEqual(["browser", "opencli"].sort())
     expect(deferredGroupMembers("browser").sort()).toEqual([...BROWSER_TOOLS].sort())
+    expect(deferredGroupMembers("opencli").sort()).toEqual([...OPENCLI_TOOLS].sort())
   })
 
   test("deriveActivatedTools picks only completed tool_info calls for deferred tools", () => {
