@@ -10,7 +10,7 @@ import { FakeCdpServer, provideFakeHost, scriptCurrentUrl } from "../fake/cdp-se
 import { testEffect } from "../lib/effect"
 import { MessageID, SessionID } from "../../src/session/schema"
 import { OpenCliRunTool } from "../../src/tool/opencli-run"
-import { formatOpenCliSearchOutput, OpenCliSearchTool } from "../../src/tool/opencli-search"
+import { OpenCliSearchTool } from "../../src/tool/opencli-search"
 import type * as Tool from "../../src/tool/tool"
 import { Truncate } from "../../src/tool/truncate"
 
@@ -46,6 +46,7 @@ describe("opencli_search", () => {
       expect(result.title).toBe('OpenCLI commands for "12306/me"')
       expect(result.output).toContain('<opencli_command name="12306/me">')
       expect(result.output).toContain("browser: true")
+      expect(result.output).not.toContain("Warning:")
       expect(result.output).not.toContain("instagram/reel")
       expect(result.metadata).toMatchObject({ query: "12306/me" })
       expect(result.metadata).not.toHaveProperty("failedModuleCount")
@@ -81,27 +82,6 @@ describe("opencli_search", () => {
     }),
   )
 
-  test("omits adapter load failures from search results", () => {
-    const output = (formatOpenCliSearchOutput as unknown as (
-      results: Parameters<typeof formatOpenCliSearchOutput>[0],
-      failedModules: Array<{ modulePath: string; error: string }>,
-    ) => string)(
-      [
-        {
-          name: "pawwork-test/search",
-          description: "Search test adapter",
-          access: "read",
-          browser: false,
-          args: [],
-        },
-      ],
-      [{ modulePath: "broken.js", error: "boom" }],
-    )
-
-    expect(output).toContain('<opencli_command name="pawwork-test/search">')
-    expect(output).not.toContain("Warning:")
-    expect(output).not.toContain("broken.js")
-  })
 })
 
 describe("opencli_run", () => {
