@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import { Effect } from "effect"
+import { Workspace } from "../../src/control-plane/workspace"
+import { WorkspaceID } from "../../src/control-plane/schema"
+import { ProjectID } from "../../src/project/schema"
 import {
   classifyWorkspaceRoute,
   resolveWorkspaceRoute,
@@ -107,7 +110,7 @@ describe("workspace routing decisions", () => {
         workspaceID: undefined,
         ensureConfig: true,
         isPawWork: false,
-      }),
+      }).pipe(Effect.provide(Workspace.defaultLayer)),
     )
 
     expect(decision).toEqual({
@@ -115,5 +118,74 @@ describe("workspace routing decisions", () => {
       directory,
       createLegacyConfig: true,
     })
+  })
+
+  test("resolves workspace routes through the injected Workspace service", async () => {
+    const id = WorkspaceID.make("ws_effect_router")
+    const requestDirectory = "/tmp/pawwork-effect-request"
+    const targetDirectory = "/tmp/pawwork-effect-target"
+    const calls: string[] = []
+
+    const decision = await Effect.runPromise(
+      resolveWorkspaceRoute({
+        method: "GET",
+        pathname: "/path",
+        directory: requestDirectory,
+        workspaceID: id,
+        ensureConfig: false,
+        isPawWork: true,
+      }).pipe(
+        Effect.provideService(
+          Workspace.Service,
+          Workspace.Service.of({
+            create: () => Effect.die("unexpected create"),
+            list: () => Effect.die("unexpected list"),
+            record: (workspaceID) =>
+              Effect.sync(() => {
+                calls.push(`record:${workspaceID}`)
+                return {
+                  id: workspaceID,
+                  type: "test",
+                  branch: null,
+                  name: null,
+                  directory: null,
+                  owner: null,
+                  extra: null,
+                  projectID: ProjectID.global,
+                }
+              }),
+            get: () => Effect.die("unexpected get"),
+            ensureSync: (space, hint) =>
+              Effect.sync(() => {
+                if (!space) throw new Error("expected workspace")
+                calls.push(`ensureSync:${space.id}:${hint}`)
+              }),
+            remove: () => Effect.die("unexpected remove"),
+            resolveAdaptor: (space) =>
+              Effect.sync(() => {
+                calls.push(`resolveAdaptor:${id}:${space.type}`)
+                return {
+                  configure: (input) => input,
+                  create: async () => {},
+                  remove: async () => {},
+                  target: () => ({ type: "local" as const, directory: targetDirectory }),
+                }
+              }),
+            status: () => Effect.succeed([]),
+          }),
+        ),
+      ),
+    )
+
+    expect(decision).toEqual({
+      action: "provide-local-context",
+      directory: targetDirectory,
+      workspaceID: id,
+    })
+    expect(calls).toEqual([
+      `record:${id}`,
+      `ensureSync:${id}:${requestDirectory}`,
+      `resolveAdaptor:${id}:test`,
+    ])
   })
 })

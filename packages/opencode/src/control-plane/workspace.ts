@@ -1,6 +1,6 @@
 import z from "zod"
 import { setTimeout as sleep } from "node:timers/promises"
-import { Effect } from "effect"
+import { Context, Effect, Layer, Schema } from "effect"
 import { fn } from "@/util/fn"
 import { Database, eq } from "@/storage/db"
 import { Project } from "@/project/project"
@@ -13,10 +13,9 @@ import { ProjectID } from "@/project/schema"
 import { Instance } from "@/project/instance"
 import { Plugin } from "@/plugin"
 import { Auth } from "@/auth"
-import { AppRuntime } from "@/effect/app-runtime"
 import { WorkspaceTable } from "./workspace.sql"
 import { getAdaptor, getBuiltinAdaptor, ownerKey } from "./adaptors"
-import { WorkspaceInfo } from "./types"
+import { type Adaptor, WorkspaceInfo } from "./types"
 import { WorkspaceID } from "./schema"
 import { parseSSE } from "./sse"
 
@@ -25,7 +24,7 @@ export namespace Workspace {
     ref: "Workspace",
   })
   export type Info = z.infer<typeof Info>
-  type StoredInfo = Info & {
+  export type StoredInfo = Info & {
     owner: string | null
   }
 
@@ -84,6 +83,83 @@ export namespace Workspace {
     projectID: ProjectID.zod,
     extra: Info.shape.extra,
   })
+  export type CreateInput = z.infer<typeof CreateInput>
+
+  const WorkspaceErrorReason = Schema.Union([
+    Schema.Literal("create"),
+    Schema.Literal("list"),
+    Schema.Literal("record"),
+    Schema.Literal("get"),
+    Schema.Literal("sync"),
+    Schema.Literal("remove"),
+    Schema.Literal("adaptor"),
+    Schema.Literal("status"),
+  ])
+
+  export class WorkspaceError extends Schema.TaggedErrorClass<WorkspaceError>()("WorkspaceError", {
+    reason: WorkspaceErrorReason,
+    message: Schema.String,
+    cause: Schema.optional(Schema.Defect()),
+  }) {}
+
+  export interface Interface {
+    readonly create: (input: CreateInput) => Effect.Effect<Info, WorkspaceError>
+    readonly list: (project: Project.Info) => Effect.Effect<Info[], WorkspaceError>
+    readonly record: (id: WorkspaceID) => Effect.Effect<StoredInfo | undefined, WorkspaceError>
+    readonly get: (id: WorkspaceID) => Effect.Effect<Info | undefined, WorkspaceError>
+    readonly ensureSync: (space: StoredInfo | undefined, hint?: string | null) => Effect.Effect<void, WorkspaceError>
+    readonly remove: (id: WorkspaceID) => Effect.Effect<Info | undefined, WorkspaceError>
+    readonly resolveAdaptor: (
+      input: Pick<StoredInfo, "projectID" | "type" | "owner"> & { hint?: string | null },
+    ) => Effect.Effect<Adaptor, WorkspaceError>
+    readonly status: () => Effect.Effect<ConnectionStatus[], WorkspaceError>
+  }
+
+  export class Service extends Context.Service<Service, Interface>()("@opencode/Workspace") {}
+
+  const workspaceFailure =
+    (reason: WorkspaceError["reason"], message: string) =>
+    (cause: unknown) => {
+      if (cause instanceof WorkspaceError) return cause
+      const causeMessage =
+        cause instanceof Error ? cause.message : typeof cause === "string" && cause.length > 0 ? cause : undefined
+      return new WorkspaceError({
+        reason,
+        message: causeMessage ? `${message}: ${causeMessage}` : message,
+        cause,
+      })
+    }
+
+  const effect = <A>(reason: WorkspaceError["reason"], message: string, run: () => A) =>
+    Effect.try({
+      try: run,
+      catch: workspaceFailure(reason, message),
+    })
+
+  const promise = <A>(reason: WorkspaceError["reason"], message: string, run: () => Promise<A>) =>
+    Effect.tryPromise({
+      try: run,
+      catch: workspaceFailure(reason, message),
+    })
+
+  export const layer = Layer.succeed(
+    Service,
+    Service.of({
+      create: (input) => promise("create", "Failed to create workspace", () => Workspace.create(input)),
+      list: (project) => effect("list", "Failed to list workspaces", () => Workspace.list(project)),
+      record: (id) => promise("record", `Failed to read workspace: ${id}`, () => Workspace.record(id)),
+      get: (id) => promise("get", `Failed to get workspace: ${id}`, () => Workspace.get(id)),
+      ensureSync: (space, hint) =>
+        effect("sync", space ? `Failed to start workspace sync: ${space.id}` : "Failed to start workspace sync", () =>
+          Workspace.ensureSync(space, hint),
+        ),
+      remove: (id) => promise("remove", `Failed to remove workspace: ${id}`, () => Workspace.remove(id)),
+      resolveAdaptor: (input) =>
+        promise("adaptor", `Failed to resolve workspace adaptor: ${input.type}`, () => Workspace.resolveAdaptor(input)),
+      status: () => effect("status", "Failed to read workspace status", () => Workspace.status()),
+    }),
+  )
+  export const defaultLayer = layer
 
   async function bootstrapAdaptor(
     input: Pick<StoredInfo, "projectID" | "type" | "owner"> & { hint?: string | null },
@@ -209,16 +285,11 @@ export namespace Workspace {
     const scopedAuth =
       requestedProviders.length === 0
         ? undefined
-        : await AppRuntime.runPromise(
-            Auth.Service.use((auth) =>
-              Effect.gen(function* () {
-                const all = yield* auth.all()
-                return Object.fromEntries(
-                  requestedProviders
-                    .map((provider) => [provider, all[provider]] as const)
-                    .filter(([, value]) => value !== undefined),
-                )
-              }),
+        : await Auth.all().then((all) =>
+            Object.fromEntries(
+              requestedProviders
+                .map((provider) => [provider, all[provider]] as const)
+                .filter(([, value]) => value !== undefined),
             ),
           )
 

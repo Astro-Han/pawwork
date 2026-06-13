@@ -226,7 +226,7 @@ Still open:
 
 - [x] `SessionTodo` — `session/todo.ts`
 - [x] `SyncEvent` — `sync/index.ts`
-- [ ] `Workspace` — `control-plane/workspace.ts`
+- [x] `Workspace` — `control-plane/workspace.ts`
 
 ## Tool interface → Effect
 
@@ -376,6 +376,7 @@ Decision table for the design:
 - `Question` — migrated 2026-04-11. Callers in `server/routes/question.ts` and test converted; facade removed.
 - `Truncate` — migrated 2026-04-11. Caller in `tool/tool.ts` and test converted; facade removed.
 - `SyncEvent` — migrated 2026-06-14. Added `SyncEvent.Service` / `defaultLayer`, wired it into `AppRuntime`, and introduced typed `SyncEventError` failures for the Effect service path. Existing synchronous facade functions remain as the compatibility boundary for legacy callers.
+- `Workspace` — migrated 2026-06-14. Added `Workspace.Service` / `defaultLayer`, wired it into `AppRuntime`, introduced typed `WorkspaceError` failures for the Effect service path, and moved workspace routing record/sync/adaptor resolution onto the injected service. Existing async facade functions remain as the compatibility boundary for legacy route/tests callers.
 
 ## Route handler effectification
 

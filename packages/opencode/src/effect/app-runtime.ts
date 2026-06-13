@@ -50,6 +50,7 @@ import { SessionShare } from "@/share/session"
 import { ShareRuntime } from "@/share/runtime"
 import { Automation } from "@/automation"
 import { SyncEvent } from "@/sync"
+import { Workspace } from "@/control-plane/workspace"
 import { memoMap } from "@opencode-ai/core/effect/memo-map"
 import { InstanceLayer } from "@/project/instance-layer"
 
@@ -103,6 +104,7 @@ export const AppLayer = Layer.mergeAll(
   ShareRuntime.cloudShareGateDefaultLayer,
   Automation.defaultLayer,
   SyncEvent.defaultLayer,
+  Workspace.defaultLayer,
 ).pipe(Layer.provideMerge(InstanceLayer.layer))
 
 const rt = ManagedRuntime.make(AppLayer, { memoMap })
