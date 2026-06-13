@@ -1,6 +1,5 @@
 import { Cause, Effect, Schema } from "effect"
 import { ActiveRunStillRunningError, Automation } from "@/automation"
-import { AutomationScheduler } from "@/automation/scheduler"
 import { NotFoundError } from "@/storage/db"
 import * as Tool from "./tool"
 
@@ -118,8 +117,6 @@ export function createAutomateManageDefinition(
           metadata: { action: "delete", id, title: previous.title },
         })
         const removed = yield* readableAutomationEffect(automation.remove(id), id)
-        const scheduler = AutomationScheduler.current()
-        yield* Effect.sync(() => scheduler.cancel(removed.tombstone.id))
         if (removed.stoppedRun) yield* automation.publishRunUpdated(removed.stoppedRun)
         yield* automation.publishDefinitionDeleted(removed.tombstone)
         return {

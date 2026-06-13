@@ -162,22 +162,29 @@ describe("automate_manage tool", () => {
     })
   })
 
-  test("delete asks once, cancels the scheduler, and removes the automation", async () => {
+  test("delete asks once, publishes deletion, and removes the automation", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const cancelled: string[] = []
         const asks: unknown[] = []
-        installScheduler(cancelled)
+        const deletedEvents: Automation.Tombstone[] = []
+        const unsubscribe = Bus.subscribe(Automation.Event.DefinitionDeleted, (event) => {
+          deletedEvents.push(event.properties)
+        })
+        installScheduler()
         const created = Automation.create(recurring(Instance.project.id, "Daily repo brief"), { now: 100 })
 
-        const result = await Effect.runPromise(tool().execute({ action: "delete", id: created.id }, toolContext(asks)))
+        try {
+          const result = await Effect.runPromise(tool().execute({ action: "delete", id: created.id }, toolContext(asks)))
+          expect(result.title).toBe("Automation deleted")
+          expect(result.metadata.automationTombstone).toEqual({ id: created.id, deleted: true, revision: 2 })
+          expect(JSON.parse(result.output)).toEqual({ id: created.id, deleted: true, revision: 2 })
+        } finally {
+          unsubscribe()
+        }
 
-        expect(result.title).toBe("Automation deleted")
-        expect(result.metadata.automationTombstone).toEqual({ id: created.id, deleted: true, revision: 2 })
-        expect(JSON.parse(result.output)).toEqual({ id: created.id, deleted: true, revision: 2 })
-        expect(cancelled).toEqual([created.id])
+        expect(deletedEvents).toEqual([{ id: created.id, deleted: true, revision: 2 }])
         expect(asks).toEqual([
           {
             permission: "automate_manage",
