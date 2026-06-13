@@ -323,7 +323,7 @@ export function createSessionTimelineInteraction(input: {
       !next.metrics.nearBottom &&
       result.mode === "following_latest"
     ) {
-      reconciler.restoreNow("scroll-drift", next.safePosition)
+      reconciler.markDirty("scroll-drift")
     }
     return result
   }
