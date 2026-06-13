@@ -116,20 +116,52 @@ describe("tool.registry", () => {
     expect(systemPrompt).toContain("by writing files")
   })
 
-  // Web tasks must route to the embedded browser tools, never to curl/wget
-  // sessions or a premature "can't access the web". The tools are deferred
-  // (one tool_info card), so the resident surfaces carry the routing: the
-  // system prompt names the trigger intents and the bash redirect list
-  // catches the entry point models drift into.
+  // Web tasks route adapter-first: a specific site checks opencli_search for a
+  // bundled adapter before falling back to the embedded browser tools, never to
+  // curl/wget sessions or a premature "can't access the web". Both tool groups
+  // are deferred (one tool_info card each), so the resident surfaces carry the
+  // routing — the system prompt names the trigger intents, the adapter→browser
+  // fallback order, the one-retry cap, and the permission-denial stop; the bash
+  // redirect list catches the entry point models drift into.
   test("keeps browsing routing contract across prompt surfaces", async () => {
     const shellDescription = await Bun.file(new URL("../../src/tool/shell.txt", import.meta.url)).text()
-    expect(shellDescription).toContain("Browsing or operating websites: Use the browser tools, activated via tool_info")
+    // The redirect triggers on acting on a site, not on merely visiting one, so it
+    // stays in step with the system prompt's action-intent routing and doesn't push
+    // opencli_search ahead of a one-shot read.
+    expect(shellDescription).toContain("To act on a specific site (sign in, search, book, post, pull data)")
+    expect(shellDescription).toContain("check opencli_search for an adapter first")
+    expect(shellDescription).toContain("a one-shot page read can use webfetch")
+
+    // The redirect must not drift back to a browser-first rule or a visit-based trigger.
+    expect(shellDescription).not.toContain("Use the browser tools, activated via tool_info")
+    expect(shellDescription).not.toContain("For a specific site, check opencli_search")
 
     const systemPrompt = await Bun.file(new URL("../../src/session/prompt/pawwork.txt", import.meta.url)).text()
     expect(systemPrompt).toContain("# Browsing and operating websites")
+    expect(systemPrompt).toContain("`opencli` tool group via `tool_info`")
+    expect(systemPrompt).toContain("opencli_search")
+    expect(systemPrompt).toContain("opencli_run")
     expect(systemPrompt).toContain("`browser` tool group via `tool_info`")
+    expect(systemPrompt).toContain("do not retry the same adapter more than once")
+    // Permission denial is held distinct from an adapter failure so the stop is not
+    // read as just another fall-back-to-browser case.
+    expect(systemPrompt).toContain("is not an adapter failure to route around")
+    expect(systemPrompt).toContain("do not switch to another tool to carry out the same action they just declined")
     expect(systemPrompt).toContain("Never simulate a browser session with `curl` or `wget`")
     expect(systemPrompt).toContain("never declare a web task impossible")
+    // The "try first" pointer names the actual tools, not an ambiguous "these tools".
+    expect(systemPrompt).toContain("trying the `opencli` or `browser` tool groups first")
+    expect(systemPrompt).not.toContain("trying these tools first")
+    // Adapter-first ordering: opencli_search is reached before the browser fallback.
+    expect(systemPrompt.indexOf("opencli_search")).toBeLessThan(systemPrompt.indexOf("Fall back to the `browser`"))
+
+    // The tool_info group cards are resident surfaces too: the browser card must
+    // not re-route every website task back to the browser, or it would undo the
+    // adapter-first routing the prompt and shell redirect establish.
+    const toolInfoSource = await Bun.file(new URL("../../src/tool/tool-info.ts", import.meta.url)).text()
+    expect(toolInfoSource).not.toContain("use for any task that needs to browse, read, or operate a website")
+    expect(toolInfoSource).toContain("for a specific site, check the opencli group first")
+    expect(toolInfoSource).toContain("prefer these over the browser tools when one matches")
   })
 
   test("loads tools from .opencode/tool (singular)", async () => {

@@ -134,9 +134,9 @@ const DEFERRED: DeferredEntry[] = [
 // group's tool_info output instead.
 const GROUP_CARDS: Record<string, string> = {
   browser:
-    "Drive the user-visible embedded browser: navigate, snapshot (numbered element refs), click, type, wait, screenshot, extract page content as markdown. Activates as one set — use for any task that needs to browse, read, or operate a website.",
+    "Drive the user-visible embedded browser: navigate, snapshot (numbered element refs), click, type, wait, screenshot, extract page content as markdown. Activates as one set — use for general browsing, visual checks, and any site without a bundled adapter; for a specific site, check the opencli group first.",
   opencli:
-    "Find and use bundled OpenCLI site adapters for website-specific workflows. Start with opencli_search, then run the selected command with opencli_run.",
+    "Find and use bundled OpenCLI site adapters for a specific site or site-specific workflow — prefer these over the browser tools when one matches. Start with opencli_search, then run the selected command with opencli_run.",
 }
 
 const BY_ID: Record<string, DeferredEntry> = Object.fromEntries(DEFERRED.map((d) => [d.id, d]))
