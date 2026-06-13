@@ -125,11 +125,16 @@ describe("tool.registry", () => {
   // redirect list catches the entry point models drift into.
   test("keeps browsing routing contract across prompt surfaces", async () => {
     const shellDescription = await Bun.file(new URL("../../src/tool/shell.txt", import.meta.url)).text()
-    expect(shellDescription).toContain("check opencli_search for a bundled adapter first")
-    expect(shellDescription).toContain("fall back to the browser tools")
+    // The redirect triggers on acting on a site, not on merely visiting one, so it
+    // stays in step with the system prompt's action-intent routing and doesn't push
+    // opencli_search ahead of a one-shot read.
+    expect(shellDescription).toContain("To act on a specific site (sign in, search, book, post, pull data)")
+    expect(shellDescription).toContain("check opencli_search for an adapter first")
+    expect(shellDescription).toContain("a one-shot page read can use webfetch")
 
-    // The redirect must not drift back to a browser-first rule.
+    // The redirect must not drift back to a browser-first rule or a visit-based trigger.
     expect(shellDescription).not.toContain("Use the browser tools, activated via tool_info")
+    expect(shellDescription).not.toContain("For a specific site, check opencli_search")
 
     const systemPrompt = await Bun.file(new URL("../../src/session/prompt/pawwork.txt", import.meta.url)).text()
     expect(systemPrompt).toContain("# Browsing and operating websites")
@@ -138,9 +143,15 @@ describe("tool.registry", () => {
     expect(systemPrompt).toContain("opencli_run")
     expect(systemPrompt).toContain("`browser` tool group via `tool_info`")
     expect(systemPrompt).toContain("do not retry the same adapter more than once")
+    // Permission denial is held distinct from an adapter failure so the stop is not
+    // read as just another fall-back-to-browser case.
+    expect(systemPrompt).toContain("is not an adapter failure to route around")
     expect(systemPrompt).toContain("do not switch to another tool to carry out the same action they just declined")
     expect(systemPrompt).toContain("Never simulate a browser session with `curl` or `wget`")
     expect(systemPrompt).toContain("never declare a web task impossible")
+    // The "try first" pointer names the actual tools, not an ambiguous "these tools".
+    expect(systemPrompt).toContain("trying the `opencli` or `browser` tool groups first")
+    expect(systemPrompt).not.toContain("trying these tools first")
     // Adapter-first ordering: opencli_search is reached before the browser fallback.
     expect(systemPrompt.indexOf("opencli_search")).toBeLessThan(systemPrompt.indexOf("Fall back to the `browser`"))
 
