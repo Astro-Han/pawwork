@@ -10,8 +10,10 @@ import { EventTable } from "../../src/sync/event.sql"
 import { Identifier } from "../../src/id/id"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { initProjectors } from "../../src/server/projectors"
+import { testEffect } from "../lib/effect"
 
 const original = Flag.OPENCODE_EXPERIMENTAL_WORKSPACES
+const syncIt = testEffect(SyncEvent.defaultLayer)
 
 beforeEach(() => {
   Database.close()
@@ -134,12 +136,12 @@ describe("SyncEvent", () => {
   })
 
   describe("replay", () => {
-    test(
+    syncIt.effect(
       "returns a typed Effect failure for unknown event types",
-      withInstance(async () => {
+      Effect.gen(function* () {
         setup()
 
-        const exit = await Effect.runPromiseExit(
+        const exit = yield*
           SyncEvent.Service.use((sync) =>
             sync.replay({
               id: "evt_1",
@@ -148,8 +150,7 @@ describe("SyncEvent", () => {
               aggregateID: "x",
               data: {},
             }),
-          ).pipe(Effect.provide(SyncEvent.defaultLayer)),
-        )
+          ).pipe(Effect.exit)
 
         expect(Exit.isFailure(exit)).toBe(true)
         if (Exit.isSuccess(exit)) return
