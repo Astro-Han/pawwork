@@ -11,7 +11,7 @@ import { Shell } from "../../src/shell/shell"
 import { ShellTool } from "../../src/tool/shell"
 import { Instance } from "../../src/project/instance"
 import { Filesystem } from "../../src/util/filesystem"
-import { tmpdir } from "../fixture/fixture"
+import { provideTmpdirInstance, tmpdir } from "../fixture/fixture"
 import type { Permission } from "../../src/permission"
 import { Agent } from "../../src/agent/agent"
 import { Truncate } from "../../src/tool/truncate"
@@ -25,20 +25,26 @@ import { Session as SessionNs } from "../../src/session"
 import { MessageV2 } from "../../src/session/message-v2"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { resetDatabase } from "../fixture/db"
+import { testEffect } from "../lib/effect"
 
-const runtime = ManagedRuntime.make(
-  Layer.mergeAll(
-    CrossSpawnSpawner.defaultLayer,
-    AppFileSystem.defaultLayer,
-    Plugin.defaultLayer,
-    Truncate.defaultLayer,
-    Agent.defaultLayer,
-    TurnChange.defaultLayer,
-  ),
+const testLayer = Layer.mergeAll(
+  CrossSpawnSpawner.defaultLayer,
+  AppFileSystem.defaultLayer,
+  Plugin.defaultLayer,
+  Truncate.defaultLayer,
+  Agent.defaultLayer,
+  TurnChange.defaultLayer,
 )
+const runtime = ManagedRuntime.make(testLayer)
+const it = testEffect(testLayer)
+
+const initBashEffect = Effect.fn("ShellToolTest.initBash")(function* () {
+  const info = yield* ShellTool
+  return yield* info.init()
+})
 
 function initBash() {
-  return runtime.runPromise(ShellTool.pipe(Effect.flatMap((info) => info.init())))
+  return runtime.runPromise(initBashEffect())
 }
 
 const ctx = {
@@ -177,6 +183,16 @@ const mustTruncate = (result: {
 }
 
 describe("tool.bash", () => {
+  it.live("initializes through Effect", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const tool = yield* initBashEffect()
+        expect(tool.description).toContain("Executes one command in the selected shell")
+        expect(tool.parameters).toBeDefined()
+      }),
+    ),
+  )
+
   each(
     "basic",
     async () => {

@@ -658,8 +658,7 @@ export const ShellTool = Tool.define(
       }
     })
 
-    return () =>
-      Effect.gen(function* () {
+    return Effect.fn("ShellTool.init")(function* () {
         const directory = (yield* InstanceState.context).directory
         const shell = Shell.acceptable()
         const name = Shell.name(shell)
