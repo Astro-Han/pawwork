@@ -38,13 +38,13 @@ const testLayer = Layer.mergeAll(
 const runtime = ManagedRuntime.make(testLayer)
 const it = testEffect(testLayer)
 
-const initBashEffect = Effect.fn("ShellToolTest.initBash")(function* () {
+const initBashEffect = Effect.gen(function* () {
   const info = yield* ShellTool
   return yield* info.init()
 })
 
 function initBash() {
-  return runtime.runPromise(initBashEffect())
+  return runtime.runPromise(initBashEffect)
 }
 
 const ctx = {
@@ -186,7 +186,7 @@ describe("tool.bash", () => {
   it.live("initializes through Effect", () =>
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
-        const tool = yield* initBashEffect()
+        const tool = yield* initBashEffect
         expect(tool.description).toContain("Executes one command in the selected shell")
         expect(tool.parameters).toBeDefined()
       }),

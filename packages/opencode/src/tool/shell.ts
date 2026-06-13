@@ -659,95 +659,95 @@ export const ShellTool = Tool.define(
     })
 
     return Effect.fn("ShellTool.init")(function* () {
-        const directory = (yield* InstanceState.context).directory
-        const shell = Shell.acceptable()
-        const name = Shell.name(shell)
-        log.info("shell tool using shell", { shell })
+      const directory = (yield* InstanceState.context).directory
+      const shell = Shell.acceptable()
+      const name = Shell.name(shell)
+      log.info("shell tool using shell", { shell })
 
-        const limits: Limits = { maxLines: Truncate.MAX_LINES, maxBytes: Truncate.MAX_BYTES }
-        const description = renderDescription({
-          name,
-          platform: process.platform,
-          directory,
-          tmp: Global.Path.tmp,
-          limits,
-          defaultTimeout: DEFAULT_TIMEOUT,
-        })
-
-        const deps: ArtifactDeps = {
-          resolveExecutionPath,
-          assertExternalDirectory: assertExternalDirectoryEffect,
-          readTrackedState,
-          discoverOfficeOutputs,
-          officeCliTargets,
-          nonOfficeCliCommandText,
-          isLikelyWriteCommand,
-          recordWrite: (input) => turnChange.recordWrite(input),
-          recordUncaptured: (input) => turnChange.recordUncaptured(input),
-        }
-
-        return {
-          description,
-          parameters: Parameters,
-          execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
-            Effect.gen(function* () {
-              const instance = yield* InstanceState.context
-              const directory = instance.directory
-              const cwd = params.workdir ? yield* resolveExecutionPath(params.workdir, directory, shell) : directory
-              const permissionCwdTarget = params.workdir
-                ? yield* resolvePermissionTarget(params.workdir, directory, shell)
-                : directory
-              if (params.timeout !== undefined && params.timeout <= 0) {
-                throw new Error(`Invalid timeout value: ${params.timeout}. Timeout must be a positive number.`)
-              }
-              const timeout = params.timeout ?? DEFAULT_TIMEOUT
-              const ps = PS.has(name)
-              yield* Effect.scoped(
-                Effect.gen(function* () {
-                  const tree = yield* Effect.acquireRelease(parse(params.command, ps), (tree: Tree) =>
-                    Effect.sync(() => tree.delete()),
-                  )
-                  const scan = yield* collect(tree.rootNode, cwd, ps, shell, instance)
-                  const permissionCwd = resolveExternalPathForPermission(permissionCwdTarget, directory)
-                  if (!Instance.containsPath(permissionCwd, instance)) scan.dirs.add(permissionCwd)
-                  yield* ask(ctx, scan, params)
-                }),
-              )
-
-              // shellEnv() must run AFTER the orchestrator's before-snapshots.
-              // A `shell.env` plugin can create or modify files (config, sockets,
-              // bundled-tool drops) as a side effect; running it before the
-              // before-state read would fold that mutation into "before" and the
-              // subsequent change would never surface as a turn-change record.
-              return yield* orchestrateArtifacts(
-                {
-                  ctx,
-                  cwd,
-                  directory,
-                  shell,
-                  command: params.command,
-                  expectedOutputs: params.expected_outputs ?? [],
-                },
-                () =>
-                  Effect.gen(function* () {
-                    const env = yield* shellEnv(ctx, cwd)
-                    return yield* run(
-                      {
-                        shell,
-                        name,
-                        command: params.command,
-                        cwd,
-                        env,
-                        timeout,
-                        description: params.description,
-                      },
-                      ctx,
-                    )
-                  }),
-                deps,
-              )
-            }),
-        }
+      const limits: Limits = { maxLines: Truncate.MAX_LINES, maxBytes: Truncate.MAX_BYTES }
+      const description = renderDescription({
+        name,
+        platform: process.platform,
+        directory,
+        tmp: Global.Path.tmp,
+        limits,
+        defaultTimeout: DEFAULT_TIMEOUT,
       })
+
+      const deps: ArtifactDeps = {
+        resolveExecutionPath,
+        assertExternalDirectory: assertExternalDirectoryEffect,
+        readTrackedState,
+        discoverOfficeOutputs,
+        officeCliTargets,
+        nonOfficeCliCommandText,
+        isLikelyWriteCommand,
+        recordWrite: (input) => turnChange.recordWrite(input),
+        recordUncaptured: (input) => turnChange.recordUncaptured(input),
+      }
+
+      return {
+        description,
+        parameters: Parameters,
+        execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
+          Effect.gen(function* () {
+            const instance = yield* InstanceState.context
+            const directory = instance.directory
+            const cwd = params.workdir ? yield* resolveExecutionPath(params.workdir, directory, shell) : directory
+            const permissionCwdTarget = params.workdir
+              ? yield* resolvePermissionTarget(params.workdir, directory, shell)
+              : directory
+            if (params.timeout !== undefined && params.timeout <= 0) {
+              throw new Error(`Invalid timeout value: ${params.timeout}. Timeout must be a positive number.`)
+            }
+            const timeout = params.timeout ?? DEFAULT_TIMEOUT
+            const ps = PS.has(name)
+            yield* Effect.scoped(
+              Effect.gen(function* () {
+                const tree = yield* Effect.acquireRelease(parse(params.command, ps), (tree: Tree) =>
+                  Effect.sync(() => tree.delete()),
+                )
+                const scan = yield* collect(tree.rootNode, cwd, ps, shell, instance)
+                const permissionCwd = resolveExternalPathForPermission(permissionCwdTarget, directory)
+                if (!Instance.containsPath(permissionCwd, instance)) scan.dirs.add(permissionCwd)
+                yield* ask(ctx, scan, params)
+              }),
+            )
+
+            // shellEnv() must run AFTER the orchestrator's before-snapshots.
+            // A `shell.env` plugin can create or modify files (config, sockets,
+            // bundled-tool drops) as a side effect; running it before the
+            // before-state read would fold that mutation into "before" and the
+            // subsequent change would never surface as a turn-change record.
+            return yield* orchestrateArtifacts(
+              {
+                ctx,
+                cwd,
+                directory,
+                shell,
+                command: params.command,
+                expectedOutputs: params.expected_outputs ?? [],
+              },
+              () =>
+                Effect.gen(function* () {
+                  const env = yield* shellEnv(ctx, cwd)
+                  return yield* run(
+                    {
+                      shell,
+                      name,
+                      command: params.command,
+                      cwd,
+                      env,
+                      timeout,
+                      description: params.description,
+                    },
+                    ctx,
+                  )
+                }),
+              deps,
+            )
+          }),
+      }
+    })
   }),
 )
