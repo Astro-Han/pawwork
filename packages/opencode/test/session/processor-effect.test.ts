@@ -3041,7 +3041,8 @@ noStreamDeadToolIt.live(
           if (toolParts[0]?.state.status === "error") {
             expect(toolParts[0].tool).toBe("offline")
             expect(toolParts[0].state.input).toEqual({ value: "stuck" })
-            expect(toolParts[0].state.error).toBe("Tool execution aborted")
+            expect(toolParts[0].state.error).toContain("may have started or completed")
+            expect(toolParts[0].state.error).toContain("do not repeat")
             expect(toolParts[0].state.metadata?.interrupted).toBe(true)
             expect(toolParts[0].state.metadata?.interruption_phase).toBe("tool_execution")
             expect(toolParts[0].state.metadata?.tool_execution_started).toBe(true)
@@ -3058,7 +3059,7 @@ noStreamDeadToolIt.live(
             toolName: "offline",
             output: {
               type: "error-text",
-              value: "Tool execution aborted",
+              value: expect.stringContaining("do not repeat"),
             },
           })
           const stored = storedMessages.find(
@@ -3066,6 +3067,7 @@ noStreamDeadToolIt.live(
           )
           expect(stored?.info.role).toBe("assistant")
           if (stored?.info.role === "assistant") {
+            expect(stored.info.error).toBeUndefined()
             const evidence: Array<{ event_type: string; order: number }> =
               stored.info.diagnostics?.run_observability?.incident?.evidence ?? []
             const interruptedOrder = evidence.find((event) => event.event_type === "tool_execution_interrupted")?.order
@@ -3160,7 +3162,7 @@ lateLifecycleAfterFinalizeIt.live(
           expect(toolParts[0]?.state.status).toBe("error")
           if (toolParts[0]?.state.status === "error") {
             expect(toolParts[0].state.input).toEqual({ value: "stuck" })
-            expect(toolParts[0].state.error).toBe("Tool execution aborted")
+            expect(toolParts[0].state.error).toContain("do not repeat")
             expect(toolParts[0].state.metadata?.interrupted).toBe(true)
             expect(toolParts[0].state.metadata?.interruption_phase).toBe("tool_execution")
             expect(toolParts[0].state.metadata?.marker).toBeUndefined()
@@ -3286,6 +3288,7 @@ it.live("session.processor effect tests waits for fast completed tool materializ
         }
         expect(stored?.info.role).toBe("assistant")
         if (stored?.info.role === "assistant") {
+          expect(stored.info.error).toBeUndefined()
           const observability = stored.info.diagnostics?.run_observability
           expect(observability?.tool_execution_started).toBe(true)
           expect(observability?.attempts?.[0]?.tool_execution_completed).toBe(true)
@@ -3498,6 +3501,7 @@ it.live("session.processor effect tests bounds drain for dead tools after provid
       Effect.gen(function* () {
         const { processors, session, provider } = yield* boot()
         const toolStarted = defer<void>()
+        let executions = 0
 
         yield* llm.push(
           raw({
@@ -3585,6 +3589,7 @@ it.live("session.processor effect tests bounds drain for dead tools after provid
                 description: "Never resolves",
                 inputSchema: z.object({ value: z.string() }),
                 execute: async () => {
+                  executions += 1
                   toolStarted.resolve()
                   await new Promise<never>(() => {})
                 },
@@ -3597,8 +3602,10 @@ it.live("session.processor effect tests bounds drain for dead tools after provid
         yield* Fiber.join(run)
 
         const call = MessageV2.parts(msg.id).find((part): part is MessageV2.ToolPart => part.type === "tool")
+        expect(executions).toBe(1)
         expect(call?.state.status).toBe("error")
         if (call?.state.status === "error") {
+          expect(call.state.error).toContain("do not repeat")
           expect(call.state.metadata?.interrupted).toBe(true)
           expect(call.state.metadata?.interruption_phase).toBe("tool_execution")
           expect(call.state.metadata?.tool_execution_started).toBe(true)

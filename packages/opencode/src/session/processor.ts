@@ -26,6 +26,7 @@ import { isRecord } from "@/util/record"
 import { InstanceState } from "@/effect/instance-state"
 import { TurnChange } from "./turn-change"
 import { LLMTrace } from "./llm-trace"
+import type { RunIncident } from "./run-incident"
 import { RunObservability } from "./run-observability"
 import {
   currentLifecycleCloseAction,
@@ -150,6 +151,8 @@ const TOOL_INTERRUPTION_ERRORS: Record<ToolInterruptionPhase, string> = {
   tool_call_materialized_without_execution: "Tool call was prepared, but the tool did not run before the interruption.",
   tool_input_generation: "Tool call generation interrupted before the tool ran.",
 }
+const TOOL_EXECUTION_UNRESOLVED_CAUTION =
+  "Tool execution was interrupted after it started. The operation may have started or completed; do not repeat it without verifying the external state or asking the user."
 
 function watchdogPhase(error: unknown): "connect" | "silent_stream" | "unknown" | undefined {
   const message = errorMessage(error).toLowerCase()
@@ -1386,10 +1389,9 @@ export const layer: Layer.Layer<
           // was cancelled before they answered". State only the certain fact
           // (cancelled before answered), don't claim whether the user saw it
           // — they may have. See issue #419.
-          const errorText =
-            part.tool === "question"
-              ? "Question cancelled before the user answered it."
-              : TOOL_INTERRUPTION_ERRORS[interruptionPhase]
+          let errorText = TOOL_INTERRUPTION_ERRORS[interruptionPhase]
+          if (interruptionPhase === "tool_execution" && !aborted) errorText = TOOL_EXECUTION_UNRESOLVED_CAUTION
+          if (part.tool === "question") errorText = "Question cancelled before the user answered it."
           yield* session.updatePart({
             ...part,
             state: {
@@ -1435,6 +1437,15 @@ export const layer: Layer.Layer<
           { concurrency: "unbounded" },
         )
       })
+
+      const hasModelConsumableToolSettlement = () =>
+        MessageV2.parts(ctx.assistantMessage.id).some(
+          (part) => part.type === "tool" && (part.state.status === "completed" || part.state.status === "error"),
+        )
+      const allowsModelConsumableToolSettlement = (recommendation: RunIncident.Recovery["recommendation"]) =>
+        recommendation === "ask_user_before_retry" ||
+        recommendation === "offer_resume_with_confirmation" ||
+        recommendation === "offer_continue"
 
       const cleanup = Effect.fn("SessionProcessor.cleanup")(function* () {
         if (ctx.snapshot) {
@@ -1838,6 +1849,13 @@ export const layer: Layer.Layer<
               timeout_policy: retryDecision.timeoutPolicy,
               presentation: retryDecision.presentation,
             })
+
+            if (
+              allowsModelConsumableToolSettlement(decision.recommendation) &&
+              hasModelConsumableToolSettlement()
+            ) {
+              break
+            }
 
             if (attemptID && retryDecision.canRetry && retryDecision.recoveryMode === "replay") {
               const beforeRetry = yield* retryStillAllowed("before_backoff")
