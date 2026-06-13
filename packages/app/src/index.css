@@ -120,15 +120,40 @@
      see issue tracked alongside PR #880 follow-up. The toggle's own
      absolute `right-2` (or `right-0` on Windows) provides the inset from
      the viewport edge in both open and closed states. */
-  [data-component="titlebar-shell"][data-shell="desktop"][data-shell-os="macos"] {
-    padding-inline-start: 8px;
+  /* Chrome-surface continuity: the titlebar's left segment (over the sidebar
+     width) carries the sidebar color, then a 1px --border-weaker band, then it
+     falls through to the thread bg — so both the color seam AND the divider
+     line continue the sidebar/content divide drawn below by the sidebar
+     <aside>'s `border-r border-border-weaker` (layout-shell-frame). The
+     titlebar is its own row above that flex body, so without this the divider
+     visibly stops at the session-title row. macOS and Windows share this; only
+     macOS adds the traffic-light inset. Windows sits under its own native title
+     bar, and this keeps our toolbar in the same warm-neutral chrome family
+     instead of a flat white slab disconnected from both.
+     The line band is [sidebar-width - 1px, sidebar-width], landing on the
+     aside's border-box right edge (border-box + 1px border-r), so the titlebar
+     line is colinear with the body divider and — being --border-weaker (alpha)
+     over the transparent right segment — composites to the same shade as the
+     body border over the content bg. Drawing it in the gradient (vs a separate
+     ::after) needs no element and collapses cleanly: at --sidebar-width 0px all
+     stops clamp to 0 and the whole band is transparent. */
+  [data-component="titlebar-shell"][data-shell="desktop"]:is(
+      [data-shell-os="macos"],
+      [data-shell-os="windows"]
+    ) {
     background: linear-gradient(
       to right,
       var(--sidebar) 0,
-      var(--sidebar) var(--sidebar-width, 0px),
+      var(--sidebar) calc(var(--sidebar-width, 0px) - 1px),
+      var(--border-weaker) calc(var(--sidebar-width, 0px) - 1px),
+      var(--border-weaker) var(--sidebar-width, 0px),
       transparent var(--sidebar-width, 0px),
       transparent 100%
     );
+  }
+
+  [data-component="titlebar-shell"][data-shell="desktop"][data-shell-os="macos"] {
+    padding-inline-start: 8px;
   }
 
   [data-component="titlebar-shell"][data-shell="desktop"][data-shell-os="macos"] [data-shell-slot="left-portal"] {
@@ -139,17 +164,17 @@
     pointer-events: auto;
   }
 
-  [data-component="titlebar-shell"][data-shell="desktop"][data-shell-os="macos"]
+  [data-component="titlebar-shell"][data-shell="desktop"]:is([data-shell-os="macos"], [data-shell-os="windows"])
     :is([data-component="button"], [data-component="icon-button"]).titlebar-icon[data-variant="ghost"] {
     border-radius: 10px;
   }
 
-  [data-component="titlebar-shell"][data-shell="desktop"][data-shell-os="macos"]
+  [data-component="titlebar-shell"][data-shell="desktop"]:is([data-shell-os="macos"], [data-shell-os="windows"])
     :is([data-component="button"], [data-component="icon-button"]).titlebar-icon[data-variant="ghost"]:hover:not(:disabled) {
     background-color: var(--surface-sunken);
   }
 
-  [data-component="titlebar-shell"][data-shell="desktop"][data-shell-os="macos"]
+  [data-component="titlebar-shell"][data-shell="desktop"]:is([data-shell-os="macos"], [data-shell-os="windows"])
     :is([data-component="button"], [data-component="icon-button"]).titlebar-icon[data-variant="ghost"]:is(
       [data-action="pawwork-sidebar-toggle"],
       [aria-controls="right-panel"]
