@@ -116,18 +116,26 @@ describe("tool.registry", () => {
     expect(systemPrompt).toContain("by writing files")
   })
 
-  // Web tasks must route to the embedded browser tools, never to curl/wget
-  // sessions or a premature "can't access the web". The tools are deferred
-  // (one tool_info card), so the resident surfaces carry the routing: the
-  // system prompt names the trigger intents and the bash redirect list
-  // catches the entry point models drift into.
+  // Web tasks route adapter-first: a specific site checks opencli_search for a
+  // bundled adapter before falling back to the embedded browser tools, never to
+  // curl/wget sessions or a premature "can't access the web". Both tool groups
+  // are deferred (one tool_info card each), so the resident surfaces carry the
+  // routing — the system prompt names the trigger intents, the adapter→browser
+  // fallback order, the one-retry cap, and the permission-denial stop; the bash
+  // redirect list catches the entry point models drift into.
   test("keeps browsing routing contract across prompt surfaces", async () => {
     const shellDescription = await Bun.file(new URL("../../src/tool/shell.txt", import.meta.url)).text()
-    expect(shellDescription).toContain("Browsing or operating websites: Use the browser tools, activated via tool_info")
+    expect(shellDescription).toContain("check opencli_search for a bundled adapter first")
+    expect(shellDescription).toContain("fall back to the browser tools")
 
     const systemPrompt = await Bun.file(new URL("../../src/session/prompt/pawwork.txt", import.meta.url)).text()
     expect(systemPrompt).toContain("# Browsing and operating websites")
+    expect(systemPrompt).toContain("`opencli` tool group via `tool_info`")
+    expect(systemPrompt).toContain("opencli_search")
+    expect(systemPrompt).toContain("opencli_run")
     expect(systemPrompt).toContain("`browser` tool group via `tool_info`")
+    expect(systemPrompt).toContain("do not retry the same adapter more than once")
+    expect(systemPrompt).toContain("do not switch to another tool to carry out the same action they just declined")
     expect(systemPrompt).toContain("Never simulate a browser session with `curl` or `wget`")
     expect(systemPrompt).toContain("never declare a web task impossible")
   })

@@ -38,7 +38,7 @@ Usage notes:
     - Write files: Use Write (NOT echo >/cat <<EOF)
     - Communication: Output text directly (NOT echo/printf)
     - Scheduled or delayed tasks: Use the automate tool (NOT at, cron, crontab, launchd, schtasks, or sleep loops)
-    - Browsing or operating websites: Use the browser tools, activated via tool_info (NOT curl or wget for pages, logins, or form submissions)
+    - Browsing or operating websites: For a specific site, check opencli_search for a bundled adapter first, then fall back to the browser tools — both activated via tool_info (NOT curl or wget for pages, logins, or form submissions)
     - File deletion: Avoid permanent deletion commands (`rm`, `rmdir`, `unlink`, `find -delete`, `del`, `erase`, `rd`, `Remove-Item`). Prefer a reversible system trash command when available: on macOS use `trash`; on Linux prefer `gio trash`, then `trash-put`. Check availability first: in POSIX shells use `command -v`, and in PowerShell use `Get-Command`. If no reversible command is available, ask the user before deleting.
   - When issuing multiple commands:
     - If the commands are independent and can run in parallel, make multiple Bash tool calls in a single message. For example, if you need to run "git status" and "git diff", send a single message with two Bash tool calls in parallel.
