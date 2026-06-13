@@ -69,7 +69,10 @@ export const EditTool = Tool.define(
     return {
       description: DESCRIPTION,
       parameters: Parameters,
-      execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
+      execute: Effect.fn("EditTool.execute")((
+        params: Schema.Schema.Type<typeof Parameters>,
+        ctx: Tool.Context,
+      ) =>
         Effect.gen(function* () {
           if (!params.filePath) {
             throw new Error("filePath is required")
@@ -265,7 +268,7 @@ export const EditTool = Tool.define(
             title: relativeFilePath,
             output,
           }
-        }),
+        })),
     }
   }),
 )
