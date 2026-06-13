@@ -225,7 +225,7 @@ Fully migrated (single namespace, InstanceState where needed, flattened facade):
 Still open:
 
 - [x] `SessionTodo` — `session/todo.ts`
-- [ ] `SyncEvent` — `sync/index.ts`
+- [x] `SyncEvent` — `sync/index.ts`
 - [ ] `Workspace` — `control-plane/workspace.ts`
 
 ## Tool interface → Effect
@@ -375,6 +375,7 @@ Decision table for the design:
 - `FileWatcher` — migrated 2026-04-11. Callers in `project/bootstrap.ts` and test converted; facade removed.
 - `Question` — migrated 2026-04-11. Callers in `server/routes/question.ts` and test converted; facade removed.
 - `Truncate` — migrated 2026-04-11. Caller in `tool/tool.ts` and test converted; facade removed.
+- `SyncEvent` — migrated 2026-06-14. Added `SyncEvent.Service` / `defaultLayer`, wired it into `AppRuntime`, and introduced typed `SyncEventError` failures for the Effect service path. Existing synchronous facade functions remain as the compatibility boundary for legacy callers.
 
 ## Route handler effectification
 
