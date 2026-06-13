@@ -44,6 +44,31 @@ function safeTotalDiff(changes: Array<{ diff: string; sensitive: boolean }>) {
     .join("")
 }
 
+const VERIFICATION_ERROR_PREFIX = "apply_patch verification failed:"
+
+function verificationError(error: unknown) {
+  if (error instanceof Error && error.message.startsWith(VERIFICATION_ERROR_PREFIX)) return error
+  const message = error instanceof Error ? error.message : String(error)
+  return new Error(`${VERIFICATION_ERROR_PREFIX} ${message}`, { cause: error })
+}
+
+const parseHunks = Effect.fn("ApplyPatchTool.parseHunks")(function* (patchText: string) {
+  return yield* Effect.try({
+    try: () => Patch.parsePatch(patchText).hunks,
+    catch: verificationError,
+  })
+})
+
+const deriveNewContents = Effect.fn("ApplyPatchTool.deriveNewContents")(function* (
+  filePath: string,
+  chunks: Patch.UpdateFileChunk[],
+) {
+  return yield* Effect.try({
+    try: () => Patch.deriveNewContentsFromChunks(filePath, chunks),
+    catch: verificationError,
+  })
+})
+
 export const ApplyPatchTool = Tool.define(
   "apply_patch",
   Effect.gen(function* () {
@@ -62,20 +87,14 @@ export const ApplyPatchTool = Tool.define(
       }
 
       // Parse the patch to get hunks
-      let hunks: Patch.Hunk[]
-      try {
-        const parseResult = Patch.parsePatch(params.patchText)
-        hunks = parseResult.hunks
-      } catch (error) {
-        return yield* Effect.fail(new Error(`apply_patch verification failed: ${error}`))
-      }
+      const hunks = yield* parseHunks(params.patchText)
 
       if (hunks.length === 0) {
         const normalized = params.patchText.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim()
         if (normalized === "*** Begin Patch\n*** End Patch") {
           return yield* Effect.fail(new Error("patch rejected: empty patch"))
         }
-        return yield* Effect.fail(new Error("apply_patch verification failed: no hunks found"))
+        return yield* Effect.fail(new Error(`${VERIFICATION_ERROR_PREFIX} no hunks found`))
       }
 
       // Validate file paths and check permissions
@@ -147,7 +166,7 @@ export const ApplyPatchTool = Tool.define(
             const stats = yield* afs.stat(filePath).pipe(Effect.catch(() => Effect.succeed(undefined)))
             if (!stats || stats.type === "Directory") {
               return yield* Effect.fail(
-                new Error(`apply_patch verification failed: Failed to read file to update: ${filePath}`),
+                new Error(`${VERIFICATION_ERROR_PREFIX} Failed to read file to update: ${filePath}`),
               )
             }
 
@@ -157,13 +176,9 @@ export const ApplyPatchTool = Tool.define(
             let bom = source.bom
 
             // Apply the update chunks to get new content
-            try {
-              const fileUpdate = Patch.deriveNewContentsFromChunks(filePath, hunk.chunks)
-              newContent = fileUpdate.content
-              bom = fileUpdate.bom
-            } catch (error) {
-              return yield* Effect.fail(new Error(`apply_patch verification failed: ${error}`))
-            }
+            const fileUpdate = yield* deriveNewContents(filePath, hunk.chunks)
+            newContent = fileUpdate.content
+            bom = fileUpdate.bom
 
             const diff = trimDiff(createTwoFilesPatch(filePath, filePath, oldContent, newContent))
 
@@ -206,13 +221,7 @@ export const ApplyPatchTool = Tool.define(
 
           case "delete": {
             const source = yield* Bom.readFile(afs, filePath).pipe(
-              Effect.catch((error) =>
-                Effect.fail(
-                  new Error(
-                    `apply_patch verification failed: ${error instanceof Error ? error.message : String(error)}`,
-                  ),
-                ),
-              ),
+              Effect.catch((error) => Effect.fail(verificationError(error))),
             )
             const contentToDelete = source.text
             const deleteDiff = trimDiff(createTwoFilesPatch(filePath, filePath, contentToDelete, ""))

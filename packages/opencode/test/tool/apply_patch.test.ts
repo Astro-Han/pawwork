@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import path from "path"
 import * as fs from "fs/promises"
-import { Effect, ManagedRuntime, Layer } from "effect"
+import { Cause, Effect, ManagedRuntime, Layer } from "effect"
 import { ApplyPatchTool } from "../../src/tool/apply_patch"
 import { Instance } from "../../src/project/instance"
 import { LSP } from "../../src/lsp"
@@ -13,18 +13,19 @@ import { Truncate } from "../../src/tool/truncate"
 import { tmpdir } from "../fixture/fixture"
 import { SessionID, MessageID } from "../../src/session/schema"
 import { TurnChange } from "../../src/session/turn-change"
+import { testEffect } from "../lib/effect"
 
-const runtime = ManagedRuntime.make(
-  Layer.mergeAll(
-    LSP.defaultLayer,
-    AppFileSystem.defaultLayer,
-    Format.defaultLayer,
-    Bus.layer,
-    Truncate.defaultLayer,
-    Agent.defaultLayer,
-    TurnChange.defaultLayer,
-  ),
+const testLayer = Layer.mergeAll(
+  LSP.defaultLayer,
+  AppFileSystem.defaultLayer,
+  Format.defaultLayer,
+  Bus.layer,
+  Truncate.defaultLayer,
+  Agent.defaultLayer,
+  TurnChange.defaultLayer,
 )
+const runtime = ManagedRuntime.make(testLayer)
+const it = testEffect(testLayer)
 
 const baseCtx = {
   sessionID: SessionID.make("ses_test"),
@@ -57,6 +58,13 @@ const execute = async (params: { patchText: string }, ctx: ToolCtx) => {
   return runtime.runPromise(tool.execute(params, ctx))
 }
 
+const executeEffect = (params: { patchText: string }, ctx: ToolCtx) =>
+  Effect.gen(function* () {
+    const info = yield* ApplyPatchTool
+    const tool = yield* info.init()
+    return yield* tool.execute(params, ctx)
+  })
+
 const makeCtx = () => {
   const calls: AskInput[] = []
   const ctx: ToolCtx = {
@@ -71,6 +79,21 @@ const makeCtx = () => {
 }
 
 describe("tool.apply_patch freeform", () => {
+  it.effect("initializes through Effect and preserves the current defectified execute boundary", () =>
+    Effect.gen(function* () {
+      const { ctx } = makeCtx()
+
+      const exit = yield* executeEffect({ patchText: "invalid patch" }, ctx).pipe(Effect.exit)
+      expect(exit._tag).toBe("Failure")
+      if (exit._tag === "Failure") {
+        expect(Cause.hasDies(exit.cause)).toBe(true)
+        const error = Cause.squash(exit.cause)
+        expect(error).toBeInstanceOf(Error)
+        expect((error as Error).message).toContain("apply_patch verification failed")
+      }
+    }),
+  )
+
   test("requires patchText", async () => {
     const { ctx } = makeCtx()
     await expect(execute({ patchText: "" }, ctx)).rejects.toThrow("patchText is required")
@@ -78,7 +101,12 @@ describe("tool.apply_patch freeform", () => {
 
   test("rejects invalid patch format", async () => {
     const { ctx } = makeCtx()
-    await expect(execute({ patchText: "invalid patch" }, ctx)).rejects.toThrow("apply_patch verification failed")
+    await expect(execute({ patchText: "invalid patch" }, ctx)).rejects.toMatchObject({
+      message: "apply_patch verification failed: Invalid patch format: missing Begin/End markers",
+      cause: expect.objectContaining({
+        message: "Invalid patch format: missing Begin/End markers",
+      }),
+    })
   })
 
   test("rejects empty patch", async () => {
