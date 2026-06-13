@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { Effect, ManagedRuntime, Schema } from "effect"
 import { Automation } from "../../src/automation"
 import { AutomationScheduler } from "../../src/automation/scheduler"
+import { Bus } from "../../src/bus"
 import { Instance } from "../../src/project/instance"
 import { ProjectID } from "../../src/project/schema"
 import { MessageID, SessionID } from "../../src/session/schema"
@@ -226,6 +227,40 @@ describe("automate_manage tool", () => {
 
         expect(asks).toEqual([])
         expect(Automation.list().map((definition) => definition.id)).toEqual([created.id])
+      },
+    })
+  })
+
+  test("delete reports confirmation-time stale ids as a readable relist error", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        installScheduler()
+        const asks: unknown[] = []
+        const deletedEvents: Automation.Tombstone[] = []
+        const unsubscribe = Bus.subscribe(Automation.Event.DefinitionDeleted, (event) => {
+          deletedEvents.push(event.properties)
+        })
+        const created = Automation.create(recurring(Instance.project.id, "Daily repo brief"), { now: 100 })
+        const ctx = {
+          ...toolContext(asks),
+          ask: (input: unknown) =>
+            Effect.promise(async () => {
+              asks.push(input)
+              await Automation.remove(created.id)
+            }),
+        }
+
+        try {
+          await expect(Effect.runPromise(tool().execute({ action: "delete", id: created.id }, ctx))).rejects.toThrow(
+            `Automation not found: ${created.id}. Run automate_manage list to get a current id.`,
+          )
+        } finally {
+          unsubscribe()
+        }
+
+        expect(deletedEvents).toEqual([])
       },
     })
   })

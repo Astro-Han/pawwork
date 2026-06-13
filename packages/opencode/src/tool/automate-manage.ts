@@ -62,8 +62,8 @@ function readableAutomationError(error: unknown, id: string) {
   return error
 }
 
-function getAutomation(automation: Automation.Interface, id: string) {
-  return automation.get(id).pipe(
+function readableAutomationEffect<A, E, R>(effect: Effect.Effect<A, E, R>, id: string) {
+  return effect.pipe(
     Effect.catchCause((cause) => {
       const error = Cause.squash(cause)
       const readable = readableAutomationError(error, id)
@@ -71,6 +71,10 @@ function getAutomation(automation: Automation.Interface, id: string) {
       return Effect.fail(readable)
     }),
   )
+}
+
+function getAutomation(automation: Automation.Interface, id: string) {
+  return readableAutomationEffect(automation.get(id), id)
 }
 
 export function createAutomateManageDefinition(
@@ -113,7 +117,7 @@ export function createAutomateManageDefinition(
           always: [],
           metadata: { action: "delete", id, title: previous.title },
         })
-        const removed = yield* automation.remove(id).pipe(Effect.mapError((error) => readableAutomationError(error, id)))
+        const removed = yield* readableAutomationEffect(automation.remove(id), id)
         const scheduler = AutomationScheduler.current()
         yield* Effect.sync(() => scheduler.cancel(removed.tombstone.id))
         if (removed.stoppedRun) yield* automation.publishRunUpdated(removed.stoppedRun)
