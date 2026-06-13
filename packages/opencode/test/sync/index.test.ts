@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach, afterAll } from "bun:test"
+import { Cause, Effect, Exit } from "effect"
 import { tmpdir } from "../fixture/fixture"
 import z from "zod"
 import { Bus } from "../../src/bus"
@@ -133,6 +134,33 @@ describe("SyncEvent", () => {
   })
 
   describe("replay", () => {
+    test(
+      "returns a typed Effect failure for unknown event types",
+      withInstance(async () => {
+        setup()
+
+        const exit = await Effect.runPromiseExit(
+          SyncEvent.Service.use((sync) =>
+            sync.replay({
+              id: "evt_1",
+              type: "unknown.event.1",
+              seq: 0,
+              aggregateID: "x",
+              data: {},
+            }),
+          ).pipe(Effect.provide(SyncEvent.defaultLayer)),
+        )
+
+        expect(Exit.isFailure(exit)).toBe(true)
+        if (Exit.isSuccess(exit)) return
+        const failure = Cause.squash(exit.cause)
+        const syncError = failure as SyncEvent.SyncEventError
+        expect(syncError).toBeInstanceOf(SyncEvent.SyncEventError)
+        expect(syncError.reason).toBe("unknown-event-type")
+        expect(syncError.message).toContain("Unknown event type")
+      }),
+    )
+
     test(
       "inserts event from external payload",
       withInstance(() => {
