@@ -28,11 +28,10 @@ export const WebFetchTool = Tool.define(
     return {
       description: DESCRIPTION,
       parameters: Parameters,
-      execute: Effect.fn("WebFetchTool.execute")((
+      execute: Effect.fn("WebFetchTool.execute")(function* (
         params: Schema.Schema.Type<typeof Parameters>,
         ctx: Tool.Context,
-      ) =>
-        Effect.gen(function* () {
+      ) {
           if (!params.url.startsWith("http://") && !params.url.startsWith("https://")) {
             throw new Error("URL must start with http:// or https://")
           }
@@ -155,7 +154,8 @@ export const WebFetchTool = Tool.define(
             default:
               return { output: content, title, metadata: {} }
           }
-        }).pipe(Effect.orDie),
+        },
+        Effect.orDie,
       ),
     }
   }),
