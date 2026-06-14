@@ -149,7 +149,12 @@ export const SessionRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const result = await AppRuntime.runPromise(SessionStatus.Service.use((svc) => svc.list()))
+        const result = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const status = yield* SessionStatus.Service
+            return yield* status.list()
+          }),
+        )
         return c.json(Object.fromEntries(result))
       },
     )
@@ -169,12 +174,13 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const json = c.req.valid("json")
         await AppRuntime.runPromise(
-          Todo.Service.use((svc) =>
-            svc.update({
+          Effect.gen(function* () {
+            const todo = yield* Todo.Service
+            yield* todo.update({
               sessionID: json.sessionID,
               todos: json.todos,
-            }),
-          ),
+            })
+          }),
         )
         return c.body(null, 204)
       },
@@ -277,7 +283,12 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
-        const todos = await AppRuntime.runPromise(Todo.Service.use((svc) => svc.get(sessionID)))
+        const todos = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const todo = yield* Todo.Service
+            return yield* todo.get(sessionID)
+          }),
+        )
         return c.json(todos)
       },
     )

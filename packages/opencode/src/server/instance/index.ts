@@ -281,7 +281,13 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
       async (c) => {
         try {
           c.header("content-type", "text/plain; charset=UTF-8")
-          return c.text(await Vcs.diffRaw())
+          const diff = await AppRuntime.runPromise(
+            Effect.gen(function* () {
+              const vcs = yield* Vcs.Service
+              return yield* vcs.diffRaw()
+            }),
+          )
+          return c.text(diff)
         } catch (error) {
           if (error instanceof Vcs.RawDiffError) {
             const body = {
@@ -334,7 +340,14 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
       }),
       async (c) => {
         try {
-          return c.json(await Vcs.apply(c.req.valid("json")))
+          const input = c.req.valid("json")
+          const result = await AppRuntime.runPromise(
+            Effect.gen(function* () {
+              const vcs = yield* Vcs.Service
+              return yield* vcs.apply(input)
+            }),
+          )
+          return c.json(result)
         } catch (error) {
           if (error instanceof Vcs.PatchApplyError) {
             const body =

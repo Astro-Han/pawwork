@@ -439,30 +439,34 @@ describe("VCS routes", () => {
   })
 
   test("accepts escaped JSON bodies when decoded apply patches are within the byte limit", async () => {
-    await using tmp = await tmpdir()
-    const patch = "\n".repeat(5_000_001)
+    await using tmp = await tmpdir({ git: true })
+    const escapedLine = "\\".repeat(5_000_001)
+    const patch = [
+      "diff --git a/escaped.txt b/escaped.txt",
+      "new file mode 100644",
+      "--- /dev/null",
+      "+++ b/escaped.txt",
+      "@@ -0,0 +1 @@",
+      `+${escapedLine}`,
+      "",
+    ].join("\n")
     expect(Buffer.byteLength(patch)).toBeLessThanOrEqual(Vcs.MAX_APPLY_PATCH_BYTES)
     const body = JSON.stringify({ patch })
     expect(Buffer.byteLength(body)).toBeGreaterThan(Vcs.MAX_APPLY_PATCH_BYTES + Buffer.byteLength(JSON.stringify({ patch: "" })))
 
-    const apply = spyOn(Vcs, "apply").mockResolvedValue({ applied: true })
-    try {
-      const response = await Server.Default().app.request("/vcs/apply", {
-        method: "POST",
-        headers: {
-          "content-length": String(Buffer.byteLength(body)),
-          "content-type": "application/json",
-          "x-opencode-directory": tmp.path,
-        },
-        body,
-      })
+    const response = await Server.Default().app.request("/vcs/apply", {
+      method: "POST",
+      headers: {
+        "content-length": String(Buffer.byteLength(body)),
+        "content-type": "application/json",
+        "x-opencode-directory": tmp.path,
+      },
+      body,
+    })
 
-      expect(response.status).toBe(200)
-      expect(apply).toHaveBeenCalledWith({ patch })
-      expect(await response.json()).toEqual({ applied: true })
-    } finally {
-      apply.mockRestore()
-    }
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ applied: true })
+    expect(await fs.readFile(path.join(tmp.path, "escaped.txt"), "utf-8")).toBe(`${escapedLine}\n`)
   })
 
   test("applies a patch and reports apply failures", async () => {
