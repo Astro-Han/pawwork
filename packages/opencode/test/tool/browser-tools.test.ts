@@ -1,8 +1,7 @@
-import { afterEach, describe, expect, test } from "bun:test"
+import { afterEach, describe, expect } from "bun:test"
 import path from "path"
-import { Effect, Layer, type Schema } from "effect"
+import { Cause, Effect, Exit, Fiber, Layer, type Schema } from "effect"
 import { Agent } from "../../src/agent/agent"
-import { Instance } from "../../src/project/instance"
 import type * as Tool from "../../src/tool/tool"
 import { Truncate } from "../../src/tool/truncate"
 import { BrowserBridge } from "../../src/browser/browser-bridge"
@@ -18,7 +17,9 @@ import { BrowserExtractTool } from "../../src/tool/browser-extract"
 import { SessionID, MessageID } from "../../src/session/schema"
 import { Permission } from "../../src/permission"
 import { ToolInfoTool } from "../../src/tool/tool-info"
+import { provideInstance } from "../fixture/fixture"
 import { FakeCdpServer, HANG, provideFakeHost, scriptCurrentUrl } from "../fake/cdp-server"
+import { testEffect } from "../lib/effect"
 
 const askLog: Array<{ permission: string; patterns: string[]; always: string[] }> = []
 
@@ -37,27 +38,40 @@ const ctx = {
 }
 
 const projectRoot = path.join(import.meta.dir, "../..")
+const it = testEffect(Layer.mergeAll(Truncate.defaultLayer, Agent.defaultLayer))
 
 // Loose tool type: each browser tool has its own Parameters schema, and this
 // helper only needs init/execute.
-type AnyToolEffect = Effect.Effect<Tool.Info<Schema.Decoder<unknown>, Record<string, unknown>>, never, never>
+type AnyToolEffect = Effect.Effect<
+  Tool.Info<Schema.Decoder<unknown>, Record<string, unknown>>,
+  never,
+  Truncate.Service | Agent.Service
+>
 
-function execWith(customCtx: typeof ctx, tool: unknown, args: unknown) {
-  return Instance.provide({
-    directory: projectRoot,
-    fn: () =>
-      (tool as AnyToolEffect).pipe(
-        Effect.flatMap((info) => info.init()),
-        Effect.flatMap((t) => t.execute(args as never, customCtx as never)),
-        Effect.provide(Layer.mergeAll(Truncate.defaultLayer, Agent.defaultLayer)),
-        Effect.runPromise,
-      ),
-  })
-}
+const execWith = Effect.fn("BrowserToolsTest.execWith")(function* (customCtx: typeof ctx, tool: unknown, args: unknown) {
+  return yield* provideInstance(projectRoot)(
+    Effect.gen(function* () {
+      const info = yield* (tool as AnyToolEffect)
+      const initialized = yield* info.init()
+      return yield* initialized.execute(args as never, customCtx as never)
+    }),
+  )
+})
 
 function exec(tool: unknown, args: unknown) {
   return execWith(ctx, tool, args)
 }
+
+const expectFailure = <A, E, R>(effect: Effect.Effect<A, E, R>, expected: RegExp) =>
+  Effect.gen(function* () {
+    const exit = yield* effect.pipe(Effect.exit)
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) {
+      const error = Cause.squash(exit.cause)
+      expect(error).toBeInstanceOf(Error)
+      expect((error as Error).message).toMatch(expected)
+    }
+  })
 
 let servers: FakeCdpServer[] = []
 function makeServer(): FakeCdpServer {
@@ -83,7 +97,8 @@ afterEach(async () => {
 })
 
 describe("permission gate", () => {
-  test("a denied permission leaves the user's already-open page completely untouched", async () => {
+  it.live("a denied permission leaves the user's already-open page completely untouched", () =>
+    Effect.gen(function* () {
     const server = makeServer()
     // The user already has a page open; a deny must not connect, register the
     // stealth script, or reload it — the probe reads main-process state only.
@@ -100,12 +115,14 @@ describe("permission gate", () => {
       [BrowserExtractTool, {}],
     ]
     for (const [tool, args] of calls) {
-      await expect(execWith(denyCtx, tool, args)).rejects.toThrow(/rejected permission/)
+      yield* expectFailure(execWith(denyCtx, tool, args), /rejected permission/)
     }
     expect(server.methods).toEqual([])
-  })
+    }),
+  )
 
-  test("the permission is judged against the session's own page, and the action runs in that same view", async () => {
+  it.live("the permission is judged against the session's own page, and the action runs in that same view", () =>
+    Effect.gen(function* () {
     const own = makeServer()
     own.handlers.set("Runtime.evaluate", () => ({ result: { type: "string", value: "[1] <button> Ok" } }))
     const resolved: string[] = []
@@ -119,7 +136,7 @@ describe("permission gate", () => {
       disposeSession: async () => {},
     })
 
-    const result = await exec(BrowserSnapshotTool, {})
+    const result = yield* exec(BrowserSnapshotTool, {})
     expect(result.output).toContain("[1] <button> Ok")
     expect(askLog).toEqual([
       { permission: "browser", patterns: ["https://allowed.example/page"], always: ["https://allowed.example/*"] },
@@ -127,9 +144,11 @@ describe("permission gate", () => {
     // Identity resolution: the endpoint is requested for the acting session
     // itself — there is no window pick that focus could retarget.
     expect(resolved).toEqual([ctx.sessionID])
-  })
+    }),
+  )
 
-  test("a failing probe fails the action before the ask, never a wildcard grant", async () => {
+  it.live("a failing probe fails the action before the ask, never a wildcard grant", () =>
+    Effect.gen(function* () {
     const server = makeServer()
     BrowserBridge.provideHost({
       probeSession: async () => {
@@ -141,18 +160,20 @@ describe("permission gate", () => {
       releaseSession: async () => {},
       disposeSession: async () => {},
     })
-    await expect(exec(BrowserSnapshotTool, {})).rejects.toThrow(/not available right now/)
+    yield* expectFailure(exec(BrowserSnapshotTool, {}), /not available right now/)
     // A failed probe means no ask was ever judged and no CDP traffic flowed —
     // the action cannot ride a "*" grant past a probe it couldn't read.
     expect(askLog).toEqual([])
     expect(server.methods).toEqual([])
-  })
+    }),
+  )
 
   // The ask dialog can sit open while the user keeps browsing the view: by the
   // time they approve, the page may not be the one the permission was judged
   // against. A moved page is re-judged with a second ask against the URL as it
   // is now — full-URL granularity, so path-scoped rules get their say too.
-  test("an approval granted on one page is re-judged when the page moved — a deny on the landing wins", async () => {
+  it.live("an approval granted on one page is re-judged when the page moved — a deny on the landing wins", () =>
+    Effect.gen(function* () {
     const server = makeServer()
     scriptCurrentUrl(server, "https://asked.example/page")
     provideFakeHost(server)
@@ -165,12 +186,14 @@ describe("permission gate", () => {
         return Effect.void
       },
     } as unknown as typeof ctx
-    await expect(execWith(movingCtx, BrowserSnapshotTool, {})).rejects.toThrow(/rejected permission/)
+    yield* expectFailure(execWith(movingCtx, BrowserSnapshotTool, {}), /rejected permission/)
     expect(askLog.map((a) => a.patterns)).toEqual([["https://asked.example/page"], ["https://other.example/landing"]])
     expect(server.methods).toEqual([])
-  })
+    }),
+  )
 
-  test("a same-origin move onto a path the rules deny cannot ride the original approval", async () => {
+  it.live("a same-origin move onto a path the rules deny cannot ride the original approval", () =>
+    Effect.gen(function* () {
     const server = makeServer()
     scriptCurrentUrl(server, "https://asked.example/safe")
     provideFakeHost(server)
@@ -185,11 +208,13 @@ describe("permission gate", () => {
         return Effect.void
       },
     } as unknown as typeof ctx
-    await expect(execWith(pathDenyCtx, BrowserSnapshotTool, {})).rejects.toThrow(/rejected permission/)
+    yield* expectFailure(execWith(pathDenyCtx, BrowserSnapshotTool, {}), /rejected permission/)
     expect(server.methods).toEqual([])
-  })
+    }),
+  )
 
-  test("a benign same-site move passes the re-judge and the action runs", async () => {
+  it.live("a benign same-site move passes the re-judge and the action runs", () =>
+    Effect.gen(function* () {
     const server = makeServer()
     scriptCurrentUrl(server, "https://asked.example/a")
     provideFakeHost(server)
@@ -202,12 +227,14 @@ describe("permission gate", () => {
         return Effect.void
       },
     } as unknown as typeof ctx
-    const result = await execWith(movingCtx, BrowserSnapshotTool, {})
+    const result = yield* execWith(movingCtx, BrowserSnapshotTool, {})
     expect(result.output).toContain("[1] <button> Ok")
     expect(askLog.map((a) => a.patterns)).toEqual([["https://asked.example/a"], ["https://asked.example/b"]])
-  })
+    }),
+  )
 
-  test("a partially available browser group activates only the available members", async () => {
+  it.live("a partially available browser group activates only the available members", () =>
+    Effect.gen(function* () {
     // The registry filters deferred tools per member, so the activation must
     // announce the same subset — never a member the next step's tool list
     // won't contain.
@@ -215,7 +242,7 @@ describe("permission gate", () => {
       ...ctx,
       extra: { deferredAvailable: (id: string) => id !== "browser_screenshot" },
     } as unknown as typeof ctx
-    const result = await execWith(partialCtx, ToolInfoTool(() => Effect.void), { name: "browser" })
+    const result = yield* execWith(partialCtx, ToolInfoTool(() => Effect.void), { name: "browser" })
     expect(result.output).toContain('<tool_info name="browser_snapshot">')
     expect(result.output).not.toContain("browser_screenshot")
     expect(result.metadata?.activated).toBe("browser")
@@ -227,14 +254,18 @@ describe("permission gate", () => {
       "browser_wait",
       "browser_extract",
     ])
-  })
+    }),
+  )
 
-  test("a browser group with no available members fails activation", async () => {
+  it.live("a browser group with no available members fails activation", () =>
+    Effect.gen(function* () {
     const noneCtx = { ...ctx, extra: { deferredAvailable: () => false } } as unknown as typeof ctx
-    await expect(execWith(noneCtx, ToolInfoTool(() => Effect.void), { name: "browser" })).rejects.toThrow(
+    yield* expectFailure(
+      execWith(noneCtx, ToolInfoTool(() => Effect.void), { name: "browser" }),
       /not available in this context/,
     )
-  })
+    }),
+  )
 
   // NOTE: "connection died while idle, next action self-heals" lives in
   // session.test.ts (timeout-severs and bridge-drop invalidation cover the
@@ -244,25 +275,30 @@ describe("permission gate", () => {
 })
 
 describe("browser_navigate", () => {
-  test("rejects non-web schemes before any permission ask or navigation", async () => {
+  it.live("rejects non-web schemes before any permission ask or navigation", () =>
+    Effect.gen(function* () {
     setupServer()
     for (const url of ["file:///etc/passwd", "javascript:alert(1)", "example.com"]) {
-      await expect(exec(BrowserNavigateTool, { url })).rejects.toThrow(/Not a navigable URL/)
+      yield* expectFailure(exec(BrowserNavigateTool, { url }), /Not a navigable URL/)
     }
     expect(askLog).toEqual([])
-  })
+    }),
+  )
 
-  test("navigates, asks the browser permission with the URL, and reports the landed page", async () => {
+  it.live("navigates, asks the browser permission with the URL, and reports the landed page", () =>
+    Effect.gen(function* () {
     const server = setupServer()
-    const result = await exec(BrowserNavigateTool, { url: "https://example.com/page" })
+    const result = yield* exec(BrowserNavigateTool, { url: "https://example.com/page" })
     expect(server.methods).toContain("Page.navigate")
     expect(result.output).toContain("Loaded https://example.com/page")
     expect(askLog).toEqual([
       { permission: "browser", patterns: ["https://example.com/page"], always: ["https://example.com/*"] },
     ])
-  })
+    }),
+  )
 
-  test("a redirect's real landing is reported and re-judged, not the requested URL", async () => {
+  it.live("a redirect's real landing is reported and re-judged, not the requested URL", () =>
+    Effect.gen(function* () {
     const server = makeServer()
     provideFakeHost(server)
     // The site redirects: the document's location reads differently from the
@@ -270,15 +306,17 @@ describe("browser_navigate", () => {
     server.handlers.set("Runtime.evaluate", () => ({
       result: { type: "string", value: "https://ok.example/final" },
     }))
-    const result = await exec(BrowserNavigateTool, { url: "https://ok.example/start" })
+    const result = yield* exec(BrowserNavigateTool, { url: "https://ok.example/start" })
     expect(result.output).toContain("Loaded https://ok.example/final")
     expect(askLog).toEqual([
       { permission: "browser", patterns: ["https://ok.example/start"], always: ["https://ok.example/*"] },
       { permission: "browser", patterns: ["https://ok.example/final"], always: ["https://ok.example/*"] },
     ])
-  })
+    }),
+  )
 
-  test("a cross-site redirect onto a denied site fails the navigate", async () => {
+  it.live("a cross-site redirect onto a denied site fails the navigate", () =>
+    Effect.gen(function* () {
     const server = makeServer()
     provideFakeHost(server)
     server.handlers.set("Runtime.evaluate", () => ({
@@ -296,7 +334,8 @@ describe("browser_navigate", () => {
           : Effect.void
       },
     } as unknown as typeof ctx
-    await expect(execWith(denyBlocked, BrowserNavigateTool, { url: "https://ok.example/start" })).rejects.toThrow(
+    yield* expectFailure(
+      execWith(denyBlocked, BrowserNavigateTool, { url: "https://ok.example/start" }),
       /rejected permission/,
     )
     expect(askLog).toEqual([
@@ -309,64 +348,73 @@ describe("browser_navigate", () => {
     // guarantees is that the action fails loudly and later actions re-probe
     // the denied page; it does not prevent the document from loading.
     expect(server.methods).toContain("Page.navigate")
-  })
+    }),
+  )
 })
 
 describe("cancellation", () => {
-  test("user stop aborts a hung action fast and severs the connection", async () => {
+  it.live("user stop aborts a hung action fast and severs the connection", () =>
+    Effect.gen(function* () {
     const server = makeServer()
     scriptCurrentUrl(server, "about:blank")
     const { released } = provideFakeHost(server)
     // Warm the connection so the hang hits the action itself, not the connect.
-    await exec(BrowserSnapshotTool, {})
+    yield* exec(BrowserSnapshotTool, {})
     server.handlers.set("Runtime.evaluate", HANG)
 
     const controller = new AbortController()
     const abortCtx = { ...ctx, abort: controller.signal } as typeof ctx
-    const pending = execWith(abortCtx, BrowserClickTool, { ref: "[1]" })
+    const pending = yield* execWith(abortCtx, BrowserClickTool, { ref: "[1]" }).pipe(Effect.forkChild)
     setTimeout(() => controller.abort(), 50)
-    await expect(pending).rejects.toThrow(/canceled/)
+    yield* expectFailure(Fiber.join(pending), /canceled/)
     // Severing is what makes the cancel real: CDP has no command-level
     // cancel, so only a closed socket guarantees the orphaned click can
     // never land on the page after the user hit stop.
     expect(released).toContain("ses_browser_tools")
-  }, 10_000)
+    }),
+    10_000,
+  )
 })
 
 describe("browser_snapshot", () => {
-  test("returns the page's ref tree as text", async () => {
+  it.live("returns the page's ref tree as text", () =>
+    Effect.gen(function* () {
     const server = makeServer()
     // snapshot() runs in-page JS through Runtime.evaluate; return the ref tree.
     server.handlers.set("Runtime.evaluate", () => ({
       result: { type: "string", value: "[1] <button> Submit\n[2] <a> Home" },
     }))
     provideFakeHost(server)
-    const result = await exec(BrowserSnapshotTool, {})
+    const result = yield* exec(BrowserSnapshotTool, {})
     expect(result.output).toContain("[1] <button> Submit")
     expect(askLog[0]?.permission).toBe("browser")
     // A blank/non-web page has no origin to scope an "always" grant to — the
     // ask offers none rather than a global one.
     expect(askLog[0]?.always).toEqual([])
-  })
+    }),
+  )
 
-  test("scopes the permission to the page's current URL, not '*'", async () => {
+  it.live("scopes the permission to the page's current URL, not '*'", () =>
+    Effect.gen(function* () {
     const server = setupServer()
     // navigate moves the window's webContents URL; the next action's permission
     // must ask against that URL (URL-scoped rules decide per site). The probe
     // reads main-process view state, never the CDP connection.
-    await exec(BrowserNavigateTool, { url: "https://example.com/page" })
+    yield* exec(BrowserNavigateTool, { url: "https://example.com/page" })
     server.handlers.set("Runtime.evaluate", () => ({ result: { type: "string", value: "[1] <button> Go" } }))
     askLog.length = 0
-    const result = await exec(BrowserSnapshotTool, {})
+    const result = yield* exec(BrowserSnapshotTool, {})
     expect(result.output).toContain("[1] <button> Go")
     expect(askLog).toEqual([
       { permission: "browser", patterns: ["https://example.com/page"], always: ["https://example.com/*"] },
     ])
-  })
+    }),
+  )
 })
 
 describe("browser_click", () => {
-  test("reports the self-verification outcome", async () => {
+  it.live("reports the self-verification outcome", () =>
+    Effect.gen(function* () {
     const server = setupServer()
     // click runs several in-page steps (resolve → bounding rect → click); one
     // combined object satisfies each step's reads.
@@ -380,7 +428,7 @@ describe("browser_click", () => {
         },
       }
     })
-    const result = await exec(BrowserClickTool, { ref: "[1]" })
+    const result = yield* exec(BrowserClickTool, { ref: "[1]" })
     expect(result.output).toContain("Clicked [1]")
     expect(result.metadata?.matches).toBe(1)
     // opencli's resolver treats only a bare number as a snapshot ref: "[1]"
@@ -388,22 +436,26 @@ describe("browser_click", () => {
     // selector and fails.
     expect(expressions.join("\n")).toContain('const ref = "1"')
     expect(expressions.join("\n")).not.toContain('"[1]"')
-  })
+    }),
+  )
 })
 
 describe("normalizeElementRef", () => {
-  test("maps the snapshot spelling to opencli's bare-number ref and leaves selectors alone", () => {
+  it.live("maps the snapshot spelling to opencli's bare-number ref and leaves selectors alone", () =>
+    Effect.sync(() => {
     expect(normalizeElementRef("[12]")).toBe("12")
     expect(normalizeElementRef(" [12] ")).toBe("12")
     expect(normalizeElementRef("12")).toBe("12")
     expect(normalizeElementRef("a[href]")).toBe("a[href]")
     expect(normalizeElementRef("[data-x]")).toBe("[data-x]")
     expect(normalizeElementRef("#main [12]")).toBe("#main [12]")
-  })
+    }),
+  )
 })
 
 describe("browser_type", () => {
-  test("fills, optionally submits, and reports verification", async () => {
+  it.live("fills, optionally submits, and reports verification", () =>
+    Effect.gen(function* () {
     const server = setupServer()
     // fillText runs resolve → prepare → (native type) → verify in-page; one
     // combined object satisfies each step's reads.
@@ -413,49 +465,60 @@ describe("browser_type", () => {
         value: { ok: true, matches_n: 1, match_level: "exact", actual: "hello", mode: "input" },
       },
     }))
-    const result = await exec(BrowserTypeTool, { ref: "[2]", text: "hello", submit: true })
+    const result = yield* exec(BrowserTypeTool, { ref: "[2]", text: "hello", submit: true })
     expect(result.output).toContain("pressed Enter")
     expect(result.metadata?.verified).toBe(true)
     expect(server.methods).toContain("Input.dispatchKeyEvent")
-  })
+    }),
+  )
 })
 
 describe("browser_wait", () => {
-  test("requires exactly one condition", async () => {
+  it.live("requires exactly one condition", () =>
+    Effect.gen(function* () {
     setupServer()
-    await expect(exec(BrowserWaitTool, {})).rejects.toThrow(/exactly one/)
-    await expect(exec(BrowserWaitTool, { text: "a", selector: "b" })).rejects.toThrow(/exactly one/)
+    yield* expectFailure(exec(BrowserWaitTool, {}), /exactly one/)
+    yield* expectFailure(exec(BrowserWaitTool, { text: "a", selector: "b" }), /exactly one/)
     expect(askLog).toEqual([])
-  })
+    }),
+  )
 
-  test("rejects blank text/selector before any permission ask or wait", async () => {
+  it.live("rejects blank text/selector before any permission ask or wait", () =>
+    Effect.gen(function* () {
     const server = setupServer()
-    await expect(exec(BrowserWaitTool, { text: "" })).rejects.toThrow(/non-empty/)
-    await expect(exec(BrowserWaitTool, { selector: "" })).rejects.toThrow(/non-empty/)
-    await expect(exec(BrowserWaitTool, { text: "   " })).rejects.toThrow(/non-empty/)
+    yield* expectFailure(exec(BrowserWaitTool, { text: "" }), /non-empty/)
+    yield* expectFailure(exec(BrowserWaitTool, { selector: "" }), /non-empty/)
+    yield* expectFailure(exec(BrowserWaitTool, { text: "   " }), /non-empty/)
     expect(askLog).toEqual([])
     expect(server.methods).toEqual([])
-  })
+    }),
+  )
 
-  test("a wait that never matches fails with an actionable timeout message, not the raw page exception", async () => {
+  it.live("a wait that never matches fails with an actionable timeout message, not the raw page exception", () =>
+    Effect.gen(function* () {
     const server = setupServer()
     // The in-page waiter times out by throwing inside Runtime.evaluate; the
     // raw form is "Evaluate error: Error: Selector not found: ... at <anonymous>".
     server.handlers.set("Runtime.evaluate", () => ({
       exceptionDetails: { exception: { description: "Error: Selector not found: #missing\n    at <anonymous>:6:16" } },
     }))
-    await expect(exec(BrowserWaitTool, { selector: "#missing", timeout: 1 })).rejects.toThrow(
+    yield* expectFailure(
+      exec(BrowserWaitTool, { selector: "#missing", timeout: 1 }),
       /Waited 1s but selector "#missing" never appeared.*browser_snapshot/,
     )
-  })
+    }),
+  )
 
-  test("waits for a fixed pause", async () => {
+  it.live("waits for a fixed pause", () =>
+    Effect.gen(function* () {
     setupServer()
-    const result = await exec(BrowserWaitTool, { time: 0.05 })
+    const result = yield* exec(BrowserWaitTool, { time: 0.05 })
     expect(result.output).toContain("Done")
-  })
+    }),
+  )
 
-  test("a wait that is the takeover's first action surfaces the reload note once", async () => {
+  it.live("a wait that is the takeover's first action surfaces the reload note once", () =>
+    Effect.gen(function* () {
     const server = makeServer()
     // The user already had a page open: connecting reloads it for stealth,
     // and a wait whose condition was met on that fresh document must say so.
@@ -463,24 +526,27 @@ describe("browser_wait", () => {
     scriptCurrentUrl(server, "https://example.com/already-open")
     provideFakeHost(server)
 
-    const first = await exec(BrowserWaitTool, { time: 0.05 })
+    const first = yield* exec(BrowserWaitTool, { time: 0.05 })
     expect(first.output).toContain("reloaded once")
-    const second = await exec(BrowserWaitTool, { time: 0.05 })
+    const second = yield* exec(BrowserWaitTool, { time: 0.05 })
     expect(second.output).not.toContain("reloaded once")
-  })
+    }),
+  )
 })
 
 describe("browser_screenshot", () => {
-  test("returns the capture as a PNG attachment", async () => {
+  it.live("returns the capture as a PNG attachment", () =>
+    Effect.gen(function* () {
     const server = setupServer()
     const pixel =
       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
     server.handlers.set("Page.captureScreenshot", () => ({ data: pixel }))
-    const result = await exec(BrowserScreenshotTool, {})
+    const result = yield* exec(BrowserScreenshotTool, {})
     expect(result.attachments?.length).toBe(1)
     expect(result.attachments?.[0].mime).toBe("image/png")
     expect(result.attachments?.[0].url.startsWith("data:image/png;base64,")).toBe(true)
-  })
+    }),
+  )
 })
 
 describe("browser_extract", () => {
@@ -488,38 +554,46 @@ describe("browser_extract", () => {
     server.handlers.set("Runtime.evaluate", () => ({ result: { type: "object", value: { html, truncated } } }))
   }
 
-  test("converts page HTML to markdown", async () => {
+  it.live("converts page HTML to markdown", () =>
+    Effect.gen(function* () {
     const server = setupServer()
     scriptPageHtml(server, "<h1>Hello</h1><p>World with <a href='https://example.com'>link</a></p>")
-    const result = await exec(BrowserExtractTool, {})
+    const result = yield* exec(BrowserExtractTool, {})
     expect(result.output).toContain("Hello")
     expect(result.output).toContain("[link](https://example.com)")
     expect(result.metadata?.html_truncated).toBeUndefined()
-  })
+    }),
+  )
 
-  test("pages long content through start/next_start_char", async () => {
+  it.live("pages long content through start/next_start_char", () =>
+    Effect.gen(function* () {
     const server = setupServer()
     scriptPageHtml(server, `<p>${"word ".repeat(8000)}</p>`)
-    const first = await exec(BrowserExtractTool, {})
+    const first = yield* exec(BrowserExtractTool, {})
     expect(first.metadata?.next_start_char).toBeGreaterThan(0)
-    const second = await exec(BrowserExtractTool, { start: first.metadata?.next_start_char as number })
+    const second = yield* exec(BrowserExtractTool, { start: first.metadata?.next_start_char as number })
     expect((second.output as string).length).toBeGreaterThan(0)
-  })
+    }),
+  )
 
-  test("reports when the page-side HTML ceiling dropped trailing content", async () => {
+  it.live("reports when the page-side HTML ceiling dropped trailing content", () =>
+    Effect.gen(function* () {
     const server = setupServer()
     // The page-side script capped the HTML before it crossed CDP; the tool
     // must say so instead of presenting a silently incomplete page.
     scriptPageHtml(server, "<p>visible part</p>", true)
-    const result = await exec(BrowserExtractTool, {})
+    const result = yield* exec(BrowserExtractTool, {})
     expect(result.output).toContain("visible part")
     expect(result.output).toContain("larger than the extraction ceiling")
     expect(result.metadata?.html_truncated).toBe(true)
-  })
+    }),
+  )
 
-  test("errors clearly when the selector matches nothing", async () => {
+  it.live("errors clearly when the selector matches nothing", () =>
+    Effect.gen(function* () {
     const server = setupServer()
     server.handlers.set("Runtime.evaluate", () => ({ result: { type: "object", value: null } }))
-    await expect(exec(BrowserExtractTool, { selector: "#missing" })).rejects.toThrow(/No element matches/)
-  })
+    yield* expectFailure(exec(BrowserExtractTool, { selector: "#missing" }), /No element matches/)
+    }),
+  )
 })
