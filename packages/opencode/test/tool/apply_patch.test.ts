@@ -14,7 +14,7 @@ import { SessionID, MessageID } from "../../src/session/schema"
 import { TurnChange } from "../../src/session/turn-change"
 import { testEffect } from "../lib/effect"
 import * as Tool from "../../src/tool/tool"
-import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
+import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
 
 const testLayer = Layer.mergeAll(
   LSP.defaultLayer,
@@ -81,11 +81,7 @@ const executeFailure = Effect.fn("ApplyPatchToolTest.executeFailure")(function* 
   return error instanceof Error ? error : new Error(String(error))
 })
 
-const writeFile = Effect.fn("ApplyPatchToolTest.writeFile")(function* (
-  filePath: string,
-  content: string,
-  _encoding?: BufferEncoding,
-) {
+const writeFile = Effect.fn("ApplyPatchToolTest.writeFile")(function* (filePath: string, content: string) {
   const fs = yield* AppFileSystem.Service
   yield* fs.writeFileString(filePath, content)
 })
@@ -168,8 +164,8 @@ describe("tool.apply_patch freeform", () => {
       Effect.gen(function* () {
         const modifyPath = path.join(dir, "modify.txt")
         const deletePath = path.join(dir, "delete.txt")
-        yield* writeFile(modifyPath, "line1\nline2\n", "utf-8")
-        yield* writeFile(deletePath, "obsolete\n", "utf-8")
+        yield* writeFile(modifyPath, "line1\nline2\n")
+        yield* writeFile(deletePath, "obsolete\n")
 
         const patchText =
           "*** Begin Patch\n*** Add File: nested/new.txt\n+created\n*** Delete File: delete.txt\n*** Update File: modify.txt\n@@\n-line2\n+changed\n*** End Patch"
@@ -218,7 +214,7 @@ describe("tool.apply_patch freeform", () => {
     yield* provideInstance(dir)(
       Effect.gen(function* () {
         const target = path.join(dir, ".env")
-        yield* writeFile(target, "TOKEN=old-secret\n", "utf-8")
+        yield* writeFile(target, "TOKEN=old-secret\n")
 
         const patchText = "*** Begin Patch\n*** Update File: .env\n@@\n-TOKEN=old-secret\n+TOKEN=new-secret\n*** End Patch"
         const result = yield* execute({ patchText }, ctx)
@@ -261,7 +257,7 @@ describe("tool.apply_patch freeform", () => {
       Effect.gen(function* () {
         const original = path.join(dir, "old", "name.txt")
         yield* mkdir(path.dirname(original), { recursive: true })
-        yield* writeFile(original, "old content\n", "utf-8")
+        yield* writeFile(original, "old content\n")
 
         const patchText =
           "*** Begin Patch\n*** Update File: old/name.txt\n*** Move to: renamed/dir/name.txt\n@@\n-old content\n+new content\n*** End Patch"
@@ -289,7 +285,7 @@ describe("tool.apply_patch freeform", () => {
     yield* provideInstance(dir)(
       Effect.gen(function* () {
         const target = path.join(dir, "multi.txt")
-        yield* writeFile(target, "line1\nline2\nline3\nline4\n", "utf-8")
+        yield* writeFile(target, "line1\nline2\nline3\nline4\n")
 
         const patchText =
           "*** Begin Patch\n*** Update File: multi.txt\n@@\n-line2\n+changed2\n@@\n-line4\n+changed4\n*** End Patch"
@@ -308,7 +304,7 @@ describe("tool.apply_patch freeform", () => {
     yield* provideInstance(dir)(
       Effect.gen(function* () {
         const target = path.join(dir, "insert_only.txt")
-        yield* writeFile(target, "alpha\nomega\n", "utf-8")
+        yield* writeFile(target, "alpha\nomega\n")
 
         const patchText = "*** Begin Patch\n*** Update File: insert_only.txt\n@@\n alpha\n+beta\n omega\n*** End Patch"
 
@@ -326,7 +322,7 @@ describe("tool.apply_patch freeform", () => {
     yield* provideInstance(dir)(
       Effect.gen(function* () {
         const target = path.join(dir, "no_newline.txt")
-        yield* writeFile(target, "no newline at end", "utf-8")
+        yield* writeFile(target, "no newline at end")
 
         const patchText =
           "*** Begin Patch\n*** Update File: no_newline.txt\n@@\n-no newline at end\n+first line\n+second line\n*** End Patch"
@@ -348,7 +344,7 @@ describe("tool.apply_patch freeform", () => {
       Effect.gen(function* () {
         const original = path.join(dir, "old", "name.txt")
         yield* mkdir(path.dirname(original), { recursive: true })
-        yield* writeFile(original, "old content\n", "utf-8")
+        yield* writeFile(original, "old content\n")
 
         const patchText =
           "*** Begin Patch\n*** Update File: old/name.txt\n*** Move to: renamed/dir/name.txt\n@@\n-old content\n+new content\n*** End Patch"
@@ -372,8 +368,8 @@ describe("tool.apply_patch freeform", () => {
         const destination = path.join(dir, "renamed", "dir", "name.txt")
         yield* mkdir(path.dirname(original), { recursive: true })
         yield* mkdir(path.dirname(destination), { recursive: true })
-        yield* writeFile(original, "from\n", "utf-8")
-        yield* writeFile(destination, "existing\n", "utf-8")
+        yield* writeFile(original, "from\n")
+        yield* writeFile(destination, "existing\n")
 
         const patchText =
           "*** Begin Patch\n*** Update File: old/name.txt\n*** Move to: renamed/dir/name.txt\n@@\n-from\n+new\n*** End Patch"
@@ -393,7 +389,7 @@ describe("tool.apply_patch freeform", () => {
     yield* provideInstance(dir)(
       Effect.gen(function* () {
         const target = path.join(dir, "duplicate.txt")
-        yield* writeFile(target, "old content\n", "utf-8")
+        yield* writeFile(target, "old content\n")
 
         const patchText = "*** Begin Patch\n*** Add File: duplicate.txt\n+new content\n*** End Patch"
 
@@ -483,7 +479,7 @@ describe("tool.apply_patch freeform", () => {
     yield* provideInstance(dir)(
       Effect.gen(function* () {
         const target = path.join(dir, "modify.txt")
-        yield* writeFile(target, "line1\nline2\n", "utf-8")
+        yield* writeFile(target, "line1\nline2\n")
 
         const patchText = "*** Begin Patch\n*** Update File: modify.txt\n@@\n-missing\n+changed\n*** End Patch"
 
@@ -517,7 +513,7 @@ describe("tool.apply_patch freeform", () => {
     yield* provideInstance(dir)(
       Effect.gen(function* () {
         const target = path.join(dir, "tail.txt")
-        yield* writeFile(target, "alpha\nlast\n", "utf-8")
+        yield* writeFile(target, "alpha\nlast\n")
 
         const patchText = "*** Begin Patch\n*** Update File: tail.txt\n@@\n-last\n+end\n*** End of File\n*** End Patch"
 
@@ -534,7 +530,7 @@ describe("tool.apply_patch freeform", () => {
     yield* provideInstance(dir)(
       Effect.gen(function* () {
         const target = path.join(dir, "two_chunks.txt")
-        yield* writeFile(target, "a\nb\nc\nd\n", "utf-8")
+        yield* writeFile(target, "a\nb\nc\nd\n")
 
         const patchText = "*** Begin Patch\n*** Update File: two_chunks.txt\n@@\n-b\n+B\n\n-d\n+D\n*** End Patch"
 
@@ -551,7 +547,7 @@ describe("tool.apply_patch freeform", () => {
     yield* provideInstance(dir)(
       Effect.gen(function* () {
         const target = path.join(dir, "multi_ctx.txt")
-        yield* writeFile(target, "fn a\nx=10\ny=2\nfn b\nx=10\ny=20\n", "utf-8")
+        yield* writeFile(target, "fn a\nx=10\ny=2\nfn b\nx=10\ny=20\n")
 
         const patchText = "*** Begin Patch\n*** Update File: multi_ctx.txt\n@@ fn b\n-x=10\n+x=11\n*** End Patch"
 
@@ -569,7 +565,7 @@ describe("tool.apply_patch freeform", () => {
       Effect.gen(function* () {
         const target = path.join(dir, "eof_anchor.txt")
         // File has duplicate "marker" lines - one in middle, one at end
-        yield* writeFile(target, "start\nmarker\nmiddle\nmarker\nend\n", "utf-8")
+        yield* writeFile(target, "start\nmarker\nmiddle\nmarker\nend\n")
 
         // With EOF anchor, should match the LAST "marker" line, not the first
         const patchText =
@@ -630,7 +626,7 @@ EOF`
       Effect.gen(function* () {
         const target = path.join(dir, "trailing_ws.txt")
         // File has trailing spaces on some lines
-        yield* writeFile(target, "line1  \nline2\nline3   \n", "utf-8")
+        yield* writeFile(target, "line1  \nline2\nline3   \n")
 
         // Patch doesn't have trailing spaces - should still match via rstrip pass
         const patchText = "*** Begin Patch\n*** Update File: trailing_ws.txt\n@@\n-line2\n+changed\n*** End Patch"
@@ -649,7 +645,7 @@ EOF`
       Effect.gen(function* () {
         const target = path.join(dir, "leading_ws.txt")
         // File has leading spaces
-        yield* writeFile(target, "  line1\nline2\n  line3\n", "utf-8")
+        yield* writeFile(target, "  line1\nline2\n  line3\n")
 
         // Patch without leading spaces - should match via trim pass
         const patchText = "*** Begin Patch\n*** Update File: leading_ws.txt\n@@\n-line2\n+changed\n*** End Patch"
@@ -671,7 +667,7 @@ EOF`
         const leftQuote = "\u201C"
         const rightQuote = "\u201D"
         const emDash = "\u2014"
-        yield* writeFile(target, `He said ${leftQuote}hello${rightQuote}\nsome${emDash}dash\nend\n`, "utf-8")
+        yield* writeFile(target, `He said ${leftQuote}hello${rightQuote}\nsome${emDash}dash\nend\n`)
 
         // Patch uses ASCII equivalents - should match via normalized pass
         // The replacement uses ASCII quotes from the patch (not preserving Unicode)
