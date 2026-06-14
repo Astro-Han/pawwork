@@ -94,7 +94,7 @@ export const PlanExitTool = Tool.define(
           }
         }
         const value = outcome.value as { answers: string[][] }
-        if (value.answers[0]?.[0] !== "Yes") {
+        if (value.answers[0][0] !== "Yes") {
           return {
             title: "Staying in plan mode",
             output: "User declined to switch to the build agent.",
