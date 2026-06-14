@@ -118,84 +118,86 @@ export function createAutomateDefinition(
     ].join("\n\n"),
     parameters: AutomateParameters,
     formatValidationError: formatAutomateValidationError,
-    execute: (params, ctx) =>
-      Effect.gen(function* () {
-        const timezone = resolveTimezone(params.timezone)
+    execute: Effect.fn("AutomateTool.execute")(function* (
+      params: Schema.Schema.Type<typeof AutomateParameters>,
+      ctx: Tool.Context,
+    ) {
+      const timezone = resolveTimezone(params.timezone)
 
-        let model: { providerID: string; modelID: string }
-        let variant: string | undefined
-        if (params.model) {
-          model = Provider.parseModel(params.model)
-          variant = params.variant
-        } else {
-          const fromSession = sessionModel(ctx.sessionID)
-          const inherited = fromSession ?? (yield* provider.defaultModel().pipe(Effect.orDie))
-          model = { providerID: inherited.providerID, modelID: inherited.modelID }
-          variant = params.variant ?? fromSession?.variant
-        }
+      let model: { providerID: string; modelID: string }
+      let variant: string | undefined
+      if (params.model) {
+        model = Provider.parseModel(params.model)
+        variant = params.variant
+      } else {
+        const fromSession = sessionModel(ctx.sessionID)
+        const inherited = fromSession ?? (yield* provider.defaultModel().pipe(Effect.orDie))
+        model = { providerID: inherited.providerID, modelID: inherited.modelID }
+        variant = params.variant ?? fromSession?.variant
+      }
 
-        const modelDetails = yield* validateModelAndVariantWith(provider, model, variant)
-        if (modelDetails.length) {
-          return yield* Effect.fail(readableAutomationError(new ValidationError(modelDetails)))
-        }
+      const modelDetails = yield* validateModelAndVariantWith(provider, model, variant)
+      if (modelDetails.length) {
+        return yield* Effect.fail(readableAutomationError(new ValidationError(modelDetails)))
+      }
 
-        // Sample now only after model resolution/validation, which may have
-        // yielded on I/O. Sampling earlier risks a one-shot fireAt computed from
-        // a stale instant that a crossed cron boundary turns into an already-due
-        // time.
-        const now = Date.now()
-        const parsed = yield* Effect.try({
-          try: () => {
-            // context defaults to "fresh" (each run gets its own background
-            // session). continueSession opts into "continue", which runs the
-            // automation inside THIS conversation (sourceSessionID): every run
-            // appends to the current chat and sees prior runs. Default-fresh is
-            // the safe side: defaulting to continue would attach every automation
-            // the model creates to the live conversation.
-            const common = {
-              title: params.title,
-              prompt: params.prompt,
-              context: params.continueSession ? ("continue" as const) : ("fresh" as const),
-              where: { projectID: Instance.project.id },
-              timezone,
-              model,
-              ...(variant ? { variant } : {}),
-            }
-            // recurring defaults to true; a false flag is a one-shot whose fire
-            // time is the next cron match (5-field cron has no year, so this is
-            // "next occurrence", not an arbitrary far-future instant).
-            const createInput =
-              params.recurring === false
-                ? (() => {
-                    const fireAt = nextCronFireAfter(params.cron, timezone, now)
-                    if (fireAt === null)
-                      throw new ValidationError([{ field: "cron", message: "cron_has_no_future_fire" }])
-                    return { kind: "oneshot" as const, ...common, fireAt }
-                  })()
-                : {
-                    kind: "recurring" as const,
-                    ...common,
-                    rhythm: { kind: "cron" as const, expression: params.cron },
-                    stop: { kind: "never" as const },
-                  }
-            const validated = Automation.CreateInput.parse(createInput)
-            AutomationScheduler.current()
-            return validated
-          },
-          catch: readableAutomationError,
-        })
-        // sourceSessionID always comes from ctx (this conversation), never from
-        // input, so a model cannot spoof which chat a continue automation runs in.
-        const definition = yield* automation
-          .create(parsed, { now, sourceSessionID: ctx.sessionID })
-          .pipe(Effect.mapError(readableAutomationError))
-        yield* automation.publishDefinitionUpdated(definition)
-        return {
-          title: "Automation created",
-          metadata: { automationDefinition: definition },
-          output: JSON.stringify(definition, null, 2),
-        }
-      }),
+      // Sample now only after model resolution/validation, which may have
+      // yielded on I/O. Sampling earlier risks a one-shot fireAt computed from
+      // a stale instant that a crossed cron boundary turns into an already-due
+      // time.
+      const now = Date.now()
+      const parsed = yield* Effect.try({
+        try: () => {
+          // context defaults to "fresh" (each run gets its own background
+          // session). continueSession opts into "continue", which runs the
+          // automation inside THIS conversation (sourceSessionID): every run
+          // appends to the current chat and sees prior runs. Default-fresh is
+          // the safe side: defaulting to continue would attach every automation
+          // the model creates to the live conversation.
+          const common = {
+            title: params.title,
+            prompt: params.prompt,
+            context: params.continueSession ? ("continue" as const) : ("fresh" as const),
+            where: { projectID: Instance.project.id },
+            timezone,
+            model,
+            ...(variant ? { variant } : {}),
+          }
+          // recurring defaults to true; a false flag is a one-shot whose fire
+          // time is the next cron match (5-field cron has no year, so this is
+          // "next occurrence", not an arbitrary far-future instant).
+          const createInput =
+            params.recurring === false
+              ? (() => {
+                  const fireAt = nextCronFireAfter(params.cron, timezone, now)
+                  if (fireAt === null)
+                    throw new ValidationError([{ field: "cron", message: "cron_has_no_future_fire" }])
+                  return { kind: "oneshot" as const, ...common, fireAt }
+                })()
+              : {
+                  kind: "recurring" as const,
+                  ...common,
+                  rhythm: { kind: "cron" as const, expression: params.cron },
+                  stop: { kind: "never" as const },
+                }
+          const validated = Automation.CreateInput.parse(createInput)
+          AutomationScheduler.current()
+          return validated
+        },
+        catch: readableAutomationError,
+      })
+      // sourceSessionID always comes from ctx (this conversation), never from
+      // input, so a model cannot spoof which chat a continue automation runs in.
+      const definition = yield* automation
+        .create(parsed, { now, sourceSessionID: ctx.sessionID })
+        .pipe(Effect.mapError(readableAutomationError))
+      yield* automation.publishDefinitionUpdated(definition)
+      return {
+        title: "Automation created",
+        metadata: { automationDefinition: definition },
+        output: JSON.stringify(definition, null, 2),
+      }
+    }),
   }
 }
 
