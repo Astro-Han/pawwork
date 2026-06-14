@@ -1,7 +1,6 @@
-import { describe, expect, test } from "bun:test"
+import { afterEach, describe, expect } from "bun:test"
 import path from "path"
-import * as fs from "fs/promises"
-import { Cause, Effect, ManagedRuntime, Layer } from "effect"
+import { Cause, Effect, Layer } from "effect"
 import { ApplyPatchTool } from "../../src/tool/apply_patch"
 import { Instance } from "../../src/project/instance"
 import { LSP } from "../../src/lsp"
@@ -10,10 +9,12 @@ import { Format } from "../../src/format"
 import { Agent } from "../../src/agent/agent"
 import { Bus } from "../../src/bus"
 import { Truncate } from "../../src/tool/truncate"
-import { tmpdir } from "../fixture/fixture"
+import { provideInstance, tmpdirScoped } from "../fixture/fixture"
 import { SessionID, MessageID } from "../../src/session/schema"
 import { TurnChange } from "../../src/session/turn-change"
 import { testEffect } from "../lib/effect"
+import * as Tool from "../../src/tool/tool"
+import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
 
 const testLayer = Layer.mergeAll(
   LSP.defaultLayer,
@@ -23,9 +24,13 @@ const testLayer = Layer.mergeAll(
   Truncate.defaultLayer,
   Agent.defaultLayer,
   TurnChange.defaultLayer,
+  CrossSpawnSpawner.defaultLayer,
 )
-const runtime = ManagedRuntime.make(testLayer)
 const it = testEffect(testLayer)
+
+afterEach(async () => {
+  await Instance.disposeAll()
+})
 
 const baseCtx = {
   sessionID: SessionID.make("ses_test"),
@@ -52,17 +57,53 @@ type ToolCtx = typeof baseCtx & {
   ask: (input: AskInput) => Effect.Effect<void>
 }
 
-const execute = async (params: { patchText: string }, ctx: ToolCtx) => {
-  const info = await runtime.runPromise(ApplyPatchTool)
-  const tool = await runtime.runPromise(info.init())
-  return runtime.runPromise(tool.execute(params, ctx))
-}
+const init = Effect.fn("ApplyPatchToolTest.init")(function* () {
+  const info = yield* ApplyPatchTool
+  return yield* info.init()
+})
 
-const executeEffect = (params: { patchText: string }, ctx: ToolCtx) =>
+const execute = Effect.fn("ApplyPatchToolTest.execute")(function* (
+  params: Tool.InferParameters<typeof ApplyPatchTool>,
+  ctx: ToolCtx,
+) {
+  const tool = yield* init()
+  return yield* tool.execute(params, ctx)
+})
+
+const executeFailure = Effect.fn("ApplyPatchToolTest.executeFailure")(function* (
+  params: Tool.InferParameters<typeof ApplyPatchTool>,
+  ctx: ToolCtx,
+) {
+  const exit = yield* execute(params, ctx).pipe(Effect.exit)
+  expect(exit._tag).toBe("Failure")
+  if (exit._tag !== "Failure") throw new Error("expected apply_patch to fail")
+  const error = Cause.squash(exit.cause)
+  return error instanceof Error ? error : new Error(String(error))
+})
+
+const writeFile = Effect.fn("ApplyPatchToolTest.writeFile")(function* (filePath: string, content: string) {
+  const fs = yield* AppFileSystem.Service
+  yield* fs.writeFileString(filePath, content)
+})
+const readFile = Effect.fn("ApplyPatchToolTest.readFile")(function* (filePath: string) {
+  const fs = yield* AppFileSystem.Service
+  return yield* fs.readFileString(filePath)
+})
+const mkdir = Effect.fn("ApplyPatchToolTest.mkdir")(function* (
+  filePath: string,
+  options?: { recursive?: boolean },
+) {
+  const fs = yield* AppFileSystem.Service
+  yield* fs.makeDirectory(filePath, options)
+})
+const expectReadFileRejects = (filePath: string) =>
   Effect.gen(function* () {
-    const info = yield* ApplyPatchTool
-    const tool = yield* info.init()
-    return yield* tool.execute(params, ctx)
+    const fs = yield* AppFileSystem.Service
+    const exists = yield* fs.readFileString(filePath).pipe(
+      Effect.as(true),
+      Effect.catch(() => Effect.succeed(false)),
+    )
+    expect(exists).toBe(false)
   })
 
 const makeCtx = () => {
@@ -79,11 +120,11 @@ const makeCtx = () => {
 }
 
 describe("tool.apply_patch freeform", () => {
-  it.effect("initializes through Effect and preserves the current defectified execute boundary", () =>
+  it.live("initializes through Effect and preserves the current defectified execute boundary", () =>
     Effect.gen(function* () {
       const { ctx } = makeCtx()
 
-      const exit = yield* executeEffect({ patchText: "invalid patch" }, ctx).pipe(Effect.exit)
+      const exit = yield* execute({ patchText: "invalid patch" }, ctx).pipe(Effect.exit)
       expect(exit._tag).toBe("Failure")
       if (exit._tag === "Failure") {
         expect(Cause.hasDies(exit.cause)).toBe(true)
@@ -94,43 +135,42 @@ describe("tool.apply_patch freeform", () => {
     }),
   )
 
-  test("requires patchText", async () => {
+  it.live("requires patchText", () => Effect.gen(function* () {
     const { ctx } = makeCtx()
-    await expect(execute({ patchText: "" }, ctx)).rejects.toThrow("patchText is required")
-  })
+    expect((yield* executeFailure({ patchText: "" }, ctx)).message).toContain("patchText is required")
+  }))
 
-  test("rejects invalid patch format", async () => {
+  it.live("rejects invalid patch format", () => Effect.gen(function* () {
     const { ctx } = makeCtx()
-    await expect(execute({ patchText: "invalid patch" }, ctx)).rejects.toMatchObject({
+    expect(yield* executeFailure({ patchText: "invalid patch" }, ctx)).toMatchObject({
       message: "apply_patch verification failed: Invalid patch format: missing Begin/End markers",
       cause: expect.objectContaining({
         message: "Invalid patch format: missing Begin/End markers",
       }),
     })
-  })
+  }))
 
-  test("rejects empty patch", async () => {
+  it.live("rejects empty patch", () => Effect.gen(function* () {
     const { ctx } = makeCtx()
     const emptyPatch = "*** Begin Patch\n*** End Patch"
-    await expect(execute({ patchText: emptyPatch }, ctx)).rejects.toThrow("patch rejected: empty patch")
-  })
+    expect((yield* executeFailure({ patchText: emptyPatch }, ctx)).message).toContain("patch rejected: empty patch")
+  }))
 
-  test("applies add/update/delete in one patch", async () => {
-    await using fixture = await tmpdir({ git: true })
+  it.live("applies add/update/delete in one patch", () => Effect.gen(function* () {
+    const dir = yield* tmpdirScoped({ git: true })
     const { ctx, calls } = makeCtx()
 
-    await Instance.provide({
-      directory: fixture.path,
-      fn: async () => {
-        const modifyPath = path.join(fixture.path, "modify.txt")
-        const deletePath = path.join(fixture.path, "delete.txt")
-        await fs.writeFile(modifyPath, "line1\nline2\n", "utf-8")
-        await fs.writeFile(deletePath, "obsolete\n", "utf-8")
+    yield* provideInstance(dir)(
+      Effect.gen(function* () {
+        const modifyPath = path.join(dir, "modify.txt")
+        const deletePath = path.join(dir, "delete.txt")
+        yield* writeFile(modifyPath, "line1\nline2\n")
+        yield* writeFile(deletePath, "obsolete\n")
 
         const patchText =
           "*** Begin Patch\n*** Add File: nested/new.txt\n+created\n*** Delete File: delete.txt\n*** Update File: modify.txt\n@@\n-line2\n+changed\n*** End Patch"
 
-        const result = await execute({ patchText }, ctx)
+        const result = yield* execute({ patchText }, ctx)
 
         expect(result.title).toContain("Success. Updated the following files")
         expect(result.output).toContain("Success. Updated the following files")
@@ -159,26 +199,25 @@ describe("tool.apply_patch freeform", () => {
         expect(updateFile!.patch).toContain("-line2")
         expect(updateFile!.patch).toContain("+changed")
 
-        const added = await fs.readFile(path.join(fixture.path, "nested", "new.txt"), "utf-8")
+        const added = yield* readFile(path.join(dir, "nested", "new.txt"))
         expect(added).toBe("created\n")
-        expect(await fs.readFile(modifyPath, "utf-8")).toBe("line1\nchanged\n")
-        await expect(fs.readFile(deletePath, "utf-8")).rejects.toThrow()
-      },
-    })
-  })
+        expect(yield* readFile(modifyPath)).toBe("line1\nchanged\n")
+        yield* expectReadFileRejects(deletePath)
+      }),
+    )
+  }))
 
-  test("redacts sensitive file permission and result metadata", async () => {
-    await using fixture = await tmpdir({ git: true })
+  it.live("redacts sensitive file permission and result metadata", () => Effect.gen(function* () {
+    const dir = yield* tmpdirScoped({ git: true })
     const { ctx, calls } = makeCtx()
 
-    await Instance.provide({
-      directory: fixture.path,
-      fn: async () => {
-        const target = path.join(fixture.path, ".env")
-        await fs.writeFile(target, "TOKEN=old-secret\n", "utf-8")
+    yield* provideInstance(dir)(
+      Effect.gen(function* () {
+        const target = path.join(dir, ".env")
+        yield* writeFile(target, "TOKEN=old-secret\n")
 
         const patchText = "*** Begin Patch\n*** Update File: .env\n@@\n-TOKEN=old-secret\n+TOKEN=new-secret\n*** End Patch"
-        const result = await execute({ patchText }, ctx)
+        const result = yield* execute({ patchText }, ctx)
         const serialized = JSON.stringify({ calls, result })
 
         expect(calls).toHaveLength(1)
@@ -206,25 +245,24 @@ describe("tool.apply_patch freeform", () => {
         expect(serialized).not.toContain("old-secret")
         expect(serialized).not.toContain("new-secret")
         expect(serialized).not.toContain("@@")
-      },
-    })
-  })
+      }),
+    )
+  }))
 
-  test("permission metadata includes move file info", async () => {
-    await using fixture = await tmpdir({ git: true })
+  it.live("permission metadata includes move file info", () => Effect.gen(function* () {
+    const dir = yield* tmpdirScoped({ git: true })
     const { ctx, calls } = makeCtx()
 
-    await Instance.provide({
-      directory: fixture.path,
-      fn: async () => {
-        const original = path.join(fixture.path, "old", "name.txt")
-        await fs.mkdir(path.dirname(original), { recursive: true })
-        await fs.writeFile(original, "old content\n", "utf-8")
+    yield* provideInstance(dir)(
+      Effect.gen(function* () {
+        const original = path.join(dir, "old", "name.txt")
+        yield* mkdir(path.dirname(original), { recursive: true })
+        yield* writeFile(original, "old content\n")
 
         const patchText =
           "*** Begin Patch\n*** Update File: old/name.txt\n*** Move to: renamed/dir/name.txt\n@@\n-old content\n+new content\n*** End Patch"
 
-        await execute({ patchText }, ctx)
+        yield* execute({ patchText }, ctx)
 
         expect(calls.length).toBe(1)
         const permissionCall = calls[0]
@@ -233,337 +271,319 @@ describe("tool.apply_patch freeform", () => {
         const moveFile = permissionCall.metadata.files[0]
         expect(moveFile.type).toBe("move")
         expect(moveFile.relativePath).toBe("renamed/dir/name.txt")
-        expect(moveFile.movePath).toBe(path.join(fixture.path, "renamed/dir/name.txt"))
+        expect(moveFile.movePath).toBe(path.join(dir, "renamed/dir/name.txt"))
         expect(moveFile.patch).toContain("-old content")
         expect(moveFile.patch).toContain("+new content")
-      },
-    })
-  })
+      }),
+    )
+  }))
 
-  test("applies multiple hunks to one file", async () => {
-    await using fixture = await tmpdir()
+  it.live("applies multiple hunks to one file", () => Effect.gen(function* () {
+    const dir = yield* tmpdirScoped()
     const { ctx } = makeCtx()
 
-    await Instance.provide({
-      directory: fixture.path,
-      fn: async () => {
-        const target = path.join(fixture.path, "multi.txt")
-        await fs.writeFile(target, "line1\nline2\nline3\nline4\n", "utf-8")
+    yield* provideInstance(dir)(
+      Effect.gen(function* () {
+        const target = path.join(dir, "multi.txt")
+        yield* writeFile(target, "line1\nline2\nline3\nline4\n")
 
         const patchText =
           "*** Begin Patch\n*** Update File: multi.txt\n@@\n-line2\n+changed2\n@@\n-line4\n+changed4\n*** End Patch"
 
-        await execute({ patchText }, ctx)
+        yield* execute({ patchText }, ctx)
 
-        expect(await fs.readFile(target, "utf-8")).toBe("line1\nchanged2\nline3\nchanged4\n")
-      },
-    })
-  })
+        expect(yield* readFile(target)).toBe("line1\nchanged2\nline3\nchanged4\n")
+      }),
+    )
+  }))
 
-  test("inserts lines with insert-only hunk", async () => {
-    await using fixture = await tmpdir()
+  it.live("inserts lines with insert-only hunk", () => Effect.gen(function* () {
+    const dir = yield* tmpdirScoped()
     const { ctx } = makeCtx()
 
-    await Instance.provide({
-      directory: fixture.path,
-      fn: async () => {
-        const target = path.join(fixture.path, "insert_only.txt")
-        await fs.writeFile(target, "alpha\nomega\n", "utf-8")
+    yield* provideInstance(dir)(
+      Effect.gen(function* () {
+        const target = path.join(dir, "insert_only.txt")
+        yield* writeFile(target, "alpha\nomega\n")
 
         const patchText = "*** Begin Patch\n*** Update File: insert_only.txt\n@@\n alpha\n+beta\n omega\n*** End Patch"
 
-        await execute({ patchText }, ctx)
+        yield* execute({ patchText }, ctx)
 
-        expect(await fs.readFile(target, "utf-8")).toBe("alpha\nbeta\nomega\n")
-      },
-    })
-  })
+        expect(yield* readFile(target)).toBe("alpha\nbeta\nomega\n")
+      }),
+    )
+  }))
 
-  test("appends trailing newline on update", async () => {
-    await using fixture = await tmpdir()
+  it.live("appends trailing newline on update", () => Effect.gen(function* () {
+    const dir = yield* tmpdirScoped()
     const { ctx } = makeCtx()
 
-    await Instance.provide({
-      directory: fixture.path,
-      fn: async () => {
-        const target = path.join(fixture.path, "no_newline.txt")
-        await fs.writeFile(target, "no newline at end", "utf-8")
+    yield* provideInstance(dir)(
+      Effect.gen(function* () {
+        const target = path.join(dir, "no_newline.txt")
+        yield* writeFile(target, "no newline at end")
 
         const patchText =
           "*** Begin Patch\n*** Update File: no_newline.txt\n@@\n-no newline at end\n+first line\n+second line\n*** End Patch"
 
-        await execute({ patchText }, ctx)
+        yield* execute({ patchText }, ctx)
 
-        const contents = await fs.readFile(target, "utf-8")
+        const contents = yield* readFile(target)
         expect(contents.endsWith("\n")).toBe(true)
         expect(contents).toBe("first line\nsecond line\n")
-      },
-    })
-  })
+      }),
+    )
+  }))
 
-  test("moves file to a new directory", async () => {
-    await using fixture = await tmpdir()
+  it.live("moves file to a new directory", () => Effect.gen(function* () {
+    const dir = yield* tmpdirScoped()
     const { ctx } = makeCtx()
 
-    await Instance.provide({
-      directory: fixture.path,
-      fn: async () => {
-        const original = path.join(fixture.path, "old", "name.txt")
-        await fs.mkdir(path.dirname(original), { recursive: true })
-        await fs.writeFile(original, "old content\n", "utf-8")
+    yield* provideInstance(dir)(
+      Effect.gen(function* () {
+        const original = path.join(dir, "old", "name.txt")
+        yield* mkdir(path.dirname(original), { recursive: true })
+        yield* writeFile(original, "old content\n")
 
         const patchText =
           "*** Begin Patch\n*** Update File: old/name.txt\n*** Move to: renamed/dir/name.txt\n@@\n-old content\n+new content\n*** End Patch"
 
-        await execute({ patchText }, ctx)
+        yield* execute({ patchText }, ctx)
 
-        const moved = path.join(fixture.path, "renamed", "dir", "name.txt")
-        await expect(fs.readFile(original, "utf-8")).rejects.toThrow()
-        expect(await fs.readFile(moved, "utf-8")).toBe("new content\n")
-      },
-    })
-  })
+        const moved = path.join(dir, "renamed", "dir", "name.txt")
+        yield* expectReadFileRejects(original)
+        expect(yield* readFile(moved)).toBe("new content\n")
+      }),
+    )
+  }))
 
-  test("moves file overwriting existing destination", async () => {
-    await using fixture = await tmpdir()
+  it.live("moves file overwriting existing destination", () => Effect.gen(function* () {
+    const dir = yield* tmpdirScoped()
     const { ctx } = makeCtx()
 
-    await Instance.provide({
-      directory: fixture.path,
-      fn: async () => {
-        const original = path.join(fixture.path, "old", "name.txt")
-        const destination = path.join(fixture.path, "renamed", "dir", "name.txt")
-        await fs.mkdir(path.dirname(original), { recursive: true })
-        await fs.mkdir(path.dirname(destination), { recursive: true })
-        await fs.writeFile(original, "from\n", "utf-8")
-        await fs.writeFile(destination, "existing\n", "utf-8")
+    yield* provideInstance(dir)(
+      Effect.gen(function* () {
+        const original = path.join(dir, "old", "name.txt")
+        const destination = path.join(dir, "renamed", "dir", "name.txt")
+        yield* mkdir(path.dirname(original), { recursive: true })
+        yield* mkdir(path.dirname(destination), { recursive: true })
+        yield* writeFile(original, "from\n")
+        yield* writeFile(destination, "existing\n")
 
         const patchText =
           "*** Begin Patch\n*** Update File: old/name.txt\n*** Move to: renamed/dir/name.txt\n@@\n-from\n+new\n*** End Patch"
 
-        await execute({ patchText }, ctx)
+        yield* execute({ patchText }, ctx)
 
-        await expect(fs.readFile(original, "utf-8")).rejects.toThrow()
-        expect(await fs.readFile(destination, "utf-8")).toBe("new\n")
-      },
-    })
-  })
+        yield* expectReadFileRejects(original)
+        expect(yield* readFile(destination)).toBe("new\n")
+      }),
+    )
+  }))
 
-  test("adds file overwriting existing file", async () => {
-    await using fixture = await tmpdir()
+  it.live("adds file overwriting existing file", () => Effect.gen(function* () {
+    const dir = yield* tmpdirScoped()
     const { ctx } = makeCtx()
 
-    await Instance.provide({
-      directory: fixture.path,
-      fn: async () => {
-        const target = path.join(fixture.path, "duplicate.txt")
-        await fs.writeFile(target, "old content\n", "utf-8")
+    yield* provideInstance(dir)(
+      Effect.gen(function* () {
+        const target = path.join(dir, "duplicate.txt")
+        yield* writeFile(target, "old content\n")
 
         const patchText = "*** Begin Patch\n*** Add File: duplicate.txt\n+new content\n*** End Patch"
 
-        await execute({ patchText }, ctx)
-        expect(await fs.readFile(target, "utf-8")).toBe("new content\n")
-      },
-    })
-  })
+        yield* execute({ patchText }, ctx)
+        expect(yield* readFile(target)).toBe("new content\n")
+      }),
+    )
+  }))
 
-  test("rejects add when existing target cannot be read as a file before asking permission", async () => {
-    await using fixture = await tmpdir()
+  it.live("rejects add when existing target cannot be read as a file before asking permission", () => Effect.gen(function* () {
+    const dir = yield* tmpdirScoped()
     const { ctx, calls } = makeCtx()
 
-    await Instance.provide({
-      directory: fixture.path,
-      fn: async () => {
-        await fs.mkdir(path.join(fixture.path, "blocked.txt"))
+    yield* provideInstance(dir)(
+      Effect.gen(function* () {
+        yield* mkdir(path.join(dir, "blocked.txt"))
         const patchText = "*** Begin Patch\n*** Add File: blocked.txt\n+new content\n*** End Patch"
 
-        await expect(execute({ patchText }, ctx)).rejects.toThrow()
+        yield* executeFailure({ patchText }, ctx)
 
         expect(calls).toHaveLength(0)
-      },
-    })
-  })
+      }),
+    )
+  }))
 
-  test("rejects update when target file is missing", async () => {
-    await using fixture = await tmpdir()
+  it.live("rejects update when target file is missing", () => Effect.gen(function* () {
+    const dir = yield* tmpdirScoped()
     const { ctx } = makeCtx()
 
-    await Instance.provide({
-      directory: fixture.path,
-      fn: async () => {
+    yield* provideInstance(dir)(
+      Effect.gen(function* () {
         const patchText = "*** Begin Patch\n*** Update File: missing.txt\n@@\n-nope\n+better\n*** End Patch"
 
-        await expect(execute({ patchText }, ctx)).rejects.toThrow(
+        expect((yield* executeFailure({ patchText }, ctx)).message).toContain(
           "apply_patch verification failed: Failed to read file to update",
         )
-      },
-    })
-  })
+      }),
+    )
+  }))
 
-  test("rejects delete when file is missing", async () => {
-    await using fixture = await tmpdir()
+  it.live("rejects delete when file is missing", () => Effect.gen(function* () {
+    const dir = yield* tmpdirScoped()
     const { ctx } = makeCtx()
 
-    await Instance.provide({
-      directory: fixture.path,
-      fn: async () => {
+    yield* provideInstance(dir)(
+      Effect.gen(function* () {
         const patchText = "*** Begin Patch\n*** Delete File: missing.txt\n*** End Patch"
 
-        await expect(execute({ patchText }, ctx)).rejects.toThrow()
-      },
-    })
-  })
+        yield* executeFailure({ patchText }, ctx)
+      }),
+    )
+  }))
 
-  test("rejects delete when target is a directory", async () => {
-    await using fixture = await tmpdir()
+  it.live("rejects delete when target is a directory", () => Effect.gen(function* () {
+    const dir = yield* tmpdirScoped()
     const { ctx } = makeCtx()
 
-    await Instance.provide({
-      directory: fixture.path,
-      fn: async () => {
-        const dirPath = path.join(fixture.path, "dir")
-        await fs.mkdir(dirPath)
+    yield* provideInstance(dir)(
+      Effect.gen(function* () {
+        const dirPath = path.join(dir, "dir")
+        yield* mkdir(dirPath)
 
         const patchText = "*** Begin Patch\n*** Delete File: dir\n*** End Patch"
 
-        await expect(execute({ patchText }, ctx)).rejects.toThrow()
-      },
-    })
-  })
+        yield* executeFailure({ patchText }, ctx)
+      }),
+    )
+  }))
 
-  test("rejects invalid hunk header", async () => {
-    await using fixture = await tmpdir()
+  it.live("rejects invalid hunk header", () => Effect.gen(function* () {
+    const dir = yield* tmpdirScoped()
     const { ctx } = makeCtx()
 
-    await Instance.provide({
-      directory: fixture.path,
-      fn: async () => {
+    yield* provideInstance(dir)(
+      Effect.gen(function* () {
         const patchText = "*** Begin Patch\n*** Frobnicate File: foo\n*** End Patch"
 
-        await expect(execute({ patchText }, ctx)).rejects.toThrow("apply_patch verification failed")
-      },
-    })
-  })
+        expect((yield* executeFailure({ patchText }, ctx)).message).toContain("apply_patch verification failed")
+      }),
+    )
+  }))
 
-  test("rejects update with missing context", async () => {
-    await using fixture = await tmpdir()
+  it.live("rejects update with missing context", () => Effect.gen(function* () {
+    const dir = yield* tmpdirScoped()
     const { ctx } = makeCtx()
 
-    await Instance.provide({
-      directory: fixture.path,
-      fn: async () => {
-        const target = path.join(fixture.path, "modify.txt")
-        await fs.writeFile(target, "line1\nline2\n", "utf-8")
+    yield* provideInstance(dir)(
+      Effect.gen(function* () {
+        const target = path.join(dir, "modify.txt")
+        yield* writeFile(target, "line1\nline2\n")
 
         const patchText = "*** Begin Patch\n*** Update File: modify.txt\n@@\n-missing\n+changed\n*** End Patch"
 
-        await expect(execute({ patchText }, ctx)).rejects.toThrow("apply_patch verification failed")
-        expect(await fs.readFile(target, "utf-8")).toBe("line1\nline2\n")
-      },
-    })
-  })
+        expect((yield* executeFailure({ patchText }, ctx)).message).toContain("apply_patch verification failed")
+        expect(yield* readFile(target)).toBe("line1\nline2\n")
+      }),
+    )
+  }))
 
-  test("verification failure leaves no side effects", async () => {
-    await using fixture = await tmpdir()
+  it.live("verification failure leaves no side effects", () => Effect.gen(function* () {
+    const dir = yield* tmpdirScoped()
     const { ctx } = makeCtx()
 
-    await Instance.provide({
-      directory: fixture.path,
-      fn: async () => {
+    yield* provideInstance(dir)(
+      Effect.gen(function* () {
         const patchText =
           "*** Begin Patch\n*** Add File: created.txt\n+hello\n*** Update File: missing.txt\n@@\n-old\n+new\n*** End Patch"
 
-        await expect(execute({ patchText }, ctx)).rejects.toThrow()
+        yield* executeFailure({ patchText }, ctx)
 
-        const createdPath = path.join(fixture.path, "created.txt")
-        await expect(fs.readFile(createdPath, "utf-8")).rejects.toThrow()
-      },
-    })
-  })
+        const createdPath = path.join(dir, "created.txt")
+        yield* expectReadFileRejects(createdPath)
+      }),
+    )
+  }))
 
-  test("supports end of file anchor", async () => {
-    await using fixture = await tmpdir()
+  it.live("supports end of file anchor", () => Effect.gen(function* () {
+    const dir = yield* tmpdirScoped()
     const { ctx } = makeCtx()
 
-    await Instance.provide({
-      directory: fixture.path,
-      fn: async () => {
-        const target = path.join(fixture.path, "tail.txt")
-        await fs.writeFile(target, "alpha\nlast\n", "utf-8")
+    yield* provideInstance(dir)(
+      Effect.gen(function* () {
+        const target = path.join(dir, "tail.txt")
+        yield* writeFile(target, "alpha\nlast\n")
 
         const patchText = "*** Begin Patch\n*** Update File: tail.txt\n@@\n-last\n+end\n*** End of File\n*** End Patch"
 
-        await execute({ patchText }, ctx)
-        expect(await fs.readFile(target, "utf-8")).toBe("alpha\nend\n")
-      },
-    })
-  })
+        yield* execute({ patchText }, ctx)
+        expect(yield* readFile(target)).toBe("alpha\nend\n")
+      }),
+    )
+  }))
 
-  test("rejects missing second chunk context", async () => {
-    await using fixture = await tmpdir()
+  it.live("rejects missing second chunk context", () => Effect.gen(function* () {
+    const dir = yield* tmpdirScoped()
     const { ctx } = makeCtx()
 
-    await Instance.provide({
-      directory: fixture.path,
-      fn: async () => {
-        const target = path.join(fixture.path, "two_chunks.txt")
-        await fs.writeFile(target, "a\nb\nc\nd\n", "utf-8")
+    yield* provideInstance(dir)(
+      Effect.gen(function* () {
+        const target = path.join(dir, "two_chunks.txt")
+        yield* writeFile(target, "a\nb\nc\nd\n")
 
         const patchText = "*** Begin Patch\n*** Update File: two_chunks.txt\n@@\n-b\n+B\n\n-d\n+D\n*** End Patch"
 
-        await expect(execute({ patchText }, ctx)).rejects.toThrow()
-        expect(await fs.readFile(target, "utf-8")).toBe("a\nb\nc\nd\n")
-      },
-    })
-  })
+        yield* executeFailure({ patchText }, ctx)
+        expect(yield* readFile(target)).toBe("a\nb\nc\nd\n")
+      }),
+    )
+  }))
 
-  test("disambiguates change context with @@ header", async () => {
-    await using fixture = await tmpdir()
+  it.live("disambiguates change context with @@ header", () => Effect.gen(function* () {
+    const dir = yield* tmpdirScoped()
     const { ctx } = makeCtx()
 
-    await Instance.provide({
-      directory: fixture.path,
-      fn: async () => {
-        const target = path.join(fixture.path, "multi_ctx.txt")
-        await fs.writeFile(target, "fn a\nx=10\ny=2\nfn b\nx=10\ny=20\n", "utf-8")
+    yield* provideInstance(dir)(
+      Effect.gen(function* () {
+        const target = path.join(dir, "multi_ctx.txt")
+        yield* writeFile(target, "fn a\nx=10\ny=2\nfn b\nx=10\ny=20\n")
 
         const patchText = "*** Begin Patch\n*** Update File: multi_ctx.txt\n@@ fn b\n-x=10\n+x=11\n*** End Patch"
 
-        await execute({ patchText }, ctx)
-        expect(await fs.readFile(target, "utf-8")).toBe("fn a\nx=10\ny=2\nfn b\nx=11\ny=20\n")
-      },
-    })
-  })
+        yield* execute({ patchText }, ctx)
+        expect(yield* readFile(target)).toBe("fn a\nx=10\ny=2\nfn b\nx=11\ny=20\n")
+      }),
+    )
+  }))
 
-  test("EOF anchor matches from end of file first", async () => {
-    await using fixture = await tmpdir()
+  it.live("EOF anchor matches from end of file first", () => Effect.gen(function* () {
+    const dir = yield* tmpdirScoped()
     const { ctx } = makeCtx()
 
-    await Instance.provide({
-      directory: fixture.path,
-      fn: async () => {
-        const target = path.join(fixture.path, "eof_anchor.txt")
+    yield* provideInstance(dir)(
+      Effect.gen(function* () {
+        const target = path.join(dir, "eof_anchor.txt")
         // File has duplicate "marker" lines - one in middle, one at end
-        await fs.writeFile(target, "start\nmarker\nmiddle\nmarker\nend\n", "utf-8")
+        yield* writeFile(target, "start\nmarker\nmiddle\nmarker\nend\n")
 
         // With EOF anchor, should match the LAST "marker" line, not the first
         const patchText =
           "*** Begin Patch\n*** Update File: eof_anchor.txt\n@@\n-marker\n-end\n+marker-changed\n+end\n*** End of File\n*** End Patch"
 
-        await execute({ patchText }, ctx)
+        yield* execute({ patchText }, ctx)
         // First marker unchanged, second marker changed
-        expect(await fs.readFile(target, "utf-8")).toBe("start\nmarker\nmiddle\nmarker-changed\nend\n")
-      },
-    })
-  })
+        expect(yield* readFile(target)).toBe("start\nmarker\nmiddle\nmarker-changed\nend\n")
+      }),
+    )
+  }))
 
-  test("parses heredoc-wrapped patch", async () => {
-    await using fixture = await tmpdir()
+  it.live("parses heredoc-wrapped patch", () => Effect.gen(function* () {
+    const dir = yield* tmpdirScoped()
     const { ctx } = makeCtx()
 
-    await Instance.provide({
-      directory: fixture.path,
-      fn: async () => {
+    yield* provideInstance(dir)(
+      Effect.gen(function* () {
         const patchText = `cat <<'EOF'
 *** Begin Patch
 *** Add File: heredoc_test.txt
@@ -571,20 +591,19 @@ describe("tool.apply_patch freeform", () => {
 *** End Patch
 EOF`
 
-        await execute({ patchText }, ctx)
-        const content = await fs.readFile(path.join(fixture.path, "heredoc_test.txt"), "utf-8")
+        yield* execute({ patchText }, ctx)
+        const content = yield* readFile(path.join(dir, "heredoc_test.txt"))
         expect(content).toBe("heredoc content\n")
-      },
-    })
-  })
+      }),
+    )
+  }))
 
-  test("parses heredoc-wrapped patch without cat", async () => {
-    await using fixture = await tmpdir()
+  it.live("parses heredoc-wrapped patch without cat", () => Effect.gen(function* () {
+    const dir = yield* tmpdirScoped()
     const { ctx } = makeCtx()
 
-    await Instance.provide({
-      directory: fixture.path,
-      fn: async () => {
+    yield* provideInstance(dir)(
+      Effect.gen(function* () {
         const patchText = `<<EOF
 *** Begin Patch
 *** Add File: heredoc_no_cat.txt
@@ -592,76 +611,73 @@ EOF`
 *** End Patch
 EOF`
 
-        await execute({ patchText }, ctx)
-        const content = await fs.readFile(path.join(fixture.path, "heredoc_no_cat.txt"), "utf-8")
+        yield* execute({ patchText }, ctx)
+        const content = yield* readFile(path.join(dir, "heredoc_no_cat.txt"))
         expect(content).toBe("no cat prefix\n")
-      },
-    })
-  })
+      }),
+    )
+  }))
 
-  test("matches with trailing whitespace differences", async () => {
-    await using fixture = await tmpdir()
+  it.live("matches with trailing whitespace differences", () => Effect.gen(function* () {
+    const dir = yield* tmpdirScoped()
     const { ctx } = makeCtx()
 
-    await Instance.provide({
-      directory: fixture.path,
-      fn: async () => {
-        const target = path.join(fixture.path, "trailing_ws.txt")
+    yield* provideInstance(dir)(
+      Effect.gen(function* () {
+        const target = path.join(dir, "trailing_ws.txt")
         // File has trailing spaces on some lines
-        await fs.writeFile(target, "line1  \nline2\nline3   \n", "utf-8")
+        yield* writeFile(target, "line1  \nline2\nline3   \n")
 
         // Patch doesn't have trailing spaces - should still match via rstrip pass
         const patchText = "*** Begin Patch\n*** Update File: trailing_ws.txt\n@@\n-line2\n+changed\n*** End Patch"
 
-        await execute({ patchText }, ctx)
-        expect(await fs.readFile(target, "utf-8")).toBe("line1  \nchanged\nline3   \n")
-      },
-    })
-  })
+        yield* execute({ patchText }, ctx)
+        expect(yield* readFile(target)).toBe("line1  \nchanged\nline3   \n")
+      }),
+    )
+  }))
 
-  test("matches with leading whitespace differences", async () => {
-    await using fixture = await tmpdir()
+  it.live("matches with leading whitespace differences", () => Effect.gen(function* () {
+    const dir = yield* tmpdirScoped()
     const { ctx } = makeCtx()
 
-    await Instance.provide({
-      directory: fixture.path,
-      fn: async () => {
-        const target = path.join(fixture.path, "leading_ws.txt")
+    yield* provideInstance(dir)(
+      Effect.gen(function* () {
+        const target = path.join(dir, "leading_ws.txt")
         // File has leading spaces
-        await fs.writeFile(target, "  line1\nline2\n  line3\n", "utf-8")
+        yield* writeFile(target, "  line1\nline2\n  line3\n")
 
         // Patch without leading spaces - should match via trim pass
         const patchText = "*** Begin Patch\n*** Update File: leading_ws.txt\n@@\n-line2\n+changed\n*** End Patch"
 
-        await execute({ patchText }, ctx)
-        expect(await fs.readFile(target, "utf-8")).toBe("  line1\nchanged\n  line3\n")
-      },
-    })
-  })
+        yield* execute({ patchText }, ctx)
+        expect(yield* readFile(target)).toBe("  line1\nchanged\n  line3\n")
+      }),
+    )
+  }))
 
-  test("matches with Unicode punctuation differences", async () => {
-    await using fixture = await tmpdir()
+  it.live("matches with Unicode punctuation differences", () => Effect.gen(function* () {
+    const dir = yield* tmpdirScoped()
     const { ctx } = makeCtx()
 
-    await Instance.provide({
-      directory: fixture.path,
-      fn: async () => {
-        const target = path.join(fixture.path, "unicode.txt")
+    yield* provideInstance(dir)(
+      Effect.gen(function* () {
+        const target = path.join(dir, "unicode.txt")
         // File has fancy Unicode quotes (U+201C, U+201D) and em-dash (U+2014)
         const leftQuote = "\u201C"
         const rightQuote = "\u201D"
         const emDash = "\u2014"
-        await fs.writeFile(target, `He said ${leftQuote}hello${rightQuote}\nsome${emDash}dash\nend\n`, "utf-8")
+        yield* writeFile(target, `He said ${leftQuote}hello${rightQuote}\nsome${emDash}dash\nend\n`)
 
         // Patch uses ASCII equivalents - should match via normalized pass
         // The replacement uses ASCII quotes from the patch (not preserving Unicode)
         const patchText =
           '*** Begin Patch\n*** Update File: unicode.txt\n@@\n-He said "hello"\n+He said "hi"\n*** End Patch'
 
-        await execute({ patchText }, ctx)
+        yield* execute({ patchText }, ctx)
         // Result has ASCII quotes because that's what the patch specifies
-        expect(await fs.readFile(target, "utf-8")).toBe(`He said "hi"\nsome${emDash}dash\nend\n`)
-      },
-    })
-  })
+        expect(yield* readFile(target)).toBe(`He said "hi"\nsome${emDash}dash\nend\n`)
+      }),
+    )
+  }))
 })

@@ -254,7 +254,7 @@ This keeps migrated tool tests aligned with the production service graph today, 
 
 Individual tools, ordered by value:
 
-- [ ] `apply_patch.ts` — HIGH: multi-step orchestration, error accumulation, Bus events
+- [x] `apply_patch.ts` — HIGH: multi-step orchestration, error accumulation, Bus events
 - [ ] `bash.ts` — HIGH: shell orchestration, quoting, timeout handling, output capture
 - [x] `read.ts` — HIGH: streaming I/O, readline, binary detection → FileSystem + Stream
 - [ ] `edit.ts` — HIGH: multi-step diff/format/publish pipeline, FileWatcher lock
@@ -297,7 +297,6 @@ Similarly, **21 files** still import raw `fs` or `fs/promises` directly. These s
 Current raw fs users that will convert during tool migration:
 
 - `tool/read.ts` — fs.createReadStream, readline
-- `tool/apply_patch.ts` — fs/promises
 - `file/ripgrep.ts` — fs/promises
 - `patch/index.ts` — fs, fs/promises
 
@@ -377,6 +376,7 @@ Decision table for the design:
 - `Truncate` — migrated 2026-04-11. Caller in `tool/tool.ts` and test converted; facade removed.
 - `SyncEvent` — migrated 2026-06-14. Added `SyncEvent.Service` / `defaultLayer`, wired it into `AppRuntime`, and introduced typed `SyncEventError` failures for the Effect service path. Existing synchronous facade functions remain as the compatibility boundary for legacy callers.
 - `Workspace` — migrated 2026-06-14. Added `Workspace.Service` / `defaultLayer`, wired it into `AppRuntime`, introduced typed `WorkspaceError` failures for the Effect service path, and moved workspace routing record/sync/adaptor resolution onto the injected service. Existing async facade functions remain as the compatibility boundary for legacy route/tests callers.
+- `ApplyPatchTool` — migrated 2026-06-14. Tool body was already Effect-native; this follow-up moved `apply_patch.test.ts` off its local `ManagedRuntime` / Promise execute helper and onto the shared `testEffect(...).live` harness while preserving the defectified execute boundary coverage.
 
 ## Route handler effectification
 
