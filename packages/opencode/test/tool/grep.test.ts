@@ -91,7 +91,7 @@ const withRipgrepConfig = <A, E, R>(
     )
 
     return yield* self
-  })
+  }).pipe(Effect.scoped)
 
 describe("tool.grep", () => {
   it.live("basic search", () =>
