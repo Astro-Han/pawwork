@@ -257,16 +257,16 @@ Individual tools, ordered by value:
 - [x] `apply_patch.ts` — HIGH: multi-step orchestration, error accumulation, Bus events
 - [ ] `bash.ts` — HIGH: shell orchestration, quoting, timeout handling, output capture
 - [x] `read.ts` — HIGH: streaming I/O, readline, binary detection → FileSystem + Stream
-- [ ] `edit.ts` — HIGH: multi-step diff/format/publish pipeline, FileWatcher lock
+- [x] `edit.ts` — HIGH: multi-step diff/format/publish pipeline, FileWatcher lock
 - [x] `grep.ts` — MEDIUM: spawns ripgrep → ChildProcessSpawner, timeout handling
-- [ ] `write.ts` — MEDIUM: permission checks, diagnostics polling, Bus events
+- [x] `write.ts` — MEDIUM: permission checks, diagnostics polling, Bus events
 - [x] `webfetch.ts` — MEDIUM: fetch with UA retry, size limits → HttpClient
 - [x] `websearch.ts` — MEDIUM: MCP over HTTP → HttpClient
 - [ ] `batch.ts` — MEDIUM: parallel execution, per-call error recovery → Effect.all
 - [ ] `task.ts` — MEDIUM: task state management
 - [ ] `ls.ts` — MEDIUM: bounded directory listing over ripgrep-backed traversal
 - [x] `glob.ts` — LOW: simple async generator
-- [ ] `lsp.ts` — LOW: dispatch switch over LSP operations
+- [x] `lsp.ts` — LOW: dispatch switch over LSP operations
 - [ ] `question.ts` — LOW: prompt wrapper
 - [ ] `skill.ts` — LOW: skill tool adapter
 - [ ] `todo.ts` — LOW: todo persistence wrapper
@@ -379,6 +379,7 @@ Decision table for the design:
 - `ApplyPatchTool` — migrated 2026-06-14. Tool body was already Effect-native; this follow-up moved `apply_patch.test.ts` off its local `ManagedRuntime` / Promise execute helper and onto the shared `testEffect(...).live` harness while preserving the defectified execute boundary coverage.
 - `GrepTool` / `GlobTool` — migrated 2026-06-14. Tool bodies were already Effect-native; this follow-up moved `grep.test.ts` and `glob.test.ts` off local `ManagedRuntime` / Promise init helpers and onto the shared `testEffect(...).live` harness with scoped instance fixtures.
 - `WebFetchTool` / `WebSearchTool` — migrated 2026-06-15. Tool bodies were already Effect-native and backed by `HttpClient`; this follow-up moved `webfetch.test.ts` and `websearch.test.ts` onto the shared `testEffect(...).live` harness while preserving the fake HTTP server/client behavior and existing assertion semantics.
+- `WriteTool` / `EditTool` / `LspTool` — checklist corrected 2026-06-15. Tool bodies already used named `Effect.fn(...execute)` boundaries and the shared `testEffect(...).live` harness; this follow-up verified the existing write/edit/lsp coverage and closed the stale checklist without code or test changes.
 
 ## Route handler effectification
 
