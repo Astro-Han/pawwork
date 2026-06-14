@@ -29,11 +29,10 @@ export const GrepTool = Tool.define(
     return {
       description: DESCRIPTION,
       parameters: Parameters,
-      execute: Effect.fn("GrepTool.execute")((
+      execute: Effect.fn("GrepTool.execute")(function* (
         params: Schema.Schema.Type<typeof Parameters>,
         ctx: Tool.Context,
-      ) =>
-        Effect.gen(function* () {
+      ) {
           const empty = {
             title: params.pattern,
             metadata: { matches: 0, truncated: false },
@@ -165,8 +164,7 @@ export const GrepTool = Tool.define(
             },
             output: output.join("\n"),
           }
-        }).pipe(Effect.orDie),
-      ),
+      }, Effect.orDie),
     }
   }),
 )

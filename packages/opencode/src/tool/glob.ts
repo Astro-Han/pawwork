@@ -24,11 +24,10 @@ export const GlobTool = Tool.define(
     return {
       description: DESCRIPTION,
       parameters: Parameters,
-      execute: Effect.fn("GlobTool.execute")((
+      execute: Effect.fn("GlobTool.execute")(function* (
         params: Schema.Schema.Type<typeof Parameters>,
         ctx: Tool.Context,
-      ) =>
-        Effect.gen(function* () {
+      ) {
           const ins = yield* InstanceState.context
           yield* ctx.ask({
             permission: "glob",
@@ -95,8 +94,7 @@ export const GlobTool = Tool.define(
             },
             output: output.join("\n"),
           }
-        }).pipe(Effect.orDie),
-      ),
+      }, Effect.orDie),
     }
   }),
 )
