@@ -285,7 +285,7 @@ Some already-effectified areas still use raw `Filesystem.*` or `Process.spawn` i
 
 ### `Process.spawn` → `ChildProcessSpawner` (yield in layer)
 
-- [ ] `format/formatter.ts` — 2 remaining `Process.spawn()` checks (`air`, `uv`)
+- [x] `format/formatter.ts` — formatter discovery now uses `AppFileSystem.Service` and `ChildProcessSpawner`
 - [ ] `lsp/server.ts` — multiple `Process.spawn()` installs/download helpers
 
 ## Filesystem consolidation

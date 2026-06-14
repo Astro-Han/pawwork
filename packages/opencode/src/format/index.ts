@@ -1,6 +1,8 @@
 import { Effect, Layer, Context } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
+import { AppFileSystem } from "@opencode-ai/core/filesystem"
+import { Npm } from "@opencode-ai/core/npm"
 import { InstanceState } from "@/effect/instance-state"
 import path from "path"
 import { mergeDeep } from "remeda"
@@ -37,6 +39,9 @@ export namespace Format {
     Effect.gen(function* () {
       const config = yield* Config.Service
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+      const fs = yield* AppFileSystem.Service
+      const npm = yield* Npm.Service
+      const deps = { fs, npm, spawner }
 
       const state = yield* InstanceState.make(
         Effect.fn("Format.state")(function* (_ctx) {
@@ -70,52 +75,61 @@ export namespace Format {
               formatters[name] = {
                 ...info,
                 name,
-                enabled: async () => info.command ?? false,
+                enabled: () => Effect.succeed(info.command ?? false),
               }
             }
           } else {
             log.info("all formatters are disabled")
           }
 
-          async function getCommand(item: Formatter.Info) {
-            let cmd = commands[item.name]
-            if (cmd === false || cmd === undefined) {
-              cmd = await item.enabled()
-              commands[item.name] = cmd
-            }
-            return cmd
+          function getCommand(item: Formatter.Info) {
+            return Effect.gen(function* () {
+              let cmd = commands[item.name]
+              if (cmd === false || cmd === undefined) {
+                cmd = yield* item.enabled(deps)
+                commands[item.name] = cmd
+              }
+              return cmd
+            })
           }
 
-          async function isEnabled(item: Formatter.Info) {
-            const cmd = await getCommand(item)
-            return cmd !== false
+          function isEnabled(item: Formatter.Info) {
+            return Effect.gen(function* () {
+              const cmd = yield* getCommand(item)
+              return cmd !== false
+            })
           }
 
-          async function getFormatter(ext: string) {
-            const matching = Object.values(formatters).filter((item) => item.extensions.includes(ext))
-            const checks = await Promise.all(
-              matching.map(async (item) => {
-                log.info("checking", { name: item.name, ext })
-                const cmd = await getCommand(item)
-                if (cmd) {
-                  log.info("enabled", { name: item.name, ext })
-                }
-                return {
-                  item,
-                  cmd,
-                }
-              }),
-            )
-            return checks
-              .filter((x): x is { item: Formatter.Info; cmd: string[] } => Array.isArray(x.cmd))
-              .map((x) => ({ item: x.item, cmd: x.cmd }))
+          function getFormatter(ext: string) {
+            return Effect.gen(function* () {
+              const matching = Object.values(formatters).filter((item) => item.extensions.includes(ext))
+              const checks = yield* Effect.all(
+                matching.map((item) =>
+                  Effect.gen(function* () {
+                    log.info("checking", { name: item.name, ext })
+                    const cmd = yield* getCommand(item)
+                    if (cmd) {
+                      log.info("enabled", { name: item.name, ext })
+                    }
+                    return {
+                      item,
+                      cmd,
+                    }
+                  }),
+                ),
+                { concurrency: "unbounded" },
+              )
+              return checks
+                .filter((x): x is { item: Formatter.Info; cmd: string[] } => Array.isArray(x.cmd))
+                .map((x) => ({ item: x.item, cmd: x.cmd }))
+            })
           }
 
           function formatFile(filepath: string) {
             return Effect.gen(function* () {
               log.info("formatting", { file: filepath })
               const ext = path.extname(filepath)
-              const formatters = yield* Effect.promise(() => getFormatter(ext))
+              const formatters = yield* getFormatter(ext)
 
               if (!formatters.length) return false
 
@@ -181,7 +195,7 @@ export namespace Format {
         const { formatters, isEnabled } = yield* InstanceState.get(state)
         const result: Status[] = []
         for (const formatter of Object.values(formatters)) {
-          const isOn = yield* Effect.promise(() => isEnabled(formatter))
+          const isOn = yield* isEnabled(formatter)
           result.push({
             name: formatter.name,
             extensions: formatter.extensions,
@@ -202,6 +216,8 @@ export namespace Format {
 
   export const defaultLayer = layer.pipe(
     Layer.provide(Config.defaultLayer),
+    Layer.provide(AppFileSystem.defaultLayer),
+    Layer.provide(Npm.defaultLayer),
     Layer.provide(CrossSpawnSpawner.defaultLayer),
   )
 }

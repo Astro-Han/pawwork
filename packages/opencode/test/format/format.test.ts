@@ -1,13 +1,59 @@
 import { NodeFileSystem } from "@effect/platform-node"
 import { describe, expect } from "bun:test"
-import { Effect, Layer } from "effect"
+import * as fs from "fs/promises"
+import path from "path"
+import { Effect, Layer, Stream } from "effect"
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { provideTmpdirInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
+import { AppFileSystem } from "@opencode-ai/core/filesystem"
+import { Npm } from "@opencode-ai/core/npm"
+import { Config } from "../../src/config/config"
 import { Format } from "../../src/format"
 import * as Formatter from "../../src/format/formatter"
 
 const it = testEffect(Layer.mergeAll(Format.defaultLayer, CrossSpawnSpawner.defaultLayer, NodeFileSystem.layer))
+const itWithMockLayer = testEffect(NodeFileSystem.layer)
+const encoder = new TextEncoder()
+
+function mockSpawner(result: { code: number; stdout?: string; stderr?: string }, onCommand?: () => void) {
+  return Layer.succeed(
+    ChildProcessSpawner.ChildProcessSpawner,
+    ChildProcessSpawner.make((command) => {
+      const std = ChildProcess.isStandardCommand(command) ? command : undefined
+      const output = std?.command === "air" ? result : { code: 0, stdout: "", stderr: "" }
+      if (std?.command === "air") onCommand?.()
+      return Effect.succeed(
+        ChildProcessSpawner.makeHandle({
+          pid: ChildProcessSpawner.ProcessId(0),
+          exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(output.code)),
+          isRunning: Effect.succeed(false),
+          kill: () => Effect.void,
+          stdin: { [Symbol.for("effect/Sink/TypeId")]: Symbol.for("effect/Sink/TypeId") } as any,
+          stdout: output.stdout ? Stream.make(encoder.encode(output.stdout)) : Stream.empty,
+          stderr: output.stderr ? Stream.make(encoder.encode(output.stderr)) : Stream.empty,
+          all: Stream.empty,
+          getInputFd: () => ({ [Symbol.for("effect/Sink/TypeId")]: Symbol.for("effect/Sink/TypeId") }) as any,
+          getOutputFd: () => Stream.empty,
+          unref: Effect.succeed(Effect.void),
+        }),
+      )
+    }),
+  )
+}
+
+function formatLayerWithSpawner(spawner: Layer.Layer<ChildProcessSpawner.ChildProcessSpawner>) {
+  return Layer.mergeAll(
+    Format.layer.pipe(
+      Layer.provide(Config.defaultLayer),
+      Layer.provide(AppFileSystem.defaultLayer),
+      Layer.provide(Npm.defaultLayer),
+      Layer.provide(spawner),
+    ),
+    spawner,
+  )
+}
 
 describe("Format", () => {
   it.live("status() returns built-in formatters when no config overrides", () =>
@@ -118,6 +164,44 @@ describe("Format", () => {
     ),
   )
 
+  itWithMockLayer.live("status() uses the Effect spawner for air discovery", () =>
+    Effect.gen(function* () {
+      let called = false
+      const layer = formatLayerWithSpawner(
+        mockSpawner({ code: 0, stdout: "not the R formatter\n" }, () => {
+          called = true
+        }),
+      )
+
+      yield* provideTmpdirInstance((dir) =>
+        Effect.acquireUseRelease(
+          Effect.promise(async () => {
+            const bin = path.join(dir, "bin")
+            const air = path.join(bin, "air")
+            await fs.mkdir(bin)
+            await Bun.write(air, "#!/bin/sh\nprintf 'Air: An R language server and formatter\\n'\n")
+            await fs.chmod(air, 0o755)
+            const oldPath = process.env.PATH
+            process.env.PATH = [bin, oldPath].filter(Boolean).join(path.delimiter)
+            return oldPath
+          }),
+          () =>
+            Format.Service.use((fmt) =>
+              Effect.gen(function* () {
+                const air = (yield* fmt.status()).find((item) => item.name === "air")
+                expect(air?.enabled).toBe(false)
+                expect(called).toBe(true)
+              }),
+            ),
+          (oldPath) =>
+            Effect.sync(() => {
+              process.env.PATH = oldPath
+            }),
+        ),
+      ).pipe(Effect.provide(layer))
+    }),
+  )
+
   it.live("service initializes without error", () => provideTmpdirInstance(() => Format.Service.use(() => Effect.void)))
 
   it.live("status() initializes formatter state per directory", () =>
@@ -154,20 +238,22 @@ describe("Format", () => {
           Effect.sync(() => {
             Formatter.gofmt.extensions = [".parallel"]
             Formatter.mix.extensions = [".parallel"]
-            Formatter.gofmt.enabled = async () => {
-              active++
-              max = Math.max(max, active)
-              await Bun.sleep(20)
-              active--
-              return ["sh", "-c", "true"]
-            }
-            Formatter.mix.enabled = async () => {
-              active++
-              max = Math.max(max, active)
-              await Bun.sleep(20)
-              active--
-              return ["sh", "-c", "true"]
-            }
+            Formatter.gofmt.enabled = () =>
+              Effect.promise(async () => {
+                active++
+                max = Math.max(max, active)
+                await Bun.sleep(20)
+                active--
+                return ["sh", "-c", "true"]
+              })
+            Formatter.mix.enabled = () =>
+              Effect.promise(async () => {
+                active++
+                max = Math.max(max, active)
+                await Bun.sleep(20)
+                active--
+                return ["sh", "-c", "true"]
+              })
           }),
           () =>
             Format.Service.use((fmt) =>
