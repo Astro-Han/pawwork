@@ -55,18 +55,28 @@ export function parseAskLimit(raw) {
 }
 
 function cleanText(value) {
+    const text = String(value ?? '');
     let withoutTags = '';
     let inTag = false;
-    for (const char of String(value ?? '')) {
-        if (char === '<') {
+    for (let index = 0; index < text.length; index += 1) {
+        const char = text[index];
+        if (!inTag && char === '<') {
+            const next = text[index + 1] || '';
+            const code = next.charCodeAt(0);
+            const startsHtmlLikeTag =
+                next === '/' || next === '!' || next === '?' || (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+            if (!startsHtmlLikeTag) {
+                withoutTags += char;
+                continue;
+            }
             inTag = true;
             continue;
         }
-        if (char === '>') {
-            inTag = false;
+        if (inTag) {
+            if (char === '>') inTag = false;
             continue;
         }
-        if (!inTag) withoutTags += char;
+        withoutTags += char;
     }
     return withoutTags
         .replace(/\u200b/g, '')
