@@ -69,66 +69,65 @@ export const PlanExitTool = Tool.define(
       description: EXIT_DESCRIPTION,
       parameters: Parameters,
       externalResult: true,
-      execute: (_params: {}, ctx: Tool.Context) =>
-        Effect.gen(function* () {
-          const info = yield* session.get(ctx.sessionID)
-          const plan = path.relative(Instance.worktree, Session.plan(info))
-          const snapshot: PlanExitSnapshot = {
-            questions: [
-              {
-                question: `Plan at ${plan} is complete. Would you like to switch to the build agent and start implementing?`,
-                header: "Build Agent",
-                custom: false,
-                options: [
-                  { label: "Yes", description: "Switch to build agent and implement the plan" },
-                  { label: "No", description: "Stay with plan agent to continue refining the plan" },
-                ],
-              } as Schema.Schema.Type<typeof Question.Prompt>,
-            ],
-          }
-          const outcome = yield* ctx.externalResult!({ inputSnapshot: snapshot, decoder: planExitDecoder })
-          if (outcome.kind === "dismissed") {
-            return {
-              title: "Plan exit dismissed",
-              output: "User dismissed the plan exit prompt.",
-              metadata: {},
-            }
-          }
-          const value = outcome.value as { answers: string[][] }
-          if (value.answers[0]?.[0] !== "Yes") {
-            return {
-              title: "Staying in plan mode",
-              output: "User declined to switch to the build agent.",
-              metadata: {},
-            }
-          }
-
-          const model = getLastModel(ctx.sessionID) ?? (yield* provider.defaultModel().pipe(Effect.orDie))
-
-          const msg: MessageV2.User = {
-            id: MessageID.ascending(),
-            sessionID: ctx.sessionID,
-            role: "user",
-            time: { created: Date.now() },
-            agent: "build",
-            model,
-          }
-          yield* session.updateMessage(msg)
-          yield* session.updatePart({
-            id: PartID.ascending(),
-            messageID: msg.id,
-            sessionID: ctx.sessionID,
-            type: "text",
-            text: `The plan at ${plan} has been approved, you can now edit files. Execute the plan`,
-            synthetic: true,
-          } satisfies MessageV2.TextPart)
-
+      execute: Effect.fn("PlanExitTool.execute")(function* (_params: {}, ctx: Tool.Context) {
+        const info = yield* session.get(ctx.sessionID)
+        const plan = path.relative(Instance.worktree, Session.plan(info))
+        const snapshot: PlanExitSnapshot = {
+          questions: [
+            {
+              question: `Plan at ${plan} is complete. Would you like to switch to the build agent and start implementing?`,
+              header: "Build Agent",
+              custom: false,
+              options: [
+                { label: "Yes", description: "Switch to build agent and implement the plan" },
+                { label: "No", description: "Stay with plan agent to continue refining the plan" },
+              ],
+            } as Schema.Schema.Type<typeof Question.Prompt>,
+          ],
+        }
+        const outcome = yield* ctx.externalResult!({ inputSnapshot: snapshot, decoder: planExitDecoder })
+        if (outcome.kind === "dismissed") {
           return {
-            title: "Switching to build agent",
-            output: "User approved switching to build agent. Wait for further instructions.",
+            title: "Plan exit dismissed",
+            output: "User dismissed the plan exit prompt.",
             metadata: {},
           }
-        }),
+        }
+        const value = outcome.value as { answers: string[][] }
+        if (value.answers[0]?.[0] !== "Yes") {
+          return {
+            title: "Staying in plan mode",
+            output: "User declined to switch to the build agent.",
+            metadata: {},
+          }
+        }
+
+        const model = getLastModel(ctx.sessionID) ?? (yield* provider.defaultModel().pipe(Effect.orDie))
+
+        const msg: MessageV2.User = {
+          id: MessageID.ascending(),
+          sessionID: ctx.sessionID,
+          role: "user",
+          time: { created: Date.now() },
+          agent: "build",
+          model,
+        }
+        yield* session.updateMessage(msg)
+        yield* session.updatePart({
+          id: PartID.ascending(),
+          messageID: msg.id,
+          sessionID: ctx.sessionID,
+          type: "text",
+          text: `The plan at ${plan} has been approved, you can now edit files. Execute the plan`,
+          synthetic: true,
+        } satisfies MessageV2.TextPart)
+
+        return {
+          title: "Switching to build agent",
+          output: "User approved switching to build agent. Wait for further instructions.",
+          metadata: {},
+        }
+      }),
     }
   }),
 )
