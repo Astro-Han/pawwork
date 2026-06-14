@@ -82,8 +82,10 @@ export const EnterWorktreeTool = Tool.define(
       },
     })
 
-    const run = (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
-      Effect.gen(function* () {
+    const execute = Effect.fn("EnterWorktreeTool.execute")(function* (
+      params: Schema.Schema.Type<typeof Parameters>,
+      ctx: Tool.Context,
+    ) {
         if (params.name && params.path) {
           return yield* Effect.fail(new Error("name and path are mutually exclusive"))
         }
@@ -180,13 +182,12 @@ export const EnterWorktreeTool = Tool.define(
           branch: planned.branch,
           state: exists ? "reused" : "created",
         })
-      })
+    }, Effect.orDie)
 
     return {
       description: DESCRIPTION,
       parameters: Parameters,
-      execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
-        run(params, ctx).pipe(Effect.orDie),
+      execute,
     }
   }),
 )
