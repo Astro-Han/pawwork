@@ -34,16 +34,17 @@ export const PermissionRoutes = lazy(() =>
 
         const json = c.req.valid("json")
         void AppRuntime.runPromise(
-          Permission.Service.use((svc) =>
-            svc.ask({
+          Effect.gen(function* () {
+            const permission = yield* Permission.Service
+            yield* permission.ask({
               sessionID: json.sessionID,
               permission: json.permission,
               patterns: json.patterns,
               metadata: json.metadata ?? {},
               always: json.always ?? json.patterns,
               ruleset: [{ permission: json.permission, pattern: "*", action: "ask" }],
-            }),
-          ),
+            })
+          }),
         ).catch((error) => {
           log.error("e2e permission seed failed", { sessionID: json.sessionID, error })
         })
@@ -111,15 +112,18 @@ export const PermissionRoutes = lazy(() =>
       }),
       async (c) => {
         const permissions = await AppRuntime.runPromise(
-          Permission.Service.use((svc) =>
-            svc
+          Effect.gen(function* () {
+            const permission = yield* Permission.Service
+            return yield* permission
               .list()
               .pipe(
                 Effect.flatMap((items) =>
-                  SessionLiveness.pruneDangling(items, (sessionID) => svc.clearSession(sessionID, "dangling_session")),
+                  SessionLiveness.pruneDangling(items, (sessionID) =>
+                    permission.clearSession(sessionID, "dangling_session"),
+                  ),
                 ),
-              ),
-          ),
+              )
+          }),
         )
         return c.json(permissions)
       },
