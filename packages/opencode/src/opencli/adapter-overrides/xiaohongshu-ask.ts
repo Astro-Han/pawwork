@@ -55,8 +55,20 @@ export function parseAskLimit(raw) {
 }
 
 function cleanText(value) {
-    return String(value ?? '')
-        .replace(/<[^>]+>/g, '')
+    let withoutTags = '';
+    let inTag = false;
+    for (const char of String(value ?? '')) {
+        if (char === '<') {
+            inTag = true;
+            continue;
+        }
+        if (char === '>') {
+            inTag = false;
+            continue;
+        }
+        if (!inTag) withoutTags += char;
+    }
+    return withoutTags
         .replace(/\u200b/g, '')
         .replace(/\r\n/g, '\n')
         .trim();
