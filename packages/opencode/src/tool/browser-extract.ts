@@ -40,59 +40,61 @@ export const BrowserExtractTool = Tool.define(
     return {
       description: DESCRIPTION,
       parameters: Parameters,
-      execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
-        Effect.gen(function* () {
-          const start = Math.max(0, Math.floor(params.start ?? 0))
-          const result = yield* runBrowserAction({
-            ctx,
-            label: "extract",
-            metadata: { selector: params.selector },
-            run: async (page, info) => {
-              // The selector is JSON-serialized into the script (never string-
-              // concatenated), so it cannot inject. evaluateWithArgs is avoided
-              // on purpose: it injects each arg as a top-level const (the var is
-              // `selector`, not `args.selector`), which is easy to get wrong.
-              const read = await page.evaluate<{ html: string; truncated: boolean } | null>(
-                READ_HTML_JS(JSON.stringify(params.selector ?? null)),
-              )
-              const url = (await page.getCurrentUrl?.()) ?? ""
-              return { read, url, info }
-            },
-          })
-          if (typeof result.read?.html !== "string") {
-            return yield* Effect.fail(
-              new Error(
-                params.selector
-                  ? `No element matches selector ${JSON.stringify(params.selector)}.`
-                  : "The page has no readable body yet — navigate somewhere first.",
-              ),
+      execute: Effect.fn("BrowserExtractTool.execute")(function* (
+        params: Schema.Schema.Type<typeof Parameters>,
+        ctx: Tool.Context,
+      ) {
+        const start = Math.max(0, Math.floor(params.start ?? 0))
+        const result = yield* runBrowserAction({
+          ctx,
+          label: "extract",
+          metadata: { selector: params.selector },
+          run: async (page, info) => {
+            // The selector is JSON-serialized into the script (never string-
+            // concatenated), so it cannot inject. evaluateWithArgs is avoided
+            // on purpose: it injects each arg as a top-level const (the var is
+            // `selector`, not `args.selector`), which is easy to get wrong.
+            const read = await page.evaluate<{ html: string; truncated: boolean } | null>(
+              READ_HTML_JS(JSON.stringify(params.selector ?? null)),
             )
-          }
-          const markdown = htmlToMarkdown(result.read.html)
-          const chunk = markdown.slice(start, start + EXTRACT_CHAR_LIMIT)
-          const nextStart = start + chunk.length
-          const hasMore = nextStart < markdown.length
-          return {
-            title: result.url || "Extracted content",
-            output:
-              chunk +
-              (hasMore
-                ? `\n\n(Content continues — call browser_extract again with start=${nextStart}. next_start_char: ${nextStart})`
-                : "") +
-              (result.read.truncated
-                ? "\n\n(The page's HTML was larger than the extraction ceiling; trailing content was dropped before conversion. Use `selector` to target the part you need.)"
-                : "") +
-              takeoverNote(result.info),
-            metadata: {
-              url: result.url,
-              selector: params.selector,
-              start,
-              next_start_char: hasMore ? nextStart : undefined,
-              total_chars: markdown.length,
-              html_truncated: result.read.truncated || undefined,
-            },
-          }
-        }),
+            const url = (await page.getCurrentUrl?.()) ?? ""
+            return { read, url, info }
+          },
+        })
+        if (typeof result.read?.html !== "string") {
+          return yield* Effect.fail(
+            new Error(
+              params.selector
+                ? `No element matches selector ${JSON.stringify(params.selector)}.`
+                : "The page has no readable body yet — navigate somewhere first.",
+            ),
+          )
+        }
+        const markdown = htmlToMarkdown(result.read.html)
+        const chunk = markdown.slice(start, start + EXTRACT_CHAR_LIMIT)
+        const nextStart = start + chunk.length
+        const hasMore = nextStart < markdown.length
+        return {
+          title: result.url || "Extracted content",
+          output:
+            chunk +
+            (hasMore
+              ? `\n\n(Content continues — call browser_extract again with start=${nextStart}. next_start_char: ${nextStart})`
+              : "") +
+            (result.read.truncated
+              ? "\n\n(The page's HTML was larger than the extraction ceiling; trailing content was dropped before conversion. Use `selector` to target the part you need.)"
+              : "") +
+            takeoverNote(result.info),
+          metadata: {
+            url: result.url,
+            selector: params.selector,
+            start,
+            next_start_char: hasMore ? nextStart : undefined,
+            total_chars: markdown.length,
+            html_truncated: result.read.truncated || undefined,
+          },
+        }
+      }),
     }
   }),
 )
