@@ -123,7 +123,7 @@ describe("tool.grep", () => {
   it.live("handles CRLF line endings in output", () =>
     Effect.gen(function* () {
       const dir = yield* tmpdirScoped()
-      yield* writeFile(path.join(dir, "test.txt"), "line1\nline2\nline3")
+      yield* writeFile(path.join(dir, "test.txt"), "line1\r\nline2\r\nline3")
 
       const result = yield* exec(dir, {
         pattern: "line",
