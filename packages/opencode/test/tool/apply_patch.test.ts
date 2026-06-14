@@ -1,6 +1,5 @@
 import { afterEach, describe, expect } from "bun:test"
 import path from "path"
-import * as fs from "fs/promises"
 import { Cause, Effect, Layer } from "effect"
 import { ApplyPatchTool } from "../../src/tool/apply_patch"
 import { Instance } from "../../src/project/instance"
@@ -82,16 +81,31 @@ const executeFailure = Effect.fn("ApplyPatchToolTest.executeFailure")(function* 
   return error instanceof Error ? error : new Error(String(error))
 })
 
-const writeFile = (...args: Parameters<typeof fs.writeFile>) => Effect.promise(() => fs.writeFile(...args))
-const readFile = (filePath: string) => Effect.promise((): Promise<string> => fs.readFile(filePath, "utf-8"))
-const mkdir = (...args: Parameters<typeof fs.mkdir>) => Effect.promise(() => fs.mkdir(...args))
+const writeFile = Effect.fn("ApplyPatchToolTest.writeFile")(function* (
+  filePath: string,
+  content: string,
+  _encoding?: BufferEncoding,
+) {
+  const fs = yield* AppFileSystem.Service
+  yield* fs.writeFileString(filePath, content)
+})
+const readFile = Effect.fn("ApplyPatchToolTest.readFile")(function* (filePath: string) {
+  const fs = yield* AppFileSystem.Service
+  return yield* fs.readFileString(filePath)
+})
+const mkdir = Effect.fn("ApplyPatchToolTest.mkdir")(function* (
+  filePath: string,
+  options?: { recursive?: boolean },
+) {
+  const fs = yield* AppFileSystem.Service
+  yield* fs.makeDirectory(filePath, options)
+})
 const expectReadFileRejects = (filePath: string) =>
   Effect.gen(function* () {
-    const exists = yield* Effect.promise(() =>
-      fs
-        .readFile(filePath)
-        .then(() => true)
-        .catch(() => false),
+    const fs = yield* AppFileSystem.Service
+    const exists = yield* fs.readFileString(filePath).pipe(
+      Effect.as(true),
+      Effect.catch(() => Effect.succeed(false)),
     )
     expect(exists).toBe(false)
   })
