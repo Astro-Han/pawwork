@@ -42,7 +42,10 @@ export const LspTool = Tool.define(
     return {
       description: DESCRIPTION,
       parameters: Parameters,
-      execute: (args: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
+      execute: Effect.fn("LspTool.execute")((
+        args: Schema.Schema.Type<typeof Parameters>,
+        ctx: Tool.Context,
+      ) =>
         Effect.gen(function* () {
           const rawFile = path.isAbsolute(args.filePath) ? args.filePath : path.join(Instance.directory, args.filePath)
           const file = (yield* assertExternalDirectoryEffect(ctx, rawFile)) ?? rawFile
@@ -107,6 +110,7 @@ export const LspTool = Tool.define(
             output: result.length === 0 ? `No results found for ${args.operation}` : JSON.stringify(result, null, 2),
           }
         }).pipe(Effect.orDie),
+      ),
     }
   }),
 )
