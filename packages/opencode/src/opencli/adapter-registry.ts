@@ -3,6 +3,7 @@ import fs from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { fullName, getRegistry, type CliCommand } from "@jackwener/opencli/registry"
+import "./adapter-overrides/xiaohongshu-ask"
 
 export type OpenCliManifestEntry = {
   site: string

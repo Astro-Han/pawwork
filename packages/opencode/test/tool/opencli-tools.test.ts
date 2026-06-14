@@ -96,6 +96,17 @@ describe("opencli_search", () => {
     }),
   )
 
+  it.live("discovers the Xiaohongshu ask adapter", () =>
+    Effect.gen(function* () {
+      const result = yield* exec(OpenCliSearchTool, { query: "xiaohongshu ask", limit: 5 })
+
+      expect(result.output).toContain('<opencli_command name="xiaohongshu/ask">')
+      expect(result.output).toContain("- query (required) | help: Question for 点点")
+      expect(result.output).toContain("- timeout | type: int | default: 90")
+      expect(result.output).toContain("- source-limit | type: int | default: 10")
+    }),
+  )
+
   it.live("does not advertise non-browser write adapters", () =>
     Effect.gen(function* () {
       cli({
