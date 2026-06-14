@@ -38,97 +38,95 @@ export const WriteTool = Tool.define(
     return {
       description: DESCRIPTION,
       parameters: Parameters,
-      execute: Effect.fn("WriteTool.execute")((
+      execute: Effect.fn("WriteTool.execute")(function* (
         params: Schema.Schema.Type<typeof Parameters>,
         ctx: Tool.Context,
-      ) =>
-        Effect.gen(function* () {
-          const rawFilepath = path.isAbsolute(params.filePath)
-            ? params.filePath
-            : path.join(Instance.directory, params.filePath)
-          const filepath = (yield* assertExternalDirectoryEffect(ctx, rawFilepath)) ?? rawFilepath
+      ) {
+        const rawFilepath = path.isAbsolute(params.filePath)
+          ? params.filePath
+          : path.join(Instance.directory, params.filePath)
+        const filepath = (yield* assertExternalDirectoryEffect(ctx, rawFilepath)) ?? rawFilepath
 
-          const exists = yield* fs.existsSafe(filepath)
-          const source = exists ? yield* Bom.readFile(fs, filepath) : { bom: false, text: "" }
-          const next = Bom.split(params.content)
-          // Only preserve the existing file's BOM. Letting `params.content`
-          // introduce a new BOM (or strip an existing one) would change file
-          // bytes in a way the diff preview cannot show, which can silently
-          // break shebangs and first-token parsing.
-          const desiredBom = source.bom
-          const bomChanged = source.bom !== next.bom
-          const contentOld = source.text
-          const contentNew = next.text
+        const exists = yield* fs.existsSafe(filepath)
+        const source = exists ? yield* Bom.readFile(fs, filepath) : { bom: false, text: "" }
+        const next = Bom.split(params.content)
+        // Only preserve the existing file's BOM. Letting `params.content`
+        // introduce a new BOM (or strip an existing one) would change file
+        // bytes in a way the diff preview cannot show, which can silently
+        // break shebangs and first-token parsing.
+        const desiredBom = source.bom
+        const bomChanged = source.bom !== next.bom
+        const contentOld = source.text
+        const contentNew = next.text
 
-          let diff = trimDiff(createTwoFilesPatch(filepath, filepath, contentOld, contentNew))
-          const relativeFilepath = path.relative(Instance.worktree, filepath)
-          const sensitive = isSensitiveTargetPath(filepath, Instance.worktree)
-          const status = exists ? "modified" : "added"
-          yield* ctx.ask({
-            permission: "edit",
-            patterns: [relativeFilepath],
-            always: ["*"],
-            metadata: sensitive
-              ? safeFilepathMetadata(filepath, status, bomChanged ? { bomDiscarded: true } : undefined)
-              : {
-                  filepath,
-                  diff,
-                  ...(bomChanged && { bomDiscarded: true }),
-                },
-          })
+        let diff = trimDiff(createTwoFilesPatch(filepath, filepath, contentOld, contentNew))
+        const relativeFilepath = path.relative(Instance.worktree, filepath)
+        const sensitive = isSensitiveTargetPath(filepath, Instance.worktree)
+        const status = exists ? "modified" : "added"
+        yield* ctx.ask({
+          permission: "edit",
+          patterns: [relativeFilepath],
+          always: ["*"],
+          metadata: sensitive
+            ? safeFilepathMetadata(filepath, status, bomChanged ? { bomDiscarded: true } : undefined)
+            : {
+                filepath,
+                diff,
+                ...(bomChanged && { bomDiscarded: true }),
+              },
+        })
 
-          yield* fs.writeWithDirs(filepath, Bom.join(contentNew, desiredBom))
-          let finalContent = contentNew
-          if (yield* format.file(filepath)) {
-            const synced = yield* Bom.syncFile(fs, filepath, desiredBom)
-            finalContent = synced
-            // Recompute the diff so the bus event / snapshot reflects the
-            // post-format on-disk content. Mirrors the same pattern in edit.ts.
-            diff = trimDiff(createTwoFilesPatch(filepath, filepath, contentOld, finalContent))
+        yield* fs.writeWithDirs(filepath, Bom.join(contentNew, desiredBom))
+        let finalContent = contentNew
+        if (yield* format.file(filepath)) {
+          const synced = yield* Bom.syncFile(fs, filepath, desiredBom)
+          finalContent = synced
+          // Recompute the diff so the bus event / snapshot reflects the
+          // post-format on-disk content. Mirrors the same pattern in edit.ts.
+          diff = trimDiff(createTwoFilesPatch(filepath, filepath, contentOld, finalContent))
+        }
+        yield* bus.publish(File.Event.Edited, { file: filepath })
+        yield* turnChange.recordWrite({
+          sessionID: ctx.sessionID,
+          messageID: ctx.messageID,
+          path: filepath,
+          before: exists ? { exists: true, content: contentOld, bom: source.bom } : { exists: false },
+          after: { exists: true, content: finalContent, bom: desiredBom },
+        })
+        yield* bus.publish(FileWatcher.Event.Updated, {
+          file: filepath,
+          event: exists ? "change" : "add",
+        })
+
+        let output = "Wrote file successfully."
+        yield* lsp.touchFile(filepath, true)
+        const diagnostics = sensitive ? {} : yield* lsp.diagnostics()
+        const normalizedFilepath = AppFileSystem.normalizePath(filepath)
+        let projectDiagnosticsCount = 0
+        for (const [file, issues] of Object.entries(diagnostics)) {
+          const current = file === normalizedFilepath
+          if (!current && projectDiagnosticsCount >= MAX_PROJECT_DIAGNOSTICS_FILES) continue
+          const block = LSP.Diagnostic.report(current ? filepath : file, issues)
+          if (!block) continue
+          if (current) {
+            output += `\n\nLSP errors detected in this file, please fix:\n${block}`
+            continue
           }
-          yield* bus.publish(File.Event.Edited, { file: filepath })
-          yield* turnChange.recordWrite({
-            sessionID: ctx.sessionID,
-            messageID: ctx.messageID,
-            path: filepath,
-            before: exists ? { exists: true, content: contentOld, bom: source.bom } : { exists: false },
-            after: { exists: true, content: finalContent, bom: desiredBom },
-          })
-          yield* bus.publish(FileWatcher.Event.Updated, {
-            file: filepath,
-            event: exists ? "change" : "add",
-          })
+          projectDiagnosticsCount++
+          output += `\n\nLSP errors detected in other files:\n${block}`
+        }
 
-          let output = "Wrote file successfully."
-          yield* lsp.touchFile(filepath, true)
-          const diagnostics = sensitive ? {} : yield* lsp.diagnostics()
-          const normalizedFilepath = AppFileSystem.normalizePath(filepath)
-          let projectDiagnosticsCount = 0
-          for (const [file, issues] of Object.entries(diagnostics)) {
-            const current = file === normalizedFilepath
-            if (!current && projectDiagnosticsCount >= MAX_PROJECT_DIAGNOSTICS_FILES) continue
-            const block = LSP.Diagnostic.report(current ? filepath : file, issues)
-            if (!block) continue
-            if (current) {
-              output += `\n\nLSP errors detected in this file, please fix:\n${block}`
-              continue
-            }
-            projectDiagnosticsCount++
-            output += `\n\nLSP errors detected in other files:\n${block}`
-          }
-
-          return {
-            title: relativeFilepath,
-            metadata: {
-              diagnostics,
-              ...(sensitive ? { filepath, sensitive: true, status } : { filepath }),
-              exists: exists,
-              ...(sensitive && bomChanged ? { bomDiscarded: true } : {}),
-            },
-            output,
-          }
-        }).pipe(Effect.orDie),
-      ),
+        return {
+          title: relativeFilepath,
+          metadata: {
+            diagnostics,
+            ...(sensitive ? { filepath, sensitive: true, status } : { filepath }),
+            exists: exists,
+            ...(sensitive && bomChanged ? { bomDiscarded: true } : {}),
+          },
+          output,
+        }
+      }, Effect.orDie),
     }
   }),
 )
