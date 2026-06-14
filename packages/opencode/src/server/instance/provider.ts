@@ -89,7 +89,13 @@ export const ProviderRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        return c.json(await AppRuntime.runPromise(ProviderAuth.Service.use((svc) => svc.methods())))
+        const methods = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const auth = yield* ProviderAuth.Service
+            return yield* auth.methods()
+          }),
+        )
+        return c.json(methods)
       },
     )
     .post(
@@ -127,13 +133,14 @@ export const ProviderRoutes = lazy(() =>
         const providerID = c.req.valid("param").providerID
         const { method, inputs } = c.req.valid("json")
         const result = await AppRuntime.runPromise(
-          ProviderAuth.Service.use((svc) =>
-            svc.authorize({
+          Effect.gen(function* () {
+            const auth = yield* ProviderAuth.Service
+            return yield* auth.authorize({
               providerID,
               method,
               inputs,
-            }),
-          ),
+            })
+          }),
         )
         return c.json(result)
       },
@@ -173,13 +180,14 @@ export const ProviderRoutes = lazy(() =>
         const providerID = c.req.valid("param").providerID
         const { method, code } = c.req.valid("json")
         await AppRuntime.runPromise(
-          ProviderAuth.Service.use((svc) =>
-            svc.callback({
+          Effect.gen(function* () {
+            const auth = yield* ProviderAuth.Service
+            yield* auth.callback({
               providerID,
               method,
               code,
-            }),
-          ),
+            })
+          }),
         )
         return c.json(true)
       },

@@ -415,7 +415,7 @@ Route files to convert (each handler that calls facades should be wrapped):
 
 - [ ] `server/routes/session.ts` — heaviest; uses Session, SessionPrompt, SessionRevert, SessionCompaction, SessionShare, SessionSummary, SessionRunState, Agent, Permission, Bus
 - [ ] `server/routes/global.ts` — uses Config, Project, Provider, Vcs, Snapshot, Agent
-- [ ] `server/routes/provider.ts` — uses Provider, Auth, Config
-- [ ] `server/routes/question.ts` — uses Question
-- [ ] `server/routes/pty.ts` — uses Pty
+- [x] `server/instance/provider.ts` — migrated 2026-06-15. Provider auth route bodies now yield `ProviderAuth.Service` inside `AppRuntime.runPromise(Effect.gen(...))`; the old `server/routes/provider.ts` checklist path is stale in the current tree.
+- [ ] `server/routes/question.ts` — stale checklist path. The current tree has no `server/instance/question.ts` route; do not claim completion without a live route owner.
+- [x] `server/instance/pty.ts` — migrated 2026-06-15. Connect-token and WebSocket connect route bodies now yield `Pty.Service` for target lookup and connection setup; the old `server/routes/pty.ts` checklist path is stale in the current tree.
 - [ ] `server/routes/experimental.ts` — uses Account, ToolRegistry, Agent, MCP, Config
