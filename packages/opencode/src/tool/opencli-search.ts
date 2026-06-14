@@ -50,18 +50,18 @@ export const OpenCliSearchTool = Tool.define(
     return {
       description: DESCRIPTION,
       parameters: Parameters,
-      execute: (params: Schema.Schema.Type<typeof Parameters>) =>
-        Effect.tryPromise({
-          try: async () => {
-            const results = await searchOpenCliCommands(params.query, { limit: params.limit })
-            return {
-              title: `OpenCLI commands for "${params.query}"`,
-              output: formatOpenCliSearchOutput(results),
-              metadata: { query: params.query, count: results.length },
-            }
-          },
+      execute: Effect.fn("OpenCliSearchTool.execute")(function* (params: Schema.Schema.Type<typeof Parameters>) {
+        const results = yield* Effect.tryPromise({
+          try: () => searchOpenCliCommands(params.query, { limit: params.limit }),
           catch: (err) => (err instanceof Error ? err : new Error(String(err))),
-        }),
+        })
+
+        return {
+          title: `OpenCLI commands for "${params.query}"`,
+          output: formatOpenCliSearchOutput(results),
+          metadata: { query: params.query, count: results.length },
+        }
+      }),
     }
   }),
 )
