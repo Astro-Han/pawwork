@@ -260,8 +260,8 @@ Individual tools, ordered by value:
 - [ ] `edit.ts` — HIGH: multi-step diff/format/publish pipeline, FileWatcher lock
 - [x] `grep.ts` — MEDIUM: spawns ripgrep → ChildProcessSpawner, timeout handling
 - [ ] `write.ts` — MEDIUM: permission checks, diagnostics polling, Bus events
-- [ ] `webfetch.ts` — MEDIUM: fetch with UA retry, size limits → HttpClient
-- [ ] `websearch.ts` — MEDIUM: MCP over HTTP → HttpClient
+- [x] `webfetch.ts` — MEDIUM: fetch with UA retry, size limits → HttpClient
+- [x] `websearch.ts` — MEDIUM: MCP over HTTP → HttpClient
 - [ ] `batch.ts` — MEDIUM: parallel execution, per-call error recovery → Effect.all
 - [ ] `task.ts` — MEDIUM: task state management
 - [ ] `ls.ts` — MEDIUM: bounded directory listing over ripgrep-backed traversal
@@ -378,6 +378,7 @@ Decision table for the design:
 - `Workspace` — migrated 2026-06-14. Added `Workspace.Service` / `defaultLayer`, wired it into `AppRuntime`, introduced typed `WorkspaceError` failures for the Effect service path, and moved workspace routing record/sync/adaptor resolution onto the injected service. Existing async facade functions remain as the compatibility boundary for legacy route/tests callers.
 - `ApplyPatchTool` — migrated 2026-06-14. Tool body was already Effect-native; this follow-up moved `apply_patch.test.ts` off its local `ManagedRuntime` / Promise execute helper and onto the shared `testEffect(...).live` harness while preserving the defectified execute boundary coverage.
 - `GrepTool` / `GlobTool` — migrated 2026-06-14. Tool bodies were already Effect-native; this follow-up moved `grep.test.ts` and `glob.test.ts` off local `ManagedRuntime` / Promise init helpers and onto the shared `testEffect(...).live` harness with scoped instance fixtures.
+- `WebFetchTool` / `WebSearchTool` — migrated 2026-06-15. Tool bodies were already Effect-native and backed by `HttpClient`; this follow-up moved `webfetch.test.ts` and `websearch.test.ts` onto the shared `testEffect(...).live` harness while preserving the fake HTTP server/client behavior and existing assertion semantics.
 
 ## Route handler effectification
 
