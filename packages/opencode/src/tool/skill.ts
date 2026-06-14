@@ -20,7 +20,10 @@ export const SkillTool = Tool.define(
     return {
       description: DESCRIPTION,
       parameters: Parameters,
-      execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
+      execute: Effect.fn("SkillTool.execute")((
+        params: Schema.Schema.Type<typeof Parameters>,
+        ctx: Tool.Context,
+      ) =>
         Effect.gen(function* () {
           const info = yield* skill.get(params.name)
           if (!info) {
@@ -70,6 +73,7 @@ export const SkillTool = Tool.define(
             },
           }
         }).pipe(Effect.orDie),
+      ),
     }
   }),
 )
