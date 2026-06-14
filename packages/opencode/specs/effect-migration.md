@@ -255,7 +255,7 @@ This keeps migrated tool tests aligned with the production service graph today, 
 Individual tools, ordered by value:
 
 - [x] `apply_patch.ts` — HIGH: multi-step orchestration, error accumulation, Bus events
-- [ ] `bash.ts` — HIGH: shell orchestration, quoting, timeout handling, output capture
+- [x] `bash.ts` — HIGH: shell orchestration, quoting, timeout handling, output capture
 - [x] `read.ts` — HIGH: streaming I/O, readline, binary detection → FileSystem + Stream
 - [x] `edit.ts` — HIGH: multi-step diff/format/publish pipeline, FileWatcher lock
 - [x] `grep.ts` — MEDIUM: spawns ripgrep → ChildProcessSpawner, timeout handling
@@ -268,7 +268,7 @@ Individual tools, ordered by value:
 - [x] `glob.ts` — LOW: simple async generator
 - [x] `lsp.ts` — LOW: dispatch switch over LSP operations
 - [ ] `question.ts` — LOW: prompt wrapper
-- [ ] `skill.ts` — LOW: skill tool adapter
+- [x] `skill.ts` — LOW: skill tool adapter
 - [ ] `todo.ts` — LOW: todo persistence wrapper
 - [ ] `invalid.ts` — LOW: invalid-tool fallback
 - [ ] `plan.ts` — LOW: plan file operations
@@ -380,6 +380,8 @@ Decision table for the design:
 - `GrepTool` / `GlobTool` — migrated 2026-06-14. Tool bodies were already Effect-native; this follow-up moved `grep.test.ts` and `glob.test.ts` off local `ManagedRuntime` / Promise init helpers and onto the shared `testEffect(...).live` harness with scoped instance fixtures.
 - `WebFetchTool` / `WebSearchTool` — migrated 2026-06-15. Tool bodies were already Effect-native and backed by `HttpClient`; this follow-up moved `webfetch.test.ts` and `websearch.test.ts` onto the shared `testEffect(...).live` harness while preserving the fake HTTP server/client behavior and existing assertion semantics.
 - `WriteTool` / `EditTool` / `LspTool` — checklist corrected 2026-06-15. Tool bodies already used named `Effect.fn(...execute)` boundaries and the shared `testEffect(...).live` harness; this follow-up verified the existing write/edit/lsp coverage and closed the stale checklist without code or test changes.
+- `ShellTool` / public `bash` tool — migrated 2026-06-15. The current tree exposes this tool from `tool/shell.ts` with public tool id `bash`; there is no standalone `bash.ts` file. The tool body already used named `Effect.fn(...)` boundaries, and this follow-up moved `shell.test.ts` off its local `ManagedRuntime` / `runtime.runPromise(...)` helper and onto an explicit `Effect.provide(testLayer)` runner that initializes and executes the tool inside the same Effect scope while preserving the shell behavior matrix.
+- `SkillTool` — migrated 2026-06-15. The tool body already used the named `Effect.fn("SkillTool.execute")` boundary; this follow-up moved the remaining `skill.test.ts` execute coverage off its local `ManagedRuntime` / `runtime.runPromise(...)` helper and onto an inline `Effect.scoped` + `Effect.provide(testLayer)` boundary, without changing skill discovery or ToolRegistry behavior.
 
 ## Route handler effectification
 

@@ -1,4 +1,4 @@
-import { Effect, Layer, ManagedRuntime } from "effect"
+import { Effect, Layer } from "effect"
 import { Agent } from "../../src/agent/agent"
 import { Skill } from "../../src/skill"
 import { Ripgrep } from "../../src/file/ripgrep"
@@ -23,6 +23,8 @@ const baseCtx: Omit<Tool.Context, "ask"> = {
   messages: [],
   metadata: () => Effect.void,
 }
+
+const testLayer = Layer.mergeAll(Skill.defaultLayer, Ripgrep.defaultLayer, Truncate.defaultLayer, Agent.defaultLayer)
 
 afterEach(async () => {
   await Instance.disposeAll()
@@ -199,11 +201,6 @@ Use this skill.
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          const runtime = ManagedRuntime.make(
-            Layer.mergeAll(Skill.defaultLayer, Ripgrep.defaultLayer, Truncate.defaultLayer, Agent.defaultLayer),
-          )
-          const info = await runtime.runPromise(SkillTool)
-          const tool = await runtime.runPromise(info.init())
           const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
           const ctx: Tool.Context = {
             ...baseCtx,
@@ -213,7 +210,13 @@ Use this skill.
               }),
           }
 
-          const result = await runtime.runPromise(tool.execute({ name: "tool-skill" }, ctx))
+          const result = await Effect.runPromise(
+            Effect.gen(function* () {
+              const info = yield* SkillTool
+              const tool = yield* info.init()
+              return yield* tool.execute({ name: "tool-skill" }, ctx)
+            }).pipe(Effect.scoped, Effect.provide(testLayer)),
+          )
           const dir = path.join(tmp.path, ".opencode", "skill", "tool-skill")
           const file = path.resolve(dir, "scripts", "demo.txt")
 
