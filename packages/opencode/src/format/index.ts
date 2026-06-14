@@ -85,7 +85,7 @@ export namespace Format {
           function getCommand(item: Formatter.Info) {
             return Effect.gen(function* () {
               let cmd = commands[item.name]
-              if (cmd === false || cmd === undefined) {
+              if (cmd === undefined) {
                 cmd = yield* item.enabled(deps)
                 commands[item.name] = cmd
               }

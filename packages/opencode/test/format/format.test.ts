@@ -166,10 +166,10 @@ describe("Format", () => {
 
   itWithMockLayer.live("status() uses the Effect spawner for air discovery", () =>
     Effect.gen(function* () {
-      let called = false
+      let calls = 0
       const layer = formatLayerWithSpawner(
         mockSpawner({ code: 0, stdout: "not the R formatter\n" }, () => {
-          called = true
+          calls++
         }),
       )
 
@@ -196,13 +196,16 @@ describe("Format", () => {
             Format.Service.use((fmt) =>
               Effect.gen(function* () {
                 const air = (yield* fmt.status()).find((item) => item.name === "air")
+                const airCached = (yield* fmt.status()).find((item) => item.name === "air")
                 expect(air?.enabled).toBe(false)
-                expect(called).toBe(true)
+                expect(airCached?.enabled).toBe(false)
+                expect(calls).toBe(1)
               }),
             ),
           ({ oldPath, oldPathExt }) =>
             Effect.sync(() => {
-              process.env.PATH = oldPath
+              if (oldPath === undefined) delete process.env.PATH
+              else process.env.PATH = oldPath
               if (oldPathExt === undefined) delete process.env.PATHEXT
               else process.env.PATHEXT = oldPathExt
             }),
