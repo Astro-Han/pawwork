@@ -78,7 +78,7 @@ export const ApplyPatchTool = Tool.define(
     const bus = yield* Bus.Service
     const turnChange = yield* TurnChange.Service
 
-    const run = Effect.fn("ApplyPatchTool.execute")(function* (
+    const execute = Effect.fn("ApplyPatchTool.execute")(function* (
       params: Schema.Schema.Type<typeof Parameters>,
       ctx: Tool.Context,
     ) {
@@ -438,13 +438,12 @@ export const ApplyPatchTool = Tool.define(
         },
         output,
       }
-    })
+    }, Effect.orDie)
 
     return {
       description: DESCRIPTION,
       parameters: Parameters,
-      execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
-        run(params, ctx).pipe(Effect.orDie),
+      execute,
     }
   }),
 )
