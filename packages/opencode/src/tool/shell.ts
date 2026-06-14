@@ -689,7 +689,10 @@ export const ShellTool = Tool.define(
       return {
         description,
         parameters: Parameters,
-        execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
+        execute: Effect.fn("ShellTool.execute")((
+          params: Schema.Schema.Type<typeof Parameters>,
+          ctx: Tool.Context,
+        ) =>
           Effect.gen(function* () {
             const instance = yield* InstanceState.context
             const directory = instance.directory
@@ -746,7 +749,7 @@ export const ShellTool = Tool.define(
                 }),
               deps,
             )
-          }),
+          })),
       }
     })
   }),
