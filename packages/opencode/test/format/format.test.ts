@@ -177,13 +177,20 @@ describe("Format", () => {
         Effect.acquireUseRelease(
           Effect.promise(async () => {
             const bin = path.join(dir, "bin")
-            const air = path.join(bin, "air")
+            const air = path.join(bin, process.platform === "win32" ? "air.cmd" : "air")
             await fs.mkdir(bin)
-            await Bun.write(air, "#!/bin/sh\nprintf 'Air: An R language server and formatter\\n'\n")
-            await fs.chmod(air, 0o755)
+            await Bun.write(
+              air,
+              process.platform === "win32"
+                ? "@echo off\r\necho Air: An R language server and formatter\r\n"
+                : "#!/bin/sh\nprintf 'Air: An R language server and formatter\\n'\n",
+            )
+            if (process.platform !== "win32") await fs.chmod(air, 0o755)
             const oldPath = process.env.PATH
+            const oldPathExt = process.env.PATHEXT
             process.env.PATH = [bin, oldPath].filter(Boolean).join(path.delimiter)
-            return oldPath
+            if (process.platform === "win32") process.env.PATHEXT = [oldPathExt, ".CMD"].filter(Boolean).join(";")
+            return { oldPath, oldPathExt }
           }),
           () =>
             Format.Service.use((fmt) =>
@@ -193,9 +200,11 @@ describe("Format", () => {
                 expect(called).toBe(true)
               }),
             ),
-          (oldPath) =>
+          ({ oldPath, oldPathExt }) =>
             Effect.sync(() => {
               process.env.PATH = oldPath
+              if (oldPathExt === undefined) delete process.env.PATHEXT
+              else process.env.PATHEXT = oldPathExt
             }),
         ),
       ).pipe(Effect.provide(layer))
