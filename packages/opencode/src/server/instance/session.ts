@@ -116,17 +116,19 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const query = c.req.valid("query")
-        const sessions: Session.Info[] = []
-        for await (const session of Session.list({
-          directory: query.directory,
-          roots: query.roots,
-          start: query.start,
-          search: query.search,
-          limit: query.limit,
-          sort: query.sort,
-        })) {
-          sessions.push(session)
-        }
+        const sessions = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const session = yield* Session.Service
+            return yield* session.list({
+              directory: query.directory,
+              roots: query.roots,
+              start: query.start,
+              search: query.search,
+              limit: query.limit,
+              sort: query.sort,
+            })
+          }),
+        )
         return c.json(sessions)
       },
     )
@@ -650,7 +652,12 @@ export const SessionRoutes = lazy(() =>
           return c.json({ error: "cloud_share_disabled" }, 410)
         }
         const share = await SessionShare.share(sessionID)
-        const session = await Session.get(sessionID)
+        const session = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const sessions = yield* Session.Service
+            return yield* sessions.get(sessionID)
+          }),
+        )
         return c.json({
           ...session,
           share,
@@ -1040,7 +1047,12 @@ export const SessionRoutes = lazy(() =>
           return c.json({ error: "cloud_share_disabled" }, 410)
         }
         await SessionShare.unshare(sessionID)
-        const session = await Session.get(sessionID)
+        const session = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const sessions = yield* Session.Service
+            return yield* sessions.get(sessionID)
+          }),
+        )
         return c.json({
           ...session,
           share: undefined,
@@ -1114,7 +1126,12 @@ export const SessionRoutes = lazy(() =>
         // resolve `true` for a session that visibly failed. Surface the
         // error so SDK callers can branch on it. User-initiated aborts are
         // not failures from the route's perspective.
-        const finalMsgs = await Session.messages({ sessionID })
+        const finalMsgs = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const sessions = yield* Session.Service
+            return yield* sessions.messages({ sessionID })
+          }),
+        )
         for (let i = finalMsgs.length - 1; i >= 0; i--) {
           const info = finalMsgs[i].info
           if (info.role !== "assistant" || info.mode !== "compaction") continue
@@ -1659,10 +1676,15 @@ export const SessionRoutes = lazy(() =>
         const params = c.req.valid("param")
         // Await so an unknown permission surfaces this route's documented 404
         // instead of being swallowed by a fire-and-forget rejection.
-        await Permission.reply({
-          requestID: params.permissionID,
-          reply: c.req.valid("json").response,
-        })
+        await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const permission = yield* Permission.Service
+            yield* permission.reply({
+              requestID: params.permissionID,
+              reply: c.req.valid("json").response,
+            })
+          }),
+        )
         return c.json(true)
       },
     ),

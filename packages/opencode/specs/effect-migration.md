@@ -387,6 +387,7 @@ Decision table for the design:
 - MCP route handlers — migrated 2026-06-15. The current `server/instance/mcp.ts` operation handlers now run MCP service calls through `AppRuntime.runPromise(Effect.gen(...))` and `MCP.Service`, with route tests covering disabled local server add and non-OAuth auth 400 behavior. This does not change MCP service behavior, OAuth providers, or config schema.
 - Workspace route handlers — migrated 2026-06-15. The current `server/instance/workspace.ts` create/list/status/remove handlers now run through `AppRuntime.runPromise(Effect.gen(...))` and `Workspace.Service`, with route tests covering the public create/list/status/remove HTTP behavior, current-project status filtering, and legacy worktree bad-request error mapping.
 - Server routing/runtime helpers — migrated 2026-06-15. `server/proxy.ts` and `server/fence.ts` now read workspace connection status through `AppRuntime` and `Workspace.Service`, while `server/instance/workspace-routing.ts` resolves session-bound workspace ownership through the injected `Session.Service`. This keeps Hono routing behavior unchanged and leaves the service facades as legacy compatibility boundaries.
+- Session route facade stragglers — migrated 2026-06-15. The current `server/instance/session.ts` owner now routes the listed GET `/session`, share/unshare session fetches, summarize post-loop message check, and deprecated session permission response through `AppRuntime.runPromise(Effect.gen(...))` with `Session.Service` / `Permission.Service`. This only clears those route-owner stragglers; it does not claim full `server/routes/session.ts` migration and does not touch session processor, prompt, or run-state internals.
 
 ## Route handler effectification
 
@@ -418,7 +419,7 @@ When migrating, always use `{ concurrency: "unbounded" }` with `Effect.all` — 
 
 Route files to convert (each handler that calls facades should be wrapped):
 
-- [ ] `server/routes/session.ts` — heaviest; uses Session, SessionPrompt, SessionRevert, SessionCompaction, SessionShare, SessionSummary, SessionRunState, Agent, Permission, Bus
+- [ ] `server/routes/session.ts` — heaviest; current owner is `server/instance/session.ts`. The 2026-06-15 straggler pass cleared GET `/session`, share/unshare `Session.get`, summarize `Session.messages`, and deprecated permission response `Permission.reply`; heavier SessionPrompt/SessionRevert/SessionShare/etc. route work remains out of scope.
 - [ ] `server/routes/global.ts` — uses Config, Project, Provider, Vcs, Snapshot, Agent
 - [x] `server/instance/provider.ts` — migrated 2026-06-15. Provider auth route bodies now yield `ProviderAuth.Service` inside `AppRuntime.runPromise(Effect.gen(...))`; the old `server/routes/provider.ts` checklist path is stale in the current tree.
 - [ ] `server/routes/question.ts` — stale checklist path. The current tree has no `server/instance/question.ts` route; do not claim completion without a live route owner.

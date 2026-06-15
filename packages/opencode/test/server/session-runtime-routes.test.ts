@@ -37,14 +37,10 @@ describe("session runtime routes", () => {
       fn: async () => {
         const session = await svc.create({})
 
-        const shared = { ...session, share: { url: "https://share.example/s/demo" } }
-        const unshared = { ...session, share: undefined }
+        const share = { url: "https://share.example/s/demo" }
 
-        const shareSpy = spyOn(SessionShare, "share").mockResolvedValue({ url: shared.share!.url } as any)
+        const shareSpy = spyOn(SessionShare, "share").mockResolvedValue(share as any)
         const unshareSpy = spyOn(SessionShare, "unshare").mockResolvedValue(undefined as any)
-        const getSpy = spyOn(SessionNs, "get")
-        getSpy.mockResolvedValueOnce(shared as any)
-        getSpy.mockResolvedValueOnce(unshared as any)
 
         const commandSpy = spyOn(SessionPrompt, "command").mockResolvedValue({
           info: { id: "msg_command", sessionID: session.id, role: "assistant" },
@@ -58,7 +54,7 @@ describe("session runtime routes", () => {
 
         const shareRes = await app.request(`/session/${session.id}/share`, { method: "POST" })
         expect(shareRes.status).toBe(200)
-        expect((await shareRes.json()).share.url).toBe(shared.share!.url)
+        expect((await shareRes.json()).share.url).toBe(share.url)
         expect(shareSpy).toHaveBeenCalledWith(session.id)
 
         const unshareRes = await app.request(`/session/${session.id}/share`, { method: "DELETE" })
