@@ -420,6 +420,16 @@ export namespace Permission {
   // Permission keys the opencli group asks at execution (read vs write commands).
   const OPENCLI_KEYS = ["opencli_read", "opencli_write"]
 
+  // True when the key's last-matching rule is a `*` deny — the same last-match
+  // convention the non-opencli path below uses. `disabled()` is only a cosmetic
+  // visibility gate, so it must never hide a usable tool; a false *show* is
+  // harmless (execution still denies). That rules out the tempting
+  // `evaluate(key, "*").action === "deny"` shortcut: querying the literal value
+  // "*" only sees the baseline rule, so `{ "*": deny, "x": allow }` would report
+  // denied and wrongly hide a group that can still run `x`. This check returns
+  // false there, keeping the group visible. Its only imperfection is the inverse
+  // — a redundant `{ "*": deny, "x": deny }` leaves the group cosmetically shown
+  // though fully denied — which execution corrects on first use.
   function isWildcardDeny(permission: string, ruleset: Ruleset): boolean {
     const rule = ruleset.findLast((entry) => Wildcard.match(permission, entry.permission))
     return rule?.pattern === "*" && rule.action === "deny"
