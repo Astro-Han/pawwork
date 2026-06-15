@@ -271,7 +271,7 @@ func TestEngineRoutesPendingPermissionRepliesBeforePrompts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	engine.SetPendingPermission(PendingPermission{
+	engine.setPendingPermission(PendingPermission{
 		ID:         "perm_1",
 		SessionID:  "ses_new",
 		Permission: "edit",
@@ -318,7 +318,7 @@ func TestEngineRoutesPendingQuestionAnswersBeforePrompts(t *testing.T) {
 			Options:  []QuestionOption{{Label: "A"}, {Label: "B"}},
 		}},
 	}
-	engine.SetPendingQuestion(pending)
+	engine.setPendingQuestion(pending)
 
 	msg.Content = "2"
 	if err := engine.HandleMessage(context.Background(), platform, msg); err != nil {
@@ -897,7 +897,7 @@ func TestEngineClearsPermissionResolvedOutsideRemote(t *testing.T) {
 	if err := engine.HandleMessage(context.Background(), platform, msg); err != nil {
 		t.Fatal(err)
 	}
-	engine.SetPendingPermission(PendingPermission{
+	engine.setPendingPermission(PendingPermission{
 		ID:         "perm_1",
 		SessionID:  "ses_new",
 		Permission: "edit",
@@ -928,7 +928,7 @@ func TestEngineClearsQuestionResolvedOutsideRemote(t *testing.T) {
 	if err := engine.HandleMessage(context.Background(), platform, msg); err != nil {
 		t.Fatal(err)
 	}
-	engine.SetPendingQuestion(PendingQuestion{
+	engine.setPendingQuestion(PendingQuestion{
 		SessionID: "ses_new",
 		MessageID: "msg_1",
 		CallID:    "call_1",

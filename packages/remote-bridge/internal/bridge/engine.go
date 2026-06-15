@@ -162,7 +162,7 @@ func (e *Engine) RegisterSession(session Session) error {
 	return e.pointers.SetParent(session.ID, session.ParentID)
 }
 
-func (e *Engine) SetPendingPermission(permission PendingPermission) {
+func (e *Engine) setPendingPermission(permission PendingPermission) {
 	if permission.SessionID == "" {
 		return
 	}
@@ -175,7 +175,7 @@ func (e *Engine) SetPendingPermission(permission PendingPermission) {
 	e.permissions[key] = permission
 }
 
-func (e *Engine) SetPendingQuestion(question PendingQuestion) {
+func (e *Engine) setPendingQuestion(question PendingQuestion) {
 	if question.SessionID == "" {
 		return
 	}
@@ -227,7 +227,7 @@ func (e *Engine) HandleAssistantText(ctx context.Context, sessionID string, text
 func (e *Engine) HandlePermission(ctx context.Context, permission PendingPermission) error {
 	delivered, err := e.replyToActive(ctx, permission.SessionID, permissionPrompt(permission))
 	if delivered {
-		e.SetPendingPermission(permission)
+		e.setPendingPermission(permission)
 	}
 	return err
 }
@@ -235,7 +235,7 @@ func (e *Engine) HandlePermission(ctx context.Context, permission PendingPermiss
 func (e *Engine) HandleQuestion(ctx context.Context, question PendingQuestion) error {
 	delivered, err := e.replyToActive(ctx, question.SessionID, questionPrompt(question))
 	if delivered {
-		e.SetPendingQuestion(question)
+		e.setPendingQuestion(question)
 	}
 	return err
 }
