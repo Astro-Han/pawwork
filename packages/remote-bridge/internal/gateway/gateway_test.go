@@ -376,9 +376,11 @@ func TestHydrateContinuesWhenPendingDeliveryFails(t *testing.T) {
 	}
 
 	if err := app.hydrate(t.Context()); err != nil {
-		t.Fatalf("hydrate should keep running after a single pending delivery fails: %v", err)
+		t.Fatalf("hydrate should keep running after a pending delivery fails: %v", err)
 	}
-	if len(platform.sends) != 1 {
+	// The prompt delivery is retried up to deliveryAttempts times before hydrate
+	// gives up and moves on — it must never hold the cursor or abort hydrate.
+	if len(platform.sends) != 3 {
 		t.Fatalf("sends = %#v", platform.sends)
 	}
 }

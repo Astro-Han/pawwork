@@ -221,7 +221,7 @@ func (e *Engine) HandleAssistantText(ctx context.Context, sessionID string, text
 	if !ok {
 		return nil
 	}
-	return deliverWithRetry(ctx, target, text)
+	return sendDeliveryWithRetry(ctx, target, text)
 }
 
 func (e *Engine) HandlePermission(ctx context.Context, permission PendingPermission) error {
@@ -280,7 +280,7 @@ func (e *Engine) replyToActive(ctx context.Context, sessionID string, content st
 	if !ok {
 		return nil
 	}
-	return sendDelivery(ctx, target, content)
+	return sendDeliveryWithRetry(ctx, target, content)
 }
 
 func (e *Engine) setActive(sessionID string, platform core.Platform, replyCtx any) {
@@ -338,21 +338,22 @@ func sendDelivery(ctx context.Context, target delivery, content string) error {
 	return target.platform.Reply(ctx, target.replyCtx, content)
 }
 
-// deliveryAttempts bounds how many times assistant text is pushed to a chat
-// target before giving up. deliveryRetryBackoff is the base delay between
+// deliveryAttempts bounds how many times a user-visible payload is pushed to a
+// chat target before giving up. deliveryRetryBackoff is the base delay between
 // attempts (scaled per attempt); it is a var only so tests can drop it to zero.
 const deliveryAttempts = 3
 
 var deliveryRetryBackoff = 200 * time.Millisecond
 
-// deliverWithRetry sends final assistant text, retrying transient platform
-// errors with a short backoff. Assistant text is the only payload with no
-// reconnect-time reconciliation (permissions and questions are re-surfaced by
-// the gateway's hydrate), so a transient blip here would otherwise lose the
-// message. The global SSE cursor tracks ingestion and advances regardless, so a
-// target that stays unreachable is reported to the caller (logged) rather than
-// held — holding the shared cursor would wedge every session's stream.
-func deliverWithRetry(ctx context.Context, target delivery, content string) error {
+// sendDeliveryWithRetry pushes a chat payload (assistant text, permission or
+// question prompt), retrying transient platform errors with a short backoff.
+// Permission and question prompts are also re-surfaced by the gateway's hydrate
+// on reconnect, but reconnects are rare on a healthy stream, so without this a
+// transient blip would hide a prompt until the next disconnect. The global SSE
+// cursor tracks ingestion and advances regardless, so a target that stays
+// unreachable is reported to the caller (logged) rather than held — holding the
+// shared cursor would wedge every session's stream.
+func sendDeliveryWithRetry(ctx context.Context, target delivery, content string) error {
 	var err error
 	for attempt := 1; attempt <= deliveryAttempts; attempt++ {
 		if err = sendDelivery(ctx, target, content); err == nil {

@@ -687,6 +687,43 @@ func TestAssistantTextRetriesTransientDeliveryFailure(t *testing.T) {
 	}
 }
 
+func TestPermissionAndQuestionPromptsRetryTransientDeliveryFailure(t *testing.T) {
+	defer func(b time.Duration) { deliveryRetryBackoff = b }(deliveryRetryBackoff)
+	deliveryRetryBackoff = 0
+
+	// A permission prompt recovers when delivery fails transiently then succeeds.
+	permPlatform := &fakePlatform{replyFailures: deliveryAttempts - 1}
+	permEngine := New(&fakeSidecar{})
+	if err := permEngine.HandleMessage(context.Background(), permPlatform, &core.Message{SessionKey: "slack:dm:a", Content: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := permEngine.HandlePermission(context.Background(), PendingPermission{
+		ID: "perm_1", SessionID: "ses_new", Permission: "edit", Patterns: []string{"/repo/app.ts"},
+	}); err != nil {
+		t.Fatalf("permission prompt should recover after retries: %v", err)
+	}
+	if permPlatform.replyCalls != deliveryAttempts || len(permPlatform.replies) != 1 {
+		t.Fatalf("calls=%d replies=%#v", permPlatform.replyCalls, permPlatform.replies)
+	}
+
+	// A question prompt that keeps failing gives up after bounded attempts.
+	questionPlatform := &fakePlatform{replyFailures: deliveryAttempts + 5}
+	questionEngine := New(&fakeSidecar{})
+	if err := questionEngine.HandleMessage(context.Background(), questionPlatform, &core.Message{SessionKey: "slack:dm:b", Content: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := questionEngine.HandleQuestion(context.Background(), PendingQuestion{
+		MessageID: "msg_1", SessionID: "ses_new", Questions: []Question{{
+			Question: "Pick one", Options: []QuestionOption{{Label: "A"}, {Label: "B"}},
+		}},
+	}); err == nil {
+		t.Fatal("expected error after bounded retries")
+	}
+	if questionPlatform.replyCalls != deliveryAttempts {
+		t.Fatalf("attempts = %d, want %d", questionPlatform.replyCalls, deliveryAttempts)
+	}
+}
+
 func TestQuestionPromptHintsMatchType(t *testing.T) {
 	single := questionPrompt(PendingQuestion{Questions: []Question{{
 		Question: "Pick one",
