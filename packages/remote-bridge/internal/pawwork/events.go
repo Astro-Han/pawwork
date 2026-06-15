@@ -102,18 +102,25 @@ type replayRefreshError struct {
 func (e replayRefreshError) Error() string { return e.err.Error() }
 func (e replayRefreshError) Unwrap() error { return e.err }
 
-// repairableEventDecodeError marks a critical event (permission/question/
-// session) that failed to decode but whose state can be reconciled from the
-// REST list endpoints. parseSSE skips it, advances the cursor, then hydrates,
-// so a single bad frame neither wedges the global stream nor silently hides a
-// pending confirmation until the next reconnect.
-type repairableEventDecodeError struct {
+// repairableEventError marks a critical event (permission/question/session)
+// that could not be turned into actionable state — it failed to decode, or it
+// decoded but lacks a required field — yet whose state can be reconciled from
+// the REST list endpoints. parseSSE skips it, advances the cursor, then
+// hydrates, so a single bad frame neither wedges the global stream nor silently
+// hides a pending confirmation until the next reconnect.
+type repairableEventError struct {
 	eventType string
 	err       error
 }
 
-func (e repairableEventDecodeError) Error() string { return e.eventType + ": " + e.err.Error() }
-func (e repairableEventDecodeError) Unwrap() error { return e.err }
+func (e repairableEventError) Error() string { return e.eventType + ": " + e.err.Error() }
+func (e repairableEventError) Unwrap() error { return e.err }
+
+var (
+	errMissingPermissionFields = errors.New("missing id or sessionID")
+	errMissingSessionID        = errors.New("missing info.id")
+	errMissingQuestionFields   = errors.New("missing sessionID, messageID, or callID")
+)
 
 func (c *Client) StreamEvents(ctx context.Context, handler EventHandler) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/global/event", nil)
@@ -176,10 +183,10 @@ func DispatchEvent(ctx context.Context, data []byte, handler EventHandler) error
 	case "permission.asked":
 		var permission bridge.PendingPermission
 		if err := json.Unmarshal(envelope.Payload.Properties, &permission); err != nil {
-			return repairableEventDecodeError{eventType: "permission.asked", err: err}
+			return repairableEventError{eventType: "permission.asked", err: err}
 		}
 		if permission.ID == "" || permission.SessionID == "" {
-			return nil
+			return repairableEventError{eventType: "permission.asked", err: errMissingPermissionFields}
 		}
 		permission.Directory = envelope.Directory
 		return handler.HandlePermission(ctx, permission)
@@ -195,16 +202,16 @@ func DispatchEvent(ctx context.Context, data []byte, handler EventHandler) error
 	case "session.created":
 		session, ok, err := sessionFromEvent(envelope.Payload.Properties, envelope.Directory)
 		if err != nil {
-			return repairableEventDecodeError{eventType: "session.created", err: err}
+			return repairableEventError{eventType: "session.created", err: err}
 		}
 		if !ok {
-			return nil
+			return repairableEventError{eventType: "session.created", err: errMissingSessionID}
 		}
 		return handler.HandleSession(ctx, session)
 	case "message.part.updated":
 		question, questionPending, resolution, questionResolved, err := questionUpdateFromEvent(envelope.Payload.Properties, envelope.Directory)
 		if err != nil {
-			return repairableEventDecodeError{eventType: "message.part.updated", err: err}
+			return repairableEventError{eventType: "message.part.updated", err: err}
 		}
 		if questionPending {
 			return handler.HandleQuestion(ctx, question)
@@ -232,7 +239,7 @@ func parseSSE(ctx context.Context, reader io.Reader, handler EventHandler, setLa
 		if data.Len() > 0 {
 			if err := DispatchEvent(ctx, []byte(data.String()), handler); err != nil {
 				var refresh replayRefreshError
-				var repair repairableEventDecodeError
+				var repair repairableEventError
 				switch {
 				case errors.As(err, &refresh):
 					return err
@@ -385,7 +392,7 @@ func questionUpdateFromEvent(data json.RawMessage, directory string) (
 		return bridge.PendingQuestion{}, false, bridge.QuestionResolution{}, false, nil
 	}
 	if part.SessionID == "" || part.MessageID == "" || part.CallID == "" {
-		return bridge.PendingQuestion{}, false, bridge.QuestionResolution{}, false, nil
+		return bridge.PendingQuestion{}, false, bridge.QuestionResolution{}, false, errMissingQuestionFields
 	}
 	resolution := bridge.QuestionResolution{
 		SessionID: part.SessionID,

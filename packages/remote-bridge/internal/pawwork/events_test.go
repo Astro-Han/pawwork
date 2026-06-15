@@ -438,3 +438,49 @@ func TestClientReconcilesAfterUndecodableCriticalEvent(t *testing.T) {
 		t.Fatalf("expected one reconcile after the undecodable event, got %d", handler.refreshes)
 	}
 }
+
+func TestClientReconcilesAfterIncompleteCriticalEvent(t *testing.T) {
+	// Valid JSON, but a required field is absent: the event still cannot become
+	// actionable state, so it must be reconciled, not silently skipped.
+	cases := []struct {
+		name string
+		data string
+	}{
+		{
+			name: "permission missing id",
+			data: `{"payload":{"type":"permission.asked","properties":{"sessionID":"ses_1","permission":"edit"}}}`,
+		},
+		{
+			name: "session missing info.id",
+			data: `{"payload":{"type":"session.created","properties":{"info":{"title":"child"}}}}`,
+		},
+		{
+			name: "question missing ids",
+			data: `{"payload":{"type":"message.part.updated","properties":{"part":{"type":"tool","tool":"question","state":{"status":"running","metadata":{"externalResultReady":true}}}}}}`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("content-type", "text/event-stream")
+				_, _ = w.Write([]byte("id: evt-9\ndata: " + tc.data + "\n\n"))
+			}))
+			defer server.Close()
+
+			handler := &fakeEventHandler{}
+			client := New(server.URL)
+			if err := client.StreamEvents(t.Context(), handler); err != nil {
+				t.Fatal(err)
+			}
+			if n := len(handler.permissions) + len(handler.sessions) + len(handler.questions); n != 0 {
+				t.Fatalf("incomplete event must not be surfaced: perms=%#v sessions=%#v questions=%#v", handler.permissions, handler.sessions, handler.questions)
+			}
+			if got := client.lastEventIDValue(); got != "evt-9" {
+				t.Fatalf("cursor should advance past the skipped event, got %q", got)
+			}
+			if handler.refreshes != 1 {
+				t.Fatalf("expected one reconcile after the incomplete event, got %d", handler.refreshes)
+			}
+		})
+	}
+}
