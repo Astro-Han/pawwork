@@ -103,9 +103,30 @@ func TestNewRejectsWildcardRemoteAudience(t *testing.T) {
 	}
 }
 
-func TestRemoteAudienceRejectsWildcardFeishuChat(t *testing.T) {
-	if hasRemoteAudience("feishu", map[string]any{"allow_chat": "*", "group_only": true}) {
-		t.Fatal("wildcard Feishu chat audience should not be accepted")
+func TestHasRemoteAudience(t *testing.T) {
+	cases := []struct {
+		name     string
+		platform string
+		options  map[string]any
+		want     bool
+	}{
+		{"specific allow_from accepted", "slack", map[string]any{"allow_from": "C123"}, true},
+		{"wildcard allow_from rejected", "slack", map[string]any{"allow_from": "*"}, false},
+		{"empty allow_from rejected", "slack", map[string]any{"allow_from": ""}, false},
+		{"blank allow_from rejected", "slack", map[string]any{"allow_from": "  "}, false},
+		{"missing audience rejected", "slack", map[string]any{}, false},
+		{"feishu group chat accepted", "feishu", map[string]any{"allow_chat": "oc_1", "group_only": true}, true},
+		{"lark group chat accepted", "lark", map[string]any{"allow_chat": "oc_1", "group_only": true}, true},
+		{"feishu chat without group_only rejected", "feishu", map[string]any{"allow_chat": "oc_1"}, false},
+		{"feishu wildcard chat rejected", "feishu", map[string]any{"allow_chat": "*", "group_only": true}, false},
+		{"allow_chat ignored for non-lark platforms", "slack", map[string]any{"allow_chat": "oc_1", "group_only": true}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := hasRemoteAudience(tc.platform, tc.options); got != tc.want {
+				t.Fatalf("hasRemoteAudience(%q, %#v) = %v, want %v", tc.platform, tc.options, got, tc.want)
+			}
+		})
 	}
 }
 
@@ -390,15 +411,14 @@ func TestRunRetriesTransientEventStreamErrors(t *testing.T) {
 	core.RegisterPlatform(platformName, func(map[string]any) (core.Platform, error) {
 		return &fakePlatform{name: platformName}, nil
 	})
-	eventRequests := 0
+	var eventRequests atomic.Int64
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/experimental/session", "/permission", "/external-result":
 			w.Header().Set("content-type", "application/json")
 			_, _ = w.Write([]byte(`[]`))
 		case "/global/event":
-			eventRequests++
-			if eventRequests == 1 {
+			if eventRequests.Add(1) == 1 {
 				http.Error(w, "temporary", http.StatusInternalServerError)
 				return
 			}
@@ -429,8 +449,8 @@ func TestRunRetriesTransientEventStreamErrors(t *testing.T) {
 	if err := app.Run(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if eventRequests < 2 {
-		t.Fatalf("event requests = %d", eventRequests)
+	if eventRequests.Load() < 2 {
+		t.Fatalf("event requests = %d", eventRequests.Load())
 	}
 }
 
@@ -439,21 +459,20 @@ func TestRunHydratesAfterReplayGapSignal(t *testing.T) {
 	core.RegisterPlatform(platformName, func(map[string]any) (core.Platform, error) {
 		return &fakePlatform{name: platformName}, nil
 	})
-	eventRequests := 0
-	permissionRequests := 0
+	var eventRequests atomic.Int64
+	var permissionRequests atomic.Int64
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/experimental/session", "/external-result":
 			w.Header().Set("content-type", "application/json")
 			_, _ = w.Write([]byte(`[]`))
 		case "/permission":
-			permissionRequests++
+			permissionRequests.Add(1)
 			w.Header().Set("content-type", "application/json")
 			_, _ = w.Write([]byte(`[]`))
 		case "/global/event":
-			eventRequests++
 			w.Header().Set("content-type", "text/event-stream")
-			if eventRequests == 1 {
+			if eventRequests.Add(1) == 1 {
 				_, _ = w.Write([]byte("id: cursor-1\ndata: {\"payload\":{\"type\":\"server.connected\",\"properties\":{}}}\n\n"))
 				return
 			}
@@ -486,8 +505,8 @@ func TestRunHydratesAfterReplayGapSignal(t *testing.T) {
 	if err := app.Run(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if permissionRequests < 2 {
-		t.Fatalf("permission requests = %d", permissionRequests)
+	if permissionRequests.Load() < 2 {
+		t.Fatalf("permission requests = %d", permissionRequests.Load())
 	}
 }
 
