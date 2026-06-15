@@ -489,9 +489,9 @@ test("disabled - does not disable when partially denied", () => {
   expect(result.has("bash")).toBe(false)
 })
 
-test("disabled - disables every browser-backed tool when the browser key is denied", () => {
+test("disabled - disables every browser_* tool when the browser key is denied", () => {
   const result = Permission.disabled(
-    ["browser_navigate", "browser_click", "browser_extract", "opencli_search", "opencli_run", "bash"],
+    ["browser_navigate", "browser_click", "browser_extract", "bash"],
     [
       { permission: "*", pattern: "*", action: "allow" },
       { permission: "browser", pattern: "*", action: "deny" },
@@ -500,8 +500,6 @@ test("disabled - disables every browser-backed tool when the browser key is deni
   expect(result.has("browser_navigate")).toBe(true)
   expect(result.has("browser_click")).toBe(true)
   expect(result.has("browser_extract")).toBe(true)
-  expect(result.has("opencli_search")).toBe(true)
-  expect(result.has("opencli_run")).toBe(true)
   expect(result.has("bash")).toBe(false)
 })
 
@@ -566,6 +564,42 @@ test("disabled - specific allow overrides wildcard deny", () => {
   expect(result.has("bash")).toBe(false)
   expect(result.has("edit")).toBe(true)
   expect(result.has("read")).toBe(true)
+})
+
+test("disabled - the opencli group is hidden only when both opencli_read and opencli_write are denied", () => {
+  const both = Permission.disabled(
+    ["opencli_run", "opencli_search"],
+    [
+      { permission: "opencli_read", pattern: "*", action: "deny" },
+      { permission: "opencli_write", pattern: "*", action: "deny" },
+    ],
+  )
+  expect(both.has("opencli_run")).toBe(true)
+  expect(both.has("opencli_search")).toBe(true)
+
+  // Only the write half denied: read commands still run, so the group stays.
+  const writeOnly = Permission.disabled(
+    ["opencli_run", "opencli_search"],
+    [{ permission: "opencli_write", pattern: "*", action: "deny" }],
+  )
+  expect(writeOnly.has("opencli_run")).toBe(false)
+  expect(writeOnly.has("opencli_search")).toBe(false)
+})
+
+test("disabled - a browser deny no longer hides opencli tools", () => {
+  const result = Permission.disabled(
+    ["browser_navigate", "opencli_run", "opencli_search"],
+    [{ permission: "browser", pattern: "*", action: "deny" }],
+  )
+  // browser deny still hides browser tools, but opencli is governed by its own keys.
+  expect(result.has("browser_navigate")).toBe(true)
+  expect(result.has("opencli_run")).toBe(false)
+  expect(result.has("opencli_search")).toBe(false)
+})
+
+test("disabled - a global wildcard deny still hides opencli_run", () => {
+  const result = Permission.disabled(["opencli_run"], [{ permission: "*", pattern: "*", action: "deny" }])
+  expect(result.has("opencli_run")).toBe(true)
 })
 
 // ask tests

@@ -461,18 +461,43 @@ export namespace Permission {
 
   const EDIT_TOOLS = ["edit", "write", "apply_patch"]
 
+  // Permission keys the opencli group asks at execution (read vs write commands).
+  const OPENCLI_KEYS = ["opencli_read", "opencli_write"]
+
+  // True when the key's last-matching rule is a `*` deny — the same last-match
+  // convention the non-opencli path below uses. `disabled()` is only a cosmetic
+  // visibility gate, so it must never hide a usable tool; a false *show* is
+  // harmless (execution still denies). That rules out the tempting
+  // `evaluate(key, "*").action === "deny"` shortcut: querying the literal value
+  // "*" only sees the baseline rule, so `{ "*": deny, "x": allow }` would report
+  // denied and wrongly hide a group that can still run `x`. This check returns
+  // false there, keeping the group visible. Its only imperfection is the inverse
+  // — a redundant `{ "*": deny, "x": deny }` leaves the group cosmetically shown
+  // though fully denied — which execution corrects on first use.
+  function isWildcardDeny(permission: string, ruleset: Ruleset): boolean {
+    const rule = ruleset.findLast((entry) => Wildcard.match(permission, entry.permission))
+    return rule?.pattern === "*" && rule.action === "deny"
+  }
+
   export function disabled(tools: string[], ruleset: Ruleset): Set<string> {
     const result = new Set<string>()
     for (const tool of tools) {
-      // Browser-backed tools all ask the `browser` permission key, so a
-      // configured `permission.browser: deny` disables the whole set (hiding
-      // their deferred cards and repair hints, not just denying the eventual ask).
-      const permission = EDIT_TOOLS.includes(tool)
-        ? "edit"
-        : tool.startsWith("browser_") || tool.startsWith("opencli_")
-          ? "browser"
-          : tool
-      const rule = ruleset.findLast((rule) => Wildcard.match(permission, rule.permission))
+      // The opencli group (opencli_search + opencli_run) gates on its own
+      // opencli_read / opencli_write keys, never on "browser" — browser rules
+      // are URL-scoped, opencli rules are command-name-scoped, so conflating
+      // them let a `browser` rule appear to govern opencli while execution
+      // ignored it. Hide the group only when BOTH read and write are a
+      // configured `*: deny`; with either half allowed an adapter is still
+      // runnable, so the discovery + run tools stay.
+      if (tool.startsWith("opencli_")) {
+        if (OPENCLI_KEYS.every((key) => isWildcardDeny(key, ruleset))) result.add(tool)
+        continue
+      }
+      // Browser tools all ask the `browser` permission key, so a configured
+      // `permission.browser: deny` disables the whole set (hiding their deferred
+      // cards and repair hints, not just denying the eventual ask).
+      const permission = EDIT_TOOLS.includes(tool) ? "edit" : tool.startsWith("browser_") ? "browser" : tool
+      const rule = ruleset.findLast((entry) => Wildcard.match(permission, entry.permission))
       if (!rule) continue
       if (rule.pattern === "*" && rule.action === "deny") result.add(tool)
     }
