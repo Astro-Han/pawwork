@@ -213,8 +213,13 @@ func (h replayRefreshHandler) HandleStreamReady(context.Context) error {
 	return nil
 }
 
+// hydrateSessionLimit bounds the warm-up scan on startup and reconnect. Parent
+// links come from the persisted pointer store and live event replay, so the
+// scan only needs the most recently active sessions, not the full history.
+const hydrateSessionLimit = 100
+
 func (a *App) hydrate(ctx context.Context) error {
-	sessions, err := a.client.ListSessions(ctx, 0)
+	sessions, err := a.client.ListSessions(ctx, hydrateSessionLimit)
 	if err != nil {
 		return err
 	}

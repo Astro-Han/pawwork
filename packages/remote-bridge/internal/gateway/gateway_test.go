@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -205,6 +206,48 @@ func TestHydrateResurfacesPendingInteractions(t *testing.T) {
 	}
 	if !strings.Contains(platform.sends[0], "PawWork asks permission: edit") {
 		t.Fatalf("permission send = %q", platform.sends[0])
+	}
+}
+
+func TestHydrateRequestsBoundedSessionList(t *testing.T) {
+	platform := &fakePlatform{name: "runtime-test-hydrate-bounded"}
+	core.RegisterPlatform("runtime-test-hydrate-bounded", func(map[string]any) (core.Platform, error) {
+		return platform, nil
+	})
+	var sessionLimit string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("content-type", "application/json")
+		switch r.URL.Path {
+		case "/experimental/session":
+			sessionLimit = r.URL.Query().Get("limit")
+			_, _ = w.Write([]byte(`[]`))
+		case "/permission", "/external-result":
+			_, _ = w.Write([]byte(`[]`))
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	app, err := New(Config{
+		PawWorkBaseURL: server.URL,
+		StatePath:      filepath.Join(t.TempDir(), "sessions.json"),
+		Platforms: []PlatformConfig{{
+			Name:    "runtime-test-hydrate-bounded",
+			Enabled: true,
+			Options: map[string]any{"allow_from": "U123"},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := app.hydrate(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	if sessionLimit != strconv.Itoa(hydrateSessionLimit) {
+		t.Fatalf("hydrate session limit = %q, want %d", sessionLimit, hydrateSessionLimit)
 	}
 }
 
