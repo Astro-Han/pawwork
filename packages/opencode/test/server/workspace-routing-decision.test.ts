@@ -3,12 +3,18 @@ import { Effect } from "effect"
 import { Workspace } from "../../src/control-plane/workspace"
 import { WorkspaceID } from "../../src/control-plane/schema"
 import { ProjectID } from "../../src/project/schema"
+import { Session } from "../../src/session"
+import { SessionID } from "../../src/session/schema"
 import {
   classifyWorkspaceRoute,
   resolveWorkspaceRoute,
   sessionIDForWorkspaceRouting,
   shouldCreateLegacyConfigBeforeNoWorkspacePath,
 } from "../../src/server/instance/workspace-routing"
+
+const unusedSessionService = Session.Service.of({
+  get: () => Effect.die("unexpected session lookup"),
+} as unknown as Session.Service["Service"])
 
 describe("workspace routing decisions", () => {
   test("keeps session status remote while treating GET session routes as local cached routes", () => {
@@ -110,7 +116,7 @@ describe("workspace routing decisions", () => {
         workspaceID: undefined,
         ensureConfig: true,
         isPawWork: false,
-      }).pipe(Effect.provide(Workspace.defaultLayer)),
+      }).pipe(Effect.provide(Workspace.defaultLayer), Effect.provideService(Session.Service, unusedSessionService)),
     )
 
     expect(decision).toEqual({
@@ -174,6 +180,7 @@ describe("workspace routing decisions", () => {
             status: () => Effect.succeed([]),
           }),
         ),
+        Effect.provideService(Session.Service, unusedSessionService),
       ),
     )
 
@@ -187,5 +194,87 @@ describe("workspace routing decisions", () => {
       `ensureSync:${id}:${requestDirectory}`,
       `resolveAdaptor:${id}:test`,
     ])
+  })
+
+  test("resolves session-bound workspaces through the injected Session service", async () => {
+    const sessionID = SessionID.make("ses_effect_router")
+    const sessionWorkspaceID = WorkspaceID.make("ws_session_router")
+    const queryWorkspaceID = WorkspaceID.make("ws_query_router")
+    const requestDirectory = "/tmp/pawwork-effect-request"
+    const localDirectory = "/tmp/pawwork-effect-local"
+    const calls: string[] = []
+
+    const decision = await Effect.runPromise(
+      resolveWorkspaceRoute({
+        method: "POST",
+        pathname: `/session/${sessionID}/message`,
+        directory: requestDirectory,
+        workspaceID: queryWorkspaceID,
+        ensureConfig: false,
+        isPawWork: true,
+      }).pipe(
+        Effect.provideService(
+          Session.Service,
+          Session.Service.of({
+            get: (id: SessionID) =>
+              Effect.sync(() => {
+                calls.push(`session:${id}`)
+                return { workspaceID: sessionWorkspaceID }
+              }),
+          } as unknown as Session.Service["Service"]),
+        ),
+        Effect.provideService(
+          Workspace.Service,
+          Workspace.Service.of({
+            create: () => Effect.die("unexpected create"),
+            list: () => Effect.die("unexpected list"),
+            record: (workspaceID) =>
+              Effect.sync(() => {
+                calls.push(`record:${workspaceID}`)
+                return {
+                  id: workspaceID,
+                  type: workspaceID === sessionWorkspaceID ? "remote-test" : "local-test",
+                  branch: null,
+                  name: null,
+                  directory: null,
+                  owner: null,
+                  extra: null,
+                  projectID: ProjectID.global,
+                }
+              }),
+            get: () => Effect.die("unexpected get"),
+            ensureSync: (space, hint) =>
+              Effect.sync(() => {
+                if (!space) throw new Error("expected workspace")
+                calls.push(`ensureSync:${space.id}:${hint}`)
+              }),
+            remove: () => Effect.die("unexpected remove"),
+            resolveAdaptor: (space) =>
+              Effect.sync(() => {
+                calls.push(`resolveAdaptor:${space.projectID}:${space.type}`)
+                return {
+                  configure: (input) => input,
+                  create: async () => {},
+                  remove: async () => {},
+                  target: () =>
+                    space.type === "remote-test"
+                      ? { type: "remote" as const, url: "http://remote.example" }
+                      : { type: "local" as const, directory: localDirectory },
+                }
+              }),
+            status: () => Effect.succeed([]),
+          }),
+        ),
+      ),
+    )
+
+    expect(decision).toEqual({
+      action: "proxy-http",
+      target: { type: "remote", url: "http://remote.example" },
+      workspaceID: sessionWorkspaceID,
+    })
+    expect(calls).toContain(`session:${sessionID}`)
+    expect(calls).toContain(`record:${sessionWorkspaceID}`)
+    expect(calls).not.toContain(`record:${queryWorkspaceID}`)
   })
 })

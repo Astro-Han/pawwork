@@ -83,12 +83,16 @@ export function shouldCreateLegacyConfigBeforeNoWorkspacePath(input: {
   return input.pathname === "/path" && input.ensureConfig && !input.isPawWork
 }
 
-async function getSessionWorkspace(pathname: string) {
+function getSessionWorkspace(pathname: string) {
   const id = sessionIDForWorkspaceRouting(pathname)
-  if (!id) return null
+  if (!id) return Effect.succeed(undefined)
 
-  const session = await Session.get(id).catch(() => undefined)
-  return session?.workspaceID
+  return Session.Service.use((sessions) =>
+    sessions.get(id).pipe(
+      Effect.map((session) => session.workspaceID),
+      Effect.catchCause(() => Effect.succeed(undefined)),
+    ),
+  )
 }
 
 export function resolveWorkspaceRoute(input: {
@@ -99,12 +103,9 @@ export function resolveWorkspaceRoute(input: {
   ensureConfig: boolean
   isPawWork: boolean
   isWebSocketUpgrade?: boolean
-}): Effect.Effect<WorkspaceRouteResolution, WorkspaceRoutingError, Workspace.Service> {
+}): Effect.Effect<WorkspaceRouteResolution, WorkspaceRoutingError, Workspace.Service | Session.Service> {
   return Effect.gen(function* () {
-    const sessionWorkspaceID = yield* Effect.tryPromise({
-      try: () => getSessionWorkspace(input.pathname),
-      catch: workspaceRoutingFailure("session-workspace", "Failed to resolve session workspace"),
-    })
+    const sessionWorkspaceID = yield* getSessionWorkspace(input.pathname)
     const workspaceID = sessionWorkspaceID || input.workspaceID
 
     if (!workspaceID) {
