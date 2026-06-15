@@ -1303,13 +1303,18 @@ describe("tool.registry", () => {
           })
           expect(activated.map((tool) => tool.id)).toContain("opencli_search")
 
-          const browserDenied = [{ permission: "browser", pattern: "*", action: "deny" as const }]
-          const browserDeniedDeferredAvailable = (id: string) => !Permission.disabled([id], browserDenied).has(id)
+          // The opencli group is gated by its own opencli_read / opencli_write keys
+          // (a `browser` deny no longer hides it); both halves denied hides the group.
+          const opencliDenied = [
+            { permission: "opencli_read", pattern: "*", action: "deny" as const },
+            { permission: "opencli_write", pattern: "*", action: "deny" as const },
+          ]
+          const opencliDeniedDeferredAvailable = (id: string) => !Permission.disabled([id], opencliDenied).has(id)
           const deniedDeferred = await ToolRegistry.tools({
             providerID: ProviderID.make("openai"),
             modelID: ModelID.make("gpt-5"),
             agent: { name: "build", mode: "primary", permission: [], options: {} },
-            deferredAvailable: browserDeniedDeferredAvailable,
+            deferredAvailable: opencliDeniedDeferredAvailable,
           })
           expect(deniedDeferred.find((tool) => tool.id === "tool_info")!.description).not.toContain("**opencli**")
 
@@ -1318,7 +1323,7 @@ describe("tool.registry", () => {
             modelID: ModelID.make("gpt-5"),
             agent: { name: "build", mode: "primary", permission: [], options: {} },
             activatedTools: new Set(deferredGroupMembers("opencli")),
-            deferredAvailable: browserDeniedDeferredAvailable,
+            deferredAvailable: opencliDeniedDeferredAvailable,
           })
           expect(deniedActivated.map((tool) => tool.id)).not.toContain("opencli_search")
           expect(deniedActivated.map((tool) => tool.id)).not.toContain("opencli_run")
