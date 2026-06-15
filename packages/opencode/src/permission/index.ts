@@ -173,6 +173,21 @@ export namespace Permission {
     return evalRule(permission, pattern, ...rulesets)
   }
 
+  // Union two rulesets, dropping exact duplicates, existing entries first. Used
+  // to merge the persisted permission row with an instance's in-memory grants
+  // so neither side is lost and the row does not grow unboundedly.
+  function mergeRulesets(existing: Ruleset, incoming: Ruleset): Ruleset {
+    const key = (rule: Ruleset[number]) => JSON.stringify([rule.permission, rule.pattern, rule.action])
+    const seen = new Set(existing.map(key))
+    const merged = [...existing]
+    for (const rule of incoming) {
+      if (seen.has(key(rule))) continue
+      seen.add(key(rule))
+      merged.push(rule)
+    }
+    return merged
+  }
+
   export class Service extends Context.Service<Service, Interface>()("@opencode/Permission") {}
 
   export const layer = Layer.effect(
@@ -327,17 +342,26 @@ export namespace Permission {
         // Persist the grant so "always allow" survives an instance reload / app
         // restart. The approved list is loaded from this row at startup but was
         // never written back, so before this every restart dropped all "always"
-        // grants and re-asked. Write the full cumulative set under the project's
-        // primary key (upsert).
+        // grants and re-asked.
+        //
+        // Re-read and merge inside one synchronous use() callback rather than
+        // writing `approved` whole: several instances can share this project row
+        // (project id is the shared git-common-dir, so different worktrees or
+        // subdirectories of one repo resolve to the same row) while each keeps
+        // its own `approved` loaded at startup. Writing whole would clobber
+        // grants another instance persisted after we loaded; unioning the
+        // current row keeps every instance's grants. One process + a synchronous
+        // callback (no await between read and write) makes this atomic.
         if (existing.info.always.length > 0) {
           const now = Date.now()
-          Database.use((db) =>
-            db
-              .insert(PermissionTable)
-              .values({ project_id: projectID, data: approved, time_created: now, time_updated: now })
-              .onConflictDoUpdate({ target: PermissionTable.project_id, set: { data: approved, time_updated: now } })
-              .run(),
-          )
+          Database.use((db) => {
+            const current = db.select().from(PermissionTable).where(eq(PermissionTable.project_id, projectID)).get()
+            const data = mergeRulesets(current?.data ?? [], approved)
+            db.insert(PermissionTable)
+              .values({ project_id: projectID, data, time_created: now, time_updated: now })
+              .onConflictDoUpdate({ target: PermissionTable.project_id, set: { data, time_updated: now } })
+              .run()
+          })
         }
 
         for (const [id, item] of pending.entries()) {

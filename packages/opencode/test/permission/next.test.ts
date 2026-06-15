@@ -1,5 +1,7 @@
 import { afterEach, test, expect } from "bun:test"
+import fs from "node:fs/promises"
 import os from "os"
+import path from "node:path"
 import { Bus } from "../../src/bus"
 import { Permission } from "../../src/permission"
 import { fromDeniedRule, isPermanentDeleteRule, permanentDeleteSuggestions } from "../../src/permission/diagnostic"
@@ -699,6 +701,88 @@ test("reply - an 'always' grant survives an instance reload", async () => {
       })
       expect(result).toBeUndefined()
       expect(await Permission.list()).toEqual([])
+    },
+  })
+})
+
+test("reply - sibling instances of one project merge their 'always' grants instead of clobbering", async () => {
+  // Two directories under one git repo resolve to the SAME project id (project
+  // id is the shared git-common-dir) but to DIFFERENT instances (instance state
+  // is keyed by directory), so each holds its own in-memory `approved`. This is
+  // the multi-worktree / multi-sandbox case where a whole-row write loses grants.
+  await using repo = await tmpdir({ git: true })
+  const dirA = path.join(repo.path, "a")
+  const dirB = path.join(repo.path, "b")
+  await fs.mkdir(dirA, { recursive: true })
+  await fs.mkdir(dirB, { recursive: true })
+  const ruleset = [{ permission: "bash", pattern: "*", action: "ask" as const }]
+
+  // Load instance B's permission state while the project row is still empty, so
+  // its in-memory `approved` is stale ([]) when it later writes. list() loads it.
+  await Instance.provide({ directory: dirB, fn: () => Permission.list() })
+
+  // Instance A grants "always" for `ls` and persists it to the shared row.
+  await Instance.provide({
+    directory: dirA,
+    fn: async () => {
+      const ask = Permission.ask({
+        sessionID: SessionID.make("session_merge_a"),
+        permission: "bash",
+        patterns: ["ls"],
+        metadata: {},
+        always: ["ls"],
+        ruleset,
+      })
+      const [pending] = await waitForPending(1)
+      await Permission.reply({ requestID: pending.id, reply: "always" })
+      await ask
+    },
+  })
+
+  // Instance B still holds the stale empty `approved`; it grants "always" for
+  // `pwd`. A whole-row write would replace the row with only B's grant, dropping
+  // A's `ls`. Merging the current row keeps both.
+  await Instance.provide({
+    directory: dirB,
+    fn: async () => {
+      const ask = Permission.ask({
+        sessionID: SessionID.make("session_merge_b"),
+        permission: "bash",
+        patterns: ["pwd"],
+        metadata: {},
+        always: ["pwd"],
+        ruleset,
+      })
+      const [pending] = await waitForPending(1)
+      await Permission.reply({ requestID: pending.id, reply: "always" })
+      await ask
+    },
+  })
+
+  // Restart: drop in-memory state, reload the project, confirm BOTH grants
+  // survived — a fresh instance auto-allows ls and pwd with no further ask.
+  await Instance.disposeAll()
+  await Instance.provide({
+    directory: dirA,
+    fn: async () => {
+      const ls = await Permission.ask({
+        sessionID: SessionID.make("session_merge_reload_ls"),
+        permission: "bash",
+        patterns: ["ls"],
+        metadata: {},
+        always: ["ls"],
+        ruleset,
+      })
+      expect(ls).toBeUndefined()
+      const pwd = await Permission.ask({
+        sessionID: SessionID.make("session_merge_reload_pwd"),
+        permission: "bash",
+        patterns: ["pwd"],
+        metadata: {},
+        always: ["pwd"],
+        ruleset,
+      })
+      expect(pwd).toBeUndefined()
     },
   })
 })
