@@ -4,10 +4,8 @@ import { composeGrid, snapOutputPath, type Shot } from "./_compose"
 
 test.use({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 })
 
-// Review the settings route's shell slots + left nav (back-to-app + 6 tabs + version footer).
-// Currently 6 tabs: General / Shortcuts / Models / Integrations / Worktrees / Memory
-// (remote access still hidden until ready).
-// Capture 4 shots: General (default) / Models / Integrations / Memory.
+// Review the settings route's shell slots + left nav (back-to-app + tabs + version footer).
+// Capture focused shots for the denser settings pages.
 test("settings-shell", async ({ page, project }) => {
   test.setTimeout(180_000)
 
@@ -28,7 +26,7 @@ test("settings-shell", async ({ page, project }) => {
   for (const tab of ["Models", "Integrations", "Memory"] as const) {
     await settings.getByRole("tab", { name: tab }).click()
     await settings.locator(tabReady[tab]).first().waitFor({ state: "visible", timeout: 30_000 })
-    shots.push({ name: tab.toLowerCase(), buf: await settings.screenshot() })
+    shots.push({ name: tab.toLowerCase().replace(/\s+/g, "-"), buf: await settings.screenshot() })
   }
 
   const out = snapOutputPath("settings-shell")

@@ -9,7 +9,7 @@ describe("desktop sidecar source guard", () => {
     expect(source).toContain('app.setPath("logs", join(app.getPath("userData"), "logs"))')
     expect(source).toContain('logger.log("server ready", { url: res.url })')
     expect(source).toContain('logger.log("init done")')
-    expect(source).toContain("server.stop(true)")
+    expect(source).toContain("running?.stop(true)")
     expect(source).not.toContain("sqliteFileExists")
     expect(source).not.toContain('username: "opencode"')
   })

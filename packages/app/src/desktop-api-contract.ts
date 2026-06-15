@@ -77,3 +77,19 @@ export type WebSearchStatus = {
   needsAttention: boolean
   quotaExceeded: boolean
 }
+
+export type RemoteAccessConfig = {
+  enabled: boolean
+  platform: string
+  options: Record<string, unknown>
+}
+
+export type RemoteAccessStatus = {
+  state: "idle" | "starting" | "running" | "error"
+  configured: boolean
+  platform: string | null
+  platforms: string[]
+  lastStartedAt?: string
+  lastStoppedAt?: string
+  lastError?: string
+}

@@ -50,6 +50,52 @@ const REPLAYABLE_EVENT_TYPES = new Set([
   "server.instance.disposed",
 ])
 
+function isCompletedAssistantTextUpdate(envelope: GlobalEventEnvelope): boolean {
+  if (envelope.payload?.type !== "message.part.updated") return false
+  const properties = envelope.payload.properties
+  if (!properties || typeof properties !== "object" || Array.isArray(properties)) return false
+  const part = (properties as { part?: unknown }).part
+  if (!part || typeof part !== "object" || Array.isArray(part)) return false
+  const textPart = part as {
+    type?: unknown
+    sessionID?: unknown
+    text?: unknown
+    ignored?: unknown
+    time?: { end?: unknown }
+  }
+  return (
+    textPart.type === "text" &&
+    textPart.ignored !== true &&
+    typeof textPart.sessionID === "string" &&
+    typeof textPart.text === "string" &&
+    textPart.text !== "" &&
+    textPart.time?.end !== undefined &&
+    textPart.time.end !== null
+  )
+}
+
+function isQuestionToolUpdate(envelope: GlobalEventEnvelope): boolean {
+  if (envelope.payload?.type !== "message.part.updated") return false
+  const properties = envelope.payload.properties
+  if (!properties || typeof properties !== "object" || Array.isArray(properties)) return false
+  const part = (properties as { part?: unknown }).part
+  if (!part || typeof part !== "object" || Array.isArray(part)) return false
+  const toolPart = part as {
+    type?: unknown
+    tool?: unknown
+    sessionID?: unknown
+    messageID?: unknown
+    callID?: unknown
+  }
+  return (
+    toolPart.type === "tool" &&
+    toolPart.tool === "question" &&
+    typeof toolPart.sessionID === "string" &&
+    typeof toolPart.messageID === "string" &&
+    typeof toolPart.callID === "string"
+  )
+}
+
 export function parseReplayCursor(input: string | undefined): ReplayCursor | undefined {
   if (!input) return undefined
   const index = input.lastIndexOf(":")
@@ -63,7 +109,7 @@ export function parseReplayCursor(input: string | undefined): ReplayCursor | und
 }
 
 export function isReplayableGlobalEvent(envelope: GlobalEventEnvelope): boolean {
-  return REPLAYABLE_EVENT_TYPES.has(envelope.payload?.type)
+  return REPLAYABLE_EVENT_TYPES.has(envelope.payload?.type) || isCompletedAssistantTextUpdate(envelope) || isQuestionToolUpdate(envelope)
 }
 
 export class EventReplayStore {

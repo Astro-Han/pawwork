@@ -77,6 +77,7 @@ import { createFeedbackHandler, feedbackDialogLabels } from "./feedback"
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigrationProgress } from "./ipc"
 import { registerAboutIpc, triggerAbout } from "./ipc/about"
 import { registerBrowserIpc } from "./ipc/browser"
+import { createRemoteBridgeController } from "./remote-bridge"
 import { createDesktopBrowserBridgeHost } from "./browser/automation-host"
 import { browserControllers } from "./browser/controller-automation"
 import { diagnosticsLogTail, filePath, initLogging } from "./logging"
@@ -160,6 +161,16 @@ const rendererDiagnostics = createRendererDiagnosticsRecorder({
   root: rendererDiagnosticsRoot(app.getPath("userData")),
   appLaunchID: randomUUID(),
 })
+const remoteAccess = createRemoteBridgeController({
+  userDataPath: app.getPath("userData"),
+  appPath: app.getAppPath(),
+  resourcesPath: process.resourcesPath,
+  isPackaged: app.isPackaged,
+  serverReady: () => serverReady.promise,
+  log: (message, data) => logger.log(message, data),
+  error: (message, error) => logger.error(message, error),
+})
+autoStartRemoteAccess()
 // Ordered update feeds: R2 first (fast/reachable in mainland China), GitHub as
 // global fallback. electron-updater binds the download source at check time, so
 // feed selection happens here and the same active feed serves the download.
@@ -185,12 +196,24 @@ const updater = createUpdaterController({
   downloadUpdate: () => updateFeed.download(),
   clearPendingUpdate: clearPendingUpdate,
   quitAndInstall: () => {
-    killSidecar()
-    autoUpdater.quitAndInstall()
+    void killSidecar().finally(() => {
+      autoUpdater.quitAndInstall()
+    })
   },
   log: (message, data) => logger.log(message, data),
   error: (message, error) => logger.error(message, error),
 })
+
+function autoStartRemoteAccess() {
+  void serverReady.promise
+    .then(async () => {
+      const config = await remoteAccess.getConfig()
+      if (!config.enabled) return
+      const status = await remoteAccess.start()
+      logger.log("remote access auto-started", { state: status.state, platform: status.platform })
+    })
+    .catch((error) => logger.error("remote access auto-start failed", error))
+}
 
 function diagnostics(context = currentDesktopContext()) {
   return {
@@ -409,17 +432,18 @@ function setupApp() {
   })
 
   app.on("before-quit", () => {
-    killSidecar()
+    void killSidecar()
   })
 
   app.on("will-quit", () => {
-    killSidecar()
+    void killSidecar()
   })
 
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.on(signal, () => {
-      killSidecar()
-      app.exit(0)
+      void killSidecar().finally(() => {
+        app.exit(0)
+      })
     })
   }
 
@@ -513,11 +537,6 @@ async function initialize() {
   // IPC or preload (PR1 security contract rule 7).
   const { BrowserBridge } = await import("virtual:opencode-server")
   BrowserBridge.provideHost(createDesktopBrowserBridgeHost())
-  serverReady.resolve({
-    url,
-    username: PAWWORK_RUNTIME.serverUsername,
-    password,
-  })
 
   const loadingTask = (async () => {
     logger.log("sidecar connection started", { url })
@@ -537,6 +556,11 @@ async function initialize() {
       logger.error("sidecar health check failed", error)
     })
 
+    serverReady.resolve({
+      url,
+      username: PAWWORK_RUNTIME.serverUsername,
+      password,
+    })
     logger.log("loading task finished")
   })()
 
@@ -588,9 +612,10 @@ function wireMenu() {
     },
     reload: () => commandWindow()?.reload(),
     relaunch: () => {
-      killSidecar()
-      app.relaunch()
-      app.exit(0)
+      void killSidecar().finally(() => {
+        app.relaunch()
+        app.exit(0)
+      })
     },
     newWindow: () => openMainWindow(),
     reportProblem: () => {
@@ -646,6 +671,7 @@ registerIpcHandlers({
       windowID,
       maxBytes,
     }),
+  remoteAccess,
   installUpdate: async () => installUpdate(),
   setBackgroundColor: (color) => setBackgroundColor(color),
   reportDeepLinkReady: (win) => reportDeepLinkReady(win),
@@ -672,10 +698,15 @@ registerIpcHandlers({
 registerAboutIpc()
 registerBrowserIpc({ sessionIDForWindow: (windowID) => desktopContexts.current(windowID).sessionID })
 
-function killSidecar() {
-  if (!server) return
-  server.stop(true)
+async function killSidecar() {
+  try {
+    await remoteAccess.stop()
+  } catch (error) {
+    logger.error("remote access stop failed", error)
+  }
+  const running = server
   server = null
+  running?.stop(true)
 }
 
 function reportCiSmokeReady() {

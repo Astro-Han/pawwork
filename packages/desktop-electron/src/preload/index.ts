@@ -133,6 +133,11 @@ const api: ElectronAPI = {
   webSearchStatus: () => ipcRenderer.invoke("websearch-status"),
   saveExaApiKey: (key: string) => ipcRenderer.invoke("websearch-save-exa-key", key),
   removeExaApiKey: () => ipcRenderer.invoke("websearch-remove-exa-key"),
+  remoteAccessConfig: () => ipcRenderer.invoke("remote-access:config"),
+  remoteAccessSaveConfig: (config) => ipcRenderer.invoke("remote-access:save-config", config),
+  remoteAccessStatus: () => ipcRenderer.invoke("remote-access:status"),
+  remoteAccessStart: (config) => ipcRenderer.invoke("remote-access:start", config),
+  remoteAccessStop: () => ipcRenderer.invoke("remote-access:stop"),
   getAboutInfo: () => ipcRenderer.invoke("about:get-info"),
   onAboutOpen: (handler: () => void) => {
     const wrapped = () => handler()

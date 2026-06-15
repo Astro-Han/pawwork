@@ -10,6 +10,8 @@ import type {
   InitStep,
   ReportProblemInput,
   ReportProblemResult,
+  RemoteAccessConfig,
+  RemoteAccessStatus,
   ServerReadyData,
   SqliteMigrationProgress,
   UpdateInfo,
@@ -51,7 +53,7 @@ function attachmentBuffer(payload: unknown) {
 }
 
 type Deps = {
-  killSidecar: () => void
+  killSidecar: () => Promise<void> | void
   awaitInitialization: (sendStep: (step: InitStep) => void) => Promise<ServerReadyData>
   getServerReadyData: () => Promise<ServerReadyData>
   getDefaultServerUrl: () => Promise<string | null> | string | null
@@ -82,6 +84,13 @@ type Deps = {
     windowID?: number
     maxBytes: number
   }) => Promise<RendererDiagnosticsSlice>
+  remoteAccess: {
+    getConfig: () => Promise<RemoteAccessConfig>
+    saveConfig: (config: RemoteAccessConfig) => Promise<RemoteAccessConfig>
+    status: () => RemoteAccessStatus
+    start: (config?: RemoteAccessConfig) => Promise<RemoteAccessStatus>
+    stop: () => Promise<RemoteAccessStatus> | RemoteAccessStatus
+  }
 }
 
 export function registerIpcHandlers(deps: Deps) {
@@ -292,6 +301,16 @@ export function registerIpcHandlers(deps: Deps) {
     const { WebSearchAuth } = await import("virtual:opencode-server")
     return WebSearchAuth.removeKey()
   })
+
+  ipcMain.handle("remote-access:config", () => deps.remoteAccess.getConfig())
+  ipcMain.handle("remote-access:save-config", (_event: IpcMainInvokeEvent, config: RemoteAccessConfig) =>
+    deps.remoteAccess.saveConfig(config),
+  )
+  ipcMain.handle("remote-access:status", () => deps.remoteAccess.status())
+  ipcMain.handle("remote-access:start", (_event: IpcMainInvokeEvent, config?: RemoteAccessConfig) =>
+    deps.remoteAccess.start(config),
+  )
+  ipcMain.handle("remote-access:stop", () => deps.remoteAccess.stop())
 
   ipcMain.handle(
     "open-directory-picker",

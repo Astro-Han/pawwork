@@ -128,6 +128,19 @@ jobs:
           # Load-bearing for `bun audit` exit semantics; do not bump without re-verifying advisory exit codes.
           bun-version: "1.3.14"
 
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # actions/setup-go@v5
+        with:
+          go-version-file: packages/remote-bridge/go.mod
+          cache-dependency-path: packages/remote-bridge/go.sum
+
+      - name: Test remote bridge
+        run: go test ./...
+        working-directory: packages/remote-bridge
+
+      - name: Race test remote bridge
+        run: go test -race ./internal/bridge ./internal/gateway ./internal/pawwork
+        working-directory: packages/remote-bridge
+
       - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
         with:
           path: ~/.bun/install/cache
@@ -198,6 +211,7 @@ jobs:
           INFO_PLIST_PATH="$APP_PATH/Contents/Info.plist"
           ASAR_PATH="$APP_PATH/Contents/Resources/app.asar"
           OFFICECLI_PATH="$APP_PATH/Contents/Resources/tools/officecli"
+          REMOTE_BRIDGE_PATH="$APP_PATH/Contents/Resources/tools/pawwork-remote-bridge"
           THIRD_PARTY_NOTICES_PATH="$APP_PATH/Contents/Resources/THIRD_PARTY_NOTICES.md"
           FRAMEWORK_PATH="$APP_PATH/Contents/Frameworks/Electron Framework.framework"
           HELPER_APP_PATH="$APP_PATH/Contents/Frameworks/PawWork Dev Helper.app"
@@ -229,6 +243,14 @@ jobs:
 
           file "$OFFICECLI_PATH" | grep -q "arm64"
           OFFICECLI_SKIP_UPDATE=1 "$OFFICECLI_PATH" --version
+
+          if [ ! -x "$REMOTE_BRIDGE_PATH" ]; then
+            echo "Expected executable remote bridge at $REMOTE_BRIDGE_PATH"
+            exit 1
+          fi
+
+          file "$REMOTE_BRIDGE_PATH" | grep -q "arm64"
+          "$REMOTE_BRIDGE_PATH" -list-platforms | grep -q '"feishu"'
 
           if [ ! -f "$THIRD_PARTY_NOTICES_PATH" ]; then
             echo "Expected third-party notices at $THIRD_PARTY_NOTICES_PATH"

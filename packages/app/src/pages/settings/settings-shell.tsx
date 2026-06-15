@@ -9,31 +9,55 @@ import { SettingsMemory } from "@/components/settings-memory"
 import { SettingsWorktrees } from "@/components/settings-worktrees"
 import { IntegrationsPage } from "./integrations"
 import { ModelsPage } from "./models"
+import { RemotePage } from "./remote"
 
 // Settings is a real route whose nav renders into the shell's sidebar slot
 // (SettingsNav) while the page fills the main slot (SettingsContent). Geometry
 // (width / background / border) is inherited from the shell slots instead of being
 // re-declared, which removes the alignment drift the old standalone overlay had
 // (its fixed 200px nav + surface-raised content diverged from the real sidebar).
-// Remote access is not part of this surface yet: its page has no content branch, so it is
-// intentionally absent from both the type and TAB_VALUES. It comes back — type, TAB_VALUES,
-// NAV_ITEMS and a content Match together — when its page lands.
-export type SettingsTab = "general" | "shortcuts" | "models" | "integrations" | "worktrees" | "memory"
+export type SettingsTab = "general" | "shortcuts" | "models" | "remoteAccess" | "integrations" | "worktrees" | "memory"
 
-const TAB_VALUES: SettingsTab[] = ["general", "shortcuts", "models", "integrations", "worktrees", "memory"]
+type NavItem = { value: SettingsTab; icon: string; labelKey: string }
 
-export function isSettingsTab(value: string): value is SettingsTab {
-  return (TAB_VALUES as string[]).includes(value)
-}
-
-const NAV_ITEMS = [
+const PRIMARY_NAV_ITEMS = [
   { value: "general", icon: "settings-gear", labelKey: "settings.tab.general" },
   { value: "shortcuts", icon: "keyboard", labelKey: "settings.tab.shortcuts" },
   { value: "models", icon: "models", labelKey: "settings.tab.models" },
+] as const satisfies ReadonlyArray<NavItem>
+
+const REMOTE_ACCESS_NAV_ITEM = {
+  value: "remoteAccess",
+  icon: "remote-control",
+  labelKey: "settings.tab.remoteAccess",
+} as const satisfies NavItem
+
+const SECONDARY_NAV_ITEMS = [
   { value: "integrations", icon: "link", labelKey: "settings.tab.integrations" },
   { value: "worktrees", icon: "worktree", labelKey: "settings.tab.worktrees" },
   { value: "memory", icon: "brain", labelKey: "settings.tab.memory" },
-] as const satisfies ReadonlyArray<{ value: SettingsTab; icon: string; labelKey: string }>
+] as const satisfies ReadonlyArray<NavItem>
+
+function remoteAccessBridgeAvailable() {
+  if (typeof window === "undefined") return false
+  return Boolean(
+    window.api?.remoteAccessConfig &&
+      window.api.remoteAccessSaveConfig &&
+      window.api.remoteAccessStatus &&
+      window.api.remoteAccessStart &&
+      window.api.remoteAccessStop,
+  )
+}
+
+function navItems() {
+  return remoteAccessBridgeAvailable()
+    ? [...PRIMARY_NAV_ITEMS, REMOTE_ACCESS_NAV_ITEM, ...SECONDARY_NAV_ITEMS]
+    : [...PRIMARY_NAV_ITEMS, ...SECONDARY_NAV_ITEMS]
+}
+
+export function isSettingsTab(value: string): value is SettingsTab {
+  return navItems().some((item) => item.value === value)
+}
 
 // Settings nav: fills the sidebar slot as a flat tablist (back-to-app + tabs + version footer).
 // Tab roles/keyboard are hand-rolled (role=tab/tablist + arrow roving) because the nav and the
@@ -53,24 +77,25 @@ export const SettingsNav: Component<{
   }
 
   const onKeyDown = (event: KeyboardEvent) => {
-    const index = NAV_ITEMS.findIndex((item) => item.value === props.active)
+    const items = navItems()
+    const index = items.findIndex((item) => item.value === props.active)
     if (index === -1) return
     switch (event.key) {
       case "ArrowDown":
         event.preventDefault()
-        focusTab(NAV_ITEMS[(index + 1) % NAV_ITEMS.length].value)
+        focusTab(items[(index + 1) % items.length].value)
         break
       case "ArrowUp":
         event.preventDefault()
-        focusTab(NAV_ITEMS[(index - 1 + NAV_ITEMS.length) % NAV_ITEMS.length].value)
+        focusTab(items[(index - 1 + items.length) % items.length].value)
         break
       case "Home":
         event.preventDefault()
-        focusTab(NAV_ITEMS[0].value)
+        focusTab(items[0].value)
         break
       case "End":
         event.preventDefault()
-        focusTab(NAV_ITEMS[NAV_ITEMS.length - 1].value)
+        focusTab(items[items.length - 1].value)
         break
     }
   }
@@ -102,7 +127,7 @@ export const SettingsNav: Component<{
           class="flex w-full flex-col gap-0.5"
           onKeyDown={onKeyDown}
         >
-          <For each={NAV_ITEMS}>
+          <For each={navItems()}>
             {(item) => {
               const selected = () => props.active === item.value
               return (
@@ -198,6 +223,9 @@ export const SettingsContent: Component<{
             </Match>
             <Match when={props.active === "models"}>
               <ModelsPage />
+            </Match>
+            <Match when={props.active === "remoteAccess"}>
+              <RemotePage />
             </Match>
             <Match when={props.active === "integrations"}>
               <IntegrationsPage directory={props.directory} />

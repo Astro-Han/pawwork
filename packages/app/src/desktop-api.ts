@@ -6,6 +6,8 @@ export type {
   RendererErrorDetails,
   ReportProblemInput,
   ReportProblemResult,
+  RemoteAccessConfig,
+  RemoteAccessStatus,
   UpdateInfo,
   WebSearchStatus,
 } from "./desktop-api-contract"

@@ -6,11 +6,13 @@ import type {
   RendererDiagnosticsExportResult,
   ReportProblemInput,
   ReportProblemResult,
+  RemoteAccessConfig,
+  RemoteAccessStatus,
   UpdateInfo,
   WebSearchStatus,
 } from "@opencode-ai/app/desktop-api"
 
-export type { AboutInfo, DesktopContext, WebSearchStatus }
+export type { AboutInfo, DesktopContext, RemoteAccessConfig, RemoteAccessStatus, WebSearchStatus }
 export type { RendererDiagnosticInput, RendererDiagnosticsExportResult, ReportProblemInput, ReportProblemResult, UpdateInfo }
 
 export type InitStep = { phase: "server_waiting" } | { phase: "sqlite_waiting" } | { phase: "done" }
@@ -112,6 +114,11 @@ export type ElectronAPI = {
   webSearchStatus: () => Promise<WebSearchStatus>
   saveExaApiKey: (key: string) => Promise<WebSearchStatus>
   removeExaApiKey: () => Promise<WebSearchStatus>
+  remoteAccessConfig: () => Promise<RemoteAccessConfig>
+  remoteAccessSaveConfig: (config: RemoteAccessConfig) => Promise<RemoteAccessConfig>
+  remoteAccessStatus: () => Promise<RemoteAccessStatus>
+  remoteAccessStart: (config?: RemoteAccessConfig) => Promise<RemoteAccessStatus>
+  remoteAccessStop: () => Promise<RemoteAccessStatus>
   getAboutInfo: () => Promise<AboutInfo>
   onAboutOpen: (handler: () => void) => () => void
   flashFrame: () => Promise<void>
