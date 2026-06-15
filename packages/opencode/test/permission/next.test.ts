@@ -657,6 +657,52 @@ test("ask - an 'always' approval relaxes asks but never a configured deny", asyn
   })
 })
 
+test("reply - an 'always' grant survives an instance reload", async () => {
+  await using tmp = await tmpdir({ git: true })
+  const ruleset = [{ permission: "browser", pattern: "*", action: "ask" as const }]
+
+  // First lifecycle: approve "always" for an origin.
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const askPromise = Permission.ask({
+        sessionID: SessionID.make("session_persist"),
+        permission: "browser",
+        patterns: ["https://ok.example/home"],
+        metadata: {},
+        always: ["https://ok.example/*"],
+        ruleset,
+      })
+      const [pending] = await waitForPending(1)
+      await Permission.reply({ requestID: pending.id, reply: "always" })
+      await askPromise
+    },
+  })
+
+  // Simulate an app restart: drop all in-memory instance state, then reload the
+  // same project directory (its on-disk DB persists).
+  await Instance.disposeAll()
+
+  // Second lifecycle: the persisted grant auto-allows the same origin with no
+  // further ask. Before the fix this re-asked, because the approval was only
+  // ever held in memory and never written back to PermissionTable.
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const result = await Permission.ask({
+        sessionID: SessionID.make("session_persist_reload"),
+        permission: "browser",
+        patterns: ["https://ok.example/other"],
+        metadata: {},
+        always: ["https://ok.example/*"],
+        ruleset,
+      })
+      expect(result).toBeUndefined()
+      expect(await Permission.list()).toEqual([])
+    },
+  })
+})
+
 const bashDeleteCases = [
   { command: "rm file.txt", rule: "rm *" },
   { command: "rm -rf folder", rule: "rm -rf *" },

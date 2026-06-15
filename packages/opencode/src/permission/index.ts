@@ -139,6 +139,9 @@ export namespace Permission {
   interface State {
     pending: Map<PermissionID, PendingEntry>
     approved: Ruleset
+    // Project this state belongs to, captured at load so reply() can persist
+    // newly approved "always" grants back to PermissionTable.
+    projectID: ProjectID
     // Tombstone of recently-resolved request IDs. A reply can cascade-resolve
     // sibling pending requests, so a client's own follow-up reply to one of
     // those would otherwise miss `pending` and look unknown. Remembering the ID
@@ -184,6 +187,7 @@ export namespace Permission {
           const state = {
             pending: new Map<PermissionID, PendingEntry>(),
             approved: row?.data ?? [],
+            projectID: ctx.project.id,
             resolved: new Set<PermissionID>(),
           }
 
@@ -271,7 +275,7 @@ export namespace Permission {
       })
 
       const reply = Effect.fn("Permission.reply")(function* (input: z.infer<typeof ReplyInput>) {
-        const { approved, pending, resolved } = yield* InstanceState.get(state)
+        const { approved, pending, resolved, projectID } = yield* InstanceState.get(state)
         const existing = pending.get(input.requestID)
         if (!existing) {
           // Already handled (most often as a cascade sibling of an earlier
@@ -318,6 +322,22 @@ export namespace Permission {
             pattern,
             action: "allow",
           })
+        }
+
+        // Persist the grant so "always allow" survives an instance reload / app
+        // restart. The approved list is loaded from this row at startup but was
+        // never written back, so before this every restart dropped all "always"
+        // grants and re-asked. Write the full cumulative set under the project's
+        // primary key (upsert).
+        if (existing.info.always.length > 0) {
+          const now = Date.now()
+          Database.use((db) =>
+            db
+              .insert(PermissionTable)
+              .values({ project_id: projectID, data: approved, time_created: now, time_updated: now })
+              .onConflictDoUpdate({ target: PermissionTable.project_id, set: { data: approved, time_updated: now } })
+              .run(),
+          )
         }
 
         for (const [id, item] of pending.entries()) {
