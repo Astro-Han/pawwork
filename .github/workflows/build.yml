@@ -273,6 +273,21 @@ jobs:
         with:
           node-version: "24"
 
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: packages/remote-bridge/go.mod
+          cache-dependency-path: packages/remote-bridge/go.sum
+
+      - name: Test remote bridge
+        if: ${{ inputs.phase != 'finalize' }}
+        run: go test ./...
+        working-directory: packages/remote-bridge
+
+      - name: Race test remote bridge
+        if: ${{ inputs.phase != 'finalize' }}
+        run: go test -race ./internal/bridge ./internal/gateway ./internal/pawwork
+        working-directory: packages/remote-bridge
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
