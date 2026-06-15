@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -355,13 +356,18 @@ func (c *Client) knownDirectories() []string {
 		seen[c.defaultDirectory] = true
 		directories = append(directories, c.defaultDirectory)
 	}
+	// Sort the map-derived directories so hydration visits them in a stable
+	// order; ranging a map directly is randomized and makes ordering flaky.
+	extra := []string{}
 	for _, directory := range c.sessionDirectories {
 		if directory == "" || seen[directory] {
 			continue
 		}
 		seen[directory] = true
-		directories = append(directories, directory)
+		extra = append(extra, directory)
 	}
+	slices.Sort(extra)
+	directories = append(directories, extra...)
 	if len(directories) == 0 {
 		return []string{""}
 	}
