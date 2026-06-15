@@ -206,11 +206,15 @@ func (e *Engine) HandleMessage(ctx context.Context, platform core.Platform, msg 
 	if handled, err := e.handlePendingReply(ctx, platform, msg, sessionID, text); handled || err != nil {
 		return err
 	}
+	e.setActive(sessionID, platform, msg.ReplyCtx)
+	// Retry an undelivered head prompt now that the user is reachable on this
+	// target. Best-effort: the message below still goes through as an ordinary
+	// prompt, since an unshown blocker must never intercept it.
+	_ = e.surfaceActiveBlocker(ctx, sessionID)
 	if err := e.sidecar.SendPrompt(ctx, sessionID, text); err != nil {
 		_ = platform.Reply(ctx, msg.ReplyCtx, "PawWork could not send the message: "+err.Error())
 		return err
 	}
-	e.setActive(sessionID, platform, msg.ReplyCtx)
 	return nil
 }
 
@@ -453,29 +457,22 @@ func (e *Engine) pendingBlocker(sessionID string) (pendingBlocker, bool) {
 }
 
 // surfaceActiveBlocker delivers the root's current head prompt if it has not
-// been shown yet, so chat only ever displays one pending item at a time. If
-// delivery keeps failing the blocker is dropped (so it cannot silently
-// intercept the next message) and the following one is tried; a missing chat
-// target leaves it queued for the next hydrate. Returns the delivery error of a
-// head that could not be shown, for the caller to log.
+// been shown yet, so chat only ever displays one pending item at a time. A head
+// that fails to deliver is kept undelivered, never dropped: it stays
+// unanswerable so it cannot intercept an ordinary message, and the next inbound
+// message, a resolved sibling, or a reconnect hydrate retries surfacing it.
+// Returns the delivery error so the caller can log it; a missing chat target
+// returns nil and leaves the head queued.
 func (e *Engine) surfaceActiveBlocker(ctx context.Context, sessionID string) error {
-	var lastErr error
-	for {
-		ref, blockerSessionID, content, ok := e.headPromptToDeliver(sessionID)
-		if !ok {
-			return lastErr
-		}
-		delivered, err := e.replyToActive(ctx, blockerSessionID, content)
-		if delivered {
-			e.markBlockerDelivered(ref)
-			return nil
-		}
-		if err == nil {
-			return lastErr
-		}
-		lastErr = err
-		e.dropBlocker(ref)
+	ref, blockerSessionID, content, ok := e.headPromptToDeliver(sessionID)
+	if !ok {
+		return nil
 	}
+	if delivered, err := e.replyToActive(ctx, blockerSessionID, content); !delivered {
+		return err
+	}
+	e.markBlockerDelivered(ref)
+	return nil
 }
 
 // headPromptToDeliver returns the root's head blocker and its rendered prompt
@@ -512,17 +509,6 @@ func (e *Engine) markBlockerDelivered(ref blockerRef) {
 			e.blockerOrder[index].delivered = true
 			return
 		}
-	}
-}
-
-func (e *Engine) dropBlocker(ref blockerRef) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	switch ref.kind {
-	case permissionBlocker:
-		e.clearPermissionKeyLocked(ref.key)
-	case questionBlocker:
-		e.clearQuestionKeyLocked(ref.key)
 	}
 }
 

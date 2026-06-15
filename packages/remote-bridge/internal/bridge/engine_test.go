@@ -742,8 +742,9 @@ func TestUndeliveredPromptDoesNotInterceptNextMessage(t *testing.T) {
 	deliveryRetryBackoff = 0
 
 	sidecar := &fakeSidecar{}
-	// Delivery always fails, so the permission prompt never reaches the user.
-	platform := &fakePlatform{replyFailures: deliveryAttempts}
+	// Delivery keeps failing across the initial surface and the re-surface
+	// retry, so the permission prompt never reaches the user.
+	platform := &fakePlatform{replyFailures: 100}
 	engine := New(sidecar)
 	msg := &core.Message{SessionKey: "slack:dm:a", Content: "edit the file"}
 	if err := engine.HandleMessage(context.Background(), platform, msg); err != nil {
@@ -769,7 +770,7 @@ func TestUndeliveredPromptDoesNotInterceptNextMessage(t *testing.T) {
 	}
 }
 
-func TestSurfacingNextBlockerReportsPersistentDeliveryFailure(t *testing.T) {
+func TestFailedNextBlockerIsKeptAndResurfacedOnRecovery(t *testing.T) {
 	defer func(b time.Duration) { deliveryRetryBackoff = b }(deliveryRetryBackoff)
 	deliveryRetryBackoff = 0
 
@@ -793,28 +794,41 @@ func TestSurfacingNextBlockerReportsPersistentDeliveryFailure(t *testing.T) {
 			t.Fatalf("only the first permission should be shown: %#v", platform.replies)
 		}
 
-		// Answering the first surfaces the second, whose delivery now fails for good.
+		// Answering the first surfaces the second, whose delivery now fails.
 		platform.replyFailures = deliveryAttempts
 		msg.Content = "yes"
 		if err := engine.HandleMessage(context.Background(), platform, msg); err == nil {
-			t.Fatal("a persistently failing next prompt must be reported to the caller")
+			t.Fatal("a failed surfacing of the next prompt must be reported to the caller")
 		}
-		// The first answer still went through; the second was never answered.
+		// The first answer went through; the second is neither answered nor dropped.
 		if len(sidecar.permissionReplies) != 1 || sidecar.permissionReplies[0].pending.ID != "perm_first" {
 			t.Fatalf("first answer should be recorded once: %#v", sidecar.permissionReplies)
 		}
 
-		// The dropped second prompt must not intercept the next ordinary message.
+		// On recovery the next ordinary message re-shows the kept second prompt
+		// and is itself still forwarded, not eaten as an answer.
 		platform.replyFailures = 0
 		msg.Content = "what is the weather"
 		if err := engine.HandleMessage(context.Background(), platform, msg); err != nil {
 			t.Fatal(err)
+		}
+		if len(platform.replies) != 2 || !strings.Contains(platform.replies[1], "/repo/b.ts") {
+			t.Fatalf("second permission should be re-shown on recovery: %#v", platform.replies)
 		}
 		if len(sidecar.permissionReplies) != 1 {
 			t.Fatalf("ordinary message was intercepted as a permission answer: %#v", sidecar.permissionReplies)
 		}
 		if last := sidecar.prompts[len(sidecar.prompts)-1]; last.text != "what is the weather" {
 			t.Fatalf("ordinary message was not forwarded as a prompt: %#v", sidecar.prompts)
+		}
+
+		// The re-shown second prompt is now answerable.
+		msg.Content = "no"
+		if err := engine.HandleMessage(context.Background(), platform, msg); err != nil {
+			t.Fatal(err)
+		}
+		if len(sidecar.permissionReplies) != 2 || sidecar.permissionReplies[1].pending.ID != "perm_second" {
+			t.Fatalf("re-shown second permission should be answerable: %#v", sidecar.permissionReplies)
 		}
 	})
 
@@ -845,7 +859,7 @@ func TestSurfacingNextBlockerReportsPersistentDeliveryFailure(t *testing.T) {
 		platform.replyFailures = deliveryAttempts
 		msg.Content = "1"
 		if err := engine.HandleMessage(context.Background(), platform, msg); err == nil {
-			t.Fatal("a persistently failing next prompt must be reported to the caller")
+			t.Fatal("a failed surfacing of the next prompt must be reported to the caller")
 		}
 		if len(sidecar.questionReplies) != 1 || sidecar.questionReplies[0].pending.MessageID != "msg_first" {
 			t.Fatalf("first answer should be recorded once: %#v", sidecar.questionReplies)
@@ -856,11 +870,22 @@ func TestSurfacingNextBlockerReportsPersistentDeliveryFailure(t *testing.T) {
 		if err := engine.HandleMessage(context.Background(), platform, msg); err != nil {
 			t.Fatal(err)
 		}
+		if len(platform.replies) != 2 || !strings.Contains(platform.replies[1], "Pick two") {
+			t.Fatalf("second question should be re-shown on recovery: %#v", platform.replies)
+		}
 		if len(sidecar.questionReplies) != 1 {
 			t.Fatalf("ordinary message was intercepted as a question answer: %#v", sidecar.questionReplies)
 		}
 		if last := sidecar.prompts[len(sidecar.prompts)-1]; last.text != "hello there" {
 			t.Fatalf("ordinary message was not forwarded as a prompt: %#v", sidecar.prompts)
+		}
+
+		msg.Content = "1"
+		if err := engine.HandleMessage(context.Background(), platform, msg); err != nil {
+			t.Fatal(err)
+		}
+		if len(sidecar.questionReplies) != 2 || sidecar.questionReplies[1].pending.MessageID != "msg_second" {
+			t.Fatalf("re-shown second question should be answerable: %#v", sidecar.questionReplies)
 		}
 	})
 }
