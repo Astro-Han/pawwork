@@ -410,8 +410,7 @@ func (e *Engine) handlePendingReply(
 			return true, err
 		}
 		e.clearPendingPermission(blocker.permission)
-		_ = e.surfaceActiveBlocker(ctx, sessionID)
-		return true, nil
+		return true, e.surfaceActiveBlocker(ctx, sessionID)
 	}
 	if blocker.kind == questionBlocker {
 		answers, err := answersForQuestionText(blocker.question, text)
@@ -423,8 +422,7 @@ func (e *Engine) handlePendingReply(
 			return true, err
 		}
 		e.clearPendingQuestion(blocker.question)
-		_ = e.surfaceActiveBlocker(ctx, sessionID)
-		return true, nil
+		return true, e.surfaceActiveBlocker(ctx, sessionID)
 	}
 	return false, nil
 }

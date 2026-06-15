@@ -769,6 +769,102 @@ func TestUndeliveredPromptDoesNotInterceptNextMessage(t *testing.T) {
 	}
 }
 
+func TestSurfacingNextBlockerReportsPersistentDeliveryFailure(t *testing.T) {
+	defer func(b time.Duration) { deliveryRetryBackoff = b }(deliveryRetryBackoff)
+	deliveryRetryBackoff = 0
+
+	t.Run("permission", func(t *testing.T) {
+		sidecar := &fakeSidecar{}
+		platform := &fakePlatform{}
+		engine := New(sidecar)
+		msg := &core.Message{SessionKey: "slack:dm:a", Content: "start"}
+		if err := engine.HandleMessage(context.Background(), platform, msg); err != nil {
+			t.Fatal(err)
+		}
+		for _, permission := range []PendingPermission{
+			{ID: "perm_first", SessionID: "ses_new", Permission: "edit", Patterns: []string{"/repo/a.ts"}},
+			{ID: "perm_second", SessionID: "ses_new", Permission: "edit", Patterns: []string{"/repo/b.ts"}},
+		} {
+			if err := engine.HandlePermission(context.Background(), permission); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if len(platform.replies) != 1 {
+			t.Fatalf("only the first permission should be shown: %#v", platform.replies)
+		}
+
+		// Answering the first surfaces the second, whose delivery now fails for good.
+		platform.replyFailures = deliveryAttempts
+		msg.Content = "yes"
+		if err := engine.HandleMessage(context.Background(), platform, msg); err == nil {
+			t.Fatal("a persistently failing next prompt must be reported to the caller")
+		}
+		// The first answer still went through; the second was never answered.
+		if len(sidecar.permissionReplies) != 1 || sidecar.permissionReplies[0].pending.ID != "perm_first" {
+			t.Fatalf("first answer should be recorded once: %#v", sidecar.permissionReplies)
+		}
+
+		// The dropped second prompt must not intercept the next ordinary message.
+		platform.replyFailures = 0
+		msg.Content = "what is the weather"
+		if err := engine.HandleMessage(context.Background(), platform, msg); err != nil {
+			t.Fatal(err)
+		}
+		if len(sidecar.permissionReplies) != 1 {
+			t.Fatalf("ordinary message was intercepted as a permission answer: %#v", sidecar.permissionReplies)
+		}
+		if last := sidecar.prompts[len(sidecar.prompts)-1]; last.text != "what is the weather" {
+			t.Fatalf("ordinary message was not forwarded as a prompt: %#v", sidecar.prompts)
+		}
+	})
+
+	t.Run("question", func(t *testing.T) {
+		sidecar := &fakeSidecar{}
+		platform := &fakePlatform{}
+		engine := New(sidecar)
+		msg := &core.Message{SessionKey: "slack:dm:b", Content: "start"}
+		if err := engine.HandleMessage(context.Background(), platform, msg); err != nil {
+			t.Fatal(err)
+		}
+		for _, question := range []PendingQuestion{
+			{MessageID: "msg_first", CallID: "call_first", SessionID: "ses_new", Questions: []Question{{
+				Question: "Pick one", Options: []QuestionOption{{Label: "A"}, {Label: "B"}},
+			}}},
+			{MessageID: "msg_second", CallID: "call_second", SessionID: "ses_new", Questions: []Question{{
+				Question: "Pick two", Options: []QuestionOption{{Label: "C"}, {Label: "D"}},
+			}}},
+		} {
+			if err := engine.HandleQuestion(context.Background(), question); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if len(platform.replies) != 1 {
+			t.Fatalf("only the first question should be shown: %#v", platform.replies)
+		}
+
+		platform.replyFailures = deliveryAttempts
+		msg.Content = "1"
+		if err := engine.HandleMessage(context.Background(), platform, msg); err == nil {
+			t.Fatal("a persistently failing next prompt must be reported to the caller")
+		}
+		if len(sidecar.questionReplies) != 1 || sidecar.questionReplies[0].pending.MessageID != "msg_first" {
+			t.Fatalf("first answer should be recorded once: %#v", sidecar.questionReplies)
+		}
+
+		platform.replyFailures = 0
+		msg.Content = "hello there"
+		if err := engine.HandleMessage(context.Background(), platform, msg); err != nil {
+			t.Fatal(err)
+		}
+		if len(sidecar.questionReplies) != 1 {
+			t.Fatalf("ordinary message was intercepted as a question answer: %#v", sidecar.questionReplies)
+		}
+		if last := sidecar.prompts[len(sidecar.prompts)-1]; last.text != "hello there" {
+			t.Fatalf("ordinary message was not forwarded as a prompt: %#v", sidecar.prompts)
+		}
+	})
+}
+
 func TestQuestionPromptHintsMatchType(t *testing.T) {
 	single := questionPrompt(PendingQuestion{Questions: []Question{{
 		Question: "Pick one",
