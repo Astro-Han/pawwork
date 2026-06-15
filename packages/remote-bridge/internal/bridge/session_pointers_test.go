@@ -1,8 +1,10 @@
 package bridge
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -69,6 +71,60 @@ func TestFileSessionPointersDoNotRestoreAmbiguousRootBindings(t *testing.T) {
 
 	if got := pointers.RemoteKeyForSession("ses_child"); got != "" {
 		t.Fatalf("remote key for ambiguous root = %q", got)
+	}
+}
+
+func TestFileSessionPointersConcurrentWritesLeaveValidState(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sessions.json")
+	first, err := NewFileSessionPointers(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewFileSessionPointers(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var mu sync.Mutex
+	var writeErrs []error
+	record := func(err error) {
+		if err == nil {
+			return
+		}
+		mu.Lock()
+		writeErrs = append(writeErrs, err)
+		mu.Unlock()
+	}
+
+	var wg sync.WaitGroup
+	for i, store := range []*SessionPointersStore{first, second} {
+		wg.Add(1)
+		go func(store *SessionPointersStore, id int) {
+			defer wg.Done()
+			for n := 0; n < 200; n++ {
+				record(store.Set(fmt.Sprintf("slack:dm:%d-%d", id, n), fmt.Sprintf("ses_%d_%d", id, n)))
+				record(store.SetEventCursor(fmt.Sprintf("cursor-%d-%d", id, n)))
+			}
+		}(store, i)
+	}
+	wg.Wait()
+
+	// A fixed <path>.tmp lets one writer rename the shared temp away before the
+	// other's rename, failing the second write with ENOENT. A unique temp per
+	// write removes that contention.
+	if len(writeErrs) != 0 {
+		t.Fatalf("concurrent writes failed %d times, first: %v", len(writeErrs), writeErrs[0])
+	}
+	// The surviving file must still be a complete, parseable snapshot.
+	if _, err := NewFileSessionPointers(path); err != nil {
+		t.Fatalf("state file is unreadable after concurrent writes: %v", err)
+	}
+	leftovers, err := filepath.Glob(filepath.Join(filepath.Dir(path), "*.tmp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(leftovers) != 0 {
+		t.Fatalf("temp files left behind: %v", leftovers)
 	}
 }
 

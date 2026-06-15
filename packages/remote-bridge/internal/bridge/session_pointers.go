@@ -136,7 +136,8 @@ func (p *SessionPointersStore) saveLocked() error {
 	if p.path == "" {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(p.path), 0o700); err != nil {
+	dir := filepath.Dir(p.path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(struct {
@@ -151,8 +152,21 @@ func (p *SessionPointersStore) saveLocked() error {
 	if err != nil {
 		return err
 	}
-	tempPath := p.path + ".tmp"
-	if err := os.WriteFile(tempPath, data, 0o600); err != nil {
+	// Write through a unique temp file so a second process sharing this path
+	// cannot clobber a fixed <path>.tmp mid-write. Each writer renames its own
+	// complete snapshot into place; the deferred remove cleans up on error and
+	// is a no-op once the rename succeeds.
+	temp, err := os.CreateTemp(dir, filepath.Base(p.path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tempPath := temp.Name()
+	defer os.Remove(tempPath)
+	if _, err := temp.Write(data); err != nil {
+		temp.Close()
+		return err
+	}
+	if err := temp.Close(); err != nil {
 		return err
 	}
 	return os.Rename(tempPath, p.path)
