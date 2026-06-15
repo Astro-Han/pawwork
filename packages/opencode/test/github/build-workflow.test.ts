@@ -103,6 +103,8 @@ describe("release workflow", () => {
       const nonMacArtifactStep = steps.find((step) => step.name === "Upload packaged app artifact")
       const buildElectronAppStep = steps.find((step) => step.name === "Build Electron app")
       const runtimeImportGuardStep = steps.find((step) => step.name === "Check desktop runtime imports")
+      const remoteBridgeTestStep = steps.find((step) => step.name === "Test remote bridge")
+      const remoteBridgeRaceStep = steps.find((step) => step.name === "Race test remote bridge")
       const setupAppleApiKeyStep = steps.find((step) => step.name === "Setup Apple API Key")
       const deleteAppleApiKeyAfterSubmitStep = steps.find(
         (step) => step.name === "Delete Apple API Key after submit",
@@ -195,6 +197,12 @@ describe("release workflow", () => {
       expect(runtimeImportGuardStep?.if).toBe("${{ inputs.phase != 'finalize' }}")
       expect(runtimeImportGuardStep?.run).toBe("bun ./scripts/runtime-import-guard.ts")
       expect(runtimeImportGuardStep?.["working-directory"]).toBe("packages/desktop-electron")
+      expect(remoteBridgeTestStep?.if).toBe("${{ inputs.phase != 'finalize' }}")
+      expect(remoteBridgeTestStep?.run).toBe("go test ./...")
+      expect(remoteBridgeTestStep?.["working-directory"]).toBe("packages/remote-bridge")
+      expect(remoteBridgeRaceStep?.if).toBe("${{ inputs.phase != 'finalize' }}")
+      expect(remoteBridgeRaceStep?.run).toBe("go test -race ./internal/bridge ./internal/gateway ./internal/pawwork")
+      expect(remoteBridgeRaceStep?.["working-directory"]).toBe("packages/remote-bridge")
       expect(steps.indexOf(runtimeImportGuardStep!)).toBeGreaterThan(steps.indexOf(buildElectronAppStep!))
       expect(steps.indexOf(runtimeImportGuardStep!)).toBeLessThan(steps.indexOf(setupAppleApiKeyStep!))
       expect(submitNotarizationStep).toBeDefined()
