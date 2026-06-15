@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/chenhg5/cc-connect/core"
 )
@@ -220,7 +221,7 @@ func (e *Engine) HandleAssistantText(ctx context.Context, sessionID string, text
 	if !ok {
 		return nil
 	}
-	return sendDelivery(ctx, target, text)
+	return deliverWithRetry(ctx, target, text)
 }
 
 func (e *Engine) HandlePermission(ctx context.Context, permission PendingPermission) error {
@@ -335,6 +336,37 @@ func sendDelivery(ctx context.Context, target delivery, content string) error {
 		return target.platform.Send(ctx, target.replyCtx, content)
 	}
 	return target.platform.Reply(ctx, target.replyCtx, content)
+}
+
+// deliveryAttempts bounds how many times assistant text is pushed to a chat
+// target before giving up. deliveryRetryBackoff is the base delay between
+// attempts (scaled per attempt); it is a var only so tests can drop it to zero.
+const deliveryAttempts = 3
+
+var deliveryRetryBackoff = 200 * time.Millisecond
+
+// deliverWithRetry sends final assistant text, retrying transient platform
+// errors with a short backoff. Assistant text is the only payload with no
+// reconnect-time reconciliation (permissions and questions are re-surfaced by
+// the gateway's hydrate), so a transient blip here would otherwise lose the
+// message. The global SSE cursor tracks ingestion and advances regardless, so a
+// target that stays unreachable is reported to the caller (logged) rather than
+// held — holding the shared cursor would wedge every session's stream.
+func deliverWithRetry(ctx context.Context, target delivery, content string) error {
+	var err error
+	for attempt := 1; attempt <= deliveryAttempts; attempt++ {
+		if err = sendDelivery(ctx, target, content); err == nil {
+			return nil
+		}
+		if attempt < deliveryAttempts {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Duration(attempt) * deliveryRetryBackoff):
+			}
+		}
+	}
+	return err
 }
 
 func (e *Engine) handlePendingReply(

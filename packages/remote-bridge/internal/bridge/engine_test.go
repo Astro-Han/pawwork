@@ -2,9 +2,11 @@ package bridge
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/chenhg5/cc-connect/core"
 )
@@ -70,6 +72,8 @@ type fakePlatform struct {
 	replies        []string
 	sends          []string
 	reconstructKey string
+	replyFailures  int
+	replyCalls     int
 }
 
 func (f *fakePlatform) Name() string {
@@ -80,6 +84,11 @@ func (f *fakePlatform) Name() string {
 }
 func (f *fakePlatform) Start(core.MessageHandler) error { return nil }
 func (f *fakePlatform) Reply(_ context.Context, _ any, content string) error {
+	f.replyCalls++
+	if f.replyFailures > 0 {
+		f.replyFailures--
+		return errors.New("transient delivery failure")
+	}
 	f.replies = append(f.replies, content)
 	return nil
 }
@@ -644,6 +653,37 @@ func TestEngineMapsMultiSelectNumbersToOptionLabels(t *testing.T) {
 	}
 	if got := sidecar.questionReplies[0].answers; len(got) != 1 || len(got[0]) != 2 || got[0][0] != "A" || got[0][1] != "C" {
 		t.Fatalf("answers = %#v", got)
+	}
+}
+
+func TestAssistantTextRetriesTransientDeliveryFailure(t *testing.T) {
+	defer func(b time.Duration) { deliveryRetryBackoff = b }(deliveryRetryBackoff)
+	deliveryRetryBackoff = 0
+
+	// Recovers when the platform fails transiently, then succeeds.
+	recovers := &fakePlatform{replyFailures: deliveryAttempts - 1}
+	engine := New(&fakeSidecar{})
+	if err := engine.HandleMessage(context.Background(), recovers, &core.Message{SessionKey: "slack:dm:a", Content: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.HandleAssistantText(context.Background(), "ses_new", "answer"); err != nil {
+		t.Fatalf("assistant text should recover after retries: %v", err)
+	}
+	if recovers.replyCalls != deliveryAttempts || len(recovers.replies) != 1 || recovers.replies[0] != "answer" {
+		t.Fatalf("calls=%d replies=%#v", recovers.replyCalls, recovers.replies)
+	}
+
+	// Gives up after a bounded number of attempts — never holds the cursor.
+	keepsFailing := &fakePlatform{replyFailures: deliveryAttempts + 5}
+	engine2 := New(&fakeSidecar{})
+	if err := engine2.HandleMessage(context.Background(), keepsFailing, &core.Message{SessionKey: "slack:dm:b", Content: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine2.HandleAssistantText(context.Background(), "ses_new", "answer"); err == nil {
+		t.Fatal("expected error after bounded retries")
+	}
+	if keepsFailing.replyCalls != deliveryAttempts {
+		t.Fatalf("attempts = %d, want %d", keepsFailing.replyCalls, deliveryAttempts)
 	}
 }
 
