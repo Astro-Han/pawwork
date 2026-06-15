@@ -271,12 +271,14 @@ func TestEngineRoutesPendingPermissionRepliesBeforePrompts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	engine.setPendingPermission(PendingPermission{
+	if err := engine.HandlePermission(context.Background(), PendingPermission{
 		ID:         "perm_1",
 		SessionID:  "ses_new",
 		Permission: "edit",
 		Patterns:   []string{"/repo/app.ts"},
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	msg.Content = "yes"
 	if err := engine.HandleMessage(context.Background(), platform, msg); err != nil {
@@ -318,7 +320,9 @@ func TestEngineRoutesPendingQuestionAnswersBeforePrompts(t *testing.T) {
 			Options:  []QuestionOption{{Label: "A"}, {Label: "B"}},
 		}},
 	}
-	engine.setPendingQuestion(pending)
+	if err := engine.HandleQuestion(context.Background(), pending); err != nil {
+		t.Fatal(err)
+	}
 
 	msg.Content = "2"
 	if err := engine.HandleMessage(context.Background(), platform, msg); err != nil {
@@ -541,9 +545,18 @@ func TestEngineAnswersPendingPermissionsInArrivalOrder(t *testing.T) {
 		}
 	}
 
+	// Only the first permission is shown; the second stays queued until answered.
+	if len(platform.replies) != 1 || !strings.Contains(platform.replies[0], "/repo/a.ts") {
+		t.Fatalf("only the first permission should be shown: %#v", platform.replies)
+	}
+
 	msg.Content = "yes"
 	if err := engine.HandleMessage(context.Background(), platform, msg); err != nil {
 		t.Fatal(err)
+	}
+	// Answering the first surfaces the second.
+	if len(platform.replies) != 2 || !strings.Contains(platform.replies[1], "/repo/b.ts") {
+		t.Fatalf("second permission should surface after the first: %#v", platform.replies)
 	}
 	msg.Content = "no"
 	if err := engine.HandleMessage(context.Background(), platform, msg); err != nil {
@@ -826,9 +839,18 @@ func TestEngineAnswersPendingQuestionsInArrivalOrder(t *testing.T) {
 		}
 	}
 
+	// Only the first question is shown; the second stays queued until answered.
+	if len(platform.replies) != 1 || !strings.Contains(platform.replies[0], "First?") {
+		t.Fatalf("only the first question should be shown: %#v", platform.replies)
+	}
+
 	msg.Content = "1"
 	if err := engine.HandleMessage(context.Background(), platform, msg); err != nil {
 		t.Fatal(err)
+	}
+	// Answering the first surfaces the second.
+	if len(platform.replies) != 2 || !strings.Contains(platform.replies[1], "Second?") {
+		t.Fatalf("second question should surface after the first: %#v", platform.replies)
 	}
 	msg.Content = "2"
 	if err := engine.HandleMessage(context.Background(), platform, msg); err != nil {
@@ -848,7 +870,7 @@ func TestEngineAnswersPendingQuestionsInArrivalOrder(t *testing.T) {
 	}
 }
 
-func TestEngineRepliesToLatestVisibleBlocker(t *testing.T) {
+func TestEngineSurfacesInterleavedBlockersOneAtATime(t *testing.T) {
 	sidecar := &fakeSidecar{}
 	platform := &fakePlatform{}
 	engine := New(sidecar)
@@ -856,6 +878,7 @@ func TestEngineRepliesToLatestVisibleBlocker(t *testing.T) {
 	if err := engine.HandleMessage(context.Background(), platform, msg); err != nil {
 		t.Fatal(err)
 	}
+	// A permission arrives, then a question — only the permission is shown.
 	if err := engine.HandlePermission(context.Background(), PendingPermission{
 		ID:         "perm_1",
 		SessionID:  "ses_new",
@@ -872,20 +895,31 @@ func TestEngineRepliesToLatestVisibleBlocker(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if len(platform.replies) != 1 || !strings.Contains(platform.replies[0], "asks permission") {
+		t.Fatalf("only the permission should be shown first: %#v", platform.replies)
+	}
 
+	// A reply answers the visible permission, never the still-queued question.
+	msg.Content = "yes"
+	if err := engine.HandleMessage(context.Background(), platform, msg); err != nil {
+		t.Fatal(err)
+	}
+	if len(sidecar.permissionReplies) != 1 || sidecar.permissionReplies[0].pending.ID != "perm_1" {
+		t.Fatalf("permission replies = %#v", sidecar.permissionReplies)
+	}
+	if len(sidecar.questionReplies) != 0 {
+		t.Fatalf("question answered while still queued: %#v", sidecar.questionReplies)
+	}
+	// Answering the permission surfaces the question, which the next reply answers.
+	if len(platform.replies) != 2 || !strings.Contains(platform.replies[1], "Pick one") {
+		t.Fatalf("question should surface after the permission: %#v", platform.replies)
+	}
 	msg.Content = "2"
 	if err := engine.HandleMessage(context.Background(), platform, msg); err != nil {
 		t.Fatal(err)
 	}
-
-	if len(sidecar.questionReplies) != 1 || sidecar.questionReplies[0].pending.CallID != "call_1" {
+	if len(sidecar.questionReplies) != 1 || sidecar.questionReplies[0].answers[0][0] != "B" {
 		t.Fatalf("question replies = %#v", sidecar.questionReplies)
-	}
-	if len(sidecar.permissionReplies) != 0 {
-		t.Fatalf("permission replies = %#v", sidecar.permissionReplies)
-	}
-	if len(sidecar.prompts) != 1 {
-		t.Fatalf("question answer became prompt: %#v", sidecar.prompts)
 	}
 }
 
@@ -897,12 +931,14 @@ func TestEngineClearsPermissionResolvedOutsideRemote(t *testing.T) {
 	if err := engine.HandleMessage(context.Background(), platform, msg); err != nil {
 		t.Fatal(err)
 	}
-	engine.setPendingPermission(PendingPermission{
+	if err := engine.HandlePermission(context.Background(), PendingPermission{
 		ID:         "perm_1",
 		SessionID:  "ses_new",
 		Permission: "edit",
 		Patterns:   []string{"/repo/app.ts"},
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := engine.HandlePermissionResolved(context.Background(), PermissionResolution{
 		SessionID: "ses_new",
@@ -928,7 +964,7 @@ func TestEngineClearsQuestionResolvedOutsideRemote(t *testing.T) {
 	if err := engine.HandleMessage(context.Background(), platform, msg); err != nil {
 		t.Fatal(err)
 	}
-	engine.setPendingQuestion(PendingQuestion{
+	if err := engine.HandleQuestion(context.Background(), PendingQuestion{
 		SessionID: "ses_new",
 		MessageID: "msg_1",
 		CallID:    "call_1",
@@ -936,7 +972,9 @@ func TestEngineClearsQuestionResolvedOutsideRemote(t *testing.T) {
 			Question: "Pick one",
 			Options:  []QuestionOption{{Label: "A"}, {Label: "B"}},
 		}},
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := engine.HandleQuestionResolved(context.Background(), QuestionResolution{
 		SessionID: "ses_new",

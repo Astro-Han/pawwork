@@ -107,8 +107,9 @@ const (
 )
 
 type blockerRef struct {
-	kind blockerKind
-	key  string
+	kind      blockerKind
+	key       string
+	delivered bool
 }
 
 type pendingBlocker struct {
@@ -225,56 +226,60 @@ func (e *Engine) HandleAssistantText(ctx context.Context, sessionID string, text
 }
 
 func (e *Engine) HandlePermission(ctx context.Context, permission PendingPermission) error {
-	delivered, err := e.replyToActive(ctx, permission.SessionID, permissionPrompt(permission))
-	if delivered {
-		e.setPendingPermission(permission)
-	}
-	return err
+	e.setPendingPermission(permission)
+	return e.surfaceActiveBlocker(ctx, permission.SessionID)
 }
 
 func (e *Engine) HandleQuestion(ctx context.Context, question PendingQuestion) error {
-	delivered, err := e.replyToActive(ctx, question.SessionID, questionPrompt(question))
-	if delivered {
-		e.setPendingQuestion(question)
-	}
-	return err
+	e.setPendingQuestion(question)
+	return e.surfaceActiveBlocker(ctx, question.SessionID)
 }
 
-func (e *Engine) HandlePermissionResolved(_ context.Context, resolution PermissionResolution) error {
+func (e *Engine) HandlePermissionResolved(ctx context.Context, resolution PermissionResolution) error {
 	e.mu.Lock()
-	defer e.mu.Unlock()
+	affected := ""
 	if resolution.RequestID != "" {
+		if permission, ok := e.permissions[resolution.RequestID]; ok {
+			affected = permission.SessionID
+		}
 		e.clearPermissionKeyLocked(resolution.RequestID)
-		return nil
-	}
-	if resolution.SessionID != "" {
+	} else if resolution.SessionID != "" {
+		affected = resolution.SessionID
 		e.clearPermissionsLocked(func(permission PendingPermission) bool {
 			return permission.SessionID == resolution.SessionID
 		})
 	}
-	return nil
+	e.mu.Unlock()
+	if affected == "" {
+		return nil
+	}
+	return e.surfaceActiveBlocker(ctx, affected)
 }
 
-func (e *Engine) HandleQuestionResolved(_ context.Context, resolution QuestionResolution) error {
+func (e *Engine) HandleQuestionResolved(ctx context.Context, resolution QuestionResolution) error {
 	e.mu.Lock()
-	defer e.mu.Unlock()
+	affected := ""
 	if resolution.CallID != "" || resolution.MessageID != "" {
 		for key, question := range e.questions {
 			callMatches := resolution.CallID == "" || question.CallID == resolution.CallID
 			messageMatches := resolution.MessageID == "" || question.MessageID == resolution.MessageID
 			if callMatches && messageMatches {
+				affected = question.SessionID
 				e.clearQuestionKeyLocked(key)
-				return nil
+				break
 			}
 		}
-		return nil
-	}
-	if resolution.SessionID != "" {
+	} else if resolution.SessionID != "" {
+		affected = resolution.SessionID
 		e.clearQuestionsLocked(func(question PendingQuestion) bool {
 			return question.SessionID == resolution.SessionID
 		})
 	}
-	return nil
+	e.mu.Unlock()
+	if affected == "" {
+		return nil
+	}
+	return e.surfaceActiveBlocker(ctx, affected)
 }
 
 func (e *Engine) HandleSession(_ context.Context, session Session) error {
@@ -282,10 +287,10 @@ func (e *Engine) HandleSession(_ context.Context, session Session) error {
 }
 
 // replyToActive pushes content to the session's active chat target and reports
-// whether it was delivered. Callers must only record a local pending blocker
-// when delivered is true: a blocker set for a prompt the user never saw would
-// hijack their next ordinary message as an answer. An undelivered prompt stays
-// pending server-side and is re-surfaced on the next hydrate/reconnect.
+// whether it was delivered. A blocker is only marked delivered (and so made
+// answerable) once this returns true; a prompt the user never saw must not
+// hijack their next ordinary message as an answer. With no active target it
+// returns (false, nil) and the blocker stays queued for the next hydrate.
 func (e *Engine) replyToActive(ctx context.Context, sessionID string, content string) (bool, error) {
 	target, ok := e.activeDelivery(sessionID)
 	if !ok {
@@ -405,6 +410,7 @@ func (e *Engine) handlePendingReply(
 			return true, err
 		}
 		e.clearPendingPermission(blocker.permission)
+		_ = e.surfaceActiveBlocker(ctx, sessionID)
 		return true, nil
 	}
 	if blocker.kind == questionBlocker {
@@ -417,32 +423,28 @@ func (e *Engine) handlePendingReply(
 			return true, err
 		}
 		e.clearPendingQuestion(blocker.question)
+		_ = e.surfaceActiveBlocker(ctx, sessionID)
 		return true, nil
 	}
 	return false, nil
 }
 
+// pendingBlocker returns the single active blocker for a root session: the
+// earliest live one, and only once it has actually been delivered to chat. A
+// queued-but-not-yet-shown blocker is never returned, so a user reply only ever
+// answers the one prompt currently in front of them.
 func (e *Engine) pendingBlocker(sessionID string) (pendingBlocker, bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	root := e.pointers.RootSession(sessionID)
-	var kind blockerKind
-	found := false
-	for index := len(e.blockerOrder) - 1; index >= 0; index-- {
-		if ref := e.blockerOrder[index]; e.blockerLiveForRootLocked(ref, root) {
-			kind = ref.kind
-			found = true
-			break
-		}
-	}
-	if !found {
-		return pendingBlocker{}, false
-	}
 	for _, ref := range e.blockerOrder {
-		if ref.kind != kind || !e.blockerLiveForRootLocked(ref, root) {
+		if !e.blockerLiveForRootLocked(ref, root) {
 			continue
 		}
-		switch kind {
+		if !ref.delivered {
+			return pendingBlocker{}, false
+		}
+		switch ref.kind {
 		case permissionBlocker:
 			return pendingBlocker{kind: permissionBlocker, permission: e.permissions[ref.key]}, true
 		case questionBlocker:
@@ -450,6 +452,80 @@ func (e *Engine) pendingBlocker(sessionID string) (pendingBlocker, bool) {
 		}
 	}
 	return pendingBlocker{}, false
+}
+
+// surfaceActiveBlocker delivers the root's current head prompt if it has not
+// been shown yet, so chat only ever displays one pending item at a time. If
+// delivery keeps failing the blocker is dropped (so it cannot silently
+// intercept the next message) and the following one is tried; a missing chat
+// target leaves it queued for the next hydrate. Returns the delivery error of a
+// head that could not be shown, for the caller to log.
+func (e *Engine) surfaceActiveBlocker(ctx context.Context, sessionID string) error {
+	var lastErr error
+	for {
+		ref, blockerSessionID, content, ok := e.headPromptToDeliver(sessionID)
+		if !ok {
+			return lastErr
+		}
+		delivered, err := e.replyToActive(ctx, blockerSessionID, content)
+		if delivered {
+			e.markBlockerDelivered(ref)
+			return nil
+		}
+		if err == nil {
+			return lastErr
+		}
+		lastErr = err
+		e.dropBlocker(ref)
+	}
+}
+
+// headPromptToDeliver returns the root's head blocker and its rendered prompt
+// when that head still needs delivering. ok is false when there is no live
+// blocker or the head has already been shown.
+func (e *Engine) headPromptToDeliver(sessionID string) (ref blockerRef, blockerSessionID string, content string, ok bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	root := e.pointers.RootSession(sessionID)
+	for _, candidate := range e.blockerOrder {
+		if !e.blockerLiveForRootLocked(candidate, root) {
+			continue
+		}
+		if candidate.delivered {
+			return blockerRef{}, "", "", false
+		}
+		switch candidate.kind {
+		case permissionBlocker:
+			permission := e.permissions[candidate.key]
+			return candidate, permission.SessionID, permissionPrompt(permission), true
+		case questionBlocker:
+			question := e.questions[candidate.key]
+			return candidate, question.SessionID, questionPrompt(question), true
+		}
+	}
+	return blockerRef{}, "", "", false
+}
+
+func (e *Engine) markBlockerDelivered(ref blockerRef) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for index := range e.blockerOrder {
+		if e.blockerOrder[index].kind == ref.kind && e.blockerOrder[index].key == ref.key {
+			e.blockerOrder[index].delivered = true
+			return
+		}
+	}
+}
+
+func (e *Engine) dropBlocker(ref blockerRef) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	switch ref.kind {
+	case permissionBlocker:
+		e.clearPermissionKeyLocked(ref.key)
+	case questionBlocker:
+		e.clearQuestionKeyLocked(ref.key)
+	}
 }
 
 func (e *Engine) blockerLiveForRootLocked(ref blockerRef, root string) bool {

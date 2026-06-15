@@ -176,14 +176,14 @@ func TestHydrateResurfacesPendingInteractions(t *testing.T) {
 	if platform.reconstructKey != "runtime-test-hydrate:room:alice" {
 		t.Fatalf("reconstruct key = %q", platform.reconstructKey)
 	}
-	if len(platform.sends) != 2 {
+	// Both pending items share root ses_root, so single-active surfacing shows
+	// only the first (the permission); the question stays queued until it is
+	// answered. Serialized one-at-a-time resurfacing is covered at engine level.
+	if len(platform.sends) != 1 {
 		t.Fatalf("sends = %#v", platform.sends)
 	}
 	if !strings.Contains(platform.sends[0], "PawWork asks permission: edit") {
 		t.Fatalf("permission send = %q", platform.sends[0])
-	}
-	if !strings.Contains(platform.sends[1], "Pick one") {
-		t.Fatalf("question send = %q", platform.sends[1])
 	}
 }
 
