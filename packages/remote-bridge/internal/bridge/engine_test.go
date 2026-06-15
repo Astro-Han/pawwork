@@ -724,6 +724,38 @@ func TestPermissionAndQuestionPromptsRetryTransientDeliveryFailure(t *testing.T)
 	}
 }
 
+func TestUndeliveredPromptDoesNotInterceptNextMessage(t *testing.T) {
+	defer func(b time.Duration) { deliveryRetryBackoff = b }(deliveryRetryBackoff)
+	deliveryRetryBackoff = 0
+
+	sidecar := &fakeSidecar{}
+	// Delivery always fails, so the permission prompt never reaches the user.
+	platform := &fakePlatform{replyFailures: deliveryAttempts}
+	engine := New(sidecar)
+	msg := &core.Message{SessionKey: "slack:dm:a", Content: "edit the file"}
+	if err := engine.HandleMessage(context.Background(), platform, msg); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.HandlePermission(context.Background(), PendingPermission{
+		ID: "perm_1", SessionID: "ses_new", Permission: "edit", Patterns: []string{"/repo/app.ts"},
+	}); err == nil {
+		t.Fatal("expected delivery failure to be reported")
+	}
+
+	// The next ordinary message must be forwarded as a prompt, not intercepted
+	// as a permission answer, because the user never saw the prompt.
+	msg.Content = "what is the weather"
+	if err := engine.HandleMessage(context.Background(), platform, msg); err != nil {
+		t.Fatal(err)
+	}
+	if len(sidecar.permissionReplies) != 0 {
+		t.Fatalf("message was intercepted as a permission answer: %#v", sidecar.permissionReplies)
+	}
+	if len(sidecar.prompts) != 2 || sidecar.prompts[1].text != "what is the weather" {
+		t.Fatalf("message was not forwarded as a prompt: %#v", sidecar.prompts)
+	}
+}
+
 func TestQuestionPromptHintsMatchType(t *testing.T) {
 	single := questionPrompt(PendingQuestion{Questions: []Question{{
 		Question: "Pick one",

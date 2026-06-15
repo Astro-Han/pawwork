@@ -225,13 +225,19 @@ func (e *Engine) HandleAssistantText(ctx context.Context, sessionID string, text
 }
 
 func (e *Engine) HandlePermission(ctx context.Context, permission PendingPermission) error {
-	e.SetPendingPermission(permission)
-	return e.replyToActive(ctx, permission.SessionID, permissionPrompt(permission))
+	delivered, err := e.replyToActive(ctx, permission.SessionID, permissionPrompt(permission))
+	if delivered {
+		e.SetPendingPermission(permission)
+	}
+	return err
 }
 
 func (e *Engine) HandleQuestion(ctx context.Context, question PendingQuestion) error {
-	e.SetPendingQuestion(question)
-	return e.replyToActive(ctx, question.SessionID, questionPrompt(question))
+	delivered, err := e.replyToActive(ctx, question.SessionID, questionPrompt(question))
+	if delivered {
+		e.SetPendingQuestion(question)
+	}
+	return err
 }
 
 func (e *Engine) HandlePermissionResolved(_ context.Context, resolution PermissionResolution) error {
@@ -275,12 +281,20 @@ func (e *Engine) HandleSession(_ context.Context, session Session) error {
 	return e.RegisterSession(session)
 }
 
-func (e *Engine) replyToActive(ctx context.Context, sessionID string, content string) error {
+// replyToActive pushes content to the session's active chat target and reports
+// whether it was delivered. Callers must only record a local pending blocker
+// when delivered is true: a blocker set for a prompt the user never saw would
+// hijack their next ordinary message as an answer. An undelivered prompt stays
+// pending server-side and is re-surfaced on the next hydrate/reconnect.
+func (e *Engine) replyToActive(ctx context.Context, sessionID string, content string) (bool, error) {
 	target, ok := e.activeDelivery(sessionID)
 	if !ok {
-		return nil
+		return false, nil
 	}
-	return sendDeliveryWithRetry(ctx, target, content)
+	if err := sendDeliveryWithRetry(ctx, target, content); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (e *Engine) setActive(sessionID string, platform core.Platform, replyCtx any) {
