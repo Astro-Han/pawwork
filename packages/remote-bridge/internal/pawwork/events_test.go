@@ -409,3 +409,32 @@ func TestClientStreamsLongCompletedText(t *testing.T) {
 		t.Fatalf("texts = %#v", handler.texts)
 	}
 }
+
+func TestClientReconcilesAfterUndecodableCriticalEvent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("content-type", "text/event-stream")
+		// permission.asked whose patterns is a string, not an array: the critical
+		// event fails to decode and must be reconciled, not silently skipped.
+		_, _ = w.Write([]byte("id: evt-7\ndata: {\"payload\":{\"type\":\"permission.asked\",\"properties\":{\"id\":\"perm_1\",\"sessionID\":\"ses_1\",\"patterns\":\"oops\"}}}\n\n"))
+	}))
+	defer server.Close()
+
+	handler := &fakeEventHandler{}
+	client := New(server.URL)
+	if err := client.StreamEvents(t.Context(), handler); err != nil {
+		t.Fatal(err)
+	}
+	if len(handler.permissions) != 0 {
+		t.Fatalf("undecodable permission must not be surfaced: %#v", handler.permissions)
+	}
+	// The cursor advances past the bad event so a reconnect can never replay it
+	// and wedge the global stream.
+	if got := client.lastEventIDValue(); got != "evt-7" {
+		t.Fatalf("cursor should advance past the skipped event, got %q", got)
+	}
+	// State is reconciled immediately via hydrate, even on a live (non-
+	// reconnecting) stream, instead of waiting for the next reconnect.
+	if handler.refreshes != 1 {
+		t.Fatalf("expected one reconcile after the undecodable event, got %d", handler.refreshes)
+	}
+}

@@ -27,6 +27,13 @@ type ReplayRefreshHandler interface {
 	HandleReplayRefresh(context.Context) error
 }
 
+// eventRepairRefreshHandler reconciles state after an undecodable critical
+// event was skipped. Unlike HandleReplayRefresh it runs on a live (non-
+// reconnecting) stream too, since the skip can happen mid-stream.
+type eventRepairRefreshHandler interface {
+	HandleEventRepairRefresh(context.Context) error
+}
+
 type StreamReadyHandler interface {
 	HandleStreamReady(context.Context) error
 }
@@ -70,14 +77,22 @@ func (h clientEventHandler) HandleReplayRefresh(ctx context.Context) error {
 	if !h.reconnecting {
 		return nil
 	}
+	if err := h.hydrateNext(ctx); err != nil {
+		return replayRefreshError{err: err}
+	}
+	return nil
+}
+
+func (h clientEventHandler) HandleEventRepairRefresh(ctx context.Context) error {
+	return h.hydrateNext(ctx)
+}
+
+func (h clientEventHandler) hydrateNext(ctx context.Context) error {
 	next, ok := h.next.(ReplayRefreshHandler)
 	if !ok {
 		return nil
 	}
-	if err := next.HandleReplayRefresh(ctx); err != nil {
-		return replayRefreshError{err: err}
-	}
-	return nil
+	return next.HandleReplayRefresh(ctx)
 }
 
 type replayRefreshError struct {
@@ -86,6 +101,19 @@ type replayRefreshError struct {
 
 func (e replayRefreshError) Error() string { return e.err.Error() }
 func (e replayRefreshError) Unwrap() error { return e.err }
+
+// repairableEventDecodeError marks a critical event (permission/question/
+// session) that failed to decode but whose state can be reconciled from the
+// REST list endpoints. parseSSE skips it, advances the cursor, then hydrates,
+// so a single bad frame neither wedges the global stream nor silently hides a
+// pending confirmation until the next reconnect.
+type repairableEventDecodeError struct {
+	eventType string
+	err       error
+}
+
+func (e repairableEventDecodeError) Error() string { return e.eventType + ": " + e.err.Error() }
+func (e repairableEventDecodeError) Unwrap() error { return e.err }
 
 func (c *Client) StreamEvents(ctx context.Context, handler EventHandler) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/global/event", nil)
@@ -148,7 +176,7 @@ func DispatchEvent(ctx context.Context, data []byte, handler EventHandler) error
 	case "permission.asked":
 		var permission bridge.PendingPermission
 		if err := json.Unmarshal(envelope.Payload.Properties, &permission); err != nil {
-			return err
+			return repairableEventDecodeError{eventType: "permission.asked", err: err}
 		}
 		if permission.ID == "" || permission.SessionID == "" {
 			return nil
@@ -166,14 +194,17 @@ func DispatchEvent(ctx context.Context, data []byte, handler EventHandler) error
 		return handler.HandlePermissionResolved(ctx, resolution)
 	case "session.created":
 		session, ok, err := sessionFromEvent(envelope.Payload.Properties, envelope.Directory)
-		if err != nil || !ok {
-			return err
+		if err != nil {
+			return repairableEventDecodeError{eventType: "session.created", err: err}
+		}
+		if !ok {
+			return nil
 		}
 		return handler.HandleSession(ctx, session)
 	case "message.part.updated":
 		question, questionPending, resolution, questionResolved, err := questionUpdateFromEvent(envelope.Payload.Properties, envelope.Directory)
 		if err != nil {
-			return err
+			return repairableEventDecodeError{eventType: "message.part.updated", err: err}
 		}
 		if questionPending {
 			return handler.HandleQuestion(ctx, question)
@@ -197,13 +228,20 @@ func parseSSE(ctx context.Context, reader io.Reader, handler EventHandler, setLa
 	var data strings.Builder
 	var eventID string
 	flush := func() error {
+		reconcile := false
 		if data.Len() > 0 {
 			if err := DispatchEvent(ctx, []byte(data.String()), handler); err != nil {
 				var refresh replayRefreshError
-				if errors.As(err, &refresh) {
+				var repair repairableEventDecodeError
+				switch {
+				case errors.As(err, &refresh):
 					return err
+				case errors.As(err, &repair):
+					slog.Warn("remote bridge reconciling after undecodable event", "type", repair.eventType, "error", repair.err)
+					reconcile = true
+				default:
+					slog.Warn("remote bridge ignored event", "error", err)
 				}
-				slog.Warn("remote bridge ignored event", "error", err)
 			}
 			data.Reset()
 		}
@@ -212,6 +250,15 @@ func parseSSE(ctx context.Context, reader io.Reader, handler EventHandler, setLa
 				return err
 			}
 			eventID = ""
+		}
+		// Reconcile only after the cursor has advanced past the skipped event, so
+		// a failing hydrate can never replay the bad event and wedge the stream.
+		if reconcile {
+			if refresher, ok := handler.(eventRepairRefreshHandler); ok {
+				if err := refresher.HandleEventRepairRefresh(ctx); err != nil {
+					slog.Warn("remote bridge reconcile after undecodable event failed", "error", err)
+				}
+			}
 		}
 		return nil
 	}
