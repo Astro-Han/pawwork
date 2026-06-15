@@ -775,11 +775,7 @@ func answerRowForQuestion(text string, question Question) []string {
 // Accepts the ASCII comma plus the full-width and ideographic commas so replies
 // typed on a Chinese keyboard ("1，3" / "1、3") parse the same as ASCII ones.
 func isAnswerSeparator(r rune) bool {
-	switch r {
-	case ',', '，', '、':
-		return true
-	}
-	return false
+	return r == ',' || r == '，' || r == '、'
 }
 
 func answerTokenForQuestion(text string, question Question) string {
