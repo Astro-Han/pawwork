@@ -342,8 +342,13 @@ func TestClientRejectsNonSSEEventStreamBeforeReady(t *testing.T) {
 	defer server.Close()
 
 	handler := &streamReadyEventHandler{}
-	if err := New(server.URL).StreamEvents(t.Context(), handler); err == nil {
+	err := New(server.URL).StreamEvents(t.Context(), handler)
+	if err == nil {
 		t.Fatal("expected non-SSE stream response to fail")
+	}
+	// Must be fatal so the gateway fails fast instead of reconnecting forever.
+	if !IsFatalStreamError(err) {
+		t.Fatalf("non-SSE stream error should be fatal, got %v", err)
 	}
 	if handler.ready != 0 {
 		t.Fatalf("ready calls = %d", handler.ready)

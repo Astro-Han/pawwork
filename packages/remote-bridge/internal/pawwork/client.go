@@ -30,7 +30,22 @@ func (e *HTTPStatusError) Error() string {
 	return fmt.Sprintf("%s %s failed: %s %s", e.Method, e.Path, e.Status, e.Body)
 }
 
+// StreamProtocolError marks an event stream that connected (2xx) but did not
+// speak text/event-stream. Retrying cannot fix a protocol mismatch, so it is
+// fatal and must stop the reconnect loop rather than spin forever.
+type StreamProtocolError struct {
+	ContentType string
+}
+
+func (e *StreamProtocolError) Error() string {
+	return fmt.Sprintf("GET /global/event failed: expected text/event-stream, got %q", e.ContentType)
+}
+
 func IsFatalStreamError(err error) bool {
+	var proto *StreamProtocolError
+	if errors.As(err, &proto) {
+		return true
+	}
 	var status *HTTPStatusError
 	if !errors.As(err, &status) {
 		return false

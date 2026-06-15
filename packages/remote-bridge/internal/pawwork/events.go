@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"mime"
@@ -116,7 +115,7 @@ func (c *Client) StreamEvents(ctx context.Context, handler EventHandler) error {
 	}
 	mediaType, _, err := mime.ParseMediaType(res.Header.Get("content-type"))
 	if err != nil || !strings.EqualFold(mediaType, "text/event-stream") {
-		return fmt.Errorf("GET /global/event failed: expected text/event-stream, got %q", res.Header.Get("content-type"))
+		return &StreamProtocolError{ContentType: res.Header.Get("content-type")}
 	}
 	if ready, ok := handler.(StreamReadyHandler); ok {
 		if err := ready.HandleStreamReady(ctx); err != nil {
