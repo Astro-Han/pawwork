@@ -84,11 +84,14 @@ export namespace Agent {
             "*": "allow",
             doom_loop: "ask",
             // Web automation (browser_* tools and the opencli adapters) inherits
-            // the "*": "allow" baseline by design: the embedded browser is local
-            // and fully visible to the user, which is the safety net (browser
-            // design §9). It stays consistent with file editing, which is also
-            // default-allow. Tighten per target with permission rules if ever
-            // needed — the gate is default-open, not absent.
+            // the "*": "allow" baseline by design. Browser-backed actions are safe
+            // because the embedded browser is local and fully visible to the user
+            // (browser design §9). Non-browser adapters reach here read-only only —
+            // non-browser write adapters are hidden and rejected before running —
+            // so they are no riskier than webfetch, which is also default-allow.
+            // Either way this stays consistent with default-allow file editing.
+            // Tighten per target with permission rules if ever needed — the gate is
+            // default-open, not absent.
             question: "deny",
             plan_enter: "deny",
             plan_exit: "deny",
