@@ -651,8 +651,30 @@ func questionPrompt(pending PendingQuestion) string {
 			}
 		}
 	}
-	out.WriteString("\n\nReply with a number or answer text.")
+	out.WriteString("\n\n")
+	out.WriteString(questionReplyHint(pending.Questions))
 	return out.String()
+}
+
+func questionReplyHint(questions []Question) string {
+	multiQuestion := len(questions) > 1
+	multiSelect := false
+	for _, question := range questions {
+		if question.Multiple {
+			multiSelect = true
+			break
+		}
+	}
+	switch {
+	case multiQuestion && multiSelect:
+		return "Reply with one line per question, in order. For a question that allows several choices, separate the numbers with commas (for example: 1,3)."
+	case multiQuestion:
+		return "Reply with one line per question, in order: a number or the answer text on each line."
+	case multiSelect:
+		return "Reply with the numbers separated by commas (for example: 1,3)."
+	default:
+		return "Reply with a number or answer text."
+	}
 }
 
 func permissionReplyForText(text string) string {
@@ -692,7 +714,7 @@ func answerRowForQuestion(text string, question Question) []string {
 	if !question.Multiple {
 		return []string{answerTokenForQuestion(text, question)}
 	}
-	parts := strings.Split(text, ",")
+	parts := strings.FieldsFunc(text, isAnswerSeparator)
 	answers := make([]string, 0, len(parts))
 	for _, part := range parts {
 		if trimmed := strings.TrimSpace(part); trimmed != "" {
@@ -700,6 +722,17 @@ func answerRowForQuestion(text string, question Question) []string {
 		}
 	}
 	return answers
+}
+
+// isAnswerSeparator reports whether r separates choices in a multi-select reply.
+// Accepts the ASCII comma plus the full-width and ideographic commas so replies
+// typed on a Chinese keyboard ("1，3" / "1、3") parse the same as ASCII ones.
+func isAnswerSeparator(r rune) bool {
+	switch r {
+	case ',', '，', '、':
+		return true
+	}
+	return false
 }
 
 func answerTokenForQuestion(text string, question Question) string {

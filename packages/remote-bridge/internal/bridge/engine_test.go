@@ -3,6 +3,7 @@ package bridge
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/chenhg5/cc-connect/core"
@@ -643,6 +644,49 @@ func TestEngineMapsMultiSelectNumbersToOptionLabels(t *testing.T) {
 	}
 	if got := sidecar.questionReplies[0].answers; len(got) != 1 || len(got[0]) != 2 || got[0][0] != "A" || got[0][1] != "C" {
 		t.Fatalf("answers = %#v", got)
+	}
+}
+
+func TestQuestionPromptHintsMatchType(t *testing.T) {
+	single := questionPrompt(PendingQuestion{Questions: []Question{{
+		Question: "Pick one",
+		Options:  []QuestionOption{{Label: "A"}, {Label: "B"}},
+	}}})
+	if !strings.HasSuffix(single, "Reply with a number or answer text.") {
+		t.Fatalf("single prompt = %q", single)
+	}
+
+	multiSelect := questionPrompt(PendingQuestion{Questions: []Question{{
+		Question: "Pick several",
+		Multiple: true,
+		Options:  []QuestionOption{{Label: "A"}, {Label: "B"}},
+	}}})
+	if !strings.Contains(multiSelect, "separated by commas") {
+		t.Fatalf("multi-select prompt = %q", multiSelect)
+	}
+
+	multiQuestion := questionPrompt(PendingQuestion{Questions: []Question{
+		{Question: "First?"},
+		{Question: "Second?"},
+	}})
+	if !strings.Contains(multiQuestion, "one line per question") {
+		t.Fatalf("multi-question prompt = %q", multiQuestion)
+	}
+}
+
+func TestMultiSelectAcceptsFullWidthAndIdeographicCommas(t *testing.T) {
+	pending := PendingQuestion{Questions: []Question{{
+		Multiple: true,
+		Options:  []QuestionOption{{Label: "A"}, {Label: "B"}, {Label: "C"}},
+	}}}
+	for _, input := range []string{"1,3", "1，3", "1、3", "1， 3"} {
+		answers, err := answersForQuestionText(pending, input)
+		if err != nil {
+			t.Fatalf("input %q: %v", input, err)
+		}
+		if len(answers) != 1 || len(answers[0]) != 2 || answers[0][0] != "A" || answers[0][1] != "C" {
+			t.Fatalf("input %q answers = %#v", input, answers)
+		}
 	}
 }
 
