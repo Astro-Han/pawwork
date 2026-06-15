@@ -331,6 +331,31 @@ func TestClientListPermissionsReturnsFatalDirectoryError(t *testing.T) {
 	}
 }
 
+func TestClientListPermissionsSurfacesMalformedJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/experimental/session":
+			writeJSON(t, w, []map[string]any{{"id": "ses_a", "directory": "/repo/a"}})
+		case r.Method == http.MethodGet && r.URL.Path == "/permission":
+			w.Header().Set("content-type", "application/json")
+			_, _ = w.Write([]byte(`{not json`))
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	client := New(server.URL)
+	if _, err := client.ListSessions(t.Context(), 5); err != nil {
+		t.Fatal(err)
+	}
+	// A malformed 2xx body is a protocol error, not a transient blip — it must
+	// surface rather than be skipped and silently drop pending permissions.
+	if _, err := client.ListPermissions(t.Context()); err == nil {
+		t.Fatal("expected malformed JSON to surface as an error")
+	}
+}
+
 func TestClientListQuestionsSkipsFailingDirectory(t *testing.T) {
 	questionDirectories := []string{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

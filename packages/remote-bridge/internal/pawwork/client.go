@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"slices"
@@ -258,14 +259,23 @@ func (c *Client) ListQuestions(ctx context.Context) ([]bridge.PendingQuestion, e
 	return questions, nil
 }
 
+// canSkipHydrationDirectoryError reports whether a per-directory hydration
+// failure is transient enough to skip and continue. Only explicitly transient
+// signals qualify — request timeouts, rate limits, 5xx, and network/deadline
+// timeouts. Anything else (JSON decode, schema/protocol errors) surfaces, since
+// silently dropping it would hide pending permissions or questions.
 func canSkipHydrationDirectoryError(err error) bool {
 	var status *HTTPStatusError
-	if !errors.As(err, &status) {
+	if errors.As(err, &status) {
+		return status.StatusCode == http.StatusRequestTimeout ||
+			status.StatusCode == http.StatusTooManyRequests ||
+			status.StatusCode >= 500
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
-	return status.StatusCode == http.StatusRequestTimeout ||
-		status.StatusCode == http.StatusTooManyRequests ||
-		status.StatusCode >= 500
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
 func (c *Client) doJSON(ctx context.Context, method string, path string, input any, output any) error {
