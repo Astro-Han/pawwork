@@ -41,8 +41,8 @@ func (f *fakeSidecar) CreateSession(context.Context) (string, error) {
 	return id, nil
 }
 
-func (f *fakeSidecar) SendPrompt(_ context.Context, sessionID string, prompt Prompt) error {
-	f.prompts = append(f.prompts, sentPrompt{sessionID: sessionID, text: prompt.Text})
+func (f *fakeSidecar) SendPrompt(_ context.Context, sessionID string, text string) error {
+	f.prompts = append(f.prompts, sentPrompt{sessionID: sessionID, text: text})
 	return nil
 }
 

@@ -197,27 +197,33 @@ func parseSSE(ctx context.Context, reader io.Reader, handler EventHandler, setLa
 	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
 	var data strings.Builder
 	var eventID string
+	flush := func() error {
+		if data.Len() > 0 {
+			if err := DispatchEvent(ctx, []byte(data.String()), handler); err != nil {
+				var refresh replayRefreshError
+				if errors.As(err, &refresh) {
+					return err
+				}
+				slog.Warn("remote bridge ignored event", "error", err)
+			}
+			data.Reset()
+		}
+		if eventID != "" {
+			if err := setLastEventID(eventID); err != nil {
+				return err
+			}
+			eventID = ""
+		}
+		return nil
+	}
 	for scanner.Scan() {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		line := scanner.Text()
 		if line == "" {
-			if data.Len() > 0 {
-				if err := DispatchEvent(ctx, []byte(data.String()), handler); err != nil {
-					var refresh replayRefreshError
-					if errors.As(err, &refresh) {
-						return err
-					}
-					slog.Warn("remote bridge ignored event", "error", err)
-				}
-				data.Reset()
-			}
-			if eventID != "" {
-				if err := setLastEventID(eventID); err != nil {
-					return err
-				}
-				eventID = ""
+			if err := flush(); err != nil {
+				return err
 			}
 			continue
 		}
@@ -238,21 +244,7 @@ func parseSSE(ctx context.Context, reader io.Reader, handler EventHandler, setLa
 	if err := scanner.Err(); err != nil {
 		return err
 	}
-	if data.Len() > 0 {
-		if err := DispatchEvent(ctx, []byte(data.String()), handler); err != nil {
-			var refresh replayRefreshError
-			if errors.As(err, &refresh) {
-				return err
-			}
-			slog.Warn("remote bridge ignored event", "error", err)
-		}
-		if eventID != "" {
-			if err := setLastEventID(eventID); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
+	return flush()
 }
 
 type assistantText struct {

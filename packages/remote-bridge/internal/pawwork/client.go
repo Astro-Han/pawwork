@@ -102,11 +102,11 @@ func (c *Client) CreateSession(ctx context.Context) (string, error) {
 	return session.ID, nil
 }
 
-func (c *Client) SendPrompt(ctx context.Context, sessionID string, prompt bridge.Prompt) error {
+func (c *Client) SendPrompt(ctx context.Context, sessionID string, text string) error {
 	body := map[string]any{
 		"parts": []map[string]string{{
 			"type": "text",
-			"text": prompt.Text,
+			"text": text,
 		}},
 	}
 	return c.doSessionJSON(ctx, sessionID, http.MethodPost, "/session/"+url.PathEscape(sessionID)+"/prompt_async", body, nil)
@@ -218,9 +218,7 @@ func (c *Client) ListPermissions(ctx context.Context) ([]bridge.PendingPermissio
 func (c *Client) ListQuestions(ctx context.Context) ([]bridge.PendingQuestion, error) {
 	questions := []bridge.PendingQuestion{}
 	for _, directory := range c.knownDirectories() {
-		var raw []struct {
-			Part json.RawMessage `json:"part"`
-		}
+		var raw []json.RawMessage
 		if err := c.doJSONWithDirectory(ctx, directory, http.MethodGet, "/external-result", nil, &raw); err != nil {
 			if !canSkipHydrationDirectoryError(err) {
 				return nil, err
@@ -228,13 +226,7 @@ func (c *Client) ListQuestions(ctx context.Context) ([]bridge.PendingQuestion, e
 			slog.Warn("remote bridge could not list questions", "directory", directory, "error", err)
 			continue
 		}
-		for _, item := range raw {
-			data, err := json.Marshal(struct {
-				Part json.RawMessage `json:"part"`
-			}{Part: item.Part})
-			if err != nil {
-				return nil, err
-			}
+		for _, data := range raw {
 			question, ok, _, _, err := questionUpdateFromEvent(data, directory)
 			if err != nil {
 				return nil, err

@@ -60,7 +60,7 @@ func TestClientUsesPawWorkSessionEndpoints(t *testing.T) {
 		t.Fatalf("sessions = %#v", sessions)
 	}
 
-	if err := client.SendPrompt(t.Context(), "ses_a", bridge.Prompt{Text: "hello"}); err != nil {
+	if err := client.SendPrompt(t.Context(), "ses_a", "hello"); err != nil {
 		t.Fatal(err)
 	}
 	if got := promptBody["parts"]; got == nil {
@@ -98,7 +98,7 @@ func TestClientFetchesSessionDirectoryWhenMissing(t *testing.T) {
 	defer server.Close()
 
 	client := New(server.URL)
-	if err := client.SendPrompt(t.Context(), "ses_unknown", bridge.Prompt{Text: "hello"}); err != nil {
+	if err := client.SendPrompt(t.Context(), "ses_unknown", "hello"); err != nil {
 		t.Fatal(err)
 	}
 	if promptDirectory != "/repo/unknown" {

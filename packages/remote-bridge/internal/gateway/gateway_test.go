@@ -511,7 +511,7 @@ type failingSidecar struct{}
 func (failingSidecar) CreateSession(context.Context) (string, error) {
 	return "", errors.New("sidecar unavailable")
 }
-func (failingSidecar) SendPrompt(context.Context, string, bridge.Prompt) error {
+func (failingSidecar) SendPrompt(context.Context, string, string) error {
 	return errors.New("sidecar unavailable")
 }
 func (failingSidecar) ListSessions(context.Context, int) ([]bridge.Session, error) {

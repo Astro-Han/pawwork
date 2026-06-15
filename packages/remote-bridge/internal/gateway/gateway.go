@@ -135,6 +135,7 @@ func (a *App) PlatformNames() []string {
 
 func (a *App) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
+	defer a.stopPlatforms()
 	defer cancel()
 	errCh := make(chan error, len(a.platforms)+1)
 	streamReady := make(chan struct{})
@@ -163,16 +164,11 @@ func (a *App) Run(ctx context.Context) error {
 	select {
 	case <-streamReady:
 	case <-ctx.Done():
-		a.stopPlatforms()
 		return nil
 	case err := <-errCh:
-		cancel()
-		a.stopPlatforms()
 		return err
 	}
 	if err := a.hydrate(ctx); err != nil {
-		cancel()
-		a.stopPlatforms()
 		return err
 	}
 	for _, platform := range a.platforms {
@@ -186,11 +182,8 @@ func (a *App) Run(ctx context.Context) error {
 
 	select {
 	case <-ctx.Done():
-		a.stopPlatforms()
 		return nil
 	case err := <-errCh:
-		cancel()
-		a.stopPlatforms()
 		return err
 	}
 }

@@ -3,16 +3,13 @@ package bridge
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/chenhg5/cc-connect/core"
 )
-
-type Prompt struct {
-	Text string
-}
 
 type Session struct {
 	ID        string
@@ -69,7 +66,7 @@ type QuestionOption struct {
 
 type Sidecar interface {
 	CreateSession(context.Context) (string, error)
-	SendPrompt(context.Context, string, Prompt) error
+	SendPrompt(context.Context, string, string) error
 	ListSessions(context.Context, int) ([]Session, error)
 	AbortSession(context.Context, string) (bool, error)
 	ReplyPermission(context.Context, PendingPermission, PermissionReply) error
@@ -90,17 +87,15 @@ type EventCursorStore interface {
 }
 
 type Engine struct {
-	mu              sync.Mutex
-	sidecar         Sidecar
-	pointers        SessionPointers
-	pickers         map[string][]Session
-	active          map[string]delivery
-	platforms       map[string]core.Platform
-	permissions     map[string]PendingPermission
-	permissionOrder []string
-	questions       map[string]PendingQuestion
-	questionOrder   []string
-	blockerOrder    []blockerRef
+	mu           sync.Mutex
+	sidecar      Sidecar
+	pointers     SessionPointers
+	pickers      map[string][]Session
+	active       map[string]delivery
+	platforms    map[string]core.Platform
+	permissions  map[string]PendingPermission
+	questions    map[string]PendingQuestion
+	blockerOrder []blockerRef
 }
 
 type blockerKind string
@@ -174,7 +169,6 @@ func (e *Engine) SetPendingPermission(permission PendingPermission) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if _, ok := e.permissions[key]; !ok {
-		e.permissionOrder = append(e.permissionOrder, key)
 		e.blockerOrder = append(e.blockerOrder, blockerRef{kind: permissionBlocker, key: key})
 	}
 	e.permissions[key] = permission
@@ -188,7 +182,6 @@ func (e *Engine) SetPendingQuestion(question PendingQuestion) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if _, ok := e.questions[key]; !ok {
-		e.questionOrder = append(e.questionOrder, key)
 		e.blockerOrder = append(e.blockerOrder, blockerRef{kind: questionBlocker, key: key})
 	}
 	e.questions[key] = question
@@ -200,8 +193,8 @@ func (e *Engine) HandleMessage(ctx context.Context, platform core.Platform, msg 
 		return nil
 	}
 	key := remoteKey(platform, msg)
-	if isRemoteCommand(text) {
-		return e.handleCommand(ctx, platform, msg, key, text)
+	if handled, err := e.handleCommand(ctx, platform, msg, key, text); handled || err != nil {
+		return err
 	}
 	sessionID, err := e.ensureSession(ctx, key)
 	if err != nil {
@@ -211,7 +204,7 @@ func (e *Engine) HandleMessage(ctx context.Context, platform core.Platform, msg 
 	if handled, err := e.handlePendingReply(ctx, platform, msg, sessionID, text); handled || err != nil {
 		return err
 	}
-	if err := e.sidecar.SendPrompt(ctx, sessionID, Prompt{Text: text}); err != nil {
+	if err := e.sidecar.SendPrompt(ctx, sessionID, text); err != nil {
 		_ = platform.Reply(ctx, msg.ReplyCtx, "PawWork could not send the message: "+err.Error())
 		return err
 	}
@@ -241,12 +234,39 @@ func (e *Engine) HandleQuestion(ctx context.Context, question PendingQuestion) e
 }
 
 func (e *Engine) HandlePermissionResolved(_ context.Context, resolution PermissionResolution) error {
-	e.clearResolvedPermission(resolution)
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if resolution.RequestID != "" {
+		e.clearPermissionKeyLocked(resolution.RequestID)
+		return nil
+	}
+	if resolution.SessionID != "" {
+		e.clearPermissionsLocked(func(permission PendingPermission) bool {
+			return permission.SessionID == resolution.SessionID
+		})
+	}
 	return nil
 }
 
 func (e *Engine) HandleQuestionResolved(_ context.Context, resolution QuestionResolution) error {
-	e.clearResolvedQuestion(resolution)
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if resolution.CallID != "" || resolution.MessageID != "" {
+		for key, question := range e.questions {
+			callMatches := resolution.CallID == "" || question.CallID == resolution.CallID
+			messageMatches := resolution.MessageID == "" || question.MessageID == resolution.MessageID
+			if callMatches && messageMatches {
+				e.clearQuestionKeyLocked(key)
+				return nil
+			}
+		}
+		return nil
+	}
+	if resolution.SessionID != "" {
+		e.clearQuestionsLocked(func(question PendingQuestion) bool {
+			return question.SessionID == resolution.SessionID
+		})
+	}
 	return nil
 }
 
@@ -329,83 +349,72 @@ func (e *Engine) handlePendingReply(
 		return false, nil
 	}
 	if blocker.kind == permissionBlocker {
-		permission := blocker.permission
 		reply := permissionReplyForText(text)
 		if reply == "" {
 			return true, platform.Reply(ctx, msg.ReplyCtx, "Reply yes, always, or no.")
 		}
-		if err := e.sidecar.ReplyPermission(ctx, permission, PermissionReply{Reply: reply}); err != nil {
+		if err := e.sidecar.ReplyPermission(ctx, blocker.permission, PermissionReply{Reply: reply}); err != nil {
 			_ = platform.Reply(ctx, msg.ReplyCtx, "PawWork could not answer the permission request: "+err.Error())
 			return true, err
 		}
-		e.clearPendingPermission(permission)
+		e.clearPendingPermission(blocker.permission)
 		return true, nil
 	}
 	if blocker.kind == questionBlocker {
-		question := blocker.question
-		answers, err := answersForQuestionText(question, text)
+		answers, err := answersForQuestionText(blocker.question, text)
 		if err != nil {
 			return true, platform.Reply(ctx, msg.ReplyCtx, err.Error())
 		}
-		if err := e.sidecar.SubmitQuestion(ctx, question, answers); err != nil {
+		if err := e.sidecar.SubmitQuestion(ctx, blocker.question, answers); err != nil {
 			_ = platform.Reply(ctx, msg.ReplyCtx, "PawWork could not submit the answer: "+err.Error())
 			return true, err
 		}
-		e.clearPendingQuestion(question)
+		e.clearPendingQuestion(blocker.question)
 		return true, nil
 	}
 	return false, nil
-}
-
-func isRemoteCommand(text string) bool {
-	name, _, _ := strings.Cut(text, " ")
-	switch name {
-	case "/new", "/sessions", "/stop", "/help":
-		return true
-	default:
-		return false
-	}
 }
 
 func (e *Engine) pendingBlocker(sessionID string) (pendingBlocker, bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	root := e.pointers.RootSession(sessionID)
+	var kind blockerKind
+	found := false
 	for index := len(e.blockerOrder) - 1; index >= 0; index-- {
-		ref := e.blockerOrder[index]
-		switch ref.kind {
+		if ref := e.blockerOrder[index]; e.blockerLiveForRootLocked(ref, root) {
+			kind = ref.kind
+			found = true
+			break
+		}
+	}
+	if !found {
+		return pendingBlocker{}, false
+	}
+	for _, ref := range e.blockerOrder {
+		if ref.kind != kind || !e.blockerLiveForRootLocked(ref, root) {
+			continue
+		}
+		switch kind {
 		case permissionBlocker:
-			permission, ok := e.permissions[ref.key]
-			if !ok || e.pointers.RootSession(permission.SessionID) != root {
-				continue
-			}
-			if pending, ok := e.pendingPermissionLocked(root); ok {
-				return pendingBlocker{kind: permissionBlocker, permission: pending}, true
-			}
+			return pendingBlocker{kind: permissionBlocker, permission: e.permissions[ref.key]}, true
 		case questionBlocker:
-			question, ok := e.questions[ref.key]
-			if !ok || e.pointers.RootSession(question.SessionID) != root {
-				continue
-			}
-			if pending, ok := e.pendingQuestionLocked(root); ok {
-				return pendingBlocker{kind: questionBlocker, question: pending}, true
-			}
+			return pendingBlocker{kind: questionBlocker, question: e.questions[ref.key]}, true
 		}
 	}
 	return pendingBlocker{}, false
 }
 
-func (e *Engine) pendingPermissionLocked(root string) (PendingPermission, bool) {
-	for _, key := range e.permissionOrder {
-		permission, ok := e.permissions[key]
-		if !ok {
-			continue
-		}
-		if e.pointers.RootSession(permission.SessionID) == root {
-			return permission, true
-		}
+func (e *Engine) blockerLiveForRootLocked(ref blockerRef, root string) bool {
+	switch ref.kind {
+	case permissionBlocker:
+		permission, ok := e.permissions[ref.key]
+		return ok && e.pointers.RootSession(permission.SessionID) == root
+	case questionBlocker:
+		question, ok := e.questions[ref.key]
+		return ok && e.pointers.RootSession(question.SessionID) == root
 	}
-	return PendingPermission{}, false
+	return false
 }
 
 func (e *Engine) clearPendingPermission(permission PendingPermission) {
@@ -414,25 +423,8 @@ func (e *Engine) clearPendingPermission(permission PendingPermission) {
 	e.clearPermissionKeyLocked(permissionKey(permission))
 }
 
-func (e *Engine) clearResolvedPermission(resolution PermissionResolution) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if resolution.RequestID != "" {
-		e.clearPermissionKeyLocked(resolution.RequestID)
-		return
-	}
-	if resolution.SessionID != "" {
-		e.clearPermissionsLocked(func(permission PendingPermission) bool {
-			return permission.SessionID == resolution.SessionID
-		})
-	}
-}
-
 func (e *Engine) clearPermissionKeyLocked(key string) {
 	delete(e.permissions, key)
-	e.clearPermissionOrderLocked(func(current string) bool {
-		return current == key
-	})
 	e.clearBlockerOrderLocked(func(current blockerRef) bool {
 		return current.kind == permissionBlocker && current.key == key
 	})
@@ -444,10 +436,6 @@ func (e *Engine) clearPermissionsLocked(match func(PendingPermission) bool) {
 			delete(e.permissions, key)
 		}
 	}
-	e.clearPermissionOrderLocked(func(key string) bool {
-		_, ok := e.permissions[key]
-		return !ok
-	})
 	e.clearBlockerOrderLocked(func(current blockerRef) bool {
 		if current.kind != permissionBlocker {
 			return false
@@ -457,61 +445,14 @@ func (e *Engine) clearPermissionsLocked(match func(PendingPermission) bool) {
 	})
 }
 
-func (e *Engine) clearPermissionOrderLocked(match func(string) bool) {
-	next := e.permissionOrder[:0]
-	for _, key := range e.permissionOrder {
-		if !match(key) {
-			next = append(next, key)
-		}
-	}
-	e.permissionOrder = next
-}
-
-func (e *Engine) pendingQuestionLocked(root string) (PendingQuestion, bool) {
-	for _, key := range e.questionOrder {
-		question, ok := e.questions[key]
-		if !ok {
-			continue
-		}
-		if e.pointers.RootSession(question.SessionID) == root {
-			return question, true
-		}
-	}
-	return PendingQuestion{}, false
-}
-
 func (e *Engine) clearPendingQuestion(question PendingQuestion) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.clearQuestionKeyLocked(questionKey(question))
 }
 
-func (e *Engine) clearResolvedQuestion(resolution QuestionResolution) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if resolution.CallID != "" || resolution.MessageID != "" {
-		for key, question := range e.questions {
-			callMatches := resolution.CallID == "" || question.CallID == resolution.CallID
-			messageMatches := resolution.MessageID == "" || question.MessageID == resolution.MessageID
-			if callMatches && messageMatches {
-				e.clearQuestionKeyLocked(key)
-				return
-			}
-		}
-		return
-	}
-	if resolution.SessionID != "" {
-		e.clearQuestionsLocked(func(question PendingQuestion) bool {
-			return question.SessionID == resolution.SessionID
-		})
-	}
-}
-
 func (e *Engine) clearQuestionKeyLocked(key string) {
 	delete(e.questions, key)
-	e.clearQuestionOrderLocked(func(current string) bool {
-		return current == key
-	})
 	e.clearBlockerOrderLocked(func(current blockerRef) bool {
 		return current.kind == questionBlocker && current.key == key
 	})
@@ -523,10 +464,6 @@ func (e *Engine) clearQuestionsLocked(match func(PendingQuestion) bool) {
 			delete(e.questions, key)
 		}
 	}
-	e.clearQuestionOrderLocked(func(key string) bool {
-		_, ok := e.questions[key]
-		return !ok
-	})
 	e.clearBlockerOrderLocked(func(current blockerRef) bool {
 		if current.kind != questionBlocker {
 			return false
@@ -536,65 +473,49 @@ func (e *Engine) clearQuestionsLocked(match func(PendingQuestion) bool) {
 	})
 }
 
-func (e *Engine) clearQuestionOrderLocked(match func(string) bool) {
-	next := e.questionOrder[:0]
-	for _, key := range e.questionOrder {
-		if !match(key) {
-			next = append(next, key)
-		}
-	}
-	e.questionOrder = next
-}
-
 func (e *Engine) clearBlockerOrderLocked(match func(blockerRef) bool) {
-	next := e.blockerOrder[:0]
-	for _, current := range e.blockerOrder {
-		if !match(current) {
-			next = append(next, current)
-		}
-	}
-	e.blockerOrder = next
+	e.blockerOrder = slices.DeleteFunc(e.blockerOrder, match)
 }
 
-func (e *Engine) handleCommand(ctx context.Context, platform core.Platform, msg *core.Message, key string, text string) error {
+func (e *Engine) handleCommand(ctx context.Context, platform core.Platform, msg *core.Message, key string, text string) (bool, error) {
 	name, arg, _ := strings.Cut(text, " ")
 	switch name {
 	case "/new":
 		sessionID, err := e.sidecar.CreateSession(ctx)
 		if err != nil {
 			_ = platform.Reply(ctx, msg.ReplyCtx, "PawWork could not start a session: "+err.Error())
-			return err
+			return true, err
 		}
 		if err := e.setCurrent(key, sessionID); err != nil {
 			_ = platform.Reply(ctx, msg.ReplyCtx, "PawWork could not remember the session: "+err.Error())
-			return err
+			return true, err
 		}
 		e.setActive(sessionID, platform, msg.ReplyCtx)
-		return platform.Reply(ctx, msg.ReplyCtx, "Started a new PawWork session.")
+		return true, platform.Reply(ctx, msg.ReplyCtx, "Started a new PawWork session.")
 	case "/sessions":
 		arg = strings.TrimSpace(arg)
 		if arg == "" {
-			return e.replySessionPicker(ctx, platform, msg, key)
+			return true, e.replySessionPicker(ctx, platform, msg, key)
 		}
-		return e.switchSession(ctx, platform, msg, key, arg)
+		return true, e.switchSession(ctx, platform, msg, key, arg)
 	case "/stop":
 		sessionID := e.CurrentSession(key)
 		if sessionID == "" {
-			return platform.Reply(ctx, msg.ReplyCtx, "No active PawWork session.")
+			return true, platform.Reply(ctx, msg.ReplyCtx, "No active PawWork session.")
 		}
 		aborted, err := e.sidecar.AbortSession(ctx, sessionID)
 		if err != nil {
 			_ = platform.Reply(ctx, msg.ReplyCtx, "PawWork could not stop the run: "+err.Error())
-			return err
+			return true, err
 		}
 		if aborted {
-			return platform.Reply(ctx, msg.ReplyCtx, "Stopped the current PawWork run.")
+			return true, platform.Reply(ctx, msg.ReplyCtx, "Stopped the current PawWork run.")
 		}
-		return platform.Reply(ctx, msg.ReplyCtx, "No running PawWork run.")
+		return true, platform.Reply(ctx, msg.ReplyCtx, "No running PawWork run.")
 	case "/help":
-		return platform.Reply(ctx, msg.ReplyCtx, "Commands: /new, /sessions, /sessions N, /stop.")
+		return true, platform.Reply(ctx, msg.ReplyCtx, "Commands: /new, /sessions, /sessions N, /stop.")
 	default:
-		return platform.Reply(ctx, msg.ReplyCtx, "Unknown command. Try /help.")
+		return false, nil
 	}
 }
 

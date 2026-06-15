@@ -9,94 +9,10 @@ import (
 	"sync"
 )
 
-type MemorySessionPointers struct {
-	mu          sync.Mutex
-	sessions    map[string]string
-	parents     map[string]string
-	eventCursor string
-}
-
-func NewMemorySessionPointers() *MemorySessionPointers {
-	return &MemorySessionPointers{
-		sessions: make(map[string]string),
-		parents:  make(map[string]string),
-	}
-}
-
-func (p *MemorySessionPointers) Get(remoteKey string) string {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.sessions[remoteKey]
-}
-
-func (p *MemorySessionPointers) Set(remoteKey string, sessionID string) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.hasRootConflictLocked(remoteKey, sessionID) {
-		return fmt.Errorf("session root is already bound to another remote conversation")
-	}
-	p.sessions[remoteKey] = sessionID
-	return nil
-}
-
-func (p *MemorySessionPointers) SetParent(sessionID string, parentID string) error {
-	if sessionID == "" || parentID == "" {
-		return nil
-	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if hasAnyRootConflict(p.sessions, withParent(p.parents, sessionID, parentID)) {
-		return fmt.Errorf("session root is already bound to another remote conversation")
-	}
-	p.parents[sessionID] = parentID
-	return nil
-}
-
-func (p *MemorySessionPointers) RemoteKeyForSession(sessionID string) string {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	keys := p.remoteKeysForRootLocked(p.rootLocked(sessionID))
-	if len(keys) != 1 {
-		return ""
-	}
-	return keys[0]
-}
-
-func (p *MemorySessionPointers) RootSession(sessionID string) string {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.rootLocked(sessionID)
-}
-
-func (p *MemorySessionPointers) EventCursor() string {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.eventCursor
-}
-
-func (p *MemorySessionPointers) SetEventCursor(cursor string) error {
-	if cursor == "" {
-		return nil
-	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.eventCursor = cursor
-	return nil
-}
-
-func (p *MemorySessionPointers) rootLocked(sessionID string) string {
-	return rootSession(p.parents, sessionID)
-}
-
-func (p *MemorySessionPointers) hasRootConflictLocked(remoteKey string, sessionID string) bool {
-	return hasRootConflict(p.sessions, p.parents, remoteKey, sessionID)
-}
-
-func (p *MemorySessionPointers) remoteKeysForRootLocked(root string) []string {
-	return remoteKeysForRoot(p.sessions, p.parents, root)
-}
-
-type FileSessionPointers struct {
+// SessionPointersStore maps remote conversations to PawWork sessions and tracks
+// the event cursor. With a non-empty path it persists to disk; an empty path
+// keeps everything in memory.
+type SessionPointersStore struct {
 	mu          sync.Mutex
 	path        string
 	sessions    map[string]string
@@ -104,12 +20,12 @@ type FileSessionPointers struct {
 	eventCursor string
 }
 
-func NewFileSessionPointers(path string) (*FileSessionPointers, error) {
-	pointers := &FileSessionPointers{
-		path:     path,
-		sessions: make(map[string]string),
-		parents:  make(map[string]string),
-	}
+func NewMemorySessionPointers() *SessionPointersStore {
+	return newSessionPointers("")
+}
+
+func NewFileSessionPointers(path string) (*SessionPointersStore, error) {
+	pointers := newSessionPointers(path)
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return pointers, nil
@@ -141,23 +57,31 @@ func NewFileSessionPointers(path string) (*FileSessionPointers, error) {
 	return pointers, nil
 }
 
-func (p *FileSessionPointers) Get(remoteKey string) string {
+func newSessionPointers(path string) *SessionPointersStore {
+	return &SessionPointersStore{
+		path:     path,
+		sessions: make(map[string]string),
+		parents:  make(map[string]string),
+	}
+}
+
+func (p *SessionPointersStore) Get(remoteKey string) string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.sessions[remoteKey]
 }
 
-func (p *FileSessionPointers) Set(remoteKey string, sessionID string) error {
+func (p *SessionPointersStore) Set(remoteKey string, sessionID string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.hasRootConflictLocked(remoteKey, sessionID) {
+	if hasRootConflict(p.sessions, p.parents, remoteKey, sessionID) {
 		return fmt.Errorf("session root is already bound to another remote conversation")
 	}
 	p.sessions[remoteKey] = sessionID
 	return p.saveLocked()
 }
 
-func (p *FileSessionPointers) SetParent(sessionID string, parentID string) error {
+func (p *SessionPointersStore) SetParent(sessionID string, parentID string) error {
 	if sessionID == "" || parentID == "" {
 		return nil
 	}
@@ -170,29 +94,29 @@ func (p *FileSessionPointers) SetParent(sessionID string, parentID string) error
 	return p.saveLocked()
 }
 
-func (p *FileSessionPointers) RemoteKeyForSession(sessionID string) string {
+func (p *SessionPointersStore) RemoteKeyForSession(sessionID string) string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	keys := p.remoteKeysForRootLocked(p.rootLocked(sessionID))
+	keys := remoteKeysForRoot(p.sessions, p.parents, rootSession(p.parents, sessionID))
 	if len(keys) != 1 {
 		return ""
 	}
 	return keys[0]
 }
 
-func (p *FileSessionPointers) RootSession(sessionID string) string {
+func (p *SessionPointersStore) RootSession(sessionID string) string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.rootLocked(sessionID)
+	return rootSession(p.parents, sessionID)
 }
 
-func (p *FileSessionPointers) EventCursor() string {
+func (p *SessionPointersStore) EventCursor() string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.eventCursor
 }
 
-func (p *FileSessionPointers) SetEventCursor(cursor string) error {
+func (p *SessionPointersStore) SetEventCursor(cursor string) error {
 	if cursor == "" {
 		return nil
 	}
@@ -205,16 +129,30 @@ func (p *FileSessionPointers) SetEventCursor(cursor string) error {
 	return p.saveLocked()
 }
 
-func (p *FileSessionPointers) rootLocked(sessionID string) string {
-	return rootSession(p.parents, sessionID)
-}
-
-func (p *FileSessionPointers) hasRootConflictLocked(remoteKey string, sessionID string) bool {
-	return hasRootConflict(p.sessions, p.parents, remoteKey, sessionID)
-}
-
-func (p *FileSessionPointers) remoteKeysForRootLocked(root string) []string {
-	return remoteKeysForRoot(p.sessions, p.parents, root)
+func (p *SessionPointersStore) saveLocked() error {
+	if p.path == "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(p.path), 0o700); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(struct {
+		Sessions    map[string]string `json:"sessions"`
+		Parents     map[string]string `json:"parents"`
+		EventCursor string            `json:"eventCursor,omitempty"`
+	}{
+		Sessions:    p.sessions,
+		Parents:     p.parents,
+		EventCursor: p.eventCursor,
+	}, "", "  ")
+	if err != nil {
+		return err
+	}
+	tempPath := p.path + ".tmp"
+	if err := os.WriteFile(tempPath, data, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tempPath, p.path)
 }
 
 func rootSession(parents map[string]string, sessionID string) string {
@@ -282,27 +220,4 @@ func remoteKeysForRoot(sessions map[string]string, parents map[string]string, ro
 		}
 	}
 	return keys
-}
-
-func (p *FileSessionPointers) saveLocked() error {
-	if err := os.MkdirAll(filepath.Dir(p.path), 0o700); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(struct {
-		Sessions    map[string]string `json:"sessions"`
-		Parents     map[string]string `json:"parents"`
-		EventCursor string            `json:"eventCursor,omitempty"`
-	}{
-		Sessions:    p.sessions,
-		Parents:     p.parents,
-		EventCursor: p.eventCursor,
-	}, "", "  ")
-	if err != nil {
-		return err
-	}
-	tempPath := p.path + ".tmp"
-	if err := os.WriteFile(tempPath, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tempPath, p.path)
 }
