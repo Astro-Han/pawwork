@@ -31,6 +31,24 @@ func TestMemorySessionPointersRejectParentThatCreatesDuplicateRoot(t *testing.T)
 	}
 }
 
+func TestMemorySessionPointersRejectParentCycle(t *testing.T) {
+	pointers := NewMemorySessionPointers()
+	if err := pointers.SetParent("ses_1", "ses_2"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := pointers.SetParent("ses_2", "ses_1"); err == nil {
+		t.Fatal("expected parent binding to reject a cycle")
+	}
+
+	if got := pointers.RootSession("ses_1"); got != "ses_2" {
+		t.Fatalf("root after rejected cycle = %q, want ses_2", got)
+	}
+	if got := pointers.RootSession("ses_2"); got != "ses_2" {
+		t.Fatalf("ses_2 should remain its own root, got %q", got)
+	}
+}
+
 func TestFileSessionPointersDoNotRestoreAmbiguousRootBindings(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.json")
 	if err := os.WriteFile(path, []byte(`{

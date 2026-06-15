@@ -87,6 +87,9 @@ func (p *SessionPointersStore) SetParent(sessionID string, parentID string) erro
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if parentChainReaches(p.parents, parentID, sessionID) {
+		return fmt.Errorf("session parent would create a cycle")
+	}
 	if hasAnyRootConflict(p.sessions, withParent(p.parents, sessionID, parentID)) {
 		return fmt.Errorf("session root is already bound to another remote conversation")
 	}
@@ -170,6 +173,20 @@ func rootSession(parents map[string]string, sessionID string) string {
 		current = parent
 	}
 	return sessionID
+}
+
+// parentChainReaches reports whether walking the parent chain from start ever
+// lands on target. SetParent uses it to reject a parentID whose ancestry
+// already contains the child, which would otherwise form a cycle.
+func parentChainReaches(parents map[string]string, start string, target string) bool {
+	seen := map[string]bool{}
+	for current := start; current != "" && !seen[current]; current = parents[current] {
+		if current == target {
+			return true
+		}
+		seen[current] = true
+	}
+	return false
 }
 
 func hasRootConflict(sessions map[string]string, parents map[string]string, remoteKey string, sessionID string) bool {
