@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/astro-han/pawwork/packages/remote-bridge/internal/bridge"
 )
@@ -79,6 +80,19 @@ func TestClientUsesPawWorkSessionEndpoints(t *testing.T) {
 	}
 	if abortDirectory != "/repo/a" {
 		t.Fatalf("abort directory = %q", abortDirectory)
+	}
+}
+
+func TestClientJSONRequestTimesOut(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	client := New(server.URL)
+	client.jsonTimeout = 50 * time.Millisecond
+	if _, err := client.ListSessions(t.Context(), 5); err == nil {
+		t.Fatal("expected JSON request to time out")
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/astro-han/pawwork/packages/remote-bridge/internal/bridge"
 )
@@ -44,6 +45,7 @@ type Client struct {
 	username           string
 	password           string
 	defaultDirectory   string
+	jsonTimeout        time.Duration
 	lastEventID        string
 	eventCursorStore   bridge.EventCursorStore
 	mu                 sync.Mutex
@@ -69,6 +71,7 @@ func NewWithDirectoryAndAuth(baseURL string, directory string, username string, 
 		username:           username,
 		password:           password,
 		defaultDirectory:   directory,
+		jsonTimeout:        30 * time.Second,
 		sessionDirectories: make(map[string]string),
 	}
 }
@@ -262,6 +265,13 @@ func (c *Client) doSessionJSON(ctx context.Context, sessionID string, method str
 }
 
 func (c *Client) doJSONWithDirectory(ctx context.Context, directory string, method string, path string, input any, output any) error {
+	// Bound every JSON request so a stalled sidecar cannot hang startup/hydration.
+	// The SSE stream (StreamEvents) builds its own request and is intentionally exempt.
+	if c.jsonTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.jsonTimeout)
+		defer cancel()
+	}
 	var body io.Reader
 	if input != nil {
 		data, err := json.Marshal(input)
