@@ -91,7 +91,6 @@ type Engine struct {
 	mu           sync.Mutex
 	sidecar      Sidecar
 	pointers     SessionPointers
-	pickers      map[string][]Session
 	active       map[string]delivery
 	platforms    map[string]core.Platform
 	permissions  map[string]PendingPermission
@@ -135,7 +134,6 @@ func NewWithSessionPointers(sidecar Sidecar, pointers SessionPointers) *Engine {
 	return &Engine{
 		sidecar:     sidecar,
 		pointers:    pointers,
-		pickers:     make(map[string][]Session),
 		active:      make(map[string]delivery),
 		platforms:   make(map[string]core.Platform),
 		permissions: make(map[string]PendingPermission),
@@ -644,10 +642,8 @@ func (e *Engine) replySessionPicker(ctx context.Context, platform core.Platform,
 		return err
 	}
 	if len(sessions) == 0 {
-		e.clearPicker(key)
 		return platform.Reply(ctx, msg.ReplyCtx, "No recent PawWork sessions.")
 	}
-	e.setPicker(key, sessions)
 	var out strings.Builder
 	out.WriteString("Recent PawWork sessions:")
 	for index, session := range sessions {
@@ -665,13 +661,13 @@ func (e *Engine) switchSession(ctx context.Context, platform core.Platform, msg 
 	if err != nil || index < 1 {
 		return platform.Reply(ctx, msg.ReplyCtx, "Choose a session with /sessions 1.")
 	}
-	sessions := e.picker(key)
-	if len(sessions) == 0 {
-		sessions, err = e.sidecar.ListSessions(ctx, 5)
-		if err != nil {
-			_ = platform.Reply(ctx, msg.ReplyCtx, "PawWork could not list sessions: "+err.Error())
-			return err
-		}
+	// Fetch the current list rather than trusting a cached picker: between
+	// listing and picking, the recent sessions may have changed, and N must
+	// resolve against what is live now, not a stale snapshot.
+	sessions, err := e.sidecar.ListSessions(ctx, 5)
+	if err != nil {
+		_ = platform.Reply(ctx, msg.ReplyCtx, "PawWork could not list sessions: "+err.Error())
+		return err
 	}
 	if index > len(sessions) {
 		return platform.Reply(ctx, msg.ReplyCtx, fmt.Sprintf("Only %d recent PawWork sessions are available.", len(sessions)))
@@ -687,24 +683,6 @@ func (e *Engine) switchSession(ctx context.Context, platform core.Platform, msg 
 	}
 	e.setActive(session.ID, platform, msg.ReplyCtx)
 	return platform.Reply(ctx, msg.ReplyCtx, "Switched to "+sessionLabel(session)+".")
-}
-
-func (e *Engine) picker(remoteKey string) []Session {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return e.pickers[remoteKey]
-}
-
-func (e *Engine) setPicker(remoteKey string, sessions []Session) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.pickers[remoteKey] = sessions
-}
-
-func (e *Engine) clearPicker(remoteKey string) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	delete(e.pickers, remoteKey)
 }
 
 func (e *Engine) setCurrent(remoteKey string, sessionID string) error {

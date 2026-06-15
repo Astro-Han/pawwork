@@ -198,6 +198,35 @@ func TestEngineListsAndSwitchesRecentSessions(t *testing.T) {
 	}
 }
 
+func TestEngineSwitchResolvesAgainstCurrentSessions(t *testing.T) {
+	sidecar := &fakeSidecar{
+		sessions: []Session{
+			{ID: "ses_a", Title: "Plan launch"},
+			{ID: "ses_b", Title: "Fix importer"},
+		},
+	}
+	platform := &fakePlatform{}
+	engine := New(sidecar)
+	msg := &core.Message{SessionKey: "slack:dm:bob", Content: "/sessions"}
+	if err := engine.HandleMessage(context.Background(), platform, msg); err != nil {
+		t.Fatal(err)
+	}
+
+	// The recent list changes before the user picks a number.
+	sidecar.sessions = []Session{
+		{ID: "ses_c", Title: "Triage bug"},
+		{ID: "ses_d", Title: "Write docs"},
+	}
+
+	msg.Content = "/sessions 2"
+	if err := engine.HandleMessage(context.Background(), platform, msg); err != nil {
+		t.Fatal(err)
+	}
+	if got := engine.CurrentSession("slack:dm:bob"); got != "ses_d" {
+		t.Fatalf("switch used a stale picker: current session = %q, want ses_d", got)
+	}
+}
+
 func TestEngineRejectsSwitchingToChildOfAnotherRemoteRoot(t *testing.T) {
 	sidecar := &fakeSidecar{
 		sessions: []Session{
