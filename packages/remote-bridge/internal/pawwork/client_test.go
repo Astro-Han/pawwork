@@ -1,6 +1,7 @@
 package pawwork
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -353,6 +354,42 @@ func TestClientListPermissionsSurfacesMalformedJSON(t *testing.T) {
 	// surface rather than be skipped and silently drop pending permissions.
 	if _, err := client.ListPermissions(t.Context()); err == nil {
 		t.Fatal("expected malformed JSON to surface as an error")
+	}
+}
+
+func TestCanSkipHydrationDirectoryErrorRespectsCallerContext(t *testing.T) {
+	skippable := &HTTPStatusError{StatusCode: http.StatusBadGateway}
+	// A normally-skippable per-directory 5xx stays skippable under a live context.
+	if !canSkipHydrationDirectoryError(t.Context(), skippable) {
+		t.Fatal("directory 5xx should remain skippable under a live context")
+	}
+	// But an already-expired caller context is a whole-operation deadline, not a
+	// per-directory blip — it must surface, even for the same 5xx.
+	expired, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Minute))
+	defer cancel()
+	if canSkipHydrationDirectoryError(expired, skippable) {
+		t.Fatal("expired caller context must not be skipped")
+	}
+}
+
+func TestClientListPermissionsSurfacesCallerContextCancellation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/experimental/session" {
+			writeJSON(t, w, []map[string]any{{"id": "ses_a", "directory": "/repo/a"}})
+			return
+		}
+		t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+	}))
+	defer server.Close()
+
+	client := New(server.URL)
+	if _, err := client.ListSessions(t.Context(), 5); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := client.ListPermissions(ctx); err == nil {
+		t.Fatal("expected canceled caller context to surface, not partial success")
 	}
 }
 

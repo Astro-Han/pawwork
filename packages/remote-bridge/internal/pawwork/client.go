@@ -216,7 +216,7 @@ func (c *Client) ListPermissions(ctx context.Context) ([]bridge.PendingPermissio
 			Patterns   []string `json:"patterns"`
 		}
 		if err := c.doJSONWithDirectory(ctx, directory, http.MethodGet, "/permission", nil, &raw); err != nil {
-			if !canSkipHydrationDirectoryError(err) {
+			if !canSkipHydrationDirectoryError(ctx, err) {
 				return nil, err
 			}
 			slog.Warn("remote bridge could not list permissions", "directory", directory, "error", err)
@@ -240,7 +240,7 @@ func (c *Client) ListQuestions(ctx context.Context) ([]bridge.PendingQuestion, e
 	for _, directory := range c.knownDirectories() {
 		var raw []json.RawMessage
 		if err := c.doJSONWithDirectory(ctx, directory, http.MethodGet, "/external-result", nil, &raw); err != nil {
-			if !canSkipHydrationDirectoryError(err) {
+			if !canSkipHydrationDirectoryError(ctx, err) {
 				return nil, err
 			}
 			slog.Warn("remote bridge could not list questions", "directory", directory, "error", err)
@@ -263,8 +263,14 @@ func (c *Client) ListQuestions(ctx context.Context) ([]bridge.PendingQuestion, e
 // failure is transient enough to skip and continue. Only explicitly transient
 // signals qualify — request timeouts, rate limits, 5xx, and network/deadline
 // timeouts. Anything else (JSON decode, schema/protocol errors) surfaces, since
-// silently dropping it would hide pending permissions or questions.
-func canSkipHydrationDirectoryError(err error) bool {
+// silently dropping it would hide pending permissions or questions. If the
+// caller's own context is already done, that is a whole-operation cancel/
+// deadline, not a per-directory blip — surface it instead of returning a
+// partial-success hydration.
+func canSkipHydrationDirectoryError(ctx context.Context, err error) bool {
+	if ctx.Err() != nil {
+		return false
+	}
 	var status *HTTPStatusError
 	if errors.As(err, &status) {
 		return status.StatusCode == http.StatusRequestTimeout ||
