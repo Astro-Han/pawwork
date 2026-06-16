@@ -2,8 +2,9 @@ import { mkdir, readFile, rename, writeFile, unlink } from "node:fs/promises"
 import { dirname } from "node:path"
 
 // Process-wide so two stores sharing a path (same pid) never collide on a temp
-// name — the contention the Go fixed-`<path>.tmp` writer hit on reconnect.
+// name or rename over the same state file at the same time.
 let tempSequence = 0
+const writeQueues = new Map<string, Promise<void>>()
 
 /**
  * Maps remote conversations (a platform-scoped key) to PawWork sessions and
@@ -11,17 +12,16 @@ let tempSequence = 0
  * empty/undefined path keeps everything in memory.
  *
  * Ported from the Go `bridge.SessionPointersStore`. JS runs the in-memory map
- * mutations on a single thread, so the explicit mutex is gone; disk writes are
- * still serialized (writeChain) and land atomically through a unique temp file
- * + rename, so an interrupted or interleaved write can never leave a partial
- * snapshot on disk.
+ * mutations on a single thread, so the explicit mutex is gone; disk writes for
+ * the same path are still serialized and land atomically through a unique temp
+ * file + rename, so an interrupted or interleaved write can never leave a
+ * partial snapshot on disk.
  */
 export class SessionPointers {
   private readonly path: string
   private sessions = new Map<string, string>()
   private parents = new Map<string, string>()
   private cursor = ""
-  private writeChain: Promise<void> = Promise.resolve()
 
   constructor(path = "") {
     this.path = path
@@ -114,10 +114,7 @@ export class SessionPointers {
       null,
       2,
     )
-    const run = this.writeChain.then(() => this.writeSnapshot(snapshot))
-    // Keep the chain alive even if one write rejects, so later writes still run.
-    this.writeChain = run.catch(() => {})
-    return run
+    return queuePathWrite(this.path, () => this.writeSnapshot(snapshot))
   }
 
   private async writeSnapshot(snapshot: string): Promise<void> {
@@ -196,6 +193,17 @@ function withParent(parents: Map<string, string>, sessionID: string, parentID: s
   const next = new Map(parents)
   next.set(sessionID, parentID)
   return next
+}
+
+function queuePathWrite(path: string, write: () => Promise<void>): Promise<void> {
+  const previous = writeQueues.get(path) ?? Promise.resolve()
+  const run = previous.then(write)
+  const next = run.catch(() => {})
+  writeQueues.set(path, next)
+  void next.then(() => {
+    if (writeQueues.get(path) === next) writeQueues.delete(path)
+  })
+  return run
 }
 
 function remoteKeysForRoot(sessions: Map<string, string>, parents: Map<string, string>, root: string): string[] {
