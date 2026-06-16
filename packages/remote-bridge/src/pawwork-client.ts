@@ -80,7 +80,7 @@ export class PawWorkClient implements Sidecar {
     })
   }
 
-  async listSessions(limit: number): Promise<Session[]> {
+  async listSessions(limit: number, signal?: AbortSignal): Promise<Session[]> {
     if (limit < 0) limit = 5
     let path = "/experimental/session?sort=updated"
     if (this.defaultDirectory !== "") {
@@ -91,8 +91,12 @@ export class PawWorkClient implements Sidecar {
       "",
       "GET",
       path,
+      undefined,
+      signal,
     )
-    return raw.map((item) => {
+    // doJSON returns undefined on an empty 2xx body; Go's json.Unmarshal yields a
+    // nil slice that ranges zero times, so default to [] to match it, not crash.
+    return (raw ?? []).map((item) => {
       const session: Session = {
         id: item.id,
         title: item.title ?? "",
@@ -139,7 +143,7 @@ export class PawWorkClient implements Sidecar {
         console.warn("remote bridge could not list permissions", directory, err)
         continue
       }
-      for (const item of raw) {
+      for (const item of raw ?? []) {
         permissions.push({
           id: item.id,
           sessionID: item.sessionID,
@@ -163,7 +167,7 @@ export class PawWorkClient implements Sidecar {
         console.warn("remote bridge could not list questions", directory, err)
         continue
       }
-      for (const data of raw) {
+      for (const data of raw ?? []) {
         const update = questionUpdateFromEvent(data, directory)
         // An undecodable question row is a protocol violation, not a transient
         // per-directory blip: surface it (Go returned the error) so a pending

@@ -220,6 +220,25 @@ test("listPermissions surfaces a cancelled caller signal, not partial success", 
   }
 })
 
+test("tolerates an empty 2xx body from the list endpoints", async () => {
+  // doJSON returns undefined on an empty body; the list helpers must default to
+  // [] (Go's nil slice ranges zero times) instead of crashing on .map/for-of.
+  const server = Bun.serve({
+    port: 0,
+    fetch() {
+      return new Response("", { status: 200 })
+    },
+  })
+  try {
+    const client = new PawWorkClient({ baseURL: `http://localhost:${server.port}` })
+    expect(await client.listSessions(5)).toEqual([])
+    expect(await client.listPermissions()).toEqual([])
+    expect(await client.listQuestions()).toEqual([])
+  } finally {
+    server.stop(true)
+  }
+})
+
 test("persists the Last-Event-ID cursor across restarts", async () => {
   const statePath = join(await mkdtemp(join(tmpdir(), "rb-cursor-")), "sessions.json")
   let requests = 0

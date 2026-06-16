@@ -60,7 +60,7 @@ export interface QuestionOption {
 export interface Sidecar {
   createSession(): Promise<string>
   sendPrompt(sessionID: string, text: string): Promise<void>
-  listSessions(limit: number): Promise<Session[]>
+  listSessions(limit: number, signal?: AbortSignal): Promise<Session[]>
   abortSession(sessionID: string): Promise<boolean>
   replyPermission(permission: PendingPermission, reply: PermissionReply): Promise<void>
   submitQuestion(pending: PendingQuestion, answers: string[][]): Promise<void>

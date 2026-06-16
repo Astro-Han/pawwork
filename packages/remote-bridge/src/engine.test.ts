@@ -701,3 +701,79 @@ test("clears a question resolved outside the remote", async () => {
   expect(sidecar.prompts).toHaveLength(2)
   expect(sidecar.prompts[1]).toEqual({ sessionID: "ses_new", text: "continue after desktop answer" })
 })
+
+test("coalesces concurrent first-message session creation for one key (stricter than Go)", async () => {
+  // Inbound messages dispatch fire-and-forget, so two for a brand-new key can
+  // interleave at `await createSession()`. They must land on one session, not
+  // split into two with the first orphaned. Deliberately stricter than Go.
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => (release = resolve))
+  let creates = 0
+  const prompts: { sessionID: string; text: string }[] = []
+  const sidecar: Sidecar = {
+    async createSession() {
+      creates += 1
+      await gate
+      return `ses_${creates}`
+    },
+    async sendPrompt(sessionID, text) {
+      prompts.push({ sessionID, text })
+    },
+    async listSessions() {
+      return []
+    },
+    async abortSession() {
+      return false
+    },
+    async replyPermission() {},
+    async submitQuestion() {},
+  }
+  const engine = new Engine(sidecar)
+  const platform = new FakePlatform()
+  const message = (content: string): Message => ({ content, sessionKey: "chat:room:alice", replyCtx: "ctx" })
+
+  const first = engine.handleMessage(platform, message("hello"))
+  const second = engine.handleMessage(platform, message("world"))
+  await new Promise((resolve) => setTimeout(resolve, 5))
+  release()
+  await Promise.all([first, second])
+
+  expect(creates).toBe(1)
+  expect(prompts).toHaveLength(2)
+  expect(prompts[0].sessionID).toBe(prompts[1].sessionID)
+})
+
+test("restoreDelivery prefers a root active target set during reconstruct (stricter than Go)", async () => {
+  // While reconstructing a child's reply context, a user message makes the root
+  // active. restoreDelivery must use that fresh root reply target, not store a
+  // proactive child target that would later shadow it. Deliberately stricter than Go.
+  const sidecar = new FakeSidecar()
+  const pointers = SessionPointers.memory()
+  await pointers.set("chat:room:alice", "ses_root")
+  await pointers.setParent("ses_child", "ses_root")
+  const engine = new Engine(sidecar, pointers)
+
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => (release = resolve))
+  class GatedPlatform extends FakePlatform {
+    override async reconstructReplyCtx(remoteKey: string): Promise<unknown> {
+      this.reconstructKey = remoteKey
+      await gate
+      return "restored"
+    }
+  }
+  const platform = new GatedPlatform("chat")
+  engine.registerPlatform(platform)
+
+  // No active target for the child yet → handleAssistantText enters
+  // restoreDelivery and parks on the reconstruct gate.
+  const deliver = engine.handleAssistantText("ses_child", "hi")
+  await new Promise((resolve) => setTimeout(resolve, 5))
+  // Meanwhile a user message makes the root active with a live reply target.
+  await engine.handleMessage(platform, { content: "ping", sessionKey: "chat:room:alice", replyCtx: "live-ctx" })
+  release()
+  await deliver
+
+  expect(platform.replies).toContain("hi") // delivered via the fresh root reply target
+  expect(platform.sends).not.toContain("hi") // not a stale proactive child target
+})

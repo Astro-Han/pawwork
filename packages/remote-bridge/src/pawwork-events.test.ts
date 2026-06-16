@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test"
-import { dispatchEvent, type EventHandler } from "./pawwork-events.ts"
+import { dispatchEvent, type EventHandler, parseSSE, ReplayRefreshError } from "./pawwork-events.ts"
 import type {
   PendingPermission,
   PendingQuestion,
@@ -148,4 +148,49 @@ test("reconciles a ready question whose questions field is the wrong type", asyn
     ),
   ).rejects.toThrow()
   expect(calls.questions).toEqual([])
+})
+
+test("reconciles a permission whose patterns contain a non-string element", async () => {
+  const { handler, calls } = recorder()
+  // Go's []string unmarshal rejects [123]; coercing it would crash prompt
+  // rendering on .trim(). Surface it as repairable so the caller reconciles.
+  await expect(
+    dispatchEvent(
+      { payload: { type: "permission.asked", properties: { id: "perm_1", sessionID: "ses_1", permission: "edit", patterns: [123] } } },
+      handler,
+    ),
+  ).rejects.toThrow()
+  expect(calls.permissions).toEqual([])
+})
+
+test("reconciles a ready question whose nested field is the wrong type", async () => {
+  const { handler, calls } = recorder()
+  // A non-string header is undecodable for Go's []bridge.Question unmarshal.
+  await expect(
+    dispatchEvent(
+      { payload: { type: "message.part.updated", properties: { part: { type: "tool", sessionID: "ses_1", messageID: "msg_1", callID: "call_1", tool: "question", state: { status: "running", metadata: { externalResultReady: true }, input: { questions: [{ header: 1, question: "Pick one", options: [] }] } } } } } },
+      handler,
+    ),
+  ).rejects.toThrow()
+  expect(calls.questions).toEqual([])
+})
+
+test("cancels the stream reader when an event handler throws", async () => {
+  // A thrown dispatch/reconcile error must abandon the connection (Go's deferred
+  // Body.Close), not just release the lock, so the stream cannot leak on error.
+  let cancelled = false
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode('data: {"payload":{"type":"server.connected","properties":{}}}\n\n'))
+    },
+    cancel() {
+      cancelled = true
+    },
+  })
+  const { handler } = recorder()
+  handler.handleReplayRefresh = async () => {
+    throw new ReplayRefreshError(new Error("hydrate failed"))
+  }
+  await expect(parseSSE(stream, handler, async () => {})).rejects.toThrow()
+  expect(cancelled).toBe(true)
 })

@@ -30,6 +30,12 @@ export class Engine implements EventHandler {
   private readonly platforms = new Map<string, Platform>()
   private readonly permissions = new Map<string, PendingPermission>()
   private readonly questions = new Map<string, PendingQuestion>()
+  // Coalesces concurrent first-session creation per remote key. Inbound messages
+  // are dispatched fire-and-forget, so two for a brand-new conversation can
+  // interleave at `await createSession()`; without this they would both create a
+  // session and the second setCurrent would orphan the first. (Deliberately
+  // stricter than the Go original, which has the same race.)
+  private readonly sessionCreates = new Map<string, Promise<string>>()
   private blockerOrder: BlockerRef[] = []
 
   constructor(
@@ -340,7 +346,9 @@ export class Engine implements EventHandler {
     }
 
     // Re-check: another message may have set an active target while we awaited.
-    const current = this.active.get(sessionID)
+    // Look at the root too (as activeDelivery does), so a freshly active root
+    // conversation is not shadowed by a proactive child target.
+    const current = this.active.get(sessionID) ?? this.active.get(this.pointers.rootSession(sessionID))
     if (current) return current
     const target: Delivery = { platform, replyCtx, proactive: true }
     this.active.set(sessionID, target)
@@ -405,7 +413,24 @@ export class Engine implements EventHandler {
   private async ensureSession(key: string): Promise<string> {
     const existing = this.currentSession(key)
     if (existing !== "") return existing
+    // Coalesce concurrent first-message creation onto one in-flight promise.
+    const pending = this.sessionCreates.get(key)
+    if (pending) return pending
+    const created = this.createSessionForKey(key)
+    this.sessionCreates.set(key, created)
+    try {
+      return await created
+    } finally {
+      if (this.sessionCreates.get(key) === created) this.sessionCreates.delete(key)
+    }
+  }
+
+  private async createSessionForKey(key: string): Promise<string> {
     const sessionID = await this.sidecar.createSession()
+    // Another path (e.g. /new) may have bound a session while we created ours;
+    // prefer it and drop the duplicate rather than overwrite the pointer.
+    const current = this.currentSession(key)
+    if (current !== "") return current
     await this.setCurrent(key, sessionID)
     return sessionID
   }

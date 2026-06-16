@@ -127,7 +127,9 @@ export class SessionPointers {
     // clobber a fixed `<path>.tmp` mid-write; each renames its own snapshot.
     const tempPath = `${this.path}.${process.pid}.${tempSequence++}.tmp`
     try {
-      await writeFile(tempPath, snapshot)
+      // Mode 0o600 so the state file (remote keys / session IDs / cursor) is not
+      // world/group-readable under a shared dir; matches Go's os.CreateTemp default.
+      await writeFile(tempPath, snapshot, { mode: 0o600 })
       await rename(tempPath, this.path)
     } catch (err) {
       await unlink(tempPath).catch(() => {})

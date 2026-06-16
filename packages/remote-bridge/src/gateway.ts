@@ -167,7 +167,7 @@ export class App {
    * A missing session link aborts (it would corrupt routing); a prompt that
    * cannot be delivered is logged and skipped, never held. Ported from Go `hydrate`. */
   async hydrate(signal?: AbortSignal): Promise<void> {
-    const sessions = await this.client.listSessions(hydrateSessionLimit)
+    const sessions = await this.client.listSessions(hydrateSessionLimit, signal)
     for (const session of sessions) await this.engine.handleSession(session)
 
     const permissions = await this.client.listPermissions(signal)

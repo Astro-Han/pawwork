@@ -81,10 +81,15 @@ export async function dispatchEvent(data: string | Envelope, handler: EventHandl
     case "message.part.delta":
       return
     case "permission.asked": {
-      // Match Go's strict decode: a wrong-typed critical field (e.g. patterns
-      // sent as a string) is undecodable, not a lenient coercion — reconcile it.
-      if (props.patterns !== undefined && !Array.isArray(props.patterns)) {
-        throw new RepairableEventError("permission.asked", new Error("patterns must be an array"))
+      // Match Go's typed unmarshal: patterns is []string, so a non-array or any
+      // non-string element is undecodable, not a lenient coercion — reconcile it.
+      // (A number here would later crash prompt rendering on .trim() and wedge the
+      // blocker as undelivered.)
+      if (
+        props.patterns !== undefined &&
+        (!Array.isArray(props.patterns) || props.patterns.some((pattern: unknown) => typeof pattern !== "string"))
+      ) {
+        throw new RepairableEventError("permission.asked", new Error("patterns must be an array of strings"))
       }
       const permission = permissionFromEvent(props)
       if (permission.id === "" || permission.sessionID === "") {
@@ -202,6 +207,10 @@ export function questionUpdateFromEvent(props: any, directory: string): Question
   // an empty-question prompt.
   const rawQuestions = part.state?.input?.questions
   if (rawQuestions !== undefined && !Array.isArray(rawQuestions)) return { kind: "incomplete" }
+  // Mirror Go's []bridge.Question unmarshal: a wrong-typed nested field (header,
+  // question, option label/description) is undecodable. Coercing it would crash
+  // prompt rendering on .trim() and wedge the blocker, so reconcile instead.
+  if (Array.isArray(rawQuestions) && rawQuestions.some(questionHasWrongTypes)) return { kind: "incomplete" }
   const questions: Question[] = Array.isArray(rawQuestions)
     ? rawQuestions.map((q: any): Question => ({
         header: q?.header ?? "",
@@ -219,6 +228,21 @@ export function questionUpdateFromEvent(props: any, directory: string): Question
 }
 
 type QuestionOptionLike = { label: string; description: string }
+
+/** Whether a decoded question carries a nested field of the wrong type, which
+ * Go's typed unmarshal would have rejected. Keeps malformed values out of the
+ * engine, where rendering calls `.trim()` on the string fields. */
+function questionHasWrongTypes(question: any): boolean {
+  if (question?.header !== undefined && typeof question.header !== "string") return true
+  if (question?.question !== undefined && typeof question.question !== "string") return true
+  if (question?.options === undefined) return false
+  if (!Array.isArray(question.options)) return true
+  return question.options.some(
+    (option: any) =>
+      (option?.label !== undefined && typeof option.label !== "string") ||
+      (option?.description !== undefined && typeof option.description !== "string"),
+  )
+}
 
 /**
  * Parse an SSE byte stream, dispatching each `\n\n`-delimited frame. After a
@@ -298,12 +322,17 @@ export async function parseSSE(
         await handleLine(line)
       }
     }
+    if (signal?.aborted) return
+    // Flush a trailing frame with no terminating blank line (mirrors Go's final flush).
+    if (buffer !== "") await handleLine(buffer.replace(/\r$/, ""))
+    await flush()
+  } catch (err) {
+    // Match Go's deferred Body.Close: abandon the stream on any error path, not
+    // just abort, so a thrown dispatch/reconcile error cannot leak the connection.
+    void reader.cancel().catch(() => {})
+    throw err
   } finally {
     signal?.removeEventListener("abort", cancelOnAbort)
     reader.releaseLock()
   }
-  if (signal?.aborted) return
-  // Flush a trailing frame with no terminating blank line (mirrors Go's final flush).
-  if (buffer !== "") await handleLine(buffer.replace(/\r$/, ""))
-  await flush()
 }

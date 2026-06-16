@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test"
-import { mkdtemp, readdir, writeFile } from "node:fs/promises"
+import { mkdtemp, readdir, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { SessionPointers } from "./session-pointers.ts"
@@ -62,6 +62,15 @@ test("concurrent writes from two stores leave a valid state with no temp leftove
   await expect(SessionPointers.fromFile(path)).resolves.toBeDefined()
   const leftovers = (await readdir(join(path, ".."))).filter((f) => f.endsWith(".tmp"))
   expect(leftovers).toEqual([])
+})
+
+// POSIX-only: Windows does not carry owner/group/other mode bits.
+test.skipIf(process.platform === "win32")("persists the state file with owner-only permissions", async () => {
+  const path = await tempFile()
+  const pointers = await SessionPointers.fromFile(path)
+  await pointers.set("feishu:dm:alice", "ses_1")
+  const info = await stat(path)
+  expect(info.mode & 0o777).toBe(0o600)
 })
 
 test("file store loads the legacy bare-map format written by an early build", async () => {
