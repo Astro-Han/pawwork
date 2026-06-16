@@ -2,6 +2,7 @@ import type {
   AboutInfo,
   BrowserBridge,
   DesktopContext,
+  RemoteBridge,
   RendererDiagnosticInput,
   RendererDiagnosticsExportResult,
   ReportProblemInput,
@@ -117,4 +118,5 @@ export type ElectronAPI = {
   flashFrame: () => Promise<void>
   setBadgeCount: (count: number) => Promise<void>
   browser: BrowserBridge
+  remote: RemoteBridge
 }

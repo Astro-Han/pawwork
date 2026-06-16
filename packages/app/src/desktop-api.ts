@@ -1,6 +1,10 @@
 export { buildDesktopContext, desktopWindowTitle, type DesktopContext } from "./utils/desktop-context"
 export type {
   AboutInfo,
+  RemoteBridge,
+  RemotePairingResult,
+  RemoteState,
+  RemoteStatus,
   RendererDiagnosticInput,
   RendererDiagnosticsExportResult,
   RendererErrorDetails,

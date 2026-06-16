@@ -45,7 +45,7 @@ import { SettingsProvider } from "@/context/settings"
 import { TerminalProvider } from "@/context/terminal"
 import { AppStartupPending } from "@/components/app-startup-pending"
 import { AboutModal } from "@/components/about-modal"
-import type { AboutInfo, RendererDiagnosticInput, RendererDiagnosticsExportResult, WebSearchStatus } from "@/desktop-api-contract"
+import type { AboutInfo, RemoteBridge, RendererDiagnosticInput, RendererDiagnosticsExportResult, WebSearchStatus } from "@/desktop-api-contract"
 import DirectoryLayout from "@/pages/directory-layout"
 import Layout from "@/pages/layout"
 import AutomationsRoute from "@/pages/automations/automations-route"
@@ -114,6 +114,7 @@ declare global {
       webSearchStatus?: () => Promise<WebSearchStatus>
       saveExaApiKey?: (key: string) => Promise<WebSearchStatus>
       removeExaApiKey?: () => Promise<WebSearchStatus>
+      remote?: RemoteBridge
     }
   }
 }

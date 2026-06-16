@@ -104,6 +104,7 @@
       "name": "@opencode-ai/desktop-electron",
       "version": "2026.6.6",
       "dependencies": {
+        "@opencode-ai/remote-bridge": "workspace:*",
         "@opencode-ai/util": "workspace:*",
         "electron-context-menu": "4.1.2",
         "electron-log": "^5",
