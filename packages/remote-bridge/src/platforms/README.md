@@ -68,24 +68,33 @@ Every priority platform has a no-public-IP path:
 |---|---|---|---|---|
 | **Telegram** ✅ shipped | `getUpdates` long-poll | raw `fetch` | bot token | yes |
 | **Feishu / 飞书** | `WSClient` long-connection | `@larksuiteoapi/node-sdk` | App ID + Secret | yes |
-| **WeChat / 微信 (personal)** | Tencent iLink `getupdates` long-poll | raw HTTPS | **QR scan** | ⚠ unofficial |
+| **WeChat / 微信 (personal)** | Tencent iLink `getupdates` long-poll | raw HTTPS (ref: `@tencent-weixin/openclaw-weixin`) | **QR scan** | **✅ official (Tencent)** |
 | **DingTalk / 钉钉** | Stream Mode WS | `@largezhou/ddingtalk` or hand-roll | AppKey + Secret | yes |
 | **WeCom / 企业微信** | AI-Bot WS `wss://openws.work.weixin.qq.com` | raw WS | bot id + secret | yes |
 | **Discord** | Gateway WS | `discord.js` or raw | bot token | yes |
 | **Slack** | Socket Mode WS | `@slack/bolt` | `xoxb-` + `xapp-` | yes |
 | **WhatsApp** | Baileys (WhatsApp Web) | `@whiskeysockets/baileys` | **QR scan** | ⚠ unofficial |
-| LINE / MS Teams | inbound webhook only | — | — | **needs relay** |
+| LINE / MS Teams / WhatsApp Cloud | inbound webhook only | — | — | **needs relay** |
 
-⚠ **WeChat-personal (iLink) and WhatsApp (Baileys) are unofficial** — real
-account-ban / ToS risk. Gate behind an experimental flag and disclose to the user.
+✅ **WeChat-personal is official.** Tencent publishes the iLink Bot API and the
+MIT-licensed `@tencent-weixin/openclaw-weixin` plugin (verified `Tencent` GitHub org,
+maintainers all `@tencent.com`). The sanctioned path has **no ban risk** — implement
+the iLink long-poll raw following Tencent's protocol, using their plugin as reference.
+Verify two limits when building: the bot may only reply within a window (no proactive
+initiate) and may not support group chat — both affect proactive / restored delivery.
+
+⚠ **WhatsApp has no official no-public-IP path.** Meta's official Cloud API is
+webhook-only (needs a public URL → relay). The only outbound-only option is the
+**unofficial Baileys** (WhatsApp Web) — real account-ban / ToS risk; gate behind an
+experimental flag and disclose.
 
 ## Roadmap
 
 - **Wave 1 (next) — Feishu + WeChat.** The Chinese-first priority. Build the
   multi-platform **supervisor** here (per-platform `AbortController`, failure
   isolation so one bad token can't crash the others, backoff restart, dedup).
-  Drive it with Feishu first (official SDK, cleanest), then WeChat (iLink + QR pane)
-  immediately after.
+  Drive it with Feishu first (official SDK, cleanest), then WeChat (official Tencent
+  iLink + QR pane) immediately after.
 - **Wave 2 — Discord + Slack.** Western majors; pure adapter adds once the
   supervisor exists.
 - **Wave 3 — DingTalk + WeCom.** Chinese enterprise.
@@ -101,3 +110,6 @@ account-ban / ToS risk. Gate behind an experimental flag and disclose to the use
   contract + supervisor: `src/channels/plugins/types.plugin.ts`,
   `src/gateway/server-channels.ts`. The `@larksuite/openclaw-lark` package is the
   cleanest end-to-end Feishu-over-WebSocket example.
+- **WeChat (official)** — `github.com/Tencent/openclaw-weixin` + npm
+  `@tencent-weixin/openclaw-weixin` (Tencent, MIT). Reference for the iLink Bot
+  long-poll protocol and QR login.
