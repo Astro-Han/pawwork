@@ -40,7 +40,7 @@ export const RemotePage: Component = () => {
         return language.t("settings.remote.status.connecting")
       case "degraded":
         return language.t("settings.remote.status.degraded")
-      default:
+      case "disconnected":
         return language.t("settings.remote.status.disconnected")
     }
   }
