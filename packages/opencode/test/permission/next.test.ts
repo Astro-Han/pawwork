@@ -1,5 +1,7 @@
 import { afterEach, test, expect } from "bun:test"
+import fs from "node:fs/promises"
 import os from "os"
+import path from "node:path"
 import { Bus } from "../../src/bus"
 import { Permission } from "../../src/permission"
 import { fromDeniedRule, isPermanentDeleteRule, permanentDeleteSuggestions } from "../../src/permission/diagnostic"
@@ -487,9 +489,9 @@ test("disabled - does not disable when partially denied", () => {
   expect(result.has("bash")).toBe(false)
 })
 
-test("disabled - disables every browser-backed tool when the browser key is denied", () => {
+test("disabled - disables every browser_* tool when the browser key is denied", () => {
   const result = Permission.disabled(
-    ["browser_navigate", "browser_click", "browser_extract", "opencli_search", "opencli_run", "bash"],
+    ["browser_navigate", "browser_click", "browser_extract", "bash"],
     [
       { permission: "*", pattern: "*", action: "allow" },
       { permission: "browser", pattern: "*", action: "deny" },
@@ -498,8 +500,6 @@ test("disabled - disables every browser-backed tool when the browser key is deni
   expect(result.has("browser_navigate")).toBe(true)
   expect(result.has("browser_click")).toBe(true)
   expect(result.has("browser_extract")).toBe(true)
-  expect(result.has("opencli_search")).toBe(true)
-  expect(result.has("opencli_run")).toBe(true)
   expect(result.has("bash")).toBe(false)
 })
 
@@ -564,6 +564,42 @@ test("disabled - specific allow overrides wildcard deny", () => {
   expect(result.has("bash")).toBe(false)
   expect(result.has("edit")).toBe(true)
   expect(result.has("read")).toBe(true)
+})
+
+test("disabled - the opencli group is hidden only when both opencli_read and opencli_write are denied", () => {
+  const both = Permission.disabled(
+    ["opencli_run", "opencli_search"],
+    [
+      { permission: "opencli_read", pattern: "*", action: "deny" },
+      { permission: "opencli_write", pattern: "*", action: "deny" },
+    ],
+  )
+  expect(both.has("opencli_run")).toBe(true)
+  expect(both.has("opencli_search")).toBe(true)
+
+  // Only the write half denied: read commands still run, so the group stays.
+  const writeOnly = Permission.disabled(
+    ["opencli_run", "opencli_search"],
+    [{ permission: "opencli_write", pattern: "*", action: "deny" }],
+  )
+  expect(writeOnly.has("opencli_run")).toBe(false)
+  expect(writeOnly.has("opencli_search")).toBe(false)
+})
+
+test("disabled - a browser deny no longer hides opencli tools", () => {
+  const result = Permission.disabled(
+    ["browser_navigate", "opencli_run", "opencli_search"],
+    [{ permission: "browser", pattern: "*", action: "deny" }],
+  )
+  // browser deny still hides browser tools, but opencli is governed by its own keys.
+  expect(result.has("browser_navigate")).toBe(true)
+  expect(result.has("opencli_run")).toBe(false)
+  expect(result.has("opencli_search")).toBe(false)
+})
+
+test("disabled - a global wildcard deny still hides opencli_run", () => {
+  const result = Permission.disabled(["opencli_run"], [{ permission: "*", pattern: "*", action: "deny" }])
+  expect(result.has("opencli_run")).toBe(true)
 })
 
 // ask tests
@@ -653,6 +689,134 @@ test("ask - an 'always' approval relaxes asks but never a configured deny", asyn
         ruleset,
       })
       expect(ok).toBeUndefined()
+    },
+  })
+})
+
+test("reply - an 'always' grant survives an instance reload", async () => {
+  await using tmp = await tmpdir({ git: true })
+  const ruleset = [{ permission: "browser", pattern: "*", action: "ask" as const }]
+
+  // First lifecycle: approve "always" for an origin.
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const askPromise = Permission.ask({
+        sessionID: SessionID.make("session_persist"),
+        permission: "browser",
+        patterns: ["https://ok.example/home"],
+        metadata: {},
+        always: ["https://ok.example/*"],
+        ruleset,
+      })
+      const [pending] = await waitForPending(1)
+      await Permission.reply({ requestID: pending.id, reply: "always" })
+      await askPromise
+    },
+  })
+
+  // Simulate an app restart: drop all in-memory instance state, then reload the
+  // same project directory (its on-disk DB persists).
+  await Instance.disposeAll()
+
+  // Second lifecycle: the persisted grant auto-allows the same origin with no
+  // further ask. Before the fix this re-asked, because the approval was only
+  // ever held in memory and never written back to PermissionTable.
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const result = await Permission.ask({
+        sessionID: SessionID.make("session_persist_reload"),
+        permission: "browser",
+        patterns: ["https://ok.example/other"],
+        metadata: {},
+        always: ["https://ok.example/*"],
+        ruleset,
+      })
+      expect(result).toBeUndefined()
+      expect(await Permission.list()).toEqual([])
+    },
+  })
+})
+
+test("reply - sibling instances of one project merge their 'always' grants instead of clobbering", async () => {
+  // Two directories under one git repo resolve to the SAME project id (project
+  // id is the shared git-common-dir) but to DIFFERENT instances (instance state
+  // is keyed by directory), so each holds its own in-memory `approved`. This is
+  // the multi-worktree / multi-sandbox case where a whole-row write loses grants.
+  await using repo = await tmpdir({ git: true })
+  const dirA = path.join(repo.path, "a")
+  const dirB = path.join(repo.path, "b")
+  await fs.mkdir(dirA, { recursive: true })
+  await fs.mkdir(dirB, { recursive: true })
+  const ruleset = [{ permission: "bash", pattern: "*", action: "ask" as const }]
+
+  // Load instance B's permission state while the project row is still empty, so
+  // its in-memory `approved` is stale ([]) when it later writes. list() loads it.
+  await Instance.provide({ directory: dirB, fn: () => Permission.list() })
+
+  // Instance A grants "always" for `ls` and persists it to the shared row.
+  await Instance.provide({
+    directory: dirA,
+    fn: async () => {
+      const ask = Permission.ask({
+        sessionID: SessionID.make("session_merge_a"),
+        permission: "bash",
+        patterns: ["ls"],
+        metadata: {},
+        always: ["ls"],
+        ruleset,
+      })
+      const [pending] = await waitForPending(1)
+      await Permission.reply({ requestID: pending.id, reply: "always" })
+      await ask
+    },
+  })
+
+  // Instance B still holds the stale empty `approved`; it grants "always" for
+  // `pwd`. A whole-row write would replace the row with only B's grant, dropping
+  // A's `ls`. Merging the current row keeps both.
+  await Instance.provide({
+    directory: dirB,
+    fn: async () => {
+      const ask = Permission.ask({
+        sessionID: SessionID.make("session_merge_b"),
+        permission: "bash",
+        patterns: ["pwd"],
+        metadata: {},
+        always: ["pwd"],
+        ruleset,
+      })
+      const [pending] = await waitForPending(1)
+      await Permission.reply({ requestID: pending.id, reply: "always" })
+      await ask
+    },
+  })
+
+  // Restart: drop in-memory state, reload the project, confirm BOTH grants
+  // survived — a fresh instance auto-allows ls and pwd with no further ask.
+  await Instance.disposeAll()
+  await Instance.provide({
+    directory: dirA,
+    fn: async () => {
+      const ls = await Permission.ask({
+        sessionID: SessionID.make("session_merge_reload_ls"),
+        permission: "bash",
+        patterns: ["ls"],
+        metadata: {},
+        always: ["ls"],
+        ruleset,
+      })
+      expect(ls).toBeUndefined()
+      const pwd = await Permission.ask({
+        sessionID: SessionID.make("session_merge_reload_pwd"),
+        permission: "bash",
+        patterns: ["pwd"],
+        metadata: {},
+        always: ["pwd"],
+        ruleset,
+      })
+      expect(pwd).toBeUndefined()
     },
   })
 })

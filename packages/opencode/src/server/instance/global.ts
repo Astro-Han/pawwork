@@ -489,28 +489,28 @@ export function createGlobalRoutes(options: GlobalRoutesOptions = {}) {
         }),
       ),
       async (c) => {
+        const json = c.req.valid("json")
         const result = await AppRuntime.runPromise(
-          Installation.Service.use((svc) =>
-            Effect.gen(function* () {
-              const method = yield* svc.method()
-              if (method === "unknown") {
-                return { success: false as const, status: 400 as const, error: "Unknown installation method" }
-              }
+          Effect.gen(function* () {
+            const installation = yield* Installation.Service
+            const method = yield* installation.method()
+            if (method === "unknown") {
+              return { success: false as const, status: 400 as const, error: "Unknown installation method" }
+            }
 
-              const target = c.req.valid("json").target || (yield* svc.latest(method))
-              const result = yield* Effect.catch(
-                svc.upgrade(method, target).pipe(Effect.as({ success: true as const, version: target })),
-                (err) =>
-                  Effect.succeed({
-                    success: false as const,
-                    status: 500 as const,
-                    error: err instanceof Error ? err.message : String(err),
-                  }),
-              )
-              if (!result.success) return result
-              return { ...result, status: 200 as const }
-            }),
-          ),
+            const target = json.target || (yield* installation.latest(method))
+            const result = yield* Effect.catch(
+              installation.upgrade(method, target).pipe(Effect.as({ success: true as const, version: target })),
+              (err) =>
+                Effect.succeed({
+                  success: false as const,
+                  status: 500 as const,
+                  error: err instanceof Error ? err.message : String(err),
+                }),
+            )
+            if (!result.success) return result
+            return { ...result, status: 200 as const }
+          }),
         )
         if (!result.success) {
           return c.json({ success: false, error: result.error }, result.status)

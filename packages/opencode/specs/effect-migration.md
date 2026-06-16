@@ -255,20 +255,20 @@ This keeps migrated tool tests aligned with the production service graph today, 
 Individual tools, ordered by value:
 
 - [x] `apply_patch.ts` — HIGH: multi-step orchestration, error accumulation, Bus events
-- [ ] `bash.ts` — HIGH: shell orchestration, quoting, timeout handling, output capture
+- [x] `bash.ts` — HIGH: shell orchestration, quoting, timeout handling, output capture
 - [x] `read.ts` — HIGH: streaming I/O, readline, binary detection → FileSystem + Stream
-- [ ] `edit.ts` — HIGH: multi-step diff/format/publish pipeline, FileWatcher lock
+- [x] `edit.ts` — HIGH: multi-step diff/format/publish pipeline, FileWatcher lock
 - [x] `grep.ts` — MEDIUM: spawns ripgrep → ChildProcessSpawner, timeout handling
-- [ ] `write.ts` — MEDIUM: permission checks, diagnostics polling, Bus events
+- [x] `write.ts` — MEDIUM: permission checks, diagnostics polling, Bus events
 - [x] `webfetch.ts` — MEDIUM: fetch with UA retry, size limits → HttpClient
 - [x] `websearch.ts` — MEDIUM: MCP over HTTP → HttpClient
 - [ ] `batch.ts` — MEDIUM: parallel execution, per-call error recovery → Effect.all
 - [ ] `task.ts` — MEDIUM: task state management
 - [ ] `ls.ts` — MEDIUM: bounded directory listing over ripgrep-backed traversal
 - [x] `glob.ts` — LOW: simple async generator
-- [ ] `lsp.ts` — LOW: dispatch switch over LSP operations
+- [x] `lsp.ts` — LOW: dispatch switch over LSP operations
 - [ ] `question.ts` — LOW: prompt wrapper
-- [ ] `skill.ts` — LOW: skill tool adapter
+- [x] `skill.ts` — LOW: skill tool adapter
 - [ ] `todo.ts` — LOW: todo persistence wrapper
 - [ ] `invalid.ts` — LOW: invalid-tool fallback
 - [ ] `plan.ts` — LOW: plan file operations
@@ -285,7 +285,7 @@ Some already-effectified areas still use raw `Filesystem.*` or `Process.spawn` i
 
 ### `Process.spawn` → `ChildProcessSpawner` (yield in layer)
 
-- [ ] `format/formatter.ts` — 2 remaining `Process.spawn()` checks (`air`, `uv`)
+- [x] `format/formatter.ts` — formatter discovery now uses `AppFileSystem.Service` and `ChildProcessSpawner`
 - [ ] `lsp/server.ts` — multiple `Process.spawn()` installs/download helpers
 
 ## Filesystem consolidation
@@ -379,6 +379,17 @@ Decision table for the design:
 - `ApplyPatchTool` — migrated 2026-06-14. Tool body was already Effect-native; this follow-up moved `apply_patch.test.ts` off its local `ManagedRuntime` / Promise execute helper and onto the shared `testEffect(...).live` harness while preserving the defectified execute boundary coverage.
 - `GrepTool` / `GlobTool` — migrated 2026-06-14. Tool bodies were already Effect-native; this follow-up moved `grep.test.ts` and `glob.test.ts` off local `ManagedRuntime` / Promise init helpers and onto the shared `testEffect(...).live` harness with scoped instance fixtures.
 - `WebFetchTool` / `WebSearchTool` — migrated 2026-06-15. Tool bodies were already Effect-native and backed by `HttpClient`; this follow-up moved `webfetch.test.ts` and `websearch.test.ts` onto the shared `testEffect(...).live` harness while preserving the fake HTTP server/client behavior and existing assertion semantics.
+- `WriteTool` / `EditTool` / `LspTool` — checklist corrected 2026-06-15. Tool bodies already used named `Effect.fn(...execute)` boundaries and the shared `testEffect(...).live` harness; this follow-up verified the existing write/edit/lsp coverage and closed the stale checklist without code or test changes.
+- `ShellTool` / public `bash` tool — migrated 2026-06-15. The current tree exposes this tool from `tool/shell.ts` with public tool id `bash`; there is no standalone `bash.ts` file. The tool body already used named `Effect.fn(...)` boundaries, and this follow-up moved `shell.test.ts` off its local `ManagedRuntime` / `runtime.runPromise(...)` helper and onto an explicit `Effect.provide(testLayer)` runner that initializes and executes the tool inside the same Effect scope while preserving the shell behavior matrix.
+- `SkillTool` — migrated 2026-06-15. The tool body already used the named `Effect.fn("SkillTool.execute")` boundary; this follow-up moved the remaining `skill.test.ts` execute coverage off its local `ManagedRuntime` / `runtime.runPromise(...)` helper and onto an inline `Effect.scoped` + `Effect.provide(testLayer)` boundary, without changing skill discovery or ToolRegistry behavior.
+- Browser tool tests / `Tool.define` wrapper tests — migrated 2026-06-15. Browser tool bodies were already `Tool.define` + named `Effect.fn(...execute)` definitions, and `browser-shared.ts` already wrapped the CDP Promise boundary with `Effect.tryPromise`; this follow-up moved `browser-tools.test.ts` and `tool-define.test.ts` off their local `Effect.runPromise` / `ManagedRuntime` helpers and onto the shared `testEffect(...).live` harness while preserving fake CDP, permission, cancellation, and wrapper error-boundary assertions.
+- Light instance route handlers — migrated 2026-06-15. The `server/instance/permission.ts` e2e ask and list/prune handlers, `server/instance/session.ts` status and todo handlers, `server/instance/index.ts` raw/apply VCS handlers, and `server/instance/global.ts` upgrade handler now run their bodies through one `AppRuntime.runPromise(Effect.gen(...))` service injection path while preserving fire-and-forget logging, dangling-session pruning, VCS error mappings, and upgrade result handling. This does not claim full session, global, or heavy route migration.
+- MCP route handlers — migrated 2026-06-15. The current `server/instance/mcp.ts` operation handlers now run MCP service calls through `AppRuntime.runPromise(Effect.gen(...))` and `MCP.Service`, with route tests covering disabled local server add and non-OAuth auth 400 behavior. This does not change MCP service behavior, OAuth providers, or config schema.
+- Workspace route handlers — migrated 2026-06-15. The current `server/instance/workspace.ts` create/list/status/remove handlers now run through `AppRuntime.runPromise(Effect.gen(...))` and `Workspace.Service`, with route tests covering the public create/list/status/remove HTTP behavior, current-project status filtering, and legacy worktree bad-request error mapping.
+- Server routing/runtime helpers — migrated 2026-06-15. `server/proxy.ts` and `server/fence.ts` now read workspace connection status through `AppRuntime` and `Workspace.Service`, while `server/instance/workspace-routing.ts` resolves session-bound workspace ownership through the injected `Session.Service`. This keeps Hono routing behavior unchanged and leaves the service facades as legacy compatibility boundaries.
+- Session route facade stragglers — migrated 2026-06-15. The current `server/instance/session.ts` owner now routes the listed GET `/session`, share/unshare session fetches, summarize post-loop message check, and deprecated session permission response through `AppRuntime.runPromise(Effect.gen(...))` with `Session.Service` / `Permission.Service`. This only clears those route-owner stragglers; it does not claim full `server/routes/session.ts` migration and does not touch session processor, prompt, or run-state internals.
+- Session route service block — migrated 2026-06-15. The current `server/instance/session.ts` owner now routes session create/share/unshare, abort, init/command/shell/prompt/prompt_async/summarize loop, and revert/unrevert through `AppRuntime.runPromise(Effect.gen(...))` with `SessionShare.Service`, `SessionPrompt.Service`, and `SessionRevert.Service`. Route tests no longer spy on the legacy facades, and HTTP prompt routes still strip client-supplied `automationID`. The synchronous `MessageV2.get` route call remains direct because `MessageV2` has no suitable Effect service boundary in this file.
+- Experimental route boundary — migrated 2026-06-15. The current `server/instance/experimental.ts` owner now routes Console state/org switch, tool ids/list, worktree create/list/remove/reset, and MCP resources through named `Effect.fn(...)` route boundaries that yield `Config.Service`, `Account.Service`, `ToolRegistry.Service`, `Agent.Service`, `Worktree.Service`, and `MCP.Service`. The `/experimental/session` list route intentionally remains on the existing `Session.listGlobal(...)` async iterator because migrating it would broaden the slice into Session pagination/cursor internals.
 
 ## Route handler effectification
 
@@ -410,9 +421,10 @@ When migrating, always use `{ concurrency: "unbounded" }` with `Effect.all` — 
 
 Route files to convert (each handler that calls facades should be wrapped):
 
-- [ ] `server/routes/session.ts` — heaviest; uses Session, SessionPrompt, SessionRevert, SessionCompaction, SessionShare, SessionSummary, SessionRunState, Agent, Permission, Bus
+- [ ] `server/routes/session.ts` — heaviest; current owner is `server/instance/session.ts`. The 2026-06-15 straggler pass cleared GET `/session`, share/unshare `Session.get`, summarize `Session.messages`, and deprecated permission response `Permission.reply`; heavier SessionPrompt/SessionRevert/SessionShare/etc. route work remains out of scope.
 - [ ] `server/routes/global.ts` — uses Config, Project, Provider, Vcs, Snapshot, Agent
-- [ ] `server/routes/provider.ts` — uses Provider, Auth, Config
-- [ ] `server/routes/question.ts` — uses Question
-- [ ] `server/routes/pty.ts` — uses Pty
-- [ ] `server/routes/experimental.ts` — uses Account, ToolRegistry, Agent, MCP, Config
+- [x] `server/instance/provider.ts` — migrated 2026-06-15. Provider auth route bodies now yield `ProviderAuth.Service` inside `AppRuntime.runPromise(Effect.gen(...))`; the old `server/routes/provider.ts` checklist path is stale in the current tree.
+- [ ] `server/routes/question.ts` — stale checklist path. The current tree has no `server/instance/question.ts` route; do not claim completion without a live route owner.
+- [x] `server/instance/pty.ts` — migrated 2026-06-15. Connect-token and WebSocket connect route bodies now yield `Pty.Service` for target lookup and connection setup; the old `server/routes/pty.ts` checklist path is stale in the current tree.
+- [x] `server/instance/workspace.ts` — migrated 2026-06-15. Workspace create/list/status/remove handlers now yield `Workspace.Service`; status still lists the current project first and filters global workspace statuses by those ids.
+- [x] `server/instance/experimental.ts` — migrated 2026-06-15 for Console, tool, worktree, and MCP resource handlers. The old `server/routes/experimental.ts` checklist path is stale in the current tree. `/experimental/session` still calls `Session.listGlobal(...)` directly by design.

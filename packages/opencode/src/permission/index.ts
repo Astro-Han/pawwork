@@ -139,6 +139,9 @@ export namespace Permission {
   interface State {
     pending: Map<PermissionID, PendingEntry>
     approved: Ruleset
+    // Project this state belongs to, captured at load so reply() can persist
+    // newly approved "always" grants back to PermissionTable.
+    projectID: ProjectID
     // Tombstone of recently-resolved request IDs. A reply can cascade-resolve
     // sibling pending requests, so a client's own follow-up reply to one of
     // those would otherwise miss `pending` and look unknown. Remembering the ID
@@ -170,6 +173,21 @@ export namespace Permission {
     return evalRule(permission, pattern, ...rulesets)
   }
 
+  // Union two rulesets, dropping exact duplicates, existing entries first. Used
+  // to merge the persisted permission row with an instance's in-memory grants
+  // so neither side is lost and the row does not grow unboundedly.
+  function mergeRulesets(existing: Ruleset, incoming: Ruleset): Ruleset {
+    const key = (rule: Ruleset[number]) => JSON.stringify([rule.permission, rule.pattern, rule.action])
+    const seen = new Set(existing.map(key))
+    const merged = [...existing]
+    for (const rule of incoming) {
+      if (seen.has(key(rule))) continue
+      seen.add(key(rule))
+      merged.push(rule)
+    }
+    return merged
+  }
+
   export class Service extends Context.Service<Service, Interface>()("@opencode/Permission") {}
 
   export const layer = Layer.effect(
@@ -184,6 +202,7 @@ export namespace Permission {
           const state = {
             pending: new Map<PermissionID, PendingEntry>(),
             approved: row?.data ?? [],
+            projectID: ctx.project.id,
             resolved: new Set<PermissionID>(),
           }
 
@@ -271,7 +290,7 @@ export namespace Permission {
       })
 
       const reply = Effect.fn("Permission.reply")(function* (input: z.infer<typeof ReplyInput>) {
-        const { approved, pending, resolved } = yield* InstanceState.get(state)
+        const { approved, pending, resolved, projectID } = yield* InstanceState.get(state)
         const existing = pending.get(input.requestID)
         if (!existing) {
           // Already handled (most often as a cascade sibling of an earlier
@@ -317,6 +336,31 @@ export namespace Permission {
             permission: existing.info.permission,
             pattern,
             action: "allow",
+          })
+        }
+
+        // Persist the grant so "always allow" survives an instance reload / app
+        // restart. The approved list is loaded from this row at startup but was
+        // never written back, so before this every restart dropped all "always"
+        // grants and re-asked.
+        //
+        // Re-read and merge inside one synchronous use() callback rather than
+        // writing `approved` whole: several instances can share this project row
+        // (project id is the shared git-common-dir, so different worktrees or
+        // subdirectories of one repo resolve to the same row) while each keeps
+        // its own `approved` loaded at startup. Writing whole would clobber
+        // grants another instance persisted after we loaded; unioning the
+        // current row keeps every instance's grants. One process + a synchronous
+        // callback (no await between read and write) makes this atomic.
+        if (existing.info.always.length > 0) {
+          const now = Date.now()
+          Database.use((db) => {
+            const current = db.select().from(PermissionTable).where(eq(PermissionTable.project_id, projectID)).get()
+            const data = mergeRulesets(current?.data ?? [], approved)
+            db.insert(PermissionTable)
+              .values({ project_id: projectID, data, time_created: now, time_updated: now })
+              .onConflictDoUpdate({ target: PermissionTable.project_id, set: { data, time_updated: now } })
+              .run()
           })
         }
 
@@ -417,18 +461,43 @@ export namespace Permission {
 
   const EDIT_TOOLS = ["edit", "write", "apply_patch"]
 
+  // Permission keys the opencli group asks at execution (read vs write commands).
+  const OPENCLI_KEYS = ["opencli_read", "opencli_write"]
+
+  // True when the key's last-matching rule is a `*` deny — the same last-match
+  // convention the non-opencli path below uses. `disabled()` is only a cosmetic
+  // visibility gate, so it must never hide a usable tool; a false *show* is
+  // harmless (execution still denies). That rules out the tempting
+  // `evaluate(key, "*").action === "deny"` shortcut: querying the literal value
+  // "*" only sees the baseline rule, so `{ "*": deny, "x": allow }` would report
+  // denied and wrongly hide a group that can still run `x`. This check returns
+  // false there, keeping the group visible. Its only imperfection is the inverse
+  // — a redundant `{ "*": deny, "x": deny }` leaves the group cosmetically shown
+  // though fully denied — which execution corrects on first use.
+  function isWildcardDeny(permission: string, ruleset: Ruleset): boolean {
+    const rule = ruleset.findLast((entry) => Wildcard.match(permission, entry.permission))
+    return rule?.pattern === "*" && rule.action === "deny"
+  }
+
   export function disabled(tools: string[], ruleset: Ruleset): Set<string> {
     const result = new Set<string>()
     for (const tool of tools) {
-      // Browser-backed tools all ask the `browser` permission key, so a
-      // configured `permission.browser: deny` disables the whole set (hiding
-      // their deferred cards and repair hints, not just denying the eventual ask).
-      const permission = EDIT_TOOLS.includes(tool)
-        ? "edit"
-        : tool.startsWith("browser_") || tool.startsWith("opencli_")
-          ? "browser"
-          : tool
-      const rule = ruleset.findLast((rule) => Wildcard.match(permission, rule.permission))
+      // The opencli group (opencli_search + opencli_run) gates on its own
+      // opencli_read / opencli_write keys, never on "browser" — browser rules
+      // are URL-scoped, opencli rules are command-name-scoped, so conflating
+      // them let a `browser` rule appear to govern opencli while execution
+      // ignored it. Hide the group only when BOTH read and write are a
+      // configured `*: deny`; with either half allowed an adapter is still
+      // runnable, so the discovery + run tools stay.
+      if (tool.startsWith("opencli_")) {
+        if (OPENCLI_KEYS.every((key) => isWildcardDeny(key, ruleset))) result.add(tool)
+        continue
+      }
+      // Browser tools all ask the `browser` permission key, so a configured
+      // `permission.browser: deny` disables the whole set (hiding their deferred
+      // cards and repair hints, not just denying the eventual ask).
+      const permission = EDIT_TOOLS.includes(tool) ? "edit" : tool.startsWith("browser_") ? "browser" : tool
+      const rule = ruleset.findLast((entry) => Wildcard.match(permission, entry.permission))
       if (!rule) continue
       if (rule.pattern === "*" && rule.action === "deny") result.add(tool)
     }

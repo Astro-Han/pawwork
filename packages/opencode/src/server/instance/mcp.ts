@@ -64,7 +64,12 @@ export const McpRoutes = lazy(() =>
       ),
       async (c) => {
         const { name, config } = c.req.valid("json")
-        const result = await MCP.add(name, config)
+        const result = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const mcp = yield* MCP.Service
+            return yield* mcp.add(name, config)
+          }),
+        )
         return c.json(result.status)
       },
     )
@@ -92,12 +97,19 @@ export const McpRoutes = lazy(() =>
       }),
       async (c) => {
         const name = c.req.param("name")
-        const supportsOAuth = await MCP.supportsOAuth(name)
-        if (!supportsOAuth) {
+        const result = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const mcp = yield* MCP.Service
+            const supportsOAuth = yield* mcp.supportsOAuth(name)
+            if (!supportsOAuth) return { type: "unsupported" as const }
+            const { authorizationUrl, oauthState } = yield* mcp.startAuth(name)
+            return { type: "started" as const, authorizationUrl, oauthState }
+          }),
+        )
+        if (result.type === "unsupported") {
           return c.json({ error: `MCP server ${name} does not support OAuth` }, 400)
         }
-        const result = await MCP.startAuth(name)
-        return c.json(result)
+        return c.json({ authorizationUrl: result.authorizationUrl, oauthState: result.oauthState })
       },
     )
     .post(
@@ -128,7 +140,12 @@ export const McpRoutes = lazy(() =>
       async (c) => {
         const name = c.req.param("name")
         const { code } = c.req.valid("json")
-        const status = await MCP.finishAuth(name, code)
+        const status = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const mcp = yield* MCP.Service
+            return yield* mcp.finishAuth(name, code)
+          }),
+        )
         return c.json(status)
       },
     )
@@ -152,12 +169,19 @@ export const McpRoutes = lazy(() =>
       }),
       async (c) => {
         const name = c.req.param("name")
-        const supportsOAuth = await MCP.supportsOAuth(name)
-        if (!supportsOAuth) {
+        const result = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const mcp = yield* MCP.Service
+            const supportsOAuth = yield* mcp.supportsOAuth(name)
+            if (!supportsOAuth) return { type: "unsupported" as const }
+            const status = yield* mcp.authenticate(name)
+            return { type: "authenticated" as const, status }
+          }),
+        )
+        if (result.type === "unsupported") {
           return c.json({ error: `MCP server ${name} does not support OAuth` }, 400)
         }
-        const status = await MCP.authenticate(name)
-        return c.json(status)
+        return c.json(result.status)
       },
     )
     .delete(
@@ -180,7 +204,12 @@ export const McpRoutes = lazy(() =>
       }),
       async (c) => {
         const name = c.req.param("name")
-        await MCP.removeAuth(name)
+        await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const mcp = yield* MCP.Service
+            yield* mcp.removeAuth(name)
+          }),
+        )
         return c.json({ success: true as const })
       },
     )
@@ -204,7 +233,12 @@ export const McpRoutes = lazy(() =>
       validator("param", z.object({ name: z.string() })),
       async (c) => {
         const { name } = c.req.valid("param")
-        await MCP.connect(name)
+        await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const mcp = yield* MCP.Service
+            yield* mcp.connect(name)
+          }),
+        )
         return c.json(true)
       },
     )
@@ -227,7 +261,12 @@ export const McpRoutes = lazy(() =>
       validator("param", z.object({ name: z.string() })),
       async (c) => {
         const { name } = c.req.valid("param")
-        await MCP.disconnect(name)
+        await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const mcp = yield* MCP.Service
+            yield* mcp.disconnect(name)
+          }),
+        )
         return c.json(true)
       },
     ),

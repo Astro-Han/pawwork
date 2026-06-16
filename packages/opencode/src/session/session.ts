@@ -80,6 +80,15 @@ type GlobalListRow = SessionRow & {
   lastUserMessageAt?: number | null
 }
 type ProjectFallback = { worktree?: string | null; vcs?: string | null }
+type ListInput = {
+  directory?: string
+  workspaceID?: WorkspaceID
+  roots?: boolean
+  start?: number
+  search?: string
+  limit?: number
+  sort?: SessionListSort
+}
 
 function legacyExecutionContext(row: SessionRow, project: ProjectFallback | undefined) {
   const ownerDirectoryRaw = project?.vcs === "git" ? (project.worktree ?? row.directory) : row.directory
@@ -514,6 +523,7 @@ export interface Interface {
   }) => Effect.Effect<Info>
   readonly fork: (input: { sessionID: SessionID; messageID?: MessageID }) => Effect.Effect<Info>
   readonly touch: (sessionID: SessionID) => Effect.Effect<void>
+  readonly list: (input?: ListInput) => Effect.Effect<Info[]>
   readonly get: (id: SessionID) => Effect.Effect<Info>
   readonly setTitle: (input: { sessionID: SessionID; title: string }) => Effect.Effect<void>
   readonly setArchived: (input: { sessionID: SessionID; time?: number }) => Effect.Effect<void>
@@ -679,6 +689,11 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
           )
         : undefined
       return fromRow(row, project)
+    })
+
+    const list = Effect.fn("Session.list")(function* (input?: ListInput) {
+      const ctx = yield* InstanceState.context
+      return yield* Effect.sync(() => listForProject(ctx.project, input))
     })
 
     const children = Effect.fn("Session.children")(function* (parentID: SessionID) {
@@ -1143,6 +1158,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
       getPart,
       updatePartDelta,
       findMessage,
+      list,
     })
   }),
 )
@@ -1233,16 +1249,7 @@ const activitySelect = {
   lastUserMessageAt: lastUserMessageAtExpr,
 }
 
-export function* list(input?: {
-  directory?: string
-  workspaceID?: WorkspaceID
-  roots?: boolean
-  start?: number
-  search?: string
-  limit?: number
-  sort?: SessionListSort
-}) {
-  const project = Instance.project
+function listForProject(project: { id: ProjectID }, input?: ListInput) {
   const conditions = [eq(SessionTable.project_id, project.id)]
 
   if (input?.workspaceID) {
@@ -1286,9 +1293,11 @@ export function* list(input?: {
     )
     for (const item of items) projects.set(item.id, item)
   }
-  for (const row of rows) {
-    yield fromRow(row, projects.get(row.project_id))
-  }
+  return rows.map((row) => fromRow(row, projects.get(row.project_id)))
+}
+
+export function* list(input?: ListInput) {
+  yield* listForProject(Instance.project, input)
 }
 
 export function* listGlobal(input?: {

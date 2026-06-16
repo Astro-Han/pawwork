@@ -514,6 +514,39 @@ describe("session messages endpoint", () => {
 })
 
 describe("session.prompt_async error handling", () => {
+  test("prompt route strips client-supplied automation provenance", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await withoutWatcher(() =>
+      Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const session = await svc.create({})
+          const app = Server.Default().app
+
+          const res = await app.request(`/session/${session.id}/message`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              automationID: "run_forged",
+              noReply: true,
+              model: { providerID: "test", modelID: "test" },
+              parts: [{ type: "text", text: "hello" }],
+            }),
+          })
+          expect(res.status).toBe(200)
+          const body = JSON.parse(await res.text()) as MessageV2.WithParts
+          expect(body.info.role).toBe("user")
+          expect((body.info as { automationID?: string }).automationID).toBeUndefined()
+
+          const persisted = (await svc.messages({ sessionID: session.id })).find((msg) => msg.info.id === body.info.id)
+          expect((persisted?.info as { automationID?: string } | undefined)?.automationID).toBeUndefined()
+
+          await svc.remove(session.id)
+        },
+      }),
+    )
+  })
+
   test("prompt_async route has error handler for detached prompt call", async () => {
     const src = await Bun.file(new URL("../../src/server/instance/session.ts", import.meta.url)).text()
     const start = src.indexOf('"/:sessionID/prompt_async"')
