@@ -1,5 +1,5 @@
 import { mkdir, readFile, rename, writeFile, unlink } from "node:fs/promises"
-import { dirname } from "node:path"
+import { dirname, resolve } from "node:path"
 
 // Process-wide so two stores sharing a path (same pid) never collide on a temp
 // name or rename over the same state file at the same time.
@@ -24,7 +24,7 @@ export class SessionPointers {
   private cursor = ""
 
   constructor(path = "") {
-    this.path = path
+    this.path = path === "" ? "" : resolve(path)
   }
 
   static memory(): SessionPointers {

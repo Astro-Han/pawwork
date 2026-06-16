@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test"
 import { mkdtemp, readdir, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { basename, dirname, join } from "node:path"
 import { SessionPointers } from "./session-pointers.ts"
 
 async function tempFile(name = "sessions.json"): Promise<string> {
@@ -62,6 +62,27 @@ test("concurrent writes from two stores leave a valid state with no temp leftove
   await expect(SessionPointers.fromFile(path)).resolves.toBeDefined()
   const leftovers = (await readdir(join(path, ".."))).filter((f) => f.endsWith(".tmp"))
   expect(leftovers).toEqual([])
+})
+
+test("write queue treats relative and absolute paths as the same state file", async () => {
+  const path = await tempFile()
+  const cwd = process.cwd()
+  process.chdir(dirname(path))
+  try {
+    const first = await SessionPointers.fromFile(basename(path))
+    const second = await SessionPointers.fromFile(path)
+    const writes: Promise<void>[] = []
+    for (let n = 0; n < 100; n++) {
+      writes.push(first.set(`feishu:dm:relative-${n}`, `ses_relative_${n}`))
+      writes.push(second.set(`feishu:dm:absolute-${n}`, `ses_absolute_${n}`))
+    }
+    await Promise.all(writes)
+    await expect(SessionPointers.fromFile(path)).resolves.toBeDefined()
+    const leftovers = (await readdir(dirname(path))).filter((f) => f.endsWith(".tmp"))
+    expect(leftovers).toEqual([])
+  } finally {
+    process.chdir(cwd)
+  }
 })
 
 // POSIX-only: Windows does not carry owner/group/other mode bits.
