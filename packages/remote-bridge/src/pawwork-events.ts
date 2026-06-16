@@ -218,7 +218,7 @@ export function questionUpdateFromEvent(props: any, directory: string): Question
         options: Array.isArray(q?.options)
           ? q.options.map((o: any): QuestionOptionLike => ({ label: o?.label ?? "", description: o?.description ?? "" }))
           : [],
-        multiple: Boolean(q?.multiple),
+        multiple: q?.multiple ?? false,
       }))
     : []
   return {
@@ -235,6 +235,9 @@ type QuestionOptionLike = { label: string; description: string }
 function questionHasWrongTypes(question: any): boolean {
   if (question?.header !== undefined && typeof question.header !== "string") return true
   if (question?.question !== undefined && typeof question.question !== "string") return true
+  // Go's `Multiple bool` rejects a string like "false"; Boolean("false") is true,
+  // which would flip a single-select question to multi-select. Reconcile instead.
+  if (question?.multiple !== undefined && typeof question.multiple !== "boolean") return true
   if (question?.options === undefined) return false
   if (!Array.isArray(question.options)) return true
   return question.options.some(

@@ -175,6 +175,19 @@ test("reconciles a ready question whose nested field is the wrong type", async (
   expect(calls.questions).toEqual([])
 })
 
+test("reconciles a ready question whose multiple flag is not a boolean", async () => {
+  const { handler, calls } = recorder()
+  // Boolean("false") would be true; Go's `Multiple bool` unmarshal rejects it, so
+  // reconcile rather than silently flip a single-select question to multi-select.
+  await expect(
+    dispatchEvent(
+      { payload: { type: "message.part.updated", properties: { part: { type: "tool", sessionID: "ses_1", messageID: "msg_1", callID: "call_1", tool: "question", state: { status: "running", metadata: { externalResultReady: true }, input: { questions: [{ question: "Pick", multiple: "false", options: [] }] } } } } } },
+      handler,
+    ),
+  ).rejects.toThrow()
+  expect(calls.questions).toEqual([])
+})
+
 test("cancels the stream reader when an event handler throws", async () => {
   // A thrown dispatch/reconcile error must abandon the connection (Go's deferred
   // Body.Close), not just release the lock, so the stream cannot leak on error.
