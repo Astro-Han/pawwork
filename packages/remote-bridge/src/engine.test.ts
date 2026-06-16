@@ -708,11 +708,14 @@ test("coalesces concurrent first-message session creation for one key (stricter 
   // split into two with the first orphaned. Deliberately stricter than Go.
   let release!: () => void
   const gate = new Promise<void>((resolve) => (release = resolve))
+  let enterCreate!: () => void
+  const createEntered = new Promise<void>((resolve) => (enterCreate = resolve))
   let creates = 0
   const prompts: { sessionID: string; text: string }[] = []
   const sidecar: Sidecar = {
     async createSession() {
       creates += 1
+      enterCreate() // first creator has registered the in-flight promise and parked here
       await gate
       return `ses_${creates}`
     },
@@ -734,7 +737,10 @@ test("coalesces concurrent first-message session creation for one key (stricter 
 
   const first = engine.handleMessage(platform, message("hello"))
   const second = engine.handleMessage(platform, message("world"))
-  await new Promise((resolve) => setTimeout(resolve, 5))
+  // Park on createSession deterministically instead of sleeping: by FIFO
+  // microtask order the second message has already attached to the in-flight
+  // promise once the first has entered createSession.
+  await createEntered
   release()
   await Promise.all([first, second])
 
@@ -755,9 +761,12 @@ test("restoreDelivery prefers a root active target set during reconstruct (stric
 
   let release!: () => void
   const gate = new Promise<void>((resolve) => (release = resolve))
+  let enterReconstruct!: () => void
+  const reconstructEntered = new Promise<void>((resolve) => (enterReconstruct = resolve))
   class GatedPlatform extends FakePlatform {
     override async reconstructReplyCtx(remoteKey: string): Promise<unknown> {
       this.reconstructKey = remoteKey
+      enterReconstruct() // parked inside reconstruct; the root can now be made active
       await gate
       return "restored"
     }
@@ -768,7 +777,7 @@ test("restoreDelivery prefers a root active target set during reconstruct (stric
   // No active target for the child yet → handleAssistantText enters
   // restoreDelivery and parks on the reconstruct gate.
   const deliver = engine.handleAssistantText("ses_child", "hi")
-  await new Promise((resolve) => setTimeout(resolve, 5))
+  await reconstructEntered
   // Meanwhile a user message makes the root active with a live reply target.
   await engine.handleMessage(platform, { content: "ping", sessionKey: "chat:room:alice", replyCtx: "live-ctx" })
   release()
