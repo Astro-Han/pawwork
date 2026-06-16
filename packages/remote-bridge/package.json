@@ -9,7 +9,8 @@
   },
   "scripts": {
     "typecheck": "tsgo --noEmit",
-    "test": "bun test"
+    "test": "bun test ./src",
+    "test:ci": "mkdir -p .artifacts/unit && bun test ./src --reporter=junit --reporter-outfile=.artifacts/unit/junit.xml"
   },
   "devDependencies": {
     "typescript": "catalog:",
