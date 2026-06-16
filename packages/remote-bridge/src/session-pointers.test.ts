@@ -64,6 +64,17 @@ test("concurrent writes from two stores leave a valid state with no temp leftove
   expect(leftovers).toEqual([])
 })
 
+test("file store loads the legacy bare-map format written by an early build", async () => {
+  const path = await tempFile()
+  // Pre-wrapper builds persisted just {"<remoteKey>":"<sessionID>"}; an upgrade
+  // must keep those bindings instead of silently starting empty.
+  await writeFile(path, JSON.stringify({ "feishu:dm:alice": "ses_1", "slack:dm:bob": "ses_2" }))
+
+  const pointers = await SessionPointers.fromFile(path)
+  expect(pointers.get("feishu:dm:alice")).toBe("ses_1")
+  expect(pointers.get("slack:dm:bob")).toBe("ses_2")
+})
+
 test("file store persists the event cursor alongside sessions", async () => {
   const path = await tempFile()
   const pointers = await SessionPointers.fromFile(path)

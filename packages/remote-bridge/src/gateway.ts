@@ -144,8 +144,12 @@ export class App {
 
       await this.hydrate(childSignal)
 
-      const platformRuns = this.startPlatforms(childSignal, failure)
-      await Promise.race([onAbort(childSignal), failure.promise, Promise.all(platformRuns)])
+      // Errors from a platform's start() route to `failure` inside startPlatforms.
+      // Like Go's Run, stay up until abort or a fatal error even if every
+      // platform's start() resolves on its own — a clean self-stop is not a reason
+      // to tear the bridge down.
+      this.startPlatforms(childSignal, failure)
+      await Promise.race([onAbort(childSignal), failure.promise])
     } catch (err) {
       // An abort is a requested stop, not a failure: any error it triggered
       // mid-hydrate or mid-stream is swallowed, matching Go's `<-ctx.Done()`.

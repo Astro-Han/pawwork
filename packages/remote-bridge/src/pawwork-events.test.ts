@@ -136,3 +136,16 @@ test("ignores a question before externalResultReady", async () => {
   )
   expect(calls.questions).toEqual([])
 })
+
+test("reconciles a ready question whose questions field is the wrong type", async () => {
+  const { handler, calls } = recorder()
+  // A wrong-typed `questions` (string, not array) is undecodable — surface a
+  // repairable error so the caller reconciles, never an empty-question prompt.
+  await expect(
+    dispatchEvent(
+      { payload: { type: "message.part.updated", properties: { part: { type: "tool", sessionID: "ses_1", messageID: "msg_1", callID: "call_1", tool: "question", state: { status: "running", metadata: { externalResultReady: true }, input: { questions: "Pick one" } } } } } },
+      handler,
+    ),
+  ).rejects.toThrow()
+  expect(calls.questions).toEqual([])
+})

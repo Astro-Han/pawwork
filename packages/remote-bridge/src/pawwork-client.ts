@@ -165,6 +165,12 @@ export class PawWorkClient implements Sidecar {
       }
       for (const data of raw) {
         const update = questionUpdateFromEvent(data, directory)
+        // An undecodable question row is a protocol violation, not a transient
+        // per-directory blip: surface it (Go returned the error) so a pending
+        // external question is never silently dropped during hydrate.
+        if (update.kind === "incomplete") {
+          throw new Error("remote bridge: undecodable question in /external-result")
+        }
         if (update.kind === "pending") questions.push(update.question)
       }
     }

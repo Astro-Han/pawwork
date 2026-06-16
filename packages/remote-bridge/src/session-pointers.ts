@@ -42,14 +42,19 @@ export class SessionPointers {
       throw err
     }
     if (data.trim() === "") return store
-    const state = JSON.parse(data) as {
-      sessions?: Record<string, string>
-      parents?: Record<string, string>
-      eventCursor?: string
+    const parsed = JSON.parse(data) as Record<string, unknown>
+    const isWrapped = parsed.sessions !== undefined || parsed.parents !== undefined || parsed.eventCursor !== undefined
+    if (isWrapped) {
+      const state = parsed as { sessions?: Record<string, string>; parents?: Record<string, string>; eventCursor?: string }
+      if (state.sessions) store.sessions = new Map(Object.entries(state.sessions))
+      if (state.parents) store.parents = new Map(Object.entries(state.parents))
+      store.cursor = state.eventCursor ?? ""
+    } else {
+      // Legacy bare-map format ({"<remoteKey>":"<sessionID>"}) written by an
+      // early build. Match the Go loader's fallback so an upgrade keeps its
+      // chat-to-session bindings instead of silently starting empty.
+      store.sessions = new Map(Object.entries(parsed as Record<string, string>))
     }
-    if (state.sessions) store.sessions = new Map(Object.entries(state.sessions))
-    if (state.parents) store.parents = new Map(Object.entries(state.parents))
-    store.cursor = state.eventCursor ?? ""
     return store
   }
 

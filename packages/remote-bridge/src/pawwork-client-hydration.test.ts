@@ -24,23 +24,22 @@ function recorder() {
 }
 
 test("replyPermission and submitQuestion post the expected bodies and directory", async () => {
-  let permissionBody: any
-  let questionBody: any
-  let permissionDirectory: string | null = null
-  let questionDirectory: string | null = null
+  // A holder object, not bare `let`s: tsgo would narrow a closure-assigned
+  // `let x: string | null = null` back to `null` at the assertions below.
+  const seen: { permissionBody?: any; questionBody?: any; permissionDirectory?: string | null; questionDirectory?: string | null } = {}
   const server = Bun.serve({
     port: 0,
     async fetch(req) {
       const url = new URL(req.url)
       const body = await req.json().catch(() => undefined)
       if (url.pathname === "/permission/perm_1/reply") {
-        permissionDirectory = req.headers.get("x-opencode-directory")
-        permissionBody = body
+        seen.permissionDirectory = req.headers.get("x-opencode-directory")
+        seen.permissionBody = body
         return json(true)
       }
       if (url.pathname === "/session/ses_1/tool/respond") {
-        questionDirectory = req.headers.get("x-opencode-directory")
-        questionBody = body
+        seen.questionDirectory = req.headers.get("x-opencode-directory")
+        seen.questionBody = body
         return json({ status: "ok" })
       }
       return json(null)
@@ -52,18 +51,18 @@ test("replyPermission and submitQuestion post the expected bodies and directory"
       { id: "perm_1", sessionID: "ses_1", permission: "", patterns: [], directory: "/repo/interactions" },
       { reply: "once", message: "go" },
     )
-    expect(permissionBody).toEqual({ reply: "once", message: "go" })
-    expect(permissionDirectory).toBe("/repo/interactions")
+    expect(seen.permissionBody).toEqual({ reply: "once", message: "go" })
+    expect(seen.permissionDirectory).toBe("/repo/interactions")
 
     await client.submitQuestion(
       { sessionID: "ses_1", messageID: "msg_1", callID: "call_1", questions: [], directory: "/repo/interactions" },
       [["A"]],
     )
-    expect(questionBody.kind).toBe("submit")
-    expect(questionBody.messageID).toBe("msg_1")
-    expect(questionBody.callID).toBe("call_1")
-    expect(questionBody.payload).toEqual({ answers: [["A"]] })
-    expect(questionDirectory).toBe("/repo/interactions")
+    expect(seen.questionBody.kind).toBe("submit")
+    expect(seen.questionBody.messageID).toBe("msg_1")
+    expect(seen.questionBody.callID).toBe("call_1")
+    expect(seen.questionBody.payload).toEqual({ answers: [["A"]] })
+    expect(seen.questionDirectory).toBe("/repo/interactions")
   } finally {
     server.stop(true)
   }
@@ -129,6 +128,30 @@ test("listPermissions and listQuestions map fields and reuse the session directo
     expect(questions[0].questions[0].options[1].label).toBe("B")
     expect(questions[0].directory).toBe("/repo/a")
     expect(questionDirectories).toEqual(["/repo/a"])
+  } finally {
+    server.stop(true)
+  }
+})
+
+test("listQuestions surfaces an undecodable row rather than dropping a pending question", async () => {
+  const server = Bun.serve({
+    port: 0,
+    fetch(req) {
+      const url = new URL(req.url)
+      if (url.pathname === "/experimental/session") return json([{ id: "ses_1", directory: "/repo/a" }])
+      if (url.pathname === "/external-result")
+        // A question row missing callID is undecodable — a protocol violation,
+        // not a transient blip — so hydrate must surface it, never skip it.
+        return json([
+          { part: { type: "tool", sessionID: "ses_1", messageID: "msg_1", tool: "question", state: { status: "running", metadata: { externalResultReady: true } } } },
+        ])
+      return json(null)
+    },
+  })
+  try {
+    const client = new PawWorkClient({ baseURL: `http://localhost:${server.port}` })
+    await client.listSessions(5)
+    await expect(client.listQuestions()).rejects.toThrow()
   } finally {
     server.stop(true)
   }

@@ -196,8 +196,14 @@ export function questionUpdateFromEvent(props: any, directory: string): Question
     return { kind: "resolved", resolution }
   }
   if (!part.state?.metadata?.externalResultReady) return { kind: "none" }
-  const questions: Question[] = Array.isArray(part.state?.input?.questions)
-    ? part.state.input.questions.map((q: any): Question => ({
+  // Strict decode, mirroring Go's typed unmarshal and the permission.asked
+  // patterns guard: a wrong-typed questions field is undecodable, not a lenient
+  // coercion — signal incomplete so the caller reconciles instead of surfacing
+  // an empty-question prompt.
+  const rawQuestions = part.state?.input?.questions
+  if (rawQuestions !== undefined && !Array.isArray(rawQuestions)) return { kind: "incomplete" }
+  const questions: Question[] = Array.isArray(rawQuestions)
+    ? rawQuestions.map((q: any): Question => ({
         header: q?.header ?? "",
         question: q?.question ?? "",
         options: Array.isArray(q?.options)
