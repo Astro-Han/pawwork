@@ -46,7 +46,9 @@ export function safeStorageCredentialStore(): CredentialStore {
         const plain = safeStorage.decryptString(Buffer.from(envelope.cipher, "base64"))
         const parsed = JSON.parse(plain) as RemoteCredentials
         if (!parsed?.token || !parsed?.allowFrom) return null
-        return { token: parsed.token, allowFrom: parsed.allowFrom }
+        // userName is the non-secret display name approved at pairing; without it
+        // the settings page falls back to the raw user id after a restart.
+        return { token: parsed.token, allowFrom: parsed.allowFrom, userName: parsed.userName }
       } catch {
         // A corrupt or undecryptable file (e.g. moved between machines) is
         // treated as "not connected" rather than crashing startup.
