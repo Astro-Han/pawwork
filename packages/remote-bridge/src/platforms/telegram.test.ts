@@ -254,6 +254,51 @@ test("captureFirstSender returns null when the signal aborts first", async () =>
   }
 })
 
+test("captureFirstSender retries a transient final ack so the pairing message is not replayed", async () => {
+  // A hand-rolled server so we can fail one specific call: the final ack of the
+  // captured message. offset 0 is hit twice (empty drain, then the wait loop that
+  // returns the pairing message); offset 11 acks update 10 — fail it once
+  // (transient 500), then succeed. The retry is what actually acks the message;
+  // if it were swallowed, the steady-state bridge (which polls from offset 0)
+  // would hand the pairing text back as the user's first prompt.
+  let zeroPolls = 0
+  let ackAttempts = 0
+  const offsets: number[] = []
+  const server = Bun.serve({
+    port: 0,
+    async fetch(req) {
+      const method = new URL(req.url).pathname.split("/").pop() ?? ""
+      const body: any = await req.json().catch(() => ({}))
+      if (method === "getMe") return json({ ok: true, result: { id: 1, username: "bot" } })
+      if (method !== "getUpdates") return json({ ok: true, result: {} })
+      const offset = Number(body.offset ?? 0)
+      offsets.push(offset)
+      if (offset === 0) {
+        zeroPolls++
+        return json({ ok: true, result: zeroPolls === 1 ? [] : [update(10, 42, "pair me")] })
+      }
+      if (offset === 11) {
+        ackAttempts++
+        if (ackAttempts === 1) return json({ ok: false, error_code: 500, description: "transient" })
+        return json({ ok: true, result: [] })
+      }
+      return json({ ok: true, result: [] })
+    },
+  })
+  try {
+    const poller = new TelegramPoller("t", `http://localhost:${server.port}`)
+    poller.pollRetryMs = 0
+    const captured = await captureFirstSender(poller, new AbortController().signal)
+    expect(captured).toEqual({ userId: "42", userName: "u42" })
+    // The ack was retried after the transient failure (not swallowed): two calls
+    // at offset 11, so update 10 is acked and cannot be replayed to the bridge.
+    expect(ackAttempts).toBe(2)
+    expect(offsets.filter((o) => o === 11)).toEqual([11, 11])
+  } finally {
+    server.stop(true)
+  }
+})
+
 test("start() rejects on an invalid token so the gateway can surface it", async () => {
   const server = Bun.serve({
     port: 0,

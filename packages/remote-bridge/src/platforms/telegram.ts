@@ -338,6 +338,32 @@ export interface CapturedSender {
 }
 
 /**
+ * One getUpdates call with transient-failure backoff, for pairing. Returns the
+ * updates, or null if the signal aborts (the caller treats that as cancelled). A
+ * fatal Bot API error (bad/blocked token) is rethrown — retrying cannot fix it.
+ * Shared by the backlog drain, the capture wait, and the final ack so a transient
+ * blip never silently skips the ack and lets the bridge replay the pairing message.
+ */
+async function getUpdatesWithRetry(
+  poller: TelegramPoller,
+  offset: number,
+  signal: AbortSignal,
+  timeoutS: number,
+): Promise<any[] | null> {
+  while (!signal.aborted) {
+    try {
+      return await poller.getUpdates(offset, signal, timeoutS)
+    } catch (err) {
+      if (signal.aborted) return null
+      if (isFatalTelegramError(err)) throw err
+      const backoff = err instanceof TelegramApiError && err.retryAfterMs ? err.retryAfterMs : poller.pollRetryMs
+      await sleep(backoff, signal)
+    }
+  }
+  return null
+}
+
+/**
  * Pairing primitive: identify who is allowed to drive the bridge by capturing
  * the first private message sent AFTER pairing begins. Used main-only by the
  * connect flow before any `allow_from` exists, so it must run on its OWN poller
@@ -360,37 +386,23 @@ export async function captureFirstSender(poller: TelegramPoller, signal: AbortSi
   // Loop immediate polls (timeout 0) until one returns empty — each advances and
   // acks the offset past what it drained.
   while (!signal.aborted) {
-    let backlog: any[]
-    try {
-      backlog = await poller.getUpdates(offset, signal, 0)
-    } catch (err) {
-      if (signal.aborted) return null
-      if (isFatalTelegramError(err)) throw err
-      const backoff = err instanceof TelegramApiError && err.retryAfterMs ? err.retryAfterMs : poller.pollRetryMs
-      await sleep(backoff, signal)
-      continue
-    }
+    const backlog = await getUpdatesWithRetry(poller, offset, signal, 0)
+    if (backlog === null) return null // aborted while draining
     if (backlog.length === 0) break
     for (const update of backlog) offset = Math.max(offset, Number(update?.update_id ?? offset - 1) + 1)
   }
 
   while (!signal.aborted) {
-    let updates: any[]
-    try {
-      updates = await poller.getUpdates(offset, signal)
-    } catch (err) {
-      if (signal.aborted) return null
-      if (isFatalTelegramError(err)) throw err
-      const backoff = err instanceof TelegramApiError && err.retryAfterMs ? err.retryAfterMs : poller.pollRetryMs
-      await sleep(backoff, signal)
-      continue
-    }
+    const updates = await getUpdatesWithRetry(poller, offset, signal, POLL_TIMEOUT_S)
+    if (updates === null) return null // aborted while waiting
     for (const update of updates) {
       offset = Math.max(offset, Number(update?.update_id ?? offset - 1) + 1)
       const norm = normalizeUpdate(update)
       if (norm?.isPrivate) {
-        // Ack the captured message so the real bridge's fresh poll won't see it.
-        await poller.getUpdates(offset, signal, 0).catch(() => [])
+        // Ack the captured message so the real bridge's fresh poll won't replay it
+        // as a prompt. Retry transient failures: a swallowed ack here is the
+        // difference between a clean handoff and the pairing message resurfacing.
+        if ((await getUpdatesWithRetry(poller, offset, signal, 0)) === null) return null // aborted mid-ack
         return { userId: norm.userId, userName: norm.userName }
       }
     }
