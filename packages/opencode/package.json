@@ -73,7 +73,7 @@
     "typescript": "catalog:",
     "vscode-languageserver-types": "3.17.5",
     "why-is-node-running": "3.2.2",
-    "ws": "8.20.0",
+    "ws": "8.21.0",
     "zod-to-json-schema": "3.24.5"
   },
   "dependencies": {
