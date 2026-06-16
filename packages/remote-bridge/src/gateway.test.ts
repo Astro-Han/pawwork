@@ -47,12 +47,15 @@ class FakePlatform implements Platform {
 
   constructor(
     readonly name: string,
-    private readonly opts: { sendErr?: Error; streamConnected?: () => boolean } = {},
+    private readonly opts: { sendErr?: Error; streamConnected?: () => boolean; startResolvesImmediately?: boolean } = {},
   ) {}
 
   async start(_handler: MessageHandler): Promise<void> {
     this.startedAfterStream = this.opts.streamConnected ? this.opts.streamConnected() : false
     this.started.resolve()
+    // An event-driven adapter may register its callback and return right away;
+    // model that with startResolvesImmediately instead of blocking until stop().
+    if (this.opts.startResolvesImmediately) return
     await this.stopped.promise
   }
   async reply(): Promise<void> {}
@@ -352,6 +355,48 @@ test("run connects the event stream before starting platforms", async () => {
     const runPromise = app.run(controller.signal)
     await platform.started.promise
     expect(platform.startedAfterStream).toBe(true)
+    controller.abort()
+    await runPromise
+  } finally {
+    server.stop()
+  }
+})
+
+test("run stays up when a platform start resolves on its own", async () => {
+  // A self-resolving start() (an adapter that registers a callback and returns)
+  // is not a failure: the bridge must stay up until abort, like Go's App.Run
+  // where a goroutine returning nil sends nothing to errCh.
+  const platform = new FakePlatform("runtime-test-self-resolving-start", { startResolvesImmediately: true })
+  const server = mockServer((_req, url) => {
+    switch (url.pathname) {
+      case "/experimental/session":
+      case "/permission":
+      case "/external-result":
+        return jsonBody([])
+      case "/global/event":
+        return openEventStream()
+    }
+    return undefined
+  })
+  const controller = new AbortController()
+  try {
+    const app = await createApp(
+      {
+        pawWorkBaseURL: server.url,
+        statePath: await tempStatePath(),
+        platforms: [{ name: "runtime-test-self-resolving-start", enabled: true, options: { allow_from: "U123" } }],
+      },
+      () => platform,
+    )
+    const runPromise = app.run(controller.signal)
+    await platform.started.promise
+    // run() must remain pending even though start() already resolved.
+    const pending = Symbol("pending")
+    const raced = await Promise.race([
+      runPromise.then(() => "resolved" as const),
+      new Promise<typeof pending>((r) => setTimeout(() => r(pending), 50)),
+    ])
+    expect(raced).toBe(pending)
     controller.abort()
     await runPromise
   } finally {
