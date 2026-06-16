@@ -33,3 +33,4 @@ harness:
           - "packages/opencode/**"
           - "packages/sdk/**"
           - "packages/core/**"
+          - "packages/remote-bridge/**"
