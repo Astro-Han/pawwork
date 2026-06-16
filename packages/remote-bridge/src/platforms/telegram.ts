@@ -353,10 +353,26 @@ export interface CapturedSender {
  */
 export async function captureFirstSender(poller: TelegramPoller, signal: AbortSignal): Promise<CapturedSender | null> {
   let offset = 0
-  // Immediate poll: everything queued now is pre-instruction backlog. The next
-  // (long) poll at this offset acks it and waits for genuinely new traffic.
-  const backlog = await poller.getUpdates(0, signal, 0)
-  for (const update of backlog) offset = Math.max(offset, Number(update?.update_id ?? offset - 1) + 1)
+  // Drain the ENTIRE pre-pairing backlog before waiting for new traffic.
+  // getUpdates returns at most ~100 updates per call, so the backlog can span
+  // several batches; a single immediate poll would leave the rest, and the first
+  // long-poll would then hand back a stale message as if it were the new sender.
+  // Loop immediate polls (timeout 0) until one returns empty — each advances and
+  // acks the offset past what it drained.
+  while (!signal.aborted) {
+    let backlog: any[]
+    try {
+      backlog = await poller.getUpdates(offset, signal, 0)
+    } catch (err) {
+      if (signal.aborted) return null
+      if (isFatalTelegramError(err)) throw err
+      const backoff = err instanceof TelegramApiError && err.retryAfterMs ? err.retryAfterMs : poller.pollRetryMs
+      await sleep(backoff, signal)
+      continue
+    }
+    if (backlog.length === 0) break
+    for (const update of backlog) offset = Math.max(offset, Number(update?.update_id ?? offset - 1) + 1)
+  }
 
   while (!signal.aborted) {
     let updates: any[]

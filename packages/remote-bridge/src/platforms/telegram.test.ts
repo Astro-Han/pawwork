@@ -192,20 +192,38 @@ test("reconstructReplyCtx rebuilds chatId from a stored remote key; throws other
 // --- pairing capture -------------------------------------------------------
 
 test("captureFirstSender drains backlog and returns the first NEW private sender", async () => {
-  // Batch 0 is the immediate drain (pre-pairing backlog from user 7); the first
-  // long-poll then delivers a genuinely new message from user 42.
-  const api = fakeBotApi([[update(5, 7, "stale")], [update(10, 42, "pair me")]])
+  // Batch 0 is pre-pairing backlog from user 7; the empty batch 1 marks the
+  // backlog as fully drained, then the long-poll delivers a genuinely new
+  // message from user 42.
+  const api = fakeBotApi([[update(5, 7, "stale")], [], [update(10, 42, "pair me")]])
   try {
     const poller = new TelegramPoller("t", api.url)
     poller.pollRetryMs = 0
     const captured = await captureFirstSender(poller, new AbortController().signal)
     expect(captured).toEqual({ userId: "42", userName: "u42" })
-    // The drain poll uses offset 0; backlog (max id 5) is acked at offset 6.
+    // Drain starts at offset 0; backlog (max id 5) is acked at offset 6, where an
+    // empty immediate poll ends the drain.
     const offsets = api.calls.filter((c) => c.method === "getUpdates").map((c) => c.body.offset)
     expect(offsets[0]).toBe(0)
     expect(offsets[1]).toBe(6)
     // The captured message (id 10) is acked server-side with a final offset 11.
     expect(offsets[offsets.length - 1]).toBe(11)
+  } finally {
+    api.stop()
+  }
+})
+
+test("captureFirstSender drains a MULTI-batch backlog before accepting a sender", async () => {
+  // The pre-pairing backlog spans two batches (stale users 7 then 8). A single
+  // immediate drain would stop after batch 0, and the long-poll would then hand
+  // back user 8's stale message as the "new" sender. The drain must consume both
+  // stale batches (until an empty poll) before the real pairing message (user 42).
+  const api = fakeBotApi([[update(5, 7, "stale")], [update(6, 8, "also stale")], [], [update(10, 42, "pair me")]])
+  try {
+    const poller = new TelegramPoller("t", api.url)
+    poller.pollRetryMs = 0
+    const captured = await captureFirstSender(poller, new AbortController().signal)
+    expect(captured).toEqual({ userId: "42", userName: "u42" })
   } finally {
     api.stop()
   }
