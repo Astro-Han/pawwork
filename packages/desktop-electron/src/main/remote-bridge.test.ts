@@ -79,6 +79,28 @@ test("cancelPairing aborts capture and surfaces a cancellation", async () => {
   await expect(pending).rejects.toBeInstanceOf(PairingCancelledError)
 })
 
+test("a capture that resolves after cancelPairing does not resurrect a pending pairing", async () => {
+  let captureEntered = () => {}
+  const entered = new Promise<void>((r) => (captureEntered = r))
+  let resolveCapture: (s: CapturedSender | null) => void = () => {}
+  const runtime = new RemoteBridgeRuntime(
+    deps({
+      capture: () => {
+        captureEntered()
+        return new Promise<CapturedSender | null>((resolve) => (resolveCapture = resolve))
+      },
+    }),
+  )
+  const pending = runtime.startPairing("123:abc")
+  await entered
+  runtime.cancelPairing()
+  // The capture resolves with a real sender AFTER the user cancelled — it must be
+  // dropped, not stored, or a later confirm would pair an abandoned identity.
+  resolveCapture({ userId: "42", userName: "yu" })
+  await expect(pending).rejects.toBeInstanceOf(PairingCancelledError)
+  await expect(runtime.confirmPairing()).rejects.toThrow(/no pairing/)
+})
+
 test("confirmPairing persists the captured pairing and reports connected", async () => {
   const store = memoryStore()
   const runtime = new RemoteBridgeRuntime(deps({ credentials: store }))

@@ -124,11 +124,19 @@ export class RemoteBridgeRuntime {
     try {
       botUsername = (await poller.getMe(ac.signal)).username
     } catch (err) {
-      if (this.pairingAc === ac) this.pairingAc = null
+      // Cancelled (cancelPairing/disconnect) or superseded by a newer startPairing
+      // while we awaited: surface a cancel and leave the current handle alone — it
+      // belongs to whoever replaced us.
+      if (ac.signal.aborted || this.pairingAc !== ac) throw new PairingCancelledError()
+      this.pairingAc = null
       throw new Error(`could not reach Telegram with that token: ${message(err)}`)
     }
     const captured = await this.deps.capture(poller, ac.signal)
-    if (this.pairingAc === ac) this.pairingAc = null
+    // Same guard after capture: if this attempt was cancelled or superseded while
+    // we waited, drop the result — never resurrect `pending` for an abandoned
+    // attempt, even if a sender did arrive.
+    if (ac.signal.aborted || this.pairingAc !== ac) throw new PairingCancelledError()
+    this.pairingAc = null
     if (!captured) throw new PairingCancelledError()
     // Hold the token main-side; confirmPairing approves this identity without the
     // renderer resending the secret.
