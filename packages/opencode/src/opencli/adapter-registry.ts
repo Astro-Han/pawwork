@@ -3,8 +3,6 @@ import fs from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { fullName, getRegistry, type CliCommand } from "@jackwener/opencli/registry"
-// Remove this overlay when @jackwener/opencli publishes xiaohongshu/ask; registry entries shadow manifest entries.
-import "./adapter-overrides/xiaohongshu-ask"
 
 export type OpenCliManifestEntry = {
   site: string

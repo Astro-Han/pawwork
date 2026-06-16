@@ -187,7 +187,7 @@
         "@hono/node-ws": "1.3.1",
         "@hono/standard-validator": "0.1.5",
         "@hono/zod-validator": "catalog:",
-        "@jackwener/opencli": "1.8.3",
+        "@jackwener/opencli": "1.8.4",
         "@lydell/node-pty": "catalog:",
         "@modelcontextprotocol/sdk": "1.27.1",
         "@npmcli/arborist": "9.4.0",
@@ -888,7 +888,7 @@
 
     "@isaacs/string-locale-compare": ["@isaacs/string-locale-compare@1.1.0", "", {}, "sha512-SQ7Kzhh9+D+ZW9MA0zkYv3VXhIDNx+LzM6EJ+/65I3QY+enU6Itte7E5XX7EWrqLW2FN4n06GWzBnPoC3th2aQ=="],
 
-    "@jackwener/opencli": ["@jackwener/opencli@1.8.3", "", { "dependencies": { "@mozilla/readability": "^0.6.0", "cli-table3": "^0.6.5", "commander": "^14.0.3", "js-yaml": "^4.1.0", "turndown": "^7.2.2", "turndown-plugin-gfm": "^1.0.2", "undici": "^6.25.0", "ws": "^8.18.0" }, "bin": { "opencli": "dist/src/main.js" } }, "sha512-oz2Q2RSSw442dN0O0pgHA+clZoXt/crWF05wOJEsJWlEfEb5jjxCi+215WhOJZMPa1Mnz50CE/VxVndfLgmPJg=="],
+    "@jackwener/opencli": ["@jackwener/opencli@1.8.4", "", { "dependencies": { "@mozilla/readability": "^0.6.0", "cli-table3": "^0.6.5", "commander": "^14.0.3", "js-yaml": "^4.1.0", "turndown": "^7.2.2", "turndown-plugin-gfm": "^1.0.2", "undici": "^6.25.0", "ws": "^8.18.0" }, "bin": { "opencli": "dist/src/main.js" } }, "sha512-T/1uwMtNVOqFu2fp3HBW5dKlt84uaTg6gaiFuRq9JLLr/z/NcSsOwdB1e4VqKVAcA1d9Zsp8QmH+xMLWxwqypA=="],
 
     "@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.3.13", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA=="],
 

@@ -101,7 +101,7 @@ describe("opencli_search", () => {
       const result = yield* exec(OpenCliSearchTool, { query: "xiaohongshu ask", limit: 5 })
 
       expect(result.output).toContain('<opencli_command name="xiaohongshu/ask">')
-      expect(result.output).toContain("- query (required) | help: Question for 点点")
+      expect(result.output).toContain("- query (required) | type: str | help: Question for 点点")
       expect(result.output).toContain("- timeout | type: int | default: 90")
       expect(result.output).toContain("- source-limit | type: int | default: 10")
     }),
