@@ -78,6 +78,9 @@ export class RemoteBridgeRuntime {
   private ac: AbortController | null = null
   private runPromise: Promise<void> | null = null
   private pairingAc: AbortController | null = null
+  // The captured-but-not-yet-approved pairing. Holds the token main-side between
+  // startPairing and confirmPairing so the renderer never has to resend the secret.
+  private pending: { token: string; allowFrom: string; userName?: string } | null = null
 
   constructor(private readonly deps: RemoteBridgeDeps) {}
 
@@ -113,6 +116,7 @@ export class RemoteBridgeRuntime {
       throw new Error("disconnect the current account before pairing a new one")
     }
     this.pairingAc?.abort()
+    this.pending = null
     const ac = new AbortController()
     this.pairingAc = ac
     const poller = this.deps.makePoller(token)
@@ -126,23 +130,30 @@ export class RemoteBridgeRuntime {
     const captured = await this.deps.capture(poller, ac.signal)
     if (this.pairingAc === ac) this.pairingAc = null
     if (!captured) throw new PairingCancelledError()
+    // Hold the token main-side; confirmPairing approves this identity without the
+    // renderer resending the secret.
+    this.pending = { token, allowFrom: captured.userId, userName: captured.userName }
     return { userId: captured.userId, userName: captured.userName, botUsername }
   }
 
   cancelPairing(): void {
     this.pairingAc?.abort()
     this.pairingAc = null
+    this.pending = null
   }
 
-  /** Persist the approved credentials and start the bridge. */
-  async confirmPairing(token: string, allowFrom: string, userName?: string): Promise<void> {
-    token = token.trim()
-    allowFrom = allowFrom.trim()
-    if (token === "" || allowFrom === "") throw new Error("token and paired user are required")
-    this.cancelPairing() // no capture poller may remain on this token
+  /**
+   * Approve the pending pairing and start the bridge. The token was captured
+   * main-side by `startPairing`, so the renderer approves the captured identity
+   * without ever resending the secret.
+   */
+  async confirmPairing(): Promise<void> {
+    const pending = this.pending
+    if (!pending) throw new Error("no pairing is awaiting confirmation")
+    this.pending = null
     await this.enqueue(async () => {
       await this.stopBridge()
-      const creds: RemoteCredentials = { token, allowFrom, userName }
+      const creds: RemoteCredentials = { ...pending }
       this.deps.credentials.save(creds)
       await this.startBridge(creds)
     })

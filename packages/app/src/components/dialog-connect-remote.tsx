@@ -60,7 +60,9 @@ export function DialogConnectRemote() {
     if (!api || !captured || store.busy) return
     setStore("busy", true)
     try {
-      await api.confirmPairing(store.token.trim(), captured.userId, captured.userName)
+      // The main process holds the token + captured identity from startPairing;
+      // confirm just approves it — we never resend the secret.
+      await api.confirmPairing()
       if (!alive.value) return
       dialog.close()
       showToast({

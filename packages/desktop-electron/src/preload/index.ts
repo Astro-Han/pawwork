@@ -11,8 +11,7 @@ const remote: ElectronAPI["remote"] = {
   getStatus: () => ipcRenderer.invoke("remote:get-status"),
   startPairing: (token) => ipcRenderer.invoke("remote:start-pairing", token),
   cancelPairing: () => ipcRenderer.invoke("remote:cancel-pairing"),
-  confirmPairing: (token, allowFrom, userName) =>
-    ipcRenderer.invoke("remote:confirm-pairing", token, allowFrom, userName),
+  confirmPairing: () => ipcRenderer.invoke("remote:confirm-pairing"),
   disconnect: () => ipcRenderer.invoke("remote:disconnect"),
   onStatus: (cb) => {
     const handler = (_: unknown, status: Parameters<typeof cb>[0]) => cb(status)

@@ -26,8 +26,8 @@ export function registerRemoteIpc(runtime: RemoteBridgeRuntime) {
     }
   })
   ipcMain.handle("remote:cancel-pairing", () => runtime.cancelPairing())
-  ipcMain.handle("remote:confirm-pairing", (_event, token: string, allowFrom: string, userName?: string) =>
-    runtime.confirmPairing(token, allowFrom, userName),
-  )
+  // No args: the token + captured identity are held main-side from start-pairing,
+  // so confirm only approves them — the renderer can't supply or swap the token.
+  ipcMain.handle("remote:confirm-pairing", () => runtime.confirmPairing())
   ipcMain.handle("remote:disconnect", () => runtime.disconnect())
 }

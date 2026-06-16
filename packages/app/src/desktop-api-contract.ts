@@ -101,13 +101,15 @@ export type RemotePairingResult = {
  * this desktop's agent). Desktop/Electron only. Pairing is two steps: start
  * (paste token, then message the bot from your phone — resolves with the
  * captured sender, or null if cancelled) then confirm (approve that identity).
- * The bot token is held main-only and never crosses this boundary.
+ * The token crosses this boundary only on `startPairing`; the main process holds
+ * it from there, so `confirmPairing` approves the captured identity with no args
+ * and never resends the secret.
  */
 export type RemoteBridge = {
   getStatus(): Promise<RemoteStatus>
   startPairing(token: string): Promise<RemotePairingResult | null>
   cancelPairing(): Promise<void>
-  confirmPairing(token: string, allowFrom: string, userName?: string): Promise<void>
+  confirmPairing(): Promise<void>
   disconnect(): Promise<void>
   onStatus(handler: (status: RemoteStatus) => void): () => void
 }

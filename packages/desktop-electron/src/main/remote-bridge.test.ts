@@ -79,15 +79,21 @@ test("cancelPairing aborts capture and surfaces a cancellation", async () => {
   await expect(pending).rejects.toBeInstanceOf(PairingCancelledError)
 })
 
-test("confirmPairing saves credentials and reports connected", async () => {
+test("confirmPairing persists the captured pairing and reports connected", async () => {
   const store = memoryStore()
   const runtime = new RemoteBridgeRuntime(deps({ credentials: store }))
-  await runtime.confirmPairing("123:abc", "42", "yu")
+  await runtime.startPairing("123:abc") // fake capture returns user 42 / yu
+  await runtime.confirmPairing() // no token passed — main-side pending is used
   expect(store.value).toEqual({ token: "123:abc", allowFrom: "42", userName: "yu" })
   const status = runtime.getStatus()
   expect(status.state).toBe("connected")
   expect(status.platform).toBe("telegram")
   expect(status.identity).toEqual({ userId: "42", userName: "yu" })
+})
+
+test("confirmPairing without a pending pairing is rejected (renderer cannot inject a token)", async () => {
+  const runtime = new RemoteBridgeRuntime(deps())
+  await expect(runtime.confirmPairing()).rejects.toThrow(/no pairing/)
 })
 
 test("disconnect stops the bridge and wipes credentials", async () => {
@@ -106,7 +112,7 @@ test("startIfConfigured does nothing without saved credentials", async () => {
   expect(runtime.getStatus().state).toBe("disconnected")
 })
 
-test("concurrent connect calls only ever build one live bridge", async () => {
+test("a double confirm builds only one bridge (the second finds no pending)", async () => {
   let built = 0
   let running = 0
   let maxRunning = 0
@@ -131,15 +137,13 @@ test("concurrent connect calls only ever build one live bridge", async () => {
       },
     }),
   )
-  await Promise.all([
-    runtime.confirmPairing("t", "1"),
-    runtime.confirmPairing("t", "2"),
-    runtime.confirmPairing("t", "3"),
-  ])
-  // Each confirm stops the previous bridge before starting its own, so the
-  // serial queue never has two running at once.
+  await runtime.startPairing("t")
+  // A double-clicked Allow: the first consumes the pending pairing and builds;
+  // the second finds none, so only one live bridge is ever started.
+  const results = await Promise.allSettled([runtime.confirmPairing(), runtime.confirmPairing()])
+  expect(results.map((r) => r.status)).toEqual(["fulfilled", "rejected"])
+  expect(built).toBe(1)
   expect(maxRunning).toBe(1)
-  expect(built).toBe(3)
   await runtime.stop()
   expect(running).toBe(0)
 })
@@ -150,7 +154,8 @@ test("a fatal run() failure becomes degraded status, not an unhandled rejection"
       buildApp: async () => ({ run: async () => { throw new Error("revoked token") } }),
     }),
   )
-  await runtime.confirmPairing("t", "42")
+  await runtime.startPairing("t")
+  await runtime.confirmPairing()
   // The run rejection is observed on a microtask; let it settle.
   await new Promise((r) => setTimeout(r, 5))
   const status = runtime.getStatus()
