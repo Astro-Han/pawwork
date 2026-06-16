@@ -9,6 +9,7 @@ ci:
 platform:
   - changed-files:
       - any-glob-to-any-file:
+          - "THIRD_PARTY_NOTICES.md"
           - "packages/desktop-electron/**"
 
 app:
