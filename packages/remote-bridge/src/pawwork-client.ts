@@ -1,4 +1,11 @@
-import { parseSSE, questionUpdateFromEvent, type EventHandler, ReplayRefreshError } from "./pawwork-events.ts"
+import {
+  decodeString,
+  parseSSE,
+  permissionFromEvent,
+  questionUpdateFromEvent,
+  type EventHandler,
+  ReplayRefreshError,
+} from "./pawwork-events.ts"
 import type {
   EventCursorStore,
   PendingPermission,
@@ -96,12 +103,14 @@ export class PawWorkClient implements Sidecar {
     )
     // doJSON returns undefined on an empty 2xx body; Go's json.Unmarshal yields a
     // nil slice that ranges zero times, so default to [] to match it, not crash.
+    // Strict-decode each row like Go's typed Decode: a wrong-typed field fails
+    // the whole hydration rather than coercing it into the engine.
     return (raw ?? []).map((item) => {
       const session: Session = {
-        id: item.id,
-        title: item.title ?? "",
-        parentID: item.parentID ?? "",
-        directory: item.directory || this.defaultDirectory,
+        id: decodeString(item?.id, "session.id"),
+        title: decodeString(item?.title, "session.title"),
+        parentID: decodeString(item?.parentID, "session.parentID"),
+        directory: decodeString(item?.directory, "session.directory") || this.defaultDirectory,
       }
       this.rememberSession(session)
       return session
@@ -144,13 +153,11 @@ export class PawWorkClient implements Sidecar {
         continue
       }
       for (const item of raw ?? []) {
-        permissions.push({
-          id: item.id,
-          sessionID: item.sessionID,
-          permission: item.permission,
-          patterns: item.patterns ?? [],
-          directory,
-        })
+        // Same strict decode as the SSE permission.asked path; a wrong-typed row
+        // fails hydration rather than feeding the engine an uncoerced value.
+        const permission = permissionFromEvent(item)
+        permission.directory = directory
+        permissions.push(permission)
       }
     }
     return permissions

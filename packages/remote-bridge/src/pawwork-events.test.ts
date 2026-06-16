@@ -188,6 +188,91 @@ test("reconciles a ready question whose multiple flag is not a boolean", async (
   expect(calls.questions).toEqual([])
 })
 
+// Go decodes each critical event into a typed struct, so a wrong-typed scalar
+// is an unmarshal error, not a lenient coercion. These pin that the TS port
+// rejects (reconciles) the same fields instead of passing `any` to the engine.
+for (const field of ["id", "sessionID", "permission"] as const) {
+  test(`reconciles a permission whose ${field} is the wrong type`, async () => {
+    const { handler, calls } = recorder()
+    const props: Record<string, unknown> = { id: "perm_1", sessionID: "ses_1", permission: "edit", patterns: [] }
+    props[field] = 7
+    await expect(dispatchEvent({ payload: { type: "permission.asked", properties: props } }, handler)).rejects.toThrow()
+    expect(calls.permissions).toEqual([])
+  })
+}
+
+for (const field of ["id", "title", "parentID"] as const) {
+  test(`reconciles a session whose info.${field} is the wrong type`, async () => {
+    const { handler, calls } = recorder()
+    const info: Record<string, unknown> = { id: "child_1", title: "Child", parentID: "root_1" }
+    info[field] = 7
+    await expect(
+      dispatchEvent({ directory: "/repo/a", payload: { type: "session.created", properties: { info } } }, handler),
+    ).rejects.toThrow()
+    expect(calls.sessions).toEqual([])
+  })
+}
+
+for (const field of ["sessionID", "text"] as const) {
+  test(`skips an assistant text part whose ${field} is the wrong type`, async () => {
+    const { handler, calls } = recorder()
+    // A wrong-typed sessionID/text is undecodable for Go's typed unmarshal — the
+    // part is skipped (logged), never delivered to chat with a non-string value.
+    const part: Record<string, unknown> = { type: "text", sessionID: "ses_1", text: "hi", time: { end: 2 } }
+    part[field] = 7
+    await expect(
+      dispatchEvent({ payload: { type: "message.part.updated", properties: { part } } }, handler),
+    ).rejects.toThrow()
+    expect(calls.texts).toEqual([])
+  })
+}
+
+test("reconciles a ready question whose status is the wrong type", async () => {
+  const { handler, calls } = recorder()
+  // A numeric status is undecodable for Go's `Status string`; coercing it would
+  // read non-"running" as resolved and clear the wrong blocker. Reconcile.
+  await expect(
+    dispatchEvent(
+      { payload: { type: "message.part.updated", properties: { part: { type: "tool", sessionID: "ses_1", messageID: "msg_1", callID: "call_1", tool: "question", state: { status: 1, metadata: { externalResultReady: true }, input: { questions: [] } } } } } },
+      handler,
+    ),
+  ).rejects.toThrow()
+  expect(calls.questions).toEqual([])
+  expect(calls.resolvedQuestions).toEqual([])
+})
+
+test("reconciles a ready question whose externalResultReady is the wrong type", async () => {
+  const { handler, calls } = recorder()
+  // Go's `bool` rejects "false"; !"false" is false, so coercion would treat the
+  // part as ready and surface a bogus prompt. Reconcile instead.
+  await expect(
+    dispatchEvent(
+      { payload: { type: "message.part.updated", properties: { part: { type: "tool", sessionID: "ses_1", messageID: "msg_1", callID: "call_1", tool: "question", state: { status: "running", metadata: { externalResultReady: "false" }, input: { questions: [] } } } } } },
+      handler,
+    ),
+  ).rejects.toThrow()
+  expect(calls.questions).toEqual([])
+})
+
+for (const field of ["messageID", "callID"] as const) {
+  test(`reconciles a ready question whose ${field} is the wrong type`, async () => {
+    const { handler, calls } = recorder()
+    const part: Record<string, unknown> = {
+      type: "tool",
+      sessionID: "ses_1",
+      messageID: "msg_1",
+      callID: "call_1",
+      tool: "question",
+      state: { status: "running", metadata: { externalResultReady: true }, input: { questions: [] } },
+    }
+    part[field] = 7
+    await expect(
+      dispatchEvent({ payload: { type: "message.part.updated", properties: { part } } }, handler),
+    ).rejects.toThrow()
+    expect(calls.questions).toEqual([])
+  })
+}
+
 test("cancels the stream reader when an event handler throws", async () => {
   // A thrown dispatch/reconcile error must abandon the connection (Go's deferred
   // Body.Close), not just release the lock, so the stream cannot leak on error.

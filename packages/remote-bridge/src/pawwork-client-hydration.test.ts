@@ -239,6 +239,45 @@ test("tolerates an empty 2xx body from the list endpoints", async () => {
   }
 })
 
+test("listSessions surfaces a wrong-typed row field instead of coercing it", async () => {
+  // Go decodes the list into a typed []struct, so a non-string id fails the
+  // whole hydration. The TS port must do the same, not map a number into the engine.
+  const server = Bun.serve({
+    port: 0,
+    fetch(req) {
+      const url = new URL(req.url)
+      if (url.pathname === "/experimental/session") return json([{ id: 5, title: "t", parentID: "" }])
+      return json(null)
+    },
+  })
+  try {
+    const client = new PawWorkClient({ baseURL: `http://localhost:${server.port}` })
+    await expect(client.listSessions(5)).rejects.toThrow()
+  } finally {
+    server.stop(true)
+  }
+})
+
+test("listPermissions surfaces a wrong-typed row field instead of coercing it", async () => {
+  const server = Bun.serve({
+    port: 0,
+    fetch(req) {
+      const url = new URL(req.url)
+      if (url.pathname === "/experimental/session") return json([{ id: "ses_a", directory: "/repo/a" }])
+      if (url.pathname === "/permission")
+        return json([{ id: "perm_1", sessionID: "ses_1", permission: 1, patterns: [] }])
+      return json(null)
+    },
+  })
+  try {
+    const client = new PawWorkClient({ baseURL: `http://localhost:${server.port}` })
+    await client.listSessions(5)
+    await expect(client.listPermissions()).rejects.toThrow()
+  } finally {
+    server.stop(true)
+  }
+})
+
 test("persists the Last-Event-ID cursor across restarts", async () => {
   const statePath = join(await mkdtemp(join(tmpdir(), "rb-cursor-")), "sessions.json")
   let requests = 0

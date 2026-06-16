@@ -62,6 +62,44 @@ interface Envelope {
   payload?: { type?: string; properties?: any }
 }
 
+/** A field on a remote payload had a type Go's typed unmarshal would reject. */
+class DecodeError extends Error {}
+
+/**
+ * Strict scalar decoders mirroring Go's typed `json.Unmarshal`: an absent or
+ * null field is the zero value, a correctly-typed field passes through, and any
+ * other type is a decode error. JSON.parse hands us `any`, so without these a
+ * number where a string belongs would reach the engine and crash prompt
+ * rendering (`.trim()`) or misroute a blocker — exactly what Go rejected at the
+ * boundary. They are the single definition of "valid scalar" shared by every
+ * decoder below and by the REST hydration mappers.
+ */
+export function decodeString(value: unknown, field: string): string {
+  if (value === undefined || value === null) return ""
+  if (typeof value === "string") return value
+  throw new DecodeError(`${field} must be a string`)
+}
+
+function decodeBoolean(value: unknown, field: string): boolean {
+  if (value === undefined || value === null) return false
+  if (typeof value === "boolean") return value
+  throw new DecodeError(`${field} must be a boolean`)
+}
+
+function decodeStringArray(value: unknown, field: string): string[] {
+  if (value === undefined || value === null) return []
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    throw new DecodeError(`${field} must be an array of strings`)
+  }
+  return value
+}
+
+function decodeOptionalNumber(value: unknown, field: string): number | null {
+  if (value === undefined || value === null) return null
+  if (typeof value === "number") return value
+  throw new DecodeError(`${field} must be a number`)
+}
+
 /**
  * Route one decoded SSE frame to the handler. Throws RepairableEventError for a
  * critical event that cannot become state (caller skips + reconciles), and
@@ -81,17 +119,16 @@ export async function dispatchEvent(data: string | Envelope, handler: EventHandl
     case "message.part.delta":
       return
     case "permission.asked": {
-      // Match Go's typed unmarshal: patterns is []string, so a non-array or any
-      // non-string element is undecodable, not a lenient coercion — reconcile it.
-      // (A number here would later crash prompt rendering on .trim() and wedge the
-      // blocker as undelivered.)
-      if (
-        props.patterns !== undefined &&
-        (!Array.isArray(props.patterns) || props.patterns.some((pattern: unknown) => typeof pattern !== "string"))
-      ) {
-        throw new RepairableEventError("permission.asked", new Error("patterns must be an array of strings"))
+      // Strict decode mirrors Go's typed unmarshal: a wrong-typed id/sessionID/
+      // permission, or a patterns value that is not []string, is undecodable —
+      // not a lenient coercion. Reconcile rather than feed the engine a value
+      // that would crash prompt rendering on .trim() and wedge the blocker.
+      let permission: PendingPermission
+      try {
+        permission = permissionFromEvent(props)
+      } catch (err) {
+        throw new RepairableEventError("permission.asked", err)
       }
-      const permission = permissionFromEvent(props)
       if (permission.id === "" || permission.sessionID === "") {
         throw new RepairableEventError("permission.asked", new Error(MISSING_PERMISSION_FIELDS))
       }
@@ -107,7 +144,12 @@ export async function dispatchEvent(data: string | Envelope, handler: EventHandl
       return
     }
     case "session.created": {
-      const session = sessionFromEvent(props, directory)
+      let session: Session | null
+      try {
+        session = sessionFromEvent(props, directory)
+      } catch (err) {
+        throw new RepairableEventError("session.created", err)
+      }
       if (!session) {
         throw new RepairableEventError("session.created", new Error(MISSING_SESSION_ID))
       }
@@ -131,13 +173,16 @@ export async function dispatchEvent(data: string | Envelope, handler: EventHandl
   }
 }
 
-function permissionFromEvent(props: any): PendingPermission {
+/** Strictly decode a permission from an SSE payload or a REST `/permission`
+ * row (same shape); throws on a wrong-typed field. The caller supplies the
+ * directory for REST rows, where it is not part of the body. */
+export function permissionFromEvent(props: any): PendingPermission {
   return {
-    id: props?.id ?? "",
-    sessionID: props?.sessionID ?? "",
-    permission: props?.permission ?? "",
-    patterns: Array.isArray(props?.patterns) ? props.patterns : [],
-    directory: props?.directory ?? "",
+    id: decodeString(props?.id, "id"),
+    sessionID: decodeString(props?.sessionID, "sessionID"),
+    permission: decodeString(props?.permission, "permission"),
+    patterns: decodeStringArray(props?.patterns, "patterns"),
+    directory: decodeString(props?.directory, "directory"),
   }
 }
 
@@ -149,12 +194,20 @@ interface AssistantText {
 export function assistantTextFromEvent(props: any): AssistantText | null {
   const part = props?.part
   if (!part) return null
+  // Strict decode, mirroring Go's typed unmarshal: a wrong-typed field throws so
+  // the caller skips the part (Go logged + ignored it), never coercing a number
+  // into a chat target or message body.
+  const type = decodeString(part.type, "part.type")
+  const ignored = decodeBoolean(part.ignored, "part.ignored")
+  const end = decodeOptionalNumber(part.time?.end, "part.time.end")
+  const sessionID = decodeString(part.sessionID, "part.sessionID")
+  const text = decodeString(part.text, "part.text")
   // Only surface a completed text part: type "text", not ignored, with an end
   // time. Streaming deltas and reasoning parts must not reach chat.
-  if (part.type !== "text" || part.ignored || part.time?.end == null || !part.sessionID || !part.text) {
+  if (type !== "text" || ignored || end === null || sessionID === "" || text === "") {
     return null
   }
-  return { sessionID: part.sessionID, text: part.text }
+  return { sessionID, text }
 }
 
 function permissionResolutionFromEvent(props: any): PermissionResolution | null {
@@ -169,12 +222,16 @@ function permissionResolutionFromEvent(props: any): PermissionResolution | null 
 
 function sessionFromEvent(props: any, directory: string): Session | null {
   const info = props?.info
-  if (!info || !info.id) return null
+  if (!info) return null
+  // Strict decode mirrors Go's typed unmarshal: a wrong-typed id/title/parentID
+  // throws (the caller reconciles), a missing id is the zero value → not ready.
+  const id = decodeString(info.id, "info.id")
+  if (id === "") return null
   return {
-    id: info.id,
-    title: info.title ?? "",
-    parentID: info.parentID ?? "",
-    directory: info.directory || directory,
+    id,
+    title: decodeString(info.title, "info.title"),
+    parentID: decodeString(info.parentID, "info.parentID"),
+    directory: decodeString(info.directory, "info.directory") || directory,
   }
 }
 
@@ -186,21 +243,36 @@ export type QuestionUpdate =
 
 export function questionUpdateFromEvent(props: any, directory: string): QuestionUpdate {
   const part = props?.part
-  if (!part || part.type !== "tool" || part.tool !== "question") return { kind: "none" }
-  if (!part.sessionID || !part.messageID || !part.callID) return { kind: "incomplete" }
-
-  const resolution: QuestionResolution = {
-    sessionID: part.sessionID,
-    messageID: part.messageID,
-    callID: part.callID,
-    directory,
+  if (!part) return { kind: "none" }
+  // Strict decode mirrors Go's single typed unmarshal of the part struct: a
+  // wrong-typed status (a number read as "resolved" → clears the wrong blocker)
+  // or externalResultReady ("false" read as true → surfaces a bogus prompt) is
+  // undecodable, so signal incomplete and let the caller reconcile.
+  let sessionID: string
+  let messageID: string
+  let callID: string
+  let status: string
+  let ready: boolean
+  try {
+    if (decodeString(part.type, "part.type") !== "tool" || decodeString(part.tool, "part.tool") !== "question") {
+      return { kind: "none" }
+    }
+    sessionID = decodeString(part.sessionID, "part.sessionID")
+    messageID = decodeString(part.messageID, "part.messageID")
+    callID = decodeString(part.callID, "part.callID")
+    status = decodeString(part.state?.status, "state.status")
+    ready = decodeBoolean(part.state?.metadata?.externalResultReady, "state.metadata.externalResultReady")
+  } catch {
+    return { kind: "incomplete" }
   }
-  const status: string = part.state?.status ?? ""
+  if (sessionID === "" || messageID === "" || callID === "") return { kind: "incomplete" }
+
+  const resolution: QuestionResolution = { sessionID, messageID, callID, directory }
   if (status !== "running") {
     if (status === "" || status === "pending") return { kind: "none" }
     return { kind: "resolved", resolution }
   }
-  if (!part.state?.metadata?.externalResultReady) return { kind: "none" }
+  if (!ready) return { kind: "none" }
   // Strict decode, mirroring Go's typed unmarshal and the permission.asked
   // patterns guard: a wrong-typed questions field is undecodable, not a lenient
   // coercion — signal incomplete so the caller reconciles instead of surfacing
@@ -223,7 +295,7 @@ export function questionUpdateFromEvent(props: any, directory: string): Question
     : []
   return {
     kind: "pending",
-    question: { sessionID: part.sessionID, messageID: part.messageID, callID: part.callID, questions, directory },
+    question: { sessionID, messageID, callID, questions, directory },
   }
 }
 
