@@ -6,7 +6,7 @@ import { createServer } from "node:net"
 import os, { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import type { Event } from "electron"
-import { app, BrowserWindow, clipboard, dialog, shell } from "electron"
+import { app, BrowserWindow, clipboard, dialog, safeStorage, shell } from "electron"
 import pkg from "electron-updater"
 import { buildDesktopContext } from "@opencode-ai/app/desktop-api"
 
@@ -94,7 +94,7 @@ import {
 } from "./renderer-diagnostics"
 import { backendLogFilePath, getDefaultServerUrl, getWslConfig, setDefaultServerUrl, setWslConfig, spawnLocalServer } from "./server"
 import { createRemoteBridgeRuntime } from "./remote-bridge"
-import { bridgeStatePath, safeStorageCredentialStore } from "./remote-credentials"
+import { safeStorageCredentialStore, type CredentialStoreEnv } from "./remote-credentials"
 import { PAWWORK_RUNTIME } from "./runtime-namespace"
 import { createUpdaterController, createUpdateFeed, githubFeed, r2Feed, type FeedTarget } from "./updater"
 import { pendingUpdateCacheDir } from "./updater-cache"
@@ -160,9 +160,20 @@ const serverReady = defer<ServerReadyData>()
 // The mobile-companion bridge: connects a phone chat app to this desktop's agent
 // sessions. Runs in the main process against the local server; credentials are
 // encrypted main-only and never cross to the renderer.
+// safeStorage + the on-disk paths are injected so the credential store itself
+// stays Electron-free and unit-testable with a fake env.
+const remoteUserData = () => app.getPath("userData")
+const remoteStateFile = () => join(remoteUserData(), "remote-bridge-state.json")
+const remoteCredentialEnv: CredentialStoreEnv = {
+  credentialsFile: () => join(remoteUserData(), "remote-bridge-credentials.json"),
+  stateFile: remoteStateFile,
+  isEncryptionAvailable: () => safeStorage.isEncryptionAvailable(),
+  encryptString: (plain) => safeStorage.encryptString(plain),
+  decryptString: (cipher) => safeStorage.decryptString(cipher),
+}
 const remoteBridge = createRemoteBridgeRuntime({
-  credentials: safeStorageCredentialStore(),
-  statePath: bridgeStatePath(),
+  credentials: safeStorageCredentialStore(remoteCredentialEnv),
+  statePath: remoteStateFile(),
   serverInfo: () => serverReady.promise,
 })
 const logger = initLogging()

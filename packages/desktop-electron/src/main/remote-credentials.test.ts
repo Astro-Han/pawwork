@@ -1,26 +1,26 @@
-import { afterAll, expect, mock, test } from "bun:test"
+import { expect, test } from "bun:test"
 import { mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
+import { safeStorageCredentialStore, type CredentialStoreEnv } from "./remote-credentials"
 
-const dir = mkdtempSync(path.join(tmpdir(), "remote-creds-"))
-
-// Fake safeStorage: encrypt = utf8 bytes, decrypt = bytes back to string, so the
-// envelope round-trips through base64 exactly like the real one would.
-mock.module("electron", () => ({
-  app: { getPath: () => dir },
-  safeStorage: {
+// A deterministic fake env: a real tmp file for IO, identity "encryption" (utf8
+// bytes <-> string) so the base64 envelope round-trips exactly like safeStorage
+// would. No electron module mock — this test does not depend on which test file
+// mocked "electron" first.
+function fakeEnv(): CredentialStoreEnv {
+  const dir = mkdtempSync(path.join(tmpdir(), "remote-creds-"))
+  return {
+    credentialsFile: () => path.join(dir, "credentials.json"),
+    stateFile: () => path.join(dir, "state.json"),
     isEncryptionAvailable: () => true,
-    encryptString: (s: string) => Buffer.from(s, "utf8"),
-    decryptString: (b: Buffer) => b.toString("utf8"),
-  },
-}))
+    encryptString: (plain) => Buffer.from(plain, "utf8"),
+    decryptString: (cipher) => cipher.toString("utf8"),
+  }
+}
 
-afterAll(() => mock.restore())
-
-test("credential store round-trips userName through save/load", async () => {
-  const { safeStorageCredentialStore } = await import("./remote-credentials")
-  const store = safeStorageCredentialStore()
+test("credential store round-trips userName through save/load", () => {
+  const store = safeStorageCredentialStore(fakeEnv())
 
   store.save({ token: "123:ABC", allowFrom: "42", userName: "yuhan" })
   expect(store.load()).toEqual({ token: "123:ABC", allowFrom: "42", userName: "yuhan" })
