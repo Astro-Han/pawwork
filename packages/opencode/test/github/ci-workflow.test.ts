@@ -39,6 +39,7 @@ const hardenRunnerJobs = [
   "unit-app",
   "unit-opencode",
   "unit-desktop",
+  "unit-remote-bridge",
 ] as const
 
 type CompositeActionMetadata = {
@@ -70,6 +71,11 @@ const linuxUnitPackages = [
     suffix: "desktop",
     command: "bun turbo test:ci --filter=@opencode-ai/desktop-electron",
     reportPath: "packages/desktop-electron/.artifacts/unit/junit.xml",
+  },
+  {
+    suffix: "remote-bridge",
+    command: "bun turbo test:ci --filter=@opencode-ai/remote-bridge",
+    reportPath: "packages/remote-bridge/.artifacts/unit/junit.xml",
   },
 ] as const
 
@@ -745,6 +751,7 @@ describe("ci workflow", () => {
       "unit-app",
       "unit-opencode",
       "unit-desktop",
+      "unit-remote-bridge",
     ])
     expect(needs).not.toContain(lintJobName)
     expect(needs).not.toContain("unit-windows")
@@ -761,11 +768,13 @@ describe("ci workflow", () => {
     expect(validate?.env?.UNIT_APP_RESULT).toBe("${{ needs['unit-app'].result }}")
     expect(validate?.env?.UNIT_OPENCODE_RESULT).toBe("${{ needs['unit-opencode'].result }}")
     expect(validate?.env?.UNIT_DESKTOP_RESULT).toBe("${{ needs['unit-desktop'].result }}")
+    expect(validate?.env?.UNIT_REMOTE_BRIDGE_RESULT).toBe("${{ needs['unit-remote-bridge'].result }}")
     expect(validate?.run).toContain("Docs-only change, daily CI skipped.")
     expect(validate?.run).toContain("FRONTEND_ARCHITECTURE_RESULT")
     expect(validate?.run).toContain("UNIT_UI_RESULT")
     expect(validate?.run).toContain("UNIT_APP_RESULT")
     expect(validate?.run).toContain("UNIT_OPENCODE_RESULT")
     expect(validate?.run).toContain("UNIT_DESKTOP_RESULT")
+    expect(validate?.run).toContain("UNIT_REMOTE_BRIDGE_RESULT")
   })
 })

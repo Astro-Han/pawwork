@@ -306,6 +306,14 @@
         "typescript": "catalog:",
       },
     },
+    "packages/remote-bridge": {
+      "name": "@opencode-ai/remote-bridge",
+      "version": "2026.5.13",
+      "devDependencies": {
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
     "packages/script": {
       "name": "@opencode-ai/script",
       "dependencies": {
@@ -1045,6 +1053,8 @@
     "@opencode-ai/desktop-electron": ["@opencode-ai/desktop-electron@workspace:packages/desktop-electron"],
 
     "@opencode-ai/plugin": ["@opencode-ai/plugin@workspace:packages/plugin"],
+
+    "@opencode-ai/remote-bridge": ["@opencode-ai/remote-bridge@workspace:packages/remote-bridge"],
 
     "@opencode-ai/script": ["@opencode-ai/script@workspace:packages/script"],
 
