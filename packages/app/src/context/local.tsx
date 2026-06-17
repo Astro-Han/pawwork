@@ -104,6 +104,58 @@ export function localSavedStoreKey(directory: string | undefined) {
   return directory || undefined
 }
 
+// The model picker's set/cycle wiring, extracted so local.test.ts can assert it
+// without standing up the whole context. The one rule worth pinning: only an
+// explicit pick — set(item, { recent: true }) — mirrors the choice to the
+// server's recent-model default; a plain set() and cycle() (which routes through
+// set with no options) never do, so an agent's pinned model or a programmatic
+// switch can't leak into a model-less session's default.
+type ModelEntry = { provider: { id: string }; id: string }
+export function createModelActions(deps: {
+  batch: <T>(fn: () => T) => T
+  recordLast: (item: ModelKey | undefined) => void
+  write: (item: ModelKey | undefined) => void
+  setVisibility: (item: ModelKey) => void
+  pushRecent: (item: ModelKey) => void
+  recordRecent: (ref: { providerID: string; modelID: string }) => Promise<unknown>
+  recent: () => Array<ModelEntry | undefined>
+  current: () => ModelEntry | undefined
+}) {
+  const set = (item: ModelKey | undefined, options?: { recent?: boolean }) => {
+    deps.batch(() => {
+      deps.recordLast(item)
+      deps.write(item)
+      if (!item) return
+      deps.setVisibility(item)
+      if (!options?.recent) return
+      deps.pushRecent(item)
+      // Mirror an explicit pick to the server's recent-model default so a
+      // model-less session (e.g. a Telegram /new) inherits the user's actual
+      // choice. Best-effort: a failure here must not disrupt the pick.
+      void deps.recordRecent({ providerID: item.providerID, modelID: item.modelID }).catch(() => {})
+    })
+  }
+
+  const cycle = (direction: 1 | -1) => {
+    const items = deps.recent()
+    const item = deps.current()
+    if (!item) return
+
+    const index = items.findIndex((entry) => entry?.provider.id === item.provider.id && entry?.id === item.id)
+    if (index === -1) return
+
+    let next = index + direction
+    if (next < 0) next = items.length - 1
+    if (next >= items.length) next = 0
+
+    const entry = items[next]
+    if (!entry) return
+    set({ providerID: entry.provider.id, modelID: entry.id })
+  }
+
+  return { set, cycle }
+}
+
 export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
   name: "Local",
   init: () => {
@@ -377,46 +429,30 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
 
     const recent = createMemo(() => models.recent.list().map(models.find).filter(Boolean))
 
+    const modelActions = createModelActions({
+      batch,
+      recordLast: (item) =>
+        setStore("last", {
+          type: "model",
+          agent: agent.current()?.name,
+          model: item ?? null,
+          variant: selected(),
+        }),
+      write: (item) => write({ model: item }),
+      setVisibility: (item) => models.setVisibility(item, true),
+      pushRecent: (item) => models.recent.push(item),
+      recordRecent: (ref) => sdk.client.provider.recordRecent(ref),
+      recent,
+      current,
+    })
+
     const model = {
       ready: models.ready,
       current,
       recent,
       list: models.list,
-      cycle(direction: 1 | -1) {
-        const items = recent()
-        const item = current()
-        if (!item) return
-
-        const index = items.findIndex((entry) => entry?.provider.id === item.provider.id && entry?.id === item.id)
-        if (index === -1) return
-
-        let next = index + direction
-        if (next < 0) next = items.length - 1
-        if (next >= items.length) next = 0
-
-        const entry = items[next]
-        if (!entry) return
-        model.set({ providerID: entry.provider.id, modelID: entry.id })
-      },
-      set(item: ModelKey | undefined, options?: { recent?: boolean }) {
-        batch(() => {
-          setStore("last", {
-            type: "model",
-            agent: agent.current()?.name,
-            model: item ?? null,
-            variant: selected(),
-          })
-          write({ model: item })
-          if (!item) return
-          models.setVisibility(item, true)
-          if (!options?.recent) return
-          models.recent.push(item)
-          // Mirror an explicit pick to the server's recent-model default so a
-          // model-less session (e.g. a Telegram /new) inherits the user's actual
-          // choice. Best-effort: a failure here must not disrupt the pick.
-          void sdk.client.provider.recordRecent({ providerID: item.providerID, modelID: item.modelID }).catch(() => {})
-        })
-      },
+      cycle: modelActions.cycle,
+      set: modelActions.set,
       visible(item: ModelKey) {
         return models.visible(item)
       },
