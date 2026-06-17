@@ -33,27 +33,15 @@ export function safeExternalUrl(url: string): string | null {
 }
 
 /**
- * Permission policy for the embedded browser, used by BOTH the request handler
- * (whether an actual permission request is granted) and the check handler (what
- * navigator.permissions.query reports). They must agree.
- *
- * Electron's default is to answer every permission check "granted", which is
- * impossible in a real Chrome — camera + microphone + geolocation + notifications
- * all granted, unprompted — and an obvious automation tell. Electron's boolean
- * handler cannot express Chrome's "prompt" default, so the faithful, consistent
- * answer is: grant exactly the permissions a fresh Chrome grants WITHOUT
- * prompting, and deny the rest (Chrome shows "prompt"; "denied" is a normal
- * privacy state and far better than the impossible "granted").
- *
- * Strings are Electron's check-permission names — camera and microphone both
- * arrive as "media", so neither is granted here.
- *
- * The set was verified against a fresh real Chrome (measured both sides via
- * navigator.permissions.query): the four below are exactly what Chrome returns
- * "granted" by default; everything else returns "prompt", which we map to
- * "denied". Note `midi` is NOT here — Chrome gates Web MIDI behind a prompt
- * since Chrome 124 (BlockMidiByDefault), so granting it would be both a privacy
- * footgun (silent requestMIDIAccess) and a tell (granted vs Chrome's prompt).
+ * Permission policy for the embedded browser, shared by the request handler and
+ * the check handler (navigator.permissions.query) so the queried state and a
+ * request outcome always agree. Grant exactly what a fresh Chrome grants without
+ * a prompt; deny the rest — Electron's boolean handler can't express Chrome's
+ * "prompt", and "denied" is the faithful substitute for the impossible "granted"
+ * (Electron's default). Strings are Electron's permission names — camera and
+ * microphone both arrive as "media". The set is measured against a fresh real
+ * Chrome; the per-permission rationale (why midi is denied, payment-handler
+ * granted) is in the PR description.
  */
 const DEFAULT_GRANTED_PERMISSIONS = new Set([
   "clipboard-sanitized-write", // navigator.clipboard.writeText: granted by default

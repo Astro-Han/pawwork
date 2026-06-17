@@ -90,14 +90,9 @@ export class BrowserViewController {
       this.openExternal(url)
     })
 
-    // Permission policy: grant exactly what a fresh Chrome grants without a
-    // prompt and deny everything else — applied to BOTH actual requests and
-    // navigator.permissions.query checks. The check handler matters for stealth:
-    // Electron otherwise answers every check "granted", which is impossible in a
-    // real Chrome (camera+mic+geolocation+notifications all granted, unprompted)
-    // and flags the browser as automated. Both handlers share one policy so the
-    // queried state and the request outcome always agree. Camera/mic/geolocation
-    // stay denied — a content viewer must not silently grant them.
+    // Apply the shared permission policy (logic.ts) to BOTH actual requests and
+    // navigator.permissions.query checks, so the queried state and the request
+    // outcome always agree.
     wc.session.setPermissionRequestHandler((_wc, permission, callback) =>
       callback(isDefaultGrantedPermission(permission)),
     )
