@@ -297,6 +297,23 @@ describe("browser_navigate", () => {
     }),
   )
 
+  it.live("appends a high-risk caution when navigating to a high-risk site", () =>
+    Effect.gen(function* () {
+    setupServer()
+    const result = yield* exec(BrowserNavigateTool, { url: "https://www.xiaohongshu.com/explore" })
+    expect(result.output).toContain("Loaded https://www.xiaohongshu.com/explore")
+    expect(result.output).toContain("anti-automation risk control")
+    }),
+  )
+
+  it.live("adds no caution for an ordinary site", () =>
+    Effect.gen(function* () {
+    setupServer()
+    const result = yield* exec(BrowserNavigateTool, { url: "https://example.com/page" })
+    expect(result.output).not.toContain("anti-automation risk control")
+    }),
+  )
+
   it.live("a redirect's real landing is reported and re-judged, not the requested URL", () =>
     Effect.gen(function* () {
     const server = makeServer()

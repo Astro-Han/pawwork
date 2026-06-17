@@ -5,6 +5,7 @@ import DESCRIPTION from "./opencli-run.txt"
 import { openCliCommand, openCliCommandSummaryFromCommand, type OpenCliCommandSummary } from "@/opencli/adapter-registry"
 import { prepareOpenCliCommandArgs, runOpenCliAdapterCommand } from "@/opencli/adapter-runner"
 import { browserAlwaysPatterns, runBrowserAction } from "./browser-shared"
+import { highRiskSiteNotice } from "./high-risk-site"
 
 const OPENCLI_RUN_TIMEOUT_MS = 60_000
 type OpenCliCommand = NonNullable<Awaited<ReturnType<typeof openCliCommand>>>
@@ -141,9 +142,10 @@ export const OpenCliRunTool = Tool.define(
             })
           : yield* runBrowserCommand(command, args, ctx)
 
+        const riskNotice = command.browser !== false && command.domain ? highRiskSiteNotice(command.domain) : null
         return {
           title: `OpenCLI ${fullName(command)}`,
-          output: formatAdapterOutput(value),
+          output: formatAdapterOutput(value) + (riskNotice ? `\n\n${riskNotice}` : ""),
           metadata: {
             command: fullName(command),
             access: command.access,
