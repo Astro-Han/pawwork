@@ -438,8 +438,7 @@ export async function withConfigFileLock<T>(file: string, fn: () => Promise<T>) 
 
 function isWindowsSyncUnsupportedError(error: unknown) {
   if (process.platform !== "win32") return false
-  const code =
-    error && typeof error === "object" && "code" in error ? (error as NodeJS.ErrnoException)?.code : undefined
+  const code = error && typeof error === "object" && "code" in error ? (error as NodeJS.ErrnoException)?.code : undefined
   return code === "EPERM" || code === "EINVAL" || code === "ENOTSUP"
 }
 
@@ -921,9 +920,9 @@ const rawLayer = Layer.effect(
             if (!response.ok) {
               throw new Error(`failed to fetch remote config from ${url}: ${response.status}`)
             }
-            const wellknown = (yield* Effect.promise(() => readRemoteConfigJson(response, { url, remote }))) as {
-              config?: Record<string, unknown>
-            }
+            const wellknown = (yield* Effect.promise(() =>
+              readRemoteConfigJson(response, { url, remote }),
+            )) as { config?: Record<string, unknown> }
             const remoteConfig = wellknown.config ?? {}
             if (!remoteConfig.$schema) remoteConfig.$schema = "https://opencode.ai/config.json"
             const source = remote
@@ -1195,8 +1194,9 @@ const rawLayer = Layer.effect(
       // abort any in-flight assistant turn.
       if (changed)
         yield* Effect.promise(() =>
-          withLifecycleOrigin({ source: "config", operation: "config.update", reason: "config.update" }, () =>
-            Instance.dispose(),
+          withLifecycleOrigin(
+            { source: "config", operation: "config.update", reason: "config.update" },
+            () => Instance.dispose(),
           ),
         )
     })
@@ -1215,7 +1215,8 @@ const rawLayer = Layer.effect(
       const task = withLifecycleOrigin({ source: "config", operation, reason: operation }, async () => {
         const result = await Instance.disposeAll({ onCompleted: emitDisposed })
         if (wait && result.completed) await result.completed
-      }).catch(() => undefined)
+      })
+        .catch(() => undefined)
       if (wait) yield* Effect.promise(() => task)
       else void task
     })
@@ -1270,8 +1271,7 @@ const rawLayer = Layer.effect(
           const updated = patchJsonc(before, writable(config))
           next = ConfigParse.schema(Info.zod, ConfigParse.jsonc(updated, file), file)
           changed = !fileExisted || updated !== before
-          if (changed)
-            yield* Effect.promise(() => writeConfigTextAtomic(file, updated, writeOptions)).pipe(Effect.orDie)
+          if (changed) yield* Effect.promise(() => writeConfigTextAtomic(file, updated, writeOptions)).pipe(Effect.orDie)
         }
       } finally {
         yield* Effect.promise(() => lock.release())

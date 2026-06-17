@@ -63,10 +63,18 @@ export const layer = Layer.effect(
         })
 
         yield* config.get().pipe(Effect.asVoid)
-        yield* Effect.forEach([shareNext.init(), lsp.init(), file.init()], boot, {
-          concurrency: "unbounded",
-          discard: true,
-        })
+        yield* Effect.forEach(
+          [
+            shareNext.init(),
+            lsp.init(),
+            file.init(),
+          ],
+          boot,
+          {
+            concurrency: "unbounded",
+            discard: true,
+          },
+        )
         yield* boot(fileWatcher.init())
         yield* boot(vcs.init())
         yield* boot(snapshot.init())

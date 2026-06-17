@@ -353,10 +353,7 @@ export const ApplyPatchTool = Tool.define(
             before: change.beforeExists
               ? { exists: true, content: change.beforeContent ?? change.oldContent, bom: change.beforeBom }
               : { exists: false },
-            after:
-              change.type === "delete"
-                ? { exists: false }
-                : { exists: true, content: change.newContent, bom: change.bom },
+            after: change.type === "delete" ? { exists: false } : { exists: true, content: change.newContent, bom: change.bom },
           })
         }
       }
