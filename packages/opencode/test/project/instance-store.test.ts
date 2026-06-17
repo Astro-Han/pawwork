@@ -211,6 +211,45 @@ describe("InstanceStore", () => {
     }),
   )
 
+  it.live("does not close when a run starts after maintenance dispose becomes idle", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      const store = yield* InstanceStore.Service
+      const disposed = Promise.withResolvers<void>()
+      const completed = Promise.withResolvers<void>()
+      const off = registerDisposer(async (directory) => {
+        if (directory === dir) disposed.resolve()
+      })
+      yield* Effect.addFinalizer(() => Effect.sync(off))
+
+      const firstContext = yield* store.load({ directory: dir })
+      const first = trackActiveRun(dir)
+      const releaseFirst = yield* Effect.promise(() => first.promise)
+
+      const result = yield* store.disposeDirectory(dir, { onCompleted: () => completed.resolve() })
+      expect(result).toBe(false)
+
+      releaseFirst()
+      const second = trackActiveRun(dir)
+      const secondExit = yield* Effect.promise(() => second.promise).pipe(Effect.timeout("100 millis"), Effect.exit)
+      let releaseSecond: (() => void) | undefined
+      if (Exit.isSuccess(secondExit)) releaseSecond = secondExit.value
+      expect(Exit.isSuccess(secondExit)).toBe(true)
+
+      try {
+        const earlyDispose = yield* Effect.promise(() => disposed.promise).pipe(Effect.timeout("100 millis"), Effect.exit)
+        expect(Exit.isFailure(earlyDispose)).toBe(true)
+      } finally {
+        releaseSecond?.()
+      }
+
+      const completedExit = yield* Effect.promise(() => completed.promise).pipe(Effect.timeout("1 second"), Effect.exit)
+      expect(Exit.isSuccess(completedExit)).toBe(true)
+      const current = yield* store.load({ directory: dir })
+      expect(current).not.toBe(firstContext)
+    }),
+  )
+
   it.live("does not gate new runs while a maintenance reload waits for idle", () =>
     Effect.gen(function* () {
       const dir = yield* tmpdirScoped()

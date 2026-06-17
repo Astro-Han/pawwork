@@ -245,24 +245,23 @@ export const layer = Layer.effect(
         error,
       })
 
-    const deferMaintenanceClose = (
+    const deferMaintenanceClose = async (
       directories: readonly string[],
       close: () => Promise<unknown>,
     ): Promise<void> => {
       const targetDirectories = [...new Set(directories)]
-      const waitAndClose = async (): Promise<void> => {
+      while (true) {
         await whenAllRunsIdle(targetDirectories)
         const releaseClose = beginLifecycleClose(targetDirectories)
-        let retry = false
         try {
-          if (hasActiveRuns(targetDirectories)) retry = true
-          else await close()
+          if (!hasActiveRuns(targetDirectories)) {
+            await close()
+            return
+          }
         } finally {
           releaseClose()
         }
-        if (retry) await waitAndClose()
       }
-      return waitAndClose()
     }
 
     const disposeEntryNow = (
