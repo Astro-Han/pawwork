@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
 import type { NamedError } from "@opencode-ai/util/error"
 import { APICallError } from "ai"
 import { setTimeout as sleep } from "node:timers/promises"
@@ -43,18 +43,27 @@ describe("session.retry.delay", () => {
     })
   })
 
-  test("exponential backoff without headers spreads parallel retries via jitter", () => {
+  test("exponential backoff applies equal jitter at 50%, midpoint, and 100% of the base", () => {
     // The core fix for issue #1348: parallel subagents retrying 429s must not retry
     // in lockstep. delay() applies equal jitter (50-100% of exponential base) so
-    // concurrent callers land on different moments.
-    const attempts = Array.from({ length: 20 }, () => SessionRetry.delay(2))
-    const expectedBase = 4000
-    attempts.forEach((d) => {
-      expect(d).toBeGreaterThanOrEqual(Math.round(expectedBase * 0.5))
-      expect(d).toBeLessThanOrEqual(expectedBase)
-    })
-    // with 20 draws in [2000, 4000], at least 3 distinct values should appear
-    expect(new Set(attempts).size).toBeGreaterThanOrEqual(3)
+    // concurrent callers land on different moments. Deterministic via Math.random
+    // stubbing — no probabilistic draws.
+    const base = 4000 // attempt 2, RETRY_INITIAL_DELAY * 2^(2-1)
+    const cases = [
+      { rand: 0, expected: 2000 }, // 50% lower bound: base * (0.5 + 0*0.5)
+      { rand: 0.5, expected: 3000 }, // midpoint: base * (0.5 + 0.5*0.5)
+      { rand: 0.999, expected: 3998 }, // near 100%: base * (0.5 + 0.999*0.5), rounded
+    ]
+    for (const { rand, expected } of cases) {
+      const spy = spyOn(Math, "random").mockReturnValue(rand)
+      try {
+        expect(SessionRetry.delay(2)).toBe(expected)
+      } finally {
+        spy.mockRestore()
+      }
+    }
+    // sanity: base is what we think it is, so the boundaries above are meaningful
+    expect(base).toBe(SessionRetry.RETRY_INITIAL_DELAY * Math.pow(SessionRetry.RETRY_BACKOFF_FACTOR, 2 - 1))
   })
 
   test("prefers retry-after-ms when shorter than exponential", () => {
