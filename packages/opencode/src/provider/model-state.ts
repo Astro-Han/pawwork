@@ -2,6 +2,7 @@ import path from "path"
 import { Global } from "@opencode-ai/core/global"
 import { Filesystem } from "../util/filesystem"
 import { Flock } from "../util/flock"
+import { isRecord } from "../util/record"
 
 /**
  * Persists the user's last-used model into `state/model.json`'s `recent` list —
@@ -20,10 +21,6 @@ export namespace ModelState {
   // Keep enough history that defaultModel() can fall through to an older choice
   // when the most-recent provider/model is no longer connected.
   export const MAX_RECENT = 50
-
-  function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value)
-  }
 
   /**
    * Pure: compute the next model.json contents, promoting `model` to the front of
