@@ -219,6 +219,33 @@ describe("automate_manage tool", () => {
     })
   })
 
+  test.each(["pause", "resume"] as const)(
+    "%s reports update-time stale ids as a readable relist error",
+    async (action) => {
+      await using tmp = await tmpdir({ git: true })
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          installScheduler()
+          const created = Automation.create(recurring(Instance.project.id, "Daily repo brief"), { now: 100 })
+          const racingAutomation: Automation.Interface = {
+            ...automation,
+            update: (id, patch, options) =>
+              Effect.gen(function* () {
+                yield* Effect.promise(() => Automation.remove(created.id))
+                return yield* automation.update(id, patch, options)
+              }),
+          }
+          const racingTool = createAutomateManageDefinition(racingAutomation)
+
+          await expect(Effect.runPromise(racingTool.execute({ action, id: created.id }, toolContext()))).rejects.toThrow(
+            `Automation not found: ${created.id}. Run automate_manage list to get a current id.`,
+          )
+        },
+      })
+    },
+  )
+
   test("delete rejects stale automation ids before asking or removing anything", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({

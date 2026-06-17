@@ -99,7 +99,7 @@ export function createAutomateManageDefinition(
         const id = yield* requireID(params)
         const previous = yield* getAutomation(automation, id)
         if (params.action === "pause" || params.action === "resume") {
-          const definition = yield* automation.update(id, { paused: params.action === "pause" })
+          const definition = yield* readableAutomationEffect(automation.update(id, { paused: params.action === "pause" }), id)
           if (definition.revision !== previous.revision) {
             yield* automation.publishDefinitionUpdated(definition)
           }
