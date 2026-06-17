@@ -5,7 +5,7 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { TextField } from "@opencode-ai/ui/text-field"
 import { showToast } from "@opencode-ai/ui/toast"
-import { createSignal, Match, onCleanup, Switch } from "solid-js"
+import { Match, onCleanup, Switch } from "solid-js"
 import { createStore } from "solid-js/store"
 import type { RemotePairingResult } from "@/desktop-api-contract"
 import { useLanguage } from "@/context/language"
@@ -149,41 +149,6 @@ export function DialogConnectRemote() {
             </div>
           </Match>
         </Switch>
-      </div>
-    </Dialog>
-  )
-}
-
-// Irreversible confirm: disconnecting wipes the saved token, so it gets a
-// two-button Dialog with a danger action, per the design system.
-export function DialogDisconnectRemote() {
-  const language = useLanguage()
-  const dialog = useDialog()
-  const [busy, setBusy] = createSignal(false)
-
-  const handleDisconnect = async () => {
-    if (busy()) return
-    setBusy(true)
-    try {
-      await window.api?.remote?.disconnect()
-      dialog.close()
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Dialog title={language.t("settings.remote.disconnect.title")} fit class="w-full max-w-[420px] mx-auto">
-      <div class="px-6 pt-2 pb-6">
-        <span class="text-body text-fg-strong">{language.t("settings.remote.disconnect.body")}</span>
-      </div>
-      <div class="flex justify-end gap-2 px-6 pb-6">
-        <Button variant="secondary" onClick={() => dialog.close()} disabled={busy()}>
-          {language.t("common.cancel")}
-        </Button>
-        <Button variant="danger" onClick={handleDisconnect} disabled={busy()}>
-          {language.t("settings.remote.action.disconnect")}
-        </Button>
       </div>
     </Dialog>
   )

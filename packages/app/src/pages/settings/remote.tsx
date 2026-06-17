@@ -36,7 +36,7 @@ export const RemotePage: Component = () => {
     void import("@/components/dialog-connect-remote").then((m) => dialog.show(() => <m.DialogConnectRemote />))
   }
   const openDisconnect = () => {
-    void import("@/components/dialog-connect-remote").then((m) => dialog.show(() => <m.DialogDisconnectRemote />))
+    void import("@/components/dialog-disconnect-remote").then((m) => dialog.show(() => <m.DialogDisconnectRemote />))
   }
 
   const statusLabel = () => {
