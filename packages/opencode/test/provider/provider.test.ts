@@ -1449,9 +1449,7 @@ test("Volcano Engine Coding Plan models have correct key parameters", async () =
     expect(model.limit.context, `${id}.limit.context`).toBe(spec.context)
     expect(model.limit.output, `${id}.limit.output`).toBe(spec.output)
     expect(model.reasoning, `${id}.reasoning`).toBe(spec.reasoning)
-    if (spec.interleaved) {
-      expect(model.interleaved, `${id}.interleaved`).toEqual(spec.interleaved)
-    }
+    expect(model.interleaved ?? false, `${id}.interleaved`).toEqual(spec.interleaved ?? false)
   }
 })
 
