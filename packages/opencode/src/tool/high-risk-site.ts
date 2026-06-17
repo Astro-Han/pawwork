@@ -18,12 +18,18 @@ const HIGH_RISK_SITES: HighRiskSite[] = [{ name: "Xiaohongshu (RedNote)", hosts:
 function hostnameOf(urlOrHost: string): string | null {
   const trimmed = urlOrHost.trim()
   if (!trimmed) return null
+  let host: string
   try {
-    return new URL(trimmed).hostname.toLowerCase()
+    host = new URL(trimmed).hostname.toLowerCase()
   } catch {
     // Not a full URL — treat the input as a bare hostname.
-    return trimmed.toLowerCase().replace(/^\.+/, "").split("/")[0] || null
+    host = trimmed.toLowerCase().split("/")[0]
   }
+  // A fully-qualified name can carry a root-label trailing dot
+  // ("xiaohongshu.com." resolves to the same site, and `new URL` keeps it), so
+  // strip leading/trailing dots before the suffix match — otherwise a trailing
+  // dot slips past `endsWith(".xiaohongshu.com")`.
+  return host.replace(/^\.+|\.+$/g, "") || null
 }
 
 function matchSite(urlOrHost: string): HighRiskSite | null {

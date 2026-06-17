@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect"
 import * as Tool from "./tool"
 import DESCRIPTION from "./browser-snapshot.txt"
-import { runBrowserAction, takeoverNote } from "./browser-shared"
+import { runBrowserAction, trailingNotes } from "./browser-shared"
 
 export const Parameters = Schema.Struct({
   interactive: Schema.optional(Schema.Boolean).annotate({
@@ -38,7 +38,7 @@ export const BrowserSnapshotTool = Tool.define(
           typeof result.snapshot === "string" ? result.snapshot : JSON.stringify(result.snapshot, null, 2)
         return {
           title: result.url || "Page snapshot",
-          output: text + takeoverNote(result.info),
+          output: text + trailingNotes(result.info),
           metadata: { url: result.url, interactive: params.interactive ?? true },
         }
       }),

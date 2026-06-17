@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect"
 import * as Tool from "./tool"
 import DESCRIPTION from "./browser-wait.txt"
-import { runBrowserAction, takeoverNote } from "./browser-shared"
+import { runBrowserAction, trailingNotes } from "./browser-shared"
 
 const MAX_WAIT_SECONDS = 120
 
@@ -92,7 +92,7 @@ export const BrowserWaitTool = Tool.define(
           // When taking over an already-open page reloaded it, say so — a
           // wait may be the takeover's first action, and the condition it
           // just satisfied happened on the freshly reloaded document.
-          output: `Done: ${condition}.` + takeoverNote(info),
+          output: `Done: ${condition}.` + trailingNotes(info),
           metadata: { condition },
         }
       }),

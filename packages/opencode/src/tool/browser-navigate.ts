@@ -2,8 +2,7 @@ import { Effect, Schema } from "effect"
 import * as Tool from "./tool"
 import DESCRIPTION from "./browser-navigate.txt"
 import { parseNavigableUrl } from "@/browser/session"
-import { browserAlwaysPatterns, runBrowserAction, takeoverNote } from "./browser-shared"
-import { highRiskSiteNotice } from "./high-risk-site"
+import { browserAlwaysPatterns, runBrowserAction, trailingNotes } from "./browser-shared"
 
 // Above opencli's internal 30s CDP guard so a slow load surfaces the CDP
 // command timeout (which names the navigation) rather than our generic one.
@@ -65,15 +64,13 @@ export const BrowserNavigateTool = Tool.define(
             metadata: { action: "navigate", url: landed, redirectedFrom: url },
           })
         }
-        const riskNotice = highRiskSiteNotice(result.landed)
         return {
           title: result.title || result.landed,
           output:
             [`Loaded ${result.landed}`, result.title ? `Title: ${result.title}` : undefined]
               .filter(Boolean)
               .join("\n") +
-            takeoverNote(result.info) +
-            (riskNotice ? `\n\n${riskNotice}` : ""),
+            trailingNotes(result.info),
           metadata: { url: result.landed, pageTitle: result.title },
         }
       }),

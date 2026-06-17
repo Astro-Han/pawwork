@@ -2,6 +2,7 @@ import { Effect, Schema } from "effect"
 import * as Tool from "./tool"
 import DESCRIPTION from "./opencli-search.txt"
 import { searchOpenCliCommands, type OpenCliCommandSummary } from "@/opencli/adapter-registry"
+import { highRiskSiteNotice } from "./high-risk-site"
 
 export const Parameters = Schema.Struct({
   query: Schema.String.annotate({
@@ -41,7 +42,17 @@ export function formatOpenCliSearchOutput(results: OpenCliCommandSummary[]) {
     results.length === 0
       ? "No bundled OpenCLI adapter commands matched this query."
       : results.map(formatOpenCliCommand).join("\n\n")
-  return body
+  // Warn at discovery — BEFORE the model decides to run anything — when a matched
+  // command targets a high-risk site. Dedupe by notice text so several commands
+  // for the same site add a single caution.
+  const cautions = [
+    ...new Set(
+      results
+        .map((command) => (command.domain ? highRiskSiteNotice(command.domain) : null))
+        .filter((notice): notice is string => notice !== null),
+    ),
+  ]
+  return cautions.length > 0 ? `${body}\n\n${cautions.join("\n\n")}` : body
 }
 
 export const OpenCliSearchTool = Tool.define(

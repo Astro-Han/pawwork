@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect"
 import * as Tool from "./tool"
 import DESCRIPTION from "./browser-type.txt"
-import { normalizeElementRef, runBrowserAction, takeoverNote } from "./browser-shared"
+import { normalizeElementRef, runBrowserAction, trailingNotes } from "./browser-shared"
 
 export const Parameters = Schema.Struct({
   ref: Schema.String.annotate({
@@ -44,7 +44,7 @@ export const BrowserTypeTool = Tool.define(
         ]
         return {
           title: `Typed into ${params.ref}`,
-          output: lines.join("\n") + takeoverNote(result.info),
+          output: lines.join("\n") + trailingNotes(result.info),
           metadata: {
             ref: params.ref,
             filled,

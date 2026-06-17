@@ -9,6 +9,10 @@ describe("highRiskSiteNotice", () => {
       "www.xiaohongshu.com",
       "https://xhslink.com/abc",
       "xhslink.com",
+      // A root-label trailing dot resolves to the same site; it must not slip
+      // past the suffix match.
+      "https://www.xiaohongshu.com./explore",
+      "xiaohongshu.com.",
     ]) {
       expect(highRiskSiteNotice(input)).toContain("anti-automation risk control")
     }

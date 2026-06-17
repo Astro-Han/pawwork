@@ -455,6 +455,21 @@ describe("browser_click", () => {
     expect(expressions.join("\n")).not.toContain('"[1]"')
     }),
   )
+
+  it.live("a current-page action on a high-risk site surfaces the caution (not just navigate)", () =>
+    Effect.gen(function* () {
+    const server = makeServer()
+    // The user is already on a high-risk page; the click probes that URL.
+    server.url = "https://www.xiaohongshu.com/explore"
+    server.handlers.set("Runtime.evaluate", () => ({
+      result: { type: "object", value: { ok: true, matches_n: 1, match_level: "exact", visible: true, x: 10, y: 10 } },
+    }))
+    provideFakeHost(server)
+    const result = yield* exec(BrowserClickTool, { ref: "[1]" })
+    expect(result.output).toContain("Clicked [1]")
+    expect(result.output).toContain("anti-automation risk control")
+    }),
+  )
 })
 
 describe("normalizeElementRef", () => {
