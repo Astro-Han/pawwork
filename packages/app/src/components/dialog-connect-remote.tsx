@@ -29,6 +29,10 @@ export function DialogConnectRemote() {
   // Guard against late async resolutions after the dialog is gone, and stop the
   // bot's capture poll when the dialog closes mid-pairing.
   const alive = { value: true }
+  // Monotonic pairing-attempt id: cancelling (or restarting) pairing bumps it, so
+  // a startPairing() that resolves just after the user cancels is ignored instead
+  // of flipping the dialog back to the confirm step.
+  let attempt = 0
   onCleanup(() => {
     alive.value = false
     void window.api?.remote?.cancelPairing()
@@ -41,15 +45,16 @@ export function DialogConnectRemote() {
     const api = remote()
     const token = store.token.trim()
     if (!api || token === "" || store.busy) return
+    const mine = ++attempt
     setStore({ step: "waiting", error: undefined })
     try {
       const captured = await api.startPairing(token)
-      if (!alive.value) return
+      if (!alive.value || mine !== attempt) return
       // null = cancelled before a sender arrived; fall back to the token step.
       if (!captured) return setStore({ step: "token" })
       setStore({ step: "confirm", captured })
     } catch (err) {
-      if (!alive.value) return
+      if (!alive.value || mine !== attempt) return
       setStore({ step: "token", error: errorMessage(err) })
     }
   }
@@ -78,6 +83,7 @@ export function DialogConnectRemote() {
   }
 
   function backToToken() {
+    attempt++ // invalidate any in-flight startPairing so its late resolve is dropped
     void remote()?.cancelPairing()
     setStore({ step: "token", captured: undefined })
   }
