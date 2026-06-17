@@ -146,6 +146,12 @@ describe("isDefaultGrantedPermission", () => {
     }
   })
 
+  test("grants the user-gesture permissions Chrome allows without a prompt (fullscreen, pointer lock)", () => {
+    for (const p of ["fullscreen", "pointerLock"]) {
+      expect(isDefaultGrantedPermission(p)).toBe(true)
+    }
+  })
+
   test("denies sensitive / prompt-type permissions (Electron would default them to granted)", () => {
     // "media" is what camera AND microphone queries arrive as. "midi" belongs
     // here: Chrome gates Web MIDI behind a prompt (Chrome 124+), so it must NOT

@@ -60,6 +60,13 @@ const DEFAULT_GRANTED_PERMISSIONS = new Set([
   "background-sync", // granted by default
   "sensors", // accelerometer / gyroscope / magnetometer: granted by default
   "payment-handler", // navigator.permissions.query("payment-handler"): granted by default in Chrome
+  // Request-only (not exposed via permissions.query): Chrome allows these on a
+  // user gesture WITHOUT a prompt, so denying them would break ordinary browsing
+  // (e.g. fullscreen video) and be a tell. "fullscreen" is measurement-confirmed
+  // to reach the request handler; "pointerLock" is Electron's documented request
+  // permission name for the same allow-on-gesture API.
+  "fullscreen",
+  "pointerLock",
 ])
 
 export function isDefaultGrantedPermission(permission: string): boolean {
