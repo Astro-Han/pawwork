@@ -180,6 +180,12 @@ export class RemoteBridgeRuntime {
   /** Idempotent stop for app shutdown — does NOT clear credentials. */
   async stop(): Promise<void> {
     this.cancelPairing()
+    // Abort the live bridge synchronously, before the first await. before-quit runs
+    // `void stop(); killSidecar()` without awaiting, so the abort must land on this
+    // sync prefix — otherwise the poll loop is still running against the sidecar
+    // (the server it talks to) at the moment it is torn down. stopBridge re-aborts
+    // (idempotent) and awaits the teardown.
+    this.ac?.abort()
     await this.enqueue(() => this.stopBridge())
   }
 

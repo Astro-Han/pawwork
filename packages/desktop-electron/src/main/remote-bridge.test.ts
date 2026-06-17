@@ -199,3 +199,28 @@ test("a confirmPairing whose bridge fails to build lands on degraded, not stuck 
   expect(status.state).toBe("degraded")
   expect(status.error).toMatch(/server unreachable/)
 })
+
+test("stop() aborts the live bridge synchronously, before its returned promise settles", async () => {
+  // before-quit runs `void stop(); killSidecar()` without awaiting. The abort must
+  // fire on the synchronous prefix of stop(), so the poller is already tearing down
+  // before the sidecar it talks to is killed.
+  let abortedSync = false
+  const runtime = new RemoteBridgeRuntime(
+    deps({
+      buildApp: async () => ({
+        run: (signal?: AbortSignal) =>
+          new Promise<void>((resolve) => {
+            if (signal?.aborted) return resolve()
+            signal?.addEventListener("abort", () => { abortedSync = true; resolve() }, { once: true })
+          }),
+      }),
+    }),
+  )
+  await runtime.startPairing("t")
+  await runtime.confirmPairing()
+  expect(runtime.getStatus().state).toBe("connected")
+
+  const stopping = runtime.stop() // do not await yet
+  expect(abortedSync).toBe(true) // abort landed on the sync prefix, before any await
+  await stopping
+})
