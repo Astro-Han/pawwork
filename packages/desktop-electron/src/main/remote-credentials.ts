@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import type { CredentialStore, RemoteCredentials } from "./remote-bridge"
 
@@ -67,6 +67,11 @@ export function safeStorageCredentialStore(env: CredentialStoreEnv): CredentialS
       const cipher = env.encryptString(JSON.stringify(creds)).toString("base64")
       const envelope: Envelope = { version: FILE_VERSION, cipher }
       writeFileSync(file, JSON.stringify(envelope), { mode: 0o600 })
+      // writeFileSync's mode only applies when the file is created; rewriting an
+      // existing file keeps its old permissions. Re-assert 0o600 so a token file
+      // ever left world-readable is tightened on the next save. No-op on Windows,
+      // which has no POSIX mode bits.
+      chmodSync(file, 0o600)
     },
 
     clear(): void {

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { mkdtempSync } from "node:fs"
+import { chmodSync, mkdtempSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { safeStorageCredentialStore, type CredentialStoreEnv } from "./remote-credentials"
@@ -28,4 +28,15 @@ test("credential store round-trips userName through save/load", () => {
   // A credential saved without a name still loads (userName simply absent).
   store.save({ token: "123:ABC", allowFrom: "42" })
   expect(store.load()).toEqual({ token: "123:ABC", allowFrom: "42", userName: undefined })
+})
+
+test("save re-enforces 0o600 even when the file already exists with loose perms", () => {
+  if (process.platform === "win32") return // POSIX mode bits only
+  const env = fakeEnv()
+  const file = env.credentialsFile()
+  // An older build or a copied file could have left the token world-readable.
+  writeFileSync(file, "stale", { mode: 0o644 })
+  chmodSync(file, 0o644) // defeat umask so the precondition is genuinely loose
+  safeStorageCredentialStore(env).save({ token: "123:ABC", allowFrom: "42" })
+  expect(statSync(file).mode & 0o777).toBe(0o600)
 })
