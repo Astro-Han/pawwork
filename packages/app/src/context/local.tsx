@@ -8,7 +8,6 @@ import { useProviders } from "@/hooks/use-providers"
 import { modelEnabled, modelProbe } from "@/testing/model-selection"
 import { Persist, persisted } from "@/utils/persist"
 import { cycleModelVariant, getConfiguredAgentVariant, resolveModelVariant } from "./model-variant"
-import { recordPickedModel } from "./record-picked-model"
 import { useSDK } from "./sdk"
 import { useSync } from "./sync"
 
@@ -410,9 +409,12 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           write({ model: item })
           if (!item) return
           models.setVisibility(item, true)
-          recordPickedModel(sdk.client, item, options)
           if (!options?.recent) return
           models.recent.push(item)
+          // Mirror an explicit pick to the server's recent-model default so a
+          // model-less session (e.g. a Telegram /new) inherits the user's actual
+          // choice. Best-effort: a failure here must not disrupt the pick.
+          void sdk.client.provider.recordRecent({ providerID: item.providerID, modelID: item.modelID }).catch(() => {})
         })
       },
       visible(item: ModelKey) {
