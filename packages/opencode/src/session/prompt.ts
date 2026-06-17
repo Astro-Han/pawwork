@@ -10,6 +10,7 @@ import { inheritMetadata } from "./inherit-metadata"
 import * as Session from "./session"
 import { Agent } from "../agent/agent"
 import { Provider } from "../provider/provider"
+import { ModelState } from "../provider/model-state"
 import { ModelID, ProviderID } from "../provider/schema"
 import { type Tool as AITool, tool, jsonSchema, type ToolExecutionOptions, asSchema } from "ai"
 import type { JSONSchema7 } from "@ai-sdk/provider"
@@ -1953,6 +1954,22 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       const session = yield* sessions.get(input.sessionID)
       yield* revert.cleanup(session)
       const message = yield* createUserMessage(input)
+      // Seed the global "recent model" so a later session with no explicit model
+      // (e.g. a Telegram /new) inherits this choice. Only a user's own top-level
+      // prompt counts — never automation or subagent child sessions. Best-effort
+      // and non-blocking: a write failure must not affect the prompt.
+      if (
+        message.info.role === "user" &&
+        message.info.model &&
+        ModelState.shouldRecordRecent({
+          automationID: input.automationID,
+          parentID: session.parentID,
+          createdByAgentTool: session.createdByAgentTool,
+        })
+      ) {
+        const chosen = message.info.model
+        yield* Effect.promise(() => ModelState.recordRecent(chosen)).pipe(Effect.forkDetach)
+      }
       yield* sessions.touch(input.sessionID)
 
       const permissions: Permission.Ruleset = []
