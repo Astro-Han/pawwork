@@ -184,3 +184,18 @@ test("a fatal run() failure becomes degraded status, not an unhandled rejection"
   expect(status.state).toBe("degraded")
   expect(status.error).toMatch(/revoked token/)
 })
+
+test("a confirmPairing whose bridge fails to build lands on degraded, not stuck connecting", async () => {
+  // serverInfo/buildApp can throw before run() ever starts (e.g. the server is
+  // unreachable). confirmPairing awaits startBridge directly — unlike
+  // startIfConfigured — so without the degraded fallback the status would hang on
+  // "connecting" forever.
+  const runtime = new RemoteBridgeRuntime(
+    deps({ buildApp: async () => { throw new Error("server unreachable") } }),
+  )
+  await runtime.startPairing("t")
+  await expect(runtime.confirmPairing()).rejects.toThrow(/server unreachable/)
+  const status = runtime.getStatus()
+  expect(status.state).toBe("degraded")
+  expect(status.error).toMatch(/server unreachable/)
+})

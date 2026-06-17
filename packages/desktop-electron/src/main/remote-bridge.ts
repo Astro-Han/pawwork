@@ -98,9 +98,9 @@ export class RemoteBridgeRuntime {
   async startIfConfigured(): Promise<void> {
     const creds = this.deps.credentials.load()
     if (!creds) return
-    await this.enqueue(() => this.startBridge(creds)).catch((err) => {
-      this.setStatus({ state: "degraded", error: message(err) })
-    })
+    // startBridge sets degraded on any failure; this catch only keeps the
+    // background start from surfacing as an unhandled rejection.
+    await this.enqueue(() => this.startBridge(creds)).catch(() => {})
   }
 
   /**
@@ -186,21 +186,30 @@ export class RemoteBridgeRuntime {
   private async startBridge(creds: RemoteCredentials): Promise<void> {
     await this.stopBridge()
     this.setStatus({ state: "connecting", platform: "telegram", error: null })
-    const server = await this.deps.serverInfo()
-    const config: Config = {
-      pawWorkBaseURL: server.url,
-      pawWorkUsername: server.username ?? undefined,
-      pawWorkPassword: server.password ?? undefined,
-      statePath: this.deps.statePath,
-      platforms: [{ name: "telegram", enabled: true, options: { allow_from: creds.allowFrom } }],
+    let app: BridgeApp
+    try {
+      const server = await this.deps.serverInfo()
+      const config: Config = {
+        pawWorkBaseURL: server.url,
+        pawWorkUsername: server.username ?? undefined,
+        pawWorkPassword: server.password ?? undefined,
+        statePath: this.deps.statePath,
+        platforms: [{ name: "telegram", enabled: true, options: { allow_from: creds.allowFrom } }],
+      }
+      // The token is captured in the factory closure, never placed in `config`
+      // (which may be logged): only the non-secret allow_from travels through it.
+      const factory: PlatformFactory = (name, options) => {
+        if (name !== "telegram") throw new Error(`unsupported platform ${name}`)
+        return this.deps.makePlatform(creds.token, String(options.allow_from ?? ""))
+      }
+      app = await this.deps.buildApp(config, factory)
+    } catch (err) {
+      // serverInfo / buildApp failed before the bridge ever ran. Land on degraded
+      // so confirmPairing — which awaits this directly, unlike startIfConfigured —
+      // can't leave the status stuck on "connecting" forever when the build throws.
+      this.setStatus({ state: "degraded", error: message(err) })
+      throw err
     }
-    // The token is captured in the factory closure, never placed in `config`
-    // (which may be logged): only the non-secret allow_from travels through it.
-    const factory: PlatformFactory = (name, options) => {
-      if (name !== "telegram") throw new Error(`unsupported platform ${name}`)
-      return this.deps.makePlatform(creds.token, String(options.allow_from ?? ""))
-    }
-    const app = await this.deps.buildApp(config, factory)
     const ac = new AbortController()
     this.ac = ac
     const run = app.run(ac.signal)
