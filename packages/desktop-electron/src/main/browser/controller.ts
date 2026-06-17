@@ -6,6 +6,7 @@ import {
   computeViewBounds,
   deriveBrowserState,
   displayDecision,
+  isDefaultGrantedPermission,
   parseNavigable,
   safeExternalUrl,
 } from "./logic"
@@ -89,9 +90,18 @@ export class BrowserViewController {
       this.openExternal(url)
     })
 
-    // Deny every permission request by default — a v1 content viewer should not
-    // silently grant camera/mic/geolocation/etc.
-    wc.session.setPermissionRequestHandler((_wc, _permission, callback) => callback(false))
+    // Permission policy: grant exactly what a fresh Chrome grants without a
+    // prompt and deny everything else — applied to BOTH actual requests and
+    // navigator.permissions.query checks. The check handler matters for stealth:
+    // Electron otherwise answers every check "granted", which is impossible in a
+    // real Chrome (camera+mic+geolocation+notifications all granted, unprompted)
+    // and flags the browser as automated. Both handlers share one policy so the
+    // queried state and the request outcome always agree. Camera/mic/geolocation
+    // stay denied — a content viewer must not silently grant them.
+    wc.session.setPermissionRequestHandler((_wc, permission, callback) =>
+      callback(isDefaultGrantedPermission(permission)),
+    )
+    wc.session.setPermissionCheckHandler((_wc, permission) => isDefaultGrantedPermission(permission))
   }
 
   private openExternal(url: string) {

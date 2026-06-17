@@ -33,6 +33,33 @@ export function safeExternalUrl(url: string): string | null {
 }
 
 /**
+ * Permission policy for the embedded browser, used by BOTH the request handler
+ * (whether an actual permission request is granted) and the check handler (what
+ * navigator.permissions.query reports). They must agree.
+ *
+ * Electron's default is to answer every permission check "granted", which is
+ * impossible in a real Chrome — camera + microphone + geolocation + notifications
+ * all granted, unprompted — and an obvious automation tell. Electron's boolean
+ * handler cannot express Chrome's "prompt" default, so the faithful, consistent
+ * answer is: grant exactly the permissions a fresh Chrome grants WITHOUT
+ * prompting, and deny the rest (Chrome shows "prompt"; "denied" is a normal
+ * privacy state and far better than the impossible "granted").
+ *
+ * Strings are Electron's check-permission names — camera and microphone both
+ * arrive as "media", so neither is granted here.
+ */
+const DEFAULT_GRANTED_PERMISSIONS = new Set([
+  "midi", // basic MIDI: granted by default in Chrome
+  "clipboard-sanitized-write", // navigator.clipboard.writeText: granted by default
+  "background-sync", // granted by default
+  "sensors", // accelerometer / gyroscope / magnetometer: granted by default
+])
+
+export function isDefaultGrantedPermission(permission: string): boolean {
+  return DEFAULT_GRANTED_PERMISSIONS.has(permission)
+}
+
+/**
  * Convert a CSS-pixel viewport rect (reported by the renderer) into the
  * device-independent pixel bounds a WebContentsView expects. The renderer is
  * zoom-agnostic; the window's zoom factor is applied here as the single source
