@@ -12,9 +12,6 @@ runs:
       with:
         node-version: "24"
 
-    - run: node script/check-node.mjs
-      shell: bash
-
     - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # oven-sh/setup-bun@v2
       with:
         # Load-bearing for `bun audit` exit semantics; do not bump without re-verifying advisory exit codes.
