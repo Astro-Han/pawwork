@@ -1,8 +1,7 @@
 import { test, expect } from "../fixtures"
 import { closeSettingsPanel, openSettings } from "../actions"
 
-// Foundation lock for the settings route (nav in the sidebar slot, content in the main slot),
-// migrating the existing pages in place (remote / integrations hidden until ready).
+// Foundation lock for the settings route (nav in the sidebar slot, content in the main slot).
 test("@smoke settings shell shows the migrated nav and switches pages", async ({ page, gotoSession }) => {
   await gotoSession()
 
@@ -15,12 +14,14 @@ test("@smoke settings shell shows the migrated nav and switches pages", async ({
   await expect(settings.getByRole("tab", { name: "General" })).toHaveAttribute("aria-selected", "true")
   await expect(settings.locator('[data-action="settings-language"]')).toBeVisible()
 
-  // Currently 6 tabs: General / Shortcuts / Models / Integrations / Worktrees / Memory
-  for (const name of ["General", "Shortcuts", "Models", "Integrations", "Worktrees", "Memory"]) {
+  // Currently 7 tabs: General / Shortcuts / Models / Integrations / Remote access / Worktrees / Memory
+  for (const name of ["General", "Shortcuts", "Models", "Integrations", "Remote access", "Worktrees", "Memory"]) {
     await expect(settings.getByRole("tab", { name })).toBeVisible()
   }
-  // Remote access stays hidden until its page is ready
-  await expect(settings.getByRole("tab", { name: "Remote access" })).toHaveCount(0)
+  // Remote access is a real page now: clicking it renders the Telegram connection row.
+  await settings.getByRole("tab", { name: "Remote access" }).click()
+  await expect(settings.getByRole("button", { name: "Connect" })).toBeVisible()
+  await expect(settings.getByText("Telegram", { exact: true })).toBeVisible()
 
   // Models page = providers + models stacked: both blocks render
   await settings.getByRole("tab", { name: "Models" }).click()
