@@ -147,6 +147,21 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Assert Electron install complete (pre-repair)
+        run: |
+          set -euo pipefail
+          ELECTRON_DIR=$(node -e "console.log(require.resolve('electron/package.json').replace('/package.json',''))")
+          if [ ! -f "$ELECTRON_DIR/path.txt" ]; then
+            echo "::error::Electron path.txt missing after bun install — yauzl override may have failed"
+            exit 1
+          fi
+          if [ ! -d "$ELECTRON_DIR/dist/Electron.app/Contents/Frameworks/Electron Framework.framework" ]; then
+            echo "::error::Electron Frameworks missing after bun install — yauzl override may have failed"
+            exit 1
+          fi
+          echo "Electron install verified: path.txt and Frameworks present"
+        working-directory: packages/desktop-electron
+
       - name: Repair Electron install
         run: node ./scripts/repair-electron-install.mjs
         working-directory: packages/desktop-electron
