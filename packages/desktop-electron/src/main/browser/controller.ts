@@ -1,7 +1,7 @@
 import { BrowserWindow, WebContentsView, session, shell } from "electron"
 import type { BrowserState, BrowserViewLayout } from "@opencode-ai/app/desktop-api"
 import { BROWSER_PARTITION, browserViewWebPreferences } from "./options"
-import { toChromeUserAgent } from "./user-agent"
+import { configurePartitionUserAgent } from "./user-agent"
 import {
   clearDataReloadAction,
   computeViewBounds,
@@ -26,23 +26,15 @@ const DEFAULT_VIEW_BOUNDS = { x: 0, y: 0, width: 1280, height: 720 }
 
 let partitionUserAgentConfigured = false
 /**
- * Give the embedded browser's shared partition a faithful Chrome user-agent,
- * once. Electron's default UA carries an `Electron/<ver>` token and the app's own
- * product token where a real Chrome UA has nothing — both are obvious "not a
- * normal browser" tells that anti-automation risk control keys on. The view IS
- * real Chromium, so we present it as the Chrome/Chromium it actually is rather
- * than impersonating a specific brand: the Chrome major is derived from
- * `process.versions.chrome` so it tracks the engine, and the partition session UA
- * applies to BOTH manual browsing and CDP-driven automation. Client Hints are
- * deliberately left at Chromium's correct defaults — manual and automation then
- * present one consistent identity (see PR notes), which is the whole point.
- * Scoped to the browser partition; the app renderer keeps its own UA.
+ * Configure the browser partition's UA before the first view/request, exactly
+ * once: present the partition as the faithful Chrome it is (rewrite + rationale
+ * in user-agent.ts and the PR). Scoped to the browser partition; the app
+ * renderer keeps its own UA.
  */
 function ensureBrowserPartitionUserAgent() {
   if (partitionUserAgentConfigured) return
   partitionUserAgentConfigured = true
-  const sess = session.fromPartition(BROWSER_PARTITION)
-  sess.setUserAgent(toChromeUserAgent(sess.getUserAgent(), process.versions.chrome ?? ""))
+  configurePartitionUserAgent(session.fromPartition(BROWSER_PARTITION), process.versions.chrome ?? "")
 }
 
 /**

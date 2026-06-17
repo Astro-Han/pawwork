@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { chromeMajorVersion, toChromeUserAgent } from "./user-agent"
+import { chromeMajorVersion, configurePartitionUserAgent, toChromeUserAgent } from "./user-agent"
 
 // Real Electron 40.8.0 UA shapes (Chromium 144). The app product token is
 // "PawWork Dev/<ver>" by default and "opencode/<ver>" after index.ts's rewrite —
@@ -47,6 +47,23 @@ describe("toChromeUserAgent", () => {
 
   test("leaves the Chrome token alone when the version is unparseable", () => {
     expect(toChromeUserAgent(MAC_ELECTRON, "unknown")).toContain("Chrome/144.0.7559.236")
+  })
+})
+
+describe("configurePartitionUserAgent", () => {
+  test("sets the cleaned Chrome UA on the partition session (no Electron/app token)", () => {
+    let applied: string | undefined
+    const sess = {
+      getUserAgent: () => MAC_ELECTRON,
+      setUserAgent: (ua: string) => {
+        applied = ua
+      },
+    }
+    configurePartitionUserAgent(sess, "144.0.7559.236")
+    // The seam must hand the partition the cleaned UA — this is what is in place
+    // before the controller creates the first view.
+    expect(applied).toBe(MAC_CHROME)
+    expect(applied).not.toContain("Electron")
   })
 })
 
