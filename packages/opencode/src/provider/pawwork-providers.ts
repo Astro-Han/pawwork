@@ -54,29 +54,26 @@ export const PAWWORK_PROVIDER_OVERLAYS: Record<string, ModelsDev.Provider> = {
       [VOLCENGINE_PLAN_VISIBLE_MODEL_IDS[4]]: textModel("minimax-m2.7", "MiniMax M2.7", 204800, 131072, {
         reasoning: true,
       }),
-      [VOLCENGINE_PLAN_VISIBLE_MODEL_IDS[5]]: textModel("minimax-m2.5", "MiniMax M2.5", 204800, 131072, {
+      [VOLCENGINE_PLAN_VISIBLE_MODEL_IDS[5]]: textModel("minimax-m3", "MiniMax M3", 512000, 128000, {
         reasoning: true,
       }),
-      [VOLCENGINE_PLAN_VISIBLE_MODEL_IDS[6]]: textModel("glm-5.1", "GLM 5.1", 200000, 131072, {
-        reasoning: true,
-        interleaved: { field: "reasoning_content" },
-      }),
-      [VOLCENGINE_PLAN_VISIBLE_MODEL_IDS[7]]: textModel("glm-4.7", "GLM 4.7", 200000, 4096, {
+      [VOLCENGINE_PLAN_VISIBLE_MODEL_IDS[6]]: textModel("glm-5.2", "GLM 5.2", 1000000, 131072, {
         reasoning: true,
         interleaved: { field: "reasoning_content" },
       }),
-      [VOLCENGINE_PLAN_VISIBLE_MODEL_IDS[8]]: textModel("deepseek-v3.2", "DeepSeek V3.2", 128000, 4096),
-      [VOLCENGINE_PLAN_VISIBLE_MODEL_IDS[9]]: textModel("kimi-k2.6", "Kimi K2.6", 262144, 32768, {
+      [VOLCENGINE_PLAN_VISIBLE_MODEL_IDS[7]]: textModel("deepseek-v4-flash", "DeepSeek V4 Flash", 1000000, 384000, {
+        reasoning: true,
+        interleaved: { field: "reasoning_content" },
+      }),
+      [VOLCENGINE_PLAN_VISIBLE_MODEL_IDS[8]]: textModel("deepseek-v4-pro", "DeepSeek V4 Pro", 1000000, 384000, {
+        reasoning: true,
+        interleaved: { field: "reasoning_content" },
+      }),
+      [VOLCENGINE_PLAN_VISIBLE_MODEL_IDS[9]]: textModel("kimi-k2.6", "Kimi K2.6", 262144, 131072, {
         attachment: true,
         reasoning: true,
         interleaved: { field: "reasoning_content" },
         modalities: { input: ["text", "image", "video"], output: ["text"] },
-      }),
-      [VOLCENGINE_PLAN_VISIBLE_MODEL_IDS[10]]: textModel("kimi-k2.5", "Kimi K2.5", 262144, 32768, {
-        attachment: true,
-        reasoning: true,
-        interleaved: { field: "reasoning_content" },
-        modalities: { input: ["text", "image"], output: ["text"] },
       }),
       [VOLCENGINE_PLAN_HIDDEN_MODEL_IDS[0]]: textModel("ark-code-latest", "Ark Code Latest", 256000, 4096, {
         attachment: true,
