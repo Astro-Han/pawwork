@@ -7,7 +7,6 @@ import { Instance } from "../../src/project/instance"
 import { provideTmpdirInstance } from "../fixture/fixture"
 import { LSP } from "../../src/lsp"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
-import { Format } from "../../src/format"
 import { Agent } from "../../src/agent/agent"
 import { Bus } from "../../src/bus"
 import { Truncate } from "../../src/tool/truncate"
@@ -57,7 +56,6 @@ const it = testEffect(
   Layer.mergeAll(
     LSP.defaultLayer,
     AppFileSystem.defaultLayer,
-    Format.defaultLayer,
     Bus.layer,
     Truncate.defaultLayer,
     Agent.defaultLayer,

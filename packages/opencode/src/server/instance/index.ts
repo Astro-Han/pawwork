@@ -4,7 +4,6 @@ import type { UpgradeWebSocket } from "hono/ws"
 import fs from "fs/promises"
 import { Effect } from "effect"
 import z from "zod"
-import { Format } from "../../format"
 import { Instance } from "../../project/instance"
 import { Vcs } from "../../project/vcs"
 import { Agent } from "../../agent/agent"
@@ -467,33 +466,6 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
           Effect.gen(function* () {
             const lsp = yield* LSP.Service
             return yield* lsp.status()
-          }),
-        )
-        return c.json(status)
-      },
-    )
-    .get(
-      "/formatter",
-      describeRoute({
-        summary: "Get formatter status",
-        description: "Get formatter status",
-        operationId: "formatter.status",
-        responses: {
-          200: {
-            description: "Formatter status",
-            content: {
-              "application/json": {
-                schema: resolver(Format.Status.array()),
-              },
-            },
-          },
-        },
-      }),
-      async (c) => {
-        const status = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const format = yield* Format.Service
-            return yield* format.status()
           }),
         )
         return c.json(status)

@@ -415,7 +415,7 @@ test("PawWork .opencode aliases win consistently when OpenCode aliases coexist",
   })
 })
 
-test("loads formatter boolean config", async () => {
+test("ignores removed formatter config", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
       await writeConfig(dir, {
@@ -428,7 +428,7 @@ test("loads formatter boolean config", async () => {
     directory: tmp.path,
     fn: async () => {
       const config = await load()
-      expect(config.formatter).toBe(true)
+      expect((config as any).formatter).toBeUndefined()
     },
   })
 })
