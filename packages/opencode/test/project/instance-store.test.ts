@@ -11,7 +11,7 @@ import { InstanceStore } from "../../src/project/instance-store"
 import { Project } from "../../src/project/project"
 import { ProjectTable } from "../../src/project/project.sql"
 import { Database, eq } from "../../src/storage/db"
-import { currentLifecycleCloseAction, directoryKey } from "../../src/session/lifecycle-provenance"
+import { currentLifecycleCloseAction, directoryKey, trackActiveRun } from "../../src/session/lifecycle-provenance"
 import { disposeAllInstances, tmpdir, tmpdirScoped } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 
@@ -184,6 +184,96 @@ describe("InstanceStore", () => {
       yield* store.disposeDirectory(loaded)
 
       expect(disposed).toEqual([loaded])
+    }),
+  )
+
+  it.live("does not gate new runs while a maintenance dispose waits for idle", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      const store = yield* InstanceStore.Service
+      yield* store.load({ directory: dir })
+
+      const first = trackActiveRun(dir)
+      const releaseFirst = yield* Effect.promise(() => first.promise)
+      let releaseSecond: (() => void) | undefined
+      try {
+        const result = yield* store.disposeDirectory(dir)
+        expect(result).toBe(false)
+
+        const second = trackActiveRun(dir)
+        const secondExit = yield* Effect.promise(() => second.promise).pipe(Effect.timeout("100 millis"), Effect.exit)
+        if (Exit.isSuccess(secondExit)) releaseSecond = secondExit.value
+        expect(Exit.isSuccess(secondExit)).toBe(true)
+      } finally {
+        releaseSecond?.()
+        releaseFirst()
+      }
+    }),
+  )
+
+  it.live("does not gate new runs while a maintenance reload waits for idle", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      const store = yield* InstanceStore.Service
+      const disposed = Promise.withResolvers<void>()
+      const off = registerDisposer(async (directory) => {
+        if (directory === dir) disposed.resolve()
+      })
+      yield* Effect.addFinalizer(() => Effect.sync(off))
+
+      const firstContext = yield* store.load({ directory: dir })
+      const first = trackActiveRun(dir)
+      const releaseFirst = yield* Effect.promise(() => first.promise)
+      let releaseSecond: (() => void) | undefined
+      try {
+        const reloaded = yield* store.reload({ directory: dir })
+        expect(reloaded).toBe(firstContext)
+
+        const second = trackActiveRun(dir)
+        const secondExit = yield* Effect.promise(() => second.promise).pipe(Effect.timeout("100 millis"), Effect.exit)
+        if (Exit.isSuccess(secondExit)) releaseSecond = secondExit.value
+        expect(Exit.isSuccess(secondExit)).toBe(true)
+      } finally {
+        releaseSecond?.()
+        releaseFirst()
+      }
+
+      const disposedExit = yield* Effect.promise(() => disposed.promise).pipe(Effect.timeout("1 second"), Effect.exit)
+      expect(Exit.isSuccess(disposedExit)).toBe(true)
+      const current = yield* store.load({ directory: dir })
+      expect(current).not.toBe(firstContext)
+    }),
+  )
+
+  it.live("does not gate new runs while a maintenance disposeAll waits for idle", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      const store = yield* InstanceStore.Service
+      yield* store.load({ directory: dir })
+
+      const first = trackActiveRun(dir)
+      const releaseFirst = yield* Effect.promise(() => first.promise)
+      let releaseSecond: (() => void) | undefined
+      let completed: Promise<void> | undefined
+      try {
+        const result = yield* store.disposeAll()
+        expect(result.status).toBe("deferred")
+        completed = result.completed
+
+        const second = trackActiveRun(dir)
+        const secondExit = yield* Effect.promise(() => second.promise).pipe(Effect.timeout("100 millis"), Effect.exit)
+        if (Exit.isSuccess(secondExit)) releaseSecond = secondExit.value
+        expect(Exit.isSuccess(secondExit)).toBe(true)
+      } finally {
+        releaseSecond?.()
+        releaseFirst()
+      }
+
+      const completedExit = yield* Effect.promise(() => completed ?? Promise.resolve()).pipe(
+        Effect.timeout("1 second"),
+        Effect.exit,
+      )
+      expect(Exit.isSuccess(completedExit)).toBe(true)
     }),
   )
 

@@ -245,6 +245,26 @@ export const layer = Layer.effect(
         error,
       })
 
+    const deferMaintenanceClose = (
+      directories: readonly string[],
+      close: () => Promise<unknown>,
+    ): Promise<void> => {
+      const targetDirectories = [...new Set(directories)]
+      const waitAndClose = async (): Promise<void> => {
+        await whenAllRunsIdle(targetDirectories)
+        const releaseClose = beginLifecycleClose(targetDirectories)
+        let retry = false
+        try {
+          if (hasActiveRuns(targetDirectories)) retry = true
+          else await close()
+        } finally {
+          releaseClose()
+        }
+        if (retry) await waitAndClose()
+      }
+      return waitAndClose()
+    }
+
     const disposeEntryNow = (
       directory: string,
       entry: Entry,
@@ -281,10 +301,11 @@ export const layer = Layer.effect(
 
         const releaseClose = beginLifecycleClose([ctx.directory])
         if (hasActiveRuns([ctx.directory])) {
-          const completed = whenAllRunsIdle([ctx.directory])
-            .then(() => Effect.runPromise(disposeEntryNow(directory, entry, ctx, closeAction, options)))
+          releaseClose()
+          const completed = deferMaintenanceClose([ctx.directory], () =>
+            Effect.runPromise(disposeEntryNow(directory, entry, ctx, closeAction, options)),
+          )
             .catch((error) => reportDeferredFailure("disposeEntry", ctx.directory, closeAction, error))
-            .finally(releaseClose)
             .then(() => undefined)
           void completed
           return false
@@ -311,15 +332,16 @@ export const layer = Layer.effect(
             releaseClose = beginLifecycleClose([directory])
             const exit = yield* restore(Deferred.await(previous.deferred)).pipe(Effect.exit)
             if (Exit.isSuccess(exit) && hasActiveRuns([exit.value.directory])) {
-              const releaseDeferredClose = releaseClose
               const deferredAction = createLifecycleCloseAction("instance_reload", {
                 affectedDirectories: [exit.value.directory],
                 ...lifecycleContext("instance.reload", reason),
               })
-              void whenAllRunsIdle([exit.value.directory])
-                .then(() => Effect.runPromise(reload(input, reason, { mode: "force" })))
+              releaseClose()
+              releaseClose = undefined
+              void deferMaintenanceClose([exit.value.directory], () =>
+                Effect.runPromise(reload(input, reason, { mode: "force" })),
+              )
                 .catch((error) => reportDeferredFailure("reload", exit.value.directory, deferredAction, error))
-                .finally(releaseDeferredClose)
                 .then(() => undefined)
               return exit.value
             }
@@ -477,13 +499,12 @@ export const layer = Layer.effect(
         if ((options?.mode ?? "maintenance") === "maintenance") {
           const releaseClose = beginLifecycleClose(activeDirectories)
           if (hasActiveRuns(activeDirectories)) {
-            const completed = whenAllRunsIdle(activeDirectories)
-              .then(() => Effect.runPromise(close))
+            releaseClose()
+            const completed = deferMaintenanceClose(activeDirectories, () => Effect.runPromise(close))
               .catch((error) => {
                 reportDeferredFailure("disposeAll", undefined, action, error)
                 throw error
               })
-              .finally(releaseClose)
             void completed.catch(() => undefined)
             return resultFor("deferred", action, completed)
           }
