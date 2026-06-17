@@ -475,6 +475,20 @@ const noStreamDeadToolIt = testEffect(
   }),
 )
 
+const capturedOnlyNoExecutionIt = testEffect(
+  processorEnvWithLLM({
+    stream(input) {
+      const toolCallID = "call_captured_only_no_execution"
+      const toolInput = { value: "pending" }
+      return Stream.fromEffect(
+        Effect.promise(async () => {
+          startFakeStreamTool(input, "offline", toolCallID, toolInput, [])
+        }),
+      ).pipe(Stream.flatMap(() => Stream.fail(transportDisconnectError("connection reset before tool execution"))))
+    },
+  }),
+)
+
 const lateLifecycleAfterFinalizeState: {
   complete?: () => Promise<void>
   fail?: () => Promise<void>
@@ -3260,6 +3274,94 @@ noStreamDeadToolIt.live(
             expect(recoveryOrder).toBeDefined()
             expect(interruptedOrder!).toBeLessThan(recoveryOrder!)
           }
+        }),
+      { git: true, config: providerCfg("http://localhost:1/v1") },
+    ),
+)
+
+capturedOnlyNoExecutionIt.live(
+  "session.processor effect tests does not treat captured input as started execution",
+  () =>
+    provideTmpdirInstance(
+      (dir) =>
+        Effect.gen(function* () {
+          const { processors, session, provider } = yield* boot()
+
+          const chat = yield* session.create({})
+          const parent = yield* user(chat.id, "captured input before execution")
+          const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+          const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+          const handle = yield* processors.create({
+            safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
+            assistantMessage: msg,
+            sessionID: chat.id,
+            model: mdl,
+          })
+
+          yield* handle.process({
+            user: {
+              id: parent.id,
+              sessionID: chat.id,
+              role: "user",
+              time: parent.time,
+              agent: parent.agent,
+              model: { providerID: ref.providerID, modelID: ref.modelID },
+              tools: { offline: true },
+            } satisfies MessageV2.User,
+            sessionID: chat.id,
+            model: mdl,
+            agent: agent(),
+            system: [],
+            messages: [{ role: "user", content: "captured input before execution" }],
+            toolDrainTimeoutMs: 25,
+            tools: {
+              offline: tool({
+                description: "Fake LLM captures input but never starts executing the tool",
+                inputSchema: z.object({ value: z.string() }),
+                execute: async (args, options) => {
+                  await Effect.runPromise(
+                    handle.recordToolInputCaptured({
+                      tool: "offline",
+                      toolCallID: options.toolCallId,
+                      input: args,
+                    }),
+                  )
+                  await new Promise<never>(() => {})
+                },
+              }),
+            },
+          })
+
+          const toolParts = MessageV2.parts(msg.id).filter((part): part is MessageV2.ToolPart => part.type === "tool")
+          const storedMessages = yield* session.messages({ sessionID: chat.id })
+          const modelMessages = yield* MessageV2.toModelMessagesEffect(storedMessages, mdl)
+          const toolModelResult = modelMessages
+            .find((message) => message.role === "tool")
+            ?.content.find(
+              (part) => part.type === "tool-result" && part.toolCallId === "call_captured_only_no_execution",
+            )
+
+          expect(toolParts).toHaveLength(1)
+          expect(toolParts[0]?.state.status).toBe("error")
+          if (toolParts[0]?.state.status === "error") {
+            expect(toolParts[0].tool).toBe("offline")
+            expect(toolParts[0].state.input).toEqual({ value: "pending" })
+            expect(toolParts[0].state.error).toBe("Tool call generation interrupted before the tool ran.")
+            expect(toolParts[0].state.error).not.toContain("do not repeat")
+            expect(toolParts[0].state.error).not.toContain("may have started or completed")
+            expect(toolParts[0].state.metadata?.interrupted).toBe(true)
+            expect(toolParts[0].state.metadata?.interruption_phase).toBe("tool_input_generation")
+            expect(toolParts[0].state.metadata?.tool_execution_started).toBe(false)
+          }
+          expect(toolModelResult).toMatchObject({
+            type: "tool-result",
+            toolCallId: "call_captured_only_no_execution",
+            toolName: "offline",
+            output: {
+              type: "error-text",
+              value: "Tool call generation interrupted before the tool ran.",
+            },
+          })
         }),
       { git: true, config: providerCfg("http://localhost:1/v1") },
     ),

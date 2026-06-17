@@ -843,21 +843,12 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       const completeToolExecution = (
         toolCallID: string,
         output: Parameters<SessionProcessor.Handle["completeToolCall"]>[1],
-      ) =>
-        input.processor.completeToolExecution
-          ? input.processor.completeToolExecution({ toolCallID, output })
-          : input.processor.completeToolCall(toolCallID, output)
+      ) => input.processor.completeToolExecution({ toolCallID, output })
       const failToolExecution = (toolCallID: string, error: unknown, abortSignal?: AbortSignal) => {
         if (abortSignal?.aborted) {
-          return input.processor.recordToolExecutionFailed
-            ? input.processor.recordToolExecutionFailed({ toolCallID, error })
-            : Effect.void
+          return input.processor.recordToolExecutionFailed({ toolCallID, error })
         }
-        return input.processor.failToolExecution
-          ? input.processor.failToolExecution({ toolCallID, error })
-          : input.processor.recordToolExecutionFailed
-            ? input.processor.recordToolExecutionFailed({ toolCallID, error })
-            : Effect.void
+        return input.processor.failToolExecution({ toolCallID, error })
       }
 
       for (const item of yield* registry.tools({
@@ -886,19 +877,22 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 if (outcome.kind === "stop") return yield* Effect.fail(new LoopStopError(outcome.toolErrorMessage))
                 const output = yield* runInSessionContext(
                   Effect.gen(function* () {
-                    if (input.processor.recordToolExecutionStarted) {
-                      yield* input.processor.recordToolExecutionStarted({
-                        tool: item.id,
-                        toolCallID: options.toolCallId,
-                        input: args,
-                      })
-                    }
+                    yield* input.processor.recordToolInputCaptured({
+                      tool: item.id,
+                      toolCallID: options.toolCallId,
+                      input: args,
+                    })
                     try {
                       yield* plugin.trigger(
                         "tool.execute.before",
                         { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID },
                         { args },
                       )
+                      yield* input.processor.recordToolExecutionStarted({
+                        tool: item.id,
+                        toolCallID: options.toolCallId,
+                        input: args,
+                      })
                       const result = yield* item.execute(args, ctx)
                       const output = {
                         ...result,
@@ -953,9 +947,11 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               const result: Awaited<ReturnType<NonNullable<typeof execute>>> = yield* runInSessionContext(
                 Effect.gen(function* () {
                   const result: Awaited<ReturnType<NonNullable<typeof execute>>> = yield* Effect.gen(function* () {
-                    if (input.processor.recordToolExecutionStarted) {
-                      yield* input.processor.recordToolExecutionStarted({ tool: key, toolCallID: opts.toolCallId, input: args })
-                    }
+                    yield* input.processor.recordToolInputCaptured({
+                      tool: key,
+                      toolCallID: opts.toolCallId,
+                      input: args,
+                    })
                     try {
                       yield* plugin.trigger(
                         "tool.execute.before",
@@ -963,6 +959,11 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                         { args },
                       )
                       yield* ctx.ask({ permission: key, metadata: {}, patterns: ["*"], always: ["*"] })
+                      yield* input.processor.recordToolExecutionStarted({
+                        tool: key,
+                        toolCallID: opts.toolCallId,
+                        input: args,
+                      })
                       const result: Awaited<ReturnType<NonNullable<typeof execute>>> = yield* Effect.promise(() =>
                         execute(args, opts),
                       )

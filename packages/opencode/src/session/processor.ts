@@ -60,21 +60,26 @@ export interface Handle {
     toolCallID: string,
     output: ToolLifecycleOutput,
   ) => Effect.Effect<void>
-  readonly completeToolExecution?: (input: {
+  readonly completeToolExecution: (input: {
     toolCallID: string
     output: ToolLifecycleOutput
   }) => Effect.Effect<void>
-  readonly failToolExecution?: (input: {
+  readonly failToolExecution: (input: {
     toolCallID: string
     error: unknown
   }) => Effect.Effect<void>
-  readonly recordToolExecutionStarted?: (input: {
+  readonly recordToolInputCaptured: (input: {
     tool: string
     toolCallID: string
     input: unknown
   }) => Effect.Effect<void>
-  readonly recordToolExecutionCompleted?: (input: { toolCallID: string }) => Effect.Effect<void>
-  readonly recordToolExecutionFailed?: (input: { toolCallID: string; error?: unknown }) => Effect.Effect<void>
+  readonly recordToolExecutionStarted: (input: {
+    tool: string
+    toolCallID: string
+    input: unknown
+  }) => Effect.Effect<void>
+  readonly recordToolExecutionCompleted: (input: { toolCallID: string }) => Effect.Effect<void>
+  readonly recordToolExecutionFailed: (input: { toolCallID: string; error?: unknown }) => Effect.Effect<void>
   readonly abortTools?: () => Effect.Effect<void>
   readonly process: (streamInput: ProcessInput) => Effect.Effect<Result>
   readonly errorRecords: (parentID: MessageV2.Assistant["parentID"]) => SessionDiagnostics.ToolErrorRecord[]
@@ -132,16 +137,19 @@ type ToolLifecycleRecord = {
   terminalDone: Deferred.Deferred<void>
   attemptID?: RunObservability.AttemptID
   callMaterialized?: boolean
+  inputCaptured?: ToolLifecycleInput
   started?: ToolLifecycleStarted
   recordedEvents?: Set<ToolLifecycleRecordedEvent>
   settled?: boolean
 }
 
-type ToolLifecycleStarted = {
+type ToolLifecycleInput = {
   toolName: string
   input: Record<string, any>
   at: number
 }
+
+type ToolLifecycleStarted = ToolLifecycleInput
 
 type ToolLifecycleRecordedEvent = "started" | "completed" | "failed"
 
@@ -504,6 +512,22 @@ export const layer: Layer.Layer<
         }
       }
 
+      const recordToolInputCaptured = Effect.fn("SessionProcessor.recordToolInputCaptured")(function* (input: {
+        tool: string
+        toolCallID: string
+        input: unknown
+      }, attemptID?: RunObservability.AttemptID) {
+        const activeAttemptID = attemptID ?? ctx.currentAttemptID
+        const call = yield* getToolLifecycleRecord(input.toolCallID, activeAttemptID)
+        if (!call) return
+        call.inputCaptured ??= {
+          toolName: input.tool,
+          input: cloneToolLifecycleInput(input.input),
+          at: Date.now(),
+        }
+        call.attemptID ??= activeAttemptID
+      })
+
       const recordToolExecutionStarted = Effect.fn("SessionProcessor.recordToolExecutionStarted")(function* (input: {
         tool: string
         toolCallID: string
@@ -513,9 +537,15 @@ export const layer: Layer.Layer<
         const call = yield* getToolLifecycleRecord(input.toolCallID, activeAttemptID)
         if (!call) return
         const lifecycleAttemptID = toolCallAttemptID(input.toolCallID, activeAttemptID)
-        call.started ??= {
+        const captured = call.inputCaptured ?? {
           toolName: input.tool,
           input: cloneToolLifecycleInput(input.input),
+          at: Date.now(),
+        }
+        call.inputCaptured ??= captured
+        call.started ??= {
+          toolName: captured.toolName,
+          input: captured.input,
           at: Date.now(),
         }
         call.attemptID ??= activeAttemptID
@@ -778,17 +808,18 @@ export const layer: Layer.Layer<
       ) {
         const existing = yield* readToolCall(toolCallID)
         if (existing) return existing
-        if (!call.started) return
+        const captured = call.started ?? call.inputCaptured
+        if (!captured) return
         const part = yield* session.updatePart({
           id: call.partID ?? PartID.ascending(),
           messageID: ctx.assistantMessage.id,
           sessionID: ctx.assistantMessage.sessionID,
           type: "tool",
-          tool: call.started.toolName,
+          tool: captured.toolName,
           callID: toolCallID,
           state: {
             status: "pending",
-            input: call.started.input,
+            input: captured.input,
             raw: "",
           },
         } satisfies MessageV2.ToolPart)
@@ -803,10 +834,10 @@ export const layer: Layer.Layer<
       })
 
       const toolTerminalInput = (call: ToolLifecycleRecord, part: MessageV2.ToolPart) =>
-        call.started?.input ?? part.state.input
+        call.started?.input ?? call.inputCaptured?.input ?? part.state.input
 
       const toolTerminalStart = (call: ToolLifecycleRecord, part: MessageV2.ToolPart, fallback: number) =>
-        "time" in part.state ? part.state.time.start : (call.started?.at ?? fallback)
+        "time" in part.state ? part.state.time.start : (call.started?.at ?? call.inputCaptured?.at ?? fallback)
 
       const completeToolCall = Effect.fn("SessionProcessor.completeToolCall")(function* (
         toolCallID: string,
@@ -2165,6 +2196,7 @@ export const layer: Layer.Layer<
         completeToolCall,
         completeToolExecution: (input) => completeToolExecution(input),
         failToolExecution: (input) => failToolExecution(input),
+        recordToolInputCaptured,
         recordToolExecutionStarted,
         recordToolExecutionCompleted,
         recordToolExecutionFailed,
