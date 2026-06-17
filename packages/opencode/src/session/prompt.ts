@@ -1946,7 +1946,10 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       yield* sessions.updateMessage(info)
       for (const part of parts) yield* sessions.updatePart(part)
 
-      return { info, parts }
+      // agentModel is the agent's own configured model (if any). The recent-model
+      // writer in prompt() uses it to tell an explicit picker choice apart from a
+      // model that merely fell back to the agent's pin — see shouldRecordRecent.
+      return { info, parts, agentModel: ag.model }
     }, Effect.scoped)
 
     const prompt: (input: PromptInput, options?: PromptRuntimeOptions) => Effect.Effect<MessageV2.WithParts> = Effect.fn(
@@ -1956,13 +1959,15 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       interruptedSessions.delete(input.sessionID)
       const session = yield* sessions.get(input.sessionID)
       yield* revert.cleanup(session)
-      const message = yield* createUserMessage(input)
+      const { agentModel, ...message } = yield* createUserMessage(input)
       // Seed the global "recent model" so a later session with no explicit model
       // (e.g. a Telegram /new) inherits it. Only the user's OWN explicit selection
-      // counts: input.model is what the chat UI's model picker sends. A model
-      // merely derived from the agent (ag.model), a slash command, automation, or a
-      // subagent must never become the default every fresh session inherits — so we
-      // gate on input.model, not the resolved message.info.model. Best-effort and
+      // counts: input.model is what the chat UI sends. A model from a slash
+      // command, automation, or subagent must never become the default every fresh
+      // session inherits — so we gate on input.model, not the resolved
+      // message.info.model. The desktop UI always sends a model, and that model can
+      // be the agent's own configured pin rather than a picker choice, so a model
+      // equal to agentModel is excluded too (modelFromAgent). Best-effort and
       // non-blocking: a write failure must not affect the prompt.
       if (
         input.model &&
@@ -1972,6 +1977,11 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           parentID: session.parentID,
           createdByAgentTool: session.createdByAgentTool,
           fromCommand: options?.fromCommand,
+          modelFromAgent: !!(
+            agentModel &&
+            input.model.providerID === agentModel.providerID &&
+            input.model.modelID === agentModel.modelID
+          ),
         })
       ) {
         const chosen = { providerID: input.model.providerID, modelID: input.model.modelID }

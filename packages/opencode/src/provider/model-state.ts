@@ -38,21 +38,36 @@ export namespace ModelState {
   }
 
   /**
-   * Pure: only a user's own top-level prompt seeds the global default model.
+   * Pure: only a user's own explicit model choice seeds the global default model.
    * Automation runs (automationID), subagent / agent-tool child sessions
    * (parentID / createdByAgentTool), and slash-command invocations (fromCommand)
    * carry their own model and must NOT leak into the default that every fresh
    * session inherits. A command resolves its own (often pinned) utility model and
    * reuses the prompt path, so without this guard a `/commit`-style command could
    * silently become the model a later Telegram `/new` defaults to.
+   *
+   * modelFromAgent closes the same hole for the desktop UI: it always sends a
+   * resolved model with every prompt, and that model can be the selected agent's
+   * configured model rather than a model-picker choice (the renderer's model
+   * falls back to the agent's pin). Recording it would let an agent's utility
+   * model become the inherited default — exactly the pollution this guards. So
+   * a model that merely equals the agent's own configured model does not count
+   * as an explicit selection.
    */
   export function shouldRecordRecent(input: {
     automationID?: string
     parentID?: string
     createdByAgentTool?: boolean
     fromCommand?: boolean
+    modelFromAgent?: boolean
   }): boolean {
-    return !input.automationID && !input.parentID && !input.createdByAgentTool && !input.fromCommand
+    return (
+      !input.automationID &&
+      !input.parentID &&
+      !input.createdByAgentTool &&
+      !input.fromCommand &&
+      !input.modelFromAgent
+    )
   }
 
   /**

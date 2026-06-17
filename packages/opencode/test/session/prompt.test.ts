@@ -1,6 +1,6 @@
 import fs from "fs/promises"
 import path from "path"
-import { describe, expect, test } from "bun:test"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { NamedError } from "@opencode-ai/util/error"
 import { fileURLToPath, pathToFileURL } from "url"
 import { Effect, Layer } from "effect"
@@ -1419,6 +1419,12 @@ describe("session.prompt seeds the recent default model", () => {
     return readRecent()
   }
 
+  // model.json lives in the process-wide XDG_STATE_HOME (test preload), so it is
+  // shared with provider.test.ts and across these tests. Clear it around each one
+  // to keep assertions on recent[0] independent of run order or leftover writes.
+  beforeEach(() => fs.rm(modelFile(), { force: true }))
+  afterEach(() => fs.rm(modelFile(), { force: true }))
+
   test("an explicit-model user prompt seeds recent[0]", async () => {
     await using tmp = await tmpdir({ git: true, config: { agent: { build: { model: "openai/gpt-5.2" } } } })
     const picked = { providerID: "deepseek", modelID: "deepseek-chat" }
@@ -1533,6 +1539,55 @@ describe("session.prompt seeds the recent default model", () => {
 
             yield* sessions.remove(seed.id)
             yield* sessions.remove(auto.id)
+          }),
+        ),
+    })
+  })
+
+  test("a prompt whose model equals the agent's configured model does NOT seed recent", async () => {
+    // The desktop UI always sends a resolved model, and that model can be the
+    // agent's own pin rather than a model-picker choice. Such a model must not
+    // become the inherited default (modelFromAgent guard).
+    await using tmp = await tmpdir({ git: true, config: { agent: { build: { model: "openai/gpt-5.2" } } } })
+    const picked = { providerID: "deepseek", modelID: "deepseek-chat" }
+    const agentPin = { providerID: "openai", modelID: "gpt-5.2" }
+    await Instance.provide({
+      directory: tmp.path,
+      fn: () =>
+        run(
+          Effect.gen(function* () {
+            const prompt = yield* SessionPrompt.Service
+            const sessions = yield* Session.Service
+
+            // Seed deterministically with an explicit selection first.
+            const seed = yield* sessions.create({})
+            yield* prompt.prompt({
+              sessionID: seed.id,
+              agent: "build",
+              model: { providerID: ProviderID.make(picked.providerID), modelID: ModelID.make(picked.modelID) },
+              noReply: true,
+              parts: [{ type: "text", text: "hi" }],
+            })
+            yield* Effect.promise(() => waitForHead(picked))
+
+            // Now a prompt that explicitly carries the agent's own pinned model.
+            const onAgentModel = yield* sessions.create({})
+            yield* prompt.prompt({
+              sessionID: onAgentModel.id,
+              agent: "build",
+              model: { providerID: ProviderID.make(agentPin.providerID), modelID: ModelID.make(agentPin.modelID) },
+              noReply: true,
+              parts: [{ type: "text", text: "hi" }],
+            })
+            yield* Effect.promise(() => new Promise((r) => setTimeout(r, 150)))
+            const recent = yield* Effect.promise(() => readRecent())
+            expect(recent[0]).toEqual(picked) // unchanged
+            expect(recent.some((m) => m.providerID === agentPin.providerID && m.modelID === agentPin.modelID)).toBe(
+              false,
+            )
+
+            yield* sessions.remove(seed.id)
+            yield* sessions.remove(onAgentModel.id)
           }),
         ),
     })

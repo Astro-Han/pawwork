@@ -744,20 +744,29 @@ test("defaultModel returns a model seeded into recent via recordRecent (model.js
       )
     },
   })
-  await Instance.provide({
-    directory: tmp.path,
-    fn: async () => {
-      // With an empty recent, defaultModel falls through to the provider's first model.
-      const fallback = await defaultModel()
-      // Seed the OTHER model — the one defaultModel would not pick on its own.
-      const other = String(fallback.modelID) === "model-a" ? "model-b" : "model-a"
-      await ModelState.recordRecent({ providerID: ProviderID.make("custom-openai"), modelID: ModelID.make(other) })
-      const after = await defaultModel()
-      expect(String(after.providerID)).toBe("custom-openai")
-      expect(String(after.modelID)).toBe(other)
-      expect(String(after.modelID)).not.toBe(String(fallback.modelID))
-    },
-  })
+  // model.json is process-wide (XDG_STATE_HOME from the test preload), so it is
+  // shared with prompt.test.ts. Start clean so "empty recent" holds regardless of
+  // run order, and remove our write afterward so it can't leak into other tests.
+  const stateModel = path.join(Global.Path.state, "model.json")
+  await unlink(stateModel).catch(() => {})
+  try {
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        // With an empty recent, defaultModel falls through to the provider's first model.
+        const fallback = await defaultModel()
+        // Seed the OTHER model — the one defaultModel would not pick on its own.
+        const other = String(fallback.modelID) === "model-a" ? "model-b" : "model-a"
+        await ModelState.recordRecent({ providerID: ProviderID.make("custom-openai"), modelID: ModelID.make(other) })
+        const after = await defaultModel()
+        expect(String(after.providerID)).toBe("custom-openai")
+        expect(String(after.modelID)).toBe(other)
+        expect(String(after.modelID)).not.toBe(String(fallback.modelID))
+      },
+    })
+  } finally {
+    await unlink(stateModel).catch(() => {})
+  }
 })
 
 test("provider with baseURL from config", async () => {

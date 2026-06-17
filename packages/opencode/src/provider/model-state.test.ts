@@ -20,6 +20,10 @@ describe("shouldRecordRecent", () => {
     expect(ModelState.shouldRecordRecent({ fromCommand: true })).toBe(false)
   })
 
+  test("skips a model that merely equals the agent's configured model", () => {
+    expect(ModelState.shouldRecordRecent({ modelFromAgent: true })).toBe(false)
+  })
+
   test("records a user's own top-level prompt", () => {
     expect(ModelState.shouldRecordRecent({})).toBe(true)
   })
