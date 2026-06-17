@@ -1,4 +1,4 @@
-import { createApp, type Config, type PlatformFactory } from "@opencode-ai/remote-bridge/gateway"
+import { createApp, normalizeLocale, type Config, type PlatformFactory } from "@opencode-ai/remote-bridge/gateway"
 import {
   captureFirstSender,
   type CapturedSender,
@@ -55,6 +55,8 @@ export interface RemoteBridgeDeps {
   credentials: CredentialStore
   statePath: string
   serverInfo: () => Promise<ServerInfo>
+  /** The desktop UI language, for localizing the chat-facing copy. */
+  locale: () => string
   // Injected so the lifecycle can be tested without Electron or a live network.
   buildApp: (config: Config, factory: PlatformFactory) => Promise<BridgeApp>
   makePoller: (token: string) => TelegramPoller
@@ -200,6 +202,7 @@ export class RemoteBridgeRuntime {
         pawWorkUsername: server.username ?? undefined,
         pawWorkPassword: server.password ?? undefined,
         statePath: this.deps.statePath,
+        locale: normalizeLocale(this.deps.locale()),
         platforms: [{ name: "telegram", enabled: true, options: { allow_from: creds.allowFrom } }],
       }
       // The token is captured in the factory closure, never placed in `config`
@@ -277,6 +280,7 @@ export function createRemoteBridgeRuntime(deps: {
   credentials: CredentialStore
   statePath: string
   serverInfo: () => Promise<ServerInfo>
+  locale: () => string
 }): RemoteBridgeRuntime {
   return new RemoteBridgeRuntime({
     ...deps,

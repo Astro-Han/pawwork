@@ -45,6 +45,7 @@ function deps(overrides: Partial<RemoteBridgeDeps> = {}): RemoteBridgeDeps {
     credentials: memoryStore(),
     statePath: "/tmp/state.json",
     serverInfo: async () => ({ url: "http://localhost:1", username: "u", password: "p" }),
+    locale: () => "en",
     buildApp: async () => fakeApp().app,
     makePoller: () => ({ getMe: async () => ({ id: "1", username: "bot" }) }) as any,
     capture: async () => ({ userId: "42", userName: "yu" }) as CapturedSender,

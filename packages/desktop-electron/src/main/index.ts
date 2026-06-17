@@ -175,6 +175,7 @@ const remoteBridge = createRemoteBridgeRuntime({
   credentials: safeStorageCredentialStore(remoteCredentialEnv),
   statePath: remoteStateFile(),
   serverInfo: () => serverReady.promise,
+  locale: () => currentDesktopContext().locale,
 })
 const logger = initLogging()
 const problemReportRoot = problemReportsRoot(app.getPath("userData"))

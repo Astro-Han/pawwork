@@ -1,6 +1,9 @@
 import { readFile } from "node:fs/promises"
 import { Engine } from "./engine.ts"
 import { normalizeLocale, type Locale } from "./i18n.ts"
+
+// Re-exported so the desktop runtime can normalize its UI locale into Config.locale.
+export { normalizeLocale }
 import { isFatalStreamError, PawWorkClient } from "./pawwork-client.ts"
 import type { EventHandler } from "./pawwork-events.ts"
 import { SessionPointers } from "./session-pointers.ts"
