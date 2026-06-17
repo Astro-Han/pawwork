@@ -263,7 +263,7 @@ test("captureFirstSender drains backlog and returns the first NEW private sender
     const poller = new TelegramPoller("t", api.url)
     poller.pollRetryMs = 0
     const captured = await captureFirstSender(poller, new AbortController().signal)
-    expect(captured).toEqual({ userId: "42", userName: "u42" })
+    expect(captured).toEqual({ userId: "42", userName: "u42", botUsername: "bot" })
     // Drain starts at offset 0; backlog (max id 5) is acked at offset 6, where an
     // empty immediate poll ends the drain.
     const offsets = api.calls.filter((c) => c.method === "getUpdates").map((c) => c.body.offset)
@@ -271,6 +271,27 @@ test("captureFirstSender drains backlog and returns the first NEW private sender
     expect(offsets[1]).toBe(6)
     // The captured message (id 10) is acked server-side with a final offset 11.
     expect(offsets[offsets.length - 1]).toBe(11)
+  } finally {
+    api.stop()
+  }
+})
+
+test("captureFirstSender drains the backlog BEFORE getMe so a slow identity fetch can't drop the first message", async () => {
+  // The regression this guards: getMe used to run first (in startPairing), so a
+  // message the user sent during a slow getMe sat in the queue and was then swept
+  // up by capture's drain — pairing waited forever. The drain must pin the offset
+  // baseline first; getMe (identity only) comes after. Batch 0 is the empty drain;
+  // the message (id 10) is delivered by the post-getMe poll and must be captured.
+  const api = fakeBotApi([[], [update(10, 42, "pair me")]])
+  try {
+    const poller = new TelegramPoller("t", api.url)
+    poller.pollRetryMs = 0
+    const captured = await captureFirstSender(poller, new AbortController().signal)
+    expect(captured).toEqual({ userId: "42", userName: "u42", botUsername: "bot" })
+    const firstGetUpdates = api.calls.findIndex((c) => c.method === "getUpdates")
+    const getMeAt = api.calls.findIndex((c) => c.method === "getMe")
+    expect(firstGetUpdates).toBeGreaterThanOrEqual(0)
+    expect(getMeAt).toBeGreaterThan(firstGetUpdates)
   } finally {
     api.stop()
   }
@@ -286,7 +307,7 @@ test("captureFirstSender drains a MULTI-batch backlog before accepting a sender"
     const poller = new TelegramPoller("t", api.url)
     poller.pollRetryMs = 0
     const captured = await captureFirstSender(poller, new AbortController().signal)
-    expect(captured).toEqual({ userId: "42", userName: "u42" })
+    expect(captured).toEqual({ userId: "42", userName: "u42", botUsername: "bot" })
   } finally {
     api.stop()
   }
@@ -298,7 +319,7 @@ test("captureFirstSender ignores group and non-text updates, keeps waiting", asy
     const poller = new TelegramPoller("t", api.url)
     poller.pollRetryMs = 0
     const captured = await captureFirstSender(poller, new AbortController().signal)
-    expect(captured).toEqual({ userId: "42", userName: "u42" })
+    expect(captured).toEqual({ userId: "42", userName: "u42", botUsername: "bot" })
   } finally {
     api.stop()
   }
@@ -352,7 +373,7 @@ test("captureFirstSender retries a transient final ack so the pairing message is
     const poller = new TelegramPoller("t", `http://localhost:${server.port}`)
     poller.pollRetryMs = 0
     const captured = await captureFirstSender(poller, new AbortController().signal)
-    expect(captured).toEqual({ userId: "42", userName: "u42" })
+    expect(captured).toEqual({ userId: "42", userName: "u42", botUsername: "bot" })
     // The ack was retried after the transient failure (not swallowed): two calls
     // at offset 11, so update 10 is acked and cannot be replayed to the bridge.
     expect(ackAttempts).toBe(2)

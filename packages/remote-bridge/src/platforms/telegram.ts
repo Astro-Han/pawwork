@@ -343,6 +343,10 @@ export class TelegramPlatform implements Platform {
 export interface CapturedSender {
   userId: string
   userName: string
+  /** The bot's @username, for the connect dialog. Fetched as part of pairing so
+   * the caller does not run its own getMe before the capture (which would widen
+   * the window where the user's first message is mistaken for backlog). */
+  botUsername?: string
 }
 
 /**
@@ -402,9 +406,13 @@ async function drainBacklog(poller: TelegramPoller, signal: AbortSignal): Promis
  * and the caller must fully await it (including its final ack) before starting
  * the real `TelegramPlatform` — two pollers on one token race a 409.
  *
- * It first drains whatever is already queued (pre-pairing backlog) so a stale
- * message can't mispair, then long-polls for the first new private text message.
- * On capture it acks that message server-side so the real bridge does not later
+ * The whole pairing handshake in one primitive: it first drains whatever is
+ * already queued (pre-pairing backlog) so a stale message can't mispair, then
+ * fetches the bot identity, then long-polls for the first new private text
+ * message. Draining BEFORE getMe is deliberate: it pins the offset baseline up
+ * front, so a message the user sends while a slow getMe is in flight lands past
+ * the baseline and is captured here instead of being swept up as backlog. On
+ * capture it acks that message server-side so the real bridge does not later
  * replay it as a prompt. Returns null if the signal aborts first (the connect
  * dialog was closed). A bad token surfaces as a thrown fatal error; transient
  * failures back off and retry.
@@ -413,6 +421,16 @@ export async function captureFirstSender(poller: TelegramPoller, signal: AbortSi
   const drained = await drainBacklog(poller, signal)
   if (drained === null) return null // aborted while draining
   let offset = drained
+
+  // botUsername is for the connect dialog. Fetched after the drain so getMe's
+  // latency can't widen the backlog window; the drain has already proven the token.
+  let botUsername: string | undefined
+  try {
+    botUsername = (await poller.getMe(signal)).username
+  } catch (err) {
+    if (signal.aborted) return null // aborted while fetching the bot identity
+    throw err
+  }
 
   while (!signal.aborted) {
     const updates = await getUpdatesWithRetry(poller, offset, signal, POLL_TIMEOUT_S)
@@ -425,7 +443,7 @@ export async function captureFirstSender(poller: TelegramPoller, signal: AbortSi
         // as a prompt. Retry transient failures: a swallowed ack here is the
         // difference between a clean handoff and the pairing message resurfacing.
         if ((await getUpdatesWithRetry(poller, offset, signal, 0)) === null) return null // aborted mid-ack
-        return { userId: norm.userId, userName: norm.userName }
+        return { userId: norm.userId, userName: norm.userName, botUsername }
       }
     }
   }

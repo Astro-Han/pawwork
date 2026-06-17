@@ -133,18 +133,22 @@ export class RemoteBridgeRuntime {
     const ac = new AbortController()
     this.pairingAc = ac
     const poller = this.deps.makePoller(token)
-    let botUsername: string | undefined
+    // One pairing primitive: capture drains the backlog (establishing the offset
+    // baseline and proving the token) BEFORE fetching the bot identity, then waits
+    // for the first sender. Draining first means a message the user sends during a
+    // slow getMe lands past the baseline and is captured, not mistaken for backlog.
+    let captured: CapturedSender | null
     try {
-      botUsername = (await poller.getMe(ac.signal)).username
+      captured = await this.deps.capture(poller, ac.signal)
     } catch (err) {
       // Cancelled (cancelPairing/disconnect) or superseded by a newer startPairing
       // while we awaited: surface a cancel and leave the current handle alone — it
-      // belongs to whoever replaced us.
+      // belongs to whoever replaced us. Otherwise the capture's drain/getMe hit a
+      // bad token or an unreachable Telegram.
       if (ac.signal.aborted || this.pairingAc !== ac) throw new PairingCancelledError()
       this.pairingAc = null
       throw new Error(`could not reach Telegram with that token: ${message(err)}`)
     }
-    const captured = await this.deps.capture(poller, ac.signal)
     // Same guard after capture: if this attempt was cancelled or superseded while
     // we waited, drop the result — never resurrect `pending` for an abandoned
     // attempt, even if a sender did arrive.
@@ -154,7 +158,7 @@ export class RemoteBridgeRuntime {
     // Hold the token main-side; confirmPairing approves this identity without the
     // renderer resending the secret.
     this.pending = { token, allowFrom: captured.userId, userName: captured.userName }
-    return { userId: captured.userId, userName: captured.userName, botUsername }
+    return { userId: captured.userId, userName: captured.userName, botUsername: captured.botUsername }
   }
 
   cancelPairing(): void {

@@ -54,7 +54,7 @@ function deps(overrides: Partial<RemoteBridgeDeps> = {}): RemoteBridgeDeps {
     locale: () => "en",
     buildApp: async () => fakeApp().app,
     makePoller: () => ({ getMe: async () => ({ id: "1", username: "bot" }) }) as any,
-    capture: async () => ({ userId: "42", userName: "yu" }) as CapturedSender,
+    capture: async () => ({ userId: "42", userName: "yu", botUsername: "bot" }) as CapturedSender,
     makePlatform: () => ({ name: "telegram", start: async () => {}, reply: async () => {}, send: async () => {}, stop: async () => {} }),
     ...overrides,
   }
@@ -89,8 +89,14 @@ test("startPairing fails fast when secure storage is unavailable, without contac
 })
 
 test("startPairing surfaces an invalid token before asking the user to message", async () => {
+  // The token is now proven inside capture (its drain hits a fatal 401 before any
+  // sender is awaited); a thrown capture maps to the reach-Telegram error.
   const runtime = new RemoteBridgeRuntime(
-    deps({ makePoller: () => ({ getMe: async () => { throw new Error("401 Unauthorized") } }) as any }),
+    deps({
+      capture: async () => {
+        throw new Error("401 Unauthorized")
+      },
+    }),
   )
   await expect(runtime.startPairing("bad")).rejects.toThrow(/could not reach Telegram/)
 })
