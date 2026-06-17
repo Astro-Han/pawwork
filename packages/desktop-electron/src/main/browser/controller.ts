@@ -1,6 +1,7 @@
-import { BrowserWindow, WebContentsView, shell } from "electron"
+import { BrowserWindow, WebContentsView, session, shell } from "electron"
 import type { BrowserState, BrowserViewLayout } from "@opencode-ai/app/desktop-api"
-import { browserViewWebPreferences } from "./options"
+import { BROWSER_PARTITION, browserViewWebPreferences } from "./options"
+import { toChromeUserAgent } from "./user-agent"
 import {
   clearDataReloadAction,
   computeViewBounds,
@@ -23,6 +24,27 @@ export const BROWSER_DISPLAY_TAKEN_CHANNEL = "browser:display-taken"
  */
 const DEFAULT_VIEW_BOUNDS = { x: 0, y: 0, width: 1280, height: 720 }
 
+let partitionUserAgentConfigured = false
+/**
+ * Give the embedded browser's shared partition a faithful Chrome user-agent,
+ * once. Electron's default UA carries an `Electron/<ver>` token and the app's own
+ * product token where a real Chrome UA has nothing — both are obvious "not a
+ * normal browser" tells that anti-automation risk control keys on. The view IS
+ * real Chromium, so we present it as the Chrome/Chromium it actually is rather
+ * than impersonating a specific brand: the Chrome major is derived from
+ * `process.versions.chrome` so it tracks the engine, and the partition session UA
+ * applies to BOTH manual browsing and CDP-driven automation. Client Hints are
+ * deliberately left at Chromium's correct defaults — manual and automation then
+ * present one consistent identity (see PR notes), which is the whole point.
+ * Scoped to the browser partition; the app renderer keeps its own UA.
+ */
+function ensureBrowserPartitionUserAgent() {
+  if (partitionUserAgentConfigured) return
+  partitionUserAgentConfigured = true
+  const sess = session.fromPartition(BROWSER_PARTITION)
+  sess.setUserAgent(toChromeUserAgent(sess.getUserAgent(), process.versions.chrome ?? ""))
+}
+
 /**
  * Owns one embedded browser per CONVERSATION (root session) — or a per-window
  * draft on Home. The view lives unattached to any window; a window is just a
@@ -41,6 +63,9 @@ export class BrowserViewController {
   private throttlingBefore: boolean | null = null
 
   constructor(private target: string) {
+    // Configure the partition UA before the view exists, so its very first
+    // request already carries the faithful Chrome UA.
+    ensureBrowserPartitionUserAgent()
     this.view = new WebContentsView({ webPreferences: browserViewWebPreferences() })
     this.view.setVisible(false)
     this.view.setBounds(DEFAULT_VIEW_BOUNDS)
