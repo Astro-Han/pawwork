@@ -1958,13 +1958,15 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       yield* revert.cleanup(session)
       const message = yield* createUserMessage(input)
       // Seed the global "recent model" so a later session with no explicit model
-      // (e.g. a Telegram /new) inherits this choice. Only a user's own top-level
-      // prompt counts — never automation, subagent child sessions, or slash
-      // commands (which carry their own pinned model). Best-effort and
+      // (e.g. a Telegram /new) inherits it. Only the user's OWN explicit selection
+      // counts: input.model is what the chat UI's model picker sends. A model
+      // merely derived from the agent (ag.model), a slash command, automation, or a
+      // subagent must never become the default every fresh session inherits — so we
+      // gate on input.model, not the resolved message.info.model. Best-effort and
       // non-blocking: a write failure must not affect the prompt.
       if (
+        input.model &&
         message.info.role === "user" &&
-        message.info.model &&
         ModelState.shouldRecordRecent({
           automationID: input.automationID,
           parentID: session.parentID,
@@ -1972,7 +1974,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           fromCommand: options?.fromCommand,
         })
       ) {
-        const chosen = message.info.model
+        const chosen = { providerID: input.model.providerID, modelID: input.model.modelID }
         yield* Effect.promise(() => ModelState.recordRecent(chosen)).pipe(Effect.forkDetach)
       }
       yield* sessions.touch(input.sessionID)

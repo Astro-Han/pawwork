@@ -4,6 +4,7 @@ import { describe, expect, test } from "bun:test"
 import { NamedError } from "@opencode-ai/util/error"
 import { fileURLToPath, pathToFileURL } from "url"
 import { Effect, Layer } from "effect"
+import { Global } from "@opencode-ai/core/global"
 import { Instance } from "../../src/project/instance"
 import { Permission } from "../../src/permission"
 import { ModelID, ProviderID } from "../../src/provider/schema"
@@ -1387,4 +1388,153 @@ describe("session.prompt subagent permission rebuild (#26597)", () => {
         ),
     })
   }, 30000)
+})
+
+// The chain this PR actually restores: a user's explicit model selection on a
+// prompt seeds state/model.json's `recent`, which Provider.defaultModel later
+// reads so a model-less session (a Telegram /new) inherits it. The pure
+// shouldRecordRecent/applyRecent tests cover the helpers; these exercise the
+// real prompt → model.json write. (The recent → defaultModel read half is
+// covered by provider.test.ts.)
+describe("session.prompt seeds the recent default model", () => {
+  const modelFile = () => path.join(Global.Path.state, "model.json")
+
+  async function readRecent(): Promise<Array<{ providerID: string; modelID: string }>> {
+    try {
+      const raw = JSON.parse(await fs.readFile(modelFile(), "utf8"))
+      return Array.isArray(raw?.recent) ? raw.recent : []
+    } catch {
+      return []
+    }
+  }
+
+  // recordRecent runs detached (fire-and-forget) so it never blocks the prompt;
+  // the write lands shortly after prompt() resolves. Poll instead of racing it.
+  async function waitForHead(want: { providerID: string; modelID: string }) {
+    for (let i = 0; i < 100; i++) {
+      const recent = await readRecent()
+      if (recent[0]?.providerID === want.providerID && recent[0]?.modelID === want.modelID) return recent
+      await new Promise((r) => setTimeout(r, 20))
+    }
+    return readRecent()
+  }
+
+  test("an explicit-model user prompt seeds recent[0]", async () => {
+    await using tmp = await tmpdir({ git: true, config: { agent: { build: { model: "openai/gpt-5.2" } } } })
+    const picked = { providerID: "deepseek", modelID: "deepseek-chat" }
+    await Instance.provide({
+      directory: tmp.path,
+      fn: () =>
+        run(
+          Effect.gen(function* () {
+            const prompt = yield* SessionPrompt.Service
+            const sessions = yield* Session.Service
+            const session = yield* sessions.create({})
+            yield* prompt.prompt({
+              sessionID: session.id,
+              agent: "build",
+              model: { providerID: ProviderID.make(picked.providerID), modelID: ModelID.make(picked.modelID) },
+              noReply: true,
+              parts: [{ type: "text", text: "hi" }],
+            })
+            const recent = yield* Effect.promise(() => waitForHead(picked))
+            expect(recent[0]).toEqual(picked)
+            yield* sessions.remove(session.id)
+          }),
+        ),
+    })
+  })
+
+  test("a prompt that only inherits the agent's model does NOT seed recent", async () => {
+    // Semantic A: only the user's explicit input.model counts. A model merely
+    // derived from the agent (ag.model, used when no input.model is passed) must
+    // not become the global default.
+    await using tmp = await tmpdir({ git: true, config: { agent: { build: { model: "openai/gpt-5.2" } } } })
+    const picked = { providerID: "deepseek", modelID: "deepseek-chat" }
+    await Instance.provide({
+      directory: tmp.path,
+      fn: () =>
+        run(
+          Effect.gen(function* () {
+            const prompt = yield* SessionPrompt.Service
+            const sessions = yield* Session.Service
+
+            // Seed deterministically with an explicit selection first.
+            const seed = yield* sessions.create({})
+            yield* prompt.prompt({
+              sessionID: seed.id,
+              agent: "build",
+              model: { providerID: ProviderID.make(picked.providerID), modelID: ModelID.make(picked.modelID) },
+              noReply: true,
+              parts: [{ type: "text", text: "hi" }],
+            })
+            yield* Effect.promise(() => waitForHead(picked))
+
+            // Now a prompt with NO input.model — it runs on the agent's openai/gpt-5.2.
+            const agentOnly = yield* sessions.create({})
+            yield* prompt.prompt({
+              sessionID: agentOnly.id,
+              agent: "build",
+              noReply: true,
+              parts: [{ type: "text", text: "hi" }],
+            })
+            yield* Effect.promise(() => new Promise((r) => setTimeout(r, 150)))
+            const recent = yield* Effect.promise(() => readRecent())
+            expect(recent[0]).toEqual(picked) // unchanged
+            expect(recent.some((m) => m.providerID === "openai" && m.modelID === "gpt-5.2")).toBe(false)
+
+            yield* sessions.remove(seed.id)
+            yield* sessions.remove(agentOnly.id)
+          }),
+        ),
+    })
+  })
+
+  test("an automation prompt does NOT seed recent", async () => {
+    await using tmp = await tmpdir({ git: true, config: { agent: { build: { model: "openai/gpt-5.2" } } } })
+    const picked = { providerID: "deepseek", modelID: "deepseek-chat" }
+    const automationModel = { providerID: "qwen", modelID: "qwen-max" }
+    await Instance.provide({
+      directory: tmp.path,
+      fn: () =>
+        run(
+          Effect.gen(function* () {
+            const prompt = yield* SessionPrompt.Service
+            const sessions = yield* Session.Service
+
+            const seed = yield* sessions.create({})
+            yield* prompt.prompt({
+              sessionID: seed.id,
+              agent: "build",
+              model: { providerID: ProviderID.make(picked.providerID), modelID: ModelID.make(picked.modelID) },
+              noReply: true,
+              parts: [{ type: "text", text: "hi" }],
+            })
+            yield* Effect.promise(() => waitForHead(picked))
+
+            const auto = yield* sessions.create({})
+            yield* prompt.prompt({
+              sessionID: auto.id,
+              agent: "build",
+              automationID: "auto_1",
+              model: {
+                providerID: ProviderID.make(automationModel.providerID),
+                modelID: ModelID.make(automationModel.modelID),
+              },
+              noReply: true,
+              parts: [{ type: "text", text: "hi" }],
+            })
+            yield* Effect.promise(() => new Promise((r) => setTimeout(r, 150)))
+            const recent = yield* Effect.promise(() => readRecent())
+            expect(recent[0]).toEqual(picked) // unchanged
+            expect(
+              recent.some((m) => m.providerID === automationModel.providerID && m.modelID === automationModel.modelID),
+            ).toBe(false)
+
+            yield* sessions.remove(seed.id)
+            yield* sessions.remove(auto.id)
+          }),
+        ),
+    })
+  })
 })

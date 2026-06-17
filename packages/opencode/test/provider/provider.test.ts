@@ -9,6 +9,7 @@ import { Plugin } from "../../src/plugin/index"
 import { Auth } from "../../src/auth"
 import { ModelsDev } from "../../src/provider"
 import { Provider } from "../../src/provider"
+import { ModelState } from "../../src/provider/model-state"
 import { withPawWorkProviders } from "../../src/provider/pawwork-providers"
 import { localProviderImportSpec, stripOpenAIResponseInputIDs } from "../../src/provider/provider"
 import { ProviderID, ModelID } from "../../src/provider/schema"
@@ -713,6 +714,48 @@ test("defaultModel respects config model setting", async () => {
       const model = await defaultModel()
       expect(String(model.providerID)).toBe("anthropic")
       expect(String(model.modelID)).toBe("claude-sonnet-4-20250514")
+    },
+  })
+})
+
+test("defaultModel returns a model seeded into recent via recordRecent (model.json round-trip)", async () => {
+  // The read half of the recent-model chain: recordRecent writes state/model.json,
+  // and defaultModel must pick it up ahead of the provider's own first model. If
+  // recordRecent's format drifts or defaultModel stops reading recent, this fails.
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            "custom-openai": {
+              name: "Custom OpenAI",
+              npm: "@ai-sdk/openai-compatible",
+              env: [],
+              models: {
+                "model-a": { name: "Model A", tool_call: true, limit: { context: 1000, output: 100 } },
+                "model-b": { name: "Model B", tool_call: true, limit: { context: 1000, output: 100 } },
+              },
+              options: { apiKey: "test-key", baseURL: "https://custom.openai.com/v1" },
+            },
+          },
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      // With an empty recent, defaultModel falls through to the provider's first model.
+      const fallback = await defaultModel()
+      // Seed the OTHER model — the one defaultModel would not pick on its own.
+      const other = String(fallback.modelID) === "model-a" ? "model-b" : "model-a"
+      await ModelState.recordRecent({ providerID: ProviderID.make("custom-openai"), modelID: ModelID.make(other) })
+      const after = await defaultModel()
+      expect(String(after.providerID)).toBe("custom-openai")
+      expect(String(after.modelID)).toBe(other)
+      expect(String(after.modelID)).not.toBe(String(fallback.modelID))
     },
   })
 })
