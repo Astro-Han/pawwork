@@ -1419,6 +1419,9 @@ test("includes Volcano Engine Coding Plan as a PawWork provider overlay", async 
     Object.keys(provider.models).filter((id) => !VOLCENGINE_PLAN_HIDDEN_MODEL_IDS.some((hidden) => hidden === id)),
   ).toEqual([...VOLCENGINE_PLAN_VISIBLE_MODEL_IDS])
   expect(provider.models[VOLCENGINE_PLAN_HIDDEN_MODEL_IDS[0]]).toBeDefined()
+  for (const [key, model] of Object.entries(provider.models)) {
+    expect(key, `key must match model.id for ${key}`).toBe(model.id)
+  }
   expect(provider.models[VOLCENGINE_PLAN_DEFAULT_MODEL_ID].cost).toEqual({
     input: 0,
     output: 0,
@@ -1435,12 +1438,24 @@ test("Volcano Engine Coding Plan models have correct key parameters", async () =
   const models = await ModelsDev.get()
   const provider = models[VOLCENGINE_PLAN_PROVIDER_ID]
 
-  const expected: Record<string, { context: number; output: number; reasoning: boolean; interleaved?: true | { field: "reasoning_content" | "reasoning_details" } }> = {
-    "minimax-m3": { context: 512000, output: 128000, reasoning: true },
-    "glm-5.2": { context: 1000000, output: 131072, reasoning: true, interleaved: { field: "reasoning_content" } },
-    "deepseek-v4-flash": { context: 1000000, output: 384000, reasoning: true, interleaved: { field: "reasoning_content" } },
-    "deepseek-v4-pro": { context: 1000000, output: 384000, reasoning: true, interleaved: { field: "reasoning_content" } },
-    "kimi-k2.6": { context: 262144, output: 131072, reasoning: true, interleaved: { field: "reasoning_content" } },
+  const expected: Record<string, {
+    context: number
+    output: number
+    reasoning: boolean
+    interleaved: false | { field: "reasoning_content" | "reasoning_details" }
+    attachment: boolean
+    inputModalities: ("text" | "image" | "audio" | "video" | "pdf")[]
+  }> = {
+    "doubao-seed-2.0-code": { context: 256000, output: 4096, reasoning: false, interleaved: false, attachment: true, inputModalities: ["text", "image"] },
+    "doubao-seed-2.0-pro": { context: 256000, output: 4096, reasoning: false, interleaved: false, attachment: true, inputModalities: ["text", "image"] },
+    "doubao-seed-2.0-lite": { context: 256000, output: 4096, reasoning: false, interleaved: false, attachment: false, inputModalities: ["text"] },
+    "doubao-seed-code": { context: 256000, output: 4096, reasoning: false, interleaved: false, attachment: true, inputModalities: ["text", "image"] },
+    "minimax-m2.7": { context: 204800, output: 131072, reasoning: true, interleaved: false, attachment: false, inputModalities: ["text"] },
+    "minimax-m3": { context: 512000, output: 128000, reasoning: true, interleaved: false, attachment: false, inputModalities: ["text"] },
+    "glm-5.2": { context: 1000000, output: 131072, reasoning: true, interleaved: { field: "reasoning_content" }, attachment: false, inputModalities: ["text"] },
+    "deepseek-v4-flash": { context: 1000000, output: 384000, reasoning: true, interleaved: { field: "reasoning_content" }, attachment: false, inputModalities: ["text"] },
+    "deepseek-v4-pro": { context: 1000000, output: 384000, reasoning: true, interleaved: { field: "reasoning_content" }, attachment: false, inputModalities: ["text"] },
+    "kimi-k2.6": { context: 262144, output: 131072, reasoning: true, interleaved: { field: "reasoning_content" }, attachment: true, inputModalities: ["text", "image", "video"] },
   }
 
   for (const [id, spec] of Object.entries(expected)) {
@@ -1449,7 +1464,9 @@ test("Volcano Engine Coding Plan models have correct key parameters", async () =
     expect(model.limit.context, `${id}.limit.context`).toBe(spec.context)
     expect(model.limit.output, `${id}.limit.output`).toBe(spec.output)
     expect(model.reasoning, `${id}.reasoning`).toBe(spec.reasoning)
-    expect(model.interleaved ?? false, `${id}.interleaved`).toEqual(spec.interleaved ?? false)
+    expect(model.interleaved ?? false, `${id}.interleaved`).toEqual(spec.interleaved)
+    expect(model.attachment ?? false, `${id}.attachment`).toBe(spec.attachment)
+    expect(model.modalities?.input ?? [], `${id}.modalities.input`).toEqual(spec.inputModalities)
   }
 })
 
