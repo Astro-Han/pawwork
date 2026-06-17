@@ -14,9 +14,19 @@ apply).
 ## How to measure
 
 `scripts/fingerprint-probe.html` dumps the fingerprint surface and flags obvious
-tells red. Open it in **both**:
+tells red. The embedded browser only navigates `http(s):` (it rejects `file://`),
+so serve the probe over a local HTTP server and open the **same** URL in both
+browsers — same origin, apples to apples:
 
-1. PawWork's embedded browser (run `dev:desktop`, load the file), and
+```sh
+# from the repo root; any static server works
+npx serve packages/desktop-electron/scripts   # or: python3 -m http.server -d packages/desktop-electron/scripts
+```
+
+Then open `http://127.0.0.1:<port>/fingerprint-probe.html` in **both**:
+
+1. PawWork's embedded browser (run `dev:desktop`, then `browser_navigate` to the
+   local URL), and
 2. a real external Chrome,
 
 then compare (the **Copy JSON** button makes diffing easy). It covers UA + UA
@@ -24,9 +34,12 @@ Client Hints, `navigator.webdriver`, plugins, `permissions.query` states,
 window/screen shape, timezone/locale, WebGL renderer, codecs, EME/Widevine,
 `enumerateDevices`, and WebRTC.
 
-The measured results below were taken with Electron 40.8.0 (Chromium 144) using
-the exact `browserViewWebPreferences()` config plus the partition UA from
-#1343; the permission rows reflect the policy from #1344.
+These results assume **#1343 (UA) and #1344 (permissions) are applied**: they
+were measured with Electron 40.8.0 (Chromium 144) using the exact
+`browserViewWebPreferences()` config plus the partition UA from #1343, and the
+permission rows reflect the policy from #1344. Neither change is on `dev` yet, so
+**land this PR after both of them** — on its own it is a forward-looking baseline,
+not a record of current `dev` behavior.
 
 ## Parity (matches real Chrome on the same machine)
 
