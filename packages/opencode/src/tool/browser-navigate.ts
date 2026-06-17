@@ -3,6 +3,7 @@ import * as Tool from "./tool"
 import DESCRIPTION from "./browser-navigate.txt"
 import { parseNavigableUrl } from "@/browser/session"
 import { browserAlwaysPatterns, runBrowserAction, trailingNotes } from "./browser-shared"
+import { highRiskSiteNotice } from "./high-risk-site"
 
 // Above opencli's internal 30s CDP guard so a slow load surfaces the CDP
 // command timeout (which names the navigation) rather than our generic one.
@@ -64,13 +65,18 @@ export const BrowserNavigateTool = Tool.define(
             metadata: { action: "navigate", url: landed, redirectedFrom: url },
           })
         }
+        // The centralized notice keys on the REQUESTED url; a redirect can land
+        // on a high-risk site the request never named. Append the landed-url
+        // caution when the centralized one didn't already fire (so no dupe).
+        const landedNotice = result.info.highRiskNotice ? null : highRiskSiteNotice(result.landed)
         return {
           title: result.title || result.landed,
           output:
             [`Loaded ${result.landed}`, result.title ? `Title: ${result.title}` : undefined]
               .filter(Boolean)
               .join("\n") +
-            trailingNotes(result.info),
+            trailingNotes(result.info) +
+            (landedNotice ? `\n\n${landedNotice}` : ""),
           metadata: { url: result.landed, pageTitle: result.title },
         }
       }),

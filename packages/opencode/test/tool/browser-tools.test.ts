@@ -314,6 +314,21 @@ describe("browser_navigate", () => {
     }),
   )
 
+  it.live("a redirect that lands on a high-risk site still surfaces the caution", () =>
+    Effect.gen(function* () {
+    const server = makeServer()
+    provideFakeHost(server)
+    // Requested URL is ordinary; the document lands on a high-risk site. The
+    // caution must key on where it actually landed, not the request.
+    server.handlers.set("Runtime.evaluate", () => ({
+      result: { type: "string", value: "https://www.xiaohongshu.com/explore" },
+    }))
+    const result = yield* exec(BrowserNavigateTool, { url: "https://ok.example/start" })
+    expect(result.output).toContain("Loaded https://www.xiaohongshu.com/explore")
+    expect(result.output).toContain("anti-automation risk control")
+    }),
+  )
+
   it.live("a redirect's real landing is reported and re-judged, not the requested URL", () =>
     Effect.gen(function* () {
     const server = makeServer()

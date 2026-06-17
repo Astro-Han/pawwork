@@ -43,15 +43,11 @@ function askOpenCliAccessPermission(
   args: Record<string, unknown>,
 ) {
   const permission = command.access === "write" ? "opencli_write" : "opencli_read"
-  // Surface the high-risk caution at the permission step — BEFORE the command
-  // runs — so a browser/write adapter (e.g. posting) can't reach a flagged site
-  // before anyone sees the warning. The post-run output note alone is too late.
-  const caution = command.browser !== false && command.domain ? highRiskSiteNotice(command.domain) : null
   return ctx.ask({
     permission,
     patterns: [command.name],
     always: [command.name],
-    metadata: { ...commandMetadata(command, args), ...(caution ? { caution } : {}) },
+    metadata: commandMetadata(command, args),
   })
 }
 
