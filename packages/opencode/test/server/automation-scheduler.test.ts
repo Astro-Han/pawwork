@@ -3,6 +3,7 @@ import { Effect, ManagedRuntime } from "effect"
 import { Automation } from "../../src/automation"
 import { internalTestHooks } from "../../src/automation/__test_hooks"
 import { AutomationScheduler } from "../../src/automation/scheduler"
+import { Bus } from "../../src/bus"
 import { Instance } from "../../src/project/instance"
 import { ProjectID } from "../../src/project/schema"
 import { trackActiveRun } from "../../src/session/lifecycle-provenance"
@@ -745,6 +746,28 @@ describe("automation scheduler", () => {
       scheduler.reschedule(definition)
       await Automation.remove(definition.id)
       await expect(clock.advance(1_000)).resolves.toBeUndefined()
+
+      expect(calls).toEqual([])
+      scheduler.stop()
+    })
+  })
+
+  test("cancels scheduled automation when a definition deleted event arrives", async () => {
+    await withAutomation(async (projectID) => {
+      const clock = new FakeClock(0)
+      const calls: number[] = []
+      const scheduler = AutomationScheduler.make({
+        clock,
+        executor: async () => {
+          calls.push(clock.now())
+          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+        },
+      })
+      const definition = Automation.create(oneshotInput(projectID, 1_000), { now: 0 })
+
+      scheduler.reschedule(definition)
+      await Bus.publish(Automation.Event.DefinitionDeleted, { id: definition.id, deleted: true, revision: 2 })
+      await clock.advance(1_000)
 
       expect(calls).toEqual([])
       scheduler.stop()

@@ -1,0 +1,338 @@
+import { afterEach, describe, expect, test } from "bun:test"
+import { Effect, ManagedRuntime, Schema } from "effect"
+import { Automation } from "../../src/automation"
+import { AutomationScheduler } from "../../src/automation/scheduler"
+import { Bus } from "../../src/bus"
+import { Instance } from "../../src/project/instance"
+import { ProjectID } from "../../src/project/schema"
+import { MessageID, SessionID } from "../../src/session/schema"
+import { AutomateManageParameters, createAutomateManageDefinition } from "../../src/tool/automate-manage"
+import { toJsonSchema } from "../../src/util/effect-zod"
+import { Flock } from "../../src/util/flock"
+import { tmpdir } from "../fixture/fixture"
+import { fakeAutomationProvider } from "../fake/provider"
+
+const { providerID, modelID } = fakeAutomationProvider()
+const runtime = ManagedRuntime.make(Automation.defaultLayer)
+const automation = await runtime.runPromise(Effect.gen(function* () {
+  return yield* Automation.Service
+}))
+
+function recurring(projectID: ProjectID, title: string): Automation.CreateInput {
+  return {
+    kind: "recurring",
+    title,
+    prompt: `Run ${title}.`,
+    context: "fresh",
+    where: { projectID },
+    timezone: "UTC",
+    model: { providerID, modelID },
+    rhythm: { kind: "cron", expression: "0 9 * * *" },
+    stop: { kind: "never" },
+  }
+}
+
+function installScheduler(cancelled: string[] = [], settled: string[] = []) {
+  AutomationScheduler.install({
+    stop: () => undefined,
+    settleOwner: async () => { settled.push("settled") },
+    reschedule: () => undefined,
+    cancel: (automationID) => cancelled.push(automationID),
+    computeNextFireAt: () => null,
+  })
+}
+
+function tool() {
+  return createAutomateManageDefinition(automation)
+}
+
+function toolContext(asks: unknown[] = []) {
+  return {
+    sessionID: SessionID.descending(),
+    messageID: MessageID.ascending(),
+    agent: "build",
+    abort: new AbortController().signal,
+    messages: [],
+    metadata: () => Effect.void,
+    ask: (input: unknown) => Effect.sync(() => { asks.push(input) }),
+  }
+}
+
+afterEach(async () => {
+  AutomationScheduler.stopProcess({ stopRuns: false })
+  await Instance.disposeAll()
+})
+
+describe("automate_manage tool", () => {
+  test("schema keeps the model-facing management surface flat and exact-id based", () => {
+    const decoded = Schema.decodeUnknownSync(AutomateManageParameters)({
+      action: "pause",
+      id: "aut_123",
+      paused: true,
+      where: { projectID: "spoofed" },
+    })
+
+    expect(decoded).toEqual({ action: "pause", id: "aut_123" })
+  })
+
+  test("description and schema carry the model-facing management contract", () => {
+    const definition = tool()
+    expect(definition.description).toContain("current context")
+    expect(definition.description).toContain("exact automation id")
+    expect(definition.description).toContain("confirmation")
+    expect(definition.description).toContain("Never use OS schedulers")
+    for (const action of ["list", "pause", "resume", "delete"]) {
+      expect(definition.description).toContain(action)
+    }
+
+    const schema = toJsonSchema(AutomateManageParameters) as {
+      properties: Record<string, { description?: string }>
+    }
+    expect(schema.properties.action.description).toContain("list")
+    expect(schema.properties.action.description).toContain("pause")
+    expect(schema.properties.action.description).toContain("resume")
+    expect(schema.properties.action.description).toContain("delete")
+    expect(schema.properties.id.description).toContain("Exact automation id")
+    expect(schema.properties.id.description).toContain("pause")
+    expect(schema.properties.id.description).toContain("resume")
+    expect(schema.properties.id.description).toContain("delete")
+  })
+
+  test("lists current-scope automations with ids and schedules", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        installScheduler()
+        const created = Automation.create(recurring(Instance.project.id, "Daily repo brief"), { now: 100 })
+
+        const result = await Effect.runPromise(tool().execute({ action: "list" }, toolContext()))
+        const output = JSON.parse(result.output)
+
+        expect(result.title).toBe("Automations")
+        expect(output.items).toEqual([
+          expect.objectContaining({
+            id: created.id,
+            title: "Daily repo brief",
+            paused: false,
+            schedule: "0 9 * * *",
+            timezone: "UTC",
+          }),
+        ])
+      },
+    })
+  })
+
+  test("list reads definitions without settling the scheduler owner", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const settled: string[] = []
+        installScheduler([], settled)
+        Automation.create(recurring(Instance.project.id, "Daily repo brief"), { now: 100 })
+
+        await Effect.runPromise(tool().execute({ action: "list" }, toolContext()))
+
+        expect(settled).toEqual([])
+      },
+    })
+  })
+
+  test("pause and resume update by exact id without asking for confirmation", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        installScheduler()
+        const asks: unknown[] = []
+        const created = Automation.create(recurring(Instance.project.id, "Daily repo brief"), { now: 100 })
+
+        const paused = await Effect.runPromise(tool().execute({ action: "pause", id: created.id }, toolContext(asks)))
+        expect(paused.title).toBe("Automation paused")
+        expect(paused.metadata.automationDefinition).toMatchObject({ id: created.id, paused: true, revision: 2 })
+        expect(Automation.get(created.id).paused).toBe(true)
+
+        const resumed = await Effect.runPromise(tool().execute({ action: "resume", id: created.id }, toolContext(asks)))
+        expect(resumed.title).toBe("Automation resumed")
+        expect(resumed.metadata.automationDefinition).toMatchObject({ id: created.id, paused: false, revision: 3 })
+        expect(Automation.get(created.id).paused).toBe(false)
+        expect(asks).toEqual([])
+      },
+    })
+  })
+
+  test("delete asks once, publishes deletion, and removes the automation", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const asks: unknown[] = []
+        const deletedEvents: Automation.Tombstone[] = []
+        const unsubscribe = Bus.subscribe(Automation.Event.DefinitionDeleted, (event) => {
+          deletedEvents.push(event.properties)
+        })
+        installScheduler()
+        const created = Automation.create(recurring(Instance.project.id, "Daily repo brief"), { now: 100 })
+
+        try {
+          const result = await Effect.runPromise(tool().execute({ action: "delete", id: created.id }, toolContext(asks)))
+          expect(result.title).toBe("Automation deleted")
+          expect(result.metadata.automationTombstone).toEqual({ id: created.id, deleted: true, revision: 2 })
+          expect(JSON.parse(result.output)).toEqual({ id: created.id, deleted: true, revision: 2 })
+        } finally {
+          unsubscribe()
+        }
+
+        expect(deletedEvents).toEqual([{ id: created.id, deleted: true, revision: 2 }])
+        expect(asks).toEqual([
+          {
+            permission: "automate_manage",
+            patterns: [created.id],
+            always: [],
+            metadata: { action: "delete", id: created.id, title: "Daily repo brief" },
+          },
+        ])
+        expect(Automation.list()).toEqual([])
+      },
+    })
+  })
+
+  test("non-list actions require an exact automation id", async () => {
+    installScheduler()
+    await expect(Effect.runPromise(tool().execute({ action: "pause" }, toolContext()))).rejects.toThrow(
+      'automate_manage action "pause" requires an exact automation id.',
+    )
+  })
+
+  test("pause reports stale automation ids as a readable relist error", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        installScheduler()
+
+        await expect(
+          Effect.runPromise(tool().execute({ action: "pause", id: "aut_missing" }, toolContext())),
+        ).rejects.toThrow("Automation not found: aut_missing. Run automate_manage list to get a current id.")
+      },
+    })
+  })
+
+  test.each(["pause", "resume"] as const)(
+    "%s reports update-time stale ids as a readable relist error",
+    async (action) => {
+      await using tmp = await tmpdir({ git: true })
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          installScheduler()
+          const created = Automation.create(recurring(Instance.project.id, "Daily repo brief"), { now: 100 })
+          const racingAutomation: Automation.Interface = {
+            ...automation,
+            update: (id, patch, options) =>
+              Effect.gen(function* () {
+                yield* Effect.promise(() => Automation.remove(created.id))
+                return yield* automation.update(id, patch, options)
+              }),
+          }
+          const racingTool = createAutomateManageDefinition(racingAutomation)
+
+          await expect(Effect.runPromise(racingTool.execute({ action, id: created.id }, toolContext()))).rejects.toThrow(
+            `Automation not found: ${created.id}. Run automate_manage list to get a current id.`,
+          )
+        },
+      })
+    },
+  )
+
+  test("delete rejects stale automation ids before asking or removing anything", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        installScheduler()
+        const asks: unknown[] = []
+        const created = Automation.create(recurring(Instance.project.id, "Daily repo brief"), { now: 100 })
+
+        await expect(
+          Effect.runPromise(tool().execute({ action: "delete", id: "aut_missing" }, toolContext(asks))),
+        ).rejects.toThrow("Automation not found: aut_missing. Run automate_manage list to get a current id.")
+
+        expect(asks).toEqual([])
+        expect(Automation.list().map((definition) => definition.id)).toEqual([created.id])
+      },
+    })
+  })
+
+  test("delete reports confirmation-time stale ids as a readable relist error", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        installScheduler()
+        const asks: unknown[] = []
+        const deletedEvents: Automation.Tombstone[] = []
+        const unsubscribe = Bus.subscribe(Automation.Event.DefinitionDeleted, (event) => {
+          deletedEvents.push(event.properties)
+        })
+        const created = Automation.create(recurring(Instance.project.id, "Daily repo brief"), { now: 100 })
+        const ctx = {
+          ...toolContext(asks),
+          ask: (input: unknown) =>
+            Effect.promise(async () => {
+              asks.push(input)
+              await Automation.remove(created.id)
+            }),
+        }
+
+        try {
+          await expect(Effect.runPromise(tool().execute({ action: "delete", id: created.id }, ctx))).rejects.toThrow(
+            `Automation not found: ${created.id}. Run automate_manage list to get a current id.`,
+          )
+        } finally {
+          unsubscribe()
+        }
+
+        expect(deletedEvents).toEqual([])
+      },
+    })
+  })
+
+  test("delete preserves the automation when a live active run is still running", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        installScheduler()
+        const created = Automation.create(recurring(Instance.project.id, "Daily repo brief"), { now: 100 })
+        const active = Automation.runNow(created.id, { now: 200 })
+        await using _lease = await Flock.acquire(`automation-run:${Instance.directory}:${active.id}`)
+
+        await expect(
+          Effect.runPromise(tool().execute({ action: "delete", id: created.id }, toolContext())),
+        ).rejects.toThrow(`Cannot delete automation ${created.id}: active_run_still_running (${active.id})`)
+
+        expect(Automation.get(created.id).id).toBe(created.id)
+      },
+    })
+  })
+
+  test("delete stops before removal when the confirmation is denied", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        installScheduler()
+        const created = Automation.create(recurring(Instance.project.id, "Daily repo brief"), { now: 100 })
+        const ctx = { ...toolContext(), ask: () => Effect.die(new Error("denied")) }
+
+        await expect(Effect.runPromise(tool().execute({ action: "delete", id: created.id }, ctx))).rejects.toThrow(
+          "denied",
+        )
+
+        expect(Automation.get(created.id).id).toBe(created.id)
+      },
+    })
+  })
+})

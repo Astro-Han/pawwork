@@ -596,6 +596,7 @@ export const dict = {
   "ui.sessionReview.title.git": "文件变更",
   "ui.sessionReview.title.branch": "分支变更",
   "ui.sessionReview.title.lastTurn": "上轮变更",
+  "ui.permission.automateManageDelete": "删除自动化「{{title}}」（{{id}}）",
   "session.files.selectToOpen": "选择要打开的文件",
   "session.files.all": "所有文件",
   "session.files.empty": "无文件",

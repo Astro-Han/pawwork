@@ -66,8 +66,48 @@ describe("tool.registry", () => {
           })
           const surface = tools.map((tool) => tool.id)
           expect(surface).toContain("automate")
+          expect(surface).not.toContain("automate_manage")
           const card = tools.find((tool) => tool.id === "tool_info")!.description
-          expect(card).not.toContain("automate")
+          expect(card).not.toContain("**automate**")
+          expect(card).toContain("**automate_manage**")
+        },
+      })
+    })
+  })
+
+  test("defers automate_manage until activated while keeping automate resident", async () => {
+    await using tmp = await tmpdir()
+
+    await withMockedConfigInstall(async () => {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const base = {
+            providerID: ProviderID.make("openai"),
+            modelID: ModelID.make("gpt-5"),
+            agent: { name: "build", mode: "primary" as const, permission: [], options: {} },
+          }
+
+          const def = await ToolRegistry.tools(base)
+          const defIds = def.map((tool) => tool.id)
+          expect(defIds).toContain("automate")
+          expect(defIds).not.toContain("automate_manage")
+          expect(def.find((tool) => tool.id === "tool_info")!.description).toContain("**automate_manage**")
+
+          const act = await ToolRegistry.tools({ ...base, activatedTools: new Set(["automate_manage"]) })
+          const actIds = act.map((tool) => tool.id)
+          expect(actIds).toContain("automate")
+          expect(actIds).toContain("automate_manage")
+          expect(act.find((tool) => tool.id === "tool_info")!.description).not.toContain("**automate_manage**")
+
+          const denied = await ToolRegistry.tools({
+            ...base,
+            activatedTools: new Set(["automate_manage"]),
+            deferredAvailable: () => false,
+          })
+          expect(denied.map((tool) => tool.id)).toContain("automate")
+          expect(denied.map((tool) => tool.id)).not.toContain("automate_manage")
+          expect(denied.find((tool) => tool.id === "tool_info")!.description).toContain("No deferred tools")
         },
       })
     })
@@ -108,10 +148,12 @@ describe("tool.registry", () => {
   test("keeps scheduling routing contract across prompt surfaces", async () => {
     const shellDescription = await Bun.file(new URL("../../src/tool/shell.txt", import.meta.url)).text()
     expect(shellDescription).toContain("Scheduled or delayed tasks: Use the automate tool")
+    expect(shellDescription).toContain("Existing PawWork Automations: Use automate_manage via tool_info")
 
     const systemPrompt = await Bun.file(new URL("../../src/session/prompt/pawwork.txt", import.meta.url)).text()
     expect(systemPrompt).toContain("# Scheduling, reminders, and recurring work")
     expect(systemPrompt).toContain("`automate` tool")
+    expect(systemPrompt).toContain("`automate_manage`")
     expect(systemPrompt).toContain("launchd")
     expect(systemPrompt).toContain("by writing files")
   })
@@ -1183,12 +1225,14 @@ describe("tool.registry", () => {
           })
           const defIds = def.map((tool) => tool.id)
           expect(defIds).toContain("automate")
+          expect(defIds).not.toContain("automate_manage")
           expect(defIds).not.toContain("enter-worktree")
           expect(defIds).not.toContain("exit-worktree")
           expect(defIds).not.toContain("lsp")
           expect(defIds).toContain("tool_info")
           const card = def.find((tool) => tool.id === "tool_info")!.description
-          expect(card).not.toContain("automate")
+          expect(card).not.toContain("**automate**")
+          expect(card).toContain("automate_manage")
           expect(card).toContain("enter-worktree")
           expect(card).toContain("exit-worktree")
           expect(card).toContain("lsp")
@@ -1202,11 +1246,13 @@ describe("tool.registry", () => {
           })
           const actIds = act.map((tool) => tool.id)
           expect(actIds).toContain("automate")
+          expect(actIds).not.toContain("automate_manage")
           expect(actIds).toContain("enter-worktree")
           expect(actIds).not.toContain("exit-worktree")
           expect(actIds).toContain("lsp")
           const actCard = act.find((tool) => tool.id === "tool_info")!.description
-          expect(actCard).not.toContain("automate")
+          expect(actCard).not.toContain("**automate**")
+          expect(actCard).toContain("automate_manage")
           expect(actCard).not.toContain("enter-worktree")
           expect(actCard).toContain("exit-worktree")
           expect(actCard).not.toContain("lsp")
@@ -1220,6 +1266,7 @@ describe("tool.registry", () => {
             deferredAvailable: () => false,
           })
           expect(denied.map((tool) => tool.id)).toContain("automate")
+          expect(denied.map((tool) => tool.id)).not.toContain("automate_manage")
           expect(denied.map((tool) => tool.id)).not.toContain("enter-worktree")
           expect(denied.map((tool) => tool.id)).not.toContain("lsp")
           expect(denied.find((tool) => tool.id === "tool_info")!.description).toContain("No deferred tools")

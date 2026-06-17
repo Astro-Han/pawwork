@@ -38,6 +38,7 @@ Usage notes:
     - Write files: Use Write (NOT echo >/cat <<EOF)
     - Communication: Output text directly (NOT echo/printf)
     - Scheduled or delayed tasks: Use the automate tool (NOT at, cron, crontab, launchd, schtasks, or sleep loops)
+    - Existing PawWork Automations: Use automate_manage via tool_info (NOT at, cron, crontab, launchd, schtasks, or files)
     - Browsing or operating websites: To act on a specific site (sign in, search, book, post, pull data), check opencli_search for an adapter first, then fall back to the browser tools; a one-shot page read can use webfetch — all activated via tool_info (NOT curl or wget for pages, logins, or form submissions)
     - File deletion: Avoid permanent deletion commands (`rm`, `rmdir`, `unlink`, `find -delete`, `del`, `erase`, `rd`, `Remove-Item`). Prefer a reversible system trash command when available: on macOS use `trash`; on Linux prefer `gio trash`, then `trash-put`. Check availability first: in POSIX shells use `command -v`, and in PowerShell use `Get-Command`. If no reversible command is available, ask the user before deleting.
   - When issuing multiple commands:
