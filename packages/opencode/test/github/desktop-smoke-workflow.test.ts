@@ -69,6 +69,33 @@ describe("desktop smoke workflow", () => {
     expect(check?.if).toBe("always()")
     expect(check?.needs).toEqual(["changes", "smoke-macos-arm64", "install-matrix"])
 
+    // install-matrix job: validates Electron install on Node 24 and 26
+    const install = jobs["install-matrix"]
+    const installSteps = install?.steps ?? []
+    expect(install?.needs).toBe("changes")
+    expect(install?.if).toBe("needs.changes.outputs.docs_only != 'true'")
+    expect(install?.["runs-on"]).toBe("macos-14")
+    expect(install?.["timeout-minutes"]).toBe(10)
+    expect(install?.strategy?.matrix?.["node-version"]).toEqual(["24", "26"])
+    const installCheckout = installSteps.find((step) => step.uses?.startsWith("actions/checkout@"))
+    expect(installCheckout?.with?.["persist-credentials"]).toBe(false)
+    const installSetupNode = installSteps.find((step) => step.uses?.startsWith("actions/setup-node@"))
+    expect(installSetupNode?.with?.["node-version"]).toBe("${{ matrix.node-version }}")
+    const installBunStep = installSteps.find((step) => step.uses?.startsWith("oven-sh/setup-bun@"))
+    expect(installBunStep?.with?.["bun-version"]).toBe("1.3.14")
+    const installDepsStep = installSteps.find((step) => step.name === "Install dependencies")
+    expect(installDepsStep?.run).toBe("bun install --frozen-lockfile")
+    const assertStep = installSteps.find((step) => step.name === "Assert Electron install complete")
+    expect(assertStep?.run).toBe("node ./scripts/repair-electron-install.mjs --assert-complete")
+    expect(assertStep?.["working-directory"]).toBe("packages/desktop-electron")
+
+    // smoke-macos-arm64 must not use strategy/matrix (install-matrix is the only job that does)
+    expect(workflow).toContain("strategy:")
+    expect(workflow).toContain("matrix:")
+    const smokeRaw = workflow.slice(workflow.indexOf("smoke-macos-arm64:"), workflow.indexOf("install-matrix:"))
+    expect(smokeRaw).not.toContain("strategy:")
+    expect(smokeRaw).not.toContain("matrix:")
+
     expect(smokeCheckoutStep?.with).toEqual({ "persist-credentials": false })
     expect(smokeBunStep?.uses).toBe("oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6")
     expect(installStep?.run).toBe("bun install --frozen-lockfile")
