@@ -54,5 +54,7 @@ describe("POST /provider/recent", () => {
     })
 
     expect(response.status).toBe(400)
+    // The schema rejects before the handler runs, so nothing is persisted.
+    await expect(fs.access(modelFile())).rejects.toThrow()
   })
 })
