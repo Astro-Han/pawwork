@@ -150,15 +150,22 @@ jobs:
       - name: Assert Electron install complete (pre-repair)
         run: |
           node --input-type=module -e "
+            import { readFileSync } from 'node:fs'
+            import { join } from 'node:path'
             import { createRequire } from 'node:module'
             import { isElectronInstallComplete } from './scripts/repair-electron-install.mjs'
             const require = createRequire(import.meta.url)
             const electronDir = require.resolve('electron/package.json').replace('/package.json', '')
             if (!isElectronInstallComplete(electronDir)) {
-              console.error('::error::Electron install incomplete after bun install — yauzl override may have failed')
+              console.error('::error::Electron binary or Framework missing after bun install')
               process.exit(1)
             }
-            console.log('Electron install verified: binary and Framework present')
+            const pathTxt = readFileSync(join(electronDir, 'path.txt'), 'utf8').trim()
+            if (pathTxt !== 'Electron.app/Contents/MacOS/Electron') {
+              console.error('::error::Electron path.txt missing or wrong content: ' + JSON.stringify(pathTxt))
+              process.exit(1)
+            }
+            console.log('Electron install verified: binary, Framework, and path.txt present')
           "
         working-directory: packages/desktop-electron
 
