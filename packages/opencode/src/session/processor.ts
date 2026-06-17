@@ -1457,11 +1457,11 @@ export const layer: Layer.Layer<
         yield* closeRemainingToolLifecycles()
       })
 
-      const hasModelConsumableToolSettlement = () =>
+      const hasPr1ModelConsumableToolSettlement = () =>
         MessageV2.parts(ctx.assistantMessage.id).some(
           (part) => part.type === "tool" && (part.state.status === "completed" || part.state.status === "error"),
         )
-      const allowsModelConsumableToolSettlement = (recommendation: RunIncident.Recovery["recommendation"]) =>
+      const allowsPr1MinimalContinueForToolSettlement = (recommendation: RunIncident.Recovery["recommendation"]) =>
         recommendation === "ask_user_before_retry" ||
         recommendation === "offer_resume_with_confirmation" ||
         recommendation === "offer_continue"
@@ -1869,9 +1869,14 @@ export const layer: Layer.Layer<
               presentation: retryDecision.presentation,
             })
 
+            // PR1 keeps only this minimal consumption step: once drain has
+            // normalized a tool settlement into model-visible history, do not
+            // call halt(), because an assistant-level error would make the
+            // settled tool result unusable. Full replay/continue budgeting and
+            // recovery request construction remain PR2.
             if (
-              allowsModelConsumableToolSettlement(decision.recommendation) &&
-              hasModelConsumableToolSettlement()
+              allowsPr1MinimalContinueForToolSettlement(decision.recommendation) &&
+              hasPr1ModelConsumableToolSettlement()
             ) {
               break
             }

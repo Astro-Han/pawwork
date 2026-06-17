@@ -2800,13 +2800,14 @@ it.live("session.processor effect tests persists completed tool result after pro
         yield* Effect.promise(() => Bun.sleep(1_200))
         toolFinish.resolve()
 
-        yield* Fiber.join(run)
+        const result = yield* Fiber.join(run)
         const parts = MessageV2.parts(msg.id)
         const call = parts.find((part): part is MessageV2.ToolPart => part.type === "tool")
         const stored = (yield* session.messages({ sessionID: chat.id })).find(
           (message) => message.info.role === "assistant" && message.info.id === msg.id,
         )
 
+        expect(result).toBe("continue")
         expect(executions).toBe(1)
         expect(toolAbortSignalAborted).toBe(false)
         expect(call?.state.status).toBe("completed")
@@ -2817,6 +2818,7 @@ it.live("session.processor effect tests persists completed tool result after pro
         }
         expect(stored?.info.role).toBe("assistant")
         if (stored?.info.role === "assistant") {
+          expect(stored.info.error).toBeUndefined()
           const observability = stored.info.diagnostics?.run_observability
           expect(observability?.tool_execution_started).toBe(true)
           expect(observability?.attempts?.[0]?.tool_execution_completed).toBe(true)
