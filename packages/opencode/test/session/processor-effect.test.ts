@@ -1,5 +1,5 @@
 import { NodeFileSystem } from "@effect/platform-node"
-import { tool } from "ai"
+import { APICallError, tool } from "ai"
 import { expect } from "bun:test"
 import { Cause, Effect, Exit, Fiber, Layer, Stream } from "effect"
 import path from "path"
@@ -155,6 +155,10 @@ function copilotResponsesProviderCfg(url: string) {
       },
     },
   }
+}
+
+function transportDisconnectError(message: string) {
+  return Object.assign(new Error(message), { code: "ECONNRESET", syscall: "read" })
 }
 
 function responseCreated(model = "gpt-5.2") {
@@ -418,7 +422,42 @@ const noStreamToolCompletionIt = testEffect(
             noStreamToolCompletionFailures.push(error)
           })
         }),
-      ).pipe(Stream.flatMap(() => Stream.fail(new Error("connection reset before tool events"))))
+      ).pipe(Stream.flatMap(() => Stream.fail(transportDisconnectError("connection reset before tool events"))))
+    },
+  }),
+)
+
+const noStreamToolCompletionTerminalFailures: unknown[] = []
+const noStreamToolCompletionTerminalIt = testEffect(
+  processorEnvWithLLM({
+    stream(input) {
+      const toolCallID = "call_no_stream_tool_completion_terminal"
+      const toolInput = { value: "ok" }
+      const terminalError = new APICallError({
+        message: "401 auth failure after tool settlement",
+        url: "https://example.com/v1/chat/completions",
+        requestBodyValues: {},
+        statusCode: 401,
+        responseHeaders: { "content-type": "application/json" },
+        isRetryable: true,
+      })
+      return Stream.fromEffect(
+        Effect.promise(async () => {
+          await input.toolLifecycle?.started?.({ tool: "offline", toolCallID, input: toolInput })
+          void Promise.resolve(
+            input.toolLifecycle?.completed?.({
+              toolCallID,
+              output: {
+                title: "offline",
+                metadata: { marker: "terminal-after-tool" },
+                output: "offline result",
+              },
+            }),
+          ).catch((error) => {
+            noStreamToolCompletionTerminalFailures.push(error)
+          })
+        }),
+      ).pipe(Stream.flatMap(() => Stream.fail(terminalError)))
     },
   }),
 )
@@ -438,7 +477,7 @@ const noStreamToolFailureIt = testEffect(
             },
           )
         }),
-      ).pipe(Stream.flatMap(() => Stream.fail(new Error("connection reset before tool error event"))))
+      ).pipe(Stream.flatMap(() => Stream.fail(transportDisconnectError("connection reset before tool error event"))))
     },
   }),
 )
@@ -452,7 +491,7 @@ const noStreamDeadToolIt = testEffect(
         Effect.promise(async () => {
           await input.toolLifecycle?.started?.({ tool: "offline", toolCallID, input: toolInput })
         }),
-      ).pipe(Stream.flatMap(() => Stream.fail(new Error("connection reset before dead tool events"))))
+      ).pipe(Stream.flatMap(() => Stream.fail(transportDisconnectError("connection reset before dead tool events"))))
     },
   }),
 )
@@ -2900,6 +2939,80 @@ noStreamToolCompletionIt.live(
             toolCallId: "call_no_stream_tool_completion",
             input: { value: "ok" },
           })
+        }),
+      { git: true, config: providerCfg("http://localhost:1/v1") },
+    ),
+)
+
+noStreamToolCompletionTerminalIt.live(
+  "session.processor effect tests stops on terminal provider error after persisted tool settlement",
+  () =>
+    provideTmpdirInstance(
+      (dir) =>
+        Effect.gen(function* () {
+          noStreamToolCompletionTerminalFailures.length = 0
+          const { processors, session, provider } = yield* boot()
+
+          const chat = yield* session.create({})
+          const parent = yield* user(chat.id, "terminal provider error after tool settlement")
+          const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+          const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+          const handle = yield* processors.create({
+            safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
+            assistantMessage: msg,
+            sessionID: chat.id,
+            model: mdl,
+          })
+
+          const result = yield* handle.process({
+            user: {
+              id: parent.id,
+              sessionID: chat.id,
+              role: "user",
+              time: parent.time,
+              agent: parent.agent,
+              model: { providerID: ref.providerID, modelID: ref.modelID },
+              tools: { offline: true },
+            } satisfies MessageV2.User,
+            sessionID: chat.id,
+            model: mdl,
+            agent: agent(),
+            system: [],
+            messages: [{ role: "user", content: "terminal provider error after tool settlement" }],
+            toolDrainTimeoutMs: 5_000,
+            tools: {
+              offline: tool({
+                description: "Fake LLM drives lifecycle directly in this test",
+                inputSchema: z.object({ value: z.string() }),
+                execute: async () => ({ output: "unused" }),
+              }),
+            },
+          })
+
+          const toolParts = MessageV2.parts(msg.id).filter((part): part is MessageV2.ToolPart => part.type === "tool")
+          const stored = (yield* session.messages({ sessionID: chat.id })).find(
+            (message) => message.info.role === "assistant" && message.info.id === msg.id,
+          )
+
+          expect(result).toBe("stop")
+          expect(noStreamToolCompletionTerminalFailures).toEqual([])
+          expect(toolParts).toHaveLength(1)
+          expect(toolParts[0]?.state.status).toBe("completed")
+          if (toolParts[0]?.state.status === "completed") {
+            expect(toolParts[0].tool).toBe("offline")
+            expect(toolParts[0].state.input).toEqual({ value: "ok" })
+            expect(toolParts[0].state.output).toBe("offline result")
+            expect(toolParts[0].state.metadata?.marker).toBe("terminal-after-tool")
+            expect(toolParts[0].state.metadata?.interrupted).toBeUndefined()
+          }
+          expect(stored?.info.role).toBe("assistant")
+          if (stored?.info.role === "assistant") {
+            expect(stored.info.error).toBeDefined()
+            expect(MessageV2.APIError.isInstance(stored.info.error)).toBe(true)
+            if (MessageV2.APIError.isInstance(stored.info.error)) {
+              expect(stored.info.error.data.providerFailure?.kind).toBe("auth")
+            }
+          }
         }),
       { git: true, config: providerCfg("http://localhost:1/v1") },
     ),

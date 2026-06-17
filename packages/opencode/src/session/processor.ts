@@ -1885,9 +1885,10 @@ export const layer: Layer.Layer<
             // PR1 keeps only this minimal consumption step: once drain has
             // normalized a tool settlement into model-visible history, do not
             // call halt(), because an assistant-level error would make the
-            // settled tool result unusable. Full replay/continue budgeting and
-            // recovery request construction remain PR2.
+            // settled tool result unusable. Terminal provider errors still halt;
+            // full replay/continue budgeting and recovery request construction remain PR2.
             if (
+              retryDecision.technicalRetryability.retryable &&
               allowsPr1MinimalContinueForToolSettlement(decision.recommendation) &&
               hasPr1ModelConsumableToolSettlement()
             ) {
