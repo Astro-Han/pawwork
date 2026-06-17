@@ -6,19 +6,8 @@ import { Flock } from "../util/flock"
 import { isRecord } from "../util/record"
 
 /**
- * Persists the user's picked model into `state/model.json`'s `recent` list — the
+ * Writes the user's picked model to the `recent` list in `state/model.json`, the
  * source `Provider.defaultModel()` reads when a prompt carries no explicit model.
- * Upstream opencode wrote this list from the TUI; PawWork replaced the TUI with
- * the desktop UI and kept only the reader, so a fresh session with no model
- * (e.g. a Telegram `/new`) fell through to the first configured provider instead
- * of the user's actual choice.
- *
- * This restores the writer, driven by the one place that truly knows the user
- * chose a model: the desktop model picker, which calls the `/provider/recent`
- * endpoint on an explicit pick. Recording at that single event — rather than
- * inferring intent from the prompt path — keeps an agent's pinned model, a
- * slash command, automation, or a subagent from ever leaking into the default,
- * with no provenance guessing.
  */
 export namespace ModelState {
   export interface ModelRef {
@@ -57,19 +46,11 @@ export namespace ModelState {
   }
 
   /**
-   * Best-effort persist of the user's picked model. Locked read-modify-write so a
-   * concurrent CLI/desktop writer can neither corrupt the file nor drop sibling
-   * fields. A failure here must never break the caller.
-   *
-   * Only a missing file (ENOENT) starts from empty state. A parse error,
-   * permission error, or transient read failure means the file may still hold
-   * sibling state (favorite, variant, …); writing a fresh `{recent}` over it
-   * would clobber that, so such a read failure skips this write instead.
-   *
-   * The write itself is atomic (temp file + rename): `Provider.defaultModel()`
-   * reads this file unlocked and treats a parse failure as empty recent, and
-   * `writeFile` is not atomic — rename guarantees a concurrent reader sees the old
-   * or the new complete file, never a half-written one.
+   * Best-effort, locked read-modify-write. Only a missing file (ENOENT) starts
+   * from empty; any other read failure skips the write so sibling state (favorite,
+   * variant, …) is never clobbered. The temp-file + rename keeps the unlocked
+   * `defaultModel()` reader from ever seeing a half-written file, and failures
+   * never reach the caller.
    */
   export async function recordRecent(model: ModelRef): Promise<void> {
     const file = path.join(Global.Path.state, "model.json")
