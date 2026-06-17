@@ -6822,3 +6822,40 @@ export type FormatterStatusResponses = {
 }
 
 export type FormatterStatusResponse = FormatterStatusResponses[keyof FormatterStatusResponses]
+
+export type ProviderRecordRecentData = {
+  body?: {
+    /**
+     * Provider ID
+     */
+    providerID: string
+    /**
+     * Model ID
+     */
+    modelID: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/provider/recent"
+}
+
+export type ProviderRecordRecentErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type ProviderRecordRecentError = ProviderRecordRecentErrors[keyof ProviderRecordRecentErrors]
+
+export type ProviderRecordRecentResponses = {
+  /**
+   * Recorded
+   */
+  200: boolean
+}
+
+export type ProviderRecordRecentResponse = ProviderRecordRecentResponses[keyof ProviderRecordRecentResponses]
