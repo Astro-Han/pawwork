@@ -50,9 +50,12 @@ class FakePlatform implements Platform {
     private readonly opts: { sendErr?: Error; streamConnected?: () => boolean; startResolvesImmediately?: boolean } = {},
   ) {}
 
-  async start(_handler: MessageHandler): Promise<void> {
+  async start(_handler: MessageHandler, onReady?: () => void): Promise<void> {
     this.startedAfterStream = this.opts.streamConnected ? this.opts.streamConnected() : false
     this.started.resolve()
+    // A real platform signals readiness once it is past startup and serving; model
+    // that here so the gateway's run-level onReady fires in tests.
+    onReady?.()
     // An event-driven adapter may register its callback and return right away;
     // model that with startResolvesImmediately instead of blocking until stop().
     if (this.opts.startResolvesImmediately) return
@@ -397,6 +400,50 @@ test("run stays up when a platform start resolves on its own", async () => {
       new Promise<typeof pending>((r) => setTimeout(() => r(pending), 50)),
     ])
     expect(raced).toBe(pending)
+    controller.abort()
+    await runPromise
+  } finally {
+    server.stop()
+  }
+})
+
+test("run fires onReady only after the stream, hydrate, and platform are serving", async () => {
+  // The startup-race guard: a caller's "connected" must trail real readiness, so
+  // run's onReady cannot precede the stream, the hydrate, or the platform start.
+  const order: string[] = []
+  const platform = new FakePlatform("runtime-test-onready-after-serving")
+  const server = mockServer((_req, url) => {
+    switch (url.pathname) {
+      case "/experimental/session":
+        order.push("hydrate")
+        return jsonBody([])
+      case "/permission":
+      case "/external-result":
+        return jsonBody([])
+      case "/global/event":
+        order.push("stream")
+        return openEventStream()
+    }
+    return undefined
+  })
+  const controller = new AbortController()
+  try {
+    const app = await createApp(
+      {
+        pawWorkBaseURL: server.url,
+        statePath: await tempStatePath(),
+        platforms: [{ name: "runtime-test-onready-after-serving", enabled: true, options: { allow_from: "U123" } }],
+      },
+      () => platform,
+    )
+    const ready = deferred<void>()
+    const runPromise = app.run(controller.signal, () => {
+      order.push("ready")
+      ready.resolve()
+    })
+    await ready.promise
+    expect(order.indexOf("ready")).toBeGreaterThan(order.indexOf("stream"))
+    expect(order.indexOf("ready")).toBeGreaterThan(order.indexOf("hydrate"))
     controller.abort()
     await runPromise
   } finally {

@@ -294,7 +294,7 @@ export class TelegramPlatform implements Platform {
     this.allowFrom = opts.allowFrom.trim()
   }
 
-  async start(handler: MessageHandler): Promise<void> {
+  async start(handler: MessageHandler, onReady?: () => void): Promise<void> {
     if (this.ac) return
     const ac = new AbortController()
     this.ac = ac
@@ -308,6 +308,9 @@ export class TelegramPlatform implements Platform {
       const startOffset = await drainBacklog(this.poller, ac.signal)
       if (startOffset === null) return // aborted during startup
       this.loop = this.poller.runLoop(startOffset, (update) => this.dispatch(handler, update), ac.signal)
+      // The live loop is installed and the backlog is already behind us, so from
+      // here a new message is delivered, not dropped: only now are we "ready".
+      onReady?.()
       await this.loop
     } finally {
       this.ac = null

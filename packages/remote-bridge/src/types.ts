@@ -99,8 +99,13 @@ export type MessageHandler = (platform: Platform, msg: Message) => void
  */
 export interface Platform {
   readonly name: string
-  /** Run the platform, delivering inbound messages to `handler`; resolves when stopped. */
-  start(handler: MessageHandler): Promise<void>
+  /**
+   * Run the platform, delivering inbound messages to `handler`; resolves when
+   * stopped. `onReady`, if given, fires once the platform is actually serving —
+   * past any backlog drain and into its live receive loop — so the gateway can
+   * defer "connected" until an inbound message would really be delivered.
+   */
+  start(handler: MessageHandler, onReady?: () => void): Promise<void>
   /** Reply in-thread to the message `replyCtx` identifies. */
   reply(replyCtx: unknown, content: string): Promise<void>
   /** Proactively push to a conversation (used for restored delivery targets). */

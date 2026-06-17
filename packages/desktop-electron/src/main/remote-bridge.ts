@@ -52,7 +52,7 @@ interface ServerInfo {
 
 /** A runnable bridge, as the runtime needs it (`createApp`'s `App` satisfies it). */
 interface BridgeApp {
-  run(signal?: AbortSignal): Promise<void>
+  run(signal?: AbortSignal, onReady?: () => void): Promise<void>
 }
 
 export interface RemoteBridgeDeps {
@@ -236,7 +236,18 @@ export class RemoteBridgeRuntime {
     }
     const ac = new AbortController()
     this.ac = ac
-    const run = app.run(ac.signal)
+    // Stay "connecting" until the bridge is actually serving: app.run() only
+    // returns a promise here; it still has to ready the event stream, hydrate,
+    // and drain the Telegram backlog before its live poll loop is installed. A
+    // message sent during that window would be dropped as backlog, so onReady —
+    // which fires once the platform is polling — is what flips us to "connected".
+    const run = app.run(ac.signal, () => {
+      if (this.ac === ac)
+        this.setStatus({
+          state: "connected",
+          identity: { userId: creds.allowFrom, userName: creds.userName ?? creds.allowFrom },
+        })
+    })
     this.runPromise = run
     // run() resolves on a clean stop and rejects on a fatal failure (revoked
     // token, stream protocol error). Observe it so a failure becomes degraded
@@ -249,10 +260,6 @@ export class RemoteBridgeRuntime {
       .catch((err) => {
         if (this.ac === ac) this.setStatus({ state: "degraded", error: message(err) })
       })
-    this.setStatus({
-      state: "connected",
-      identity: { userId: creds.allowFrom, userName: creds.userName ?? creds.allowFrom },
-    })
   }
 
   private async stopBridge(): Promise<void> {

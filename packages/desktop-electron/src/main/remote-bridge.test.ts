@@ -29,14 +29,17 @@ function memoryStore(
   }
 }
 
-/** A fake bridge App whose run() stays pending until aborted, like the real one. */
+/** A fake bridge App whose run() stays pending until aborted, like the real one.
+ * It signals readiness immediately, the way a platform that has finished its
+ * backlog drain would, so the runtime reaches "connected". */
 function fakeApp() {
   let started = false
   return {
     started: () => started,
     app: {
-      run(signal?: AbortSignal) {
+      run(signal?: AbortSignal, onReady?: () => void) {
         started = true
+        onReady?.()
         return new Promise<void>((resolve) => {
           if (signal?.aborted) return resolve()
           signal?.addEventListener("abort", () => resolve(), { once: true })
@@ -148,6 +151,34 @@ test("confirmPairing persists the captured pairing and reports connected", async
   expect(status.identity).toEqual({ userId: "42", userName: "yu" })
 })
 
+test("status stays 'connecting' until the bridge signals it is serving (onReady)", async () => {
+  // The startup-race fix: app.run() merely returning a promise is not "connected".
+  // The real run still has to ready the stream, hydrate, and drain the Telegram
+  // backlog before its poll loop exists; a message sent in that window is dropped.
+  // Hold onReady to observe that pre-serving window, then release it.
+  let release: (() => void) | undefined
+  const runtime = new RemoteBridgeRuntime(
+    deps({
+      buildApp: async () => ({
+        run: (signal?: AbortSignal, onReady?: () => void) => {
+          release = onReady
+          return new Promise<void>((resolve) => {
+            if (signal?.aborted) return resolve()
+            signal?.addEventListener("abort", () => resolve(), { once: true })
+          })
+        },
+      }),
+    }),
+  )
+  await runtime.startPairing("t")
+  await runtime.confirmPairing()
+  // run() has started but the platform is not serving yet — must not be connected.
+  expect(runtime.getStatus().state).toBe("connecting")
+  release?.()
+  expect(runtime.getStatus().state).toBe("connected")
+  await runtime.stop()
+})
+
 test("confirmPairing without a pending pairing is rejected (renderer cannot inject a token)", async () => {
   const runtime = new RemoteBridgeRuntime(deps())
   await expect(runtime.confirmPairing()).rejects.toThrow(/no pairing/)
@@ -243,11 +274,13 @@ test("stop() aborts the live bridge synchronously, before its returned promise s
   const runtime = new RemoteBridgeRuntime(
     deps({
       buildApp: async () => ({
-        run: (signal?: AbortSignal) =>
-          new Promise<void>((resolve) => {
+        run: (signal?: AbortSignal, onReady?: () => void) => {
+          onReady?.()
+          return new Promise<void>((resolve) => {
             if (signal?.aborted) return resolve()
             signal?.addEventListener("abort", () => { abortedSync = true; resolve() }, { once: true })
-          }),
+          })
+        },
       }),
     }),
   )

@@ -233,6 +233,35 @@ test("TelegramPlatform drops the backlog on start so a queued prompt is not repl
   }
 })
 
+test("start() signals onReady only after the backlog drain, once the live loop is serving", async () => {
+  // The startup-race guard: onReady must not fire until the drain is done and the
+  // poll loop is installed, so a caller can't report "connected" while a freshly
+  // sent message would still be swept away as backlog. update 5 is the stale
+  // backlog; the empty batch ends the drain; update 6 is the first live message.
+  const api = fakeBotApi([[update(5, 42, "stale")], [], [update(6, 42, "new")]])
+  try {
+    const platform = new TelegramPlatform({ token: "t", allowFrom: "42", baseUrl: api.url })
+    let readyCalls = 0
+    let getUpdatesAtReady = -1
+    const run = platform.start(
+      () => {},
+      () => {
+        readyCalls++
+        getUpdatesAtReady = api.calls.filter((c) => c.method === "getUpdates").length
+      },
+    )
+    await waitFor(() => readyCalls > 0)
+    await platform.stop()
+    await run
+    expect(readyCalls).toBe(1)
+    // The drain took two polls (the stale batch, then the empty terminator) before
+    // the loop was installed; onReady fires only after that, never during the drain.
+    expect(getUpdatesAtReady).toBeGreaterThanOrEqual(2)
+  } finally {
+    api.stop()
+  }
+})
+
 test("TelegramPlatform.send splits a long reply into multiple sendMessage calls", async () => {
   const api = fakeBotApi([])
   try {
