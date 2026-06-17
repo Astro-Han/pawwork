@@ -4,7 +4,6 @@ import { Dialog } from "@opencode-ai/ui/dialog"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { TextField } from "@opencode-ai/ui/text-field"
-import { showToast } from "@opencode-ai/ui/toast"
 import { Match, onCleanup, Switch } from "solid-js"
 import { createStore } from "solid-js/store"
 import type { RemotePairingResult } from "@/desktop-api-contract"
@@ -14,7 +13,7 @@ import { useLanguage } from "@/context/language"
 // SHAPE — a small state machine inside a Dialog — but its own backend (the
 // main-process bridge over window.api.remote), since this connects a chat bot,
 // not an LLM provider. Pairing is paste-token → message-the-bot → approve.
-export function DialogConnectRemote() {
+export function DialogConnectRemote(props: { onApproved?: () => void }) {
   const language = useLanguage()
   const dialog = useDialog()
 
@@ -68,14 +67,13 @@ export function DialogConnectRemote() {
       // The main process holds the token + captured identity from startPairing;
       // confirm just approves it — we never resend the secret.
       await api.confirmPairing()
+      // The bridge is starting but not yet serving. Hand the success signal to the
+      // page, which fires the toast only when status actually reaches "connected"
+      // (and never when a 409 ends in "degraded") — so we don't claim "connected"
+      // here, a step before it is true. Page-side, so it survives this close().
+      props.onApproved?.()
       if (!alive.value) return
       dialog.close()
-      showToast({
-        variant: "success",
-        icon: "circle-check",
-        title: language.t("settings.remote.connect.toast.title"),
-        description: language.t("settings.remote.connect.toast.body"),
-      })
     } catch (err) {
       if (!alive.value) return
       setStore({ busy: false, step: "token", error: errorMessage(err) })

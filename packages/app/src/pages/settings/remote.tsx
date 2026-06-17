@@ -1,10 +1,12 @@
 import { Button } from "@opencode-ai/ui/button"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Icon } from "@opencode-ai/ui/icon"
+import { showToast } from "@opencode-ai/ui/toast"
 import { type Component, type ComponentProps, Match, Show, Switch, createSignal, onCleanup, onMount } from "solid-js"
 import { SettingsList } from "@/components/settings-list"
 import { useLanguage } from "@/context/language"
 import type { RemoteStatus } from "@/desktop-api-contract"
+import { connectToastAction } from "./remote-connect-toast"
 
 const DISCONNECTED: RemoteStatus = { state: "disconnected", platform: null, identity: null, error: null }
 
@@ -24,16 +26,41 @@ export const RemotePage: Component = () => {
   // disabled "needs the desktop app" state instead of a Connect button that
   // would silently no-op.
   const supported = !!window.api?.remote
+  // Armed by the connect dialog's Allow; the success toast fires only when status
+  // then actually reaches "connected" (see handleStatus), never the moment Allow
+  // returns. So a bridge that ends up "degraded" (e.g. a 409: another client owns
+  // the token) shows no false "connected" toast.
+  const [awaitingConnect, setAwaitingConnect] = createSignal(false)
+
+  // Defer the connect success toast to the real "connected" transition (see
+  // connectToastAction): a terminal non-connected outcome just disarms — the
+  // status row (red "Connection problem" + the cause) already carries the failure.
+  const handleStatus = (next: RemoteStatus) => {
+    const action = connectToastAction(awaitingConnect(), next.state)
+    if (action !== "none") setAwaitingConnect(false)
+    if (action === "fire") {
+      showToast({
+        variant: "success",
+        icon: "circle-check",
+        title: language.t("settings.remote.connect.toast.title"),
+        description: language.t("settings.remote.connect.toast.body"),
+      })
+    }
+    setStatus(next)
+  }
 
   onMount(() => {
     const api = window.api?.remote
     if (!api) return
     void api.getStatus().then(setStatus)
-    onCleanup(api.onStatus(setStatus))
+    onCleanup(api.onStatus(handleStatus))
   })
 
   const openConnect = () => {
-    void import("@/components/dialog-connect-remote").then((m) => dialog.show(() => <m.DialogConnectRemote />))
+    setAwaitingConnect(false) // fresh attempt; arm only when Allow is clicked
+    void import("@/components/dialog-connect-remote").then((m) =>
+      dialog.show(() => <m.DialogConnectRemote onApproved={() => setAwaitingConnect(true)} />),
+    )
   }
   const openDisconnect = () => {
     void import("@/components/dialog-disconnect-remote").then((m) => dialog.show(() => <m.DialogDisconnectRemote />))
