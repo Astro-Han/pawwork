@@ -47,12 +47,19 @@ export function safeExternalUrl(url: string): string | null {
  *
  * Strings are Electron's check-permission names — camera and microphone both
  * arrive as "media", so neither is granted here.
+ *
+ * The set was verified against a fresh real Chrome (measured both sides via
+ * navigator.permissions.query): the four below are exactly what Chrome returns
+ * "granted" by default; everything else returns "prompt", which we map to
+ * "denied". Note `midi` is NOT here — Chrome gates Web MIDI behind a prompt
+ * since Chrome 124 (BlockMidiByDefault), so granting it would be both a privacy
+ * footgun (silent requestMIDIAccess) and a tell (granted vs Chrome's prompt).
  */
 const DEFAULT_GRANTED_PERMISSIONS = new Set([
-  "midi", // basic MIDI: granted by default in Chrome
   "clipboard-sanitized-write", // navigator.clipboard.writeText: granted by default
   "background-sync", // granted by default
   "sensors", // accelerometer / gyroscope / magnetometer: granted by default
+  "payment-handler", // navigator.permissions.query("payment-handler"): granted by default in Chrome
 ])
 
 export function isDefaultGrantedPermission(permission: string): boolean {

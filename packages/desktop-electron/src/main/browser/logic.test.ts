@@ -140,14 +140,17 @@ describe("displayDecision", () => {
 
 describe("isDefaultGrantedPermission", () => {
   test("grants exactly what a fresh Chrome grants without prompting", () => {
-    for (const p of ["midi", "clipboard-sanitized-write", "background-sync", "sensors"]) {
+    // Verified against real Chrome: these four return "granted" by default.
+    for (const p of ["clipboard-sanitized-write", "background-sync", "sensors", "payment-handler"]) {
       expect(isDefaultGrantedPermission(p)).toBe(true)
     }
   })
 
   test("denies sensitive / prompt-type permissions (Electron would default them to granted)", () => {
-    // "media" is what camera AND microphone queries arrive as.
-    for (const p of ["media", "geolocation", "notifications", "clipboard-read", "persistent-storage", "payment-handler"]) {
+    // "media" is what camera AND microphone queries arrive as. "midi" belongs
+    // here: Chrome gates Web MIDI behind a prompt (Chrome 124+), so it must NOT
+    // be auto-granted.
+    for (const p of ["media", "geolocation", "notifications", "clipboard-read", "persistent-storage", "midi", "midiSysex"]) {
       expect(isDefaultGrantedPermission(p)).toBe(false)
     }
   })
