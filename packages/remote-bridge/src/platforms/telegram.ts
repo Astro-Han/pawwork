@@ -5,6 +5,7 @@
 // `Platform`; pairing (capturing the first sender before an allow_from exists)
 // reuses the same `TelegramPoller` primitive — see `captureFirstSender`.
 
+import { PartialDeliveryError } from "../types.ts"
 import type { Message, MessageHandler, Platform } from "../types.ts"
 
 const API_BASE = "https://api.telegram.org"
@@ -22,6 +23,11 @@ const POLL_RETRY_MS = 3_000
 // so we give up after this many and surface it, instead of spinning while the UI
 // shows a "connected" bridge that silently receives nothing.
 export const MAX_CONFLICT_RETRIES = 3
+
+// A chunk send is retried in place up to this many times on transient failures (a
+// 429's retry_after, else base backoff) so a blip on one chunk never resends the
+// chunks before it. Past that, the chunk has failed for real.
+const MAX_SEND_RETRIES = 3
 
 // Telegram caps a message at 4096 UTF-16 code units (NOT codepoints): an
 // astral-plane char (most emoji, CJK ext-B) costs 2. Splitting long assistant
@@ -285,19 +291,37 @@ export class TelegramPoller {
     }
   }
 
-  /** Send `text` to `chatId`, splitting over the 4096-unit cap and honoring one
-   * 429 retry_after per chunk. Throws on any other failure so the engine's
-   * delivery retry can see it. */
+  /**
+   * Send `text` to `chatId`, split over the 4096-unit cap. Each chunk is retried
+   * in place on transient failures (a 429's retry_after, else base backoff) so a
+   * blip on one chunk never resends the chunks before it. If a chunk fails for
+   * good after earlier chunks were already delivered, throws PartialDeliveryError
+   * so the engine's delivery retry won't resend the whole message and duplicate
+   * what arrived; a failure on the very first chunk (nothing sent yet) throws the
+   * raw error, so a wholesale retry is still safe.
+   */
   async sendMessage(chatId: string, text: string, signal?: AbortSignal): Promise<void> {
-    for (const chunk of splitForTelegram(text)) {
+    const chunks = splitForTelegram(text)
+    for (let i = 0; i < chunks.length; i++) {
       try {
-        await this.call("sendMessage", { chat_id: chatId, text: chunk }, signal, REQUEST_TIMEOUT_MS)
-        continue
+        await this.sendChunk(chatId, chunks[i], signal)
       } catch (err) {
-        if (!(err instanceof TelegramApiError) || err.retryAfterMs === undefined) throw err
-        await sleep(err.retryAfterMs, signal)
+        throw i === 0 ? err : new PartialDeliveryError(err)
       }
-      await this.call("sendMessage", { chat_id: chatId, text: chunk }, signal, REQUEST_TIMEOUT_MS)
+    }
+  }
+
+  /** One sendMessage chunk, retried in place on transient failures (bounded). A
+   * fatal Bot API error (bad/blocked token) or an abort throws immediately. */
+  private async sendChunk(chatId: string, text: string, signal?: AbortSignal): Promise<void> {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await this.call("sendMessage", { chat_id: chatId, text }, signal, REQUEST_TIMEOUT_MS)
+        return
+      } catch (err) {
+        if (signal?.aborted || isFatalTelegramError(err) || attempt >= MAX_SEND_RETRIES) throw err
+        await sleep(backoffMs(err, this.pollRetryMs), signal)
+      }
     }
   }
 

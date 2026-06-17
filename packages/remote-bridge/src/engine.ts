@@ -1,6 +1,7 @@
 import type { EventHandler } from "./pawwork-events.ts"
 import { t, type Locale } from "./i18n.ts"
 import { SessionPointers as SessionPointersStore } from "./session-pointers.ts"
+import { PartialDeliveryError } from "./types.ts"
 import type {
   Message,
   PendingPermission,
@@ -535,6 +536,10 @@ async function sendDeliveryWithRetry(target: Delivery, content: string): Promise
       return
     } catch (err) {
       lastError = err
+      // Part of a multi-part message already reached the user; resending the whole
+      // payload would duplicate what arrived, so surface it without retrying. The
+      // platform retried the failed chunk in place before giving up.
+      if (err instanceof PartialDeliveryError) throw err
       if (attempt < deliveryConfig.attempts && deliveryConfig.backoffMs > 0) {
         await delay(attempt * deliveryConfig.backoffMs)
       }

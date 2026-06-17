@@ -93,6 +93,19 @@ export interface Message {
 export type MessageHandler = (platform: Platform, msg: Message) => void
 
 /**
+ * Thrown by a platform's reply/send when it has already delivered part of a
+ * multi-part message and then failed. The engine's delivery retry treats it as
+ * terminal: resending the whole payload would duplicate the parts that already
+ * arrived. Wraps the underlying cause for logging.
+ */
+export class PartialDeliveryError extends Error {
+  constructor(readonly reason: unknown) {
+    super(`partial delivery: ${reason instanceof Error ? reason.message : String(reason)}`)
+    this.name = "PartialDeliveryError"
+  }
+}
+
+/**
  * A chat platform the engine drives. The Vercel Chat SDK / Lark adapter is
  * wrapped to implement this so the engine stays decoupled from any one SDK,
  * exactly as the Go engine depended on cc-connect's `core.Platform`.

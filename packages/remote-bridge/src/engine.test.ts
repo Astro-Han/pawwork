@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { answersForQuestionText, deliveryConfig, Engine, questionPrompt } from "./engine.ts"
 import { SessionPointers } from "./session-pointers.ts"
+import { PartialDeliveryError } from "./types.ts"
 import type {
   Message,
   PendingPermission,
@@ -61,11 +62,15 @@ class FakePlatform implements Platform {
   reconstructKey = ""
   replyFailures = 0
   replyCalls = 0
+  // When set, reply throws a PartialDeliveryError instead of a plain transient
+  // error — used to assert the engine does NOT retry (resend) a partial delivery.
+  replyPartial = false
   constructor(readonly name = "chat") {}
 
   async start(): Promise<void> {}
   async reply(_replyCtx: unknown, content: string): Promise<void> {
     this.replyCalls++
+    if (this.replyPartial) throw new PartialDeliveryError(new Error("a later chunk failed"))
     if (this.replyFailures > 0) {
       this.replyFailures--
       throw new Error("transient delivery failure")
@@ -476,6 +481,18 @@ test("assistant text retries a transient delivery failure, then gives up bounded
   await engine2.handleMessage(keepsFailing, { sessionKey: "slack:dm:b", content: "hi" })
   await expect(engine2.handleAssistantText("ses_new", "answer")).rejects.toThrow()
   expect(keepsFailing.replyCalls).toBe(deliveryConfig.attempts)
+})
+
+test("a partial delivery is surfaced without resending the whole message", async () => {
+  // When the platform reports it already delivered part of a multi-part message
+  // (PartialDeliveryError), retrying would duplicate the parts that arrived. The
+  // engine must surface it on the first failure, never resend.
+  const platform = new FakePlatform()
+  platform.replyPartial = true
+  const engine = new Engine(new FakeSidecar())
+  await engine.handleMessage(platform, { sessionKey: "slack:dm:a", content: "hi" })
+  await expect(engine.handleAssistantText("ses_new", "a long, split answer")).rejects.toBeInstanceOf(PartialDeliveryError)
+  expect(platform.replyCalls).toBe(1)
 })
 
 test("permission and question prompts retry a transient delivery failure", async () => {

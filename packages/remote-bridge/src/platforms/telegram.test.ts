@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import type { MessageHandler, Platform } from "../types.ts"
+import { PartialDeliveryError, type MessageHandler, type Platform } from "../types.ts"
 import {
   captureFirstSender,
   inboundMessage,
@@ -345,6 +345,67 @@ test("TelegramPlatform.send splits a long reply into multiple sendMessage calls"
     expect(sends.every((c) => c.body.chat_id === "100")).toBe(true)
   } finally {
     api.stop()
+  }
+})
+
+test("sendMessage retries a transient per-chunk failure in place, never resending earlier chunks", async () => {
+  // A long reply → 3 chunks. The 2nd chunk's first send fails transiently (500),
+  // then succeeds. The retry is in place: chunk 1 is delivered exactly once and
+  // the user ends up with one complete, ordered set — no duplicated head.
+  const delivered: string[] = []
+  let chunk2Attempts = 0
+  const server = Bun.serve({
+    port: 0,
+    async fetch(req) {
+      const method = new URL(req.url).pathname.split("/").pop() ?? ""
+      if (method !== "sendMessage") return json({ ok: true, result: {} })
+      const body: any = await req.json().catch(() => ({}))
+      const header = String(body.text ?? "").match(/^\[(\d+)\/(\d+)\]/)
+      const idx = header ? Number(header[1]) : 1
+      if (idx === 2) {
+        chunk2Attempts++
+        if (chunk2Attempts === 1) return json({ ok: false, error_code: 500, description: "transient" })
+      }
+      delivered.push(header ? header[0] : "")
+      return json({ ok: true, result: { message_id: 1 } })
+    },
+  })
+  try {
+    const poller = new TelegramPoller("t", `http://localhost:${server.port}`)
+    poller.pollRetryMs = 0
+    await poller.sendMessage("100", "a".repeat(9000))
+    expect(delivered).toEqual(["[1/3]", "[2/3]", "[3/3]"])
+    expect(chunk2Attempts).toBe(2) // failed once, retried once in place
+  } finally {
+    server.stop(true)
+  }
+})
+
+test("sendMessage throws PartialDeliveryError when a later chunk fails for good, without resending the head", async () => {
+  // The 2nd chunk fails permanently. Chunk 1 was already delivered, so a wholesale
+  // resend would duplicate it — sendMessage surfaces PartialDeliveryError instead,
+  // which the engine's delivery retry treats as terminal.
+  const delivered: string[] = []
+  const server = Bun.serve({
+    port: 0,
+    async fetch(req) {
+      const method = new URL(req.url).pathname.split("/").pop() ?? ""
+      if (method !== "sendMessage") return json({ ok: true, result: {} })
+      const body: any = await req.json().catch(() => ({}))
+      const header = String(body.text ?? "").match(/^\[(\d+)\/(\d+)\]/)
+      const idx = header ? Number(header[1]) : 1
+      if (idx >= 2) return json({ ok: false, error_code: 500, description: "down" })
+      delivered.push(header ? header[0] : "")
+      return json({ ok: true, result: { message_id: 1 } })
+    },
+  })
+  try {
+    const poller = new TelegramPoller("t", `http://localhost:${server.port}`)
+    poller.pollRetryMs = 0
+    await expect(poller.sendMessage("100", "a".repeat(9000))).rejects.toBeInstanceOf(PartialDeliveryError)
+    expect(delivered).toEqual(["[1/3]"]) // head delivered once despite the in-place retries on chunk 2
+  } finally {
+    server.stop(true)
   }
 })
 
