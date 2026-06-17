@@ -48,7 +48,7 @@ describe("recordRecent", () => {
     await fs.mkdir(Global.Path.state, { recursive: true })
     await fs.rm(modelFile(), { force: true })
   })
-  afterEach(() => fs.rm(modelFile(), { force: true }))
+  afterEach(async () => await fs.rm(modelFile(), { force: true }))
 
   test("promotes the model while preserving sibling state on a normal file", async () => {
     await fs.writeFile(modelFile(), JSON.stringify({ recent: [other], favorite: ["x"], variant: { agent: "fast" } }))
