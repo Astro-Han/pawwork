@@ -30,6 +30,15 @@ test("credential store round-trips userName through save/load", () => {
   expect(store.load()).toEqual({ token: "123:ABC", allowFrom: "42", userName: undefined })
 })
 
+test("isAvailable reflects the env; save refuses when encryption is unavailable", () => {
+  const base = fakeEnv()
+  expect(safeStorageCredentialStore(base).isAvailable()).toBe(true)
+
+  const store = safeStorageCredentialStore({ ...base, isEncryptionAvailable: () => false })
+  expect(store.isAvailable()).toBe(false)
+  expect(() => store.save({ token: "123:ABC", allowFrom: "42" })).toThrow(/secure storage is unavailable/)
+})
+
 test("save re-enforces 0o600 even when the file already exists with loose perms", () => {
   if (process.platform === "win32") return // POSIX mode bits only
   const env = fakeEnv()

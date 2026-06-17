@@ -24,6 +24,10 @@ export interface RemoteCredentials {
 
 /** Persistence seam for the secret credentials (safeStorage-backed in prod). */
 export interface CredentialStore {
+  /** Whether secrets can actually be persisted (OS encryption is available).
+   * Checked up front by startPairing so we never walk the user through pairing
+   * only to fail at the final save. */
+  isAvailable(): boolean
   load(): RemoteCredentials | null
   save(creds: RemoteCredentials): void
   clear(): void
@@ -114,6 +118,13 @@ export class RemoteBridgeRuntime {
   async startPairing(token: string): Promise<RemotePairingResult> {
     token = token.trim()
     if (token === "") throw new Error("a bot token is required")
+    // Preflight secure storage before contacting Telegram: without OS encryption
+    // the token can never be saved, so fail here rather than after the user has
+    // walked the whole token → message bot → confirm flow only for confirmPairing's
+    // final save() to throw.
+    if (!this.deps.credentials.isAvailable()) {
+      throw new Error("secure storage is unavailable on this system, so the bot token cannot be saved")
+    }
     if (this.status.state === "connected" || this.status.state === "connecting") {
       throw new Error("disconnect the current account before pairing a new one")
     }

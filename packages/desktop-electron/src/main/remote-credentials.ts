@@ -41,6 +41,10 @@ export interface CredentialStoreEnv {
  */
 export function safeStorageCredentialStore(env: CredentialStoreEnv): CredentialStore {
   return {
+    isAvailable(): boolean {
+      return env.isEncryptionAvailable()
+    },
+
     load(): RemoteCredentials | null {
       const file = env.credentialsFile()
       if (!existsSync(file)) return null

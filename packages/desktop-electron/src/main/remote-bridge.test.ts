@@ -8,9 +8,15 @@ import {
   type RemoteCredentials,
 } from "./remote-bridge"
 
-function memoryStore(initial: RemoteCredentials | null = null): CredentialStore & { value: RemoteCredentials | null } {
+function memoryStore(
+  initial: RemoteCredentials | null = null,
+  available = true,
+): CredentialStore & { value: RemoteCredentials | null } {
   return {
     value: initial,
+    isAvailable() {
+      return available
+    },
     load() {
       return this.value
     },
@@ -58,6 +64,28 @@ test("startPairing returns the captured sender plus bot identity", async () => {
   const runtime = new RemoteBridgeRuntime(deps())
   const result = await runtime.startPairing("123:abc")
   expect(result).toEqual({ userId: "42", userName: "yu", botUsername: "bot" })
+})
+
+test("startPairing fails fast when secure storage is unavailable, without contacting Telegram", async () => {
+  let pollerMade = false
+  let captureCalled = false
+  const runtime = new RemoteBridgeRuntime(
+    deps({
+      credentials: memoryStore(null, false),
+      makePoller: () => {
+        pollerMade = true
+        return { getMe: async () => ({ id: "1", username: "bot" }) } as any
+      },
+      capture: async () => {
+        captureCalled = true
+        return { userId: "42", userName: "yu" } as CapturedSender
+      },
+    }),
+  )
+  await expect(runtime.startPairing("123:abc")).rejects.toThrow(/secure storage is unavailable/)
+  // The whole point of the preflight: no poller, no getMe/getUpdates, no capture.
+  expect(pollerMade).toBe(false)
+  expect(captureCalled).toBe(false)
 })
 
 test("startPairing surfaces an invalid token before asking the user to message", async () => {
