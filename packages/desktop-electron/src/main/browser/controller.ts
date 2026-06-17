@@ -7,6 +7,7 @@ import {
   computeViewBounds,
   deriveBrowserState,
   displayDecision,
+  isDefaultGrantedPermission,
   parseNavigable,
   safeExternalUrl,
 } from "./logic"
@@ -106,9 +107,13 @@ export class BrowserViewController {
       this.openExternal(url)
     })
 
-    // Deny every permission request by default — a v1 content viewer should not
-    // silently grant camera/mic/geolocation/etc.
-    wc.session.setPermissionRequestHandler((_wc, _permission, callback) => callback(false))
+    // Apply the shared permission policy (logic.ts) to BOTH actual requests and
+    // navigator.permissions.query checks, so the queried state and the request
+    // outcome always agree.
+    wc.session.setPermissionRequestHandler((_wc, permission, callback) =>
+      callback(isDefaultGrantedPermission(permission)),
+    )
+    wc.session.setPermissionCheckHandler((_wc, permission) => isDefaultGrantedPermission(permission))
   }
 
   private openExternal(url: string) {

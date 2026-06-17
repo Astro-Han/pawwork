@@ -33,6 +33,35 @@ export function safeExternalUrl(url: string): string | null {
 }
 
 /**
+ * Permission policy for the embedded browser, shared by the request handler and
+ * the check handler (navigator.permissions.query) so the queried state and a
+ * request outcome always agree. Grant exactly what a fresh Chrome grants without
+ * a prompt; deny the rest — Electron's boolean handler can't express Chrome's
+ * "prompt", and "denied" is the faithful substitute for the impossible "granted"
+ * (Electron's default). Strings are Electron's permission names — camera and
+ * microphone both arrive as "media". The set is measured against a fresh real
+ * Chrome; the per-permission rationale (why midi is denied, payment-handler
+ * granted) is in the PR description.
+ */
+const DEFAULT_GRANTED_PERMISSIONS = new Set([
+  "clipboard-sanitized-write", // navigator.clipboard.writeText: granted by default
+  "background-sync", // granted by default
+  "sensors", // accelerometer / gyroscope / magnetometer: granted by default
+  "payment-handler", // navigator.permissions.query("payment-handler"): granted by default in Chrome
+  // Request-only (not exposed via permissions.query): Chrome allows these on a
+  // user gesture WITHOUT a prompt, so denying them would break ordinary browsing
+  // (e.g. fullscreen video) and be a tell. "fullscreen" is measurement-confirmed
+  // to reach the request handler; "pointerLock" is Electron's documented request
+  // permission name for the same allow-on-gesture API.
+  "fullscreen",
+  "pointerLock",
+])
+
+export function isDefaultGrantedPermission(permission: string): boolean {
+  return DEFAULT_GRANTED_PERMISSIONS.has(permission)
+}
+
+/**
  * Convert a CSS-pixel viewport rect (reported by the renderer) into the
  * device-independent pixel bounds a WebContentsView expects. The renderer is
  * zoom-agnostic; the window's zoom factor is applied here as the single source
