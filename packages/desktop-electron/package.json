@@ -1,7 +1,7 @@
 {
   "name": "@opencode-ai/desktop-electron",
   "private": true,
-  "version": "2026.6.5",
+  "version": "2026.6.7",
   "type": "module",
   "license": "Apache-2.0",
   "homepage": "https://pawwork.ai",
@@ -39,7 +39,7 @@
     "marked": "^15",
     "semver": "^7.6.0",
     "undici": "7.24.7",
-    "ws": "8.20.0"
+    "ws": "8.21.0"
   },
   "devDependencies": {
     "@lydell/node-pty": "catalog:",

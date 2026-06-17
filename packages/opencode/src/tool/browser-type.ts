@@ -21,37 +21,39 @@ export const BrowserTypeTool = Tool.define(
     return {
       description: DESCRIPTION,
       parameters: Parameters,
-      execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
-        Effect.gen(function* () {
-          const result = yield* runBrowserAction({
-            ctx,
-            label: "type",
-            metadata: { ref: params.ref },
-            run: async (page, info) => {
-              const outcome = await page.fillText(normalizeElementRef(params.ref), params.text)
-              if (params.submit) await page.pressKey("Enter")
-              return { outcome, info }
-            },
-          })
-          const { filled, verified, actual, match_level } = result.outcome
-          const lines = [
-            `Filled ${params.ref} (${match_level} match)${params.submit ? ", then pressed Enter" : ""}.`,
-            verified
-              ? "Verified: the field contains the requested text."
-              : `Not verified — the field now contains: ${JSON.stringify(actual)}`,
-          ]
-          return {
-            title: `Typed into ${params.ref}`,
-            output: lines.join("\n") + takeoverNote(result.info),
-            metadata: {
-              ref: params.ref,
-              filled,
-              verified,
-              submitted: params.submit ?? false,
-              matchLevel: match_level,
-            },
-          }
-        }),
+      execute: Effect.fn("BrowserTypeTool.execute")(function* (
+        params: Schema.Schema.Type<typeof Parameters>,
+        ctx: Tool.Context,
+      ) {
+        const result = yield* runBrowserAction({
+          ctx,
+          label: "type",
+          metadata: { ref: params.ref },
+          run: async (page, info) => {
+            const outcome = await page.fillText(normalizeElementRef(params.ref), params.text)
+            if (params.submit) await page.pressKey("Enter")
+            return { outcome, info }
+          },
+        })
+        const { filled, verified, actual, match_level } = result.outcome
+        const lines = [
+          `Filled ${params.ref} (${match_level} match)${params.submit ? ", then pressed Enter" : ""}.`,
+          verified
+            ? "Verified: the field contains the requested text."
+            : `Not verified — the field now contains: ${JSON.stringify(actual)}`,
+        ]
+        return {
+          title: `Typed into ${params.ref}`,
+          output: lines.join("\n") + takeoverNote(result.info),
+          metadata: {
+            ref: params.ref,
+            filled,
+            verified,
+            submitted: params.submit ?? false,
+            matchLevel: match_level,
+          },
+        }
+      }),
     }
   }),
 )

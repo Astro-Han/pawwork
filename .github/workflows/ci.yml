@@ -473,6 +473,61 @@ jobs:
           retention-days: 7
           path: packages/desktop-electron/.artifacts/unit/junit.xml
 
+  unit-remote-bridge:
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # step-security/harden-runner@v2.19.4
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+
+      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
+        with:
+          path: .turbo/cache
+          key: turbo-${{ runner.os }}-unit-remote-bridge-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-unit-remote-bridge-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-
+            turbo-${{ runner.os }}-unit-remote-bridge-
+
+      - name: unit
+        run: bun turbo test:ci --filter=@opencode-ai/remote-bridge
+
+      - name: Publish unit reports
+        if: >
+          always() &&
+          (
+            github.event_name != 'pull_request' ||
+            github.event.pull_request.head.repo.full_name == github.repository
+          )
+        uses: mikepenz/action-junit-report@3a81627bfac62268172037048872e8ebd4207e6d # mikepenz/action-junit-report@v6
+        with:
+          report_paths: packages/remote-bridge/.artifacts/unit/junit.xml
+          check_name: unit results (remote-bridge)
+          detailed_summary: true
+          include_time_in_summary: true
+          fail_on_failure: false
+
+      - name: Upload unit artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # actions/upload-artifact@v7
+        with:
+          name: unit-remote-bridge-${{ github.run_attempt }}
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
+          path: packages/remote-bridge/.artifacts/unit/junit.xml
+
   # Compatibility aggregator for branch protection setups that require
   # `ci / check`. The live dev ruleset currently requires the individual
   # blocking jobs directly, so every blocking job added above should still
@@ -489,6 +544,7 @@ jobs:
       - unit-app
       - unit-opencode
       - unit-desktop
+      - unit-remote-bridge
     runs-on: ubuntu-latest
     steps:
       - name: Validate CI result
@@ -500,6 +556,7 @@ jobs:
           UNIT_APP_RESULT: ${{ needs['unit-app'].result }}
           UNIT_OPENCODE_RESULT: ${{ needs['unit-opencode'].result }}
           UNIT_DESKTOP_RESULT: ${{ needs['unit-desktop'].result }}
+          UNIT_REMOTE_BRIDGE_RESULT: ${{ needs['unit-remote-bridge'].result }}
         run: |
           set -euo pipefail
 
@@ -513,12 +570,14 @@ jobs:
              [ "$UNIT_UI_RESULT" != "success" ] ||
              [ "$UNIT_APP_RESULT" != "success" ] ||
              [ "$UNIT_OPENCODE_RESULT" != "success" ] ||
-             [ "$UNIT_DESKTOP_RESULT" != "success" ]; then
+             [ "$UNIT_DESKTOP_RESULT" != "success" ] ||
+             [ "$UNIT_REMOTE_BRIDGE_RESULT" != "success" ]; then
             echo "typecheck=$TYPECHECK_RESULT"
             echo "frontend-architecture=$FRONTEND_ARCHITECTURE_RESULT"
             echo "unit-ui=$UNIT_UI_RESULT"
             echo "unit-app=$UNIT_APP_RESULT"
             echo "unit-opencode=$UNIT_OPENCODE_RESULT"
             echo "unit-desktop=$UNIT_DESKTOP_RESULT"
+            echo "unit-remote-bridge=$UNIT_REMOTE_BRIDGE_RESULT"
             exit 1
           fi

@@ -115,44 +115,46 @@ export const QuestionTool = Tool.define(
       // Declared statically so the renderer / dock can scope behavior to
       // tools that suspend on a user reply.
       externalResult: true,
-      execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context<Metadata>) =>
-        Effect.gen(function* () {
-          // Suspend on the external-result Deferred. The route runs
-          // questionDecoder before resolving, so by the time we read
-          // outcome.value the answers are already validated and shape-correct.
-          // ExternalResultError (abort/shutdown) propagates as a typed failure
-          // to the runner's writer; we do NOT catch it.
-          //
-          // Snapshot self-check: duplicate option labels are an LLM-prompt
-          // bug, not a user-submission bug. The decoder cannot fix them.
-          // Reject early so the route never registers a snapshot that
-          // would later produce ambiguous answers.
-          for (const q of params.questions) {
-            const labels = q.options.map((o) => o.label.trim())
-            if (new Set(labels).size !== labels.length) {
-              return yield* Effect.die(
-                new Error(
-                  `Question "${q.question}" has duplicate option labels (${labels.join(", ")}). Labels must be unique within a question.`,
-                ),
-              )
-            }
+      execute: Effect.fn("QuestionTool.execute")(function* (
+        params: Schema.Schema.Type<typeof Parameters>,
+        ctx: Tool.Context<Metadata>,
+      ) {
+        // Suspend on the external-result Deferred. The route runs
+        // questionDecoder before resolving, so by the time we read
+        // outcome.value the answers are already validated and shape-correct.
+        // ExternalResultError (abort/shutdown) propagates as a typed failure
+        // to the runner's writer; we do NOT catch it.
+        //
+        // Snapshot self-check: duplicate option labels are an LLM-prompt
+        // bug, not a user-submission bug. The decoder cannot fix them.
+        // Reject early so the route never registers a snapshot that
+        // would later produce ambiguous answers.
+        for (const q of params.questions) {
+          const labels = q.options.map((o) => o.label.trim())
+          if (new Set(labels).size !== labels.length) {
+            return yield* Effect.die(
+              new Error(
+                `Question "${q.question}" has duplicate option labels (${labels.join(", ")}). Labels must be unique within a question.`,
+              ),
+            )
           }
-          const outcome = yield* ctx.externalResult!({ inputSnapshot: params, decoder: questionDecoder })
-          if (outcome.kind === "dismissed") {
-            return {
-              title: "Question dismissed",
-              output: "User dismissed the question.",
-              metadata: { answers: [] as ReadonlyArray<Question.Answer>, dismissed: true },
-            }
-          }
-          const submitted = outcome.value as ExternalSubmitValue
-          const formatted = formatAnswers(params.questions, submitted.answers)
+        }
+        const outcome = yield* ctx.externalResult!({ inputSnapshot: params, decoder: questionDecoder })
+        if (outcome.kind === "dismissed") {
           return {
-            title: `Asked ${params.questions.length} question${params.questions.length > 1 ? "s" : ""}`,
-            output: `User has answered your questions: ${formatted}. You can now continue with the user's answers in mind.`,
-            metadata: { answers: submitted.answers, dismissed: false },
+            title: "Question dismissed",
+            output: "User dismissed the question.",
+            metadata: { answers: [] as ReadonlyArray<Question.Answer>, dismissed: true },
           }
-        }),
+        }
+        const submitted = outcome.value as ExternalSubmitValue
+        const formatted = formatAnswers(params.questions, submitted.answers)
+        return {
+          title: `Asked ${params.questions.length} question${params.questions.length > 1 ? "s" : ""}`,
+          output: `User has answered your questions: ${formatted}. You can now continue with the user's answers in mind.`,
+          metadata: { answers: submitted.answers, dismissed: false },
+        }
+      }),
     }
   }),
 )

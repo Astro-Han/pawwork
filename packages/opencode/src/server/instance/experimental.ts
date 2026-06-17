@@ -37,6 +37,99 @@ const ConsoleSwitchBody = z.object({
   accountID: z.string(),
   orgID: z.string(),
 })
+type ConsoleSwitchBody = z.infer<typeof ConsoleSwitchBody>
+
+type ToolListQuery = {
+  provider: string
+  model: string
+}
+
+const getConsoleState = Effect.fn("ExperimentalRoutes.console.get")(function* () {
+  const config = yield* Config.Service
+  const account = yield* Account.Service
+  const [state, groups] = yield* Effect.all([config.getConsoleState(), account.orgsByAccount()], {
+    concurrency: "unbounded",
+  })
+  return {
+    ...state,
+    switchableOrgCount: groups.reduce((count, group) => count + group.orgs.length, 0),
+  }
+})
+
+const listConsoleOrgs = Effect.fn("ExperimentalRoutes.console.listOrgs")(function* () {
+  const account = yield* Account.Service
+  const [groups, active] = yield* Effect.all([account.orgsByAccount(), account.active()], {
+    concurrency: "unbounded",
+  })
+  const info = Option.getOrUndefined(active)
+  return {
+    orgs: groups.flatMap((group) =>
+      group.orgs.map((org) => ({
+        accountID: group.account.id,
+        accountEmail: group.account.email,
+        accountUrl: group.account.url,
+        orgID: org.id,
+        orgName: org.name,
+        active: !!info && info.id === group.account.id && info.active_org_id === org.id,
+      })),
+    ),
+  }
+})
+
+const switchConsoleOrg = Effect.fn("ExperimentalRoutes.console.switchOrg")(function* (body: ConsoleSwitchBody) {
+  const account = yield* Account.Service
+  yield* account.use(AccountID.make(body.accountID), Option.some(OrgID.make(body.orgID)))
+  return true
+})
+
+const listToolIDs = Effect.fn("ExperimentalRoutes.tool.ids")(function* () {
+  const registry = yield* ToolRegistry.Service
+  return yield* registry.ids()
+})
+
+const listTools = Effect.fn("ExperimentalRoutes.tool.list")(function* ({ provider, model }: ToolListQuery) {
+  const registry = yield* ToolRegistry.Service
+  const agents = yield* Agent.Service
+  const agent = yield* agents.get(yield* agents.defaultAgent())
+  const tools = yield* registry.tools({
+    providerID: ProviderID.make(provider),
+    modelID: ModelID.make(model),
+    agent,
+  })
+  return tools.map((tool) => ({
+    id: tool.id,
+    description: tool.description,
+    // Handle both Zod schemas and plain JSON schemas.
+    parameters: (tool.parameters as any)?._def ? zodToJsonSchema(tool.parameters as any) : tool.parameters,
+  }))
+})
+
+const createWorktree = Effect.fn("ExperimentalRoutes.worktree.create")(function* (body?: Worktree.CreateInput) {
+  const worktrees = yield* Worktree.Service
+  return yield* worktrees.create(body)
+})
+
+const listWorktrees = Effect.fn("ExperimentalRoutes.worktree.list")(function* () {
+  const worktrees = yield* Worktree.Service
+  return yield* worktrees.list()
+})
+
+const removeWorktree = Effect.fn("ExperimentalRoutes.worktree.remove")(function* (body: Worktree.RemoveInput) {
+  const worktrees = yield* Worktree.Service
+  yield* worktrees.remove(body)
+  return true
+})
+
+const resetWorktree = Effect.fn("ExperimentalRoutes.worktree.reset")(function* (body: Worktree.ResetInput) {
+  const worktrees = yield* Worktree.Service
+  yield* worktrees.reset(body)
+  return true
+})
+
+const listResources = Effect.fn("ExperimentalRoutes.resource.list")(function* () {
+  const mcp = yield* MCP.Service
+  return yield* mcp.resources()
+})
 
 function encodeCreatedSessionCursor(session: Session.GlobalInfo) {
   return Buffer.from(JSON.stringify({ created: session.time.created, id: session.id }), "utf8").toString("base64url")
@@ -103,19 +196,7 @@ export const ExperimentalRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const result = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const config = yield* Config.Service
-            const account = yield* Account.Service
-            const [state, groups] = yield* Effect.all([config.getConsoleState(), account.orgsByAccount()], {
-              concurrency: "unbounded",
-            })
-            return {
-              ...state,
-              switchableOrgCount: groups.reduce((count, group) => count + group.orgs.length, 0),
-            }
-          }),
-        )
+        const result = await AppRuntime.runPromise(getConsoleState())
         return c.json(result)
       },
     )
@@ -137,26 +218,8 @@ export const ExperimentalRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const orgs = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const account = yield* Account.Service
-            const [groups, active] = yield* Effect.all([account.orgsByAccount(), account.active()], {
-              concurrency: "unbounded",
-            })
-            const info = Option.getOrUndefined(active)
-            return groups.flatMap((group) =>
-              group.orgs.map((org) => ({
-                accountID: group.account.id,
-                accountEmail: group.account.email,
-                accountUrl: group.account.url,
-                orgID: org.id,
-                orgName: org.name,
-                active: !!info && info.id === group.account.id && info.active_org_id === org.id,
-              })),
-            )
-          }),
-        )
-        return c.json({ orgs })
+        const orgs = await AppRuntime.runPromise(listConsoleOrgs())
+        return c.json(orgs)
       },
     )
     .post(
@@ -179,13 +242,8 @@ export const ExperimentalRoutes = lazy(() =>
       validator("json", ConsoleSwitchBody),
       async (c) => {
         const body = c.req.valid("json")
-        await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const account = yield* Account.Service
-            yield* account.use(AccountID.make(body.accountID), Option.some(OrgID.make(body.orgID)))
-          }),
-        )
-        return c.json(true)
+        const result = await AppRuntime.runPromise(switchConsoleOrg(body))
+        return c.json(result)
       },
     )
     .get(
@@ -208,12 +266,7 @@ export const ExperimentalRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const ids = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const registry = yield* ToolRegistry.Service
-            return yield* registry.ids()
-          }),
-        )
+        const ids = await AppRuntime.runPromise(listToolIDs())
         return c.json(ids)
       },
     )
@@ -257,26 +310,8 @@ export const ExperimentalRoutes = lazy(() =>
       ),
       async (c) => {
         const { provider, model } = c.req.valid("query")
-        const tools = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const registry = yield* ToolRegistry.Service
-            const agents = yield* Agent.Service
-            const agent = yield* agents.get(yield* agents.defaultAgent())
-            return yield* registry.tools({
-              providerID: ProviderID.make(provider),
-              modelID: ModelID.make(model),
-              agent,
-            })
-          }),
-        )
-        return c.json(
-          tools.map((t) => ({
-            id: t.id,
-            description: t.description,
-            // Handle both Zod schemas and plain JSON schemas
-            parameters: (t.parameters as any)?._def ? zodToJsonSchema(t.parameters as any) : t.parameters,
-          })),
-        )
+        const tools = await AppRuntime.runPromise(listTools({ provider, model }))
+        return c.json(tools)
       },
     )
     .route("/workspace", WorkspaceRoutes())
@@ -301,12 +336,7 @@ export const ExperimentalRoutes = lazy(() =>
       validator("json", Worktree.CreateInput.optional()),
       async (c) => {
         const body = c.req.valid("json")
-        const worktree = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const worktrees = yield* Worktree.Service
-            return yield* worktrees.create(body)
-          }),
-        )
+        const worktree = await AppRuntime.runPromise(createWorktree(body))
         return c.json(worktree)
       },
     )
@@ -328,12 +358,7 @@ export const ExperimentalRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const worktrees = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const service = yield* Worktree.Service
-            return yield* service.list()
-          }),
-        )
+        const worktrees = await AppRuntime.runPromise(listWorktrees())
         return c.json(worktrees)
       },
     )
@@ -358,13 +383,8 @@ export const ExperimentalRoutes = lazy(() =>
       validator("json", Worktree.RemoveInput),
       async (c) => {
         const body = c.req.valid("json")
-        await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const worktrees = yield* Worktree.Service
-            yield* worktrees.remove(body)
-          }),
-        )
-        return c.json(true)
+        const result = await AppRuntime.runPromise(removeWorktree(body))
+        return c.json(result)
       },
     )
     .post(
@@ -388,13 +408,8 @@ export const ExperimentalRoutes = lazy(() =>
       validator("json", Worktree.ResetInput),
       async (c) => {
         const body = c.req.valid("json")
-        await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const worktrees = yield* Worktree.Service
-            yield* worktrees.reset(body)
-          }),
-        )
-        return c.json(true)
+        const result = await AppRuntime.runPromise(resetWorktree(body))
+        return c.json(result)
       },
     )
     .get(
@@ -495,12 +510,7 @@ export const ExperimentalRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const resources = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const mcp = yield* MCP.Service
-            return yield* mcp.resources()
-          }),
-        )
+        const resources = await AppRuntime.runPromise(listResources())
         return c.json(resources)
       },
     ),

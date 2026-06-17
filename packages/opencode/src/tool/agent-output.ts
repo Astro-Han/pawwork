@@ -64,64 +64,65 @@ export const AgentOutputTool = Tool.define(
     const subagentRun = yield* SubagentRun.Service
     const sessions = yield* Session.Service
 
+    const execute = Effect.fn("AgentOutputTool.execute")(function* (
+      params: {
+        subagent_session_id?: string
+        tool_call_id?: string
+        detail: "result" | "transcript"
+      },
+      ctx: Tool.Context,
+    ) {
+      // XOR validation on subagent_session_id / tool_call_id. Schema-level filter is awkward
+      // in Effect Schema 4 beta; doing it imperatively at the entry of execute keeps the
+      // error message clear while still rejecting both-or-neither at runtime.
+      if (Boolean(params.subagent_session_id) === Boolean(params.tool_call_id)) {
+        return yield* Effect.fail(
+          new Error("exactly one of subagent_session_id or tool_call_id is required"),
+        )
+      }
+      // Narrow catch: only "row not found" maps to a clean not-found response. Storage errors,
+      // schema decode failures, and other defects propagate via Effect.orDie so the model sees
+      // a real defect instead of a misleading "not found".
+      const row = params.tool_call_id
+        ? yield* subagentRun
+            .readByToolCallID(ctx.sessionID, params.tool_call_id)
+            .pipe(Effect.catchTag("NotFound", () => Effect.succeed(null as MessageV2.SubtaskPart | null)))
+        : yield* subagentRun
+            .findLatestBySessionID(ctx.sessionID, params.subagent_session_id! as SessionID)
+            .pipe(Effect.catchTag("NotFound", () => Effect.succeed(null as MessageV2.SubtaskPart | null)))
+      if (!row || !row.tool_call_id)
+        return yield* Effect.fail(new Error("subagent not found or not accessible from this parent"))
+      if (row.parent_session_id !== ctx.sessionID)
+        return yield* Effect.fail(new Error("subagent not found or not accessible from this parent"))
+      if (row.subagent_session_id) {
+        // session.get throws NotFoundError as a defect (Cause.Die). Suppress only that case;
+        // re-raise any other defect (storage I/O, schema decode) so it isn't masked as a clean
+        // not-found response.
+        const child = yield* sessions
+          .get(row.subagent_session_id as SessionID)
+          .pipe(
+            Effect.catchCause((cause) => {
+              const err = Cause.squash(cause)
+              return err instanceof NotFoundError
+                ? Effect.succeed(null)
+                : Effect.failCause(cause)
+            }),
+          )
+        if (!child || !child.createdByAgentTool)
+          return yield* Effect.fail(new Error("subagent not found or not accessible from this parent"))
+      }
+      if (row.status !== "running" && !row.consumed_at) {
+        yield* subagentRun.setConsumed(row.tool_call_id)
+      }
+      const output = params.detail === "result" ? formatResult(row) : formatTranscript(row)
+      return { title: "agent_output", metadata: { status: row.status }, output }
+    }, Effect.orDie)
+
     return {
       description:
         "Read a subagent's result or transcript preview. Pass exactly one of subagent_session_id or tool_call_id; reading a terminal row marks it consumed.",
       parameters: Parameters,
-      execute: (
-        params: {
-          subagent_session_id?: string
-          tool_call_id?: string
-          detail: "result" | "transcript"
-        },
-        ctx: Tool.Context,
-      ) =>
-        Effect.gen(function* () {
-          // XOR validation on subagent_session_id / tool_call_id. Schema-level filter is awkward
-          // in Effect Schema 4 beta; doing it imperatively at the entry of execute keeps the
-          // error message clear while still rejecting both-or-neither at runtime.
-          if (Boolean(params.subagent_session_id) === Boolean(params.tool_call_id)) {
-            return yield* Effect.fail(
-              new Error("exactly one of subagent_session_id or tool_call_id is required"),
-            )
-          }
-          // Narrow catch: only "row not found" maps to a clean not-found response. Storage errors,
-          // schema decode failures, and other defects propagate via Effect.orDie so the model sees
-          // a real defect instead of a misleading "not found".
-          const row = params.tool_call_id
-            ? yield* subagentRun
-                .readByToolCallID(ctx.sessionID, params.tool_call_id)
-                .pipe(Effect.catchTag("NotFound", () => Effect.succeed(null as MessageV2.SubtaskPart | null)))
-            : yield* subagentRun
-                .findLatestBySessionID(ctx.sessionID, params.subagent_session_id! as SessionID)
-                .pipe(Effect.catchTag("NotFound", () => Effect.succeed(null as MessageV2.SubtaskPart | null)))
-          if (!row || !row.tool_call_id)
-            return yield* Effect.fail(new Error("subagent not found or not accessible from this parent"))
-          if (row.parent_session_id !== ctx.sessionID)
-            return yield* Effect.fail(new Error("subagent not found or not accessible from this parent"))
-          if (row.subagent_session_id) {
-            // session.get throws NotFoundError as a defect (Cause.Die). Suppress only that case;
-            // re-raise any other defect (storage I/O, schema decode) so it isn't masked as a clean
-            // not-found response.
-            const child = yield* sessions
-              .get(row.subagent_session_id as SessionID)
-              .pipe(
-                Effect.catchCause((cause) => {
-                  const err = Cause.squash(cause)
-                  return err instanceof NotFoundError
-                    ? Effect.succeed(null)
-                    : Effect.failCause(cause)
-                }),
-              )
-            if (!child || !child.createdByAgentTool)
-              return yield* Effect.fail(new Error("subagent not found or not accessible from this parent"))
-          }
-          if (row.status !== "running" && !row.consumed_at) {
-            yield* subagentRun.setConsumed(row.tool_call_id)
-          }
-          const output = params.detail === "result" ? formatResult(row) : formatTranscript(row)
-          return { title: "agent_output", metadata: { status: row.status }, output }
-        }).pipe(Effect.orDie),
+      execute,
     }
   }),
 )

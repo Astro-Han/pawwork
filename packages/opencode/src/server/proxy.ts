@@ -5,6 +5,7 @@ import { Log } from "@opencode-ai/core/util/log"
 import * as Fence from "./fence"
 import type { WorkspaceID } from "@/control-plane/schema"
 import { Workspace } from "@/control-plane/workspace"
+import { AppRuntime } from "@/effect/app-runtime"
 
 const hop = new Set([
   "connection",
@@ -117,8 +118,10 @@ function isLegacyTarget(value: unknown): value is Extract<Target, { type: "remot
   return Boolean(value && typeof value === "object" && "type" in value && (value as { type?: unknown }).type === "remote")
 }
 
-function proxyReady(workspaceID: WorkspaceID) {
-  const status = Workspace.status().find((item) => item.workspaceID === workspaceID)
+async function proxyReady(workspaceID: WorkspaceID) {
+  const status = await AppRuntime.runPromise(Workspace.Service.use((workspace) => workspace.status())).then((items) =>
+    items.find((item) => item.workspaceID === workspaceID),
+  )
   if (!status) return
   if (status.status === "connected" || status.status === "connecting") return
   return new Response(`broken sync connection for workspace: ${workspaceID}`, {
@@ -162,14 +165,9 @@ export async function http(
   const req = reqOrWorkspace as Request
   const workspaceID = maybeWorkspace as WorkspaceID
 
-  const blocked = proxyReady(workspaceID)
+  const blocked = await proxyReady(workspaceID)
   if (blocked) {
-    return new Response(`broken sync connection for workspace: ${workspaceID}`, {
-      status: 503,
-      headers: {
-        "content-type": "text/plain; charset=utf-8",
-      },
-    })
+    return blocked
   }
 
   return fetch(

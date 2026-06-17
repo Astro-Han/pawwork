@@ -1,6 +1,7 @@
 import z from "zod"
 import type { ZodObject } from "zod"
 import { EventEmitter } from "events"
+import { Context, Effect, Layer, Schema } from "effect"
 import { Database, eq } from "@/storage/db"
 import { Bus as ProjectBus } from "@/bus"
 import { BusEvent } from "@/bus/bus-event"
@@ -9,6 +10,22 @@ import { EventID } from "./schema"
 import { Flag } from "@opencode-ai/core/flag/flag"
 
 export namespace SyncEvent {
+  const SyncEventErrorReason = Schema.Union([
+    Schema.Literal("frozen"),
+    Schema.Literal("projectors-unavailable"),
+    Schema.Literal("projector-not-found"),
+    Schema.Literal("unknown-event-type"),
+    Schema.Literal("sequence-mismatch"),
+    Schema.Literal("missing-aggregate"),
+    Schema.Literal("old-event-version"),
+  ])
+
+  export class SyncEventError extends Schema.TaggedErrorClass<SyncEventError>()("SyncEventError", {
+    reason: SyncEventErrorReason,
+    message: Schema.String,
+    cause: Schema.optional(Schema.Defect()),
+  }) {}
+
   export type Definition = {
     type: string
     version: number
@@ -30,6 +47,18 @@ export namespace SyncEvent {
   export type SerializedEvent<Def extends Definition = Definition> = Event<Def> & { type: string }
 
   type ProjectorFunc = (db: Database.TxOrDb, data: unknown) => void
+  export interface Interface {
+    readonly run: <Def extends Definition>(
+      def: Def,
+      data: Event<Def>["data"],
+      options?: { publish?: boolean },
+    ) => Effect.Effect<void, SyncEventError>
+    readonly replay: (event: SerializedEvent, options?: { publish?: boolean }) => Effect.Effect<void, SyncEventError>
+    readonly remove: (aggregateID: string) => Effect.Effect<void, SyncEventError>
+    readonly subscribeAll: (handler: (event: { def: Definition; event: Event }) => void) => Effect.Effect<() => void>
+  }
+
+  export class Service extends Context.Service<Service, Interface>()("@opencode/SyncEvent") {}
 
   export const registry = new Map<string, Definition>()
   let projectors: Map<Definition, ProjectorFunc> | undefined
@@ -38,6 +67,30 @@ export namespace SyncEvent {
   let convertEvent: (type: string, event: Event["data"]) => Promise<Record<string, unknown>> | Record<string, unknown>
 
   const Bus = new EventEmitter<{ event: [{ def: Definition; event: Event }] }>()
+
+  const fail = (reason: SyncEventError["reason"], message: string, cause?: unknown) =>
+    new SyncEventError({ reason, message, cause })
+
+  const effect = <A>(fn: () => A): Effect.Effect<A, SyncEventError> =>
+    Effect.suspend(() => {
+      try {
+        return Effect.succeed(fn())
+      } catch (cause) {
+        if (cause instanceof SyncEventError) return Effect.fail(cause)
+        return Effect.die(cause)
+      }
+    })
+
+  export const layer = Layer.succeed(
+    Service,
+    Service.of({
+      run: (def, data, options) => effect(() => run(def, data, options)),
+      replay: (event, options) => effect(() => replay(event, options)),
+      remove: (aggregateID) => effect(() => remove(aggregateID)),
+      subscribeAll: (handler) => Effect.sync(() => subscribeAll(handler)),
+    }),
+  )
+  export const defaultLayer = layer
 
   export function reset() {
     frozen = false
@@ -77,7 +130,7 @@ export namespace SyncEvent {
     BusSchema extends ZodObject = Schema,
   >(input: { type: Type; version: number; aggregate: Agg; schema: Schema; busSchema?: BusSchema }) {
     if (frozen) {
-      throw new Error("Error defining sync event: sync system has been frozen")
+      throw fail("frozen", "Error defining sync event: sync system has been frozen")
     }
 
     const def = {
@@ -104,12 +157,12 @@ export namespace SyncEvent {
 
   function process<Def extends Definition>(def: Def, event: Event<Def>, options: { publish: boolean }) {
     if (projectors == null) {
-      throw new Error("No projectors available. Call `SyncEvent.init` to install projectors")
+      throw fail("projectors-unavailable", "No projectors available. Call `SyncEvent.init` to install projectors")
     }
 
     const projector = projectors.get(def)
     if (!projector) {
-      throw new Error(`Projector not found for event: ${def.type}`)
+      throw fail("projector-not-found", `Projector not found for event: ${def.type}`)
     }
 
     // idempotent: need to ignore any events already logged
@@ -165,10 +218,10 @@ export namespace SyncEvent {
   //   and it validets all the sequence ids
   // * when loading events from db, apply zod validation to ensure shape
 
-  export function replay(event: SerializedEvent, options?: { publish: boolean }) {
+  export function replay(event: SerializedEvent, options?: { publish?: boolean }) {
     const def = registry.get(event.type)
     if (!def) {
-      throw new Error(`Unknown event type: ${event.type}`)
+      throw fail("unknown-event-type", `Unknown event type: ${event.type}`)
     }
 
     const row = Database.use((db) =>
@@ -186,7 +239,10 @@ export namespace SyncEvent {
 
     const expected = latest + 1
     if (event.seq !== expected) {
-      throw new Error(`Sequence mismatch for aggregate "${event.aggregateID}": expected ${expected}, got ${event.seq}`)
+      throw fail(
+        "sequence-mismatch",
+        `Sequence mismatch for aggregate "${event.aggregateID}": expected ${expected}, got ${event.seq}`,
+      )
     }
 
     process(def, event, { publish: !!options?.publish })
@@ -197,11 +253,11 @@ export namespace SyncEvent {
     // This should never happen: we've enforced it via typescript in
     // the definition
     if (agg == null) {
-      throw new Error(`SyncEvent.run: "${def.aggregate}" required but not found: ${JSON.stringify(data)}`)
+      throw fail("missing-aggregate", `SyncEvent.run: "${def.aggregate}" required but not found: ${JSON.stringify(data)}`)
     }
 
     if (def.version !== versions.get(def.type)) {
-      throw new Error(`SyncEvent.run: running old versions of events is not allowed: ${def.type}`)
+      throw fail("old-event-version", `SyncEvent.run: running old versions of events is not allowed: ${def.type}`)
     }
 
     const { publish = true } = options || {}

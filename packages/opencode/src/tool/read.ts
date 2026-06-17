@@ -178,7 +178,7 @@ export const ReadTool = Tool.define<typeof Parameters, ReadMetadata, AppFileSyst
       return nonPrintableCount / bytes.length > 0.3
     }
 
-    const run = Effect.fn("ReadTool.execute")(function* (
+    const execute = Effect.fn("ReadTool.execute")(function* (
       params: Schema.Schema.Type<typeof Parameters>,
       ctx: Tool.Context<ReadMetadata>,
     ) {
@@ -349,13 +349,12 @@ export const ReadTool = Tool.define<typeof Parameters, ReadMetadata, AppFileSyst
           },
         },
       }
-    })
+    }, Effect.orDie)
 
     return {
       description: DESCRIPTION,
       parameters: Parameters,
-      execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context<ReadMetadata>) =>
-        run(params, ctx).pipe(Effect.orDie),
+      execute,
     }
   }),
 )

@@ -77,6 +77,16 @@ function publishTurnChangeFiles(display: TurnChangeDisplay, mode: "undo" | "redo
   })
 }
 
+function runHttpPrompt(input: SessionPrompt.PromptInput) {
+  return AppRuntime.runPromise(
+    Effect.gen(function* () {
+      const prompt = yield* SessionPrompt.Service
+      // HTTP callers cannot mark their own messages as automation-sent.
+      return yield* prompt.prompt(SessionPrompt.PromptInput.parse({ ...input, automationID: undefined }))
+    }),
+  )
+}
+
 export const SessionRoutes = lazy(() =>
   new Hono()
     .get(
@@ -116,17 +126,19 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const query = c.req.valid("query")
-        const sessions: Session.Info[] = []
-        for await (const session of Session.list({
-          directory: query.directory,
-          roots: query.roots,
-          start: query.start,
-          search: query.search,
-          limit: query.limit,
-          sort: query.sort,
-        })) {
-          sessions.push(session)
-        }
+        const sessions = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const session = yield* Session.Service
+            return yield* session.list({
+              directory: query.directory,
+              roots: query.roots,
+              start: query.start,
+              search: query.search,
+              limit: query.limit,
+              sort: query.sort,
+            })
+          }),
+        )
         return c.json(sessions)
       },
     )
@@ -149,7 +161,12 @@ export const SessionRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const result = await AppRuntime.runPromise(SessionStatus.Service.use((svc) => svc.list()))
+        const result = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const status = yield* SessionStatus.Service
+            return yield* status.list()
+          }),
+        )
         return c.json(Object.fromEntries(result))
       },
     )
@@ -169,12 +186,13 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const json = c.req.valid("json")
         await AppRuntime.runPromise(
-          Todo.Service.use((svc) =>
-            svc.update({
+          Effect.gen(function* () {
+            const todo = yield* Todo.Service
+            yield* todo.update({
               sessionID: json.sessionID,
               todos: json.todos,
-            }),
-          ),
+            })
+          }),
         )
         return c.body(null, 204)
       },
@@ -277,7 +295,12 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
-        const todos = await AppRuntime.runPromise(Todo.Service.use((svc) => svc.get(sessionID)))
+        const todos = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const todo = yield* Todo.Service
+            return yield* todo.get(sessionID)
+          }),
+        )
         return c.json(todos)
       },
     )
@@ -302,7 +325,12 @@ export const SessionRoutes = lazy(() =>
       validator("json", Session.create.schema),
       async (c) => {
         const body = c.req.valid("json") ?? {}
-        const session = await SessionShare.create(body)
+        const session = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const share = yield* SessionShare.Service
+            return yield* share.create(body)
+          }),
+        )
         return c.json(session)
       },
     )
@@ -441,13 +469,20 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
         const body = c.req.valid("json")
-        await SessionPrompt.command({
-          sessionID,
-          messageID: body.messageID,
-          model: body.providerID + "/" + body.modelID,
-          command: Command.Default.INIT,
-          arguments: "",
-        })
+        await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const prompt = yield* SessionPrompt.Service
+            yield* prompt.command(
+              SessionPrompt.CommandInput.parse({
+                sessionID,
+                messageID: body.messageID,
+                model: body.providerID + "/" + body.modelID,
+                command: Command.Default.INIT,
+                arguments: "",
+              }),
+            )
+          }),
+        )
         return c.json(true)
       },
     )
@@ -597,9 +632,15 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const query = c.req.valid("query")
-        const aborted = await SessionPrompt.cancel(c.req.valid("param").sessionID, {
-          source: query.source,
-        })
+        const sessionID = c.req.valid("param").sessionID
+        const aborted = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const prompt = yield* SessionPrompt.Service
+            return yield* prompt.cancel(sessionID, {
+              source: query.source,
+            })
+          }),
+        )
         return c.json(aborted)
       },
     )
@@ -629,20 +670,25 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
-        const enabled = await AppRuntime.runPromise(
+        const result = await AppRuntime.runPromise(
           Effect.gen(function* () {
             const gate = yield* ShareRuntime.CloudShareGate
-            return gate.isEnabled()
+            if (!gate.isEnabled()) return { enabled: false as const }
+            const share = yield* SessionShare.Service
+            const sessions = yield* Session.Service
+            return {
+              enabled: true as const,
+              share: yield* share.share(sessionID),
+              session: yield* sessions.get(sessionID),
+            }
           }),
         )
-        if (!enabled) {
+        if (!result.enabled) {
           return c.json({ error: "cloud_share_disabled" }, 410)
         }
-        const share = await SessionShare.share(sessionID)
-        const session = await Session.get(sessionID)
         return c.json({
-          ...session,
-          share,
+          ...result.session,
+          share: result.share,
         })
       },
     )
@@ -1019,19 +1065,24 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
-        const enabled = await AppRuntime.runPromise(
+        const result = await AppRuntime.runPromise(
           Effect.gen(function* () {
             const gate = yield* ShareRuntime.CloudShareGate
-            return gate.isEnabled()
+            if (!gate.isEnabled()) return { enabled: false as const }
+            const share = yield* SessionShare.Service
+            const sessions = yield* Session.Service
+            yield* share.unshare(sessionID)
+            return {
+              enabled: true as const,
+              session: yield* sessions.get(sessionID),
+            }
           }),
         )
-        if (!enabled) {
+        if (!result.enabled) {
           return c.json({ error: "cloud_share_disabled" }, 410)
         }
-        await SessionShare.unshare(sessionID)
-        const session = await Session.get(sessionID)
         return c.json({
-          ...session,
+          ...result.session,
           share: undefined,
         })
       },
@@ -1086,24 +1137,36 @@ export const SessionRoutes = lazy(() =>
         // the work effect, so a busy-rejected compact leaves session state
         // untouched and the agent is picked from the post-cleanup message
         // list (matters when the session has been reverted).
-        await SessionPrompt.loop({
-          sessionID,
-          prelude: {
-            type: "compaction",
-            model: {
-              providerID: body.providerID,
-              modelID: body.modelID,
-            },
-            auto: body.auto,
-          },
-        })
+        await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const prompt = yield* SessionPrompt.Service
+            yield* prompt.loop(
+              SessionPrompt.LoopInput.parse({
+                sessionID,
+                prelude: {
+                  type: "compaction",
+                  model: {
+                    providerID: body.providerID,
+                    modelID: body.modelID,
+                  },
+                  auto: body.auto,
+                },
+              }),
+            )
+          }),
+        )
         // Compaction is fire-and-forget at the loop level: a pre-summary
         // failure writes `error` onto the placeholder summary assistant and
         // returns "stop" without throwing, so summarize would otherwise
         // resolve `true` for a session that visibly failed. Surface the
         // error so SDK callers can branch on it. User-initiated aborts are
         // not failures from the route's perspective.
-        const finalMsgs = await Session.messages({ sessionID })
+        const finalMsgs = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const sessions = yield* Session.Service
+            return yield* sessions.messages({ sessionID })
+          }),
+        )
         for (let i = finalMsgs.length - 1; i >= 0; i--) {
           const info = finalMsgs[i].info
           if (info.role !== "assistant" || info.mode !== "compaction") continue
@@ -1255,7 +1318,7 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const params = c.req.valid("param")
-        const message = await MessageV2.get({
+        const message = MessageV2.get({
           sessionID: params.sessionID,
           messageID: params.messageID,
         })
@@ -1443,7 +1506,7 @@ export const SessionRoutes = lazy(() =>
         return stream(c, async (stream) => {
           const sessionID = c.req.valid("param").sessionID
           const body = c.req.valid("json")
-          const msg = await SessionPrompt.prompt({ ...body, sessionID })
+          const msg = await runHttpPrompt({ ...body, sessionID })
           stream.write(JSON.stringify(msg))
         })
       },
@@ -1472,7 +1535,7 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
         const body = c.req.valid("json")
-        SessionPrompt.prompt({ ...body, sessionID }).catch((err) => {
+        runHttpPrompt({ ...body, sessionID }).catch((err) => {
           log.error("prompt_async failed", { sessionID, error: err })
           Bus.publish(Session.Event.Error, {
             sessionID,
@@ -1516,7 +1579,12 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
         const body = c.req.valid("json")
-        const msg = await SessionPrompt.command({ ...body, sessionID })
+        const msg = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const prompt = yield* SessionPrompt.Service
+            return yield* prompt.command(SessionPrompt.CommandInput.parse({ ...body, sessionID }))
+          }),
+        )
         return c.json(msg)
       },
     )
@@ -1548,7 +1616,12 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
         const body = c.req.valid("json")
-        const msg = await SessionPrompt.shell({ ...body, sessionID })
+        const msg = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const prompt = yield* SessionPrompt.Service
+            return yield* prompt.shell(SessionPrompt.ShellInput.parse({ ...body, sessionID }))
+          }),
+        )
         return c.json(msg)
       },
     )
@@ -1580,10 +1653,12 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
         log.info("revert", c.req.valid("json"))
-        const session = await SessionRevert.revert({
-          sessionID,
-          ...c.req.valid("json"),
-        })
+        const session = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const revert = yield* SessionRevert.Service
+            return yield* revert.revert(SessionRevert.RevertInput.parse({ sessionID, ...c.req.valid("json") }))
+          }),
+        )
         return c.json(session)
       },
     )
@@ -1613,7 +1688,12 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
-        const session = await SessionRevert.unrevert({ sessionID })
+        const session = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const revert = yield* SessionRevert.Service
+            return yield* revert.unrevert(SessionRevert.UnrevertInput.parse({ sessionID }))
+          }),
+        )
         return c.json(session)
       },
     )
@@ -1648,10 +1728,15 @@ export const SessionRoutes = lazy(() =>
         const params = c.req.valid("param")
         // Await so an unknown permission surfaces this route's documented 404
         // instead of being swallowed by a fire-and-forget rejection.
-        await Permission.reply({
-          requestID: params.permissionID,
-          reply: c.req.valid("json").response,
-        })
+        await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const permission = yield* Permission.Service
+            yield* permission.reply({
+              requestID: params.permissionID,
+              reply: c.req.valid("json").response,
+            })
+          }),
+        )
         return c.json(true)
       },
     ),

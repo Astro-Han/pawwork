@@ -17,7 +17,7 @@ PawWork packages the OpenCLI runtime files needed by the desktop app, including 
 
 - Project: https://github.com/jackwener/opencli
 - Package: `@jackwener/opencli`
-- Version: 1.8.3
+- Version: 1.8.4
 - License: Apache License 2.0
 
 The Apache License 2.0 text for OfficeCLI and OpenCLI follows.

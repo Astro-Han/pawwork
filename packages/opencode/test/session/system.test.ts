@@ -59,6 +59,7 @@ describe("session.system", () => {
     expect(prompt).toContain("nearest relevant AGENTS.md")
     expect(prompt).toContain("ask for confirmation before writing")
     expect(prompt).toContain("`automate` tool")
+    expect(prompt).toContain("`opencli` tool group via `tool_info`")
     expect(prompt).not.toContain("opencode.ai")
     expect(prompt).not.toContain("anomalyco/opencode")
     expect(prompt).not.toContain("Get help with using opencode")
