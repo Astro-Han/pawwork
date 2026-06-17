@@ -42,16 +42,20 @@ export namespace ModelState {
 
   /**
    * Pure: only a user's own top-level prompt seeds the global default model.
-   * Automation runs (automationID) and subagent / agent-tool child sessions
-   * (parentID / createdByAgentTool) carry their own model and must NOT leak into
-   * the default that every fresh session inherits.
+   * Automation runs (automationID), subagent / agent-tool child sessions
+   * (parentID / createdByAgentTool), and slash-command invocations (fromCommand)
+   * carry their own model and must NOT leak into the default that every fresh
+   * session inherits. A command resolves its own (often pinned) utility model and
+   * reuses the prompt path, so without this guard a `/commit`-style command could
+   * silently become the model a later Telegram `/new` defaults to.
    */
   export function shouldRecordRecent(input: {
     automationID?: string
     parentID?: string
     createdByAgentTool?: boolean
+    fromCommand?: boolean
   }): boolean {
-    return !input.automationID && !input.parentID && !input.createdByAgentTool
+    return !input.automationID && !input.parentID && !input.createdByAgentTool && !input.fromCommand
   }
 
   /**

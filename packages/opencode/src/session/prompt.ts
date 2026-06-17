@@ -98,6 +98,9 @@ type TitleGenerationProgress = {
 
 type PromptRuntimeOptions = {
   abortSignal?: AbortSignal
+  // Set by command() so a command-scoped (often pinned) model never seeds the
+  // global recent-model default — internal only, not part of the public input.
+  fromCommand?: boolean
 }
 
 export function titleGenerationStateAtAbort(
@@ -1956,8 +1959,9 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       const message = yield* createUserMessage(input)
       // Seed the global "recent model" so a later session with no explicit model
       // (e.g. a Telegram /new) inherits this choice. Only a user's own top-level
-      // prompt counts — never automation or subagent child sessions. Best-effort
-      // and non-blocking: a write failure must not affect the prompt.
+      // prompt counts — never automation, subagent child sessions, or slash
+      // commands (which carry their own pinned model). Best-effort and
+      // non-blocking: a write failure must not affect the prompt.
       if (
         message.info.role === "user" &&
         message.info.model &&
@@ -1965,6 +1969,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           automationID: input.automationID,
           parentID: session.parentID,
           createdByAgentTool: session.createdByAgentTool,
+          fromCommand: options?.fromCommand,
         })
       ) {
         const chosen = message.info.model
@@ -2799,15 +2804,19 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         { parts },
       )
 
-      const result = yield* prompt({
-        sessionID: input.sessionID,
-        messageID: input.messageID,
-        model: userModel,
-        agent: userAgent,
-        parts,
-        locale: input.locale,
-        variant: input.variant,
-      })
+      const result = yield* prompt(
+        {
+          sessionID: input.sessionID,
+          messageID: input.messageID,
+          model: userModel,
+          agent: userAgent,
+          parts,
+          locale: input.locale,
+          variant: input.variant,
+        },
+        // A command resolves its own model; it must not seed the global default.
+        { fromCommand: true },
+      )
       yield* bus.publish(Command.Event.Executed, {
         name: input.command,
         sessionID: input.sessionID,

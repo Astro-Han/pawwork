@@ -16,6 +16,10 @@ describe("shouldRecordRecent", () => {
     expect(ModelState.shouldRecordRecent({ createdByAgentTool: true })).toBe(false)
   })
 
+  test("skips slash-command invocations (command-scoped model)", () => {
+    expect(ModelState.shouldRecordRecent({ fromCommand: true })).toBe(false)
+  })
+
   test("records a user's own top-level prompt", () => {
     expect(ModelState.shouldRecordRecent({})).toBe(true)
   })
