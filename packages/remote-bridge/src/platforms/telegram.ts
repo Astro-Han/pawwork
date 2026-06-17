@@ -228,7 +228,7 @@ export class TelegramPoller {
         continue
       }
       for (const update of updates) {
-        offset = Math.max(offset, Number(update?.update_id ?? offset - 1) + 1)
+        offset = nextOffset(offset, update)
         try {
           onUpdate(update)
         } catch {
@@ -390,7 +390,7 @@ async function drainBacklog(poller: TelegramPoller, signal: AbortSignal): Promis
     const backlog = await getUpdatesWithRetry(poller, offset, signal, 0)
     if (backlog === null) return null
     if (backlog.length === 0) return offset
-    for (const update of backlog) offset = Math.max(offset, Number(update?.update_id ?? offset - 1) + 1)
+    for (const update of backlog) offset = nextOffset(offset, update)
   }
   return null
 }
@@ -418,7 +418,7 @@ export async function captureFirstSender(poller: TelegramPoller, signal: AbortSi
     const updates = await getUpdatesWithRetry(poller, offset, signal, POLL_TIMEOUT_S)
     if (updates === null) return null // aborted while waiting
     for (const update of updates) {
-      offset = Math.max(offset, Number(update?.update_id ?? offset - 1) + 1)
+      offset = nextOffset(offset, update)
       const norm = normalizeUpdate(update)
       if (norm?.isPrivate) {
         // Ack the captured message so the real bridge's fresh poll won't replay it
@@ -430,6 +430,15 @@ export async function captureFirstSender(poller: TelegramPoller, signal: AbortSi
     }
   }
   return null
+}
+
+/** Advance the offset past `update`'s id, ignoring a malformed update_id rather
+ * than letting Number(...) poison it with NaN — a NaN offset makes every later
+ * getUpdates replay the backlog or stall. A non-finite id leaves the offset
+ * unchanged (matching the old `?? offset - 1` no-op for a missing id). */
+function nextOffset(offset: number, update: unknown): number {
+  const id = Number((update as { update_id?: unknown })?.update_id)
+  return Number.isFinite(id) ? Math.max(offset, id + 1) : offset
 }
 
 function retryAfterMs(json: any): number | undefined {

@@ -164,6 +164,30 @@ test("runLoop advances the offset past the highest update_id it received", async
   }
 })
 
+test("runLoop ignores a malformed update_id instead of poisoning the offset with NaN", async () => {
+  // A good update (id 10) then one with a non-numeric update_id. The offset must
+  // advance to 11 and stay finite — a NaN offset would make every later poll
+  // request offset=NaN (serialized to null) and replay the whole backlog.
+  const malformed = { update_id: "oops", message: { text: "x", from: { id: 42 }, chat: { id: 42, type: "private" } } }
+  const api = fakeBotApi([[update(10, 42)], [malformed]])
+  try {
+    const poller = new TelegramPoller("t", api.url)
+    poller.pollRetryMs = 0
+    const ac = new AbortController()
+    const loop = poller.runLoop(0, () => {}, ac.signal)
+    await waitFor(() => api.calls.filter((c) => c.method === "getUpdates").length >= 3)
+    ac.abort()
+    await loop
+    const offsets = api.calls.filter((c) => c.method === "getUpdates").map((c) => c.body.offset)
+    expect(offsets[0]).toBe(0)
+    expect(offsets[1]).toBe(11) // acked the good update 10
+    expect(offsets[2]).toBe(11) // malformed id skipped, offset held — not NaN
+    expect(offsets.every((o) => Number.isFinite(o))).toBe(true)
+  } finally {
+    api.stop()
+  }
+})
+
 test("TelegramPlatform delivers only the paired user's private messages", async () => {
   // Batch 0 (empty) ends the start-up drain; the live poll then returns the owner
   // and a stranger, and only the owner's private message is delivered.
