@@ -49,6 +49,7 @@ export type StreamInput = {
   connectTimeoutMs?: number
   streamTimeoutMs?: number
   toolChoice?: "auto" | "required" | "none"
+  toolAbortSignal?: AbortSignal
   trace?: Pick<
     LLMTrace.Recorder,
     | "request"
@@ -210,7 +211,7 @@ const live: Layer.Layer<
         },
       )
 
-      const tools = resolveTools(input)
+      const tools = wrapToolsWithAbortSignal(resolveTools(input), input.toolAbortSignal)
       const traceToolCount = Object.keys(tools).filter((x) => x !== "invalid").length
 
       // LiteLLM and some Anthropic proxies require the tools parameter to be present
@@ -683,6 +684,28 @@ export function resolveTools(input: Pick<StreamInput, "tools" | "agent" | "permi
     Permission.merge(input.agent.permission, input.permission ?? []),
   )
   return Record.filter(input.tools, (_, k) => input.user.tools?.[k] !== false && !disabled.has(k))
+}
+
+function wrapToolsWithAbortSignal(tools: Record<string, Tool>, toolAbortSignal?: AbortSignal) {
+  if (!toolAbortSignal) return tools
+
+  return Object.fromEntries(
+    Object.entries(tools).map(([name, item]) => {
+      const execute = item.execute
+      if (!execute) return [name, item]
+
+      return [
+        name,
+        {
+          ...item,
+          execute: async (...args: Parameters<NonNullable<typeof execute>>) => {
+            const [parameters, options] = args
+            return execute(parameters, { ...options, abortSignal: toolAbortSignal })
+          },
+        } satisfies Tool,
+      ]
+    }),
+  )
 }
 
 export function buildInvalidToolRepairInput(

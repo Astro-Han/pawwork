@@ -1,5 +1,5 @@
 import { NodeFileSystem } from "@effect/platform-node"
-import { tool } from "ai"
+import { APICallError, tool } from "ai"
 import { expect } from "bun:test"
 import { Cause, Effect, Exit, Fiber, Layer, Stream } from "effect"
 import path from "path"
@@ -157,6 +157,30 @@ function copilotResponsesProviderCfg(url: string) {
   }
 }
 
+function transportDisconnectError(message: string) {
+  return Object.assign(new Error(message), { code: "ECONNRESET", syscall: "read" })
+}
+
+function startFakeStreamTool(
+  input: LLM.StreamInput,
+  tool: string,
+  toolCallID: string,
+  toolInput: Record<string, unknown>,
+  failures: unknown[],
+) {
+  const execute = input.tools[tool]?.execute
+  if (!execute) throw new Error(`tool ${tool} is missing execute()`)
+  void Promise.resolve(
+    execute(toolInput, {
+      toolCallId: toolCallID,
+      messages: input.messages,
+      abortSignal: new AbortController().signal,
+    } as any),
+  ).catch((error) => {
+    failures.push(error)
+  })
+}
+
 function responseCreated(model = "gpt-5.2") {
   return {
     type: "response.created",
@@ -218,7 +242,12 @@ function agent(): Agent.Info {
   }
 }
 
-function defer<T>() {
+type TestDeferred<T> = {
+  promise: Promise<T>
+  resolve: (value: T | PromiseLike<T>) => void
+}
+
+function defer<T>(): TestDeferred<T> {
   let resolve!: (value: T | PromiseLike<T>) => void
   const promise = new Promise<T>((done) => {
     resolve = done
@@ -342,6 +371,138 @@ const attemptTimeoutIt = testEffect(
         monotonicMs: performance.now(),
       })
       return Stream.fail(error)
+    },
+  }),
+)
+
+const lifecycleBeforeToolEventFailures: unknown[] = []
+const lifecycleBeforeToolEventIt = testEffect(
+  processorEnvWithLLM({
+    stream(input) {
+      const toolCallID = "call_lifecycle_before_event"
+      const toolInput = { value: "ok" }
+      return Stream.fromEffect(
+        Effect.promise(async () => {
+          startFakeStreamTool(input, "fast", toolCallID, toolInput, lifecycleBeforeToolEventFailures)
+        }),
+      ).pipe(
+        Stream.flatMap(() =>
+          Stream.make(
+            { type: "start" } satisfies LLM.Event,
+            {
+              type: "tool-input-start",
+              id: toolCallID,
+              toolName: "fast",
+            } as LLM.Event,
+            {
+              type: "tool-call",
+              toolCallId: toolCallID,
+              toolName: "fast",
+              input: toolInput,
+              providerMetadata: undefined,
+            } as LLM.Event,
+          ),
+        ),
+      )
+    },
+  }),
+)
+
+const noStreamToolCompletionFailures: unknown[] = []
+const noStreamToolCompletionIt = testEffect(
+  processorEnvWithLLM({
+    stream(input) {
+      const toolCallID = "call_no_stream_tool_completion"
+      const toolInput = { value: "ok" }
+      return Stream.fromEffect(
+        Effect.promise(async () => {
+          startFakeStreamTool(input, "offline", toolCallID, toolInput, noStreamToolCompletionFailures)
+        }),
+      ).pipe(Stream.flatMap(() => Stream.fail(transportDisconnectError("connection reset before tool events"))))
+    },
+  }),
+)
+
+const noStreamToolCompletionTerminalFailures: unknown[] = []
+const noStreamToolCompletionTerminalIt = testEffect(
+  processorEnvWithLLM({
+    stream(input) {
+      const toolCallID = "call_no_stream_tool_completion_terminal"
+      const toolInput = { value: "ok" }
+      const terminalError = new APICallError({
+        message: "401 auth failure after tool settlement",
+        url: "https://example.com/v1/chat/completions",
+        requestBodyValues: {},
+        statusCode: 401,
+        responseHeaders: { "content-type": "application/json" },
+        isRetryable: true,
+      })
+      return Stream.fromEffect(
+        Effect.promise(async () => {
+          startFakeStreamTool(input, "offline", toolCallID, toolInput, noStreamToolCompletionTerminalFailures)
+        }),
+      ).pipe(Stream.flatMap(() => Stream.fail(terminalError)))
+    },
+  }),
+)
+
+const noStreamToolFailureFailures: unknown[] = []
+const noStreamToolFailureIt = testEffect(
+  processorEnvWithLLM({
+    stream(input) {
+      const toolCallID = "call_no_stream_tool_failure"
+      const toolInput = { value: "bad" }
+      return Stream.fromEffect(
+        Effect.promise(async () => {
+          startFakeStreamTool(input, "offline", toolCallID, toolInput, noStreamToolFailureFailures)
+        }),
+      ).pipe(Stream.flatMap(() => Stream.fail(transportDisconnectError("connection reset before tool error event"))))
+    },
+  }),
+)
+
+const noStreamDeadToolIt = testEffect(
+  processorEnvWithLLM({
+    stream(input) {
+      const toolCallID = "call_no_stream_dead_tool"
+      const toolInput = { value: "stuck" }
+      return Stream.fromEffect(
+        Effect.promise(async () => {
+          startFakeStreamTool(input, "offline", toolCallID, toolInput, [])
+        }),
+      ).pipe(Stream.flatMap(() => Stream.fail(transportDisconnectError("connection reset before dead tool events"))))
+    },
+  }),
+)
+
+const capturedOnlyNoExecutionIt = testEffect(
+  processorEnvWithLLM({
+    stream(input) {
+      const toolCallID = "call_captured_only_no_execution"
+      const toolInput = { value: "pending" }
+      return Stream.fromEffect(
+        Effect.promise(async () => {
+          startFakeStreamTool(input, "offline", toolCallID, toolInput, [])
+        }),
+      ).pipe(Stream.flatMap(() => Stream.fail(transportDisconnectError("connection reset before tool execution"))))
+    },
+  }),
+)
+
+const lateLifecycleAfterFinalizeState: {
+  complete?: () => Promise<void>
+  fail?: () => Promise<void>
+} = {}
+const lateLifecycleAfterFinalizeIt = testEffect(
+  processorEnvWithLLM({
+    stream(input) {
+      const toolCallID = "call_late_lifecycle_after_finalize"
+      const toolInput = { value: "stuck" }
+      return Stream.fromEffect(
+        Effect.promise(async () => {
+          startFakeStreamTool(input, "offline", toolCallID, toolInput, [])
+        }),
+      ).pipe(Stream.flatMap(() => Stream.fail(new Error("connection reset before late lifecycle events"))))
     },
   }),
 )
@@ -706,7 +867,7 @@ it.live("session.processor keeps late tool execution diagnostics on the bound to
         yield* llm.wait(2)
         expect(handle.recordToolExecutionStarted).toBeDefined()
         expect(handle.recordToolExecutionCompleted).toBeDefined()
-        yield* handle.recordToolExecutionStarted!({ tool: "noop", toolCallID: "call_bound_attempt" })
+        yield* handle.recordToolExecutionStarted!({ tool: "noop", toolCallID: "call_bound_attempt", input: {} })
         yield* handle.recordToolExecutionCompleted!({ toolCallID: "call_bound_attempt" })
         gate.resolve()
         yield* Fiber.join(first)
@@ -2554,6 +2715,1525 @@ it.live("session.processor effect tests mark materialized tools as prepared but 
           expect(observability?.tool_execution_started).toBe(false)
           expect(observability?.pending_tool_parts_interrupted).toBe(1)
           expect(observability?.incident?.terminal_cause.category).not.toBe("tool_execution_interrupted")
+        }
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
+it.live("session.processor effect tests persists completed tool result after provider stream timeout", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+        const toolStarted = defer<void>()
+        const toolFinish = defer<void>()
+        let executions = 0
+        let toolAbortSignalAborted: boolean | undefined
+
+        yield* llm.push(
+          raw({
+            head: [
+              {
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                choices: [{ delta: { role: "assistant" } }],
+              },
+              {
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                choices: [
+                  {
+                    delta: {
+                      tool_calls: [
+                        {
+                          index: 0,
+                          id: "call_stream_timeout_tool",
+                          type: "function",
+                          function: { name: "slow", arguments: "" },
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+              {
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                choices: [
+                  {
+                    delta: {
+                      tool_calls: [
+                        {
+                          index: 0,
+                          function: { arguments: JSON.stringify({ value: "ok" }) },
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+              {
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                choices: [{ delta: {}, finish_reason: "tool_calls" }],
+              },
+            ],
+            hang: true,
+          }),
+        )
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "stream reset during tool")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const run = yield* handle
+          .process({
+            user: {
+              id: parent.id,
+              sessionID: chat.id,
+              role: "user",
+              time: parent.time,
+              agent: parent.agent,
+              model: { providerID: ref.providerID, modelID: ref.modelID },
+              tools: { slow: true },
+            } satisfies MessageV2.User,
+            sessionID: chat.id,
+            model: mdl,
+            agent: agent(),
+            system: [],
+            messages: [{ role: "user", content: "stream reset during tool" }],
+            streamTimeoutMs: 200,
+            tools: {
+              slow: tool({
+                description: "Complete after the provider stream has failed",
+                inputSchema: z.object({ value: z.string() }),
+                execute: async (args, options) => {
+                  if (!handle.recordToolExecutionStarted || !handle.completeToolExecution) {
+                    throw new Error("processor tool execution helpers are missing")
+                  }
+                  executions += 1
+                  await Effect.runPromise(
+                    handle.recordToolExecutionStarted({
+                      tool: "slow",
+                      toolCallID: options.toolCallId,
+                      input: args,
+                    }),
+                  )
+                  toolStarted.resolve()
+                  await toolFinish.promise
+                  toolAbortSignalAborted = options.abortSignal?.aborted ?? false
+                  const output = { output: "slow result", title: "slow", metadata: { marker: "drained" } }
+                  await Effect.runPromise(
+                    handle.completeToolExecution({
+                      toolCallID: options.toolCallId,
+                      output,
+                    }),
+                  )
+                  return output
+                },
+              }),
+            },
+          })
+          .pipe(Effect.forkChild)
+
+        yield* Effect.promise(() => toolStarted.promise)
+        yield* Effect.promise(() => Bun.sleep(1_200))
+        toolFinish.resolve()
+
+        const result = yield* Fiber.join(run)
+        const parts = MessageV2.parts(msg.id)
+        const call = parts.find((part): part is MessageV2.ToolPart => part.type === "tool")
+        const stored = (yield* session.messages({ sessionID: chat.id })).find(
+          (message) => message.info.role === "assistant" && message.info.id === msg.id,
+        )
+
+        expect(result).toBe("continue")
+        expect(executions).toBe(1)
+        expect(toolAbortSignalAborted).toBe(false)
+        expect(call?.state.status).toBe("completed")
+        if (call?.state.status === "completed") {
+          expect(call.state.output).toBe("slow result")
+          expect(call.state.metadata?.marker).toBe("drained")
+          expect(call.state.metadata?.interrupted).toBeUndefined()
+        }
+        expect(stored?.info.role).toBe("assistant")
+        if (stored?.info.role === "assistant") {
+          expect(stored.info.error).toBeUndefined()
+          const observability = stored.info.diagnostics?.run_observability
+          expect(observability?.tool_execution_started).toBe(true)
+          expect(observability?.attempts?.[0]?.tool_execution_completed).toBe(true)
+          expect(observability?.pending_tool_parts_interrupted).toBeUndefined()
+        }
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
+noStreamToolCompletionIt.live(
+  "session.processor effect tests synthesizes completed tool part when stream disconnects before tool events",
+  () =>
+    provideTmpdirInstance(
+      (dir) =>
+        Effect.gen(function* () {
+          noStreamToolCompletionFailures.length = 0
+          const { processors, session, provider } = yield* boot()
+
+          const chat = yield* session.create({})
+          const parent = yield* user(chat.id, "no stream tool completion")
+          const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+          const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+          const handle = yield* processors.create({
+            safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
+            assistantMessage: msg,
+            sessionID: chat.id,
+            model: mdl,
+          })
+
+          yield* handle.process({
+            user: {
+              id: parent.id,
+              sessionID: chat.id,
+              role: "user",
+              time: parent.time,
+              agent: parent.agent,
+              model: { providerID: ref.providerID, modelID: ref.modelID },
+              tools: { offline: true },
+            } satisfies MessageV2.User,
+            sessionID: chat.id,
+            model: mdl,
+            agent: agent(),
+            system: [],
+            messages: [{ role: "user", content: "no stream tool completion" }],
+            toolDrainTimeoutMs: 5_000,
+            tools: {
+              offline: tool({
+                description: "Fake LLM executes this tool without stream events",
+                inputSchema: z.object({ value: z.string() }),
+                execute: async (args, options) => {
+                  if (!handle.recordToolExecutionStarted || !handle.completeToolExecution) {
+                    throw new Error("processor tool execution helpers are missing")
+                  }
+                  await Effect.runPromise(
+                    handle.recordToolExecutionStarted({
+                      tool: "offline",
+                      toolCallID: options.toolCallId,
+                      input: args,
+                    }),
+                  )
+                  void Effect.runPromise(
+                    handle.completeToolExecution({
+                      toolCallID: options.toolCallId,
+                      output: {
+                        title: "offline",
+                        metadata: { marker: "no-stream" },
+                        output: "offline result",
+                      },
+                    }),
+                  ).catch((error) => noStreamToolCompletionFailures.push(error))
+                  return { output: "unused" }
+                },
+              }),
+            },
+          })
+
+          const toolParts = MessageV2.parts(msg.id).filter((part): part is MessageV2.ToolPart => part.type === "tool")
+          const storedMessages = yield* session.messages({ sessionID: chat.id })
+          const modelMessages = yield* MessageV2.toModelMessagesEffect(storedMessages, mdl)
+          const assistantModelMessage = modelMessages.find((message) => message.role === "assistant")
+          const toolModelContent =
+            assistantModelMessage && Array.isArray(assistantModelMessage.content)
+              ? assistantModelMessage.content.find(
+                  (part) => part.type === "tool-call" && part.toolCallId === "call_no_stream_tool_completion",
+                )
+              : undefined
+
+          expect(noStreamToolCompletionFailures).toEqual([])
+          expect(toolParts).toHaveLength(1)
+          expect(toolParts[0]?.state.status).toBe("completed")
+          if (toolParts[0]?.state.status === "completed") {
+            expect(toolParts[0].tool).toBe("offline")
+            expect(toolParts[0].state.input).toEqual({ value: "ok" })
+            expect(toolParts[0].state.output).toBe("offline result")
+            expect(toolParts[0].state.metadata?.marker).toBe("no-stream")
+            expect(toolParts[0].state.metadata?.interrupted).toBeUndefined()
+          }
+          expect(toolModelContent).toMatchObject({
+            type: "tool-call",
+            toolCallId: "call_no_stream_tool_completion",
+            input: { value: "ok" },
+          })
+        }),
+      { git: true, config: providerCfg("http://localhost:1/v1") },
+    ),
+)
+
+noStreamToolCompletionTerminalIt.live(
+  "session.processor effect tests stops on terminal provider error after persisted tool settlement",
+  () =>
+    provideTmpdirInstance(
+      (dir) =>
+        Effect.gen(function* () {
+          noStreamToolCompletionTerminalFailures.length = 0
+          const { processors, session, provider } = yield* boot()
+
+          const chat = yield* session.create({})
+          const parent = yield* user(chat.id, "terminal provider error after tool settlement")
+          const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+          const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+          const handle = yield* processors.create({
+            safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
+            assistantMessage: msg,
+            sessionID: chat.id,
+            model: mdl,
+          })
+
+          const result = yield* handle.process({
+            user: {
+              id: parent.id,
+              sessionID: chat.id,
+              role: "user",
+              time: parent.time,
+              agent: parent.agent,
+              model: { providerID: ref.providerID, modelID: ref.modelID },
+              tools: { offline: true },
+            } satisfies MessageV2.User,
+            sessionID: chat.id,
+            model: mdl,
+            agent: agent(),
+            system: [],
+            messages: [{ role: "user", content: "terminal provider error after tool settlement" }],
+            toolDrainTimeoutMs: 5_000,
+            tools: {
+              offline: tool({
+                description: "Fake LLM executes this tool without stream events",
+                inputSchema: z.object({ value: z.string() }),
+                execute: async (args, options) => {
+                  if (!handle.recordToolExecutionStarted || !handle.completeToolExecution) {
+                    throw new Error("processor tool execution helpers are missing")
+                  }
+                  await Effect.runPromise(
+                    handle.recordToolExecutionStarted({
+                      tool: "offline",
+                      toolCallID: options.toolCallId,
+                      input: args,
+                    }),
+                  )
+                  void Effect.runPromise(
+                    handle.completeToolExecution({
+                      toolCallID: options.toolCallId,
+                      output: {
+                        title: "offline",
+                        metadata: { marker: "terminal-after-tool" },
+                        output: "offline result",
+                      },
+                    }),
+                  ).catch((error) => noStreamToolCompletionTerminalFailures.push(error))
+                  return { output: "unused" }
+                },
+              }),
+            },
+          })
+
+          const toolParts = MessageV2.parts(msg.id).filter((part): part is MessageV2.ToolPart => part.type === "tool")
+          const stored = (yield* session.messages({ sessionID: chat.id })).find(
+            (message) => message.info.role === "assistant" && message.info.id === msg.id,
+          )
+
+          expect(result).toBe("stop")
+          expect(noStreamToolCompletionTerminalFailures).toEqual([])
+          expect(toolParts).toHaveLength(1)
+          expect(toolParts[0]?.state.status).toBe("completed")
+          if (toolParts[0]?.state.status === "completed") {
+            expect(toolParts[0].tool).toBe("offline")
+            expect(toolParts[0].state.input).toEqual({ value: "ok" })
+            expect(toolParts[0].state.output).toBe("offline result")
+            expect(toolParts[0].state.metadata?.marker).toBe("terminal-after-tool")
+            expect(toolParts[0].state.metadata?.interrupted).toBeUndefined()
+          }
+          expect(stored?.info.role).toBe("assistant")
+          if (stored?.info.role === "assistant") {
+            expect(stored.info.error).toBeDefined()
+            expect(MessageV2.APIError.isInstance(stored.info.error)).toBe(true)
+            if (MessageV2.APIError.isInstance(stored.info.error)) {
+              expect(stored.info.error.data.providerFailure?.kind).toBe("auth")
+            }
+          }
+        }),
+      { git: true, config: providerCfg("http://localhost:1/v1") },
+    ),
+)
+
+noStreamToolFailureIt.live(
+  "session.processor effect tests synthesizes failed tool part when stream disconnects before tool events",
+  () =>
+    provideTmpdirInstance(
+      (dir) =>
+        Effect.gen(function* () {
+          noStreamToolFailureFailures.length = 0
+          const { processors, session, provider } = yield* boot()
+
+          const chat = yield* session.create({})
+          const parent = yield* user(chat.id, "no stream tool failure")
+          const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+          const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+          const handle = yield* processors.create({
+            safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
+            assistantMessage: msg,
+            sessionID: chat.id,
+            model: mdl,
+          })
+
+          yield* handle.process({
+            user: {
+              id: parent.id,
+              sessionID: chat.id,
+              role: "user",
+              time: parent.time,
+              agent: parent.agent,
+              model: { providerID: ref.providerID, modelID: ref.modelID },
+              tools: { offline: true },
+            } satisfies MessageV2.User,
+            sessionID: chat.id,
+            model: mdl,
+            agent: agent(),
+            system: [],
+            messages: [{ role: "user", content: "no stream tool failure" }],
+            toolDrainTimeoutMs: 5_000,
+            tools: {
+              offline: tool({
+                description: "Fake LLM executes this tool without stream events",
+                inputSchema: z.object({ value: z.string() }),
+                execute: async (args, options) => {
+                  if (!handle.recordToolExecutionStarted || !handle.failToolExecution) {
+                    throw new Error("processor tool execution helpers are missing")
+                  }
+                  await Effect.runPromise(
+                    handle.recordToolExecutionStarted({
+                      tool: "offline",
+                      toolCallID: options.toolCallId,
+                      input: args,
+                    }),
+                  )
+                  void Effect.runPromise(
+                    handle.failToolExecution({
+                      toolCallID: options.toolCallId,
+                      error: new Error("offline failure"),
+                    }),
+                  ).catch((error) => noStreamToolFailureFailures.push(error))
+                  return { output: "unused" }
+                },
+              }),
+            },
+          })
+
+          const toolParts = MessageV2.parts(msg.id).filter((part): part is MessageV2.ToolPart => part.type === "tool")
+          const storedMessages = yield* session.messages({ sessionID: chat.id })
+          const modelMessages = yield* MessageV2.toModelMessagesEffect(storedMessages, mdl)
+          const assistantModelMessage = modelMessages.find((message) => message.role === "assistant")
+          const toolModelContent =
+            assistantModelMessage && Array.isArray(assistantModelMessage.content)
+              ? assistantModelMessage.content.find(
+                  (part) => part.type === "tool-call" && part.toolCallId === "call_no_stream_tool_failure",
+                )
+              : undefined
+
+          expect(noStreamToolFailureFailures).toEqual([])
+          expect(toolParts).toHaveLength(1)
+          expect(toolParts[0]?.state.status).toBe("error")
+          if (toolParts[0]?.state.status === "error") {
+            expect(toolParts[0].tool).toBe("offline")
+            expect(toolParts[0].state.input).toEqual({ value: "bad" })
+            expect(toolParts[0].state.error).toContain("offline failure")
+            expect(toolParts[0].state.metadata?.interrupted).toBeUndefined()
+          }
+          expect(toolModelContent).toMatchObject({
+            type: "tool-call",
+            toolCallId: "call_no_stream_tool_failure",
+            input: { value: "bad" },
+          })
+        }),
+      { git: true, config: providerCfg("http://localhost:1/v1") },
+    ),
+)
+
+noStreamDeadToolIt.live(
+  "session.processor effect tests synthesizes interrupted tool part when dead execution has no stream events",
+  () =>
+    provideTmpdirInstance(
+      (dir) =>
+        Effect.gen(function* () {
+          const { processors, session, provider } = yield* boot()
+
+          const chat = yield* session.create({})
+          const parent = yield* user(chat.id, "no stream dead tool")
+          const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+          const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+          const handle = yield* processors.create({
+            safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
+            assistantMessage: msg,
+            sessionID: chat.id,
+            model: mdl,
+          })
+
+          yield* handle.process({
+            user: {
+              id: parent.id,
+              sessionID: chat.id,
+              role: "user",
+              time: parent.time,
+              agent: parent.agent,
+              model: { providerID: ref.providerID, modelID: ref.modelID },
+              tools: { offline: true },
+            } satisfies MessageV2.User,
+            sessionID: chat.id,
+            model: mdl,
+            agent: agent(),
+            system: [],
+            messages: [{ role: "user", content: "no stream dead tool" }],
+            toolDrainTimeoutMs: 25,
+            tools: {
+              offline: tool({
+                description: "Fake LLM starts execution then disconnects before stream tool events",
+                inputSchema: z.object({ value: z.string() }),
+                execute: async (args, options) => {
+                  if (!handle.recordToolExecutionStarted) {
+                    throw new Error("processor tool execution helpers are missing")
+                  }
+                  await Effect.runPromise(
+                    handle.recordToolExecutionStarted({
+                      tool: "offline",
+                      toolCallID: options.toolCallId,
+                      input: args,
+                    }),
+                  )
+                  await new Promise<never>(() => {})
+                },
+              }),
+            },
+          })
+
+          const toolParts = MessageV2.parts(msg.id).filter((part): part is MessageV2.ToolPart => part.type === "tool")
+          const storedMessages = yield* session.messages({ sessionID: chat.id })
+          const modelMessages = yield* MessageV2.toModelMessagesEffect(storedMessages, mdl)
+          const assistantModelMessage = modelMessages.find((message) => message.role === "assistant")
+          const toolModelCall =
+            assistantModelMessage && Array.isArray(assistantModelMessage.content)
+              ? assistantModelMessage.content.find(
+                  (part) => part.type === "tool-call" && part.toolCallId === "call_no_stream_dead_tool",
+                )
+              : undefined
+          const toolModelResult = modelMessages
+            .find((message) => message.role === "tool")
+            ?.content.find((part) => part.type === "tool-result" && part.toolCallId === "call_no_stream_dead_tool")
+
+          expect(toolParts).toHaveLength(1)
+          expect(toolParts[0]?.state.status).toBe("error")
+          if (toolParts[0]?.state.status === "error") {
+            expect(toolParts[0].tool).toBe("offline")
+            expect(toolParts[0].state.input).toEqual({ value: "stuck" })
+            expect(toolParts[0].state.error).toContain("may have started or completed")
+            expect(toolParts[0].state.error).toContain("do not repeat")
+            expect(toolParts[0].state.metadata?.interrupted).toBe(true)
+            expect(toolParts[0].state.metadata?.interruption_phase).toBe("tool_execution")
+            expect(toolParts[0].state.metadata?.tool_execution_started).toBe(true)
+          }
+          expect(toolModelCall).toMatchObject({
+            type: "tool-call",
+            toolCallId: "call_no_stream_dead_tool",
+            toolName: "offline",
+            input: { value: "stuck" },
+          })
+          expect(toolModelResult).toMatchObject({
+            type: "tool-result",
+            toolCallId: "call_no_stream_dead_tool",
+            toolName: "offline",
+            output: {
+              type: "error-text",
+              value: expect.stringContaining("do not repeat"),
+            },
+          })
+          const stored = storedMessages.find(
+            (message) => message.info.role === "assistant" && message.info.id === msg.id,
+          )
+          expect(stored?.info.role).toBe("assistant")
+          if (stored?.info.role === "assistant") {
+            expect(stored.info.error).toBeUndefined()
+            const evidence: Array<{ event_type: string; order: number }> =
+              stored.info.diagnostics?.run_observability?.incident?.evidence ?? []
+            const interruptedOrder = evidence.find((event) => event.event_type === "tool_execution_interrupted")?.order
+            const recoveryOrder = evidence.find((event) => event.event_type === "recovery_decision")?.order
+            expect(interruptedOrder).toBeDefined()
+            expect(recoveryOrder).toBeDefined()
+            expect(interruptedOrder!).toBeLessThan(recoveryOrder!)
+          }
+        }),
+      { git: true, config: providerCfg("http://localhost:1/v1") },
+    ),
+)
+
+capturedOnlyNoExecutionIt.live(
+  "session.processor effect tests does not treat captured input as started execution",
+  () =>
+    provideTmpdirInstance(
+      (dir) =>
+        Effect.gen(function* () {
+          const { processors, session, provider } = yield* boot()
+
+          const chat = yield* session.create({})
+          const parent = yield* user(chat.id, "captured input before execution")
+          const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+          const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+          const handle = yield* processors.create({
+            safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
+            assistantMessage: msg,
+            sessionID: chat.id,
+            model: mdl,
+          })
+
+          yield* handle.process({
+            user: {
+              id: parent.id,
+              sessionID: chat.id,
+              role: "user",
+              time: parent.time,
+              agent: parent.agent,
+              model: { providerID: ref.providerID, modelID: ref.modelID },
+              tools: { offline: true },
+            } satisfies MessageV2.User,
+            sessionID: chat.id,
+            model: mdl,
+            agent: agent(),
+            system: [],
+            messages: [{ role: "user", content: "captured input before execution" }],
+            toolDrainTimeoutMs: 25,
+            tools: {
+              offline: tool({
+                description: "Fake LLM captures input but never starts executing the tool",
+                inputSchema: z.object({ value: z.string() }),
+                execute: async (args, options) => {
+                  await Effect.runPromise(
+                    handle.recordToolInputCaptured({
+                      tool: "offline",
+                      toolCallID: options.toolCallId,
+                      input: args,
+                    }),
+                  )
+                  await new Promise<never>(() => {})
+                },
+              }),
+            },
+          })
+
+          const toolParts = MessageV2.parts(msg.id).filter((part): part is MessageV2.ToolPart => part.type === "tool")
+          const storedMessages = yield* session.messages({ sessionID: chat.id })
+          const modelMessages = yield* MessageV2.toModelMessagesEffect(storedMessages, mdl)
+          const toolModelResult = modelMessages
+            .find((message) => message.role === "tool")
+            ?.content.find(
+              (part) => part.type === "tool-result" && part.toolCallId === "call_captured_only_no_execution",
+            )
+
+          expect(toolParts).toHaveLength(1)
+          expect(toolParts[0]?.state.status).toBe("error")
+          if (toolParts[0]?.state.status === "error") {
+            expect(toolParts[0].tool).toBe("offline")
+            expect(toolParts[0].state.input).toEqual({ value: "pending" })
+            expect(toolParts[0].state.error).toBe("Tool call generation interrupted before the tool ran.")
+            expect(toolParts[0].state.error).not.toContain("do not repeat")
+            expect(toolParts[0].state.error).not.toContain("may have started or completed")
+            expect(toolParts[0].state.metadata?.interrupted).toBe(true)
+            expect(toolParts[0].state.metadata?.interruption_phase).toBe("tool_input_generation")
+            expect(toolParts[0].state.metadata?.tool_execution_started).toBe(false)
+          }
+          expect(toolModelResult).toMatchObject({
+            type: "tool-result",
+            toolCallId: "call_captured_only_no_execution",
+            toolName: "offline",
+            output: {
+              type: "error-text",
+              value: "Tool call generation interrupted before the tool ran.",
+            },
+          })
+        }),
+      { git: true, config: providerCfg("http://localhost:1/v1") },
+    ),
+)
+
+lateLifecycleAfterFinalizeIt.live(
+  "session.processor effect tests ignores late lifecycle callbacks after tool finalization",
+  () =>
+    provideTmpdirInstance(
+      (dir) =>
+        Effect.gen(function* () {
+          lateLifecycleAfterFinalizeState.complete = undefined
+          lateLifecycleAfterFinalizeState.fail = undefined
+          const { processors, session, provider } = yield* boot()
+
+          const chat = yield* session.create({})
+          const parent = yield* user(chat.id, "late lifecycle after finalize")
+          const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+          const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+          const handle = yield* processors.create({
+            safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
+            assistantMessage: msg,
+            sessionID: chat.id,
+            model: mdl,
+          })
+
+          yield* handle.process({
+            user: {
+              id: parent.id,
+              sessionID: chat.id,
+              role: "user",
+              time: parent.time,
+              agent: parent.agent,
+              model: { providerID: ref.providerID, modelID: ref.modelID },
+              tools: { offline: true },
+            } satisfies MessageV2.User,
+            sessionID: chat.id,
+            model: mdl,
+            agent: agent(),
+            system: [],
+            messages: [{ role: "user", content: "late lifecycle after finalize" }],
+            toolDrainTimeoutMs: 25,
+            tools: {
+              offline: tool({
+                description: "Fake LLM starts execution then disconnects before terminal callbacks",
+                inputSchema: z.object({ value: z.string() }),
+                execute: async (args, options) => {
+                  if (!handle.recordToolExecutionStarted || !handle.completeToolExecution || !handle.failToolExecution) {
+                    throw new Error("processor tool execution helpers are missing")
+                  }
+                  await Effect.runPromise(
+                    handle.recordToolExecutionStarted({
+                      tool: "offline",
+                      toolCallID: options.toolCallId,
+                      input: args,
+                    }),
+                  )
+                  lateLifecycleAfterFinalizeState.complete = () =>
+                    Effect.runPromise(
+                      handle.completeToolExecution!({
+                        toolCallID: options.toolCallId,
+                        output: {
+                          title: "offline",
+                          metadata: { marker: "late-complete" },
+                          output: "late output",
+                        },
+                      }),
+                    )
+                  lateLifecycleAfterFinalizeState.fail = () =>
+                    Effect.runPromise(
+                      handle.failToolExecution!({
+                        toolCallID: options.toolCallId,
+                        error: new Error("late failure"),
+                      }),
+                    )
+                  await new Promise<never>(() => {})
+                },
+              }),
+            },
+          })
+
+          if (!lateLifecycleAfterFinalizeState.complete || !lateLifecycleAfterFinalizeState.fail) {
+            throw new Error("tool execution callbacks were not captured")
+          }
+          const completed: () => Promise<void> = lateLifecycleAfterFinalizeState.complete
+          const failed: () => Promise<void> = lateLifecycleAfterFinalizeState.fail
+          const completedExit = yield* Effect.exit(
+            Effect.promise(() => completed()).pipe(Effect.timeout("250 millis")),
+          )
+          const failedExit = yield* Effect.exit(
+            Effect.promise(() => failed()).pipe(Effect.timeout("250 millis")),
+          )
+
+          const toolParts = MessageV2.parts(msg.id).filter((part): part is MessageV2.ToolPart => part.type === "tool")
+          expect(Exit.isSuccess(completedExit)).toBe(true)
+          expect(Exit.isSuccess(failedExit)).toBe(true)
+          expect(toolParts).toHaveLength(1)
+          expect(toolParts[0]?.state.status).toBe("error")
+          if (toolParts[0]?.state.status === "error") {
+            expect(toolParts[0].state.input).toEqual({ value: "stuck" })
+            expect(toolParts[0].state.error).toContain("do not repeat")
+            expect(toolParts[0].state.metadata?.interrupted).toBe(true)
+            expect(toolParts[0].state.metadata?.interruption_phase).toBe("tool_execution")
+            expect(toolParts[0].state.metadata?.marker).toBeUndefined()
+          }
+        }),
+      { git: true, config: providerCfg("http://localhost:1/v1") },
+    ),
+)
+
+it.live("session.processor effect tests waits for fast completed tool materialization before cleanup", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+        let executions = 0
+        let toolAbortSignalAborted: boolean | undefined
+
+        yield* llm.push(
+          raw({
+            head: [
+              {
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                choices: [{ delta: { role: "assistant" } }],
+              },
+              {
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                choices: [
+                  {
+                    delta: {
+                      tool_calls: [
+                        {
+                          index: 0,
+                          id: "call_fast_completed_tool",
+                          type: "function",
+                          function: { name: "fast", arguments: "" },
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+              {
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                choices: [
+                  {
+                    delta: {
+                      tool_calls: [
+                        {
+                          index: 0,
+                          function: { arguments: JSON.stringify({ value: "ok" }) },
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+              {
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                choices: [{ delta: {}, finish_reason: "tool_calls" }],
+              },
+            ],
+            hang: true,
+          }),
+        )
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "fast tool during stream reset")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+            tools: { fast: true },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "fast tool during stream reset" }],
+          streamTimeoutMs: 200,
+          tools: {
+            fast: tool({
+              description: "Completes immediately",
+              inputSchema: z.object({ value: z.string() }),
+              execute: async (args, options) => {
+                if (!handle.recordToolExecutionStarted || !handle.completeToolExecution) {
+                  throw new Error("processor tool execution helpers are missing")
+                }
+                executions += 1
+                await Effect.runPromise(
+                  handle.recordToolExecutionStarted({
+                    tool: "fast",
+                    toolCallID: options.toolCallId,
+                    input: args,
+                  }),
+                )
+                toolAbortSignalAborted = options.abortSignal?.aborted ?? false
+                const output = { output: "fast result", title: "fast", metadata: { marker: "fast-drained" } }
+                await Effect.runPromise(
+                  handle.completeToolExecution({
+                    toolCallID: options.toolCallId,
+                    output,
+                  }),
+                )
+                return output
+              },
+            }),
+          },
+        })
+
+        const parts = MessageV2.parts(msg.id)
+        const call = parts.find((part): part is MessageV2.ToolPart => part.type === "tool")
+        const stored = (yield* session.messages({ sessionID: chat.id })).find(
+          (message) => message.info.role === "assistant" && message.info.id === msg.id,
+        )
+
+        expect(executions).toBe(1)
+        expect(toolAbortSignalAborted).toBe(false)
+        expect(call?.state.status).toBe("completed")
+        if (call?.state.status === "completed") {
+          expect(call.state.output).toBe("fast result")
+          expect(call.state.metadata?.marker).toBe("fast-drained")
+          expect(call.state.metadata?.interrupted).toBeUndefined()
+        }
+        expect(stored?.info.role).toBe("assistant")
+        if (stored?.info.role === "assistant") {
+          expect(stored.info.error).toBeUndefined()
+          const observability = stored.info.diagnostics?.run_observability
+          expect(observability?.tool_execution_started).toBe(true)
+          expect(observability?.attempts?.[0]?.tool_execution_completed).toBe(true)
+          expect(observability?.pending_tool_parts_interrupted).toBeUndefined()
+        }
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
+lifecycleBeforeToolEventIt.live(
+  "session.processor effect tests persists tool completion when lifecycle beats stream materialization",
+  () =>
+    provideTmpdirInstance(
+      (dir) =>
+        Effect.gen(function* () {
+          lifecycleBeforeToolEventFailures.length = 0
+          const { processors, session, provider } = yield* boot()
+
+          const chat = yield* session.create({})
+          const parent = yield* user(chat.id, "lifecycle before stream materialization")
+          const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+          const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+          const handle = yield* processors.create({
+            safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
+            assistantMessage: msg,
+            sessionID: chat.id,
+            model: mdl,
+          })
+
+          yield* handle.process({
+            user: {
+              id: parent.id,
+              sessionID: chat.id,
+              role: "user",
+              time: parent.time,
+              agent: parent.agent,
+              model: { providerID: ref.providerID, modelID: ref.modelID },
+              tools: { fast: true },
+            } satisfies MessageV2.User,
+            sessionID: chat.id,
+            model: mdl,
+            agent: agent(),
+            system: [],
+            messages: [{ role: "user", content: "lifecycle before stream materialization" }],
+            toolDrainTimeoutMs: 100,
+            tools: {
+              fast: tool({
+                description: "Fake LLM executes this tool before stream materialization",
+                inputSchema: z.object({ value: z.string() }),
+                execute: async (args, options) => {
+                  if (!handle.recordToolExecutionStarted || !handle.completeToolExecution) {
+                    throw new Error("processor tool execution helpers are missing")
+                  }
+                  await Effect.runPromise(
+                    handle.recordToolExecutionStarted({
+                      tool: "fast",
+                      toolCallID: options.toolCallId,
+                      input: args,
+                    }),
+                  )
+                  void Effect.runPromise(
+                    handle.completeToolExecution({
+                      toolCallID: options.toolCallId,
+                      output: {
+                        title: "fast",
+                        metadata: { marker: "lifecycle-first" },
+                        output: "fast result",
+                      },
+                    }),
+                  ).catch((error) => lifecycleBeforeToolEventFailures.push(error))
+                  return { output: "unused" }
+                },
+              }),
+            },
+          })
+
+          const toolParts = MessageV2.parts(msg.id).filter((part): part is MessageV2.ToolPart => part.type === "tool")
+          const call = toolParts.find((part) => part.callID === "call_lifecycle_before_event")
+          const storedMessages = yield* session.messages({ sessionID: chat.id })
+          const modelMessages = yield* MessageV2.toModelMessagesEffect(storedMessages, mdl)
+          const assistantModelMessage = modelMessages.find((message) => message.role === "assistant")
+          const toolModelContent =
+            assistantModelMessage && Array.isArray(assistantModelMessage.content)
+              ? assistantModelMessage.content.find(
+                  (part) => part.type === "tool-call" && part.toolCallId === "call_lifecycle_before_event",
+                )
+              : undefined
+          expect(lifecycleBeforeToolEventFailures).toEqual([])
+          expect(toolParts.filter((part) => part.callID === "call_lifecycle_before_event")).toHaveLength(1)
+          expect(call?.state.status).toBe("completed")
+          if (call?.state.status === "completed") {
+            expect(call.state.input).toEqual({ value: "ok" })
+            expect(call.state.output).toBe("fast result")
+            expect(call.state.metadata?.marker).toBe("lifecycle-first")
+            expect(call.state.metadata?.interrupted).toBeUndefined()
+          }
+          expect(toolModelContent).toMatchObject({
+            type: "tool-call",
+            toolCallId: "call_lifecycle_before_event",
+            input: { value: "ok" },
+          })
+        }),
+      { git: true, config: providerCfg("http://localhost:1/v1") },
+    ),
+)
+
+it.live("session.processor effect tests keeps abort-aware executing tools interrupted on process abort", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+        const toolStarted = defer<void>()
+
+        yield* llm.push(
+          raw({
+            head: [
+              {
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                choices: [{ delta: { role: "assistant" } }],
+              },
+              {
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                choices: [
+                  {
+                    delta: {
+                      tool_calls: [
+                        {
+                          index: 0,
+                          id: "call_abort_aware_tool",
+                          type: "function",
+                          function: { name: "slow", arguments: "" },
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+              {
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                choices: [
+                  {
+                    delta: {
+                      tool_calls: [
+                        {
+                          index: 0,
+                          function: { arguments: JSON.stringify({ value: "ok" }) },
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+              {
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                choices: [{ delta: {}, finish_reason: "tool_calls" }],
+              },
+            ],
+            hang: true,
+          }),
+        )
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "abort executing tool")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const run = yield* handle
+          .process({
+            user: {
+              id: parent.id,
+              sessionID: chat.id,
+              role: "user",
+              time: parent.time,
+              agent: parent.agent,
+              model: { providerID: ref.providerID, modelID: ref.modelID },
+              tools: { slow: true },
+            } satisfies MessageV2.User,
+            sessionID: chat.id,
+            model: mdl,
+            agent: agent(),
+            system: [],
+            messages: [{ role: "user", content: "abort executing tool" }],
+            tools: {
+              slow: tool({
+                description: "Rejects when the processor aborts the tool signal",
+                inputSchema: z.object({ value: z.string() }),
+                execute: async (args, options) => {
+                  if (!handle.recordToolExecutionStarted) {
+                    throw new Error("processor tool execution helpers are missing")
+                  }
+                  await Effect.runPromise(
+                    handle.recordToolExecutionStarted({
+                      tool: "slow",
+                      toolCallID: options.toolCallId,
+                      input: args,
+                    }),
+                  )
+                  toolStarted.resolve()
+                  await new Promise<never>((_, reject) => {
+                    options.abortSignal?.addEventListener(
+                      "abort",
+                      () => reject(new DOMException("Tool cancelled", "AbortError")),
+                      { once: true },
+                    )
+                  })
+                },
+              }),
+            },
+          })
+          .pipe(Effect.forkChild)
+
+        yield* Effect.promise(() => toolStarted.promise)
+        yield* Fiber.interrupt(run)
+
+        const call = MessageV2.parts(msg.id).find((part): part is MessageV2.ToolPart => part.type === "tool")
+        expect(call?.state.status).toBe("error")
+        if (call?.state.status === "error") {
+          expect(call.state.error).toBe("Tool execution aborted")
+          expect(call.state.metadata?.interrupted).toBe(true)
+          expect(call.state.metadata?.interruption_phase).toBe("tool_execution")
+          expect(call.state.metadata?.tool_execution_started).toBe(true)
+        }
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
+it.live("session.processor effect tests bounds drain for dead tools after provider stream timeout", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+        const toolStarted = defer<void>()
+        let executions = 0
+
+        yield* llm.push(
+          raw({
+            head: [
+              {
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                choices: [{ delta: { role: "assistant" } }],
+              },
+              {
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                choices: [
+                  {
+                    delta: {
+                      tool_calls: [
+                        {
+                          index: 0,
+                          id: "call_dead_tool",
+                          type: "function",
+                          function: { name: "dead", arguments: "" },
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+              {
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                choices: [
+                  {
+                    delta: {
+                      tool_calls: [
+                        {
+                          index: 0,
+                          function: { arguments: JSON.stringify({ value: "ok" }) },
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+              {
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                choices: [{ delta: {}, finish_reason: "tool_calls" }],
+              },
+            ],
+            hang: true,
+          }),
+        )
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "dead tool after stream timeout")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const run = yield* handle
+          .process({
+            user: {
+              id: parent.id,
+              sessionID: chat.id,
+              role: "user",
+              time: parent.time,
+              agent: parent.agent,
+              model: { providerID: ref.providerID, modelID: ref.modelID },
+              tools: { dead: true },
+            } satisfies MessageV2.User,
+            sessionID: chat.id,
+            model: mdl,
+            agent: agent(),
+            system: [],
+            messages: [{ role: "user", content: "dead tool after stream timeout" }],
+            streamTimeoutMs: 100,
+            toolDrainTimeoutMs: 100,
+            tools: {
+              dead: tool({
+                description: "Never resolves",
+                inputSchema: z.object({ value: z.string() }),
+                execute: async (args, options) => {
+                  if (!handle.recordToolExecutionStarted) {
+                    throw new Error("processor tool execution helpers are missing")
+                  }
+                  executions += 1
+                  await Effect.runPromise(
+                    handle.recordToolExecutionStarted({
+                      tool: "dead",
+                      toolCallID: options.toolCallId,
+                      input: args,
+                    }),
+                  )
+                  toolStarted.resolve()
+                  await new Promise<never>(() => {})
+                },
+              }),
+            },
+          })
+          .pipe(Effect.forkChild)
+
+        yield* Effect.promise(() => toolStarted.promise)
+        yield* Fiber.join(run)
+
+        const call = MessageV2.parts(msg.id).find((part): part is MessageV2.ToolPart => part.type === "tool")
+        expect(executions).toBe(1)
+        expect(call?.state.status).toBe("error")
+        if (call?.state.status === "error") {
+          expect(call.state.error).toContain("do not repeat")
+          expect(call.state.metadata?.interrupted).toBe(true)
+          expect(call.state.metadata?.interruption_phase).toBe("tool_execution")
+          expect(call.state.metadata?.tool_execution_started).toBe(true)
+        }
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
+it.live(
+  "session.processor effect tests bounds default drain for dead tools after provider stream timeout",
+  () =>
+    provideTmpdirServer(
+      ({ dir, llm }) =>
+        Effect.gen(function* () {
+          const { processors, session, provider } = yield* boot()
+          const toolStarted = defer<void>()
+
+          yield* llm.push(
+            raw({
+              head: [
+                {
+                  id: "chatcmpl-test",
+                  object: "chat.completion.chunk",
+                  choices: [{ delta: { role: "assistant" } }],
+                },
+                {
+                  id: "chatcmpl-test",
+                  object: "chat.completion.chunk",
+                  choices: [
+                    {
+                      delta: {
+                        tool_calls: [
+                          {
+                            index: 0,
+                            id: "call_default_dead_tool",
+                            type: "function",
+                            function: { name: "dead", arguments: "" },
+                          },
+                        ],
+                      },
+                    },
+                  ],
+                },
+                {
+                  id: "chatcmpl-test",
+                  object: "chat.completion.chunk",
+                  choices: [
+                    {
+                      delta: {
+                        tool_calls: [
+                          {
+                            index: 0,
+                            function: { arguments: JSON.stringify({ value: "ok" }) },
+                          },
+                        ],
+                      },
+                    },
+                  ],
+                },
+                {
+                  id: "chatcmpl-test",
+                  object: "chat.completion.chunk",
+                  choices: [{ delta: {}, finish_reason: "tool_calls" }],
+                },
+              ],
+              hang: true,
+            }),
+          )
+
+          const chat = yield* session.create({})
+          const parent = yield* user(chat.id, "default dead tool after stream timeout")
+          const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+          const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+          const handle = yield* processors.create({
+            safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
+            assistantMessage: msg,
+            sessionID: chat.id,
+            model: mdl,
+          })
+
+          const run = yield* handle
+            .process({
+              user: {
+                id: parent.id,
+                sessionID: chat.id,
+                role: "user",
+                time: parent.time,
+                agent: parent.agent,
+                model: { providerID: ref.providerID, modelID: ref.modelID },
+                tools: { dead: true },
+              } satisfies MessageV2.User,
+              sessionID: chat.id,
+              model: mdl,
+              agent: agent(),
+              system: [],
+              messages: [{ role: "user", content: "default dead tool after stream timeout" }],
+              streamTimeoutMs: 100,
+              tools: {
+                dead: tool({
+                  description: "Never resolves",
+                  inputSchema: z.object({ value: z.string() }),
+                  execute: async (args, options) => {
+                    if (!handle.recordToolExecutionStarted) {
+                      throw new Error("processor tool execution helpers are missing")
+                    }
+                    await Effect.runPromise(
+                      handle.recordToolExecutionStarted({
+                        tool: "dead",
+                        toolCallID: options.toolCallId,
+                        input: args,
+                      }),
+                    )
+                    toolStarted.resolve()
+                    await new Promise<never>(() => {})
+                  },
+                }),
+              },
+            })
+            .pipe(Effect.forkChild)
+
+          yield* Effect.promise(() => toolStarted.promise)
+          const exit = yield* Fiber.join(run).pipe(Effect.timeout("3 seconds"), Effect.exit)
+          if (Exit.isFailure(exit)) yield* Fiber.interrupt(run)
+          expect(Exit.isSuccess(exit)).toBe(true)
+
+          const call = MessageV2.parts(msg.id).find((part): part is MessageV2.ToolPart => part.type === "tool")
+          expect(call?.state.status).toBe("error")
+          if (call?.state.status === "error") {
+            expect(call.state.error).toContain("do not repeat")
+            expect(call.state.metadata?.interrupted).toBe(true)
+            expect(call.state.metadata?.interruption_phase).toBe("tool_execution")
+          }
+        }),
+      { git: true, config: (url) => providerCfg(url) },
+    ),
+  10_000,
+)
+
+it.live("session.processor effect tests aborts tools while cleanup is draining", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+        const toolStarted = defer<void>()
+
+        yield* llm.push(
+          raw({
+            head: [
+              {
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                choices: [{ delta: { role: "assistant" } }],
+              },
+              {
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                choices: [
+                  {
+                    delta: {
+                      tool_calls: [
+                        {
+                          index: 0,
+                          id: "call_drain_abort_tool",
+                          type: "function",
+                          function: { name: "slow", arguments: "" },
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+              {
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                choices: [
+                  {
+                    delta: {
+                      tool_calls: [
+                        {
+                          index: 0,
+                          function: { arguments: JSON.stringify({ value: "ok" }) },
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+              {
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                choices: [{ delta: {}, finish_reason: "tool_calls" }],
+              },
+            ],
+            hang: true,
+          }),
+        )
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "abort cleanup drain")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const run = yield* handle
+          .process({
+            user: {
+              id: parent.id,
+              sessionID: chat.id,
+              role: "user",
+              time: parent.time,
+              agent: parent.agent,
+              model: { providerID: ref.providerID, modelID: ref.modelID },
+              tools: { slow: true },
+            } satisfies MessageV2.User,
+            sessionID: chat.id,
+            model: mdl,
+            agent: agent(),
+            system: [],
+            messages: [{ role: "user", content: "abort cleanup drain" }],
+            streamTimeoutMs: 100,
+            toolDrainTimeoutMs: 5_000,
+            tools: {
+              slow: tool({
+                description: "Rejects when cleanup drain is aborted",
+                inputSchema: z.object({ value: z.string() }),
+                execute: async (args, options) => {
+                  if (!handle.recordToolExecutionStarted) {
+                    throw new Error("processor tool execution helpers are missing")
+                  }
+                  await Effect.runPromise(
+                    handle.recordToolExecutionStarted({
+                      tool: "slow",
+                      toolCallID: options.toolCallId,
+                      input: args,
+                    }),
+                  )
+                  toolStarted.resolve()
+                  await new Promise<never>((_, reject) => {
+                    options.abortSignal?.addEventListener(
+                      "abort",
+                      () => reject(new DOMException("Tool cancelled", "AbortError")),
+                      { once: true },
+                    )
+                  })
+                },
+              }),
+            },
+          })
+          .pipe(Effect.forkChild)
+
+        yield* Effect.promise(() => toolStarted.promise)
+        yield* Effect.promise(() => Bun.sleep(400))
+        const abortStarted = Date.now()
+        expect(handle.abortTools).toBeDefined()
+        yield* handle.abortTools!()
+        yield* Fiber.join(run)
+
+        expect(Date.now() - abortStarted).toBeLessThan(2_500)
+        const call = MessageV2.parts(msg.id).find((part): part is MessageV2.ToolPart => part.type === "tool")
+        expect(call?.state.status).toBe("error")
+        if (call?.state.status === "error") {
+          expect(call.state.metadata?.interrupted).toBe(true)
+          expect(call.state.metadata?.interruption_phase).toBe("tool_execution")
         }
       }),
     { git: true, config: (url) => providerCfg(url) },

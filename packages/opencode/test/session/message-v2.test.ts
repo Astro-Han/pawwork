@@ -1306,6 +1306,56 @@ describe("session.message-v2.toModelMessage", () => {
     expect(await MessageV2.toModelMessages(input, model)).toStrictEqual([])
   })
 
+  test("filters fatal assistant errors even when a tool part is present", async () => {
+    const userID = "m-user"
+    const assistantID = "m-assistant"
+
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [
+          {
+            ...basePart(userID, "u1"),
+            type: "text",
+            text: "run tool",
+          },
+        ] as MessageV2.Part[],
+      },
+      {
+        info: assistantInfo(
+          assistantID,
+          userID,
+          new MessageV2.APIError({
+            message: "fatal provider failure",
+            isRetryable: false,
+          }).toObject() as MessageV2.APIError,
+        ),
+        parts: [
+          {
+            ...basePart(assistantID, "a1"),
+            type: "tool",
+            callID: "call-fatal",
+            tool: "bash",
+            state: {
+              status: "error",
+              input: { cmd: "deploy" },
+              error: "tool-level error is not enough to recover a fatal assistant turn",
+              time: { start: 0, end: 1 },
+              metadata: {},
+            },
+          },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    expect(await MessageV2.toModelMessages(input, model)).toStrictEqual([
+      {
+        role: "user",
+        content: [{ type: "text", text: "run tool" }],
+      },
+    ])
+  })
+
   test("includes aborted assistant messages only when they have non-step-start/reasoning content", async () => {
     const assistantID1 = "m-assistant-1"
     const assistantID2 = "m-assistant-2"

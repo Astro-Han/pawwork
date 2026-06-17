@@ -26,6 +26,7 @@ import { isRecord } from "@/util/record"
 import { InstanceState } from "@/effect/instance-state"
 import { TurnChange } from "./turn-change"
 import { LLMTrace } from "./llm-trace"
+import type { RunIncident } from "./run-incident"
 import { RunObservability } from "./run-observability"
 import {
   currentLifecycleCloseAction,
@@ -36,6 +37,7 @@ import {
 
 const log = Log.create({ service: "session.processor" })
 const TOOL_CLEANUP_TIMEOUT_MS = 1_000
+const DEFAULT_TOOL_DRAIN_TIMEOUT_MS = 2_000
 export const REASONING_FIRST_ATTEMPT_CONNECT_TIMEOUT_MS = 60_000
 export const REASONING_SAFE_RETRY_CONNECT_TIMEOUT_MS = 120_000
 const LOCAL_LIFECYCLE_CLOSE_INTERRUPTION_MESSAGE = "The run was interrupted by a local lifecycle close."
@@ -43,6 +45,10 @@ const LOCAL_LIFECYCLE_CLOSE_INTERRUPTION_MESSAGE = "The run was interrupted by a
 export type Result = "compact" | "stop" | "continue"
 
 export type Event = LLM.Event
+
+type ProcessInput = LLM.StreamInput & {
+  toolDrainTimeoutMs?: number
+}
 
 export interface Handle {
   readonly message: MessageV2.Assistant
@@ -52,17 +58,30 @@ export interface Handle {
   ) => Effect.Effect<MessageV2.ToolPart | undefined>
   readonly completeToolCall: (
     toolCallID: string,
-    output: {
-      title: string
-      metadata: Record<string, any>
-      output: string
-      attachments?: MessageV2.FilePart[]
-    },
+    output: ToolLifecycleOutput,
   ) => Effect.Effect<void>
-  readonly recordToolExecutionStarted?: (input: { tool: string; toolCallID: string }) => Effect.Effect<void>
-  readonly recordToolExecutionCompleted?: (input: { toolCallID: string }) => Effect.Effect<void>
-  readonly recordToolExecutionFailed?: (input: { toolCallID: string; error?: unknown }) => Effect.Effect<void>
-  readonly process: (streamInput: LLM.StreamInput) => Effect.Effect<Result>
+  readonly completeToolExecution: (input: {
+    toolCallID: string
+    output: ToolLifecycleOutput
+  }) => Effect.Effect<void>
+  readonly failToolExecution: (input: {
+    toolCallID: string
+    error: unknown
+  }) => Effect.Effect<void>
+  readonly recordToolInputCaptured: (input: {
+    tool: string
+    toolCallID: string
+    input: unknown
+  }) => Effect.Effect<void>
+  readonly recordToolExecutionStarted: (input: {
+    tool: string
+    toolCallID: string
+    input: unknown
+  }) => Effect.Effect<void>
+  readonly recordToolExecutionCompleted: (input: { toolCallID: string }) => Effect.Effect<void>
+  readonly recordToolExecutionFailed: (input: { toolCallID: string; error?: unknown }) => Effect.Effect<void>
+  readonly abortTools?: () => Effect.Effect<void>
+  readonly process: (streamInput: ProcessInput) => Effect.Effect<Result>
   readonly errorRecords: (parentID: MessageV2.Assistant["parentID"]) => SessionDiagnostics.ToolErrorRecord[]
   readonly syntheticBlockSigKeys: (parentID: MessageV2.Assistant["parentID"]) => string[]
   readonly hasStopped: (parentID: MessageV2.Assistant["parentID"]) => boolean
@@ -110,14 +129,31 @@ export interface Interface {
   readonly create: (input: Input) => Effect.Effect<Handle>
 }
 
-type ToolCall = {
-  partID: MessageV2.ToolPart["id"]
-  messageID: MessageV2.ToolPart["messageID"]
-  sessionID: MessageV2.ToolPart["sessionID"]
-  done: Deferred.Deferred<void>
+type ToolLifecycleRecord = {
+  partID?: MessageV2.ToolPart["id"]
+  messageID?: MessageV2.ToolPart["messageID"]
+  sessionID?: MessageV2.ToolPart["sessionID"]
+  inputReady: Deferred.Deferred<void>
+  terminalDone: Deferred.Deferred<void>
   attemptID?: RunObservability.AttemptID
-  materialized?: boolean
-  executionStarted?: boolean
+  callMaterialized?: boolean
+  captured?: {
+    toolName: string
+    input: Record<string, any>
+    at: number
+  }
+  executionStartedAt?: number
+  recordedEvents?: Set<ToolLifecycleRecordedEvent>
+  settled?: boolean
+}
+
+type ToolLifecycleRecordedEvent = "started" | "completed" | "failed"
+
+type ToolLifecycleOutput = {
+  title: string
+  metadata: Record<string, any>
+  output: string
+  attachments?: MessageV2.FilePart[]
 }
 
 type ToolInterruptionPhase = "tool_input_generation" | "tool_call_materialized_without_execution" | "tool_execution"
@@ -127,6 +163,10 @@ const TOOL_INTERRUPTION_ERRORS: Record<ToolInterruptionPhase, string> = {
   tool_call_materialized_without_execution: "Tool call was prepared, but the tool did not run before the interruption.",
   tool_input_generation: "Tool call generation interrupted before the tool ran.",
 }
+// Persisted into the tool result, so the next model turn can see that rerunning
+// this side-effecting call is unsafe until the external state is checked.
+const UNRESOLVED_TOOL_EXECUTION_CAUTION =
+  "Tool execution was interrupted after it started. The operation may have started or completed; do not repeat it without verifying the external state or asking the user."
 
 function watchdogPhase(error: unknown): "connect" | "silent_stream" | "unknown" | undefined {
   const message = errorMessage(error).toLowerCase()
@@ -209,7 +249,7 @@ type PendingLoopAction = {
 
 interface ProcessorContext extends Input {
   directory: string
-  toolcalls: Record<string, ToolCall>
+  toolcalls: Record<string, ToolLifecycleRecord>
   pendingLoopActions: Record<string, PendingLoopAction>
   pendingToolUpdates: Record<string, Array<(part: MessageV2.ToolPart) => MessageV2.ToolPart>>
   shouldBreak: boolean
@@ -289,8 +329,19 @@ export const layer: Layer.Layer<
     const scope = yield* Scope.Scope
     const status = yield* SessionStatus.Service
     const turnChange = yield* TurnChange.Service
-
     const create = Effect.fn("SessionProcessor.create")(function* (input: Input) {
+      const toolAbortCallbacks = new Set<() => void>()
+      const registerToolAbortCallback = (callback: () => void) => {
+        toolAbortCallbacks.add(callback)
+        return () => {
+          toolAbortCallbacks.delete(callback)
+        }
+      }
+
+      const abortHandleTools = () => {
+        for (const callback of toolAbortCallbacks) callback()
+      }
+
       // Pre-capture snapshot before the LLM stream starts. The AI SDK
       // may execute tools internally before emitting start-step events,
       // so capturing inside the event handler can be too late.
@@ -339,6 +390,11 @@ export const layer: Layer.Layer<
         terminalClassification: undefined,
       }
       let aborted = false
+      let toolDrainTimeoutMs = DEFAULT_TOOL_DRAIN_TIMEOUT_MS
+      let toolAbortRequested: Deferred.Deferred<void> | undefined
+      let currentStreamStopRequested: Deferred.Deferred<void> | undefined
+      const closedToolLifecycleAttempts = new Set<RunObservability.AttemptID>()
+      const closedToolLifecycleCalls = new Set<string>()
       const slog = log.clone().tag("sessionID", input.sessionID).tag("messageID", input.assistantMessage.id)
 
       const parse = (e: unknown) =>
@@ -347,21 +403,79 @@ export const layer: Layer.Layer<
           aborted,
         })
 
+      const releaseToolLifecycleWaiters = Effect.fn("SessionProcessor.releaseToolLifecycleWaiters")(function* (
+        call: ToolLifecycleRecord,
+      ) {
+        yield* Effect.all(
+          [
+            Deferred.succeed(call.inputReady, undefined),
+            Deferred.succeed(call.terminalDone, undefined),
+          ],
+          { concurrency: "unbounded", discard: true },
+        ).pipe(Effect.ignore)
+      })
+
       const settleToolCall = Effect.fn("SessionProcessor.settleToolCall")(function* (toolCallID: string) {
-        const done = ctx.toolcalls[toolCallID]?.done
-        delete ctx.toolcalls[toolCallID]
-        if (done) yield* Deferred.succeed(done, undefined).pipe(Effect.ignore)
+        const call = ctx.toolcalls[toolCallID]
+        if (!call) return
+        closedToolLifecycleCalls.add(toolCallID)
+        call.settled = true
+        yield* releaseToolLifecycleWaiters(call)
+      })
+
+      const hasToolPart = (
+        call: ToolLifecycleRecord,
+      ): call is ToolLifecycleRecord &
+        Required<Pick<ToolLifecycleRecord, "partID" | "messageID" | "sessionID">> =>
+        call.partID !== undefined && call.messageID !== undefined && call.sessionID !== undefined
+
+      const hasToolExecutionStarted = (
+        call: ToolLifecycleRecord,
+      ): call is ToolLifecycleRecord & { executionStartedAt: number } => call.executionStartedAt !== undefined
+
+      const isToolLifecycleAttemptClosed = (attemptID: RunObservability.AttemptID | undefined) =>
+        attemptID !== undefined && closedToolLifecycleAttempts.has(attemptID)
+      const isToolLifecycleClosed = (
+        toolCallID: string,
+        attemptID: RunObservability.AttemptID | undefined,
+      ) => closedToolLifecycleCalls.has(toolCallID) || isToolLifecycleAttemptClosed(attemptID)
+
+      const markToolLifecycleEventRecorded = (
+        call: ToolLifecycleRecord,
+        event: ToolLifecycleRecordedEvent,
+      ): boolean => {
+        const recorded = (call.recordedEvents ??= new Set())
+        if (recorded.has(event)) return false
+        recorded.add(event)
+        return true
+      }
+
+      const getToolLifecycleRecord = Effect.fn("SessionProcessor.getToolLifecycleRecord")(function* (
+        toolCallID: string,
+        attemptID?: RunObservability.AttemptID,
+      ) {
+        if (isToolLifecycleClosed(toolCallID, attemptID)) return
+        let call = ctx.toolcalls[toolCallID]
+        if (!call) {
+          call = {
+            inputReady: yield* Deferred.make<void>(),
+            terminalDone: yield* Deferred.make<void>(),
+          }
+          ctx.toolcalls[toolCallID] = call
+        }
+        return call
       })
 
       const readToolCall = Effect.fn("SessionProcessor.readToolCall")(function* (toolCallID: string) {
         const call = ctx.toolcalls[toolCallID]
-        if (!call) return
+        if (!call || !hasToolPart(call)) return
         const part = yield* session.getPart({
           partID: call.partID,
           messageID: call.messageID,
           sessionID: call.sessionID,
         })
         if (!part || part.type !== "tool") {
+          closedToolLifecycleCalls.add(toolCallID)
           delete ctx.toolcalls[toolCallID]
           return
         }
@@ -371,32 +485,84 @@ export const layer: Layer.Layer<
       const toolCallAttemptID = (toolCallID: string, fallbackAttemptID = ctx.currentAttemptID) =>
         ctx.toolcalls[toolCallID]?.attemptID ?? fallbackAttemptID
 
+      const stopCurrentStream = Effect.fn("SessionProcessor.stopCurrentStream")(function* () {
+        if (!currentStreamStopRequested) return
+        yield* Deferred.succeed(currentStreamStopRequested, undefined).pipe(Effect.ignore)
+      })
+
+      const waitForToolCallReady = Effect.fn("SessionProcessor.waitForToolCallReady")(function* (
+        toolCallID: string,
+      ) {
+        let call: ToolLifecycleRecord | undefined = ctx.toolcalls[toolCallID]
+        if (call?.settled) return
+        if (!call || !hasToolPart(call)) {
+          call = yield* getToolLifecycleRecord(toolCallID)
+          if (!call) return
+        }
+        if (!call || call.settled) return
+        yield* Deferred.await(call.inputReady)
+      })
+
+      const cloneCapturedToolInput = (input: unknown): Record<string, any> => {
+        const normalized = isRecord(input) ? input : { value: input }
+        try {
+          return structuredClone(normalized)
+        } catch {
+          return { ...normalized }
+        }
+      }
+
+      const recordToolInputCaptured = Effect.fn("SessionProcessor.recordToolInputCaptured")(function* (input: {
+        tool: string
+        toolCallID: string
+        input: unknown
+      }, attemptID?: RunObservability.AttemptID) {
+        const activeAttemptID = attemptID ?? ctx.currentAttemptID
+        const call = yield* getToolLifecycleRecord(input.toolCallID, activeAttemptID)
+        if (!call) return
+        call.captured ??= {
+          toolName: input.tool,
+          input: cloneCapturedToolInput(input.input),
+          at: Date.now(),
+        }
+        call.attemptID ??= activeAttemptID
+      })
+
       const recordToolExecutionStarted = Effect.fn("SessionProcessor.recordToolExecutionStarted")(function* (input: {
         tool: string
         toolCallID: string
-      }) {
-        const call = ctx.toolcalls[input.toolCallID]
-        const attemptID = toolCallAttemptID(input.toolCallID)
-        if (call) {
-          call.executionStarted = true
-          call.attemptID ??= ctx.currentAttemptID
-        }
-        if (!attemptID) return
-        ctx.runTrace.recordToolExecutionStarted({
-          attemptID,
+        input: unknown
+      }, attemptID?: RunObservability.AttemptID) {
+        const activeAttemptID = attemptID ?? ctx.currentAttemptID
+        const call = yield* getToolLifecycleRecord(input.toolCallID, activeAttemptID)
+        if (!call) return
+        const lifecycleAttemptID = toolCallAttemptID(input.toolCallID, activeAttemptID)
+        const captured = call.captured ?? {
+          toolName: input.tool,
+          input: cloneCapturedToolInput(input.input),
           at: Date.now(),
+        }
+        call.captured ??= captured
+        call.executionStartedAt ??= Date.now()
+        call.attemptID ??= activeAttemptID
+        if (!lifecycleAttemptID || !markToolLifecycleEventRecorded(call, "started")) return
+        ctx.runTrace.recordToolExecutionStarted({
+          attemptID: lifecycleAttemptID,
+          at: call.executionStartedAt,
           monotonicMs: performance.now(),
-          toolName: RunObservability.safeToolName(input.tool),
-          effect: RunObservability.toolEffect(input.tool),
+          toolName: RunObservability.safeToolName(captured.toolName),
+          effect: RunObservability.toolEffect(captured.toolName),
         })
       })
 
       const recordToolExecutionCompleted = Effect.fn("SessionProcessor.recordToolExecutionCompleted")(
-        function* (input: { toolCallID: string }) {
-          const attemptID = toolCallAttemptID(input.toolCallID)
-          if (!attemptID) return
+        function* (input: { toolCallID: string }, attemptID?: RunObservability.AttemptID) {
+          if (isToolLifecycleAttemptClosed(attemptID)) return
+          const call = ctx.toolcalls[input.toolCallID]
+          const lifecycleAttemptID = toolCallAttemptID(input.toolCallID, attemptID ?? ctx.currentAttemptID)
+          if (!call || !lifecycleAttemptID || !markToolLifecycleEventRecorded(call, "completed")) return
           ctx.runTrace.recordToolCompleted({
-            attemptID,
+            attemptID: lifecycleAttemptID,
             at: Date.now(),
             monotonicMs: performance.now(),
           })
@@ -406,11 +572,13 @@ export const layer: Layer.Layer<
       const recordToolExecutionFailed = Effect.fn("SessionProcessor.recordToolExecutionFailed")(function* (input: {
         toolCallID: string
         error?: unknown
-      }) {
-        const attemptID = toolCallAttemptID(input.toolCallID)
-        if (!attemptID) return
+      }, attemptID?: RunObservability.AttemptID) {
+        if (isToolLifecycleAttemptClosed(attemptID)) return
+        const call = ctx.toolcalls[input.toolCallID]
+        const lifecycleAttemptID = toolCallAttemptID(input.toolCallID, attemptID ?? ctx.currentAttemptID)
+        if (!call || !lifecycleAttemptID || !markToolLifecycleEventRecorded(call, "failed")) return
         ctx.runTrace.recordToolFailed({
-          attemptID,
+          attemptID: lifecycleAttemptID,
           at: Date.now(),
           monotonicMs: performance.now(),
           error: input.error,
@@ -630,23 +798,65 @@ export const layer: Layer.Layer<
         }
       }
 
+      const ensureToolPartForTerminal = Effect.fn("SessionProcessor.ensureToolPartForTerminal")(function* (
+        toolCallID: string,
+        call: ToolLifecycleRecord,
+      ) {
+        const existing = yield* readToolCall(toolCallID)
+        if (existing) return existing
+        const captured = call.captured
+        if (!captured) return
+        const part = yield* session.updatePart({
+          id: call.partID ?? PartID.ascending(),
+          messageID: ctx.assistantMessage.id,
+          sessionID: ctx.assistantMessage.sessionID,
+          type: "tool",
+          tool: captured.toolName,
+          callID: toolCallID,
+          state: {
+            status: "pending",
+            input: captured.input,
+            raw: "",
+          },
+        } satisfies MessageV2.ToolPart)
+        ctx.toolcalls[toolCallID] = {
+          ...call,
+          partID: part.id,
+          messageID: part.messageID,
+          sessionID: part.sessionID,
+        }
+        yield* applyPendingToolUpdates(toolCallID)
+        return yield* readToolCall(toolCallID)
+      })
+
+      const toolTerminalInput = (call: ToolLifecycleRecord, part: MessageV2.ToolPart) =>
+        call.captured?.input ?? part.state.input
+
+      const toolTerminalStart = (call: ToolLifecycleRecord, part: MessageV2.ToolPart, fallback: number) =>
+        "time" in part.state ? part.state.time.start : (call.executionStartedAt ?? call.captured?.at ?? fallback)
+
       const completeToolCall = Effect.fn("SessionProcessor.completeToolCall")(function* (
         toolCallID: string,
-        output: {
-          title: string
-          metadata: Record<string, any>
-          output: string
-          attachments?: MessageV2.FilePart[]
-        },
+        output: ToolLifecycleOutput,
       ) {
-        const match = yield* readToolCall(toolCallID)
-        if (!match || match.part.state.status !== "running") return
+        let match = yield* readToolCall(toolCallID)
+        const call = match?.call ?? ctx.toolcalls[toolCallID]
+        if (!call || call.settled) return
+        if (!match) match = yield* ensureToolPartForTerminal(toolCallID, call)
+        if (
+          !match ||
+          (match.part.state.status !== "running" &&
+            !(match.part.state.status === "pending" && hasToolExecutionStarted(match.call)))
+        )
+          return
         const diagnostics = toolDiagnostics(match.part)
+        const end = Date.now()
+        const start = toolTerminalStart(match.call, match.part, end)
         yield* session.updatePart({
           ...match.part,
           state: {
             status: "completed",
-            input: match.part.state.input,
+            input: toolTerminalInput(match.call, match.part),
             output: output.output,
             metadata: diagnostics
               ? SessionDiagnostics.mergeMetadata(output.metadata, {
@@ -660,7 +870,7 @@ export const layer: Layer.Layer<
                 })
               : output.metadata,
             title: output.title,
-            time: { start: match.part.state.time.start, end: Date.now() },
+            time: { start, end },
             attachments: output.attachments,
           },
         })
@@ -668,12 +878,16 @@ export const layer: Layer.Layer<
       })
 
       const failToolCall = Effect.fn("SessionProcessor.failToolCall")(function* (toolCallID: string, error: unknown) {
-        const match = yield* readToolCall(toolCallID)
+        let match = yield* readToolCall(toolCallID)
+        const call = match?.call ?? ctx.toolcalls[toolCallID]
+        if (!call || call.settled) return false
+        if (!match) match = yield* ensureToolPartForTerminal(toolCallID, call)
         if (!match) return false
         const pending = ctx.pendingLoopActions[toolCallID]
         if (pending) {
           delete ctx.pendingLoopActions[toolCallID]
           const existingMeta = toolStateMetadata(match.part)
+          const terminalInput = toolTerminalInput(match.call, match.part)
           const metadata = SessionDiagnostics.mergeMetadata(existingMeta, {
             diagnostics: {
               loop: {
@@ -689,12 +903,12 @@ export const layer: Layer.Layer<
             },
           })
           const end = Date.now()
-          const start = "time" in match.part.state ? match.part.state.time.start : end
+          const start = toolTerminalStart(match.call, match.part, end)
           yield* session.updatePart({
             ...match.part,
             state: {
               status: "error",
-              input: match.part.state.input,
+              input: terminalInput,
               error: pending.errorMessage,
               metadata,
               time: { start, end },
@@ -712,15 +926,20 @@ export const layer: Layer.Layer<
             ctx.blocked = true
           }
           yield* settleToolCall(toolCallID)
+          yield* stopCurrentStream()
           return true
         }
-        if (match.part.state.status !== "running") {
+        if (
+          match.part.state.status !== "running" &&
+          !(match.part.state.status === "pending" && hasToolExecutionStarted(match.call))
+        ) {
           yield* settleToolCall(toolCallID)
           return false
         }
         const inflightLoop = toolDiagnostics(match.part)?.loop
         const inputHash = inflightLoop?.inputHash
         const targetHash = inflightLoop?.targetHashIsFallback ? undefined : inflightLoop?.targetHash
+        const terminalInput = toolTerminalInput(match.call, match.part)
         const diagnostics: SessionDiagnostics.Metadata["diagnostics"] | undefined = ctx.assistantMessage.parentID
           ? SessionDiagnostics.observeToolError({
               records: errorRecords(ctx.assistantMessage.parentID),
@@ -729,7 +948,7 @@ export const layer: Layer.Layer<
               tool: match.part.tool,
               inputHash,
               targetHash,
-              originalInput: match.part.state.input,
+              originalInput: terminalInput,
               error,
             }).record.metadata.diagnostics
           : toolDiagnostics(match.part)
@@ -739,11 +958,13 @@ export const layer: Layer.Layer<
         // so the renderer's substring fallback for non-question tool errors
         // continues to fire.
         const reason = error instanceof ExternalResult.Error ? error.reason : undefined
+        const end = Date.now()
+        const start = toolTerminalStart(match.call, match.part, end)
         yield* session.updatePart({
           ...match.part,
           state: {
             status: "error",
-            input: match.part.state.input,
+            input: terminalInput,
             error: errorMessage(error),
             ...(reason !== undefined ? { reason } : {}),
             metadata: SessionDiagnostics.mergeMetadata(toolStateMetadata(match.part), {
@@ -752,7 +973,7 @@ export const layer: Layer.Layer<
                 failure: classifyToolFailure({ tool: match.part.tool, error }),
               },
             }),
-            time: { start: match.part.state.time.start, end: Date.now() },
+            time: { start, end },
           },
         })
         if (error instanceof Permission.RejectedError) {
@@ -760,6 +981,51 @@ export const layer: Layer.Layer<
         }
         yield* settleToolCall(toolCallID)
         return true
+      })
+
+      const applyCompletedToolLifecycle = Effect.fn("SessionProcessor.applyCompletedToolLifecycle")(function* (input: {
+        toolCallID: string
+        output: ToolLifecycleOutput
+      }, options?: { waitForReady?: boolean; attemptID?: RunObservability.AttemptID }) {
+        if (options?.waitForReady !== false) yield* waitForToolCallReady(input.toolCallID)
+        yield* recordToolExecutionCompleted({ toolCallID: input.toolCallID }, options?.attemptID)
+        yield* completeToolCall(input.toolCallID, input.output)
+      })
+
+      const applyFailedToolLifecycle = Effect.fn("SessionProcessor.applyFailedToolLifecycle")(function* (input: {
+        toolCallID: string
+        error: unknown
+      }, options?: { waitForReady?: boolean; attemptID?: RunObservability.AttemptID }) {
+        if (options?.waitForReady !== false) yield* waitForToolCallReady(input.toolCallID)
+        yield* recordToolExecutionFailed(input, options?.attemptID)
+        yield* failToolCall(input.toolCallID, input.error)
+      })
+
+      const completeToolExecution = Effect.fn("SessionProcessor.completeToolExecution")(function* (input: {
+        toolCallID: string
+        output: ToolLifecycleOutput
+      }, attemptID?: RunObservability.AttemptID) {
+        const call = yield* getToolLifecycleRecord(input.toolCallID, attemptID)
+        if (!call) return
+        if (call.settled) return
+        yield* applyCompletedToolLifecycle(input, { attemptID })
+      })
+
+      const failToolExecution = Effect.fn("SessionProcessor.failToolExecution")(function* (input: {
+        toolCallID: string
+        error: unknown
+      }, attemptID?: RunObservability.AttemptID) {
+        if (isToolLifecycleAttemptClosed(attemptID)) return
+        const call = ctx.toolcalls[input.toolCallID]
+        if (call && hasToolPart(call) && ctx.pendingLoopActions[input.toolCallID]) {
+          yield* recordToolExecutionFailed(input, attemptID)
+          yield* failToolCall(input.toolCallID, input.error)
+          return
+        }
+        const lifecycle = call ?? (yield* getToolLifecycleRecord(input.toolCallID, attemptID))
+        if (!lifecycle) return
+        if (lifecycle.settled) return
+        yield* applyFailedToolLifecycle(input, { attemptID })
       })
 
       const handleEvent = Effect.fnUntraced(function* (value: StreamEvent, attemptID: RunObservability.AttemptID) {
@@ -849,12 +1115,15 @@ export const layer: Layer.Layer<
             delete ctx.reasoningMap[value.id]
             return
 
-          case "tool-input-start":
+          case "tool-input-start": {
             if (ctx.assistantMessage.summary) {
               throw new Error(`Tool call not allowed while generating summary: ${value.toolName}`)
             }
+            const lifecycle = yield* getToolLifecycleRecord(value.id, attemptID)
+            if (!lifecycle) return
+            if (lifecycle.settled) return
             const part = yield* session.updatePart({
-              id: ctx.toolcalls[value.id]?.partID ?? PartID.ascending(),
+              id: lifecycle.partID ?? PartID.ascending(),
               messageID: ctx.assistantMessage.id,
               sessionID: ctx.assistantMessage.sessionID,
               type: "tool",
@@ -864,14 +1133,33 @@ export const layer: Layer.Layer<
               metadata: value.providerExecuted ? { providerExecuted: true } : undefined,
             } satisfies MessageV2.ToolPart)
             ctx.toolcalls[value.id] = {
-              done: yield* Deferred.make<void>(),
+              ...lifecycle,
               partID: part.id,
               messageID: part.messageID,
               sessionID: part.sessionID,
               attemptID,
             }
+            const current = ctx.toolcalls[value.id]
+            if (
+              hasToolExecutionStarted(current) &&
+              current.captured &&
+              markToolLifecycleEventRecorded(current, "started")
+            ) {
+              ctx.runTrace.recordToolExecutionStarted({
+                attemptID,
+                at: current.executionStartedAt,
+                monotonicMs: performance.now(),
+                toolName: RunObservability.safeToolName(current.captured.toolName),
+                effect: RunObservability.toolEffect(current.captured.toolName),
+              })
+            }
             yield* applyPendingToolUpdates(value.id)
+            const readyPart = yield* readToolCall(value.id)
+            if (current.callMaterialized && readyPart) {
+              yield* Deferred.succeed(current.inputReady, undefined).pipe(Effect.ignore)
+            }
             return
+          }
 
           case "tool-input-delta":
             return
@@ -885,7 +1173,8 @@ export const layer: Layer.Layer<
             }
             const tracked = ctx.toolcalls[value.toolCallId]
             if (tracked) {
-              tracked.materialized = true
+              if (tracked.settled) return
+              tracked.callMaterialized = true
               tracked.attemptID ??= attemptID
             }
             let running = yield* updateToolCall(value.toolCallId, (match) => ({
@@ -903,8 +1192,12 @@ export const layer: Layer.Layer<
             }))
             yield* applyPendingToolUpdates(value.toolCallId)
             const refreshed = yield* readToolCall(value.toolCallId)
-            if (refreshed) running = refreshed.part
-            if (!ctx.assistantMessage.parentID) return
+            running = refreshed?.part
+            const inputReady = ctx.toolcalls[value.toolCallId]?.inputReady
+            if (!ctx.assistantMessage.parentID) {
+              if (inputReady && running) yield* Deferred.succeed(inputReady, undefined).pipe(Effect.ignore)
+              return
+            }
             const info = yield* session.get(ctx.sessionID)
             const observed = SessionDiagnostics.observeToolCall({
               records: loopRecords(ctx.assistantMessage.parentID),
@@ -926,6 +1219,7 @@ export const layer: Layer.Layer<
             })
             if (running) yield* session.updatePart(withDiagnostics(running))
             else yield* updateToolCall(value.toolCallId, withDiagnostics)
+            if (inputReady && running) yield* Deferred.succeed(inputReady, undefined).pipe(Effect.ignore)
             return
           }
 
@@ -935,6 +1229,28 @@ export const layer: Layer.Layer<
           }
 
           case "tool-error": {
+            const tracked = ctx.toolcalls[value.toolCallId]
+            if (tracked) {
+              if (tracked.settled) return
+              tracked.callMaterialized = true
+              tracked.attemptID ??= attemptID
+            }
+            yield* updateToolCall(value.toolCallId, (match) => ({
+              ...match,
+              tool: value.toolName,
+              state: {
+                ...match.state,
+                status: "running",
+                input: value.input,
+                time: { start: "time" in match.state ? match.state.time.start : Date.now() },
+              },
+              metadata: match.metadata?.providerExecuted
+                ? { ...value.providerMetadata, providerExecuted: true }
+                : value.providerMetadata,
+            }))
+            yield* applyPendingToolUpdates(value.toolCallId)
+            const inputReady = ctx.toolcalls[value.toolCallId]?.inputReady
+            if (inputReady) yield* Deferred.succeed(inputReady, undefined).pipe(Effect.ignore)
             yield* failToolCall(value.toolCallId, value.error)
             return
           }
@@ -1069,6 +1385,147 @@ export const layer: Layer.Layer<
         }
       })
 
+      const prepareToolLifecyclesForDrain = Effect.fn("SessionProcessor.prepareToolLifecyclesForDrain")(function* () {
+        for (const call of Object.values(ctx.toolcalls)) {
+          if (hasToolExecutionStarted(call) && (call.callMaterialized !== true || !hasToolPart(call))) {
+            yield* Deferred.succeed(call.inputReady, undefined).pipe(Effect.ignore)
+          }
+        }
+      })
+
+      const drainToolLifecycles = Effect.fn("SessionProcessor.drainToolLifecycles")(function* () {
+        const callsToDrain = Object.values(ctx.toolcalls).filter(
+          (call) => !call.settled && (hasToolExecutionStarted(call) || (aborted && hasToolPart(call))),
+        )
+        yield* Effect.forEach(
+          callsToDrain,
+          (call) => {
+            const wait = Deferred.await(call.terminalDone)
+            if (aborted) return wait.pipe(Effect.timeout(`${TOOL_CLEANUP_TIMEOUT_MS} millis`), Effect.ignore)
+            const drain = wait.pipe(Effect.timeout(`${toolDrainTimeoutMs} millis`), Effect.ignore)
+            if (!toolAbortRequested) return drain
+            const abort = Deferred.await(toolAbortRequested).pipe(
+              Effect.flatMap(() =>
+                Deferred.await(call.terminalDone).pipe(
+                  Effect.timeout(`${TOOL_CLEANUP_TIMEOUT_MS} millis`),
+                  Effect.ignore,
+                ),
+              ),
+            )
+            return Effect.raceFirst(drain, abort)
+          },
+          { concurrency: "unbounded" },
+        )
+      })
+
+      const finalizeUnresolvedToolLifecyclesAsUncertain = Effect.fn(
+        "SessionProcessor.finalizeUnresolvedToolLifecyclesAsUncertain",
+      )(function* () {
+        for (const toolCallID of Object.keys(ctx.toolcalls)) {
+          const call = ctx.toolcalls[toolCallID]
+          if (!call || call.settled) continue
+          let match = yield* readToolCall(toolCallID)
+          if (!match) match = yield* ensureToolPartForTerminal(toolCallID, call)
+          if (!match) continue
+          if (ctx.toolcalls[toolCallID] !== match.call) continue
+          closedToolLifecycleCalls.add(toolCallID)
+          if (match.call.attemptID) closedToolLifecycleAttempts.add(match.call.attemptID)
+          delete ctx.toolcalls[toolCallID]
+          yield* Effect.all(
+            [
+              Deferred.succeed(match.call.inputReady, undefined),
+              Deferred.succeed(match.call.terminalDone, undefined),
+            ],
+            {
+              concurrency: "unbounded",
+              discard: true,
+            },
+          ).pipe(Effect.ignore)
+          const part = match.part
+          const end = Date.now()
+          const metadata = "metadata" in part.state && isRecord(part.state.metadata) ? part.state.metadata : {}
+          const executionStarted = hasToolExecutionStarted(match.call)
+          const interruptionPhase: ToolInterruptionPhase = executionStarted
+            ? "tool_execution"
+            : match.call.callMaterialized || part.state.status === "running"
+              ? "tool_call_materialized_without_execution"
+              : "tool_input_generation"
+          // Question tool deserves a clearer post-cancel message: the LLM
+          // reads this string as the tool result, and "Tool execution aborted"
+          // is ambiguous between "user dismissed your question" and "the run
+          // was cancelled before they answered". State only the certain fact
+          // (cancelled before answered), don't claim whether the user saw it
+          // — they may have. See issue #419.
+          let errorText = TOOL_INTERRUPTION_ERRORS[interruptionPhase]
+          if (interruptionPhase === "tool_execution" && !aborted) errorText = UNRESOLVED_TOOL_EXECUTION_CAUTION
+          if (part.tool === "question") errorText = "Question cancelled before the user answered it."
+          yield* session.updatePart({
+            ...part,
+            state: {
+              ...part.state,
+              status: "error",
+              error: errorText,
+              metadata: {
+                ...metadata,
+                interrupted: true,
+                interruption_phase: interruptionPhase,
+                tool_execution_started: executionStarted,
+              },
+              time: { start: "time" in part.state ? part.state.time.start : end, end },
+            },
+          })
+          const attemptID = match.call.attemptID ?? ctx.currentAttemptID
+          if (attemptID) {
+            if (executionStarted) {
+              ctx.runTrace.recordToolInterrupted({
+                attemptID,
+                at: end,
+                monotonicMs: performance.now(),
+              })
+            } else {
+              ctx.runTrace.recordPendingToolPartInterrupted({
+                attemptID,
+                at: end,
+                monotonicMs: performance.now(),
+                interruptionPhase,
+                toolExecutionStarted: false,
+              })
+            }
+          }
+        }
+      })
+
+      const closeRemainingToolLifecycles = Effect.fn("SessionProcessor.closeRemainingToolLifecycles")(function* () {
+        const remainingEntries = Object.entries(ctx.toolcalls)
+        for (const [toolCallID, call] of remainingEntries) {
+          closedToolLifecycleCalls.add(toolCallID)
+          if (call.attemptID) closedToolLifecycleAttempts.add(call.attemptID)
+        }
+        const remainingCalls = remainingEntries.map(([, call]) => call)
+        ctx.toolcalls = {}
+        yield* Effect.forEach(
+          remainingCalls,
+          (call) => releaseToolLifecycleWaiters(call),
+          { concurrency: "unbounded" },
+        )
+      })
+
+      const finalizeToolLifecycles = Effect.fn("SessionProcessor.finalizeToolLifecycles")(function* () {
+        yield* prepareToolLifecyclesForDrain()
+        yield* drainToolLifecycles()
+        yield* finalizeUnresolvedToolLifecyclesAsUncertain()
+        yield* closeRemainingToolLifecycles()
+      })
+
+      const hasPr1ModelConsumableToolSettlement = () =>
+        MessageV2.parts(ctx.assistantMessage.id).some(
+          (part) => part.type === "tool" && (part.state.status === "completed" || part.state.status === "error"),
+        )
+      const allowsPr1MinimalContinueForToolSettlement = (recommendation: RunIncident.Recovery["recommendation"]) =>
+        recommendation === "ask_user_before_retry" ||
+        recommendation === "offer_resume_with_confirmation" ||
+        recommendation === "offer_continue"
+
       const cleanup = Effect.fn("SessionProcessor.cleanup")(function* () {
         if (ctx.snapshot) {
           const patch = yield* snapshot.patch(ctx.snapshot)
@@ -1101,68 +1558,7 @@ export const layer: Layer.Layer<
         }
         ctx.reasoningMap = {}
 
-        yield* Effect.forEach(
-          Object.values(ctx.toolcalls),
-          (call) => Deferred.await(call.done).pipe(Effect.timeout(`${TOOL_CLEANUP_TIMEOUT_MS} millis`), Effect.ignore),
-          { concurrency: "unbounded" },
-        )
-
-        for (const toolCallID of Object.keys(ctx.toolcalls)) {
-          const match = yield* readToolCall(toolCallID)
-          if (!match) continue
-          const part = match.part
-          const end = Date.now()
-          const metadata = "metadata" in part.state && isRecord(part.state.metadata) ? part.state.metadata : {}
-          const interruptionPhase: ToolInterruptionPhase = match.call.executionStarted
-            ? "tool_execution"
-            : match.call.materialized || part.state.status === "running"
-              ? "tool_call_materialized_without_execution"
-              : "tool_input_generation"
-          // Question tool deserves a clearer post-cancel message: the LLM
-          // reads this string as the tool result, and "Tool execution aborted"
-          // is ambiguous between "user dismissed your question" and "the run
-          // was cancelled before they answered". State only the certain fact
-          // (cancelled before answered), don't claim whether the user saw it
-          // — they may have. See issue #419.
-          const errorText =
-            part.tool === "question"
-              ? "Question cancelled before the user answered it."
-              : TOOL_INTERRUPTION_ERRORS[interruptionPhase]
-          yield* session.updatePart({
-            ...part,
-            state: {
-              ...part.state,
-              status: "error",
-              error: errorText,
-              metadata: {
-                ...metadata,
-                interrupted: true,
-                interruption_phase: interruptionPhase,
-                tool_execution_started: match.call.executionStarted === true,
-              },
-              time: { start: "time" in part.state ? part.state.time.start : end, end },
-            },
-          })
-          const attemptID = match.call.attemptID ?? ctx.currentAttemptID
-          if (attemptID) {
-            if (match.call.executionStarted) {
-              ctx.runTrace.recordToolInterrupted({
-                attemptID,
-                at: end,
-                monotonicMs: performance.now(),
-              })
-            } else {
-              ctx.runTrace.recordPendingToolPartInterrupted({
-                attemptID,
-                at: end,
-                monotonicMs: performance.now(),
-                interruptionPhase,
-                toolExecutionStarted: false,
-              })
-            }
-          }
-        }
-        ctx.toolcalls = {}
+        yield* finalizeToolLifecycles()
         ctx.assistantMessage.time.completed = Date.now()
         const persistedAssistant = (yield* session.messages({ sessionID: ctx.sessionID })).find(
           (message) => message.info.role === "assistant" && message.info.id === ctx.assistantMessage.id,
@@ -1248,8 +1644,10 @@ export const layer: Layer.Layer<
 
       const recordProcessInterrupt = Effect.fn("SessionProcessor.recordProcessInterrupt")(function* (
         attemptID: RunObservability.AttemptID | undefined,
+        options?: { abortTools?: () => void },
       ) {
-        aborted = true
+        if (options?.abortTools) options.abortTools()
+        else aborted = true
         const lifecycleAction = currentLifecycleCloseAction(ctx.directory)
         ctx.runTrace.recordScopeClosed({
           at: Date.now(),
@@ -1270,10 +1668,24 @@ export const layer: Layer.Layer<
         }
       })
 
-      const process = Effect.fn("SessionProcessor.process")(function* (streamInput: LLM.StreamInput) {
+      const process = Effect.fn("SessionProcessor.process")(function* (streamInput: ProcessInput) {
         slog.info("process")
         ctx.needsCompaction = false
         ctx.shouldBreak = (yield* config.get()).experimental?.continue_loop_on_deny !== true
+        const toolAbortController = new AbortController()
+        toolAbortRequested = yield* Deferred.make<void>()
+        const abortProcessTools = () => {
+          aborted = true
+          toolAbortController.abort()
+          if (toolAbortRequested) Effect.runFork(Deferred.succeed(toolAbortRequested, undefined).pipe(Effect.ignore))
+        }
+        const unregisterToolAbort = registerToolAbortCallback(abortProcessTools)
+        toolDrainTimeoutMs =
+          typeof streamInput.toolDrainTimeoutMs === "number" &&
+          Number.isFinite(streamInput.toolDrainTimeoutMs) &&
+          streamInput.toolDrainTimeoutMs > 0
+            ? streamInput.toolDrainTimeoutMs
+            : DEFAULT_TOOL_DRAIN_TIMEOUT_MS
         let processAttemptID: RunObservability.AttemptID | undefined
         let automaticStreamRetriesUsed = 0
         let safeRetryNoticeWritten = false
@@ -1413,26 +1825,37 @@ export const layer: Layer.Layer<
               ...sessionTimeouts,
               tools: activeTools,
               trace: ctx.trace,
+              toolAbortSignal: toolAbortController.signal,
             })
           } catch (error) {
             ctx.runTrace.recordSetupFailure({ at: Date.now(), monotonicMs: performance.now(), error })
             throw error
           }
 
-          yield* stream.pipe(
-            Stream.tap((event) => handleEvent(event, attempt.attemptID)),
-            // Stop draining the stream as soon as the loop gate fires a synthetic stop
-            // (ctx.blocked) so any trailing model text after the synthetic stop tool-error
-            // is dropped — the turn ends with the rendered Chinese summary alone.
-            Stream.takeUntil(() => ctx.needsCompaction || ctx.blocked),
-            Stream.runDrain,
-          )
+          const streamStopRequested = yield* Deferred.make<void>()
+          currentStreamStopRequested = streamStopRequested
+          yield* stream
+            .pipe(
+              Stream.tap((event) => handleEvent(event, attempt.attemptID)),
+              // Synthetic stop ends the turn; synthetic block only ends this stream
+              // drain and lets prompt.loop continue to the next model step.
+              Stream.takeUntil(() => ctx.needsCompaction || ctx.blocked),
+              Stream.runDrain,
+              Effect.raceFirst(Deferred.await(streamStopRequested)),
+            )
+            .pipe(
+              Effect.ensuring(
+                Effect.sync(() => {
+                  if (currentStreamStopRequested === streamStopRequested) currentStreamStopRequested = undefined
+                }),
+              ),
+            )
         })
 
         return yield* Effect.gen(function* () {
           while (true) {
             const result = yield* runAttempt().pipe(
-              Effect.onInterrupt(() => recordProcessInterrupt(processAttemptID)),
+              Effect.onInterrupt(() => recordProcessInterrupt(processAttemptID, { abortTools: abortProcessTools })),
               Effect.catchCauseIf(
                 (cause) => !Cause.hasInterruptsOnly(cause),
                 (cause) => Effect.fail(Cause.squash(cause)),
@@ -1444,6 +1867,7 @@ export const layer: Layer.Layer<
 
             const attemptID = processAttemptID
             const retrySignal = retrySignalFor(result.error)
+            yield* finalizeToolLifecycles()
             const decision = ctx.runTrace.recordAttemptFailureAndDeriveRecovery({
               attemptID,
               at: Date.now(),
@@ -1488,6 +1912,19 @@ export const layer: Layer.Layer<
               presentation: retryDecision.presentation,
             })
 
+            // PR1 keeps only this minimal consumption step: once drain has
+            // normalized a tool settlement into model-visible history, do not
+            // call halt(), because an assistant-level error would make the
+            // settled tool result unusable. Terminal provider errors still halt;
+            // full replay/continue budgeting and recovery request construction remain PR2.
+            if (
+              retryDecision.technicalRetryability.retryable &&
+              allowsPr1MinimalContinueForToolSettlement(decision.recommendation) &&
+              hasPr1ModelConsumableToolSettlement()
+            ) {
+              break
+            }
+
             if (attemptID && retryDecision.canRetry && retryDecision.recoveryMode === "replay") {
               const beforeRetry = yield* retryStillAllowed("before_backoff")
               if (beforeRetry.allowed) {
@@ -1502,7 +1939,7 @@ export const layer: Layer.Layer<
                   safeRecoveryStep(undefined).pipe(Effect.as("scheduled" as const)),
                   lifecycleCloseWatch,
                 ).pipe(
-                  Effect.onInterrupt(() => recordProcessInterrupt(attemptID)),
+                  Effect.onInterrupt(() => recordProcessInterrupt(attemptID, { abortTools: abortProcessTools })),
                   Effect.catchCause((cause) =>
                     Cause.hasInterruptsOnly(cause)
                       ? Effect.interrupt
@@ -1515,6 +1952,7 @@ export const layer: Layer.Layer<
                 }
                 if (backoffResult === "lifecycle_close") {
                   const closeCheck = yield* retryStillAllowed("during_backoff")
+                  abortProcessTools()
                   yield* halt(result.error, attemptID, {
                     recordFailure: false,
                     interruptionMessage: closeCheck.allowed ? LOCAL_LIFECYCLE_CLOSE_INTERRUPTION_MESSAGE : closeCheck.interruptionMessage,
@@ -1562,7 +2000,7 @@ export const layer: Layer.Layer<
           if (ctx.needsCompaction) return "compact"
           if (ctx.blocked || ctx.assistantMessage.error || safeRetryNoticeWritten) return "stop"
           return "continue"
-        }).pipe(Effect.ensuring(cleanup()))
+        }).pipe(Effect.ensuring(cleanup()), Effect.ensuring(Effect.sync(unregisterToolAbort)))
       })
 
       const recordSyntheticBlock = Effect.fn("SessionProcessor.recordSyntheticBlock")(function* (input: {
@@ -1619,6 +2057,7 @@ export const layer: Layer.Layer<
               },
             })
             yield* settleToolCall(input.toolCallId)
+            yield* stopCurrentStream()
             return
           }
         }
@@ -1650,6 +2089,7 @@ export const layer: Layer.Layer<
           },
         })
         yield* settleToolCall(input.toolCallId)
+        yield* stopCurrentStream()
       })
 
       const recordSyntheticStop = Effect.fn("SessionProcessor.recordSyntheticStop")(function* (input: {
@@ -1702,6 +2142,7 @@ export const layer: Layer.Layer<
             },
           })
           yield* settleToolCall(input.toolCallId)
+          yield* stopCurrentStream()
           return
         }
         const existingMeta = toolStateMetadata(match.part)
@@ -1742,6 +2183,7 @@ export const layer: Layer.Layer<
         yield* session.updatePart(textPart)
         yield* settleToolCall(input.toolCallId)
         ctx.blocked = true
+        yield* stopCurrentStream()
       })
 
       return {
@@ -1750,9 +2192,13 @@ export const layer: Layer.Layer<
         },
         updateToolCall,
         completeToolCall,
+        completeToolExecution: (input) => completeToolExecution(input),
+        failToolExecution: (input) => failToolExecution(input),
+        recordToolInputCaptured,
         recordToolExecutionStarted,
         recordToolExecutionCompleted,
         recordToolExecutionFailed,
+        abortTools: () => Effect.sync(abortHandleTools),
         process,
         errorRecords,
         syntheticBlockSigKeys,
