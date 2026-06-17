@@ -1,3 +1,4 @@
+import { rename, rm } from "fs/promises"
 import path from "path"
 import { Global } from "@opencode-ai/core/global"
 import { Filesystem } from "../util/filesystem"
@@ -50,13 +51,18 @@ export namespace ModelState {
 
   /**
    * Best-effort persist of the user's picked model. Locked read-modify-write so a
-   * concurrent CLI/desktop writer can neither corrupt the file (writeJson is not
-   * atomic) nor drop sibling fields. A failure here must never break the caller.
+   * concurrent CLI/desktop writer can neither corrupt the file nor drop sibling
+   * fields. A failure here must never break the caller.
    *
    * Only a missing file (ENOENT) starts from empty state. A parse error,
    * permission error, or transient read failure means the file may still hold
    * sibling state (favorite, variant, …); writing a fresh `{recent}` over it
    * would clobber that, so such a read failure skips this write instead.
+   *
+   * The write itself is atomic (temp file + rename): `Provider.defaultModel()`
+   * reads this file unlocked and treats a parse failure as empty recent, and
+   * `writeFile` is not atomic — rename guarantees a concurrent reader sees the old
+   * or the new complete file, never a half-written one.
    */
   export async function recordRecent(model: ModelRef): Promise<void> {
     const file = path.join(Global.Path.state, "model.json")
@@ -69,7 +75,13 @@ export namespace ModelState {
           if (!isEnoent(err)) return
           current = undefined
         }
-        await Filesystem.writeJson(file, applyRecent(current, model))
+        const tmp = `${file}.${process.pid}.tmp`
+        try {
+          await Filesystem.write(tmp, JSON.stringify(applyRecent(current, model), null, 2))
+          await rename(tmp, file)
+        } finally {
+          await rm(tmp, { force: true }).catch(() => {})
+        }
       })
     } catch {
       // recording recent is best-effort — it must not surface to the caller

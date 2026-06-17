@@ -72,4 +72,18 @@ describe("recordRecent", () => {
     await ModelState.recordRecent(model)
     expect(await fs.readFile(modelFile(), "utf8")).toBe("{ not valid json")
   })
+
+  test("writes atomically under concurrency: valid file, no temp residue", async () => {
+    // The atomic temp+rename path: many concurrent records must leave a complete,
+    // parseable model.json (an unlocked reader never sees a half-written file) and
+    // clean up every temp file.
+    await Promise.all(Array.from({ length: 30 }, (_, i) => ModelState.recordRecent({ providerID: "p", modelID: `m${i}` })))
+
+    const parsed = JSON.parse(await fs.readFile(modelFile(), "utf8"))
+    expect(Array.isArray(parsed.recent)).toBe(true)
+    expect(parsed.recent.length).toBeGreaterThan(0)
+
+    const residue = (await fs.readdir(Global.Path.state)).filter((f) => f.startsWith("model.json.") && f.endsWith(".tmp"))
+    expect(residue).toEqual([])
+  })
 })
