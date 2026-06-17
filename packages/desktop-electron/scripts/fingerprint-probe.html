@@ -70,16 +70,30 @@ async function collect() {
   add("navigator.maxTouchPoints", String(navigator.maxTouchPoints));
 
   // --- permission states (PR3 surface) ---
+  // Expected default in a fresh real Chrome (measured): SENSITIVE permissions
+  // are "prompt" (we map to "denied"), EXPECT_GRANTED are "granted". Either
+  // direction of mismatch is a tell, so encode both and flag red:
+  //   - a SENSITIVE permission reporting "granted"  → impossible on a fresh
+  //     profile (the loud automation tell PR3 fixes)
+  //   - an EXPECT_GRANTED permission NOT "granted"   → diverges from real Chrome
+  const SENSITIVE = ["notifications", "geolocation", "camera", "microphone", "clipboard-read", "midi", "persistent-storage"];
+  const EXPECT_GRANTED = ["clipboard-write", "background-sync", "accelerometer", "payment-handler"];
   const notif = (typeof Notification !== "undefined") ? Notification.permission : "no Notification API";
   add("Notification.permission", notif);
-  for (const name of ["notifications", "geolocation", "camera", "microphone", "clipboard-read", "midi"]) {
+  for (const name of [...SENSITIVE, ...EXPECT_GRANTED]) {
     try {
       const st = await navigator.permissions.query({ name });
-      // Classic headless tell: notifications query "prompt"/"granted" while
-      // Notification.permission is "denied" (or vice versa).
-      const bad = name === "notifications" && ((st.state === "denied") !== (notif === "denied"));
-      add("permissions.query(" + name + ")", st.state, bad ? "bad" : null);
-    } catch (e) { add("permissions.query(" + name + ")", "ERR " + e.name); }
+      let bad;
+      if (SENSITIVE.includes(name)) {
+        bad = st.state === "granted";
+        // Notifications has an extra tell: the query state must agree with
+        // Notification.permission.
+        if (name === "notifications") bad = bad || ((st.state === "denied") !== (notif === "denied"));
+      } else {
+        bad = st.state !== "granted";
+      }
+      add("permissions.query(" + name + ")", st.state, bad ? "bad" : "ok");
+    } catch (e) { add("permissions.query(" + name + ")", "ERR " + e.name, "bad"); }
   }
 
   // --- window / screen shape ---
